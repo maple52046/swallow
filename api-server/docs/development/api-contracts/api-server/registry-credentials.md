@@ -24,6 +24,10 @@ The routes sit under `/software/docker-ce/` because the credentials serve Docker
 Explorer only. Settings of other software kinds get their own `/software/{kind}/...` paths; nothing
 under `/software/` other than the catalog and assignments is shared by every kind.
 
+The wire shape of these endpoints (paths, parameters, schemas, status codes) is described by
+[`../openapi/areas/software.yaml`](../openapi/areas/software.yaml); this document holds their
+behavior semantics.
+
 ## Related Glossary Terms
 
 - [Registry Credential](../../../../../docs/development/glossaries/terms/registry-credential.md)
@@ -38,7 +42,8 @@ PUT    /api/v1/software/docker-ce/registry-credentials/{credentialId}
 DELETE /api/v1/software/docker-ce/registry-credentials/{credentialId}
 ```
 
-All endpoints require an admin JWT per [conventions](conventions.md).
+All endpoints require the `admin` role (an access token or an API Key) per
+[conventions](conventions.md).
 
 ## Registry Credential
 
@@ -91,6 +96,8 @@ bounded set):
 ```
 
 - `registry`, `username`, and `password` are required; `password` may be a registry access token.
+- `username` is trimmed and must not be empty after trimming; `password` is stored exactly as given
+  (a registry token may legitimately carry surrounding characters).
 - Response `201 Created` with the Registry Credential.
 
 ## Replace Credential
@@ -116,7 +123,7 @@ In addition to the shared codes in [conventions](conventions.md):
 
 | `error.code` | HTTP Status | Meaning |
 | --- | ---: | --- |
-| `validation_error` | 400 | A required field is missing or `registry` is not a valid host. |
+| `validation_error` | 400 | The body is not valid JSON, a required field is missing or empty, or `registry` is not a valid host. |
 | `not_found` | 404 | The credential does not exist. |
 | `conflict` | 409 | A credential for the normalized registry already exists. |
 

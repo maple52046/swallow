@@ -13,6 +13,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
 	"github.com/maple52046/swallow/internal/sshkey/application"
@@ -137,6 +138,7 @@ func newFixture(t *testing.T) fixture {
 	jwtSvc := jwt.NewService("test-secret", time.Hour)
 	handler := NewSSHKeyHandler(service)
 	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
 	group := app.Group("/api/v1/ssh-keys", middleware.Auth(jwtSvc), middleware.AdminOnly())
 	group.Get("/", handler.List)
 	group.Post("/", handler.Import)

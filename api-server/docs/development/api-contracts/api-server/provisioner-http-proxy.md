@@ -108,8 +108,8 @@ returns `200 OK` with the Read shape, read back from the provisioner after the w
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `mode` | Yes | One of the modes above. |
-| `httpProxy` | `external` and `peer` | An absolute `http` or `https` URL with a host and optional port, for example `http://proxy.example.com:3128/`. A trailing `/` and surrounding whitespace are removed. Refused when it carries a user or password, a query, a fragment, or a path other than `/`. Must be absent or `""` for `none` and `builtin`. |
+| `mode` | Yes | One of the modes above, matched case-insensitively and with surrounding whitespace removed; the response reports the lower-case value. |
+| `httpProxy` | `external` and `peer` | An absolute `http` or `https` URL with a host and optional port (1–65535), for example `http://proxy.example.com:3128/`, stored and reported as `scheme://host[:port]`: a trailing `/` and surrounding whitespace are removed. Refused when it contains spaces or carries a user or password, a query, a fragment, or a path other than `/`. Must be absent or `""` for `none` and `builtin`. |
 
 swallow validates the body before calling the provisioner; the provisioner validates the value
 again and may refuse it. A write does not test that the proxy is reachable, and it affects only

@@ -17,6 +17,7 @@ import (
 	authapp "github.com/maple52046/swallow/internal/auth/application"
 	authdelivery "github.com/maple52046/swallow/internal/auth/delivery"
 	authdomain "github.com/maple52046/swallow/internal/auth/domain"
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
 )
@@ -100,6 +101,8 @@ func (o fakeOwners) FindOwner(ctx context.Context, id string) (*apikeydomain.Own
 
 // setupAPIKeyApp mounts login, me, the api-keys routes, an admin-only probe route, and a
 // query-token route exactly as the API wires them, with the authenticator accepting API Keys.
+// Responses of contract routes are checked against the OpenAPI contract; the probe and stream
+// routes are test-only and unchecked.
 func setupAPIKeyApp(t *testing.T) (*fiber.App, *fakeUserRepo) {
 	t.Helper()
 	users := newFakeUserRepo()
@@ -119,6 +122,7 @@ func setupAPIKeyApp(t *testing.T) (*fiber.App, *fakeUserRepo) {
 	handler := apikeydelivery.NewHandler(keys)
 
 	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
 	app.Post("/api/v1/auth/login", auth.Login)
 	app.Get("/api/v1/auth/me", authn.Require(), auth.Me)
 	admin := []fiber.Handler{authn.Require(), middleware.AdminOnly()}

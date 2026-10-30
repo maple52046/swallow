@@ -16,6 +16,7 @@ import (
 	authapp "github.com/maple52046/swallow/internal/auth/application"
 	authdelivery "github.com/maple52046/swallow/internal/auth/delivery"
 	authdomain "github.com/maple52046/swallow/internal/auth/domain"
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
 )
@@ -140,8 +141,9 @@ func setupAuthApp(t *testing.T) (*fiber.App, *fakeUserRepo, *jwt.Service) {
 	return app, users, jwtSvc
 }
 
-// setupAuthAppWithSessions mounts the auth routes the way the API does. A zero cfg uses one-week
-// idle and 30-day maximum lifetimes; RotationGrace may be set to exercise the reuse rules.
+// setupAuthAppWithSessions mounts the auth routes the way the API does, checking every response
+// against the OpenAPI contract. A zero cfg uses one-week idle and 30-day maximum lifetimes;
+// RotationGrace may be set to exercise the reuse rules.
 func setupAuthAppWithSessions(t *testing.T, cfg authapp.SessionConfig) (*fiber.App, *fakeUserRepo, *fakeSessionRepo, *jwt.Service) {
 	t.Helper()
 
@@ -174,6 +176,7 @@ func setupAuthAppWithSessions(t *testing.T, cfg authapp.SessionConfig) (*fiber.A
 	authn := middleware.NewAuthenticator(jwtSvc, nil)
 
 	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
 	app.Post("/api/v1/auth/login", handler.Login)
 	app.Post("/api/v1/auth/refresh", handler.Refresh)
 	app.Post("/api/v1/auth/logout", authn.Optional(), handler.Logout)

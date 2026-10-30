@@ -110,6 +110,14 @@ The production container binds real HTTP adapters only. Deterministic API fixtur
 live in Playwright tests for verification; they are test drivers, never an
 implementation path or de-facto definition of API behavior.
 
+`src/infrastructure/api/generated/openapi.ts` is generated from the provider's
+OpenAPI document (`npm run contract:generate`; never edit it by hand), and
+`src/infrastructure/api/contractCompatibility.ts` proves at compile time that each
+contract response can be read as the dashboard type the adapter returns. When the
+contract changes, regenerate, run `npm run contract:check`, and fix the dashboard
+type or raise the mismatch against the provider contract; do not loosen an
+assertion to make it pass.
+
 ## Domain Language
 
 Names in code must match swallow's ubiquitous language. This component's domain

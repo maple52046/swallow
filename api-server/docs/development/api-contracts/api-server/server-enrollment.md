@@ -126,9 +126,11 @@ already brought to `ready` succeeds without inspecting. Observation:
 - `ready` is success. `testing` during an attempt is progress (MAAS runs its commissioning
   tests).
 - `failed` or `broken` ends the attempt as failed.
-- An attempt that records no provider event for 15 minutes while `inspecting` (45 minutes when
-  the provider keeps no event stream) is stalled: swallow aborts it, which returns a MAAS
-  Machine that was never inspected to New.
+- An attempt that records no provider event for 15 minutes while `inspecting`, or that has not
+  finished within 45 minutes (a bound applied to every attempt, whether or not the provider keeps
+  an event stream), is stalled: swallow aborts it, which returns a MAAS Machine that was never
+  inspected to New. When the provisioner still reports `inspecting` after the abort, the Task
+  stops with `requires_attention` and `inspect_abort_unsettled`.
 - Leaving `inspecting` for `new` or another state without swallow's abort is
   `requires_attention` with `inspect_interrupted`; swallow does not fight an operator.
 
@@ -153,6 +155,7 @@ Operator recovery by attention code:
 | `enrollment_not_settled` | Check that enrollment finished on the host and that the provisioner can read the Server's power (`GET /servers/{id}/power-state`); power it off when enrollment is done. |
 | `inspect_pxe_unreached` | Enable Boot Media for a Server on a network the provisioner does not serve; for a virtual machine, put its NIC or iPXE boot medium first in the hypervisor's boot order. |
 | `inspect_failed` | Read the provider's inspection results and fix the cause. |
+| `inspect_abort_unsettled` | swallow aborted a stalled inspection but the provisioner still reports it as inspecting; resolve the Machine in the provisioner first. |
 
 ## Virtual machines (libvirt)
 
@@ -261,16 +264,16 @@ A hypervisor that cannot be reached over SSH during a Task is `requires_attentio
 `hypervisor_unreachable`. Every step is an ensure, so retrying a Task
 (`POST /workflows/{id}/tasks/{taskId}/retry`) is safe; a retried Task reuses the Machine it
 registered. A Task never commissions the Machine: the Server it leaves is `new`, powered off, with
-an automatic power driver, so automatic hardware inspection (above) settles at once and takes it to
-`ready`. When the Integration has `settings.autoInspect` set to `"false"`, request the inspection
+an automatic power driver, so automatic hardware inspection (above) settles after its two
+consecutive readings (15 seconds apart) and takes it to `ready`. When the Integration has `settings.autoInspect` set to `"false"`, request the inspection
 instead.
 
 | Status | Code | When |
 | --- | --- | --- |
-| 400 | `validation_error` | A required field is missing; `domains` is empty, has duplicates, or a name breaks the rules above; the Integration is not a provisioner or lacks machine registration or Power Configuration; or the Boot ISO belongs to another provisioner. |
+| 400 | `validation_error` | The body is not valid JSON; a required field is missing; `domains` is empty, has duplicates, or a name breaks the rules above; `account` (or the hypervisor's effective Server Default User) is not a POSIX login name; the Integration is not a provisioner or lacks machine registration or Power Configuration; or the Boot ISO belongs to another provisioner. |
 | 404 | `not_found` | The Integration, the hypervisor Server, or the Boot ISO does not exist. |
 | 409 | `conflict` | The hypervisor is absent, not `deployed`, has no address, is locked, or is not in the Integration's Site; the installation has no Deployment Key; the Boot ISO is not served; or another Workflow holds the hypervisor. |
-| 503 | `provider_unavailable` | The Server Lock state of the hypervisor is unavailable. |
+| 503 | `provider_unavailable` | The Server Lock state of the hypervisor is unavailable; the Integration has no stored credential; or this API process has no virtual-machine enrollment wired up. |
 
 ## Enrollment bundle
 
@@ -317,9 +320,10 @@ Both are served **without authentication**, because the host being enrolled has 
 credential, and neither carries a secret. The production reverse proxy publishes `/downloads/`
 on the Dashboard port and passes the request's full `Host`.
 
-`/downloads/swallow-enroll.sh` returns a POSIX shell script (`text/x-shellscript`). Its CLI
-download address is the scheme and host of the request that fetched it, so it works at whatever
-address the host used. Run as root, it:
+`/downloads/swallow-enroll.sh` returns a POSIX shell script (`text/x-shellscript; charset=utf-8`,
+`Cache-Control: no-cache`). Its CLI download address is the scheme (`X-Forwarded-Proto` when a
+proxy sets it) and host of the request that fetched it, so it works at whatever address the host
+used. Run as root, it:
 
 1. refuses a host that is not x86_64 or not root;
 2. downloads `/downloads/swallow` into a private temporary directory;
@@ -327,7 +331,9 @@ address the host used. Run as root, it:
 4. removes the CLI again.
 
 `/downloads/swallow` is the linux-amd64 `swallow` CLI from `api.cliBinary` (the production
-bundle's `bin/swallow`). Without one it answers `404` with a plain-text reason.
+bundle's `bin/swallow`), served as `application/octet-stream` with
+`Content-Disposition: attachment; filename="swallow"`; it also answers HEAD, byte ranges (`206`),
+and `If-Modified-Since` (`304`). Without one it answers `404` with a plain-text reason.
 
 For MAAS, `swallow servers enroll --provisioner=maas --endpoint … --token …` downloads
 `maas-run-scripts` from the endpoint, runs `register-machine` (the Machine is created as
@@ -341,9 +347,10 @@ Server appears as `deployed`.
 | Case | Status | Code |
 | --- | --- | --- |
 | Unknown Integration | 404 | `not_found` |
+| The body is present but not valid JSON | 400 | `validation_error` |
 | `swallowUrl` is not an absolute http(s) URL without path, query, or credentials | 400 | `validation_error` |
 | Integration is not a provisioner, or its provider has no existing-host enrollment | 400 | `validation_error` |
-| Integration has no stored credential | 503 | `provider_unavailable` |
+| Integration has no stored credential, or this API process has no Server Enrollment wired up | 503 | `provider_unavailable` |
 
 ## Compatibility Notes
 

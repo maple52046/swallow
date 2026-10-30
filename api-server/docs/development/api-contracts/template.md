@@ -32,6 +32,17 @@ or
 service.method
 ```
 
+## Wire Shape
+
+The field-level shape (parameters, request and response schemas, status codes) is
+defined in `openapi/areas/{area}.yaml`; list the operationIds here. The sections
+below describe semantics, constraints, and examples. Do not repeat field tables
+that OpenAPI already defines.
+
+| Operation | operationId |
+| --------- | ----------- |
+| `METHOD /path` | `{operationId}` |
+
 ## Authentication
 
 Describe authentication requirements.

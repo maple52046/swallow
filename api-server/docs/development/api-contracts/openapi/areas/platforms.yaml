@@ -1,0 +1,2708 @@
+# Swallow-deployed Kubernetes and Slurm Platforms: deployment, lifecycle, membership, the Slurm
+# deployment requirement, the GPU Operator, live Slurm state, and the live Kubernetes cluster
+# explorer. Behavior semantics live in platforms.md and platforms-kubernetes.md.
+#
+# Every /api/v1/clusters operation is the deprecated one-release alias of the /api/v1/platforms
+# operation it merges with `<<: *anchor`. Both are served by the same handler, so an alias overrides
+# only operationId, deprecated, and description, and cannot drift from its canonical operation.
+# The Slurm deployment requirement and GPU Operator routes have no alias.
+tags:
+  - name: platforms
+    description: >-
+      Swallow-deployed Kubernetes and Slurm Platforms (platforms.md) and the live Kubernetes
+      cluster explorer of a deployed Kubernetes Platform (platforms-kubernetes.md). Every
+      operation requires the `admin` role.
+paths:
+  /api/v1/platforms:
+    get: &listPlatforms
+      tags: [platforms]
+      operationId: listPlatforms
+      summary: List Platforms, optionally of one Site.
+      description: >-
+        Requires the `admin` role. Returns a plain array (Platforms are few, so the list is not
+        paginated). Lifecycle fields are read for the whole list in one batch.
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Return only the Platforms of this Site.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The Platforms.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Platform'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/deploy:
+    post: &deployPlatform
+      tags: [platforms]
+      operationId: deployPlatform
+      summary: Create a Platform and start the Workflow that builds it.
+      description: >-
+        Requires the `admin` role. `type` selects the variant: `kubernetes` (the default when
+        omitted) starts a `deploy-kubernetes` Workflow that builds k0s, `slurm` starts a
+        `configure-slurm` Workflow. The Deployment Key check, validation, and the live target lock
+        preflight all finish before the Platform or the Workflow is created (platforms.md, Deploy A
+        New Platform). 400 for an invalid body, topology, target, network, or feature; 404 for an
+        unknown Site; 409 when the installation has no Deployment Key, a target is locked or held
+        by another Workflow, a custom image is not verified for the Deploy Target, a provision_os
+        deploy has no NTP server, or composed Managed Software conflicts; 503 when Site automation
+        is not configured or the release playbook is unavailable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformDeployRequest'
+      responses:
+        '202':
+          description: The Platform and the Workflow building it are persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformWorkflowAcceptance'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/sync:
+    post: &syncAllPlatformMemberships
+      tags: [platforms]
+      operationId: syncAllPlatformMemberships
+      summary: Read the membership of every Platform with a recorded Integration now.
+      description: >-
+        Requires the `admin` role. Platforms without a recorded Integration are skipped. One
+        failing Platform does not stop the rest: its failure is reported in its own `error`.
+      responses:
+        '200':
+          description: One membership report per synced Platform.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlatformMembershipReport'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/deployment-requirements/slurm:
+    get:
+      tags: [platforms]
+      operationId: getSlurmDeploymentRequirement
+      summary: Read the system-wide Slurm Minimum Resource Requirement.
+      description: >-
+        Requires the `admin` role. A requirement that was never stored is returned as the disabled
+        representation, not 404.
+      responses:
+        '200':
+          description: The current requirement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MinimumResourceRequirement'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      tags: [platforms]
+      operationId: replaceSlurmDeploymentRequirement
+      summary: Replace or disable the system-wide Slurm Minimum Resource Requirement.
+      description: >-
+        Requires the `admin` role. `minimumResources: null` disables the requirement; omitting
+        `minimumResources`, or a threshold that is not greater than zero, is 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MinimumResourceRequirementChange'
+      responses:
+        '200':
+          description: The stored requirement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MinimumResourceRequirement'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/gpu-operator/releases:
+    get:
+      tags: [platforms]
+      operationId: listGPUOperatorReleases
+      summary: List the AMD GPU Operator releases Swallow ships, newest first.
+      description: >-
+        Requires the `admin` role. A GPU Operator setting's `version` and `draDriverVersion` must
+        come from this catalog.
+      responses:
+        '200':
+          description: The release catalog.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GPUOperatorReleaseCatalog'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get: &getPlatform
+      tags: [platforms]
+      operationId: getPlatform
+      summary: Read one Platform.
+      description: Requires the `admin` role. 404 for an unknown Platform.
+      responses:
+        '200':
+          description: The Platform.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Platform'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    patch: &updatePlatform
+      tags: [platforms]
+      operationId: updatePlatform
+      summary: Change a Platform's name, ownership policies, or Monitoring Links.
+      description: >-
+        Requires the `admin` role. Omitted fields do not change; `monitoringLinks` replaces the
+        whole list. Every field is validated before anything is written. 400 for an invalid value;
+        404 for an unknown Platform; 409 when the name is taken at the Site, or when
+        `gpuStackOwner` is set to `provisioning` while Swallow manages a GPU Operator on the
+        Platform. The GPU Operator and the credential Integration cannot be changed here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformUpdate'
+      responses:
+        '200':
+          description: The updated Platform.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Platform'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete: &deletePlatform
+      tags: [platforms]
+      operationId: deletePlatform
+      summary: Remove a Platform record without touching its hosts.
+      description: >-
+        Requires the `admin` role. Cancels the Platform's in-flight Workflows first, then clears
+        membership, Platform Claims, and a Swallow-owned credential Integration, and removes the
+        record. It never runs Ansible or changes hosts. 404 for an unknown Platform; a failed
+        cancellation refuses the Delete and keeps the record.
+      responses:
+        '200': &successAcknowledgement
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessAcknowledgement'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/uninstall:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    post: &uninstallPlatform
+      tags: [platforms]
+      operationId: uninstallPlatform
+      summary: Start the Workflow that uninstalls a Swallow-deployed Platform from its targets.
+      description: >-
+        Requires the `admin` role. Starts `uninstall-kubernetes` or `uninstall-slurm` against the
+        complete target snapshot of the latest deployment and keeps the record unless
+        `deleteRecord` is true (platforms.md, Uninstall A Deployed Platform). The body is optional;
+        an empty body removes the platform software only. 400 for an unparsable body; 404 for an
+        unknown Platform; 409 for a registered Platform, a running or already successful
+        uninstall, a deployment still running (without `cancelActiveWorkflows`), or a missing,
+        absent, locked, or busy target; 503 when automation or durable orchestration is
+        unavailable.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformUninstall'
+      responses:
+        '202':
+          description: The uninstall Workflow is persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformWorkflowAcceptance'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/sync:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    post: &syncPlatformMembership
+      tags: [platforms]
+      operationId: syncPlatformMembership
+      summary: Read one Platform's membership now.
+      description: >-
+        Requires the `admin` role. A failure to read the Platform's API is reported in the
+        report's `error` with status 200, not as an error status. 404 for an unknown Platform.
+      responses:
+        '200':
+          description: The membership report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformMembershipReport'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/slurm:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get: &getSlurmClusterState
+      tags: [platforms]
+      operationId: getSlurmClusterState
+      summary: Read a Slurm Platform's live controllers, partitions, and nodes from slurmrestd.
+      description: >-
+        Requires the `admin` role. Read on demand; writes nothing. 400 for a Kubernetes Platform
+        or a Slurm Platform without a recorded slurmrestd Integration; 404 for an unknown Platform
+        or when the read is not wired; 503 when slurmrestd cannot be reached or rejects the
+        credential.
+      responses:
+        '200':
+          description: The live Slurm cluster state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlurmClusterState'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/gpu-operator:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    put:
+      tags: [platforms]
+      operationId: configureGPUOperator
+      summary: Install, change, or uninstall the Swallow-managed GPU Operator of a Kubernetes Platform.
+      description: >-
+        Requires the `admin` role. Replaces the settings and starts a `configure-gpu-operator`
+        Workflow; `enabled: false` uninstalls and keeps the other recorded settings
+        (platforms.md, Manage The GPU Operator). 400 for invalid settings; 404 for an unknown
+        Platform or when GPU Operator management is not wired; 409 when the Platform is not an
+        active Swallow-deployed Kubernetes Platform, an uninstall finds no managed operator, a
+        target is locked or held by another Workflow, or the installation has no Deployment Key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GPUOperatorChange'
+      responses:
+        '202':
+          description: The Workflow applying the change is persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GPUOperatorChangeAcceptance'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # Kubernetes cluster explorer (platforms-kubernetes.md). Every route reads or writes the
+  # deployed cluster's own API on demand and persists nothing. The eligibility and cluster errors
+  # are the same for every route: 404 for an unknown or non-Kubernetes Platform (or when the
+  # explorer is not wired), 409 for a registered Platform or one without a recorded credential,
+  # 400 for any 4xx the cluster API answered (an invalid object, but also an object it reports
+  # missing or already existing), 503 when the cluster API cannot be reached, answers 5xx, or
+  # rejects the credential.
+  /api/v1/platforms/{id}/kubernetes:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get: &getKubernetesClusterSummary
+      tags: [platforms]
+      operationId: getKubernetesClusterSummary
+      summary: Read the live summary of a deployed Kubernetes Platform.
+      description: Requires the `admin` role. Counts are observed at read time.
+      responses:
+        '200':
+          description: The cluster summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesClusterSummary'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/nodes:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get: &listKubernetesNodes
+      tags: [platforms]
+      operationId: listKubernetesNodes
+      summary: List the cluster's nodes correlated to Server identity.
+      description: >-
+        Requires the `admin` role. Separate from membership sync: it never writes the membership
+        axis.
+      responses:
+        '200':
+          description: The nodes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesNodeList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/nodes/{node}/cordon:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNodeName'
+    post: &cordonKubernetesNode
+      tags: [platforms]
+      operationId: cordonKubernetesNode
+      summary: Mark a node unschedulable.
+      description: >-
+        Requires the `admin` role. Does not drain (evict) Pods. The returned node carries no Server
+        correlation and no DRA count (`serverId` and `gpu.draDevices` are null).
+      responses:
+        '200': &updatedKubernetesNode
+          description: The updated node.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesNode'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/nodes/{node}/uncordon:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNodeName'
+    post: &uncordonKubernetesNode
+      tags: [platforms]
+      operationId: uncordonKubernetesNode
+      summary: Clear a node's unschedulable flag.
+      description: >-
+        Requires the `admin` role. The returned node carries no Server correlation and no DRA count
+        (`serverId` and `gpu.draDevices` are null).
+      responses:
+        '200': *updatedKubernetesNode
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/namespaces:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get: &listKubernetesNamespaces
+      tags: [platforms]
+      operationId: listKubernetesNamespaces
+      summary: List the cluster's namespaces, system namespaces flagged.
+      description: Requires the `admin` role.
+      responses:
+        '200':
+          description: The namespaces.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesNamespaceList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post: &createKubernetesNamespace
+      tags: [platforms]
+      operationId: createKubernetesNamespace
+      summary: Create a namespace.
+      description: >-
+        Requires the `admin` role. A missing or blank name is 400 before any cluster call; a name
+        the cluster refuses, including one that already exists, is 400 with the cluster's reason.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KubernetesNamespaceCreation'
+      responses:
+        '201':
+          description: The created namespace.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesNamespace'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/namespaces/{namespace}:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNamespaceName'
+    delete: &deleteKubernetesNamespace
+      tags: [platforms]
+      operationId: deleteKubernetesNamespace
+      summary: Delete a namespace.
+      description: >-
+        Requires the `admin` role. A system namespace (`kube-system`, `kube-public`,
+        `kube-node-lease`) is refused with 409 before any cluster call.
+      responses:
+        '200': *successAcknowledgement
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/applications:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get: &listKubernetesApplications
+      tags: [platforms]
+      operationId: listKubernetesApplications
+      summary: List Kubernetes Applications (aggregated workloads).
+      description: Requires the `admin` role. The list items carry no `pods`.
+      parameters:
+        - $ref: '#/components/parameters/KubernetesNamespaceScope'
+        - $ref: '#/components/parameters/KubernetesIncludeSystem'
+      responses:
+        '200':
+          description: The Applications.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesApplicationList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNamespaceName'
+      - $ref: '#/components/parameters/KubernetesApplicationKind'
+      - $ref: '#/components/parameters/KubernetesObjectName'
+    get: &getKubernetesApplication
+      tags: [platforms]
+      operationId: getKubernetesApplication
+      summary: Read one Kubernetes Application with the Pods it owns.
+      description: >-
+        Requires the `admin` role. An unsupported `kind` is 400 before any cluster call; a workload
+        the cluster reports missing is also 400, with the cluster's reason.
+      responses:
+        '200':
+          description: The Application, with `pods` when it owns at least one Pod.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesApplication'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete: &deleteKubernetesApplication
+      tags: [platforms]
+      operationId: deleteKubernetesApplication
+      summary: Delete the workload object (or bare Pod) behind an Application.
+      description: Requires the `admin` role. An unsupported `kind` is 400 before any cluster call.
+      responses:
+        '200': *successAcknowledgement
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}/scale:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNamespaceName'
+      - $ref: '#/components/parameters/KubernetesApplicationKind'
+      - $ref: '#/components/parameters/KubernetesObjectName'
+    post: &scaleKubernetesApplication
+      tags: [platforms]
+      operationId: scaleKubernetesApplication
+      summary: Set a Deployment's or StatefulSet's replica count.
+      description: >-
+        Requires the `admin` role. A missing `replicas` or an unsupported `kind` is 400 before any
+        cluster call; a DaemonSet, a bare Pod, or a negative count is 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KubernetesApplicationScale'
+      responses:
+        '200':
+          description: The updated Application summary, without `pods`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesApplication'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}/restart:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNamespaceName'
+      - $ref: '#/components/parameters/KubernetesApplicationKind'
+      - $ref: '#/components/parameters/KubernetesObjectName'
+    post: &restartKubernetesApplication
+      tags: [platforms]
+      operationId: restartKubernetesApplication
+      summary: Trigger a rolling restart of a Deployment, DaemonSet, or StatefulSet.
+      description: >-
+        Requires the `admin` role. An unsupported `kind` is 400 before any cluster call; a bare
+        Pod is 400 (delete it instead).
+      responses:
+        '200': *successAcknowledgement
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/pods:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get: &listKubernetesPods
+      tags: [platforms]
+      operationId: listKubernetesPods
+      summary: List Pods.
+      description: Requires the `admin` role.
+      parameters:
+        - $ref: '#/components/parameters/KubernetesNamespaceScope'
+        - $ref: '#/components/parameters/KubernetesIncludeSystem'
+      responses:
+        '200':
+          description: The Pods.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesPodList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/pods/{namespace}/{name}/logs:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNamespaceName'
+      - $ref: '#/components/parameters/KubernetesObjectName'
+    get: &getKubernetesPodLogs
+      tags: [platforms]
+      operationId: getKubernetesPodLogs
+      summary: Read a bounded snapshot of one container's logs (not a stream).
+      description: >-
+        Requires the `admin` role. A `tailLines` that is not a positive integer is 400 before any
+        cluster call.
+      parameters:
+        - name: container
+          in: query
+          required: false
+          description: The container to read; defaults to the Pod's first container.
+          schema:
+            type: string
+        - name: tailLines
+          in: query
+          required: false
+          description: How many trailing lines to return; a value above 2000 is read as 2000.
+          schema:
+            type: integer
+            minimum: 1
+            default: 200
+      responses:
+        '200':
+          description: The log snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesPodLogs'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/pods/{namespace}/{name}:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNamespaceName'
+      - $ref: '#/components/parameters/KubernetesObjectName'
+    delete: &deleteKubernetesPod
+      tags: [platforms]
+      operationId: deleteKubernetesPod
+      summary: Delete a Pod (its controller recreates it).
+      description: Requires the `admin` role.
+      responses:
+        '200': *successAcknowledgement
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/services:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get: &listKubernetesServices
+      tags: [platforms]
+      operationId: listKubernetesServices
+      summary: List Services (read-only).
+      description: Requires the `admin` role. Create and update go through apply.
+      parameters:
+        - $ref: '#/components/parameters/KubernetesNamespaceScope'
+        - $ref: '#/components/parameters/KubernetesIncludeSystem'
+      responses:
+        '200':
+          description: The Services.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesServiceList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/ingresses:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get: &listKubernetesIngresses
+      tags: [platforms]
+      operationId: listKubernetesIngresses
+      summary: List Ingresses (read-only).
+      description: Requires the `admin` role. Create and update go through apply.
+      parameters:
+        - $ref: '#/components/parameters/KubernetesNamespaceScope'
+        - $ref: '#/components/parameters/KubernetesIncludeSystem'
+      responses:
+        '200':
+          description: The Ingresses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesIngressList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/configmaps:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get: &listKubernetesConfigMaps
+      tags: [platforms]
+      operationId: listKubernetesConfigMaps
+      summary: List ConfigMaps with their data key names (read-only).
+      description: Requires the `admin` role. Create and update go through apply.
+      parameters:
+        - $ref: '#/components/parameters/KubernetesNamespaceScope'
+        - $ref: '#/components/parameters/KubernetesIncludeSystem'
+      responses:
+        '200':
+          description: The ConfigMaps.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesConfigMapList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/secrets:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get: &listKubernetesSecrets
+      tags: [platforms]
+      operationId: listKubernetesSecrets
+      summary: List Secrets with their data key names only (read-only).
+      description: >-
+        Requires the `admin` role. Secret values are never returned. Create and update go through
+        apply.
+      parameters:
+        - $ref: '#/components/parameters/KubernetesNamespaceScope'
+        - $ref: '#/components/parameters/KubernetesIncludeSystem'
+      responses:
+        '200':
+          description: The Secrets.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesSecretList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/persistentvolumeclaims:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get: &listKubernetesPersistentVolumeClaims
+      tags: [platforms]
+      operationId: listKubernetesPersistentVolumeClaims
+      summary: List PersistentVolumeClaims (read-only).
+      description: Requires the `admin` role. Create and update go through apply.
+      parameters:
+        - $ref: '#/components/parameters/KubernetesNamespaceScope'
+        - $ref: '#/components/parameters/KubernetesIncludeSystem'
+      responses:
+        '200':
+          description: The PersistentVolumeClaims.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesPersistentVolumeClaimList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/kubernetes/apply:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    post: &applyKubernetesManifest
+      tags: [platforms]
+      operationId: applyKubernetesManifest
+      summary: Server-side apply a YAML manifest of one or more documents.
+      description: >-
+        Requires the `admin` role. A missing or blank `manifest` is 400 before any cluster call. A
+        document the cluster rejects is 400 with the cluster's reason in `error.message`; nothing
+        past the first rejected document is applied.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KubernetesManifestApply'
+      responses:
+        '200':
+          description: One result per applied object.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubernetesManifestApplyResults'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # Deprecated /api/v1/clusters aliases (ADR-014, platforms.md Compatibility Notes). Same
+  # handlers as the canonical operations they merge; responses additionally carry
+  # `Deprecation: true` and `Link: </api/v1/platforms>; rel="successor-version"`.
+  /api/v1/clusters:
+    get:
+      <<: *listPlatforms
+      operationId: listPlatformsViaDeprecatedAlias
+      deprecated: true
+      description: Deprecated alias of `GET /api/v1/platforms`. Requires the `admin` role.
+  /api/v1/clusters/deploy:
+    post:
+      <<: *deployPlatform
+      operationId: deployPlatformViaDeprecatedAlias
+      deprecated: true
+      description: Deprecated alias of `POST /api/v1/platforms/deploy`. Requires the `admin` role.
+  /api/v1/clusters/sync:
+    post:
+      <<: *syncAllPlatformMemberships
+      operationId: syncAllPlatformMembershipsViaDeprecatedAlias
+      deprecated: true
+      description: Deprecated alias of `POST /api/v1/platforms/sync`. Requires the `admin` role.
+  /api/v1/clusters/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get:
+      <<: *getPlatform
+      operationId: getPlatformViaDeprecatedAlias
+      deprecated: true
+      description: Deprecated alias of `GET /api/v1/platforms/{id}`. Requires the `admin` role.
+    patch:
+      <<: *updatePlatform
+      operationId: updatePlatformViaDeprecatedAlias
+      deprecated: true
+      description: Deprecated alias of `PATCH /api/v1/platforms/{id}`. Requires the `admin` role.
+    delete:
+      <<: *deletePlatform
+      operationId: deletePlatformViaDeprecatedAlias
+      deprecated: true
+      description: Deprecated alias of `DELETE /api/v1/platforms/{id}`. Requires the `admin` role.
+  /api/v1/clusters/{id}/uninstall:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    post:
+      <<: *uninstallPlatform
+      operationId: uninstallPlatformViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `POST /api/v1/platforms/{id}/uninstall`. Requires the `admin` role.
+  /api/v1/clusters/{id}/sync:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    post:
+      <<: *syncPlatformMembership
+      operationId: syncPlatformMembershipViaDeprecatedAlias
+      deprecated: true
+      description: Deprecated alias of `POST /api/v1/platforms/{id}/sync`. Requires the `admin` role.
+  /api/v1/clusters/{id}/slurm:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get:
+      <<: *getSlurmClusterState
+      operationId: getSlurmClusterStateViaDeprecatedAlias
+      deprecated: true
+      description: Deprecated alias of `GET /api/v1/platforms/{id}/slurm`. Requires the `admin` role.
+  /api/v1/clusters/{id}/kubernetes:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get:
+      <<: *getKubernetesClusterSummary
+      operationId: getKubernetesClusterSummaryViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes`. Requires the `admin` role.
+  /api/v1/clusters/{id}/kubernetes/nodes:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get:
+      <<: *listKubernetesNodes
+      operationId: listKubernetesNodesViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/nodes`. Requires the `admin`
+        role.
+  /api/v1/clusters/{id}/kubernetes/nodes/{node}/cordon:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNodeName'
+    post:
+      <<: *cordonKubernetesNode
+      operationId: cordonKubernetesNodeViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/nodes/{node}/cordon`. Requires
+        the `admin` role.
+  /api/v1/clusters/{id}/kubernetes/nodes/{node}/uncordon:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNodeName'
+    post:
+      <<: *uncordonKubernetesNode
+      operationId: uncordonKubernetesNodeViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/nodes/{node}/uncordon`.
+        Requires the `admin` role.
+  /api/v1/clusters/{id}/kubernetes/namespaces:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get:
+      <<: *listKubernetesNamespaces
+      operationId: listKubernetesNamespacesViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/namespaces`. Requires the
+        `admin` role.
+    post:
+      <<: *createKubernetesNamespace
+      operationId: createKubernetesNamespaceViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/namespaces`. Requires the
+        `admin` role.
+  /api/v1/clusters/{id}/kubernetes/namespaces/{namespace}:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNamespaceName'
+    delete:
+      <<: *deleteKubernetesNamespace
+      operationId: deleteKubernetesNamespaceViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `DELETE /api/v1/platforms/{id}/kubernetes/namespaces/{namespace}`.
+        Requires the `admin` role.
+  /api/v1/clusters/{id}/kubernetes/applications:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get:
+      <<: *listKubernetesApplications
+      operationId: listKubernetesApplicationsViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/applications`. Requires the
+        `admin` role.
+  /api/v1/clusters/{id}/kubernetes/applications/{namespace}/{kind}/{name}:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNamespaceName'
+      - $ref: '#/components/parameters/KubernetesApplicationKind'
+      - $ref: '#/components/parameters/KubernetesObjectName'
+    get:
+      <<: *getKubernetesApplication
+      operationId: getKubernetesApplicationViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `GET
+        /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}`. Requires the
+        `admin` role.
+    delete:
+      <<: *deleteKubernetesApplication
+      operationId: deleteKubernetesApplicationViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `DELETE
+        /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}`. Requires the
+        `admin` role.
+  /api/v1/clusters/{id}/kubernetes/applications/{namespace}/{kind}/{name}/scale:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNamespaceName'
+      - $ref: '#/components/parameters/KubernetesApplicationKind'
+      - $ref: '#/components/parameters/KubernetesObjectName'
+    post:
+      <<: *scaleKubernetesApplication
+      operationId: scaleKubernetesApplicationViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `POST
+        /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}/scale`. Requires
+        the `admin` role.
+  /api/v1/clusters/{id}/kubernetes/applications/{namespace}/{kind}/{name}/restart:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNamespaceName'
+      - $ref: '#/components/parameters/KubernetesApplicationKind'
+      - $ref: '#/components/parameters/KubernetesObjectName'
+    post:
+      <<: *restartKubernetesApplication
+      operationId: restartKubernetesApplicationViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `POST
+        /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}/restart`.
+        Requires the `admin` role.
+  /api/v1/clusters/{id}/kubernetes/pods:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get:
+      <<: *listKubernetesPods
+      operationId: listKubernetesPodsViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/pods`. Requires the `admin`
+        role.
+  /api/v1/clusters/{id}/kubernetes/pods/{namespace}/{name}/logs:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNamespaceName'
+      - $ref: '#/components/parameters/KubernetesObjectName'
+    get:
+      <<: *getKubernetesPodLogs
+      operationId: getKubernetesPodLogsViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/pods/{namespace}/{name}/logs`.
+        Requires the `admin` role.
+  /api/v1/clusters/{id}/kubernetes/pods/{namespace}/{name}:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - $ref: '#/components/parameters/KubernetesNamespaceName'
+      - $ref: '#/components/parameters/KubernetesObjectName'
+    delete:
+      <<: *deleteKubernetesPod
+      operationId: deleteKubernetesPodViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `DELETE /api/v1/platforms/{id}/kubernetes/pods/{namespace}/{name}`.
+        Requires the `admin` role.
+  /api/v1/clusters/{id}/kubernetes/services:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get:
+      <<: *listKubernetesServices
+      operationId: listKubernetesServicesViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/services`. Requires the `admin`
+        role.
+  /api/v1/clusters/{id}/kubernetes/ingresses:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get:
+      <<: *listKubernetesIngresses
+      operationId: listKubernetesIngressesViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/ingresses`. Requires the
+        `admin` role.
+  /api/v1/clusters/{id}/kubernetes/configmaps:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get:
+      <<: *listKubernetesConfigMaps
+      operationId: listKubernetesConfigMapsViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/configmaps`. Requires the
+        `admin` role.
+  /api/v1/clusters/{id}/kubernetes/secrets:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get:
+      <<: *listKubernetesSecrets
+      operationId: listKubernetesSecretsViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/secrets`. Requires the `admin`
+        role.
+  /api/v1/clusters/{id}/kubernetes/persistentvolumeclaims:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    get:
+      <<: *listKubernetesPersistentVolumeClaims
+      operationId: listKubernetesPersistentVolumeClaimsViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/persistentvolumeclaims`.
+        Requires the `admin` role.
+  /api/v1/clusters/{id}/kubernetes/apply:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    post:
+      <<: *applyKubernetesManifest
+      operationId: applyKubernetesManifestViaDeprecatedAlias
+      deprecated: true
+      description: >-
+        Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/apply`. Requires the `admin`
+        role.
+components:
+  parameters:
+    PlatformId:
+      name: id
+      in: path
+      required: true
+      description: The Platform's opaque id.
+      schema:
+        type: string
+    KubernetesNodeName:
+      name: node
+      in: path
+      required: true
+      description: The Kubernetes node name.
+      schema:
+        type: string
+    KubernetesNamespaceName:
+      name: namespace
+      in: path
+      required: true
+      description: The Kubernetes namespace.
+      schema:
+        type: string
+    KubernetesApplicationKind:
+      name: kind
+      in: path
+      required: true
+      description: The Kubernetes Application kind; any other value is 400.
+      schema:
+        $ref: '#/components/schemas/KubernetesApplicationKind'
+    KubernetesObjectName:
+      name: name
+      in: path
+      required: true
+      description: The object's name within the namespace.
+      schema:
+        type: string
+    KubernetesNamespaceScope:
+      name: namespace
+      in: query
+      required: false
+      description: >-
+        Return only objects in this namespace. When omitted, every namespace is read and system
+        namespaces are excluded unless `includeSystem` is true.
+      schema:
+        type: string
+    KubernetesIncludeSystem:
+      name: includeSystem
+      in: query
+      required: false
+      description: >-
+        Include system namespaces (`kube-system`, `kube-public`, `kube-node-lease`) when
+        `namespace` is omitted. Only the literal `true` enables it.
+      schema:
+        type: boolean
+        default: false
+  schemas:
+    PlatformType:
+      type: string
+      description: The kind of Platform.
+      enum: [kubernetes, slurm]
+    PlatformLifecycleState:
+      type: string
+      description: >-
+        Platform Lifecycle State, derived by the API from durable Workflow history. `registered` is
+        the one-release compatibility state of records created before registration was removed.
+      enum: [registered, deploying, deploy_failed, active, uninstalling, uninstall_failed, uninstalled]
+    NodeRole:
+      type: string
+      description: The part a Server plays in a Platform.
+      enum: [control-plane, worker]
+    KubernetesTopology:
+      type: string
+      description: >-
+        The supported placement shape. For Slurm, one controller reads as `standalone` and more
+        than one as `high-availability`.
+      enum: [standalone, multi-node, high-availability]
+    GPUStackOwner:
+      type: string
+      description: Which subsystem installs GPU drivers on the Platform's hosts.
+      enum: [provisioning, gpu-operator]
+    ExporterOwner:
+      type: string
+      description: Which subsystem installs the Platform's host Prometheus exporters.
+      enum: [ansible, k8s]
+    GPUAllocationMode:
+      type: string
+      description: How the GPU Operator exposes GPUs.
+      enum: [device-plugin, dra]
+    GPUResourceNaming:
+      type: string
+      description: >-
+        Device plugin resource names: `single` always uses `amd.com/gpu`; `mixed` names
+        partitioned GPUs per partition type.
+      enum: [single, mixed]
+    GPUOperatorState:
+      type: string
+      description: Where the latest Swallow change to the GPU Operator stands.
+      enum: [installing, ready, failed, uninstalling, absent]
+    ObservabilityInstallMethod:
+      type: string
+      description: How the Prometheus and Grafana a Slurm monitoring feature uses are installed.
+      enum: [container, native]
+    OmnistatState:
+      type: string
+      description: Omnistat State.
+      enum: [installing, ready, failed, absent]
+    DeviceMetricsExporterState:
+      type: string
+      description: Device Metrics Exporter State; same meaning and fence as the Omnistat State.
+      enum: [installing, ready, failed, absent]
+    ContainerRuntime:
+      type: string
+      description: The container runtime a Slurm deploy installs on its compute and login nodes.
+      enum: [docker-ce, podman]
+    TimeSyncCheck:
+      type: string
+      description: >-
+        What a node with an unsynchronized clock does to the install: `enforce` fails it before
+        anything is installed, `warn` reports it and continues.
+      enum: [enforce, warn]
+    KubernetesApplicationKind:
+      type: string
+      description: The workload kind a Kubernetes Application aggregates; a bare Pod is `Pod`.
+      enum: [Deployment, DaemonSet, StatefulSet, Pod]
+
+    Platform:
+      type: object
+      description: A Swallow-deployed (or legacy registered) Kubernetes or Slurm Platform.
+      required:
+        - id
+        - siteId
+        - name
+        - type
+        - integrationId
+        - origin
+        - lifecycleState
+        - lifecycleOperationId
+        - deployment
+        - gpuStackOwner
+        - exporterOwner
+        - monitoringLinks
+        - gpuOperator
+        - omnistat
+        - deviceMetricsExporter
+        - containerRuntime
+        - gpuDriver
+        - gpuGresType
+        - ociContainers
+        - pmix
+        - sync
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        siteId:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/PlatformType'
+        integrationId:
+          type: string
+          nullable: true
+          description: >-
+            The credential Integration; null before a deployment produces one and again after a
+            successful uninstall removes it.
+        origin:
+          type: string
+          description: >-
+            `deployed` for every new Platform; `registered` only for records created before the
+            register-existing path was removed (decision 032).
+          enum: [registered, deployed]
+        lifecycleState:
+          $ref: '#/components/schemas/PlatformLifecycleState'
+        lifecycleOperationId:
+          type: string
+          nullable: true
+          description: The newest deployment or uninstall Workflow, or null.
+        deployment:
+          nullable: true
+          description: >-
+            The non-secret topology intent of the latest deployment Workflow; null for registered
+            Platforms and legacy history that cannot be projected completely.
+          allOf:
+            - $ref: '#/components/schemas/PlatformDeploymentIntent'
+        gpuStackOwner:
+          $ref: '#/components/schemas/GPUStackOwner'
+        exporterOwner:
+          $ref: '#/components/schemas/ExporterOwner'
+        monitoringLinks:
+          type: array
+          description: Operator-registered Monitoring Links; always an array.
+          items:
+            $ref: '#/components/schemas/PlatformMonitoringLink'
+        gpuOperator:
+          nullable: true
+          description: The Swallow-managed GPU Operator; null when Swallow never managed one here.
+          allOf:
+            - $ref: '#/components/schemas/PlatformGPUOperator'
+        omnistat:
+          nullable: true
+          description: The Swallow-managed Omnistat; null when never installed (always for Kubernetes).
+          allOf:
+            - $ref: '#/components/schemas/PlatformOmnistat'
+        deviceMetricsExporter:
+          nullable: true
+          description: >-
+            The Swallow-managed Device Metrics Exporter; null when never installed (always for
+            Kubernetes).
+          allOf:
+            - $ref: '#/components/schemas/PlatformDeviceMetricsExporter'
+        containerRuntime:
+          type: string
+          nullable: true
+          description: The Slurm container runtime feature; null when off (always for Kubernetes).
+          enum: [docker-ce, podman, null]
+        gpuDriver:
+          nullable: true
+          description: The operator's amdgpu driver intent; null when the deploy requested none.
+          allOf:
+            - $ref: '#/components/schemas/PlatformGPUDriver'
+        gpuGresType:
+          type: string
+          nullable: true
+          description: >-
+            The GRES type name a Slurm deploy gave every GPU node; null when it is derived per node
+            from the GPU architecture (always for Kubernetes).
+        ociContainers:
+          type: boolean
+          description: Whether a Slurm deploy set up native OCI containers; false for Kubernetes.
+        pmix:
+          type: boolean
+          description: Whether a Slurm deploy installed the host MPI stack; false for Kubernetes.
+        sync:
+          $ref: '#/components/schemas/PlatformMembershipSync'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    PlatformDeploymentIntent:
+      type: object
+      description: The non-secret topology intent recovered from the latest deployment Workflow.
+      required: [topology, roleAssignments]
+      properties:
+        topology:
+          $ref: '#/components/schemas/KubernetesTopology'
+        roleAssignments:
+          type: array
+          description: >-
+            The original assignments. For Slurm a controller is `control-plane` (with
+            `runWorkloads` when it also runs slurmd) and a compute-only node is `worker`; login
+            nodes are not listed.
+          items:
+            $ref: '#/components/schemas/PlatformRoleAssignment'
+        loginServerIds:
+          type: array
+          description: The Slurm login (submission) hosts; present only when the deploy assigned some.
+          items:
+            type: string
+    PlatformRoleAssignment:
+      type: object
+      description: One deployment target's recorded Node Role and workload placement.
+      required: [serverId, role, runWorkloads]
+      properties:
+        serverId:
+          type: string
+        role:
+          $ref: '#/components/schemas/NodeRole'
+        runWorkloads:
+          type: boolean
+          description: >-
+            Whether a control-plane assignment also runs workloads; always false for a worker,
+            which always runs workloads.
+    PlatformMonitoringLink:
+      type: object
+      description: A Monitoring Link to the runtime's own monitoring UI; display data only.
+      required: [name, url]
+      properties:
+        name:
+          type: string
+          maxLength: 64
+          description: Trimmed, non-empty, unique within the Platform (case-insensitive).
+        url:
+          type: string
+          maxLength: 2048
+          description: An absolute `http` or `https` URL with a host.
+    PlatformGPUOperator:
+      type: object
+      description: The latest requested GPU Operator settings and the state of the Workflow applying them.
+      required:
+        - enabled
+        - version
+        - allocationMode
+        - draDriverVersion
+        - resourceNaming
+        - nodeLabeller
+        - metricsExporter
+        - state
+        - lastWorkflowId
+        - updatedAt
+      properties:
+        enabled:
+          type: boolean
+          description: The latest requested intent.
+        version:
+          type: string
+        allocationMode:
+          $ref: '#/components/schemas/GPUAllocationMode'
+        draDriverVersion:
+          type: string
+          nullable: true
+          description: Null unless `allocationMode` is `dra`.
+        resourceNaming:
+          $ref: '#/components/schemas/GPUResourceNaming'
+        nodeLabeller:
+          type: boolean
+        metricsExporter:
+          type: boolean
+        state:
+          $ref: '#/components/schemas/GPUOperatorState'
+        lastWorkflowId:
+          type: string
+          nullable: true
+          description: The Workflow applying, or last applying, the settings.
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    PlatformOmnistat:
+      type: object
+      description: The Swallow-managed Omnistat of a Slurm Platform.
+      required:
+        - enabled
+        - version
+        - installMethod
+        - observabilityServerId
+        - state
+        - lastWorkflowId
+        - updatedAt
+      properties:
+        enabled:
+          type: boolean
+        version:
+          type: string
+        installMethod:
+          $ref: '#/components/schemas/ObservabilityInstallMethod'
+        observabilityServerId:
+          type: string
+          description: The primary controller, which runs Prometheus and Grafana.
+        state:
+          $ref: '#/components/schemas/OmnistatState'
+        lastWorkflowId:
+          type: string
+          nullable: true
+          description: The only Workflow that may move `state`.
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    PlatformDeviceMetricsExporter:
+      type: object
+      description: The Swallow-managed Device Metrics Exporter of a Slurm Platform.
+      required:
+        - enabled
+        - version
+        - installMethod
+        - observabilityServerId
+        - state
+        - gpuIdentity
+        - lastWorkflowId
+        - updatedAt
+      properties:
+        enabled:
+          type: boolean
+        version:
+          type: string
+        installMethod:
+          $ref: '#/components/schemas/ObservabilityInstallMethod'
+        observabilityServerId:
+          type: string
+          description: The primary controller, which runs Prometheus and Grafana.
+        state:
+          $ref: '#/components/schemas/DeviceMetricsExporterState'
+        gpuIdentity:
+          type: string
+          nullable: true
+          description: >-
+            Whether each GPU node's exporter reports one distinct `gpu_id` per GPU (`distinct`) or
+            fewer (`collapsed`, per-GPU job attribution is wrong there); null until an install
+            succeeded.
+          enum: [distinct, collapsed, null]
+        lastWorkflowId:
+          type: string
+          nullable: true
+          description: The only Workflow that may move `state`.
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    PlatformGPUDriver:
+      type: object
+      description: >-
+        The operator's amdgpu module options for the Platform's GPU nodes. A name is lower-case
+        letters, digits, and underscores (at most 64); a value is letters, digits, and `_.,:-` (at
+        most 128); at most 16 options. Options a topology rule adds on a node are not listed.
+      required: [moduleOptions]
+      properties:
+        moduleOptions:
+          type: object
+          maxProperties: 16
+          additionalProperties:
+            type: string
+    PlatformMembershipSync:
+      type: object
+      description: Membership read freshness.
+      required: [lastStartedAt, lastSucceededAt, lastError, memberCount, matchedCount]
+      properties:
+        lastStartedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        lastSucceededAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        lastError:
+          type: string
+          nullable: true
+        memberCount:
+          type: integer
+        matchedCount:
+          type: integer
+          description: How many reported members matched a Server.
+    PlatformWorkflowAcceptance:
+      type: object
+      description: >-
+        An accepted deployment or uninstall. `operationId` names the Workflow (the field keeps the
+        deprecated Operation name).
+      required: [platformId, clusterId, operationId]
+      properties:
+        platformId:
+          type: string
+        clusterId:
+          type: string
+          deprecated: true
+          description: One-release alias of `platformId` with the same value (ADR-014).
+        operationId:
+          type: string
+          description: The Workflow building or uninstalling the Platform.
+    PlatformMembershipReport:
+      type: object
+      description: The result of one membership read.
+      required: [platformId, clusterId, platformName, members, matched, cleared, unmatched, error]
+      properties:
+        platformId:
+          type: string
+        clusterId:
+          type: string
+          deprecated: true
+          description: One-release alias of `platformId` with the same value (ADR-014).
+        platformName:
+          type: string
+        members:
+          type: integer
+          description: How many members the Platform's API reported.
+        matched:
+          type: integer
+          description: How many of them matched a Server.
+        cleared:
+          type: integer
+          description: How many Servers lost a membership the Platform no longer reports.
+        unmatched:
+          type: array
+          description: Names of members no Server matched.
+          items:
+            type: string
+        error:
+          type: string
+          nullable: true
+          description: Why the read failed; null on success.
+
+    PlatformUpdate:
+      type: object
+      description: >-
+        The mutable Platform fields; omitted (or null) fields do not change. There is no
+        `integrationId`: a Platform's credential Integration is set only by its deployment.
+      properties:
+        name:
+          type: string
+          description: Trimmed; must not be empty.
+        gpuStackOwner:
+          $ref: '#/components/schemas/GPUStackOwner'
+        exporterOwner:
+          $ref: '#/components/schemas/ExporterOwner'
+        monitoringLinks:
+          type: array
+          description: Replaces the whole list; `[]` clears it.
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/PlatformMonitoringLink'
+    PlatformUninstall:
+      type: object
+      description: The optional uninstall choices; every field defaults to false.
+      properties:
+        releaseServers:
+          type: boolean
+          description: >-
+            Release every member Server to the provider in the same Workflow instead of removing
+            the platform software first.
+        releaseOptions:
+          type: object
+          description: Erase and static-IP options of each release; ignored unless `releaseServers`.
+          properties:
+            erase:
+              type: boolean
+            secureErase:
+              type: boolean
+            quickErase:
+              type: boolean
+            unbindStaticIps:
+              type: boolean
+        cancelActiveWorkflows:
+          type: boolean
+          description: Cancel every unfinished Workflow holding a target, then accept the uninstall.
+        deleteRecord:
+          type: boolean
+          description: Also remove the Platform record once the uninstall succeeds.
+
+    PlatformDeployRequest:
+      description: >-
+        A Kubernetes deploy (`type` omitted or `kubernetes`) or a Slurm deploy (`type: slurm`).
+      oneOf:
+        - $ref: '#/components/schemas/KubernetesDeployRequest'
+        - $ref: '#/components/schemas/SlurmDeployRequest'
+    KubernetesDeployRequest:
+      type: object
+      description: >-
+        Builds k0s on the role assignments. The Slurm-only features are refused: an enabled
+        `omnistat` or `deviceMetricsExporter`, or a `containerRuntime` kind, is 400.
+      required: [siteId, name, k0sVersion, roleAssignments]
+      properties:
+        siteId:
+          type: string
+        name:
+          type: string
+          description: Unique within the Site.
+        type:
+          type: string
+          enum: [kubernetes]
+          default: kubernetes
+        gpuStackOwner:
+          allOf:
+            - $ref: '#/components/schemas/GPUStackOwner'
+          description: >-
+            Defaults to `gpu-operator` when `gpuOperator.enabled` is true and to `provisioning`
+            otherwise; `provisioning` with an enabled `gpuOperator` is 400.
+        gpuOperator:
+          $ref: '#/components/schemas/GPUOperatorSettings'
+        gpuDriver:
+          $ref: '#/components/schemas/PlatformGPUDriver'
+        k0sVersion:
+          type: string
+          description: The k0s release to install, for example `v1.36.3+k0s.2`.
+        podCidr:
+          type: string
+          default: 10.244.0.0/16
+        serviceCidr:
+          type: string
+          default: 10.96.0.0/12
+        apiVip:
+          type: string
+          description: The API virtual IP; required only for high availability.
+        apiVipPrefix:
+          type: integer
+          minimum: 1
+          maximum: 32
+          description: >-
+            The VIP's prefix length; for high availability it must equal the control-plane
+            subnet's prefix and defaults to it (24 when the provisioner reports no subnet).
+        roleAssignments:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/KubernetesRoleAssignment'
+        machinePreparation:
+          $ref: '#/components/schemas/PlatformMachinePreparation'
+        timeSyncCheck:
+          allOf:
+            - $ref: '#/components/schemas/TimeSyncCheck'
+          default: enforce
+    KubernetesRoleAssignment:
+      type: object
+      required: [serverId, role]
+      properties:
+        serverId:
+          type: string
+        role:
+          $ref: '#/components/schemas/NodeRole'
+        runWorkloads:
+          type: boolean
+          default: false
+          description: Valid only on a `control-plane` assignment; a worker always runs workloads.
+    SlurmDeployRequest:
+      type: object
+      description: >-
+        Builds Slurm on the node assignments. An enabled `gpuOperator` is 400 (Slurm has no
+        in-platform GPU operator).
+      required: [siteId, name, type, slurm]
+      properties:
+        siteId:
+          type: string
+        name:
+          type: string
+          description: Unique within the Site.
+        type:
+          type: string
+          enum: [slurm]
+        gpuStackOwner:
+          allOf:
+            - $ref: '#/components/schemas/GPUStackOwner'
+          default: provisioning
+        gpuDriver:
+          $ref: '#/components/schemas/PlatformGPUDriver'
+        slurm:
+          $ref: '#/components/schemas/SlurmDeploymentSpec'
+        omnistat:
+          allOf:
+            - $ref: '#/components/schemas/SlurmMonitoringFeature'
+          description: Install Omnistat; mutually exclusive with an enabled `deviceMetricsExporter`.
+        deviceMetricsExporter:
+          allOf:
+            - $ref: '#/components/schemas/SlurmMonitoringFeature'
+          description: >-
+            Install AMD's Device Metrics Exporter on the GPU compute nodes; mutually exclusive
+            with an enabled `omnistat`.
+        containerRuntime:
+          $ref: '#/components/schemas/SlurmContainerRuntime'
+        machinePreparation:
+          $ref: '#/components/schemas/PlatformMachinePreparation'
+        timeSyncCheck:
+          allOf:
+            - $ref: '#/components/schemas/TimeSyncCheck'
+          default: enforce
+    SlurmDeploymentSpec:
+      type: object
+      description: The Slurm topology and options; every field except `nodeAssignments` is optional.
+      required: [nodeAssignments]
+      properties:
+        clusterName:
+          type: string
+          description: Defaults to a sanitized Platform name.
+        apiVersion:
+          type: string
+          description: The slurmrestd endpoint version recorded in the credential, for example `v0.0.42`.
+        stateSaveLocation:
+          type: string
+          description: Overrides the slurmctld state directory.
+        nodeAssignments:
+          type: array
+          minItems: 1
+          description: >-
+            At least one controller and one compute Server; each Server once and with at least one
+            role. The first controller is the primary.
+          items:
+            $ref: '#/components/schemas/SlurmNodeAssignment'
+        workloadStorage:
+          $ref: '#/components/schemas/SlurmWorkloadStorage'
+        gpuGresType:
+          type: string
+          pattern: '^[A-Za-z][A-Za-z0-9_]{0,63}$'
+          description: The GRES type of every GPU node; omitted derives it from the GPU architecture.
+        ociContainers:
+          type: boolean
+          default: false
+        pmix:
+          type: boolean
+          default: false
+    SlurmNodeAssignment:
+      type: object
+      required: [serverId]
+      properties:
+        serverId:
+          type: string
+        controller:
+          type: boolean
+          default: false
+          description: Runs slurmctld.
+        compute:
+          type: boolean
+          default: false
+          description: Runs slurmd.
+        login:
+          type: boolean
+          default: false
+          description: A submission host that runs no cluster daemon.
+    SlurmWorkloadStorage:
+      type: object
+      description: A shared filesystem for user and job data, mounted on every node.
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          description: >-
+            `self-hosted` exports NFS from the login node (so it requires one); `external` mounts
+            `nfs.url`.
+          enum: [self-hosted, external]
+        type:
+          type: string
+          enum: [nfs]
+          default: nfs
+        mountPath:
+          type: string
+          default: /shared
+          description: An absolute path other than `/` and `/home`.
+        nfs:
+          type: object
+          description: The NFS source; `url` is required for `external`.
+          properties:
+            url:
+              type: string
+              description: '`host:/path`.'
+            mountOptions:
+              type: string
+    SlurmMonitoringFeature:
+      type: object
+      description: >-
+        An optional Slurm monitoring feature; omitted or `enabled: false` installs nothing.
+      properties:
+        enabled:
+          type: boolean
+          default: false
+        installMethod:
+          allOf:
+            - $ref: '#/components/schemas/ObservabilityInstallMethod'
+          default: container
+    SlurmContainerRuntime:
+      type: object
+      description: The container runtime for every compute and login node; omitted installs none.
+      properties:
+        kind:
+          $ref: '#/components/schemas/ContainerRuntime'
+    PlatformMachinePreparation:
+      type: object
+      description: >-
+        Whether the targets must already be deployed (`existing_os`) or the deploy provisions the
+        `ready` ones first (`provision_os`). The provisioning fields follow the OS Deployment
+        intent of provisioning.md and are read only in `provision_os` mode.
+      properties:
+        mode:
+          type: string
+          enum: [existing_os, provision_os]
+          default: existing_os
+        templateId:
+          type: string
+          description: A Deployment Template supplying defaults for the provisioned targets.
+        settings:
+          type: object
+          properties:
+            imageId:
+              type: string
+            ephemeral:
+              type: boolean
+              description: True selects the `ram` Deploy Target (a memory-backed root).
+        userData:
+          type: object
+          description: Write-only user data for the provisioned targets.
+          properties:
+            mode:
+              type: string
+              enum: [inherit, replace, omit]
+            value:
+              type: string
+              description: The user data for `replace`; never echoed.
+        network:
+          type: object
+          description: The OS deployment network intent; missing resolves to `automatic`.
+          properties:
+            mode:
+              type: string
+              enum: [automatic, dhcp, static]
+            subnetId:
+              type: string
+            defaultGateway:
+              type: boolean
+            assignments:
+              type: array
+              items:
+                type: object
+                required: [serverId]
+                properties:
+                  serverId:
+                    type: string
+                  interfaceId:
+                    type: string
+                  subnetId:
+                    type: string
+                  ipAddress:
+                    type: string
+
+    GPUOperatorSettings:
+      type: object
+      description: >-
+        GPU Operator settings with a Kubernetes deploy; omitted or `enabled: false` installs no
+        operator.
+      properties: &gpuOperatorSettingsProperties
+        enabled:
+          type: boolean
+          description: True installs or changes the operator; false installs nothing or uninstalls it.
+        version:
+          type: string
+          description: A `version` from the release catalog; defaults to the release marked `default`.
+        allocationMode:
+          allOf:
+            - $ref: '#/components/schemas/GPUAllocationMode'
+          default: device-plugin
+        draDriverVersion:
+          type: string
+          description: >-
+            Used only for `dra`; one of the release's `draDriverVersions`, defaulting to its
+            `defaultDraDriverVersion`.
+        resourceNaming:
+          allOf:
+            - $ref: '#/components/schemas/GPUResourceNaming'
+          default: single
+        nodeLabeller:
+          type: boolean
+          default: true
+        metricsExporter:
+          type: boolean
+          default: false
+    GPUOperatorChange:
+      type: object
+      description: >-
+        The GPU Operator settings that replace the recorded ones. `enabled: false` uninstalls and
+        keeps the other recorded settings.
+      required: [enabled]
+      properties: *gpuOperatorSettingsProperties
+    GPUOperatorChangeAcceptance:
+      type: object
+      description: An accepted GPU Operator change.
+      required: [platformId, workflowId]
+      properties:
+        platformId:
+          type: string
+        workflowId:
+          type: string
+          description: The `configure-gpu-operator` Workflow applying the change.
+    GPUOperatorReleaseCatalog:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          description: Newest first.
+          items:
+            $ref: '#/components/schemas/GPUOperatorRelease'
+    GPUOperatorRelease:
+      type: object
+      description: One AMD GPU Operator release Swallow ships and has verified.
+      required:
+        - version
+        - default
+        - minKubernetesVersion
+        - draMinKubernetesVersion
+        - draDriverVersions
+        - defaultDraDriverVersion
+      properties:
+        version:
+          type: string
+        default:
+          type: boolean
+          description: The release a setting without `version` uses.
+        minKubernetesVersion:
+          type: string
+          description: The oldest Kubernetes minor version the release supports, for example `1.29`.
+        draMinKubernetesVersion:
+          type: string
+          description: The oldest Kubernetes minor version `dra` supports.
+        draDriverVersions:
+          type: array
+          items:
+            type: string
+        defaultDraDriverVersion:
+          type: string
+
+    MinimumResourceRequirement:
+      type: object
+      description: >-
+        The system-wide Minimum Resource Requirement of a Platform type. While disabled,
+        `minimumResources` is null; `updatedAt` is null only when it was never configured.
+      required: [platformType, minimumResources, updatedAt]
+      properties:
+        platformType:
+          type: string
+          enum: [slurm]
+        minimumResources:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MinimumResources'
+        updatedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+    MinimumResourceRequirementChange:
+      type: object
+      required: [minimumResources]
+      properties:
+        minimumResources:
+          nullable: true
+          description: The new thresholds, or null to disable the requirement.
+          allOf:
+            - $ref: '#/components/schemas/MinimumResources'
+    MinimumResources:
+      type: object
+      description: Every threshold is greater than zero; equality is eligible.
+      required: [cpuCores, memoryMiB, storageGB]
+      properties:
+        cpuCores:
+          type: integer
+        memoryMiB:
+          type: integer
+          format: int64
+        storageGB:
+          type: number
+
+    SlurmClusterState:
+      type: object
+      description: A Slurm Platform's live state from slurmrestd; carries no monitoring health.
+      required: [controllers, partitions, nodes]
+      properties:
+        controllers:
+          type: array
+          description: Each slurmctld in SlurmctldHost failover order.
+          items:
+            $ref: '#/components/schemas/SlurmController'
+        partitions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SlurmPartition'
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SlurmNode'
+    SlurmController:
+      type: object
+      required: [hostname, primary, status]
+      properties:
+        hostname:
+          type: string
+        primary:
+          type: boolean
+          description: Marks the active controller.
+        status:
+          type: string
+          description: RPC liveness from slurmrestd `ping`.
+          enum: [up, down, unknown]
+    SlurmPartition:
+      type: object
+      required: [name, state, nodeSpec, totalNodes]
+      properties:
+        name:
+          type: string
+        state:
+          type: string
+          description: The partition's state flags, lower-case and comma-separated.
+        nodeSpec:
+          type: string
+          description: The configured node list, for example `compute[1-4]`.
+        totalNodes:
+          type: integer
+    SlurmNode:
+      type: object
+      required: [name, state, cpus, realMemoryMiB, gres, partitions, address]
+      properties:
+        name:
+          type: string
+        state:
+          type: string
+          description: >-
+            The collapsed scheduler state: a down, drain, or fail flag wins, otherwise the first
+            flag (for example `idle`, `allocated`, `mixed`); `unknown` when Slurm reports none.
+        cpus:
+          type: integer
+        realMemoryMiB:
+          type: integer
+          format: int64
+        gres:
+          type: string
+          description: The node's GRES, for example `gpu:8`.
+        partitions:
+          type: array
+          items:
+            type: string
+        address:
+          type: string
+
+    KubernetesClusterSummary:
+      type: object
+      required: [version, nodeCount, readyNodeCount, namespaceCount]
+      properties:
+        version:
+          type: string
+          description: The cluster's reported Kubernetes version; empty when it reported none.
+        nodeCount:
+          type: integer
+        readyNodeCount:
+          type: integer
+        namespaceCount:
+          type: integer
+    KubernetesNodeList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubernetesNode'
+    KubernetesNode:
+      type: object
+      required: [name, role, ready, unschedulable, serverId, addresses, kubeletVersion, gpu]
+      properties:
+        name:
+          type: string
+        role:
+          $ref: '#/components/schemas/NodeRole'
+        ready:
+          type: boolean
+        unschedulable:
+          type: boolean
+          description: The cordon state.
+        serverId:
+          type: string
+          nullable: true
+          description: The matched Server; null when no Server matches the node's name or addresses.
+        addresses:
+          type: array
+          items:
+            type: string
+        kubeletVersion:
+          type: string
+        gpu:
+          $ref: '#/components/schemas/KubernetesNodeGPU'
+    KubernetesNodeGPU:
+      type: object
+      description: The node's GPUs as Kubernetes exposes them.
+      required: [allocatable, draDevices]
+      properties:
+        allocatable:
+          type: object
+          description: Every allocatable resource named `amd.com/*`; empty when the node has none.
+          additionalProperties:
+            type: integer
+            format: int64
+        draDevices:
+          type: integer
+          nullable: true
+          description: >-
+            Devices the `gpu.amd.com` DRA driver publishes for the node; null when the cluster has
+            no `resource.k8s.io/v1` API or the slices could not be read.
+    KubernetesNamespaceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubernetesNamespace'
+    KubernetesNamespace:
+      type: object
+      required: [name, phase, system]
+      properties:
+        name:
+          type: string
+        phase:
+          type: string
+        system:
+          type: boolean
+          description: True for `kube-system`, `kube-public`, and `kube-node-lease`.
+    KubernetesNamespaceCreation:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Trimmed; must not be blank.
+    KubernetesApplicationList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubernetesApplication'
+    KubernetesApplication:
+      type: object
+      description: A Kubernetes Application, a live workload aggregation.
+      required: [namespace, name, kind, images, replicas, readyReplicas, createdAt]
+      properties:
+        namespace:
+          type: string
+        name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/KubernetesApplicationKind'
+        images:
+          type: array
+          items:
+            type: string
+        replicas:
+          type: integer
+          description: The desired count (for a DaemonSet the desired scheduled count; 1 for a bare Pod).
+        readyReplicas:
+          type: integer
+        createdAt:
+          type: string
+          description: The object's creation time as the cluster reported it (RFC 3339).
+        pods:
+          type: array
+          description: >-
+            The Pods the Application owns; only in the single-Application read, and omitted when
+            it owns none.
+          items:
+            $ref: '#/components/schemas/KubernetesPod'
+    KubernetesApplicationScale:
+      type: object
+      required: [replicas]
+      properties:
+        replicas:
+          type: integer
+          minimum: 0
+    KubernetesPodList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubernetesPod'
+    KubernetesPod:
+      type: object
+      required: [namespace, name, phase, ready, nodeName, restarts, containers, startedAt]
+      properties:
+        namespace:
+          type: string
+        name:
+          type: string
+        phase:
+          type: string
+        ready:
+          type: boolean
+        nodeName:
+          type: string
+        restarts:
+          type: integer
+        containers:
+          type: array
+          items:
+            type: string
+        startedAt:
+          type: string
+          description: >-
+            The Pod's start time as the cluster reported it (RFC 3339); empty before the Pod
+            started.
+    KubernetesPodLogs:
+      type: object
+      required: [container, logs]
+      properties:
+        container:
+          type: string
+          description: The container the logs were read from.
+        logs:
+          type: string
+    KubernetesServiceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubernetesService'
+    KubernetesService:
+      type: object
+      required: [namespace, name, type, clusterIP, ports, externalIPs]
+      properties:
+        namespace:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        clusterIP:
+          type: string
+        ports:
+          type: array
+          description: Each port as `<port>/<protocol>`, for example `80/TCP`.
+          items:
+            type: string
+        externalIPs:
+          type: array
+          items:
+            type: string
+    KubernetesIngressList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubernetesIngress'
+    KubernetesIngress:
+      type: object
+      required: [namespace, name, hosts, ingressClass, addresses]
+      properties:
+        namespace:
+          type: string
+        name:
+          type: string
+        hosts:
+          type: array
+          items:
+            type: string
+        ingressClass:
+          type: string
+        addresses:
+          type: array
+          items:
+            type: string
+    KubernetesConfigMapList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubernetesConfigMap'
+    KubernetesConfigMap:
+      type: object
+      required: [namespace, name, type, keys, dataCount]
+      properties:
+        namespace:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          description: Always empty for a ConfigMap (the field is shared with the Secret list).
+        keys:
+          type: array
+          description: The data key names.
+          items:
+            type: string
+        dataCount:
+          type: integer
+    KubernetesSecretList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubernetesSecret'
+    KubernetesSecret:
+      type: object
+      description: A Secret's metadata; values are never returned.
+      required: [namespace, name, type, keys, dataCount]
+      properties:
+        namespace:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          description: The Secret type, for example `Opaque`.
+        keys:
+          type: array
+          description: The data key names only.
+          items:
+            type: string
+        dataCount:
+          type: integer
+    KubernetesPersistentVolumeClaimList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubernetesPersistentVolumeClaim'
+    KubernetesPersistentVolumeClaim:
+      type: object
+      required: [namespace, name, phase, capacity, storageClass, accessModes]
+      properties:
+        namespace:
+          type: string
+        name:
+          type: string
+        phase:
+          type: string
+        capacity:
+          type: string
+          description: The claim's storage capacity, for example `10Gi`; empty until bound.
+        storageClass:
+          type: string
+        accessModes:
+          type: array
+          items:
+            type: string
+    KubernetesManifestApply:
+      type: object
+      required: [manifest]
+      properties:
+        manifest:
+          type: string
+          description: One or more YAML documents.
+        dryRun:
+          type: boolean
+          default: false
+          description: Validate server-side without persisting.
+    KubernetesManifestApplyResults:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubernetesManifestApplyResult'
+    KubernetesManifestApplyResult:
+      type: object
+      required: [kind, namespace, name, action]
+      properties:
+        kind:
+          type: string
+        namespace:
+          type: string
+          description: Empty for a cluster-scoped object.
+        name:
+          type: string
+        action:
+          type: string
+          description: >-
+            `created` when the object did not exist, `configured` when it did, `validated` for a
+            dry run.
+          enum: [created, configured, validated]

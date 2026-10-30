@@ -13,6 +13,7 @@ import (
 	"github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/apierror"
 )
 
@@ -68,19 +69,21 @@ func (f powerHandlerProviders) For(context.Context, string) (provisioningdomain.
 	return f.provider, nil
 }
 
-func newPowerHandlerApp(provider *powerHandlerProvider) *fiber.App {
+func newPowerHandlerApp(t *testing.T, provider *powerHandlerProvider) *fiber.App {
+	t.Helper()
 	handler := &ProvisioningHandler{}
 	handler.AttachPowerConfiguration(application.NewPowerConfigurationUseCase(
 		powerHandlerServers{}, powerHandlerProviders{provider: provider}, provisioningdomain.DefaultPowerAdapters()))
 	app := fiber.New()
-	app.Get("/servers/:id/power-configuration", handler.GetPowerConfiguration)
-	app.Put("/servers/:id/power-configuration", handler.SetPowerConfiguration)
+	app.Use(apicontract.ResponseValidator(t))
+	app.Get("/api/v1/servers/:id/power-configuration", handler.GetPowerConfiguration)
+	app.Put("/api/v1/servers/:id/power-configuration", handler.SetPowerConfiguration)
 	return app
 }
 
 func putPower(t *testing.T, app *fiber.App, body string) (*http.Response, map[string]any) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPut, "/servers/srv-1/power-configuration", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/servers/srv-1/power-configuration", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := app.Test(req)
 	if err != nil {
@@ -96,8 +99,8 @@ func putPower(t *testing.T, app *fiber.App, body string) (*http.Response, map[st
 
 // The read is uncached and never carries the password.
 func TestGetPowerConfiguration(t *testing.T) {
-	app := newPowerHandlerApp(&powerHandlerProvider{})
-	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/servers/srv-1/power-configuration", nil))
+	app := newPowerHandlerApp(t, &powerHandlerProvider{})
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/api/v1/servers/srv-1/power-configuration", nil))
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -121,7 +124,7 @@ func TestGetPowerConfiguration(t *testing.T) {
 // to 400 and 409 (server-detail-actions.md).
 func TestSetPowerConfiguration(t *testing.T) {
 	provider := &powerHandlerProvider{}
-	app := newPowerHandlerApp(provider)
+	app := newPowerHandlerApp(t, provider)
 
 	resp, body := putPower(t, app, `{"driver":"virsh","address":"qemu+ssh://maas@h/system","powerId":"vm"}`)
 	if resp.StatusCode != http.StatusOK || body["driver"] != "virsh" {
@@ -149,7 +152,7 @@ func TestSetPowerConfiguration(t *testing.T) {
 		}
 	}
 
-	resp, body = putPower(t, newPowerHandlerApp(&powerHandlerProvider{managedBy: "kvm-3"}),
+	resp, body = putPower(t, newPowerHandlerApp(t, &powerHandlerProvider{managedBy: "kvm-3"}),
 		`{"driver":"virsh","address":"qemu+ssh://h/system","powerId":"vm"}`)
 	if errBody, _ := body["error"].(map[string]any); resp.StatusCode != http.StatusConflict || errBody["code"] != string(apierror.CodeConflict) {
 		t.Errorf("VM-host member: status %d body %v, want 409 conflict", resp.StatusCode, body)

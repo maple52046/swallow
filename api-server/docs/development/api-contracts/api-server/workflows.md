@@ -46,7 +46,15 @@ GET  /api/v1/workflows/{workflowId}/tasks/{taskId}/events
 GET  /api/v1/workflows/{workflowId}/tasks/{taskId}/artifacts
 ```
 
-All endpoints require an admin JWT according to [conventions](conventions.md).
+All endpoints require the `admin` role (an access token or an API Key, per
+[conventions](conventions.md)).
+
+The wire shape (paths, parameters, request and response schemas, status codes) is authoritative
+in the OpenAPI document [`../openapi/openapi.yaml`](../openapi/openapi.yaml), tag `workflows`
+(authored in `../openapi/areas/workflows.yaml`); the canonical Workflow object is its `Workflow`
+schema with `WorkflowTask` and `WorkflowTimelineEvent`. This document keeps the behavior
+semantics. OpenAPI names the path parameters `{id}` and `{taskId}` (`{stepId}` on the alias)
+and writes the collection path without its trailing slash; Fiber serves both spellings.
 
 ### Deprecated `/operations` alias (one release)
 
@@ -95,6 +103,10 @@ must accept both during the window.
 }
 ```
 
+`kind` and a non-empty `targetServerIds` are required. `clusterId` is accepted as a deprecated
+alias of `platformId` when `platformId` is empty. `extraVars` keys starting with `swallow_` are
+dropped, so a client cannot forge the variables swallow sets.
+
 `playbookName` is required for `custom`; built-in kinds use the Site mapping unless an
 explicit release-manifest playbook is supplied by a trusted use case. Some built-in kinds
 are launched only through their owning feature endpoint rather than this generic create —
@@ -117,21 +129,37 @@ must belong to one Site, and must pass current provisioning, Platform policy, ac
 and live Server Lock checks. Success is `202 Accepted` after intent is persisted; Temporal
 may start after the response through starter reconciliation.
 
+The `202` body of create is the accepted Workflow in the compatibility (Operation) shape, the
+same shape as a schema-v2 record (OpenAPI `LegacyOperation`) with `schemaVersion` 3: `id`,
+`kind`, `intent`, `siteId`, `platformId`, `clusterId`, `targetServerIds`, `retryOfOperationId`,
+`steps[]`, `execution`, `requestedBy`, `requestedAt`, and `updatedAt`. It carries no `status`,
+`temporal`, `intentSnapshot`, or `leases`; read `GET /workflows/{workflowId}` for the full
+projection below.
+
 ## Response
 
-The response carries the Workflow, its Tasks (currently serialized under `steps[]` with an
-`executor` field, see the wire-rename note above), resource leases, and a compatibility
-`execution` projection:
+`GET /workflows/{workflowId}`, the list, and rerun return the Workflow projection: its intent,
+status, Tasks (currently serialized under `steps[]` with an `executor` field, see the
+wire-rename note above), resource leases, and a compatibility `execution` projection (the
+example shows one of the Workflow's Tasks):
 
 ```json
 {
   "id": "workflow-id",
   "schemaVersion": 3,
   "kind": "deploy-kubernetes",
+  "intent": "Deploy k0s",
+  "intentSnapshot": { "summary": "Deploy k0s" },
+  "definition": "deploy-kubernetes",
+  "definitionVersion": 1,
   "status": "waiting_external",
+  "statusReason": null,
+  "startState": "started",
   "temporal": { "workflowId": "swallow-operation/workflow-id", "runId": "temporal-run-id" },
   "siteId": "site-id",
   "platformId": "platform-id",
+  "clusterId": "platform-id",
+  "targetResources": [{ "kind": "platform", "id": "platform-id" }, { "kind": "server", "id": "server-id" }],
   "targetServerIds": ["server-id"],
   "steps": [
     {
@@ -157,14 +185,35 @@ The response carries the Workflow, its Tasks (currently serialized under `steps[
         "skipped": 2,
         "updatedAt": "2026-09-03T00:01:20Z"
       },
-      "artifacts": []
+      "artifacts": [],
+      "startedAt": "2026-09-03T00:01:00Z",
+      "finishedAt": null
     }
   ],
   "leases": [
-    { "resourceKey": "server:server-id", "owner": "swallow-operation/workflow-id", "fencingToken": 4 }
+    {
+      "resourceKey": "server:server-id",
+      "owner": "swallow-operation/workflow-id",
+      "fencingToken": 4,
+      "expiresAt": "2026-09-03T00:11:00Z",
+      "updatedAt": "2026-09-03T00:01:00Z"
+    }
   ],
+  "retryOfOperationId": null,
   "requestedBy": "admin",
-  "requestedAt": "2026-09-03T00:00:00Z"
+  "requestCorrelation": "request-id",
+  "requestedAt": "2026-09-03T00:00:00Z",
+  "startedAt": "2026-09-03T00:00:05Z",
+  "finishedAt": null,
+  "updatedAt": "2026-09-03T00:01:20Z",
+  "execution": {
+    "runId": "temporal-run-id",
+    "playbook": "",
+    "status": "waiting_external",
+    "statusReason": null,
+    "startedAt": "2026-09-03T00:00:05Z",
+    "finishedAt": null
+  }
 }
 ```
 
@@ -172,9 +221,20 @@ Canonical Workflow status is exactly `pending | running | waiting_external |
 waiting_dependency | canceling | succeeded | failed | partially_succeeded | canceled |
 requires_attention`. Task status is `pending | running | waiting_external |
 waiting_dependency | succeeded | failed | canceled | skipped | requires_attention`.
-`execution` is a compatibility projection and must not be used to infer Task state.
-`intentSnapshot` and Task parameters never contain credential, cloud-init, or Kubernetes
-secret values; opaque secret references are internal and never returned.
+`execution` is a compatibility projection and must not be used to infer Task state: its `status`
+repeats the Workflow status; for a Workflow with exactly one Task, `playbook` is that Task's
+`kind` (not a playbook name) and `runId` is that Task's external execution ID once it started;
+otherwise `playbook` is empty and `runId` is the Temporal run ID.
+Sensitive keys (`extraVars`, `userData`, `password`, `token`, `credential`, `privateKey`, and
+similar) are removed from `intentSnapshot` at every depth, and Task `parameters` and opaque
+secret references are never returned at all, so no credential, cloud-init, or Kubernetes secret
+value crosses the API.
+
+`leases` is populated only by `GET /workflows/{workflowId}` (an empty array when the execution
+holds none); it is `null` in list items and in the rerun response. `targetResources`,
+`targetServerIds`, and `steps` are `null`, not `[]`, when the Workflow has none. A Task's `job`,
+`continueOn`, `waitingReason`, and `live` are omitted when unset, while its `error`,
+`externalExecution`, `startedAt`, and `finishedAt` are present as `null`.
 
 An Ansible Task's `externalExecution` is published as soon as the run starts (not only when it
 finishes), so its live diagnostics are available during the run. While it runs, `live` carries a
@@ -188,8 +248,10 @@ Ansible Runner populates `live`.
 ## List Query
 
 Optional filters are `siteId`, `platformId`, deprecated `clusterId`, `serverId`, `kind`,
-`status`, `active=true`, and common pagination. Results merge schema-v2 and schema-v3
-history and sort by `requestedAt` descending.
+`status`, `active=true`, and common pagination. `active` constrains only when it is exactly
+`true`. Results merge schema-v2 and schema-v3 history and sort by `requestedAt` descending; each
+item is either the Workflow projection above or, for a schema-v2 record, the compatibility shape
+(see Schema-v2 Compatibility).
 
 ## Timeline And Task Diagnostics
 
@@ -211,18 +273,23 @@ Task; it is the focused counterpart to `logs` (the full runner output).
 `GET /tasks/{taskId}/events` returns an Ansible Task's per-task results, and an empty list for
 other Runners. The events stream **during** the run — new results appear as the runner completes
 each task, so a client polling this endpoint sees progress instead of waiting for the whole run —
-and each carries `play`, `task`, `host` (a serverId), `status` (`ok | changed | failed |
-unreachable | skipped`), `changed`, and `startedAt`/`endedAt`; task output is never included
-(secret safety). The response also carries derived counts (`okCount`, `changedCount`,
-`failedCount`, `unreachableCount`, `skippedCount`). The current running play/task is on the Task's
-`live` field above, not in this list. Raw stdout stays on disk and is served by `logs`; it is not
-part of this projection. Task artifacts return metadata only. `dependsOn`, `targets`, `artifacts`,
-and timeline results are JSON arrays and never `null`.
+and each carries `play`, `task`, `host` (a serverId), `status` (`ok | failed | unreachable |
+skipped`), `changed` (a separate boolean: a changed result has `status` `ok`, never a `changed`
+status), and `startedAt`/`endedAt` (`null` when the runner recorded none); task output is never
+included (secret safety). The response also carries the Ansible `runId` (empty for a Task without
+an Ansible run), the Task's `status`, and derived counts (`okCount`, `changedCount` — results with
+`changed` true —, `failedCount`, `unreachableCount`, `skippedCount`). The current running
+play/task is on the Task's `live` field above, not in this list. Raw stdout stays on disk and is
+served by `logs`; it is not part of this projection. Task artifacts return metadata only
+(`id`, `name`, `mediaType`, `sizeBytes`, `createdAt`; never a server-side path). `targets`,
+`artifacts`, and timeline results are JSON arrays and never `null`; so is `dependsOn` on every
+schema-v3 Workflow, but the synthetic Task of a schema-v2 record carries `"dependsOn": null`.
 
 ## Cancel
 
-`POST /{id}/cancel` returns `202` after Temporal accepts the request. The workflow writes
-`canceling` then `canceled`; the handler never writes Mongo status. Unstarted Tasks become
+`POST /{id}/cancel` returns `202` with `{ "operationId": "<workflowId>" }` after Temporal accepts
+the request. The workflow writes `canceling` then `canceled`; the handler never writes Mongo
+status. Unstarted Tasks become
 canceled; active MAAS or Ansible execution receives best-effort abort and remains observed
 when the provider cannot stop it. Confirmed prior effects are preserved.
 
@@ -260,7 +327,9 @@ its borrowed Server through its own recover Task instead.
 ## Retry Task
 
 `POST /{id}/tasks/{taskId}/retry` returns `202` only when the Task is `failed` or
-`requires_attention` and its normalized error has `retryable=true`. Temporal increments the
+`requires_attention` and its normalized error has `retryable=true`; any other Task is
+`conflict`. The body names the Task under both the canonical and the deprecated keys:
+`{ "workflowId", "operationId", "taskId", "stepId" }`. Temporal increments the
 Task attempt in the same Workflow; successful dependencies are not repeated. A provider or
 Ansible idempotency identity includes Workflow, Task, target, and attempt. When the
 Workflow's Temporal execution no longer exists the retry cannot be delivered and returns
@@ -275,7 +344,8 @@ records, so a Workflow that finished `failed`, `partially_succeeded`, or `cancel
 whose Temporal execution was lost (a host restart or execution timeout left it non-terminal
 with no live execution), cannot be restarted or retried by Task. Rerun instead launches a new
 Workflow for the same intent, on the same Platform, and returns `202` with the new Workflow
-projection. The new Workflow's `retryOfOperationId` points at the original, it carries a later
+projection (its `leases` is `null`: it holds none yet). The new Workflow's
+`retryOfOperationId` points at the original, it carries a later
 `requestedAt` so the platform lifecycle follows it, and the original stays in history.
 
 A rerun converges the intent to its desired state
@@ -322,17 +392,32 @@ to recover it with `POST /{id}/rerun`, which does so without deleting the Platfo
 ## Schema-v2 Compatibility
 
 Historical schema-v2 records retain the status set `pending | running | succeeded | failed
-| canceled | indeterminate` and are returned with `schemaVersion=2` plus a synthetic single
-Task. Their legacy `GET /operations/{id}/logs`, `GET /operations/{id}/events`, and `POST
+| canceled | indeterminate` and are returned by get and list with `schemaVersion=2` in the
+compatibility shape (the fields listed for the create response; the run status is
+`execution.status`) plus a synthetic single Task: ID `ansible`, kind `ansible-playbook`, Runner
+`ansible`, `dependsOn` `null`, its status the run status except that `indeterminate` becomes
+`requires_attention` with error code `legacy_outcome_indeterminate`; a `failed` run carries
+error code `legacy_ansible_failed`. Neither error is retryable. A schema-v2 record has no
+timeline, controls, or per-Task endpoints: timeline, cancel, rerun, and every
+`/tasks/{taskId}/...` route return `not_found` for it.
+
+Their legacy `GET /operations/{id}/logs`, `GET /operations/{id}/events`, and `POST
 /operations/{id}/retry` remain available on the deprecated path only; the v3 equivalents are
-the per-Task endpoints above.
+the per-Task endpoints above. The legacy events response has the per-Task events shape with the
+run's status. The legacy retry accepts only a finished record, creates a new schema-v3 Workflow
+from the original's kind, targets, Platform, playbook, and carried variables, and returns it in
+the compatibility shape with `schemaVersion` 3; for a schema-v3 Workflow it is `conflict`. The
+legacy logs and events return `not_found` for a schema-v3 Workflow, the same as for an unknown
+ID.
 
 ## Errors
 
-Target overlap, lock, policy, and invalid control state return `conflict`. Invalid target
-state, Task retry eligibility, or unregistered playbook returns `validation_error`. Disabled
-or missing Site automation and credential return `provider_unavailable`. Unknown Workflow or
-Task returns `not_found`.
+Target overlap, Server Lock, Platform policy, invalid control state, and an ineligible Task
+retry return `conflict`. A malformed request, invalid target state, or unregistered or unmapped
+playbook returns `validation_error`. Disabled Site automation, a missing Deployment Key or Site
+credential, and an unknown live Server Lock state return `provider_unavailable`. An unknown
+Workflow or Task, an unknown target Server, and a Site with no Automation Configuration return
+`not_found`.
 
 ## Compatibility Notes
 
@@ -341,3 +426,10 @@ cancel began returning the Servers of interrupted `provision-os` Tasks to Ready 
 three new timeline event types, and a rerun began running every ensure Task again instead of
 carrying succeeded ones over. Routes, statuses, and error codes are unchanged. A rerun of a
 platform deployment now takes the time of its idempotent playbook again.
+
+On 2026-10-30 the OpenAPI document became the authoritative wire shape. This contract was
+corrected to the implemented behavior, with no behavior change: create answers in the
+compatibility shape; `leases` is populated only on get by ID; an ineligible Task retry and a
+Site with no Automation Configuration are `conflict` and `not_found` (not `validation_error` and
+`provider_unavailable`); Task events never carry a `changed` status; the legacy logs and events
+of a schema-v3 Workflow are `not_found`; and the cancel and Task-retry bodies are documented.

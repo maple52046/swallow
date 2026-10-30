@@ -14,6 +14,9 @@ import (
 
 // seedPlatform inserts a platform record directly through the repository, standing in for a
 // deployment-created record so membership and lifecycle reads have something to project.
+//
+// ExporterOwner is set because the in-memory repository does not apply the Mongo adapter's
+// default (an empty owner reads as ansible), and the contract never allows an empty owner.
 func seedPlatform(t *testing.T, f *platformFixture, id, name, gpuStackOwner string) *platformdomain.Platform {
 	t.Helper()
 	now := time.Now().UTC()
@@ -24,6 +27,7 @@ func seedPlatform(t *testing.T, f *platformFixture, id, name, gpuStackOwner stri
 		Type:          platformdomain.PlatformTypeKubernetes,
 		IntegrationID: "integration-k8s",
 		GPUStackOwner: platformdomain.GPUStackOwner(gpuStackOwner),
+		ExporterOwner: platformdomain.ExporterOwnerAnsible,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}

@@ -59,8 +59,10 @@ The body may be omitted.
 
 ### Success Response
 
-`204 No Content`. Always returned, including when the credential is unknown, expired, or the
-Session was already revoked, so logout is idempotent and reveals nothing. When the request
+`204 No Content`. Returned whenever the request is well formed and the Session store can be
+reached, including when the credential is unknown, expired, or the Session was already revoked,
+so logout is idempotent and reveals nothing. An invalid bearer credential is ignored, never
+`401`. When the request
 carried the cookie, the response clears it:
 
 ```text
@@ -75,7 +77,8 @@ See [`conventions.md`](conventions.md) for the envelope.
 
 | Code | HTTP Status | Description |
 | --- | ---: | --- |
-| `validation_error` | 400 | The body is not valid JSON. |
+| `validation_error` | 400 | A non-empty body is not valid JSON. |
+| `internal_error` | 500 | Looking up or revoking the Session failed on the server side. |
 
 ## Compatibility Notes
 

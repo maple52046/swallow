@@ -11,6 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	overviewapp "github.com/maple52046/swallow/internal/overview/application"
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
 )
@@ -68,6 +69,7 @@ func TestOverviewReportsUnconfiguredAlertSourceWithoutError(t *testing.T) {
 		now: time.Date(2026, 10, 12, 1, 0, 0, 0, time.UTC),
 	}))
 	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
 	app.Get("/api/v1/overview", middleware.Auth(jwtService), middleware.AdminOnly(), handler.Get)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil)
@@ -107,6 +109,7 @@ func TestOverviewRouteAuthorizationAndSiteValidation(t *testing.T) {
 		now: time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC),
 	}))
 	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
 	app.Get("/api/v1/overview", middleware.Auth(jwtService), middleware.AdminOnly(), handler.Get)
 
 	tests := []struct {

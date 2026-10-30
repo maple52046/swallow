@@ -71,7 +71,7 @@ query string (see [servers-stream.md](servers-stream.md)).
 ```
 
 - `id` is the swallow-issued identifier used in the path.
-- `name` is unique among the caller's keys.
+- `name` is unique among the caller's keys, compared case-insensitively.
 - `prefix` is the first characters of the secret, for recognising a key; it cannot
   authenticate.
 - `expiresAt` is `null` for a key that never expires.
@@ -98,8 +98,8 @@ can see and delete them.
 ```
 
 - `name` (required): trimmed, 1–64 characters, no control characters.
-- `expiresAt` (optional): a future timestamp; omit or send `null` for a key that never
-  expires.
+- `expiresAt` (optional): a future RFC 3339 timestamp; omit or send `null` for a key that
+  never expires.
 
 Returns `201`:
 
@@ -122,10 +122,10 @@ key and deleting the old one.
 
 | Code | HTTP Status | Description |
 | --- | ---: | --- |
-| `validation_error` | 400 | `name` is missing, too long, or contains control characters; `expiresAt` is not a timestamp or is not in the future. |
+| `validation_error` | 400 | The body is not valid JSON; `name` is missing, too long, or contains control characters; `expiresAt` is not a timestamp or is not in the future. |
 | `forbidden` | 403 | The caller is not `admin`, or (create only) the request was authenticated with an API Key. |
 | `not_found` | 404 | Delete: no key with this id belongs to the caller. |
-| `conflict` | 409 | Create: the caller already has a key with this name, or already has 50 keys. |
+| `conflict` | 409 | Create: the caller already has a key with this name (case-insensitive), or already has 50 keys. |
 
 ## Compatibility Notes
 

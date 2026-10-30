@@ -28,12 +28,13 @@ an external integration. Secret material is write-only.
 ## Endpoints
 
 ```text
-GET /api/v1/sites/{siteId}/automation
-PUT /api/v1/sites/{siteId}/automation
-PUT /api/v1/sites/{siteId}/automation/credential
+GET /api/v1/sites/{id}/automation
+PUT /api/v1/sites/{id}/automation
+PUT /api/v1/sites/{id}/automation/credential
 ```
 
-All endpoints require an admin JWT according to [conventions](conventions.md).
+`{id}` is the Site's `siteId`. All endpoints require role `admin` according to
+[conventions](conventions.md).
 
 ## Configuration Request
 
@@ -54,6 +55,11 @@ All endpoints require an admin JWT according to [conventions](conventions.md).
 Every mapped operation kind must be a built-in non-custom kind. Every playbook value must
 exist in the release manifest. Enabled configurations require known-hosts content;
 host-key verification cannot be disabled.
+
+`PUT` creates the configuration or replaces every non-secret field, so an omitted field takes
+its zero value: `enabled` `false`, `sshUser` and `knownHosts` `""`, no `playbookMappings`.
+`sshPort` is `22` when omitted or `0` and must otherwise be between 1 and 65535. `sshUser` and
+`knownHosts` are trimmed. The become password is not touched.
 
 `sshUser` is optional. It is a fallback login user: for each host, automation first uses
 the effective default user of the OS Image the Server is deployed with
@@ -99,7 +105,9 @@ installation's Deployment Key ([decision 041](../../../../../docs/decisions/041-
 - `deploymentKey` — the Deployment Key exists and is used.
 - `none` — no Deployment Key exists (the installation step that creates it has not run).
 
-`hasCredential` reports that the Site stores a become password.
+`hasCredential` reports that the Site stores a become password. It currently stays `true`
+after the password is cleared with `{}`, because the cleared credential is still stored
+(known defect).
 
 Ansible Tasks for a Site run only when `enabled` is `true` and `credentialSource` is
 `deploymentKey`; otherwise acceptance fails with `503 provider_unavailable` and a running
@@ -114,17 +122,22 @@ Task fails with `automation_configuration_unavailable`.
 ```
 
 The request replaces the Site's whole credential, which holds only the write-only become
-password; sending `{}` clears it. A request that contains `sshPrivateKey` (with any value)
+password; sending `{}` clears it. A request whose `sshPrivateKey` is present and not `null`
 is `400 validation_error`: automation always logs in with the Deployment Key, so replace
 that key with `PUT /api/v1/ssh-keys/deployment` instead (see [ssh-keys.md](ssh-keys.md)).
+`"sshPrivateKey": null` is ignored. A Site without a configuration (create it with `PUT
+.../automation` first) is `404 not_found`.
 
 Success is `204 No Content`. No API returns the secret.
 
 ## Errors
 
-The common error envelope applies. Unknown sites/configurations return `not_found`;
-invalid ports, missing required fields, unregistered playbooks, and a credential request
-carrying `sshPrivateKey` return `validation_error`.
+The common error envelope applies. `GET .../automation` and `PUT .../automation/credential`
+answer `not_found` for a Site without a configuration, which includes a Site that does not
+exist. `PUT .../automation` for a Site that does not exist currently answers
+`500 internal_error` rather than `not_found` (known defect). Invalid ports, `enabled`
+without `knownHosts`, unknown or `custom` mapped kinds, unregistered playbooks, and a
+credential request carrying a non-null `sshPrivateKey` return `validation_error`.
 
 ## Compatibility Notes
 

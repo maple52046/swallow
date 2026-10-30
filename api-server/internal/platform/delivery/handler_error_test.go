@@ -12,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/apierror"
 )
 
@@ -21,8 +22,9 @@ import (
 // dashboard showed as "Internal error").
 func TestRespondErrorMapsDeploymentBatchConflictToConflict(t *testing.T) {
 	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
 	app.Use(requestid.New())
-	app.Post("/deploy", func(c *fiber.Ctx) error {
+	app.Post("/api/v1/platforms/deploy", func(c *fiber.Ctx) error {
 		// Mirror the exact wrapping the deploy preflight produces.
 		return respondError(c, fmt.Errorf(
 			"%w: this custom image is not verified for disk deployment; verify it on a ready Server first",
@@ -30,7 +32,7 @@ func TestRespondErrorMapsDeploymentBatchConflictToConflict(t *testing.T) {
 		))
 	})
 
-	resp, err := app.Test(httptest.NewRequest(http.MethodPost, "/deploy", nil))
+	resp, err := app.Test(httptest.NewRequest(http.MethodPost, "/api/v1/platforms/deploy", nil))
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}

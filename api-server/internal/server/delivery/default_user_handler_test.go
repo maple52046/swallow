@@ -11,6 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/apierror"
 )
 
@@ -39,9 +40,10 @@ func TestRespondDefaultUserError(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			app := fiber.New()
+			app.Use(apicontract.ResponseValidator(t))
 			app.Use(requestid.New())
-			app.Put("/:id", func(c *fiber.Ctx) error { return respondDefaultUserError(c, tc.err) })
-			resp, err := app.Test(httptest.NewRequest(http.MethodPut, "/srv-1", nil))
+			app.Put("/api/v1/servers/:id/default-user", func(c *fiber.Ctx) error { return respondDefaultUserError(c, tc.err) })
+			resp, err := app.Test(httptest.NewRequest(http.MethodPut, "/api/v1/servers/srv-1/default-user", nil))
 			if err != nil {
 				t.Fatalf("request: %v", err)
 			}

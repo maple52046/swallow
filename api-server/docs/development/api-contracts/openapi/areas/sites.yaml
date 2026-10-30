@@ -1,0 +1,1701 @@
+# Sites and their provider Integrations, each Site's Automation Configuration, swallow-owned Zones
+# and Pools with Server placement, and the provisioner-owned HTTP proxy and subnet DNS of one
+# provisioner Integration (contracts sites-integrations.md, site-automation.md, infrastructure.md,
+# provisioner-http-proxy.md, provisioner-subnet-dns.md; decisions 029, 032, 041, 056, 058).
+tags:
+  - name: sites
+    description: >-
+      Sites and the provider Integrations attached to them (credentials write-only), each Site's
+      Automation Configuration for embedded Ansible, Site-scoped Zones and Pools and a Server's
+      placement in them, and the live provisioner-owned HTTP proxy and subnet DNS settings of a
+      provisioner Integration.
+paths:
+  /api/v1/sites:
+    get:
+      tags: [sites]
+      operationId: listSites
+      summary: List every Site.
+      description: >-
+        Requires role `admin`. Returns a plain array ordered by `name` (the set is small and
+        bounded).
+      responses:
+        '200':
+          description: Every Site.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Site'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [sites]
+      operationId: createSite
+      summary: Create a Site.
+      description: >-
+        Requires role `admin`. `name` is required and unique across Sites; surrounding whitespace
+        is removed before it is stored. `description` is stored as sent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                description:
+                  type: string
+      responses:
+        '201':
+          description: The created Site.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Site'
+        '400':
+          description: '`validation_error`: the body is not valid JSON, or `name` is missing or empty.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: '`conflict`: a Site with this `name` already exists.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/sites/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Site's `siteId`.
+        schema:
+          type: string
+    get:
+      tags: [sites]
+      operationId: getSite
+      summary: Read one Site.
+      description: Requires role `admin`.
+      responses:
+        '200':
+          description: The Site.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Site'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      tags: [sites]
+      operationId: updateSite
+      summary: Change a Site's name or description.
+      description: >-
+        Requires role `admin`. Only present fields change; `name` is trimmed before it is stored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '200':
+          description: The updated Site.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Site'
+        '400':
+          description: '`validation_error`: the body is not valid JSON.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: another Site already has this `name`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [sites]
+      operationId: deleteSite
+      summary: Delete a Site that no Integration references.
+      description: >-
+        Requires role `admin`. Refused while any Integration still belongs to the Site, so the
+        Servers projected through them are never orphaned.
+      responses:
+        '200':
+          description: The Site was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessAcknowledgement'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: the Site still has Integrations; delete them first.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/sites/{id}/automation:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Site's `siteId`.
+        schema:
+          type: string
+    get:
+      tags: [sites]
+      operationId: getSiteAutomationConfiguration
+      summary: Read a Site's Automation Configuration (never its secret).
+      description: >-
+        Requires role `admin` (site-automation.md). `credentialSource` is derived on every read
+        from whether the installation's Deployment Key exists.
+      responses:
+        '200':
+          description: The Site's Automation Configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutomationConfiguration'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: >-
+            `not_found`: the Site has no Automation Configuration yet, which is also the answer for
+            a Site that does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      tags: [sites]
+      operationId: replaceSiteAutomationConfiguration
+      summary: Create or replace a Site's non-secret Automation Configuration.
+      description: >-
+        Requires role `admin`. Every non-secret field is replaced: an omitted field takes its zero
+        value (`enabled` false, `sshUser` and `knownHosts` empty, no `playbookMappings`), and an
+        omitted or `0` `sshPort` becomes 22. `sshUser` and `knownHosts` are trimmed. The become
+        password is untouched. A Site that does not exist currently fails with `500
+        internal_error` (site-automation.md, Errors).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                  default: false
+                  description: Whether Ansible Tasks may run for the Site; `true` requires `knownHosts`.
+                sshUser:
+                  type: string
+                  description: >-
+                    Optional fallback login user, tried only for a Server whose deployed OS Image
+                    has no default user.
+                sshPort:
+                  type: integer
+                  minimum: 0
+                  maximum: 65535
+                  default: 22
+                  description: SSH port; `0` or omitted means 22.
+                knownHosts:
+                  type: string
+                  description: Known-hosts content; host-key verification cannot be disabled.
+                playbookMappings:
+                  type: object
+                  description: >-
+                    Workflow kind (a built-in kind other than `custom`) to the name of a playbook
+                    registered in the release manifest.
+                  additionalProperties:
+                    type: string
+      responses:
+        '200':
+          description: The stored Automation Configuration, read back.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutomationConfiguration'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON; `sshPort` is outside 1-65535; `enabled`
+            is true without `knownHosts`; a mapped kind is unknown or `custom`; or a mapped
+            playbook is not registered in the release manifest.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/sites/{id}/automation/credential:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Site's `siteId`.
+        schema:
+          type: string
+    put:
+      tags: [sites]
+      operationId: replaceSiteAutomationCredential
+      summary: Replace the Site's write-only become password.
+      description: >-
+        Requires role `admin`. The body replaces the Site's whole credential, which holds only the
+        become password; `{}` or an empty `becomePassword` clears it. Automation always logs in
+        with the Deployment Key, so a non-null `sshPrivateKey` is refused. No API returns the
+        secret.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                becomePassword:
+                  type: string
+                  writeOnly: true
+                sshPrivateKey:
+                  type: string
+                  nullable: true
+                  deprecated: true
+                  description: >-
+                    Removed by decision 041. Any non-null value is `400 validation_error`; replace
+                    the Deployment Key with `PUT /api/v1/ssh-keys/deployment` instead. `null` is
+                    ignored.
+      responses:
+        '204':
+          description: The credential was replaced.
+        '400':
+          description: '`validation_error`: the body is not valid JSON, or it carries a non-null `sshPrivateKey`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site has no Automation Configuration (configure it with PUT first).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/integrations:
+    get:
+      tags: [sites]
+      operationId: listIntegrations
+      summary: List Integrations, optionally of one Site and one kind.
+      description: >-
+        Requires role `admin`. Returns a plain array ordered by `siteId`, then `name`. A `kind`
+        value no Integration has (including an unknown one) returns `[]`; the deprecated alias
+        `cluster` is read as `platform` and answered with a `Deprecation` header.
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Restrict to the Integrations of this Site.
+          schema:
+            type: string
+        - name: kind
+          in: query
+          required: false
+          description: >-
+            Restrict to one Integration kind: `provisioner`, `metrics`, or `platform` (`cluster` is
+            its deprecated alias). Not validated.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The matching Integrations.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Integration'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [sites]
+      operationId: createIntegration
+      summary: Register a provisioner or metrics Integration for a Site.
+      description: >-
+        Requires role `admin`. `kind` and `providerKind` are validated together. `kind` `platform`
+        (and its deprecated alias `cluster`, which also sets a `Deprecation` header) is refused: a
+        platform Integration is created only by a successful Platform deployment (decision 032).
+        `name` and `endpoint` are trimmed. `enabled` defaults to true. The credential is
+        write-only and never returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [siteId, kind, providerKind, name, endpoint]
+              properties:
+                siteId:
+                  type: string
+                  minLength: 1
+                kind:
+                  type: string
+                  enum: [provisioner, metrics]
+                providerKind:
+                  type: string
+                  description: '`maas` for `provisioner`; `prometheus` for `metrics`.'
+                  enum: [maas, prometheus]
+                name:
+                  type: string
+                  minLength: 1
+                  description: Unique within the Site.
+                endpoint:
+                  type: string
+                  minLength: 1
+                credential:
+                  type: string
+                  writeOnly: true
+                  description: Optional; omitted or empty stores no credential.
+                settings:
+                  $ref: '#/components/schemas/IntegrationSettings'
+                enabled:
+                  type: boolean
+                  default: true
+      responses:
+        '201':
+          description: The created Integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Integration'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON; `siteId`, `name`, or `endpoint` is
+            missing or empty; `kind` is not a kind or is `platform`/`cluster`; or `providerKind`
+            does not fit `kind` (the message names the valid values).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/integrations/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Integration's `integrationId`.
+        schema:
+          type: string
+    get:
+      tags: [sites]
+      operationId: getIntegration
+      summary: Read one Integration (never its credential).
+      description: Requires role `admin`.
+      responses:
+        '200':
+          description: The Integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Integration'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      tags: [sites]
+      operationId: updateIntegration
+      summary: Change an Integration's name, endpoint, enabled flag, or settings.
+      description: >-
+        Requires role `admin`. Only present (non-null) fields change. `settings`, when present,
+        replaces the whole map. The credential and the sync state are untouched; change the
+        credential with `PUT .../credential`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                endpoint:
+                  type: string
+                  minLength: 1
+                enabled:
+                  type: boolean
+                settings:
+                  $ref: '#/components/schemas/IntegrationSettings'
+      responses:
+        '200':
+          description: The updated Integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Integration'
+        '400':
+          description: '`validation_error`: the body is not valid JSON, or a present `name` or `endpoint` is empty.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [sites]
+      operationId: deleteIntegration
+      summary: Delete an Integration nothing depends on.
+      description: >-
+        Requires role `admin`. Refused while Servers are projected from the Integration or
+        Deployment Templates reference it.
+      responses:
+        '200':
+          description: The Integration was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessAcknowledgement'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: Servers are still projected from the Integration, or Deployment Templates
+            still reference it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/integrations/{id}/credential:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Integration's `integrationId`.
+        schema:
+          type: string
+    put:
+      tags: [sites]
+      operationId: replaceIntegrationCredential
+      summary: Replace an Integration's write-only credential.
+      description: >-
+        Requires role `admin`. The only way a credential changes; no endpoint returns it in any
+        form. A credential cannot be cleared.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [credential]
+              properties:
+                credential:
+                  type: string
+                  minLength: 1
+                  writeOnly: true
+      responses:
+        '200':
+          description: The credential was replaced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessAcknowledgement'
+        '400':
+          description: '`validation_error`: the body is not valid JSON, or `credential` is missing or empty.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/infrastructure/zones:
+    get:
+      tags: [sites]
+      operationId: listZones
+      summary: List Zones, optionally of one Site.
+      description: Requires role `admin`. Returns a plain array ordered by `name` (small and bounded).
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Restrict to one Site; omitted returns the Zones of every Site.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The matching Zones.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Zone'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [sites]
+      operationId: createZone
+      summary: Create a Zone, realized in the Site's provisioner when it is grouping-capable.
+      description: >-
+        Requires role `admin` (infrastructure.md). The provider group is ensured before the Zone
+        is stored, so a provider refusal leaves no swallow record; an existing provider group of
+        the same name counts as satisfied.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [siteId, name]
+              properties:
+                siteId:
+                  type: string
+                  minLength: 1
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: Unique within the Site; trimmed, and at most 100 characters after trimming.
+                description:
+                  type: string
+      responses:
+        '201':
+          description: The created Zone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON; `siteId` or `name` is missing, blank, or
+            `name` is longer than 100 characters; or the provisioner refused the request (the
+            message carries its explanation).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: a Zone with this `name` already exists in the Site.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the Site's provisioner could not be reached, refused the
+            credential, or has no credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/infrastructure/zones/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Zone's id.
+        schema:
+          type: string
+    get:
+      tags: [sites]
+      operationId: getZone
+      summary: Read one Zone.
+      description: Requires role `admin`.
+      responses:
+        '200':
+          description: The Zone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Zone does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      tags: [sites]
+      operationId: updateZone
+      summary: Rename a Zone or change its description, propagated to the provisioner when capable.
+      description: >-
+        Requires role `admin`. Only present fields change; a request that changes nothing answers
+        the stored Zone without calling the provisioner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                description:
+                  type: string
+      responses:
+        '200':
+          description: The updated Zone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON; a present `name` is blank or longer
+            than 100 characters; or the provisioner refused the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Zone does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: another Zone in the Site already has this `name`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the Site's provisioner could not be reached, refused the
+            credential, or has no credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [sites]
+      operationId: deleteZone
+      summary: Delete a Zone, removing the provider group first when the provisioner holds it.
+      description: >-
+        Requires role `admin`. A provisioner that refuses to delete the group (for example one
+        still holding machines) aborts the delete, so the swallow record stays.
+      responses:
+        '204':
+          description: The Zone was deleted.
+        '400':
+          description: '`validation_error`: the provisioner refused to delete the group (the message carries its explanation).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Zone does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the Site's provisioner could not be reached, refused the
+            credential, or has no credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/infrastructure/pools:
+    get:
+      tags: [sites]
+      operationId: listPools
+      summary: List Pools, optionally of one Site.
+      description: Requires role `admin`. Returns a plain array ordered by `name` (small and bounded).
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Restrict to one Site; omitted returns the Pools of every Site.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The matching Pools.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pool'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [sites]
+      operationId: createPool
+      summary: Create a Pool, realized in the Site's provisioner when it is grouping-capable.
+      description: >-
+        Requires role `admin` (infrastructure.md). The provider resource pool is ensured before
+        the Pool is stored, so a provider refusal leaves no swallow record; an existing provider
+        pool of the same name counts as satisfied.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [siteId, name]
+              properties:
+                siteId:
+                  type: string
+                  minLength: 1
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: Unique within the Site; trimmed, and at most 100 characters after trimming.
+                description:
+                  type: string
+      responses:
+        '201':
+          description: The created Pool.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pool'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON; `siteId` or `name` is missing, blank, or
+            `name` is longer than 100 characters; or the provisioner refused the request (the
+            message carries its explanation).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: a Pool with this `name` already exists in the Site.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the Site's provisioner could not be reached, refused the
+            credential, or has no credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/infrastructure/pools/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Pool's id.
+        schema:
+          type: string
+    get:
+      tags: [sites]
+      operationId: getPool
+      summary: Read one Pool.
+      description: Requires role `admin`.
+      responses:
+        '200':
+          description: The Pool.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pool'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Pool does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      tags: [sites]
+      operationId: updatePool
+      summary: Rename a Pool or change its description, propagated to the provisioner when capable.
+      description: >-
+        Requires role `admin`. Only present fields change; a request that changes nothing answers
+        the stored Pool without calling the provisioner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                description:
+                  type: string
+      responses:
+        '200':
+          description: The updated Pool.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pool'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON; a present `name` is blank or longer
+            than 100 characters; or the provisioner refused the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Pool does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: another Pool in the Site already has this `name`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the Site's provisioner could not be reached, refused the
+            credential, or has no credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [sites]
+      operationId: deletePool
+      summary: Delete a Pool, removing the provider resource pool first when the provisioner holds it.
+      description: >-
+        Requires role `admin`. A provisioner that refuses to delete the pool (for example one
+        still holding machines) aborts the delete, so the swallow record stays.
+      responses:
+        '204':
+          description: The Pool was deleted.
+        '400':
+          description: '`validation_error`: the provisioner refused to delete the pool (the message carries its explanation).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Pool does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the Site's provisioner could not be reached, refused the
+            credential, or has no credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/placement:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Server's `serverId`.
+        schema:
+          type: string
+    put:
+      tags: [sites]
+      operationId: assignServerPlacement
+      summary: Assign a Server to a Zone and/or Pool, written through to its provisioner.
+      description: >-
+        Requires role `admin` (infrastructure.md). Each id is optional; an omitted or `null` id
+        leaves that grouping unchanged, and at least one must be given. A placement cannot be
+        cleared. The referenced Zone or Pool must belong to the Server's Site, and the Server's
+        provisioner must be grouping-capable. The Server projection's observed zone and pool are
+        refreshed later by reconcile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                zoneId:
+                  type: string
+                  nullable: true
+                  description: The swallow id of the Zone to assign; `null` is the same as omitted.
+                poolId:
+                  type: string
+                  nullable: true
+                  description: The swallow id of the Pool to assign; `null` is the same as omitted.
+      responses:
+        '200':
+          description: The effective placement after the assignment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerPlacement'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON; neither `zoneId` nor `poolId` is given;
+            the Zone or Pool belongs to another Site; the Server's Integration is not a
+            provisioner, has no adapter, or cannot group; or the provisioner refused the
+            assignment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: >-
+            `not_found`: the Server, the Zone, the Pool, or the Server's Integration does not
+            exist, or the provisioner no longer has the machine.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the provisioner could not be reached, refused the credential,
+            or has no credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/integrations/{id}/http-proxy:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The `integrationId` of a `provisioner` Integration.
+        schema:
+          type: string
+    get:
+      tags: [sites]
+      operationId: getProvisionerHttpProxy
+      summary: Read a provisioner Integration's HTTP proxy for deployed machines, live.
+      description: >-
+        Requires role `admin` (provisioner-http-proxy.md). Read from the provisioner on every
+        request; swallow stores nothing. Needs the provisioner's HTTP Proxy capability.
+      responses:
+        '200':
+          description: The Provisioner HTTP Proxy the provisioner holds now.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisionerHTTPProxy'
+        '400':
+          description: >-
+            `validation_error`: the Integration is not a `provisioner`, has no adapter, or its
+            provisioner lacks the HTTP Proxy capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the provisioner could not be reached, the Integration has no
+            credential, or its credential may not read provisioner settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      tags: [sites]
+      operationId: replaceProvisionerHttpProxy
+      summary: Replace a provisioner Integration's HTTP proxy for deployed machines, written through.
+      description: >-
+        Requires role `admin`. swallow validates the body before calling the provisioner, writes
+        it through, and answers with the configuration read back. The write affects only
+        deployments the provisioner starts afterwards. A write that fails part-way may leave a mix
+        of old and new provider settings; repeating it converges.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode:
+                  description: >-
+                    The mode to set. Matched case-insensitively and with surrounding whitespace
+                    removed; the response reports the lower-case value.
+                  allOf:
+                    - $ref: '#/components/schemas/ProvisionerHTTPProxyMode'
+                httpProxy:
+                  type: string
+                  description: >-
+                    Required for `external` and `peer`, and must be absent or `""` for `none` and
+                    `builtin`. An absolute `http` or `https` URL with a host and an optional port
+                    (1-65535), reduced to `scheme://host[:port]`. Refused when it carries spaces, a
+                    user or password, a query, a fragment, or a path other than `/`.
+      responses:
+        '200':
+          description: The Provisioner HTTP Proxy read back from the provisioner after the write.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisionerHTTPProxy'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON; `mode` is missing or not a mode;
+            `httpProxy` is missing, malformed, or does not apply to `mode`; the Integration is not
+            a `provisioner`, has no adapter, or its provisioner lacks the capability; or the
+            provisioner refused the value (the message carries its explanation).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the provisioner could not be reached, the Integration has no
+            credential, or its credential may not change provisioner settings (a MAAS account that
+            is not an administrator).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/integrations/{id}/subnets:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The `integrationId` of a `provisioner` Integration.
+        schema:
+          type: string
+    get:
+      tags: [sites]
+      operationId: listProvisionerSubnets
+      summary: List a provisioner Integration's subnets with their Subnet DNS, live.
+      description: >-
+        Requires role `admin` (provisioner-subnet-dns.md). Read from the provisioner on every
+        request; swallow stores nothing. Needs the provisioner's Subnet DNS capability.
+      responses:
+        '200':
+          description: The provisioner's subnets, in the provisioner's order.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisionerSubnetCatalog'
+        '400':
+          description: >-
+            `validation_error`: the Integration is not a `provisioner`, has no adapter, or its
+            provisioner lacks the Subnet DNS capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the provisioner could not be reached, the Integration has no
+            credential, or its credential may not read subnets.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/integrations/{id}/subnets/{subnetId}/dns-servers:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The `integrationId` of a `provisioner` Integration.
+        schema:
+          type: string
+      - name: subnetId
+        in: path
+        required: true
+        description: The provisioner's own subnet id, as the subnet list reports it.
+        schema:
+          type: string
+    put:
+      tags: [sites]
+      operationId: replaceSubnetDnsServers
+      summary: Replace one subnet's Subnet DNS, written through to the provisioner.
+      description: >-
+        Requires role `admin`. swallow validates the list before calling the provisioner, checks
+        that the provisioner lists the subnet, writes the list through, and answers with the
+        subnet read back. The write affects only `automatic` and `static` deployments the
+        provisioner starts afterwards.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dnsServers]
+              properties:
+                dnsServers:
+                  type: array
+                  maxItems: 8
+                  description: >-
+                    IPv4 or IPv6 addresses in the order deployed machines should use them; `[]`
+                    clears the setting. Surrounding whitespace is removed and each address is
+                    stored in canonical form. Refused when an entry is empty, not an IP address,
+                    or carries a zone, or when two entries are the same address.
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: The subnet read back from the provisioner after the write.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisionerSubnet'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON; `dnsServers` is missing, not an array,
+            or breaks a rule above; the Integration is not a `provisioner`, has no adapter, or its
+            provisioner lacks the capability; or the provisioner refused the value (the message
+            carries its explanation).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist, or the provisioner has no subnet `subnetId`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the provisioner could not be reached, the Integration has no
+            credential, or its credential may not change subnets (a MAAS account that is not an
+            administrator).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  schemas:
+    Site:
+      type: object
+      description: A swallow-owned location that owns its own infrastructure (glossary Site).
+      required: [id, name, description, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          description: The opaque `siteId`.
+        name:
+          type: string
+          description: Unique across Sites.
+        description:
+          type: string
+          description: '`""` when none was given.'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    Integration:
+      type: object
+      description: >-
+        swallow's registration of one external system for one Site (glossary Integration). It has
+        no credential field of any kind; `hasCredential` only reports whether one is stored.
+      required:
+        - id
+        - siteId
+        - kind
+        - providerKind
+        - name
+        - endpoint
+        - enabled
+        - settings
+        - hasCredential
+        - sync
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: The opaque, stable `integrationId`.
+        siteId:
+          type: string
+        kind:
+          type: string
+          description: >-
+            The role the external system plays. `platform` Integrations are created only by a
+            successful Platform deployment.
+          enum: [provisioner, metrics, platform]
+        providerKind:
+          type: string
+          description: >-
+            The product implementing `kind`: `maas` (provisioner), `prometheus` (metrics),
+            `kubernetes` or `slurm` (platform).
+          enum: [maas, prometheus, kubernetes, slurm]
+        name:
+          type: string
+          description: Unique within the Site.
+        endpoint:
+          type: string
+        enabled:
+          type: boolean
+          description: '`false` pauses the Integration without losing its configuration.'
+        settings:
+          $ref: '#/components/schemas/IntegrationSettings'
+        hasCredential:
+          type: boolean
+          description: Whether a credential is stored; the value itself is never readable.
+        sync:
+          $ref: '#/components/schemas/IntegrationSyncState'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    IntegrationSettings:
+      type: object
+      description: >-
+        Non-secret adapter options as a string map; `{}` when none are set. Keys a provisioner
+        Integration recognises (`timeout`, `insecureSkipVerify`, `autoInspect`,
+        `virshSshPublicKey`) are described in sites-integrations.md; other keys are stored and
+        returned unchanged.
+      additionalProperties:
+        type: string
+    IntegrationSyncState:
+      type: object
+      description: >-
+        Freshness of what the Integration feeds (glossary Staleness). Each field is `null` until
+        it first applies; a failed sync sets `lastError` and keeps the previous `lastSucceededAt`,
+        and the next successful sync clears `lastError`.
+      required: [lastStartedAt, lastSucceededAt, lastError]
+      properties:
+        lastStartedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        lastSucceededAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        lastError:
+          type: string
+          nullable: true
+          description: Why the most recent attempt failed; `null` when it succeeded.
+    AutomationConfiguration:
+      type: object
+      description: >-
+        A Site's settings for swallow's embedded Ansible execution (glossary Automation
+        Configuration). Secret material never appears.
+      required:
+        - siteId
+        - enabled
+        - sshUser
+        - sshPort
+        - knownHosts
+        - playbookMappings
+        - hasCredential
+        - credentialSource
+        - createdAt
+        - updatedAt
+      properties:
+        siteId:
+          type: string
+        enabled:
+          type: boolean
+        sshUser:
+          type: string
+          description: The fallback login user; `""` when none is set.
+        sshPort:
+          type: integer
+        knownHosts:
+          type: string
+        playbookMappings:
+          type: object
+          description: Workflow kind to release-manifest playbook name; `{}` when none are mapped.
+          additionalProperties:
+            type: string
+        hasCredential:
+          type: boolean
+          description: Whether the Site stores a become password (site-automation.md).
+        credentialSource:
+          type: string
+          description: >-
+            The key automation uses for the Site: `deploymentKey` when the installation's
+            Deployment Key exists, `none` before the installation step has created it.
+          enum: [deploymentKey, none]
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    Zone:
+      type: object
+      description: >-
+        A swallow-owned, Site-scoped grouping of Servers (glossary Zone), realized as a provisioner
+        zone when the Site's provisioner is grouping-capable.
+      required: [id, siteId, name, description, providerRealized, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        siteId:
+          type: string
+        name:
+          type: string
+          description: Unique within the Site.
+        description:
+          type: string
+          description: '`""` when none was given.'
+        providerRealized:
+          type: boolean
+          description: >-
+            Whether the most recent write reached a grouping-capable provisioner; `false` means the
+            Zone exists only in swallow, which is not an error.
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    Pool:
+      type: object
+      description: >-
+        A swallow-owned, Site-scoped resource pool (glossary Pool), realized as a provisioner
+        resource pool when the Site's provisioner is grouping-capable.
+      required: [id, siteId, name, description, providerRealized, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        siteId:
+          type: string
+        name:
+          type: string
+          description: Unique within the Site.
+        description:
+          type: string
+          description: '`""` when none was given.'
+        providerRealized:
+          type: boolean
+          description: >-
+            Whether the most recent write reached a grouping-capable provisioner; `false` means the
+            Pool exists only in swallow, which is not an error.
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    ServerPlacement:
+      type: object
+      description: A Server's effective Zone and Pool after a placement request.
+      required: [serverId, zone, pool]
+      properties:
+        serverId:
+          type: string
+        zone:
+          type: string
+          description: >-
+            The Zone name now assigned, or the Server's currently observed zone when the request
+            left it unchanged; `""` when it has none.
+        pool:
+          type: string
+          description: >-
+            The Pool name now assigned, or the Server's currently observed pool when the request
+            left it unchanged; `""` when it has none.
+    ProvisionerHTTPProxyMode:
+      type: string
+      description: >-
+        Which proxy the provisioner hands to the machines it deploys (glossary Provisioner HTTP
+        Proxy): `none` (direct), `builtin` (the provisioner's own proxy, going out directly),
+        `external` (the proxy at `httpProxy`), or `peer` (the provisioner's own proxy forwarding to
+        `httpProxy`).
+      enum: [none, builtin, external, peer]
+    ProvisionerHTTPProxy:
+      type: object
+      description: >-
+        One provisioner Integration's Provisioner HTTP Proxy, read live. A read can be written back
+        unchanged.
+      required: [integrationId, mode, httpProxy]
+      properties:
+        integrationId:
+          type: string
+        mode:
+          $ref: '#/components/schemas/ProvisionerHTTPProxyMode'
+        httpProxy:
+          type: string
+          description: The proxy URL for `external` and `peer`; `""` for the other modes.
+    ProvisionerSubnet:
+      type: object
+      description: >-
+        One subnet of a provisioner Integration with its Subnet DNS (glossary Subnet DNS), read
+        live from the provisioner.
+      required: [id, name, cidr, gatewayAddress, managed, provisionerDhcp, attached, dnsServers]
+      properties:
+        id:
+          type: string
+          description: The provisioner's subnet id.
+        name:
+          type: string
+        cidr:
+          type: string
+        gatewayAddress:
+          type: string
+          description: The subnet's gateway; `""` when it has none.
+        managed:
+          type: boolean
+          description: Whether the provisioner allocates addresses on the subnet.
+        provisionerDhcp:
+          type: boolean
+          description: >-
+            Whether the provisioner itself serves DHCP on the subnet; `false` means any DHCP there
+            is the site's.
+        attached:
+          type: boolean
+          description: >-
+            Whether the subnet is a real network by the provisioner's own markers; `false` for a
+            subnet only host-internal interfaces carry (provisioner-subnet-dns.md).
+        dnsServers:
+          type: array
+          description: >-
+            The Subnet DNS in the provisioner's order; `[]` when the subnet has none and
+            deployments on it fall back to the provisioner's own DNS.
+          items:
+            type: string
+    ProvisionerSubnetCatalog:
+      type: object
+      description: A provisioner Integration's subnets, in the order the provisioner lists them.
+      required: [integrationId, subnets]
+      properties:
+        integrationId:
+          type: string
+        subnets:
+          type: array
+          description: '`[]` when the provisioner has none.'
+          items:
+            $ref: '#/components/schemas/ProvisionerSubnet'

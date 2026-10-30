@@ -62,6 +62,8 @@ POST   /api/v1/provisioning/image-verifications
 POST   /api/v1/provisioning/networks/inspect
 GET    /api/v1/provisioning/tasks/{id}
 POST   /api/v1/provisioning/tasks/{id}/retry
+POST   /api/v1/provisioning/reconcile
+POST   /api/v1/provisioning/integrations/{id}/reconcile
 ```
 
 The existing `POST /api/v1/servers/{id}/deploy` contract remains active and
@@ -208,7 +210,9 @@ On success it returns `201` with the created image in the same shape as one `GET
   "providerRelease": "ubuntu-24.04-rocm",
   "tags": [],
   "architecture": "amd64",
-  "sizeBytes": 5368709120
+  "sizeBytes": 5368709120,
+  "verifiedDeployTargets": [],
+  "failedDeployTargets": []
 }
 ```
 
@@ -220,10 +224,11 @@ response carries it as `defaultUser` and `customDefaultUser`. If the provider ac
 artifact but storing the default user failed, the endpoint returns `500 internal_error`; the
 image exists and the default user can be set afterwards with `PATCH /images/overlay`.
 
-A missing `integrationId`, `name`, `architecture`, or `content`, an unsupported `filetype`, a
-name that duplicates an existing provider image, or a provisioner whose adapter does not
-implement upload is `400 validation_error` — the provider's own wording is preserved for a
-provider-side refusal. An unknown integration is `404 not_found`. A provider transport failure
+A missing `integrationId`, `name`, `architecture`, or `content`, an empty or unreadable
+`content` file, a `name`, `architecture`, `title`, or `filetype` longer than 200 characters, an
+unsupported `filetype`, a name that duplicates an existing provider image, or a provisioner whose
+adapter does not implement upload is `400 validation_error` — the provider's own wording is
+preserved for a provider-side refusal. An unknown integration is `404 not_found`. A provider transport failure
 or 5xx during upload is `503 provider_unavailable`. Because the artifact can be large, this
 endpoint is not bounded by the short provider read timeout used for catalog reads.
 
@@ -334,10 +339,13 @@ returns `204 No Content`. `DELETE` clears the sealed value and also returns
 updated `hasUserData` flag; neither mutation echoes secret content.
 
 Template names are trimmed and case-insensitively unique within one Integration.
-List filters are conjunctive. An unknown Site, Integration, or template is
-`404 not_found`; a non-provisioner Integration or invalid/missing field is
-`400 validation_error`; duplicate names and deletion of an Integration still
-referenced by a template are `409 conflict`.
+`GET /templates` returns a plain, unpaginated array; its filters are conjunctive, and a Site and Integration that do not match yield an empty array. An
+unknown Site, Integration, or template is `404 not_found`; a non-provisioner Integration
+or invalid/missing field is `400 validation_error`; duplicate names and deletion of an
+Integration still referenced by a template are `409 conflict`. Create, and an update that
+changes the network, require a provisioner with network configuration: on one without it
+they are `409 conflict`. A provisioner catalog that cannot be read is
+`503 provider_unavailable`.
 
 ## Network Inspection
 
@@ -414,6 +422,15 @@ managed subnet, and suggests DHCP when that subnet has no provisioner DHCP
 (`provisionerDhcp` false), Automatic otherwise. Multiple compatible subnets produce
 `network_selection_required` instead of a silent choice and suggest Automatic.
 
+`issues[]` entries carry `serverId`, `code`, and `message`. Codes are
+`network_interface_required` (no boot NIC could be chosen), `network_selection_required`
+(no subnet could be chosen), and `integration_mismatch`: targets of different Integrations
+are not read, and the response then has an empty `targets` array with one
+`integration_mismatch` issue per mismatched target. An empty or duplicate target list, or one
+longer than 100, is `400 validation_error`, as is a non-provisioner Integration; an unknown
+Server or provider Machine is `404 not_found`; a provisioner without network configuration
+is `409 conflict`; and an unreachable provisioner is `503 provider_unavailable`.
+
 ## Deployment Target Preflight
 
 `POST /deployments/preflight` accepts only the intended targets:
@@ -447,9 +464,12 @@ A completed check returns `200`, including when one or more targets are not read
 }
 ```
 
-Issue codes are `integration_mismatch`, `absent`, `not_ready`, or `locked`. An
-empty or duplicate target list, or a list longer than 100, is
-`400 validation_error`; a Server unknown to Swallow is `404 not_found`.
+Issue codes are `integration_mismatch`, `absent`, `not_ready`, `locked`,
+`provider_machine_missing` (the provisioner no longer has the Server's Machine), or
+`provider_not_ready` (a provider without network configuration refused the target's
+deployment readiness; the message is the provider's). An empty or duplicate target list, or
+a list longer than 100, is `400 validation_error`; a Server unknown to Swallow is
+`404 not_found`.
 
 The request names no deploy target, so this check does not report `inspection_required`,
 which blocks only a disk deployment: `POST /deployments`, `POST /deployment-operations`, and
@@ -588,9 +608,16 @@ returns `202`:
 The response is an acceptance report, not a durable job. Deployment progress is
 read from each Server provisioning axis. Batch deployment provides no rollback.
 
-Preflight validation uses `400 validation_error` for malformed input,
-`failed[].stage` is `network_configuration` or `deployment`.
-`404 not_found` for missing resources, `409 conflict` for target state or
+Each `accepted[]` entry is the provisioning snapshot the provider returned on
+acceptance; it also carries `inspectionRequired` and `inspectionRequiredReason` when the
+Server's layout needs a new inspection, and omits them otherwise. `failed[].stage` is
+`network_configuration` or `deployment`; `failed[].code` is `provider_rejected` (the
+provider refused, or no longer has the Machine), `provider_unavailable` (the provider could
+not be reached during dispatch), or `provider_error` (any other dispatch failure).
+
+Preflight validation uses `400 validation_error` for malformed input (including an
+image missing from the live catalog), `404 not_found` for an unknown Server or template,
+`409 conflict` for target state or
 Integration mismatch, and `503 provider_unavailable` when the provider cannot
 be reached before dispatch. Secret values never appear in responses or errors.
 Dispatched provider refusals preserve actionable provider validation detail in
@@ -679,6 +706,12 @@ timestamps, so a worker restart or activity retry does not grant a fresh window;
 Retry starts a new attempt and therefore a new window. Swallow does not abort the provider
 deployment. A provider without an event stream, or an event read that fails, never produces a
 stall; the power-on check and the two-hour observation timeout stay authoritative.
+
+A Machine that the provider reserved (`allocated`) after the deployment was accepted but that
+never starts installing within the power-on window (10 minutes) makes the Step
+`requires_attention` with code `deployment_reserved_not_started` (stage `deployment`). The Machine
+is left `allocated`, which Recover and Release accept, so the operator can return it to Ready
+before retrying.
 
 Retry observes before writing. If the expected image is now SSH-reachable, the Step
 succeeds without repeating provider work. If MAAS installed the image but reports no
@@ -773,9 +806,11 @@ reserved but never finished, and the provider allows Release from it. A target i
 state (for example `releasing`, `deploying`, `new`, or already `ready`) is rejected with a
 Swallow-authored reason rather than the provider's message.
 
-Both endpoints return `202` with an Operation reference and preserve the request ID as
-`requestCorrelation`. Progress, target-specific normalized errors, Cancel, and safe Retry
-are read and controlled through the [Operations](operations.md) contract.
+Both endpoints return `202` with an Operation reference, `{ "operationId": "..." }`, and
+nothing else; the request ID is recorded on the Workflow as its `requestCorrelation`, read
+through the Workflow, not returned here.
+Progress, target-specific normalized errors, Cancel, and safe Retry are read and controlled
+through the [Operations](operations.md) contract.
 
 Acceptance-time rejection is reported with the shared error envelope, never as an opaque
 `500 internal_error`: malformed input (missing or out-of-range `serverIds`, a target in a
@@ -843,7 +878,11 @@ the return Step is omitted, leaving the Server deployed on success (for an opera
 who wants to keep the verified deployment) and in its failed state on failure.
 Acceptance preflight requires the Server to exist, be `ready`, be unlocked, belong
 to the image's Integration, and match the image architecture. It responds `202`
-with `{ "operationId": "..." }`.
+with `{ "operationId": "..." }`. A missing field, an unknown `deployTarget`, a Server that
+is absent, not `ready`, of another Integration, or of another architecture, and an image not
+in the provisioner's live catalog are `400 validation_error`; an unknown Server or Integration
+is `404 not_found`; a locked or busy Server, an image the provisioner has not fully staged, or a
+missing Deployment Key is `409 conflict`.
 
 The Operation runs Steps: `provision-os` (the real deploy in the target mode; this
 proving deploy is exempt from the custom-image verification gate), one of two
@@ -887,12 +926,56 @@ snapshot:
 Statuses are `pending`, `running`, `succeeded`, or `failed`. Phases are
 `waiting_for_release`, `waiting_for_ready`, `cleaning_network`, or `complete`.
 `retryable` is true only for a failed task after its Release was accepted.
-`POST /tasks/{id}/retry` accepts only that retryable state, returns `202`, and
-requeues cleanup without repeating Release. A retry is rejected while the
-Server is locked; the worker also reads lock state again immediately before cleanup, so an external lock makes the task
-fail retryably without changing network links. A task retained after the provider
-refused Release remains diagnostic and is not retryable. Unknown tasks are
-`404 not_found`; a task that is not retryable is `409 conflict`.
+`error` and `requestId` are omitted when empty.
+`POST /tasks/{id}/retry` accepts only that retryable state, returns `202` with the task as
+stored after the requeue, and requeues cleanup without repeating Release. A retry is rejected
+with `409 conflict` while the Server is locked, and with `503 provider_unavailable` when its
+live lock state cannot be read; the worker also reads lock state again immediately before
+cleanup, so an external lock makes the task fail retryably without changing network links. A
+task retained after the provider refused Release remains diagnostic and is not retryable.
+Unknown tasks, and a retry of a task whose Server no longer exists, are `404 not_found`; a task
+that is not retryable is `409 conflict`.
+
+## Provisioner Reconciliation
+
+Reconciliation projects a provisioner's Machine inventory onto Server records; a background
+loop runs it at the reconcile interval, and these endpoints run one pass immediately. Neither
+takes a body.
+
+`POST /reconcile` reconciles every enabled provisioner Integration and returns a plain array
+with one report per Integration. One provisioner failing does not stop the others.
+
+`POST /integrations/{id}/reconcile` reconciles one provisioner Integration, enabled or not,
+and returns its report:
+
+```json
+{
+  "integrationId": "integration-id",
+  "integrationName": "maas-east",
+  "siteId": "site-id",
+  "machines": 12,
+  "created": 1,
+  "updated": 10,
+  "relinked": 0,
+  "markedAbsent": 1,
+  "conflicts": [
+    {
+      "providerMachineId": "abc123",
+      "hostname": "gpu-07",
+      "reason": "hardware identifiers match more than one existing server; refusing to guess which one this is",
+      "candidateServerIds": ["server-1", "server-2"]
+    }
+  ],
+  "error": null
+}
+```
+
+`conflicts` lists the Machines the pass refused to project, because guessing which Server
+they are could merge two Servers; they need an operator, which is why the report is returned
+rather than a bare acknowledgement. `error` is `null` for a completed pass and otherwise says
+why the pass stopped (the provisioner could not be read, for example); a failed pass still
+answers `200`, and the same message is recorded as the Integration's last sync error. An
+unknown Integration is `404 not_found` and a non-provisioner Integration `400 validation_error`.
 
 ## Compatibility Notes
 

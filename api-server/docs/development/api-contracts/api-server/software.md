@@ -24,6 +24,10 @@ target is one software and its variants, not a multi-component runtime (see
 Every install/uninstall creates a durable Workflow; the response returns its `operationId`,
 and progress is observed through the [workflows](workflows.md) surface.
 
+The wire shape of these endpoints (paths, parameters, schemas, status codes) is described by
+[`../openapi/areas/software.yaml`](../openapi/areas/software.yaml); this document holds their
+behavior semantics.
+
 ## Related Glossary Terms
 
 - [Managed Software](../../../../../docs/development/glossaries/terms/managed-software.md)
@@ -43,12 +47,13 @@ POST /api/v1/software/assignments
 POST /api/v1/software/uninstall
 ```
 
-All endpoints require an admin JWT according to [conventions](conventions.md).
+All endpoints require the `admin` role (an access token or an API Key) according to
+[conventions](conventions.md).
 
 ## Software Catalog
 
 `GET /api/v1/software/catalog` returns the fixed set of installable software kinds and their
-rules. The result is a small bounded array, not paginated.
+rules: an object whose `items` array is small and bounded, so it is not paginated.
 
 ```json
 {
@@ -179,17 +184,23 @@ values from the
 term. `absent` means Swallow no longer considers the software present (for example the Server
 left `deployed`).
 
+Every field is always present. `spec` is the normalized spec the last install recorded; it is
+`null` when an install of a kind that adds no defaults (NFS, Podman) sent no `spec`.
+`lastAppliedAt` is `null` until an install succeeds.
+
 ### List Assignments
 
-`GET /api/v1/software/assignments` returns a plain array of Software Assignments (small,
-bounded per fleet). Optional query filters:
+`GET /api/v1/software/assignments` returns an object whose `items` array holds the Software
+Assignments (small, bounded per fleet), ordered by `serverId` then `kind`. Optional query
+filters:
 
 | Param | Type | Meaning |
 | --- | --- | --- |
 | `serverId` | string | Only assignments on this Server. |
-| `kind` | string | Only assignments of this software kind. |
+| `kind` | string | Only assignments of this software kind. The value is not validated: one that is not a catalog kind matches nothing. |
 
-By default `absent` assignments are omitted; pass `includeAbsent=true` to include them.
+By default `absent` assignments are omitted; pass `includeAbsent=true` to include them (any
+other value is treated as `false`).
 
 ```json
 { "items": [ /* Software Assignment objects */ ] }
@@ -218,17 +229,20 @@ Servers, creating a durable Workflow and a `pending` assignment per Server.
 ```
 
 - `kind` is required and must be a catalog kind.
-- `assignments[]` lists the target Servers. Each `serverId` is required; `roles` is required
-  for a kind that declares roles (NFS) and must be a subset of that kind's roles, and must be
-  empty/omitted for a role-less kind (Docker CE, Podman).
+- `assignments[]` lists the target Servers and must not be empty. Each `serverId` is required
+  and may appear only once; `roles` is required for a kind that declares roles (NFS) and must be
+  a subset of that kind's roles (duplicates are dropped), and must be empty/omitted for a
+  role-less kind (Docker CE, Podman).
 - `spec` is kind-specific and optional per field. For NFS, at least one `server` role in the
   batch requires `exportPath`, and a `client` role requires `source` and `mountPath`. Docker CE
   is described in [Docker CE spec](#docker-ce-spec), Prometheus and Grafana in
   [Prometheus and Grafana spec](#prometheus-and-grafana-spec), and the Device Metrics Exporter
   in [Device Metrics Exporter](#device-metrics-exporter).
-- Every target Server must be in provisioning state `deployed`. A kind installed by its
+- Every target Server must be present and in provisioning state `deployed`; the request checks
+  this first and refuses it as `400 validation_error`. A kind installed by its
   `container` method also needs one of the entry's `containerRuntimes` in state `installed` on
   every target (see [Prometheus and Grafana spec](#prometheus-and-grafana-spec)).
+- All targets must belong to one Site, whose Ansible automation must be runnable.
 - Installing a kind that is already `installed` on a target is a convergent re-apply: the new
   `spec` replaces the recorded one and the playbook ensures it. A client changing one field must
   therefore send the complete spec it wants (for example the existing `version` together with a
@@ -362,10 +376,11 @@ In addition to the shared codes in [conventions](conventions.md):
 
 | `error.code` | HTTP Status | Meaning |
 | --- | ---: | --- |
-| `validation_error` | 400 | Unknown kind, missing/invalid roles for the kind, missing required spec field, or a spec field of the wrong type. |
-| `conflict` | 409 | A target already has an active durable Workflow, a mutually exclusive software kind is already installed on a target, the `container` method's runtime is not `installed` on a target, a target is already a Kubernetes Platform member for a kind that refuses members, a target has a Platform Claim for a kind that refuses claimed Servers, or a target lacks the AMD compute GPUs the Device Metrics Exporter needs. |
-| `not_found` | 404 | A target Server does not exist. |
-| `conflict` | 409 | A target Server is not in the required `deployed` provisioning state, or is locked. |
+| `validation_error` | 400 | The body is not valid JSON; unknown kind; no target, a target without `serverId`, or a duplicate target; missing/invalid roles for the kind; a missing, malformed, or wrong-typed spec field, or one the kind does not accept; or a target Server is absent or not in provisioning state `deployed`. |
+| `not_found` | 404 | A target Server, or a Prometheus `scrapeServerIds` entry, does not exist. |
+| `conflict` | 409 | A mutually exclusive software kind is already installed on a target, the `container` method's runtime is not `installed` on a target, a target is already a Kubernetes Platform member for a kind that refuses members, a target has a Platform Claim for a kind that refuses claimed Servers, or a target lacks the AMD compute GPUs the Device Metrics Exporter needs. |
+| `conflict` | 409 | When the Workflow is created: a target already has an active durable Workflow, is locked, or (re-checked) is not in the required `deployed` provisioning state. |
+| `provider_unavailable` | 503 | The targets' Site cannot run the Workflow's Ansible automation (no automation configuration, automation disabled, automation not logging in with the Deployment Key, or a playbook outside the release manifest), or the targets belong to more than one Site. |
 
 ## Uninstall Software
 
@@ -381,8 +396,8 @@ marks the assignments `absent`.
 ```
 
 - `kind` is required and must be a catalog kind.
-- `serverIds[]` lists the target Servers; each must have an existing, non-`absent` assignment
-  of that kind.
+- `serverIds[]` lists the target Servers and must not be empty; duplicate ids are ignored. Each
+  must have an existing, non-`absent` assignment of that kind.
 
 On success the response is `202 Accepted`:
 
@@ -394,9 +409,10 @@ On success the response is `202 Accepted`:
 
 | `error.code` | HTTP Status | Meaning |
 | --- | ---: | --- |
-| `validation_error` | 400 | Unknown kind or empty `serverIds`. |
-| `not_found` | 404 | A target Server or its assignment does not exist. |
+| `validation_error` | 400 | The body is not valid JSON, unknown kind, or empty `serverIds`. |
+| `not_found` | 404 | A target Server or its assignment does not exist (an `absent` assignment counts as missing). |
 | `conflict` | 409 | A target has active durable Workflow, is not `deployed`, is locked, or has a Platform Claim for a kind that refuses claimed Servers. |
+| `provider_unavailable` | 503 | As for install: the targets' Site cannot run the Ansible automation, or the targets belong to more than one Site. |
 
 ## Compatibility Notes
 
@@ -408,6 +424,10 @@ On success the response is `202 Accepted`:
   `refusedForClaimedServers` and `requiresAmdComputeGpu`
   ([decision 068](../../../../../docs/decisions/068-device-metrics-exporter-managed-software.md)).
   Clients that do not know a field read it as `false`.
+- 2026-10-30: corrected to the implemented behavior when the OpenAPI description was written (no
+  wire change): the catalog and assignment lists are `{ "items": [...] }` objects, an
+  assignment's `spec` can be `null`, a not-`deployed` target is refused at install with `400`
+  (not `409`), and install and uninstall can return `503 provider_unavailable`.
 
 ## Composition Into Platform Deployments
 

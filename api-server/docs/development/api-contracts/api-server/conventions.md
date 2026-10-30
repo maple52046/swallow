@@ -126,6 +126,26 @@ and return this envelope:
 all pages. Endpoints whose result sets are small and bounded may return a plain
 array, and must say so in their own contract.
 
+## Wire Shape
+
+The machine-checked shape of every route (paths, parameters, schemas, status codes)
+is the OpenAPI document under [`../openapi/`](../openapi); this document's rules are
+its `common.yaml` components (`Error`, `Timestamp`, `Page`, `PageSize`, and the
+security schemes). See [../README.md](../README.md) for how the two forms divide
+responsibility.
+
+## Operational Endpoints
+
+The API process serves these outside `/api/v1`, for process supervision and
+scraping rather than for consumers (OpenAPI area `system`):
+
+| Endpoint | Authentication | Response |
+| --- | --- | --- |
+| `GET /livez` | none | `200` `{ "status": "alive", "version": "<release version>" }` while the process runs. |
+| `GET /readyz` | none | `200` `{ "status": "ready", "schemaVersion": <int> }` when MongoDB answers and the schema is migrated; otherwise `503` `{ "status": "not-ready", "reason": "mongodb" }`. |
+| `GET /healthz` | none | Alias of `/readyz`. |
+| `GET /metrics` | machine token or admin access token | Prometheus text format: the process's HTTP request counter and build info. |
+
 ## Compatibility Notes
 
 - Adding an optional response field is backward compatible. Removing or renaming

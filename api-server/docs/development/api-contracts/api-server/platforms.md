@@ -65,7 +65,10 @@ There is **no** `POST /api/v1/platforms/`. A Platform is created only by
 Kubernetes cluster explorer routes under `/api/v1/platforms/{platformId}/kubernetes/...` are
 specified in [platforms-kubernetes.md](platforms-kubernetes.md).
 
-All endpoints require an admin JWT according to [conventions](conventions.md).
+All endpoints require the `admin` role according to [conventions](conventions.md). The wire shape
+(paths, parameters, schemas, status codes) is specified in
+[`../openapi/areas/platforms.yaml`](../openapi/areas/platforms.yaml); this document keeps the
+behavior.
 
 ## Platform Resource
 
@@ -176,7 +179,10 @@ history; clients must not infer them from `integrationId`, membership, or sync f
 `deployment` is the non-secret topology intent recovered from the latest durable
 `deploy-kubernetes` or `configure-slurm` Operation. It contains `topology` as `standalone`,
 `multi-node`, or `high-availability` and the original `roleAssignments`, including
-`runWorkloads`. For a Slurm platform it also carries `loginServerIds` (present only when the
+`runWorkloads`. For a Slurm platform the projection is derived from the recorded daemons:
+`topology` is `standalone` with one controller and `high-availability` with more, a controller is a
+`control-plane` assignment (with `runWorkloads=true` when it also runs `slurmd`), and a compute-only
+Server is a `worker`. It also carries `loginServerIds` (present only when the
 deploy assigned login hosts): the login (submission) hosts, which run no cluster daemon and are
 neither role assignments nor members, so a client resolves them to a Server address to show
 which host to use to operate the cluster.
@@ -256,14 +262,18 @@ Operation (see [Slurm](#slurm) below).
 }
 ```
 
-This body deploys `type: "kubernetes"`. The target Servers must exist and belong to one
-Site. They must also be unlocked in a live provider read. The complete lock preflight
+This body deploys `type: "kubernetes"`. `siteId`, `name`, `k0sVersion`, and `roleAssignments` are
+required (`400 validation_error` otherwise); `podCidr` and `serviceCidr` default to `10.244.0.0/16`
+and `10.96.0.0/12`. An unknown Site is `404 not_found`. The target Servers must exist (an unknown
+one is `400 validation_error`) and belong to one Site. They must also be unlocked in a live
+provider read. The complete lock preflight
 finishes before Swallow creates either the Platform or Operation; one locked target rejects
 the batch with `409 conflict`.
 
 Every deploy, with `existing_os` or `provision_os`, first requires the installation's
 Deployment Key, because Swallow logs in to the targets with it (see [ssh-keys.md](ssh-keys.md)).
-Without one the request is rejected with `409 conflict` before any validation, Platform, or
+Without one the request is rejected with `409 conflict` before any validation (other than an
+unparsable body or a missing `siteId`, which are `400 validation_error` first), Platform, or
 Operation is created; the message names the installation command that creates it
 (`swallow-api deployment-key ensure`).
 
@@ -282,7 +292,12 @@ types):
 ```
 
 `network` carries the OS deployment network intent of [provisioning.md](provisioning.md)
-(`mode` `automatic`, `dhcp`, or `static`) for the targets that are provisioned.
+(`mode` `automatic`, `dhcp`, or `static`) for the targets that are provisioned. The object also
+accepts the rest of that OS Deployment intent for the provisioned targets: `templateId`, write-only
+`userData` (`mode` `inherit`, `replace`, or `omit`, with `value`), and `network.subnetId`,
+`network.defaultGateway`, and per-target `network.assignments` (`serverId`, `interfaceId`,
+`subnetId`, `ipAddress`). `settings` takes only `imageId` and `ephemeral`; the provisioning
+contract's `settings.deployTarget` is not read by a Platform deploy.
 
 `mode` is `existing_os` (default) or `provision_os`. In `provision_os` a target that is
 already `deployed` is reused as-is while a `ready` target is provisioned first, so one
@@ -405,11 +420,13 @@ Success is `202 Accepted` after both records are persisted:
 ```json
 {
   "platformId": "platform-id",
+  "clusterId": "platform-id",
   "operationId": "operation-id"
 }
 ```
 
-Progress is read through [operations](operations.md). On success Swallow creates and marks
+`operationId` names the Workflow; `clusterId` is the deprecated alias of `platformId` (see
+[Compatibility Notes](#compatibility-notes)). Progress is read through [operations](operations.md). On success Swallow creates and marks
 ownership of a credential Integration, attaches it to the Platform, and begins membership
 reads.
 
@@ -470,7 +487,8 @@ mints the shared MUNGE key, hosts `slurmrestd`, and produces the reader credenti
 from controller state), mounted on every node at `mountPath` (a non-overlapping path, never
 `/home`). Omit it for no shared filesystem. `type` is `nfs`. `mode` is `self-hosted` (Swallow
 exports NFS from the login node, so it requires one) or `external` (mount the operator's
-`nfs.url`, `host:/path`, with optional `nfs.mountOptions`). Swallow provides the mount, not
+`nfs.url`, `host:/path`, with optional `nfs.mountOptions`). An omitted `type` is `nfs` and an
+omitted `mountPath` is `/shared`. Swallow provides the mount, not
 cluster identity: consistent workload-user UID/GID across nodes is the operator's
 responsibility.
 
@@ -529,8 +547,8 @@ architecture (for example `gpu:gfx942:8`) unless the deploy names one for every 
 "slurm": { "gpuGresType": "mi308x_vf", "nodeAssignments": [ /* ... */ ] }
 ```
 
-`gpuGresType` starts with a letter and contains only letters, digits, or underscores; anything
-else is a `validation_error`. Jobs see GPUs only when they request them (`--gres=gpu:N`, which
+`gpuGresType` starts with a letter and contains only letters, digits, or underscores, at most 64
+characters; anything else is a `validation_error`. Jobs see GPUs only when they request them (`--gres=gpu:N`, which
 matches any type, or `--gres=gpu:<type>:N`), receive `ROCR_VISIBLE_DEVICES`, and are confined to
 their GPUs by the device cgroup; the GPU device nodes are opened to every job user because that
 cgroup is the access boundary. A selected Server whose KFD topology shows no GPU fails the
@@ -554,8 +572,8 @@ A deploy of either platform type may set amdgpu module options for its GPU nodes
 "gpuDriver": { "moduleOptions": { "pcie_p2p": "0" } }
 ```
 
-A name is lower-case letters, digits, and underscores; a value is letters, digits, and `_.,:-`; at
-most 16 options. Anything else is a `validation_error`. Swallow also derives options from what a
+A name is lower-case letters, digits, and underscores (at most 64 characters); a value is letters,
+digits, and `_.,:-` (at most 128 characters); at most 16 options. Anything else is a `validation_error`. Swallow also derives options from what a
 node's KFD topology shows, never from a GPU model or a virtualization mode. Today's only rule:
 when a GPU node reaches the same peer through both an XGMI `io_link` and a PCIe `p2p_link`, the
 ROCm thunk overflows its peer array and HIP processes corrupt the heap at exit, so the rule adds
@@ -869,8 +887,9 @@ Success is `202 Accepted` once the Operation is persisted; `gpuOperator.state` b
 Operation targets the Platform's deployment targets: it verifies SSH readiness, then runs one
 ansible Task (`configure-gpu-operator`). Errors:
 
-- `400 validation_error` for invalid settings.
-- `404 not_found` when the Platform does not exist.
+- `400 validation_error` for invalid settings, or a body without `enabled`.
+- `404 not_found` when the Platform does not exist, or when the API process runs without GPU
+  Operator management wired (no durable orchestration).
 - `409 conflict` when the Platform is not a Swallow-deployed Kubernetes Platform whose lifecycle
   is `active`; when `enabled=false` and Swallow manages no operator on it (`gpuOperator` is
   `null` or `absent`); when a target is locked or held by another unfinished Operation; or when
@@ -953,11 +972,12 @@ static-IP unbinding) and is ignored when `releaseServers` is false. Releasing wi
 operating system, so Swallow does not restore host exporters for released servers. This
 shortcut applies only to a whole-platform uninstall. A release requires the durable
 orchestration topology; if it is unavailable the request is rejected. The accepted response is
-unchanged:
+unchanged, the same shape as a deploy's:
 
 ```json
 {
   "platformId": "platform-id",
+  "clusterId": "platform-id",
   "operationId": "operation-id"
 }
 ```
@@ -1073,6 +1093,7 @@ Integrations are never deleted.
 ```json
 {
   "platformId": "platform-id",
+  "clusterId": "platform-id",
   "platformName": "lab-k0s",
   "members": 7,
   "matched": 7,
@@ -1082,7 +1103,12 @@ Integrations are never deleted.
 }
 ```
 
-`POST /api/v1/platforms/sync` syncs every registered platform. One failing platform does
+`clusterId` is the deprecated alias of `platformId`. A failure to read the Platform's API is
+reported in `error` with `200 OK`, not as an error status; only an unknown Platform is
+`404 not_found`.
+
+`POST /api/v1/platforms/sync` syncs every Platform that has a recorded credential Integration
+(the others are skipped) and returns an array of these reports. One failing platform does
 not stop the rest. For Kubernetes, nodes are read from `/api/v1/nodes`; enabled k0s
 control-plane lease discovery also reads dedicated controllers from `k0s-ctrl-*` leases.
 
@@ -1127,12 +1153,13 @@ liveness). `partitions` and `nodes` come from `slurmrestd` `partitions` and `nod
 This endpoint is Slurm-only: a Kubernetes platform, or a Slurm platform whose `slurmrestd`
 integration is not recorded yet (`slurm-smd-slurmrestd` absent from the image, so
 `integrationId` is `null`), returns `validation_error`, and the dashboard degrades to the
-deployment intent plus membership. `slurmrestd` transport/auth failures return
-`provider_unavailable`.
+deployment intent plus membership. An unknown Platform, or an API process without the Slurm read
+wired, is `not_found`. `slurmrestd` transport/auth failures return `provider_unavailable`.
 
 ## Errors
 
-Unknown Platform, Site, or Integration returns `not_found`. Duplicate names and uninstall
+Unknown Platform, Site, or Integration returns `not_found`; an unknown deployment target Server is
+`validation_error`. Duplicate names and uninstall
 eligibility/target conflicts return `conflict`. Invalid resource values or deployment
 topology return `validation_error`. Missing/disabled automation, missing automation
 credential, or unavailable release playbook returns `provider_unavailable`. Platform API
@@ -1144,11 +1171,16 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 - The aggregate was renamed from Cluster to Platform. For one release the former surface
   remains available as deprecated aliases:
   - Route alias: every `/api/v1/clusters...` path mirrors the corresponding
-    `/api/v1/platforms...` path and is served by the same handler. Responses to the alias
-    carry a `Deprecation` header and a `Link` header pointing at the canonical path. New
-    clients must use `/api/v1/platforms`.
-  - Field alias: responses include `clusterId` alongside the canonical `platformId` with
-    the same value; requests accept either, and `platformId` wins when both are sent.
+    `/api/v1/platforms...` path and is served by the same handler, including the Slurm read and
+    the whole [Kubernetes explorer](platforms-kubernetes.md); the Slurm deployment requirement
+    and GPU Operator routes have no alias. Responses to the alias carry a `Deprecation: true`
+    header and a `Link: </api/v1/platforms>; rel="successor-version"` header. New clients must
+    use `/api/v1/platforms`.
+  - Field alias: in this contract the deploy and uninstall acceptance bodies and the membership
+    reports include `clusterId` alongside the canonical `platformId`, with the same value. The
+    Platform resource (identified by `id`) and the GPU Operator acceptance, added after the
+    rename, carry no `clusterId`. No request body here carries a Platform reference; requests
+    elsewhere that accept one accept either name, and `platformId` wins when both are sent.
   - The aliases are removed after the one-release deprecation window; see
     [ADR-014](../../../../../docs/decisions/014-platform-resource-language.md).
 - Uninstall and lifecycle fields are additive. Existing paths and Delete response remain

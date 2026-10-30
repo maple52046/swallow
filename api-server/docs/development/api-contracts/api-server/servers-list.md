@@ -29,8 +29,15 @@ provisioning, platform-membership, and health axes.
 ## Endpoint / RPC
 
 ```text
-GET /api/v1/servers/
+GET /api/v1/servers
 ```
+
+The route is also served with a trailing slash (`/api/v1/servers/`).
+
+The wire shape — every field, its type, and whether it is required or nullable — is the
+`listServers` operation and the `Server` schema of the OpenAPI contract
+([`../openapi/areas/servers.yaml`](../openapi/areas/servers.yaml)). This document describes
+what the fields mean.
 
 ## Authentication
 
@@ -60,10 +67,15 @@ Bearer token required. See [`conventions.md`](conventions.md).
 | `platformId` | string | No | Return Servers whose membership axis names this Platform. |
 | `clusterId` | string | No | Deprecated one-release alias for `platformId`; ignored when `platformId` is also present. |
 | `keyword` | string | No | Case-insensitive match on hostname, FQDN, address, serial number, or system UUID. |
-| `includeAbsent` | boolean | No | Include projections absent from the latest provider inventory; default `false`. |
+| `includeAbsent` | boolean | No | Include projections absent from the latest provider inventory; default `false`. Only the literal `true` enables it. |
 
 Filters are conjunctive. `keyword` is a search convenience, not a structured
 query language. `includeAbsent=true` changes visibility only.
+
+Query values are not validated: an unknown filter value (for example an undocumented
+`provisioningState`) matches nothing and returns `200` with no items, and a `page` or
+`pageSize` that is not a positive integer, or a `pageSize` above `100`, falls back to its
+default (`1` and `20`) instead of being refused.
 
 ## Response
 
@@ -82,22 +94,43 @@ query language. `includeAbsent=true` changes visibility only.
         "providerMachineId": "machine-42"
       },
       "hostname": "gpu-42",
+      "fqdn": "gpu-42.maas",
       "addresses": ["192.0.2.42"],
+      "architecture": "amd64/generic",
+      "cpuCores": 192,
+      "cpuModel": "AMD EPYC 9654",
+      "memoryMiB": 1572864,
+      "storageGB": 7680,
       "gpus": [{"vendor": "AMD", "model": "MI300X", "count": 8, "kind": "compute"}],
+      "systemVendor": "Supermicro",
+      "systemProduct": "AS-8125GS-TNMR2",
+      "providerZone": "default",
+      "providerResourcePool": "default",
+      "providerPod": "",
+      "tags": ["amd-gpu"],
       "hardware": {"systemUuid": "uuid", "serialNumber": "serial", "macAddresses": []},
+      "deployment": null,
       "provisioning": {
         "state": "deployed",
         "stateSince": "2026-05-02T14:12:09Z",
+        "providerState": "Deployed",
         "powerState": "on",
         "osSystem": "ubuntu",
         "distroSeries": "jammy",
         "deployedImageName": "Ubuntu 22.04 LTS",
         "deployedImageDefaultUser": "ubuntu",
+        "ephemeral": false,
+        "hweKernel": "",
+        "locked": false,
+        "commissioningStatus": "Passed",
+        "testingStatus": "Passed",
+        "integrationId": "integration-id",
         "observedAt": "2026-05-02T15:00:00Z"
       },
       "membership": {
         "platformId": "platform-id",
         "clusterId": "platform-id",
+        "nodeName": "gpu-42",
         "role": "worker",
         "state": "ready",
         "observedAt": "2026-05-02T15:00:00Z"
@@ -120,6 +153,15 @@ query language. `includeAbsent=true` changes visibility only.
 This is the same complete Server projection returned by the detail endpoint.
 Optional observations use `null`; an unavailable axis is not assigned a default
 state. No BMC, SSH, integration, or automation credential is returned.
+
+`deployment` is Swallow's own outcome of its latest durable OS deployment on the Server
+(`deploying | verifying | succeeded | failed | requires_attention | canceled`, with the
+Workflow and Task that ran it, a failed Task's `code`, and a progress `stage`), `null` when
+none is recorded; see [server-detail-actions.md](server-detail-actions.md). `tags` is the
+effective tag set ([server-tags.md](server-tags.md)). `providerZone`,
+`providerResourcePool`, and `providerPod` (the provisioner VM host of a virtual machine,
+empty for bare metal) are the provisioner's own names, display only. `membership.nodeName`
+is the platform's own name for the machine.
 
 ### GPU inventory
 
@@ -209,10 +251,11 @@ deployed or the image cannot be resolved from the catalog; clients fall back to
 
 `deployedImageDefaultUser` is the effective default login user of the currently deployed
 OS image (the image's Swallow `defaultUser` overlay, else the built-in derived from the OS
-family), mirrored the same way as `deployedImageName`. Swallow automation logs in to the
-Server as this user; it is also the account an operator's Access Key authorizes on
-Servers the provisioner deployed. It is omitted when nothing is deployed or no default
-user applies. It stays the image's value even when the Server has its own default user.
+family), mirrored the same way as `deployedImageName`. It is the account an operator's
+Access Key authorizes on Servers the provisioner deployed, and the account automation logs
+in as unless the Server has its own default user (automation uses `defaultUser` below). It
+is omitted when nothing is deployed or no default user applies. It stays the image's value
+even when the Server has its own default user.
 
 `defaultUser` is the Server's effective **Server Default User** — the account swallow
 automation logs in as with the Deployment Key and that Docker CE adds to the `docker` group:
@@ -256,9 +299,8 @@ See [`conventions.md`](conventions.md) for the envelope.
 | `unauthorized` | 401 | Token is missing, malformed, or expired. |
 | `forbidden` | 403 | Caller's role is not `admin`. |
 
-An unknown filter value or an out-of-range `pageSize` is a client error; the
-contract does not currently define a distinct code for it, so consumers must send
-only documented values.
+No query value is refused (see [Query Parameters](#query-parameters)); consumers should still
+send only documented values, because an unknown filter value silently matches nothing.
 
 ## Compatibility Notes
 
@@ -285,6 +327,11 @@ the classification while reading that legacy projection.
 On 2026-10-13 the GPU Inventory widened without a shape change: virtual-machine console adapters
 became `display`, and untyped MAAS accelerators started to appear as `compute`. A projection
 stored before then keeps its stored kinds until the next inventory sweep rewrites it.
+
+On 2026-10-30 this contract was aligned with the implementation when the OpenAPI wire shape
+was introduced, with no wire change: the path is written without its trailing slash, query
+values are documented as never refused (previously "a client error"), and the example lists
+every field the projection has always carried.
 
 Following the Cluster to Platform rename, the `clusterId` query parameter and the
 membership `clusterId` response field are deprecated one-release aliases for

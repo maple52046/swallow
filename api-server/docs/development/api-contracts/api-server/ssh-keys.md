@@ -146,8 +146,9 @@ Generates an ed25519 key pair, stores only the public key as an Access Key, and 
 ```
 
 `privateKey` is an unencrypted OpenSSH private key returned exactly once; swallow keeps no
-copy and it cannot be retrieved again. Clients must present it for saving immediately.
-Name validation matches import.
+copy and it cannot be retrieved again. Clients must present it for saving immediately. The
+response is `Cache-Control: no-store`. Name validation matches import: an invalid name is
+`400 validation_error` and a duplicate name is `409 conflict`.
 
 ## Delete an Access Key
 
@@ -168,8 +169,9 @@ keep the key in their `authorized_keys`.
 
 Replaces the Deployment Key with an existing private key (OpenSSH, PKCS#1, PKCS#8, or SEC1
 PEM). The public key is derived from it. A passphrase-protected, malformed, or unsupported
-key is `400 validation_error`; a key whose fingerprint equals an Access Key is
-`409 conflict`. `name` defaults to the current name. Returns `200` with the new SSH Key
+key, or a name longer than 100 characters, is `400 validation_error`; a key whose fingerprint
+equals an Access Key is `409 conflict`. `name` defaults to the current name when omitted or
+blank. Returns `200` with the new SSH Key
 resource (the `id` is preserved). The previous public key is removed from provisioners
 where swallow registered it, and the new one is registered.
 
@@ -193,8 +195,9 @@ cannot override the Deployment Key.
 ## Trigger a sync
 
 `POST /api/v1/ssh-keys/sync` (no body) requests an immediate realization pass over every
-provisioner Integration and returns `202` with no body. Results are read from
-`providerSync` on the next list.
+provisioner Integration and returns `202`. The response body is the plain-text status text
+`Accepted` (`Content-Type: text/plain`); it carries no information and consumers must ignore
+it. Results are read from `providerSync` on the next list.
 
 ## Provider realization
 
@@ -203,8 +206,9 @@ provisioner Integration and returns `202` with no body. Results are read from
   operator added directly in the provisioner are never removed.
 - Realization runs after each key change, periodically, and before every OS deployment
   through a key-capable provisioner. A deployment is not started when the Deployment Key
-  cannot be realized on a key-capable provisioner (the Workflow Task fails retryably with
-  `ssh_key_registration_failed`).
+  cannot be realized on a key-capable provisioner: the Workflow Task fails retryably with
+  `ssh_key_registration_failed`, and the deprecated synchronous
+  `POST /api/v1/servers/{id}/deploy` answers `503 provider_unavailable`.
 - MAAS registers keys on the MAAS user that owns the Integration's API key and injects them
   into the deployed image's default user.
 

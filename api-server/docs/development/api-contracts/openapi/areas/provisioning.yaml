@@ -1,0 +1,2590 @@
+# OS provisioning (provisioning.md), Boot ISOs (boot-isos.md), and the provisioning routes of Server
+# Enrollment (server-enrollment.md): everything under /api/v1/provisioning except Server tags
+# (servers area) and a provisioner's HTTP proxy and subnets (sites area), plus the unauthenticated
+# Boot ISO file and enrollment downloads served outside /api/v1.
+tags:
+  - name: provisioning
+    description: >-
+      Provider-owned OS Images and their swallow overlay, Deployment Templates, OS Deployment
+      acceptance (target preflight, the durable deploy, release, recover, and image-verification
+      Workflows, and the deprecated direct batch), network inspection, Provisioning Tasks,
+      provisioner reconciliation, Server Enrollment, and Boot ISOs.
+paths:
+  /api/v1/provisioning/images:
+    get:
+      tags: [provisioning]
+      operationId: listOsImages
+      summary: List the OS Images one provisioner can deploy, with the swallow overlay merged.
+      description: >-
+        Requires role `admin`. Reads the provisioner's catalog live and merges the swallow-owned
+        overlay and verification records onto it. Returns a plain array; it contains only
+        resources the provisioner accepts for OS deployment.
+      parameters:
+        - $ref: '#/components/parameters/OsImageIntegrationId'
+      responses:
+        '200':
+          description: The provisioner's deployable OS Images.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OsImage'
+        '400':
+          description: >-
+            `validation_error`: `integrationId` is missing, or the Integration is not a
+            provisioner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the provisioner cannot be reached or refused swallow's
+            credential, or the Integration has no credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [provisioning]
+      operationId: uploadOsImage
+      summary: Upload a new provider-owned OS Image to one provisioner.
+      description: >-
+        Requires role `admin`. The only multipart endpoint of this surface: the `content` part is
+        streamed to the provider, and swallow keeps no copy. Whether the image is a custom image
+        is decided by the provisioner, not by the caller. Not bounded by the short provider read
+        timeout of catalog reads.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OsImageUploadForm'
+      responses:
+        '201':
+          description: >-
+            The created image, in the shape of one catalog row. A freshly uploaded image has no
+            overlay, so its `custom*` fields are absent except `customDefaultUser` when
+            `defaultUser` was sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OsImage'
+        '400':
+          description: >-
+            `validation_error`: `integrationId`, `name`, `architecture`, or `content` is missing,
+            `content` is empty or unreadable, a text part is longer than 200 characters,
+            `defaultUser` is not a POSIX login name, or the Integration is not a provisioner; or
+            the provisioner refused the upload (unsupported `filetype`, duplicate name, no upload
+            capability) — the provider's own wording is kept.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: >-
+            `internal_error`: the provider accepted the artifact but storing its default user
+            failed; the image exists and the default user can be set with the overlay.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: a provider transport failure or 5xx during the upload, or the
+            Integration has no credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [provisioning]
+      operationId: deleteOsImage
+      summary: Delete one operator-uploaded custom OS Image from its provisioner.
+      description: >-
+        Requires role `admin`. The image is addressed by the identity the catalog returns, as query
+        parameters, because an image id can contain a slash. Also removes the swallow overlay of
+        the image.
+      parameters:
+        - $ref: '#/components/parameters/OsImageIntegrationId'
+        - $ref: '#/components/parameters/OsImageId'
+        - $ref: '#/components/parameters/OsImageArchitecture'
+      responses:
+        '204':
+          description: The image was deleted.
+        '400':
+          description: >-
+            `validation_error`: a query parameter is missing, the Integration is not a
+            provisioner, or the provisioner refused (a synced OS release, no matching deletable
+            image, or no image-deletion capability) — the provider's own wording is kept.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: '`provider_unavailable`: a provider transport failure, or the Integration has no credential.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/images/overlay:
+    patch:
+      tags: [provisioning]
+      operationId: setOsImageOverlay
+      summary: Replace the swallow-owned overlay (display fields, tags, default user) of one OS Image.
+      description: >-
+        Requires role `admin`. A PATCH replaces the whole overlay: an empty or omitted field clears
+        that override, and an all-empty overlay is removed. Swallow-local: it does not read the
+        provider catalog and never returns `503`. The new effective name and default user are
+        propagated to the Server projections best-effort.
+      parameters:
+        - $ref: '#/components/parameters/OsImageIntegrationId'
+        - $ref: '#/components/parameters/OsImageId'
+        - $ref: '#/components/parameters/OsImageArchitecture'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OsImageOverlayRequest'
+      responses:
+        '204':
+          description: The overlay was stored (or removed, when nothing remained after normalization).
+        '400':
+          description: >-
+            `validation_error`: a query parameter is missing, the body is invalid, a field or tag
+            is longer than 200 characters, there are more than 50 tags, or `defaultUser` is not a
+            POSIX login name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [provisioning]
+      operationId: clearOsImageOverlay
+      summary: Remove the swallow-owned overlay of one OS Image, reverting it to its provider values.
+      description: >-
+        Requires role `admin`. Idempotent: answers `204` even when no overlay existed.
+      parameters:
+        - $ref: '#/components/parameters/OsImageIntegrationId'
+        - $ref: '#/components/parameters/OsImageId'
+        - $ref: '#/components/parameters/OsImageArchitecture'
+      responses:
+        '204':
+          description: No overlay remains for the image.
+        '400':
+          description: '`validation_error`: a query parameter is missing.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/templates:
+    get:
+      tags: [provisioning]
+      operationId: listDeploymentTemplates
+      summary: List Deployment Templates, optionally narrowed to a Site and an Integration.
+      description: >-
+        Requires role `admin`. Filters are conjunctive; a Site and Integration that do not match
+        yield an empty list. Returns a plain array; user data is never returned.
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Only templates of this Site's provisioner Integrations.
+          schema:
+            type: string
+        - name: integrationId
+          in: query
+          required: false
+          description: Only templates of this provisioner Integration.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The matching templates.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeploymentTemplate'
+        '400':
+          description: '`validation_error`: `integrationId` names an Integration that is not a provisioner.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site or the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [provisioning]
+      operationId: createDeploymentTemplate
+      summary: Create a Deployment Template after validating its image and network against the live provisioner.
+      description: >-
+        Requires role `admin`. The response never echoes `userData`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeploymentTemplateCreateRequest'
+      responses:
+        '201':
+          description: The created template.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentTemplate'
+        '400':
+          description: >-
+            `validation_error`: the body is invalid; `integrationId`, `name`, or `imageId` is
+            missing; `deployTarget` is not `disk` or `ram`; the image or subnet is not in the
+            provisioner's live catalog; the network intent is invalid (unknown mode, a default
+            gateway outside Static, Static without a subnet); or the Integration is not a
+            provisioner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: a template with this name (case-insensitive) exists for the Integration,
+            or the provisioner offers no network configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: '`provider_unavailable`: the provisioner catalog cannot be read, or the Integration has no credential.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/templates/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Deployment Template's swallow-issued id.
+        schema:
+          type: string
+    get:
+      tags: [provisioning]
+      operationId: getDeploymentTemplate
+      summary: Read one Deployment Template's metadata, without its user data.
+      description: Requires role `admin`.
+      responses:
+        '200':
+          description: The template.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentTemplate'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the template, or its Integration, does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      tags: [provisioning]
+      operationId: updateDeploymentTemplate
+      summary: Change any subset of a Deployment Template's non-secret intent.
+      description: >-
+        Requires role `admin`. Cannot change `integrationId` and never accepts `userData`. A changed
+        image or network is validated against the live provisioner before it is stored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeploymentTemplateUpdateRequest'
+      responses:
+        '200':
+          description: The updated template.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentTemplate'
+        '400':
+          description: >-
+            `validation_error`: the body is invalid; `name` or `imageId` is empty; `deployTarget`
+            is not `disk` or `ram`; or the image, subnet, or network intent is invalid for the
+            provisioner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the template, or its Integration, does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: another template of the Integration has the new name, or a network change
+            was sent to a provisioner that offers no network configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: '`provider_unavailable`: the provisioner catalog cannot be read.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [provisioning]
+      operationId: deleteDeploymentTemplate
+      summary: Delete a Deployment Template and its sealed user data.
+      description: Requires role `admin`.
+      responses:
+        '204':
+          description: The template was deleted.
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the template does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/templates/{id}/user-data:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Deployment Template's swallow-issued id.
+        schema:
+          type: string
+    put:
+      tags: [provisioning]
+      operationId: replaceDeploymentTemplateUserData
+      summary: Replace a Deployment Template's write-only cloud-init user data.
+      description: >-
+        Requires role `admin`. The value is sealed at rest and never readable through the API; read
+        the template again for the updated `hasUserData`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeploymentTemplateUserDataRequest'
+      responses:
+        '204':
+          description: The user data was replaced.
+        '400':
+          description: '`validation_error`: the body is invalid or `userData` is empty.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the template does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [provisioning]
+      operationId: clearDeploymentTemplateUserData
+      summary: Clear a Deployment Template's sealed user data.
+      description: Requires role `admin`.
+      responses:
+        '204':
+          description: The template has no user data.
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the template does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/deployments/preflight:
+    post:
+      tags: [provisioning]
+      operationId: preflightOsDeploymentTargets
+      summary: Check, without side effects, whether Servers can be OS deployment targets now.
+      description: >-
+        Requires role `admin`. Read-only: checks target identity, presence, Ready, same-Integration,
+        and the live Server Lock; it does not inspect the network, validate an image, reserve a
+        Server, or start a deployment. A completed check answers `200` even when targets are not
+        ready. Names no deploy target, so it never reports `inspection_required`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeploymentTargetPreflightRequest'
+      responses:
+        '200':
+          description: The completed check.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentTargetPreflight'
+        '400':
+          description: >-
+            `validation_error`: the body is invalid, or `serverIds` is empty, longer than 100,
+            contains an empty id, or repeats an id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: a Server is unknown to swallow.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: '`provider_unavailable`: the live lock state cannot be read from the provisioner.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/deployments:
+    post:
+      tags: [provisioning]
+      operationId: deployServerBatchViaDeprecatedAlias
+      deprecated: true
+      summary: Deprecated direct multi-Server OS deployment; use createDeploymentOperation.
+      description: >-
+        Requires role `admin`. Kept for one release with its original wire behavior; every response
+        carries `Deprecation: true` and a successor `Link` to
+        `/api/v1/provisioning/deployment-operations`. Runs the complete preflight, then dispatches
+        with at most four workers. The `202` body is an acceptance report, not a durable job, and
+        there is no rollback.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OsDeploymentRequest'
+      responses:
+        '202':
+          description: Every target was dispatched; each one was accepted or refused by the provider.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OsDeploymentBatchResult'
+        '400':
+          description: >-
+            `validation_error`: malformed input — the target list, an unknown `deployTarget`, a
+            missing image without a template, an image not in the provisioner's live catalog, or
+            invalid user data or network intent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: a Server or the template does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: a target is absent, not ready, locked, of another Integration than the
+            other targets or the template, or needs a new inspection before a disk deployment;
+            the image is a custom image not verified for the deploy target, not fully staged, or
+            of another architecture; the provisioner cannot deploy from memory or offers no
+            network configuration; a network conflict; or the installation has no Deployment Key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: '`provider_unavailable`: the provisioner cannot be reached before dispatch.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/deployment-operations:
+    post:
+      tags: [provisioning]
+      operationId: createDeploymentOperation
+      summary: Accept a multi-Server OS deployment as one durable Workflow.
+      description: >-
+        Requires role `admin`. Takes the same request and runs the same side-effect-free preflight
+        as the deprecated direct batch, then persists one Workflow (one `provision-os` Task per
+        Server, plus its `configure-ntp` and, with Boot Media, `ensure-boot-media` Tasks). Progress
+        is read through the Workflows contract.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OsDeploymentRequest'
+      responses:
+        '202':
+          description: The Workflow was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowAccepted'
+        '400':
+          description: >-
+            `validation_error`: malformed input (see the deprecated batch), or the Workflow intent
+            was refused as invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: a Server or the template does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: a preflight conflict as for the deprecated batch, a target already held by
+            an unfinished Workflow, the installation has no Deployment Key, or it has no NTP server
+            (`SWALLOW_API_NTP_SERVER`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: durable provisioning is not wired up, the provisioner cannot be
+            reached, or the Site's automation cannot run the `configure-ntp` Tasks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/release-operations:
+    post:
+      tags: [provisioning]
+      operationId: createReleaseOperation
+      summary: Accept a Release of 1–100 Servers as one durable Workflow.
+      description: >-
+        Requires role `admin`. Validates presence, recoverable state, Site, duplicates, active work,
+        and the live Server Lock before persisting one `release-os` Task per Server. A Server a
+        Platform claims is refused for the whole batch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReleaseOperationRequest'
+      responses:
+        '202':
+          description: The Workflow was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowAccepted'
+        '400':
+          description: >-
+            `validation_error`: the body is invalid; `serverIds` is empty or longer than 100; a
+            target repeats, is in another Site, or is in a state Release is not allowed from.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: a Server is unknown to swallow.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: a target is inside an unfinished Workflow (without
+            `cancelActiveWorkflows`), is locked, or is claimed by a Platform; or a requested cancel
+            was refused for a running Workflow.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: '`provider_unavailable`: durable provisioning is not wired up, or the live lock state is unavailable.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/recover-operations:
+    post:
+      tags: [provisioning]
+      operationId: createRecoverOperation
+      summary: Accept a return to Ready of 1–100 Servers in a not-usable state as one durable Workflow.
+      description: >-
+        Requires role `admin`. Same validation as Release, then one `recover-server` Task per
+        Server. Allowed from `failed`, `broken`, `rescue`, `deployed`, and `allocated`; a target
+        already `ready` succeeds immediately. A `deployed` target a Platform claims is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecoverOperationRequest'
+      responses:
+        '202':
+          description: The Workflow was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowAccepted'
+        '400':
+          description: >-
+            `validation_error`: the body is invalid; `serverIds` is empty or longer than 100; a
+            target repeats, is in another Site, or is in a state Recover is not allowed from.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: a Server is unknown to swallow.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: a target is inside an unfinished Workflow (without
+            `cancelActiveWorkflows`), is locked, or is a `deployed` Server a Platform claims; or a
+            requested cancel was refused for a running Workflow.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: '`provider_unavailable`: durable provisioning is not wired up, or the live lock state is unavailable.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/image-verifications:
+    post:
+      tags: [provisioning]
+      operationId: createOsImageVerification
+      summary: Prove a custom OS Image for one Deploy Target by deploying it on a chosen ready Server.
+      description: >-
+        Requires role `admin`. Launches a durable `verify-os-image` Workflow: `provision-os`, one
+        record Task (success or failure), and, unless `keepServer` is true, `recover-server` to
+        return the borrowed Server.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OsImageVerificationRequest'
+      responses:
+        '202':
+          description: The Workflow was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowAccepted'
+        '400':
+          description: >-
+            `validation_error`: the body is invalid; `integrationId`, `imageId`, `architecture`, or
+            `serverId` is missing; `deployTarget` is not `disk` or `ram`; the Server is absent,
+            not `ready`, of another Integration, or of another architecture; or the image is not
+            in the provisioner's live catalog.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Server or the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: the Server is locked or held by an unfinished Workflow; the image is not
+            fully staged or the provisioner cannot deploy it in the requested target; or the
+            installation has no Deployment Key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: '`provider_unavailable`: durable provisioning is not wired up, or the provisioner cannot be reached.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/networks/inspect:
+    post:
+      tags: [provisioning]
+      operationId: inspectDeploymentNetworks
+      summary: Read the live Network Configuration and a deployment suggestion for 1–100 Servers.
+      description: >-
+        Requires role `admin`. Read-only and bounded independently from deployment preflight.
+        Targets of different Integrations are reported as `integration_mismatch` issues with an
+        empty `targets` list instead of being read.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NetworkInspectionRequest'
+      responses:
+        '200':
+          description: One observation per target, in request order, and the issues blocking a deployment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkInspection'
+        '400':
+          description: >-
+            `validation_error`: the body is invalid; `serverIds` is empty, longer than 100,
+            contains an empty id, or repeats an id; or the Integration is not a provisioner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: a Server, or its provider Machine, does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: the provisioner offers no network configuration.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: '`provider_unavailable`: the provisioner cannot be reached.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/tasks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Provisioning Task's swallow-issued id.
+        schema:
+          type: string
+    get:
+      tags: [provisioning]
+      operationId: getProvisioningTask
+      summary: Read one Provisioning Task, without its saved static-link snapshot.
+      description: Requires role `admin`.
+      responses:
+        '200':
+          description: The task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisioningTask'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the task does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/tasks/{id}/retry:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Provisioning Task's swallow-issued id.
+        schema:
+          type: string
+    post:
+      tags: [provisioning]
+      operationId: retryProvisioningTask
+      summary: Requeue a failed, retryable Provisioning Task's cleanup without repeating Release.
+      description: >-
+        Requires role `admin`. Accepted only for a `failed` task whose Release was accepted
+        (`retryable` true) while its Server is unlocked.
+      responses:
+        '202':
+          description: The cleanup was requeued; the body is the task as stored after the requeue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisioningTask'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the task, or its Server, does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: the task is not retryable, or its Server is locked.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: '`provider_unavailable`: the Server''s live lock state is unavailable.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/reconcile:
+    post:
+      tags: [provisioning]
+      operationId: reconcileAllProvisioners
+      summary: Run one inventory reconciliation pass over every enabled provisioner now.
+      description: >-
+        Requires role `admin`. Takes no body. One provisioner failing does not stop the others: its
+        failure is reported in its report's `error`. Returns a plain array, one report per enabled
+        provisioner Integration.
+      responses:
+        '200':
+          description: One report per enabled provisioner Integration.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProvisionerReconcileReport'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/integrations/{id}/reconcile:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The provisioner Integration's swallow-issued id.
+        schema:
+          type: string
+    post:
+      tags: [provisioning]
+      operationId: reconcileProvisioner
+      summary: Run one inventory reconciliation pass over one provisioner now.
+      description: >-
+        Requires role `admin`. Takes no body and runs whether or not the Integration is enabled. A
+        provider failure is reported in the report's `error` with status `200`.
+      responses:
+        '200':
+          description: The pass report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisionerReconcileReport'
+        '400':
+          description: '`validation_error`: the Integration is not a provisioner.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/integrations/{id}/enroll-bundle:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The provisioner Integration's swallow-issued id.
+        schema:
+          type: string
+    post:
+      tags: [provisioning]
+      operationId: createServerEnrollmentBundle
+      summary: Return the endpoint, credential, and command a host keeping its OS runs to enroll itself.
+      description: >-
+        Requires role `admin`. The body is optional; without `swallowUrl` the command uses the
+        scheme and host this request came in on. The response carries the provisioner's stored
+        credential, so it is never cached and never logged.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServerEnrollmentBundleRequest'
+      responses:
+        '200':
+          description: The enrollment bundle.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerEnrollmentBundle'
+        '400':
+          description: >-
+            `validation_error`: the body is invalid; `swallowUrl` is not an absolute http(s) URL
+            without path, query, or credentials; or the Integration is not a provisioner, or its
+            provider has no existing-host enrollment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: '`provider_unavailable`: the Integration has no stored credential, or Server Enrollment is not wired up.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/virtual-machine-enrollments:
+    post:
+      tags: [provisioning]
+      operationId: createVirtualMachineEnrollment
+      summary: Enroll libvirt virtual machines of a swallow Hypervisor into a provisioner.
+      description: >-
+        Requires role `admin`. Starts one `enroll-virtual-machines` Workflow that targets the
+        Hypervisor Server, with one `enroll-virtual-machine` Task per domain.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VirtualMachineEnrollmentRequest'
+      responses:
+        '202':
+          description: The Workflow was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VirtualMachineEnrollmentAccepted'
+        '400':
+          description: >-
+            `validation_error`: the body is invalid; a required field is missing; `domains` is
+            empty, repeats a name, or a name breaks the domain-name rules; the account is not a
+            POSIX login name; the Integration is not a provisioner or cannot register machines
+            with a Power Configuration; or the Boot ISO belongs to another provisioner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration, the Hypervisor Server, or the Boot ISO does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: the Hypervisor is absent, not `deployed`, has no address, is locked, or is
+            not in the Integration's Site; the installation has no Deployment Key; the Boot ISO is
+            not served; or another Workflow holds the Hypervisor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the Hypervisor's live lock state is unavailable, the
+            Integration has no credential, or virtual-machine enrollment is not wired up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/boot-isos:
+    get:
+      tags: [provisioning]
+      operationId: listBootIsos
+      summary: List Boot ISOs and whether this installation can build them.
+      description: Requires role `admin`. Filters are conjunctive.
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Only Boot ISOs of this Site's provisioner Integrations.
+          schema:
+            type: string
+        - name: integrationId
+          in: query
+          required: false
+          description: Only Boot ISOs of this provisioner Integration.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The builder's availability and the matching Boot ISOs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootIsoList'
+        '400':
+          description: '`validation_error`: `integrationId` names an Integration that is not a provisioner.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site or the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [provisioning]
+      operationId: createBootIso
+      summary: Build a Boot ISO for one provisioner Integration's MAAS rack, synchronously.
+      description: >-
+        Requires role `admin`. Builds in seconds; a failed build stores nothing. The caller's
+        username is recorded as `createdBy`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BootIsoCreateRequest'
+      responses:
+        '201':
+          description: The built Boot ISO.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootIso'
+        '400':
+          description: >-
+            `validation_error`: the body is invalid; `name`, `integrationId`, or `rackAddress` is
+            missing or invalid; or the Integration is not a provisioner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: the name is taken for the Integration (case-insensitive), or the builder is
+            unavailable (the message says why).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: '`internal_error`: building failed; the message carries the packaging tool''s summary.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/boot-isos/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Boot ISO's opaque id.
+        schema:
+          type: string
+    get:
+      tags: [provisioning]
+      operationId: getBootIso
+      summary: Read one Boot ISO.
+      description: Requires role `admin`.
+      responses:
+        '200':
+          description: The Boot ISO.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootIso'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Boot ISO does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [provisioning]
+      operationId: deleteBootIso
+      summary: Delete a Boot ISO and its file while no Server's Boot Media uses it.
+      description: Requires role `admin`.
+      responses:
+        '204':
+          description: The Boot ISO was deleted.
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Boot ISO does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: a Server has Boot Media enabled with this Boot ISO.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/boot-isos/{id}/rebuild:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Boot ISO's opaque id.
+        schema:
+          type: string
+    post:
+      tags: [provisioning]
+      operationId: rebuildBootIso
+      summary: Rebuild a Boot ISO in place from the current templates and its own rack address.
+      description: >-
+        Requires role `admin`. Takes no body. `id` and `url` do not change; a failed rebuild keeps
+        the previous file and record. Rebuilds run one at a time per installation. The caller's
+        username is recorded as `rebuiltBy`.
+      responses:
+        '200':
+          description: The rebuilt Boot ISO.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootIso'
+        '400':
+          description: '`validation_error`: the stored rack address is refused by the current rules.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Boot ISO does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: the builder is unavailable (the message says why).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: '`internal_error`: building failed; the message carries the packaging tool''s summary.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /boot-media/ipxe/{id}/swallow-ipxe.iso:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: >-
+          The Boot ISO's id. Anything that is not a Boot ISO id is `404` before a path is built, so
+          the route can only read a Boot ISO file.
+        schema:
+          type: string
+    get:
+      tags: [provisioning]
+      operationId: downloadBootIsoFile
+      summary: Serve a Boot ISO's file to a BMC or hypervisor, without authentication.
+      description: >-
+        Unauthenticated, because a BMC mounts the URL with no way to send a token; the file holds no
+        secret. HEAD is answered too (BMCs send it first). Supports byte ranges, conditional
+        requests, and `Last-Modified`, which BMC HTTP virtual media requires.
+      security: []
+      responses:
+        '200':
+          description: The whole ISO.
+          headers:
+            Accept-Ranges:
+              schema:
+                type: string
+                enum: [bytes]
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-cache]
+          content:
+            application/x-iso9660-image:
+              schema:
+                type: string
+                format: binary
+        '206':
+          description: >-
+            The requested byte range; several ranges come as `multipart/byteranges`.
+          content:
+            application/x-iso9660-image:
+              schema:
+                type: string
+                format: binary
+            multipart/byteranges:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: Not modified since `If-Modified-Since`.
+        '404':
+          description: Not a Boot ISO id, or the Boot ISO has no file.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '412':
+          description: An `If-Unmodified-Since` precondition failed.
+        '416':
+          description: The requested range cannot be satisfied.
+          content:
+            text/plain:
+              schema:
+                type: string
+        default:
+          $ref: '#/components/responses/Error'
+  /downloads/swallow-enroll.sh:
+    get:
+      tags: [provisioning]
+      operationId: downloadServerEnrollmentScript
+      summary: Serve the Server Enrollment script, without authentication.
+      description: >-
+        Unauthenticated, because the host being enrolled has no swallow credential; the script holds
+        none. Its built-in CLI download address is the scheme (from `X-Forwarded-Proto`) and host of
+        this request.
+      security: []
+      responses:
+        '200':
+          description: The POSIX shell script.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-cache]
+          content:
+            text/x-shellscript:
+              schema:
+                type: string
+        default:
+          $ref: '#/components/responses/Error'
+  /downloads/swallow:
+    get:
+      tags: [provisioning]
+      operationId: downloadSwallowCli
+      summary: Serve the linux-amd64 swallow CLI binary, without authentication.
+      description: >-
+        Unauthenticated, for the enrollment script. Serves the file at `api.cliBinary`, read per
+        request and streamed. HEAD and byte ranges are answered too.
+      security: []
+      responses:
+        '200':
+          description: The CLI binary.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                enum: ['attachment; filename="swallow"']
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '206':
+          description: The requested byte range of the CLI binary.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: Not modified since `If-Modified-Since`.
+        '404':
+          description: >-
+            The installation does not serve its CLI (`api.cliBinary` is not set) or the file is
+            missing; the body is a plain-text reason the enrollment script shows.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '416':
+          description: The requested range cannot be satisfied.
+          content:
+            text/plain:
+              schema:
+                type: string
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  parameters:
+    OsImageIntegrationId:
+      name: integrationId
+      in: query
+      required: true
+      description: The provisioner Integration whose catalog holds the image.
+      schema:
+        type: string
+    OsImageId:
+      name: imageId
+      in: query
+      required: true
+      description: The OS Image's provider id as the catalog returns it; it can contain a slash.
+      schema:
+        type: string
+    OsImageArchitecture:
+      name: architecture
+      in: query
+      required: true
+      description: The image's architecture as the catalog returns it; one image id can back several.
+      schema:
+        type: string
+  schemas:
+    OsImage:
+      type: object
+      description: >-
+        One deployable OS Image of a provisioner. `name`, `osSystem`, and `release` are the
+        effective values (the swallow overlay value when set, else the provider value); `provider*`
+        always carry the provider's values and `custom*` the overrides.
+      required:
+        - id
+        - name
+        - providerName
+        - osSystem
+        - providerOsSystem
+        - release
+        - providerRelease
+        - tags
+        - architecture
+        - verifiedDeployTargets
+        - failedDeployTargets
+      properties:
+        id:
+          type: string
+          description: The provider's image id; with `architecture` it identifies the deployable artifact and is never overridable.
+        name:
+          type: string
+        providerName:
+          type: string
+        customName:
+          type: string
+          description: Omitted when the name has no override.
+        osSystem:
+          type: string
+        providerOsSystem:
+          type: string
+          description: The provider's classification; `custom` for an uploaded image.
+        customOsSystem:
+          type: string
+          description: Omitted when the OS has no override.
+        release:
+          type: string
+        providerRelease:
+          type: string
+        customRelease:
+          type: string
+          description: Omitted when the release has no override.
+        tags:
+          type: array
+          description: Swallow-owned labels; empty when the image has none.
+          items:
+            type: string
+        defaultUser:
+          type: string
+          description: >-
+            The effective login user automation uses on Servers deployed with the image: the
+            overlay value, else swallow's built-in for the provider OS family. Omitted when none
+            applies.
+        customDefaultUser:
+          type: string
+          description: The overlay's default user; omitted when none is set.
+        architecture:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Provider-reported size of the newest complete resource set; omitted when unknown.
+        verifiedDeployTargets:
+          type: array
+          description: The Deploy Targets a swallow verification proved; empty when none.
+          items:
+            type: string
+            enum: [disk, ram]
+        failedDeployTargets:
+          type: array
+          description: The Deploy Targets whose latest verification failed; never overlaps `verifiedDeployTargets`.
+          items:
+            type: string
+            enum: [disk, ram]
+    OsImageUploadForm:
+      type: object
+      description: The multipart parts of an OS Image upload; text parts are trimmed.
+      required:
+        - integrationId
+        - name
+        - architecture
+        - content
+      properties:
+        integrationId:
+          type: string
+          description: The target provisioner Integration.
+        name:
+          type: string
+          maxLength: 200
+          description: The operator-chosen image name, mapped into the provider's namespace.
+        architecture:
+          type: string
+          maxLength: 200
+          description: The CPU architecture, for example `amd64`.
+        title:
+          type: string
+          maxLength: 200
+          description: A human-readable label.
+        filetype:
+          type: string
+          maxLength: 200
+          description: The artifact format, validated by the provider; the provider's default when omitted.
+        defaultUser:
+          type: string
+          pattern: '^[a-z_][a-z0-9_-]{0,31}$'
+          description: Stored as the overlay's default user once the provider accepts the upload.
+        content:
+          type: string
+          format: binary
+          description: The non-empty image file, streamed to the provider.
+    OsImageOverlayRequest:
+      type: object
+      description: >-
+        The whole swallow-owned overlay of one OS Image. Every field is optional and trimmed; an
+        empty or omitted field clears its override.
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        osSystem:
+          type: string
+          maxLength: 200
+        release:
+          type: string
+          maxLength: 200
+        tags:
+          type: array
+          maxItems: 50
+          description: Trimmed, blanks dropped, duplicates removed in order.
+          items:
+            type: string
+            maxLength: 200
+        defaultUser:
+          type: string
+          description: A POSIX login name (`^[a-z_][a-z0-9_-]{0,31}$`), or empty to clear.
+    DeploymentTemplate:
+      type: object
+      description: Swallow-owned, Integration-scoped deployment intent. User data is write-only and never returned.
+      required:
+        - id
+        - siteId
+        - integrationId
+        - name
+        - description
+        - imageId
+        - ephemeral
+        - network
+        - hasUserData
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        siteId:
+          type: string
+          description: The Site of the template's Integration.
+        integrationId:
+          type: string
+        name:
+          type: string
+          description: Trimmed and unique within the Integration, case-insensitively.
+        description:
+          type: string
+        imageId:
+          type: string
+        ephemeral:
+          type: boolean
+          description: The Deploy Target at the wire boundary (`false` is `disk`, `true` is `ram`).
+        network:
+          $ref: '#/components/schemas/DeploymentTemplateNetwork'
+        hasUserData:
+          type: boolean
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    DeploymentTemplateNetwork:
+      type: object
+      description: Reusable network intent; never a NIC id or a target-specific static IP.
+      required:
+        - mode
+        - subnetId
+        - defaultGateway
+      properties:
+        mode:
+          type: string
+          enum: [automatic, dhcp, static]
+          description: Deployment network mode; a template stored without network intent reads as `automatic`.
+        subnetId:
+          type: string
+          description: A live provider subnet, or empty.
+        defaultGateway:
+          type: boolean
+    DeploymentTemplateNetworkIntent:
+      type: object
+      description: Network intent sent with a template; a missing `mode` means `automatic`.
+      properties:
+        mode:
+          type: string
+          enum: [automatic, dhcp, static]
+        subnetId:
+          type: string
+          description: Required for `static`.
+        defaultGateway:
+          type: boolean
+          description: Valid only for `static`; defaults to false.
+    DeploymentTemplateCreateRequest:
+      type: object
+      required:
+        - integrationId
+        - name
+        - imageId
+      properties:
+        integrationId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        imageId:
+          type: string
+          description: Must be in the provisioner's live catalog.
+        deployTarget:
+          type: string
+          enum: [disk, ram]
+          description: The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
+        ephemeral:
+          type: boolean
+          deprecated: true
+          description: Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
+        network:
+          $ref: '#/components/schemas/DeploymentTemplateNetworkIntent'
+        userData:
+          type: string
+          writeOnly: true
+          description: Optional cloud-init user data, sealed at rest and never returned.
+    DeploymentTemplateUpdateRequest:
+      type: object
+      description: Any subset of the template's non-secret intent; omitted fields are unchanged.
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        imageId:
+          type: string
+        deployTarget:
+          type: string
+          enum: [disk, ram]
+          description: The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
+        ephemeral:
+          type: boolean
+          deprecated: true
+          description: Deprecated alias of `deployTarget`.
+        network:
+          $ref: '#/components/schemas/DeploymentTemplateNetworkIntent'
+    DeploymentTemplateUserDataRequest:
+      type: object
+      required:
+        - userData
+      properties:
+        userData:
+          type: string
+          minLength: 1
+          writeOnly: true
+          description: The cloud-init user data, sealed at rest and never returned.
+    DeploymentTargetPreflightRequest:
+      type: object
+      required:
+        - serverIds
+      properties:
+        serverIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+    DeploymentTargetPreflight:
+      type: object
+      required:
+        - valid
+        - integrationId
+        - issues
+      properties:
+        valid:
+          type: boolean
+          description: True when no target has an issue.
+        integrationId:
+          type: string
+          description: The Integration of the first target, which every target must share.
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeploymentTargetIssue'
+    DeploymentTargetIssue:
+      type: object
+      description: One operator-remediable reason a target cannot be deployed now.
+      required:
+        - serverId
+        - code
+        - message
+      properties:
+        serverId:
+          type: string
+        code:
+          type: string
+          enum:
+            - integration_mismatch
+            - absent
+            - not_ready
+            - locked
+            - provider_machine_missing
+            - provider_not_ready
+        message:
+          type: string
+    OsDeploymentRequest:
+      type: object
+      description: >-
+        One OS deployment configuration for 1–100 Servers. Without `templateId`,
+        `settings.imageId` is required, the deploy target defaults to `disk`, and user data to
+        `omit`; with a template, omitted settings come from it and user data defaults to `inherit`.
+      required:
+        - serverIds
+      properties:
+        serverIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+        templateId:
+          type: string
+        settings:
+          $ref: '#/components/schemas/OsDeploymentSettings'
+        userData:
+          $ref: '#/components/schemas/OsDeploymentUserData'
+        network:
+          $ref: '#/components/schemas/OsDeploymentNetworkIntent'
+    OsDeploymentSettings:
+      type: object
+      description: Overrides of the template's non-secret settings.
+      properties:
+        imageId:
+          type: string
+        deployTarget:
+          type: string
+          enum: [disk, ram]
+          description: The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
+        ephemeral:
+          type: boolean
+          deprecated: true
+          description: Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
+    OsDeploymentUserData:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [inherit, replace, omit]
+          description: '`inherit` needs a template; `replace` needs a non-empty `value`.'
+        value:
+          type: string
+          writeOnly: true
+          description: Cloud-init user data for this request only (`replace`); never stored readable or returned.
+    OsDeploymentNetworkIntent:
+      type: object
+      description: >-
+        Deployment network intent; a missing object means `automatic`. Each target uses its boot
+        NIC unless an assignment overrides it.
+      properties:
+        mode:
+          type: string
+          enum: [automatic, dhcp, static]
+        subnetId:
+          type: string
+        defaultGateway:
+          type: boolean
+          description: Valid only for `static`.
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/OsDeploymentNetworkAssignment'
+    OsDeploymentNetworkAssignment:
+      type: object
+      description: Target-specific values a template cannot hold.
+      required:
+        - serverId
+      properties:
+        serverId:
+          type: string
+        interfaceId:
+          type: string
+          description: Empty selects the boot NIC.
+        subnetId:
+          type: string
+        ipAddress:
+          type: string
+          description: The unique static IPv4 address of the target; valid and required only for `static`.
+    OsDeploymentBatchResult:
+      type: object
+      description: The acceptance report of the deprecated direct batch, in target order.
+      required:
+        - requested
+        - accepted
+        - failed
+      properties:
+        requested:
+          type: integer
+          minimum: 1
+        accepted:
+          type: array
+          description: >-
+            The provisioning snapshot of each target the provider accepted, as returned on
+            acceptance (the provisioning-state shape of server-detail-actions.md).
+          items:
+            type: object
+            required:
+              - serverId
+              - state
+              - providerState
+              - powerState
+              - osSystem
+              - distroSeries
+              - ephemeral
+              - hweKernel
+              - locked
+              - commissioningStatus
+              - testingStatus
+              - observedAt
+            properties:
+              serverId:
+                type: string
+              state:
+                type: string
+                description: The OS Provisioning State.
+                enum:
+                  - new
+                  - inspecting
+                  - ready
+                  - allocated
+                  - deploying
+                  - deployed
+                  - releasing
+                  - testing
+                  - rescue
+                  - broken
+                  - failed
+                  - retired
+                  - unknown
+              providerState:
+                type: string
+                description: The provider's own label; display only.
+              powerState:
+                type: string
+                description: The power state as the provider reports it (`on`, `off`, `error`, `unknown`).
+              osSystem:
+                type: string
+              distroSeries:
+                type: string
+              ephemeral:
+                type: boolean
+              hweKernel:
+                type: string
+              locked:
+                type: boolean
+              commissioningStatus:
+                type: string
+              taskId:
+                type: string
+                description: A Provisioning Task the action created; omitted when none.
+              testingStatus:
+                type: string
+              observedAt:
+                $ref: '#/components/schemas/Timestamp'
+              inspectionRequired:
+                type: boolean
+                description: Present (true) only when a disk deployment needs a new inspection first.
+              inspectionRequiredReason:
+                type: string
+        failed:
+          type: array
+          items:
+            $ref: '#/components/schemas/OsDeploymentFailure'
+    OsDeploymentFailure:
+      type: object
+      description: A target the provider refused after the whole batch passed preflight; accepted targets are not rolled back.
+      required:
+        - serverId
+        - stage
+        - code
+        - message
+      properties:
+        serverId:
+          type: string
+        stage:
+          type: string
+          enum: [network_configuration, deployment]
+        code:
+          type: string
+          enum: [provider_rejected, provider_unavailable, provider_error]
+        message:
+          type: string
+          description: Keeps the provider's actionable validation detail; never carries secret values.
+    ReleaseOperationRequest:
+      type: object
+      required:
+        - serverIds
+      properties:
+        serverIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+        erase:
+          type: boolean
+        secureErase:
+          type: boolean
+        quickErase:
+          type: boolean
+        comment:
+          type: string
+        unbindStaticIPs:
+          type: boolean
+          description: Also remove the static IP bindings captured before the Release.
+        cancelActiveWorkflows:
+          type: boolean
+          description: Supersede the unfinished Workflows holding the targets instead of refusing; default false.
+    RecoverOperationRequest:
+      type: object
+      required:
+        - serverIds
+      properties:
+        serverIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+        comment:
+          type: string
+        unbindStaticIPs:
+          type: boolean
+          description: Behaves as for Release when the recovery path performs a Release.
+        cancelActiveWorkflows:
+          type: boolean
+          description: Behaves as for Release; default false.
+    OsImageVerificationRequest:
+      type: object
+      required:
+        - integrationId
+        - imageId
+        - architecture
+        - deployTarget
+        - serverId
+      properties:
+        integrationId:
+          type: string
+        imageId:
+          type: string
+        architecture:
+          type: string
+        deployTarget:
+          type: string
+          enum: [disk, ram]
+          description: Matched case-insensitively.
+        serverId:
+          type: string
+          description: The ready Server the verification borrows.
+        keepServer:
+          type: boolean
+          description: Leave the Server deployed instead of returning it to Ready; default false.
+    NetworkInspectionRequest:
+      type: object
+      required:
+        - serverIds
+      properties:
+        serverIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+    NetworkInspection:
+      type: object
+      required:
+        - targets
+        - issues
+      properties:
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkInspectionTarget'
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkInspectionIssue'
+    NetworkInspectionIssue:
+      type: object
+      description: A target that needs operator input before a deployment.
+      required:
+        - serverId
+        - code
+        - message
+      properties:
+        serverId:
+          type: string
+        code:
+          type: string
+          enum: [integration_mismatch, network_interface_required, network_selection_required]
+        message:
+          type: string
+    NetworkInspectionTarget:
+      type: object
+      description: >-
+        One Server's typed live Network Configuration, whether it may be edited now, and swallow's
+        non-authoritative deployment suggestion.
+      required:
+        - serverId
+        - editable
+        - disabledReason
+        - suggestion
+        - network
+      properties:
+        serverId:
+          type: string
+        editable:
+          type: boolean
+          description: True for a present, unlocked, `ready` Server.
+        disabledReason:
+          type: string
+          description: Why the network cannot be edited now; empty when `editable`.
+        suggestion:
+          $ref: '#/components/schemas/NetworkInspectionSuggestion'
+        network:
+          type: object
+          required:
+            - interfaces
+          properties:
+            interfaces:
+              type: array
+              items:
+                $ref: '#/components/schemas/NetworkInspectionInterface'
+    NetworkInspectionSuggestion:
+      type: object
+      description: The suggested deployment intent; empty ids mean operator input is required.
+      required:
+        - mode
+        - interfaceId
+        - subnetId
+        - ipAddress
+        - defaultGateway
+      properties:
+        mode:
+          type: string
+          enum: [automatic, dhcp, static]
+        interfaceId:
+          type: string
+        subnetId:
+          type: string
+        ipAddress:
+          type: string
+        defaultGateway:
+          type: boolean
+    NetworkInspectionInterface:
+      type: object
+      description: One NIC as the provisioner reports it now.
+      required:
+        - id
+        - name
+        - macAddress
+        - boot
+        - physicalState
+        - configurationState
+        - rawProviderMode
+        - links
+        - availableSubnets
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        macAddress:
+          type: string
+        boot:
+          type: boolean
+        physicalState:
+          type: string
+          enum: [up, down, unknown]
+        configurationState:
+          type: string
+          enum: [dhcp, static, link_only, unconfigured, provider_managed, unknown]
+        rawProviderMode:
+          type: string
+          description: The provider's own mode; diagnostic only, never writable intent.
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkInspectionLink'
+        availableSubnets:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkInspectionSubnet'
+    NetworkInspectionLink:
+      type: object
+      description: One provider-owned subnet link of a NIC.
+      required:
+        - id
+        - configurationState
+        - rawProviderMode
+        - subnetId
+        - subnetName
+        - cidr
+        - ipAddress
+        - defaultGateway
+      properties:
+        id:
+          type: string
+        configurationState:
+          type: string
+          enum: [dhcp, static, link_only, unconfigured, provider_managed, unknown]
+        rawProviderMode:
+          type: string
+          description: Diagnostic only.
+        subnetId:
+          type: string
+        subnetName:
+          type: string
+        cidr:
+          type: string
+        ipAddress:
+          type: string
+        defaultGateway:
+          type: boolean
+    NetworkInspectionSubnet:
+      type: object
+      description: A live provider subnet the NIC can link to; swallow never stores it.
+      required:
+        - id
+        - name
+        - cidr
+        - gatewayAddress
+        - managed
+        - provisionerDhcp
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        cidr:
+          type: string
+        gatewayAddress:
+          type: string
+        managed:
+          type: boolean
+        provisionerDhcp:
+          type: boolean
+          description: True when the provisioner itself serves DHCP on the subnet; false means any DHCP there is the site's.
+    ProvisioningTask:
+      type: object
+      description: Swallow-owned durable coordination of provider-backed cleanup, without its saved static-link snapshot.
+      required:
+        - id
+        - kind
+        - serverId
+        - status
+        - phase
+        - attempt
+        - retryable
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [release_network_cleanup]
+        serverId:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, succeeded, failed]
+        phase:
+          type: string
+          enum: [waiting_for_release, waiting_for_ready, cleaning_network, complete]
+        attempt:
+          type: integer
+          minimum: 0
+        error:
+          type: string
+          description: The latest failure; omitted when none.
+        requestId:
+          type: string
+          description: The request that created the task; omitted when unknown.
+        retryable:
+          type: boolean
+          description: True only for a `failed` task whose Release was accepted.
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    ProvisionerReconcileReport:
+      type: object
+      description: The outcome of one reconciliation pass over one provisioner's inventory.
+      required:
+        - integrationId
+        - integrationName
+        - siteId
+        - machines
+        - created
+        - updated
+        - relinked
+        - markedAbsent
+        - conflicts
+        - error
+      properties:
+        integrationId:
+          type: string
+        integrationName:
+          type: string
+        siteId:
+          type: string
+        machines:
+          type: integer
+          minimum: 0
+          description: Machines the provisioner reported.
+        created:
+          type: integer
+          minimum: 0
+        updated:
+          type: integer
+          minimum: 0
+        relinked:
+          type: integer
+          minimum: 0
+        markedAbsent:
+          type: integer
+          minimum: 0
+        conflicts:
+          type: array
+          description: Machines the pass refused to project; they need an operator.
+          items:
+            $ref: '#/components/schemas/ProvisionerReconcileConflict'
+        error:
+          type: string
+          nullable: true
+          description: Why the pass failed, or null when it completed.
+    ProvisionerReconcileConflict:
+      type: object
+      required:
+        - providerMachineId
+        - hostname
+        - reason
+        - candidateServerIds
+      properties:
+        providerMachineId:
+          type: string
+        hostname:
+          type: string
+        reason:
+          type: string
+        candidateServerIds:
+          type: array
+          items:
+            type: string
+    ServerEnrollmentBundleRequest:
+      type: object
+      properties:
+        swallowUrl:
+          type: string
+          format: uri
+          description: >-
+            The address the host reaches this installation at: an absolute http(s) URL without
+            path, query, or credentials (a trailing `/` is dropped).
+    ServerEnrollmentBundle:
+      type: object
+      description: What a host keeping its OS needs to enroll itself into one provisioner.
+      required:
+        - integrationId
+        - providerKind
+        - endpoint
+        - token
+        - command
+      properties:
+        integrationId:
+          type: string
+        providerKind:
+          type: string
+          description: The provisioner kind, for example `maas`.
+        endpoint:
+          type: string
+          description: The provider address the host must reach (for MAAS its region URL, without `/api/2.0`).
+        token:
+          type: string
+          description: The Integration's stored provider credential; the one exception to write-only credentials.
+        command:
+          type: string
+          description: The one shell-quoted line to run on the host as root.
+    VirtualMachineEnrollmentRequest:
+      type: object
+      required:
+        - integrationId
+        - hypervisorServerId
+        - domains
+      properties:
+        integrationId:
+          type: string
+          description: The provisioner the virtual machines enroll into; it must be in the Hypervisor's Site.
+        hypervisorServerId:
+          type: string
+        domains:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            description: A libvirt domain name without surrounding whitespace, `/`, or control characters.
+        bootIsoId:
+          type: string
+          description: A Boot ISO of the same provisioner to give each virtual machine libvirt Boot Media.
+        account:
+          type: string
+          description: The login account on the Hypervisor; defaults to its effective Server Default User.
+        powerOffRunning:
+          type: boolean
+          description: Hard power-off a running domain instead of asking for attention; default false.
+    VirtualMachineEnrollmentAccepted:
+      type: object
+      required:
+        - workflowId
+      properties:
+        workflowId:
+          type: string
+    BootIso:
+      type: object
+      description: A swallow-built iPXE Boot ISO that chains to one provisioner Integration's MAAS rack.
+      required:
+        - id
+        - name
+        - siteId
+        - integrationId
+        - rackAddress
+        - chainUrl
+        - uefiChainUrl
+        - script
+        - grubConfig
+        - ipxeVersion
+        - sizeBytes
+        - sha256
+        - url
+        - inUseBy
+        - createdAt
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          description: Unique per Integration (case-insensitive), 1–63 characters.
+        siteId:
+          type: string
+          description: The Integration's Site; empty when the Integration no longer exists.
+        integrationId:
+          type: string
+        rackAddress:
+          type: string
+          description: The MAAS rack as given, an IPv4 address or hostname with an optional `:port`.
+        chainUrl:
+          type: string
+          description: What iPXE chains to on BIOS firmware.
+        uefiChainUrl:
+          type: string
+          description: What the ISO's GRUB loads on UEFI firmware; empty for an ISO without a GRUB.
+        script:
+          type: string
+          description: The rendered iPXE script; display only.
+        grubConfig:
+          type: string
+          description: The rendered GRUB configuration; empty for an ISO that predates it. Display only.
+        ipxeVersion:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        sha256:
+          type: string
+        url:
+          type: string
+          description: Where BMCs mount the ISO; empty when the installation has no Boot Media base URL.
+        inUseBy:
+          type: integer
+          minimum: 0
+          description: Servers with Boot Media enabled with this ISO.
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        createdBy:
+          type: string
+          description: The username that built it; omitted when unknown.
+        rebuiltAt:
+          $ref: '#/components/schemas/Timestamp'
+        rebuiltBy:
+          type: string
+          description: Omitted, like `rebuiltAt`, when the ISO was never rebuilt.
+    BootIsoBuilder:
+      type: object
+      required:
+        - available
+      properties:
+        available:
+          type: boolean
+        reason:
+          type: string
+          description: Why this installation cannot build Boot ISOs; omitted when `available`.
+    BootIsoList:
+      type: object
+      required:
+        - builder
+        - items
+      properties:
+        builder:
+          $ref: '#/components/schemas/BootIsoBuilder'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootIso'
+    BootIsoCreateRequest:
+      type: object
+      required:
+        - name
+        - integrationId
+        - rackAddress
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 63
+        integrationId:
+          type: string
+        rackAddress:
+          type: string
+          description: An IPv4 address or hostname, optionally with `:port` (1–65535); swallow neither resolves nor contacts it.

@@ -1,0 +1,1207 @@
+# Operator overview, monitoring reads (alerts, current metric values, usage history), and the
+# machine-to-machine discovery projections (overview.md, monitoring-alerts.md, server-metrics.md,
+# discovery-prometheus.md).
+tags:
+  - name: monitoring
+    description: >-
+      The operator overview, alerts read from Alertmanager, named metric queries against the
+      metrics backend, and the Prometheus and Ansible discovery projections of the Server
+      inventory. swallow stores no alerts and no metrics.
+paths:
+  /api/v1/overview:
+    get:
+      tags: [monitoring]
+      operationId: getOverview
+      summary: Read the site-scoped, point-in-time operator overview.
+      description: >-
+        Requires the `admin` role. Derives every section from its owning context and stores no
+        overview state. An absent or failing alert source is reported inside `monitoring` with a
+        200; every other read failure fails the request (overview.md).
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Scope every section to one Site. Omit for the swallow-wide view.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The overview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Overview'
+        '401':
+          description: Missing or invalid credential (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The caller is not an admin (forbidden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: The siteId does not identify a Site (not_found).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: A durable repository read or mapping failed (internal_error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/monitoring/alerts:
+    get:
+      tags: [monitoring]
+      operationId: listAlerts
+      summary: List the alerts Alertmanager currently knows, correlated to swallow resources.
+      description: >-
+        Requires the `admin` role. Returns firing and suppressed (silenced or inhibited) alerts as
+        a plain array, most severe first (`critical`, `warning`, `info`, then any other severity),
+        then newest `startsAt` first. Filters are not validated: a value that matches no alert
+        yields an empty array (monitoring-alerts.md).
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Read the alert source of this Site's metrics Integration. Omit to use any.
+          schema:
+            type: string
+        - name: serverId
+          in: query
+          required: false
+          description: Keep only alerts correlated to this Server.
+          schema:
+            type: string
+        - name: severity
+          in: query
+          required: false
+          description: Keep only alerts with this severity label (case-insensitive).
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          description: >-
+            Keep only alerts in this state, compared exactly (`firing`, `suppressed`, or
+            `unknown`). Omit for every state.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The alerts; an empty array when none match.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MonitoringAlert'
+        '400':
+          description: Alertmanager rejected the request (validation_error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid credential (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The caller is not an admin (forbidden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected failure (internal_error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            No metrics Integration is registered, it sets no Alertmanager address, or Alertmanager
+            cannot be read (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/monitoring/alerts/{fingerprint}/acknowledge:
+    post:
+      tags: [monitoring]
+      operationId: acknowledgeAlert
+      summary: Acknowledge an alert by creating a label-matched Alertmanager silence.
+      description: >-
+        Requires the `admin` role. There is no swallow-side acknowledged flag: the silence lives in
+        Alertmanager and matches `matchers` by exact label equality; the path fingerprint only
+        names the alert being acknowledged. The caller's username is recorded as the silence's
+        creator (monitoring-alerts.md).
+      parameters:
+        - name: fingerprint
+          in: path
+          required: true
+          description: Alertmanager's opaque fingerprint of the alert.
+          schema:
+            type: string
+        - name: siteId
+          in: query
+          required: false
+          description: Silence in this Site's Alertmanager. Omit to use any metrics Integration's.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertAcknowledgement'
+      responses:
+        '200':
+          description: The silence was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertSilence'
+        '400':
+          description: >-
+            The body is not valid JSON, `matchers` is missing or empty, `duration` is not a
+            positive Go duration, or Alertmanager rejected the silence (validation_error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid credential (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The caller is not an admin (forbidden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected failure (internal_error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            No metrics Integration is registered, it sets no Alertmanager address, or Alertmanager
+            cannot be reached (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/monitoring/metrics:
+    get:
+      tags: [monitoring]
+      operationId: getMetricValues
+      summary: Read the current value of named metrics for explicit Servers.
+      description: >-
+        Requires the `admin` role. Evaluates each requested named query at the current instant.
+        `items` has one entry per requested Server in the requested order; a metric with no data
+        is absent from that Server's `metrics`, never zero (server-metrics.md, Current Values).
+      parameters:
+        - name: serverIds
+          in: query
+          required: true
+          description: >-
+            Comma-separated Server ids, at most 200. Each id may contain only letters, digits,
+            `-`, and `_`.
+          style: form
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 200
+            items:
+              type: string
+        - $ref: '#/components/parameters/MetricNames'
+      responses:
+        '200':
+          description: The current values.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricValues'
+        '400':
+          description: >-
+            `serverIds` is missing, lists more than 200 Servers, or contains an id with characters
+            outside the identifier set; a metric name is unknown; or the backend rejected the
+            query (validation_error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid credential (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The caller is not an admin (forbidden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected failure (internal_error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            No metrics backend is registered, or it cannot be reached or rejects swallow's
+            credential (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/monitoring/metrics/range:
+    get:
+      tags: [monitoring]
+      operationId: getMetricRange
+      summary: Read bounded usage history of named metrics over a scope of Servers.
+      description: >-
+        Requires the `admin` role. Exactly one scope parameter (`serverIds`, `poolId`, `zoneId`,
+        or `platformId`) must be sent; a grouping resolves to its current non-absent members when
+        the request is served. swallow chooses the step (about 180 points, a multiple of 30 s). A
+        scope resolving to zero Servers answers 200 without contacting the backend
+        (server-metrics.md, Usage History).
+      parameters:
+        - name: serverIds
+          in: query
+          required: false
+          description: >-
+            Scope: comma-separated explicit Server ids, at most 200. Each id may contain only
+            letters, digits, `-`, and `_`.
+          style: form
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 200
+            items:
+              type: string
+        - name: poolId
+          in: query
+          required: false
+          description: Scope the Servers currently placed in this Pool.
+          schema:
+            type: string
+        - name: zoneId
+          in: query
+          required: false
+          description: Scope the Servers currently placed in this Zone.
+          schema:
+            type: string
+        - name: platformId
+          in: query
+          required: false
+          description: Scope the Servers whose membership axis names this Platform.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/MetricNames'
+        - name: window
+          in: query
+          required: false
+          description: >-
+            A named range ending now. Defaults to `1h` when neither `window` nor `start`/`end` is
+            sent; mutually exclusive with `start`/`end`.
+          schema:
+            type: string
+            enum: ['1h', '6h', '24h', '7d']
+        - name: start
+          in: query
+          required: false
+          description: >-
+            Explicit range start (RFC 3339); sent together with `end`. The span must be between 5
+            minutes and 7 days.
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          required: false
+          description: Explicit range end (RFC 3339); sent together with `start`, after it.
+          schema:
+            type: string
+            format: date-time
+        - name: mode
+          in: query
+          required: false
+          description: >-
+            `aggregate` combines the scope into one series per metric using the metric's scope
+            aggregate; `perServer` returns one series per metric and Server and allows at most 50
+            Servers.
+          schema:
+            type: string
+            enum: [aggregate, perServer]
+            default: aggregate
+      responses:
+        '200':
+          description: The usage history.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricRange'
+        '400':
+          description: >-
+            No or more than one scope parameter; more than 200 `serverIds` or an id outside the
+            identifier set; an unknown metric, `window`, or `mode`; `window` with `start`/`end`;
+            only one of `start`/`end`, an unparsable timestamp, `start` not before `end`, or a span
+            outside 5 minutes to 7 days; a scope over 1000 Servers; `perServer` over 50 Servers;
+            or the backend rejected the query (validation_error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid credential (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The caller is not an admin (forbidden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: The `poolId`, `zoneId`, or `platformId` does not exist (not_found).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected failure (internal_error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            No metrics backend is registered, or it cannot be reached or rejects swallow's
+            credential (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/monitoring/metrics/names:
+    get:
+      tags: [monitoring]
+      operationId: listMetricNames
+      summary: List the fixed set of metric names a client may request.
+      description: >-
+        Requires the `admin` role. A plain array in operator scan order; the order is not
+        significant to a consumer (server-metrics.md, Metric Names).
+      responses:
+        '200':
+          description: The metric names.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MetricName'
+        '401':
+          description: Missing or invalid credential (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The caller is not an admin (forbidden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/prometheus:
+    get:
+      tags: [monitoring]
+      operationId: listPrometheusTargets
+      summary: Serve the Prometheus http_sd target list with the metrics label contract attached.
+      description: >-
+        Machine authentication: the installation machine token, or an admin access token (API
+        Keys are not accepted). Never paginated. A Server with no known address is omitted; a
+        locked Server stays discoverable (discovery-prometheus.md).
+      security:
+        - machineToken: []
+      parameters:
+        - name: port
+          in: query
+          required: false
+          description: Exporter port placed in each target (9100 node-exporter, 5000 RDC exporter).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 65535
+            default: 9100
+        - name: tag
+          in: query
+          required: false
+          description: Keep only Servers carrying this provisioner tag (e.g. `amd-gpu`).
+          schema:
+            type: string
+        - name: siteId
+          in: query
+          required: false
+          description: Keep only Servers of this Site.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/DiscoveryProvisioningState'
+      responses:
+        '200':
+          description: The target list in Prometheus http_sd shape; an empty array when none match.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PrometheusTarget'
+        '400':
+          description: '`port` is not an integer between 1 and 65535 (validation_error).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid machine token or access token (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: A valid access token whose role is not admin (forbidden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected failure (internal_error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/discovery/ansible:
+    get:
+      tags: [monitoring]
+      operationId: getAnsibleInventory
+      summary: Serve the Ansible dynamic inventory projection of the Server inventory.
+      description: >-
+        Machine authentication: the installation machine token, or an admin access token (API
+        Keys are not accepted). For diagnostics and external tools; the embedded runner calls the
+        same projection directly. Hosts are keyed by Server id and a Server with no known address
+        is omitted. Never paginated (discovery-prometheus.md, Ansible Inventory).
+      security:
+        - machineToken: []
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Keep only Servers of this Site.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/DiscoveryProvisioningState'
+      responses:
+        '200':
+          description: The inventory in Ansible's dynamic-inventory JSON shape.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnsibleInventory'
+        '401':
+          description: Missing or invalid machine token or access token (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: A valid access token whose role is not admin (forbidden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected failure (internal_error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  parameters:
+    MetricNames:
+      name: metrics
+      in: query
+      required: false
+      description: Comma-separated metric names to evaluate; every name when omitted.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/MetricName'
+    DiscoveryProvisioningState:
+      name: provisioningState
+      in: query
+      required: false
+      description: >-
+        Keep only Servers in this provisioning state. Defaults to `deployed`; the literal `all`
+        removes the filter.
+      schema:
+        type: string
+        default: deployed
+  schemas:
+    Overview:
+      type: object
+      description: One coherent, point-in-time operator overview (overview.md).
+      required:
+        - generatedAt
+        - scope
+        - inventory
+        - integrations
+        - platforms
+        - clusters
+        - operations
+        - monitoring
+      properties:
+        generatedAt:
+          $ref: '#/components/schemas/Timestamp'
+        scope:
+          type: object
+          required: [siteId]
+          properties:
+            siteId:
+              type: string
+              nullable: true
+              description: The scoped Site, or null for the swallow-wide view.
+        inventory:
+          $ref: '#/components/schemas/OverviewInventory'
+        integrations:
+          type: object
+          required: [total, failing, items]
+          properties:
+            total:
+              type: integer
+            failing:
+              type: integer
+              description: Integrations whose last sync recorded an error.
+            items:
+              type: array
+              description: Every scoped Integration.
+              items:
+                $ref: '#/components/schemas/OverviewIntegration'
+        platforms:
+          $ref: '#/components/schemas/OverviewPlatforms'
+        clusters:
+          allOf:
+            - $ref: '#/components/schemas/OverviewPlatforms'
+          deprecated: true
+          description: Deprecated one-release alias mirroring `platforms` (ADR-014).
+        operations:
+          type: object
+          required: [active, failedLast24Hours, recent]
+          properties:
+            active:
+              type: integer
+              description: Operations whose status is `pending` or `running`.
+            failedLast24Hours:
+              type: integer
+              description: Failed operations requested within the 24 hours before `generatedAt`.
+            recent:
+              type: array
+              maxItems: 8
+              description: The newest operations by `requestedAt`, at most eight.
+              items:
+                $ref: '#/components/schemas/OverviewOperation'
+        monitoring:
+          $ref: '#/components/schemas/OverviewMonitoring'
+    OverviewInventory:
+      type: object
+      description: Server inventory counts; health is independent of the lifecycle counts.
+      required: [sites, servers, absent, deployed, platformed, clustered, gpuDevices, health]
+      properties:
+        sites:
+          type: integer
+        servers:
+          type: integer
+          description: Every scoped Server, absent ones included.
+        absent:
+          type: integer
+        deployed:
+          type: integer
+        platformed:
+          type: integer
+          description: Servers whose membership axis names a Platform.
+        clustered:
+          type: integer
+          deprecated: true
+          description: Deprecated one-release alias mirroring `platformed` (ADR-014).
+        gpuDevices:
+          type: integer
+          description: GPU Inventory items of kind `compute` only; display controllers do not count.
+        health:
+          type: object
+          required: [up, down, unknown]
+          properties:
+            up:
+              type: integer
+            down:
+              type: integer
+            unknown:
+              type: integer
+              description: Servers with no observed health answer.
+    OverviewIntegration:
+      type: object
+      description: >-
+        The overview's sync-freshness projection of an Integration; it never carries a credential.
+      required: [id, siteId, name, kind, providerKind, enabled, lastSucceededAt, lastError]
+      properties:
+        id:
+          type: string
+        siteId:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [provisioner, metrics, platform]
+        providerKind:
+          type: string
+          enum: [maas, prometheus, kubernetes, slurm]
+        enabled:
+          type: boolean
+        lastSucceededAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        lastError:
+          type: string
+          nullable: true
+    OverviewPlatforms:
+      type: object
+      required: [total, unreachable, unmatchedMembers]
+      properties:
+        total:
+          type: integer
+        unreachable:
+          type: integer
+          description: Platforms with no runtime Integration to read them through.
+        unmatchedMembers:
+          type: integer
+          description: Sum of positive differences between reported and matched member counts.
+    OverviewOperation:
+      type: object
+      description: >-
+        The overview's secret-free summary of one Operation, projected from both Workflows and
+        historical Ansible executions.
+      required:
+        - id
+        - kind
+        - intent
+        - siteId
+        - platformId
+        - clusterId
+        - targetServerIds
+        - retryOfOperationId
+        - execution
+        - requestedBy
+        - requestedAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          description: The Workflow kind (workflows.md).
+        intent:
+          type: string
+          description: The operator's intent text, or a Workflow's intent summary.
+        siteId:
+          type: string
+        platformId:
+          type: string
+          nullable: true
+        clusterId:
+          type: string
+          nullable: true
+          deprecated: true
+          description: Deprecated one-release alias mirroring `platformId` (ADR-014).
+        targetServerIds:
+          type: array
+          nullable: true
+          description: The target Servers; null when the operation has none.
+          items:
+            type: string
+        retryOfOperationId:
+          type: string
+          nullable: true
+        execution:
+          type: object
+          description: Compatibility projection of the run; not a Task state.
+          required: [runId, playbook, status, statusReason, startedAt, finishedAt]
+          properties:
+            runId:
+              type: string
+            playbook:
+              type: string
+              description: The playbook, or a single-Task Workflow's Task kind; empty otherwise.
+            status:
+              type: string
+              description: >-
+                A Workflow status, or a historical Ansible execution's status (`indeterminate`
+                is the latter only).
+              enum:
+                - pending
+                - running
+                - waiting_external
+                - waiting_dependency
+                - canceling
+                - succeeded
+                - failed
+                - partially_succeeded
+                - canceled
+                - requires_attention
+                - indeterminate
+            statusReason:
+              type: string
+              nullable: true
+            startedAt:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/Timestamp'
+            finishedAt:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/Timestamp'
+        requestedBy:
+          type: string
+        requestedAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    OverviewMonitoring:
+      type: object
+      description: >-
+        Firing-alert summary. Three states: read (`configured` and `available`, `error` null), not
+        configured (neither, `error` null; a normal state), and unavailable (`configured`, not
+        `available`, `error.code` provider_unavailable). In both non-read states counts are zero
+        and `items` is empty, which a consumer must not present as "no alerts".
+      required: [configured, available, error, firing]
+      properties:
+        configured:
+          type: boolean
+        available:
+          type: boolean
+        error:
+          type: object
+          nullable: true
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [provider_unavailable]
+            message:
+              type: string
+              description: Human-readable; must not be parsed.
+        firing:
+          type: object
+          required: [critical, warning, items]
+          properties:
+            critical:
+              type: integer
+            warning:
+              type: integer
+            items:
+              type: array
+              maxItems: 10
+              description: >-
+                At most ten firing alerts, by severity (`critical`, `warning`, then other) and
+                newest `startsAt` first.
+              items:
+                $ref: '#/components/schemas/MonitoringAlert'
+    MonitoringAlert:
+      type: object
+      description: >-
+        An alert as Alertmanager reports it, with swallow's correlation from its label set.
+        swallow stores no alerts.
+      required:
+        - fingerprint
+        - name
+        - severity
+        - state
+        - summary
+        - description
+        - labels
+        - startsAt
+        - serverId
+        - siteId
+        - platformId
+        - clusterId
+      properties:
+        fingerprint:
+          type: string
+          description: Alertmanager's opaque identifier.
+        name:
+          type: string
+          description: The `alertname` label; empty when absent.
+        severity:
+          type: string
+          description: The `severity` label as the alert rule sets it; empty when absent.
+        state:
+          type: string
+          description: >-
+            `firing` (active), `suppressed` (silenced or inhibited, which is what acknowledged
+            looks like), or `unknown`.
+          enum: [firing, suppressed, unknown]
+        summary:
+          type: string
+          description: The `summary` annotation; empty when absent.
+        description:
+          type: string
+          description: The `description` annotation; empty when absent.
+        labels:
+          type: object
+          description: The alert's full label set.
+          additionalProperties:
+            type: string
+        startsAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        serverId:
+          type: string
+          nullable: true
+          description: The correlated Server (`server_id` label), or null.
+        siteId:
+          type: string
+          nullable: true
+          description: The correlated Site (`site` label), or null.
+        platformId:
+          type: string
+          nullable: true
+          description: >-
+            The correlated Platform (`platform_id`, else the legacy `platform` or `cluster`
+            label), or null.
+        clusterId:
+          type: string
+          nullable: true
+          deprecated: true
+          description: Deprecated one-release alias mirroring `platformId` (ADR-014).
+    AlertAcknowledgement:
+      type: object
+      description: What to silence and for how long.
+      required: [matchers]
+      properties:
+        matchers:
+          type: object
+          minProperties: 1
+          description: >-
+            Label name to exact value; the silence matches these labels, usually `alertname` plus
+            `server_id`.
+          additionalProperties:
+            type: string
+        duration:
+          type: string
+          description: A positive Go duration such as `4h`; `4h` when omitted or empty.
+        comment:
+          type: string
+          description: The silence comment; `Acknowledged in swallow` when omitted or empty.
+    AlertSilence:
+      type: object
+      required: [silenceId]
+      properties:
+        silenceId:
+          type: string
+          description: Alertmanager's id of the created silence.
+    MetricName:
+      type: string
+      description: One of the fixed named metric queries (server-metrics.md, Metric Names).
+      enum:
+        - cpuUsagePercent
+        - memoryUsedPercent
+        - diskUsedPercent
+        - networkReceiveBytesPerSecond
+        - networkTransmitBytesPerSecond
+        - gpuUtilizationPercent
+        - gpuTemperatureCelsius
+        - gpuPowerWatts
+        - gpuMemoryUsedPercent
+    MetricValues:
+      type: object
+      required: [items, grafana]
+      properties:
+        items:
+          type: array
+          description: One entry per requested Server, in the requested order.
+          items:
+            $ref: '#/components/schemas/ServerMetricValues'
+        grafana:
+          type: string
+          nullable: true
+          description: The metrics Integration's optional Grafana base URL, or null.
+    ServerMetricValues:
+      type: object
+      required: [serverId, metrics]
+      properties:
+        serverId:
+          type: string
+        metrics:
+          type: object
+          description: >-
+            The values the backend answered, by metric name. A metric with no data is absent, never
+            zero.
+          properties:
+            cpuUsagePercent:
+              type: number
+            memoryUsedPercent:
+              type: number
+            diskUsedPercent:
+              type: number
+            networkReceiveBytesPerSecond:
+              type: number
+            networkTransmitBytesPerSecond:
+              type: number
+            gpuUtilizationPercent:
+              type: number
+            gpuTemperatureCelsius:
+              type: number
+            gpuPowerWatts:
+              type: number
+            gpuMemoryUsedPercent:
+              type: number
+    MetricRange:
+      type: object
+      required: [scope, mode, start, end, stepSeconds, series, grafana]
+      properties:
+        scope:
+          type: object
+          required: [kind, id, serverCount]
+          properties:
+            kind:
+              type: string
+              enum: [servers, pool, zone, platform]
+            id:
+              type: string
+              nullable: true
+              description: The grouping id, or null for `servers`.
+            serverCount:
+              type: integer
+              description: How many Servers the scope resolved to.
+        mode:
+          type: string
+          enum: [aggregate, perServer]
+        start:
+          $ref: '#/components/schemas/Timestamp'
+        end:
+          $ref: '#/components/schemas/Timestamp'
+        stepSeconds:
+          type: integer
+          description: Spacing of the points, a whole multiple of 30.
+        series:
+          type: array
+          description: >-
+            Only series with at least one point, by requested metric order and, in `perServer`
+            mode, by the scope's Server order. A metric with no data has no series.
+          items:
+            $ref: '#/components/schemas/MetricSeries'
+        grafana:
+          type: string
+          nullable: true
+          description: The metrics Integration's optional Grafana base URL, or null.
+    MetricSeries:
+      type: object
+      required: [metric, serverId, points]
+      properties:
+        metric:
+          $ref: '#/components/schemas/MetricName'
+        serverId:
+          type: string
+          nullable: true
+          description: The Server in `perServer` mode; null in `aggregate` mode.
+        points:
+          type: array
+          description: >-
+            Ascending time order at `stepSeconds` spacing; a missing timestamp is a gap, not data.
+          items:
+            type: object
+            required: [timestamp, value]
+            properties:
+              timestamp:
+                $ref: '#/components/schemas/Timestamp'
+              value:
+                type: number
+    PrometheusTarget:
+      type: object
+      description: One Prometheus http_sd entry.
+      required: [targets, labels]
+      properties:
+        targets:
+          type: array
+          minItems: 1
+          maxItems: 1
+          description: The Server's primary address and the requested port, as `host:port`.
+          items:
+            type: string
+        labels:
+          type: object
+          description: >-
+            The metrics label contract (ADR-003); no other identity label may be added.
+          required: [server_id, site]
+          properties:
+            server_id:
+              type: string
+              description: The Server id.
+            site:
+              type: string
+              description: The Server's Site id.
+            platform_id:
+              type: string
+              description: The Platform id; present only when the Server is a known Platform member.
+            cluster:
+              type: string
+              deprecated: true
+              description: >-
+                Deprecated one-release alias mirroring `platform_id` (ADR-014); present with it.
+    AnsibleInventory:
+      type: object
+      description: >-
+        Ansible's dynamic-inventory JSON: the reserved `_meta` and `all` keys plus one key per
+        group (`site_<id>`, `provisioning_<state>`, `platform_<id>`, `role_<role>`,
+        `gpu_<vendor>`, `tag_<tag>`, every character outside `[a-z0-9_]` replaced by `_`).
+      required: ['_meta', all]
+      properties:
+        _meta:
+          type: object
+          required: [hostvars]
+          properties:
+            hostvars:
+              type: object
+              description: Host variables keyed by Server id.
+              additionalProperties:
+                $ref: '#/components/schemas/AnsibleHostVars'
+        all:
+          type: object
+          required: [children]
+          properties:
+            children:
+              type: array
+              description: Every group name, sorted; an empty array when there are no hosts.
+              items:
+                type: string
+      additionalProperties:
+        $ref: '#/components/schemas/AnsibleGroup'
+    AnsibleGroup:
+      type: object
+      required: [hosts]
+      properties:
+        hosts:
+          type: array
+          minItems: 1
+          description: The Server ids in the group.
+          items:
+            type: string
+    AnsibleHostVars:
+      type: object
+      description: >-
+        One host's variables (platform-deployment.md, Dynamic inventory). Optional keys are
+        present only when the fact is known.
+      required:
+        - ansible_host
+        - server_id
+        - site_id
+        - integration_id
+        - provider_machine_id
+        - hostname
+        - fqdn
+        - architecture
+        - cpu_cores
+        - memory_mib
+      properties:
+        ansible_host:
+          type: string
+          description: The Server's primary address.
+        server_id:
+          type: string
+        site_id:
+          type: string
+        integration_id:
+          type: string
+        provider_machine_id:
+          type: string
+        hostname:
+          type: string
+        fqdn:
+          type: string
+        architecture:
+          type: string
+        cpu_cores:
+          type: integer
+        memory_mib:
+          type: integer
+          format: int64
+        default_user:
+          type: string
+          description: The effective Server Default User; present only when known.
+        provisioning_state:
+          type: string
+          description: Present when the provisioning axis is observed.
+        os_system:
+          type: string
+          description: Present when the provisioning axis is observed.
+        distro_series:
+          type: string
+          description: Present when the provisioning axis is observed.
+        image_default_user:
+          type: string
+          description: The deployed OS Image's default user; present only when known.
+        platform_id:
+          type: string
+          description: Present when the membership axis is observed.
+        platform_role:
+          type: string
+          description: Present when the membership axis is observed.
+        platform_node_name:
+          type: string
+          description: Present when the membership axis is observed.
+        gpu_vendors:
+          type: array
+          description: Lower-case vendors of compute GPUs only; present when there is one.
+          items:
+            type: string
+        server_tags:
+          type: array
+          description: The Server's tags; present when it has any.
+          items:
+            type: string
+      additionalProperties: true

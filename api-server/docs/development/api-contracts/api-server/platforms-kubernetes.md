@@ -67,8 +67,12 @@ GET    /api/v1/platforms/{platformId}/kubernetes/persistentvolumeclaims
 POST   /api/v1/platforms/{platformId}/kubernetes/apply
 ```
 
-All endpoints require an admin JWT per [conventions](conventions.md). All list responses are
-plain objects with an `items` array (bounded per namespace, so not paginated).
+All endpoints require the `admin` role per [conventions](conventions.md). All list responses are
+plain objects with an `items` array (bounded per namespace, so not paginated). The wire shape
+(paths, parameters, schemas, status codes) is specified in
+[`../openapi/areas/platforms.yaml`](../openapi/areas/platforms.yaml); this document keeps the
+behavior. Every route is also served under the deprecated `/api/v1/clusters/{platformId}/kubernetes`
+alias (see [platforms.md](platforms.md#compatibility-notes)).
 
 ## Eligibility
 
@@ -82,8 +86,8 @@ credential:
   returns `409 conflict`.
 - When the cluster API is unreachable or rejects the credential, the standard reader mapping
   applies: `503 provider_unavailable` (unreachable or 5xx / auth) or `400 validation_error`
-  (the cluster API rejected the request, for example an invalid manifest). The
-  `error.message` carries the cluster's reason.
+  (any other 4xx the cluster API answered: an invalid manifest, but also an object the cluster
+  reports missing or already existing). The `error.message` carries the cluster's reason.
 
 ## Cluster Summary
 
@@ -138,8 +142,9 @@ when the cluster has no `resource.k8s.io/v1` API or the slices could not be read
 the node list is still returned.
 
 `POST .../nodes/{nodeName}/cordon` marks a node unschedulable; `POST .../nodes/{nodeName}/uncordon`
-clears it. Both return the updated node object above. Draining (evicting pods) is not part of
-this surface.
+clears it. Both return the updated node object above, read from the write's answer: it is not
+correlated to a Server and carries no DRA count, so `serverId` and `gpu.draDevices` are `null`.
+Draining (evicting pods) is not part of this surface.
 
 ## Namespaces
 
@@ -162,8 +167,9 @@ them by default and can reveal them.
 { "name": "web" }
 ```
 
-Success is `201 Created` returning the namespace. An invalid name is `400 validation_error`;
-an existing name surfaces the cluster's `409 conflict`.
+Success is `201 Created` returning the namespace. A missing or blank name is
+`400 validation_error` before any cluster call; a name the cluster refuses, including one that
+already exists, is also `400 validation_error` with the cluster's reason.
 
 `DELETE .../kubernetes/namespaces/{namespace}` deletes a namespace and returns
 `{"success": true}`. Deleting a system namespace is refused with `409 conflict` before any
@@ -193,7 +199,8 @@ term). `GET .../kubernetes/applications` lists them, optionally filtered by `nam
 
 `kind` is `Deployment`, `DaemonSet`, `StatefulSet`, or `Pod` (an owner-less Pod is its own
 Application). For a DaemonSet, `replicas` is the desired scheduled count and `readyReplicas`
-the ready count. For a bare Pod, both are `1`/`0..1`.
+the ready count. For a bare Pod, both are `1`/`0..1`. `createdAt` is the object's creation time
+as the cluster reported it (RFC 3339).
 
 `GET .../applications/{namespace}/{kind}/{name}` returns one Application with its pods:
 
@@ -208,6 +215,7 @@ the ready count. For a bare Pod, both are `1`/`0..1`.
   "createdAt": "2026-09-19T00:00:00Z",
   "pods": [
     {
+      "namespace": "web",
       "name": "nginx-6d8-abcde",
       "phase": "Running",
       "ready": true,
@@ -220,8 +228,10 @@ the ready count. For a bare Pod, both are `1`/`0..1`.
 }
 ```
 
-`kind` must be one of the four; any other value is `400 validation_error`. A missing workload
-is `404 not_found`.
+`pods` uses the Pod shape of [Pods](#pods) and is omitted when the Application currently owns no
+Pod; the list and the scale response never carry it. `kind` must be one of the four; any other
+value is `400 validation_error` before any cluster call. A workload the cluster reports missing is
+also `400 validation_error`, with the cluster's reason.
 
 `POST .../applications/{namespace}/{kind}/{name}/scale` sets the replica count:
 
@@ -262,6 +272,9 @@ excluded when `namespace` is omitted unless `includeSystem=true`):
 }
 ```
 
+`startedAt` is the Pod's start time as the cluster reported it (RFC 3339), empty before the Pod
+started.
+
 `GET .../pods/{namespace}/{name}/logs` returns a bounded log snapshot (not a stream):
 
 ```json
@@ -272,7 +285,8 @@ excluded when `namespace` is omitted unless `includeSystem=true`):
 ```
 
 Query parameters: `container` (defaults to the pod's first container) and `tailLines`
-(default `200`, max `2000`). Following logs, `exec`, and a kubectl shell are not part of this
+(default `200`; a value above `2000` is read as `2000`; anything but a positive integer is
+`400 validation_error`). Following logs, `exec`, and a kubectl shell are not part of this
 surface.
 
 `DELETE .../pods/{namespace}/{name}` deletes a pod (a controller recreates it) and returns
@@ -290,7 +304,8 @@ omitted unless `includeSystem=true`):
 
 - Services: `type`, `clusterIP`, `ports` (`"80/TCP"`), and `externalIPs`.
 - Ingresses: `hosts`, `ingressClass`, and `addresses`.
-- ConfigMaps: `keys` (the data key names) and `dataCount`.
+- ConfigMaps: `type` (always empty for a ConfigMap; the field is shared with Secrets), `keys`
+  (the data key names), and `dataCount`.
 - Secrets: `type`, `keys` (the data key names), and `dataCount`. **Secret values are never
   returned** — only the key names — because a credential surface must not leak.
 - PersistentVolumeClaims: `phase`, `capacity`, `storageClass`, and `accessModes`.
@@ -319,17 +334,22 @@ These are read-only lists; create and update go through `apply`.
 }
 ```
 
-`action` is `created`, `configured`, or `unchanged` (`validated` when `dryRun`). A manifest
-the cluster rejects returns `400 validation_error` with the cluster's reason in
-`error.message`; nothing is applied past the first rejected document.
+`action` is `created` when the object did not exist and `configured` when it did, whether or not
+the apply changed it (`validated` for every object when `dryRun`); `unchanged` is never reported.
+`namespace` is empty for a cluster-scoped object. A manifest the cluster rejects returns
+`400 validation_error` with the cluster's reason in `error.message`; nothing is applied past the
+first rejected document.
 
 ## Errors
 
 Beyond the [shared envelope](conventions.md) and the eligibility rules above:
 
-- `404 not_found` — unknown Platform, non-Kubernetes Platform, or a missing addressed object.
+- `404 not_found` — unknown Platform, non-Kubernetes Platform, or an API process without the
+  explorer wired.
 - `409 conflict` — a `registered` Platform, a Platform without a recorded credential, or a
   refused system-namespace delete.
-- `400 validation_error` — an invalid body (name, replicas, kind, manifest) or a request the
-  cluster API rejected.
-- `503 provider_unavailable` — the cluster API is unreachable or rejected the credential.
+- `400 validation_error` — an invalid body (name, replicas, kind, manifest), an invalid
+  `tailLines`, or any 4xx the cluster API answered, including an addressed object it reports
+  missing or a namespace that already exists.
+- `503 provider_unavailable` — the cluster API is unreachable, answered 5xx, or rejected the
+  credential.

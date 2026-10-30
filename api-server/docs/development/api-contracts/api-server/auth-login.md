@@ -94,11 +94,14 @@ Any other value is `400 validation_error`.
   without a refresh (default 7 days), at the Session's maximum age (default 30 days from
   login), or at logout.
 
-With cookie delivery the response also carries:
+The response is `Cache-Control: no-store`. With cookie delivery it also carries:
 
 ```text
-Set-Cookie: swallow_refresh=<refresh token>; Path=/api/v1/auth; Max-Age=<idle limit in seconds>; HttpOnly; SameSite=Strict[; Secure]
+Set-Cookie: swallow_refresh=<refresh token>; Path=/api/v1/auth; Max-Age=<seconds until the Session's idle expiry>; HttpOnly; SameSite=Strict[; Secure]
 ```
+
+The idle expiry is the idle limit from now, but never later than the Session's maximum age, so
+`Max-Age` equals the idle limit unless the maximum age is configured shorter.
 
 `Secure` is set whenever the request reached swallow over HTTPS, including through a
 TLS-terminating proxy that sends `X-Forwarded-Proto: https`. The cookie is only ever sent
@@ -112,7 +115,7 @@ See [`conventions.md`](conventions.md) for the envelope.
 
 | Code | HTTP Status | Description |
 | --- | ---: | --- |
-| `validation_error` | 400 | `username` or `password` is missing, or `refreshTokenDelivery` is not `cookie` or `body`. |
+| `validation_error` | 400 | The body is not valid JSON, `username` or `password` is missing, or `refreshTokenDelivery` is not `cookie` or `body` (an empty string counts as omitted). |
 | `unauthorized` | 401 | Credentials are wrong, or the user does not exist. Both cases return the same code and an indistinguishable message. |
 
 ## Compatibility Notes

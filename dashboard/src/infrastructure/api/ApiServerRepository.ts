@@ -21,8 +21,11 @@ import type {
 } from '@/domain/server/types'
 import { ApiRequestError, apiRequest } from './client'
 
-/** The Power Configuration as the API sends it; the enum fields are narrowed by mapPowerConfiguration. */
-interface PowerConfigurationDTO extends Omit<ServerPowerConfiguration, 'family' | 'control' | 'drivers'> {
+/**
+ * The Power Configuration as the API sends it; the enum fields are narrowed by mapPowerConfiguration.
+ * Exported only so `contractCompatibility.ts` can prove the contract response reads as it.
+ */
+export interface PowerConfigurationDTO extends Omit<ServerPowerConfiguration, 'family' | 'control' | 'drivers'> {
   family: string
   control: string
   drivers: { driver: string; family: string }[] | null

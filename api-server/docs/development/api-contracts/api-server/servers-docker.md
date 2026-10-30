@@ -24,6 +24,10 @@ Every route reads or writes the host's Docker Engine at request time and stores 
 swallow. Writes are synchronous against the Engine and do not create Workflows. Docker objects
 carry no swallow identity; their ids and names are the Engine's own.
 
+The wire shape of these endpoints (paths, parameters, schemas, status codes) is described by
+[`../openapi/areas/software.yaml`](../openapi/areas/software.yaml), where the Server path
+parameter is named `{id}`; this document holds their behavior semantics.
+
 ## Related Glossary Terms
 
 - [Docker Host Explorer](../../../../../docs/development/glossaries/terms/docker-host-explorer.md)
@@ -59,14 +63,14 @@ POST   /api/v1/servers/{serverId}/docker/networks
 DELETE /api/v1/servers/{serverId}/docker/networks/{networkId}
 ```
 
-All endpoints require an admin JWT per [conventions](conventions.md). List responses are plain
-objects with an `items` array; one host's Docker objects are a bounded set, so lists are not
+All endpoints require the `admin` role (an access token or an API Key) per
+[conventions](conventions.md). List responses are plain objects with an `items` array; one host's Docker objects are a bounded set, so lists are not
 paginated. Path identifiers are the Engine's ids or names and must be URL-encoded (image ids
 contain `:`).
 
 ## Eligibility
 
-Every route first checks swallow-owned facts, in this order:
+After request validation (below), every route checks swallow-owned facts, in this order:
 
 | Condition | Response |
 | --- | --- |
@@ -78,6 +82,11 @@ Every route first checks swallow-owned facts, in this order:
 Swallow does not probe for a Docker API enabled outside swallow. A consumer should decide whether
 to offer the explorer from the Software Assignment (`GET /api/v1/software/assignments`) and treat
 a `409` here as "not available" rather than as a failure.
+
+Request validation runs before these checks, so a malformed request is `400 validation_error`
+whatever the Server's state: an invalid body or pull reference, a container, volume, or network
+spec that breaks its rules, an empty path identifier, or an invalid `tailLines`. Removing a
+predefined network by name is likewise refused with `409 conflict` before eligibility is checked.
 
 Write routes (every `POST` and `DELETE`) are additionally refused while the Server is locked:
 `409 conflict` when the provisioner confirms the lock, `503 provider_unavailable` when the lock
@@ -174,7 +183,8 @@ On success the response is `200 OK`:
 }
 ```
 
-`status` is the Engine's final progress message; `registry` is the resolved registry and
+`reference` is the canonical reference pulled (`:latest` is appended to an untagged one); `status`
+is the Engine's final progress message; `registry` is the resolved registry and
 `authenticated` says whether a stored credential was sent. The Engine reports registry refusals
 with different statuses: a repository Docker Hub does not know is `404 not_found`, while a private
 registry refusing access — no credential, or a rejected one ("401 Unauthorized") — and failures
@@ -253,8 +263,8 @@ name:
 | `name` | No | `[a-zA-Z0-9][a-zA-Z0-9_.-]*`; the Engine generates one when omitted. A taken name is `409 conflict`. |
 | `command` | No | Argument vector replacing the image's default command. |
 | `env` | No | Each entry `KEY=value` with a non-empty key. |
-| `ports` | No | `containerPort` 1–65535; `hostPort` 0–65535 (0 or omitted lets the Engine choose); `protocol` `tcp` (default), `udp`, or `sctp`; `hostIp` optional. |
-| `volumes` | No | `source` is a volume name (`[a-zA-Z0-9][a-zA-Z0-9_.-]*`, created on demand) or an absolute host path (bind mount); `target` is an absolute container path. |
+| `ports` | No | `containerPort` 1–65535; `hostPort` 0–65535 (0 or omitted lets the Engine choose); `protocol` `tcp` (default), `udp`, or `sctp`; `hostIp` optional, an IP address when given. |
+| `volumes` | No | `source` is a volume name (`[a-zA-Z0-9][a-zA-Z0-9_.-]*`, created on demand) or an absolute host path (bind mount); `target` is an absolute container path; neither may contain `:`. |
 | `network` | No | Network to attach to; the Engine default (`bridge`) when omitted. |
 | `restartPolicy` | No | `no` (default), `always`, `unless-stopped`, or `on-failure`. |
 | `start` | No | Default `true`: start the container after creating it. |
@@ -405,6 +415,8 @@ Response `200 OK`: `{ "success": true }`.
 
 - Container `state` values belong to the Docker Engine and are listed in the glossary; a newer
   Engine value is passed through and must be displayed as-is, never treated as a failure.
+- 2026-10-30: corrected to the implemented behavior when the OpenAPI description was written (no
+  wire change): request validation precedes the eligibility checks.
 - Adding optional response fields is backward compatible. The route set is deliberately
   opinionated: it is not a transparent Docker API proxy, and new Engine capabilities are added as
   explicit routes.

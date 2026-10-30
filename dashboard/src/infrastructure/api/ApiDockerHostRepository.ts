@@ -14,8 +14,11 @@ import type {
 } from '@/domain/software/docker'
 import { apiRequest } from './client'
 
-/** The `{ items: [...] }` envelope every explorer list returns (bounded per host, not paginated). */
-interface ItemsEnvelope<T> {
+/**
+ * The `{ items: [...] }` envelope every explorer list returns (bounded per host, not paginated).
+ * Exported only so `contractCompatibility.ts` can prove each list response reads as it.
+ */
+export interface ItemsEnvelope<T> {
   items: T[]
 }
 

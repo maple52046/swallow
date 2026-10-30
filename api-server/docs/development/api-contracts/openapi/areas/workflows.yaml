@@ -1,0 +1,1691 @@
+# Swallow-owned durable Workflows (decision 017): accept operator intent, observe a Workflow's
+# Tasks, timeline, and Runner diagnostics, and control it (cancel, rerun, Task retry). Also the
+# deprecated /operations alias, served by the same handlers for one release. Behavior semantics
+# live in api-server/workflows.md and api-server/operations.md.
+#
+# Wire names still carry the pre-rename vocabulary (steps[], executor, operationId, the
+# provisioner Runner serialized as `maas`); the schemas below describe that current wire.
+tags:
+  - name: workflows
+    description: >-
+      Durable Workflows (a DAG of Tasks run by Runners), their timeline and per-Task diagnostics,
+      and the deprecated /operations alias.
+paths:
+  /api/v1/workflows:
+    post:
+      tags: [workflows]
+      operationId: createWorkflow
+      summary: Accept a single-Task Ansible Workflow against Servers of one Site.
+      description: >-
+        Requires the `admin` role. Persists the intent as a pending schema-v3 Workflow with one
+        `ansible-playbook` Task and returns 202 before Temporal starts it. The response is the
+        Workflow in the compatibility (Operation) shape, `LegacyOperation` with
+        `schemaVersion` 3, not the full `Workflow` projection; read `GET /api/v1/workflows/{id}`
+        for status, Tasks' live state, leases, and the Temporal reference.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowRequest'
+      responses:
+        '202':
+          description: The intent was persisted; the Workflow starts asynchronously.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegacyOperation'
+        '400':
+          $ref: '#/components/responses/WorkflowCreateRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowCreateTargetNotFound'
+        '409':
+          $ref: '#/components/responses/WorkflowCreateConflict'
+        '503':
+          $ref: '#/components/responses/WorkflowCreateAutomationUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+    get:
+      tags: [workflows]
+      operationId: listWorkflows
+      summary: List schema-v3 Workflows and schema-v2 history, newest first.
+      description: >-
+        Requires the `admin` role. Merges schema-v3 Workflows and historical schema-v2 records,
+        sorted by `requestedAt` descending, then pages the merged list. Every filter is optional
+        and exact-match; `total` counts both schema versions.
+      parameters:
+        - $ref: '#/components/parameters/WorkflowSiteIdFilter'
+        - $ref: '#/components/parameters/WorkflowPlatformIdFilter'
+        - $ref: '#/components/parameters/WorkflowClusterIdFilter'
+        - $ref: '#/components/parameters/WorkflowServerIdFilter'
+        - $ref: '#/components/parameters/WorkflowKindFilter'
+        - $ref: '#/components/parameters/WorkflowStatusFilter'
+        - $ref: '#/components/parameters/WorkflowActiveFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of the merged history.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowPage'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workflows/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+    get:
+      tags: [workflows]
+      operationId: getWorkflow
+      summary: Read one Workflow, or one historical schema-v2 record.
+      description: >-
+        Requires the `admin` role. A schema-v3 Workflow is returned as `Workflow`, including the
+        resource leases it currently holds; an ID that is only a schema-v2 record is returned as
+        `LegacyOperation` with `schemaVersion` 2.
+      responses:
+        '200':
+          description: The Workflow.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowOrLegacyOperation'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowNotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workflows/{id}/timeline:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+    get:
+      tags: [workflows]
+      operationId: getWorkflowTimeline
+      summary: Read a Workflow's normalized, immutable state-transition events.
+      description: >-
+        Requires the `admin` role. Events are ordered by `createdAt`, then ID. A schema-v2
+        record has no timeline and is `not_found`.
+      responses:
+        '200':
+          description: The timeline; an empty array when nothing has been recorded.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowTimelineEvent'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowV3NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workflows/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+    post:
+      tags: [workflows]
+      operationId: cancelWorkflow
+      summary: Ask a Workflow's durable execution to cancel.
+      description: >-
+        Requires the `admin` role. Returns 202 once Temporal accepted the request; the workflow
+        itself records `canceling` then `canceled`. When the execution no longer exists, swallow
+        releases its leases and records `canceled` itself, and still returns 202.
+      responses:
+        '202':
+          description: The cancel request was accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowAccepted'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowV3NotFound'
+        '409':
+          $ref: '#/components/responses/WorkflowControlConflict'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workflows/{id}/rerun:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+    post:
+      tags: [workflows]
+      operationId: rerunWorkflow
+      summary: Recover a Workflow that cannot advance by launching a new one for the same intent.
+      description: >-
+        Requires the `admin` role. Accepted for a `failed`, `partially_succeeded`, `canceled`, or
+        `requires_attention` Workflow; the new Workflow's `retryOfOperationId` names the original.
+        The new Workflow holds no leases yet, so `leases` is null in this response.
+      responses:
+        '202':
+          description: The replacement Workflow was persisted and starts asynchronously.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+        '400':
+          $ref: '#/components/responses/WorkflowRerunRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowV3NotFound'
+        '409':
+          $ref: '#/components/responses/WorkflowRerunConflict'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workflows/{id}/tasks/{taskId}/retry:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/WorkflowTaskId'
+    post:
+      tags: [workflows]
+      operationId: retryWorkflowTask
+      summary: Retry one failed, retryable Task in place, at its next attempt.
+      description: >-
+        Requires the `admin` role. Accepted only when the Task is `failed` or
+        `requires_attention` and its normalized error has `retryable` true.
+      responses:
+        '202':
+          description: The retry was delivered to the Workflow's execution.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTaskRetryAccepted'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowTaskNotFound'
+        '409':
+          $ref: '#/components/responses/WorkflowTaskRetryConflict'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workflows/{id}/tasks/{taskId}/logs:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/WorkflowTaskId'
+    get:
+      tags: [workflows]
+      operationId: getWorkflowTaskLogs
+      summary: Read an Ansible Task's retained runner output.
+      description: >-
+        Requires the `admin` role. UTF-8 plain text; empty for a non-Ansible Task or one whose
+        run has not started.
+      responses:
+        '200':
+          description: The runner output.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowTaskNotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workflows/{id}/tasks/{taskId}/stderr:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/WorkflowTaskId'
+    get:
+      tags: [workflows]
+      operationId: getWorkflowTaskStderr
+      summary: Read an Ansible Task's error-only report.
+      description: >-
+        Requires the `admin` role. UTF-8 plain text with one block per failed or unreachable
+        ansible task; empty when the Task recorded no failure or is not an Ansible Task.
+      responses:
+        '200':
+          description: The error-only report.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowTaskNotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workflows/{id}/tasks/{taskId}/events:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/WorkflowTaskId'
+    get:
+      tags: [workflows]
+      operationId: getWorkflowTaskEvents
+      summary: Read an Ansible Task's per-host results, live while it runs.
+      description: >-
+        Requires the `admin` role. A non-Ansible Task, or one whose run has not started, returns
+        an empty `events` list with an empty `runId`. Task output is never included.
+      responses:
+        '200':
+          description: The per-host results and their counts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTaskEvents'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowTaskNotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workflows/{id}/tasks/{taskId}/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/WorkflowTaskId'
+    get:
+      tags: [workflows]
+      operationId: listWorkflowTaskArtifacts
+      summary: List a Task's retained artifact metadata.
+      description: Requires the `admin` role. Metadata only; artifact bytes and server-side paths are never returned.
+      responses:
+        '200':
+          description: The artifact metadata; an empty array when the Task retained none.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowTaskArtifact'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowTaskNotFound'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # Deprecated /operations alias (operations.md): the same handlers, plus the schema-v2
+  # operation-level logs, events, and retry. Successful responses carry the Deprecation and
+  # Link headers.
+  /api/v1/operations:
+    post:
+      tags: [workflows]
+      operationId: createWorkflowViaDeprecatedAlias
+      summary: Deprecated alias of POST /api/v1/workflows.
+      deprecated: true
+      description: Requires the `admin` role. Identical to `createWorkflow`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowRequest'
+      responses:
+        '202':
+          description: The intent was persisted; the Workflow starts asynchronously.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegacyOperation'
+        '400':
+          $ref: '#/components/responses/WorkflowCreateRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowCreateTargetNotFound'
+        '409':
+          $ref: '#/components/responses/WorkflowCreateConflict'
+        '503':
+          $ref: '#/components/responses/WorkflowCreateAutomationUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+    get:
+      tags: [workflows]
+      operationId: listWorkflowsViaDeprecatedAlias
+      summary: Deprecated alias of GET /api/v1/workflows.
+      deprecated: true
+      description: Requires the `admin` role. Identical to `listWorkflows`.
+      parameters:
+        - $ref: '#/components/parameters/WorkflowSiteIdFilter'
+        - $ref: '#/components/parameters/WorkflowPlatformIdFilter'
+        - $ref: '#/components/parameters/WorkflowClusterIdFilter'
+        - $ref: '#/components/parameters/WorkflowServerIdFilter'
+        - $ref: '#/components/parameters/WorkflowKindFilter'
+        - $ref: '#/components/parameters/WorkflowStatusFilter'
+        - $ref: '#/components/parameters/WorkflowActiveFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of the merged history.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowPage'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/operations/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+    get:
+      tags: [workflows]
+      operationId: getWorkflowViaDeprecatedAlias
+      summary: Deprecated alias of GET /api/v1/workflows/{id}.
+      deprecated: true
+      description: Requires the `admin` role. Identical to `getWorkflow`.
+      responses:
+        '200':
+          description: The Workflow.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowOrLegacyOperation'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowNotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/operations/{id}/timeline:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+    get:
+      tags: [workflows]
+      operationId: getWorkflowTimelineViaDeprecatedAlias
+      summary: Deprecated alias of GET /api/v1/workflows/{id}/timeline.
+      deprecated: true
+      description: Requires the `admin` role. Identical to `getWorkflowTimeline`.
+      responses:
+        '200':
+          description: The timeline; an empty array when nothing has been recorded.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowTimelineEvent'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowV3NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/operations/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+    post:
+      tags: [workflows]
+      operationId: cancelWorkflowViaDeprecatedAlias
+      summary: Deprecated alias of POST /api/v1/workflows/{id}/cancel.
+      deprecated: true
+      description: Requires the `admin` role. Identical to `cancelWorkflow`.
+      responses:
+        '202':
+          description: The cancel request was accepted.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowAccepted'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowV3NotFound'
+        '409':
+          $ref: '#/components/responses/WorkflowControlConflict'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/operations/{id}/rerun:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+    post:
+      tags: [workflows]
+      operationId: rerunWorkflowViaDeprecatedAlias
+      summary: Deprecated alias of POST /api/v1/workflows/{id}/rerun.
+      deprecated: true
+      description: Requires the `admin` role. Identical to `rerunWorkflow`.
+      responses:
+        '202':
+          description: The replacement Workflow was persisted and starts asynchronously.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+        '400':
+          $ref: '#/components/responses/WorkflowRerunRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowV3NotFound'
+        '409':
+          $ref: '#/components/responses/WorkflowRerunConflict'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/operations/{id}/steps/{stepId}/retry:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/OperationStepId'
+    post:
+      tags: [workflows]
+      operationId: retryWorkflowTaskViaDeprecatedAlias
+      summary: Deprecated alias of POST /api/v1/workflows/{id}/tasks/{taskId}/retry.
+      deprecated: true
+      description: Requires the `admin` role. Identical to `retryWorkflowTask`.
+      responses:
+        '202':
+          description: The retry was delivered to the Workflow's execution.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTaskRetryAccepted'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowTaskNotFound'
+        '409':
+          $ref: '#/components/responses/WorkflowTaskRetryConflict'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/operations/{id}/steps/{stepId}/logs:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/OperationStepId'
+    get:
+      tags: [workflows]
+      operationId: getWorkflowTaskLogsViaDeprecatedAlias
+      summary: Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/logs.
+      deprecated: true
+      description: Requires the `admin` role. Identical to `getWorkflowTaskLogs`.
+      responses:
+        '200':
+          description: The runner output.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowTaskNotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/operations/{id}/steps/{stepId}/stderr:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/OperationStepId'
+    get:
+      tags: [workflows]
+      operationId: getWorkflowTaskStderrViaDeprecatedAlias
+      summary: Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/stderr.
+      deprecated: true
+      description: Requires the `admin` role. Identical to `getWorkflowTaskStderr`.
+      responses:
+        '200':
+          description: The error-only report.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowTaskNotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/operations/{id}/steps/{stepId}/events:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/OperationStepId'
+    get:
+      tags: [workflows]
+      operationId: getWorkflowTaskEventsViaDeprecatedAlias
+      summary: Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/events.
+      deprecated: true
+      description: Requires the `admin` role. Identical to `getWorkflowTaskEvents`.
+      responses:
+        '200':
+          description: The per-host results and their counts.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTaskEvents'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowTaskNotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/operations/{id}/steps/{stepId}/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/OperationStepId'
+    get:
+      tags: [workflows]
+      operationId: listWorkflowTaskArtifactsViaDeprecatedAlias
+      summary: Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/artifacts.
+      deprecated: true
+      description: Requires the `admin` role. Identical to `listWorkflowTaskArtifacts`.
+      responses:
+        '200':
+          description: The artifact metadata; an empty array when the Task retained none.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowTaskArtifact'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowTaskNotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/operations/{id}/logs:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+    get:
+      tags: [workflows]
+      operationId: getOperationLogsViaDeprecatedAlias
+      summary: Read a schema-v2 record's retained runner output (deprecated path only).
+      deprecated: true
+      description: >-
+        Requires the `admin` role. UTF-8 plain text of the run's output, empty when nothing was
+        retained. A schema-v3 Workflow exposes logs per Task instead and is `not_found` here.
+      responses:
+        '200':
+          description: The runner output.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/OperationV2NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/operations/{id}/events:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+    get:
+      tags: [workflows]
+      operationId: getOperationEventsViaDeprecatedAlias
+      summary: Read a schema-v2 record's per-host Ansible results (deprecated path only).
+      deprecated: true
+      description: >-
+        Requires the `admin` role. `status` is the schema-v2 run status. A schema-v3 Workflow
+        exposes events per Task instead and is `not_found` here.
+      responses:
+        '200':
+          description: The per-host results and their counts.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTaskEvents'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/OperationV2NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/operations/{id}/retry:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+    post:
+      tags: [workflows]
+      operationId: retryOperationViaDeprecatedAlias
+      summary: Repeat a finished schema-v2 record as a new Workflow (deprecated path only).
+      deprecated: true
+      description: >-
+        Requires the `admin` role. Creates a new schema-v3 Workflow with the original's kind,
+        targets, Platform, playbook, and carried variables, linked through
+        `retryOfOperationId`; the original is unchanged. Accepted only for a finished schema-v2
+        record. A schema-v3 Workflow is `conflict`: retry one of its Tasks or rerun it instead.
+        The new Workflow passes the same checks as `createWorkflow`, with the same error cases.
+      responses:
+        '202':
+          description: The new Workflow was persisted and starts asynchronously.
+          headers:
+            Deprecation:
+              $ref: '#/components/headers/Deprecation'
+            Link:
+              $ref: '#/components/headers/SuccessorLink'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegacyOperation'
+        '400':
+          description: >-
+            The schema-v2 record has not finished, or the new Workflow failed a `createWorkflow`
+            validation (`validation_error`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/WorkflowCreateTargetNotFound'
+        '409':
+          description: >-
+            The ID is a schema-v3 Workflow, or the new Workflow conflicts as in `createWorkflow`
+            (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/WorkflowCreateAutomationUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  parameters:
+    WorkflowId:
+      name: id
+      in: path
+      required: true
+      description: >-
+        The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record
+        where they say so.
+      schema:
+        type: string
+    WorkflowTaskId:
+      name: taskId
+      in: path
+      required: true
+      description: The Task ID within the Workflow (a Task's `id` in `steps[]`).
+      schema:
+        type: string
+    OperationStepId:
+      name: stepId
+      in: path
+      required: true
+      description: Deprecated name of the Task ID on the /operations alias.
+      schema:
+        type: string
+    WorkflowSiteIdFilter:
+      name: siteId
+      in: query
+      required: false
+      description: Only Workflows of this Site.
+      schema:
+        type: string
+    WorkflowPlatformIdFilter:
+      name: platformId
+      in: query
+      required: false
+      description: Only Workflows of this Platform. Wins over `clusterId` when both are set.
+      schema:
+        type: string
+    WorkflowClusterIdFilter:
+      name: clusterId
+      in: query
+      required: false
+      deprecated: true
+      description: Deprecated alias of `platformId`, used only when `platformId` is absent.
+      schema:
+        type: string
+    WorkflowServerIdFilter:
+      name: serverId
+      in: query
+      required: false
+      description: Only Workflows whose `targetServerIds` contain this Server.
+      schema:
+        type: string
+    WorkflowKindFilter:
+      name: kind
+      in: query
+      required: false
+      description: Only Workflows of this kind.
+      schema:
+        type: string
+    WorkflowStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: >-
+        Only Workflows in this status: a `WorkflowStatus` for schema-v3 Workflows, or a
+        schema-v2 run status (`pending | running | succeeded | failed | canceled |
+        indeterminate`) for historical records.
+      schema:
+        type: string
+    WorkflowActiveFilter:
+      name: active
+      in: query
+      required: false
+      description: >-
+        `true` keeps only unfinished Workflows. Any other value, or absence, applies no
+        constraint.
+      schema:
+        type: string
+  responses:
+    WorkflowNotFound:
+      description: No Workflow or schema-v2 record has this ID (`not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    WorkflowV3NotFound:
+      description: >-
+        No schema-v3 Workflow has this ID (`not_found`); a historical schema-v2 record has no
+        timeline, controls, or Tasks here.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    WorkflowTaskNotFound:
+      description: >-
+        No schema-v3 Workflow has this ID, or it has no Task with this ID (`not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    WorkflowControlConflict:
+      description: >-
+        The Workflow already finished, or its execution cannot accept the control in its
+        current state (`conflict`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    WorkflowTaskRetryConflict:
+      description: >-
+        The Task is not `failed` or `requires_attention` with a retryable error, or the
+        Workflow's execution no longer exists and cannot receive the retry (`conflict`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    WorkflowRerunRejected:
+      description: Secret storage is unavailable to carry the original's sealed values (`validation_error`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    WorkflowRerunConflict:
+      description: >-
+        The Workflow succeeded or is still advancing (`pending`, `running`, `waiting_external`,
+        `waiting_dependency`, `canceling`), or a target became busy with other work
+        (`conflict`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    OperationV2NotFound:
+      description: >-
+        No schema-v2 record has this ID (`not_found`). This includes the ID of a schema-v3
+        Workflow, which exposes this per Task instead.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    WorkflowCreateRejected:
+      description: >-
+        The request is invalid (`validation_error`): a malformed body, an unknown `kind`, no
+        `targetServerIds`, targets in more than one Site, a target not in the provisioning
+        state the kind requires, `custom` without `playbookName`, no playbook mapped for the
+        kind, a playbook not in the release manifest, or durable orchestration unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    WorkflowCreateTargetNotFound:
+      description: >-
+        A target Server, the Site's Automation Configuration, or an Integration the check
+        needs does not exist (`not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    WorkflowCreateConflict:
+      description: >-
+        A target is already in unfinished work, a target is protected by its Server Lock, or
+        the intent contradicts a Platform policy (`conflict`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    WorkflowCreateAutomationUnavailable:
+      description: >-
+        Site automation is disabled, the Deployment Key does not exist, the Site credential is
+        not configured, or the live Server Lock state cannot be established
+        (`provider_unavailable`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    WorkflowKind:
+      type: string
+      description: >-
+        What a Workflow is for; selects its definition. Several kinds are launched only through
+        their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and
+        appear here in listings.
+      enum:
+        - deploy-os
+        - release-os
+        - recover-server
+        - verify-os-image
+        - inspect-hardware
+        - enroll-virtual-machines
+        - install-gpu-driver
+        - deploy-kubernetes
+        - uninstall-kubernetes
+        - configure-gpu-operator
+        - configure-slurm
+        - uninstall-slurm
+        - install-exporters
+        - uninstall-exporters
+        - deploy-k8s-exporters
+        - remove-k8s-exporters
+        - configure-docker-ce
+        - uninstall-docker-ce
+        - configure-podman
+        - uninstall-podman
+        - configure-nfs
+        - uninstall-nfs
+        - configure-prometheus
+        - uninstall-prometheus
+        - configure-grafana
+        - uninstall-grafana
+        - configure-omnistat
+        - configure-device-metrics-exporter
+        - uninstall-device-metrics-exporter
+        - configure-ntp
+        - custom
+    WorkflowStatus:
+      type: string
+      description: >-
+        The canonical status of a schema-v3 Workflow. `succeeded`, `failed`,
+        `partially_succeeded`, and `canceled` are terminal; `requires_attention` waits for an
+        operator.
+      enum:
+        - pending
+        - running
+        - waiting_external
+        - waiting_dependency
+        - canceling
+        - succeeded
+        - failed
+        - partially_succeeded
+        - canceled
+        - requires_attention
+    WorkflowTaskStatus:
+      type: string
+      description: The status of one Task.
+      enum:
+        - pending
+        - running
+        - waiting_external
+        - waiting_dependency
+        - succeeded
+        - failed
+        - canceled
+        - skipped
+        - requires_attention
+    CreateWorkflowRequest:
+      type: object
+      description: >-
+        Operator intent for a single-Task Ansible Workflow. Unknown fields are ignored.
+      required: [kind, targetServerIds]
+      properties:
+        kind:
+          $ref: '#/components/schemas/WorkflowKind'
+        intent:
+          type: string
+          description: Operator-facing summary, stored trimmed.
+        targetServerIds:
+          type: array
+          minItems: 1
+          description: The Servers to act on; they must all belong to one Site.
+          items:
+            type: string
+        platformId:
+          type: string
+          nullable: true
+          description: The Platform the work belongs to, if any.
+        clusterId:
+          type: string
+          nullable: true
+          deprecated: true
+          description: Deprecated alias of `platformId`, used only when `platformId` is empty.
+        playbookName:
+          type: string
+          description: >-
+            A release-manifest playbook. Required for `custom`; other kinds use the Site's
+            playbook mapping when it is empty.
+        extraVars:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: >-
+            Extra variables for the playbook. Keys starting with `swallow_` are dropped, so a
+            client cannot forge the variables swallow sets.
+    Workflow:
+      type: object
+      description: >-
+        The canonical projection of a schema-v3 Workflow: its frozen intent, status, Tasks
+        (still serialized as `steps[]`), and Temporal correlation. Credential, cloud-init, and
+        other secret values never appear: sensitive keys are removed from `intentSnapshot`, and
+        Task parameters and secret references are not part of the projection.
+      required:
+        - id
+        - schemaVersion
+        - kind
+        - intent
+        - intentSnapshot
+        - definition
+        - definitionVersion
+        - status
+        - statusReason
+        - startState
+        - temporal
+        - siteId
+        - platformId
+        - clusterId
+        - targetResources
+        - targetServerIds
+        - steps
+        - leases
+        - retryOfOperationId
+        - requestedBy
+        - requestCorrelation
+        - requestedAt
+        - startedAt
+        - finishedAt
+        - updatedAt
+        - execution
+      properties:
+        id:
+          type: string
+          description: Opaque Workflow ID (a UUID).
+        schemaVersion:
+          type: integer
+          enum: [3]
+        kind:
+          $ref: '#/components/schemas/WorkflowKind'
+        intent:
+          type: string
+          description: Operator-facing summary of the intent; may be empty.
+        intentSnapshot:
+          type: object
+          additionalProperties: true
+          description: >-
+            The frozen, non-secret intent the Workflow converges to. Its shape depends on
+            `kind`; keys such as `extraVars`, `userData`, `password`, `token`, `credential`, and
+            `privateKey` are removed at every depth. `summary` repeats `intent`.
+        definition:
+          type: string
+          description: Name of the Workflow definition that executes the intent.
+        definitionVersion:
+          type: integer
+          description: Version of `definition`.
+        status:
+          $ref: '#/components/schemas/WorkflowStatus'
+        statusReason:
+          type: string
+          nullable: true
+          description: Operator-facing reason for the current status, when one was recorded.
+        startState:
+          type: string
+          enum: [pending, started]
+          description: Whether the durable execution has been started yet.
+        temporal:
+          $ref: '#/components/schemas/WorkflowTemporalReference'
+        siteId:
+          type: string
+        platformId:
+          type: string
+          nullable: true
+        clusterId:
+          type: string
+          nullable: true
+          deprecated: true
+          description: Deprecated alias; always equal to `platformId`.
+        targetResources:
+          type: array
+          nullable: true
+          description: >-
+            Every resource the Workflow leases, sorted by kind then ID. Null when it has none.
+          items:
+            $ref: '#/components/schemas/WorkflowResourceReference'
+        targetServerIds:
+          type: array
+          nullable: true
+          description: The frozen target Servers. Null when the Workflow targets no Server.
+          items:
+            type: string
+        steps:
+          type: array
+          nullable: true
+          description: >-
+            The Workflow's Tasks (wire name `steps`). A Workflow is created with at least one
+            Task, so this is null only for a record that holds none.
+          items:
+            $ref: '#/components/schemas/WorkflowTask'
+        leases:
+          type: array
+          nullable: true
+          description: >-
+            The resource leases the execution currently holds. Populated only by
+            `GET /api/v1/workflows/{id}` (an empty array when none are held); null in listings and
+            in create and rerun responses.
+          items:
+            $ref: '#/components/schemas/WorkflowResourceLease'
+        retryOfOperationId:
+          type: string
+          nullable: true
+          description: The Workflow this one was created to rerun or retry, if any.
+        requestedBy:
+          type: string
+          description: Username of the caller that requested the work; empty for system-launched work.
+        requestCorrelation:
+          type: string
+          nullable: true
+          description: The request ID of the HTTP request that accepted the intent, when known.
+        requestedAt:
+          $ref: '#/components/schemas/Timestamp'
+        startedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        finishedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+        execution:
+          $ref: '#/components/schemas/WorkflowExecutionSummary'
+    LegacyOperation:
+      type: object
+      description: >-
+        A Workflow in the former Operation (schema-v2) shape. Returned for historical schema-v2
+        records (`schemaVersion` 2, with one synthetic Task) and as the acceptance response of
+        create and of the deprecated schema-v2 retry (`schemaVersion` 3). It carries no
+        Workflow status of its own; `execution.status` is the compatibility status.
+      required:
+        - schemaVersion
+        - steps
+        - id
+        - kind
+        - intent
+        - siteId
+        - platformId
+        - clusterId
+        - targetServerIds
+        - retryOfOperationId
+        - execution
+        - requestedBy
+        - requestedAt
+        - updatedAt
+      properties:
+        schemaVersion:
+          type: integer
+          enum: [2, 3]
+        steps:
+          type: array
+          nullable: true
+          description: >-
+            The Tasks. A schema-v2 record has exactly one synthetic `ansible-playbook` Task with
+            ID `ansible`.
+          items:
+            $ref: '#/components/schemas/WorkflowTask'
+        id:
+          type: string
+        kind:
+          type: string
+          description: >-
+            A `WorkflowKind`. Historical schema-v2 records keep the kind they were accepted
+            with.
+        intent:
+          type: string
+          description: Operator-facing summary; may be empty.
+        siteId:
+          type: string
+        platformId:
+          type: string
+          nullable: true
+        clusterId:
+          type: string
+          nullable: true
+          deprecated: true
+          description: Deprecated alias; always equal to `platformId`.
+        targetServerIds:
+          type: array
+          nullable: true
+          items:
+            type: string
+        retryOfOperationId:
+          type: string
+          nullable: true
+        execution:
+          $ref: '#/components/schemas/WorkflowExecutionSummary'
+        requestedBy:
+          type: string
+        requestedAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    WorkflowOrLegacyOperation:
+      description: >-
+        A schema-v3 `Workflow`, or a historical schema-v2 record as `LegacyOperation`
+        (`schemaVersion` 2).
+      oneOf:
+        - $ref: '#/components/schemas/Workflow'
+        - $ref: '#/components/schemas/LegacyOperation'
+    WorkflowPage:
+      type: object
+      description: The pagination envelope (conventions.md, Pagination) over the merged history.
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowOrLegacyOperation'
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+    WorkflowExecutionSummary:
+      type: object
+      description: >-
+        The compatibility `execution` projection for clients written against Operation v2. It
+        must not be used to infer Task state. For a schema-v3 Workflow, `status` repeats the
+        Workflow status; `runId` is the single Task's external execution ID when the Workflow
+        has exactly one Task that started, and the Temporal run ID otherwise; and `playbook` is
+        the single Task's kind (not a playbook name), empty for a multi-Task Workflow.
+      required: [runId, playbook, status, statusReason, startedAt, finishedAt]
+      properties:
+        runId:
+          type: string
+        playbook:
+          type: string
+        status:
+          type: string
+          description: A `WorkflowStatus`, or `indeterminate` for a schema-v2 run whose outcome cannot be proven.
+          enum:
+            - pending
+            - running
+            - waiting_external
+            - waiting_dependency
+            - canceling
+            - succeeded
+            - failed
+            - partially_succeeded
+            - canceled
+            - requires_attention
+            - indeterminate
+        statusReason:
+          type: string
+          nullable: true
+        startedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        finishedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+    WorkflowTemporalReference:
+      type: object
+      description: Correlation with the durable Temporal execution.
+      required: [workflowId]
+      properties:
+        workflowId:
+          type: string
+          description: The stable Temporal workflow ID, `swallow-operation/<id>`.
+        runId:
+          type: string
+          description: The Temporal run ID; absent until the execution starts.
+    WorkflowResourceReference:
+      type: object
+      description: A resource a Workflow or Task targets, by kind and swallow ID.
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          description: The resource kind, for example `server` or `platform`.
+        id:
+          type: string
+    WorkflowResourceLease:
+      type: object
+      description: A fencing lease that serializes mutations of one Server or Platform.
+      required: [resourceKey, owner, fencingToken, expiresAt, updatedAt]
+      properties:
+        resourceKey:
+          type: string
+          description: '`server:<id>` or `platform:<id>`.'
+        owner:
+          type: string
+          description: The Temporal workflow ID holding the lease.
+        fencingToken:
+          type: integer
+          format: int64
+          description: Monotonically increasing per resource; verified before every side effect.
+        expiresAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    WorkflowTask:
+      type: object
+      description: >-
+        One Task (wire name: a step) of a Workflow: an atomic, idempotent unit run by one
+        Runner. Its parameters and secret references never cross the API.
+      required:
+        - id
+        - kind
+        - name
+        - executor
+        - dependsOn
+        - targets
+        - status
+        - attempt
+        - progress
+        - error
+        - externalExecution
+        - artifacts
+        - startedAt
+        - finishedAt
+      properties:
+        id:
+          type: string
+          description: Unique within the Workflow.
+        kind:
+          type: string
+          description: What the Task does, for example `provision-os`, `wait-for-ssh`, or `ansible-playbook`.
+        name:
+          type: string
+          description: Operator-facing name.
+        job:
+          type: string
+          description: The Job grouping this Task; absent for a Task outside any Job.
+        executor:
+          type: string
+          description: >-
+            The Runner (wire name `executor`). The `provisioner` Runner is still serialized as
+            `maas`.
+          enum: [internal, ansible, maas]
+        dependsOn:
+          type: array
+          nullable: true
+          description: >-
+            IDs of the Tasks this one waits for. An array on every schema-v3 Workflow; null only
+            on the synthetic Task of a schema-v2 record.
+          items:
+            type: string
+        continueOn:
+          type: array
+          description: >-
+            Extra dependency outcomes that still let this Task run; absent when it runs only
+            after every dependency is satisfied.
+          items:
+            $ref: '#/components/schemas/WorkflowTaskStatus'
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowResourceReference'
+        status:
+          $ref: '#/components/schemas/WorkflowTaskStatus'
+        attempt:
+          type: integer
+          description: The current attempt, incremented by a Task retry.
+        progress:
+          type: integer
+        waitingReason:
+          type: string
+          description: Why the Task is waiting; absent when it is not.
+        error:
+          nullable: true
+          description: The latest normalized error; null when the Task has none.
+          allOf:
+            - $ref: '#/components/schemas/WorkflowTaskError'
+        externalExecution:
+          nullable: true
+          description: >-
+            Correlation with the Runner's own execution, published as soon as it starts; null
+            before then.
+          allOf:
+            - $ref: '#/components/schemas/WorkflowTaskExternalExecution'
+        live:
+          $ref: '#/components/schemas/WorkflowTaskLiveProgress'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowTaskArtifact'
+        startedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        finishedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+    WorkflowTaskError:
+      type: object
+      description: The stable, operator-facing diagnostic of a Task failure.
+      required: [code, message, retryable]
+      properties:
+        code:
+          type: string
+          description: Machine-readable failure code, for example `legacy_ansible_failed`.
+        message:
+          type: string
+        retryable:
+          type: boolean
+          description: Whether a Task retry may be requested.
+        stage:
+          type: string
+          description: Where the failure happened; absent when not recorded.
+    WorkflowTaskExternalExecution:
+      type: object
+      description: Correlates a Task with its Runner's own execution.
+      required: [provider, id, generation]
+      properties:
+        provider:
+          type: string
+          description: The executing system, for example `ansible-runner`.
+        id:
+          type: string
+          description: The execution's ID in that system.
+        generation:
+          type: integer
+          description: The Task attempt this execution belongs to.
+    WorkflowTaskLiveProgress:
+      type: object
+      description: >-
+        Advisory, output-free progress of a running Ansible Task. Present only while a run is in
+        flight; the authoritative outcome is the Task's `status` and `error`.
+      required: [total, ok, changed, failed, unreachable, skipped, updatedAt]
+      properties:
+        currentPlay:
+          type: string
+          description: The play the runner last started; absent before the first one.
+        currentTask:
+          type: string
+          description: The ansible task the runner last started; absent before the first one.
+        total:
+          type: integer
+          description: Cumulative host results.
+        ok:
+          type: integer
+        changed:
+          type: integer
+          description: A subset of `ok`.
+        failed:
+          type: integer
+        unreachable:
+          type: integer
+        skipped:
+          type: integer
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    WorkflowTaskArtifact:
+      type: object
+      description: Metadata of an output a Task retained; the bytes are not served here.
+      required: [id, name, mediaType, sizeBytes, createdAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        mediaType:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+    WorkflowTimelineEvent:
+      type: object
+      description: >-
+        One immutable, secret-free event in a Workflow's timeline. Known types include
+        `operation_requested`, `operation_status`, `step_status` (once per Task status per
+        attempt), and the cancel outcomes `canceled_deployment_returned_to_ready`,
+        `canceled_deployment_left_as_is`, and `canceled_deployment_return_failed`.
+      required: [id, operationId, type, message, createdAt]
+      properties:
+        id:
+          type: string
+        operationId:
+          type: string
+          description: The Workflow ID (wire name `operationId`).
+        stepId:
+          type: string
+          description: The Task the event is about; absent for a Workflow-level event.
+        type:
+          type: string
+        message:
+          type: string
+          description: Operator-facing; must not be parsed.
+        details:
+          type: object
+          additionalProperties: true
+          description: >-
+            Type-specific structured data; absent when the event has none. A `step_status`
+            event carries `status` and `attempt` and, when the Task had a normalized error, its
+            `code`, `message`, `stage`, and `retryable`.
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+    WorkflowTaskEvents:
+      type: object
+      description: >-
+        The per-host Ansible results of one run, with counts derived from the list so the two
+        never disagree. Task output is never included.
+      required:
+        - runId
+        - status
+        - okCount
+        - changedCount
+        - failedCount
+        - unreachableCount
+        - skippedCount
+        - events
+      properties:
+        runId:
+          type: string
+          description: The Ansible run ID; empty for a Task without an Ansible run.
+        status:
+          type: string
+          description: >-
+            The Task's status, or, on the deprecated schema-v2 events endpoint, the schema-v2
+            run status.
+          enum:
+            - pending
+            - running
+            - waiting_external
+            - waiting_dependency
+            - succeeded
+            - failed
+            - canceled
+            - skipped
+            - requires_attention
+            - indeterminate
+        okCount:
+          type: integer
+        changedCount:
+          type: integer
+          description: Results with `changed` true, of any status.
+        failedCount:
+          type: integer
+        unreachableCount:
+          type: integer
+        skippedCount:
+          type: integer
+        events:
+          type: array
+          description: In the order the runner produced them; an empty array when there are none.
+          items:
+            $ref: '#/components/schemas/AnsibleTaskEvent'
+    AnsibleTaskEvent:
+      type: object
+      description: >-
+        One ansible task's result on one host, from inside a Task's playbook run (not a swallow
+        Task).
+      required: [play, task, host, status, changed, startedAt, endedAt]
+      properties:
+        play:
+          type: string
+        task:
+          type: string
+          description: The ansible task name.
+        host:
+          type: string
+          description: The target's serverId.
+        status:
+          type: string
+          enum: [ok, failed, skipped, unreachable]
+        changed:
+          type: boolean
+        startedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        endedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+    WorkflowAccepted:
+      type: object
+      description: >-
+        Acknowledges a request that created or acted on a durable Workflow (cancel here; install,
+        uninstall, and the provisioning *-operations elsewhere). Follow the Workflow through
+        `GET /api/v1/workflows/{id}`.
+      required: [operationId]
+      properties:
+        operationId:
+          type: string
+          description: The Workflow ID (wire name `operationId`).
+    WorkflowTaskRetryAccepted:
+      type: object
+      description: >-
+        Acknowledges a delivered Task retry. Both the canonical and the deprecated names are
+        sent.
+      required: [workflowId, operationId, taskId, stepId]
+      properties:
+        workflowId:
+          type: string
+        operationId:
+          type: string
+          description: Deprecated name of `workflowId`; always equal to it.
+        taskId:
+          type: string
+        stepId:
+          type: string
+          description: Deprecated name of `taskId`; always equal to it.

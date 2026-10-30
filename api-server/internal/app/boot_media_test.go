@@ -18,6 +18,7 @@ import (
 	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 )
 
 // bootMediaServers is a FindByID and List ServerRepository.
@@ -389,6 +390,7 @@ func TestServeBootISO(t *testing.T) {
 	}
 	files := provisioninginfra.NewGenfsimgBuilder(dir, t.TempDir(), "http://192.0.2.1/")
 	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
 	app.Get(bootISORoute, serveBootISO(files))
 	path := "/boot-media/ipxe/" + id + "/swallow-ipxe.iso"
 	if got := files.URL(id); got != "http://192.0.2.1"+path {

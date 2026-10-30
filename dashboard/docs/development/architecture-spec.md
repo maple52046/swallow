@@ -102,6 +102,11 @@ eligibility、working-set refresh 或 presentation-independent rule 才建立 us
 ## API and Error Boundary
 
 - Adapter 使用 Active provider contract，不從 backend code 猜測 behavior。
+- `src/infrastructure/api/generated/openapi.ts` 由 provider 的 OpenAPI（`api-server/docs/development/api-contracts/openapi/openapi.yaml`）
+  以 `npm run contract:generate` 產生，不得手改；`npm run contract:check` 確認它是最新的。
+- `src/infrastructure/api/contractCompatibility.ts` 以 compile-time 檢查確認每個 adapter 讀取的 contract response
+  型別能指派給 adapter 回傳的 dashboard 型別。檢查失敗代表契約與 dashboard 型別不一致：修正 dashboard 型別，
+  或回報 provider contract，不得放寬檢查。Adapter 全面改用產生的型別列為後續工作。
 - Shared error envelope 轉成 typed client error；UI 顯示 human message 與 request ID。
 - `401` 先嘗試換發一次，失敗才結束 session；role visibility 不取代 server authorization。
 - SSE ownership、reconnect/backoff、abort/cancellation 與 cleanup 必須集中且有註解。
@@ -170,7 +175,7 @@ Domain/use-case logic 應保持可在不 render React、不啟動 browser、不�
 
 1. 確認 Active provider contract 與 glossary。
 2. 保持 layer direction、real-data behavior 與 accessibility。
-3. 執行 `npm run lint`、`npm run build` 及相關 functional Playwright tests。
+3. 執行 `npm run lint`、`npm run build`、`npm run contract:check` 及相關 functional Playwright tests。
 4. User-visible UI 變更使用獨立 visual-review workflow 截取受影響 route 的 dark
    desktop/mobile；theme、color 或 shared-style 變更加驗 light。Agent 必須實際
    開啟 screenshots，修正發現的 layout、responsive 或 contrast 問題後重新檢查。

@@ -46,7 +46,10 @@ GET /api/v1/monitoring/metrics/range
 GET /api/v1/monitoring/metrics/names
 ```
 
-All endpoints require an admin JWT according to [conventions](conventions.md).
+All endpoints require the `admin` role, with either bearer credential (a Session access token
+or an API Key) according to [conventions](conventions.md). The wire shape is published in
+[`openapi/areas/monitoring.yaml`](../openapi/areas/monitoring.yaml) (`getMetricValues`,
+`getMetricRange`, `listMetricNames`).
 
 ## Metric Names
 
@@ -94,7 +97,9 @@ Servers that had a value then; a Server without data is not counted as zero.
 | `metrics` | comma-separated string | No | Which metric names to evaluate; defaults to all names above. |
 
 `serverIds` missing yields `validation_error`; more than 200 yields `validation_error`;
-an unknown metric name yields `validation_error`.
+a Server id containing a character other than a letter, digit, `-`, or `_` yields
+`validation_error` (ids are interpolated into a query, so they are validated rather than
+escaped); an unknown metric name yields `validation_error`.
 
 ### Response
 
@@ -125,14 +130,14 @@ Platform.
 
 | Param | Type | Required | Meaning |
 | --- | --- | ---: | --- |
-| `serverIds` | comma-separated string | One scope parameter | Explicit Servers. At most 200. |
+| `serverIds` | comma-separated string | One scope parameter | Explicit Servers. At most 200, with the same id character set as current values. |
 | `poolId` | string | One scope parameter | The Servers currently placed in this Pool. |
 | `zoneId` | string | One scope parameter | The Servers currently placed in this Zone. |
 | `platformId` | string | One scope parameter | The Servers whose membership axis names this Platform. |
 | `metrics` | comma-separated string | No | Which metric names to evaluate; defaults to all names above. |
 | `window` | string | No | `1h`, `6h`, `24h`, or `7d`, ending now. Default `1h` when no `start`/`end` is given. |
-| `start` | timestamp | With `end` | Explicit range start (ISO 8601). Replaces `window`. |
-| `end` | timestamp | With `start` | Explicit range end (ISO 8601). |
+| `start` | timestamp | With `end` | Explicit range start (RFC 3339, the ISO 8601 profile of the conventions). Replaces `window`. |
+| `end` | timestamp | With `start` | Explicit range end (RFC 3339). |
 | `mode` | string | No | `aggregate` (default) returns one series per metric for the whole scope; `perServer` returns one series per metric and Server. |
 
 ### Scope resolution
@@ -212,9 +217,11 @@ The common error envelope applies.
 
 | Code | HTTP Status | When |
 | --- | ---: | --- |
-| `validation_error` | 400 | Missing `serverIds` (current values); no or more than one scope parameter; more than 200 `serverIds`; an unknown metric name; an unknown `window` or `mode`; `window` together with `start`/`end`; only one of `start`/`end`, an unparsable timestamp, `start` not before `end`, or a span outside 5 minutes–7 days; a scope over 1000 Servers; `perServer` over 50 Servers; a query the backend rejects. |
+| `validation_error` | 400 | Missing `serverIds` (current values); no or more than one scope parameter; more than 200 `serverIds`; a Server id outside the letter, digit, `-`, `_` set; an unknown metric name; an unknown `window` or `mode`; `window` together with `start`/`end`; only one of `start`/`end`, an unparsable timestamp, `start` not before `end`, or a span outside 5 minutes–7 days; a scope over 1000 Servers; `perServer` over 50 Servers; a query the backend rejects. |
 | `not_found` | 404 | The `poolId`, `zoneId`, or `platformId` does not exist. |
-| `provider_unavailable` | 503 | No metrics backend is registered, or the backend cannot be reached. A client tells the operator to register a metrics Integration for the Site rather than reporting the Servers as down. |
+| `provider_unavailable` | 503 | No metrics backend is registered, or the backend cannot be reached or rejects swallow's credential. A client tells the operator to register a metrics Integration for the Site rather than reporting the Servers as down. |
+| `unauthorized` / `forbidden` | 401 / 403 | Missing or invalid credential / a non-admin caller (conventions). |
+| `internal_error` | 500 | An unexpected failure. |
 
 ## Compatibility Notes
 

@@ -1,0 +1,2203 @@
+# Servers: the Server projection (list, stream, read, delete), its provider-backed machine
+# actions, Power Configuration, Server Default User, Boot Media, live provisioner reads, network
+# links, and Server tags. Behavior semantics: servers-list.md, servers-stream.md,
+# server-detail-actions.md, server-tags.md; virtual machines: server-enrollment.md; network
+# inspection and Provisioning Tasks: provisioning.md.
+#
+# The YAML anchors below (&serverIdParameter, &serverNetworkTarget) only avoid repeating a shape
+# inside this file; the bundled openapi.yaml carries the expanded copies.
+tags:
+  - name: servers
+    description: >-
+      Servers projected from provisioner inventory, their provider-backed lifecycle actions, and
+      the swallow-owned settings attached to them. Every route requires role `admin`.
+paths:
+  /api/v1/servers:
+    get:
+      tags: [servers]
+      operationId: listServers
+      summary: List Server projections with filtering and pagination.
+      description: >-
+        Requires role `admin`. Filters are conjunctive. An unknown filter value matches nothing
+        (200 with no items) rather than failing; a `page` or `pageSize` that is not a positive
+        integer, or a `pageSize` above 100, falls back to its default instead of being refused.
+        The route is also served with a trailing slash (`/api/v1/servers/`).
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: siteId
+          in: query
+          required: false
+          description: Servers observed through integrations at this Site.
+          schema:
+            type: string
+        - name: integrationId
+          in: query
+          required: false
+          description: Servers observed through this integration.
+          schema:
+            type: string
+        - name: provisioningState
+          in: query
+          required: false
+          description: >-
+            The provisioning axis state. A projection stored with the retired value
+            `commissioning` matches `inspecting`.
+          schema:
+            $ref: '#/components/schemas/OSProvisioningState'
+        - name: platformId
+          in: query
+          required: false
+          description: Servers whose membership axis names this Platform.
+          schema:
+            type: string
+        - name: clusterId
+          in: query
+          required: false
+          deprecated: true
+          description: One-release alias of `platformId`; ignored when `platformId` is present.
+          schema:
+            type: string
+        - name: keyword
+          in: query
+          required: false
+          description: >-
+            Case-insensitive match on hostname, FQDN, address, serial number, or system UUID.
+          schema:
+            type: string
+        - name: includeAbsent
+          in: query
+          required: false
+          description: >-
+            Include projections absent from the latest provider inventory. Only the literal
+            `true` enables it; any other value is false.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: One page of Server projections.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerPage'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/stream:
+    get:
+      tags: [servers]
+      operationId: streamServerChanges
+      summary: Stream Server projection changes as Server-Sent Events.
+      description: >-
+        Requires role `admin`. A browser EventSource that cannot send an Authorization header
+        passes a Session access token as `access_token` instead; an API Key is never accepted
+        there (a value starting with `swk_` is ignored, so the request is 401). The header wins
+        when both are present. The body opens with the comment `: connected`, sends `: ping`
+        heartbeats, and carries one `data:` line per change whose JSON payload is a
+        `ServerChange`. Authentication and authorization failures are returned as the JSON error
+        envelope before the stream starts.
+      security:
+        - accessTokenQuery: []
+        - bearerAuth: []
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: >-
+            Scope the stream to Servers at this Site. Removals may still arrive unscoped.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: >-
+            An unbounded SSE stream (`Cache-Control: no-cache`). Each `data:` frame is a
+            `ServerChange` JSON object.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}:
+    parameters:
+      - &serverIdParameter
+        name: id
+        in: path
+        required: true
+        description: The swallow-issued Server ID.
+        schema:
+          type: string
+    get:
+      tags: [servers]
+      operationId: getServer
+      summary: Read one Server projection.
+      description: Requires role `admin`. An unknown Server is 404.
+      responses:
+        '200':
+          description: The complete Server projection, the same shape as a list item.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Server'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [servers]
+      operationId: deleteServer
+      summary: Delete a Server together with its backing provisioner Machine.
+      description: >-
+        Requires role `admin`. Provider-first and synchronous: the Machine is deleted before the
+        projection, and a Machine the provisioner reports as already missing still succeeds. 400
+        when the provisioner cannot remove machines or refused; 404 for an unknown Server; 409
+        when a Platform claims the Server or it is locked; 503 when the provisioner or the lock
+        state is unavailable.
+      responses:
+        '204':
+          description: The Machine and the Server projection are gone.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/refresh:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: refreshServer
+      summary: Read the Server's Machine live and update its provisioning axis and addresses.
+      description: >-
+        Requires role `admin`. One targeted provider read; not a full inventory reconciliation.
+        400 when the provisioner refused; 404 for an unknown Server or Machine; 503 when the
+        provisioner is unavailable.
+      responses:
+        '200':
+          description: The provisioning snapshot after the refresh.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerProvisioningSnapshot'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/default-user:
+    parameters:
+      - *serverIdParameter
+    put:
+      tags: [servers]
+      operationId: setServerDefaultUser
+      summary: Set the Server Default User, optionally installing the Deployment Key first.
+      description: >-
+        Requires role `admin`. The value is saved only after a Deployment Key login as `user`
+        succeeds. 400 when `user` is not a login name or the host rejected the password; 404 for
+        an unknown Server; 409 when the Server is not deployed, has no address, or is locked, the
+        installation has no Deployment Key, or the host rejected the key; 503 when the host is
+        unreachable or the lock state is unavailable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user]
+              properties:
+                user:
+                  type: string
+                  description: >-
+                    A POSIX login name: lowercase letters, digits, `_` or `-`, starting with a
+                    letter or `_`, up to 32 characters.
+                password:
+                  type: string
+                  writeOnly: true
+                  description: >-
+                    The account's password, used once to install the Deployment Key; never
+                    stored, logged, or returned.
+      responses:
+        '200':
+          description: The effective Server Default User after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerDefaultUserOutcome'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [servers]
+      operationId: clearServerDefaultUser
+      summary: Clear the Server Default User set on the Server.
+      description: >-
+        Requires role `admin`. Succeeds also when nothing was set and never touches the host.
+        404 for an unknown Server; 409 for a locked Server; 503 when the lock state is
+        unavailable.
+      responses:
+        '204':
+          description: The OS Image's default user applies again.
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/boot-media:
+    parameters:
+      - *serverIdParameter
+    get:
+      tags: [servers]
+      operationId: getServerBootMedia
+      summary: Read the Server's Boot Media setting, probes, and running preflight.
+      description: >-
+        Requires role `admin`. With `live=true` the BMC or hypervisor is also read; a failed live
+        read is still 200 with `liveError`. 404 for an unknown Server.
+      parameters:
+        - name: live
+          in: query
+          required: false
+          description: Also read the BMC's or the hypervisor's current media and boot override.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: The Server's Boot Media.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootMedia'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      tags: [servers]
+      operationId: setServerBootMedia
+      summary: Enable Boot Media with a Boot ISO (preflight), switch it, or disable it.
+      description: >-
+        Requires role `admin`. Enabling is a preflight that can take minutes; its progress is the
+        Read's `apply`. 400 when the body has no boolean `enabled`, enabling has no `isoId`, or
+        the Boot ISO belongs to another Integration; 404 for an unknown Server or Boot ISO; 409
+        when a preflight already runs, the Server or its hypervisor is locked, the Boot ISO is not
+        served, the Server has no Boot Media method, or the BMC or hypervisor refused; 503 when the
+        BMC, hypervisor, provisioner, or lock state is unavailable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+                isoId:
+                  type: string
+                  description: >-
+                    The Boot ISO to enable with, built for the Server's own provisioner
+                    Integration. Required to enable; ignored when disabling.
+      responses:
+        '200':
+          description: The Boot Media after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootMediaChange'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/redfish/probe:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: probeServerBootMedia
+      summary: Re-probe the Server's Boot Media method now and store the result.
+      description: >-
+        Requires role `admin`. An unreachable or unsupported BMC or hypervisor is a successful
+        probe with that `support`. 404 for an unknown Server; 503 when the provisioner cannot be
+        reached.
+      responses:
+        '200':
+          description: The stored probe results of both methods.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootMediaProbe'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/virtual-machines:
+    parameters:
+      - *serverIdParameter
+    get:
+      tags: [servers]
+      operationId: listHypervisorVirtualMachines
+      summary: List the libvirt domains on a Hypervisor Server.
+      description: >-
+        Requires role `admin`. `id` is the Hypervisor Server (server-enrollment.md). 400 when the
+        account is not a login name; 404 for an unknown Server; 409 when the Hypervisor is not
+        deployed or has no address, there is no Deployment Key, the key was rejected, or the
+        account cannot use libvirt; 503 when the Hypervisor cannot be reached over SSH.
+      parameters:
+        - name: account
+          in: query
+          required: false
+          description: >-
+            The login account on the Hypervisor; defaults to its effective Server Default User.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Every domain on the Hypervisor.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hypervisorServerId, account, items]
+                properties:
+                  hypervisorServerId:
+                    type: string
+                  account:
+                    type: string
+                    description: The account swallow logged in as.
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, uuid, state, architecture, macAddresses, serverId]
+                      properties:
+                        name:
+                          type: string
+                        uuid:
+                          type: string
+                        state:
+                          type: string
+                          description: libvirt's own state words (`running`, `shut off`, ...), for display.
+                        architecture:
+                          type: string
+                        macAddresses:
+                          type: array
+                          items:
+                            type: string
+                        serverId:
+                          type: string
+                          nullable: true
+                          description: The Server that already has one of the domain's MAC addresses.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/provisioner-detail:
+    parameters:
+      - *serverIdParameter
+    get:
+      tags: [servers]
+      operationId: getServerProvisionerDetail
+      summary: Read the Machine's live provisioner detail and the provisioner's capabilities.
+      description: >-
+        Requires role `admin`. Read live from the provisioner and sent with
+        `Cache-Control: no-store`, because an allowlisted BMC section may carry the BMC password
+        for manual administration. 400 when the provisioner refused; 404 for an unknown Server or
+        Machine; 503 when the provisioner is unavailable.
+      responses:
+        '200':
+          description: The live detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisionerDetail'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/events:
+    parameters:
+      - *serverIdParameter
+    get:
+      tags: [servers]
+      operationId: listServerProviderEvents
+      summary: Read the recent machine history the provisioner retains.
+      description: >-
+        Requires role `admin`. A provisioner without machine events answers 200 with
+        `supported: false`. 400 for a `limit` outside 1-100 or a provisioner refusal; 404 for an
+        unknown Server or Machine; 503 when the provisioner is unavailable.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: The provider events, newest first as the provisioner orders them.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderEventList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/network:
+    parameters:
+      - *serverIdParameter
+    get:
+      tags: [servers]
+      operationId: getServerNetwork
+      summary: Read the Server's typed, live Network Configuration.
+      description: >-
+        Requires role `admin`. The same target shape as `POST /api/v1/provisioning/networks/inspect`
+        (provisioning.md, Network Inspection). 400 when the provisioner refused; 404 for an
+        unknown Server or Machine; 409 when the provisioner cannot configure networks; 503 when
+        the provisioner is unavailable.
+      responses:
+        '200':
+          description: The Server's Network Configuration and edit policy.
+          content:
+            application/json:
+              schema: &serverNetworkTarget
+                $ref: '#/components/schemas/NetworkInspectionTarget'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/network/interfaces/{interfaceId}/links:
+    parameters:
+      - *serverIdParameter
+      - &interfaceIdParameter
+        name: interfaceId
+        in: path
+        required: true
+        description: The provider's NIC identifier, as returned by the network read.
+        schema:
+          type: string
+    post:
+      tags: [servers]
+      operationId: createServerNetworkLink
+      summary: Create one explicit subnet link on a NIC of a Ready Server.
+      description: >-
+        Requires role `admin`. The provider state is read back and verified before the refreshed
+        Network Configuration is returned. 400 for an invalid body, mode, or address, or an
+        unknown interface or subnet; 404 for an unknown Server or Machine; 409 when the Server is
+        not a present, unlocked `ready` Server or the provisioner cannot configure networks; 503
+        when the provisioner or the lock state is unavailable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServerNetworkLinkChange'
+      responses:
+        '200':
+          description: The refreshed Network Configuration.
+          content:
+            application/json:
+              schema: *serverNetworkTarget
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/network/interfaces/{interfaceId}/links/{linkId}:
+    parameters:
+      - *serverIdParameter
+      - *interfaceIdParameter
+      - name: linkId
+        in: path
+        required: true
+        description: The provider's subnet-link identifier on that NIC.
+        schema:
+          type: string
+    put:
+      tags: [servers]
+      operationId: replaceServerNetworkLink
+      summary: Replace exactly one subnet link on a NIC of a Ready Server.
+      description: >-
+        Requires role `admin`. Unrelated links are retained. Errors as for creating a link; an
+        unknown link is also 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServerNetworkLinkChange'
+      responses:
+        '200':
+          description: The refreshed Network Configuration.
+          content:
+            application/json:
+              schema: *serverNetworkTarget
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [servers]
+      operationId: deleteServerNetworkLink
+      summary: Unbind exactly one subnet link on a NIC of a Ready Server.
+      description: >-
+        Requires role `admin`. No request body. Errors as for replacing a link.
+      responses:
+        '200':
+          description: The refreshed Network Configuration.
+          content:
+            application/json:
+              schema: *serverNetworkTarget
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/provisioning-tasks:
+    parameters:
+      - *serverIdParameter
+    get:
+      tags: [servers]
+      operationId: listServerProvisioningTasks
+      summary: List the Server's Provisioning Tasks, newest first.
+      description: >-
+        Requires role `admin`. The task shape of `GET /api/v1/provisioning/tasks/{id}`
+        (provisioning.md, Provisioning Tasks); a plain array. 404 for an unknown Server.
+      responses:
+        '200':
+          description: The Server's Provisioning Tasks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProvisioningTask'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/deploy:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: deployServer
+      deprecated: true
+      summary: Deploy an operating system on one Server directly.
+      description: >-
+        Requires role `admin`. Deprecated in favour of
+        `POST /api/v1/provisioning/deployment-operations`; every response carries
+        `Deprecation: true` and a successor `Link`. 400 for an invalid body, a missing
+        `distroSeries`, an unknown `deployTarget`, an unsupported RAM deployment, or a provisioner
+        refusal; 404 for an unknown Server or Machine; 409 for a locked Server or a missing
+        Deployment Key; 503 when the provisioner, its SSH Key registration, or the lock state is
+        unavailable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [distroSeries]
+              properties:
+                osSystem:
+                  type: string
+                distroSeries:
+                  type: string
+                  description: The release to deploy, for example `jammy`.
+                userData:
+                  type: string
+                  description: Optional cloud-init user data in plain text.
+                comment:
+                  type: string
+                deployTarget:
+                  type: string
+                  enum: [disk, ram]
+                  description: The preferred deploy-mode field; wins over `ephemeral`.
+                ephemeral:
+                  type: boolean
+                  deprecated: true
+                  description: Alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
+      responses:
+        '202':
+          description: The provisioner accepted the deployment.
+          headers:
+            Deprecation:
+              schema:
+                type: string
+                enum: ['true']
+            Link:
+              description: The successor route, `</api/v1/provisioning/deployment-operations>; rel="successor-version"`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerProvisioningSnapshot'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/release:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: releaseServer
+      deprecated: true
+      summary: Release one Server to the provider's available pool directly.
+      description: >-
+        Requires role `admin`. Deprecated in favour of
+        `POST /api/v1/provisioning/release-operations`; every response carries
+        `Deprecation: true` and a successor `Link`. The body is optional. 400 for an invalid body,
+        erase refinements without `erase`, release options the provisioner does not support, or a
+        provisioner refusal; 404 for an unknown Server or Machine; 409 when a Platform claims the
+        Server, it is locked, or `unbindStaticIPs` is asked of a provisioner that cannot configure
+        networks; 503 when the provisioner or the lock state is unavailable.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                erase:
+                  type: boolean
+                  description: Wipe the disks; `false` releases without wiping.
+                secureErase:
+                  type: boolean
+                  description: Use the device's hardware erase; requires `erase`.
+                quickErase:
+                  type: boolean
+                  description: Wipe only the beginning and end of each disk; requires `erase`.
+                comment:
+                  type: string
+                unbindStaticIPs:
+                  type: boolean
+                  description: >-
+                    Remove the pre-release static links once the Server is Ready, through a
+                    Provisioning Task whose id the response carries as `taskId`.
+      responses:
+        '202':
+          description: The provisioner accepted the release.
+          headers:
+            Deprecation:
+              schema:
+                type: string
+                enum: ['true']
+            Link:
+              description: The successor route, `</api/v1/provisioning/release-operations>; rel="successor-version"`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerProvisioningSnapshot'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/power-on:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: powerOnServer
+      summary: Ask the provisioner to power the Server on.
+      description: &serverActionDescription >-
+        Requires role `admin`. The response is the provisioning snapshot the provisioner returned
+        on accepting the action; the reconciler tracks it from there. 400 when the provisioner
+        does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a
+        locked Server or a provisioning state that does not allow the action; 503 when the
+        provisioner or the lock state is unavailable.
+      responses: &serverActionResponses
+        '202':
+          description: The provisioner accepted the action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerProvisioningSnapshot'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/power-off:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: powerOffServer
+      summary: Ask the provisioner to power the Server off.
+      description: *serverActionDescription
+      responses: *serverActionResponses
+  /api/v1/servers/{id}/power-state:
+    parameters:
+      - *serverIdParameter
+    get:
+      tags: [servers]
+      operationId: getServerPowerState
+      summary: Read the Server's power state live from the provisioner.
+      description: >-
+        Requires role `admin`. Changes nothing and is not gated on Server Lock. 400 when the
+        provisioner offers no power control or refused; 404 for an unknown Server or Machine; 503
+        when the provisioner is unavailable.
+      responses:
+        '200':
+          description: The live power state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerPowerReading'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/power-configuration:
+    parameters:
+      - *serverIdParameter
+    get:
+      tags: [servers]
+      operationId: getServerPowerConfiguration
+      summary: Read the Server's Power Configuration live from its provisioner.
+      description: >-
+        Requires role `admin`. Sent with `Cache-Control: no-store`; never carries the password.
+        400 when the provisioner lacks the `powerConfiguration` capability; 404 for an unknown
+        Server or Machine; 503 when the provisioner is unavailable or may not read power
+        parameters.
+      responses:
+        '200':
+          description: The Power Configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PowerConfiguration'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      tags: [servers]
+      operationId: setServerPowerConfiguration
+      summary: Replace the Server's Power Configuration in its provisioner.
+      description: >-
+        Requires role `admin`. Validated against the driver's family, written through, and read
+        back; never switches power. Sent with `Cache-Control: no-store`. 400 for an invalid body,
+        driver, or parameter, a provisioner without the capability, or a provisioner refusal; 404
+        for an unknown Server or Machine; 409 for a locked Server or one whose power a provisioner
+        VM host manages; 503 when the provisioner, its credential, or the lock state is
+        unavailable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PowerConfigurationChange'
+      responses:
+        '200':
+          description: The Power Configuration read back after the write.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PowerConfiguration'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/inspect:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: inspectServer
+      summary: Inspect the Server's hardware through an inspect-hardware Workflow.
+      description: >-
+        Requires role `admin`. Starts an inspect-hardware Workflow, or retries the one waiting in
+        `requires_attention`. Without a Workflow engine it falls back to the direct provider
+        action and the response has no `workflowId` or `resumed`. 400 when the provisioner does
+        not offer hardware validation or refused (fallback only); 404 for an unknown Server; 409
+        when the Server is locked, its provisioning state does not allow inspection, or a Workflow
+        already holds it; 503 when the lock state is unavailable.
+      responses:
+        '202':
+          description: The inspection was accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerInspectionAccepted'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/test:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: testServer
+      summary: Run the provider's hardware tests on the Server (needs `hardwareValidation`).
+      description: *serverActionDescription
+      responses: *serverActionResponses
+  /api/v1/servers/{id}/abort:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: abortServerLifecycleAction
+      summary: Stop an in-progress inspection, test, or deployment (needs `hardwareValidation`).
+      description: *serverActionDescription
+      responses: *serverActionResponses
+  /api/v1/servers/{id}/override-failed-testing:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: overrideServerFailedTesting
+      summary: Accept the Server despite failed hardware tests (needs `hardwareValidation`).
+      description: *serverActionDescription
+      responses: *serverActionResponses
+  /api/v1/servers/{id}/lock:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: lockServer
+      summary: Lock the Server in its provisioner (Server Lock); only a deployed Server.
+      description: *serverActionDescription
+      responses: *serverActionResponses
+  /api/v1/servers/{id}/unlock:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: unlockServer
+      summary: Unlock the Server in its provisioner; never resumes work.
+      description: *serverActionDescription
+      responses: *serverActionResponses
+  /api/v1/servers/{id}/mark-broken:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: markServerBroken
+      summary: Mark the Machine broken in its provisioner.
+      description: *serverActionDescription
+      responses: *serverActionResponses
+  /api/v1/servers/{id}/mark-fixed:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: markServerFixed
+      summary: Mark a broken Machine fixed in its provisioner.
+      description: *serverActionDescription
+      responses: *serverActionResponses
+  /api/v1/servers/{id}/rescue-mode:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: enterServerRescueMode
+      summary: Enter the provider's Rescue Mode.
+      description: *serverActionDescription
+      responses: *serverActionResponses
+  /api/v1/servers/{id}/exit-rescue-mode:
+    parameters:
+      - *serverIdParameter
+    post:
+      tags: [servers]
+      operationId: exitServerRescueMode
+      summary: Exit Rescue Mode, restoring the state the Machine had before it.
+      description: *serverActionDescription
+      responses: *serverActionResponses
+  /api/v1/provisioning/tags:
+    get:
+      tags: [servers]
+      operationId: listServerTags
+      summary: List the tags known for a Site, with whether swallow may assign each.
+      description: >-
+        Requires role `admin`. A Site with no enabled provisioner, including an unknown Site,
+        answers an empty `tags` array. 400 for a missing `siteId` or a provisioner refusal; 503
+        when the provisioner cannot be reached or has no credential.
+      parameters:
+        - name: siteId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The Site's known tags.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerTagCatalog'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [servers]
+      operationId: editServerTags
+      summary: Apply a tri-state tag edit to one or more Servers.
+      description: >-
+        Requires role `admin`. Not gated on Server Lock. 400 for an invalid body, empty
+        `serverIds`, no `add` or `remove`, an invalid or contradictory tag name, or a provisioner
+        refusal; 404 for an unknown Server or Machine; 503 when the provisioner cannot be reached
+        or has no credential.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [serverIds]
+              properties:
+                serverIds:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                add:
+                  type: array
+                  description: Tags to apply to every listed Server; at least one of `add` and `remove` is non-empty.
+                  items:
+                    type: string
+                remove:
+                  type: array
+                  description: Tags to unapply from every listed Server.
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Each listed Server's effective tags after the edit, in request order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerTagEditResult'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  schemas:
+    OSProvisioningState:
+      type: string
+      description: >-
+        The swallow-defined OS Provisioning State (glossary); the provider's own label is the
+        display-only `providerState`.
+      enum:
+        - new
+        - inspecting
+        - ready
+        - allocated
+        - deploying
+        - deployed
+        - releasing
+        - testing
+        - rescue
+        - broken
+        - failed
+        - retired
+        - unknown
+    ServerPowerState:
+      type: string
+      description: The provider-neutral power state of the Machine.
+      enum: ['on', 'off', error, unknown]
+    ServerPage:
+      type: object
+      description: The shared pagination envelope over Server projections (conventions.md).
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Server'
+        total:
+          type: integer
+          description: Matching Servers across all pages.
+        page:
+          type: integer
+        pageSize:
+          type: integer
+    Server:
+      type: object
+      description: >-
+        The complete, secret-free Server projection (servers-list.md). Optional observations are
+        null; an axis that has never been observed is null rather than defaulted.
+      required:
+        - id
+        - source
+        - hostname
+        - fqdn
+        - addresses
+        - architecture
+        - cpuCores
+        - cpuModel
+        - memoryMiB
+        - storageGB
+        - gpus
+        - systemVendor
+        - systemProduct
+        - providerZone
+        - providerResourcePool
+        - providerPod
+        - tags
+        - hardware
+        - deployment
+        - provisioning
+        - membership
+        - health
+        - platformClaim
+        - absent
+        - lastSeenAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: The swallow-issued, stable Server ID.
+        source:
+          $ref: '#/components/schemas/ServerSource'
+        hostname:
+          type: string
+          nullable: true
+        fqdn:
+          type: string
+          nullable: true
+        addresses:
+          type: array
+          items:
+            type: string
+        architecture:
+          type: string
+        cpuCores:
+          type: integer
+        cpuModel:
+          type: string
+        memoryMiB:
+          type: integer
+          format: int64
+        storageGB:
+          type: number
+        gpus:
+          type: array
+          description: The complete GPU Inventory, grouped by vendor, model, and kind.
+          items:
+            $ref: '#/components/schemas/ServerGPUGroup'
+        systemVendor:
+          type: string
+        systemProduct:
+          type: string
+        providerZone:
+          type: string
+          description: The provisioner's own zone name, display only.
+        providerResourcePool:
+          type: string
+          description: The provisioner's own resource pool name, display only.
+        providerPod:
+          type: string
+          description: The provisioner VM host a virtual machine belongs to; empty for bare metal.
+        tags:
+          type: array
+          description: The effective Server tags (server-tags.md).
+          items:
+            type: string
+        hardware:
+          $ref: '#/components/schemas/ServerHardware'
+        deployment:
+          nullable: true
+          description: Swallow's result of its latest durable OS deployment; null when none is recorded.
+          allOf:
+            - $ref: '#/components/schemas/ServerDeploymentAxis'
+        provisioning:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ServerProvisioningAxis'
+        membership:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ServerMembershipAxis'
+        health:
+          nullable: true
+          description: Resolved at query time from the metrics backend; null when unknown.
+          allOf:
+            - $ref: '#/components/schemas/ServerHealthAxis'
+        platformClaim:
+          nullable: true
+          description: The Platform Claim; null when no Platform claims the Server.
+          allOf:
+            - $ref: '#/components/schemas/ServerPlatformClaim'
+        defaultUser:
+          $ref: '#/components/schemas/ServerDefaultUser'
+        absent:
+          type: boolean
+          description: The Machine stopped appearing in its provisioner's inventory.
+        lastSeenAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    ServerSource:
+      type: object
+      description: Where the Server is observed; the identity mapping to its provisioner Machine.
+      required: [siteId, integrationId, providerMachineId]
+      properties:
+        siteId:
+          type: string
+        integrationId:
+          type: string
+        providerMachineId:
+          type: string
+          description: The provisioner's opaque Machine ID.
+    ServerHardware:
+      type: object
+      required: [systemUuid, serialNumber, macAddresses]
+      properties:
+        systemUuid:
+          type: string
+          nullable: true
+        serialNumber:
+          type: string
+          nullable: true
+        macAddresses:
+          type: array
+          items:
+            type: string
+    ServerGPUGroup:
+      type: object
+      description: One GPU Inventory group of identical devices.
+      required: [vendor, model, count, kind]
+      properties:
+        vendor:
+          type: string
+          description: Provider-reported vendor; may be empty.
+        model:
+          type: string
+          description: Provider-reported model; may be empty.
+        count:
+          type: integer
+          description: Positive number of physical devices in the group.
+        kind:
+          type: string
+          enum: [compute, display]
+    ServerDeploymentAxis:
+      type: object
+      description: Swallow's outcome of the most recent durable OS deployment on the Server.
+      required:
+        - state
+        - operationId
+        - stepId
+        - attempt
+        - code
+        - stage
+        - statusReason
+        - startedAt
+        - finishedAt
+        - updatedAt
+      properties:
+        state:
+          type: string
+          enum: [deploying, verifying, succeeded, failed, requires_attention, canceled]
+        operationId:
+          type: string
+          description: The Workflow that ran the deployment.
+        stepId:
+          type: string
+          description: The deployment's Task in that Workflow.
+        attempt:
+          type: integer
+        code:
+          type: string
+          description: The failed Task's stable error code; empty for a non-failed deployment.
+        stage:
+          type: string
+          description: A non-terminal stage of an active deployment, for progress display.
+        statusReason:
+          type: string
+          description: Human-readable; never branch on it.
+        startedAt:
+          $ref: '#/components/schemas/Timestamp'
+        finishedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    ServerProvisioningAxis:
+      type: object
+      description: The provisioner-owned provisioning axis (Server Status).
+      required:
+        - state
+        - providerState
+        - powerState
+        - osSystem
+        - distroSeries
+        - deployedImageName
+        - ephemeral
+        - hweKernel
+        - locked
+        - commissioningStatus
+        - testingStatus
+        - integrationId
+        - observedAt
+      properties:
+        state:
+          $ref: '#/components/schemas/OSProvisioningState'
+        stateSince:
+          $ref: '#/components/schemas/Timestamp'
+        providerState:
+          type: string
+          description: The provider's own lifecycle label; display only.
+        errorDescription:
+          type: string
+          description: >-
+            The provisioner's machine-level failure reason, present only in `failed`, `broken`,
+            and `rescue`.
+        powerState:
+          $ref: '#/components/schemas/ServerPowerState'
+        osSystem:
+          type: string
+        distroSeries:
+          type: string
+        deployedImageName:
+          type: string
+          description: Effective display name of the deployed OS Image; empty when unknown.
+        deployedImageDefaultUser:
+          type: string
+          description: Effective default login user of the deployed OS Image; omitted when unknown.
+        ephemeral:
+          type: boolean
+          description: The deployed OS runs from memory (deploy target `ram`).
+        hweKernel:
+          type: string
+        locked:
+          type: boolean
+          description: The provider-owned Server Lock.
+        inspectionRequired:
+          type: boolean
+          description: Present (and true) only when a disk deployment needs a new inspection first.
+        inspectionRequiredReason:
+          type: string
+        commissioningStatus:
+          type: string
+          description: The provider's label for the last hardware inspection; display only.
+        testingStatus:
+          type: string
+          description: The provider's label for the last hardware test run; display only.
+        integrationId:
+          type: string
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+    ServerMembershipAxis:
+      type: object
+      description: The platform runtime's own answer about this Server.
+      required: [platformId, clusterId, nodeName, role, state, observedAt]
+      properties:
+        platformId:
+          type: string
+        clusterId:
+          type: string
+          deprecated: true
+          description: One-release alias of `platformId`.
+        nodeName:
+          type: string
+          description: The platform's own name for this machine.
+        role:
+          type: string
+          description: The Node Role (`control-plane` or `worker`); for Slurm, the partition.
+        state:
+          type: string
+          description: The platform's own member state, for example `ready`.
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+    ServerHealthAxis:
+      type: object
+      required: [state, observedAt]
+      properties:
+        state:
+          type: string
+          enum: [up, down]
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+    ServerPlatformClaim:
+      type: object
+      description: The Platform whose accepted deployment targets this Server (Platform Claim).
+      required: [platformId, claimedAt]
+      properties:
+        platformId:
+          type: string
+        claimedAt:
+          $ref: '#/components/schemas/Timestamp'
+    ServerDefaultUser:
+      type: object
+      description: The effective Server Default User; omitted from the Server when none applies.
+      required: [user, source]
+      properties:
+        user:
+          type: string
+        source:
+          type: string
+          enum: [server, os_image]
+          description: >-
+            `server` when an operator set it on this Server, `os_image` when it is the deployed
+            OS Image's default user.
+    ServerChange:
+      type: object
+      description: >-
+        The JSON payload of one `data:` frame of the Server stream. Consumers ignore a `type` they
+        do not recognise.
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          enum: [upsert, removed]
+        id:
+          type: string
+          description: The Server ID.
+        server:
+          $ref: '#/components/schemas/Server'
+    ServerProvisioningSnapshot:
+      type: object
+      description: >-
+        The provisioning axis right after an accepted lifecycle action or a refresh: a snapshot of
+        what the provisioner returned, not a completion report.
+      required:
+        - serverId
+        - state
+        - providerState
+        - powerState
+        - osSystem
+        - distroSeries
+        - ephemeral
+        - hweKernel
+        - locked
+        - commissioningStatus
+        - testingStatus
+        - observedAt
+      properties:
+        serverId:
+          type: string
+        state:
+          $ref: '#/components/schemas/OSProvisioningState'
+        providerState:
+          type: string
+        powerState:
+          $ref: '#/components/schemas/ServerPowerState'
+        osSystem:
+          type: string
+        distroSeries:
+          type: string
+        ephemeral:
+          type: boolean
+        hweKernel:
+          type: string
+        locked:
+          type: boolean
+        commissioningStatus:
+          type: string
+        taskId:
+          type: string
+          description: The release-network-cleanup Provisioning Task a release started, if any.
+        testingStatus:
+          type: string
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+        inspectionRequired:
+          type: boolean
+          description: Present (and true) only when a disk deployment needs a new inspection first.
+        inspectionRequiredReason:
+          type: string
+    ServerInspectionAccepted:
+      type: object
+      description: >-
+        The Server's provisioning snapshot as stored when the inspection was accepted (inspection
+        has not started yet), plus the Workflow that runs it.
+      required:
+        - serverId
+        - state
+        - providerState
+        - powerState
+        - osSystem
+        - distroSeries
+        - ephemeral
+        - hweKernel
+        - locked
+        - commissioningStatus
+        - testingStatus
+        - observedAt
+      properties:
+        serverId:
+          type: string
+        state:
+          $ref: '#/components/schemas/OSProvisioningState'
+        providerState:
+          type: string
+        powerState:
+          type: string
+          enum: ['on', 'off', error, unknown, '']
+          description: The stored power state, copied as is; empty when the stored axis has none.
+        osSystem:
+          type: string
+        distroSeries:
+          type: string
+        ephemeral:
+          type: boolean
+        hweKernel:
+          type: string
+        locked:
+          type: boolean
+        commissioningStatus:
+          type: string
+        taskId:
+          type: string
+          description: Never set by an inspection; listed because the snapshot shape carries it.
+        testingStatus:
+          type: string
+        observedAt:
+          description: The stored observation time; an empty string when the stored axis has none.
+          anyOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: string
+              maxLength: 0
+        inspectionRequired:
+          type: boolean
+        inspectionRequiredReason:
+          type: string
+        workflowId:
+          type: string
+          description: The inspect-hardware Workflow; omitted by the direct-provider fallback.
+        resumed:
+          type: boolean
+          description: >-
+            True when the request retried a Workflow waiting for attention; omitted by the
+            direct-provider fallback.
+    ServerPowerReading:
+      type: object
+      required: [serverId, powerState]
+      properties:
+        serverId:
+          type: string
+        powerState:
+          $ref: '#/components/schemas/ServerPowerState'
+    ServerDefaultUserOutcome:
+      type: object
+      required: [defaultUser, keyInstalled, sudo]
+      properties:
+        defaultUser:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ServerDefaultUser'
+        keyInstalled:
+          type: boolean
+          description: True when a password was given and the Deployment Key is installed.
+        sudo:
+          type: string
+          enum: [passwordless, password_required, unavailable]
+    ServerNetworkLinkChange:
+      type: object
+      description: One explicit NIC subnet link to create or replace.
+      required: [mode, subnetId]
+      properties:
+        mode:
+          type: string
+          enum: [dhcp, static, link_only]
+        subnetId:
+          type: string
+        ipAddress:
+          type: string
+          description: Required for `static` only.
+        defaultGateway:
+          type: boolean
+          description: For `static` only.
+    ProvisionerDetail:
+      type: object
+      description: >-
+        A live, provider-neutral view of one Machine plus the provisioner's capabilities.
+        Sections and tables are display-oriented and provider-defined.
+      required: [capabilities, sections, tables]
+      properties:
+        capabilities:
+          $ref: '#/components/schemas/ProvisionerCapabilities'
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProvisionerDetailSection'
+        tables:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProvisionerDetailTable'
+    ProvisionerCapabilities:
+      type: object
+      description: What the Server's provisioner offers, so a client presents only actions that exist.
+      required:
+        - ephemeralDeploy
+        - power
+        - hardwareValidation
+        - operatorState
+        - machineDetail
+        - hardwareInventory
+        - machineRemoval
+        - releaseOptions
+        - networkConfiguration
+        - powerConfiguration
+      properties:
+        ephemeralDeploy:
+          type: boolean
+        power:
+          type: boolean
+        hardwareValidation:
+          type: boolean
+        operatorState:
+          type: boolean
+        machineDetail:
+          type: boolean
+        hardwareInventory:
+          type: boolean
+        machineRemoval:
+          type: boolean
+        releaseOptions:
+          type: boolean
+        networkConfiguration:
+          type: boolean
+        powerConfiguration:
+          type: boolean
+    ProvisionerDetailSection:
+      type: object
+      required: [title, fields]
+      properties:
+        title:
+          type: string
+        fields:
+          type: array
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label:
+                type: string
+              value:
+                type: string
+    ProvisionerDetailTable:
+      type: object
+      required: [title, columns, rows]
+      properties:
+        title:
+          type: string
+        columns:
+          type: array
+          nullable: true
+          items:
+            type: string
+        rows:
+          type: array
+          nullable: true
+          items:
+            type: array
+            nullable: true
+            items:
+              type: string
+    ProviderEventList:
+      type: object
+      required: [supported, events]
+      properties:
+        supported:
+          type: boolean
+          description: False when the provisioner has no machine events; `events` is then empty.
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderEvent'
+    ProviderEvent:
+      type: object
+      description: One client-safe event from the provisioner's retained machine history.
+      required: [id, level, type, message, actor, occurredAt]
+      properties:
+        id:
+          type: string
+        level:
+          type: string
+        type:
+          type: string
+        message:
+          type: string
+        actor:
+          type: string
+          nullable: true
+        occurredAt:
+          type: string
+          description: >-
+            RFC 3339 in UTC when the provider's time format is known; otherwise the provider's raw
+            value.
+    PowerConfiguration:
+      type: object
+      description: >-
+        A Server's Power Configuration as read live from its provisioner; never carries the
+        password.
+      required:
+        - serverId
+        - driver
+        - family
+        - control
+        - address
+        - powerId
+        - username
+        - passwordSet
+        - editable
+        - readOnlyReason
+        - drivers
+      properties:
+        serverId:
+          type: string
+        driver:
+          type: string
+          description: The provisioner's power driver; empty when none, verbatim when unknown.
+        family:
+          type: string
+          enum: ['', bmc, virsh]
+          description: Empty when there is no driver or swallow does not know its family.
+        control:
+          type: string
+          enum: [none, manual, automatic]
+        address:
+          type: string
+          description: The BMC address or libvirt URI, with any password, query, and fragment removed.
+        powerId:
+          type: string
+        username:
+          type: string
+        passwordSet:
+          type: boolean
+        editable:
+          type: boolean
+          description: False when a provisioner VM host manages this Server's power.
+        readOnlyReason:
+          type: string
+        drivers:
+          type: array
+          nullable: true
+          description: The drivers a write may choose.
+          items:
+            $ref: '#/components/schemas/PowerDriverOption'
+    PowerDriverOption:
+      type: object
+      required: [driver, family]
+      properties:
+        driver:
+          type: string
+          enum: [ipmi, redfish, virsh]
+        family:
+          type: string
+          enum: [bmc, virsh]
+    PowerConfigurationChange:
+      type: object
+      description: A replacement Power Configuration, validated against the driver's family.
+      required: [driver, address]
+      properties:
+        driver:
+          type: string
+          description: One of the Read's `drivers` (case-insensitive).
+        address:
+          type: string
+          description: >-
+            For `bmc`, the BMC host, IP, or URL; for `virsh`,
+            `qemu+ssh://[user@]host[:port]/system`.
+        powerId:
+          type: string
+          description: The libvirt domain name or UUID; `virsh` only.
+        username:
+          type: string
+          description: The BMC account; `bmc` only.
+        password:
+          type: string
+          nullable: true
+          writeOnly: true
+          description: >-
+            Absent or null keeps the stored password for an unchanged driver and clears it when
+            the driver changes; an empty string clears it; any other value replaces it.
+    BootMedia:
+      type: object
+      description: A Server's Boot Media setting, stored probes, and running preflight.
+      required: [serverId, method, image, setting, redfish, libvirt, live, apply]
+      properties:
+        serverId:
+          type: string
+        method:
+          type: string
+          nullable: true
+          enum: [redfish, libvirt]
+          description: Null when the stored probes found neither method.
+        image:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/BootMediaImage'
+        setting:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/BootMediaSetting'
+        redfish:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/RedfishCapability'
+        libvirt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/LibvirtCapability'
+        live:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/BootMediaLiveState'
+        liveError:
+          type: string
+          description: Why a requested live read failed; omitted otherwise.
+        apply:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/BootMediaApply'
+    BootMediaChange:
+      type: object
+      description: The Boot Media after an enable or disable, plus the disable's revert outcome.
+      required: [serverId, method, image, setting, redfish, libvirt, live, apply]
+      properties:
+        serverId:
+          type: string
+        method:
+          type: string
+          nullable: true
+          enum: [redfish, libvirt]
+        image:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/BootMediaImage'
+        setting:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/BootMediaSetting'
+        redfish:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/RedfishCapability'
+        libvirt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/LibvirtCapability'
+        live:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/BootMediaLiveState'
+        liveError:
+          type: string
+        apply:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/BootMediaApply'
+        reverted:
+          type: boolean
+          description: Present on a disable; true when the BMC or hypervisor was reset.
+        revertError:
+          type: string
+          description: Why a disable could not reset the BMC or hypervisor; omitted otherwise.
+    BootMediaImage:
+      type: object
+      description: The Boot ISO the setting names.
+      required: [id, name, url, available]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        available:
+          type: boolean
+        reason:
+          type: string
+          description: Why `available` is false; omitted otherwise.
+    BootMediaSetting:
+      type: object
+      description: The swallow-owned Boot Media setting with the last apply's outcome.
+      required: [enabled, isoId, updatedAt, lastAppliedAt, lastErrorAt]
+      properties:
+        enabled:
+          type: boolean
+        isoId:
+          type: string
+          nullable: true
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+        lastAppliedAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        lastAppliedBy:
+          type: string
+          enum: [preflight, ensure]
+        bootOverride:
+          type: string
+          description: The persistence the BMC accepted, `Continuous` or `Once`.
+        lastError:
+          type: string
+        lastErrorAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+    RedfishCapability:
+      type: object
+      description: The latest Redfish probe of the Server's BMC; never carries a credential.
+      required: [support, virtualMedia, bootOverrideModes, probedAt]
+      properties:
+        support:
+          type: string
+          enum: [supported, unsupported, unreachable, no_bmc]
+        reason:
+          type: string
+        serviceRoot:
+          type: string
+        vendor:
+          type: string
+        product:
+          type: string
+        redfishVersion:
+          type: string
+        firmwareVersion:
+          type: string
+        systemId:
+          type: string
+        virtualMedia:
+          type: boolean
+        bootOverrideModes:
+          type: array
+          items:
+            type: string
+        probedAt:
+          $ref: '#/components/schemas/Timestamp'
+    LibvirtCapability:
+      type: object
+      description: The latest probe of a virtual machine's Hypervisor.
+      required: [support, hypervisorServerId, domain, pool, cdrom, probedAt]
+      properties:
+        support:
+          type: string
+          enum: [supported, unsupported, unreachable, no_hypervisor]
+        reason:
+          type: string
+        hypervisorServerId:
+          type: string
+          nullable: true
+        account:
+          type: string
+        domain:
+          type: string
+        pool:
+          type: string
+        cdrom:
+          type: boolean
+        probedAt:
+          $ref: '#/components/schemas/Timestamp'
+    BootMediaLiveState:
+      type: object
+      description: The BMC's or hypervisor's live state, read for this response only.
+      required: [mediaInserted, ready]
+      properties:
+        mediaInserted:
+          type: boolean
+        mediaImage:
+          type: string
+        overrideEnabled:
+          type: string
+        overrideTarget:
+          type: string
+        ready:
+          type: boolean
+          description: The next boot starts from the Boot ISO.
+    BootMediaApply:
+      type: object
+      description: The enable preflight running now.
+      required: [isoId, phase, startedAt, phaseStartedAt, phaseEndsAt]
+      properties:
+        isoId:
+          type: string
+        phase:
+          type: string
+          enum: [probing, ejecting, mounting, settling, directing, verifying]
+        startedAt:
+          $ref: '#/components/schemas/Timestamp'
+        phaseStartedAt:
+          $ref: '#/components/schemas/Timestamp'
+        phaseEndsAt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+    BootMediaProbe:
+      type: object
+      required: [redfish, libvirt]
+      properties:
+        redfish:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/RedfishCapability'
+        libvirt:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/LibvirtCapability'
+    ServerTagCatalog:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServerTagOption'
+    ServerTagOption:
+      type: object
+      required: [name, editable]
+      properties:
+        name:
+          type: string
+        editable:
+          type: boolean
+          description: False for a provider-computed automatic tag swallow must not assign.
+    ServerTagEditResult:
+      type: object
+      required: [servers]
+      properties:
+        servers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServerTagSet'
+    ServerTagSet:
+      type: object
+      required: [serverId, tags]
+      properties:
+        serverId:
+          type: string
+        tags:
+          type: array
+          nullable: true
+          description: The Server's effective tags; null (not an empty array) when it has none.
+          items:
+            type: string

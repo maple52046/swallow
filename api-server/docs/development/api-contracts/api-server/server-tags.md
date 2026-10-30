@@ -53,6 +53,9 @@ POST /api/v1/provisioning/tags
 Both live under `/provisioning` rather than `/servers` so the batch write does not collide with the
 `GET /api/v1/servers/{id}` route, and because tags are a provisioner-owned concept.
 
+The wire shape is the `listServerTags` and `editServerTags` operations of the OpenAPI contract
+([`../openapi/areas/servers.yaml`](../openapi/areas/servers.yaml)).
+
 ## List known tags
 
 `GET /api/v1/provisioning/tags`
@@ -65,7 +68,8 @@ Returns the tags the editor may offer. `editable` is `false` for a provider-comp
 (a MAAS tag with an XPath definition, such as one that may back `amd-gpu`): it is real and drives
 Server Type, but swallow must not assign or unassign it, so the editor shows it disabled. When the
 Site's provisioner cannot own tags, the list is the union of swallow-owned tags for that provisioner
-and every entry is `editable`. A Site with no enabled provisioner returns an empty `tags` array.
+and every entry is `editable`. A Site with no enabled provisioner, including a `siteId` that names
+no Site, returns an empty `tags` array rather than `404`.
 
 ### Success Response
 
@@ -105,16 +109,20 @@ is created and applied. A single edit is the same request with one `serverId`.
 ### Success Response
 
 `200` with each listed Server's effective tags after the edit, in request order, so the caller can
-update its rows without re-reading:
+update its rows without re-reading. A `serverId` listed more than once appears once, at its first
+position:
 
 ```json
 {
   "servers": [
     { "serverId": "a1b2…", "tags": ["gpu", "rack-a"] },
-    { "serverId": "c3d4…", "tags": ["rack-a"] }
+    { "serverId": "c3d4…", "tags": ["rack-a"] },
+    { "serverId": "e5f6…", "tags": null }
   ]
 }
 ```
+
+`tags` is `null`, not `[]`, for a Server that has no tags after the edit; treat it as empty.
 
 ## Error Codes
 
@@ -131,6 +139,10 @@ Beyond the shared codes in [conventions.md](conventions.md):
 New surface introduced with decision 031. Field names and enum-like values follow swallow's glossary
 (`Tag`, `Server`, `Site`). Adding an optional field is backward compatible; see
 [conventions.md](conventions.md) for the breaking-change rules.
+
+On 2026-10-30 this contract was aligned with the implementation, with no wire change: an edit
+response's `tags` can be `null` for a Server left without tags, a repeated `serverId` is answered
+once, and an unknown `siteId` lists no tags instead of failing.
 
 ## Implementation Notes
 

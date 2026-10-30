@@ -13,6 +13,7 @@ import (
 
 	"github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/apierror"
 )
 
@@ -40,9 +41,10 @@ func TestInspectStartsHardwareInspectionWorkflow(t *testing.T) {
 	handler := &ProvisioningHandler{}
 	handler.AttachHardwareInspection(inspections)
 	app := fiber.New()
-	app.Post("/servers/:id/inspect", handler.Inspect)
+	app.Use(apicontract.ResponseValidator(t))
+	app.Post("/api/v1/servers/:id/inspect", handler.Inspect)
 
-	resp, err := app.Test(httptest.NewRequest(http.MethodPost, "/servers/server-1/inspect", nil))
+	resp, err := app.Test(httptest.NewRequest(http.MethodPost, "/api/v1/servers/server-1/inspect", nil))
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -59,7 +61,7 @@ func TestInspectStartsHardwareInspectionWorkflow(t *testing.T) {
 	}
 
 	inspections.err = fmt.Errorf("%w: Server gpu-07 is deployed", provisioningdomain.ErrInspectionNotAllowed)
-	resp, err = app.Test(httptest.NewRequest(http.MethodPost, "/servers/server-1/inspect", nil))
+	resp, err = app.Test(httptest.NewRequest(http.MethodPost, "/api/v1/servers/server-1/inspect", nil))
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -97,9 +99,10 @@ func TestEnrollBundle(t *testing.T) {
 	handler := &ProvisioningHandler{}
 	handler.AttachHostEnrollment(application.NewHostEnrollmentUseCase(enrollmentTestProviders{}))
 	app := fiber.New()
-	app.Post("/provisioning/integrations/:id/enroll-bundle", handler.EnrollBundle)
+	app.Use(apicontract.ResponseValidator(t))
+	app.Post("/api/v1/provisioning/integrations/:id/enroll-bundle", handler.EnrollBundle)
 	post := func(body string) (*http.Response, error) {
-		req := httptest.NewRequest(http.MethodPost, "http://swallow.lab:8080/provisioning/integrations/maas-a/enroll-bundle", strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "http://swallow.lab:8080/api/v1/provisioning/integrations/maas-a/enroll-bundle", strings.NewReader(body))
 		if body != "" {
 			req.Header.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
 		}

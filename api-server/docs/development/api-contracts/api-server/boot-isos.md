@@ -15,9 +15,10 @@ Active
 
 ## Purpose
 
-Build, rebuild, list, and delete Boot ISOs: swallow-built iPXE boot ISOs, one provisioner
-Integration each, that take an address from the site's own DHCP and chain to that provisioner's
-MAAS rack ([decision 049](../../../../../docs/decisions/049-boot-iso-builder.md),
+Build, rebuild, list, and delete Boot ISOs: swallow-built boot ISOs, one provisioner Integration
+each, that take an address from the site's own DHCP and hand off to that provisioner's MAAS rack
+(iPXE chaining `ipxe.cfg` on BIOS firmware; the ISO's own GRUB loading MAAS's per-MAC GRUB
+configuration on UEFI) ([decision 049](../../../../../docs/decisions/049-boot-iso-builder.md),
 [decision 057](../../../../../docs/decisions/057-uefi-boot-iso-hand-off.md)). A Server's Boot
 Media mounts one of them through its BMC or its hypervisor
 ([server-detail-actions.md](server-detail-actions.md#boot-media)).
@@ -77,7 +78,7 @@ mounts the URL with no way to send a token; it is described in
 | --- | --- |
 | `id` | Opaque Boot ISO id. |
 | `name` | Operator name, unique per Integration (case-insensitive), 1–63 characters. |
-| `siteId`, `integrationId` | The provisioner Integration the ISO chains to, and its Site. Only a Server of this Integration may use it. |
+| `siteId`, `integrationId` | The provisioner Integration the ISO chains to, and its Site. Only a Server of this Integration may use it. `siteId` is `""` when the Integration no longer exists, so its ISO can still be listed and deleted. |
 | `rackAddress` | The MAAS rack address as given: an IPv4 address or hostname, optionally with `:port`. |
 | `chainUrl` | Where iPXE chains after DHCP on BIOS firmware: `http://<rack host>:<port or 5248>/ipxe.cfg`. |
 | `uefiChainUrl` | What the ISO's GRUB loads after DHCP on UEFI firmware: `http://<rack host>:<port or 5248>/grub/grub.cfg-<mac>`, `<mac>` being the interface that took the lease. `""` for an ISO without a GRUB (built before decision 057, which sends UEFI firmware through iPXE too); rebuild it. |
@@ -87,7 +88,7 @@ mounts the URL with no way to send a token; it is described in
 | `sizeBytes`, `sha256` | The built file. |
 | `url` | Where BMCs mount the ISO (and where an operator can download it). Empty when the installation has no Boot Media base URL. |
 | `inUseBy` | How many Servers have Boot Media enabled with this ISO. |
-| `createdAt`, `createdBy` | When and by whom it was first built. |
+| `createdAt`, `createdBy` | When and by whom it was first built; `createdBy` is omitted when no username was recorded. |
 | `rebuiltAt`, `rebuiltBy` | When and by whom it was last rebuilt; omitted when it never was. |
 
 Both paths serve networks whose DHCP is not the provisioner's, and the firmware chooses between
@@ -136,7 +137,7 @@ from the current templates and the ISO's own `rackAddress`, builds the file sync
 replaces it in place. `id` and `url` do not change, so every Server whose Boot Media uses the ISO
 boots the new script from its next boot, including deployments and inspections already accepted.
 Returns `200 OK` with the Boot ISO. A rebuild that fails leaves the previous file served and the
-record unchanged. Rebuilds run one at a time per installation.
+record unchanged. Rebuilds run one at a time per API process.
 
 ## Get and delete
 
@@ -150,9 +151,9 @@ those Servers or switch them to another Boot ISO first.
 
 | Status | Code | When |
 | --- | --- | --- |
-| 400 | `validation_error` | Missing or invalid `name`, `integrationId`, or `rackAddress`; the Integration is not a provisioner. |
-| 404 | `not_found` | The Boot ISO, or the `integrationId`, does not exist. |
-| 409 | `conflict` | The name is taken for that Integration; the builder is unavailable (the message says why); the Boot ISO is in use (delete). |
+| 400 | `validation_error` | Missing or invalid `name`, `integrationId`, or `rackAddress`, or a body that is not valid JSON; the Integration (including the list's `integrationId`) is not a provisioner; on rebuild, the stored `rackAddress` is refused by the current rules. |
+| 404 | `not_found` | The Boot ISO, or the `integrationId` (or the list's `siteId`), does not exist. |
+| 409 | `conflict` | The name is taken for that Integration; the builder is unavailable on build or rebuild (the message says why); the Boot ISO is in use (delete). |
 | 500 | `internal_error` | Building failed; the message carries the packaging tool's summary. A build stores nothing; a rebuild keeps the previous file and record. |
 
 ## Compatibility Notes

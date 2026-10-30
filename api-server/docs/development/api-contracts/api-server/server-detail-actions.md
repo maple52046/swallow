@@ -45,11 +45,16 @@ DELETE /api/v1/servers/{id}/default-user
 GET  /api/v1/servers/{id}/boot-media
 PUT  /api/v1/servers/{id}/boot-media
 POST /api/v1/servers/{id}/redfish/probe
-GET  /boot-media/ipxe/{isoId}/swallow-ipxe.iso
+GET  /boot-media/ipxe/{id}/swallow-ipxe.iso
 ```
 
-All routes require an admin bearer token, except `GET /boot-media/ipxe/{isoId}/swallow-ipxe.iso`, which
+All routes require an admin bearer token, except `GET /boot-media/ipxe/{id}/swallow-ipxe.iso`, which
 is deliberately unauthenticated (see [Boot Media](#boot-media)).
+
+The wire shape of the `/api/v1/servers/{id}` routes — paths, parameters, bodies, status codes, and
+every response field with its nullability — is the OpenAPI contract
+([`../openapi/areas/servers.yaml`](../openapi/areas/servers.yaml)); the ISO file route belongs to
+[boot-isos.md](boot-isos.md). This document describes their behavior.
 
 ## Server Lock Protection
 
@@ -83,10 +88,10 @@ instead of forwarding the provider's own rejection text (decision 033):
 
 The two operator-facing recovery verbs are the durable Operations documented in
 [provisioning.md](provisioning.md): `release-operations` (allowed from `deployed`,
-`failed`, `broken`, `rescue`) and `recover-operations` ("Return to Ready"). A client
-should present Recover and Release as the primary way to make a `failed`, `broken`, or
-`rescue` Server usable again, and keep the raw operator-state primitives as advanced
-controls.
+`allocated`, `failed`, `broken`, `rescue`) and `recover-operations` ("Return to Ready"). A
+client should present Recover and Release as the primary way to make an `allocated`,
+`failed`, `broken`, or `rescue` Server usable again, and keep the raw operator-state
+primitives as advanced controls.
 
 `GET /servers/{id}` returns the same complete Server projection documented in [servers-list.md](servers-list.md).
 Provisioner detail is a live provider-neutral view with a capability set. The
@@ -95,6 +100,46 @@ Provisioner detail is a live provider-neutral view with a capability set. The
 `powerConfiguration` tells clients whether the Power Configuration routes below are
 available. Power state is read-only; the Power Configuration that lets the provisioner
 switch and read it is written through its own route.
+
+`GET /servers/{id}/provisioner-detail` returns `200` with `Cache-Control: no-store`:
+
+```json
+{
+  "capabilities": {
+    "ephemeralDeploy": true,
+    "power": true,
+    "hardwareValidation": true,
+    "operatorState": true,
+    "machineDetail": true,
+    "hardwareInventory": true,
+    "machineRemoval": true,
+    "releaseOptions": true,
+    "networkConfiguration": true,
+    "powerConfiguration": true
+  },
+  "sections": [{ "title": "BMC", "fields": [{ "label": "Driver", "value": "ipmi" }] }],
+  "tables": [{ "title": "Storage", "columns": ["Name", "Model", "Serial", "Size"], "rows": [["sda", "SAMSUNG MZ7L31T9", "S6ESNE0T", "1.92 TB"]] }]
+}
+```
+
+`capabilities` always answers, because it describes the adapter: `power` advertises power-on,
+power-off, and the power-state read; `hardwareValidation` advertises inspect, test, abort, and
+override-failed-testing; `operatorState` advertises lock, unlock, and the mark/rescue primitives;
+`networkConfiguration` advertises the network routes. `sections` and `tables` are provider-defined display content, empty when the
+provisioner offers no machine detail; a section never has an empty `fields`, while a table's
+`columns` or a row may be `null` when the provider supplied none.
+
+`GET /servers/{id}/power-state` reads the power state live from the provisioner and changes nothing,
+so it is not gated on Server Lock. It returns `200` with `{ "serverId": "…", "powerState": "on" }`,
+where `powerState` is `on`, `off`, `error`, or `unknown`. A provisioner without power control is
+`400 validation_error`.
+
+The provisioning snapshot that refresh and the accepted lifecycle actions return carries
+`serverId`, `state`, `providerState`, `powerState`, `osSystem`, `distroSeries`, `ephemeral`,
+`hweKernel`, `locked`, `commissioningStatus`, `testingStatus`, and `observedAt`, plus the optional
+`inspectionRequired`/`inspectionRequiredReason` and, after a release with `unbindStaticIPs`,
+`taskId`. It is narrower than the Server's provisioning axis: it has no `stateSince`,
+`errorDescription`, `deployedImageName`, `deployedImageDefaultUser`, or `integrationId`.
 
 The live detail describes the Machine's power driver by its driver family
 ([decision 054](../../../../../docs/decisions/054-provisioner-power-configuration.md)).
@@ -125,8 +170,8 @@ does not create Servers, mark missing machines absent, or rewrite identity and h
 fields.
 
 Full inventory reconciliation additionally clears a Server's terminal deployment outcome
-(`succeeded`, `failed`, or `canceled`) once the machine is observed back in the provider's
-`ready` pool, so an available Server never keeps a stale deployment result from a canceled
+(`succeeded`, `failed`, or `canceled`) once the machine is observed back at `ready` or
+`allocated` in the provider, so an available Server never keeps a stale deployment result from a canceled
 or abandoned run. An active (`deploying`/`verifying`) or operator-pending
 (`requires_attention`) deployment is left untouched. An active deployment whose Workflow has
 already ended is settled separately from that Workflow's Task outcome (see the Cancel section
@@ -199,12 +244,16 @@ DELETE unbinds the addressed link and has no request body.
 
 Network writes require a present, unlocked Server in provisioning state `ready`.
 They mutate only the addressed link, never forward a provider force option, then
-read and verify the resulting provider state before returning the full refreshed
+read and verify the resulting provider state before returning `200` with the full refreshed
 Network Configuration. An unknown Server or provider Machine is `404 not_found`;
 an unknown interface, link, or subnet is `400 validation_error`, as are an invalid
 mode or address. Incompatible
 Server state is `409 conflict`; provider unavailability is
 `503 provider_unavailable`.
+
+Unlike the other provider capabilities, a provisioner without network configuration answers the
+network read and writes with `409 conflict`, not `400`; so does a release with `unbindStaticIPs`
+on such a provisioner.
 
 Deploy requires `distroSeries` and accepts `osSystem`, `userData`,
 `comment`, and the deploy mode — `deployTarget` (`"disk"` | `"ram"`, preferred)
@@ -212,7 +261,9 @@ or its deprecated `ephemeral` boolean alias (`disk ↔ false`, `ram ↔ true`;
 `deployTarget` wins when both are sent, and an unknown value is a `400`). This
 single-server endpoint is deprecated in favour of
 `POST /provisioning/deployment-operations`, which additionally applies the
-custom-image verification gate. Other provider actions return `202` with the
+custom-image verification gate. It requires the installation's Deployment Key
+(`409 conflict` without one) and registers swallow's SSH Keys with the provisioner
+before deploying (`503 provider_unavailable` when that fails). Other provider actions return `202` with the
 accepted provisioning snapshot. Unsupported capabilities and provider refusals use
 `400 validation_error`; unavailable providers use
 `503 provider_unavailable`; missing resources use `404 not_found`. Every error
@@ -222,9 +273,10 @@ credentials or request bodies.
 
 `inspect` asks the provisioner to re-inventory the machine's hardware (MAAS calls this
 Commission; Ironic calls it introspection). While it runs the Server's provisioning state is
-`inspecting`. `test` runs the provider's hardware tests (`testing`), and `abort` stops an
-in-progress inspection, test, or deployment. All three need the `hardwareValidation`
-capability.
+`inspecting`. `test` runs the provider's hardware tests (`testing`), `abort` stops an
+in-progress inspection, test, or deployment, and `override-failed-testing` asks the
+provisioner to accept a Machine whose hardware tests failed (MAAS "Override failed
+testing"). All of them need the `hardwareValidation` capability.
 
 ### Inspect
 
@@ -270,6 +322,8 @@ not started yet) plus the Workflow:
 
 `resumed` is `true` when the request retried the Workflow waiting for attention. A deployment
 without a Workflow engine falls back to the direct provider action and omits both fields.
+Because the snapshot is copied from the stored axis rather than read from the provider,
+`observedAt` is `""` and `powerState` is `""` when the stored axis has no such observation.
 
 ## Power Configuration
 
@@ -353,7 +407,7 @@ returns `200 OK` with the Read shape, read back from the provisioner after the w
 | `address` | Yes | For `bmc`: the BMC host, IP, or URL. For `virsh`: `qemu+ssh://[user@]host[:port]/system`. A libvirt URI with a password, a query (`?keyfile=…`), a fragment, another scheme, or another path is refused: the provisioner cannot use one, and SSH settings belong in the provisioner's own SSH configuration. |
 | `powerId` | `virsh` only | The libvirt domain name or UUID on that hypervisor, without whitespace. Refused for `bmc`. |
 | `username` | No (`bmc` only) | The BMC account. Refused for `virsh`. |
-| `password` | No | Write-only. Omitted keeps the password the provisioner holds when `driver` is unchanged and clears it when `driver` changes; `""` clears it; any other value replaces it. |
+| `password` | No | Write-only. Omitted (or `null`) keeps the password the provisioner holds when `driver` is unchanged and clears it when `driver` changes; `""` clears it; any other value replaces it. |
 
 swallow validates the body against the driver's family before calling the provisioner; the
 provisioner then validates it again and may refuse it. The provisioner itself connects with these
@@ -475,11 +529,13 @@ Any other Server has no Boot Media method.
 
 ### The ISO
 
-`GET /boot-media/ipxe/{isoId}/swallow-ipxe.iso` (and `HEAD`) serves a Boot ISO's file without
-authentication, because a BMC mounts the URL with no way to send a token, and it re-reads the
-ISO at every boot. It supports byte ranges (`206 Partial Content`, `Accept-Ranges: bytes`), which
-BMC HTTP virtual media requires. It is `404` for an unknown or malformed `isoId`. The URL BMCs
-mount is `<api.bootMedia.baseURL>/boot-media/ipxe/{isoId}/swallow-ipxe.iso`, reported as the
+`GET /boot-media/ipxe/{id}/swallow-ipxe.iso` (and `HEAD`) serves the file of the Boot ISO whose
+id is `{id}` without authentication, because a BMC mounts the URL with no way to send a token,
+and it re-reads the ISO at every boot. It supports byte ranges (`206 Partial Content`,
+`Accept-Ranges: bytes`), which BMC HTTP virtual media requires, and the standard conditional
+responses (`304 Not Modified`, `412 Precondition Failed`, `416 Range Not Satisfiable`). It is
+`404` for an unknown or malformed id. The URL BMCs mount is
+`<api.bootMedia.baseURL>/boot-media/ipxe/{id}/swallow-ipxe.iso`, reported as the
 Boot ISO's `url`; many BMCs accept only `http://` on port 80 and an image under a directory, so
 installations publish `/boot-media/` there. The former fixed route
 `/boot-media/ipxe/swallow-ipxe.iso` of the installation-supplied ISO is removed.
@@ -667,7 +723,8 @@ unknown Server is `404 not_found`; a provisioner that cannot be reached is
 ## Provider Events
 
 `GET /servers/{id}/events` reads the recent machine history retained by the
-provisioner. `limit` defaults to 50 and accepts 1 through 100. It returns:
+provisioner. `limit` defaults to 50 and accepts 1 through 100; any other value is
+`400 validation_error`. It returns:
 
 ```json
 {
@@ -679,11 +736,15 @@ provisioner. `limit` defaults to 50 and accepts 1 through 100. It returns:
       "type": "Request from user",
       "message": "Started releasing machine.",
       "actor": "admin",
-      "occurredAt": "2026-09-02T01:02:03.000000Z"
+      "occurredAt": "2026-09-02T01:02:03Z"
     }
   ]
 }
 ```
+
+`actor` is `null` when the provider names none. `occurredAt` is RFC 3339 in UTC (with fractional
+seconds only when they are non-zero) when the adapter knows the provider's time format, and the
+provider's raw value otherwise, so one malformed event does not hide the rest.
 
 An adapter without machine-event support returns `200` with `supported:false` and an
 empty `events` array. A provider read failure uses the common error envelope and does
@@ -724,3 +785,11 @@ Also on 2026-10-09 Boot Media gained the `libvirt` method
 adds `method` and `libvirt`, the probe response adds `libvirt`, and a `virsh` Server whose
 hypervisor is a swallow Server can enable Boot Media instead of being refused for having no BMC.
 All additions are compatible with clients that ignore unknown fields.
+
+On 2026-10-30 this contract was aligned with the implementation when the OpenAPI wire shape was
+introduced, with no wire change: the provisioner-detail and power-state response shapes, the
+fields of the provisioning snapshot, the `409` (not `400`) answer of the network routes for a
+provisioner without network configuration, the Deploy route's Deployment Key requirement, the
+`400` for an out-of-range event `limit`, the event time format (the example's
+`.000000Z` was never emitted), a `null` Power Configuration `password`, and the empty
+`observedAt`/`powerState` an inspect snapshot can carry are now written down.

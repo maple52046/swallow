@@ -1,0 +1,105 @@
+# Process health and the process metrics scrape endpoint, served outside /api/v1
+# (conventions.md, Operational Endpoints).
+tags:
+  - name: system
+    description: Liveness, readiness, and process metrics of the API process.
+paths:
+  /livez:
+    get:
+      tags: [system]
+      operationId: getLiveness
+      summary: Report that the API process is running.
+      security: []
+      responses:
+        '200':
+          description: The process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Liveness'
+  /readyz:
+    get:
+      tags: [system]
+      operationId: getReadiness
+      summary: Report whether the API process can serve requests (MongoDB reachable and migrated).
+      security: []
+      responses:
+        '200':
+          description: Ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+        '503':
+          description: Not ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotReady'
+  /healthz:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: Alias of /readyz.
+      security: []
+      responses:
+        '200':
+          description: Ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+        '503':
+          description: Not ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotReady'
+  /metrics:
+    get:
+      tags: [system]
+      operationId: getProcessMetrics
+      summary: Prometheus text exposition of the API process's own request counter and build info.
+      security:
+        - machineToken: []
+      responses:
+        '200':
+          description: Prometheus text format 0.0.4.
+          content:
+            text/plain:
+              schema:
+                type: string
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  schemas:
+    Liveness:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          enum: [alive]
+        version:
+          type: string
+          description: The release version the process was started with.
+    Readiness:
+      type: object
+      required: [status, schemaVersion]
+      properties:
+        status:
+          type: string
+          enum: [ready]
+        schemaVersion:
+          type: integer
+          description: The database schema version this binary requires.
+    NotReady:
+      type: object
+      required: [status, reason]
+      properties:
+        status:
+          type: string
+          enum: [not-ready]
+        reason:
+          type: string
+          enum: [mongodb]

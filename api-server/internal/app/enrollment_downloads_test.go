@@ -10,12 +10,15 @@ import (
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
+
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 )
 
 // The enrollment script is public and points its CLI download at the address it was fetched from,
 // including the port and the scheme a TLS proxy forwards.
 func TestServeEnrollmentScript(t *testing.T) {
 	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
 	app.Get("/downloads/swallow-enroll.sh", serveEnrollmentScript())
 	req := httptest.NewRequest(http.MethodGet, "http://10.0.0.5:8080/downloads/swallow-enroll.sh", nil)
 	req.Header.Set("X-Forwarded-Proto", "https")
@@ -49,6 +52,7 @@ func TestServeCLIBinary(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			app := fiber.New()
+			app.Use(apicontract.ResponseValidator(t))
 			app.Get("/downloads/swallow", serveCLIBinary(tc.path))
 			resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/downloads/swallow", nil))
 			if err != nil {

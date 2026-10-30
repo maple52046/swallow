@@ -23,6 +23,7 @@ import (
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverdelivery "github.com/maple52046/swallow/internal/server/delivery"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
 	siteapp "github.com/maple52046/swallow/internal/site/application"
@@ -162,6 +163,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		kubernetesExplorer, requirementService)
 
 	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
 	admin := []fiber.Handler{middleware.Auth(jwtSvc), middleware.AdminOnly()}
 	v1 := app.Group("/api/v1")
 

@@ -541,7 +541,12 @@ export interface ProvisioningActionResult {
   serverId: string
   state: ProvisioningState
   providerState: string
-  powerState: ProvisioningAxis['powerState']
+  /**
+   * The power state in the snapshot. `''` comes only from Inspect, whose acceptance copies the
+   * stored provisioning axis as-is and leaves it empty when no power state was ever observed
+   * (contract `ServerInspectionAccepted`). A reader must present `''` like `unknown`.
+   */
+  powerState: ProvisioningAxis['powerState'] | ''
   osSystem: string
   distroSeries: string
   ephemeral: boolean
@@ -549,6 +554,7 @@ export interface ProvisioningActionResult {
   locked: boolean
   commissioningStatus: string
   testingStatus: string
+  /** Snapshot time; Inspect sends `''` when the stored axis has none, like `powerState`. */
   observedAt: string
   taskId?: string
 }

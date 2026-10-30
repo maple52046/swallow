@@ -41,7 +41,8 @@ one that is present is ignored.
   (or an empty JSON object).
 - **Body** (CLI and other non-browser clients): `{ "refreshToken": "…" }`.
 
-When both are present the body wins.
+When both are present the body wins. An empty `refreshToken` string counts as absent, so the
+cookie is used.
 
 ## Authorization
 
@@ -79,10 +80,11 @@ role.
 }
 ```
 
-The response uses the same delivery the request used:
+The response is `Cache-Control: no-store` and uses the same delivery the request used:
 
 - Cookie delivery: a new `swallow_refresh` cookie is set with the same attributes as at login
-  (the idle limit restarts); the body has no `refreshToken`.
+  (the idle limit restarts, and `Max-Age` never reaches past the Session's maximum age); the
+  body has no `refreshToken`.
 - Body delivery: the body carries the new `refreshToken`. The client must replace the stored
   token with it.
 
@@ -100,7 +102,7 @@ See [`conventions.md`](conventions.md) for the envelope.
 
 | Code | HTTP Status | Description |
 | --- | ---: | --- |
-| `validation_error` | 400 | The body is not valid JSON. |
+| `validation_error` | 400 | A non-empty body is not valid JSON. |
 | `unauthorized` | 401 | No refresh token was presented, or it is unknown, expired (idle limit or maximum age), revoked by logout, or the Session's User no longer exists. Also returned — and the whole Session revoked — when a refresh token replaced more than 30 seconds ago is presented again, which indicates it was copied. With cookie delivery the response clears the cookie. |
 
 A client that receives `401` from this endpoint must discard its tokens and send the user to

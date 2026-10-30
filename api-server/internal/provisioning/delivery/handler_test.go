@@ -18,11 +18,13 @@ import (
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	"github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/apierror"
 )
 
 func TestProvisionerDetailDisablesCaching(t *testing.T) {
 	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
 	handler := &ProvisioningHandler{}
 	app.Get("/provisioner-detail", handler.ProvisionerDetail)
 
@@ -44,8 +46,9 @@ func TestRespondErrorLogsCorrelatedClientSafeProviderDetail(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(previousLogger) })
 
 	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
 	app.Use(requestid.New())
-	app.Post("/servers/:id/release", func(c *fiber.Ctx) error {
+	app.Post("/api/v1/servers/:id/release", func(c *fiber.Ctx) error {
 		return RespondError(c, &provisioningdomain.ProviderError{
 			Kind:   provisioningdomain.ProviderErrorRejected,
 			Detail: "MAAS refused the release.",
@@ -55,7 +58,7 @@ func TestRespondErrorLogsCorrelatedClientSafeProviderDetail(t *testing.T) {
 
 	resp, err := app.Test(httptest.NewRequest(
 		http.MethodPost,
-		"/servers/server-1/release",
+		"/api/v1/servers/server-1/release",
 		nil,
 	))
 	if err != nil {
@@ -159,6 +162,7 @@ func TestRespondErrorTranslatesDelegatedOperationErrors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			app := fiber.New()
+			app.Use(apicontract.ResponseValidator(t))
 			app.Use(requestid.New())
 			app.Post("/durable", func(c *fiber.Ctx) error { return RespondError(c, tc.err) })
 
@@ -207,8 +211,9 @@ func TestRespondErrorMapsBootISOErrors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.err.Error(), func(t *testing.T) {
 			app := fiber.New()
-			app.Get("/boot-isos", func(c *fiber.Ctx) error { return RespondError(c, tc.err) })
-			resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/boot-isos", nil))
+			app.Use(apicontract.ResponseValidator(t))
+			app.Get("/api/v1/provisioning/boot-isos", func(c *fiber.Ctx) error { return RespondError(c, tc.err) })
+			resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/api/v1/provisioning/boot-isos", nil))
 			if err != nil {
 				t.Fatalf("request: %v", err)
 			}

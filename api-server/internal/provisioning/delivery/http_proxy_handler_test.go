@@ -12,6 +12,7 @@ import (
 
 	"github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/apierror"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
@@ -49,18 +50,22 @@ func (f proxyHandlerProviders) For(_ context.Context, integrationID string) (pro
 	return f.provider, nil
 }
 
-func newProxyHandlerApp(provider *proxyHandlerProvider) *fiber.App {
+// newProxyHandlerApp mounts the handlers at their production paths so the contract validator
+// matches each response to its documented operation.
+func newProxyHandlerApp(t *testing.T, provider *proxyHandlerProvider) *fiber.App {
+	t.Helper()
 	handler := &ProvisioningHandler{}
 	handler.AttachHTTPProxy(application.NewHTTPProxyUseCase(proxyHandlerProviders{provider: provider}))
 	app := fiber.New()
-	app.Get("/provisioning/integrations/:id/http-proxy", handler.GetHTTPProxy)
-	app.Put("/provisioning/integrations/:id/http-proxy", handler.SetHTTPProxy)
+	app.Use(apicontract.ResponseValidator(t))
+	app.Get("/api/v1/provisioning/integrations/:id/http-proxy", handler.GetHTTPProxy)
+	app.Put("/api/v1/provisioning/integrations/:id/http-proxy", handler.SetHTTPProxy)
 	return app
 }
 
 func doProxyRequest(t *testing.T, app *fiber.App, method, integrationID, body string) (*http.Response, map[string]any) {
 	t.Helper()
-	req := httptest.NewRequest(method, "/provisioning/integrations/"+integrationID+"/http-proxy", strings.NewReader(body))
+	req := httptest.NewRequest(method, "/api/v1/provisioning/integrations/"+integrationID+"/http-proxy", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := app.Test(req)
 	if err != nil {
@@ -76,7 +81,7 @@ func doProxyRequest(t *testing.T, app *fiber.App, method, integrationID, body st
 
 // The read is uncached and shaped by provisioner-http-proxy.md; an unknown Integration is 404.
 func TestGetHTTPProxy(t *testing.T) {
-	app := newProxyHandlerApp(&proxyHandlerProvider{config: provisioningdomain.HTTPProxyConfiguration{
+	app := newProxyHandlerApp(t, &proxyHandlerProvider{config: provisioningdomain.HTTPProxyConfiguration{
 		Mode: provisioningdomain.HTTPProxyModePeer, URL: "http://squid:3128",
 	}})
 	resp, body := doProxyRequest(t, app, http.MethodGet, "maas-a", "")
@@ -96,7 +101,7 @@ func TestGetHTTPProxy(t *testing.T) {
 // A valid write answers 200 with the read-back; malformed bodies and URLs are 400 without a write.
 func TestSetHTTPProxy(t *testing.T) {
 	provider := &proxyHandlerProvider{}
-	app := newProxyHandlerApp(provider)
+	app := newProxyHandlerApp(t, provider)
 
 	resp, body := doProxyRequest(t, app, http.MethodPut, "maas-a", `{"mode":"external","httpProxy":"http://10.170.168.20:18080"}`)
 	if resp.StatusCode != http.StatusOK || body["mode"] != "external" || body["httpProxy"] != "http://10.170.168.20:18080" {

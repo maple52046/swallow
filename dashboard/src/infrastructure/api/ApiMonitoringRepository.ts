@@ -16,8 +16,12 @@ import {
 } from '@/domain/monitoring/types'
 import { ApiRequestError, apiRequest } from './client'
 
-/** Wire shape of `GET /monitoring/metrics/range` (server-metrics.md, "Usage History"). */
-interface MetricRangeDto {
+/**
+ * Wire shape of `GET /monitoring/metrics/range` (server-metrics.md, "Usage History"), before
+ * {@link toMetricRangeResult} turns timestamps into epoch milliseconds and drops unknown metrics.
+ * Exported only so `contractCompatibility.ts` can prove the contract response reads as it.
+ */
+export interface MetricRangeDto {
   scope: { kind: MetricScope['kind']; id: string | null; serverCount: number }
   mode: MetricRangeMode
   start: string

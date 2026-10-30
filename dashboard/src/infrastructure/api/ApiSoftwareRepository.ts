@@ -9,8 +9,11 @@ import type {
 } from '@/domain/software/types'
 import { apiRequest } from './client'
 
-/** The `{ items: [...] }` envelope the software list/catalog endpoints return. */
-interface ItemsEnvelope<T> {
+/**
+ * The `{ items: [...] }` envelope the software list/catalog endpoints return.
+ * Exported only so `contractCompatibility.ts` can prove each list response reads as it.
+ */
+export interface ItemsEnvelope<T> {
   items: T[]
 }
 

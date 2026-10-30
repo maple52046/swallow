@@ -39,8 +39,8 @@ DELETE /api/v1/integrations/{id}
 A Site response contains `id`, `name`, `description`, `createdAt`, and
 `updatedAt`. An Integration response contains `id`, `siteId`, `kind`,
 `providerKind`, `name`, `endpoint`, `settings`, `enabled`, `hasCredential`, `sync`,
-`createdAt`, and `updatedAt`. Credentials are write-only and never appear in a response;
-`hasCredential` only reports whether one is stored.
+`createdAt`, and `updatedAt`; `settings` is `{}` when none are set. Credentials are write-only
+and never appear in a response; `hasCredential` only reports whether one is stored.
 
 `sync` reports provider freshness so a reader can tell "last synced 14 minutes ago" from
 "up to date":
@@ -61,6 +61,40 @@ Create returns `201`; reads and updates return `200`. Deletes and credential
 replacement return `{"success": true}`. Missing resources return
 `404 not_found`; dependency conflicts return `409 conflict`; invalid
 kind/provider pairs return `400 validation_error`.
+
+Lists are plain arrays: Sites ordered by `name`, Integrations by `siteId` then `name`.
+
+## Sites
+
+`name` is required on create, trimmed, and unique across Sites: a create or rename onto a
+taken name is `409 conflict`. `description` is stored as sent and is `""` when absent.
+`PATCH` changes only the fields present. A Site that still has Integrations cannot be deleted
+(`409 conflict`).
+
+## Integrations
+
+Create requires `siteId`, `kind`, `providerKind`, `name`, and `endpoint`; `name` and `endpoint`
+are trimmed and must not be blank. The valid pairs are `provisioner`/`maas` and
+`metrics`/`prometheus`. `credential` is optional (omitted or `""` stores none), `enabled`
+defaults to `true`, and `settings` is a string map (see below). An unknown `siteId` is
+`404 not_found`. `name` is unique within a Site, but a duplicate is currently answered
+`500 internal_error` rather than `409 conflict` (known defect).
+
+`GET /api/v1/integrations` does not validate `kind`: a value no Integration has returns `[]`.
+The deprecated alias `kind=cluster` is read as `platform` and answered with the header
+`Deprecation: true`; the same alias on create also sets the header and is then refused like
+`platform`.
+
+`PATCH` changes only the fields present and not `null`: `name`, `endpoint` (neither may be
+blank), `enabled`, and `settings`, which replaces the whole map when present. It never touches
+the credential or `sync`.
+
+`PUT /api/v1/integrations/{id}/credential` takes `{"credential": "..."}` and requires a
+non-empty value (`400 validation_error` otherwise), so a credential can be replaced but not
+cleared.
+
+An Integration cannot be deleted while Servers are projected from it or Deployment Templates
+reference it (`409 conflict`).
 
 `POST /api/v1/integrations` accepts `kind` of `provisioner` or `metrics` only. `kind=platform`
 (and its `cluster` deprecated alias) is rejected with `400 validation_error`: a `platform`

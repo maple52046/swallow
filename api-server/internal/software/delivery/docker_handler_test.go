@@ -12,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/apierror"
 	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
 )
@@ -42,9 +43,10 @@ func TestRespondDockerErrorFollowsContract(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			app := fiber.New()
+			app.Use(apicontract.ResponseValidator(t))
 			app.Use(requestid.New())
-			app.Get("/", func(c *fiber.Ctx) error { return respondDockerError(c, tc.err) })
-			resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/", nil))
+			app.Get("/api/v1/servers/:id/docker", func(c *fiber.Ctx) error { return respondDockerError(c, tc.err) })
+			resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/api/v1/servers/srv-1/docker", nil))
 			if err != nil {
 				t.Fatalf("request: %v", err)
 			}
@@ -86,8 +88,11 @@ func TestRegistryCredentialResponsesNeverCarryPasswords(t *testing.T) {
 	}
 	for _, tc := range tests {
 		app := fiber.New()
-		app.Get("/", func(c *fiber.Ctx) error { return respondRegistryCredentialError(c, tc.err) })
-		resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/", nil))
+		app.Use(apicontract.ResponseValidator(t))
+		app.Put("/api/v1/software/docker-ce/registry-credentials/:credentialId", func(c *fiber.Ctx) error {
+			return respondRegistryCredentialError(c, tc.err)
+		})
+		resp, err := app.Test(httptest.NewRequest(http.MethodPut, "/api/v1/software/docker-ce/registry-credentials/cred-1", nil))
 		if err != nil {
 			t.Fatalf("request: %v", err)
 		}
@@ -101,12 +106,13 @@ func TestRegistryCredentialResponsesNeverCarryPasswords(t *testing.T) {
 // Clients URL-encode Engine ids (image ids contain ':'); the handler must hand the decoded id on.
 func TestPathParamDecodesEncodedIDs(t *testing.T) {
 	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
 	var got string
-	app.Delete("/images/:imageId", func(c *fiber.Ctx) error {
+	app.Delete("/api/v1/servers/:id/docker/images/:imageId", func(c *fiber.Ctx) error {
 		got = pathParam(c, "imageId")
-		return nil
+		return success(c)
 	})
-	if _, err := app.Test(httptest.NewRequest(http.MethodDelete, "/images/sha256%3Aabc", nil)); err != nil {
+	if _, err := app.Test(httptest.NewRequest(http.MethodDelete, "/api/v1/servers/srv-1/docker/images/sha256%3Aabc", nil)); err != nil {
 		t.Fatalf("request: %v", err)
 	}
 	if got != "sha256:abc" {

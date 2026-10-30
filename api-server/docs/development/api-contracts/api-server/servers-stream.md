@@ -34,6 +34,10 @@ GET /api/v1/servers/stream
 Media type `text/event-stream`. The connection stays open; the server emits an SSE frame per
 change and a periodic comment heartbeat.
 
+The wire shape is the `streamServerChanges` operation of the OpenAPI contract
+([`../openapi/areas/servers.yaml`](../openapi/areas/servers.yaml)); each `data:` payload is
+its `ServerChange` schema, whose `server` is the `Server` schema of the list.
+
 ## Authentication
 
 Bearer credential required (a Session access token or an API Key in the `Authorization`

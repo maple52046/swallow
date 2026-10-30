@@ -68,6 +68,14 @@ API contract before or together with implementation. If the relevant API is only
 listed as planned, create or promote the contract before implementation or
 integration.
 
+The contract has two forms (see the OpenAPI section of the contract README): the
+OpenAPI fragment under `docs/development/api-contracts/openapi/areas/` owns the
+wire shape, and the Markdown contract owns behavior. A route or wire-shape change
+updates the fragment, regenerates `openapi.yaml`
+(`UPDATE_OPENAPI=1 go test ./internal/shared/apicontract`), and regenerates the
+dashboard types (`npm run contract:generate` in `../dashboard`). New HTTP test apps
+that serve real routes install `apicontract.ResponseValidator(t)` first.
+
 Do not infer routes, fields, status codes, error formats, authentication,
 authorization, or behavior semantics from code. The contract is the source of
 truth, and implementation must not define API behavior that is absent from it.

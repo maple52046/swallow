@@ -321,7 +321,11 @@ export interface EditServerTagsInput {
 /** The effective tags of one Server after an edit, so callers can update rows without a re-read. */
 export interface ServerTagsResult {
   serverId: string;
-  tags: string[];
+  /**
+   * The Server's effective tags after the edit. The contract (`ServerTagSet`, server-tags.md) sends
+   * `null` rather than `[]` when the Server is left with none, so a reader must treat null as empty.
+   */
+  tags: string[] | null;
 }
 
 /** Durable release follow-up shown in Server Activity. */

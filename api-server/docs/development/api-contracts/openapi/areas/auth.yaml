@@ -1,0 +1,784 @@
+# Sessions (login, refresh, logout), the caller's identity, API Keys, and SSH Keys (contracts
+# auth-login.md, auth-refresh.md, auth-logout.md, auth-me.md, api-keys.md, ssh-keys.md;
+# decisions 039 and 042).
+tags:
+  - name: auth
+    description: >-
+      Sessions and the caller's identity, the caller's API Keys for non-interactive clients, and
+      swallow-owned SSH Keys (the Deployment Key and the caller's Access Keys).
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Exchange a username and password for a new Session.
+      description: >-
+        The only endpoint that creates a Session (auth-login.md). Unauthenticated. Wrong
+        credentials and an unknown username are indistinguishable. With `refreshTokenDelivery`
+        `cookie` (the default) the refresh token is set as the `swallow_refresh` cookie and the
+        body carries no `refreshToken`; with `body` the body carries it and no cookie is set.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionLoginRequest'
+      responses:
+        '200':
+          description: The Session was created.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              description: >-
+                Cookie delivery only: `swallow_refresh=<refresh token>; Path=/api/v1/auth;
+                Max-Age=<seconds until the Session's idle expiry>; HttpOnly; SameSite=Strict`,
+                plus `Secure` when the request reached swallow over HTTPS (including
+                `X-Forwarded-Proto: https`).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionTokens'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON, `username` or `password` is missing,
+            or `refreshTokenDelivery` is neither `cookie` nor `body`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: >-
+            `unauthorized`: the credentials are wrong or the user does not exist (one code and
+            one message for both).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refreshSession
+      summary: Exchange a refresh token for a new access token, rotating the refresh token.
+      description: >-
+        Unauthenticated by bearer credential: an `Authorization` header is ignored, and the
+        refresh token is presented in the body (CLI) or as the `swallow_refresh` cookie
+        (browsers); a non-empty body token wins (auth-refresh.md). The response uses the delivery
+        the request used. Within the 30-second rotation grace the response carries a new access
+        token only: no `refreshToken` and no cookie.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/SessionRefreshCookie'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionRefreshTokenRequest'
+      responses:
+        '200':
+          description: A new access token (and, unless in the rotation grace, a new refresh token).
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              description: >-
+                Cookie delivery outside the rotation grace only: the rotated `swallow_refresh`
+                cookie, with the same attributes as at login.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionTokens'
+        '400':
+          description: '`validation_error`: a non-empty body is not valid JSON.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: >-
+            `unauthorized`: no refresh token was presented, or it is unknown, expired, revoked, or
+            its User no longer exists; or a token replaced more than 30 seconds ago was presented
+            again, which also revokes the whole Session.
+          headers:
+            Set-Cookie:
+              description: >-
+                When the token came from the cookie: clears `swallow_refresh` (empty value,
+                `Expires` in 1970, same path and attributes).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: End a Session so its refresh token stops working; idempotent.
+      description: >-
+        Authentication is optional (auth-logout.md). The Session is identified by, in order, the
+        body `refreshToken`, the `swallow_refresh` cookie, or the Session of a bearer access token.
+        An API Key or an invalid bearer credential identifies no Session and still answers 204.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionRefreshCookie'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionRefreshTokenRequest'
+      responses:
+        '204':
+          description: >-
+            The Session is ended, or no Session was identified (unknown, expired, or already
+            revoked credentials answer the same).
+          headers:
+            Set-Cookie:
+              description: >-
+                When the request carried the cookie: clears `swallow_refresh` (empty value,
+                `Expires` in 1970, same path and attributes).
+              schema:
+                type: string
+        '400':
+          description: '`validation_error`: a non-empty body is not valid JSON.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      operationId: getCurrentUser
+      summary: Return the authenticated caller's identity, role, and authentication method.
+      description: Any authenticated role (`admin`, `owner`, `user`); the response always describes the caller.
+      responses:
+        '200':
+          description: The caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the credential is valid but its User no longer exists.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/api-keys:
+    get:
+      tags: [auth]
+      operationId: listApiKeys
+      summary: List the caller's API Keys.
+      description: >-
+        Requires role `admin`; a Session access token or an API Key. Returns a plain array (at
+        most 50 keys per User) of the caller's keys ordered by `createdAt`, including expired
+        keys.
+      responses:
+        '200':
+          description: The caller's API Keys.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApiKey'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [auth]
+      operationId: createApiKey
+      summary: Create an API Key for the caller; the secret is returned only here.
+      description: >-
+        Requires role `admin` and a Session access token: a request authenticated by an API Key
+        is refused with `403 forbidden`, so a leaked key cannot mint replacements.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyCreateRequest'
+      responses:
+        '201':
+          description: The key was created.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedApiKey'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON or `expiresAt` is not an RFC 3339
+            timestamp; `name` is missing, longer than 64 characters, or contains control
+            characters; or `expiresAt` is not in the future.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          description: '`forbidden`: the caller is not `admin`, or the request was authenticated with an API Key.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: the caller already has a key with this name (compared
+            case-insensitively), or already has 50 keys.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/api-keys/{keyId}:
+    parameters:
+      - name: keyId
+        in: path
+        required: true
+        description: The API Key's swallow-issued id.
+        schema:
+          type: string
+    delete:
+      tags: [auth]
+      operationId: deleteApiKey
+      summary: Delete one of the caller's API Keys; it stops authenticating immediately.
+      description: Requires role `admin`; a Session access token or an API Key.
+      responses:
+        '204':
+          description: The key was deleted.
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: no key with this id belongs to the caller.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/ssh-keys:
+    get:
+      tags: [auth]
+      operationId: listSshKeys
+      summary: List the Deployment Key and the caller's Access Keys.
+      description: >-
+        Requires role `admin`. Returns a plain array: the Deployment Key first (when the
+        installation step has created it), then the caller's Access Keys ordered by `createdAt`.
+      responses:
+        '200':
+          description: The SSH Keys visible to the caller.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SshKey'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [auth]
+      operationId: importSshKey
+      summary: Import a public key as one of the caller's Access Keys.
+      description: >-
+        Requires role `admin`. Provider realization starts in the background, so the response's
+        `providerSync` entries are `pending`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SshKeyImportRequest'
+      responses:
+        '201':
+          description: The Access Key was stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SshKey'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON, the name is missing or longer than
+            100 characters, or the public key is malformed, has authorized_keys options, is not
+            exactly one key, or is an unsupported type or an RSA key shorter than 2048 bits.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: >-
+            `conflict`: an SSH Key with this fingerprint already exists (including the Deployment
+            Key), or the caller already has an Access Key with this name (case-insensitive).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/ssh-keys/generate:
+    post:
+      tags: [auth]
+      operationId: generateSshKey
+      summary: Generate an ed25519 Access Key pair and return its private key exactly once.
+      description: >-
+        Requires role `admin`. Only the public key is stored; swallow keeps no copy of the
+        private key and can never return it again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SshKeyGenerateRequest'
+      responses:
+        '201':
+          description: The Access Key was stored; the body carries its private key.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneratedSshKey'
+        '400':
+          description: '`validation_error`: the body is not valid JSON, or the name is missing or longer than 100 characters.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: '`conflict`: the caller already has an Access Key with this name (case-insensitive).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/ssh-keys/sync:
+    post:
+      tags: [auth]
+      operationId: syncSshKeys
+      summary: Request an immediate realization pass over every provisioner Integration.
+      description: >-
+        Requires role `admin`. No request body. The pass runs in the background; results appear
+        in `providerSync` on the next read.
+      responses:
+        '202':
+          description: >-
+            The pass was requested. The body is the plain-text status text `Accepted`, which
+            carries no information; consumers must ignore it.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/ssh-keys/deployment:
+    put:
+      tags: [auth]
+      operationId: replaceDeploymentKey
+      summary: Replace the Deployment Key with an existing private key.
+      description: >-
+        Requires role `admin`. The public key is derived from the private key; the key's `id` is
+        preserved. The previous public key is removed from provisioners where swallow registered
+        it and the new one is registered. Servers deployed earlier keep only the previous public
+        key. The private key is never returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeploymentKeyReplaceRequest'
+      responses:
+        '200':
+          description: The replaced Deployment Key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SshKey'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON; the private key is missing,
+            malformed, passphrase-protected, or an unsupported type; or the name is longer than
+            100 characters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the installation has no Deployment Key yet (create it with the installation step).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: the key''s fingerprint equals an existing Access Key.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/ssh-keys/deployment/regenerate:
+    post:
+      tags: [auth]
+      operationId: regenerateDeploymentKey
+      summary: Replace the Deployment Key with a freshly generated ed25519 key pair.
+      description: >-
+        Requires role `admin`. No request body. The name and `id` are kept; the private key is
+        never returned. Servers deployed earlier keep only the previous public key.
+      responses:
+        '200':
+          description: The regenerated Deployment Key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SshKey'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the installation has no Deployment Key yet (create it with the installation step).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/ssh-keys/{keyId}:
+    parameters:
+      - name: keyId
+        in: path
+        required: true
+        description: The SSH Key's swallow-issued id.
+        schema:
+          type: string
+    get:
+      tags: [auth]
+      operationId: getSshKey
+      summary: Read the Deployment Key or one of the caller's Access Keys.
+      description: >-
+        Requires role `admin`. Same shape as a list item; lets a client follow one key's
+        `providerSync` without re-reading the list.
+      responses:
+        '200':
+          description: The SSH Key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SshKey'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: no such key, or the key is another User''s Access Key (indistinguishable).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [auth]
+      operationId: deleteSshKey
+      summary: Delete one of the caller's Access Keys and remove it from provisioners.
+      description: >-
+        Requires role `admin`. Provider removal is best effort after the record is deleted; an
+        unreachable provisioner is retried by the periodic sync. Already-deployed Servers keep the
+        key.
+      responses:
+        '204':
+          description: The Access Key was deleted.
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: no such key, or the key is another User''s Access Key.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: the key is the Deployment Key, which is replaced or regenerated, never deleted.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  parameters:
+    SessionRefreshCookie:
+      name: swallow_refresh
+      in: cookie
+      required: false
+      description: >-
+        The browser refresh-token cookie set by login (HttpOnly, SameSite=Strict, Path
+        /api/v1/auth). Used when the body carries no `refreshToken`.
+      schema:
+        type: string
+  schemas:
+    SessionLoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+        refreshTokenDelivery:
+          type: string
+          enum: [cookie, body]
+          default: cookie
+          description: >-
+            How the refresh token reaches the client: `cookie` (browsers; the body carries no
+            `refreshToken`) or `body` (CLI and other non-browser clients; no cookie is set). An
+            empty string is treated as omitted.
+    SessionRefreshTokenRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+          description: >-
+            The Session's refresh token for body delivery. Omitted or empty falls back to the
+            `swallow_refresh` cookie.
+    SessionTokens:
+      type: object
+      description: The credentials of a Session, issued by login and refresh.
+      required: [accessToken, accessTokenExpiresAt]
+      properties:
+        accessToken:
+          type: string
+          description: >-
+            Short-lived bearer credential (`Authorization: Bearer <accessToken>`). Opaque:
+            consumers must not parse it.
+        accessTokenExpiresAt:
+          $ref: '#/components/schemas/Timestamp'
+        refreshToken:
+          type: string
+          description: >-
+            Opaque secret that obtains new access tokens. Present only with body delivery, and
+            on refresh only when the token was rotated (absent within the rotation grace).
+    CurrentUser:
+      type: object
+      description: The authenticated caller, read from the User record.
+      required: [id, username, role, authMethod]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+          enum: [admin, owner, user]
+          description: Consumers must treat an unrecognised role as least-privileged.
+        authMethod:
+          type: string
+          enum: [session, api_key]
+          description: >-
+            The credential that authenticated this request: a Session access token or an API
+            Key. Consumers must treat an unrecognised value as `session`.
+    ApiKey:
+      type: object
+      description: One of the caller's API Keys. The secret is never part of the resource.
+      required: [id, name, prefix, createdAt, expiresAt, lastUsedAt]
+      properties:
+        id:
+          type: string
+          description: Swallow-issued identifier used in the path.
+        name:
+          type: string
+          description: Unique (case-insensitively) among the caller's keys.
+        prefix:
+          type: string
+          description: >-
+            The first characters of the secret (`swk_` plus eight), for recognising a key; it
+            cannot authenticate.
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        expiresAt:
+          nullable: true
+          description: '`null` for a key that never expires.'
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        lastUsedAt:
+          nullable: true
+          description: '`null` until first use; updated at most once per minute.'
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+    ApiKeyCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Trimmed, then 1–64 characters without control characters.
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: A future RFC 3339 timestamp; omit or send `null` for a key that never expires.
+    CreatedApiKey:
+      type: object
+      description: The create response, the only place the secret ever appears.
+      required: [key, secret]
+      properties:
+        key:
+          $ref: '#/components/schemas/ApiKey'
+        secret:
+          type: string
+          description: >-
+            The bearer secret, `swk_` followed by URL-safe characters. swallow keeps only a
+            one-way hash and can never show it again.
+    SshKey:
+      type: object
+      description: >-
+        One swallow-owned SSH Key (glossary SSH Key). Public key material is not secret; no
+        response ever carries a stored private key.
+      required: [id, name, purpose, keyType, fingerprint, publicKey, createdAt, updatedAt, providerSync]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        purpose:
+          type: string
+          enum: [deployment, access]
+        keyType:
+          type: string
+          description: The SSH algorithm name from the public key.
+          enum: [ssh-ed25519, ssh-rsa, ecdsa-sha2-nistp256, ecdsa-sha2-nistp384, ecdsa-sha2-nistp521]
+        fingerprint:
+          type: string
+          description: OpenSSH SHA256 fingerprint (`SHA256:…`), unique across all SSH Keys.
+        publicKey:
+          type: string
+          description: One authorized_keys line, `<type> <base64> <comment>`.
+        ownerUserId:
+          type: string
+          description: The owning User of an Access Key; omitted for the Deployment Key.
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+        providerSync:
+          type: array
+          description: >-
+            One entry per enabled provisioner Integration across all Sites; always an array.
+          items:
+            $ref: '#/components/schemas/SshKeyProviderSync'
+    SshKeyProviderSync:
+      type: object
+      description: The realization of one SSH Key in one provisioner Integration.
+      required: [integrationId, siteId, state]
+      properties:
+        integrationId:
+          type: string
+        siteId:
+          type: string
+        state:
+          type: string
+          enum: [synced, pending, failed, unsupported]
+        syncedAt:
+          description: The last successful realization; omitted when never synced.
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        error:
+          type: string
+          description: Human-readable reason; present only when `state` is `failed`.
+    SshKeyImportRequest:
+      type: object
+      required: [name, publicKey]
+      properties:
+        name:
+          type: string
+          description: >-
+            Trimmed, then 1–100 characters, unique (case-insensitively) among the caller's Access
+            Keys.
+        publicKey:
+          type: string
+          description: >-
+            One authorized_keys line without options; the comment is preserved. Accepted types:
+            ed25519, ECDSA (NIST P-256, P-384, P-521), and RSA of at least 2048 bits.
+    SshKeyGenerateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Same rules as import; also becomes the public key's comment.
+    GeneratedSshKey:
+      type: object
+      description: The one-time generate response.
+      required: [key, privateKey]
+      properties:
+        key:
+          $ref: '#/components/schemas/SshKey'
+        privateKey:
+          type: string
+          description: >-
+            Unencrypted OpenSSH private key, returned exactly once; swallow keeps no copy.
+    DeploymentKeyReplaceRequest:
+      type: object
+      required: [privateKey]
+      properties:
+        privateKey:
+          type: string
+          description: >-
+            An unencrypted private key in OpenSSH, PKCS#1, PKCS#8, or SEC1 PEM form, of a type
+            import accepts.
+        name:
+          type: string
+          description: Omitted or blank keeps the current name; otherwise import's name rules.

@@ -1,0 +1,1739 @@
+# Managed Software (catalog, Software Assignments, install and uninstall), the Docker CE Registry
+# Credentials, and the Docker Host Explorer under a Server (contracts software.md,
+# registry-credentials.md, servers-docker.md; decisions 038, 043, 044, and 068).
+tags:
+  - name: software
+    description: >-
+      Install and uninstall single host software (Managed Software) on deployed Servers and read
+      the swallow-owned Software Assignments; manage the Registry Credentials the Docker Host
+      Explorer attaches to private pulls; and manage a Server's Docker Engine live through the
+      Docker Host Explorer.
+paths:
+  /api/v1/software/catalog:
+    get:
+      tags: [software]
+      operationId: getSoftwareCatalog
+      summary: List the installable software kinds and their rules.
+      description: >-
+        Requires the `admin` role. The catalog is fixed and small, so it is not paginated.
+      responses:
+        '200':
+          description: Every catalog entry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SoftwareCatalog'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/software/assignments:
+    get:
+      tags: [software]
+      operationId: listSoftwareAssignments
+      summary: List Software Assignments, optionally filtered by Server and kind.
+      description: >-
+        Requires the `admin` role. Ordered by `serverId`, then `kind`; not paginated (one record
+        per Server per kind). `absent` assignments are omitted unless `includeAbsent=true`.
+      parameters:
+        - name: serverId
+          in: query
+          required: false
+          description: Only assignments on this Server.
+          schema:
+            type: string
+        - name: kind
+          in: query
+          required: false
+          description: >-
+            Only assignments of this software kind. The value is not validated: a value that is
+            not a catalog kind matches nothing.
+          schema:
+            type: string
+        - name: includeAbsent
+          in: query
+          required: false
+          description: Include `absent` assignments. Only the literal `true` enables it.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: The matching Software Assignments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SoftwareAssignmentList'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [software]
+      operationId: installSoftware
+      summary: Install one software kind on one or more deployed Servers.
+      description: >-
+        Requires the `admin` role. Creates a durable Workflow and records a `pending` Software
+        Assignment per target; progress is read through the workflows surface. Installing a kind
+        that is already present is a convergent re-apply whose `spec` replaces the recorded one.
+        The per-kind `spec` rules are in software.md.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SoftwareInstallRequest'
+      responses:
+        '202':
+          description: The install Workflow was accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowAccepted'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON; the kind is unknown; there is no
+            target, a target has no `serverId`, or a target is listed twice; the roles do not fit
+            the kind; a `spec` field is missing, malformed, of the wrong type, or not accepted by
+            the kind (including targets running different container runtimes and a
+            `scrapeServerIds` entry at another Site); or a target Server is absent or not in
+            provisioning state `deployed`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: a target Server, or a Prometheus `scrapeServerIds` entry, does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: a mutually exclusive kind is present on a target; a target is a Kubernetes
+            Platform member and the kind refuses members; a target has a Platform Claim and the
+            kind refuses claimed Servers; a target lacks the AMD compute GPUs the kind requires;
+            the `container` method's runtime is not `installed` on a target or differs from
+            `spec.containerRuntime`; or, when the Workflow is created, a target already has
+            active durable work, is locked, or is not in the required provisioning state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the targets' Site cannot run the Workflow's Ansible automation
+            (no automation configuration, automation disabled, automation not logging in with the
+            Deployment Key, or a playbook outside the release manifest), or the targets belong to
+            more than one Site.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/software/uninstall:
+    post:
+      tags: [software]
+      operationId: uninstallSoftware
+      summary: Uninstall one software kind from one or more Servers.
+      description: >-
+        Requires the `admin` role. Creates a durable Workflow that runs the kind's uninstall
+        playbook, marks the assignments `uninstalling`, and marks them `absent` on success.
+        Duplicate `serverIds` are ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SoftwareUninstallRequest'
+      responses:
+        '202':
+          description: The uninstall Workflow was accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowAccepted'
+        '400':
+          description: '`validation_error`: the body is not valid JSON, the kind is unknown, or `serverIds` is empty.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: >-
+            `not_found`: a target has no Software Assignment of the kind (or only an `absent`
+            one), or a target Server does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: a target has a Platform Claim and the kind refuses claimed Servers; or,
+            when the Workflow is created, a target already has active durable work, is locked, or
+            is not `deployed`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the targets' Site cannot run the Workflow's Ansible automation
+            (as for install), or the targets belong to more than one Site.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/software/docker-ce/registry-credentials:
+    get:
+      tags: [software]
+      operationId: listRegistryCredentials
+      summary: List every Registry Credential, ordered by registry.
+      description: >-
+        Requires the `admin` role. A small, installation-wide set; not paginated. No response
+        carries a password.
+      responses:
+        '200':
+          description: Every Registry Credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistryCredentialList'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [software]
+      operationId: createRegistryCredential
+      summary: Store a Registry Credential for one registry.
+      description: >-
+        Requires the `admin` role. `registry` is normalized before it is stored (registry-credentials.md,
+        Registry Names). The password is sealed at rest and never returned. No registry or host is
+        contacted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistryCredentialCreateRequest'
+      responses:
+        '201':
+          description: The stored credential, without its password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistryCredential'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON, `registry` is not a host or host:port
+            after normalization, or `username` (after trimming) or `password` is empty.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: '`conflict`: a credential for the normalized registry already exists.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/software/docker-ce/registry-credentials/{credentialId}:
+    parameters:
+      - $ref: '#/components/parameters/RegistryCredentialId'
+    put:
+      tags: [software]
+      operationId: replaceRegistryCredential
+      summary: Replace a Registry Credential's username and password.
+      description: >-
+        Requires the `admin` role. The registry of a credential cannot change. The stored password
+        is replaced, never merged or echoed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistryCredentialReplaceRequest'
+      responses:
+        '200':
+          description: The replaced credential, without its password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistryCredential'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON, or `username` (after trimming) or
+            `password` is empty.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: no credential has this id.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [software]
+      operationId: deleteRegistryCredential
+      summary: Delete a Registry Credential.
+      description: >-
+        Requires the `admin` role. Later pulls from that registry are anonymous.
+      responses:
+        '204':
+          description: The credential was deleted.
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: no credential has this id.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+    get:
+      tags: [software]
+      operationId: getDockerEngineSummary
+      summary: Read the live header of a Server's Docker Engine.
+      description: >-
+        Requires the `admin` role. Read route of the Docker Host Explorer: available on a locked
+        Server. Eligibility and Engine error mapping are in servers-docker.md.
+      responses:
+        '200':
+          description: The Engine header.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerEngineSummary'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerReadConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerReadUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/images:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+    get:
+      tags: [software]
+      operationId: listDockerImages
+      summary: List the host's local images, newest first.
+      description: Requires the `admin` role. Read route; available on a locked Server.
+      responses:
+        '200':
+          description: The host's images.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerImageList'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerReadConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerReadUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/images/pull:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+    post:
+      tags: [software]
+      operationId: pullDockerImage
+      summary: Pull one image reference onto the host, synchronously.
+      description: >-
+        Requires the `admin` role. Write route: refused on a locked Server. The reference is
+        validated before eligibility. A reference without a tag or digest pulls `latest`. When a
+        Registry Credential exists for the resolved registry it is sent to the Engine for this
+        pull only. Bounded to 55 minutes; a timeout is `503`. A failure's `error.message` ends
+        with the credential the pull used.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerImagePullRequest'
+      responses:
+        '200':
+          description: The pull completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerImagePullResult'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerWriteConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerWriteUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/images/{imageId}:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+      - name: imageId
+        in: path
+        required: true
+        description: The image `id` from the list, URL-encoded (it contains `:`).
+        schema:
+          type: string
+    delete:
+      tags: [software]
+      operationId: removeDockerImage
+      summary: Remove one image from the host.
+      description: >-
+        Requires the `admin` role. Write route: refused on a locked Server. An image used by a
+        running container is `409` with or without `force`.
+      parameters:
+        - name: force
+          in: query
+          required: false
+          description: >-
+            Also remove an image tagged in several repositories or referenced by stopped
+            containers. Only the literal `true` enables it.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: The image was removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessAcknowledgement'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerWriteConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerWriteUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/containers:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+    get:
+      tags: [software]
+      operationId: listDockerContainers
+      summary: List every container on the host, running or not, by name.
+      description: Requires the `admin` role. Read route; available on a locked Server.
+      responses:
+        '200':
+          description: The host's containers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerContainerList'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerReadConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerReadUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [software]
+      operationId: createDockerContainer
+      summary: Create a container from a local image and, by default, start it.
+      description: >-
+        Requires the `admin` role. Write route: refused on a locked Server. The request rules
+        (servers-docker.md, Create Container) are checked before eligibility. When the container
+        was created but could not be started, the container remains and the response is the start
+        failure's error.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerContainerCreateRequest'
+      responses:
+        '201':
+          description: The container was created (and started unless `start` was `false`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerContainerCreated'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerWriteConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerWriteUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/containers/{containerId}:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+      - $ref: '#/components/parameters/DockerContainerId'
+    delete:
+      tags: [software]
+      operationId: removeDockerContainer
+      summary: Remove one container.
+      description: >-
+        Requires the `admin` role. Write route: refused on a locked Server. Removing a running
+        container without `force` is `409`. Named volumes are never removed.
+      parameters:
+        - name: force
+          in: query
+          required: false
+          description: Kill a running container first. Only the literal `true` enables it.
+          schema:
+            type: boolean
+            default: false
+        - name: removeVolumes
+          in: query
+          required: false
+          description: Also remove the container's anonymous volumes. Only the literal `true` enables it.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: The container was removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessAcknowledgement'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerWriteConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerWriteUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/containers/{containerId}/start:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+      - $ref: '#/components/parameters/DockerContainerId'
+    post:
+      tags: [software]
+      operationId: startDockerContainer
+      summary: Start a container.
+      description: >-
+        Requires the `admin` role. Write route: refused on a locked Server. A container that is
+        already running is a success. Takes no body.
+      responses:
+        '200':
+          description: The container is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessAcknowledgement'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerWriteConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerWriteUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/containers/{containerId}/stop:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+      - $ref: '#/components/parameters/DockerContainerId'
+    post:
+      tags: [software]
+      operationId: stopDockerContainer
+      summary: Stop a container.
+      description: >-
+        Requires the `admin` role. Write route: refused on a locked Server. Waits up to 10
+        seconds before the Engine kills the process; a container already stopped is a success.
+        Takes no body.
+      responses:
+        '200':
+          description: The container is stopped.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessAcknowledgement'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerWriteConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerWriteUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/containers/{containerId}/restart:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+      - $ref: '#/components/parameters/DockerContainerId'
+    post:
+      tags: [software]
+      operationId: restartDockerContainer
+      summary: Restart a container.
+      description: >-
+        Requires the `admin` role. Write route: refused on a locked Server. Stops with the same
+        10-second grace as stop, then starts. Takes no body.
+      responses:
+        '200':
+          description: The container was restarted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessAcknowledgement'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerWriteConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerWriteUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/containers/{containerId}/logs:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+      - $ref: '#/components/parameters/DockerContainerId'
+    get:
+      tags: [software]
+      operationId: getDockerContainerLogs
+      summary: Read a bounded snapshot of a container's standard output and standard error.
+      description: >-
+        Requires the `admin` role. Read route; available on a locked Server. A snapshot, not a
+        stream: both streams in arrival order, truncated at 4 MiB.
+      parameters:
+        - name: tailLines
+          in: query
+          required: false
+          description: >-
+            How many trailing lines to return. Values above 2000 are capped at 2000; a
+            non-positive or non-integer value is `400`.
+          schema:
+            type: integer
+            minimum: 1
+            default: 200
+      responses:
+        '200':
+          description: The log snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerContainerLogs'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerReadConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerReadUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/volumes:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+    get:
+      tags: [software]
+      operationId: listDockerVolumes
+      summary: List the host's volumes by name.
+      description: Requires the `admin` role. Read route; available on a locked Server.
+      responses:
+        '200':
+          description: The host's volumes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerVolumeList'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerReadConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerReadUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [software]
+      operationId: createDockerVolume
+      summary: Create a volume.
+      description: >-
+        Requires the `admin` role. Write route: refused on a locked Server. The name rule is
+        checked before eligibility.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerVolumeCreateRequest'
+      responses:
+        '201':
+          description: The created volume.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerVolume'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerWriteConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerWriteUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/volumes/{volumeName}:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+      - name: volumeName
+        in: path
+        required: true
+        description: The volume `name` from the list, URL-encoded.
+        schema:
+          type: string
+    delete:
+      tags: [software]
+      operationId: removeDockerVolume
+      summary: Remove one volume.
+      description: >-
+        Requires the `admin` role. Write route: refused on a locked Server. A volume used by a
+        container is `409`.
+      parameters:
+        - name: force
+          in: query
+          required: false
+          description: Passed to the Engine's volume removal. Only the literal `true` enables it.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: The volume was removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessAcknowledgement'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerWriteConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerWriteUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/networks:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+    get:
+      tags: [software]
+      operationId: listDockerNetworks
+      summary: List the host's networks by name.
+      description: Requires the `admin` role. Read route; available on a locked Server.
+      responses:
+        '200':
+          description: The host's networks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerNetworkList'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerReadConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerReadUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [software]
+      operationId: createDockerNetwork
+      summary: Create a network.
+      description: >-
+        Requires the `admin` role. Write route: refused on a locked Server. The request rules are
+        checked before eligibility. A taken name is `409`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerNetworkCreateRequest'
+      responses:
+        '201':
+          description: The created network.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerNetwork'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerWriteConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerWriteUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/servers/{id}/docker/networks/{networkId}:
+    parameters:
+      - $ref: '#/components/parameters/DockerHostServerId'
+      - name: networkId
+        in: path
+        required: true
+        description: The network `id` from the list (a name is also accepted), URL-encoded.
+        schema:
+          type: string
+    delete:
+      tags: [software]
+      operationId: removeDockerNetwork
+      summary: Remove one network.
+      description: >-
+        Requires the `admin` role. Write route: refused on a locked Server. A predefined network
+        (`bridge`, `host`, `none`) is `409`: by name before eligibility is checked, by id when
+        the Engine refuses it. A network with attached containers is `409`.
+      responses:
+        '200':
+          description: The network was removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessAcknowledgement'
+        '400':
+          $ref: '#/components/responses/DockerExplorerRejected'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/DockerExplorerNotFound'
+        '409':
+          $ref: '#/components/responses/DockerExplorerWriteConflict'
+        '503':
+          $ref: '#/components/responses/DockerExplorerWriteUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  parameters:
+    RegistryCredentialId:
+      name: credentialId
+      in: path
+      required: true
+      description: The Registry Credential `id`.
+      schema:
+        type: string
+    DockerHostServerId:
+      name: id
+      in: path
+      required: true
+      description: The Server whose Docker Engine is addressed.
+      schema:
+        type: string
+    DockerContainerId:
+      name: containerId
+      in: path
+      required: true
+      description: The container `id` from the list (a name is also accepted by the Engine), URL-encoded.
+      schema:
+        type: string
+  responses:
+    DockerExplorerRejected:
+      description: >-
+        `validation_error`: the body is not valid JSON, the request breaks the route's rules, or
+        the Engine rejected the request parameters (Engine 400 or another 4xx).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    DockerExplorerNotFound:
+      description: >-
+        `not_found`: the Server does not exist, or the Engine reports that the addressed image,
+        container, volume, or network does not exist (for a pull, a repository the registry does
+        not know).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    DockerExplorerReadConflict:
+      description: >-
+        `conflict`: the Server is not eligible for the Docker Host Explorer (absent, not
+        `deployed`, no known address, no `installed` `docker-ce` Software Assignment, or that
+        assignment's `spec.enableApi` is not `true`), or the Engine reports a conflict. A
+        consumer treats an eligibility `409` as "not available".
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    DockerExplorerWriteConflict:
+      description: >-
+        `conflict`: the Server is not eligible for the Docker Host Explorer (as for reads), the
+        provisioner confirms the Server is locked, or the Engine reports that the object is in
+        use, its name is taken, or it is protected (Engine 409 or 403).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    DockerExplorerReadUnavailable:
+      description: >-
+        `provider_unavailable`: the Engine is unreachable, timed out, or failed internally
+        (Engine 5xx).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    DockerExplorerWriteUnavailable:
+      description: >-
+        `provider_unavailable`: the Server's lock state cannot be confirmed, or the Engine is
+        unreachable, timed out, or failed internally (for a pull, also a registry refusal or a
+        failure while downloading).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    SoftwareKind:
+      type: string
+      description: A Managed Software kind (glossary Managed Software).
+      enum:
+        - docker-ce
+        - podman
+        - nfs
+        - prometheus
+        - grafana
+        - device-metrics-exporter
+    SoftwareRole:
+      type: string
+      description: A variant role of a kind that has roles (NFS).
+      enum:
+        - server
+        - client
+    SoftwareInstallMethod:
+      type: string
+      description: How a kind with several install paths is installed.
+      enum:
+        - container
+        - native
+    SoftwareAssignmentState:
+      type: string
+      description: Lifecycle of a Software Assignment (glossary Software Assignment).
+      enum:
+        - pending
+        - installed
+        - failed
+        - uninstalling
+        - absent
+    SoftwareCatalogEntry:
+      type: object
+      description: One installable software kind and the rules install enforces for it.
+      required:
+        - kind
+        - label
+        - roles
+        - mutuallyExclusiveWith
+        - refusedForKubernetesMembers
+        - refusedForClaimedServers
+        - requiresAmdComputeGpu
+        - installMethods
+        - containerRuntimes
+        - specFields
+      properties:
+        kind:
+          $ref: '#/components/schemas/SoftwareKind'
+        label:
+          type: string
+          description: Operator-facing name.
+        roles:
+          type: array
+          description: The kind's variant roles; empty for a role-less kind.
+          items:
+            $ref: '#/components/schemas/SoftwareRole'
+        mutuallyExclusiveWith:
+          type: array
+          description: Kinds that cannot coexist with this one on a Server.
+          items:
+            $ref: '#/components/schemas/SoftwareKind'
+        refusedForKubernetesMembers:
+          type: boolean
+          description: Install refuses a Server that is a Kubernetes Platform member.
+        refusedForClaimedServers:
+          type: boolean
+          description: A standalone install or uninstall refuses a Server with a Platform Claim.
+        requiresAmdComputeGpu:
+          type: boolean
+          description: Every target must list AMD `compute` GPUs in its GPU Inventory.
+        installMethods:
+          type: array
+          description: The kind's install methods, the first being the default; empty for a kind with one built-in way.
+          items:
+            $ref: '#/components/schemas/SoftwareInstallMethod'
+        containerRuntimes:
+          type: array
+          description: The runtime kinds the `container` method runs on; empty when the kind has no container method.
+          items:
+            $ref: '#/components/schemas/SoftwareKind'
+        specFields:
+          type: array
+          description: The kind-specific `spec` keys install accepts.
+          items:
+            type: string
+    SoftwareCatalog:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SoftwareCatalogEntry'
+    SoftwareAssignment:
+      type: object
+      description: The swallow-owned record of one Managed Software kind on one Server, keyed by (serverId, kind).
+      required:
+        - serverId
+        - kind
+        - roles
+        - spec
+        - state
+        - lastWorkflowId
+        - lastAppliedAt
+        - createdAt
+        - updatedAt
+      properties:
+        serverId:
+          type: string
+        kind:
+          $ref: '#/components/schemas/SoftwareKind'
+        roles:
+          type: array
+          description: Empty for a role-less kind.
+          items:
+            $ref: '#/components/schemas/SoftwareRole'
+        spec:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: >-
+            The normalized kind-specific spec the last install applied (software.md); `null` when
+            an install of a kind without defaults sent no spec. A Docker CE record without
+            `enableApi` predates that variant and reads as disabled.
+        state:
+          $ref: '#/components/schemas/SoftwareAssignmentState'
+        lastWorkflowId:
+          type: string
+          description: The Workflow that last wrote the record.
+        lastAppliedAt:
+          nullable: true
+          description: When an install last succeeded; `null` until one does (and again after the record was `absent`).
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+    SoftwareAssignmentList:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SoftwareAssignment'
+    SoftwareInstallTarget:
+      type: object
+      description: One target Server and the roles it takes.
+      required:
+        - serverId
+      properties:
+        serverId:
+          type: string
+          minLength: 1
+        roles:
+          type: array
+          description: >-
+            Required (at least one) for a kind that has roles and must be a subset of them; must be
+            empty or omitted for a role-less kind. Duplicates are dropped.
+          items:
+            $ref: '#/components/schemas/SoftwareRole'
+    SoftwareInstallRequest:
+      type: object
+      required:
+        - kind
+        - assignments
+      properties:
+        kind:
+          $ref: '#/components/schemas/SoftwareKind'
+        assignments:
+          type: array
+          minItems: 1
+          description: The target Servers; each `serverId` at most once.
+          items:
+            $ref: '#/components/schemas/SoftwareInstallTarget'
+        spec:
+          type: object
+          additionalProperties: true
+          description: >-
+            Kind-specific fields, each optional unless software.md says otherwise. The Device
+            Metrics Exporter accepts none.
+    SoftwareUninstallRequest:
+      type: object
+      required:
+        - kind
+        - serverIds
+      properties:
+        kind:
+          $ref: '#/components/schemas/SoftwareKind'
+        serverIds:
+          type: array
+          minItems: 1
+          description: Servers with a non-`absent` assignment of the kind.
+          items:
+            type: string
+    RegistryCredential:
+      type: object
+      description: A Registry Credential without its password, which no response carries.
+      required:
+        - id
+        - registry
+        - username
+        - createdAt
+        - updatedAt
+        - updatedBy
+      properties:
+        id:
+          type: string
+        registry:
+          type: string
+          description: The normalized registry host or host:port (Docker Hub is `docker.io`).
+        username:
+          type: string
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedBy:
+          type: string
+          description: Username of the operator who last created or replaced the credential.
+    RegistryCredentialList:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistryCredential'
+    RegistryCredentialCreateRequest:
+      type: object
+      required:
+        - registry
+        - username
+        - password
+      properties:
+        registry:
+          type: string
+          description: A host or host:port; a scheme and a trailing `/` are removed and Docker Hub names fold to `docker.io`.
+        username:
+          type: string
+          description: Trimmed before it is stored; must not be empty.
+        password:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 1
+          description: The password or a registry access token, used exactly as given. Sealed at rest and never returned.
+    RegistryCredentialReplaceRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: Trimmed before it is stored; must not be empty.
+        password:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 1
+          description: Replaces the stored password; sealed at rest and never returned.
+    DockerEngineSummary:
+      type: object
+      description: The live Engine header. String fields are empty when the Engine does not report them.
+      required:
+        - endpoint
+        - serverVersion
+        - apiVersion
+        - operatingSystem
+        - osType
+        - architecture
+        - kernelVersion
+        - storageDriver
+        - cpus
+        - memoryBytes
+        - containers
+        - containersRunning
+        - containersPaused
+        - containersStopped
+        - images
+      properties:
+        endpoint:
+          type: string
+          description: The Engine API address swallow dials, `tcp://<address>:2375`.
+        serverVersion:
+          type: string
+        apiVersion:
+          type: string
+        operatingSystem:
+          type: string
+        osType:
+          type: string
+        architecture:
+          type: string
+        kernelVersion:
+          type: string
+        storageDriver:
+          type: string
+        cpus:
+          type: integer
+        memoryBytes:
+          type: integer
+          format: int64
+        containers:
+          type: integer
+        containersRunning:
+          type: integer
+        containersPaused:
+          type: integer
+        containersStopped:
+          type: integer
+        images:
+          type: integer
+    DockerImage:
+      type: object
+      required:
+        - id
+        - repoTags
+        - repoDigests
+        - sizeBytes
+        - createdAt
+        - dangling
+      properties:
+        id:
+          type: string
+          description: The Engine's image id, for example `sha256:<hex>`.
+        repoTags:
+          type: array
+          description: Without Docker's `<none>:<none>` placeholder.
+          items:
+            type: string
+        repoDigests:
+          type: array
+          items:
+            type: string
+        sizeBytes:
+          type: integer
+          format: int64
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        dangling:
+          type: boolean
+          description: True when no tag references the image any more.
+    DockerImageList:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DockerImage'
+    DockerImagePullRequest:
+      type: object
+      required:
+        - reference
+      properties:
+        reference:
+          type: string
+          description: >-
+            `name[:tag]` or `name@digest`, optionally prefixed by a registry host, without
+            whitespace. Without a tag or digest, `latest` is pulled.
+    DockerImagePullResult:
+      type: object
+      required:
+        - reference
+        - status
+        - registry
+        - authenticated
+      properties:
+        reference:
+          type: string
+          description: The canonical reference pulled (with `:latest` added when untagged).
+        status:
+          type: string
+          description: The Engine's final progress message.
+        registry:
+          type: string
+          description: The registry the reference resolved to.
+        authenticated:
+          type: boolean
+          description: Whether a stored Registry Credential was sent.
+    DockerContainerPort:
+      type: object
+      required:
+        - ip
+        - privatePort
+        - publicPort
+        - protocol
+      properties:
+        ip:
+          type: string
+          description: Empty when the Engine reports none.
+        privatePort:
+          type: integer
+        publicPort:
+          type: integer
+          nullable: true
+          description: '`null` for a port that is exposed but not published.'
+        protocol:
+          type: string
+    DockerContainerMount:
+      type: object
+      required:
+        - type
+        - source
+        - destination
+        - readOnly
+      properties:
+        type:
+          type: string
+          description: The Engine's mount type, for example `volume` or `bind`.
+        source:
+          type: string
+          description: The volume name for a `volume` mount, the host path for a `bind` mount.
+        destination:
+          type: string
+        readOnly:
+          type: boolean
+    DockerContainer:
+      type: object
+      required:
+        - id
+        - name
+        - image
+        - imageId
+        - command
+        - state
+        - status
+        - createdAt
+        - ports
+        - networks
+        - mounts
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        image:
+          type: string
+        imageId:
+          type: string
+        command:
+          type: string
+        state:
+          type: string
+          description: >-
+            The Engine's value passed through unchanged (`created`, `restarting`, `running`,
+            `removing`, `paused`, `exited`, `dead`; glossary Docker Host Explorer). A newer
+            Engine value is displayed as-is.
+        status:
+          type: string
+          description: The Engine's human-readable summary, for example `Up 2 hours`.
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/DockerContainerPort'
+        networks:
+          type: array
+          description: Names of the networks the container is attached to.
+          items:
+            type: string
+        mounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/DockerContainerMount'
+    DockerContainerList:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DockerContainer'
+    DockerContainerPortBinding:
+      type: object
+      required:
+        - containerPort
+      properties:
+        containerPort:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        hostPort:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          default: 0
+          description: 0 or omitted lets the Engine choose.
+        protocol:
+          type: string
+          enum:
+            - tcp
+            - udp
+            - sctp
+          description: Omitted means `tcp`.
+        hostIp:
+          type: string
+          description: An IP address; empty or omitted binds every address.
+    DockerContainerVolumeBinding:
+      type: object
+      required:
+        - source
+        - target
+      properties:
+        source:
+          type: string
+          description: >-
+            A volume name (`[a-zA-Z0-9][a-zA-Z0-9_.-]*`, created on demand) or an absolute host
+            path (a bind mount); must not contain `:`.
+        target:
+          type: string
+          description: An absolute container path; must not contain `:`.
+        readOnly:
+          type: boolean
+          default: false
+    DockerContainerCreateRequest:
+      type: object
+      required:
+        - image
+      properties:
+        image:
+          type: string
+          description: Must already be present on the host; otherwise `404`.
+        name:
+          type: string
+          pattern: '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$'
+          description: The Engine generates one when omitted. A taken name is `409`.
+        command:
+          type: array
+          description: Argument vector replacing the image's default command.
+          items:
+            type: string
+        env:
+          type: array
+          description: Each entry `KEY=value` with a non-empty key.
+          items:
+            type: string
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/DockerContainerPortBinding'
+        volumes:
+          type: array
+          items:
+            $ref: '#/components/schemas/DockerContainerVolumeBinding'
+        network:
+          type: string
+          description: Network to attach to; the Engine default (`bridge`) when omitted.
+        restartPolicy:
+          type: string
+          enum:
+            - 'no'
+            - always
+            - unless-stopped
+            - on-failure
+          description: Omitted means `no`.
+        start:
+          type: boolean
+          default: true
+          description: Start the container after creating it.
+    DockerContainerCreated:
+      type: object
+      required:
+        - id
+        - warnings
+        - started
+      properties:
+        id:
+          type: string
+        warnings:
+          type: array
+          description: The Engine's create warnings.
+          items:
+            type: string
+        started:
+          type: boolean
+    DockerContainerLogs:
+      type: object
+      required:
+        - logs
+      properties:
+        logs:
+          type: string
+          description: Standard output and standard error in arrival order, truncated at 4 MiB.
+    DockerVolume:
+      type: object
+      required:
+        - name
+        - driver
+        - mountpoint
+        - scope
+        - createdAt
+        - labels
+      properties:
+        name:
+          type: string
+        driver:
+          type: string
+        mountpoint:
+          type: string
+        scope:
+          type: string
+        createdAt:
+          nullable: true
+          description: '`null` when the Engine does not report it.'
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        labels:
+          type: object
+          description: The volume's Docker labels.
+          additionalProperties:
+            type: string
+    DockerVolumeList:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DockerVolume'
+    DockerVolumeCreateRequest:
+      type: object
+      description: Every field is optional; send `{}` for an Engine-named `local` volume.
+      properties:
+        name:
+          type: string
+          pattern: '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$'
+          description: The Engine generates one when omitted.
+        driver:
+          type: string
+          description: Omitted means `local`.
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+    DockerNetworkSubnet:
+      type: object
+      required:
+        - subnet
+        - gateway
+      properties:
+        subnet:
+          type: string
+        gateway:
+          type: string
+          description: Empty when none is configured.
+    DockerNetwork:
+      type: object
+      required:
+        - id
+        - name
+        - driver
+        - scope
+        - internal
+        - attachable
+        - predefined
+        - subnets
+        - createdAt
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        driver:
+          type: string
+        scope:
+          type: string
+        internal:
+          type: boolean
+        attachable:
+          type: boolean
+        predefined:
+          type: boolean
+          description: True for the Engine's own `bridge`, `host`, and `none` networks, which cannot be removed.
+        subnets:
+          type: array
+          items:
+            $ref: '#/components/schemas/DockerNetworkSubnet'
+        createdAt:
+          nullable: true
+          description: '`null` when the Engine does not report it.'
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+    DockerNetworkList:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DockerNetwork'
+    DockerNetworkCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          pattern: '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$'
+          description: Must not be `bridge`, `host`, or `none`. A taken name is `409`.
+        driver:
+          type: string
+          description: Omitted means `bridge`.
+        internal:
+          type: boolean
+          default: false
+        attachable:
+          type: boolean
+          default: false
+        subnet:
+          type: string
+          description: An optional CIDR.
+        gateway:
+          type: string
+          description: An optional IP address; requires `subnet`.
