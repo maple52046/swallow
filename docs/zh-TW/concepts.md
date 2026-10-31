@@ -17,8 +17,13 @@ Integration credential 是 write-only。Sync metadata 會顯示何時開始 refr
 ## Server
 
 **Server** 是 provisioner inventory 內 machine 的 projection。Server 由
-reconciliation 建立，不存在 create-Server 操作。Opaque `id` 是穩定 identity；
-hostname、address、serial number、MAC address 都是 observed attributes，不能當 key。
+reconciliation 建立，不存在 create-Server 操作。要加入 Server，就讓 machine 進入
+provisioner 的 inventory：從網路開機讓它 enlist、enroll 保留既有 OS 的 host，或從
+hypervisor enroll libvirt virtual machine（見
+[Servers 與 infrastructure](guides/servers-and-infrastructure.md)）。Server 的 `origin`
+記錄它如何加入：`discovered`、`enrolled` 或 `imported`。Opaque `id` 是穩定
+identity；hostname、address、serial number、MAC address 都是 observed attributes，
+不能當 key。
 
 Server status 有互相獨立的軸：
 
@@ -36,11 +41,30 @@ Provisioning axis 使用 swallow 定義、與 provider 無關的
 
 `null` 表示 unknown，不是 unhealthy。每次 observation 都可有自己的 `observedAt`。
 
+## Desired state 與 observed state
+
+由 swallow 收斂的 resource 有 `spec`（你要求的樣子）與 `status`（swallow 最後觀察到的
+樣子，以及它的 `conditions`）：
+
+| Condition | `true` 的意思 |
+| --- | --- |
+| `realized` | Observed state 符合目前的 spec。 |
+| `drifted` | swallow 以外有人改動，已不符合 spec。 |
+| `requires_attention` | swallow 已停止重試，需要 operator 處理。 |
+| `held` | 收斂被暫停，例如 Server 被 lock，或由某個 Workflow 擁有。 |
+
+寫入 spec 後，swallow 存下即回應，變更之後才套用；請以 conditions 與
+`status.observedGeneration` 判斷是否已生效。Provisioner 無法實現某個欄位時，
+`realized` 為 `false`、reason 為 `capability_missing`，你的 spec 照樣保留。Server 的
+tag 與 placement、Zone 與 Pool、SSH key，以及 provisioner 的 HTTP proxy 與 Subnet DNS
+都是這樣運作；其他 resource 維持各 guide 描述的行為。
+
 ## Zone、Pool、tag 與 lock
 
 Zone／Pool 是 operator-defined infrastructure grouping；tag 加上 capability 或 policy
-metadata。Provisioner 支援某個 fact 時仍是 source of truth；不支援時由 swallow
-提供 owned fallback。
+metadata。Server 的手動 tag 與它的 Zone／Pool 屬於 spec，由 provisioner 實現；
+provisioner 自行計算的 tag 只是 observed。Provisioner 沒有這個能力時回報
+`capability_missing`，swallow 不另外保存替代的副本。
 
 Server lock 會保護 Server 不受 automation 與 destructive action 影響，但不能取代
 provider state 或 authorization。
@@ -56,14 +80,16 @@ runtime API 擁有 observed membership 與 live state。既有 third-party runti
 
 **Workflow** 是 durable operator intent，由可重用的 **Job** 與 atomic、idempotent
 的 **Task** 組成。**Runner** 透過 provisioner、Ansible 或 internal mechanism 執行
-Task。Temporal 提供 durability；worker 與 Ansible executor 必須保持執行才能前進。
+Task。swallow 的 store 記錄每個 Workflow 與 Task 的 state，由 Temporal 執行；負責
+派發 Workflow 的 worker 與 Ansible executor 必須保持執行才能前進。
 
-某些 implementation／compatibility surface 仍使用 `Operation` 與 `Step`，
-但公開 canonical terms 是 Workflow 與 Task。
+少數 API 欄位名稱仍使用舊的 Operation 與 Step（例如 `operationId`），但公開
+canonical terms 是 Workflow 與 Task。
 
 ## Managed Software 與 Software Assignment
 
-**Managed Software** 是一個 host-level software，目前包含 Docker CE、Podman 與 NFS。
+**Managed Software** 是一個 host-level software，目前包含 Docker CE、Podman、NFS、
+Prometheus、Grafana 與 AMD Device Metrics Exporter。
 **Software Assignment** 記錄一種 software 在一台 Server 的 desired／last-applied
 state。它不是 Server status axis，也不同於 multi-component Platform。
 

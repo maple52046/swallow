@@ -7,14 +7,15 @@ Dashboard, CLI, API, automation, and installation assets in this repository.
 
 ## Start here
 
-- [Introduction](introduction.md) — what swallow owns, who it is for, and how it
-  integrates with a datacenter.
+- [Introduction](introduction.md) — how swallow is built from a generic core,
+  providers, and plugins, what it owns, who it is for, and how it integrates
+  with a datacenter.
 - [Getting started](getting-started.md) — run the local stack and complete the
   first Site and integration setup.
 - [Installation choices](installation.md) — choose between evaluation,
   testing, Compose, and the native preview.
-- [Core concepts](concepts.md) — understand Sites, Servers, Platforms,
-  Workflows, Managed Software, status, and staleness.
+- [Core concepts](concepts.md) — understand Sites, Servers, desired and
+  observed state, Platforms, Workflows, Managed Software, status, and staleness.
 
 ## Operator guides
 

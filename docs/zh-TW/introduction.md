@@ -22,24 +22,54 @@ GPU 資料中心通常已經有專門系統：
 Kubernetes node 是哪台 MAAS machine、哪些 alerts 屬於它、最近是哪個 automation
 改動它」。swallow 解決的是 correlation 與 intent 問題。
 
+## swallow 的組成
+
+swallow 的 core 是通用的：它管理 intent、identity 與收斂，不含任何廠商、產品、
+Platform 或 GPU 廠商的知識。兩種組件把它組合成開箱即用的 datacenter 管理：
+
+- **Provider** 把 core 連到外部系統：MAAS 負責 OS provisioning、Temporal 負責
+  durable Workflow 執行、Ansible 負責 host automation、MongoDB 保存 swallow
+  自己的 state、Prometheus 與 Alertmanager 負責 metrics 與 alerts、Redfish 與
+  libvirt 負責 BMC 與 hypervisor。
+- **Plugin** 加入 swallow 能管理的東西：Kubernetes 與 Slurm Platform、AMD GPU，
+  以及 Managed Software catalog。
+
+本 repository 交付的是 core、provider 與 plugin 的一種組合，為 GPU 資料中心而建。
+要支援其他 Platform 或 GPU 廠商，是新增一個 plugin，而不是重新設計 core。
+給貢獻者的完整陳述見
+[設計主張](../development/architecture-spec.md#swallow-的設計主張)。
+
 ## Ownership model
+
+swallow 記錄你要的狀態，由擁有事實的系統回報實際狀態：
+
+- **Desired state** 是 operator 要求的樣子，例如 Server 的 tag 與 Zone／Pool
+  placement、swallow 登錄到 provisioner 的 Zone、Pool 與 SSH key、一個
+  Platform，或指派到 Server 的 software。swallow 擁有它，是它唯一的真相來源。
+- **Observed state** 是 provider 回報的樣子：MAAS 的 machine 與 hardware facts、
+  Kubernetes／Slurm 的 membership 與 live state、Prometheus 的 health。每筆
+  observation 都帶來源與時間，swallow 不會把它當成 intent。
+- Observed state 在 swallow 沒有要求的情況下偏離你的設定時（例如有人在 MAAS UI
+  移除 tag），swallow 會回報差異，而不是默默接受。由 swallow 經 provisioner
+  實現的設定（例如 tag 與 placement）會在下一次定期檢查時改回。
 
 swallow 擁有：
 
 - Site，以及每個 Site 註冊的 Integration。
 - 穩定的 Server identity 與 provider machine mapping。
-- Desired policy 與 durable automation intent。
+- Desired state、policy 與 durable automation intent。
 - 自行佈署的 Platform record、credential 與 lifecycle intent。
 - Software Assignment，以及 resource 和 Workflow 間的關聯。
 
 swallow 刻意不擁有：
 
-- MAAS 已擁有的 hardware、power 或 provisioning facts。
-- Kubernetes／Slurm live state。
+- MAAS 觀察到的 hardware、power 與 provisioning facts；swallow 只把它們保存為
+  observed state。
+- Kubernetes／Slurm live state，包含 workload 與其排程。
 - Time-series metrics 或 Alertmanager alert state。
 - API 可讀回的第二份 credential；integration 與 automation credentials 都是 write-only。
 
-完整邊界請見具約束力的
+完整邊界請見 [desired-state model](../development/desired-state-model.md) 與具約束力的
 [system ownership decision](../decisions/001-system-ownership-boundaries.md)。
 
 ## 操作介面

@@ -23,26 +23,63 @@ makes operators manually answer questions such as: which MAAS machine is this
 Kubernetes node, which alerts belong to it, and which automation last changed
 it? swallow solves the correlation and intent problem.
 
+## How swallow is built
+
+swallow's core is generic: it manages intent, identity, and convergence, and it
+carries no knowledge of any vendor, product, Platform, or GPU vendor. Two kinds
+of parts compose it into out-of-the-box datacenter management:
+
+- **Providers** connect the core to external systems: MAAS for OS
+  provisioning, Temporal for durable Workflow execution, Ansible for host
+  automation, MongoDB for swallow's own state, Prometheus and Alertmanager for
+  metrics and alerts, and Redfish and libvirt for BMCs and hypervisors.
+- **Plugins** add what swallow manages: Kubernetes and Slurm Platforms, AMD
+  GPUs, and the Managed Software catalog.
+
+What this repository ships is one combination of the core, providers, and
+plugins, built for GPU datacenters. Supporting another Platform or GPU vendor
+means adding a plugin, not redesigning the core. Contributors find the full
+statement in the
+[design principles](../development/architecture-spec.md#swallow-的設計主張).
+
 ## Ownership model
+
+swallow records what you want, and the systems that own the facts report what
+is:
+
+- **Desired state** is what an operator asks for, such as a Server's tags and
+  Zone and Pool placement, the Zones, Pools, and SSH keys swallow registers
+  with the provisioner, a Platform, or the software assigned to a Server.
+  swallow owns it and is its only source of truth.
+- **Observed state** is what a provider reports: machine and hardware facts from
+  MAAS, membership and live state from Kubernetes or Slurm, health from
+  Prometheus. Each observation carries its source and time, and swallow never
+  treats it as intent.
+- When observed state departs from what you set without swallow asking, for
+  example a tag removed in the MAAS UI, swallow reports the difference instead
+  of silently accepting it. Settings that swallow realizes through the
+  provisioner, such as tags and placement, are put back at its next periodic
+  check.
 
 swallow owns:
 
 - Sites and the Integrations registered for each Site.
 - Stable Server identities and the mapping to provider machines.
-- Desired policy and durable automation intent.
+- Desired state, policy, and durable automation intent.
 - Self-deployed Platform records, credentials, and lifecycle intent.
 - Software Assignments and the relationship between resources and Workflows.
 
 swallow deliberately does not own:
 
-- Hardware, power, or provisioning facts already owned by MAAS.
-- Kubernetes or Slurm live state.
+- Hardware, power, and provisioning facts that MAAS observes; swallow keeps
+  them only as observed state.
+- Kubernetes or Slurm live state, including workloads and their scheduling.
 - Time-series metrics or Alertmanager alert state.
 - A second copy of credentials that an API is allowed to return; stored
   integration and automation credentials are write-only.
 
-See the binding
-[system ownership decision](../decisions/001-system-ownership-boundaries.md)
+See the [desired-state model](../development/desired-state-model.md) and the
+binding [system ownership decision](../decisions/001-system-ownership-boundaries.md)
 for the detailed boundary.
 
 ## Interfaces

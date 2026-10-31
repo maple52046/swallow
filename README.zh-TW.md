@@ -6,9 +6,12 @@
 > **專案狀態：積極開發中。** 介面與 installation assets 仍在演進，repository
 > 目前尚未發布穩定的 SemVer release。正式環境採用前，請先自行驗證升級與操作流程。
 
-swallow 是提供給 GPU 資料中心 operator 的管理系統，將實體 Server、作業系統佈署、
-Kubernetes／Slurm Platform、host software、自動化進度與監控訊號關聯在同一個操作面。
-swallow 擁有 intent、policy 與 identity mapping；外部系統繼續擁有其最擅長產生的事實。
+swallow 是開箱即用的 GPU 資料中心管理，提供給需要把實體 Server、作業系統佈署、
+Kubernetes／Slurm Platform、host software、自動化進度與監控訊號關聯在同一個操作面的
+operator。它的 core 是通用的：provider 把它連到 MAAS、Temporal、Ansible、Prometheus
+等外部系統，plugin 加入它能管理的東西，例如 Kubernetes、Slurm、AMD GPU 與 Managed
+Software。swallow 擁有 intent、policy 與 identity mapping；外部系統繼續擁有其最擅長
+產生的事實。
 
 ![swallow operator overview](docs/assets/overview.png)
 
@@ -35,18 +38,22 @@ flowchart LR
     dashboard --> api
     cli --> api
     api --> mongo[(MongoDB)]
-    api --> temporal[Temporal]
-    temporal --> worker[Workflow worker]
-    worker --> ansible[Ansible executor]
+    worker[Workflow worker] <--> mongo
+    worker <--> temporal[Temporal]
+    temporal --> ansible[Ansible executor]
+    ansible <--> mongo
     api <--> maas[MAAS]
+    worker <--> maas
     api <--> monitoring[Prometheus / Alertmanager]
     api <--> platforms[Kubernetes / Slurm]
     ansible --> servers[Managed Servers]
 ```
 
-MAAS 擁有 machine 與 provisioning facts；Kubernetes／Slurm 擁有即時 runtime
-state；Prometheus／Alertmanager 擁有 metrics 與 alerts。swallow 擁有 operator 的
-desired state，以及這些系統間穩定的關聯。
+API 把 intent 與 Workflow 記錄在 MongoDB；worker 把每個 Workflow 派發到 Temporal，
+由 Temporal 在 worker 與 Ansible executor 上執行它的 Task。MAAS 擁有 machine 與
+provisioning facts；Kubernetes／Slurm 擁有即時 runtime state；Prometheus／Alertmanager
+擁有 metrics 與 alerts。swallow 擁有 operator 的 desired state，以及這些系統間穩定的
+關聯。
 
 ## 本機試用
 

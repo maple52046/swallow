@@ -7,11 +7,14 @@
 > evolving, and the repository does not currently publish a stable SemVer
 > release. Evaluate upgrades and operational procedures before production use.
 
-swallow is a GPU datacenter management system for operators who need one place
-to correlate physical servers, operating-system provisioning, Kubernetes or
-Slurm Platforms, host software, automation progress, and monitoring signals.
-It owns intent, policy, and identity mapping while external systems continue to
-own the facts they are best at producing.
+swallow is out-of-the-box GPU datacenter management for operators who need one
+place to correlate physical servers, operating-system provisioning, Kubernetes
+or Slurm Platforms, host software, automation progress, and monitoring signals.
+Its core is generic: providers connect it to external systems such as MAAS,
+Temporal, Ansible, and Prometheus, and plugins add what it manages, such as
+Kubernetes, Slurm, AMD GPUs, and Managed Software. It owns intent, policy, and
+identity mapping while external systems continue to own the facts they are best
+at producing.
 
 ![The swallow operator overview](docs/assets/overview.png)
 
@@ -40,18 +43,23 @@ flowchart LR
     dashboard --> api
     cli --> api
     api --> mongo[(MongoDB)]
-    api --> temporal[Temporal]
-    temporal --> worker[Workflow worker]
-    worker --> ansible[Ansible executor]
+    worker[Workflow worker] <--> mongo
+    worker <--> temporal[Temporal]
+    temporal --> ansible[Ansible executor]
+    ansible <--> mongo
     api <--> maas[MAAS]
+    worker <--> maas
     api <--> monitoring[Prometheus / Alertmanager]
     api <--> platforms[Kubernetes / Slurm]
     ansible --> servers[Managed Servers]
 ```
 
-MAAS owns machine and provisioning facts. Kubernetes and Slurm own live runtime
-state. Prometheus and Alertmanager own metrics and alerts. swallow owns the
-operator's desired state and the stable relationships between those systems.
+The API records intent and Workflows in MongoDB; the worker dispatches each
+Workflow to Temporal, which runs its Tasks on the worker and the Ansible
+executor. MAAS owns machine and provisioning facts. Kubernetes and Slurm own
+live runtime state. Prometheus and Alertmanager own metrics and alerts. swallow
+owns the operator's desired state and the stable relationships between those
+systems.
 
 ## Try it locally
 

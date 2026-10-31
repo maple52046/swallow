@@ -7,10 +7,10 @@ CLI、API、automation 與 installation assets。
 
 ## 從這裡開始
 
-- [專案介紹](introduction.md) — swallow 擁有什麼、服務誰，以及如何與資料中心整合。
+- [專案介紹](introduction.md) — swallow 如何由通用的 core、provider 與 plugin 組成，擁有什麼、服務誰，以及如何與資料中心整合。
 - [快速入門](getting-started.md) — 啟動本機環境並完成第一個 Site 與 integration。
 - [Installation 選擇](installation.md) — 在 evaluation、testing、Compose 與 native preview 間選擇。
-- [核心概念](concepts.md) — 了解 Site、Server、Platform、Workflow、Managed Software、status 與 staleness。
+- [核心概念](concepts.md) — 了解 Site、Server、desired 與 observed state、Platform、Workflow、Managed Software、status 與 staleness。
 
 ## Operator 指南
 

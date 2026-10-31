@@ -18,9 +18,13 @@ started, last succeeded, and last failed so operators can judge staleness.
 ## Server
 
 A **Server** is a projection of a machine in a provisioner's inventory.
-Reconciliation creates Servers; there is no create-Server operation. Its opaque
-`id` is stable. Hostname, addresses, serial numbers, and MAC addresses are
-observed attributes and are not safe identifiers.
+Reconciliation creates Servers; there is no create-Server operation. To add one,
+get the machine into the provisioner's inventory: boot it from the network so it
+enlists, enroll a host that keeps its OS, or enroll a libvirt virtual machine
+from its hypervisor (see [Servers and infrastructure](guides/servers-and-infrastructure.md)).
+A Server's `origin` records how it arrived: `discovered`, `enrolled`, or
+`imported`. Its opaque `id` is stable. Hostname, addresses, serial numbers, and
+MAC addresses are observed attributes and are not safe identifiers.
 
 Server status has independent axes:
 
@@ -39,11 +43,33 @@ display-only `providerState`; clients must not branch on it.
 `null` means unknown, not unhealthy. Each observation can have its own
 `observedAt`.
 
+## Desired and observed state
+
+A resource that swallow converges has a `spec`, what you asked for, and a
+`status`, what swallow last observed together with its `conditions`:
+
+| Condition | `true` means |
+| --- | --- |
+| `realized` | The observed state matches the current spec. |
+| `drifted` | Something changed outside swallow and no longer matches the spec. |
+| `requires_attention` | swallow stopped retrying; an operator must act. |
+| `held` | Convergence is paused, for example while the Server is locked or a Workflow owns it. |
+
+Writing a spec returns once swallow has stored it; the change is applied
+afterwards, so read the conditions and `status.observedGeneration` to see
+whether it took effect. When a provisioner cannot realize a field, `realized` is
+`false` with the reason `capability_missing`, and your spec is kept. Server tags
+and placement, Zones and Pools, SSH keys, and the provisioner's HTTP proxy and
+Subnet DNS settings work this way; other resources keep the behavior their
+guides describe.
+
 ## Zone, Pool, tag, and lock
 
 Zones and Pools are operator-defined infrastructure grouping. Tags add
-capability or policy metadata. When the provisioner supports a fact, it remains
-the source of truth; otherwise swallow supplies an owned fallback.
+capability or policy metadata. A Server's manual tags and its Zone and Pool are
+part of its spec, and the provisioner realizes them; tags the provisioner
+computes itself are observed only. A provisioner without the capability reports
+`capability_missing` instead of swallow keeping a substitute copy.
 
 A Server lock protects it from automation and destructive actions. It is not a
 replacement for provider state or authorization.
@@ -59,17 +85,19 @@ Existing third-party runtimes cannot be registered as managed Platforms.
 
 A **Workflow** is durable operator intent. It is composed of reusable **Jobs**
 and atomic idempotent **Tasks**. A **Runner** executes each Task through a
-provisioner, Ansible, or internal mechanism. Temporal provides durability;
-worker and Ansible executor processes must be running for progress.
+provisioner, Ansible, or internal mechanism. swallow's store records every
+Workflow and Task state; Temporal executes them. The worker, which dispatches
+Workflows, and the Ansible executor must be running for progress.
 
-`Operation` and `Step` remain in some implementation and compatibility
-surfaces, but Workflow and Task are the canonical public terms.
+A few API field names still use the older words Operation and Step, such as
+`operationId`; Workflow and Task are the canonical public terms.
 
 ## Managed Software and Software Assignment
 
 **Managed Software** is one host-level software product, currently Docker CE,
-Podman, or NFS. A **Software Assignment** records desired and last-applied state
-for one software kind on one Server. It is not a Server status axis and is
+Podman, NFS, Prometheus, Grafana, or the AMD Device Metrics Exporter. A
+**Software Assignment** records desired and last-applied state for one software
+kind on one Server. It is not a Server status axis and is
 different from a multi-component Platform.
 
 ## Staleness
