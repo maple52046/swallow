@@ -98,7 +98,7 @@ flowchart LR
 - `docs/en/` 與 `docs/zh-TW/` — path 對等的英文／繁體中文公開文件。公開文件可引用
   development source of truth；development、ADR、AGENTS 與 skills 不得反向連結公開文件。
 - [`docs/development/`](.) — swallow 層級的開發規範：
-  - [`architecture-spec.md`](architecture-spec.md) — Strategic DDD architecture constitution。
+  - [`architecture-spec.md`](architecture-spec.md) — swallow 的設計主張（通用的 core 組合 provider 與 plugin、原則與取捨順序）與 Strategic DDD architecture constitution。
   - [`codebase-structure.md`](codebase-structure.md) — 本檔，結構契約。
   - [`api-contracts.md`](api-contracts.md) — API contract 的 provider-first discovery workflow。
   - [`desired-state-model.md`](desired-state-model.md) — 所有功能都必須遵守的上位模型：swallow 擁有 desired state、provider 回報 observed state、收斂與 drift、Change Plan，以及 store 與 Workflow 執行的規則（decision 069）。

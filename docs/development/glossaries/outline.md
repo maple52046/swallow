@@ -10,7 +10,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### System and Sites
 
-- [swallow](terms/swallow.md): The system this repository builds; the only name for it — not "the platform" and not a `Platform`.
+- [swallow](terms/swallow.md): The system this repository builds — a generic core delivered, with providers and plugins, as an out-of-the-box distribution; the only name for it — not "the platform" and not a `Platform`.
 - [Site](terms/site.md): A swallow-owned location that owns its own infrastructure and frames every other managed fact.
 - [Integration](terms/integration.md): A swallow-owned registration of one Provider Adapter at one Site (`provisioner` / `metrics` / `platform`).
 - [Staleness](terms/staleness.md): The freshness of a mirrored fact (Observed State) — its source and last-observed time — surfaced as part of the API.
@@ -32,7 +32,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 - [Provider Interface](terms/provider-interface.md): A core-defined port, in core vocabulary, for one kind of external system (OS provisioning, Workflow executor, host automation, store, metrics and alerts, BMC and hypervisor).
 - [Provider Adapter](terms/provider-adapter.md): The replaceable implementation of a Provider Interface for one system (MAAS, Temporal, Ansible, MongoDB, …), translating its vocabulary; never part of the core.
-- [Extension Module](terms/extension-module.md): A unit adding something swallow manages — a Platform Module, Accelerator Module, or Software Module — through the module contract.
+- [Extension Module](terms/extension-module.md): A unit adding something swallow manages — a Platform Module, Accelerator Module, or Software Module — through the module contract; also called a plugin.
 - [Platform Module](terms/platform-module.md): The module that makes one kind of Platform runtime manageable (Kubernetes, Slurm).
 - [Accelerator Module](terms/accelerator-module.md): The module for one GPU vendor (AMD, later NVIDIA), an axis separate from Platforms.
 - [Software Module](terms/software-module.md): The module that provides one Managed Software kind.

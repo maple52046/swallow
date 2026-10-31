@@ -1,8 +1,117 @@
 # Root Architecture Spec
 
-本文件是 root project 的 architecture constitution，定義所有開發人員與 AI agent 在本 repository 內進行需求分析、設計、實作、重構與文件更新時必須遵守的 Strategic Domain-Driven Design 規範。
+本文件是 root project 的 architecture constitution。它先寫出 swallow 的設計主張：swallow 要成為什麼、由什麼組成，以及做取捨時依據的原則；再定義所有開發人員與 AI agent 在本 repository 內進行需求分析、設計、實作、重構與文件更新時必須遵守的 Strategic Domain-Driven Design 規範。
 
-本文整理自 Eric Evans 的 [Domain-Driven Design Reference: Definitions and Pattern Summaries](https://www.domainlanguage.com/wp-content/uploads/2016/05/DDD_Reference_2015-03.pdf)。本文件定義全 swallow 共同規則；各 component（`api-server/`、`dashboard/`、`cli/`）可以有自己的 architecture spec，但不得違反本文件。
+Strategic DDD 的部分整理自 Eric Evans 的 [Domain-Driven Design Reference: Definitions and Pattern Summaries](https://www.domainlanguage.com/wp-content/uploads/2016/05/DDD_Reference_2015-03.pdf)。本文件定義全 swallow 共同規則；各 component（`api-server/`、`dashboard/`、`cli/`）可以有自己的 architecture spec，但不得違反本文件。
+
+## swallow 的設計主張
+
+本節給 human developer 與 AI agent 共用，是 swallow 設計思想的唯一權威陳述。各原則的完整規則在它的權威規格，決策理由在 ADR；本節不重述細節。設計或審查時遇到規則沒有涵蓋的情況，以本節判斷。
+
+### 核心理念
+
+**swallow 的 core 是通用的；組合不同的 provider 與 plugin，就成為開箱即用的 datacenter 管理。**
+
+- **core 什麼都能管**：core 管理意圖、身分與收斂——operator 要受管資源成為什麼樣子、同一台機器在各個外部系統中是誰、
+  如何讓實際狀態趨近意圖，以及執行這些變更的 Workflow。core 不含任何廠商、產品、平台或 GPU 廠商的知識，所以它能管理
+  的範圍不受限於目前整合的系統。
+- **provider 與 plugin**：provider（[Provider Adapter](glossaries/terms/provider-adapter.md)）負責和某一類外部系統溝通，
+  例如 OS provisioning、Workflow executor、host automation、store 與 metrics；plugin
+  （[Extension Module](glossaries/terms/extension-module.md)）是 swallow 能管理的東西：Platform、Accelerator 與 Software
+  模組。
+- **交付的是組合**：operator 拿到的是組合好、驗證過的 core、provider 與 plugin，也就是一個 distribution，不必自己組裝；
+  包含哪些組合、哪些組合驗證過，記在 [Support Matrix](glossaries/terms/support-matrix.md)。
+- **先有通用的 core，再往外長**：Kubernetes、Slurm 與 Managed Software 是從 core 往外長出來的 plugin，再包裝成產品。
+  日後要支援其他 platform 或 GPU 廠商（例如 NVIDIA），是新增 plugin，不是重新設計 core。
+- **整合要做得對、做得深**：core 什麼都能管；整合進來的 platform 則必須做得對、做得深。
+
+### 目前的組合
+
+| 部分 | 目前的內容 |
+| --- | --- |
+| core | 資源模型、desired 與 observed state、controller、Workflow 的模型與語意、各類 provider interface 與模組契約、身分與認證、Site 與 Integration 的登錄、監控關聯 |
+| provider | OS provisioning：MAAS；Workflow executor：Temporal；host automation：Ansible；store：MongoDB；metrics 與 alerts：Prometheus、Alertmanager；BMC 與 hypervisor：Redfish、libvirt |
+| plugin | Platform：Kubernetes、Slurm；Accelerator（與 Platform 分開的維度，一個 GPU 廠商只支援一次）：AMD；Software：Managed Software（Docker CE、Podman、NFS、Prometheus、Grafana、Device Metrics Exporter） |
+
+目前只有一種組合：以上全部，給要開箱即用 GPU datacenter 的 operator。依設定選擇 plugin 組裝發行版尚未實作
+（[`core-and-extensions.md`](core-and-extensions.md) §8）。
+
+判斷新程式碼的位置：在說「swallow 管什麼」放 plugin，在說「怎麼和某個外部系統溝通」放 provider，兩者都不是才放 core
+（[`core-and-extensions.md`](core-and-extensions.md) §1）。
+
+### Core Domain 的劃分
+
+依下面 [Distillation](#distillation) 的定義：
+
+- **Core Domain**：意圖與收斂——受管資源的 desired state、跨系統的身分對應、drift 與 Change Plan 的政策，以及
+  Workflow 的語意（Task DAG、重試、取消、fencing、等待 operator）。這是 swallow 自己的模型，任何 provider 或 plugin
+  都無法替代。
+- **Supporting Subdomain**：plugin（各 platform、GPU 廠商與軟體的整合）、provider 的翻譯、監控關聯、安裝與其生命週期。
+- **Generic Subdomain**：認證與 API key，以及 store、Workflow executor、host automation 的引擎；metrics 的儲存與 alert
+  的評估由 Prometheus 與 Alertmanager 擁有，swallow 不保存。
+
+Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core 也包含 Generic 的認證；plugin 不在 core 內，但
+「整合要做得對、做得深」仍是產品的品質要求。
+
+### 原則
+
+1. **擁有意圖，整合事實。** swallow 擁有 operator 的意圖（desired state）、政策與跨系統的身分對應；外部系統擁有它們
+   最擅長產生的事實，swallow 讀回成 observed state，帶來源與觀察時間，永遠不拿它當寫入的依據。每個欄位都是 desired、
+   observed 或 derived 其中之一，而且只有一個寫入者；provider 永遠不寫 desired state。metrics、alert 的評估、workload
+   的排程與 Platform 內部的資源由各自的系統擁有，swallow 不保存。
+   （[`desired-state-model.md`](desired-state-model.md) §3；[ADR 001](../decisions/001-system-ownership-boundaries.md)、
+   [ADR 069](../decisions/069-swallow-owns-desired-state.md)）
+2. **收斂，而不是下命令。** controller 依目前的 desired 與 observed 決定動作，事件只負責喚醒它，漏掉事件不會遺失工作。
+   非破壞性的差異自動收斂；破壞性的變更先產生 Change Plan，經 operator 核准後以 Workflow 執行；drift 預設只回報，
+   不自動修正。（[`desired-state-model.md`](desired-state-model.md) §5–§7；
+   [ADR 069](../decisions/069-swallow-owns-desired-state.md)、[ADR 071](../decisions/071-provisioner-realized-desired-state.md)）
+3. **core 與廠商無關。** core 只有領域模型、Workflow 的模型與語意、controller，以及各類 provider interface 與模組
+   契約；不含廠商、產品、平台或 GPU 廠商的名稱、型別、常數與知識，也不依 adapter 識別碼分支。每個 provider 都可以
+   抽換，廠商的詞彙只存在 provider 內；平台與 GPU 廠商專屬的邏輯只存在 plugin。（[`core-and-extensions.md`](core-and-extensions.md) §2–§5；
+   [ADR 070](../decisions/070-core-providers-and-extensions.md)）
+4. **執行狀態只在 store。** Workflow 與 Task 的狀態、attempt、結果與資源所有權只記錄在 store，core 的 Workflow
+   service 是唯一的寫入者；Workflow executor（目前是 Temporal）只負責執行。每次派發的世代擋掉舊的 execution；
+   Workflow 在生命週期內擁有它的資源，沒有 TTL。（[`workflow-execution.md`](workflow-execution.md) §2、§4；
+   [ADR 072](../decisions/072-store-driven-workflow-execution.md)）
+5. **deployment 是宣告式的執行計畫。** 一個 Workflow 宣告它的 Job、Task、依賴、重試粒度、完成行為與取消補償；engine
+   只依宣告執行，不認得任何 Workflow kind 或 Task kind。新增一種 deployment 是產生這份計畫與它需要的 handler，不修改
+   engine。（[`workflow-execution.md`](workflow-execution.md) §12、[`core-and-extensions.md`](core-and-extensions.md) §2；
+   [ADR 072](../decisions/072-store-driven-workflow-execution.md)）
+6. **不變式靠 transaction。** 跨文件的不變式在同一個 transaction 內完成，不以補償或修復 sweep 代替；store 的規則以
+   port 表達，資料庫特有的型別與語意不越過 adapter。（[`desired-state-model.md`](desired-state-model.md) §10）
+7. **一切自動化都是 ensure。** playbook、Task 與 controller 都是 idempotent 的：可以安全重跑，已經達成時不產生變更。
+   遺失的 execution、activity 重試與 restore 都靠這一點恢復，而不是靠記住做到了哪裡。
+   （[`desired-state-model.md`](desired-state-model.md) §7.2、[`workflow-execution.md`](workflow-execution.md) §5、
+   [`platform-deployment.md`](platform-deployment.md) §4.7）
+8. **不確定時不猜。** 無法證明的事不當成已知：provider 無法連線時，資料只是變舊（[Staleness](glossaries/terms/staleness.md)），
+   不是壞掉；provider 沒有能力時回報 `capability_missing`，不建立同形狀的替代品（取代
+   [ADR 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md) 的 fallback）；結果無法證明的
+   Ansible Task 交給 operator（`executor_outcome_unknown`）；無法確定一個變更是否破壞性時，歸為破壞性。
+   （[`desired-state-model.md`](desired-state-model.md) §5.1、§8；[`workflow-execution.md`](workflow-execution.md) §10）
+9. **語言與契約先於程式。** 新概念先進 glossary，API 行為先寫進 provider-owned 契約，同一個行為只有一份 canonical
+   實作（本文件以下的 Strategic DDD 規則）。
+
+### 取捨順序
+
+原則之間衝突時，依序優先：
+
+1. 不破壞資料與 workload。
+2. 單一真相與正確性。
+3. core 的通用性。
+4. 相容與便利。目前沒有對外的安裝，consumer 都在本 repository，所以不為不存在的 consumer 保留相容層
+   （[ADR 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)）。
+
+### 現況與目標
+
+設計主張描述目標；遷移逐步進行，尚未遷移的功能維持現行行為，以各功能規格為準。某個功能遷移時，在同一個變更中
+更新它的規格。
+
+- 執行狀態只在 store（原則 4、5）：已實作（ADR 072）。
+- desired state 與收斂（原則 1、2）：由 provisioner 實現的第一段資源已遷移（[`desired-state-model.md`](desired-state-model.md)
+  §4.4）。Change Plan 尚未實作，目前的破壞性動作由 operator 直接要求，以 Workflow 執行。
+- core 與廠商無關（原則 3）：provider 與 plugin 已依配置分開（`api-server/internal/adapters/`、`api-server/modules/`）；
+  Module Manifest、Go hook 與依設定組裝發行版尚未實作；core 內仍有平台與 AMD 專屬的邏輯，列在
+  [`core-and-extensions.md`](core-and-extensions.md) §3.6，修改時不得擴大。
 
 ## 憲法層級
 
@@ -114,6 +223,8 @@ Context map 至少要描述：
 - Supporting Subdomain：支撐 core domain，但不是主要差異化來源的部分。
 - Generic Subdomain：必要但通用的問題，應考慮簡化、外購、套件化或隔離。
 
+swallow 的劃分見上方設計主張的 [Core Domain 的劃分](#core-domain-的劃分)。
+
 Core domain 必須保持小而清楚。若某項變更會影響 core domain 或 root glossary，必須提高審查強度，並同步更新 glossary、context map 或 component spec。
 
 Generic subdomain 不應吸走 core domain 的設計注意力。若通用機制開始遮蔽 domain 語意，應分離到 supporting/generic area，並讓 core model 保持清晰。
@@ -140,28 +251,6 @@ Generic subdomain 不應吸走 core domain 的設計注意力。若通用機制�
 - 為了共用方便，把跨 context 資料結構塞進 `common`、`util`、`shared` 等語意模糊的位置。
 
 新增概念前必須先確認：glossary 是否已有、API contract 是否已定義、程式碼中是否已存在。能延伸就延伸，不新增平行概念。
-
-## Desired state 與收斂（ADR 069）
-
-swallow 的 store 是所有受管資源 **desired state（spec）** 與 Workflow 執行狀態的唯一真相來源；provider 負責把它實現出來，從 provider 讀回的只是 **observed state（status）**，帶來源與觀察時間。provider 永遠不寫 desired state。metrics、alert 評估、workload 排程與 Platform 內部的資源仍由各自的系統擁有，swallow 不保存（同 [ADR 001](../decisions/001-system-ownership-boundaries.md)）。
-
-- 每個欄位必須標明是 desired、observed 或 derived，且只有一個寫入者。
-- 收斂採混合模式：非破壞性的差異由 controller 持續自動收斂；破壞性變更先產生 Change Plan，經 operator 核准後以 Workflow 執行；drift 只回報，不自動修正。
-- Workflow 的語意由 swallow 定義、狀態存在 swallow 的 store；Workflow executor（目前是 Temporal）只負責執行。
-- 跨文件的不變式必須在同一個 transaction 內完成，不得以補償或修復 sweep 取代；store 規則以 port 表達，資料庫特有的型別不得越過 infra。
-
-完整規則見 [`desired-state-model.md`](desired-state-model.md)，決策理由見 [ADR 069](../decisions/069-swallow-owns-desired-state.md)。它取代了原本的 capability-first with swallow-owned fallback 規則（[ADR 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)）：provider 沒有能力實現某個欄位時，回報 `realized=false`（reason `capability_missing`），不再建立同形狀的 fallback。尚未遷移的功能維持現行行為，以各功能規格為準。
-
-## Core、provider adapter 與擴充模組（ADR 070）
-
-swallow 採 ports and adapters：
-
-- **core** 只有領域模型（資源、desired／observed state、Change Plan）、Workflow 的模型與語意、controller，以及各類 provider interface。core 不得含有任何廠商、產品、平台或 GPU 廠商的名稱、型別與知識，也不得依 adapter 識別碼分支。
-- **provider adapter** 實作 provider interface，而且都可以抽換：OS provisioning（MAAS）、Workflow executor（Temporal）、host automation（Ansible）、store（MongoDB）、metrics 與 alerts（Prometheus／Alertmanager）、BMC 與 hypervisor（Redfish／libvirt）。廠商詞彙只存在 adapter 內。
-- **擴充模組**是 swallow 能管理的東西：Platform 模組（Kubernetes、Slurm）、Accelerator 模組（AMD，與 Platform 分開的維度）、Software 模組（Managed Software）。平台與 GPU 廠商專屬的邏輯只能放在模組。
-- 交付給客戶的是 core 加上一組驗證過的 adapter 與模組，以支援矩陣記錄。
-
-判斷新程式碼的位置：在說「swallow 管什麼」放模組，在說「怎麼和某個外部系統溝通」放 adapter，兩者都不是才放 core。完整規則見 [`core-and-extensions.md`](core-and-extensions.md)，決策理由見 [ADR 070](../decisions/070-core-providers-and-extensions.md)。
 
 ## Large-scale Structure
 

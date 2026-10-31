@@ -6,15 +6,25 @@ swallow 是具有嚴格 component／contract boundary 的 monorepo。良好的 c
 只改動最小 owning component、保持 shared language 與 provider contract 正確，
 並完成與風險相稱的驗證。
 
+swallow 的 core 是通用的：組合負責和外部系統溝通的 provider，以及加入 swallow
+能管理之物的 plugin，就成為開箱即用的 datacenter 管理。新的能力是一個 plugin
+或 provider；core 不含任何廠商、產品、Platform 或 GPU 廠商的知識。
+[設計主張](docs/development/architecture-spec.md#swallow-的設計主張)寫出這個理念、
+目前的組合，以及每個變更都要遵守的原則。
+
 ## 開始前
 
 1. 閱讀 root [codebase structure](docs/development/codebase-structure.md)。
-2. 判斷 owning component：`api-server`、`dashboard` 或 `cli`。
-3. 閱讀該 component 的 `AGENTS.md` 與 architecture specification。
-4. Domain behavior、data model、core flow 或 cross-component work 需閱讀 root
-   [architecture specification](docs/development/architecture-spec.md)，並遵循
-   [glossary workflow](docs/development/glossaries/README.md)。
-5. API work 需先找到並更新 provider-owned
+2. 閱讀 root [architecture specification](docs/development/architecture-spec.md)
+   開頭的設計主張。
+3. 判斷 owning component：`api-server`、`dashboard` 或 `cli`。
+4. 閱讀該 component 的 `AGENTS.md` 與 architecture specification。
+5. Domain behavior、data model、core flow 或 cross-component work 需閱讀 root
+   architecture specification 的其餘部分、遵循
+   [glossary workflow](docs/development/glossaries/README.md)，並閱讀
+   [desired-state model](docs/development/desired-state-model.md) 與
+   [core and extensions](docs/development/core-and-extensions.md)。
+6. API work 需先找到並更新 provider-owned
    [API contract](docs/development/api-contracts.md)，再實作或同步實作。
 
 Implementation plan 一律放在 repository root `docs/plans/manuscripts/`，

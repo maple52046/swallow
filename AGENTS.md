@@ -10,6 +10,10 @@ After this file, choose the minimum required documents for the task. Do not skip
 the root codebase structure document; it explains how components map to
 top-level directories.
 
+swallow's core is generic; composed with providers and plugins, it becomes
+out-of-the-box datacenter management. The design principles in the root
+architecture spec state this idea and the principles that follow from it.
+
 This repository is the swallow monorepo. Every component lives in its
 own top-level directory (`api-server/`, `dashboard/`, `cli/`); the repository root also
 owns the shared model — the ubiquitous language and the contracts between
@@ -34,6 +38,7 @@ creates, reviews, or explains public documentation.
 Before planning, editing, reviewing, or explaining repository work, read:
 
 1. `docs/development/codebase-structure.md` — understand the repository structure, the components, and how each component maps to its top-level directory.
+2. The "swallow 的設計主張" section at the top of `docs/development/architecture-spec.md` — the core idea, the current composition of core, providers, and plugins, the principles, and how to trade them off. Read only that section here; the rest of the spec is required under Development Work.
 
 ## Development Work
 

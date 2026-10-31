@@ -6,15 +6,27 @@ swallow is a monorepo with strict component and contract boundaries. A useful
 contribution changes the smallest owning component, keeps shared language and
 provider contracts accurate, and includes verification proportional to risk.
 
+swallow's core is generic: composed with providers, which talk to external
+systems, and plugins, which add what swallow manages, it becomes out-of-the-box
+datacenter management. A new capability is a plugin or a provider; the core
+stays free of vendor, product, Platform, and GPU-vendor knowledge. The
+[design principles](docs/development/architecture-spec.md#swallow-的設計主張)
+state this idea, the current composition, and the principles every change
+follows.
+
 ## Before you start
 
 1. Read the root [codebase structure](docs/development/codebase-structure.md).
-2. Identify the owning component: `api-server`, `dashboard`, or `cli`.
-3. Read that component's `AGENTS.md` and architecture specification.
-4. For domain behavior, data models, core flows, or cross-component work, read
-   the root [architecture specification](docs/development/architecture-spec.md)
-   and follow the [glossary workflow](docs/development/glossaries/README.md).
-5. For API work, locate and update the provider-owned
+2. Read the design principles at the top of the root
+   [architecture specification](docs/development/architecture-spec.md).
+3. Identify the owning component: `api-server`, `dashboard`, or `cli`.
+4. Read that component's `AGENTS.md` and architecture specification.
+5. For domain behavior, data models, core flows, or cross-component work, read
+   the rest of the root architecture specification, follow the
+   [glossary workflow](docs/development/glossaries/README.md), and read the
+   [desired-state model](docs/development/desired-state-model.md) and the
+   [core and extensions design](docs/development/core-and-extensions.md).
+6. For API work, locate and update the provider-owned
    [API contract](docs/development/api-contracts.md) before or with the code.
 
 Plans for implementation work belong under the repository root
