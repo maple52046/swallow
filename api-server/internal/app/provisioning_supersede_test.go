@@ -83,7 +83,7 @@ func supersedeLauncher() (durableProvisioningLauncher, *supersedeWorkflowRepo, *
 		Provisioning: &serverdomain.ProvisioningStatus{State: "failed"},
 	}
 	return durableProvisioningLauncher{
-		operations: workflowapp.NewWorkflowService(&storetest.Transactor{}, repo, controller),
+		operations: withLegacyController(workflowapp.NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}), controller),
 		servers:    &deploymentProjectionTestRepo{server: server},
 	}, repo, controller
 }
@@ -190,4 +190,11 @@ func (n staticPlatformNames) PlatformName(_ context.Context, platformID string) 
 		return "", "", errors.New("unknown platform")
 	}
 	return name, "kubernetes", nil
+}
+
+// withLegacyController attaches the controller of the pre-decision-072 driver for Workflows the
+// test seeds without a driver version.
+func withLegacyController(service *workflowapp.WorkflowService, controller workflowapp.WorkflowController) *workflowapp.WorkflowService {
+	service.AttachLegacyController(controller)
+	return service
 }

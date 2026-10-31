@@ -111,6 +111,7 @@ func (l hardwareInspectionLauncher) LaunchInspection(ctx context.Context, reques
 	if origin == "" {
 		origin = provisioningdomain.InspectionOriginRequested
 	}
+	steps := inspectionSteps(server, origin)
 	created, err := l.workflows.Create(ctx, workflowapp.CreateWorkflowInput{
 		Kind:          workflowdomain.WorkflowKindInspectHardware,
 		IntentSummary: "Inspect hardware of " + name,
@@ -120,7 +121,8 @@ func (l hardwareInspectionLauncher) LaunchInspection(ctx context.Context, reques
 		},
 		Definition: inspectionDefinition, DefinitionVersion: 1,
 		SiteID: server.Source.SiteID, TargetServerIDs: []string{serverID},
-		Steps:       inspectionSteps(server, origin),
+		Steps:       steps,
+		Jobs:        declareJobs(steps, workflowdomain.RetryJob),
 		RequestedBy: request.RequestedBy, RequestCorrelation: request.RequestID,
 	})
 	if err != nil {

@@ -31,7 +31,7 @@ func TestWorkflowCreateRollsBackItsSecretsWhenTheRecordFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMongoOperationSecretRepo() error = %v", err)
 	}
-	service := application.NewWorkflowService(storemongo.NewTransactor(db.Client()), workflows, nil, secrets)
+	service := application.NewWorkflowService(storemongo.NewTransactor(db.Client()), workflows, workflowdomain.PlanCatalog{}, secrets)
 
 	input := application.CreateWorkflowInput{
 		ID:   "8b9f2f8e-5a4c-4c1e-9f0e-1f2a3b4c5d6e",

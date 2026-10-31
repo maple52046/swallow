@@ -158,6 +158,7 @@ func (l virtualMachineEnrollmentLauncher) LaunchVirtualMachineEnrollment(ctx con
 		Definition: virtualMachineEnrollmentDefinition, DefinitionVersion: 1,
 		SiteID: integration.SiteID, TargetServerIDs: []string{hypervisor.ID},
 		Steps:       steps,
+		Jobs:        declareJobs(steps, workflowdomain.RetryTask),
 		RequestedBy: request.RequestedBy, RequestCorrelation: request.RequestID,
 	})
 	if err != nil {

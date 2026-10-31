@@ -57,7 +57,7 @@ func TestCreateWritesSecretsWorkflowAndEventInOneTransaction(t *testing.T) {
 	repo := &txRecordingWorkflowRepo{}
 	secrets := &txRecordingSecrets{}
 	tx := &storetest.Transactor{}
-	service := NewWorkflowService(tx, repo, nil, secrets)
+	service := NewWorkflowService(tx, repo, workflowdomain.PlanCatalog{}, secrets)
 
 	if _, err := service.Create(context.Background(), acceptanceInput()); err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -82,7 +82,7 @@ func TestCreateWritesSecretsWorkflowAndEventInOneTransaction(t *testing.T) {
 func TestCreateFailsWhenItsFirstEventCannotBeRecorded(t *testing.T) {
 	errStore := errors.New("store unavailable")
 	repo := &txRecordingWorkflowRepo{appendErr: errStore}
-	service := NewWorkflowService(&storetest.Transactor{}, repo, nil, &txRecordingSecrets{})
+	service := NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &txRecordingSecrets{})
 
 	if _, err := service.Create(context.Background(), acceptanceInput()); !errors.Is(err, errStore) {
 		t.Errorf("Create() error = %v, want %v", err, errStore)

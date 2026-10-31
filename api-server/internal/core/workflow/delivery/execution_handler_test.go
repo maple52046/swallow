@@ -355,7 +355,7 @@ func newWorkflowContractHandler() *ExecutionHandler {
 			},
 		},
 	}
-	orchestrations := application.NewWorkflowService(&storetest.Transactor{}, workflows, contractController{}, contractSecrets{})
+	orchestrations := withLegacyController(application.NewWorkflowService(&storetest.Transactor{}, workflows, workflowdomain.PlanCatalog{}, contractSecrets{}), contractController{})
 	orchestrations.AttachLeaseReader(contractLeases{leases: []workflowdomain.ResourceLease{{
 		ResourceKey: "server:server-1", Owner: running.Temporal.WorkflowID, FencingToken: 4,
 		ExpiresAt: now.Add(time.Hour), UpdatedAt: started,
@@ -494,4 +494,11 @@ func TestWorkflowRoutesMatchTheContract(t *testing.T) {
 			}
 		})
 	}
+}
+
+// withLegacyController attaches the controller of the pre-decision-072 driver for Workflows the
+// test seeds without a driver version.
+func withLegacyController(service *application.WorkflowService, controller application.WorkflowController) *application.WorkflowService {
+	service.AttachLegacyController(controller)
+	return service
 }

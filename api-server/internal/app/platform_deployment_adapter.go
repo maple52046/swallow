@@ -408,6 +408,7 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 				Executor:   workflowdomain.RunnerKindProvisioner,
 				Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: serverID}},
 				Parameters: map[string]any{"request": structToMap(targetRequest)},
+				OnCancel:   returnCanceledDeployment(),
 			})
 			dependencies = append(dependencies, stepID)
 			plan.secretStepIDs = append(plan.secretStepIDs, stepID)
@@ -469,7 +470,8 @@ func (l platformDeploymentLauncher) deploymentWorkflowInput(
 		SiteID: prepared.SiteID, PlatformID: launch.Platform.ID,
 		TargetServerIDs: launch.TargetServerIDs,
 		TargetResources: []workflowdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
-		Steps:           steps, RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
+		Steps:           steps, Jobs: declareJobs(steps, workflowdomain.RetryJob),
+		RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
 		SecretStepIDs: ensure.secretStepIDs, SecretValues: sharedSecrets,
 		StepSecretValues: stepSecrets,
 	}, nil
@@ -713,7 +715,8 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 		SiteID: prepared.SiteID, PlatformID: launch.Platform.ID,
 		TargetServerIDs: launch.TargetServerIDs,
 		TargetResources: []workflowdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
-		Steps:           steps, RetryOfOperationID: launch.RetryOfOperationID, RequestedBy: launch.RequestedBy,
+		Steps:           steps, Jobs: declareJobs(steps, workflowdomain.RetryJob),
+		RetryOfOperationID: launch.RetryOfOperationID, RequestedBy: launch.RequestedBy,
 		SupersededOperationIDs: superseded,
 	})
 	if err != nil {

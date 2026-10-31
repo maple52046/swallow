@@ -145,7 +145,7 @@ func TestRerunClonesFailedOperationConvergingEveryEnsureStep(t *testing.T) {
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
 	controller := &fakeRerunController{}
 	secrets := &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}}
-	service := NewWorkflowService(&storetest.Transactor{}, repo, controller, secrets)
+	service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, rerunTestCatalog, secrets), controller)
 
 	item, err := service.Rerun(context.Background(), old.ID, "operator")
 	if err != nil {
@@ -195,6 +195,22 @@ func TestRerunClonesFailedOperationConvergingEveryEnsureStep(t *testing.T) {
 // succeeded provision-os of lab-afde-mi308-1 and -2 were carried over, never ran, and their Server
 // results stayed canceled. Ensure Steps now run again; one-time actions keep the carry-over rule,
 // and a platform uninstall keeps its succeeded playbook once a release-os has taken hosts away.
+// rerunTestCatalog registers the kinds of newRerunOldOp with the policies the app gives them.
+var rerunTestCatalog = workflowdomain.PlanCatalog{TaskKinds: map[string]workflowdomain.TaskKind{
+	"wait-for-ssh":     {Runner: workflowdomain.RunnerKindInternal, Rerun: workflowdomain.RerunConverge},
+	"ansible-playbook": {Runner: workflowdomain.RunnerKindAnsible, Rerun: workflowdomain.RerunConvergeOnLiveHosts},
+}}
+
+// rerunPolicyService carries the rerun policies the app registers for these Task kinds.
+var rerunPolicyService = NewWorkflowService(nil, nil, workflowdomain.PlanCatalog{TaskKinds: map[string]workflowdomain.TaskKind{
+	"ensure-boot-media":         {Rerun: workflowdomain.RerunConverge},
+	"provision-os":              {Rerun: workflowdomain.RerunConverge},
+	"release-os":                {Rerun: workflowdomain.RerunConverge, ReleasesHosts: true},
+	"ansible-playbook":          {Rerun: workflowdomain.RerunConvergeOnLiveHosts},
+	"record-image-verification": {Rerun: workflowdomain.RerunKeep},
+	"complete-uninstall":        {Rerun: workflowdomain.RerunKeep},
+}})
+
 func TestCloneStepsForRerunConvergesOnlyEnsureSteps(t *testing.T) {
 	succeeded := func(id, kind string, attempt int) workflowdomain.Task {
 		return workflowdomain.Task{ID: id, Kind: kind, Status: workflowdomain.TaskSucceeded, Attempt: attempt}
@@ -208,7 +224,7 @@ func TestCloneStepsForRerunConvergesOnlyEnsureSteps(t *testing.T) {
 	}
 
 	t.Run("platform deployment", func(t *testing.T) {
-		steps := byID(cloneStepsForRerun([]workflowdomain.Task{
+		steps := byID(rerunPolicyService.cloneStepsForRerun([]workflowdomain.Task{
 			succeeded("ensure-boot-media-a", "ensure-boot-media", 6),
 			succeeded("provision-a", "provision-os", 6),
 			{ID: "provision-c", Kind: "provision-os", Status: workflowdomain.TaskFailed, Attempt: 6,
@@ -227,7 +243,7 @@ func TestCloneStepsForRerunConvergesOnlyEnsureSteps(t *testing.T) {
 	})
 
 	t.Run("platform uninstall after a release", func(t *testing.T) {
-		steps := byID(cloneStepsForRerun([]workflowdomain.Task{
+		steps := byID(rerunPolicyService.cloneStepsForRerun([]workflowdomain.Task{
 			succeeded("uninstall-platform", "ansible-playbook", 1),
 			succeeded("release-a", "release-os", 1),
 			{ID: "release-b", Kind: "release-os", Status: workflowdomain.TaskFailed, Attempt: 1},
@@ -259,7 +275,7 @@ func TestRerunFinalizesNonTerminalOperationBeforeReplacing(t *testing.T) {
 	leases := &fakeLeaseReleaser{held: map[string][]workflowdomain.ResourceLease{
 		old.Temporal.WorkflowID: {{ResourceKey: "server:server-1", Owner: old.Temporal.WorkflowID, FencingToken: 4}},
 	}}
-	service := NewWorkflowService(&storetest.Transactor{}, repo, controller, secrets)
+	service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, secrets), controller)
 	service.AttachLeaseReleaser(leases)
 
 	if _, err := service.Rerun(context.Background(), old.ID, "operator"); err != nil {
@@ -289,7 +305,7 @@ func TestRerunKeepsLeasesOfLiveParkedExecution(t *testing.T) {
 	leases := &fakeLeaseReleaser{held: map[string][]workflowdomain.ResourceLease{
 		old.Temporal.WorkflowID: {{ResourceKey: "server:server-1", Owner: old.Temporal.WorkflowID, FencingToken: 4}},
 	}}
-	service := NewWorkflowService(&storetest.Transactor{}, repo, &fakeRerunController{}, &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}})
+	service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}}), &fakeRerunController{})
 	service.AttachLeaseReleaser(leases)
 
 	if _, err := service.Rerun(context.Background(), old.ID, "operator"); err != nil {
@@ -303,7 +319,7 @@ func TestRerunKeepsLeasesOfLiveParkedExecution(t *testing.T) {
 func TestRerunRejectsSucceededOperation(t *testing.T) {
 	old := newRerunOldOp(workflowdomain.WorkflowSucceeded, workflowdomain.TaskSucceeded)
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
-	service := NewWorkflowService(&storetest.Transactor{}, repo, &fakeRerunController{}, &fakeRerunSecrets{})
+	service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &fakeRerunSecrets{}), &fakeRerunController{})
 
 	_, err := service.Rerun(context.Background(), old.ID, "operator")
 	if !errors.Is(err, workflowdomain.ErrWorkflowControlConflict) {
@@ -317,7 +333,7 @@ func TestRerunRejectsSucceededOperation(t *testing.T) {
 func TestRerunRejectsStillRunningOperation(t *testing.T) {
 	old := newRerunOldOp(workflowdomain.WorkflowRunning, workflowdomain.TaskRunning)
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
-	service := NewWorkflowService(&storetest.Transactor{}, repo, &fakeRerunController{}, &fakeRerunSecrets{})
+	service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &fakeRerunSecrets{}), &fakeRerunController{})
 
 	_, err := service.Rerun(context.Background(), old.ID, "operator")
 	if !errors.Is(err, workflowdomain.ErrWorkflowControlConflict) {
@@ -326,4 +342,11 @@ func TestRerunRejectsStillRunningOperation(t *testing.T) {
 	if repo.created != nil {
 		t.Fatal("a still-running Operation must be retried or canceled, not rerun")
 	}
+}
+
+// withLegacyController attaches the controller of the pre-decision-072 driver, which these tests
+// exercise on Workflows they seed without a driver version.
+func withLegacyController(service *WorkflowService, controller WorkflowController) *WorkflowService {
+	service.AttachLegacyController(controller)
+	return service
 }

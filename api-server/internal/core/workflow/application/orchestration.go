@@ -24,17 +24,19 @@ type WorkflowController interface {
 // CreateWorkflowInput is trusted server-side intent. Secret values are represented by
 // opaque references before they enter this boundary.
 type CreateWorkflowInput struct {
-	ID                 string
-	Kind               workflowdomain.WorkflowKind
-	IntentSummary      string
-	IntentSnapshot     map[string]any
-	Definition         string
-	DefinitionVersion  int
-	SiteID             string
-	PlatformID         string
-	TargetServerIDs    []string
-	TargetResources    []workflowdomain.ResourceReference
-	Steps              []workflowdomain.Task
+	ID                string
+	Kind              workflowdomain.WorkflowKind
+	IntentSummary     string
+	IntentSnapshot    map[string]any
+	Definition        string
+	DefinitionVersion int
+	SiteID            string
+	PlatformID        string
+	TargetServerIDs   []string
+	TargetResources   []workflowdomain.ResourceReference
+	Steps             []workflowdomain.Task
+	// Jobs declares every Job the Steps name, with its retry granularity (decision 072).
+	Jobs               []workflowdomain.JobDeclaration
 	RetryOfOperationID string
 	RequestedBy        string
 	RequestCorrelation string
@@ -97,26 +99,41 @@ type WorkflowLeaseItem struct {
 type WorkflowService struct {
 	transactor    store.Transactor
 	operations    workflowdomain.WorkflowRepository
+	catalog       workflowdomain.PlanCatalog
 	controller    WorkflowController
 	secrets       workflowdomain.OperationSecretRepository
 	leases        workflowdomain.ResourceLeaseReader
+	ownership     workflowdomain.OwnershipRepository
 	leaseReleaser workflowdomain.ResourceLeaseReleaser
 }
 
 // NewWorkflowService builds the service. transactor is required: every multi-document write it
-// makes runs through it. secrets is optional for compositions that never create a Workflow with
-// secret values or rerun one.
-func NewWorkflowService(transactor store.Transactor, operations workflowdomain.WorkflowRepository, controller WorkflowController, secrets ...workflowdomain.OperationSecretRepository) *WorkflowService {
-	service := &WorkflowService{transactor: transactor, operations: operations, controller: controller}
+// makes runs through it. catalog validates every accepted plan (decision 072); a zero catalog
+// accepts any plan and exists only for tests. secrets is optional for compositions that never
+// create a Workflow with secret values or rerun one.
+func NewWorkflowService(transactor store.Transactor, operations workflowdomain.WorkflowRepository, catalog workflowdomain.PlanCatalog, secrets ...workflowdomain.OperationSecretRepository) *WorkflowService {
+	service := &WorkflowService{transactor: transactor, operations: operations, catalog: catalog}
 	if len(secrets) > 0 {
 		service.secrets = secrets[0]
 	}
 	return service
 }
 
+// AttachLegacyController lets Cancel, RetryStep, and Rerun control Workflows that run on the
+// driver before decision 072; Workflows on the current driver are controlled through stored
+// commands and need no controller.
+func (s *WorkflowService) AttachLegacyController(controller WorkflowController) {
+	s.controller = controller
+}
+
 // AttachLeaseReader adds active fencing diagnostics without coupling command creation to Mongo.
 func (s *WorkflowService) AttachLeaseReader(reader workflowdomain.ResourceLeaseReader) {
 	s.leases = reader
+}
+
+// AttachOwnershipReader lets Get report the resources a Workflow on the current driver owns.
+func (s *WorkflowService) AttachOwnershipReader(ownership workflowdomain.OwnershipRepository) {
+	s.ownership = ownership
 }
 
 // AttachLeaseReleaser lets Cancel and Rerun free the leases of a Workflow whose execution is
@@ -157,6 +174,11 @@ func (s *WorkflowService) create(ctx context.Context, input CreateWorkflowInput)
 	}
 	if err := validateSteps(input.Steps); err != nil {
 		return nil, err
+	}
+	if s.catalog.TaskKinds != nil {
+		if err := s.catalog.Validate(input.Steps, input.Jobs); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrInvalidOperation, err)
+		}
 	}
 	superseded := make(map[string]bool, len(input.SupersededOperationIDs))
 	for _, operationID := range input.SupersededOperationIDs {
@@ -299,8 +321,10 @@ func (s *WorkflowService) create(ctx context.Context, input CreateWorkflowInput)
 		Temporal:          workflowdomain.TemporalReference{WorkflowID: "swallow-operation/" + id},
 		SiteID:            input.SiteID, PlatformID: input.PlatformID,
 		TargetResources: resources, TargetServerIDs: append([]string(nil), input.TargetServerIDs...),
-		Steps: steps, RetryOfOperationID: input.RetryOfOperationID,
-		RequestedBy: input.RequestedBy, RequestCorrelation: input.RequestCorrelation,
+		Steps: steps, Jobs: append([]workflowdomain.JobDeclaration(nil), input.Jobs...),
+		Dispatch:           workflowdomain.Dispatch{Driver: workflowdomain.DriverVersion},
+		RetryOfOperationID: input.RetryOfOperationID,
+		RequestedBy:        input.RequestedBy, RequestCorrelation: input.RequestCorrelation,
 		RequestedAt: now, UpdatedAt: now,
 	}
 	operation.Intent["summary"] = strings.TrimSpace(input.IntentSummary)
@@ -395,6 +419,20 @@ func (s *WorkflowService) Get(ctx context.Context, id string) (*WorkflowItem, er
 		return nil, err
 	}
 	item := toWorkflowItem(operation)
+	if s.ownership != nil && operation.Dispatch.Driver == workflowdomain.DriverVersion {
+		owned, err := s.ownership.FindByOwner(ctx, operation.ID)
+		if err != nil {
+			return nil, err
+		}
+		item.Leases = make([]WorkflowLeaseItem, len(owned))
+		for index, resource := range owned {
+			item.Leases[index] = WorkflowLeaseItem{
+				ResourceKey: resource.ResourceKey, Owner: operation.ID,
+				FencingToken: operation.Dispatch.Generation, UpdatedAt: resource.AcquiredAt,
+			}
+		}
+		return &item, nil
+	}
 	if s.leases != nil {
 		leases, leaseErr := s.leases.FindByOwner(ctx, operation.Temporal.WorkflowID)
 		if leaseErr != nil {
@@ -452,6 +490,11 @@ func (s *WorkflowService) Cancel(ctx context.Context, id string) error {
 	if operation.Status.Terminal() {
 		return fmt.Errorf("%w: a finished Operation cannot be canceled", workflowdomain.ErrWorkflowControlConflict)
 	}
+	if operation.Dispatch.Driver == workflowdomain.DriverVersion {
+		return s.operations.RequestCancel(ctx, id, workflowdomain.CancelCommand{
+			Reason: workflowdomain.CanceledByOperatorReason, RequestedAt: time.Now().UTC(),
+		})
+	}
 	err = s.controller.Cancel(ctx, operation)
 	if !errors.Is(err, workflowdomain.ErrWorkflowExecutionGone) {
 		return err
@@ -475,6 +518,9 @@ func (s *WorkflowService) RetryStep(ctx context.Context, id, stepID string) erro
 		}
 		if (step.Status != workflowdomain.TaskFailed && step.Status != workflowdomain.TaskRequiresAttention) || step.Error == nil || !step.Error.Retryable {
 			return workflowdomain.ErrTaskRetryUnsafe
+		}
+		if operation.Dispatch.Driver == workflowdomain.DriverVersion {
+			return s.operations.RequestRetry(ctx, id, workflowdomain.RetryCommand{TaskID: stepID, RequestedAt: time.Now().UTC()})
 		}
 		return s.controller.RetryStep(ctx, operation, stepID)
 	}
@@ -531,6 +577,9 @@ func (s *WorkflowService) Rerun(ctx context.Context, id, requestedBy string) (*W
 	// released here only for a lost execution: a live one still needs them for its own cancel
 	// path (for example a verification's compensation) and releases them as it exits.
 	now := time.Now().UTC()
+	if old.Dispatch.Driver == workflowdomain.DriverVersion {
+		return s.rerunSuperseding(ctx, old, requestedBy, now)
+	}
 	executionGone := false
 	if !old.Status.Terminal() {
 		cancelErr := s.controller.Cancel(ctx, old)
@@ -565,7 +614,8 @@ func (s *WorkflowService) Rerun(ctx context.Context, id, requestedBy string) (*W
 			SiteID: old.SiteID, PlatformID: old.PlatformID,
 			TargetServerIDs:    append([]string(nil), old.TargetServerIDs...),
 			TargetResources:    append([]workflowdomain.ResourceReference(nil), old.TargetResources...),
-			Steps:              cloneStepsForRerun(old.Steps, references),
+			Steps:              s.cloneStepsForRerun(old.Steps, references),
+			Jobs:               rerunJobs(old),
 			RetryOfOperationID: old.ID,
 			RequestedBy:        requestedBy,
 		})
@@ -577,20 +627,62 @@ func (s *WorkflowService) Rerun(ctx context.Context, id, requestedBy string) (*W
 	return item, nil
 }
 
+// rerunSuperseding reruns a Workflow on the current driver: in one transaction a parked original
+// gets a cancel command ("Superseded by a rerun."), its secrets are cloned, and the new Workflow is
+// accepted past the busy check. The original runs its own cancel path — compensations included —
+// and the new Workflow waits for its resources until that path released them.
+func (s *WorkflowService) rerunSuperseding(ctx context.Context, old *workflowdomain.Workflow, requestedBy string, now time.Time) (*WorkflowItem, error) {
+	var item *WorkflowItem
+	err := s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		var superseded []string
+		if !old.Status.Terminal() {
+			if err := s.operations.RequestCancel(ctx, old.ID, workflowdomain.CancelCommand{Reason: "Superseded by a rerun.", RequestedAt: now}); err != nil {
+				return err
+			}
+			superseded = []string{old.ID}
+		}
+		newID := uuid.NewString()
+		references, err := s.secrets.CloneForOperation(ctx, old.ID, newID)
+		if err != nil {
+			return fmt.Errorf("clone operation secrets: %w", err)
+		}
+		item, err = s.create(ctx, CreateWorkflowInput{
+			ID: newID, Kind: old.Kind,
+			IntentSummary:  rerunSummary(old),
+			IntentSnapshot: cloneMap(old.Intent),
+			Definition:     old.Definition, DefinitionVersion: old.DefinitionVersion,
+			SiteID: old.SiteID, PlatformID: old.PlatformID,
+			TargetServerIDs:        append([]string(nil), old.TargetServerIDs...),
+			TargetResources:        append([]workflowdomain.ResourceReference(nil), old.TargetResources...),
+			Steps:                  s.cloneStepsForRerun(old.Steps, references),
+			Jobs:                   rerunJobs(old),
+			RetryOfOperationID:     old.ID,
+			RequestedBy:            requestedBy,
+			SupersededOperationIDs: superseded,
+		})
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
 // cloneStepsForRerun copies an Operation's Steps for a fresh execution that converges the
-// intent to its desired state (decision 060). A convergent Step (rerunConverges) runs again
-// whatever its earlier outcome, at the attempt after its last one, so its executor first
-// observes the resource and acts only where it has not converged: a Server already deployed with
-// the frozen image succeeds in seconds and records that outcome under the new Operation. Any
-// other Step keeps the earlier rule: a succeeded or skipped one is preserved so its side effects
-// are not repeated (the workflow treats it as a satisfied dependency), and the rest restart at a
-// clean first attempt. A re-run Step has its error, timing, and external-execution correlation
-// cleared. Secret references are remapped through references (source -> clone) so the new
-// Operation resolves its own sealed copies; a reference missing from the map is kept as-is.
-func cloneStepsForRerun(source []workflowdomain.Task, references map[string]string) []workflowdomain.Task {
+// intent to its desired state (decision 060), by each Task kind's registered RerunPolicy. A
+// converging Task runs again whatever its earlier outcome, at the attempt after its last one, so
+// its Runner first observes the resource and acts only where it has not converged. A
+// RerunConvergeOnLiveHosts Task that already succeeded is kept once a Task whose kind releases
+// hosts succeeded, because a released host no longer runs the OS it needs. Any other Task keeps
+// the earlier rule: a succeeded or skipped one is preserved so its side effects are not repeated
+// (the run treats it as a satisfied dependency), and the rest restart at a clean first attempt. A
+// re-run Task has its error, timing, and external-execution correlation cleared. Secret
+// references are remapped through references (source -> clone); a reference missing from the map
+// is kept as-is. With a zero catalog every Task keeps the earlier rule.
+func (s *WorkflowService) cloneStepsForRerun(source []workflowdomain.Task, references map[string]string) []workflowdomain.Task {
 	hostsReleased := false
 	for _, step := range source {
-		if step.Kind == "release-os" && step.Status == workflowdomain.TaskSucceeded {
+		if s.catalog.TaskKinds[step.Kind].ReleasesHosts && step.Status == workflowdomain.TaskSucceeded {
 			hostsReleased = true
 			break
 		}
@@ -601,6 +693,8 @@ func cloneStepsForRerun(source []workflowdomain.Task, references map[string]stri
 		clone.DependsOn = append([]string(nil), step.DependsOn...)
 		clone.Targets = append([]workflowdomain.ResourceReference(nil), step.Targets...)
 		clone.Artifacts = append([]workflowdomain.ArtifactMetadata(nil), step.Artifacts...)
+		clone.Generation = 0
+		clone.Resumed = false
 		if len(step.SecretRefs) > 0 {
 			remapped := make(map[string]string, len(step.SecretRefs))
 			for name, reference := range step.SecretRefs {
@@ -612,7 +706,13 @@ func cloneStepsForRerun(source []workflowdomain.Task, references map[string]stri
 			}
 			clone.SecretRefs = remapped
 		}
-		converges := rerunConverges(step, hostsReleased)
+		converges := false
+		switch s.catalog.TaskKinds[step.Kind].Rerun {
+		case workflowdomain.RerunConverge:
+			converges = true
+		case workflowdomain.RerunConvergeOnLiveHosts:
+			converges = !hostsReleased || step.Status != workflowdomain.TaskSucceeded
+		}
 		if converges || (step.Status != workflowdomain.TaskSucceeded && step.Status != workflowdomain.TaskSkipped) {
 			clone.Status = workflowdomain.TaskPending
 			clone.Attempt = 0
@@ -632,25 +732,22 @@ func cloneStepsForRerun(source []workflowdomain.Task, references map[string]stri
 	return steps
 }
 
-// rerunConverges reports whether a rerun executes a Step again even when its earlier run
-// succeeded. These Step kinds are ensure operations whose executor observes before it acts on a
-// later attempt (decision 060): provision-os succeeds without provider work when the Server is
-// already deployed with the frozen image, release-os and recover-server succeed on a Server that
-// is already Ready, ensure-boot-media re-applies Boot Media, and wait-for-ssh and
-// validate-platform-health only read. Ansible playbooks are idempotent (decision 017), but once a
-// release-os in the Operation succeeded, a host it released no longer runs the OS the playbook
-// needs; a playbook that already succeeded there is kept. Every other kind (for example image
-// verification records, platform uninstall finalization, inspection) records a one-time action
-// and keeps the carry-over rule.
-func rerunConverges(step workflowdomain.Task, hostsReleased bool) bool {
-	switch step.Kind {
-	case "provision-os", "ensure-boot-media", "wait-for-ssh", "validate-platform-health", "release-os", "recover-server":
-		return true
-	case "ansible-playbook":
-		return !hostsReleased || step.Status != workflowdomain.TaskSucceeded
-	default:
-		return false
+// rerunJobs returns the Job declarations of a rerun: the original's, or for a Workflow accepted
+// before Jobs were declared, each Job it names retrying as a whole, which is how that driver ran
+// Jobs.
+func rerunJobs(old *workflowdomain.Workflow) []workflowdomain.JobDeclaration {
+	if len(old.Jobs) > 0 {
+		return old.Jobs
 	}
+	var jobs []workflowdomain.JobDeclaration
+	seen := map[string]bool{}
+	for _, task := range old.Steps {
+		if task.Job != "" && !seen[task.Job] {
+			seen[task.Job] = true
+			jobs = append(jobs, workflowdomain.JobDeclaration{Name: task.Job, Retry: workflowdomain.RetryJob})
+		}
+	}
+	return jobs
 }
 
 // rerunSummary keeps the original operator-facing summary so the recovery Operation reads as

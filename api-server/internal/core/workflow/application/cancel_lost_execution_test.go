@@ -57,7 +57,7 @@ func TestCancelClosesWorkflowWhoseExecutionIsGone(t *testing.T) {
 	leases := &fakeLeaseReleaser{held: map[string][]workflowdomain.ResourceLease{
 		operation.Temporal.WorkflowID: {{ResourceKey: "server:server-1", Owner: operation.Temporal.WorkflowID, FencingToken: 7}},
 	}}
-	service := NewWorkflowService(&storetest.Transactor{}, repo, &fakeRerunController{cancelErr: executionGoneErr()})
+	service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}), &fakeRerunController{cancelErr: executionGoneErr()})
 	service.AttachLeaseReleaser(leases)
 
 	if err := service.Cancel(context.Background(), operation.ID); err != nil {
@@ -81,7 +81,7 @@ func TestCancelLeavesWorkflowCancelableWhenLeaseReleaseFails(t *testing.T) {
 	operation := newLostReleaseOperation()
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{operation.ID: operation}}
 	releaseErr := errors.New("lease store unavailable")
-	service := NewWorkflowService(&storetest.Transactor{}, repo, &fakeRerunController{cancelErr: executionGoneErr()})
+	service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}), &fakeRerunController{cancelErr: executionGoneErr()})
 	service.AttachLeaseReleaser(&fakeLeaseReleaser{releaseErr: releaseErr})
 
 	if err := service.Cancel(context.Background(), operation.ID); !errors.Is(err, releaseErr) {
@@ -109,7 +109,7 @@ func TestCancelOnlyClosesProjectionForGoneExecution(t *testing.T) {
 			leases := &fakeLeaseReleaser{held: map[string][]workflowdomain.ResourceLease{
 				operation.Temporal.WorkflowID: {{ResourceKey: "server:server-1", Owner: operation.Temporal.WorkflowID, FencingToken: 7}},
 			}}
-			service := NewWorkflowService(&storetest.Transactor{}, repo, &fakeRerunController{cancelErr: tc.cancelErr})
+			service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}), &fakeRerunController{cancelErr: tc.cancelErr})
 			service.AttachLeaseReleaser(leases)
 
 			err := service.Cancel(context.Background(), operation.ID)

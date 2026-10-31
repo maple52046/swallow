@@ -114,12 +114,23 @@ func NewServerController(
 // Name implements convergence.Controller.
 func (c *ServerController) Name() string { return "server" }
 
-// Collections implements convergence.Controller.
-func (c *ServerController) Collections() []string { return []string{"servers"} }
+// ownershipCollection holds Workflow resource ownership, keyed `server:<id>` for a Server; a
+// Server owned by an unfinished Workflow is held (decision 072).
+const ownershipCollection = "resource_leases"
 
-// KeysForChange implements convergence.Controller: a changed Server is its own key; a deleted one
-// needs nothing.
+// Collections implements convergence.Controller. Ownership is watched so a Server converges as
+// soon as the Workflow that held it ends, instead of at the next resync.
+func (c *ServerController) Collections() []string { return []string{"servers", ownershipCollection} }
+
+// KeysForChange implements convergence.Controller: a changed Server is its own key, a deleted one
+// needs nothing, and a change of a Server's ownership (taken or released) reconciles that Server.
 func (c *ServerController) KeysForChange(_ context.Context, change store.Change) ([]string, error) {
+	if change.Collection == ownershipCollection {
+		if id, ok := strings.CutPrefix(change.Key, "server:"); ok {
+			return []string{id}, nil
+		}
+		return nil, nil
+	}
 	if change.Operation == store.ChangeDelete {
 		return nil, nil
 	}

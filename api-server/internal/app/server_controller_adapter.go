@@ -3,15 +3,15 @@ package app
 import (
 	"context"
 
-	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-// serverWorkflowHolds implements provisioningapp.ServerWorkflowHolds over the Workflow resource
-// leases: a Server is held while any Workflow holds its `server:<id>` lease, so the Server
-// controller never changes a machine that a Workflow is deploying, releasing, or inspecting.
+// serverWorkflowHolds implements provisioningapp.ServerWorkflowHolds over Workflow resource
+// ownership: a Server is held while an unfinished Workflow owns `server:<id>` (decision 072), so
+// the Server controller never changes a machine a Workflow is deploying, releasing, or inspecting.
 type serverWorkflowHolds struct {
-	leases *workflowstore.MongoResourceLeaseRepo
+	leases workflowdomain.OwnershipRepository
 }
 
 var _ provisioningapp.ServerWorkflowHolds = serverWorkflowHolds{}

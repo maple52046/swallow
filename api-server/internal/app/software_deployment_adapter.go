@@ -198,7 +198,7 @@ func (l softwareDeploymentLauncher) prepare(
 		Definition:     "software-deployment", DefinitionVersion: 1,
 		SiteID:          prepared.SiteID,
 		TargetServerIDs: launch.ServerIDs,
-		Steps:           steps, RequestedBy: launch.RequestedBy,
+		Steps:           steps, Jobs: declareJobs(steps, workflowdomain.RetryJob), RequestedBy: launch.RequestedBy,
 	}}, nil
 }
 

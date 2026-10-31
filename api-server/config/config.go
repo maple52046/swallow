@@ -64,6 +64,9 @@ type APIConfig struct {
 	// how long a change made directly in a provider survives, and how often controllers write to
 	// providers when nothing changed in swallow.
 	ControllerResyncInterval time.Duration `yaml:"controllerResyncInterval"`
+	// WorkflowResyncInterval is how often the workflow-dispatch controller resyncs: it confirms
+	// every unfinished Workflow still has a run and resumes one that lost it (decision 072).
+	WorkflowResyncInterval time.Duration `yaml:"workflowResyncInterval"`
 	// OperationDispatchInterval controls how quickly pending embedded runs are claimed.
 	OperationDispatchInterval time.Duration `yaml:"operationDispatchInterval"`
 	// OperationLeaseDuration is renewed while ansible-runner is alive.

@@ -115,6 +115,7 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 			Executor:   workflowdomain.RunnerKindProvisioner,
 			Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: serverID}},
 			Parameters: map[string]any{"request": structToMap(targetInput)},
+			OnCancel:   returnCanceledDeployment(),
 		}
 		secretStepIDs = append(secretStepIDs, stepID)
 	}
@@ -469,6 +470,8 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 			DependsOn:  []string{recordStepID, recordFailureStepID},
 			ContinueOn: []workflowdomain.TaskStatus{workflowdomain.TaskSucceeded, workflowdomain.TaskSkipped},
 			Parameters: map[string]any{"request": structToMap(provisioningapp.RecoverServerInput{ServerID: input.ServerID})},
+			// A canceled verification still gives the borrowed Server back.
+			OnCancel: &workflowdomain.CancelBehavior{Run: true},
 		})
 	}
 	if steps, err = l.bootMedia.withEnsureTasks(ctx, steps); err != nil {

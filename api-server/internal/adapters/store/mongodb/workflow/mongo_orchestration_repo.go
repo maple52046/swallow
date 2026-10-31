@@ -117,7 +117,7 @@ func (r *MongoWorkflowRepo) ListPendingStart(ctx context.Context, limit int) ([]
 		limit = 100
 	}
 	cursor, err := r.operations.Find(ctx,
-		bson.M{"schemaVersion": 4, "startState": "pending"},
+		bson.M{"schemaVersion": 4, "startState": "pending", "dispatch.driver": bson.M{"$ne": workflowdomain.DriverVersion}},
 		options.Find().SetSort(bson.D{{Key: "requestedAt", Value: 1}}).SetLimit(int64(limit)),
 	)
 	if err != nil {
@@ -160,7 +160,7 @@ func (r *MongoWorkflowRepo) listStartedWithStatus(ctx context.Context, limit int
 		values = append(values, string(status))
 	}
 	cursor, err := r.operations.Find(ctx,
-		bson.M{"schemaVersion": 4, "startState": "started", "status": bson.M{"$in": values}},
+		bson.M{"schemaVersion": 4, "startState": "started", "status": bson.M{"$in": values}, "dispatch.driver": bson.M{"$ne": workflowdomain.DriverVersion}},
 		options.Find().SetSort(bson.D{{Key: "requestedAt", Value: 1}}).SetLimit(int64(limit)),
 	)
 	if err != nil {

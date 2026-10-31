@@ -120,6 +120,11 @@ type StepExecutionInput struct {
 	Step          workflowdomain.Task
 	Leases        []workflowdomain.ResourceLease
 	LeaseDuration time.Duration
+	// Generation is the dispatch generation the attempt runs under (decision 072).
+	Generation int64 `json:"-"`
+	// Resumed is true when a later dispatch continues an attempt an earlier one started: the
+	// Runner observes the external work it already started instead of starting it again.
+	Resumed bool `json:"-"`
 	// ActivityAttempt is populated inside ExecuteStep and is never persisted in workflow input.
 	ActivityAttempt int `json:"-"`
 }
@@ -132,6 +137,9 @@ type StepExecutionResult struct {
 	Error             *workflowdomain.NormalizedError
 	ExternalExecution *workflowdomain.ExternalExecutionReference
 	Artifacts         []workflowdomain.ArtifactMetadata
+	// Data is the Runner's result data for the Task's result completions. It never reaches
+	// workflow history or the store.
+	Data map[string]any `json:"-"`
 }
 
 // StepLifecycleExecutor implements Start/Observe/Cancel semantics behind one activity.

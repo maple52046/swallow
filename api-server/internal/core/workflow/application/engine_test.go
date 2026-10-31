@@ -447,3 +447,61 @@ func TestCompletionHandlers_RequireFindsMissingHandlers(t *testing.T) {
 		t.Fatal("NewEngine without projection handlers = nil error, want a refusal to start")
 	}
 }
+
+func (m *memoryWorkflows) ListUnfinishedIDs(context.Context) ([]string, error) {
+	m.mu.Lock()
+	ids := make([]string, 0, len(m.byID))
+	for id := range m.byID {
+		ids = append(ids, id)
+	}
+	m.mu.Unlock()
+	sort.Strings(ids)
+	var unfinished []string
+	for _, id := range ids {
+		if w, _ := m.FindByID(context.Background(), id); !w.Status.Terminal() {
+			unfinished = append(unfinished, id)
+		}
+	}
+	return unfinished, nil
+}
+
+func (m *memoryWorkflows) update(id string, change func(*workflowdomain.Workflow)) error {
+	w, err := m.FindByID(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	change(w)
+	return m.Save(context.Background(), w)
+}
+
+func (m *memoryWorkflows) RecordRun(_ context.Context, id string, generation int64, runID string) error {
+	return m.update(id, func(w *workflowdomain.Workflow) {
+		if w.Dispatch.Generation == generation {
+			w.Temporal.RunID = runID
+		}
+	})
+}
+
+func (m *memoryWorkflows) MarkCommandsDelivered(_ context.Context, id string, sequence int64) error {
+	return m.update(id, func(w *workflowdomain.Workflow) {
+		if w.Dispatch.DeliveredCommand < sequence {
+			w.Dispatch.DeliveredCommand = sequence
+		}
+	})
+}
+
+func (m *memoryWorkflows) RequestCancel(_ context.Context, id string, command workflowdomain.CancelCommand) error {
+	return m.update(id, func(w *workflowdomain.Workflow) {
+		if w.Commands.Cancel == nil {
+			w.Commands.Cancel = &command
+			w.Commands.Sequence++
+		}
+	})
+}
+
+func (m *memoryWorkflows) RequestRetry(_ context.Context, id string, command workflowdomain.RetryCommand) error {
+	return m.update(id, func(w *workflowdomain.Workflow) {
+		w.Commands.Retries = append(w.Commands.Retries, command)
+		w.Commands.Sequence++
+	})
+}

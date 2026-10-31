@@ -110,7 +110,8 @@ func (l gpuOperatorLauncher) PrepareGPUOperator(ctx context.Context, launch plat
 		SiteID: prepared.SiteID, PlatformID: launch.Platform.ID,
 		TargetServerIDs: launch.TargetServerIDs,
 		TargetResources: []workflowdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
-		Steps:           steps, RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
+		Steps:           steps, Jobs: declareJobs(steps, workflowdomain.RetryJob),
+		RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
 	}}, nil
 }
 

@@ -423,9 +423,13 @@ func RunAPI(cfg config.APIConfig) error {
 		automationRepo, siteRepo, catalog,
 	)
 	automationService.AttachDeploymentKeys(deploymentKeys)
-	orchestrationService := workflowapp.NewWorkflowService(
-		transactor, orchestrationRepo, temporalworkflow.NewController(temporalClient), operationSecretRepo,
-	)
+	orchestrationService := workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog(), operationSecretRepo)
+	orchestrationService.AttachLegacyController(temporalworkflow.NewController(temporalClient))
+	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
+	if err != nil {
+		return fmt.Errorf("resource ownership repo init: %w", err)
+	}
+	orchestrationService.AttachOwnershipReader(ownership)
 	resourceLeases := workflowstore.NewMongoResourceLeaseRepo(db)
 	orchestrationService.AttachLeaseReader(resourceLeases)
 	// Cancel and Rerun free the leases a Workflow whose execution is gone can never release.

@@ -120,7 +120,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	}
 	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignments})
 	credentials := platformapp.NewDeploymentCredentialService(transactor, platforms, integrations, membership)
-	durable := workflowapp.NewWorkflowService(transactor, orchestrations, nil, operationSecrets)
+	durable := workflowapp.NewWorkflowService(transactor, orchestrations, workflowPlanCatalog(), operationSecrets)
 	operationService := workflowapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
 	operationService.AttachWorkflow(durable)
 	completion := platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers}

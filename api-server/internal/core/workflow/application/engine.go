@@ -638,6 +638,15 @@ func (e *Engine) FinishCanceled(ctx context.Context, workflowID string, generati
 	})
 }
 
+// RecordCompensation adds the timeline event a cancel compensation of a Task produced. Its ID is
+// per Task, compensation, and attempt, so a retried activity upserts it.
+func (e *Engine) RecordCompensation(ctx context.Context, workflowID, taskID, kind string, attempt int, eventType, message string) error {
+	return e.workflows.AppendEvent(ctx, workflowdomain.TimelineEvent{
+		ID: fmt.Sprintf("%s/step/%s/%s/%d", workflowID, taskID, kind, attempt), OperationID: workflowID, StepID: taskID,
+		Type: eventType, Message: message, Details: map[string]any{"attempt": attempt}, CreatedAt: e.now(),
+	})
+}
+
 // finish records a terminal status and releases the Workflow's resources in the same transaction.
 func (e *Engine) finish(ctx context.Context, w *workflowdomain.Workflow, status workflowdomain.WorkflowStatus, reason string) error {
 	if w.ResourcesAcquired || status == workflowdomain.WorkflowCanceled {

@@ -192,7 +192,7 @@ func RunWorker(cfg config.APIConfig) error {
 	providerExecutor.virtualMachines = &virtualMachineEnroller{
 		libvirt: libvirtHosts, isos: bootISOs, bootMedia: bootMedia, integrations: integrations,
 	}
-	activities := temporalworkflow.NewActivities(operations, leases, map[workflowdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
+	runners := map[workflowdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
 		workflowdomain.RunnerKindInternal: platformWorkflowStepExecutor{
 			servers: servers, configurations: automationConfigurations, membership: membership,
 			finalizer: platformFinalizer, imageVerifications: osImageVerifications,
@@ -200,9 +200,31 @@ func RunWorker(cfg config.APIConfig) error {
 		},
 		workflowdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), operations, cfg.JobArtifactDir, 2*time.Second),
 		workflowdomain.RunnerKindProvisioner: providerExecutor,
-	}, serverDeploymentStepObserver{servers: servers}, softwareAssignmentObserver{assignments: softwareAssignments},
+	}
+	observers := []temporalworkflow.StepProjectionObserver{
+		serverDeploymentStepObserver{servers: servers}, softwareAssignmentObserver{assignments: softwareAssignments},
 		gpuOperatorStepObserver{recorder: platforms}, omnistatStepObserver{recorder: platforms},
-		deviceMetricsExporterStepObserver{recorder: platforms})
+		deviceMetricsExporterStepObserver{recorder: platforms},
+	}
+	activities := temporalworkflow.NewActivities(operations, leases, runners, observers...)
+	// The store-driven engine (decision 072) runs every Workflow accepted from now on; the
+	// activities above keep running Workflows accepted before it.
+	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
+	if err != nil {
+		return fmt.Errorf("resource ownership repo: %w", err)
+	}
+	engine, err := workflowapp.NewEngine(transactor, operations, ownership, workflowPlanCatalog(),
+		workflowapp.CompletionHandlers{}, cfg.OperationMaxParallelism)
+	if err != nil {
+		return err
+	}
+	for _, observer := range observers {
+		engine.AttachObservers(observer)
+	}
+	driverActivities := temporalworkflow.NewDriverActivities(engine)
+	taskActivities := temporalworkflow.NewTaskActivities(engine, runners, map[string]temporalworkflow.CompensationExecutor{
+		compensationReturnCanceledDeployment: canceledDeploymentCompensation{runner: providerExecutor},
+	})
 	temporalWorker := worker.New(temporalClient, cfg.TemporalTaskQueue, worker.Options{WorkerStopTimeout: 10 * time.Second})
 	temporalWorker.RegisterWorkflowWithOptions(temporalworkflow.OperationWorkflowV1,
 		workflowregister.RegisterOptions{Name: temporalworkflow.WorkflowNameV1})
@@ -223,6 +245,24 @@ func RunWorker(cfg config.APIConfig) error {
 		activity.RegisterOptions{Name: temporalworkflow.ActivityExecuteStep})
 	temporalWorker.RegisterActivityWithOptions(activities.AppendEvent,
 		activity.RegisterOptions{Name: temporalworkflow.ActivityAppendEvent})
+	temporalWorker.RegisterWorkflowWithOptions(temporalworkflow.DriverWorkflow,
+		workflowregister.RegisterOptions{Name: temporalworkflow.DriverWorkflowName})
+	for name, fn := range map[string]any{
+		temporalworkflow.ActivityAdvance:        driverActivities.Advance,
+		temporalworkflow.ActivityRecordFailure:  driverActivities.RecordFailure,
+		temporalworkflow.ActivityBeginCancel:    driverActivities.BeginCancel,
+		temporalworkflow.ActivityFinishCanceled: driverActivities.FinishCanceled,
+		temporalworkflow.ActivityExecuteTask:    taskActivities.ExecuteTask,
+		temporalworkflow.ActivityCompensate:     taskActivities.Compensate,
+	} {
+		temporalWorker.RegisterActivityWithOptions(fn, activity.RegisterOptions{Name: name})
+	}
+	workerRoute := temporalworkflow.RunnerRoute{TaskQueue: cfg.TemporalTaskQueue}
+	executor := temporalworkflow.NewExecutor(temporalClient, cfg.TemporalTaskQueue, map[string]temporalworkflow.RunnerRoute{
+		string(workflowdomain.RunnerKindProvisioner): workerRoute,
+		string(workflowdomain.RunnerKindInternal):    workerRoute,
+		string(workflowdomain.RunnerKindAnsible):     workerRoute,
+	})
 
 	go taskWorker.Run(ctx)
 	if err := temporalWorker.Start(); err != nil {
@@ -262,7 +302,8 @@ func RunWorker(cfg config.APIConfig) error {
 		return fmt.Errorf("subnet DNS repo init: %w", err)
 	}
 	runControllers := controllerRuntime(db, convergence.RuntimeOptions{ResyncInterval: cfg.ControllerResyncInterval},
-		provisioningapp.NewServerController(servers, servers, providers, serverWorkflowHolds{leases: leases},
+		workflowapp.NewDispatcher(operations, engine, executor, cfg.WorkflowResyncInterval, false),
+		provisioningapp.NewServerController(servers, servers, providers, serverWorkflowHolds{leases: ownership},
 			serverGroupCatalog{zones: zones, pools: pools}, convergenceEvents),
 		infrastructureapp.NewCatalogController(zones, pools, groupingTargets{integrations: integrations}, providers, convergenceEvents),
 		provisioningapp.NewHTTPProxyController(provisionerIntegrations{integrations: integrations}, providers,

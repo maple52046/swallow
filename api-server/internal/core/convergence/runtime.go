@@ -44,6 +44,13 @@ type Controller interface {
 	Reconcile(ctx context.Context, request Request) error
 }
 
+// ResyncPeriod is implemented by a Controller that resyncs on its own interval instead of the
+// Runtime's ResyncInterval, for a resource whose drift the change feed cannot show (for example a
+// lost Workflow execution, decision 072). A non-positive interval uses the Runtime's.
+type ResyncPeriod interface {
+	ResyncInterval() time.Duration
+}
+
 // RuntimeOptions configures a Runtime. Holder identifies this process in the singleton leases and
 // must be unique per process. Zero durations take the defaults documented on each field.
 type RuntimeOptions struct {
@@ -218,10 +225,15 @@ func (r *Runtime) watch(ctx context.Context, c Controller, q *workQueue, log *sl
 	}
 }
 
-// resync enqueues every key at start and then every ResyncInterval.
+// resync enqueues every key at start and then every resync interval: the controller's own when it
+// implements ResyncPeriod, otherwise ResyncInterval.
 func (r *Runtime) resync(ctx context.Context, c Controller, q *workQueue, log *slog.Logger) {
 	r.enqueueAll(ctx, c, q, log)
-	ticker := time.NewTicker(r.opts.ResyncInterval)
+	interval := r.opts.ResyncInterval
+	if period, ok := c.(ResyncPeriod); ok && period.ResyncInterval() > 0 {
+		interval = period.ResyncInterval()
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
