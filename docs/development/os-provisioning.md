@@ -286,9 +286,10 @@ Network Inspection 與 Multi-Server Deployment。
 - adapter 永不使用 provider 的 force 選項，每次 mutation 後重新讀取 Machine 驗證結果；替換 link 時只解除被指定的
   那一個。
 - Release 時若要求 `unbindStaticIPs`，swallow 在送出 Release 前先保存一筆 `release_network_cleanup`
-  [Provisioning Task](glossaries/terms/provisioning-task.md)：等 Server 回到 Ready，只移除事前快照中、之後未被改動
-  的 static link（DHCP、provider-managed、link-only 與被改過的 link 都保留）。清理失敗可重試，重試不會再次 Release。
-  它不是 Ansible Workflow Task。
+  [Provisioning Task](glossaries/terms/provisioning-task.md)：同一個 `release-os` Task 在 Server 回到 Ready 後，以
+  Workflow 的 resource lease 執行它，只移除事前快照中、之後未被改動的 static link（DHCP、provider-managed、
+  link-only 與被改過的 link 都保留）。清理失敗可重試（重試該 `release-os` Task；`POST /provisioning/tasks/{id}/retry`
+  也是重試它），重試不會再次 Release。沒有另外的背景佇列。
 
 ### 6.4 Subnet DNS
 

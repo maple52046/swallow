@@ -335,15 +335,6 @@ func (r *networkWorkflowTaskRepo) ListByServer(_ context.Context, serverID strin
 	return []*provisioningdomain.ProvisioningTask{cloneProvisioningTask(r.current)}, nil
 }
 
-func (r *networkWorkflowTaskRepo) ClaimNext(
-	context.Context,
-	string,
-	time.Time,
-	time.Duration,
-) (*provisioningdomain.ProvisioningTask, error) {
-	return nil, provisioningdomain.ErrNoProvisioningTask
-}
-
 func (r *networkWorkflowTaskRepo) Save(_ context.Context, task *provisioningdomain.ProvisioningTask) error {
 	r.current = cloneProvisioningTask(task)
 	return nil
@@ -358,9 +349,20 @@ func (r *networkWorkflowTaskRepo) Retry(_ context.Context, id string, now time.T
 	}
 	r.current.Status = provisioningdomain.ProvisioningTaskPending
 	r.current.Error = ""
-	r.current.NextRunAt = now
+	r.current.Attempt++
 	r.current.UpdatedAt = now
 	return nil
+}
+
+// recordingCleanupRetrier records which release Workflow and Server a cleanup retry went to.
+type recordingCleanupRetrier struct {
+	workflowID, serverID string
+	err                  error
+}
+
+func (r *recordingCleanupRetrier) RetryReleaseCleanup(_ context.Context, workflowID, serverID string) error {
+	r.workflowID, r.serverID = workflowID, serverID
+	return r.err
 }
 
 func workflowServer(id string) *serverdomain.Server {
@@ -858,20 +860,19 @@ func TestReleaseSchedulesCleanupOnlyAfterProviderAcceptance(t *testing.T) {
 	if tasks.created == nil || tasks.current == nil || result.TaskID == "" {
 		t.Fatalf("cleanup task was not persisted and returned: %#v", result)
 	}
-	if tasks.created.Phase != provisioningdomain.ProvisioningTaskWaitingForRelease ||
-		tasks.created.NextRunAt.Before(started.Add(releaseDispatchRecoveryDelay-time.Second)) {
-		t.Fatalf("fresh task could race provider dispatch: %#v", tasks.created)
+	if tasks.created.Phase != provisioningdomain.ProvisioningTaskWaitingForRelease || tasks.created.Attempt != 1 ||
+		tasks.created.CreatedAt.Before(started) {
+		t.Fatalf("fresh task = %#v, want waiting for release on its first attempt", tasks.created)
 	}
-	if tasks.current.Phase != provisioningdomain.ProvisioningTaskWaitingForReady ||
-		tasks.current.NextRunAt.After(time.Now().UTC().Add(time.Second)) {
-		t.Fatalf("accepted release did not schedule cleanup immediately: %#v", tasks.current)
+	if tasks.current.Phase != provisioningdomain.ProvisioningTaskWaitingForReady {
+		t.Fatalf("accepted release did not move cleanup to waiting for Ready: %#v", tasks.current)
 	}
 	if len(tasks.current.Snapshot) != 1 || tasks.current.Snapshot[0].IPAddress != "192.0.2.30" {
 		t.Fatalf("unexpected static snapshot: %#v", tasks.current.Snapshot)
 	}
 }
 
-func TestProvisioningTaskWorkerResumesExactStaticCleanup(t *testing.T) {
+func TestReleaseNetworkCleanupResumesExactStaticCleanup(t *testing.T) {
 	server := workflowServer("a")
 	repo := &networkWorkflowServerRepo{servers: map[string]*serverdomain.Server{"a": server}}
 	network := workflowNetwork("machine-a", false)
@@ -895,10 +896,9 @@ func TestProvisioningTaskWorkerResumesExactStaticCleanup(t *testing.T) {
 		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 	}
 	tasks := &networkWorkflowTaskRepo{current: cloneProvisioningTask(task)}
-	worker := NewProvisioningTaskWorker(
-		tasks, repo, networkWorkflowFactory{provider: provider}, time.Second, time.Minute)
+	cleanup := NewReleaseNetworkCleanup(tasks, repo, networkWorkflowFactory{provider: provider})
 
-	if err := worker.process(context.Background(), cloneProvisioningTask(task)); err != nil {
+	if err := cleanup.Advance(context.Background(), cloneProvisioningTask(task)); err != nil {
 		t.Fatalf("resume cleanup: %v", err)
 	}
 	if tasks.current.Status != provisioningdomain.ProvisioningTaskSucceeded ||
@@ -923,7 +923,8 @@ func TestProvisioningTaskRetryRejectsUnacceptedRelease(t *testing.T) {
 		Error:    "Release was not accepted.",
 	}
 	tasks := &networkWorkflowTaskRepo{current: cloneProvisioningTask(task)}
-	service := NewProvisioningTaskService(tasks, repo)
+	retrier := &recordingCleanupRetrier{}
+	service := NewProvisioningTaskService(tasks, repo, retrier)
 
 	if provisioningTaskItem(task).Retryable {
 		t.Fatal("an unaccepted Release must not advertise cleanup retry")
@@ -932,8 +933,37 @@ func TestProvisioningTaskRetryRejectsUnacceptedRelease(t *testing.T) {
 	if !errors.Is(err, provisioningdomain.ErrProvisioningTaskConflict) {
 		t.Fatalf("expected retry conflict, got %v", err)
 	}
+	if tasks.current.Status != provisioningdomain.ProvisioningTaskFailed || retrier.workflowID != "" {
+		t.Fatalf("rejected retry changed task state or reached the Workflow: %#v", tasks.current)
+	}
+}
+
+// A cleanup retry does not run the cleanup itself: it retries the release Task of the Workflow that
+// owns it, so the cleanup runs again under that Workflow's lease.
+func TestProvisioningTaskRetryRetriesTheOwningReleaseTask(t *testing.T) {
+	repo := &networkWorkflowServerRepo{servers: map[string]*serverdomain.Server{
+		"a": workflowServer("a"),
+	}}
+	task := &provisioningdomain.ProvisioningTask{
+		ID: "task-a", Kind: provisioningdomain.ProvisioningTaskReleaseNetworkCleanup,
+		ServerID: "a", Status: provisioningdomain.ProvisioningTaskFailed,
+		Phase: provisioningdomain.ProvisioningTaskCleaningNetwork, RequestID: "workflow-a",
+	}
+	tasks := &networkWorkflowTaskRepo{current: cloneProvisioningTask(task)}
+	retrier := &recordingCleanupRetrier{}
+	service := NewProvisioningTaskService(tasks, repo, retrier)
+
+	if !provisioningTaskItem(task).Retryable {
+		t.Fatal("a failed cleanup of an accepted Release must advertise retry")
+	}
+	if _, err := service.Retry(context.Background(), task.ID); err != nil {
+		t.Fatalf("Retry() error = %v", err)
+	}
+	if retrier.workflowID != "workflow-a" || retrier.serverID != "a" {
+		t.Errorf("retry went to Workflow %q Server %q, want workflow-a and a", retrier.workflowID, retrier.serverID)
+	}
 	if tasks.current.Status != provisioningdomain.ProvisioningTaskFailed {
-		t.Fatalf("rejected retry changed task state: %#v", tasks.current)
+		t.Errorf("Retry changed the task itself: %#v", tasks.current)
 	}
 }
 
@@ -941,7 +971,7 @@ type workflowMutationGuard struct{ err error }
 
 func (g workflowMutationGuard) RequireUnlocked(context.Context, []string) error { return g.err }
 
-func TestProvisioningTaskWorkerFailsBeforeCleanupWhenExternallyLocked(t *testing.T) {
+func TestReleaseNetworkCleanupFailsBeforeCleanupWhenExternallyLocked(t *testing.T) {
 	server := workflowServer("a")
 	repo := &networkWorkflowServerRepo{servers: map[string]*serverdomain.Server{"a": server}}
 	network := workflowNetwork("machine-a", false)
@@ -964,11 +994,10 @@ func TestProvisioningTaskWorkerFailsBeforeCleanupWhenExternallyLocked(t *testing
 		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 	}
 	tasks := &networkWorkflowTaskRepo{current: cloneProvisioningTask(task)}
-	worker := NewProvisioningTaskWorker(
-		tasks, repo, networkWorkflowFactory{provider: provider}, time.Second, time.Minute)
+	cleanup := NewReleaseNetworkCleanup(tasks, repo, networkWorkflowFactory{provider: provider})
 
-	if err := worker.process(context.Background(), cloneProvisioningTask(task)); err != nil {
-		t.Fatalf("process locked cleanup: %v", err)
+	if err := cleanup.Advance(context.Background(), cloneProvisioningTask(task)); err != nil {
+		t.Fatalf("advance locked cleanup: %v", err)
 	}
 	if len(provider.unlinked) != 0 {
 		t.Fatalf("locked cleanup changed network links: %v", provider.unlinked)
@@ -993,7 +1022,7 @@ func TestProvisioningTaskRetryUsesLiveLockGuard(t *testing.T) {
 	}
 	tasks := &networkWorkflowTaskRepo{current: cloneProvisioningTask(task)}
 	guardErr := &serverdomain.ServerLockedError{Name: "a"}
-	service := NewProvisioningTaskService(tasks, repo, workflowMutationGuard{err: guardErr})
+	service := NewProvisioningTaskService(tasks, repo, &recordingCleanupRetrier{}, workflowMutationGuard{err: guardErr})
 
 	_, err := service.Retry(context.Background(), task.ID)
 	if !errors.Is(err, serverdomain.ErrServerLocked) {

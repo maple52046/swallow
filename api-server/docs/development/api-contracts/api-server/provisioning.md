@@ -715,8 +715,9 @@ removed from the intent snapshot and stored as an encrypted opaque Step referenc
 It performs complete presence, recoverable-state, Site, duplicate-target, active-work, and
 live lock validation before persistence, then creates one `release-os` MAAS Step per
 Server. A Step succeeds only after Ready is observed. When static cleanup is requested,
-the same Step also waits for its durable Provisioning Task; Step Retry after a cleanup
-failure retries cleanup only and never sends Release again. Provider cancellation is
+the same Step then runs its durable Provisioning Task to completion under the Workflow's
+resource lease; Step Retry after a cleanup failure retries cleanup only and never sends
+Release again. Provider cancellation is
 best-effort and confirmed prior effects are preserved.
 
 Every attempt of a `release-os` Step reads the Server first. A Server already `releasing` is
@@ -874,16 +875,20 @@ snapshot:
 
 Statuses are `pending`, `running`, `succeeded`, or `failed`. Phases are
 `waiting_for_release`, `waiting_for_ready`, `cleaning_network`, or `complete`.
-`retryable` is true only for a failed task after its Release was accepted.
+`retryable` is true only for a failed task after its Release was accepted, on behalf of a
+release Workflow (`requestId`).
 `error` and `requestId` are omitted when empty.
-`POST /tasks/{id}/retry` accepts only that retryable state, returns `202` with the task as
-stored after the requeue, and requeues cleanup without repeating Release. A retry is rejected
-with `409 conflict` while the Server is locked, and with `503 provider_unavailable` when its
-live lock state cannot be read; the worker also reads lock state again immediately before
-cleanup, so an external lock makes the task fail retryably without changing network links. A
-task retained after the provider refused Release remains diagnostic and is not retryable.
-Unknown tasks, and a retry of a task whose Server no longer exists, are `404 not_found`; a task
-that is not retryable is `409 conflict`.
+`POST /tasks/{id}/retry` accepts only that retryable state and retries the `release-os` Task of
+the Workflow that owns the cleanup, exactly as `POST /workflows/{id}/tasks/{taskId}/retry`
+would; the cleanup runs again without repeating Release. It returns `202` with the task as
+stored, which changes once that Task runs. A retry is rejected with `409 conflict` while the
+Server is locked, and with `503 provider_unavailable` when its live lock state cannot be read;
+the cleanup also reads lock state again immediately before unlinking, so an external lock makes
+the task fail retryably without changing network links. A task retained after the provider
+refused Release remains diagnostic and is not retryable. Unknown tasks, and a retry of a task
+whose Server no longer exists, are `404 not_found`; a task that is not retryable, or whose
+release Task cannot be retried (its Workflow is gone or the Task is not failed and retryable),
+is `409 conflict`.
 
 ## Provisioner Reconciliation
 

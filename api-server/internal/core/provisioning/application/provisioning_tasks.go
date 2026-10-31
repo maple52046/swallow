@@ -3,10 +3,8 @@ package application
 import (
 	"context"
 	"errors"
-	"log/slog"
+	"fmt"
 	"time"
-
-	"github.com/google/uuid"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
@@ -29,21 +27,30 @@ type ProvisioningTaskItem struct {
 	UpdatedAt string `json:"updatedAt"`
 }
 
-// ProvisioningTaskService exposes task history and retry without exposing leases
-// or provider identifiers.
+// ReleaseCleanupRetrier retries the release Task of the Workflow that owns a failed network
+// cleanup, so the cleanup runs again under that Workflow's resource lease and fencing rather than
+// outside it.
+type ReleaseCleanupRetrier interface {
+	RetryReleaseCleanup(ctx context.Context, workflowID, serverID string) error
+}
+
+// ProvisioningTaskService exposes task history and retry without exposing provider identifiers.
 type ProvisioningTaskService struct {
 	tasks   provisioningdomain.ProvisioningTaskRepository
 	servers serverdomain.ServerRepository
+	retrier ReleaseCleanupRetrier
 	guard   serverdomain.MutationGuard
 }
 
-// NewProvisioningTaskService creates the query and retry boundary.
+// NewProvisioningTaskService creates the query and retry boundary; retrier carries a retry into
+// the release Workflow that owns the cleanup.
 func NewProvisioningTaskService(
 	tasks provisioningdomain.ProvisioningTaskRepository,
 	servers serverdomain.ServerRepository,
+	retrier ReleaseCleanupRetrier,
 	guard ...serverdomain.MutationGuard,
 ) *ProvisioningTaskService {
-	service := &ProvisioningTaskService{tasks: tasks, servers: servers}
+	service := &ProvisioningTaskService{tasks: tasks, servers: servers, retrier: retrier}
 	if len(guard) > 0 {
 		service.guard = guard[0]
 	}
@@ -69,7 +76,7 @@ func (s *ProvisioningTaskService) ListByServer(
 	return items, nil
 }
 
-// Get returns one task without its cleanup snapshot or lease.
+// Get returns one task without its cleanup snapshot.
 func (s *ProvisioningTaskService) Get(
 	ctx context.Context,
 	id string,
@@ -82,7 +89,8 @@ func (s *ProvisioningTaskService) Get(
 	return &item, nil
 }
 
-// Retry requeues failed cleanup and never repeats the original Release.
+// Retry retries a failed cleanup by retrying the release Task of the Workflow that owns it, and
+// never repeats the original Release. The task changes once that Task runs again.
 func (s *ProvisioningTaskService) Retry(
 	ctx context.Context,
 	id string,
@@ -104,14 +112,13 @@ func (s *ProvisioningTaskService) Retry(
 		return nil, &serverdomain.ServerLockedError{Name: server.DisplayName()}
 	}
 	if task.Status != provisioningdomain.ProvisioningTaskFailed ||
-		task.Phase == provisioningdomain.ProvisioningTaskWaitingForRelease {
+		task.Phase == provisioningdomain.ProvisioningTaskWaitingForRelease || task.RequestID == "" {
 		return nil, provisioningdomain.ErrProvisioningTaskConflict
 	}
-	if err := s.tasks.Retry(ctx, id, time.Now().UTC()); err != nil {
-		return nil, err
+	if s.retrier == nil {
+		return nil, fmt.Errorf("%w: cleanup retry is unavailable", provisioningdomain.ErrProvisioningTaskConflict)
 	}
-	task, err = s.tasks.FindByID(ctx, id)
-	if err != nil {
+	if err := s.retrier.RetryReleaseCleanup(ctx, task.RequestID, task.ServerID); err != nil {
 		return nil, err
 	}
 	item := provisioningTaskItem(task)
@@ -130,121 +137,91 @@ func provisioningTaskItem(task *provisioningdomain.ProvisioningTask) Provisionin
 		RequestID: task.RequestID,
 		CreatedAt: wire.Time(task.CreatedAt),
 		Retryable: task.Status == provisioningdomain.ProvisioningTaskFailed &&
-			task.Phase != provisioningdomain.ProvisioningTaskWaitingForRelease,
+			task.Phase != provisioningdomain.ProvisioningTaskWaitingForRelease && task.RequestID != "",
 		UpdatedAt: wire.Time(task.UpdatedAt),
 	}
 }
 
-// ProvisioningTaskWorker leases and advances release cleanup. A task is always
-// persisted between provider transitions, so cancellation or process termination
-// leaves recoverable work rather than an in-memory promise.
-type ProvisioningTaskWorker struct {
-	tasks         provisioningdomain.ProvisioningTaskRepository
-	servers       serverdomain.ServerRepository
-	providers     provisioningdomain.ProviderFactory
-	owner         string
-	interval      time.Duration
-	leaseDuration time.Duration
+// ReleaseNetworkCleanup removes the static IP bindings a release recorded once the Server is back
+// to Ready. The release Task that holds the Server's resource lease advances it until the task is
+// terminal, so the cleanup runs under the same lease and fencing as the release. A task is
+// persisted between provider transitions, so an interrupted Task resumes it.
+type ReleaseNetworkCleanup struct {
+	tasks     provisioningdomain.ProvisioningTaskRepository
+	servers   serverdomain.ServerRepository
+	providers provisioningdomain.ProviderFactory
 }
 
-// NewProvisioningTaskWorker creates a process-unique lease owner.
-func NewProvisioningTaskWorker(
+// NewReleaseNetworkCleanup creates the cleanup the release Task advances.
+func NewReleaseNetworkCleanup(
 	tasks provisioningdomain.ProvisioningTaskRepository,
 	servers serverdomain.ServerRepository,
 	providers provisioningdomain.ProviderFactory,
-	interval, leaseDuration time.Duration,
-) *ProvisioningTaskWorker {
-	return &ProvisioningTaskWorker{
-		tasks: tasks, servers: servers, providers: providers,
-		owner: uuid.NewString(), interval: interval, leaseDuration: leaseDuration,
-	}
+) *ReleaseNetworkCleanup {
+	return &ReleaseNetworkCleanup{tasks: tasks, servers: servers, providers: providers}
 }
 
-// Run processes due tasks until ctx is cancelled. Each tick drains all currently
-// due work before sleeping, while repository leases prevent another process from
-// executing the same cleanup concurrently.
-func (w *ProvisioningTaskWorker) Run(ctx context.Context) {
-	w.processAvailable(ctx)
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			w.processAvailable(ctx)
-		}
+// Retry returns a failed cleanup to pending for another pass; the release Task calls it on a
+// retried attempt. A cleanup whose release was never accepted cannot be retried.
+func (c *ReleaseNetworkCleanup) Retry(ctx context.Context, task *provisioningdomain.ProvisioningTask) error {
+	if task.Phase == provisioningdomain.ProvisioningTaskWaitingForRelease {
+		return provisioningdomain.ErrProvisioningTaskConflict
 	}
+	return c.tasks.Retry(ctx, task.ID, time.Now().UTC())
 }
 
-func (w *ProvisioningTaskWorker) processAvailable(ctx context.Context) {
-	for {
-		task, err := w.tasks.ClaimNext(
-			ctx, w.owner, time.Now().UTC(), w.leaseDuration)
-		if errors.Is(err, provisioningdomain.ErrNoProvisioningTask) {
-			return
-		}
-		if err != nil {
-			slog.Error("claim provisioning task", "error", err)
-			return
-		}
-		if err := w.process(ctx, task); err != nil {
-			slog.Error("process provisioning task",
-				"taskId", task.ID, "serverId", task.ServerID, "error", err)
-		}
-	}
-}
-
-func (w *ProvisioningTaskWorker) process(
+// Advance runs one pass of a pending cleanup and persists where it got to: waiting while the
+// Server is not yet Ready, then removing every recorded static link that is still exactly as the
+// release found it (an operator's change is preserved), then succeeded; any provider failure
+// fails the task with an operator-facing reason.
+func (c *ReleaseNetworkCleanup) Advance(
 	ctx context.Context,
 	task *provisioningdomain.ProvisioningTask,
 ) error {
 	now := time.Now().UTC()
-	server, err := w.servers.FindByID(ctx, task.ServerID)
+	server, err := c.servers.FindByID(ctx, task.ServerID)
 	if err != nil {
-		return w.fail(ctx, task, "The Server no longer exists.", now)
+		return c.fail(ctx, task, "The Server no longer exists.", now)
 	}
-	provider, err := w.providers.For(ctx, task.IntegrationID)
+	provider, err := c.providers.For(ctx, task.IntegrationID)
 	if err != nil {
-		return w.fail(ctx, task, provisioningTaskError(err), now)
+		return c.fail(ctx, task, provisioningTaskError(err), now)
 	}
 	machine, err := provider.GetMachine(ctx, task.ProviderMachineID)
 	if err != nil {
-		return w.fail(ctx, task, provisioningTaskError(err), now)
+		return c.fail(ctx, task, provisioningTaskError(err), now)
 	}
 	updateProvisioningProjection(server, machine)
-	_ = w.servers.Upsert(ctx, server)
+	_ = c.servers.Upsert(ctx, server)
 	if machine.Locked {
 		task.Phase = provisioningdomain.ProvisioningTaskCleaningNetwork
-		return w.fail(ctx, task,
+		return c.fail(ctx, task,
 			"Server is locked. Unlock it before retrying network cleanup.", now)
 	}
 	if machine.Status != provisioningdomain.MachineStatusReady {
 		if machine.Status == provisioningdomain.MachineStatusFailed {
-			return w.fail(ctx, task, "Release did not return the Server to Ready.", now)
+			return c.fail(ctx, task, "Release did not return the Server to Ready.", now)
 		}
 		task.Status = provisioningdomain.ProvisioningTaskPending
 		task.Phase = provisioningdomain.ProvisioningTaskWaitingForReady
-		task.NextRunAt = now.Add(w.interval)
-		task.LeaseOwner = ""
-		task.LeaseUntil = time.Time{}
 		task.UpdatedAt = now
-		return w.tasks.Save(ctx, task)
+		return c.tasks.Save(ctx, task)
 	}
 
 	networkProvider, err := requireNetworkProvider(provider)
 	if err != nil {
-		return w.fail(ctx, task, provisioningTaskError(err), now)
+		return c.fail(ctx, task, provisioningTaskError(err), now)
 	}
+	task.Status = provisioningdomain.ProvisioningTaskRunning
 	task.Phase = provisioningdomain.ProvisioningTaskCleaningNetwork
 	task.UpdatedAt = now
-	if err := w.tasks.Save(ctx, task); err != nil {
+	if err := c.tasks.Save(ctx, task); err != nil {
 		return err
 	}
 	for _, snapshot := range task.Snapshot {
 		network, inspectErr := networkProvider.InspectNetwork(ctx, task.ProviderMachineID)
 		if inspectErr != nil {
-			return w.fail(ctx, task, provisioningTaskError(inspectErr), time.Now().UTC())
+			return c.fail(ctx, task, provisioningTaskError(inspectErr), time.Now().UTC())
 		}
 		if !staticSnapshotStillMatches(network, snapshot) {
 			continue
@@ -255,31 +232,28 @@ func (w *ProvisioningTaskWorker) process(
 			snapshot.InterfaceID,
 			snapshot.LinkID,
 		); unlinkErr != nil {
-			return w.fail(ctx, task, provisioningTaskError(unlinkErr), time.Now().UTC())
+			return c.fail(ctx, task, provisioningTaskError(unlinkErr), time.Now().UTC())
 		}
 	}
 
 	machine, err = provider.GetMachine(ctx, task.ProviderMachineID)
 	if err != nil {
-		return w.fail(ctx, task, provisioningTaskError(err), time.Now().UTC())
+		return c.fail(ctx, task, provisioningTaskError(err), time.Now().UTC())
 	}
 	updateProvisioningProjection(server, machine)
 	server.Observed.Addresses = append([]string(nil), machine.IPAddresses...)
-	if err := w.servers.Upsert(ctx, server); err != nil {
-		return w.fail(ctx, task, "Cleanup completed but the Server projection could not be refreshed.", time.Now().UTC())
+	if err := c.servers.Upsert(ctx, server); err != nil {
+		return c.fail(ctx, task, "Cleanup completed but the Server projection could not be refreshed.", time.Now().UTC())
 	}
 
 	task.Status = provisioningdomain.ProvisioningTaskSucceeded
 	task.Phase = provisioningdomain.ProvisioningTaskComplete
 	task.Error = ""
-	task.NextRunAt = time.Time{}
-	task.LeaseOwner = ""
-	task.LeaseUntil = time.Time{}
 	task.UpdatedAt = time.Now().UTC()
-	return w.tasks.Save(ctx, task)
+	return c.tasks.Save(ctx, task)
 }
 
-func (w *ProvisioningTaskWorker) fail(
+func (c *ReleaseNetworkCleanup) fail(
 	ctx context.Context,
 	task *provisioningdomain.ProvisioningTask,
 	message string,
@@ -287,11 +261,8 @@ func (w *ProvisioningTaskWorker) fail(
 ) error {
 	task.Status = provisioningdomain.ProvisioningTaskFailed
 	task.Error = message
-	task.NextRunAt = time.Time{}
-	task.LeaseOwner = ""
-	task.LeaseUntil = time.Time{}
 	task.UpdatedAt = now
-	return w.tasks.Save(ctx, task)
+	return c.tasks.Save(ctx, task)
 }
 
 func provisioningTaskError(err error) string {

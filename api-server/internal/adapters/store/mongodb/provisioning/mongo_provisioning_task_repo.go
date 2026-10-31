@@ -30,20 +30,17 @@ type provisioningTaskDoc struct {
 	Snapshot          []staticNetworkLinkSnapshotDoc `bson:"snapshot"`
 	Error             string                         `bson:"error,omitempty"`
 	RequestID         string                         `bson:"requestId,omitempty"`
-	NextRunAt         time.Time                      `bson:"nextRunAt"`
-	LeaseOwner        string                         `bson:"leaseOwner,omitempty"`
-	LeaseUntil        time.Time                      `bson:"leaseUntil,omitempty"`
 	CreatedAt         time.Time                      `bson:"createdAt"`
 	UpdatedAt         time.Time                      `bson:"updatedAt"`
 }
 
-// MongoProvisioningTaskRepo persists release cleanup history and atomically leases
-// due work. Snapshots contain provider IDs and IPs but never credentials.
+// MongoProvisioningTaskRepo persists release cleanup history. Snapshots contain provider IDs and
+// IPs but never credentials.
 type MongoProvisioningTaskRepo struct {
 	col *mongo.Collection
 }
 
-// NewMongoProvisioningTaskRepo creates history and dispatcher indexes.
+// NewMongoProvisioningTaskRepo creates the history index.
 func NewMongoProvisioningTaskRepo(db *mongo.Database) (*MongoProvisioningTaskRepo, error) {
 	col := db.Collection("provisioning_tasks")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -52,14 +49,6 @@ func NewMongoProvisioningTaskRepo(db *mongo.Database) (*MongoProvisioningTaskRep
 		{
 			Keys:    bson.D{{Key: "serverId", Value: 1}, {Key: "createdAt", Value: -1}},
 			Options: options.Index().SetName("server_created_at"),
-		},
-		{
-			Keys: bson.D{
-				{Key: "status", Value: 1},
-				{Key: "nextRunAt", Value: 1},
-				{Key: "leaseUntil", Value: 1},
-			},
-			Options: options.Index().SetName("task_dispatch"),
 		},
 	})
 	if err != nil {
@@ -118,48 +107,7 @@ func (r *MongoProvisioningTaskRepo) ListByServer(
 	return tasks, nil
 }
 
-// ClaimNext atomically leases one due task. Expired running leases are eligible so
-// process termination cannot strand cleanup forever.
-func (r *MongoProvisioningTaskRepo) ClaimNext(
-	ctx context.Context,
-	owner string,
-	now time.Time,
-	leaseDuration time.Duration,
-) (*provisioningdomain.ProvisioningTask, error) {
-	filter := bson.M{
-		"nextRunAt": bson.M{"$lte": now},
-		"$or": []bson.M{
-			{"status": string(provisioningdomain.ProvisioningTaskPending)},
-			{
-				"status":     string(provisioningdomain.ProvisioningTaskRunning),
-				"leaseUntil": bson.M{"$lte": now},
-			},
-		},
-	}
-	update := bson.M{
-		"$set": bson.M{
-			"status":     string(provisioningdomain.ProvisioningTaskRunning),
-			"leaseOwner": owner,
-			"leaseUntil": now.Add(leaseDuration),
-			"updatedAt":  now,
-		},
-		"$inc": bson.M{"attempt": 1},
-	}
-	opts := options.FindOneAndUpdate().
-		SetSort(bson.D{{Key: "nextRunAt", Value: 1}, {Key: "createdAt", Value: 1}}).
-		SetReturnDocument(options.After)
-	var doc provisioningTaskDoc
-	err := r.col.FindOneAndUpdate(ctx, filter, update, opts).Decode(&doc)
-	if err == mongo.ErrNoDocuments {
-		return nil, provisioningdomain.ErrNoProvisioningTask
-	}
-	if err != nil {
-		return nil, err
-	}
-	return provisioningTaskFromDoc(&doc), nil
-}
-
-// Save replaces current task state and clears any lease omitted by the application.
+// Save replaces the task's current state.
 func (r *MongoProvisioningTaskRepo) Save(
 	ctx context.Context,
 	task *provisioningdomain.ProvisioningTask,
@@ -174,7 +122,7 @@ func (r *MongoProvisioningTaskRepo) Save(
 	return nil
 }
 
-// Retry requeues failed cleanup without repeating Release.
+// Retry returns a failed task to pending and counts the attempt, without repeating Release.
 func (r *MongoProvisioningTaskRepo) Retry(
 	ctx context.Context,
 	id string,
@@ -190,10 +138,9 @@ func (r *MongoProvisioningTaskRepo) Retry(
 			"$set": bson.M{
 				"status":    string(provisioningdomain.ProvisioningTaskPending),
 				"error":     "",
-				"nextRunAt": now,
 				"updatedAt": now,
 			},
-			"$unset": bson.M{"leaseOwner": "", "leaseUntil": ""},
+			"$inc": bson.M{"attempt": 1},
 		},
 	)
 	if err != nil {
@@ -230,9 +177,6 @@ func provisioningTaskToDoc(task *provisioningdomain.ProvisioningTask) provisioni
 		Snapshot:          snapshot,
 		Error:             task.Error,
 		RequestID:         task.RequestID,
-		NextRunAt:         task.NextRunAt,
-		LeaseOwner:        task.LeaseOwner,
-		LeaseUntil:        task.LeaseUntil,
 		CreatedAt:         task.CreatedAt,
 		UpdatedAt:         task.UpdatedAt,
 	}
@@ -260,9 +204,6 @@ func provisioningTaskFromDoc(doc *provisioningTaskDoc) *provisioningdomain.Provi
 		Snapshot:          snapshot,
 		Error:             doc.Error,
 		RequestID:         doc.RequestID,
-		NextRunAt:         doc.NextRunAt,
-		LeaseOwner:        doc.LeaseOwner,
-		LeaseUntil:        doc.LeaseUntil,
 		CreatedAt:         doc.CreatedAt,
 		UpdatedAt:         doc.UpdatedAt,
 	}

@@ -242,16 +242,17 @@ func RunAPI(cfg config.APIConfig) error {
 	sshKeyService.AttachRequester(convergencestore.NewMongoRequester(db))
 	sshKeyHandler := sshkeydelivery.NewSSHKeyHandler(sshKeyService)
 	deploymentKeys := deploymentKeySource{keys: sshKeyService}
-	activeWork := activeServerWorkReader{orchestrations: orchestrationRepo, tasks: taskRepo}
+	activeWork := activeServerWorkReader{orchestrations: orchestrationRepo}
 	integrationReader := provisioningapp.NewIntegrationReader(integrationRepo, siteRepo)
 	templateService := provisioningapp.NewDeploymentTemplateService(
 		templateRepo, integrationReader, providerFactory)
 	networkService := provisioningapp.NewNetworkConfigurationService(serverRepo, providerFactory)
-	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo, serverProtection)
+	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo, releaseCleanupRetrier{
+		orchestrations: orchestrationRepo,
+		workflows:      workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog()),
+	}, serverProtection)
 	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory, osImageVerificationRepo)
 	deploymentsUC.AttachDeploymentKeys(sshKeyService)
-	taskWorker := provisioningapp.NewProvisioningTaskWorker(
-		taskRepo, serverRepo, providerFactory, 5*time.Second, 30*time.Second)
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageMetadataRepo)
 	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
 	// One RefreshServer use case is shared by the HTTP handler and the durable launcher so the
@@ -615,7 +616,6 @@ func RunAPI(cfg config.APIConfig) error {
 
 	go runReconciler(ctx, reconcileUC, cfg.ReconcileInterval)
 	go runInventorySweep(ctx, inventorySweepUC, cfg.InventoryInterval)
-	go taskWorker.Run(ctx)
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
 	go runAutoExporterDeploy(ctx, autoExporterDeploy, cfg.ReconcileInterval)
 	go runAutoInspect(ctx, autoInspect, cfg.ReconcileInterval)

@@ -3672,7 +3672,7 @@ paths:
         schema:
           type: string
     post:
-      description: Requires role `admin`. Accepted only for a `failed` task whose Release was accepted (`retryable` true) while its Server is unlocked.
+      description: Requires role `admin`. Accepted only for a `failed` task whose Release was accepted (`retryable` true) while its Server is unlocked. It retries the `release-os` Task of the Workflow that owns the cleanup (`requestId`), which runs the cleanup again; a release Task that cannot be retried is `409`.
       operationId: retryProvisioningTask
       responses:
         "202":
@@ -3680,7 +3680,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProvisioningTask'
-          description: The cleanup was requeued; the body is the task as stored after the requeue.
+          description: The release Task's retry was requested; the body is the task as stored, which changes once that Task runs.
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -3705,7 +3705,7 @@ paths:
           description: '`provider_unavailable`: the Server''s live lock state is unavailable.'
         default:
           $ref: '#/components/responses/Error'
-      summary: Requeue a failed, retryable Provisioning Task's cleanup without repeating Release.
+      summary: Retry a failed, retryable Provisioning Task's cleanup without repeating Release.
       tags:
         - provisioning
   /api/v1/provisioning/templates:

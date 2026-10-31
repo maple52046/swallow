@@ -11,10 +11,10 @@ import (
 )
 
 // ActiveServerWork is the cross-context minimum needed to decide whether Lock can be
-// accepted without racing already accepted work.
+// accepted without racing already accepted work. A release's network cleanup runs inside its
+// release Workflow, so the Workflow stands for it.
 type ActiveServerWork struct {
 	OperationIDs []string
-	TaskIDs      []string
 }
 
 // ActiveServerWorkReader reads unfinished work without exposing foreign aggregates.

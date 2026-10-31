@@ -216,10 +216,6 @@ func (uc *MachineActionsUseCase) Lock(ctx context.Context, serverID string) (*Pr
 			return nil, lockConflict(server,
 				"has active Operation(s) "+strings.Join(work.OperationIDs, ", ")+". Wait for them to finish before locking it.")
 		}
-		if len(work.TaskIDs) > 0 {
-			return nil, lockConflict(server,
-				"has active Provisioning Task(s) "+strings.Join(work.TaskIDs, ", ")+". Wait for them to finish before locking it.")
-		}
 	}
 	updated, err := controller.Lock(ctx, server.Source.ProviderMachineID)
 	if err != nil {

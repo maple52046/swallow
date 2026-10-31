@@ -31,13 +31,15 @@ type releaseSubmitter interface {
 // providerStepExecutor translates durable Step intent into Swallow provisioning use
 // cases, then observes provider state until the requested end state is proven.
 type providerStepExecutor struct {
-	deployments    deploymentSubmitter
-	release        releaseSubmitter
-	refresh        *provisioningapp.RefreshServerUseCase
-	servers        serverdomain.ServerRepository
-	providers      provisioningdomain.ProviderFactory
-	secrets        workflowdomain.OperationSecretRepository
-	tasks          provisioningdomain.ProvisioningTaskRepository
+	deployments deploymentSubmitter
+	release     releaseSubmitter
+	refresh     *provisioningapp.RefreshServerUseCase
+	servers     serverdomain.ServerRepository
+	providers   provisioningdomain.ProviderFactory
+	secrets     workflowdomain.OperationSecretRepository
+	tasks       provisioningdomain.ProvisioningTaskRepository
+	// cleanup advances a release's static IP cleanup from inside the release Task, under its lease.
+	cleanup        *provisioningapp.ReleaseNetworkCleanup
 	configurations workflowdomain.AutomationConfigurationRepository
 	protection     serverdomain.MutationGuard
 	poll           time.Duration
@@ -1177,13 +1179,20 @@ func (e providerStepExecutor) observeReleaseCleanup(ctx context.Context, serverI
 			return providerSucceeded()
 		case provisioningdomain.ProvisioningTaskFailed:
 			if retryFailed && cleanup.Phase != provisioningdomain.ProvisioningTaskWaitingForRelease {
-				if err := e.tasks.Retry(ctx, cleanup.ID, time.Now().UTC()); err != nil {
-					return providerFailed("cleanup_retry_failed", "Static IP cleanup could not be queued for retry.", true).withStage("network_cleanup")
+				if err := e.cleanup.Retry(ctx, cleanup); err != nil {
+					return providerFailed("cleanup_retry_failed", "Static IP cleanup could not be retried.", true).withStage("network_cleanup")
 				}
 				retryFailed = false
 				continue
 			}
 			return providerFailed("network_cleanup_failed", cleanup.Error, cleanup.Phase != provisioningdomain.ProvisioningTaskWaitingForRelease).withStage("network_cleanup")
+		default:
+			if err := e.cleanup.Advance(ctx, cleanup); err != nil {
+				return providerAttention("cleanup_observation_failed", "Static IP cleanup could not be recorded.", "network_cleanup")
+			}
+			if cleanup.Status == provisioningdomain.ProvisioningTaskSucceeded || cleanup.Status == provisioningdomain.ProvisioningTaskFailed {
+				continue
+			}
 		}
 		select {
 		case <-ctx.Done():

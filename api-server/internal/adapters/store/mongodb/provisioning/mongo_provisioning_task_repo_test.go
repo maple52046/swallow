@@ -25,13 +25,10 @@ func TestProvisioningTaskDocumentRoundTripPreservesRecoveryState(t *testing.T) {
 			SubnetID:    "7",
 			IPAddress:   "192.0.2.30",
 		}},
-		Error:      "provider unavailable",
-		RequestID:  "request-a",
-		NextRunAt:  now.Add(time.Minute),
-		LeaseOwner: "worker-a",
-		LeaseUntil: now.Add(30 * time.Second),
-		CreatedAt:  now,
-		UpdatedAt:  now.Add(time.Second),
+		Error:     "provider unavailable",
+		RequestID: "request-a",
+		CreatedAt: now,
+		UpdatedAt: now.Add(time.Second),
 	}
 
 	restored := provisioningTaskFromDoc(pointerTo(provisioningTaskToDoc(task)))

@@ -60,23 +60,19 @@ type ProvisioningTask struct {
 	Snapshot          []StaticNetworkLinkSnapshot
 	Error             string
 	RequestID         string
-	NextRunAt         time.Time
-	LeaseOwner        string
-	LeaseUntil        time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }
 
-// ProvisioningTaskRepository owns durable leases and history ordering.
-//
-// ClaimNext must atomically acquire one due pending task or one running task whose
-// lease expired. Save must release the lease for terminal or rescheduled work.
+// ProvisioningTaskRepository stores cleanup tasks and their history order. The release Task that
+// owns the Server's resource lease is the only writer of a task while it runs, so the repository
+// keeps no lease of its own.
 type ProvisioningTaskRepository interface {
 	Create(ctx context.Context, task *ProvisioningTask) error
 	FindByID(ctx context.Context, id string) (*ProvisioningTask, error)
 	ListByServer(ctx context.Context, serverID string) ([]*ProvisioningTask, error)
-	ClaimNext(ctx context.Context, owner string, now time.Time, leaseDuration time.Duration) (*ProvisioningTask, error)
 	Save(ctx context.Context, task *ProvisioningTask) error
+	// Retry returns a failed task to pending and counts the attempt.
 	Retry(ctx context.Context, id string, now time.Time) error
 }
 
@@ -85,6 +81,4 @@ var (
 	ErrProvisioningTaskNotFound = errors.New("provisioning task not found")
 	// ErrProvisioningTaskConflict means the task is not in a retryable state.
 	ErrProvisioningTaskConflict = errors.New("provisioning task conflict")
-	// ErrNoProvisioningTask means no task is currently due; workers treat it as idle.
-	ErrNoProvisioningTask = errors.New("no provisioning task available")
 )

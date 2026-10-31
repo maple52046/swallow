@@ -148,7 +148,6 @@ func TestServerLock_RefusesActiveOperationsAndProvisioningTasks(t *testing.T) {
 		want string
 	}{
 		{name: "operation", work: provisioningapp.ActiveServerWork{OperationIDs: []string{"operation-1"}}, want: "operation-1"},
-		{name: "task", work: provisioningapp.ActiveServerWork{TaskIDs: []string{"task-1"}}, want: "task-1"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -133,12 +133,12 @@ func RunWorker(cfg config.APIConfig) error {
 		release:     provisioningapp.NewReleaseServerUseCase(servers, providers, tasks),
 		refresh:     provisioningapp.NewRefreshServerUseCase(servers, providers, osImageMetadata),
 		servers:     servers, providers: providers, secrets: operationSecrets, tasks: tasks, poll: 5 * time.Second,
+		cleanup:        provisioningapp.NewReleaseNetworkCleanup(tasks, servers, providers),
 		configurations: automationConfigurations,
 		// The executor re-checks the provider-owned Server Lock before every host
 		// mutation; an acceptance-time check alone can go stale in the durable queue.
 		protection: providerServerMutationGuard{servers: servers, providers: providers},
 	}
-	taskWorker := provisioningapp.NewProvisioningTaskWorker(tasks, servers, providers, 5*time.Second, 30*time.Second)
 
 	temporalClient, err := dialTemporal(ctx, client.Options{
 		HostPort: cfg.TemporalAddress, Namespace: cfg.TemporalNamespace,
@@ -227,7 +227,6 @@ func RunWorker(cfg config.APIConfig) error {
 		string(workflowdomain.RunnerKindAnsible): {TaskQueue: cfg.AnsibleTaskQueue, SingleAttempt: true},
 	})
 
-	go taskWorker.Run(ctx)
 	if err := temporalWorker.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
 	}

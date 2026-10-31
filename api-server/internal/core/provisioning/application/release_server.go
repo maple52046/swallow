@@ -13,10 +13,6 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
-// releaseDispatchRecoveryDelay keeps a freshly persisted task out of the worker
-// until the synchronous provider Release request has had time to return.
-const releaseDispatchRecoveryDelay = 5 * time.Minute
-
 // ReleaseServerInput carries provider-neutral release controls. Static cleanup is
 // Swallow-owned follow-up and is not forwarded as a provider Release option.
 type ReleaseServerInput struct {
@@ -104,9 +100,9 @@ func (uc *ReleaseServerUseCase) ExecuteWithOptions(
 			ProviderMachineID: server.Source.ProviderMachineID,
 			Status:            provisioningdomain.ProvisioningTaskPending,
 			Phase:             provisioningdomain.ProvisioningTaskWaitingForRelease,
+			Attempt:           1,
 			Snapshot:          staticLinkSnapshot(network),
 			RequestID:         strings.TrimSpace(input.RequestID),
-			NextRunAt:         now.Add(releaseDispatchRecoveryDelay),
 			CreatedAt:         now,
 			UpdatedAt:         now,
 		}
@@ -141,7 +137,6 @@ func (uc *ReleaseServerUseCase) ExecuteWithOptions(
 		if task != nil {
 			task.Status = provisioningdomain.ProvisioningTaskFailed
 			task.Error = "Release was not accepted. " + provisioningTaskError(err)
-			task.NextRunAt = time.Time{}
 			task.UpdatedAt = time.Now().UTC()
 			_ = uc.tasks.Save(ctx, task)
 		}
@@ -157,13 +152,10 @@ func (uc *ReleaseServerUseCase) ExecuteWithOptions(
 		now := time.Now().UTC()
 		task.Status = provisioningdomain.ProvisioningTaskPending
 		task.Phase = provisioningdomain.ProvisioningTaskWaitingForReady
-		task.NextRunAt = now
-		task.LeaseOwner = ""
-		task.LeaseUntil = time.Time{}
 		task.UpdatedAt = now
 		if saveErr := uc.tasks.Save(ctx, task); saveErr != nil {
-			// The persisted task remains recoverable after its dispatch delay.
-			slog.Error("schedule release network cleanup", "taskId", task.ID, "error", saveErr)
+			// The release Task advances a task still waiting for release the same way.
+			slog.Error("record accepted release on its network cleanup", "taskId", task.ID, "error", saveErr)
 		}
 	}
 	return item, nil

@@ -1630,8 +1630,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Requeue a failed, retryable Provisioning Task's cleanup without repeating Release.
-         * @description Requires role `admin`. Accepted only for a `failed` task whose Release was accepted (`retryable` true) while its Server is unlocked.
+         * Retry a failed, retryable Provisioning Task's cleanup without repeating Release.
+         * @description Requires role `admin`. Accepted only for a `failed` task whose Release was accepted (`retryable` true) while its Server is unlocked. It retries the `release-os` Task of the Workflow that owns the cleanup (`requestId`), which runs the cleanup again; a release Task that cannot be retried is `409`.
          */
         post: operations["retryProvisioningTask"];
         delete?: never;
@@ -10620,7 +10620,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The cleanup was requeued; the body is the task as stored after the requeue. */
+            /** @description The release Task's retry was requested; the body is the task as stored, which changes once that Task runs. */
             202: {
                 headers: {
                     [name: string]: unknown;
