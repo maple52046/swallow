@@ -94,12 +94,13 @@ api-server/
 │   │   └── events/memory/           # process 內的 Server 事件
 │   ├── shared/                      # 無業務規則的共用 helper
 │   └── app/                         # composition root
-└── modules/
+└── modules/                         # host automation 的內容根目錄（ansible-runner project dir）
+    ├── manifest.json                # release 的 playbook allowlist，路徑相對於 modules/
     ├── platform/kubernetes/  platform/slurm/
     ├── platform/platformapi/        # Kubernetes 與 Slurm 模組暫時共用的 API client
     ├── accelerator/amd/
     ├── software/<kind>/
-    └── shared/roles/                # 跨模組共用的 role
+    └── shared/                      # 跨模組共用的 playbook 與 role
 ```
 
 - **core**：`<context>` 是現在的 feature slice（site、server、provisioning、workflow、platform、software、sshkey、
@@ -110,8 +111,9 @@ api-server/
   或模組。Mongo repository 依 context 放在 `store/mongodb/<context>`，schema migration 放在
   `store/mongodb/migration`。
 - **modules**：一個模組一個目錄，Go hook 與 manifest、host automation 內容放在一起；只經由模組契約依賴 core，
-  不得 import adapter 或其他模組的內部程式碼。執行時讀取的 playbook 目錄與 manifest 由 release 建置時從模組
-  目錄組合，安裝路徑不變。
+  不得 import adapter 或其他模組的內部程式碼。playbook 放在模組的 `playbooks/`、role 放在模組的 `roles/`；
+  `modules/` 本身就是執行時的內容根目錄（安裝在 `/opt/swallow/automation/modules`），每次執行只看得到 playbook
+  所屬模組與 `shared/` 的 role（`ANSIBLE_ROLES_PATH`）。
 - **`internal/app`**：唯一可以同時看到 core、adapter 與模組的地方。
 
 過渡規則：新程式碼一律放在目標位置；既有程式碼在依此配置搬移之前維持原位，兩者可以並存。搬移時不得改變行為，

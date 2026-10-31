@@ -14,11 +14,7 @@ import (
 // bounded sync wait that fails with a stable code; and the platform playbooks checking every clock
 // before they install anything.
 func TestConfigureNTPPlaybookContract(t *testing.T) {
-	automation := filepath.Join("..", "..", "..", "..", "automation")
-	catalog, err := LoadManifestCatalog(
-		filepath.Join(automation, "manifest.json"),
-		filepath.Join(automation, "playbooks"),
-	)
+	catalog, err := LoadManifestCatalog(shippedManifest, modulesRoot)
 	if err != nil {
 		t.Fatalf("load shipped manifest: %v", err)
 	}
@@ -29,7 +25,6 @@ func TestConfigureNTPPlaybookContract(t *testing.T) {
 		t.Errorf("check-time-sync must not be a playbook: the platform playbooks check time themselves")
 	}
 
-	root := filepath.Join(automation, "playbooks")
 	tasks := filepath.Join("roles", "ntp_client", "tasks", "main.yml")
 	cases := []struct {
 		path     string
@@ -73,7 +68,7 @@ func TestConfigureNTPPlaybookContract(t *testing.T) {
 		}},
 	}
 	for _, tc := range cases {
-		raw, err := os.ReadFile(filepath.Join(root, tc.path))
+		raw, err := os.ReadFile(shippedFile(t, tc.path))
 		if err != nil {
 			t.Fatalf("read %s: %v", tc.path, err)
 		}
@@ -86,7 +81,7 @@ func TestConfigureNTPPlaybookContract(t *testing.T) {
 	}
 
 	// Installing a client is only the fallback for a host with none.
-	raw, err := os.ReadFile(filepath.Join(root, tasks))
+	raw, err := os.ReadFile(shippedFile(t, tasks))
 	if err != nil {
 		t.Fatalf("read %s: %v", tasks, err)
 	}
@@ -102,7 +97,7 @@ func TestConfigureNTPPlaybookContract(t *testing.T) {
 		{path: "deploy-kubernetes.yml", before: "role: k0s_binary"},
 		{path: "deploy-slurm.yml", before: "role: slurm_preflight"},
 	} {
-		raw, err := os.ReadFile(filepath.Join(root, playbook.path))
+		raw, err := os.ReadFile(shippedFile(t, playbook.path))
 		if err != nil {
 			t.Fatalf("read %s: %v", playbook.path, err)
 		}
@@ -114,7 +109,7 @@ func TestConfigureNTPPlaybookContract(t *testing.T) {
 
 	// The templates must not read DHCP-offered or distribution sources: only the installation's server.
 	for _, name := range []string{"chrony.conf.j2", "ntp.conf.j2", "timesyncd.conf.j2"} {
-		template, err := os.ReadFile(filepath.Join(root, "roles", "ntp_client", "templates", name))
+		template, err := os.ReadFile(filepath.Join(roleDir(t, "ntp_client"), "templates", name))
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
 		}

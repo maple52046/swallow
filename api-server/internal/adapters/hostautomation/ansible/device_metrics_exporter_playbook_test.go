@@ -11,8 +11,7 @@ import (
 // GPU nodes. The former Slurm-only name stays registered for the same file so a Workflow accepted
 // before the rename can still be retried.
 func TestShippedManifestResolvesDeviceMetricsExporterPlaybooks(t *testing.T) {
-	automation := filepath.Join("..", "..", "..", "..", "automation")
-	catalog, err := LoadManifestCatalog(filepath.Join(automation, "manifest.json"), filepath.Join(automation, "playbooks"))
+	catalog, err := LoadManifestCatalog(shippedManifest, modulesRoot)
 	if err != nil {
 		t.Fatalf("load shipped manifest: %v", err)
 	}

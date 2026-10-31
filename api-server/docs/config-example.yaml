@@ -108,10 +108,11 @@ api:
   # How often the API and worker reconcile persisted pending Operations into workflows.
   temporalStartInterval: "1s"
 
-  # Immutable release playbooks and mutable runner paths.
+  # Immutable release playbooks and mutable runner paths. playbookDir is the modules root
+  # (the ansible-runner project dir); manifest paths are relative to it.
   ansibleRunnerCommand: "ansible-runner"
-  playbookManifest: "automation/manifest.json"
-  playbookDir: "automation/playbooks"
+  playbookManifest: "modules/manifest.json"
+  playbookDir: "modules"
   jobRuntimeDir: "/tmp/swallow/jobs"
   jobArtifactDir: "./var/jobs"
 

@@ -16,8 +16,8 @@ import (
 // under a valid Workflow kind that requires a deployed host: a kind added to the catalog without
 // both mappings would be accepted by the API and then refused at launch.
 func TestEverySoftwareKindHasRegisteredPlaybooks(t *testing.T) {
-	automation := filepath.Join("..", "..", "automation")
-	catalog, err := ansible.LoadManifestCatalog(filepath.Join(automation, "manifest.json"), filepath.Join(automation, "playbooks"))
+	modules := filepath.Join("..", "..", "modules")
+	catalog, err := ansible.LoadManifestCatalog(filepath.Join(modules, "manifest.json"), modules)
 	if err != nil {
 		t.Fatalf("load shipped manifest: %v", err)
 	}

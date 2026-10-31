@@ -118,7 +118,7 @@ Shared behavior：
 - Inventory sweep refresh expensive attached-hardware observation。
 - Platform sync 讀取 runtime-owned membership。
 - Temporal Workflow 執行 versioned Job／Task。
-- Ansible execution 只允許 [automation/manifest.json](automation/manifest.json)
+- Ansible execution 只允許 [modules/manifest.json](modules/manifest.json)
   內的 playbook。
 
 Expired execution 可能變成 `indeterminate`；因為 external side effect 無法證明，

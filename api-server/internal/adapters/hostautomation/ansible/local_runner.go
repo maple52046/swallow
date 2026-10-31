@@ -126,6 +126,11 @@ func (r *LocalRunner) Run(ctx context.Context, input workflowdomain.RunnerInput)
 		}
 	}
 
+	roles, err := rolesPath(r.projectRoot, input.PlaybookPath)
+	if err != nil {
+		return result, err
+	}
+
 	runArtifacts := filepath.Join(r.artifactRoot, input.Operation.Execution.RunID)
 	if err := os.MkdirAll(runArtifacts, 0o750); err != nil {
 		return result, err
@@ -155,6 +160,8 @@ func (r *LocalRunner) Run(ctx context.Context, input workflowdomain.RunnerInput)
 		// A freshly deployed host runs unattended-upgrades, which can restart sshd mid-play;
 		// retrying a refused connection (ssh exit 255 only, with backoff) rides that out.
 		"ANSIBLE_SSH_RETRIES=5",
+		// The run sees only its own module's roles and the shared roles (see rolesPath).
+		"ANSIBLE_ROLES_PATH="+roles,
 	)
 	if err := command.Run(); err != nil {
 		if ctx.Err() != nil {

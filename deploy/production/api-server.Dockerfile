@@ -31,12 +31,17 @@ COPY api-server/ ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
     -ldflags="-s -w -X github.com/maple52046/swallow/internal/shared/version.Version=${VERSION} -X github.com/maple52046/swallow/internal/shared/version.Commit=${COMMIT} -X github.com/maple52046/swallow/internal/shared/version.BuiltAt=${BUILT_AT}" \
     -o /out/swallow-api ./cmd/swallow-api
+# The host automation bundle is the modules tree without its Go sources, which are compiled into
+# swallow-api above; manifest paths are relative to the modules root.
+RUN cp -a modules /out/modules \
+ && find /out/modules -name '*.go' -delete \
+ && find /out/modules -type d -empty -delete
 
 FROM ${EXECUTION_ENVIRONMENT}
 LABEL org.opencontainers.image.source="https://github.com/maple52046/swallow" \
       org.opencontainers.image.description="swallow API, worker, and Ansible executor"
 USER 0
-COPY api-server/automation/requirements.txt /tmp/swallow-ansible-requirements.txt
+COPY api-server/internal/adapters/hostautomation/ansible/requirements.txt /tmp/swallow-ansible-requirements.txt
 # mtools, xorriso, isolinux, and syslinux-common are what genfsimg needs to package a Boot ISO;
 # grub-common (grub-mkstandalone) and grub-efi-amd64-bin build its UEFI GRUB (decision 057).
 # The Boot ISO directory is created owned by the service user so a named volume mounted over it
@@ -52,9 +57,9 @@ RUN apt-get update \
  && install -d -o 10001 -g 10001 -m 0700 /run/swallow/jobs
 COPY --from=ipxe /out/ /usr/share/swallow/ipxe/
 COPY --from=build /out/swallow-api /usr/local/bin/swallow-api
-COPY --chown=10001:10001 api-server/automation /opt/swallow/automation
-ENV SWALLOW_API_PLAYBOOK_MANIFEST=/opt/swallow/automation/manifest.json \
-    SWALLOW_API_PLAYBOOK_DIR=/opt/swallow/automation/playbooks \
+COPY --chown=10001:10001 --from=build /out/modules /opt/swallow/automation/modules
+ENV SWALLOW_API_PLAYBOOK_MANIFEST=/opt/swallow/automation/modules/manifest.json \
+    SWALLOW_API_PLAYBOOK_DIR=/opt/swallow/automation/modules \
     SWALLOW_API_JOB_RUNTIME_DIR=/run/swallow/jobs \
     SWALLOW_API_JOB_ARTIFACT_DIR=/var/lib/swallow/jobs \
     HOME=/tmp

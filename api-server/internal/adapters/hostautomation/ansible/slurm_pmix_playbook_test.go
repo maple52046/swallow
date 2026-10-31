@@ -45,7 +45,7 @@ func runMPIProbe(t *testing.T, env []string, args ...string) (mpiProbeReport, in
 	if err := os.WriteFile(filepath.Join(site, "mpi4py", "__init__.py"), []byte(fakeMPI4Py), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	probe := filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles", "slurm_pmix", "files", "mpi-probe.py")
+	probe := filepath.Join(roleDir(t, "slurm_pmix"), "files", "mpi-probe.py")
 	cmd := exec.Command("python3", append([]string{probe}, args...)...)
 	cmd.Env = append(os.Environ(), append(env, "PYTHONPATH="+site)...)
 	out, err := cmd.Output()

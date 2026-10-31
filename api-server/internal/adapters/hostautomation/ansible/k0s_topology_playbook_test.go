@@ -8,7 +8,6 @@ import (
 )
 
 func TestK0sPlaybookSupportsFlexibleTopologiesAndLegacyRetries(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "..", "automation", "playbooks")
 	cases := []struct {
 		path     string
 		required []string
@@ -73,7 +72,7 @@ func TestK0sPlaybookSupportsFlexibleTopologiesAndLegacyRetries(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {
-			raw, err := os.ReadFile(filepath.Join(root, tc.path))
+			raw, err := os.ReadFile(shippedFile(t, tc.path))
 			if err != nil {
 				t.Fatalf("read playbook artifact: %v", err)
 			}
@@ -86,7 +85,7 @@ func TestK0sPlaybookSupportsFlexibleTopologiesAndLegacyRetries(t *testing.T) {
 		})
 	}
 
-	bootstrap, err := os.ReadFile(filepath.Join(root, "roles", "k0s_controller_bootstrap", "tasks", "main.yml"))
+	bootstrap, err := os.ReadFile(filepath.Join(roleDir(t, "k0s_controller_bootstrap"), "tasks", "main.yml"))
 	if err != nil {
 		t.Fatalf("read bootstrap role: %v", err)
 	}
@@ -94,7 +93,7 @@ func TestK0sPlaybookSupportsFlexibleTopologiesAndLegacyRetries(t *testing.T) {
 		t.Error("standalone deployment must remain scale-out capable and not use --single")
 	}
 
-	workerJoin, err := os.ReadFile(filepath.Join(root, "roles", "k0s_worker_join", "tasks", "main.yml"))
+	workerJoin, err := os.ReadFile(filepath.Join(roleDir(t, "k0s_worker_join"), "tasks", "main.yml"))
 	if err != nil {
 		t.Fatalf("read worker join role: %v", err)
 	}

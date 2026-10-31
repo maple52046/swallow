@@ -17,7 +17,7 @@ func TestEveryGPUOperatorReleaseShipsItsChart(t *testing.T) {
 		if release.Default {
 			defaults++
 		}
-		path := filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles", "amd_gpu_operator", "files",
+		path := filepath.Join("..", "..", "..", "..", "modules", "accelerator", "amd", "roles", "amd_gpu_operator", "files",
 			"gpu-operator-charts-"+release.Version+".tgz")
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("release %s has no bundled chart: %v", release.Version, err)

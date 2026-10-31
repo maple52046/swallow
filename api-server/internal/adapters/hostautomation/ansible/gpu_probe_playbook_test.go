@@ -61,7 +61,7 @@ func runHIPProbe(t *testing.T, env []string, args ...string) (hipProbeReport, in
 	if err != nil {
 		t.Skip("python3 is not available")
 	}
-	probe := filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles", "gpu_probe", "files", "hip_probe.py")
+	probe := filepath.Join(roleDir(t, "gpu_probe"), "files", "hip_probe.py")
 	cmd := exec.Command(python, append([]string{probe}, args...)...)
 	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.Output()
@@ -83,7 +83,6 @@ func runHIPProbe(t *testing.T, env []string, args ...string) (hipProbeReport, in
 // A Slurm GPU node joins only after its GPUs pass the probe directly and through Slurm (no GPU
 // request, one GPU, every GPU); a failed node is drained before the run fails.
 func TestSlurmGPUGatesUseTheHIPProbe(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "..", "automation", "playbooks")
 	cases := map[string][]string{
 		filepath.Join("roles", "slurm_gpu", "tasks", "main.yml"): {
 			"name: gpu_probe", "gpu_probe_expect: \"{{ slurm_gpus | length }}\"", "state=drain",
@@ -97,7 +96,7 @@ func TestSlurmGPUGatesUseTheHIPProbe(t *testing.T) {
 		"uninstall-slurm.yml": {"/usr/local/libexec/swallow/hip-probe"},
 	}
 	for path, required := range cases {
-		content, err := os.ReadFile(filepath.Join(root, path))
+		content, err := os.ReadFile(shippedFile(t, path))
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
 		}

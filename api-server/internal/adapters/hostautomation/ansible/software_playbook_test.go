@@ -12,11 +12,7 @@ import (
 // so a registered-but-missing file would fail the API on boot; this pins that the shipped
 // manifest resolves every software playbook.
 func TestShippedManifestResolvesSoftwarePlaybooks(t *testing.T) {
-	automation := filepath.Join("..", "..", "..", "..", "automation")
-	catalog, err := LoadManifestCatalog(
-		filepath.Join(automation, "manifest.json"),
-		filepath.Join(automation, "playbooks"),
-	)
+	catalog, err := LoadManifestCatalog(shippedManifest, modulesRoot)
 	if err != nil {
 		t.Fatalf("load shipped manifest: %v", err)
 	}
@@ -39,7 +35,6 @@ func TestShippedManifestResolvesSoftwarePlaybooks(t *testing.T) {
 // per-serverId roles. These assertions keep a refactor from dropping the role classification and
 // silently making every host a server (or a client).
 func TestNFSPlaybookClassifiesRolesFromTrustedVars(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "..", "automation", "playbooks")
 	cases := []struct {
 		path     string
 		required []string
@@ -82,7 +77,7 @@ func TestNFSPlaybookClassifiesRolesFromTrustedVars(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		raw, err := os.ReadFile(filepath.Join(root, tc.path))
+		raw, err := os.ReadFile(shippedFile(t, tc.path))
 		if err != nil {
 			t.Fatalf("read %s: %v", tc.path, err)
 		}
@@ -100,7 +95,6 @@ func TestNFSPlaybookClassifiesRolesFromTrustedVars(t *testing.T) {
 // keep the playbooks wired to those vars, the listener tied to state=present, the stock fd://
 // socket preserved, and uninstall closing what install opened.
 func TestDockerCEPlaybooksConvergeEngineAPIListener(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "..", "automation", "playbooks")
 	cases := []struct {
 		path     string
 		required []string
@@ -134,7 +128,7 @@ func TestDockerCEPlaybooksConvergeEngineAPIListener(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		raw, err := os.ReadFile(filepath.Join(root, tc.path))
+		raw, err := os.ReadFile(shippedFile(t, tc.path))
 		if err != nil {
 			t.Fatalf("read %s: %v", tc.path, err)
 		}
@@ -151,7 +145,6 @@ func TestDockerCEPlaybooksConvergeEngineAPIListener(t *testing.T) {
 // removal path, not a no-op. Docker CE and Podman are mutually exclusive software kinds; each
 // owns one install implementation shared by every platform composition (decision 063).
 func TestContainerRuntimeRolesHaveInstallAndRemoveBranches(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles")
 	cases := []struct {
 		path     string
 		required []string
@@ -174,7 +167,7 @@ func TestContainerRuntimeRolesHaveInstallAndRemoveBranches(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		raw, err := os.ReadFile(filepath.Join(root, tc.path))
+		raw, err := os.ReadFile(shippedFile(t, filepath.Join("roles", tc.path)))
 		if err != nil {
 			t.Fatalf("read %s: %v", tc.path, err)
 		}

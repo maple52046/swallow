@@ -41,7 +41,7 @@ COPY --from=air-build /go/bin/air /usr/local/bin/air
 
 # Match the production execution environment: the lock is copied before the source bind
 # mount replaces /app, and the venv is available to the non-root developer user.
-COPY api-server/automation/requirements.txt /tmp/ansible-requirements.txt
+COPY api-server/internal/adapters/hostautomation/ansible/requirements.txt /tmp/ansible-requirements.txt
 # mtools, xorriso, isolinux, and syslinux-common are what genfsimg needs to package a Boot ISO;
 # grub-common (grub-mkstandalone) and grub-efi-amd64-bin build its UEFI GRUB (decision 057).
 RUN apt-get update \

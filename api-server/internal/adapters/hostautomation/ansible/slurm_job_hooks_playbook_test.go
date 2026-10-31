@@ -12,7 +12,7 @@ import (
 
 func slurmPlaybookFile(t *testing.T, parts ...string) string {
 	t.Helper()
-	content, err := os.ReadFile(filepath.Join(append([]string{"..", "..", "..", "..", "automation", "playbooks"}, parts...)...))
+	content, err := os.ReadFile(shippedFile(t, filepath.Join(parts...)))
 	if err != nil {
 		t.Fatal(err)
 	}

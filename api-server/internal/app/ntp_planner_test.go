@@ -50,7 +50,7 @@ type ntpTestCatalog struct{}
 
 func (ntpTestCatalog) Resolve(name string) (string, error) {
 	if name == ntpPlaybook {
-		return "/automation/playbooks/" + name + ".yml", nil
+		return "shared/playbooks/" + name + ".yml", nil
 	}
 	return "", workflowdomain.ErrPlaybookNotAllowed
 }

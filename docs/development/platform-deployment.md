@@ -577,9 +577,11 @@ playbook 若需回傳結果（例如叢集 credential），寫入 runner 提供�
 ### 4.5 Playbook manifest 與 site playbookMappings
 
 - **Release manifest**（allow-list，[decision 006](../decisions/006-embedded-ansible-execution.md)）：
-  [`api-server/automation/manifest.json`](../../api-server/automation/manifest.json) 登錄
-  `name → path`；只有登錄的 playbook 可執行，路徑不得逃逸 project root。Python 依賴 pin 於
-  [`requirements.txt`](../../api-server/automation/requirements.txt)。
+  [`api-server/modules/manifest.json`](../../api-server/modules/manifest.json) 登錄
+  `name → path`；只有登錄的 playbook 可執行。路徑相對於 `api-server/modules/`，必須是
+  `<種類>/<id>/playbooks/<file>.yml` 或 `shared/playbooks/<file>.yml`；執行時 role 只從該模組的 `roles/` 與
+  `shared/roles/` 解析（`ANSIBLE_ROLES_PATH`），模組看不到其他模組的 role。Python 依賴 pin 於
+  [`requirements.txt`](../../api-server/internal/adapters/hostautomation/ansible/requirements.txt)。
 - **Site `playbookMappings`**：站台的 Automation Configuration 把 workflow `kind` 映射到 manifest
   的 playbook `name`（合約見
   [site-automation.md](../../api-server/docs/development/api-contracts/api-server/site-automation.md)）。
@@ -705,7 +707,8 @@ uninstall）；後端取代佔用工作的流程見 [workflow-execution.md](work
 4. **排序留在 playbook**：`serial`、handlers、host loop 等屬 ansible 的排序留在 playbook；只有當
    中途必須插入**非 ansible** 動作時，才拆成兩個 Task。
 5. **註冊與鎖定**：在 `manifest.json` 註冊；Python/collection 依賴 pin 在 `requirements.txt`/
-   `requirements.yml`；不得引用 project root 外的路徑。executor image 目前不裝任何 galaxy collection
+   `requirements.yml`；不得引用 project root（`api-server/modules/`）外的路徑，也不得使用其他模組的 role（執行時
+   看不到）。executor image 目前不裝任何 galaxy collection
    （`requirements.yml` 為空），所以只用 `ansible.builtin`：例如 Slurm 的 NFS mount 以 fstab＋有防護的 `mount`＋
    `mountpoint` 驗證實作，不引入 `ansible.posix`（[ADR 023](../decisions/023-slurm-ha-shared-state-provisioning.md)）。
 6. **credential 走契約**：需要回傳結果時只透過 `swallow_result_path` 寫 `result.json`。
@@ -738,9 +741,10 @@ deploy handler 與憑證記錄，並重用 `ensure-os`。具體對照見 §6.3�
 ### 6.2 步驟
 
 1. **設計 Job**：重用 `ensure-os`（OS + SSH 就緒的骨架不必重寫）；新增 `configure-slurm` Job。
-2. **寫 playbook**：於 `api-server/automation/playbooks/` 新增 `deploy-slurm.yml` 與所需 roles，
-   遵守 §5。以 `deploy-kubernetes.yml` + `roles/k0s_*` 為範本。
-3. **註冊**：在 `manifest.json` 加入 `{ "name": "deploy-slurm", "path": "deploy-slurm.yml" }`；
+2. **寫 playbook**：於模組目錄 `api-server/modules/platform/slurm/` 的 `playbooks/` 新增 `deploy-slurm.yml`，
+   所需 roles 放在同一個模組的 `roles/`（被多個模組使用的 role 放 `api-server/modules/shared/roles/`），
+   遵守 §5。以 Kubernetes 模組的 `deploy-kubernetes.yml` + `roles/k0s_*` 為範本。
+3. **註冊**：在 `manifest.json` 加入 `{ "name": "deploy-slurm", "path": "platform/slurm/playbooks/deploy-slurm.yml" }`；
    pin 依賴。
 4. **決定 trusted vars**：屬 (A) 就只用 standard vars + operator vars；屬 (B) 就在 Go 定義
    `swallow_slurm_*` 並於 launcher 組裝（比照 `buildDeploymentVars`），client 不可偽造。
@@ -825,7 +829,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   policy，於建立 Platform／Workflow 前以 inventory observed hardware 權威驗證。policy 不存在即停用（不需 migration），
   讀取失敗則 fail closed；Kubernetes 不讀也不套用。它只是資格門檻：不保留資源、不改 Slurm scheduler 容量、不從 image
   推導，也不保證任意 image 的 ephemeral rootfs 一定能容納。
-- **uninstall**：`uninstall-slurm`（[uninstall-slurm.yml](../../api-server/automation/playbooks/uninstall-slurm.yml)）
+- **uninstall**：`uninstall-slurm`（[uninstall-slurm.yml](../../api-server/modules/platform/slurm/playbooks/uninstall-slurm.yml)）
   比照 `uninstall-kubernetes`：停用 slurmctld/slurmd/slurmrestd/munge、移除 Swallow 佈的
   設定/金鑰/controller state（保留 OS 與 image 套件），可選擇同時 release 成員機。已在 lab
   以 5 節點驗證(rc=0、platform → uninstalled)。
@@ -962,12 +966,12 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   Prometheus／Grafana 組入見 decision 063；dispatcher、共用節點、DME、OCI、PMIx 見 decision 066。各 ADR 保留完整的
   否決方案。
 
-Slurm playbook：[`deploy-slurm.yml`](../../api-server/automation/playbooks/deploy-slurm.yml) 與
-`playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_gpu`、
+Slurm playbook：[`deploy-slurm.yml`](../../api-server/modules/platform/slurm/playbooks/deploy-slurm.yml) 與
+Slurm 模組的 `roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_gpu`、
 `slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、
 `slurm_cluster_credential`、`slurm_job_hooks`）；Device Metrics Exporter：
-[`deploy-device-metrics-exporter.yml`](../../api-server/automation/playbooks/deploy-device-metrics-exporter.yml)
-（standalone 與 Slurm 共用；舊名 `configure-device-metrics-exporter` 為 manifest alias）與 `roles/device_metrics_exporter`（套件 URL／SHA-256 與上游 `config.json` 在 role 內）；Omnistat：[`configure-omnistat.yml`](../../api-server/automation/playbooks/configure-omnistat.yml)
+[`deploy-device-metrics-exporter.yml`](../../api-server/modules/software/device-metrics-exporter/playbooks/deploy-device-metrics-exporter.yml)
+（standalone 與 Slurm 共用；舊名 `configure-device-metrics-exporter` 為 manifest alias）與共用的 `roles/device_metrics_exporter`（套件 URL／SHA-256 與上游 `config.json` 在 role 內）；Omnistat：[`configure-omnistat.yml`](../../api-server/modules/platform/slurm/playbooks/configure-omnistat.yml)
 與 `roles/omnistat`（上游 tag 壓縮檔 sha256 在 `defaults/main.yml`，swallow 維護的 patch 與依賴 constraints 在 `files/`）。
 
 **swallow 維護的 Omnistat patch（[decision 064](../decisions/064-upstream-patches-are-the-exception.md)）**：
@@ -1041,23 +1045,24 @@ API 契約的 "Read Slurm Cluster State"。
 | ansible-runner 執行（known_hosts、result.json） | `internal/adapters/hostautomation/ansible/local_runner.go` |
 | Playbook manifest 載入 | `internal/adapters/hostautomation/ansible/playbook_catalog.go` |
 
-### Ansible 內容（`api-server/automation/`）
+### Ansible 內容（`api-server/modules/`）
+
+一個模組一個目錄（`<種類>/<id>/`），playbook 在模組的 `playbooks/`、role 在模組的 `roles/`；被多個模組或共用
+playbook 使用的內容放在 `shared/`。
 
 | 內容 | 路徑 |
 | --- | --- |
 | Playbook manifest（allow-list） | `manifest.json` |
-| 依賴鎖 | `requirements.txt`、`requirements.yml` |
-| Playbooks | `playbooks/*.yml`（`deploy-kubernetes.yml`、`uninstall-kubernetes.yml`、exporters…） |
-| k0s roles（reference 範本） | `playbooks/roles/k0s_*`（`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`） |
-| Slurm playbook 與 roles | `playbooks/deploy-slurm.yml`、`playbooks/roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、`slurm_cluster_credential`） |
-| AMD GPU Operator playbook 與 role | `playbooks/configure-amd-gpu-operator.yml`、`playbooks/roles/amd_gpu_operator`（chart 在 `files/`、helm 版本與 checksum 在 `defaults/`） |
-| 共用 amdgpu loader（GPU Operator 與 Slurm GRES） | `playbooks/roles/amdgpu_loader` |
-| Omnistat playbook 與 role | `playbooks/configure-omnistat.yml`、`playbooks/roles/omnistat` |
-| DME playbook 與 role | `playbooks/deploy-device-metrics-exporter.yml`、`playbooks/uninstall-device-metrics-exporter.yml`、`playbooks/roles/device_metrics_exporter` |
-| Prometheus／Grafana software roles | `playbooks/roles/prometheus`、`playbooks/roles/grafana`（Omnistat dashboards 在 `files/dashboards/omnistat`） |
-| 時間同步（decision 065） | `playbooks/configure-ntp.yml`、`playbooks/roles/ntp_client`（偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）；`playbooks/roles/time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`） |
+| 依賴鎖 | `api-server/internal/adapters/hostautomation/ansible/requirements.txt`、`requirements.yml` |
+| Kubernetes 模組 | `platform/kubernetes/`：`deploy-kubernetes.yml`、`uninstall-kubernetes.yml`、`deploy-k8s-exporters.yml`、`remove-k8s-exporters.yml`；roles `k0s_*`（reference 範本：`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`）與 `k8s_exporters` |
+| Slurm 模組 | `platform/slurm/`：`deploy-slurm.yml`、`uninstall-slurm.yml`、`configure-omnistat.yml`；roles `slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、`slurm_cluster_credential`…）、`gpu_probe`、`omnistat` |
+| AMD 模組（GPU Operator） | `accelerator/amd/`：`configure-amd-gpu-operator.yml`；role `amd_gpu_operator`（chart 在 `files/`、helm 版本與 checksum 在 `defaults/`） |
+| DME（Managed Software） | `software/device-metrics-exporter/`：`deploy-device-metrics-exporter.yml`、`uninstall-device-metrics-exporter.yml`；role 是共用的 `device_metrics_exporter` |
+| Prometheus／Grafana（Managed Software） | `software/prometheus/`、`software/grafana/`（Omnistat dashboards 在 grafana role 的 `files/dashboards/omnistat`） |
+| 共用 playbook | `shared/playbooks/`：`diagnostic-ping.yml`、`configure-ntp.yml`、`install-exporters.yml`、`uninstall-exporters.yml` |
+| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`device_metrics_exporter`（Slurm 與 DME）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`docker_runtime`、`node_exporter`、`rdc_exporter` |
 
-映像：production 於 build 時 `COPY api-server/automation → /opt/swallow/automation`；`ansible`
+映像：production 於 build 時把 `api-server/modules`（去掉 Go 原始碼）複製到 `/opt/swallow/automation/modules`；`ansible`
 與 API/worker 共用同一映像，以不同 command 啟動。
 
 ---

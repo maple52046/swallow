@@ -135,10 +135,10 @@ component 之內，不是新的頂層 component。目標位置：
 [`api-server/docs/development/architecture-spec.md`](../../api-server/docs/development/architecture-spec.md) 的
 Target Layout。
 
-過渡規則：新程式碼一律放在目標位置。既有程式碼在搬移完成之前維持原位，兩者可以並存：provider adapter 目前多半
-位於 `api-server/internal/<feature>/infra/<adapter>`，Kubernetes、Slurm、AMD 與 Managed Software 的程式碼位於
-`api-server/internal/core/platform`、`api-server/internal/core/software`、`api-server/internal/app` 與
-`api-server/automation`。
+既有程式碼已依此配置搬移：provider adapter 在 `api-server/internal/adapters/`，host automation 內容與模組的
+Go 程式碼在 `api-server/modules/`。仍在 core 與 `internal/app` 內的平台與 GPU 廠商專屬邏輯（例如
+`api-server/internal/core/platform` 的 Kubernetes、Slurm、AMD 規則）列在
+[core-and-extensions.md](core-and-extensions.md) §3.6，修改時不得擴大。
 
 ## Rules
 

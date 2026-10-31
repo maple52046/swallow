@@ -198,12 +198,14 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 
 ### 4.4 Playbook manifest 與命名
 
-- 於 [`api-server/automation/manifest.json`](../../api-server/automation/manifest.json) 註冊：
+- 於 [`api-server/modules/manifest.json`](../../api-server/modules/manifest.json) 註冊：
   `deploy-docker-ce` / `uninstall-docker-ce`、`deploy-podman` / `uninstall-podman`、
   `deploy-nfs` / `uninstall-nfs`、`deploy-prometheus` / `uninstall-prometheus`、
   `deploy-grafana` / `uninstall-grafana`、`deploy-device-metrics-exporter` /
   `uninstall-device-metrics-exporter`（舊名 `configure-device-metrics-exporter` 仍指向同一支
-  playbook，供 068 之前受理的 Workflow 重試）。
+  playbook，供 068 之前受理的 Workflow 重試）。每個 kind 是一個模組，playbook 在
+  `api-server/modules/software/<kind>/playbooks/`、專屬 role 在同一模組的 `roles/`；DME 使用 `shared/roles/` 的
+  `device_metrics_exporter` 與 `amdgpu_loader`（Slurm 也使用它們）。
 - playbook 名由 launcher **硬編碼**（比照 Slurm / uninstall-kubernetes），**不需**站台
   `playbookMappings`。
 - Python/collection 依賴 pin 於 `requirements.txt` / `requirements.yml`；只用 `ansible.builtin`
@@ -346,7 +348,7 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
 | Software launcher（Job 組裝） | `api-server/internal/app/software_deployment_adapter.go` |
 | record/clear internal step | `api-server/internal/app/platform_workflow_step_executor.go` |
 | 失敗標記 observer | `api-server/internal/app/software_assignment_observer.go` |
-| Playbooks 與 roles | `api-server/automation/playbooks/deploy-*.yml`、`roles/docker_ce`（Engine API listener：`tasks/api.yml`）、`roles/podman`、`roles/nfs_server`、`roles/nfs_client`、`roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用） |
+| Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用） |
 | Docker Host Explorer（view types、use case、Engine client、handler） | `api-server/internal/core/software/domain/docker.go`（port 常數 `DockerEngineAPIPort` 在 `domain/software.go`）、`application/docker_explorer.go`、`delivery/docker_handler.go`、`api-server/modules/software/docker-ce/dockerengine/` |
 | Registry Credential（registry 正規化與解析、service、sealed Mongo repo、handler） | `api-server/internal/core/software/domain/registry.go`、`application/registry_credentials.go`、`delivery/registry_credential_handler.go`、`api-server/internal/adapters/store/mongodb/software/mongo_registry_credential_repo.go` |
 | Device Metrics Exporter（pinned version、port、job attribution） | `api-server/internal/core/software/domain/device_metrics_exporter.go`；Slurm 組入：`api-server/internal/app/slurm_composition_adapter.go` |

@@ -67,7 +67,7 @@ func runNodeState(t *testing.T, root string, desired map[string]string, extra ..
 	if err != nil {
 		t.Skip("python3 is not available")
 	}
-	script := filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles", "amdgpu_loader", "files", "amdgpu_node_state.py")
+	script := filepath.Join(roleDir(t, "amdgpu_loader"), "files", "amdgpu_node_state.py")
 	encoded, _ := json.Marshal(desired)
 	args := append([]string{script, "--root", root, "--desired", base64.StdEncoding.EncodeToString(encoded)}, extra...)
 	out, err := exec.Command(python, args...).Output()
@@ -182,7 +182,7 @@ func TestAMDGPUNodeStateRootFilesystem(t *testing.T) {
 // visible with its own conditions.
 func loaderTasks(t *testing.T, file string) []map[string]any {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles", "amdgpu_loader", "tasks", file)
+	path := filepath.Join(roleDir(t, "amdgpu_loader"), "tasks", file)
 	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

@@ -3,6 +3,7 @@ package ansible
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,24 +12,38 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-func TestManifestCatalogAllowsOnlyRegisteredFiles(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "ping.yml"), []byte("---\n"), 0o600); err != nil {
-		t.Fatal(err)
+// writeManifest writes a schemaVersion 1 manifest registering entries (name to path) and an empty
+// playbook behind every path under root, and returns the manifest's path.
+func writeManifest(t *testing.T, root string, entries map[string]string) string {
+	t.Helper()
+	var listed []string
+	for name, path := range entries {
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("---\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		listed = append(listed, fmt.Sprintf(`{"name": %q, "path": %q}`, name, path))
 	}
 	manifest := filepath.Join(t.TempDir(), "manifest.json")
-	if err := os.WriteFile(manifest, []byte(`{
-		"schemaVersion": 1,
-		"playbooks": [{"name": "ping", "path": "ping.yml"}]
-	}`), 0o600); err != nil {
+	body := `{"schemaVersion": 1, "playbooks": [` + strings.Join(listed, ",") + `]}`
+	if err := os.WriteFile(manifest, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	return manifest
+}
+
+func TestManifestCatalogAllowsOnlyRegisteredFiles(t *testing.T) {
+	root := t.TempDir()
+	manifest := writeManifest(t, root, map[string]string{"ping": "shared/playbooks/ping.yml"})
 
 	catalog, err := LoadManifestCatalog(manifest, root)
 	if err != nil {
 		t.Fatalf("load catalog: %v", err)
 	}
-	if path, err := catalog.Resolve("ping"); err != nil || path != "ping.yml" {
+	if path, err := catalog.Resolve("ping"); err != nil || path != "shared/playbooks/ping.yml" {
 		t.Fatalf("resolve registered playbook: path=%q err=%v", path, err)
 	}
 	if _, err := catalog.Resolve("../arbitrary.yml"); !errors.Is(err, workflowdomain.ErrPlaybookNotAllowed) {
@@ -36,17 +51,51 @@ func TestManifestCatalogAllowsOnlyRegisteredFiles(t *testing.T) {
 	}
 }
 
+// A manifest path must name the module that owns the playbook, because the module decides which
+// roles the run may use; a playbook outside that layout is refused when the catalog loads.
+func TestManifestCatalogRefusesPathsOutsideTheModuleLayout(t *testing.T) {
+	for _, path := range []string{
+		"ping.yml",
+		"shared/ping.yml",
+		"platform/slurm/ping.yml",
+		"platform/slurm/roles/ping.yml",
+		"shared/playbooks/nested/ping.yml",
+		"shared/x/playbooks/ping.yml",
+	} {
+		t.Run(path, func(t *testing.T) {
+			root := t.TempDir()
+			manifest := writeManifest(t, root, map[string]string{"ping": path})
+			if _, err := LoadManifestCatalog(manifest, root); !errors.Is(err, workflowdomain.ErrPlaybookNotAllowed) {
+				t.Errorf("LoadManifestCatalog(%q) error = %v, want ErrPlaybookNotAllowed", path, err)
+			}
+		})
+	}
+}
+
+// A run sees its own module's roles and the shared roles, never another module's.
+func TestRolesPathConfinesARunToItsModule(t *testing.T) {
+	root := filepath.FromSlash("/opt/modules")
+	shared := filepath.Join(root, "shared", "roles")
+	for _, tc := range []struct{ playbook, want string }{
+		{"platform/slurm/playbooks/deploy-slurm.yml", filepath.Join(root, "platform", "slurm", "roles") + string(filepath.ListSeparator) + shared},
+		{"software/nfs/playbooks/deploy-nfs.yml", filepath.Join(root, "software", "nfs", "roles") + string(filepath.ListSeparator) + shared},
+		{"shared/playbooks/configure-ntp.yml", shared},
+	} {
+		got, err := rolesPath(root, tc.playbook)
+		if err != nil || got != tc.want {
+			t.Errorf("rolesPath(%q) = %q, %v; want %q", tc.playbook, got, err, tc.want)
+		}
+	}
+	if _, err := rolesPath(root, "deploy-slurm.yml"); !errors.Is(err, workflowdomain.ErrPlaybookNotAllowed) {
+		t.Errorf("rolesPath(flat path) error = %v, want ErrPlaybookNotAllowed", err)
+	}
+}
+
 // The shipped manifest must reference real files: LoadManifestCatalog stats each path at
 // startup, so a manifest entry with no playbook behind it would fail the API on boot.
 // This guards the exporter playbooks in particular against being registered but missing.
 func TestShippedManifestResolvesExporterPlaybooks(t *testing.T) {
-	// Manifest lives at automation/manifest.json; its paths are relative to the
-	// playbook bundle root automation/playbooks (see config defaults).
-	automation := filepath.Join("..", "..", "..", "..", "automation")
-	manifest := filepath.Join(automation, "manifest.json")
-	projectRoot := filepath.Join(automation, "playbooks")
-
-	catalog, err := LoadManifestCatalog(manifest, projectRoot)
+	catalog, err := LoadManifestCatalog(shippedManifest, modulesRoot)
 	if err != nil {
 		t.Fatalf("load shipped manifest: %v", err)
 	}
@@ -64,7 +113,9 @@ func TestShippedManifestResolvesExporterPlaybooks(t *testing.T) {
 func TestLocalRunnerDeletesEphemeralCredentials(t *testing.T) {
 	root := t.TempDir()
 	command := filepath.Join(root, "runner")
-	if err := os.WriteFile(command, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+	rolesPathFile := filepath.Join(root, "roles-path")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s' \"$ANSIBLE_ROLES_PATH\" > %q\n", rolesPathFile)
+	if err := os.WriteFile(command, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	runtimeRoot := filepath.Join(root, "runtime")
@@ -89,10 +140,17 @@ func TestLocalRunnerDeletesEphemeralCredentials(t *testing.T) {
 				"server-1": map[string]any{"ansible_host": "192.0.2.1"},
 			}},
 		},
-		PlaybookPath: "ping.yml",
+		PlaybookPath: "platform/slurm/playbooks/ping.yml",
 	})
 	if err != nil {
 		t.Fatalf("run: %v", err)
+	}
+	gotRolesPath, err := os.ReadFile(rolesPathFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want, _ := rolesPath(root, "platform/slurm/playbooks/ping.yml"); string(gotRolesPath) != want {
+		t.Errorf("runner ANSIBLE_ROLES_PATH = %q, want %q", gotRolesPath, want)
 	}
 	entries, err := os.ReadDir(runtimeRoot)
 	if err != nil {
@@ -104,7 +162,7 @@ func TestLocalRunnerDeletesEphemeralCredentials(t *testing.T) {
 }
 
 func TestUninstallKubernetesPlaybookPreservesHostLifecycle(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "..", "automation", "playbooks", "uninstall-kubernetes.yml")
+	path := shippedFile(t, "uninstall-kubernetes.yml")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read uninstall playbook: %v", err)

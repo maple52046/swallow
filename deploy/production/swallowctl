@@ -41,8 +41,9 @@ setting_keys=(SWALLOW_ADDRESS SWALLOW_MAAS_URL SWALLOW_BOOT_MEDIA_BASE_URL SWALL
 # profile selects the declared stack doctor and ensure act on (see use_profile); every other
 # command acts on the production installation only.
 profile=production
-# playbook_dir is where the Ansible executor image keeps the shipped playbooks.
-playbook_dir=/opt/swallow/automation/playbooks
+# playbook_dir is where the Ansible executor image keeps the shared playbooks; doctor runs
+# diagnostic-ping from it.
+playbook_dir=/opt/swallow/automation/modules/shared/playbooks
 
 log() { printf '[swallowctl] %s\n' "$*"; }
 die() { printf '[swallowctl] %s\n' "$*" >&2; exit 1; }
@@ -504,7 +505,7 @@ use_profile() {
       dev_dir="$(cd -- "${dev_dir}" && pwd)"
       compose=(docker compose --project-directory "${dev_dir}" -f "${dev_dir}/compose.yaml")
       env_file="${dev_dir}/.env"
-      playbook_dir=/app/automation/playbooks
+      playbook_dir=/app/modules/shared/playbooks
       ;;
     *) die "unsupported profile '${profile}': use production or dev" ;;
   esac

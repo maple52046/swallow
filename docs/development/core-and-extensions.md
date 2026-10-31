@@ -163,7 +163,7 @@ manifest 是資料；core 以讀取 manifest 的方式載入模組，契約版�
 
 host automation 內容（目前是 playbook）以「內容類型＋參照」宣告，由對應的 host automation adapter 執行。
 manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allowlist 管控（目前是
-`api-server/automation/manifest.json`），不得來自可變的資料庫內容。
+`api-server/modules/manifest.json`），不得來自可變的資料庫內容。
 
 ### 5.3 Go hook
 
@@ -195,8 +195,9 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 ## 8. 支援矩陣與發行版
 
 - 交付給客戶的是 core 加上一組驗證過的 adapter 與模組。
-- **發行版組裝**：release 建置時依一份設定選擇要包含的模組；執行時讀取的 manifest 與 host automation 內容由
-  這些模組的目錄組合而成。
+- **發行版組裝**：release 建置時依一份設定選擇要包含的模組，只複製被選入的模組目錄（加上 `shared/`），不改變
+  目錄結構；執行時直接以這個模組根目錄作為 host automation 的內容根目錄，manifest 只登錄被選入模組的 playbook。
+  每次執行只看得到該 playbook 所屬模組與 `shared/` 的 role。
 - 每個 release 記錄一份支援矩陣：包含哪些 adapter 與模組、各自的版本，以及驗證過的組合（例如
   「Slurm 模組 × AMD 模組 × MAAS adapter」）。支援矩陣由發行版組裝的同一份設定產生，不另外手寫。
 - 沒有列在支援矩陣中的組合不得對客戶宣稱支援。

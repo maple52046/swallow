@@ -412,7 +412,7 @@ API 認證的決策與時效、cookie、rotation 細節見
 | Server Default User use case | `internal/core/server/application/default_user.go` |
 | 一次性密碼安裝金鑰與 Deployment Key 驗證登入 | `internal/adapters/hostaccess/sshaccess/ssh_host_access.go` |
 | Server Default User HTTP | `internal/core/server/delivery/default_user_handler.go` |
-| Docker CE 的 `docker` group | `automation/playbooks/roles/docker_ce/`（`defaults/main.yml`、`tasks/main.yml`） |
+| Docker CE 的 `docker` group | `modules/software/docker-ce/roles/docker_ce/`（`defaults/main.yml`、`tasks/main.yml`） |
 | 認證 middleware（access token 與 API Key） | `internal/shared/middleware/auth.go` |
 | Session、API Key | `internal/core/auth/`、`internal/core/apikey/` |
 | 封存（sealer） | `internal/shared/secret/` |

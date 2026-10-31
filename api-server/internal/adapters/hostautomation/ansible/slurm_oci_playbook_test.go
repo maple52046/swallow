@@ -59,7 +59,7 @@ EOF
 
 func runOCIProbeBundle(t *testing.T, bundle, crun string) bool {
 	t.Helper()
-	script := filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles", "slurm_oci", "files", "oci-probe-bundle.py")
+	script := filepath.Join(roleDir(t, "slurm_oci"), "files", "oci-probe-bundle.py")
 	out, err := exec.Command("python3", script, "--bundle", bundle, "--crun", crun).Output()
 	if err != nil {
 		t.Fatalf("oci-probe-bundle: %v", err)

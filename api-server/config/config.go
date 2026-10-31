@@ -78,7 +78,9 @@ type APIConfig struct {
 	TemporalStartInterval time.Duration `yaml:"temporalStartInterval"`
 	// AnsibleRunnerCommand is the pinned runner binary from the Execution Environment.
 	AnsibleRunnerCommand string `yaml:"ansibleRunnerCommand"`
-	// PlaybookManifest and PlaybookDir identify the immutable release bundle.
+	// PlaybookManifest and PlaybookDir identify the immutable release bundle. PlaybookDir is
+	// the modules root, which is the ansible-runner project dir: manifest paths are relative to
+	// it, and each module's roles are found under it. The key keeps its historical name.
 	PlaybookManifest string `yaml:"playbookManifest"`
 	PlaybookDir      string `yaml:"playbookDir"`
 	// JobRuntimeDir holds mode-0600 ephemeral credentials.

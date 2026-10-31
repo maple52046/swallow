@@ -11,7 +11,7 @@ import (
 
 func readRoleDefaults(t *testing.T, role string) map[string]any {
 	t.Helper()
-	content, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles", role, "defaults", "main.yml"))
+	content, err := os.ReadFile(filepath.Join(roleDir(t, role), "defaults", "main.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func readRoleDefaults(t *testing.T, role string) map[string]any {
 // node reads it through Grafana's read-only datasource proxy, which already serves the same data
 // to anonymous viewers; the proxy UID must be the one the grafana role provisions.
 func TestOmnistatQueryReadsPrometheusThroughGrafana(t *testing.T) {
-	template, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles", "omnistat", "templates", "omnistat.conf.j2"))
+	template, err := os.ReadFile(filepath.Join(roleDir(t, "omnistat"), "templates", "omnistat.conf.j2"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestOmnistatPatchesAreDocumented(t *testing.T) {
 			if !strings.HasPrefix(name, "omnistat-"+version+"-") || !strings.HasSuffix(name, ".patch") {
 				t.Errorf("patch %q is not named omnistat-%s-<topic>.patch", name, version)
 			}
-			content, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles", "omnistat", "files", name))
+			content, err := os.ReadFile(filepath.Join(roleDir(t, "omnistat"), "files", name))
 			if err != nil {
 				t.Errorf("patch %s: %v", name, err)
 				continue
@@ -89,7 +89,7 @@ func TestOmnistatPatchesAreDocumented(t *testing.T) {
 // A patch added later must reach nodes that already carry the earlier ones, so each patch is
 // checked (reverse dry run) and applied on its own rather than as one bundle.
 func TestOmnistatAppliesEachPatchOnItsOwn(t *testing.T) {
-	content, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles", "omnistat", "tasks", "main.yml"))
+	content, err := os.ReadFile(filepath.Join(roleDir(t, "omnistat"), "tasks", "main.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}

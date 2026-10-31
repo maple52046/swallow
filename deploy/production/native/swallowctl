@@ -41,8 +41,8 @@ run_swallow_api() {
   SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD_FILE="${config_root}/secrets/bootstrap-admin-password" \
   SWALLOW_API_CREDENTIAL_KEY_FILE="${config_root}/secrets/credential-key" \
   SWALLOW_API_MACHINE_TOKEN_FILE="${config_root}/secrets/machine-token" \
-  SWALLOW_API_PLAYBOOK_MANIFEST="${install_root}/current/automation/manifest.json" \
-  SWALLOW_API_PLAYBOOK_DIR="${install_root}/current/automation/playbooks" \
+  SWALLOW_API_PLAYBOOK_MANIFEST="${install_root}/current/automation/modules/manifest.json" \
+  SWALLOW_API_PLAYBOOK_DIR="${install_root}/current/automation/modules" \
     "${install_root}/current/bin/swallow-api" "$@"
 }
 

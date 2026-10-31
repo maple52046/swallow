@@ -14,7 +14,6 @@ import (
 // safety rules (no KMM, no host networking for the metrics exporter, exact-link removal, workload
 // refusal, a post-boot driver load that k0s is ordered after) stay in place.
 func TestAMDGPUOperatorPlaybookHonoursTheTrustedContract(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "..", "automation", "playbooks")
 	role := filepath.Join("roles", "amd_gpu_operator")
 	cases := []struct {
 		path      string
@@ -157,7 +156,7 @@ func TestAMDGPUOperatorPlaybookHonoursTheTrustedContract(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		content, err := os.ReadFile(filepath.Join(root, tc.path))
+		content, err := os.ReadFile(shippedFile(t, tc.path))
 		if err != nil {
 			t.Fatalf("read %s: %v", tc.path, err)
 		}

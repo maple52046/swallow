@@ -6,7 +6,7 @@ if rg -n 'jobTemplateName|providerKind: awx|/webhooks/automation' \
   printf 'active contracts or glossary still expose AWX-specific API fields\n' >&2
   exit 1
 fi
-jq -e '.schemaVersion == 1 and (.playbooks | length > 0)' api-server/automation/manifest.json >/dev/null
+jq -e '.schemaVersion == 1 and (.playbooks | length > 0)' api-server/modules/manifest.json >/dev/null
 jq -e '.schemaVersions.mongo == 3 and .upgrade.from == [2] and .upgrade.to == 3 and .upgrade.downgradeSupported == false and
   (.images | keys) == ["api", "cli", "dashboard", "mongo", "postgres", "temporalServer"] and
   (.artifacts.cliBinary | type == "string") and
@@ -22,7 +22,7 @@ done < deploy/release/runtime-images.env
 grep -qF '"${SWALLOW_VERSION:-@SWALLOW_VERSION@}"' deploy/release/install.sh ||
   { printf 'install.sh must default its version to @SWALLOW_VERSION@, which assemble-release.sh fills in\n' >&2; exit 1; }
 if ! awk 'NF && $0 !~ /^[A-Za-z0-9_.-]+==[A-Za-z0-9_.+-]+$/ { exit 1 }' \
-  api-server/automation/requirements.txt; then
+  api-server/internal/adapters/hostautomation/ansible/requirements.txt; then
   printf 'every Python dependency must be exactly pinned\n' >&2
   exit 1
 fi

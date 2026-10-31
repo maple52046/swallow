@@ -13,7 +13,6 @@ import (
 // expressions and role wiring so a refactor cannot silently drop the shared-state mechanism and
 // reintroduce the "every slurmctld DOWN, heartbeat file missing" HA failure.
 func TestSlurmPlaybookProvisionsSharedControllerState(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "..", "automation", "playbooks")
 	cases := []struct {
 		path     string
 		required []string
@@ -63,7 +62,7 @@ func TestSlurmPlaybookProvisionsSharedControllerState(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {
-			raw, err := os.ReadFile(filepath.Join(root, tc.path))
+			raw, err := os.ReadFile(shippedFile(t, tc.path))
 			if err != nil {
 				t.Fatalf("read playbook artifact: %v", err)
 			}
@@ -78,7 +77,7 @@ func TestSlurmPlaybookProvisionsSharedControllerState(t *testing.T) {
 
 	// The shared state must be exported and mounted before slurmctld starts, so the play order
 	// is load-bearing: state server, then controller state, then the controller-config play.
-	deploy, err := os.ReadFile(filepath.Join(root, "deploy-slurm.yml"))
+	deploy, err := os.ReadFile(shippedFile(t, "deploy-slurm.yml"))
 	if err != nil {
 		t.Fatalf("read deploy-slurm.yml: %v", err)
 	}
@@ -106,7 +105,6 @@ func TestSlurmPlaybookProvisionsSharedControllerState(t *testing.T) {
 // depend on the playbook wiring the login/workload facts, groups, and plays. These assertions
 // pin that wiring so a refactor cannot silently drop login submission or workload mounts.
 func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "..", "automation", "playbooks")
 	cases := []struct {
 		path     string
 		required []string
@@ -152,7 +150,7 @@ func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {
-			raw, err := os.ReadFile(filepath.Join(root, tc.path))
+			raw, err := os.ReadFile(shippedFile(t, tc.path))
 			if err != nil {
 				t.Fatalf("read playbook artifact: %v", err)
 			}
@@ -168,7 +166,7 @@ func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
 	// The workload client play must run after the compute play (the workload filesystem is for
 	// jobs, and mounting on all nodes is a post-cluster add-on), and the login play after the
 	// controllers are up so configless discovery succeeds.
-	deploy, err := os.ReadFile(filepath.Join(root, "deploy-slurm.yml"))
+	deploy, err := os.ReadFile(shippedFile(t, "deploy-slurm.yml"))
 	if err != nil {
 		t.Fatalf("read deploy-slurm.yml: %v", err)
 	}
@@ -199,7 +197,7 @@ func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
 // configless discovery. Otherwise the later login play removes the primary controller's config
 // and systemd skips slurmrestd because its packaged ConditionPathExists is no longer satisfied.
 func TestSlurmLoginPreservesControllerConfiguration(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles", "slurm_login", "tasks", "main.yml")
+	path := filepath.Join(roleDir(t, "slurm_login"), "tasks", "main.yml")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read slurm login tasks: %v", err)
@@ -235,7 +233,6 @@ func TestSlurmLoginPreservesControllerConfiguration(t *testing.T) {
 }
 
 func TestSlurmPackageInstallsRetryAfterFreshBootLockRaces(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles")
 	cases := map[string]string{
 		filepath.Join("slurm_munge", "tasks", "main.yml"):                   "until: slurm_munge_package is succeeded",
 		filepath.Join("slurm_controller_state", "tasks", "main.yml"):        "until: slurm_controller_state_nfs_package is succeeded",
@@ -246,7 +243,7 @@ func TestSlurmPackageInstallsRetryAfterFreshBootLockRaces(t *testing.T) {
 
 	for path, retryCondition := range cases {
 		t.Run(path, func(t *testing.T) {
-			raw, err := os.ReadFile(filepath.Join(root, path))
+			raw, err := os.ReadFile(shippedFile(t, filepath.Join("roles", path)))
 			if err != nil {
 				t.Fatalf("read playbook artifact: %v", err)
 			}

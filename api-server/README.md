@@ -142,7 +142,7 @@ from this component's private code.
 - Platform sync reads runtime-owned membership.
 - Temporal Workflows execute versioned Jobs and Tasks.
 - Ansible execution is restricted to playbooks in
-  [automation/manifest.json](automation/manifest.json).
+  [modules/manifest.json](modules/manifest.json).
 
 An expired execution may become `indeterminate` and is not retried
 automatically because its external side effect cannot be proven.

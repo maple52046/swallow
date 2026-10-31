@@ -11,7 +11,7 @@ import (
 // configuration-triggered restart before validating runtime, repair a stale live process only
 // when its declared listener is absent, and preserve systemd diagnostics if convergence fails.
 func TestSlurmRestdRoleConvergesBeforeListenerVerification(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "..", "automation", "playbooks", "roles", "slurm_slurmrestd")
+	root := roleDir(t, "slurm_slurmrestd")
 	tasksRaw, err := os.ReadFile(filepath.Join(root, "tasks", "main.yml"))
 	if err != nil {
 		t.Fatalf("read slurmrestd tasks: %v", err)

@@ -23,8 +23,8 @@ Environment=SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD_FILE=%d/bootstrap-admin-passwor
 Environment=SWALLOW_API_CREDENTIAL_KEY_FILE=%d/credential-key
 Environment=SWALLOW_API_MACHINE_TOKEN_FILE=%d/machine-token
 Environment=SWALLOW_API_ANSIBLE_RUNNER_COMMAND=/opt/swallow/current/venv/bin/ansible-runner
-Environment=SWALLOW_API_PLAYBOOK_MANIFEST=/opt/swallow/current/automation/manifest.json
-Environment=SWALLOW_API_PLAYBOOK_DIR=/opt/swallow/current/automation/playbooks
+Environment=SWALLOW_API_PLAYBOOK_MANIFEST=/opt/swallow/current/automation/modules/manifest.json
+Environment=SWALLOW_API_PLAYBOOK_DIR=/opt/swallow/current/automation/modules
 Environment=SWALLOW_API_JOB_RUNTIME_DIR=/run/swallow/jobs
 Environment=SWALLOW_API_JOB_ARTIFACT_DIR=/var/lib/swallow/jobs
 Environment=SWALLOW_API_JOB_ARTIFACT_RETENTION=720h
