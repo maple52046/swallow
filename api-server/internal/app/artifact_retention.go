@@ -5,14 +5,14 @@ import (
 	"log/slog"
 	"time"
 
-	operationinfra "github.com/maple52046/swallow/internal/operation/infra"
+	"github.com/maple52046/swallow/internal/adapters/hostautomation/ansible"
 )
 
 const artifactPruneInterval = 24 * time.Hour
 
 func runArtifactRetention(ctx context.Context, root string, retention time.Duration) {
 	prune := func() {
-		removed, err := operationinfra.PruneArtifacts(root, time.Now().UTC().Add(-retention))
+		removed, err := ansible.PruneArtifacts(root, time.Now().UTC().Add(-retention))
 		if err != nil {
 			slog.Error("prune job artifacts", "root", root, "error", err)
 			return

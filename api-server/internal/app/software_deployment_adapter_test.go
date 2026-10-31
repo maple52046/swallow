@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	operationinfra "github.com/maple52046/swallow/internal/operation/infra"
+	"github.com/maple52046/swallow/internal/adapters/hostautomation/ansible"
 	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
 )
 
@@ -17,7 +17,7 @@ import (
 // both mappings would be accepted by the API and then refused at launch.
 func TestEverySoftwareKindHasRegisteredPlaybooks(t *testing.T) {
 	automation := filepath.Join("..", "..", "automation")
-	catalog, err := operationinfra.LoadManifestCatalog(filepath.Join(automation, "manifest.json"), filepath.Join(automation, "playbooks"))
+	catalog, err := ansible.LoadManifestCatalog(filepath.Join(automation, "manifest.json"), filepath.Join(automation, "playbooks"))
 	if err != nil {
 		t.Fatalf("load shipped manifest: %v", err)
 	}

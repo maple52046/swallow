@@ -10,7 +10,7 @@ import (
 // This file holds the Power Configuration model (decision 054): which power driver a provisioner
 // uses for one machine, the driver's parameters, and the power adapters that give each driver
 // family its validation and its family-only functions. It is pure model code: provider adapters
-// under infra/ read and write the facts, and callers ask an adapter instead of branching on a
+// under internal/adapters/osprovisioning read and write the facts, and callers ask an adapter instead of branching on a
 // driver name or on VM-host membership.
 
 // PowerDriver is the provisioner's own name for how it reaches one machine's power, for MAAS the

@@ -175,7 +175,7 @@ Interface 不用來包裝每個 concrete type；只有需要保護 boundary、�
 依 root 的 [`core-and-extensions.md`](../../../docs/development/core-and-extensions.md)：
 
 - Provider interface（port）由 domain 或 application 層以 core 的詞彙定義；adapter 位於
-  `internal/<feature>/infra/<adapter>`，負責把廠商的狀態碼、ID、預設值與錯誤翻譯成 inner type。
+  `internal/adapters/<port>/<adapter>`，負責把廠商的狀態碼、ID、預設值與錯誤翻譯成 inner type。
 - Adapter 的識別碼（provider kind、`RunnerKind` 的值）在 domain 與 use case 中只是不透明的資料；
   已持久化或已在 API 上的值維持不變。行為依 adapter 宣告的 capability 決定，不依識別碼分支。
 - 平台專屬（Kubernetes、Slurm）與 GPU 廠商專屬（AMD）的邏輯屬於擴充模組，不得新增到 core 的 feature
@@ -184,7 +184,7 @@ Interface 不用來包裝每個 concrete type；只有需要保護 boundary、�
 ## Durable Workflow Boundary
 
 - Workflow 的語意與狀態由 swallow 擁有、存在 store；Temporal 只是 Workflow executor adapter，它的型別與
-  概念不得越過 `internal/operation/infra/temporalworkflow`（見 desired-state-model.md §9）。
+  概念不得越過 `internal/adapters/executor/temporalworkflow`（見 desired-state-model.md §9）。
 - Application 建立 intent 與 durable Workflow record，不直接長時間 block HTTP request。
 - Temporal Workflow code 必須 deterministic；I/O、clock、randomness、provider call
   與 Mongo write 留在 activity。

@@ -65,12 +65,12 @@ core **不得**含有任何廠商、產品、平台或 GPU 廠商的名稱、型
 
 | provider interface | 目前的 adapter | adapter 位置（api-server） | 註冊方式 |
 | --- | --- | --- | --- |
-| OS provisioning | MAAS | `internal/provisioning/infra/maas` | Site 的 `provisioner` Integration |
-| Workflow executor | Temporal | `internal/operation/infra/temporalworkflow` | 安裝層級，由 composition root 選擇 |
+| OS provisioning | MAAS | `internal/adapters/osprovisioning/maas` | Site 的 `provisioner` Integration |
+| Workflow executor | Temporal | `internal/adapters/executor/temporalworkflow` | 安裝層級，由 composition root 選擇 |
 | Host automation | Ansible（`ansible-runner`） | ansible executor process 與其 Workflow 端 | 安裝層級；內容來自 release 的 manifest |
 | Store | MongoDB | 各 feature 的 `infra` repository | 安裝層級，由 composition root 選擇 |
-| Metrics 與 alerts | Prometheus、Alertmanager | `internal/monitoring/infra/promstack` | Site 的 `metrics` Integration |
-| BMC 與 hypervisor | Redfish、libvirt | `internal/server/infra/redfish`、`internal/server/infra/libvirt` | 依 Server（連線資料由 provisioner 提供，或以 Deployment Key 經 SSH 連到 Hypervisor） |
+| Metrics 與 alerts | Prometheus、Alertmanager | `internal/adapters/metrics/promstack` | Site 的 `metrics` Integration |
+| BMC 與 hypervisor | Redfish、libvirt | `internal/adapters/bmc/redfish`、`internal/adapters/hypervisor/libvirt` | 依 Server（連線資料由 provisioner 提供，或以 Deployment Key 經 SSH 連到 Hypervisor） |
 
 Platform 執行環境的即時讀取（Kubernetes API、slurmrestd）與 Docker Engine 的即時管理不是 core 的 provider
 interface，而是 Platform 模組與 Software 模組提供的能力（§4）。

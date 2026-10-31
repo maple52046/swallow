@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/config"
+	"github.com/maple52046/swallow/internal/adapters/hostautomation/ansible"
+	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
 	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
@@ -19,12 +21,10 @@ import (
 	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
 	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationinfra "github.com/maple52046/swallow/internal/operation/infra"
 	platformapp "github.com/maple52046/swallow/internal/platform/application"
-	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
-	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
+	"github.com/maple52046/swallow/modules/platform/platformapi"
 )
 
 // RunAnsibleExecutor owns all v3 ansible-runner processes. Stopping this process leaves
@@ -78,11 +78,11 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	catalog, err := operationinfra.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
+	catalog, err := ansible.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
 	if err != nil {
 		return err
 	}
-	providers := provisioninginfra.NewProviderFactory(integrations)
+	providers := maas.NewProviderFactory(integrations)
 	// Every run authenticates with the Deployment Key, the only automation key (decision 041),
 	// through the effective-credential decorator built below.
 	sshKeys, err := newSSHKeyService(db, sealer, integrations, providers)
@@ -91,7 +91,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	}
 	configurations := operationapp.NewEffectiveAutomationConfigurations(
 		workflowstore.NewMongoAutomationConfigurationRepo(db, sealer), deploymentKeySource{keys: sshKeys})
-	runner := operationinfra.NewLocalRunner(cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
+	runner := ansible.NewLocalRunner(cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
 	// Resolve each host's SSH login user per host (images use different default users), so a fleet
 	// mixing image families deploys and is managed under one Site without hand-switching sshUser.
 	runner.AttachUserProber(sshprobe.DefaultProber{})
@@ -105,7 +105,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, platforminfra.NewReaderFactory(integrations))
+	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, platformapi.NewReaderFactory(integrations))
 	lifecycles := platformLifecycleReader{operations: legacyOperations, orchestrations: orchestrations}
 	platformService := platformapp.NewPlatformService(transactor, platforms, sites, servers, lifecycles, managedPlatformIntegrationCleaner{integrations: integrations})
 	platformService.AttachGPUOperatorRecorder(platforms)

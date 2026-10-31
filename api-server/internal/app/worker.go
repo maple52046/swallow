@@ -15,6 +15,12 @@ import (
 	workflowregister "go.temporal.io/sdk/workflow"
 
 	"github.com/maple52046/swallow/config"
+	"github.com/maple52046/swallow/internal/adapters/bmc/redfish"
+	"github.com/maple52046/swallow/internal/adapters/bootiso/genfsimg"
+	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
+	"github.com/maple52046/swallow/internal/adapters/hostaccess/sshaccess"
+	"github.com/maple52046/swallow/internal/adapters/hypervisor/libvirt"
+	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
 	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
@@ -26,16 +32,11 @@ import (
 	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
 	platformapp "github.com/maple52046/swallow/internal/platform/application"
-	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	serverapp "github.com/maple52046/swallow/internal/server/application"
-	serverinfra "github.com/maple52046/swallow/internal/server/infra"
-	"github.com/maple52046/swallow/internal/server/infra/libvirt"
-	"github.com/maple52046/swallow/internal/server/infra/redfish"
 	"github.com/maple52046/swallow/internal/shared/secret"
+	"github.com/maple52046/swallow/modules/platform/platformapi"
 )
 
 // RunWorker starts the Temporal workflow/activity worker. It owns orchestration only;
@@ -84,7 +85,7 @@ func RunWorker(cfg config.APIConfig) error {
 		return err
 	}
 	inventory := executionInventoryAdapter{discovery: discoveryapp.NewDiscoveryUseCase(servers)}
-	providers := provisioninginfra.NewProviderFactory(integrations)
+	providers := maas.NewProviderFactory(integrations)
 	// The worker reads the Deployment Key for wait-for-ssh and ensures provisioner key registration
 	// before every OS deployment it drives (decision 039). It does not run the periodic sync loop.
 	sshKeys, err := newSSHKeyService(db, sealer, integrations, providers)
@@ -96,12 +97,12 @@ func RunWorker(cfg config.APIConfig) error {
 		automationRepo, deploymentKeySource{keys: sshKeys})
 	// Hypervisor access (decision 055): libvirt Boot Media ensures and virtual-machine enrollment
 	// log in to a Hypervisor with the Deployment Key on the Site's SSH port.
-	libvirtHosts := libvirt.NewHost(serverinfra.NewSSHHostAccess(deploymentKeySource{keys: sshKeys}, siteSSHPorts{configurations: automationRepo}))
+	libvirtHosts := libvirt.NewHost(sshaccess.NewSSHHostAccess(deploymentKeySource{keys: sshKeys}, siteSSHPorts{configurations: automationRepo}))
 	platforms, err := platformstore.NewMongoPlatformRepo(db)
 	if err != nil {
 		return err
 	}
-	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, platforminfra.NewReaderFactory(integrations))
+	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, platformapi.NewReaderFactory(integrations))
 	templates, err := provisioningstore.NewMongoDeploymentTemplateRepo(db, sealer)
 	if err != nil {
 		return err
@@ -178,7 +179,7 @@ func RunWorker(cfg config.APIConfig) error {
 		return fmt.Errorf("boot ISO repo init: %w", err)
 	}
 	bootISOs := newBootISOCatalog(bootISORepo,
-		provisioninginfra.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL),
+		genfsimg.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL),
 		cfg.BootMedia.BaseURL)
 	bootMedia := serverapp.NewBootMediaUseCase(servers, servers, nil,
 		newBootMediaEndpointSource(providers, servers), redfish.NewController(), libvirtHosts, bootISOs)

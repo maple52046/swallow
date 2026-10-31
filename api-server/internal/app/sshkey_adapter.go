@@ -9,6 +9,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/maple52046/swallow/internal/adapters/keys/openssh"
 	sshkeystore "github.com/maple52046/swallow/internal/adapters/store/mongodb/sshkey"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
@@ -16,7 +17,6 @@ import (
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 	sshkeyapp "github.com/maple52046/swallow/internal/sshkey/application"
 	sshkeydomain "github.com/maple52046/swallow/internal/sshkey/domain"
-	sshkeyinfra "github.com/maple52046/swallow/internal/sshkey/infra"
 )
 
 // newSSHKeyService assembles the SSH Key service (decision 039) over the process's MongoDB, sealer,
@@ -37,8 +37,8 @@ func newSSHKeyService(
 	return sshkeyapp.NewService(
 		keys,
 		sshkeystore.NewMongoSyncRepo(db),
-		sshkeyinfra.NewKeyMaterial(),
-		sshkeyinfra.NewProvisionerKeys(integrations, providers),
+		openssh.NewKeyMaterial(),
+		NewProvisionerKeys(integrations, providers),
 	), nil
 }
 

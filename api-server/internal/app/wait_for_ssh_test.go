@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 )

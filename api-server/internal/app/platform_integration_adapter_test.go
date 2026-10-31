@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
@@ -87,7 +86,7 @@ func TestManagedPlatformIntegrationCleanerRequiresCompleteLegacySignature(t *tes
 		ProviderKind: sitedomain.ProviderKindKubernetes,
 		Name:         "lab (deployed)",
 		Settings: map[string]string{
-			platforminfra.SettingControllerLeaseDiscovery: "true",
+			platformdomain.SettingControllerLeaseDiscovery: "true",
 		},
 	}
 	operatorOwned := &sitedomain.Integration{
@@ -96,7 +95,7 @@ func TestManagedPlatformIntegrationCleanerRequiresCompleteLegacySignature(t *tes
 		ProviderKind: sitedomain.ProviderKindKubernetes,
 		Name:         "operator registration",
 		Settings: map[string]string{
-			platforminfra.SettingControllerLeaseDiscovery: "true",
+			platformdomain.SettingControllerLeaseDiscovery: "true",
 		},
 	}
 	repo := &integrationCleanerRepo{integrations: map[string]*sitedomain.Integration{

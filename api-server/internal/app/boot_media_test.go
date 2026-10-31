@@ -12,10 +12,10 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/maple52046/swallow/internal/adapters/bootiso/genfsimg"
+	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 	"github.com/maple52046/swallow/internal/shared/apicontract"
@@ -382,13 +382,13 @@ func TestServeBootISO(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, id), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, id, provisioninginfra.BootISOFileName), []byte("0123456789abcdef"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, id, genfsimg.BootISOFileName), []byte("0123456789abcdef"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "secret.txt"), []byte("not an ISO"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	files := provisioninginfra.NewGenfsimgBuilder(dir, t.TempDir(), "http://192.0.2.1/")
+	files := genfsimg.NewGenfsimgBuilder(dir, t.TempDir(), "http://192.0.2.1/")
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
 	app.Get(bootISORoute, serveBootISO(files))
@@ -437,7 +437,7 @@ func TestBootISOCatalog(t *testing.T) {
 	dir := t.TempDir()
 	const id = "6b3f0c1e-4f7a-4f53-9d2a-2a7f1d0c9e11"
 	repo := &catalogRepo{iso: &provisioningdomain.BootISO{ID: id, Name: "tainan-rack", IntegrationID: "integration-1"}}
-	catalog := newBootISOCatalog(repo, provisioninginfra.NewGenfsimgBuilder(dir, t.TempDir(), "http://192.0.2.1"), "http://192.0.2.1")
+	catalog := newBootISOCatalog(repo, genfsimg.NewGenfsimgBuilder(dir, t.TempDir(), "http://192.0.2.1"), "http://192.0.2.1")
 
 	if image, err := catalog.Resolve(context.Background(), id); !errors.Is(err, serverdomain.ErrBootMediaNotConfigured) || image == nil || image.Name != "tainan-rack" {
 		t.Errorf("Resolve without a file = %+v, %v; want the image and ErrBootMediaNotConfigured", image, err)
@@ -445,7 +445,7 @@ func TestBootISOCatalog(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, id), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, id, provisioninginfra.BootISOFileName), []byte("iso"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, id, genfsimg.BootISOFileName), []byte("iso"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	image, err := catalog.Resolve(context.Background(), id)
@@ -456,16 +456,16 @@ func TestBootISOCatalog(t *testing.T) {
 		t.Errorf("Resolve(unknown) error = %v, want ErrBootISOUnknown", err)
 	}
 	file, err := catalog.File(context.Background(), id)
-	if err != nil || file.Size != 3 || file.IntegrationID != "integration-1" || file.Path != filepath.Join(dir, id, provisioninginfra.BootISOFileName) {
+	if err != nil || file.Size != 3 || file.IntegrationID != "integration-1" || file.Path != filepath.Join(dir, id, genfsimg.BootISOFileName) {
 		t.Errorf("File = %+v, %v; want the ISO file", file, err)
 	}
-	if _, err := newBootISOCatalog(repo, provisioninginfra.NewGenfsimgBuilder(dir, "", ""), "").File(context.Background(), id); err != nil {
+	if _, err := newBootISOCatalog(repo, genfsimg.NewGenfsimgBuilder(dir, "", ""), "").File(context.Background(), id); err != nil {
 		t.Errorf("File without a base URL error = %v, want the file", err)
 	}
 	if got := catalog.URL(""); got != "http://192.0.2.1/boot-media/ipxe/swallow-ipxe.iso" {
 		t.Errorf("URL(\"\") = %q, want the retired installation ISO URL", got)
 	}
-	if got := newBootISOCatalog(repo, provisioninginfra.NewGenfsimgBuilder(dir, "", ""), "").URL(id); got != "" {
+	if got := newBootISOCatalog(repo, genfsimg.NewGenfsimgBuilder(dir, "", ""), "").URL(id); got != "" {
 		t.Errorf("URL without a base URL = %q, want empty", got)
 	}
 }

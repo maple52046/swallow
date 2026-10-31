@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )

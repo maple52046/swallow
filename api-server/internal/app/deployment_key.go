@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/config"
+	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
 	sitestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/site"
-	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	"github.com/maple52046/swallow/internal/shared/secret"
 )
 
@@ -57,7 +57,7 @@ func EnsureDeploymentKey(cfg config.APIConfig) (DeploymentKeyResult, error) {
 	if err != nil {
 		return DeploymentKeyResult{}, fmt.Errorf("integration repo init: %w", err)
 	}
-	keys, err := newSSHKeyService(db, sealer, integrations, provisioninginfra.NewProviderFactory(integrations))
+	keys, err := newSSHKeyService(db, sealer, integrations, maas.NewProviderFactory(integrations))
 	if err != nil {
 		return DeploymentKeyResult{}, err
 	}

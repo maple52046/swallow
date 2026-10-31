@@ -13,12 +13,12 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/maple52046/swallow/internal/adapters/keys/openssh"
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
 	"github.com/maple52046/swallow/internal/sshkey/application"
 	sshkeydomain "github.com/maple52046/swallow/internal/sshkey/domain"
-	sshkeyinfra "github.com/maple52046/swallow/internal/sshkey/infra"
 )
 
 // memoryKeys is a minimal in-memory KeyRepository for exercising the HTTP contract; uniqueness is
@@ -131,7 +131,7 @@ type fixture struct {
 
 func newFixture(t *testing.T) fixture {
 	t.Helper()
-	service := application.NewService(&memoryKeys{}, memorySyncs{}, sshkeyinfra.NewKeyMaterial(), noProvisioners{})
+	service := application.NewService(&memoryKeys{}, memorySyncs{}, openssh.NewKeyMaterial(), noProvisioners{})
 	if _, _, err := service.EnsureDeploymentKey(context.Background()); err != nil {
 		t.Fatalf("EnsureDeploymentKey: %v", err)
 	}

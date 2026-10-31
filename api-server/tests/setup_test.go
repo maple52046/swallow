@@ -20,7 +20,6 @@ import (
 	platformdelivery "github.com/maple52046/swallow/internal/platform/delivery"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdelivery "github.com/maple52046/swallow/internal/provisioning/delivery"
-	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverdelivery "github.com/maple52046/swallow/internal/server/delivery"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
@@ -111,7 +110,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewDeploymentTargetPreflightService(servers, factory),
 		provisioningapp.NewDeploymentTemplateService(
 			templates,
-			provisioninginfra.NewIntegrationReader(integrations, sites),
+			provisioningapp.NewIntegrationReader(integrations, sites),
 			factory,
 		),
 		nil,

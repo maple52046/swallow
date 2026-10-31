@@ -623,7 +623,7 @@ image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線
 混用不同 image family 的機群可在同一 site、甚至同一批次部署，不需手動切換 `sshUser`（單一 image 的
 既有站台行為不變，因為站台值仍為第一候選）。實作見
 [`sshprobe`](../../api-server/internal/shared/sshprobe/sshprobe.go)，套用點為 ansible 執行前的
-[`local_runner`](../../api-server/internal/operation/infra/local_runner.go) 與 `wait-for-ssh`。
+[`local_runner`](../../api-server/internal/adapters/hostautomation/ansible/local_runner.go) 與 `wait-for-ssh`。
 
 - **auth 失敗會 fail fast**：所有候選帳號都被拒（publickey）不會靠等待自行修好，因此在一段短暫的
   grace（約 45 秒，容忍剛佈署後 cloud-init 尚未寫入 `authorized_keys` 的競態）後就以
@@ -1032,14 +1032,14 @@ API 契約的 "Read Slurm Cluster State"。
 | Workflow/Task/Runner domain model | `internal/operation/domain/orchestration.go` |
 | Workflow 持久化與 secret sealing | `internal/operation/application/orchestration.go` |
 | Ansible 準備（playbook 解析、extra vars 合併） | `internal/operation/application/execution_service.go` |
-| Temporal 編排（parent + Job child workflow、retry） | `internal/operation/infra/temporalworkflow/workflow.go` |
+| Temporal 編排（parent + Job child workflow、retry） | `internal/adapters/executor/temporalworkflow/workflow.go` |
 | Runner 接線 | `internal/app/worker.go` |
 | `internal` Runner（wait-for-ssh、validate） | `internal/app/platform_workflow_step_executor.go` |
-| `ansible` Runner（含 host-key 擷取） | `internal/operation/infra/temporalworkflow/ansible_executor.go` |
+| `ansible` Runner（含 host-key 擷取） | `internal/adapters/executor/temporalworkflow/ansible_executor.go` |
 | `provisioner` Runner | `internal/app/provider_step_executor.go` |
 | Dynamic inventory | `internal/discovery/application/discovery.go` |
-| ansible-runner 執行（known_hosts、result.json） | `internal/operation/infra/local_runner.go` |
-| Playbook manifest 載入 | `internal/operation/infra/playbook_catalog.go` |
+| ansible-runner 執行（known_hosts、result.json） | `internal/adapters/hostautomation/ansible/local_runner.go` |
+| Playbook manifest 載入 | `internal/adapters/hostautomation/ansible/playbook_catalog.go` |
 
 ### Ansible 內容（`api-server/automation/`）
 

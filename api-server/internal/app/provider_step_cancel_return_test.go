@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 )

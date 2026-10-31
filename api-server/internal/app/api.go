@@ -22,6 +22,15 @@ import (
 
 	"github.com/maple52046/swallow/bootstrap"
 	"github.com/maple52046/swallow/config"
+	"github.com/maple52046/swallow/internal/adapters/bmc/redfish"
+	"github.com/maple52046/swallow/internal/adapters/bootiso/genfsimg"
+	"github.com/maple52046/swallow/internal/adapters/events/memory"
+	temporalworkflow "github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
+	"github.com/maple52046/swallow/internal/adapters/hostaccess/sshaccess"
+	"github.com/maple52046/swallow/internal/adapters/hostautomation/ansible"
+	"github.com/maple52046/swallow/internal/adapters/hypervisor/libvirt"
+	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
+	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	apikeystore "github.com/maple52046/swallow/internal/adapters/store/mongodb/apikey"
 	authstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/auth"
@@ -41,40 +50,31 @@ import (
 	discoverydelivery "github.com/maple52046/swallow/internal/discovery/delivery"
 	infrastructureapp "github.com/maple52046/swallow/internal/infrastructure/application"
 	infrastructuredelivery "github.com/maple52046/swallow/internal/infrastructure/delivery"
-	infrastructureinfra "github.com/maple52046/swallow/internal/infrastructure/infra"
 	monitoringapp "github.com/maple52046/swallow/internal/monitoring/application"
 	monitoringdelivery "github.com/maple52046/swallow/internal/monitoring/delivery"
-	monitoringinfra "github.com/maple52046/swallow/internal/monitoring/infra"
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdelivery "github.com/maple52046/swallow/internal/operation/delivery"
-	operationinfra "github.com/maple52046/swallow/internal/operation/infra"
-	temporalworkflow "github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
 	overviewapp "github.com/maple52046/swallow/internal/overview/application"
 	overviewdelivery "github.com/maple52046/swallow/internal/overview/delivery"
-	overviewinfra "github.com/maple52046/swallow/internal/overview/infra"
 	platformapp "github.com/maple52046/swallow/internal/platform/application"
 	platformdelivery "github.com/maple52046/swallow/internal/platform/delivery"
-	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
 	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
 	provisioningdelivery "github.com/maple52046/swallow/internal/provisioning/delivery"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverdelivery "github.com/maple52046/swallow/internal/server/delivery"
-	serverinfra "github.com/maple52046/swallow/internal/server/infra"
-	"github.com/maple52046/swallow/internal/server/infra/libvirt"
-	"github.com/maple52046/swallow/internal/server/infra/redfish"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
+	"github.com/maple52046/swallow/internal/shared/version"
 	siteapp "github.com/maple52046/swallow/internal/site/application"
 	sitedelivery "github.com/maple52046/swallow/internal/site/delivery"
 	softwareapp "github.com/maple52046/swallow/internal/software/application"
 	softwaredelivery "github.com/maple52046/swallow/internal/software/delivery"
-	"github.com/maple52046/swallow/internal/software/infra/dockerengine"
 	sshkeydelivery "github.com/maple52046/swallow/internal/sshkey/delivery"
-	"github.com/maple52046/swallow/internal/version"
+	"github.com/maple52046/swallow/modules/platform/platformapi"
+	"github.com/maple52046/swallow/modules/software/docker-ce/dockerengine"
 )
 
 // shutdownTimeout bounds how long in-flight requests get to finish on shutdown.
@@ -142,8 +142,8 @@ func RunAPI(cfg config.APIConfig) error {
 	// persistence adapter here makes every write in this process (reconcile, refresh,
 	// delete) publish; cross-process writes from the worker (deployment/membership) surface
 	// through the reconcile pump within its interval, deduplicated by the broker.
-	serverEventBroker := serverinfra.NewServerEventBroker()
-	serverRepo := serverinfra.NewEventingServerRepository(mongoServerRepo, serverEventBroker)
+	serverEventBroker := memory.NewServerEventBroker()
+	serverRepo := memory.NewEventingServerRepository(mongoServerRepo, serverEventBroker)
 	templateRepo, err := provisioningstore.NewMongoDeploymentTemplateRepo(db, sealer)
 	if err != nil {
 		return fmt.Errorf("deployment template repo init: %w", err)
@@ -232,7 +232,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// The health axis is resolved from the metrics store at query time and never
 	// persisted. With no metrics integration registered the resolver returns nothing,
 	// which reads as "not known" rather than as anything about the machine.
-	monitoringFactory := monitoringinfra.NewMonitoringFactory(integrationRepo)
+	monitoringFactory := promstack.NewMonitoringFactory(integrationRepo)
 	alertService := monitoringapp.NewAlertService(monitoringFactory)
 	healthResolver := monitoringapp.NewHealthResolver(monitoringFactory)
 
@@ -244,7 +244,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// instead of re-reading the whole list.
 	serverStreamHandler := serverdelivery.NewServerStreamHandler(serverEventBroker)
 
-	providerFactory := provisioninginfra.NewProviderFactory(integrationRepo)
+	providerFactory := maas.NewProviderFactory(integrationRepo)
 	serverProtection := providerServerMutationGuard{
 		servers: serverRepo, providers: providerFactory,
 	}
@@ -261,7 +261,7 @@ func RunAPI(cfg config.APIConfig) error {
 	sshKeyHandler := sshkeydelivery.NewSSHKeyHandler(sshKeyService)
 	deploymentKeys := deploymentKeySource{keys: sshKeyService}
 	activeWork := activeServerWorkReader{operations: operationRepo, orchestrations: orchestrationRepo, tasks: taskRepo}
-	integrationReader := provisioninginfra.NewIntegrationReader(integrationRepo, siteRepo)
+	integrationReader := provisioningapp.NewIntegrationReader(integrationRepo, siteRepo)
 	templateService := provisioningapp.NewDeploymentTemplateService(
 		templateRepo, integrationReader, providerFactory)
 	networkService := provisioningapp.NewNetworkConfigurationService(serverRepo, providerFactory)
@@ -318,9 +318,9 @@ func RunAPI(cfg config.APIConfig) error {
 		infrastructureapp.NewGroupingService(
 			zoneRepo,
 			poolRepo,
-			infrastructureinfra.NewSiteReader(siteRepo),
-			infrastructureinfra.NewServerLocator(serverRepo),
-			infrastructureinfra.NewGroupingRealizer(integrationRepo, providerFactory),
+			NewSiteReader(siteRepo),
+			NewServerLocator(serverRepo),
+			NewGroupingRealizer(integrationRepo, providerFactory),
 		),
 	)
 
@@ -344,7 +344,7 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 	requirementRepo := platformstore.NewMongoDeploymentRequirementRepo(db)
 	requirementService := platformapp.NewDeploymentRequirementService(requirementRepo)
-	platformReaderFactory := platforminfra.NewReaderFactory(integrationRepo)
+	platformReaderFactory := platformapi.NewReaderFactory(integrationRepo)
 	membershipSync := platformapp.NewMembershipSyncUseCase(
 		platformRepo, serverRepo, platformReaderFactory)
 	// On-demand Slurm cluster read: reuses the same reader factory but never writes the
@@ -353,9 +353,9 @@ func RunAPI(cfg config.APIConfig) error {
 	// Live Kubernetes cluster explorer: a read/write client factory for a deployed Kubernetes
 	// Platform's own API. Like the Slurm read it never writes Swallow state; eligibility
 	// (deployed Kubernetes with a recorded credential) is enforced by the use case below.
-	kubernetesClientFactory := platforminfra.NewKubernetesClientFactory(integrationRepo)
+	kubernetesClientFactory := platformapi.NewKubernetesClientFactory(integrationRepo)
 
-	catalog, err := operationinfra.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
+	catalog, err := ansible.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
 	if err != nil {
 		return fmt.Errorf("playbook catalog: %w", err)
 	}
@@ -383,7 +383,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// Server Default User (decision 045): setting one logs in to the host directly — once with an
 	// optional one-time password to install the Deployment Key, then with the key to verify — on the
 	// Site's SSH port, behind the live Server Lock guard.
-	hostAccess := serverinfra.NewSSHHostAccess(deploymentKeys, siteSSHPorts{configurations: automationRepo})
+	hostAccess := sshaccess.NewSSHHostAccess(deploymentKeys, siteSSHPorts{configurations: automationRepo})
 	defaultUserHandler := serverdelivery.NewDefaultUserHandler(serverapp.NewDefaultUserUseCase(
 		serverRepo, serverProtection, hostAccess,
 	))
@@ -399,7 +399,7 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("boot ISO repo init: %w", err)
 	}
-	bootISOFiles := provisioninginfra.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL)
+	bootISOFiles := genfsimg.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL)
 	bootISOs := newBootISOCatalog(bootISORepo, bootISOFiles, cfg.BootMedia.BaseURL)
 	bootISOHandler := provisioningdelivery.NewBootISOHandler(provisioningapp.NewBootISOService(
 		bootISORepo, integrationReader, bootISOFiles, bootISOUsage{servers: mongoServerRepo}))
@@ -407,7 +407,7 @@ func RunAPI(cfg config.APIConfig) error {
 		newBootMediaEndpointSource(providerFactory, serverRepo), redfish.NewController(), libvirtHosts, bootISOs)
 	bootMediaHandler := serverdelivery.NewBootMediaHandler(bootMediaUC)
 	bootMediaPlan := bootMediaPlanner{servers: serverRepo, isos: bootISOs}
-	runner := operationinfra.NewLocalRunner(
+	runner := ansible.NewLocalRunner(
 		cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
 	// Per-host SSH-user resolution: images use different default login users, so the runner probes
 	// candidate users per host with the automation key instead of forcing one Site sshUser.
@@ -481,7 +481,7 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 	orchestrationReconciler.AttachLeaseReleaser(resourceLeases)
 
-	overviewReader := overviewinfra.NewReader(
+	overviewReader := NewOverviewReader(
 		siteRepo, integrationRepo, serverRepo, healthResolver, platformRepo, operationRepo,
 		alertService, orchestrationRepo,
 	)

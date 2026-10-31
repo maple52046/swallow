@@ -11,7 +11,7 @@ import (
 
 // This file holds the Provisioner HTTP Proxy model (decision 056): the proxy a provisioner hands to
 // the machines it deploys, as a closed mode set plus a URL. It is pure model code: provider adapters
-// under infra/ translate it to their own settings, which never appear here.
+// under internal/adapters/osprovisioning translate it to their own settings, which never appear here.
 
 // HTTPProxyMode is the closed value set of a Provisioner HTTP Proxy (glossary Provisioner HTTP
 // Proxy, decision 056): which proxy a provisioner hands to the machines it deploys. The values are

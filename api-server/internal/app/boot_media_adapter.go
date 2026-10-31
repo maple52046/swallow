@@ -13,8 +13,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
 
+	"github.com/maple52046/swallow/internal/adapters/bootiso/genfsimg"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	serverapp "github.com/maple52046/swallow/internal/server/application"
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
@@ -24,7 +24,7 @@ import (
 // fixes the base URL, swallow derives the rest from the Boot ISO's id, and operators never type
 // an ISO URL. The directory component is load-bearing: AMI MegaRAC BMCs do not mount an image
 // that sits at a server's root.
-const bootISORoute = "/boot-media/ipxe/:id/" + provisioninginfra.BootISOFileName
+const bootISORoute = "/boot-media/ipxe/:id/" + genfsimg.BootISOFileName
 
 // legacyBootMediaISOPath is where the retired installation ISO was served (decision 047). Only
 // its URL is still needed, to eject it from a BMC that a setting enabled before Boot ISOs had
@@ -36,11 +36,11 @@ const legacyBootMediaISOPath = "/boot-media/ipxe/swallow-ipxe.iso"
 // read-only and safe for concurrent use.
 type bootISOCatalog struct {
 	isos    provisioningdomain.BootISORepository
-	files   *provisioninginfra.GenfsimgBuilder
+	files   *genfsimg.GenfsimgBuilder
 	baseURL string
 }
 
-func newBootISOCatalog(isos provisioningdomain.BootISORepository, files *provisioninginfra.GenfsimgBuilder, baseURL string) bootISOCatalog {
+func newBootISOCatalog(isos provisioningdomain.BootISORepository, files *genfsimg.GenfsimgBuilder, baseURL string) bootISOCatalog {
 	return bootISOCatalog{isos: isos, files: files, baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/")}
 }
 
@@ -117,7 +117,7 @@ func (u bootISOUsage) CountEnabledUsing(ctx context.Context, isoID string) (int,
 // Last-Modified; an ISO is an iPXE loader of a few MiB, so the adaptor's buffering is harmless.
 // The id is checked against the Boot ISO id shape before any path is built, so the handler can
 // only ever read <boot media dir>/<uuid>/swallow-ipxe.iso; the files hold no secret.
-func serveBootISO(files *provisioninginfra.GenfsimgBuilder) fiber.Handler {
+func serveBootISO(files *genfsimg.GenfsimgBuilder) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		path, ok := files.FilePath(c.Params("id"))
 		if !ok {
@@ -137,7 +137,7 @@ func serveBootISO(files *provisioninginfra.GenfsimgBuilder) fiber.Handler {
 			}
 			w.Header().Set("Content-Type", "application/x-iso9660-image")
 			w.Header().Set("Cache-Control", "no-cache")
-			http.ServeContent(w, r, provisioninginfra.BootISOFileName, info.ModTime(), file)
+			http.ServeContent(w, r, genfsimg.BootISOFileName, info.ModTime(), file)
 		})(c)
 	}
 }

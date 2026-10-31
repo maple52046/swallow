@@ -29,7 +29,7 @@ COPY api-server/go.mod api-server/go.sum ./
 RUN go mod download
 COPY api-server/ ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
-    -ldflags="-s -w -X github.com/maple52046/swallow/internal/version.Version=${VERSION} -X github.com/maple52046/swallow/internal/version.Commit=${COMMIT} -X github.com/maple52046/swallow/internal/version.BuiltAt=${BUILT_AT}" \
+    -ldflags="-s -w -X github.com/maple52046/swallow/internal/shared/version.Version=${VERSION} -X github.com/maple52046/swallow/internal/shared/version.Commit=${COMMIT} -X github.com/maple52046/swallow/internal/shared/version.BuiltAt=${BUILT_AT}" \
     -o /out/swallow-api ./cmd/swallow-api
 
 FROM ${EXECUTION_ENVIRONMENT}

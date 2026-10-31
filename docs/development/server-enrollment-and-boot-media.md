@@ -369,7 +369,7 @@ Read 回應的 `method` 由已儲存的 probe 推導：libvirt probe 找到 Hype
 
 ### 4.5 `redfish` method：掛載與開機導向
 
-BMC 廠商行為集中在單一 adapter（`internal/server/infra/redfish`）；新的 BMC 家族可能需要新策略，由它的
+BMC 廠商行為集中在單一 adapter（`internal/adapters/bmc/redfish`）；新的 BMC 家族可能需要新策略，由它的
 preflight 以 BMC 自己的錯誤訊息失敗而發現。
 
 - **探索**：每次呼叫都重新探索 BMC 資源（host System、virtual CD、actions），不信任儲存的路徑。host System 依序
@@ -594,26 +594,26 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 | `wait-enrollment-settled` 與 `inspect` Task | `internal/app/inspection_steps.go` |
 | 自動檢視 sweep、`autoInspect` setting、24 小時視窗 | `internal/provisioning/application/hardware_inspection.go` |
 | 可檢視的 state（inspection policy） | `internal/provisioning/domain/inspection_policy.go` |
-| MAAS enrollment observation 與 existing-host enrollment | `internal/provisioning/infra/maas/enrollment.go` |
+| MAAS enrollment observation 與 existing-host enrollment | `internal/adapters/osprovisioning/maas/enrollment.go` |
 | enroll-bundle 與 enrollment script | `internal/provisioning/application/host_enrollment.go` |
 | 不需認證的下載（script、CLI） | `internal/app/enrollment_downloads.go` |
 | `enroll-virtual-machines` Workflow 與 `enroll-virtual-machine` Task | `internal/app/virtual_machine_enrollment.go`、`internal/provisioning/application/virtual_machine_enrollment.go` |
-| MAAS machine registration（`commission=false`） | `internal/provisioning/infra/maas/machine_registration.go` |
+| MAAS machine registration（`commission=false`） | `internal/adapters/osprovisioning/maas/machine_registration.go` |
 | Hypervisor 角色與登入 | `internal/server/domain/hypervisor.go` |
-| libvirt 存取（domain、pool、volume、CD-ROM） | `internal/server/infra/libvirt/host.go`、`internal/server/infra/libvirt/domainxml.go` |
+| libvirt 存取（domain、pool、volume、CD-ROM） | `internal/adapters/hypervisor/libvirt/host.go`、`internal/adapters/hypervisor/libvirt/domainxml.go` |
 | Power Configuration model、control、power adapter 與 registry | `internal/provisioning/domain/power.go`、`internal/provisioning/domain/power_adapters.go` |
-| Power Configuration use case 與 MAAS 實作 | `internal/provisioning/application/power_configuration.go`、`internal/provisioning/infra/maas/power_configuration.go` |
+| Power Configuration use case 與 MAAS 實作 | `internal/provisioning/application/power_configuration.go`、`internal/adapters/osprovisioning/maas/power_configuration.go` |
 | Boot Media model（setting、capability、method、phase） | `internal/server/domain/boot_media.go` |
 | Boot Media use case（probe、preflight、ensure、部署開機補救、capability sweep） | `internal/server/application/boot_media.go` |
 | method 解析、Boot ISO 檔案路由、capability sweep 迴圈 | `internal/app/boot_media_adapter.go` |
 | `ensure-boot-media` Task、OS 佈署的 Task 插入、部署開機監看 | `internal/app/boot_media_steps.go` |
-| Redfish adapter（探索、掛載、開機導向策略） | `internal/server/infra/redfish/controller.go`、`internal/server/infra/redfish/boot.go` |
+| Redfish adapter（探索、掛載、開機導向策略） | `internal/adapters/bmc/redfish/controller.go`、`internal/adapters/bmc/redfish/boot.go` |
 | Boot ISO model 與 iPXE／GRUB 範本 | `internal/provisioning/domain/boot_iso.go` |
 | Boot ISO 建置、rebuild、刪除 | `internal/provisioning/application/boot_isos.go` |
-| `genfsimg`／`grub-mkstandalone` 打包與檔案 | `internal/provisioning/infra/boot_iso_builder.go` |
-| MAAS UEFI layout 偵測（`inspectionRequired`） | `internal/provisioning/infra/maas/mapping.go` |
+| `genfsimg`／`grub-mkstandalone` 打包與檔案 | `internal/adapters/bootiso/genfsimg/boot_iso_builder.go` |
+| MAAS UEFI layout 偵測（`inspectionRequired`） | `internal/adapters/osprovisioning/maas/mapping.go` |
 | 部署 preflight 的 `inspection_required` | `internal/provisioning/application/deployment_targets.go` |
-| MAAS 安裝 log 的失敗行 | `internal/provisioning/infra/maas/installation.go` |
+| MAAS 安裝 log 的失敗行 | `internal/adapters/osprovisioning/maas/installation.go` |
 | 設定（`bootMedia`、`cliBinary`、`redfishProbe*`） | `config/config.go`、`config/env.go`、`config/defaults.go` |
 
 ### 其他

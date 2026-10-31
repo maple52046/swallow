@@ -25,7 +25,7 @@ func ValidateName(name string) (string, error) {
 
 // SiteReader reports whether a Site exists, so a Zone/Pool can be refused before it is stored
 // against a Site that does not exist. It is a read-only projection of the Site aggregate owned by
-// the site feature; the infra adapter maps the site repository's not-found onto ErrSiteNotFound.
+// the site feature; the composition adapter maps the site repository's not-found onto ErrSiteNotFound.
 type SiteReader interface {
 	// Exists returns true when the Site is present. A transport failure is returned as an error
 	// rather than as a false, so a create does not proceed on a failed lookup.
@@ -46,7 +46,7 @@ type ServerPlacementTarget struct {
 }
 
 // ServerLocator resolves a Server id into its placement target. It is a narrow read port over
-// the server feature's projection; the infra adapter maps the server repository's not-found onto
+// the server feature's projection; the composition adapter maps the server repository's not-found onto
 // ErrServerNotFound so this feature does not import the server domain's error vocabulary.
 type ServerLocator interface {
 	Locate(ctx context.Context, serverID string) (*ServerPlacementTarget, error)

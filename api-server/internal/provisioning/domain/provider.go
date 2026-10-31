@@ -478,7 +478,7 @@ type MachineEvent struct {
 // OSProvisioningProvider is the port an OS provisioning backend must implement
 // to be usable by swallow.
 //
-// Implementations live under infra/ and own all translation between provider
+// Implementations live under internal/adapters/osprovisioning and own all translation between provider
 // vocabulary and this package's types. In particular they must map:
 //   - transport failures and provider 5xx onto *ProviderError{Kind: ProviderErrorUnavailable}
 //   - rejected credentials onto *ProviderError{Kind: ProviderErrorAuth}

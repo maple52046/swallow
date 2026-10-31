@@ -6,9 +6,9 @@
 // regardless of provider support. This package holds the entities, their persistence ports, the
 // provider-realization port, and the domain errors — no MongoDB, HTTP, or provider vocabulary.
 //
-// This is not the Clean Architecture infrastructure (`infra/`) layer. "Infrastructure" here is
-// the operator-facing area (the dashboard's Infrastructure section) whose domain is Zones and
-// Pools; the provider adapters that realize them live under this feature's own `infra/`.
+// This is not a Clean Architecture infrastructure layer. "Infrastructure" here is the
+// operator-facing area (the dashboard's Infrastructure section) whose domain is Zones and Pools;
+// the provisioner realizes them through the composition adapters in internal/app.
 package domain
 
 import "errors"

@@ -2,8 +2,9 @@
 //
 // The types here describe what every OS provisioning backend must be able to
 // express. Provider-specific vocabulary (MAAS system IDs, MAAS status codes,
-// and so on) is translated into these types by the adapters under infra/, so
-// that no application or delivery code is aware of which provider is in use.
+// and so on) is translated into these types by the adapters under
+// internal/adapters/osprovisioning, so that no application or delivery code is
+// aware of which provider is in use.
 package domain
 
 import "errors"

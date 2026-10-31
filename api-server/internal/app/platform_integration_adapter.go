@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
@@ -32,7 +31,7 @@ func (c managedPlatformIntegrationCleaner) DeleteForPlatform(
 			integration.Kind != sitedomain.IntegrationKindPlatform ||
 			integration.ProviderKind != sitedomain.ProviderKindKubernetes ||
 			integration.Name != platform.Name+" (deployed)" ||
-			integration.Settings[platforminfra.SettingControllerLeaseDiscovery] != "true" {
+			integration.Settings[platformdomain.SettingControllerLeaseDiscovery] != "true" {
 			return nil
 		}
 		integrationID = integration.ID

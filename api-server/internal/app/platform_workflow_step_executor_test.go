@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
 )
 
 // recordingFinalizer captures CompleteUninstall calls and returns a configurable error.

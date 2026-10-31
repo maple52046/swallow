@@ -586,9 +586,9 @@ Operation 也不能同時宣告同一台 Server。把 provider 失敗改成不�
 | `provisioner` Runner（`provision-os`、`release-os`、`recover-server`、Retry 回復） | `internal/app/provider_step_executor.go` |
 | 部署進度與 stage stall | `internal/app/deployment_progress.go` |
 | 驗證紀錄 Task（`record-image-verification*`） | `internal/app/platform_workflow_step_executor.go` |
-| 取消驗證時的歸還 | `internal/operation/infra/temporalworkflow/workflow.go`（`compensateVerifyCancel`） |
-| MAAS adapter（狀態對應、網路、上傳、event、grouping、proxy、subnet DNS） | `internal/provisioning/infra/maas/`（`mapping.go`、`network.go`、`provider.go`、`events.go`、`grouping.go`、`http_proxy.go`、`subnet_dns.go`） |
-| Zone／Pool 與 placement | `internal/infrastructure/application/service.go`、`internal/infrastructure/infra/grouping_realizer.go` |
+| 取消驗證時的歸還 | `internal/adapters/executor/temporalworkflow/workflow.go`（`compensateVerifyCancel`） |
+| MAAS adapter（狀態對應、網路、上傳、event、grouping、proxy、subnet DNS） | `internal/adapters/osprovisioning/maas/`（`mapping.go`、`network.go`、`provider.go`、`events.go`、`grouping.go`、`http_proxy.go`、`subnet_dns.go`） |
+| Zone／Pool 與 placement | `internal/infrastructure/application/service.go`、`internal/app/grouping_realizer.go` |
 | 上傳的 request body 上限 | `config/defaults.go`、`config/env.go`（`SWALLOW_API_IMAGE_UPLOAD_MAX_BYTES`） |
 
 ### `dashboard`

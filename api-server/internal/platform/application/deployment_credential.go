@@ -10,7 +10,6 @@ import (
 
 	"github.com/maple52046/swallow/internal/core/store"
 	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
 	sitedomain "github.com/maple52046/swallow/internal/site/domain"
 )
 
@@ -79,10 +78,10 @@ func (s *DeploymentCredentialService) Record(ctx context.Context, platformID str
 	}
 
 	settings := map[string]string{
-		platforminfra.SettingControllerLeaseDiscovery: "true",
+		platformdomain.SettingControllerLeaseDiscovery: "true",
 	}
 	if strings.TrimSpace(credential.CACertificate) == "" {
-		settings[platforminfra.SettingInsecureSkipVerify] = "true"
+		settings[platformdomain.SettingInsecureSkipVerify] = "true"
 	}
 
 	now := time.Now().UTC()
@@ -132,10 +131,10 @@ func (s *DeploymentCredentialService) RecordSlurm(ctx context.Context, platformI
 	}
 
 	settings := map[string]string{
-		platforminfra.SettingInsecureSkipVerify: "true",
+		platformdomain.SettingInsecureSkipVerify: "true",
 	}
 	if version := strings.TrimSpace(credential.APIVersion); version != "" {
-		settings[platforminfra.SettingSlurmAPIVersion] = version
+		settings[platformdomain.SettingSlurmAPIVersion] = version
 	}
 
 	now := time.Now().UTC()

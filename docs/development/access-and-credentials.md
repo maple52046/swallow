@@ -386,11 +386,11 @@ API 認證的決策與時效、cookie、rotation 細節見
 | SSH Key domain（purpose、不變式、同步狀態、ports、錯誤） | `internal/sshkey/domain/` |
 | SSH Key use case（匯入、產生、替換、重產、安裝時建立） | `internal/sshkey/application/service.go` |
 | Provisioner realization 與佈署前 ensure | `internal/sshkey/application/sync.go` |
-| 金鑰材料解析、產生與型別限制 | `internal/sshkey/infra/keymaterial.go` |
+| 金鑰材料解析、產生與型別限制 | `internal/adapters/keys/openssh/keymaterial.go` |
 | `ssh_keys`（封存私鑰、unique indexes）與同步紀錄 | `internal/adapters/store/mongodb/sshkey/mongo_key_repo.go`、`internal/adapters/store/mongodb/sshkey/mongo_sync_repo.go` |
-| provisioner 能力判斷 | `internal/sshkey/infra/provisioner_keys.go` |
+| provisioner 能力判斷 | `internal/app/provisioner_keys.go` |
 | `SSHKeyRegistration` capability 與 `SSHKeyRegistrar` interface | `internal/provisioning/domain/provider.go` |
-| MAAS `SSHKeyRegistrar` | `internal/provisioning/infra/maas/sshkeys.go` |
+| MAAS `SSHKeyRegistrar` | `internal/adapters/osprovisioning/maas/sshkeys.go` |
 | SSH Keys HTTP | `internal/sshkey/delivery/handler.go` |
 | 組裝、同步迴圈、Deployment Key adapter | `internal/app/sshkey_adapter.go`、`internal/app/api.go` |
 | 安裝步驟 `deployment-key ensure` | `cmd/swallow-api/deployment_key.go`、`internal/app/deployment_key.go` |
@@ -401,16 +401,16 @@ API 認證的決策與時效、cookie、rotation 細節見
 | `CheckRunnable`、`CredentialSource` | `internal/operation/domain/execution.go` |
 | Site credential 儲存（只存 become password） | `internal/adapters/store/mongodb/workflow/mongo_automation_config_repo.go` |
 | Site credential HTTP（拒絕 `sshPrivateKey`） | `internal/operation/delivery/execution_handler.go` |
-| Ansible Task 的可執行檢查 | `internal/operation/infra/temporalworkflow/ansible_executor.go` |
+| Ansible Task 的可執行檢查 | `internal/adapters/executor/temporalworkflow/ansible_executor.go` |
 | 登入帳號候選與探測 | `internal/shared/sshprobe/sshprobe.go` |
-| `ansible_user` 解析 | `internal/operation/infra/local_runner.go` |
+| `ansible_user` 解析 | `internal/adapters/hostautomation/ansible/local_runner.go` |
 | `wait-for-ssh` | `internal/app/platform_workflow_step_executor.go` |
 | Inventory `default_user`／`image_default_user` | `internal/discovery/application/discovery.go` |
 | OS Image default user 的內建值與 effective 值 | `internal/provisioning/domain/os_image_overlay.go` |
 | 鏡射到 Server、無 OS 時清除 Server Default User | `internal/provisioning/application/reconcile.go` |
 | Server Default User（effective 值、名稱規則、sudo、錯誤） | `internal/server/domain/default_user.go` |
 | Server Default User use case | `internal/server/application/default_user.go` |
-| 一次性密碼安裝金鑰與 Deployment Key 驗證登入 | `internal/server/infra/ssh_host_access.go` |
+| 一次性密碼安裝金鑰與 Deployment Key 驗證登入 | `internal/adapters/hostaccess/sshaccess/ssh_host_access.go` |
 | Server Default User HTTP | `internal/server/delivery/default_user_handler.go` |
 | Docker CE 的 `docker` group | `automation/playbooks/roles/docker_ce/`（`defaults/main.yml`、`tasks/main.yml`） |
 | 認證 middleware（access token 與 API Key） | `internal/shared/middleware/auth.go` |

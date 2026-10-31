@@ -10,7 +10,7 @@ import (
 
 // This file holds the Subnet DNS model (glossary Subnet DNS, decision 058): the DNS servers a
 // provisioner subnet hands to machines deployed on it with an automatic or static address. It is
-// pure model code; adapters under infra/ translate it to their provider's subnet setting.
+// pure model code; adapters under internal/adapters/osprovisioning translate it to their provider's subnet setting.
 
 // MaxSubnetDNSServers bounds one subnet's Subnet DNS. A resolver configuration rarely uses more
 // than three; eight leaves room without letting a request carry an unbounded list into the
