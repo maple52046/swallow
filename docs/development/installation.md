@@ -70,7 +70,8 @@ production installation 拓樸、`swallowctl` lifecycle 的保證、release 發�
   §5.4）與它們佈署、設定的 Server。三者另以 `extra_hosts` 把 `host.docker.internal` 對到 host gateway。
 - `host-postgres` 只有 PostgreSQL 加入，用於發佈它的 loopback port。
 - Dashboard（Nginx）是唯一對外 listener，把 `/api/`、`/healthz`、`/livez`、`/readyz`、`/metrics`、
-  `/boot-media/`、`/downloads/` 代理到 API（容器內 `:30051`，不發佈）。
+  `/boot-media/`、`/downloads/` 代理到 API（容器內 `:30051`，不發佈）。它以 Docker 內建 DNS（`127.0.0.11`）每
+  10 秒重新解析 `api-server`，所以只重建 API container（例如只換 API image 的 upgrade）不需要一起重建 dashboard。
 - API、worker、Ansible executor 是同一個 image，以不同 command 啟動。Ansible executor 以 `init: true` 執行：
   Docker 的 init 擔任 PID 1，轉送 signal 並回收 `ansible-runner` 留下的 ssh-agent，否則每次 run 都會留下 zombie。
 - Temporal UI 是選用的 diagnostics service：只在 operator 設定 `SWALLOW_TEMPORAL_UI_IMAGE` 後以 profile
