@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"time"
 
@@ -422,4 +423,140 @@ func (r *MongoResourceLeaseRepo) FindByOwner(ctx context.Context, owner string) 
 		leases = []workflowdomain.ResourceLease{}
 	}
 	return leases, nil
+}
+
+// terminalStatuses are the Workflow statuses after which no command or dispatch applies.
+var terminalStatuses = bson.A{
+	string(workflowdomain.WorkflowSucceeded), string(workflowdomain.WorkflowFailed),
+	string(workflowdomain.WorkflowPartiallySucceeded), string(workflowdomain.WorkflowCanceled),
+}
+
+// Save implements workflowdomain.WorkflowRepository. It replaces the whole document, so it must
+// run inside a transaction that read the Workflow: a concurrent write then aborts and retries the
+// transition instead of being overwritten.
+func (r *MongoWorkflowRepo) Save(ctx context.Context, workflow *workflowdomain.Workflow) error {
+	workflow.UpdatedAt = time.Now().UTC()
+	result, err := r.operations.ReplaceOne(ctx, bson.M{"_id": workflow.ID, "schemaVersion": 4}, workflow)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return workflowdomain.ErrWorkflowNotFound
+	}
+	return nil
+}
+
+// UpdateTaskLive implements workflowdomain.WorkflowRepository with one targeted update guarded by
+// the dispatch generation and the Task's running attempt.
+func (r *MongoWorkflowRepo) UpdateTaskLive(ctx context.Context, id string, generation int64, taskID string, attempt int,
+	ref *workflowdomain.ExternalExecutionReference, startedAt *time.Time, live *workflowdomain.TaskLive) error {
+	set := bson.M{"updatedAt": time.Now().UTC()}
+	if ref != nil {
+		set["tasks.$.externalExecution"] = ref
+	}
+	if startedAt != nil {
+		set["tasks.$.startedAt"] = startedAt
+	}
+	if live != nil {
+		set["tasks.$.live"] = live
+	}
+	result, err := r.operations.UpdateOne(ctx, bson.M{
+		"_id": id, "schemaVersion": 4, "dispatch.generation": generation,
+		"tasks": bson.M{"$elemMatch": bson.M{
+			"id": taskID, "attempt": attempt,
+			"status": bson.M{"$in": bson.A{string(workflowdomain.TaskRunning), string(workflowdomain.TaskWaitingExternal)}},
+		}},
+	}, bson.M{"$set": set})
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 1 {
+		return nil
+	}
+	workflow, err := r.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if workflow.Dispatch.Generation != generation {
+		return workflowdomain.ErrDispatchFenced
+	}
+	return workflowdomain.ErrTaskNotRunning
+}
+
+// RequestCancel implements workflowdomain.WorkflowRepository.
+func (r *MongoWorkflowRepo) RequestCancel(ctx context.Context, id string, command workflowdomain.CancelCommand) error {
+	result, err := r.operations.UpdateOne(ctx, bson.M{
+		"_id": id, "schemaVersion": 4, "status": bson.M{"$nin": terminalStatuses}, "commands.cancel": bson.M{"$exists": false},
+	}, bson.M{
+		"$set": bson.M{"commands.cancel": command, "updatedAt": time.Now().UTC()},
+		"$inc": bson.M{"commands.sequence": 1},
+	})
+	if err != nil || result.MatchedCount == 1 {
+		return err
+	}
+	workflow, err := r.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if workflow.Status.Terminal() {
+		return fmt.Errorf("%w: a finished Operation cannot be canceled", workflowdomain.ErrWorkflowControlConflict)
+	}
+	return nil
+}
+
+// RequestRetry implements workflowdomain.WorkflowRepository.
+func (r *MongoWorkflowRepo) RequestRetry(ctx context.Context, id string, command workflowdomain.RetryCommand) error {
+	result, err := r.operations.UpdateOne(ctx, bson.M{
+		"_id": id, "schemaVersion": 4, "status": bson.M{"$nin": terminalStatuses},
+	}, bson.M{
+		"$push": bson.M{"commands.retries": command},
+		"$set":  bson.M{"updatedAt": time.Now().UTC()},
+		"$inc":  bson.M{"commands.sequence": 1},
+	})
+	if err != nil || result.MatchedCount == 1 {
+		return err
+	}
+	if _, err := r.FindByID(ctx, id); err != nil {
+		return err
+	}
+	return fmt.Errorf("%w: a finished Operation cannot be retried", workflowdomain.ErrWorkflowControlConflict)
+}
+
+// MarkCommandsDelivered implements workflowdomain.WorkflowRepository; it never moves the
+// delivered sequence backwards.
+func (r *MongoWorkflowRepo) MarkCommandsDelivered(ctx context.Context, id string, sequence int64) error {
+	_, err := r.operations.UpdateOne(ctx,
+		bson.M{"_id": id, "schemaVersion": 4, "dispatch.deliveredCommand": bson.M{"$lt": sequence}},
+		bson.M{"$set": bson.M{"dispatch.deliveredCommand": sequence}})
+	return err
+}
+
+// RecordRun implements workflowdomain.WorkflowRepository.
+func (r *MongoWorkflowRepo) RecordRun(ctx context.Context, id string, generation int64, runID string) error {
+	_, err := r.operations.UpdateOne(ctx,
+		bson.M{"_id": id, "schemaVersion": 4, "dispatch.generation": generation},
+		bson.M{"$set": bson.M{"temporal.runId": runID}})
+	return err
+}
+
+// ListUnfinishedIDs implements workflowdomain.WorkflowRepository.
+func (r *MongoWorkflowRepo) ListUnfinishedIDs(ctx context.Context) ([]string, error) {
+	cursor, err := r.operations.Find(ctx,
+		bson.M{"schemaVersion": 4, "status": bson.M{"$nin": terminalStatuses}},
+		options.Find().SetProjection(bson.M{"_id": 1}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var docs []struct {
+		ID string `bson:"_id"`
+	}
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(docs))
+	for i, doc := range docs {
+		ids[i] = doc.ID
+	}
+	return ids, nil
 }

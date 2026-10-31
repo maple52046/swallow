@@ -140,6 +140,16 @@ type Task struct {
 	Artifacts  []ArtifactMetadata `json:"artifacts" bson:"artifacts"`
 	StartedAt  *time.Time         `json:"startedAt" bson:"startedAt,omitempty"`
 	FinishedAt *time.Time         `json:"finishedAt" bson:"finishedAt,omitempty"`
+	// Completion and OnCancel are the Task's declared behaviors (plan.go); they are part of the
+	// accepted plan, never of the public projection.
+	Completion []Completion    `json:"-" bson:"completion,omitempty"`
+	OnCancel   *CancelBehavior `json:"-" bson:"onCancel,omitempty"`
+	// Generation is the dispatch generation that began the running attempt; a running Task of an
+	// older generation is resumed by the next dispatch (ResumePolicy).
+	Generation int64 `json:"-" bson:"generation,omitempty"`
+	// Resumed marks a running attempt a later dispatch continued, so its Runner observes the
+	// external work it already started instead of starting it again.
+	Resumed bool `json:"-" bson:"resumed,omitempty"`
 }
 
 // TemporalReference correlates the query projection with its durable workflow.
@@ -151,28 +161,35 @@ type TemporalReference struct {
 // Workflow stores durable intent and its query projection. Secret values are never
 // part of this aggregate; intent may carry opaque secret references only.
 type Workflow struct {
-	ID                 string              `json:"id" bson:"_id"`
-	SchemaVersion      int                 `json:"schemaVersion" bson:"schemaVersion"`
-	Kind               WorkflowKind        `json:"kind" bson:"kind"`
-	Intent             map[string]any      `json:"intent" bson:"intent"`
-	Definition         string              `json:"definition" bson:"definition"`
-	DefinitionVersion  int                 `json:"definitionVersion" bson:"definitionVersion"`
-	Status             WorkflowStatus      `json:"status" bson:"status"`
-	StatusReason       string              `json:"statusReason,omitempty" bson:"statusReason,omitempty"`
-	StartState         string              `json:"startState" bson:"startState"`
-	Temporal           TemporalReference   `json:"temporal" bson:"temporal"`
-	SiteID             string              `json:"siteId" bson:"siteId"`
-	PlatformID         string              `json:"platformId,omitempty" bson:"platformId,omitempty"`
-	TargetResources    []ResourceReference `json:"targetResources" bson:"targetResources"`
-	TargetServerIDs    []string            `json:"targetServerIds" bson:"targetServerIds"`
-	Steps              []Task              `json:"steps" bson:"tasks"`
-	RetryOfOperationID string              `json:"retryOfOperationId,omitempty" bson:"retryOfOperationId,omitempty"`
-	RequestedBy        string              `json:"requestedBy" bson:"requestedBy"`
-	RequestCorrelation string              `json:"requestCorrelation,omitempty" bson:"requestCorrelation,omitempty"`
-	RequestedAt        time.Time           `json:"requestedAt" bson:"requestedAt"`
-	StartedAt          *time.Time          `json:"startedAt" bson:"startedAt,omitempty"`
-	FinishedAt         *time.Time          `json:"finishedAt" bson:"finishedAt,omitempty"`
-	UpdatedAt          time.Time           `json:"updatedAt" bson:"updatedAt"`
+	ID                string              `json:"id" bson:"_id"`
+	SchemaVersion     int                 `json:"schemaVersion" bson:"schemaVersion"`
+	Kind              WorkflowKind        `json:"kind" bson:"kind"`
+	Intent            map[string]any      `json:"intent" bson:"intent"`
+	Definition        string              `json:"definition" bson:"definition"`
+	DefinitionVersion int                 `json:"definitionVersion" bson:"definitionVersion"`
+	Status            WorkflowStatus      `json:"status" bson:"status"`
+	StatusReason      string              `json:"statusReason,omitempty" bson:"statusReason,omitempty"`
+	StartState        string              `json:"startState" bson:"startState"`
+	Temporal          TemporalReference   `json:"temporal" bson:"temporal"`
+	SiteID            string              `json:"siteId" bson:"siteId"`
+	PlatformID        string              `json:"platformId,omitempty" bson:"platformId,omitempty"`
+	TargetResources   []ResourceReference `json:"targetResources" bson:"targetResources"`
+	TargetServerIDs   []string            `json:"targetServerIds" bson:"targetServerIds"`
+	Steps             []Task              `json:"steps" bson:"tasks"`
+	// Jobs declares every named Job of Steps with its retry granularity (plan.go).
+	Jobs     []JobDeclaration `json:"-" bson:"jobs,omitempty"`
+	Dispatch Dispatch         `json:"-" bson:"dispatch"`
+	Commands Commands         `json:"-" bson:"commands"`
+	// ResourcesAcquired is true from the transition that took the Workflow's resources until the
+	// terminal transition that released them.
+	ResourcesAcquired  bool       `json:"-" bson:"resourcesAcquired,omitempty"`
+	RetryOfOperationID string     `json:"retryOfOperationId,omitempty" bson:"retryOfOperationId,omitempty"`
+	RequestedBy        string     `json:"requestedBy" bson:"requestedBy"`
+	RequestCorrelation string     `json:"requestCorrelation,omitempty" bson:"requestCorrelation,omitempty"`
+	RequestedAt        time.Time  `json:"requestedAt" bson:"requestedAt"`
+	StartedAt          *time.Time `json:"startedAt" bson:"startedAt,omitempty"`
+	FinishedAt         *time.Time `json:"finishedAt" bson:"finishedAt,omitempty"`
+	UpdatedAt          time.Time  `json:"updatedAt" bson:"updatedAt"`
 }
 
 // TimelineEvent is an immutable normalized Operation event.
@@ -250,6 +267,31 @@ type WorkflowRepository interface {
 	UpdateStepLive(ctx context.Context, operationID, stepID string, ref *ExternalExecutionReference, startedAt *time.Time, live *TaskLive) error
 	AppendEvent(ctx context.Context, event TimelineEvent) error
 	Timeline(ctx context.Context, operationID string) ([]TimelineEvent, error)
+
+	// Save replaces the stored Workflow with workflow, stamping UpdatedAt. Only the core Workflow
+	// service calls it, inside the transaction of one transition, which a concurrent write to the
+	// same Workflow makes retry with fresh state.
+	Save(ctx context.Context, workflow *Workflow) error
+	// UpdateTaskLive sets the live fields of a running Task without touching the rest: ref (the
+	// external execution reference), startedAt, and live are each applied when non-nil. It returns
+	// ErrDispatchFenced when generation is no longer the Workflow's, and ErrTaskNotRunning when
+	// the Task is not running at attempt.
+	UpdateTaskLive(ctx context.Context, id string, generation int64, taskID string, attempt int,
+		ref *ExternalExecutionReference, startedAt *time.Time, live *TaskLive) error
+	// RequestCancel stores a cancel command and advances the command sequence; a Workflow that
+	// already has one keeps the first. It returns ErrWorkflowControlConflict for a terminal
+	// Workflow.
+	RequestCancel(ctx context.Context, id string, command CancelCommand) error
+	// RequestRetry stores a retry command and advances the command sequence. It returns
+	// ErrWorkflowControlConflict for a terminal Workflow.
+	RequestRetry(ctx context.Context, id string, command RetryCommand) error
+	// MarkCommandsDelivered records that the commands up to sequence reached a run.
+	MarkCommandsDelivered(ctx context.Context, id string, sequence int64) error
+	// RecordRun stores the executor run of a dispatch; a generation that is no longer the
+	// Workflow's changes nothing.
+	RecordRun(ctx context.Context, id string, generation int64, runID string) error
+	// ListUnfinishedIDs returns the ids of every Workflow that is not terminal.
+	ListUnfinishedIDs(ctx context.Context) ([]string, error)
 }
 
 // ResourceLease serializes all mutations for a Server or Platform.
