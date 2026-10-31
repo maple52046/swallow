@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/convergence"
 	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
 )
 
@@ -137,6 +138,8 @@ func (r *fakeKeyRepo) ReplaceDeployment(_ context.Context, key *sshkeydomain.SSH
 		return err
 	}
 	copied := *key
+	copied.Generation = r.keys[key.ID].Generation + 1
+	key.Generation = copied.Generation
 	r.keys[key.ID] = &copied
 	r.privateKey = privateKeyPEM
 	return nil
@@ -357,13 +360,31 @@ func (f *fixture) deployment(t *testing.T) *sshkeydomain.SSHKey {
 	return key
 }
 
-func drainKick(s *Service) bool {
-	select {
-	case <-s.SyncRequests():
-		return true
-	default:
-		return false
+// syncAll runs the SSH Key controller's pass over every target, as a resync does, and joins the
+// provisioner-level errors.
+func (f *fixture) syncAll(t *testing.T) error {
+	t.Helper()
+	targets, err := f.service.Targets(context.Background())
+	if err != nil {
+		t.Fatalf("Targets: %v", err)
 	}
+	var errs []error
+	for _, target := range targets {
+		if err := f.service.ReconcileProvisioner(context.Background(), target); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// realized returns the realized condition of a record, failing when there is none.
+func realized(t *testing.T, record sshkeydomain.ProviderSync) convergence.Condition {
+	t.Helper()
+	condition, ok := convergence.FindCondition(record.Status.Conditions, convergence.ConditionRealized)
+	if !ok {
+		t.Fatalf("record %+v has no realized condition", record)
+	}
+	return condition
 }
 
 // --- bootstrap ---
@@ -383,8 +404,8 @@ func TestEnsureDeploymentKey_GeneratesOnceAndIsIdempotent(t *testing.T) {
 	if first.Name != sshkeydomain.DefaultDeploymentKeyName || first.OwnerUserID != "" {
 		t.Errorf("deployment key = %+v, want default name and no owner", first)
 	}
-	if !drainKick(f.service) {
-		t.Errorf("generating the deployment key must request a sync")
+	if first.Generation != 1 {
+		t.Errorf("deployment key generation = %d, want 1", first.Generation)
 	}
 
 	fingerprint, created, err = f.service.EnsureDeploymentKey(ctx)
@@ -410,7 +431,7 @@ func TestEnsureDeploymentKey_LostRaceIsSuccess(t *testing.T) {
 
 // --- access keys ---
 
-func TestImportAccessKey_ValidatesAndRequestsSync(t *testing.T) {
+func TestImportAccessKey_Validates(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
@@ -425,14 +446,14 @@ func TestImportAccessKey_ValidatesAndRequestsSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ImportAccessKey: %v", err)
 	}
-	if item.Name != "laptop" || item.Purpose != "access" || item.OwnerUserID != "admin" {
-		t.Errorf("ImportAccessKey() = %+v, want trimmed name, access purpose, admin owner", item)
+	if item.Spec.Name != "laptop" || item.Spec.Purpose != "access" || item.OwnerUserID != "admin" || item.Generation != 1 {
+		t.Errorf("ImportAccessKey() = %+v, want trimmed name, access purpose, admin owner, generation 1", item)
 	}
-	if len(item.ProviderSync) != 1 || item.ProviderSync[0].State != "pending" {
-		t.Errorf("new key providerSync = %+v, want one pending entry", item.ProviderSync)
+	if len(item.Status.Provisioners) != 1 || len(item.Status.Provisioners[0].Conditions) != 0 {
+		t.Errorf("new key provisioners = %+v, want one entry not judged yet", item.Status.Provisioners)
 	}
-	if !drainKick(f.service) {
-		t.Errorf("importing a key must request a sync")
+	if aggregate := item.Status.Conditions[0]; aggregate.Status != "false" || aggregate.Reason != convergence.ReasonConverging {
+		t.Errorf("new key aggregate = %+v, want not realized yet", aggregate)
 	}
 
 	if _, err := f.service.ImportAccessKey(ctx, "admin", "LAPTOP", "ssh-ed25519 BBBB"); !errors.Is(err, sshkeydomain.ErrDuplicateName) {
@@ -452,8 +473,8 @@ func TestGenerateAccessKey_ReturnsPrivateKeyOnceAndStoresOnlyPublic(t *testing.T
 	if generated.PrivateKey == "" {
 		t.Fatalf("GenerateAccessKey returned no private key")
 	}
-	if generated.Key.Purpose != "access" {
-		t.Errorf("generated key purpose = %q, want access", generated.Key.Purpose)
+	if generated.Key.Spec.Purpose != "access" {
+		t.Errorf("generated key purpose = %q, want access", generated.Key.Spec.Purpose)
 	}
 	if f.keys.privateKey != "" {
 		t.Errorf("an Access Key's private key must never reach the repository")
@@ -495,10 +516,10 @@ func TestReplaceDeploymentKey_KeepsIDAndRejectsEncryptedKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReplaceDeploymentKey: %v", err)
 	}
-	if item.ID != original.ID || item.Name != original.Name {
-		t.Errorf("replacement = %+v, want id %s and name %s kept", item, original.ID, original.Name)
+	if item.ID != original.ID || item.Spec.Name != original.Name || item.Generation != 2 {
+		t.Errorf("replacement = %+v, want id %s and name %s kept at generation 2", item, original.ID, original.Name)
 	}
-	if item.Fingerprint == original.Fingerprint {
+	if item.Spec.Fingerprint == original.Fingerprint {
 		t.Errorf("replacement kept the old fingerprint")
 	}
 	if got := f.keys.privateKey; got != "PRIVATE-ops\n" {
@@ -523,15 +544,15 @@ func TestSync_AddsAdoptsAndNeverRemovesOperatorKeys(t *testing.T) {
 		t.Fatalf("ImportAccessKey: %v", err)
 	}
 
-	if err := f.service.Sync(ctx); err != nil {
+	if err := f.syncAll(t); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
 	if !f.maas.holds(deployment.PublicKey) {
 		t.Errorf("Sync did not register the deployment key")
 	}
 	record, _ := f.syncs.get(access.ID, "maas-1")
-	if record.ProviderKeyID != "op-2" || record.State != sshkeydomain.SyncSynced {
-		t.Errorf("access key record = %+v, want adopted op-2 and synced", record)
+	if record.ProviderKeyID != "op-2" || realized(t, record).Status != convergence.ConditionTrue || record.Status.ObservedGeneration != 1 {
+		t.Errorf("access key record = %+v, want adopted op-2 and realized at generation 1", record)
 	}
 
 	// Deleting the adopted Access Key removes the provider key swallow adopted, but the
@@ -539,7 +560,7 @@ func TestSync_AddsAdoptsAndNeverRemovesOperatorKeys(t *testing.T) {
 	if err := f.service.DeleteAccessKey(ctx, "admin", access.ID); err != nil {
 		t.Fatalf("DeleteAccessKey: %v", err)
 	}
-	if err := f.service.Sync(ctx); err != nil {
+	if err := f.syncAll(t); err != nil {
 		t.Fatalf("second Sync: %v", err)
 	}
 	if f.maas.holds("ssh-ed25519 SHARED") {
@@ -557,7 +578,7 @@ func TestSync_ReplacedDeploymentKeyRetiresOldMaterial(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	original := f.deployment(t)
-	if err := f.service.Sync(ctx); err != nil {
+	if err := f.syncAll(t); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
 
@@ -565,45 +586,44 @@ func TestSync_ReplacedDeploymentKeyRetiresOldMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegenerateDeploymentKey: %v", err)
 	}
-	if replaced.ProviderSync[0].State != "pending" {
-		t.Errorf("new material must read pending before a sync, got %q", replaced.ProviderSync[0].State)
+	if len(replaced.Status.Provisioners[0].Conditions) != 0 || replaced.Status.Conditions[0].Status == "true" {
+		t.Errorf("new material must not read realized before a pass, got %+v", replaced.Status)
 	}
-	if err := f.service.Sync(ctx); err != nil {
+	if err := f.syncAll(t); err != nil {
 		t.Fatalf("Sync after regenerate: %v", err)
 	}
 	if f.maas.holds(original.PublicKey) {
 		t.Errorf("the previous deployment public key was not removed from the provisioner")
 	}
-	if !f.maas.holds(replaced.PublicKey) {
+	if !f.maas.holds(replaced.Spec.PublicKey) {
 		t.Errorf("the new deployment public key was not registered")
 	}
 	items, _ := f.service.List(ctx, "admin")
-	if items[0].ProviderSync[0].State != "synced" {
-		t.Errorf("deployment key state = %q, want synced", items[0].ProviderSync[0].State)
+	if items[0].Status.Conditions[0].Status != "true" || items[0].Status.ObservedGeneration != 2 {
+		t.Errorf("deployment key status = %+v, want realized at generation 2", items[0].Status)
 	}
 }
 
 func TestSync_RecordsUnsupportedAndFailedProvisioners(t *testing.T) {
 	f := newFixture(t)
-	ctx := context.Background()
 	deployment := f.deployment(t)
 	f.provisioners.provisioners = append(f.provisioners.provisioners,
 		sshkeydomain.Provisioner{IntegrationID: "plain-1", SiteID: "site-2"},
 		sshkeydomain.Provisioner{IntegrationID: "broken-1", SiteID: "site-3"})
 	f.provisioners.buildErr["broken-1"] = errors.New("This site's provisioner has no credential configured.")
 
-	if err := f.service.Sync(ctx); err == nil {
-		t.Errorf("Sync() error = nil, want the broken provisioner reported")
+	if err := f.syncAll(t); err == nil {
+		t.Errorf("a pass over an unbuildable provisioner must return its error for retry")
 	}
-	if record, _ := f.syncs.get(deployment.ID, "plain-1"); record.State != sshkeydomain.SyncUnsupported {
-		t.Errorf("non-capable provisioner state = %q, want unsupported", record.State)
+	if record, _ := f.syncs.get(deployment.ID, "plain-1"); realized(t, record).Reason != convergence.ReasonCapabilityMissing {
+		t.Errorf("non-capable provisioner = %+v, want capability_missing", realized(t, record))
 	}
 	record, _ := f.syncs.get(deployment.ID, "broken-1")
-	if record.State != sshkeydomain.SyncFailed || record.Error == "" {
-		t.Errorf("unbuildable provisioner record = %+v, want failed with a reason", record)
+	if c := realized(t, record); c.Reason != convergence.ReasonProviderUnreachable || c.Message == "" {
+		t.Errorf("unbuildable provisioner = %+v, want provider_unreachable with a reason", c)
 	}
-	if record, _ := f.syncs.get(deployment.ID, "maas-1"); record.State != sshkeydomain.SyncSynced {
-		t.Errorf("one failing provisioner must not stop the others; maas-1 state = %q", record.State)
+	if record, _ := f.syncs.get(deployment.ID, "maas-1"); realized(t, record).Status != convergence.ConditionTrue {
+		t.Errorf("one failing provisioner must not stop the others; maas-1 = %+v", realized(t, record))
 	}
 }
 
@@ -638,15 +658,47 @@ func TestEnsureRegistered_FailsWithoutDeploymentKey(t *testing.T) {
 	}
 }
 
-func TestRequestSync_NeverBlocks(t *testing.T) {
+// The sync endpoint asks the SSH Key controller through the store; without a requester it does
+// nothing.
+func TestRequestConvergence_WritesARequest(t *testing.T) {
 	f := newFixture(t)
-	for range 3 {
-		f.service.RequestSync()
+	if err := f.service.RequestConvergence(context.Background()); err != nil {
+		t.Fatalf("RequestConvergence without a requester: %v", err)
 	}
-	if !drainKick(f.service) {
-		t.Fatalf("RequestSync did not queue a request")
+	requests := &fakeRequester{}
+	f.service.AttachRequester(requests)
+	if err := f.service.RequestConvergence(context.Background()); err != nil {
+		t.Fatalf("RequestConvergence: %v", err)
 	}
-	if drainKick(f.service) {
-		t.Errorf("repeated RequestSync calls must coalesce into one pending request")
+	if len(requests.controllers) != 1 || requests.controllers[0] != ControllerName {
+		t.Errorf("requests = %v, want one for %s", requests.controllers, ControllerName)
 	}
+}
+
+// A provisioner that is gone keeps no records, and the controller still visits it until then.
+func TestReconcileProvisioner_DropsRecordsOfAGoneProvisioner(t *testing.T) {
+	f := newFixture(t)
+	deployment := f.deployment(t)
+	if err := f.syncAll(t); err != nil {
+		t.Fatalf("syncAll: %v", err)
+	}
+	f.provisioners.provisioners = nil
+
+	targets, err := f.service.Targets(context.Background())
+	if err != nil || len(targets) != 1 || targets[0] != "maas-1" {
+		t.Fatalf("Targets = %v, %v; want the gone provisioner still listed for cleanup", targets, err)
+	}
+	if err := f.service.ReconcileProvisioner(context.Background(), "maas-1"); err != nil {
+		t.Fatalf("ReconcileProvisioner: %v", err)
+	}
+	if _, ok := f.syncs.get(deployment.ID, "maas-1"); ok {
+		t.Error("the record of a gone provisioner must be dropped")
+	}
+}
+
+type fakeRequester struct{ controllers []string }
+
+func (r *fakeRequester) Request(_ context.Context, controller string) error {
+	r.controllers = append(r.controllers, controller)
+	return nil
 }

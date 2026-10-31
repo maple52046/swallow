@@ -58,3 +58,15 @@ type EventRecorder interface {
 	Record(ctx context.Context, event Event) error
 	List(ctx context.Context, resourceKind, resourceID string, limit int) ([]Event, error)
 }
+
+// RequestCollection is the store collection convergence requests are written to. A controller
+// that honors requests watches it and treats a change whose key is its Name as a request to
+// converge every key now, rather than at its next resync.
+const RequestCollection = "convergence_requests"
+
+// Requester asks a controller, which runs in another process, to converge every key now
+// (desired-state-model.md §7.6: the API asks through the store; the worker converges). A request
+// made while another is pending is coalesced with it.
+type Requester interface {
+	Request(ctx context.Context, controller string) error
+}

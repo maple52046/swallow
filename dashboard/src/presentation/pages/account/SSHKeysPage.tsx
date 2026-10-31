@@ -83,8 +83,8 @@ export function SSHKeysPage() {
         setState({
           status: 'ready',
           data: {
-            deploymentKey: keys.find((key) => key.purpose === 'deployment'),
-            accessKeys: keys.filter((key) => key.purpose === 'access'),
+            deploymentKey: keys.find((key) => key.spec.purpose === 'deployment'),
+            accessKeys: keys.filter((key) => key.spec.purpose === 'access'),
             integrationNames: new Map(integrations.map((integration) => [integration.id, integration.name])),
           },
         })
@@ -272,11 +272,11 @@ function DeploymentKeyDetails({
     <Stack gap="5">
       <DescriptionList
         items={[
-          { label: 'Name', value: sshKey.name },
-          { label: 'Type', value: sshKey.keyType },
-          { label: 'Fingerprint', value: <KeyValue value={sshKey.fingerprint} copyLabel="Copy fingerprint" /> },
-          { label: 'Public key', value: <KeyValue value={sshKey.publicKey} copyLabel="Copy public key" /> },
-          { label: 'Last changed', value: formatDateTime(sshKey.updatedAt) },
+          { label: 'Name', value: sshKey.spec.name },
+          { label: 'Type', value: sshKey.spec.keyType },
+          { label: 'Fingerprint', value: <KeyValue value={sshKey.spec.fingerprint} copyLabel="Copy fingerprint" /> },
+          { label: 'Public key', value: <KeyValue value={sshKey.spec.publicKey} copyLabel="Copy public key" /> },
+          { label: 'Last changed', value: formatDateTime(sshKey.status.updatedAt) },
         ]}
       />
       <Box>
@@ -335,18 +335,18 @@ function AccessKeyList({
                 <Table.Row key={key.id}>
                   <Table.Cell>
                     <HStack gap="1">
-                      <strong>{key.name}</strong>
-                      <CopyButton value={key.publicKey} label={`Copy public key of ${key.name}`} />
+                      <strong>{key.spec.name}</strong>
+                      <CopyButton value={key.spec.publicKey} label={`Copy public key of ${key.spec.name}`} />
                     </HStack>
                   </Table.Cell>
-                  <Table.Cell>{key.keyType}</Table.Cell>
+                  <Table.Cell>{key.spec.keyType}</Table.Cell>
                   <Table.Cell>
-                    <Text as="span" className="sw-mono" fontSize="xs">{key.fingerprint}</Text>
+                    <Text as="span" className="sw-mono" fontSize="xs">{key.spec.fingerprint}</Text>
                   </Table.Cell>
                   <Table.Cell>
                     <SSHKeySyncStatus sshKey={key} integrationName={integrationName} variant="summary" following={followedKeyIds.has(key.id)} />
                   </Table.Cell>
-                  <Table.Cell>{formatDateTime(key.createdAt)}</Table.Cell>
+                  <Table.Cell>{formatDateTime(key.status.createdAt)}</Table.Cell>
                   <Table.Cell textAlign="end">
                     <Button size="xs" variant="outline" colorPalette="red" onClick={() => onDelete(key)}>
                       Delete
@@ -363,20 +363,20 @@ function AccessKeyList({
           {accessKeys.map((key) => (
             <ResourceCard
               key={key.id}
-              title={key.name}
-              description={key.fingerprint}
+              title={key.spec.name}
+              description={key.spec.fingerprint}
               status={<SSHKeySyncStatus sshKey={key} integrationName={integrationName} variant="summary" following={followedKeyIds.has(key.id)} />}
               actions={
                 <HStack gap="2">
-                  <CopyButton value={key.publicKey} label={`Copy public key of ${key.name}`} />
+                  <CopyButton value={key.spec.publicKey} label={`Copy public key of ${key.spec.name}`} />
                   <Button size="xs" variant="outline" colorPalette="red" onClick={() => onDelete(key)}>
                     Delete
                   </Button>
                 </HStack>
               }
             >
-              <ResourceCardField label="Type">{key.keyType}</ResourceCardField>
-              <ResourceCardField label="Added">{formatDateTime(key.createdAt)}</ResourceCardField>
+              <ResourceCardField label="Type">{key.spec.keyType}</ResourceCardField>
+              <ResourceCardField label="Added">{formatDateTime(key.status.createdAt)}</ResourceCardField>
             </ResourceCard>
           ))}
         </div>

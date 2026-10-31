@@ -59,9 +59,6 @@ func Validate(cfg *Config) error {
 	if cfg.API.InventoryInterval <= 0 {
 		return fmt.Errorf("api.inventoryInterval must be > 0")
 	}
-	if cfg.API.SSHKeySyncInterval <= 0 {
-		return fmt.Errorf("api.sshKeySyncInterval must be > 0")
-	}
 	if cfg.API.ControllerResyncInterval <= 0 {
 		return fmt.Errorf("api.controllerResyncInterval must be > 0")
 	}

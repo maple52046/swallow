@@ -1,7 +1,7 @@
 import { Badge, HStack, Spinner, Stack, Text } from '@chakra-ui/react'
 import type { SSHKey } from '@/domain/access/types'
 import { formatDateTime } from '@/shared/utils/time'
-import { syncStateLabel, syncStatePalette, worstSyncState } from './sshKeyPresentation'
+import { realizationMessage, realizationState, syncStateLabel, syncStatePalette, worstSyncState } from './sshKeyPresentation'
 
 interface SSHKeySyncStatusProps {
   sshKey: SSHKey
@@ -20,7 +20,8 @@ interface SSHKeySyncStatusProps {
 }
 
 /**
- * Shows whether an SSH Key has been realized in each provisioner, so an operator knows whether
+ * Shows whether an SSH Key has been realized in each provisioner — the backend controller's
+ * per-provisioner conditions, reduced to this page's states — so an operator knows whether
  * Servers deployed next will authorize it. It is the one presentation of sync status on the SSH
  * Keys page, used for both the Deployment Key and every Access Key. States are always spelled out
  * in text (badges carry a label, not only a colour), and a failure's reason is always shown as
@@ -28,18 +29,19 @@ interface SSHKeySyncStatusProps {
  * that settles while followed is announced without moving focus.
  */
 export function SSHKeySyncStatus({ sshKey, integrationName, variant, following = false }: SSHKeySyncStatusProps) {
-  if (sshKey.providerSync.length === 0) {
+  const entries = sshKey.status.provisioners.map((entry) => ({ ...entry, state: realizationState(sshKey, entry), message: realizationMessage(entry) }))
+  if (entries.length === 0) {
     return <Text color="fg.muted" fontSize="sm">No provisioner registered</Text>
   }
 
   if (variant === 'summary') {
     const state = worstSyncState(sshKey) ?? 'pending'
-    const failures = sshKey.providerSync.filter((entry) => entry.state === 'failed')
+    const failures = entries.filter((entry) => entry.state === 'failed')
     const badge = (
       <HStack gap="1.5" aria-live="polite">
         <Badge colorPalette={syncStatePalette(state)} variant="subtle">
           {syncStateLabel(state)}
-          {sshKey.providerSync.length > 1 ? ` · ${sshKey.providerSync.filter((entry) => entry.state === 'synced').length}/${sshKey.providerSync.length}` : ''}
+          {entries.length > 1 ? ` · ${entries.filter((entry) => entry.state === 'synced').length}/${entries.length}` : ''}
         </Badge>
         {following && state === 'pending' && <Spinner size="xs" color="fg.muted" aria-hidden />}
       </HStack>
@@ -52,7 +54,7 @@ export function SSHKeySyncStatus({ sshKey, integrationName, variant, following =
       <Stack gap="0.5" align="flex-start">
         {badge}
         <Text color="fg.error" fontSize="xs" lineClamp={2}>
-          {integrationName(first.integrationId)}: {first.error ?? 'failed'}
+          {integrationName(first.integrationId)}: {first.message ?? 'failed'}
         </Text>
       </Stack>
     )
@@ -60,7 +62,7 @@ export function SSHKeySyncStatus({ sshKey, integrationName, variant, following =
 
   return (
     <Stack as="ul" gap="2" listStyleType="none" m="0" p="0" aria-label="Provisioner sync status" aria-live="polite">
-      {sshKey.providerSync.map((entry) => (
+      {entries.map((entry) => (
         <Stack as="li" key={entry.integrationId} gap="0.5">
           <HStack gap="2" wrap="wrap">
             <Text fontWeight="medium">{integrationName(entry.integrationId)}</Text>
@@ -73,14 +75,14 @@ export function SSHKeySyncStatus({ sshKey, integrationName, variant, following =
                 <Text as="span">Checking…</Text>
               </HStack>
             )}
-            {entry.syncedAt && (
+            {entry.state === 'synced' && entry.observedAt && (
               <Text color="fg.muted" fontSize="xs">
-                Last synced {formatDateTime(entry.syncedAt)}
+                Last checked {formatDateTime(entry.observedAt)}
               </Text>
             )}
           </HStack>
-          {entry.state === 'failed' && entry.error && (
-            <Text color="fg.error" fontSize="sm">{entry.error}</Text>
+          {entry.state === 'failed' && entry.message && (
+            <Text color="fg.error" fontSize="sm">{entry.message}</Text>
           )}
           {entry.state === 'unsupported' && (
             <Text color="fg.muted" fontSize="sm">

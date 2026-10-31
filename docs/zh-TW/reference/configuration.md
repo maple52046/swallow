@@ -23,7 +23,8 @@
 - Bootstrap admin username/password。
 - Base64 32-byte credential-encryption key。
 - Machine bearer token。
-- Reconcile、inventory 與 SSH key sync interval（`sshKeySyncInterval`，預設 5m）。
+- Reconcile 與 inventory interval，以及 controller resync interval（`controllerResyncInterval`，預設
+  10m）：swallow 在這時改回在 MAAS 被改動的設定並重新登錄 SSH key。
 - Temporal address、namespace、task queue 與 start interval。
 - Ansible runner command、playbook manifest/directory、runtime/artifact
   directory、retention 與 parallelism。

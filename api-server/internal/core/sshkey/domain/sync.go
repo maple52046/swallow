@@ -3,32 +3,21 @@ package domain
 import (
 	"context"
 	"time"
+
+	"github.com/maple52046/swallow/internal/core/convergence"
 )
 
-// SyncState is the closed set of realization states of one SSH Key in one provisioner
-// Integration (glossary SSH Key).
-type SyncState string
-
-const (
-	// SyncPending means no realization has run since the key or the Integration changed.
-	SyncPending SyncState = "pending"
-	// SyncSynced means the provisioner holds this key's current material.
-	SyncSynced SyncState = "synced"
-	// SyncFailed means the last realization attempt failed; Error explains why.
-	SyncFailed SyncState = "failed"
-	// SyncUnsupported means the provisioner cannot hold SSH keys at all.
-	SyncUnsupported SyncState = "unsupported"
-)
-
-// ProviderSync records the realization of one SSH Key in one provisioner Integration.
+// ProviderSync records the realization of one SSH Key in one provisioner Integration (decision
+// 071): the SSH Key controller's target status, plus the provider key ids it needs to remove keys
+// it registered.
 //
 // Fingerprint is the key material the record describes. When the Deployment Key is replaced its
 // ID stays the same but its fingerprint changes, so a record whose Fingerprint differs from the
-// key's describes the previous material and the key reads as pending until the new material is
-// realized. ProviderKeyID is the provider key swallow registered or adopted for Fingerprint's
-// material; RetiredProviderKeyIDs are provider keys swallow registered for earlier material that
-// still have to be removed. These recorded ids are the only handles swallow ever uses to remove a
-// key from a provisioner, which is what keeps operator-added keys safe.
+// key's describes the previous material and the key reads as not realized until the new material
+// is. ProviderKeyID is the provider key swallow registered or adopted for Fingerprint's material;
+// RetiredProviderKeyIDs are provider keys swallow registered for earlier material that still have
+// to be removed. These recorded ids are the only handles swallow ever uses to remove a key from a
+// provisioner, which is what keeps operator-added keys safe. Status's TargetID is IntegrationID.
 type ProviderSync struct {
 	KeyID                 string
 	IntegrationID         string
@@ -36,9 +25,7 @@ type ProviderSync struct {
 	Fingerprint           string
 	ProviderKeyID         string
 	RetiredProviderKeyIDs []string
-	State                 SyncState
-	SyncedAt              *time.Time
-	Error                 string
+	Status                convergence.TargetStatus
 	UpdatedAt             time.Time
 }
 
@@ -66,10 +53,9 @@ type KeyRegistrar interface {
 //
 // ListProvisioners returns every enabled provisioner Integration across all Sites; a paused
 // Integration is left alone until an operator re-enables it. Registrar returns the key registrar
-// for one Integration and
-// ok=false (with a nil error) when its provisioner cannot hold SSH keys; an error means the
-// provisioner could not be built (for example a missing credential) and is recorded as a failed
-// sync rather than as unsupported.
+// for one Integration and ok=false (with a nil error) when its provisioner cannot hold SSH keys;
+// an error means the provisioner could not be built (for example a missing credential) and is
+// recorded as unreachable rather than as a missing capability.
 type ProvisionerKeys interface {
 	ListProvisioners(ctx context.Context) ([]Provisioner, error)
 	Registrar(ctx context.Context, integrationID string) (KeyRegistrar, bool, error)

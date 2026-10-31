@@ -1,3 +1,5 @@
+import type { Condition } from '@/domain/convergence/types'
+
 /**
  * The closed set of SSH Key purposes (glossary SSH Key, decision 039).
  *
@@ -8,34 +10,22 @@
 export type SSHKeyPurpose = 'deployment' | 'access'
 
 /**
- * Realization state of one SSH Key in one provisioner Integration (glossary SSH Key).
- *
- * - `pending`: not yet realized since the key or the Integration changed.
- * - `synced`: the provisioner holds the key, so Servers it deploys authorize it.
- * - `failed`: the last attempt failed; `error` explains why.
- * - `unsupported`: the provisioner cannot hold SSH keys at all.
+ * One SSH Key's realization in one provisioner Integration (glossary SSH Key, decision 071), as
+ * the backend's SSH Key controller reports it. `conditions` are empty until the controller first
+ * judged the key there; `realized` is then `true` when the provisioner holds the key's current
+ * material, or `false` with a reason: `capability_missing` (the provisioner cannot hold SSH keys),
+ * `provider_unreachable`, or `failed` (the message says why). `observedAt` is null until then.
  */
-export type SSHKeySyncState = 'pending' | 'synced' | 'failed' | 'unsupported'
-
-/** One key's realization status in one provisioner Integration. */
-export interface SSHKeyProviderSync {
+export interface SSHKeyRealization {
   integrationId: string
   siteId: string
-  state: SSHKeySyncState
-  /** Last successful realization; absent when never synced. */
-  syncedAt?: string
-  /** Human-readable reason, present only when `state` is `failed`. */
-  error?: string
+  observedGeneration: number
+  observedAt: string | null
+  conditions: Condition[]
 }
 
-/**
- * A swallow-owned SSH public key as the `ssh-keys.md` contract returns it. It never carries a
- * private key: the Deployment Key's private half stays sealed in swallow, and an Access Key's
- * private half is never stored at all. Public key material is not secret, so `publicKey` is
- * always present for copying into `authorized_keys`.
- */
-export interface SSHKey {
-  id: string
+/** What swallow registers for an SSH Key: its name, purpose, and public key material. */
+export interface SSHKeySpec {
   name: string
   purpose: SSHKeyPurpose
   /** SSH algorithm name, e.g. `ssh-ed25519`. */
@@ -44,12 +34,31 @@ export interface SSHKey {
   fingerprint: string
   /** One authorized_keys line. */
   publicKey: string
+}
+
+/**
+ * A swallow-owned SSH public key as the `ssh-keys.md` contract returns it: a migrated resource
+ * whose spec is the key and whose status is its realization in every provisioner. It never carries
+ * a private key: the Deployment Key's private half stays sealed in swallow, and an Access Key's
+ * private half is never stored at all. Public key material is not secret, so `spec.publicKey` is
+ * always present for copying into `authorized_keys`. `generation` increments only when the
+ * Deployment Key is replaced.
+ */
+export interface SSHKey {
+  id: string
   /** Owning User for an Access Key; absent for the system-owned Deployment Key. */
   ownerUserId?: string
-  createdAt: string
-  updatedAt: string
-  /** One entry per enabled provisioner Integration; empty when the installation has none. */
-  providerSync: SSHKeyProviderSync[]
+  generation: number
+  spec: SSHKeySpec
+  status: {
+    observedGeneration: number
+    /** The summary over every provisioner; realized only when all hold the current generation. */
+    conditions: Condition[]
+    /** One entry per enabled provisioner Integration; empty when the installation has none. */
+    provisioners: SSHKeyRealization[]
+    createdAt: string
+    updatedAt: string
+  }
 }
 
 /**

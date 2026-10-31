@@ -24,7 +24,9 @@ Important production-sensitive values include:
 - bootstrap admin username/password;
 - base64 32-byte credential-encryption key;
 - machine bearer token;
-- reconcile, inventory, and SSH key sync intervals (`sshKeySyncInterval`, default 5m);
+- reconcile and inventory intervals, and the controller resync interval
+  (`controllerResyncInterval`, default 10m), at which swallow puts back settings changed in MAAS
+  and re-registers SSH keys;
 - Temporal address, namespace, task queue, and start interval;
 - Ansible runner command, playbook manifest/directory, runtime/artifact
   directories, retention, and parallelism;

@@ -313,8 +313,8 @@ paths:
       operationId: importSshKey
       summary: Import a public key as one of the caller's Access Keys.
       description: >-
-        Requires role `admin`. Provider realization starts in the background, so the response's
-        `providerSync` entries are `pending`.
+        Requires role `admin`. The SSH Key controller realizes the key in the background, so the
+        response's per-provisioner conditions are still empty.
       requestBody:
         required: true
         content:
@@ -399,8 +399,9 @@ paths:
       operationId: syncSshKeys
       summary: Request an immediate realization pass over every provisioner Integration.
       description: >-
-        Requires role `admin`. No request body. The pass runs in the background; results appear
-        in `providerSync` on the next read.
+        Requires role `admin`. No request body. Asks the SSH Key controller to converge every key
+        now rather than at its next resync; the pass runs in the background, and results appear in
+        each key's status on a later read.
       responses:
         '202':
           description: >-
@@ -507,7 +508,7 @@ paths:
       summary: Read the Deployment Key or one of the caller's Access Keys.
       description: >-
         Requires role `admin`. Same shape as a list item; lets a client follow one key's
-        `providerSync` without re-reading the list.
+        realization without re-reading the list.
       responses:
         '200':
           description: The SSH Key.
@@ -532,9 +533,8 @@ paths:
       operationId: deleteSshKey
       summary: Delete one of the caller's Access Keys and remove it from provisioners.
       description: >-
-        Requires role `admin`. Provider removal is best effort after the record is deleted; an
-        unreachable provisioner is retried by the periodic sync. Already-deployed Servers keep the
-        key.
+        Requires role `admin`. The SSH Key controller removes it from the provisioners after the
+        record is deleted, retrying an unreachable one. Already-deployed Servers keep the key.
       responses:
         '204':
           description: The Access Key was deleted.
@@ -685,59 +685,89 @@ components:
     SshKey:
       type: object
       description: >-
-        One swallow-owned SSH Key (glossary SSH Key). Public key material is not secret; no
-        response ever carries a stored private key.
-      required: [id, name, purpose, keyType, fingerprint, publicKey, createdAt, updatedAt, providerSync]
+        One swallow-owned SSH Key (glossary SSH Key) as a migrated resource (decision 071): the spec
+        is the key swallow registers, and the status its realization in every provisioner. Public key
+        material is not secret; no response ever carries a stored private key.
+      required: [id, generation, spec, status]
       properties:
         id:
           type: string
-        name:
-          type: string
-        purpose:
-          type: string
-          enum: [deployment, access]
-        keyType:
-          type: string
-          description: The SSH algorithm name from the public key.
-          enum: [ssh-ed25519, ssh-rsa, ecdsa-sha2-nistp256, ecdsa-sha2-nistp384, ecdsa-sha2-nistp521]
-        fingerprint:
-          type: string
-          description: OpenSSH SHA256 fingerprint (`SHA256:…`), unique across all SSH Keys.
-        publicKey:
-          type: string
-          description: One authorized_keys line, `<type> <base64> <comment>`.
         ownerUserId:
           type: string
           description: The owning User of an Access Key; omitted for the Deployment Key.
-        createdAt:
-          $ref: '#/components/schemas/Timestamp'
-        updatedAt:
-          $ref: '#/components/schemas/Timestamp'
-        providerSync:
-          type: array
-          description: >-
-            One entry per enabled provisioner Integration across all Sites; always an array.
-          items:
-            $ref: '#/components/schemas/SshKeyProviderSync'
-    SshKeyProviderSync:
+        generation:
+          type: integer
+          format: int64
+          description: Counts spec changes; 1 when stored, and +1 each time the Deployment Key is replaced.
+        spec:
+          type: object
+          required: [name, purpose, keyType, fingerprint, publicKey]
+          properties:
+            name:
+              type: string
+            purpose:
+              type: string
+              enum: [deployment, access]
+            keyType:
+              type: string
+              description: The SSH algorithm name from the public key.
+              enum: [ssh-ed25519, ssh-rsa, ecdsa-sha2-nistp256, ecdsa-sha2-nistp384, ecdsa-sha2-nistp521]
+            fingerprint:
+              type: string
+              description: OpenSSH SHA256 fingerprint (`SHA256:…`), unique across all SSH Keys.
+            publicKey:
+              type: string
+              description: One authorized_keys line, `<type> <base64> <comment>`.
+        status:
+          type: object
+          required: [observedGeneration, conditions, provisioners, createdAt, updatedAt]
+          properties:
+            observedGeneration:
+              type: integer
+              format: int64
+              description: The generation every provisioner holds.
+            conditions:
+              type: array
+              description: >-
+                The summary over every provisioner: `realized` is `true` only when every enabled
+                provisioner holds the current generation (and when there is none).
+              items:
+                $ref: '#/components/schemas/Condition'
+            provisioners:
+              type: array
+              description: One entry per enabled provisioner Integration across all Sites; always an array.
+              items:
+                $ref: '#/components/schemas/SshKeyRealization'
+            createdAt:
+              $ref: '#/components/schemas/Timestamp'
+            updatedAt:
+              $ref: '#/components/schemas/Timestamp'
+    SshKeyRealization:
       type: object
       description: The realization of one SSH Key in one provisioner Integration.
-      required: [integrationId, siteId, state]
+      required: [integrationId, siteId, observedGeneration, observedAt, conditions]
       properties:
         integrationId:
           type: string
         siteId:
           type: string
-        state:
-          type: string
-          enum: [synced, pending, failed, unsupported]
-        syncedAt:
-          description: The last successful realization; omitted when never synced.
+        observedGeneration:
+          type: integer
+          format: int64
+          description: The generation this provisioner holds.
+        observedAt:
           allOf:
             - $ref: '#/components/schemas/Timestamp'
-        error:
-          type: string
-          description: Human-readable reason; present only when `state` is `failed`.
+          nullable: true
+          description: When the controller last judged the key here; `null` before the first judgement.
+        conditions:
+          type: array
+          description: >-
+            Empty until the controller first judged the key here. `realized` is `false` with
+            `capability_missing` for a provisioner that cannot hold SSH keys, `provider_unreachable`
+            when it could not be reached, and `failed` when it refused the key (the message says why).
+          items:
+            $ref: '#/components/schemas/Condition'
     SshKeyImportRequest:
       type: object
       required: [name, publicKey]

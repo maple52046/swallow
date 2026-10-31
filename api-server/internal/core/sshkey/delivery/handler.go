@@ -137,10 +137,13 @@ func (h *SSHKeyHandler) RegenerateDeployment(c *fiber.Ctx) error {
 	return c.JSON(item)
 }
 
-// Sync handles POST /ssh-keys/sync. It only requests a pass from this process's sync loop and
-// returns 202 at once; results appear in providerSync on the next list.
+// Sync handles POST /ssh-keys/sync. It only asks the SSH Key controller, through the store, to
+// converge every key now and returns 202 at once; results appear in each key's status on a later
+// read.
 func (h *SSHKeyHandler) Sync(c *fiber.Ctx) error {
-	h.keys.RequestSync()
+	if err := h.keys.RequestConvergence(c.Context()); err != nil {
+		return respondError(c, err)
+	}
 	return c.SendStatus(fiber.StatusAccepted)
 }
 

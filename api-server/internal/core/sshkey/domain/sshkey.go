@@ -41,9 +41,11 @@ const MaxNameLength = 100
 // every SSH Key; exactly one key has PurposeDeployment and it has no OwnerUserID; every
 // PurposeAccess key has an OwnerUserID and a name unique (case-insensitively) among that
 // owner's Access Keys. The Deployment Key keeps its ID when it is replaced, so its sync records
-// stay addressable; only its material and Fingerprint change.
+// stay addressable; only its material and Fingerprint change, and its Generation increments.
 type SSHKey struct {
-	ID          string
+	ID string
+	// Generation counts spec changes: 1 when stored; only a Deployment Key replacement changes it.
+	Generation  int64
 	Name        string
 	Purpose     Purpose
 	OwnerUserID string

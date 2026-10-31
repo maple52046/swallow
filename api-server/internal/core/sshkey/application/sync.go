@@ -5,19 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
+	"github.com/maple52046/swallow/internal/core/convergence"
 	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
 )
 
-// Sync realizes every SSH Key in every provisioner Integration: it adds missing keys, adopts keys a
-// provisioner already holds, removes keys swallow registered that are no longer desired (deleted
-// Access Keys and replaced Deployment Key material), and records each key's state. It also drops
-// sync records of Integrations that no longer exist.
-//
-// A failure in one provisioner does not stop the others; the returned error joins every
-// provisioner-level failure for logging, while per-key failures are recorded as SyncFailed. Sync is
-// safe to call repeatedly and concurrently with other passes in this process.
-func (s *Service) Sync(ctx context.Context) error {
+// ReconcileProvisioner realizes every SSH Key in one provisioner Integration: it adds missing keys,
+// adopts keys the provisioner already holds, removes keys swallow registered that are no longer
+// desired (deleted Access Keys and replaced Deployment Key material), and records each key's
+// conditions. An Integration that is no longer an enabled provisioner has its records dropped: a
+// deleted Integration can no longer be reached, so its provider keys cannot be removed, and a paused
+// one is left alone. It is the SSH Key controller's Reconcile; the returned error means the
+// provisioner could not be reached or listed, which the runtime retries.
+func (s *Service) ReconcileProvisioner(ctx context.Context, integrationID string) error {
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
 
@@ -25,34 +26,49 @@ func (s *Service) Sync(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list provisioners: %w", err)
 	}
-	keys, err := s.keys.ListAll(ctx)
-	if err != nil {
-		return fmt.Errorf("list ssh keys: %w", err)
-	}
 	records, err := s.syncs.List(ctx)
 	if err != nil {
 		return fmt.Errorf("list ssh key syncs: %w", err)
 	}
+	index := slices.IndexFunc(provisioners, func(p sshkeydomain.Provisioner) bool { return p.IntegrationID == integrationID })
+	if index < 0 {
+		var errs []error
+		for _, record := range records {
+			if record.IntegrationID == integrationID {
+				errs = append(errs, s.syncs.Delete(ctx, record.KeyID, record.IntegrationID))
+			}
+		}
+		return errors.Join(errs...)
+	}
+	keys, err := s.keys.ListAll(ctx)
+	if err != nil {
+		return fmt.Errorf("list ssh keys: %w", err)
+	}
+	_, err = s.syncProvisioner(ctx, provisioners[index], keys, recordsFor(records, integrationID))
+	return err
+}
 
-	known := make(map[string]bool, len(provisioners))
-	var errs []error
+// Targets returns every Integration the SSH Key controller converges: each enabled provisioner,
+// and each Integration that still has records, so a removed or paused one is cleaned up.
+func (s *Service) Targets(ctx context.Context) ([]string, error) {
+	provisioners, err := s.provisioners.ListProvisioners(ctx)
+	if err != nil {
+		return nil, err
+	}
+	records, err := s.syncs.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
 	for _, provisioner := range provisioners {
-		known[provisioner.IntegrationID] = true
-		if _, err := s.syncProvisioner(ctx, provisioner, keys, recordsFor(records, provisioner.IntegrationID)); err != nil {
-			errs = append(errs, fmt.Errorf("integration %s: %w", provisioner.IntegrationID, err))
-		}
+		ids = append(ids, provisioner.IntegrationID)
 	}
-	// An Integration that was deleted can no longer be reached, so its provider keys cannot be
-	// removed; its records only describe a target that is gone.
 	for _, record := range records {
-		if known[record.IntegrationID] {
-			continue
-		}
-		if err := s.syncs.Delete(ctx, record.KeyID, record.IntegrationID); err != nil {
-			errs = append(errs, err)
+		if !slices.Contains(ids, record.IntegrationID) {
+			ids = append(ids, record.IntegrationID)
 		}
 	}
-	return errors.Join(errs...)
+	return ids, nil
 }
 
 // EnsureRegistered realizes every SSH Key in one provisioner Integration and reports whether the
@@ -91,12 +107,14 @@ func (s *Service) EnsureRegistered(ctx context.Context, integrationID string) er
 		if key.Purpose != sshkeydomain.PurposeDeployment {
 			continue
 		}
-		result := results[key.ID]
-		switch result.State {
-		case sshkeydomain.SyncSynced, sshkeydomain.SyncUnsupported:
+		realized, ok := convergence.FindCondition(results[key.ID].Status.Conditions, convergence.ConditionRealized)
+		switch {
+		case ok && realized.Status == convergence.ConditionTrue:
+			return nil
+		case ok && realized.Reason == convergence.ReasonCapabilityMissing:
 			return nil
 		default:
-			return fmt.Errorf("%w: %s", sshkeydomain.ErrDeploymentKeyNotRegistered, result.Error)
+			return fmt.Errorf("%w: %s", sshkeydomain.ErrDeploymentKeyNotRegistered, realized.Message)
 		}
 	}
 	return sshkeydomain.ErrDeploymentKeyNotFound
@@ -125,13 +143,14 @@ func (s *Service) syncProvisioner(
 		remote, err = registrar.ListKeys(ctx)
 	}
 	if err != nil || !capable {
-		state, reason := sshkeydomain.SyncUnsupported, ""
+		reason, message := convergence.ReasonCapabilityMissing, "The provisioner cannot hold SSH keys."
 		if err != nil {
-			state, reason = sshkeydomain.SyncFailed, err.Error()
+			reason, message = convergence.ReasonProviderUnreachable, err.Error()
 		}
 		for _, key := range keys {
 			record := prepareRecord(records[key.ID], key, provisioner)
-			record.State, record.Error, record.UpdatedAt = state, reason, now
+			record.Status = judged(record.Status, key, now, convergence.ConditionFalse, reason, message)
+			record.UpdatedAt = now
 			results[key.ID] = record
 			s.persist(ctx, record)
 		}
@@ -146,14 +165,22 @@ func (s *Service) syncProvisioner(
 	for _, key := range keys {
 		record := prepareRecord(records[key.ID], key, provisioner)
 		record.UpdatedAt = now
-		providerKeyID, addErr := realizeKey(ctx, registrar, key, record.ProviderKeyID, remote, remoteByID)
+		wasRealized := record.Status.ObservedGeneration == key.Generation &&
+			convergence.IsTrue(record.Status.Conditions, convergence.ConditionRealized)
+		providerKeyID, added, addErr := realizeKey(ctx, registrar, key, record.ProviderKeyID, remote, remoteByID)
 		if addErr != nil {
 			record.ProviderKeyID = ""
-			record.State, record.Error = sshkeydomain.SyncFailed, addErr.Error()
+			record.Status = judged(record.Status, key, now, convergence.ConditionFalse, convergence.ReasonFailed, addErr.Error())
 		} else {
 			record.ProviderKeyID = providerKeyID
-			record.State, record.Error, record.SyncedAt = sshkeydomain.SyncSynced, "", &now
+			record.Status = judged(record.Status, key, now, convergence.ConditionTrue, convergence.ReasonConverged, "")
 			claimed[providerKeyID] = true
+			switch {
+			case added && wasRealized:
+				s.record(ctx, key, provisioner, convergence.EventDriftCorrected, "The key was missing from the provisioner and was added again.")
+			case !wasRealized:
+				s.record(ctx, key, provisioner, convergence.EventConverged, "The provisioner holds the key.")
+			}
 		}
 		results[key.ID] = record
 	}
@@ -185,10 +212,11 @@ func (s *Service) syncProvisioner(
 	return results, nil
 }
 
-// realizeKey makes the provider hold key and returns the provider key id that represents it: the
-// recorded id when the provider still lists it with the same material, else a matching key the
-// provider already holds (adopted), else a newly added key. An add refused because another pass
-// added the same key concurrently is resolved by re-listing and adopting.
+// realizeKey makes the provider hold key and returns the provider key id that represents it, and
+// whether this call added it: the recorded id when the provider still lists it with the same
+// material, else a matching key the provider already holds (adopted), else a newly added key. An
+// add refused because another pass added the same key concurrently is resolved by re-listing and
+// adopting.
 func realizeKey(
 	ctx context.Context,
 	registrar sshkeydomain.KeyRegistrar,
@@ -196,23 +224,23 @@ func realizeKey(
 	recordedID string,
 	remote []sshkeydomain.RegisteredKey,
 	remoteByID map[string]sshkeydomain.RegisteredKey,
-) (string, error) {
+) (string, bool, error) {
 	if registered, ok := remoteByID[recordedID]; ok && sshkeydomain.SameKeyMaterial(registered.PublicKey, key.PublicKey) {
-		return recordedID, nil
+		return recordedID, false, nil
 	}
 	if id, ok := findMaterial(remote, key.PublicKey); ok {
-		return id, nil
+		return id, false, nil
 	}
 	added, err := registrar.AddKey(ctx, key.PublicKey)
 	if err == nil {
-		return added.ProviderKeyID, nil
+		return added.ProviderKeyID, true, nil
 	}
 	if relisted, listErr := registrar.ListKeys(ctx); listErr == nil {
 		if id, ok := findMaterial(relisted, key.PublicKey); ok {
-			return id, nil
+			return id, false, nil
 		}
 	}
-	return "", err
+	return "", false, err
 }
 
 // removeRetired removes each provider key id that is still present and unclaimed, returning the ids
@@ -240,6 +268,31 @@ func (s *Service) removeRetired(
 	return remaining
 }
 
+// judged returns status with the key's realized condition set for its current generation and the
+// observation time stamped; a realized key also records the generation it realized.
+func judged(status convergence.TargetStatus, key *sshkeydomain.SSHKey, now time.Time, realized convergence.ConditionStatus, reason, message string) convergence.TargetStatus {
+	status.Conditions, _ = convergence.SetCondition(status.Conditions, convergence.Condition{
+		Type: convergence.ConditionRealized, Status: realized, Reason: reason, Message: message, ObservedGeneration: key.Generation,
+	}, now)
+	if realized == convergence.ConditionTrue {
+		status.ObservedGeneration = key.Generation
+	}
+	status.ObservedAt = &now
+	return status
+}
+
+// record appends a timeline event for one key on one provisioner. A failure to record never fails
+// the pass, because the event describes a change already made.
+func (s *Service) record(ctx context.Context, key *sshkeydomain.SSHKey, provisioner sshkeydomain.Provisioner, eventType convergence.EventType, message string) {
+	if s.events == nil {
+		return
+	}
+	_ = s.events.Record(ctx, convergence.Event{
+		ResourceKind: "ssh-key", ResourceID: key.ID, Type: eventType, Fields: []string{provisioner.IntegrationID},
+		Message: message, Generation: key.Generation, At: s.now(),
+	})
+}
+
 // persist writes one record. A write failure is not returned: the provider state it describes is
 // already true, and the next pass recomputes the record from the provider's list.
 func (s *Service) persist(ctx context.Context, record sshkeydomain.ProviderSync) {
@@ -248,12 +301,14 @@ func (s *Service) persist(ctx context.Context, record sshkeydomain.ProviderSync)
 
 // prepareRecord returns the record for key in provisioner, starting from the existing one. When the
 // key's material changed since the record was written (the Deployment Key was replaced), the
-// previously registered provider key is moved to the retired list so it is removed, not reused.
+// previously registered provider key is moved to the retired list so it is removed, not reused,
+// and the record's judgement of the old material no longer counts.
 func prepareRecord(existing sshkeydomain.ProviderSync, key *sshkeydomain.SSHKey, provisioner sshkeydomain.Provisioner) sshkeydomain.ProviderSync {
 	record := existing
 	record.KeyID = key.ID
 	record.IntegrationID = provisioner.IntegrationID
 	record.SiteID = provisioner.SiteID
+	record.Status.TargetID = provisioner.IntegrationID
 	if record.ProviderKeyID != "" && record.Fingerprint != key.Fingerprint {
 		record.RetiredProviderKeyIDs = append(slices.Clone(record.RetiredProviderKeyIDs), record.ProviderKeyID)
 		record.ProviderKeyID = ""

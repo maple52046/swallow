@@ -167,8 +167,8 @@ applies a changed `.env` (that is `upgrade`), and it never cancels or retries Wo
   weekly recovery points. MAAS boot images re-sync from `images.maas.io`.
 - `sudo ./swallowctl restore BACKUP_DIRECTORY` verifies checksums, restores MongoDB, the
   artifacts, the credential key, and the MAAS database, then recreates the API and Dashboard.
-  SSH key sync attempted while MAAS restarts reports `failed` until the next sync interval;
-  `swallow ssh-keys sync` (or **Sync to provisioners**) repeats it at once.
+  SSH key registration attempted while MAAS restarts is retried with backoff and at the next
+  controller resync; `swallow ssh-keys sync` (or **Sync to provisioners**) repeats it at once.
 - `sudo ./swallowctl uninstall` stops the stack and MAAS and keeps volumes, secrets, and
   backups; `--purge-data` also removes the MAAS snap, the volumes, and the backups.
 

@@ -81,7 +81,7 @@ export function DeploymentKeyDialog({ mode, current, onClose, onChanged }: Deplo
           </Alert>
         )}
         <Alert status="warning" title="Servers deployed earlier keep the old key">
-          Servers already deployed authorize only the current key ({current.fingerprint}). After this change swallow cannot log in to them with the new key
+          Servers already deployed authorize only the current key ({current.spec.fingerprint}). After this change swallow cannot log in to them with the new key
           unless their Site overrides the key or they are redeployed.
         </Alert>
         {isReplace ? (
@@ -111,14 +111,14 @@ export function DeploymentKeyDialog({ mode, current, onClose, onChanged }: Deplo
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 maxLength={100}
-                placeholder={current.name}
+                placeholder={current.spec.name}
                 disabled={submitting}
               />
             </Field.Root>
           </>
         ) : (
           <Text>
-            Swallow generates a new ed25519 key pair for <strong>{current.name}</strong>, registers its public key in each key-capable provisioner,
+            Swallow generates a new ed25519 key pair for <strong>{current.spec.name}</strong>, registers its public key in each key-capable provisioner,
             and removes the previous one. The private key is never shown.
           </Text>
         )}

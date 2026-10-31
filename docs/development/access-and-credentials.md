@@ -145,33 +145,36 @@ swallow-owned 的紀錄；provider 有能力持有 SSH key 時，swallow 把每�
 - provider 必須同時宣告 `ProviderCapabilities.SSHKeyRegistration` 並實作 optional interface `SSHKeyRegistrar`。
 - MAAS 有此能力：金鑰註冊在擁有該 Integration API key 的 MAAS 使用者底下（`/account/prefs/sshkeys/`），MAAS
   佈署時把它們寫入 image 的 default user。
-- 沒有此能力的 provisioner：每把金鑰的同步狀態為 `unsupported`，佈署不因此被擋；該 provisioner 佈署的 Server
-  不會經由 provisioner 授權 swallow 的金鑰。
+- 沒有此能力的 provisioner：每把金鑰在它那裡的 `realized` 為 `false`、reason `capability_missing`，佈署不因此
+  被擋；該 provisioner 佈署的 Server 不會經由 provisioner 授權 swallow 的金鑰。
 
 ### 5.2 同步規則
 
+- SSH Key 是已遷移的資源（[desired-state-model.md](desired-state-model.md) §4.4）：spec 是要登錄的金鑰，status 是
+  它在每個 provisioner 的 realization。worker 中的 SSH Key controller 以 provisioner Integration 為 key，每次
+  Reconcile 對該 provisioner 的所有金鑰做一次同步。
 - 目標是每個啟用中的 provisioner Integration（跨所有 Site）；暫停的 Integration 不同步，也不列在
-  `providerSync`。已刪除的 Integration 的同步紀錄會被丟棄。
+  `status.provisioners`。已刪除或暫停的 Integration 的同步紀錄會被丟棄。
 - 每次同步先列出 provider 的金鑰，再：
   1. 採用（adopt）provider 已有、金鑰材料相同的金鑰（比對 algorithm 與 base64，忽略 comment）；
   2. 新增缺少的金鑰；
   3. 只移除 swallow 自己註冊或採用、且已不再需要的 provider 金鑰（被刪除的 Access Key、被替換的 Deployment Key
      舊材料），而且只在 provider 仍列出它時移除。
 - **operator 直接在 provisioner 加入的金鑰永遠不會被移除**：swallow 只以自己記錄的 provider key id 移除金鑰。
-- 每把金鑰在每個 Integration 有一筆同步狀態（`synced`／`pending`／`failed`／`unsupported`，語意見 glossary
-  [SSH Key](glossaries/terms/ssh-key.md) 與 ssh-keys 契約）。Deployment Key 替換後，舊材料的紀錄讀為 `pending`，
-  直到新材料落地。單一金鑰失敗記為 `failed`，訊息只含可給 operator 看的原因（不含 transport 細節）；provider
-  無法建構（例如缺少 credential）也記為 `failed`；一個 provisioner 失敗不影響其他 provisioner。
+- 每把金鑰在每個 Integration 有一筆紀錄，帶 conditions（語意見 glossary [SSH Key](glossaries/terms/ssh-key.md)
+  與 ssh-keys 契約）：持有目前的金鑰材料時 `realized` 為 `true`。Deployment Key 替換後 generation 加一，舊材料的
+  紀錄不再算數，直到新材料落地。單一金鑰被拒時 reason 為 `failed`，訊息只含可給 operator 看的原因（不含 transport
+  細節）；provider 無法建構或連線（例如缺少 credential）為 `provider_unreachable`，該 provisioner 由 runtime 退避
+  重試；一個 provisioner 失敗不影響其他 provisioner。新落地與在 provisioner 被刪除後補回都記在 timeline。
 
 ### 5.3 觸發時機
 
-- API 啟動時一次；每次 SSH Key 變更後；provisioner Integration 寫入後（新註冊的 MAAS 立即取得金鑰）；
-  `POST /api/v1/ssh-keys/sync`；以及週期同步（設定 `api.sshKeySyncInterval`，預設 5 分鐘，環境變數
-  `SWALLOW_API_SSH_KEY_SYNC_INTERVAL`），用來修補 drift。
-- 週期迴圈只在 API process 執行；同一 process 內的同步依序執行，不同 process 的同步可以重疊，以採用對方已新增
-  的金鑰化解。
+- controller 的觸發：worker 啟動時的 resync；每次 SSH Key 變更（change feed）；provisioner Integration 變更
+  （新註冊的 MAAS 立即取得金鑰）；`POST /api/v1/ssh-keys/sync`（API 經 store 寫入 convergence request）；以及
+  定期 resync（`controllerResyncInterval`，預設 10 分鐘），用來補回在 provisioner 被刪除的金鑰。
+- controller 與佈署前 ensure 都在 worker process、共用同一個 service，因此不會交錯；API process 不再執行同步。
 - **佈署前 ensure**：每次 OS 佈署在無副作用的 preflight 之後、任何網路或部署寫入之前，對該 Integration 做一次
-  同步，確認 Deployment Key 為 `synced`（或 provisioner 為 `unsupported`）。失敗時不會佈署：
+  同步，確認 Deployment Key 已 `realized`（或 provisioner 為 `capability_missing`）。失敗時不會佈署：
   - Workflow 的 `provision-os` Task 以 retryable 的 `ssh_key_registration_failed` 停在 `requires_attention`，
     provisioner 恢復後重試即可；
   - 同步的直接佈署端點回 `503 provider_unavailable`。
@@ -416,7 +419,8 @@ API 認證的決策與時效、cookie、rotation 細節見
 | 認證 middleware（access token 與 API Key） | `internal/shared/middleware/auth.go` |
 | Session、API Key | `internal/core/auth/`、`internal/core/apikey/` |
 | 封存（sealer） | `internal/shared/secret/` |
-| 設定（`sshKeySyncInterval`、`credentialKey`） | `config/config.go`、`config/defaults.go`、`config/env.go` |
+| SSH Key controller | `internal/core/sshkey/application/controller.go`、`internal/core/sshkey/application/sync.go` |
+| 設定（`controllerResyncInterval`、`credentialKey`） | `config/config.go`、`config/defaults.go`、`config/env.go` |
 
 安裝與 seed（相對於 repository root）：`deploy/production/swallowctl`、`deploy/production/native/swallowctl`、
 `deploy/dev/seed.sh`、`deploy/testing/seed.sh`。

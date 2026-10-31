@@ -54,7 +54,12 @@ import (
 // v6 makes Zones and Pools migrated resources (decision 071): each existing one gets generation 1
 // and loses `providerRealized`; the catalog controller judges them on its first pass, creating any
 // that a provisioner of their Site does not hold yet.
-const CurrentSchemaVersion = 6
+//
+// v7 makes SSH Keys migrated resources (decision 071): each key gets generation 1, and each
+// provider sync record loses its `state`, `error`, and `syncedAt`, which the SSH Key controller
+// replaces with conditions on its first pass. The recorded provider key ids are kept, so keys
+// swallow registered can still be removed.
+const CurrentSchemaVersion = 7
 
 type metadata struct {
 	ID        string    `bson:"_id"`
@@ -165,6 +170,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v5 to v6: %w", err)
 			}
 			state.Version = 6
+		case 6:
+			if err := migrateV6ToV7(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v6 to v7: %w", err)
+			}
+			state.Version = 7
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}
@@ -228,6 +238,19 @@ func migrateV5ToV6(ctx context.Context, db *mongo.Database) error {
 		}
 	}
 	return nil
+}
+
+// migrateV6ToV7 gives every SSH Key without a generation generation 1 and drops the state fields of
+// the provider sync records. Both updates are idempotent.
+func migrateV6ToV7(ctx context.Context, db *mongo.Database) error {
+	if _, err := db.Collection("ssh_keys").UpdateMany(ctx, bson.M{"generation": bson.M{"$exists": false}},
+		bson.M{"$set": bson.M{"generation": int64(1)}}); err != nil {
+		return err
+	}
+	_, err := db.Collection("ssh_key_provider_syncs").UpdateMany(ctx,
+		bson.M{"$or": bson.A{bson.M{"state": bson.M{"$exists": true}}, bson.M{"error": bson.M{"$exists": true}}, bson.M{"syncedAt": bson.M{"$exists": true}}}},
+		bson.M{"$unset": bson.M{"state": "", "error": "", "syncedAt": ""}})
+	return err
 }
 
 // migrateV2ToV3 renames the managed runtime aggregate from Cluster to Platform without

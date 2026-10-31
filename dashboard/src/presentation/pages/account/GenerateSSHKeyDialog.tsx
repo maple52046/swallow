@@ -57,7 +57,7 @@ export function GenerateSSHKeyDialog({ onClose, onGenerated }: GenerateSSHKeyDia
     setError('')
     try {
       const result = await sshKeys.generateAccessKey(name.trim())
-      setSecret({ name: result.key.name, privateKey: result.privateKey })
+      setSecret({ name: result.key.spec.name, privateKey: result.privateKey })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The key pair could not be generated.')
     } finally {

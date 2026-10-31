@@ -3,12 +3,12 @@ import { useApp } from '@/di/AppProvider'
 import type { SSHKey } from '@/domain/access/types'
 import { isSyncPending } from './sshKeyPresentation'
 
-/** Re-read cadence for a pending key; the backend sync pass usually settles within seconds. */
+/** Re-read cadence for a pending key; the backend controller usually settles it within seconds. */
 const POLL_INTERVAL_MS = 2000
 /**
  * Reads allowed for one set of pending keys (two minutes at the interval above). A key still
- * pending after that is stalled — for example the API's sync loop is not running — so following
- * stops rather than polling forever; "Sync to provisioners" remains available.
+ * pending after that is stalled — for example the worker's SSH Key controller is not running — so
+ * following stops rather than polling forever; "Sync to provisioners" remains available.
  */
 const MAX_POLLS = 60
 

@@ -28,6 +28,7 @@ const (
 // case-folded name that backs per-owner name uniqueness.
 type sshKeyDoc struct {
 	ID               string    `bson:"_id"`
+	Generation       int64     `bson:"generation"`
 	Name             string    `bson:"name"`
 	NameKey          string    `bson:"nameKey"`
 	Purpose          string    `bson:"purpose"`
@@ -165,31 +166,38 @@ func (r *MongoKeyRepo) CreateDeployment(ctx context.Context, key *sshkeydomain.S
 	return duplicateKeyError(err)
 }
 
-// ReplaceDeployment overwrites the Deployment Key's name, material, and sealed private key in one
-// document update, so there is never a moment without a usable Deployment Key.
+// ReplaceDeployment overwrites the Deployment Key's name, material, and sealed private key and
+// increments its generation in one document update, so there is never a moment without a usable
+// Deployment Key; the new generation is written back onto key.
 func (r *MongoKeyRepo) ReplaceDeployment(ctx context.Context, key *sshkeydomain.SSHKey, privateKeyPEM string) error {
 	sealed, err := r.sealer.Seal(privateKeyPEM)
 	if err != nil {
 		return err
 	}
-	result, err := r.col.UpdateOne(ctx,
+	var doc sshKeyDoc
+	err = r.col.FindOneAndUpdate(ctx,
 		bson.M{"_id": key.ID, "purpose": string(sshkeydomain.PurposeDeployment)},
-		bson.M{"$set": bson.M{
-			"name":             key.Name,
-			"nameKey":          nameKey(key.Name),
-			"keyType":          key.KeyType,
-			"fingerprint":      key.Fingerprint,
-			"publicKey":        key.PublicKey,
-			"sealedPrivateKey": sealed,
-			"updatedAt":        key.UpdatedAt,
-		}},
-	)
+		bson.M{
+			"$set": bson.M{
+				"name":             key.Name,
+				"nameKey":          nameKey(key.Name),
+				"keyType":          key.KeyType,
+				"fingerprint":      key.Fingerprint,
+				"publicKey":        key.PublicKey,
+				"sealedPrivateKey": sealed,
+				"updatedAt":        key.UpdatedAt,
+			},
+			"$inc": bson.M{"generation": 1},
+		},
+		options.FindOneAndUpdate().SetReturnDocument(options.After),
+	).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return sshkeydomain.ErrDeploymentKeyNotFound
+	}
 	if err != nil {
 		return duplicateKeyError(err)
 	}
-	if result.MatchedCount == 0 {
-		return sshkeydomain.ErrDeploymentKeyNotFound
-	}
+	key.Generation = doc.Generation
 	return nil
 }
 
@@ -249,6 +257,7 @@ func nameKey(name string) string {
 func toSSHKeyDoc(key *sshkeydomain.SSHKey, sealedPrivateKey string) sshKeyDoc {
 	return sshKeyDoc{
 		ID:               key.ID,
+		Generation:       key.Generation,
 		Name:             key.Name,
 		NameKey:          nameKey(key.Name),
 		Purpose:          string(key.Purpose),
@@ -265,6 +274,7 @@ func toSSHKeyDoc(key *sshkeydomain.SSHKey, sealedPrivateKey string) sshKeyDoc {
 func toSSHKey(doc *sshKeyDoc) *sshkeydomain.SSHKey {
 	return &sshkeydomain.SSHKey{
 		ID:          doc.ID,
+		Generation:  doc.Generation,
 		Name:        doc.Name,
 		Purpose:     sshkeydomain.Purpose(doc.Purpose),
 		OwnerUserID: doc.OwnerUserID,

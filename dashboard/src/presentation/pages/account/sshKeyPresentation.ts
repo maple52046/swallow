@@ -1,7 +1,39 @@
-import type { SSHKey, SSHKeySyncState } from '@/domain/access/types'
+import type { SSHKey, SSHKeyRealization } from '@/domain/access/types'
+import { ConditionTypes, findCondition } from '@/domain/convergence/types'
 
-/** Operator-facing label for a sync state; the domain value itself is what the API returns. */
-export function syncStateLabel(state: SSHKeySyncState): string {
+/**
+ * How an SSH Key stands on one provisioner, reduced from that provisioner's conditions for this
+ * page's wording (glossary SSH Key):
+ *
+ * - `pending`: not judged yet for the key's current generation (new key, replaced Deployment Key
+ *   material, or a provisioner the controller has not reached).
+ * - `synced`: the provisioner holds the key's current material.
+ * - `failed`: the provisioner refused the key or could not be reached; the message says why.
+ * - `unsupported`: the provisioner cannot hold SSH keys at all.
+ */
+export type KeyRealizationState = 'pending' | 'synced' | 'failed' | 'unsupported'
+
+/**
+ * The state of `key` on one provisioner. A judgement made for an older generation describes
+ * replaced material, so it reads as pending; an unknown future reason reads as failed only when
+ * the backend says the key is not realized, never as success.
+ */
+export function realizationState(key: SSHKey, entry: SSHKeyRealization): KeyRealizationState {
+  const realized = findCondition(entry.conditions, ConditionTypes.realized)
+  if (!realized || realized.observedGeneration < key.generation) return 'pending'
+  if (realized.status === 'true') return entry.observedGeneration >= key.generation ? 'synced' : 'pending'
+  if (realized.reason === 'capability_missing') return 'unsupported'
+  if (realized.reason === 'converging') return 'pending'
+  return 'failed'
+}
+
+/** The provisioner's reason for a failed realization, as display text; undefined when it has none. */
+export function realizationMessage(entry: SSHKeyRealization): string | undefined {
+  return findCondition(entry.conditions, ConditionTypes.realized)?.message || undefined
+}
+
+/** Operator-facing label for a realization state. */
+export function syncStateLabel(state: KeyRealizationState): string {
   switch (state) {
     case 'synced':
       return 'Synced'
@@ -17,8 +49,8 @@ export function syncStateLabel(state: SSHKeySyncState): string {
   }
 }
 
-/** Chakra palette for a sync state badge; always paired with the text label, never colour alone. */
-export function syncStatePalette(state: SSHKeySyncState): string {
+/** Chakra palette for a state badge; always paired with the text label, never colour alone. */
+export function syncStatePalette(state: KeyRealizationState): string {
   switch (state) {
     case 'synced':
       return 'green'
@@ -32,12 +64,12 @@ export function syncStatePalette(state: SSHKeySyncState): string {
 }
 
 /**
- * The single most important sync state across a key's provisioners, for a compact table cell:
- * any failure first (it needs action), then pending, then unsupported, and synced only when every
+ * The single most important state across a key's provisioners, for a compact table cell: any
+ * failure first (it needs action), then pending, then unsupported, and synced only when every
  * capable provisioner holds the key. `undefined` means the installation has no provisioner yet.
  */
-export function worstSyncState(key: SSHKey): SSHKeySyncState | undefined {
-  const states = new Set(key.providerSync.map((entry) => entry.state))
+export function worstSyncState(key: SSHKey): KeyRealizationState | undefined {
+  const states = new Set(key.status.provisioners.map((entry) => realizationState(key, entry)))
   if (states.size === 0) return undefined
   for (const state of ['failed', 'pending', 'unsupported', 'synced'] as const) {
     if (states.has(state)) return state
@@ -46,12 +78,12 @@ export function worstSyncState(key: SSHKey): SSHKeySyncState | undefined {
 }
 
 /**
- * Whether a key still waits for a provisioner sync. It is the signal for following that one key:
- * `pending` is the only state the backend's own sync pass advances without operator action, so the
- * key is re-read while it is present and no longer once every entry has settled.
+ * Whether a key still waits for a provisioner. It is the signal for following that one key:
+ * `pending` is the only state the backend's SSH Key controller advances without operator action,
+ * so the key is re-read while it is present and no longer once every entry has settled.
  */
 export function isSyncPending(key: SSHKey): boolean {
-  return key.providerSync.some((entry) => entry.state === 'pending')
+  return key.status.provisioners.some((entry) => realizationState(key, entry) === 'pending')
 }
 
 /** Base filename for a downloaded private key, derived from the key name and safe on every OS. */

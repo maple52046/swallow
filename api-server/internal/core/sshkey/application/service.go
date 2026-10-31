@@ -1,7 +1,9 @@
 // Package application coordinates swallow's SSH Key use cases (decision 039): listing keys with
-// their provisioner sync status, importing and generating Access Keys, replacing or regenerating
-// the Deployment Key, creating the Deployment Key at installation, and realizing every key in
-// each key-capable provisioner.
+// their realization in each provisioner, importing and generating Access Keys, replacing or
+// regenerating the Deployment Key, creating the Deployment Key at installation, and realizing every
+// key in each key-capable provisioner. The realization runs in the worker as the SSH Key controller
+// (decision 071); the API only changes keys, which the controller sees through the change feed, and
+// asks it to converge at once through the store.
 //
 // The service depends only on domain ports, so it runs without MongoDB, HTTP, an SSH library, or a
 // live provisioner. Authorization is the caller's job: delivery admits only admins and passes the
@@ -20,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/maple52046/swallow/internal/core/convergence"
 	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
 	"github.com/maple52046/swallow/internal/shared/wire"
 )
@@ -27,20 +30,20 @@ import (
 // Service owns SSH Key management and provisioner realization.
 //
 // It is safe for concurrent use. Realization passes within one process are serialized by syncMu
-// so the periodic loop, an explicit sync, and a pre-deploy ensure never interleave writes to the
-// same sync records; passes in different processes may overlap, which realization tolerates by
-// adopting a key another pass already added.
+// so the controller and a pre-deploy ensure never interleave writes to the same sync records;
+// passes in different processes may overlap, which realization tolerates by adopting a key another
+// pass already added.
 type Service struct {
 	keys         sshkeydomain.KeyRepository
 	syncs        sshkeydomain.SyncRepository
 	material     sshkeydomain.KeyMaterial
 	provisioners sshkeydomain.ProvisionerKeys
+	requests     convergence.Requester
+	events       convergence.EventRecorder
 	now          func() time.Time
 	newID        func() string
 
 	syncMu sync.Mutex
-	// kick carries at most one pending sync request; RequestSync never blocks.
-	kick chan struct{}
 }
 
 // NewService wires the SSH Key use cases. now and newID are replaceable in tests; production uses
@@ -58,31 +61,61 @@ func NewService(
 		provisioners: provisioners,
 		now:          func() time.Time { return time.Now().UTC() },
 		newID:        uuid.NewString,
-		kick:         make(chan struct{}, 1),
 	}
 }
 
-// KeyItem is the API representation of one SSH Key (contract ssh-keys.md).
-type KeyItem struct {
-	ID           string             `json:"id"`
-	Name         string             `json:"name"`
-	Purpose      string             `json:"purpose"`
-	KeyType      string             `json:"keyType"`
-	Fingerprint  string             `json:"fingerprint"`
-	PublicKey    string             `json:"publicKey"`
-	OwnerUserID  string             `json:"ownerUserId,omitempty"`
-	CreatedAt    string             `json:"createdAt"`
-	UpdatedAt    string             `json:"updatedAt"`
-	ProviderSync []ProviderSyncItem `json:"providerSync"`
+// AttachRequester lets RequestConvergence reach the SSH Key controller in the worker. Without one,
+// RequestConvergence does nothing and keys converge on the change feed and the resync alone.
+func (s *Service) AttachRequester(requests convergence.Requester) {
+	s.requests = requests
 }
 
-// ProviderSyncItem is one key's realization status in one provisioner Integration.
-type ProviderSyncItem struct {
-	IntegrationID string `json:"integrationId"`
-	SiteID        string `json:"siteId"`
-	State         string `json:"state"`
-	SyncedAt      string `json:"syncedAt,omitempty"`
-	Error         string `json:"error,omitempty"`
+// AttachEvents records realization changes (a key realized, or added back after it went missing)
+// on the convergence timeline. The worker attaches it; without one, nothing is recorded.
+func (s *Service) AttachEvents(events convergence.EventRecorder) {
+	s.events = events
+}
+
+// ControllerName is the SSH Key controller's name, which a convergence request addresses.
+const ControllerName = "ssh-keys"
+
+// KeyItem is the API representation of one SSH Key as a migrated resource (contract ssh-keys.md,
+// decision 071): identity, the spec (the key itself), and the status of its realization.
+type KeyItem struct {
+	ID          string        `json:"id"`
+	OwnerUserID string        `json:"ownerUserId,omitempty"`
+	Generation  int64         `json:"generation"`
+	Spec        KeySpecItem   `json:"spec"`
+	Status      KeyStatusItem `json:"status"`
+}
+
+// KeySpecItem is what swallow registers: the key's name, purpose, and public key material.
+type KeySpecItem struct {
+	Name        string `json:"name"`
+	Purpose     string `json:"purpose"`
+	KeyType     string `json:"keyType"`
+	Fingerprint string `json:"fingerprint"`
+	PublicKey   string `json:"publicKey"`
+}
+
+// KeyStatusItem is the key's realization: aggregate conditions over every provisioner and one
+// entry per provisioner Integration.
+type KeyStatusItem struct {
+	ObservedGeneration int64                       `json:"observedGeneration"`
+	Conditions         []convergence.ConditionItem `json:"conditions"`
+	Provisioners       []KeyRealizationItem        `json:"provisioners"`
+	CreatedAt          string                      `json:"createdAt"`
+	UpdatedAt          string                      `json:"updatedAt"`
+}
+
+// KeyRealizationItem is one key's realization in one provisioner Integration; its conditions are
+// empty until the controller first judged the key there, and ObservedAt is null until then.
+type KeyRealizationItem struct {
+	IntegrationID      string                      `json:"integrationId"`
+	SiteID             string                      `json:"siteId"`
+	ObservedGeneration int64                       `json:"observedGeneration"`
+	ObservedAt         *string                     `json:"observedAt"`
+	Conditions         []convergence.ConditionItem `json:"conditions"`
 }
 
 // GeneratedAccessKey is the one-time response of GenerateAccessKey: the stored key and the
@@ -92,8 +125,8 @@ type GeneratedAccessKey struct {
 	PrivateKey string  `json:"privateKey"`
 }
 
-// List returns the Deployment Key and ownerUserID's Access Keys, each with one sync entry per
-// provisioner Integration. A key with no current record for an Integration reads as pending.
+// List returns the Deployment Key and ownerUserID's Access Keys, each with one realization per
+// provisioner Integration. A key with no current record for an Integration has no conditions there.
 func (s *Service) List(ctx context.Context, ownerUserID string) ([]KeyItem, error) {
 	keys, err := s.keys.List(ctx, ownerUserID)
 	if err != nil {
@@ -103,7 +136,7 @@ func (s *Service) List(ctx context.Context, ownerUserID string) ([]KeyItem, erro
 }
 
 // Get returns one key visible to ownerUserID — the Deployment Key or one of their own Access Keys —
-// with its current sync status. Another User's Access Key is ErrKeyNotFound, indistinguishable from
+// with its realization. Another User's Access Key is ErrKeyNotFound, indistinguishable from
 // an unknown id, so a caller cannot probe other Users' keys.
 func (s *Service) Get(ctx context.Context, ownerUserID, id string) (*KeyItem, error) {
 	key, err := s.keys.FindByID(ctx, id)
@@ -116,8 +149,8 @@ func (s *Service) Get(ctx context.Context, ownerUserID, id string) (*KeyItem, er
 	return s.item(ctx, key)
 }
 
-// ImportAccessKey stores a public key as one of ownerUserID's Access Keys and requests
-// realization. It returns ErrInvalidName, ErrInvalidKey, ErrUnsupportedKey, ErrDuplicateKey, or
+// ImportAccessKey stores a public key as one of ownerUserID's Access Keys; the controller then
+// realizes it. It returns ErrInvalidName, ErrInvalidKey, ErrUnsupportedKey, ErrDuplicateKey, or
 // ErrDuplicateName for a request that cannot be accepted.
 func (s *Service) ImportAccessKey(ctx context.Context, ownerUserID, name, publicKey string) (*KeyItem, error) {
 	name, ok := sshkeydomain.NormalizeName(name)
@@ -150,12 +183,13 @@ func (s *Service) GenerateAccessKey(ctx context.Context, ownerUserID, name strin
 	return &GeneratedAccessKey{Key: *item, PrivateKey: pair.PrivateKeyPEM}, nil
 }
 
-// createAccess stores validated material as ownerUserID's Access Key and requests realization;
-// uniqueness violations come back from the repository as domain errors.
+// createAccess stores validated material as ownerUserID's Access Key at generation 1; uniqueness
+// violations come back from the repository as domain errors.
 func (s *Service) createAccess(ctx context.Context, ownerUserID, name string, material sshkeydomain.PublicKeyMaterial) (*KeyItem, error) {
 	now := s.now()
 	key := &sshkeydomain.SSHKey{
 		ID:          s.newID(),
+		Generation:  1,
 		Name:        name,
 		Purpose:     sshkeydomain.PurposeAccess,
 		OwnerUserID: ownerUserID,
@@ -168,12 +202,11 @@ func (s *Service) createAccess(ctx context.Context, ownerUserID, name string, ma
 	if err := s.keys.CreateAccess(ctx, key); err != nil {
 		return nil, err
 	}
-	s.RequestSync()
 	return s.item(ctx, key)
 }
 
-// DeleteAccessKey deletes one of ownerUserID's Access Keys and requests realization, which
-// removes it from every provisioner where swallow registered it. Another User's key is
+// DeleteAccessKey deletes one of ownerUserID's Access Keys; the controller then removes it from
+// every provisioner where swallow registered it. Another User's key is
 // ErrKeyNotFound; the Deployment Key is ErrDeploymentKeyImmutable.
 func (s *Service) DeleteAccessKey(ctx context.Context, ownerUserID, id string) error {
 	key, err := s.keys.FindByID(ctx, id)
@@ -186,15 +219,11 @@ func (s *Service) DeleteAccessKey(ctx context.Context, ownerUserID, id string) e
 	if key.OwnerUserID != ownerUserID {
 		return sshkeydomain.ErrKeyNotFound
 	}
-	if err := s.keys.DeleteAccess(ctx, ownerUserID, id); err != nil {
-		return err
-	}
-	s.RequestSync()
-	return nil
+	return s.keys.DeleteAccess(ctx, ownerUserID, id)
 }
 
-// ReplaceDeploymentKey replaces the Deployment Key's material with an existing private key and
-// requests realization, which retires the previous public key from provisioners. An empty name
+// ReplaceDeploymentKey replaces the Deployment Key's material with an existing private key, a new
+// generation the controller realizes by retiring the previous public key from provisioners. An empty name
 // keeps the current name. It returns ErrInvalidKey, ErrUnsupportedKey, ErrPassphraseProtected,
 // ErrInvalidName, or ErrDuplicateKey (the key is already an Access Key).
 func (s *Service) ReplaceDeploymentKey(ctx context.Context, privateKeyPEM, name string) (*KeyItem, error) {
@@ -218,7 +247,7 @@ func (s *Service) ReplaceDeploymentKey(ctx context.Context, privateKeyPEM, name 
 }
 
 // RegenerateDeploymentKey replaces the Deployment Key with a fresh ed25519 key pair, keeping its
-// name, and requests realization. The new private key is never returned.
+// name, as a new generation. The new private key is never returned.
 func (s *Service) RegenerateDeploymentKey(ctx context.Context) (*KeyItem, error) {
 	current, err := s.keys.FindDeployment(ctx)
 	if err != nil {
@@ -249,7 +278,6 @@ func (s *Service) replaceDeployment(
 	if err := s.keys.ReplaceDeployment(ctx, &replacement, privateKeyPEM); err != nil {
 		return nil, err
 	}
-	s.RequestSync()
 	return s.item(ctx, &replacement)
 }
 
@@ -272,6 +300,7 @@ func (s *Service) EnsureDeploymentKey(ctx context.Context) (fingerprint string, 
 	now := s.now()
 	key := &sshkeydomain.SSHKey{
 		ID:          s.newID(),
+		Generation:  1,
 		Name:        sshkeydomain.DefaultDeploymentKeyName,
 		Purpose:     sshkeydomain.PurposeDeployment,
 		KeyType:     pair.Public.KeyType,
@@ -290,7 +319,6 @@ func (s *Service) EnsureDeploymentKey(ctx context.Context) (fingerprint string, 
 		}
 		return "", false, err
 	}
-	s.RequestSync()
 	return key.Fingerprint, true, nil
 }
 
@@ -311,19 +339,13 @@ func (s *Service) HasDeploymentKey(ctx context.Context) (bool, error) {
 	return err == nil, err
 }
 
-// RequestSync asks the process's sync loop to run a realization pass soon. It never blocks: a
-// request made while one is already pending is coalesced into it.
-func (s *Service) RequestSync() {
-	select {
-	case s.kick <- struct{}{}:
-	default:
+// RequestConvergence asks the SSH Key controller to realize every key in every provisioner now,
+// rather than at its next resync, by writing a request to the store.
+func (s *Service) RequestConvergence(ctx context.Context) error {
+	if s.requests == nil {
+		return nil
 	}
-}
-
-// SyncRequests is the channel the sync loop waits on for RequestSync. Only one loop per process
-// may consume it.
-func (s *Service) SyncRequests() <-chan struct{} {
-	return s.kick
+	return s.requests.Request(ctx, ControllerName)
 }
 
 // items projects keys with their sync status against the current provisioner set.
@@ -355,38 +377,67 @@ func (s *Service) item(ctx context.Context, key *sshkeydomain.SSHKey) (*KeyItem,
 	return &items[0], nil
 }
 
-// keyItem shapes one key. A sync record describes this key only when its fingerprint matches the
-// key's current material; a record left from replaced Deployment Key material reads as pending.
+// keyItem shapes one key. A record describes this key only when its fingerprint matches the key's
+// current material; a record left from replaced Deployment Key material has no conditions to show.
+// The aggregate conditions are derived here from the per-provisioner ones: realized only when every
+// provisioner realized the current generation (and for an installation with no provisioner, which
+// has nothing to realize), otherwise carrying the first unrealized provisioner's reason.
 func keyItem(key *sshkeydomain.SSHKey, provisioners []sshkeydomain.Provisioner, index map[string]sshkeydomain.ProviderSync) KeyItem {
-	syncs := make([]ProviderSyncItem, 0, len(provisioners))
+	realizations := make([]KeyRealizationItem, 0, len(provisioners))
+	realized, reason, message := true, convergence.ReasonConverged, ""
+	observed := key.Generation
+	transition := key.UpdatedAt
 	for _, provisioner := range provisioners {
-		entry := ProviderSyncItem{
-			IntegrationID: provisioner.IntegrationID,
-			SiteID:        provisioner.SiteID,
-			State:         string(sshkeydomain.SyncPending),
-		}
+		entry := KeyRealizationItem{IntegrationID: provisioner.IntegrationID, SiteID: provisioner.SiteID, Conditions: []convergence.ConditionItem{}}
+		var status convergence.TargetStatus
 		if record, ok := index[syncKey(key.ID, provisioner.IntegrationID)]; ok && record.Fingerprint == key.Fingerprint {
-			entry.State = string(record.State)
-			if record.SyncedAt != nil {
-				entry.SyncedAt = wire.Time(*record.SyncedAt)
-			}
-			if record.State == sshkeydomain.SyncFailed {
-				entry.Error = record.Error
+			status = record.Status
+			entry.ObservedGeneration = status.ObservedGeneration
+			entry.Conditions = convergence.ConditionItems(status.Conditions)
+			if status.ObservedAt != nil {
+				entry.ObservedAt = wire.TimePtr(*status.ObservedAt)
 			}
 		}
-		syncs = append(syncs, entry)
+		condition, ok := convergence.FindCondition(status.Conditions, convergence.ConditionRealized)
+		if ok && condition.LastTransitionTime.After(transition) {
+			transition = condition.LastTransitionTime
+		}
+		if status.ObservedGeneration < observed {
+			observed = status.ObservedGeneration
+		}
+		if realized && (!ok || condition.Status != convergence.ConditionTrue || status.ObservedGeneration < key.Generation) {
+			realized, reason, message = false, convergence.ReasonConverging, ""
+			if ok && condition.Status == convergence.ConditionFalse {
+				reason, message = condition.Reason, condition.Message
+			}
+		}
+		realizations = append(realizations, entry)
+	}
+	aggregate := convergence.Condition{
+		Type: convergence.ConditionRealized, Status: convergence.ConditionFalse, Reason: reason, Message: message,
+		LastTransitionTime: transition, ObservedGeneration: key.Generation,
+	}
+	if realized {
+		aggregate.Status = convergence.ConditionTrue
+		if len(provisioners) == 0 {
+			aggregate.Message = "No provisioner holds SSH keys."
+		}
 	}
 	return KeyItem{
-		ID:           key.ID,
-		Name:         key.Name,
-		Purpose:      string(key.Purpose),
-		KeyType:      key.KeyType,
-		Fingerprint:  key.Fingerprint,
-		PublicKey:    key.PublicKey,
-		OwnerUserID:  key.OwnerUserID,
-		CreatedAt:    wire.Time(key.CreatedAt),
-		UpdatedAt:    wire.Time(key.UpdatedAt),
-		ProviderSync: syncs,
+		ID:          key.ID,
+		OwnerUserID: key.OwnerUserID,
+		Generation:  key.Generation,
+		Spec: KeySpecItem{
+			Name: key.Name, Purpose: string(key.Purpose), KeyType: key.KeyType,
+			Fingerprint: key.Fingerprint, PublicKey: key.PublicKey,
+		},
+		Status: KeyStatusItem{
+			ObservedGeneration: observed,
+			Conditions:         convergence.ConditionItems([]convergence.Condition{aggregate}),
+			Provisioners:       realizations,
+			CreatedAt:          wire.Time(key.CreatedAt),
+			UpdatedAt:          wire.Time(key.UpdatedAt),
+		},
 	}
 }
 

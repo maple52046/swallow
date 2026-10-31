@@ -34,6 +34,7 @@ import (
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	apikeystore "github.com/maple52046/swallow/internal/adapters/store/mongodb/apikey"
 	authstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/auth"
+	convergencestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/convergence"
 	infrastructurestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/infrastructure"
 	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
 	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
@@ -244,13 +245,13 @@ func RunAPI(cfg config.APIConfig) error {
 	// SSH Keys (decision 039). The Deployment Key is created by the installation step
 	// (`swallow-api deployment-key ensure`), never here: API startup neither creates nor requires
 	// it, and only OS and Platform deployment check that it exists. Every key is realized in
-	// key-capable provisioners by runSSHKeySync below, and a provisioner Integration write requests
-	// a sync so a new MAAS gets the keys promptly.
+	// key-capable provisioners by the SSH Key controller in the worker (decision 071), which sees key
+	// and Integration changes on the change feed; POST /ssh-keys/sync asks it through the store.
 	sshKeyService, err := newSSHKeyService(db, sealer, integrationRepo, providerFactory)
 	if err != nil {
 		return err
 	}
-	integrationService.AttachProvisionerChangeListener(sshKeySyncOnProvisionerChange{keys: sshKeyService})
+	sshKeyService.AttachRequester(convergencestore.NewMongoRequester(db))
 	sshKeyHandler := sshkeydelivery.NewSSHKeyHandler(sshKeyService)
 	deploymentKeys := deploymentKeySource{keys: sshKeyService}
 	activeWork := activeServerWorkReader{operations: operationRepo, orchestrations: orchestrationRepo, tasks: taskRepo}
@@ -657,7 +658,6 @@ func RunAPI(cfg config.APIConfig) error {
 	go runAutoExporterDeploy(ctx, autoExporterDeploy, cfg.ReconcileInterval)
 	go runAutoInspect(ctx, autoInspect, cfg.ReconcileInterval)
 	go runSoftwareAssignmentSweep(ctx, softwareSweeper, cfg.ReconcileInterval)
-	go runSSHKeySync(ctx, sshKeyService, cfg.SSHKeySyncInterval)
 	go runRedfishCapabilitySweep(ctx, bootMediaUC, cfg.RedfishProbeInterval, cfg.RedfishProbeMaxAge)
 	go orchestrationStarter.Run(ctx)
 	go orchestrationReconciler.Run(ctx)

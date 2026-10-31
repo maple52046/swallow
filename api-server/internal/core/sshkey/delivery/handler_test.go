@@ -191,7 +191,7 @@ func TestGenerateReturnsPrivateKeyOnceAndScopesAccessKeysToCaller(t *testing.T) 
 	if err := json.Unmarshal(raw, &generated); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if !strings.HasPrefix(generated.PrivateKey, "-----BEGIN OPENSSH PRIVATE KEY-----") || generated.Key.Purpose != "access" {
+	if !strings.HasPrefix(generated.PrivateKey, "-----BEGIN OPENSSH PRIVATE KEY-----") || generated.Key.Spec.Purpose != "access" {
 		t.Errorf("generate response = %+v, want an access key and an OpenSSH private key", generated.Key)
 	}
 
@@ -200,7 +200,7 @@ func TestGenerateReturnsPrivateKeyOnceAndScopesAccessKeysToCaller(t *testing.T) 
 	if err := json.Unmarshal(raw, &mine); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
-	if len(mine) != 2 || mine[0].Purpose != "deployment" || mine[1].ID != generated.Key.ID {
+	if len(mine) != 2 || mine[0].Spec.Purpose != "deployment" || mine[1].ID != generated.Key.ID {
 		t.Errorf("owner list = %+v, want the deployment key then the generated access key", mine)
 	}
 	if strings.Contains(string(raw), "PRIVATE KEY") {
@@ -245,7 +245,7 @@ func TestDeploymentKeyCannotBeDeletedAndBadKeysAreRejected(t *testing.T) {
 	if resp, _ := f.do(t, http.MethodPost, "/api/v1/ssh-keys/", "admin-1", `{"name":"bad","publicKey":"not a key"}`); resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("importing garbage = %d, want 400", resp.StatusCode)
 	}
-	duplicate := `{"name":"copy","publicKey":"` + keys[0].PublicKey + `"}`
+	duplicate := `{"name":"copy","publicKey":"` + keys[0].Spec.PublicKey + `"}`
 	if resp, _ := f.do(t, http.MethodPost, "/api/v1/ssh-keys/", "admin-1", duplicate); resp.StatusCode != http.StatusConflict {
 		t.Errorf("importing the deployment key's material = %d, want 409", resp.StatusCode)
 	}

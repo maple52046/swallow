@@ -8,23 +8,22 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
+	convergencestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/convergence"
 	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
 )
 
 // providerSyncDoc is the MongoDB shape of one ProviderSync. The document id is derived from the
 // (keyId, integrationId) pair so an upsert can never create a second record for the same pair.
 type providerSyncDoc struct {
-	ID                    string     `bson:"_id"`
-	KeyID                 string     `bson:"keyId"`
-	IntegrationID         string     `bson:"integrationId"`
-	SiteID                string     `bson:"siteId"`
-	Fingerprint           string     `bson:"fingerprint"`
-	ProviderKeyID         string     `bson:"providerKeyId,omitempty"`
-	RetiredProviderKeyIDs []string   `bson:"retiredProviderKeyIds,omitempty"`
-	State                 string     `bson:"state"`
-	SyncedAt              *time.Time `bson:"syncedAt,omitempty"`
-	Error                 string     `bson:"error,omitempty"`
-	UpdatedAt             time.Time  `bson:"updatedAt"`
+	ID                    string                     `bson:"_id"`
+	KeyID                 string                     `bson:"keyId"`
+	IntegrationID         string                     `bson:"integrationId"`
+	SiteID                string                     `bson:"siteId"`
+	Fingerprint           string                     `bson:"fingerprint"`
+	ProviderKeyID         string                     `bson:"providerKeyId,omitempty"`
+	RetiredProviderKeyIDs []string                   `bson:"retiredProviderKeyIds,omitempty"`
+	Status                convergencestore.TargetDoc `bson:"status"`
+	UpdatedAt             time.Time                  `bson:"updatedAt"`
 }
 
 // MongoSyncRepo is the durable sshkeydomain.SyncRepository over `ssh_key_provider_syncs`. Records
@@ -61,9 +60,7 @@ func (r *MongoSyncRepo) List(ctx context.Context) ([]sshkeydomain.ProviderSync, 
 			Fingerprint:           doc.Fingerprint,
 			ProviderKeyID:         doc.ProviderKeyID,
 			RetiredProviderKeyIDs: doc.RetiredProviderKeyIDs,
-			State:                 sshkeydomain.SyncState(doc.State),
-			SyncedAt:              doc.SyncedAt,
-			Error:                 doc.Error,
+			Status:                convergencestore.ToTargetStatus(doc.Status),
 			UpdatedAt:             doc.UpdatedAt,
 		}
 	}
@@ -71,7 +68,7 @@ func (r *MongoSyncRepo) List(ctx context.Context) ([]sshkeydomain.ProviderSync, 
 }
 
 // Upsert replaces the whole record for its (key, Integration) pair, so a cleared field (for
-// example a resolved error) is persisted as cleared.
+// example a resolved condition) is persisted as cleared.
 func (r *MongoSyncRepo) Upsert(ctx context.Context, record sshkeydomain.ProviderSync) error {
 	id := syncDocID(record.KeyID, record.IntegrationID)
 	_, err := r.col.ReplaceOne(ctx, bson.M{"_id": id}, providerSyncDoc{
@@ -82,9 +79,7 @@ func (r *MongoSyncRepo) Upsert(ctx context.Context, record sshkeydomain.Provider
 		Fingerprint:           record.Fingerprint,
 		ProviderKeyID:         record.ProviderKeyID,
 		RetiredProviderKeyIDs: record.RetiredProviderKeyIDs,
-		State:                 string(record.State),
-		SyncedAt:              record.SyncedAt,
-		Error:                 record.Error,
+		Status:                convergencestore.TargetDocFrom(record.Status),
 		UpdatedAt:             record.UpdatedAt,
 	}, options.Replace().SetUpsert(true))
 	return err

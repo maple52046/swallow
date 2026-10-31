@@ -53,46 +53,67 @@ POST   /api/v1/ssh-keys/sync
 
 ## SSH Key resource
 
+An SSH Key is a migrated resource
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)): the
+spec is the key swallow registers, and the status its realization in every provisioner.
+
 ```json
 {
   "id": "5f0c…",
-  "name": "work-laptop",
-  "purpose": "access",
-  "keyType": "ssh-ed25519",
-  "fingerprint": "SHA256:0mW2…",
-  "publicKey": "ssh-ed25519 AAAAC3Nza… work-laptop",
   "ownerUserId": "a91e…",
-  "createdAt": "2026-10-01T00:00:00Z",
-  "updatedAt": "2026-10-01T00:00:00Z",
-  "providerSync": [
-    {
-      "integrationId": "c3d4…",
-      "siteId": "b0a2…",
-      "state": "synced",
-      "syncedAt": "2026-10-01T00:00:05Z",
-      "error": ""
-    }
-  ]
+  "generation": 1,
+  "spec": {
+    "name": "work-laptop",
+    "purpose": "access",
+    "keyType": "ssh-ed25519",
+    "fingerprint": "SHA256:0mW2…",
+    "publicKey": "ssh-ed25519 AAAAC3Nza… work-laptop"
+  },
+  "status": {
+    "observedGeneration": 1,
+    "conditions": [
+      { "type": "realized", "status": "true", "reason": "converged", "message": "", "lastTransitionTime": "2026-10-01T00:00:05Z", "observedGeneration": 1 }
+    ],
+    "provisioners": [
+      {
+        "integrationId": "c3d4…",
+        "siteId": "b0a2…",
+        "observedGeneration": 1,
+        "observedAt": "2026-10-01T00:00:05Z",
+        "conditions": [
+          { "type": "realized", "status": "true", "reason": "converged", "message": "", "lastTransitionTime": "2026-10-01T00:00:05Z", "observedGeneration": 1 }
+        ]
+      }
+    ],
+    "createdAt": "2026-10-01T00:00:00Z",
+    "updatedAt": "2026-10-01T00:00:00Z"
+  }
 }
 ```
 
-- `purpose` is `deployment` or `access` (glossary SSH Key).
-- `keyType` is the SSH algorithm name from the public key (`ssh-ed25519`, `ssh-rsa`,
+- `spec.purpose` is `deployment` or `access` (glossary SSH Key).
+- `spec.keyType` is the SSH algorithm name from the public key (`ssh-ed25519`, `ssh-rsa`,
   `ecdsa-sha2-nistp256`, `ecdsa-sha2-nistp384`, `ecdsa-sha2-nistp521`).
-- `fingerprint` is the OpenSSH SHA256 fingerprint, unique across all keys.
-- `publicKey` is one authorized_keys line (`<type> <base64> <comment>`); public key
+- `spec.fingerprint` is the OpenSSH SHA256 fingerprint, unique across all keys.
+- `spec.publicKey` is one authorized_keys line (`<type> <base64> <comment>`); public key
   material is not secret and is always returned. No endpoint ever returns a stored private
   key; only `generate` returns a freshly generated Access Key private key, once.
 - `ownerUserId` is the owning User for an Access Key and omitted for the Deployment Key.
-- `providerSync` has one entry per enabled provisioner Integration (across all Sites),
-  always an array; a paused Integration is not synced and not listed. `state` is:
-  - `synced` — the provisioner holds this public key.
-  - `pending` — not yet realized (a sync has not run since the key or Integration changed).
-  - `failed` — the last attempt failed; `error` carries a human-readable reason.
-  - `unsupported` — the provisioner cannot hold SSH keys; Servers it deploys will not
-    authorize this key through the provisioner.
-  `syncedAt` is the last successful realization and omitted when never synced. `error` is
-  omitted unless `state` is `failed`.
+- `generation` is `1` for every key and increments each time the Deployment Key is replaced or
+  regenerated; an Access Key never changes.
+- `status.provisioners` has one entry per enabled provisioner Integration (across all Sites),
+  always an array; a paused Integration is not realized and not listed. Each entry's
+  `conditions` are empty until the SSH Key controller first judged the key there; then
+  `realized` is `true` when the provisioner holds the key's current material, or `false` with
+  reason `capability_missing` (the provisioner cannot hold SSH keys; Servers it deploys will not
+  authorize this key through it), `provider_unreachable` (it could not be reached or built; the
+  message says why), or `failed` (it refused the key; the message carries its reason).
+  `observedGeneration` is the generation it holds, and `observedAt` when it was last judged
+  (`null` before).
+- `status.conditions` summarize the provisioners: `realized` is `true` only when every
+  provisioner holds the current generation (and when there is none); otherwise it carries the
+  first unrealized provisioner's reason, `converging` while one has not been judged yet.
+  `status.observedGeneration` is the generation every provisioner holds.
 
 ## List
 
@@ -108,7 +129,8 @@ Platform deployment are refused with `409 conflict`.
 `GET /api/v1/ssh-keys/{keyId}` returns `200` with one SSH Key resource, in the same shape
 as a list item: the Deployment Key, or one of the caller's Access Keys. An unknown key and
 another user's Access Key are both `404 not_found`. It lets a client follow one key's
-`providerSync` (for example while an entry is `pending`) without re-reading the list.
+realization (for example while a provisioner has not been judged yet) without re-reading the
+list.
 
 ## Import an Access Key
 
@@ -124,8 +146,8 @@ are rejected, and the comment is preserved. RSA keys shorter than 2048 bits and
 unsupported types are rejected. Returns `201` with the SSH Key resource. A malformed or
 unsupported key, or a missing/invalid name, is `400 validation_error`; a key whose
 fingerprint already exists (as any SSH Key, including the Deployment Key) or a duplicate
-name is `409 conflict`. Provider realization starts in the background; the response's
-`providerSync` entries are `pending`.
+name is `409 conflict`. The SSH Key controller realizes it in the background; the response's
+per-provisioner conditions are still empty.
 
 ## Generate an Access Key pair
 
@@ -155,9 +177,9 @@ response is `Cache-Control: no-store`. Name validation matches import: an invali
 `DELETE /api/v1/ssh-keys/{keyId}` deletes one of the caller's Access Keys and removes it
 from every provisioner where swallow registered it. Returns `204`. An unknown key (or
 another user's key) is `404 not_found`; the Deployment Key is `409 conflict` (replace or
-regenerate it instead). Provider removal is best effort after the record is deleted: a
-provider that cannot be reached is retried by the periodic sync. Already-deployed Servers
-keep the key in their `authorized_keys`.
+regenerate it instead). The SSH Key controller removes it from the provisioners after the record
+is deleted, retrying one that cannot be reached. Already-deployed Servers keep the key in their
+`authorized_keys`.
 
 ## Replace the Deployment Key
 
@@ -194,18 +216,21 @@ cannot override the Deployment Key.
 
 ## Trigger a sync
 
-`POST /api/v1/ssh-keys/sync` (no body) requests an immediate realization pass over every
-provisioner Integration and returns `202`. The response body is the plain-text status text
-`Accepted` (`Content-Type: text/plain`); it carries no information and consumers must ignore
-it. Results are read from `providerSync` on the next list.
+`POST /api/v1/ssh-keys/sync` (no body) asks the SSH Key controller to converge every key in
+every provisioner Integration now, rather than at its next resync, and returns `202`. The
+response body is the plain-text status text `Accepted` (`Content-Type: text/plain`); it carries
+no information and consumers must ignore it. Results are read from each key's `status` on a later
+read.
 
 ## Provider realization
 
 - swallow lists the provisioner's keys first, adopts a key whose material already matches,
   adds missing keys, and removes only keys swallow itself registered or adopted. Keys an
   operator added directly in the provisioner are never removed.
-- Realization runs after each key change, periodically, and before every OS deployment
-  through a key-capable provisioner. A deployment is not started when the Deployment Key
+- The SSH Key controller (worker process) realizes keys after each key change, after each
+  change to a provisioner Integration, on request, at its periodic resync (every 10 minutes by
+  default, which also adds back a key someone removed in the provisioner), and before every OS
+  deployment through a key-capable provisioner. A deployment is not started when the Deployment Key
   cannot be realized on a key-capable provisioner: the Workflow Task fails retryably with
   `ssh_key_registration_failed`, and the deprecated synchronous
   `POST /api/v1/servers/{id}/deploy` answers `503 provider_unavailable`.
@@ -222,3 +247,12 @@ The common envelope applies: `400 validation_error`, `401 unauthorized`, `403 fo
 New surface. It supersedes the planned `/ssh-keys` design in
 [planned-surface.md](planned-surface.md) §7.11: `publicKey` is returned (public key material
 is not secret) and there is no `vaultRef`.
+
+On 2026-10-31 an SSH Key became a migrated resource
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). Breaking,
+with no alias: `name`, `purpose`, `keyType`, `fingerprint`, and `publicKey` moved under `spec`,
+`createdAt`/`updatedAt` under `status`; `generation` was added; and `providerSync[]` (with its
+`state`, `syncedAt`, and `error`) was replaced by `status.provisioners[]` with conditions and the
+aggregate `status.conditions`. The `generate` response keeps its `{key, privateKey}` envelope with
+the new key shape. The API process no longer runs a sync loop, and the `sshKeySyncInterval`
+setting is gone: the worker's controller resync replaces it.

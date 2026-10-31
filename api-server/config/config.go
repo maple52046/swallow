@@ -58,11 +58,6 @@ type APIConfig struct {
 	// call per machine and changes only at commissioning, so polling it as often as
 	// lifecycle state would multiply request count for near-static data.
 	InventoryInterval time.Duration `yaml:"inventoryInterval"`
-	// SSHKeySyncInterval is how often the API process re-realizes every SSH Key in each
-	// key-capable provisioner (decision 039). Key changes and deployments already trigger a
-	// sync, so this periodic pass only repairs drift (a key an operator deleted in MAAS, a
-	// provisioner that was unreachable) and can be much longer than ReconcileInterval.
-	SSHKeySyncInterval time.Duration `yaml:"sshKeySyncInterval"`
 	// ControllerResyncInterval is how often each desired-state controller in the worker
 	// reconciles every resource it owns. A spec change converges at once through the change feed;
 	// this resync is when drift of an auto-correct field is corrected (decision 071), so it bounds

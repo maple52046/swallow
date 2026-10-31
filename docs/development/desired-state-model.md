@@ -124,7 +124,7 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 | Platform | type、拓樸、各 Server 的 Node Role、功能開關（GPU Operator、Omnistat、Device Metrics Exporter 等）與版本 | 叢集 membership、連線狀態、各功能的狀態讀回 | Platform Lifecycle State 改由 conditions 與 Workflow 推導；Platform Claim 是由 spec 的 target 推導的欄位，與 spec 在同一個 transaction 寫入 |
 | Managed Software（Software Assignment） | kind、variant 或 role、版本 | 已套用的狀態與版本 | 現行設計已有 desired 與 last-applied，最接近本模型 |
 | Zone／Pool | 存在與否、名稱、說明 | provisioner 中的實現狀態 | 已遷移（§4.4） |
-| SSH Key | 公鑰與用途 | 各 provisioner 的同步狀態 | 現行設計已接近本模型 |
+| SSH Key | 公鑰與用途 | 各 provisioner 的同步狀態 | 已遷移（§4.4） |
 | OS Image | swallow 的命名與 `defaultUser` 等 metadata | provider 擁有的 artifact 本身 | 現行的 Provider Data Overlay 改為 desired metadata，overlay 概念隨遷移淘汰 |
 | Deployment Template | 可重用的部署意圖 | — | 只有 desired；它是 Server desired state 的輸入，自己不被實現 |
 | Provisioner 設定（HTTP Proxy、Subnet DNS） | 設定值 | provider 目前的值 | 已遷移（§4.4）；外部的改動是 drift |
@@ -141,6 +141,7 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 | Zone 與 Pool 的 catalog | 名稱與說明 | catalog controller：在 Site 的每個 provisioner 建立、改名、改說明；接管只存在於 provisioner 的 group；刪除由 API 同步執行 | glossary [Zone](glossaries/terms/zone.md)、[Pool](glossaries/terms/pool.md)、[os-provisioning.md](os-provisioning.md) §8 |
 | Provisioner HTTP Proxy | 每個 provisioner Integration 的 mode 與 URL | HTTP Proxy controller：寫入並讀回；第一次讀取接管 | glossary [Provisioner HTTP Proxy](glossaries/terms/provisioner-http-proxy.md)、[os-provisioning.md](os-provisioning.md) §7 |
 | Subnet DNS | 每個 provisioner subnet 的 DNS server 清單 | Subnet DNS controller：寫入並讀回；接管新 subnet、移除已消失 subnet 的設定 | glossary [Subnet DNS](glossaries/terms/subnet-dns.md)、[os-provisioning.md](os-provisioning.md) §6.4 |
+| SSH Key | 要登錄的金鑰（名稱、用途、公鑰材料） | SSH Key controller：每個 provisioner 一次同步，只移除 swallow 登錄過的金鑰；resync 補回被刪除的金鑰 | glossary [SSH Key](glossaries/terms/ssh-key.md)、[access-and-credentials.md](access-and-credentials.md) §5 |
 
 （第一段其餘的資源遷移時逐一加入。）
 

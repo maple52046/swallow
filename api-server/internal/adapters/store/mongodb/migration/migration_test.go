@@ -435,3 +435,44 @@ func TestMigrateV5ToV6_MakesZonesAndPoolsResources(t *testing.T) {
 		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)
 	}
 }
+
+// TestMigrateV6ToV7_MakesSSHKeysResources verifies each SSH Key gets generation 1 and each sync
+// record keeps its provider key id but loses its state fields.
+func TestMigrateV6ToV7_MakesSSHKeysResources(t *testing.T) {
+	db := testDatabase(t)
+	ctx := ctxFor(t)
+	if _, err := db.Collection("ssh_keys").InsertOne(ctx, bson.M{"_id": "k1", "purpose": "deployment"}); err != nil {
+		t.Fatalf("seed keys: %v", err)
+	}
+	if _, err := db.Collection("ssh_key_provider_syncs").InsertOne(ctx, bson.M{
+		"_id": "k1:maas", "keyId": "k1", "providerKeyId": "7", "state": "failed", "error": "boom", "syncedAt": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed syncs: %v", err)
+	}
+	if _, err := db.Collection("schema_metadata").InsertOne(ctx, bson.M{
+		"_id": "database", "version": 6, "updatedAt": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed schema marker: %v", err)
+	}
+
+	if err := Migrate(ctx, db, true); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	var key bson.M
+	if err := db.Collection("ssh_keys").FindOne(ctx, bson.M{"_id": "k1"}).Decode(&key); err != nil || key["generation"] != int64(1) {
+		t.Errorf("key = %v, %v; want generation 1", key, err)
+	}
+	var record bson.M
+	if err := db.Collection("ssh_key_provider_syncs").FindOne(ctx, bson.M{"_id": "k1:maas"}).Decode(&record); err != nil {
+		t.Fatalf("read record: %v", err)
+	}
+	for _, field := range []string{"state", "error", "syncedAt"} {
+		if _, present := record[field]; present {
+			t.Errorf("record still has %s: %v", field, record)
+		}
+	}
+	if record["providerKeyId"] != "7" {
+		t.Errorf("record lost its provider key id: %v", record)
+	}
+}

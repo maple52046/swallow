@@ -38,7 +38,7 @@ export function ServerDefaultUserDialog({ server, onClose, onChanged }: ServerDe
   const [busy, setBusy] = useState<'save' | 'clear' | null>(null)
   const [error, setError] = useState('')
   const deploymentKey = useAsyncData(
-    async () => (await sshKeys.listSSHKeys()).find((key) => key.purpose === 'deployment') ?? null,
+    async () => (await sshKeys.listSSHKeys()).find((key) => key.spec.purpose === 'deployment') ?? null,
     [sshKeys],
   )
   const name = serverDisplayName(server)
@@ -78,7 +78,7 @@ export function ServerDefaultUserDialog({ server, onClose, onChanged }: ServerDe
     }
   }
 
-  const command = deploymentKey.status === 'ready' && deploymentKey.data ? deploymentKeyInstallCommand(deploymentKey.data.publicKey) : ''
+  const command = deploymentKey.status === 'ready' && deploymentKey.data ? deploymentKeyInstallCommand(deploymentKey.data.spec.publicKey) : ''
 
   return (
     <Modal

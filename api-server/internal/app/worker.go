@@ -90,8 +90,9 @@ func RunWorker(cfg config.APIConfig) error {
 	}
 	inventory := executionInventoryAdapter{discovery: discoveryapp.NewDiscoveryUseCase(servers)}
 	providers := maas.NewProviderFactory(integrations)
-	// The worker reads the Deployment Key for wait-for-ssh and ensures provisioner key registration
-	// before every OS deployment it drives (decision 039). It does not run the periodic sync loop.
+	// The worker reads the Deployment Key for wait-for-ssh, ensures provisioner key registration
+	// before every OS deployment it drives (decision 039), and runs the SSH Key controller on the
+	// same service so the two never interleave a realization pass (decision 071).
 	sshKeys, err := newSSHKeyService(db, sealer, integrations, providers)
 	if err != nil {
 		return err
@@ -268,6 +269,7 @@ func RunWorker(cfg config.APIConfig) error {
 			provisioningstore.NewMongoHTTPProxyRepo(db), convergenceEvents),
 		provisioningapp.NewSubnetDNSController(provisionerIntegrations{integrations: integrations}, providers,
 			subnetDNS, convergenceEvents),
+		sshKeyController(sshKeys, convergenceEvents),
 	)
 	controllersDone := make(chan struct{})
 	go func() {

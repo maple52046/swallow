@@ -48,7 +48,7 @@ export function DeleteSSHKeyDialog({ sshKey, onClose, onDeleted }: DeleteSSHKeyD
       onClose={close}
       role="alertdialog"
       closeOnInteractOutside={!submitting}
-      title={`Delete ${sshKey.name}`}
+      title={`Delete ${sshKey.spec.name}`}
       footer={
         <>
           <Button variant="ghost" onClick={close} disabled={submitting}>
@@ -67,7 +67,7 @@ export function DeleteSSHKeyDialog({ sshKey, onClose, onDeleted }: DeleteSSHKeyD
           </Alert>
         )}
         <Text>
-          Swallow removes <strong>{sshKey.name}</strong> ({sshKey.fingerprint}) from every provisioner where it registered
+          Swallow removes <strong>{sshKey.spec.name}</strong> ({sshKey.spec.fingerprint}) from every provisioner where it registered
           it, so Servers deployed from now on will not accept it.
         </Text>
         <Alert status="warning" title="Deployed Servers keep the key">

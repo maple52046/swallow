@@ -135,3 +135,23 @@ func (r *MongoEventRecorder) List(ctx context.Context, resourceKind, resourceID 
 	}
 	return events, nil
 }
+
+// MongoRequester writes convergence requests: one document per controller in
+// `convergence_requests`, whose every write is a change the controller's change feed delivers.
+type MongoRequester struct {
+	col *mongo.Collection
+}
+
+var _ convergence.Requester = (*MongoRequester)(nil)
+
+// NewMongoRequester returns the requester.
+func NewMongoRequester(db *mongo.Database) *MongoRequester {
+	return &MongoRequester{col: db.Collection(convergence.RequestCollection)}
+}
+
+// Request implements convergence.Requester by stamping the controller's document.
+func (r *MongoRequester) Request(ctx context.Context, controller string) error {
+	_, err := r.col.UpdateOne(ctx, bson.M{"_id": controller},
+		bson.M{"$set": bson.M{"requestedAt": time.Now().UTC()}}, options.Update().SetUpsert(true))
+	return err
+}

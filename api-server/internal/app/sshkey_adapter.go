@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
-	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/maple52046/swallow/internal/adapters/keys/openssh"
 	sshkeystore "github.com/maple52046/swallow/internal/adapters/store/mongodb/sshkey"
+	"github.com/maple52046/swallow/internal/core/convergence"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	sshkeyapp "github.com/maple52046/swallow/internal/core/sshkey/application"
@@ -85,40 +84,9 @@ func (p siteSSHPorts) SSHPort(ctx context.Context, siteID string) (int, error) {
 	return configuration.SSHPort, nil
 }
 
-// sshKeySyncOnProvisionerChange turns a provisioner Integration write into a sync request, so a
-// newly registered MAAS receives swallow's keys without waiting for the periodic pass.
-type sshKeySyncOnProvisionerChange struct {
-	keys *sshkeyapp.Service
-}
-
-// ProvisionerChanged requests a sync without blocking the Integration write that triggered it.
-func (l sshKeySyncOnProvisionerChange) ProvisionerChanged() {
-	l.keys.RequestSync()
-}
-
-// runSSHKeySync realizes SSH Keys in provisioners until ctx is cancelled. It runs once at start
-// (so keys added while the API was down, and the freshly bootstrapped Deployment Key, reach the
-// provisioner promptly), on every sync request, and every interval to repair drift. Passes are
-// sequential in this goroutine; a failed pass is logged and retried on the next trigger, never
-// fatal. Only the API process runs this loop, because only it consumes the sync request channel.
-func runSSHKeySync(ctx context.Context, keys *sshkeyapp.Service, interval time.Duration) {
-	syncOnce := func() {
-		if err := keys.Sync(ctx); err != nil && ctx.Err() == nil {
-			slog.Warn("ssh key sync incomplete", "error", err)
-		}
-	}
-	syncOnce()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			syncOnce()
-		case <-keys.SyncRequests():
-			syncOnce()
-		}
-	}
+// sshKeyController attaches the convergence timeline to the worker's SSH Key service and returns
+// the controller that runs its realization passes.
+func sshKeyController(keys *sshkeyapp.Service, events convergence.EventRecorder) *sshkeyapp.Controller {
+	keys.AttachEvents(events)
+	return sshkeyapp.NewController(keys)
 }

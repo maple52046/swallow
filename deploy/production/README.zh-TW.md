@@ -154,8 +154,8 @@ sudo ./swallowctl ensure
   寫到 `backups/`。請每日排程；retention 是七份 daily 與四份 Sunday weekly。MAAS boot
   images 會從 `images.maas.io` 重新同步。
 - `sudo ./swallowctl restore BACKUP_DIRECTORY` 驗證 checksum，還原 MongoDB、artifacts、
-  credential key 與 MAAS database，再重建 API 與 Dashboard。MAAS 重啟期間的 SSH key 同步
-  會顯示 `failed`，直到下一次 sync interval；`swallow ssh-keys sync`（或 **Sync to
+  credential key 與 MAAS database，再重建 API 與 Dashboard。MAAS 重啟期間的 SSH key 登錄
+  會以退避重試，並在下一次 controller resync 再試；`swallow ssh-keys sync`（或 **Sync to
   provisioners**）可立即重試。
 - `sudo ./swallowctl uninstall` 停止 stack 與 MAAS，保留 volumes、secrets 與 backups；
   `--purge-data` 會一併移除 MAAS snap、volumes 與 backups。

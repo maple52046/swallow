@@ -609,22 +609,49 @@ function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 }
 
-/** Builds one SSH Key fixture in the `ssh-keys.md` shape, synced to MAAS Taipei and failed on MAAS Edge. */
-function sshKey(id: string, name: string, purpose: 'deployment' | 'access', publicKey: string) {
+type SSHKeyRealizationFixture = { integrationId: string; siteId: string; observedGeneration: number; observedAt: string | null; conditions: ReturnType<typeof keyRealized>[] }
+
+/** One provisioner's realized condition for an SSH Key at `generation`. */
+function keyRealized(status: 'true' | 'false', reason: string, message: string, generation: number) {
+  return { type: 'realized', status, reason, message, lastTransitionTime: now, observedGeneration: generation }
+}
+
+/** A provisioner that holds the key at `generation`. */
+function keySynced(integrationId: string, siteId: string, generation: number): SSHKeyRealizationFixture {
+  return { integrationId, siteId, observedGeneration: generation, observedAt: now, conditions: [keyRealized('true', 'converged', '', generation)] }
+}
+
+/** A provisioner the controller has not judged the key on yet. */
+function keyPending(integrationId: string, siteId: string): SSHKeyRealizationFixture {
+  return { integrationId, siteId, observedGeneration: 0, observedAt: null, conditions: [] }
+}
+
+/** The SSH Key status summarizing its provisioners, as the API derives it. */
+function sshKeyStatus(generation: number, provisioners: SSHKeyRealizationFixture[]) {
+  const allRealized = provisioners.every((entry) => entry.conditions[0]?.status === 'true' && entry.observedGeneration >= generation)
+  const failing = provisioners.find((entry) => entry.conditions[0]?.status === 'false')
   return {
-    id,
-    name,
-    purpose,
-    keyType: 'ssh-ed25519',
-    fingerprint: `SHA256:${id}`,
-    publicKey,
-    ...(purpose === 'access' ? { ownerUserId: 'admin-1' } : {}),
+    observedGeneration: allRealized ? generation : Math.min(...provisioners.map((entry) => entry.observedGeneration)),
+    conditions: [allRealized
+      ? keyRealized('true', 'converged', '', generation)
+      : keyRealized('false', failing?.conditions[0].reason ?? 'converging', failing?.conditions[0].message ?? '', generation)],
+    provisioners,
     createdAt: now,
     updatedAt: now,
-    providerSync: [
-      { integrationId: 'maas-a', siteId: 'site-a', state: 'synced', syncedAt: now },
-      { integrationId: 'maas-b', siteId: 'site-b', state: 'failed', error: 'Could not reach MAAS.' },
-    ],
+  }
+}
+
+/** Builds one SSH Key fixture in the `ssh-keys.md` shape, synced to MAAS Taipei and failed on MAAS Edge. */
+function sshKey(id: string, name: string, purpose: 'deployment' | 'access', publicKey: string, generation = 1) {
+  return {
+    id,
+    ...(purpose === 'access' ? { ownerUserId: 'admin-1' } : {}),
+    generation,
+    spec: { name, purpose, keyType: 'ssh-ed25519', fingerprint: `SHA256:${id}`, publicKey },
+    status: sshKeyStatus(generation, [
+      keySynced('maas-a', 'site-a', generation),
+      { integrationId: 'maas-b', siteId: 'site-b', observedGeneration: 0, observedAt: now, conditions: [keyRealized('false', 'provider_unreachable', 'Could not reach MAAS.', generation)] },
+    ]),
   }
 }
 
@@ -764,7 +791,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   const settlingKeyIds = new Set<string>()
   const pendingKey = (key: ReturnType<typeof sshKey>) => {
     settlingKeyIds.add(key.id)
-    return { ...key, providerSync: key.providerSync.map(({ integrationId, siteId }) => ({ integrationId, siteId, state: 'pending' })) }
+    return { ...key, status: sshKeyStatus(key.generation, key.status.provisioners.map(({ integrationId, siteId }) => keyPending(integrationId, siteId))) }
   }
   // Per-page Docker CE assignments and Docker Engine objects (software.md, servers-docker.md).
   const dockerAssignments = new Map<string, SoftwareAssignment>(
@@ -2012,7 +2039,13 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
       if (path === '/api/v1/ssh-keys/sync' && request.method() === 'POST') return route.fulfill({ status: 202 })
       if (path === '/api/v1/ssh-keys/deployment/regenerate' && request.method() === 'POST') {
-        sshKeyItems[0] = { ...sshKeyItems[0], fingerprint: 'SHA256:regenerated', publicKey: 'ssh-ed25519 AAAAREGENERATED swallow-deployment', providerSync: sshKeyItems[0].providerSync.map((entry) => ({ ...entry, state: 'pending' })) }
+        const generation = sshKeyItems[0].generation + 1
+        sshKeyItems[0] = {
+          ...sshKeyItems[0], generation,
+          spec: { ...sshKeyItems[0].spec, fingerprint: 'SHA256:regenerated', publicKey: 'ssh-ed25519 AAAAREGENERATED swallow-deployment' },
+          // The old material's judgements no longer count: every provisioner reads as pending.
+          status: sshKeyStatus(generation, sshKeyItems[0].status.provisioners),
+        }
         return json(route, sshKeyItems[0])
       }
       const keyMatch = path.match(/^\/api\/v1\/ssh-keys\/([^/]+)$/)
@@ -2020,16 +2053,17 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         const index = sshKeyItems.findIndex((item) => item.id === keyMatch[1])
         if (index < 0) return json(route, { error: { code: 'not_found', message: 'SSH key not found.' } }, 404)
         if (settlingKeyIds.delete(sshKeyItems[index].id)) {
+          const settled = sshKeyItems[index]
           sshKeyItems[index] = {
-            ...sshKeyItems[index],
-            providerSync: sshKeyItems[index].providerSync.map(({ integrationId, siteId }) => ({ integrationId, siteId, state: 'synced', syncedAt: now })),
+            ...settled,
+            status: sshKeyStatus(settled.generation, settled.status.provisioners.map(({ integrationId, siteId }) => keySynced(integrationId, siteId, settled.generation))),
           }
         }
         return json(route, sshKeyItems[index])
       }
       if (keyMatch && request.method() === 'DELETE') {
         const target = sshKeyItems.find((item) => item.id === keyMatch[1])
-        if (target?.purpose === 'deployment') {
+        if (target?.spec.purpose === 'deployment') {
           return json(route, { error: { code: 'conflict', message: 'The deployment key cannot be deleted; replace or regenerate it instead.' } }, 409)
         }
         sshKeyItems = sshKeyItems.filter((item) => item.id !== keyMatch[1])
