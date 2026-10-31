@@ -299,11 +299,10 @@ func (h *ProvisioningHandler) SetHTTPProxy(c *fiber.Ctx) error {
 
 // Inspect serves POST /servers/{id}/inspect (server-detail-actions.md): it starts, or resumes
 // after attention, the Server's inspect-hardware Workflow and responds 202 with the stored
-// provisioning snapshot plus workflowId and resumed. Without the Workflow launcher it falls back
-// to the direct provider action and its accepted snapshot.
+// provisioning snapshot plus workflowId and resumed. Inspection only runs as that Workflow.
 func (h *ProvisioningHandler) Inspect(c *fiber.Ctx) error {
 	if h.inspections == nil {
-		return h.serverAction(c, h.actions.Inspect)
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Hardware inspection is not configured."))
 	}
 	id := c.Params("id")
 	if id == "" {
@@ -902,8 +901,7 @@ func (h *ProvisioningHandler) AttachDurableOperations(launcher application.Durab
 }
 
 // AttachHardwareInspection makes Inspect start or resume an inspect-hardware Workflow (decision
-// 053). Without it, as in deployments without the Workflow engine and in legacy tests, Inspect
-// stays the direct provider action.
+// 053); without it Inspect is refused.
 func (h *ProvisioningHandler) AttachHardwareInspection(launcher application.HardwareInspectionLauncher) {
 	h.inspections = launcher
 }

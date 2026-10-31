@@ -1,7 +1,7 @@
 # Access and Credentials 設計與規範
 
 本文件是 swallow **存取與憑證（access and credentials）** 的權威現行規格：swallow 自有的 SSH key
-（Deployment Key 與 Access Key）、它們如何依 capability-first 落到 provisioner、automation 以哪把金鑰與
+（Deployment Key 與 Access Key）、它們如何由 SSH Key controller 落到 provisioner、automation 以哪把金鑰與
 哪個帳號登入受管 Server（含 Server Default User）、Site automation credential，以及 API 認證（Session 與
 API Key）的概覽。它把 [decision 039](../decisions/039-ssh-key-management-and-default-user.md)、
 [decision 041](../decisions/041-deployment-key-only-automation.md)、
@@ -134,11 +134,10 @@ API Key）的概覽。它把 [decision 039](../decisions/039-ssh-key-management-
 
 ---
 
-## 5. Provisioner realization（capability-first）
+## 5. Provisioner realization
 
-依 [architecture-spec.md](architecture-spec.md) 的 Provider ownership 規則
-（[decision 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)），SSH Key 是
-swallow-owned 的紀錄；provider 有能力持有 SSH key 時，swallow 把每把金鑰的公鑰落到它那裡。
+依 [desired-state-model.md](desired-state-model.md) §4.4（decision 069、071），SSH Key 是 swallow 的 desired
+state；provider 有能力持有 SSH key 時，SSH Key controller 把每把金鑰的公鑰落到它那裡。
 
 ### 5.1 能力判斷
 
@@ -240,10 +239,10 @@ Site 私鑰 override 只保護兩種主機：ADR 039 之前佈署的 Server（�
 
 ### 7.1 OS Image default user
 
-- [OS Image](glossaries/terms/os-image.md) 的 [Provider Data Overlay](glossaries/terms/provider-data-overlay.md)
-  帶有 swallow-owned 的 `defaultUser`，可在上傳時或之後設定（見
+- [OS Image](glossaries/terms/os-image.md) 的 metadata 是 swallow 的 desired state（decision 071），帶有 `defaultUser`，
+  可在上傳時或之後設定（見
   [provisioning](../../api-server/docs/development/api-contracts/api-server/provisioning.md) 契約）。
-- effective 值：overlay 的值；否則依 provider OS family 的內建值（`ubuntu`→`ubuntu`、`centos`→`centos`、
+- effective 值：metadata 的值；否則依 provider OS family 的內建值（`ubuntu`→`ubuntu`、`centos`→`centos`、
   `rhel`→`cloud-user`）；否則沒有。內建值只依 provider 自己回報的 OS family 推導，不依 overlay 的顯示名稱，改
   image 的顯示 OS 不會改變 automation 的登入帳號。uploaded custom image（OS family `custom`）沒有內建值，需由
   operator 設定。
@@ -433,18 +432,18 @@ API 認證的決策與時效、cookie、rotation 細節見
   [decision 041](../decisions/041-deployment-key-only-automation.md)、
   [decision 045](../decisions/045-server-default-user.md)、
   [decision 042](../decisions/042-authentication-sessions-and-api-keys.md)；相關的
-  [decision 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)（capability-first）、
-  [decision 025](../decisions/025-provider-data-overlay.md)（OS Image overlay）、
+  [decision 069](../decisions/069-swallow-owns-desired-state.md) 與
+  [decision 071](../decisions/071-provisioner-realized-desired-state.md)（desired state；取代 031 的 capability-first 與
+  025 的 OS Image overlay）、
   [decision 053](../decisions/053-server-enrollment-and-automatic-inspection.md)（existing-OS enrollment）、
   [decision 055](../decisions/055-libvirt-virtual-machine-enrollment.md)（Hypervisor）、
   [decision 060](../decisions/060-cancel-and-rerun-converge.md)（只在真正送出佈署時清除 Server Default User）。
 - 規格：[platform-deployment.md](platform-deployment.md) §4.1（inventory）、§4.6（host key）、§4.6.1（SSH 就緒與
-  per-host 使用者）；[software-deployment.md](software-deployment.md)；[architecture-spec.md](architecture-spec.md)
-  的 Provider ownership。
+  per-host 使用者）；[software-deployment.md](software-deployment.md)；[desired-state-model.md](desired-state-model.md)。
 - Glossary：[SSH Key](glossaries/terms/ssh-key.md)、[Deployment Key](glossaries/terms/deployment-key.md)、
   [Server Default User](glossaries/terms/server-default-user.md)、[OS Image](glossaries/terms/os-image.md)、
   [Automation Configuration](glossaries/terms/automation-configuration.md)、
-  [Provider Data Overlay](glossaries/terms/provider-data-overlay.md)、[Session](glossaries/terms/session.md)、
+  [Session](glossaries/terms/session.md)、
   [API Key](glossaries/terms/api-key.md)、[Integration](glossaries/terms/integration.md)、
   [Hypervisor](glossaries/terms/hypervisor.md)、[Server Lock](glossaries/terms/server-lock.md)、
   [Managed Software](glossaries/terms/managed-software.md)。

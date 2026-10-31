@@ -43,7 +43,9 @@ func (f cleanupProviderFactory) For(context.Context, string) (provisioningdomain
 }
 
 // cleanupTaskRepo holds one cleanup task.
-type cleanupTaskRepo struct{ task *provisioningdomain.ProvisioningTask }
+type cleanupTaskRepo struct {
+	task *provisioningdomain.ProvisioningTask
+}
 
 func (r *cleanupTaskRepo) Create(_ context.Context, task *provisioningdomain.ProvisioningTask) error {
 	r.task = task

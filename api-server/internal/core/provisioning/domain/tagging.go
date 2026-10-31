@@ -22,10 +22,9 @@ type MachineTag struct {
 // provider's own limits.
 const maxTagNameLen = 100
 
-// tagNamePattern is the character set swallow accepts for a tag name. It matches MAAS's own tag
-// naming rule (letters, digits, and `_-.`), so a name swallow accepts is one the provider will
-// accept too — a swallow-owned fallback and a MAAS-driven path therefore never disagree on which
-// names are legal. Whitespace and other punctuation are rejected rather than silently rewritten.
+// tagNamePattern is the character set swallow accepts for a tag name: letters, digits, and `_-.`,
+// which provisioners accept as a tag name, so a spec tag swallow accepts is one the provisioner can
+// realize. Whitespace and other punctuation are rejected rather than silently rewritten.
 var tagNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // ErrInvalidTag means a requested tag name failed validation — it is empty, too long, or carries

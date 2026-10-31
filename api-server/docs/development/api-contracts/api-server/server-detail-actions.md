@@ -311,9 +311,8 @@ not started yet) plus the Workflow:
 }
 ```
 
-`resumed` is `true` when the request retried the Workflow waiting for attention. A deployment
-without a Workflow engine falls back to the direct provider action and omits both fields.
-Because the snapshot is copied from the stored axis rather than read from the provider,
+`resumed` is `true` when the request retried the Workflow waiting for attention. Inspection
+only runs as that Workflow. Because the snapshot is copied from the stored axis rather than read from the provider,
 `observedAt` is `""` and `powerState` is `""` when the stored axis has no such observation.
 
 ## Power Configuration

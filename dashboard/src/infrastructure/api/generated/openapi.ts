@@ -2276,7 +2276,7 @@ export interface paths {
         put?: never;
         /**
          * Inspect the Server's hardware through an inspect-hardware Workflow.
-         * @description Requires role `admin`. Starts an inspect-hardware Workflow, or retries the one waiting in `requires_attention`. Without a Workflow engine it falls back to the direct provider action and the response has no `workflowId` or `resumed`. 400 when the provisioner does not offer hardware validation or refused (fallback only); 404 for an unknown Server; 409 when the Server is locked, its provisioning state does not allow inspection, or a Workflow already holds it; 503 when the lock state is unavailable.
+         * @description Requires role `admin`. Starts an inspect-hardware Workflow, or retries the one waiting in `requires_attention`. 404 for an unknown Server; 409 when the Server is locked, its provisioning state does not allow inspection, or a Workflow already holds it; 503 when the lock state is unavailable.
          */
         post: operations["inspectServer"];
         delete?: never;

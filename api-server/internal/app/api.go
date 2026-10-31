@@ -889,8 +889,8 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Put("/images/metadata", deps.provisioning.SetImageMetadata)
 	provisioning.Delete("/images/metadata", deps.provisioning.ClearImageMetadata)
 	// Server tags: list the Site's known tags for the editor, and apply a tri-state add/remove edit
-	// to one or more Servers. Under /provisioning to avoid the GET /servers/:id route collision, and
-	// capability-first — MAAS-driven or swallow-owned fallback (docs/decisions/031).
+	// to one or more Servers' spec (decision 071). Under /provisioning to avoid the GET /servers/:id
+	// route collision.
 	provisioning.Get("/tags", deps.provisioning.ListServerTags)
 	provisioning.Post("/tags", deps.provisioning.EditServerTags)
 	provisioning.Get("/templates", deps.provisioning.ListTemplates)

@@ -117,16 +117,15 @@ export interface ProvisioningRepository {
   ): Promise<void>;
   /**
    * Lists the tags known for a Site, so the tag editor can offer existing names and disable the
-   * provider-computed (automatic) ones. Ownership is capability-first (decision 031): the list is
-   * the provisioner's own tags when it owns them, or the union of swallow-owned tags otherwise. A
-   * Site with no provisioner yields an empty list.
+   * provider-computed (automatic) ones: the provisioner's tags when it has tagging, otherwise the
+   * union of the Servers' spec tags. A Site with no provisioner yields an empty list.
    */
   listServerTags(siteId: string): Promise<ServerTagOption[]>;
   /**
-   * Applies a tri-state tag edit to one or more Servers and returns each Server's effective tags.
-   * Drives the provisioner when it owns tags and writes swallow-owned tags otherwise; either way the
-   * returned tags are authoritative. Rejects with the shared error envelope on an invalid edit or a
-   * provider refusal (for example an attempt to assign an automatic tag).
+   * Applies a tri-state tag edit to one or more Servers' spec (decision 071) and returns each
+   * Server's resulting tags; the Server controller realizes them on the provisioner. Rejects with
+   * the shared error envelope on an invalid edit (for example an attempt to assign an automatic
+   * tag).
    */
   editServerTags(input: EditServerTagsInput): Promise<ServerTagsResult[]>;
   /**

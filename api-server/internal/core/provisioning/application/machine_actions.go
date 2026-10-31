@@ -131,15 +131,10 @@ func (uc *MachineActionsUseCase) QueryPower(ctx context.Context, serverID string
 
 // --- hardware validation ---
 
-// Inspect asks the Server's provisioner to re-inventory its hardware. Like every hardware
-// validation action it requires an unlocked Server and the HardwareValidator capability, and
-// it mirrors the provider's accepted state (normally `inspecting`) onto the projection.
-func (uc *MachineActionsUseCase) Inspect(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
-	return uc.validate(ctx, serverID, func(v provisioningdomain.HardwareValidator, id string) (*provisioningdomain.Machine, error) {
-		return v.Inspect(ctx, id)
-	})
-}
-
+// Test runs the provisioner's hardware tests on the Server. Like every hardware validation action
+// it requires an unlocked Server and the HardwareValidator capability, and it mirrors the
+// provider's accepted state onto the projection. Inspection is not one of these actions: it runs
+// as the inspect-hardware Workflow.
 func (uc *MachineActionsUseCase) Test(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
 	return uc.validate(ctx, serverID, func(v provisioningdomain.HardwareValidator, id string) (*provisioningdomain.Machine, error) {
 		return v.Test(ctx, id)
