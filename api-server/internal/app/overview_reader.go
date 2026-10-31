@@ -28,7 +28,6 @@ type OverviewReader struct {
 	servers        serverdomain.ServerRepository
 	health         HealthResolver
 	platforms      platformdomain.PlatformRepository
-	operations     workflowdomain.ExecutionRepository
 	orchestrations workflowdomain.WorkflowRepository
 	alerts         *monitoringapp.AlertService
 }
@@ -40,15 +39,13 @@ func NewOverviewReader(
 	servers serverdomain.ServerRepository,
 	health HealthResolver,
 	platforms platformdomain.PlatformRepository,
-	operations workflowdomain.ExecutionRepository,
+	orchestrations workflowdomain.WorkflowRepository,
 	alerts *monitoringapp.AlertService,
-	orchestrations ...workflowdomain.WorkflowRepository,
 ) *OverviewReader {
-	reader := &OverviewReader{sites: sites, integrations: integrations, servers: servers, health: health, platforms: platforms, operations: operations, alerts: alerts}
-	if len(orchestrations) > 0 {
-		reader.orchestrations = orchestrations[0]
+	return &OverviewReader{
+		sites: sites, integrations: integrations, servers: servers, health: health,
+		platforms: platforms, orchestrations: orchestrations, alerts: alerts,
 	}
-	return reader
 }
 
 // ListSites returns identities only; Site descriptions are not part of the overview.
@@ -139,43 +136,24 @@ func (r *OverviewReader) ListPlatforms(ctx context.Context, siteID string) ([]ov
 // ListOperations returns public fields only; sealed extra vars and credentials never cross
 // this adapter.
 func (r *OverviewReader) ListOperations(ctx context.Context, siteID string) ([]overviewapp.Operation, error) {
-	result, err := r.operations.List(ctx, workflowdomain.ExecutionListFilter{SiteID: siteID})
+	workflows, _, err := r.orchestrations.List(ctx, workflowdomain.WorkflowFilter{SiteID: siteID})
 	if err != nil {
 		return nil, fmt.Errorf("list overview operations: %w", err)
 	}
-	items := make([]overviewapp.Operation, len(result.Operations))
-	for i, operation := range result.Operations {
-		items[i] = overviewapp.Operation{
-			ID: operation.ID, Kind: string(operation.Kind), Intent: operation.Intent,
-			SiteID: operation.SiteID, PlatformID: operation.PlatformID,
-			TargetServerIDs:    append([]string(nil), operation.TargetServerIDs...),
-			RetryOfOperationID: operation.RetryOfOperationID,
-			RunID:              operation.Execution.RunID, Playbook: operation.Execution.Playbook,
-			Status: string(operation.Execution.Status), StatusReason: operation.Execution.StatusReason,
-			StartedAt: operation.Execution.StartedAt, FinishedAt: operation.Execution.FinishedAt,
-			RequestedBy: operation.RequestedBy, RequestedAt: operation.RequestedAt,
-			UpdatedAt: operation.UpdatedAt,
-		}
-	}
-	if r.orchestrations != nil {
-		v3, _, listErr := r.orchestrations.List(ctx, workflowdomain.WorkflowFilter{SiteID: siteID})
-		if listErr != nil {
-			return nil, fmt.Errorf("list overview orchestration operations: %w", listErr)
-		}
-		for _, operation := range v3 {
-			summary, _ := operation.Intent["summary"].(string)
-			playbook, runID := "", operation.Temporal.RunID
-			if len(operation.Steps) == 1 {
-				playbook = operation.Steps[0].Kind
-				if operation.Steps[0].ExternalExecution != nil {
-					runID = operation.Steps[0].ExternalExecution.ID
-				}
+	items := make([]overviewapp.Operation, 0, len(workflows))
+	for _, operation := range workflows {
+		summary, _ := operation.Intent["summary"].(string)
+		playbook, runID := "", operation.Temporal.RunID
+		if len(operation.Steps) == 1 {
+			playbook = operation.Steps[0].Kind
+			if operation.Steps[0].ExternalExecution != nil {
+				runID = operation.Steps[0].ExternalExecution.ID
 			}
-			items = append(items, overviewapp.Operation{ID: operation.ID, Kind: string(operation.Kind), Intent: summary, SiteID: operation.SiteID, PlatformID: operation.PlatformID,
-				TargetServerIDs: append([]string(nil), operation.TargetServerIDs...), RetryOfOperationID: operation.RetryOfOperationID, RunID: runID, Playbook: playbook,
-				Status: string(operation.Status), StatusReason: operation.StatusReason, StartedAt: operation.StartedAt, FinishedAt: operation.FinishedAt,
-				RequestedBy: operation.RequestedBy, RequestedAt: operation.RequestedAt, UpdatedAt: operation.UpdatedAt})
 		}
+		items = append(items, overviewapp.Operation{ID: operation.ID, Kind: string(operation.Kind), Intent: summary, SiteID: operation.SiteID, PlatformID: operation.PlatformID,
+			TargetServerIDs: append([]string(nil), operation.TargetServerIDs...), RetryOfOperationID: operation.RetryOfOperationID, RunID: runID, Playbook: playbook,
+			Status: string(operation.Status), StatusReason: operation.StatusReason, StartedAt: operation.StartedAt, FinishedAt: operation.FinishedAt,
+			RequestedBy: operation.RequestedBy, RequestedAt: operation.RequestedAt, UpdatedAt: operation.UpdatedAt})
 	}
 	return items, nil
 }

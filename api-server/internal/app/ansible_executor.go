@@ -69,10 +69,6 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	legacyOperations, err := workflowstore.NewMongoExecutionRepo(db, sealer)
-	if err != nil {
-		return err
-	}
 	orchestrations, err := workflowstore.NewMongoWorkflowRepo(db)
 	if err != nil {
 		return err
@@ -109,7 +105,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		return err
 	}
 	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, platformapi.NewReaderFactory(integrations))
-	lifecycles := platformLifecycleReader{operations: legacyOperations, orchestrations: orchestrations}
+	lifecycles := platformLifecycleReader{orchestrations: orchestrations}
 	platformService := platformapp.NewPlatformService(transactor, platforms, sites, servers, lifecycles, managedPlatformIntegrationCleaner{integrations: integrations})
 	platformService.AttachGPUOperatorRecorder(platforms)
 	platformService.AttachOmnistatRecorder(platforms)
@@ -124,7 +120,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignments})
 	credentials := platformapp.NewDeploymentCredentialService(transactor, platforms, integrations, membership)
 	durable := workflowapp.NewWorkflowService(transactor, orchestrations, workflowPlanCatalog(), operationSecrets)
-	operationService := workflowapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
+	operationService := workflowapp.NewExecutionService(servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
 	operationService.AttachWorkflow(durable)
 	results := workflowResults(platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers})
 	// Ansible Tasks arrive as Temporal activities on the executor's own task queue (decision 072).

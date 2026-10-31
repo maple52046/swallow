@@ -13,8 +13,9 @@
 // Recovery model: every upgrade step is written to be idempotent and safe to retry.
 // A step's version marker is advanced only after its data changes complete, so an
 // interrupted migration can be rerun and will resume from the last completed version.
-// The v2 -> v3 rename is gated behind an explicit backup confirmation because there
-// is no automatic rollback: if a step fails partway, the operator restores the
+// The v2 -> v3 rename and the v10 removal of the schema-v2 Operation records are gated
+// behind an explicit backup confirmation because there is no automatic rollback: if a
+// step fails partway, or the removed records are needed again, the operator restores the
 // verified backup and reruns, rather than the migration attempting to reverse
 // partially applied writes.
 package migration
@@ -42,7 +43,7 @@ import (
 // collection with `steps`->`tasks` and each task's `executor`->`runner`, and the
 // `operation_events` / `operation_secrets` collections become `workflow_events` /
 // `workflow_secrets` with their `operationId` reference becoming `workflowId`. Schema-v2
-// documents stay in `operations` and remain readable for one release.
+// documents stay in `operations` until v10 drops them.
 //
 // v5 retires the Server tag overlay (decision 071): a Server's manual tags are its spec. An
 // overlay's tags are carried into the spec tags of a Server that has no spec yet, and the
@@ -69,7 +70,10 @@ import (
 // lease of an unfinished Workflow becomes that Workflow's resource ownership and every other old
 // lease is deleted; the old Starter and Reconciler indexes and the `ansible_executions` queue are
 // dropped. The workflow-dispatch controller adopts every unfinished Workflow afterwards.
-const CurrentSchemaVersion = 9
+//
+// v10 retires the schema-v2 Operation records (decision 074): the `operations` collection, which
+// held only them since v4, is dropped. Like v3 it destroys data, so it needs backup confirmation.
+const CurrentSchemaVersion = 10
 
 // OldestUpgradableSchemaVersion is the oldest schema Migrate upgrades from; an older database
 // has no supported upgrade path. A release's manifest lists every schema from this one up to
@@ -140,9 +144,10 @@ func Check(ctx context.Context, db *mongo.Database) error {
 // A version marker is advanced only after its data changes have completed and is
 // updated with an optimistic guard on the previous version, so the command is safe to
 // retry after an interruption and fails loudly if another migrator raced it. The
-// v2 -> v3 rename rewrites Platform data in place and therefore requires an explicit
-// backupConfirmed flag: callers must create and verify a MongoDB backup first, because
-// a failed step is recovered by restoring that backup, not by automatic rollback.
+// v2 -> v3 rename rewrites Platform data in place and v10 deletes the schema-v2 Operation
+// records, so any upgrade through either requires an explicit backupConfirmed flag:
+// callers must create and verify a MongoDB backup first, because a failed step is
+// recovered by restoring that backup, not by automatic rollback.
 func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) error {
 	var state metadata
 	err := db.Collection("schema_metadata").FindOne(ctx, bson.M{"_id": "database"}).Decode(&state)
@@ -159,8 +164,12 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 	if state.Version < OldestUpgradableSchemaVersion {
 		return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 	}
-	if state.Version == 2 && (len(backupConfirmed) == 0 || !backupConfirmed[0]) {
+	confirmed := len(backupConfirmed) > 0 && backupConfirmed[0]
+	if state.Version == 2 && !confirmed {
 		return errors.New("schema v3 renames Platform data; create and verify a MongoDB backup, then rerun with backup confirmation")
+	}
+	if state.Version < 10 && !confirmed {
+		return errors.New("schema v10 deletes the schema-v2 Operation records; create and verify a MongoDB backup, then rerun with backup confirmation")
 	}
 
 	for state.Version < CurrentSchemaVersion {
@@ -200,6 +209,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v8 to v9: %w", err)
 			}
 			state.Version = 9
+		case 9:
+			if err := migrateV9ToV10(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v9 to v10: %w", err)
+			}
+			state.Version = 10
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}

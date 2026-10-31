@@ -22,9 +22,6 @@ function normalizeOperation(operation: Operation): Operation {
     targetServerIds: operation.targetServerIds ?? [],
     targetResources: operation.targetResources ?? [],
     leases: operation.leases ?? [],
-    // A schema-v3 payload with a null steps collection must become an empty array, not
-    // undefined: isOrchestrationOperation() checks Array.isArray(steps), so a null here
-    // would misroute a durable Operation to the legacy detail page.
     steps: (operation.steps ?? []).map((step) => ({
       ...step,
       dependsOn: step.dependsOn ?? [],
@@ -35,7 +32,7 @@ function normalizeOperation(operation: Operation): Operation {
 }
 
 /**
- * The operation contract maps directly onto the domain type. Logs are plain text, so they
+ * The Workflow contract maps directly onto the domain type. Task logs are plain text, so they
  * go through the text helper; everything else is JSON. getOperation treats 404 as a stale
  * link (null) rather than an error to surface.
  */
@@ -74,32 +71,9 @@ export class ApiOperationRepository implements OperationRepository {
     }
   }
 
-  async getEvents(id: string): Promise<OperationEvents> {
-    return apiRequest<OperationEvents>(
-      `/api/v1/operations/${encodeURIComponent(id)}/events`,
-    );
-  }
-
-  async getLogs(id: string): Promise<string> {
-    return apiRequestText(`/api/v1/operations/${encodeURIComponent(id)}/logs`);
-  }
-
-  async retryOperation(id: string): Promise<Operation> {
-    // Normalize the retry response like every other Operation payload so a null steps
-    // collection cannot re-enter the UI and misroute the returned Operation.
-    const operation = await apiRequest<Operation>(
-      `/api/v1/operations/${encodeURIComponent(id)}/retry`,
-      {
-        method: "POST",
-      },
-    );
-    return normalizeOperation(operation);
-  }
-
   async rerunOperation(id: string): Promise<Operation> {
     // The rerun response is a freshly created Operation projection, so normalize it like every
-    // other payload: a null steps collection must not re-enter the UI and misroute the new
-    // durable Operation to the legacy detail page.
+    // other payload.
     const operation = await apiRequest<Operation>(
       `/api/v1/workflows/${encodeURIComponent(id)}/rerun`,
       {

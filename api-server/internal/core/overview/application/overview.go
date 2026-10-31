@@ -336,11 +336,11 @@ func summarizePlatforms(platforms []Platform) PlatformSummary {
 	return summary
 }
 
-// terminalOperationStatuses are the statuses of finished work: the Workflow terminal statuses
-// and the schema-v2 `indeterminate`. Every other status is active, as for the Workflow busy check
-// (DF-14): waiting, canceling, and requires_attention work still holds its Servers.
+// terminalOperationStatuses are the Workflow terminal statuses. Every other status is active, as
+// for the Workflow busy check (DF-14): waiting, canceling, and requires_attention work still holds
+// its Servers.
 var terminalOperationStatuses = map[string]bool{
-	"succeeded": true, "failed": true, "partially_succeeded": true, "canceled": true, "indeterminate": true,
+	"succeeded": true, "failed": true, "partially_succeeded": true, "canceled": true,
 }
 
 func summarizeOperations(operations []Operation, generatedAt time.Time) OperationSummary {

@@ -23,7 +23,7 @@ type fakeRerunRepo struct {
 func (r *fakeRerunRepo) FindByID(_ context.Context, id string) (*workflowdomain.Workflow, error) {
 	op, ok := r.byID[id]
 	if !ok {
-		return nil, workflowdomain.ErrWorkflowNotV3
+		return nil, workflowdomain.ErrWorkflowNotFound
 	}
 	return op, nil
 }

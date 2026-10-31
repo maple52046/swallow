@@ -345,7 +345,7 @@ func (slurmTestCatalog) Resolve(name string) (string, error) { return name + ".y
 func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
 	servers := slurmTestServers{gpus: map[string]bool{"s2": true, "s3": true}}
 	launcher := platformDeploymentLauncher{
-		operations: workflowapp.NewExecutionService(nil, servers, ntpTestAutomation{}, slurmTestCatalog{}, nil, nil, nil),
+		operations: workflowapp.NewExecutionService(servers, ntpTestAutomation{}, slurmTestCatalog{}, nil, nil, nil),
 		software:   softwareapp.NewSoftwareService(&storetest.Transactor{}, assignmentList{}, servers, nil),
 	}
 	launch := platformdomain.DeploymentLaunch{

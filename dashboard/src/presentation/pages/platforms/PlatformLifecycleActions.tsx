@@ -3,7 +3,7 @@ import { Button, Field, Input, Stack, Text } from '@chakra-ui/react'
 import { Redo } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
-import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
+import type { Operation } from '@/domain/operation/types'
 import { platformPrimaryRemovalAction, platformUninstallAvailability } from '@/domain/platform/lifecycle'
 import type { Platform } from '@/domain/platform/types'
 import { emptyReleaseOptions, type ReleaseOptionsValue } from '@/presentation/components/releaseOptions'
@@ -92,14 +92,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
   const targetLabel = targetCount === undefined ? 'the original deployment targets' : `${targetCount} original deployment target${targetCount === 1 ? '' : 's'}`
 
   const failedProvisioningRecovery = Boolean(
-    operation &&
-      isOrchestrationOperation(operation) &&
-      operation.steps?.some((step) => step.kind === 'provision-os' && (step.status === 'failed' || step.status === 'requires_attention')),
-  )
-  const legacyReadinessOnly = Boolean(
-    operation &&
-      isOrchestrationOperation(operation) &&
-      operation.steps?.some((step) => step.kind === 'wait-for-ssh' && (step.status === 'failed' || step.status === 'requires_attention')),
+    operation?.steps?.some((step) => step.kind === 'provision-os' && (step.status === 'failed' || step.status === 'requires_attention')),
   )
 
   const lockedDisabledReason = targetProtection.checking
@@ -111,9 +104,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         : undefined
   const repairDisabledReason = !platform.lifecycleOperationId
     ? 'The deployment Operation is unavailable.'
-    : legacyReadinessOnly
-      ? 'This older readiness Step can only recheck SSH and cannot repair missing provider addresses. Release and redeploy the affected Servers.'
-      : lockedDisabledReason
+    : lockedDisabledReason
 
   const recordOnly = platformPrimaryRemovalAction(platform) === 'delete'
   // Lock state fails closed for Uninstall. A missing target list is not treated as an error: the
@@ -195,35 +186,30 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
       if (!operation) throw new Error('The deployment Operation no longer exists.')
 
       let description: string
-      if (isOrchestrationOperation(operation)) {
-        const failedSteps = (operation.steps ?? []).filter((step) => (step.status === 'failed' || step.status === 'requires_attention') && step.error?.retryable)
-        if (failedSteps.length > 0) {
-          try {
-            // Preferred path: retry each retryable failed Step in place, so successful provider
-            // effects and protected inputs are preserved. The backend resumes the Workflow when
-            // its execution was lost, so this also works after a host restart.
-            for (const step of failedSteps) {
-              await operations.retryStep(operation.id, step.id)
-            }
-            description =
-              failedSteps.length === 1
-                ? `${failedSteps[0].name} will retry in Operation ${operation.id}.`
-                : `${failedSteps.length} failed Steps will retry in Operation ${operation.id}.`
-          } catch (retryError) {
-            // A conflict means a Step stopped being retryable meanwhile. Recover by rerunning the
-            // deployment as a new Operation on the same Platform instead.
-            if (!isConflict(retryError)) throw retryError
-            const created = await operations.rerunOperation(operation.id)
-            description = `Operation ${created.id} is rerunning the deployment on the same platform.`
+      const failedSteps = (operation.steps ?? []).filter((step) => (step.status === 'failed' || step.status === 'requires_attention') && step.error?.retryable)
+      if (failedSteps.length > 0) {
+        try {
+          // Preferred path: retry each retryable failed Step in place, so successful provider
+          // effects and protected inputs are preserved. The backend resumes the Workflow when
+          // its execution was lost, so this also works after a host restart.
+          for (const step of failedSteps) {
+            await operations.retryStep(operation.id, step.id)
           }
-        } else {
-          // No retryable Step: rerun the deployment on the same Platform.
+          description =
+            failedSteps.length === 1
+              ? `${failedSteps[0].name} will retry in Operation ${operation.id}.`
+              : `${failedSteps.length} failed Steps will retry in Operation ${operation.id}.`
+        } catch (retryError) {
+          // A conflict means a Step stopped being retryable meanwhile. Recover by rerunning the
+          // deployment as a new Operation on the same Platform instead.
+          if (!isConflict(retryError)) throw retryError
           const created = await operations.rerunOperation(operation.id)
           description = `Operation ${created.id} is rerunning the deployment on the same platform.`
         }
       } else {
-        const created = await operations.retryOperation(operation.id)
-        description = `Operation ${created.id} is rerunning the original deployment configuration.`
+        // No retryable Step: rerun the deployment on the same Platform.
+        const created = await operations.rerunOperation(operation.id)
+        description = `Operation ${created.id} is rerunning the deployment on the same platform.`
       }
       setRepairOpen(false)
       showToast({ tone: 'success', title: 'Platform repair started', description })

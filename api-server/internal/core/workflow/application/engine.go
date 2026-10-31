@@ -265,7 +265,7 @@ func (e *Engine) ReleaseStaleOwnership(ctx context.Context) error {
 		failed = errors.Join(failed, e.transactor.InTransaction(ctx, func(ctx context.Context) error {
 			w, err := e.workflows.FindByID(ctx, owner)
 			switch {
-			case errors.Is(err, workflowdomain.ErrWorkflowNotFound) || errors.Is(err, workflowdomain.ErrWorkflowNotV3):
+			case errors.Is(err, workflowdomain.ErrWorkflowNotFound):
 			case err != nil:
 				return err
 			case !w.Status.Terminal():

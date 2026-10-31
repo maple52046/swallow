@@ -138,11 +138,6 @@ func RunWorker(cfg config.APIConfig) error {
 		// mutation; an acceptance-time check alone can go stale in the durable queue.
 		protection: providerServerMutationGuard{servers: servers, providers: providers},
 	}
-	projectionCtx, cancelProjection := context.WithTimeout(ctx, 30*time.Second)
-	if err := reconcileLegacyDeploymentProjections(projectionCtx, operations, providerExecutor); err != nil {
-		slog.Warn("legacy Server deployment projection reconciliation incomplete", "error", err)
-	}
-	cancelProjection()
 	taskWorker := provisioningapp.NewProvisioningTaskWorker(tasks, servers, providers, 5*time.Second, 30*time.Second)
 
 	temporalClient, err := dialTemporal(ctx, client.Options{

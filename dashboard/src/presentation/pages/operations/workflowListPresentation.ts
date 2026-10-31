@@ -13,7 +13,6 @@ const REVIEW_STATUSES: ReadonlySet<OperationStatus> = new Set([
   'requires_attention',
   'failed',
   'partially_succeeded',
-  'indeterminate',
 ])
 
 const STATUS_LABELS: Record<OperationStepStatus, string> = {
@@ -98,19 +97,18 @@ export interface WorkflowActivitySummary {
 /**
  * Derives compact list context from the existing Workflow projection.
  *
- * Modern payloads expose Tasks under the compatibility `steps` field. The
- * selector prioritizes blocked work for review states and live Runner activity
- * otherwise. Legacy records safely fall back to their playbook and reason.
+ * Payloads expose Tasks under the compatibility `steps` field. The selector
+ * prioritizes blocked work for review states and live Runner activity otherwise.
+ * A Workflow without Tasks (none is created so) falls back to its reason.
  */
 export function workflowActivitySummary(operation: Operation): WorkflowActivitySummary {
   const status = operationStatus(operation)
   const tasks = operation.steps ?? []
   if (tasks.length === 0) {
     return {
-      primary: operation.execution.playbook || 'Legacy execution',
-      secondary: operation.statusReason ?? operation.execution.statusReason ?? undefined,
+      primary: operation.statusReason || 'No Tasks',
       taskTotal: 0,
-      taskCounts: 'Legacy execution',
+      taskCounts: 'No Tasks',
     }
   }
 

@@ -141,14 +141,18 @@ EOF
   mv "${config}.swallow" "${config}"
 }
 
+# active_operations counts the Workflows that have not reached a terminal status, as the Compose
+# swallowctl does: `workflows` from schema v4 on, plus the schema-v3 Workflows a database from
+# before v4 still keeps in `operations`.
 active_operations() {
   local uri
   uri="$(<"${config_root}/secrets/mongo-uri")"
+  # shellcheck disable=SC2016 # $nin is a MongoDB operator, not a shell expansion
   mongosh "${uri}" --quiet --eval \
-    'db.getSiblingDB("swallow").operations.countDocuments({$or:[
-      {schemaVersion:2,terminal:false},
-      {schemaVersion:3,status:{$nin:["succeeded","failed","partially_succeeded","canceled"]}}
-    ]})'
+    'const d = db.getSiblingDB("swallow");
+     const terminal = ["succeeded", "failed", "partially_succeeded", "canceled"];
+     print(d.workflows.countDocuments({status: {$nin: terminal}}) +
+       d.operations.countDocuments({schemaVersion: 3, status: {$nin: terminal}}))'
 }
 
 prune_backups() {

@@ -18,16 +18,16 @@ them).
 
 See [`workflows.md`](workflows.md) for endpoints, request and response shapes, status sets,
 the deprecated-path mapping, the in-progress wire field rename (`steps`->`tasks`,
-`executor`->`runner`, `operationId`->`workflowId`, `maas`->`provisioner`), and the
-schema-v2 compatibility rules. Consumers should migrate to `/api/v1/workflows`.
+`executor`->`runner`, `operationId`->`workflowId`, `maas`->`provisioner`). Consumers should
+migrate to `/api/v1/workflows`.
 
 The alias's wire shape is in the OpenAPI document
 [`../openapi/openapi.yaml`](../openapi/openapi.yaml), tag `workflows`: every alias operation is
 marked `deprecated`, its `operationId` ends in `ViaDeprecatedAlias`, and it reuses the canonical
-schemas. The deprecated path also serves three schema-v2 routes that have no `/workflows`
-counterpart: `GET /api/v1/operations/{id}/logs`, `GET /api/v1/operations/{id}/events`, and
-`POST /api/v1/operations/{id}/retry` (semantics in [`workflows.md`](workflows.md), Schema-v2
-Compatibility). The `Deprecation` and `Link` headers are set on every response the handlers
+schemas. The schema-v2 routes `GET /api/v1/operations/{id}/logs`, `GET
+/api/v1/operations/{id}/events`, and `POST /api/v1/operations/{id}/retry` were removed on
+2026-10-31 together with the schema-v2 records ([`workflows.md`](workflows.md), Compatibility
+Notes). The `Deprecation` and `Link` headers are set on every response the handlers
 produce, success or error; a request rejected by authentication or authorization before it
 reaches them carries neither.
 

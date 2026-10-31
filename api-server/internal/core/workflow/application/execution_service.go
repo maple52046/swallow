@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -12,13 +11,11 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
-	"github.com/maple52046/swallow/internal/shared/pagination"
-	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
-// ExecutionService owns the public v2 operation model.
+// ExecutionService accepts Ansible automation (a single-Task Workflow, or an Ansible Task a larger
+// Workflow composes) and reads the retained output and task events of Ansible Tasks.
 type ExecutionService struct {
-	operations     workflowdomain.ExecutionRepository
 	servers        serverdomain.ServerRepository
 	configurations workflowdomain.AutomationConfigurationRepository
 	catalog        workflowdomain.PlaybookCatalog
@@ -32,9 +29,8 @@ type ExecutionService struct {
 	durable    *WorkflowService
 }
 
-// NewExecutionService constructs the embedded-execution use case.
+// NewExecutionService constructs the Ansible automation use case.
 func NewExecutionService(
-	operations workflowdomain.ExecutionRepository,
 	servers serverdomain.ServerRepository,
 	configurations workflowdomain.AutomationConfigurationRepository,
 	catalog workflowdomain.PlaybookCatalog,
@@ -44,7 +40,7 @@ func NewExecutionService(
 	protection ...serverdomain.MutationGuard,
 ) *ExecutionService {
 	service := &ExecutionService{
-		operations: operations, servers: servers, configurations: configurations,
+		servers: servers, configurations: configurations,
 		catalog: catalog, runner: runner, events: events, policy: policy,
 	}
 	if len(protection) > 0 {
@@ -53,29 +49,12 @@ func NewExecutionService(
 	return service
 }
 
-// AttachWorkflow moves newly accepted automation to Operation v3 while the
-// compatibility dispatcher drains persisted v2 work.
+// AttachWorkflow gives Create the Workflow service it accepts automation into. Without it Create
+// refuses every request.
 func (s *ExecutionService) AttachWorkflow(durable *WorkflowService) { s.durable = durable }
 
-// ExecutionOperationItem is the public operation representation.
-type ExecutionOperationItem struct {
-	SchemaVersion      int                   `json:"schemaVersion"`
-	Steps              []workflowdomain.Task `json:"steps"`
-	ID                 string                `json:"id"`
-	Kind               string                `json:"kind"`
-	Intent             string                `json:"intent"`
-	SiteID             string                `json:"siteId"`
-	PlatformID         *string               `json:"platformId"`
-	ClusterID          *string               `json:"clusterId"`
-	TargetServerIDs    []string              `json:"targetServerIds"`
-	RetryOfOperationID *string               `json:"retryOfOperationId"`
-	Execution          ExecutionItem         `json:"execution"`
-	RequestedBy        string                `json:"requestedBy"`
-	RequestedAt        string                `json:"requestedAt"`
-	UpdatedAt          string                `json:"updatedAt"`
-}
-
-// ExecutionItem contains no controller-specific fields.
+// ExecutionItem is the `execution` summary every Workflow response still carries (WorkflowItem).
+// It contains no controller-specific fields.
 type ExecutionItem struct {
 	RunID        string  `json:"runId"`
 	Playbook     string  `json:"playbook"`
@@ -85,7 +64,7 @@ type ExecutionItem struct {
 	FinishedAt   *string `json:"finishedAt"`
 }
 
-// CreateExecutionInput is accepted by POST /operations.
+// CreateExecutionInput is accepted by POST /workflows.
 type CreateExecutionInput struct {
 	Kind            string
 	Intent          string
@@ -105,8 +84,9 @@ type CreateExecutionInput struct {
 	RequestCorrelation string
 }
 
-// Create validates intent and persists pending state before dispatch.
-func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInput) (*ExecutionOperationItem, error) {
+// Create validates the automation request and accepts it as a single-Task Workflow, which the
+// dispatcher starts after the commit. It returns the accepted Workflow.
+func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInput) (*WorkflowItem, error) {
 	kind := workflowdomain.WorkflowKind(strings.TrimSpace(input.Kind))
 	if !kind.Valid() {
 		return nil, fmt.Errorf("%w: kind must be one of %v", ErrInvalidOperation, workflowdomain.ValidWorkflowKinds)
@@ -122,19 +102,6 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 		if err := s.protection.RequireUnlocked(ctx, input.TargetServerIDs); err != nil {
 			return nil, err
 		}
-	}
-	active, err := s.operations.FindActiveByServerIDs(ctx, input.TargetServerIDs)
-	if err != nil {
-		return nil, err
-	}
-	if len(active) > 0 {
-		ids := make([]string, len(active))
-		for i := range active {
-			ids[i] = active[i].ID
-		}
-		sort.Strings(ids)
-		return nil, fmt.Errorf("%w: still running in operation(s) %s",
-			workflowdomain.ErrTargetsBusy, strings.Join(ids, ", "))
 	}
 	if s.policy != nil {
 		if err := s.policy.CheckOperation(ctx, kind, input.PlatformID, input.TargetServerIDs); err != nil {
@@ -179,9 +146,6 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 		RunID: uuid.NewString(), Playbook: playbook, Status: workflowdomain.StatusPending,
 	}
 	operation.ExtraVars = buildExecutionExtraVars(operation, targets, input.ExtraVars, input.TrustedVars)
-	// Temporal orchestration is the sole execution engine (ADR 016/017). Every accepted
-	// custom Workflow is created as a single-Task durable v3 Workflow; the v2 embedded
-	// dispatcher write path was removed.
 	if s.durable == nil {
 		return nil, fmt.Errorf("%w: durable Workflow orchestration is unavailable", ErrInvalidOperation)
 	}
@@ -206,7 +170,7 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 	if err != nil {
 		return nil, err
 	}
-	return legacyCompatibleV3(created), nil
+	return created, nil
 }
 
 func (s *ExecutionService) resolveTargets(ctx context.Context, kind workflowdomain.WorkflowKind, ids []string) ([]*serverdomain.Server, string, error) {
@@ -238,10 +202,9 @@ func (s *ExecutionService) resolveTargets(ctx context.Context, kind workflowdoma
 	return targets, siteID, nil
 }
 
-// standardExtraVarKeys are the swallow_-prefixed vars Create regenerates for every
-// operation. They are listed so a retry can strip them from a carried-over var set and
-// have them rebuilt for the new operation, while keeping trusted swallow_-prefixed vars
-// such as a deployment's role assignment.
+// standardExtraVarKeys are the swallow_-prefixed vars buildExecutionExtraVars generates for every
+// operation. A trusted var of the same name is dropped, so no caller overrides the operation's
+// own identity, while other trusted swallow_-prefixed vars (a deployment's role assignment) pass.
 var standardExtraVarKeys = map[string]bool{
 	"swallow_operation_id":     true,
 	"swallow_operation_kind":   true,
@@ -286,86 +249,6 @@ func buildExecutionExtraVars(operation *workflowdomain.ExecutionOperation, targe
 	return vars
 }
 
-// List returns a page of operations.
-func (s *ExecutionService) List(ctx context.Context, input ListOperationsInput) (pagination.Result[ExecutionOperationItem], error) {
-	var empty pagination.Result[ExecutionOperationItem]
-	result, err := s.operations.List(ctx, workflowdomain.ExecutionListFilter{
-		SiteID: input.SiteID, PlatformID: input.PlatformID, ServerID: input.ServerID,
-		Kind: workflowdomain.WorkflowKind(input.Kind), Status: workflowdomain.Status(input.Status),
-		ActiveOnly: input.Active, Offset: input.Page.Offset(), Limit: input.Page.PageSize,
-	})
-	if err != nil {
-		return empty, err
-	}
-	items := make([]ExecutionOperationItem, len(result.Operations))
-	for i := range result.Operations {
-		items[i] = toExecutionOperationItem(result.Operations[i])
-	}
-	return pagination.NewResult(items, result.Total, input.Page), nil
-}
-
-// Get reads an operation.
-func (s *ExecutionService) Get(ctx context.Context, id string) (*ExecutionOperationItem, error) {
-	operation, err := s.operations.FindByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	item := toExecutionOperationItem(operation)
-	return &item, nil
-}
-
-// Logs reads retained local artifacts.
-func (s *ExecutionService) Logs(ctx context.Context, id string) (string, error) {
-	operation, err := s.operations.FindByID(ctx, id)
-	if err != nil {
-		return "", err
-	}
-	return s.runner.Logs(ctx, operation.Execution.RunID)
-}
-
-// Retry creates a new operation repeating a finished one, linked back to it.
-//
-// The original is left untouched, so its logs and events remain. The new operation copies
-// the kind, targets, platform, playbook, and both the carried extra vars and sealed secret
-// vars, so a platform deployment retry keeps the same VRRP password and role assignment
-// that the already-installed nodes were built with.
-func (s *ExecutionService) Retry(ctx context.Context, id, requestedBy string) (*ExecutionOperationItem, error) {
-	original, err := s.operations.FindByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if !original.Execution.Status.Terminal() {
-		return nil, fmt.Errorf("%w: only a finished operation can be retried", ErrInvalidOperation)
-	}
-
-	secretVars, err := s.operations.SecretVars(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	// Carry over every var except the standard identifiers, which Create regenerates for
-	// the new operation. Passed as trusted so a trusted swallow_-prefixed var survives.
-	carried := make(map[string]any, len(original.ExtraVars))
-	for key, value := range original.ExtraVars {
-		if standardExtraVarKeys[key] {
-			continue
-		}
-		carried[key] = value
-	}
-
-	return s.Create(ctx, CreateExecutionInput{
-		Kind:               string(original.Kind),
-		Intent:             original.Intent,
-		TargetServerIDs:    original.TargetServerIDs,
-		PlatformID:         original.PlatformID,
-		PlaybookName:       original.Execution.Playbook,
-		TrustedVars:        carried,
-		SecretVars:         secretVars,
-		RetryOfOperationID: original.ID,
-		RequestedBy:        requestedBy,
-	})
-}
-
 // OperationEventsItem is the task-level progress of a run.
 type OperationEventsItem struct {
 	RunID            string          `json:"runId"`
@@ -387,74 +270,6 @@ type TaskEventItem struct {
 	Changed   bool    `json:"changed"`
 	StartedAt *string `json:"startedAt"`
 	EndedAt   *string `json:"endedAt"`
-}
-
-// Events returns a run's task-level progress, derived from the runner's retained events.
-func (s *ExecutionService) Events(ctx context.Context, id string) (*OperationEventsItem, error) {
-	operation, err := s.operations.FindByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	events, err := s.runner.Events(ctx, operation.Execution.RunID)
-	if err != nil {
-		return nil, err
-	}
-
-	item := &OperationEventsItem{
-		RunID:  operation.Execution.RunID,
-		Status: string(operation.Execution.Status),
-		Events: make([]TaskEventItem, 0, len(events)),
-	}
-	for _, event := range events {
-		switch event.Status {
-		case "ok":
-			item.OKCount++
-		case "failed":
-			item.FailedCount++
-		case "unreachable":
-			item.UnreachableCount++
-		case "skipped":
-			item.SkippedCount++
-		}
-		if event.Changed {
-			item.ChangedCount++
-		}
-		item.Events = append(item.Events, TaskEventItem{
-			Play: event.Play, Task: event.Task, Host: event.Host,
-			Status: event.Status, Changed: event.Changed,
-			StartedAt: optionalTime(event.StartedAt), EndedAt: optionalTime(event.EndedAt),
-		})
-	}
-	return item, nil
-}
-
-func legacyCompatibleV3(operation *WorkflowItem) *ExecutionOperationItem {
-	return &ExecutionOperationItem{
-		SchemaVersion: operation.SchemaVersion, Steps: operation.Steps,
-		ID: operation.ID, Kind: operation.Kind, Intent: operation.Intent, SiteID: operation.SiteID,
-		PlatformID: operation.PlatformID, ClusterID: operation.ClusterID, TargetServerIDs: operation.TargetServerIDs,
-		RetryOfOperationID: operation.RetryOfOperationID, RequestedBy: operation.RequestedBy,
-		RequestedAt: operation.RequestedAt, UpdatedAt: operation.UpdatedAt, Execution: operation.Execution,
-	}
-}
-
-func toExecutionOperationItem(operation *workflowdomain.ExecutionOperation) ExecutionOperationItem {
-	return ExecutionOperationItem{
-		SchemaVersion: 2, Steps: []workflowdomain.Task{legacySyntheticStep(operation)},
-		ID: operation.ID, Kind: string(operation.Kind), Intent: operation.Intent,
-		SiteID: operation.SiteID, PlatformID: wire.String(operation.PlatformID),
-		ClusterID:          wire.String(operation.PlatformID),
-		TargetServerIDs:    wire.Strings(operation.TargetServerIDs),
-		RetryOfOperationID: wire.String(operation.RetryOfOperationID),
-		Execution: ExecutionItem{
-			RunID: operation.Execution.RunID, Playbook: operation.Execution.Playbook,
-			Status: string(operation.Execution.Status), StatusReason: wire.String(operation.Execution.StatusReason),
-			StartedAt:  optionalTime(operation.Execution.StartedAt),
-			FinishedAt: optionalTime(operation.Execution.FinishedAt),
-		},
-		RequestedBy: operation.RequestedBy, RequestedAt: wire.Time(operation.RequestedAt),
-		UpdatedAt: wire.Time(operation.UpdatedAt),
-	}
 }
 
 // AutomationConfigurationService owns site-local runner settings.
@@ -660,31 +475,4 @@ func (s *ExecutionService) PrepareAnsibleStep(ctx context.Context, input CreateE
 		ExtraVars: buildExecutionExtraVars(operation, targets, input.ExtraVars, input.TrustedVars),
 		Targets:   stepTargets,
 	}, nil
-}
-
-func legacySyntheticStep(operation *workflowdomain.ExecutionOperation) workflowdomain.Task {
-	status := workflowdomain.TaskStatus(operation.Execution.Status)
-	var normalized *workflowdomain.NormalizedError
-	if operation.Execution.Status == workflowdomain.StatusIndeterminate {
-		status = workflowdomain.TaskRequiresAttention
-		normalized = &workflowdomain.NormalizedError{
-			Code: "legacy_outcome_indeterminate", Message: operation.Execution.StatusReason,
-			Retryable: false,
-		}
-	} else if operation.Execution.Status == workflowdomain.StatusFailed {
-		normalized = &workflowdomain.NormalizedError{
-			Code: "legacy_ansible_failed", Message: operation.Execution.StatusReason,
-			Retryable: false,
-		}
-	}
-	targets := make([]workflowdomain.ResourceReference, len(operation.TargetServerIDs))
-	for index, serverID := range operation.TargetServerIDs {
-		targets[index] = workflowdomain.ResourceReference{Kind: "server", ID: serverID}
-	}
-	return workflowdomain.Task{
-		ID: "ansible", Kind: "ansible-playbook", Name: "Run " + operation.Execution.Playbook,
-		Executor: workflowdomain.RunnerKindAnsible, Targets: targets, Status: status,
-		Attempt: 1, Error: normalized, StartedAt: operation.Execution.StartedAt,
-		FinishedAt: operation.Execution.FinishedAt, Artifacts: []workflowdomain.ArtifactMetadata{},
-	}
 }

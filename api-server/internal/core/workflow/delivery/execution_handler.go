@@ -3,7 +3,6 @@ package delivery
 import (
 	"errors"
 	"log"
-	"sort"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -17,20 +16,16 @@ import (
 	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
-// ExecutionHandler serves the embedded-execution operation API.
+// ExecutionHandler serves the Workflow API and the Site automation settings.
 type ExecutionHandler struct {
 	operations     *application.ExecutionService
 	orchestrations *application.WorkflowService
 	automation     *application.AutomationConfigurationService
 }
 
-// NewExecutionHandler constructs the v2 operation handler.
-func NewExecutionHandler(operations *application.ExecutionService, automation *application.AutomationConfigurationService, orchestrations ...*application.WorkflowService) *ExecutionHandler {
-	handler := &ExecutionHandler{operations: operations, automation: automation}
-	if len(orchestrations) > 0 {
-		handler.orchestrations = orchestrations[0]
-	}
-	return handler
+// NewExecutionHandler constructs the Workflow handler.
+func NewExecutionHandler(operations *application.ExecutionService, automation *application.AutomationConfigurationService, orchestrations *application.WorkflowService) *ExecutionHandler {
+	return &ExecutionHandler{operations: operations, automation: automation, orchestrations: orchestrations}
 }
 
 type createExecutionRequest struct {
@@ -43,7 +38,7 @@ type createExecutionRequest struct {
 	ExtraVars       map[string]any `json:"extraVars"`
 }
 
-// Create persists an accepted operation as pending.
+// Create accepts Ansible automation as a single-Task Workflow and answers 202 with the Workflow.
 func (h *ExecutionHandler) Create(c *fiber.Ctx) error {
 	var req createExecutionRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -65,9 +60,8 @@ func (h *ExecutionHandler) Create(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusAccepted).JSON(item)
 }
 
-// List returns operations.
-// platformIDQuery accepts the deprecated Operation filter without exposing it to the
-// application model. Canonical platformId wins when both aliases are present.
+// firstNonEmpty returns the first non-empty value: the canonical field, then its deprecated
+// alias.
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {
@@ -77,6 +71,8 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// platformIDQuery accepts the deprecated Operation filter without exposing it to the
+// application model. Canonical platformId wins when both aliases are present.
 func platformIDQuery(c *fiber.Ctx) string {
 	if id := c.Query("platformId"); id != "" {
 		return id
@@ -94,123 +90,30 @@ func taskParam(c *fiber.Ctx) string {
 	return c.Params("stepId")
 }
 
+// List returns a page of Workflows, newest first.
 func (h *ExecutionHandler) List(c *fiber.Ctx) error {
 	input := application.ListOperationsInput{
 		SiteID: c.Query("siteId"), PlatformID: platformIDQuery(c), ServerID: c.Query("serverId"),
 		Kind: c.Query("kind"), Status: c.Query("status"), Active: c.Query("active") == "true", Page: pagination.FromQuery(c),
 	}
-	if h.orchestrations == nil {
-		result, err := h.operations.List(c.Context(), input)
-		if err != nil {
-			return respondExecutionError(c, err)
-		}
-		return c.JSON(result)
-	}
-	requestedPage := input.Page
-	input.Page = pagination.Page{Page: 1, PageSize: 0}
-	v3, v3Total, err := h.orchestrations.List(c.Context(), input)
+	items, total, err := h.orchestrations.List(c.Context(), input)
 	if err != nil {
 		return respondExecutionError(c, err)
 	}
-	v2, err := h.operations.List(c.Context(), input)
-	if err != nil {
-		return respondExecutionError(c, err)
-	}
-	items := make([]any, 0, len(v3)+len(v2.Items))
-	for index := range v3 {
-		items = append(items, v3[index])
-	}
-	for index := range v2.Items {
-		items = append(items, v2.Items[index])
-	}
-	sort.SliceStable(items, func(i, j int) bool { return operationRequestedAt(items[i]) > operationRequestedAt(items[j]) })
-	start := requestedPage.Offset()
-	if start > len(items) {
-		start = len(items)
-	}
-	end := start + requestedPage.PageSize
-	if end > len(items) {
-		end = len(items)
-	}
-	return c.JSON(pagination.NewResult(items[start:end], v3Total+v2.Total, requestedPage))
+	return c.JSON(pagination.NewResult(items, total, input.Page))
 }
 
-// Get returns one operation.
+// Get returns one Workflow.
 func (h *ExecutionHandler) Get(c *fiber.Ctx) error {
-	if h.orchestrations != nil {
-		item, err := h.orchestrations.Get(c.Context(), c.Params("id"))
-		if err == nil {
-			return c.JSON(item)
-		}
-		if !application.IsNotV3(err) {
-			return respondExecutionError(c, err)
-		}
-	}
-	item, err := h.operations.Get(c.Context(), c.Params("id"))
+	item, err := h.orchestrations.Get(c.Context(), c.Params("id"))
 	if err != nil {
 		return respondExecutionError(c, err)
 	}
 	return c.JSON(item)
 }
 
-func operationRequestedAt(item any) string {
-	switch value := item.(type) {
-	case application.WorkflowItem:
-		return value.RequestedAt
-	case application.ExecutionOperationItem:
-		return value.RequestedAt
-	default:
-		return ""
-	}
-}
-
-// Logs returns locally retained runner output.
-func (h *ExecutionHandler) Logs(c *fiber.Ctx) error {
-	if handled, err := h.rejectOrchestratedLegacy(c, "Orchestrated Operations expose logs per Step; use the Step logs endpoint."); handled {
-		return err
-	}
-	logs, err := h.operations.Logs(c.Context(), c.Params("id"))
-	if err != nil {
-		return respondExecutionError(c, err)
-	}
-	c.Set(fiber.HeaderContentType, fiber.MIMETextPlainCharsetUTF8)
-	return c.SendString(logs)
-}
-
-// Events returns a run's task-level progress.
-func (h *ExecutionHandler) Events(c *fiber.Ctx) error {
-	if handled, err := h.rejectOrchestratedLegacy(c, "Orchestrated Operations expose events per Step; use the Step events endpoint."); handled {
-		return err
-	}
-	events, err := h.operations.Events(c.Context(), c.Params("id"))
-	if err != nil {
-		return respondExecutionError(c, err)
-	}
-	return c.JSON(events)
-}
-
-// rejectOrchestratedLegacy answers an operation-level legacy endpoint called for a schema-v3
-// Workflow, which exposes logs and events per Task instead: 409 for a Workflow, and the lookup
-// error for any failure other than "not v3". handled reports that it wrote the response, so the
-// caller returns err as is; apierror.Respond returns nil once it has written, which is why a
-// nil error cannot mean "not handled" (DF-05: the 409 used to be overwritten with a 404).
-func (h *ExecutionHandler) rejectOrchestratedLegacy(c *fiber.Ctx, message string) (handled bool, err error) {
-	if h.orchestrations == nil {
-		return false, nil
-	}
-	if _, lookupErr := h.orchestrations.Get(c.Context(), c.Params("id")); lookupErr == nil {
-		return true, apierror.Respond(c, apierror.New(apierror.CodeConflict, message))
-	} else if !application.IsNotV3(lookupErr) {
-		return true, respondExecutionError(c, lookupErr)
-	}
-	return false, nil
-}
-
-// Timeline returns normalized durable events for an orchestration Operation.
+// Timeline returns the normalized events of a Workflow.
 func (h *ExecutionHandler) Timeline(c *fiber.Ctx) error {
-	if h.orchestrations == nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Operation timeline not found."))
-	}
 	events, err := h.orchestrations.Timeline(c.Context(), c.Params("id"))
 	if err != nil {
 		return respondExecutionError(c, err)
@@ -218,11 +121,8 @@ func (h *ExecutionHandler) Timeline(c *fiber.Ctx) error {
 	return c.JSON(events)
 }
 
-// Cancel asks Temporal to cancel work; Mongo status is updated only by the workflow.
+// Cancel stores a cancel command; the Workflow's run applies it and records the outcome.
 func (h *ExecutionHandler) Cancel(c *fiber.Ctx) error {
-	if h.orchestrations == nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Operation not found."))
-	}
 	if err := h.orchestrations.Cancel(c.Context(), c.Params("id")); err != nil {
 		return respondExecutionError(c, err)
 	}
@@ -231,50 +131,23 @@ func (h *ExecutionHandler) Cancel(c *fiber.Ctx) error {
 
 // RetryStep signals a safe failed Step to increment its attempt in the same Operation.
 func (h *ExecutionHandler) RetryStep(c *fiber.Ctx) error {
-	if h.orchestrations == nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Operation not found."))
-	}
 	if err := h.orchestrations.RetryStep(c.Context(), c.Params("id"), taskParam(c)); err != nil {
 		return respondExecutionError(c, err)
 	}
 	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"workflowId": c.Params("id"), "operationId": c.Params("id"), "taskId": taskParam(c), "stepId": taskParam(c)})
 }
 
-// Rerun recovers an orchestration Operation that can no longer advance by launching a new
-// durable Operation for the same intent on the same Platform, linked back to the original. It
-// is the schema-v3 counterpart to Retry: Retry re-runs a finished legacy operation, while Rerun
-// re-runs a failed, canceled, or execution-lost orchestration Operation without deleting its
-// Platform. It returns 202 with the new Operation projection; conflicts (a still-running or
-// already-succeeded Operation) and validation problems are mapped by respondExecutionError.
+// Rerun recovers a Workflow that can no longer advance by launching a new Workflow for the same
+// intent on the same Platform, linked back to the original: it re-runs a failed, canceled, or
+// execution-lost Workflow without deleting its Platform. It returns 202 with the new Workflow;
+// conflicts (a still-running or already-succeeded Workflow) and validation problems are mapped by
+// respondExecutionError.
 func (h *ExecutionHandler) Rerun(c *fiber.Ctx) error {
-	if h.orchestrations == nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Operation not found."))
-	}
 	requestedBy := ""
 	if principal := middleware.GetPrincipal(c); principal != nil {
 		requestedBy = principal.Username
 	}
 	item, err := h.orchestrations.Rerun(c.Context(), c.Params("id"), requestedBy)
-	if err != nil {
-		return respondExecutionError(c, err)
-	}
-	return c.Status(fiber.StatusAccepted).JSON(item)
-}
-
-// Retry creates a new operation repeating a finished one.
-func (h *ExecutionHandler) Retry(c *fiber.Ctx) error {
-	if h.orchestrations != nil {
-		if _, err := h.orchestrations.Get(c.Context(), c.Params("id")); err == nil {
-			return apierror.Respond(c, apierror.New(apierror.CodeConflict, "Orchestrated Operations can only retry a failed, retryable Step."))
-		} else if !application.IsNotV3(err) {
-			return respondExecutionError(c, err)
-		}
-	}
-	requestedBy := ""
-	if principal := middleware.GetPrincipal(c); principal != nil {
-		requestedBy = principal.Username
-	}
-	item, err := h.operations.Retry(c.Context(), c.Params("id"), requestedBy)
 	if err != nil {
 		return respondExecutionError(c, err)
 	}
@@ -379,7 +252,6 @@ func toAutomationResponse(configuration *workflowdomain.AutomationConfiguration)
 func respondExecutionError(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, workflowdomain.ErrWorkflowNotFound),
-		errors.Is(err, workflowdomain.ErrWorkflowNotV3),
 		errors.Is(err, workflowdomain.ErrTaskNotFound),
 		errors.Is(err, workflowdomain.ErrAutomationConfigNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, err.Error()))
@@ -415,9 +287,6 @@ func respondExecutionError(c *fiber.Ctx, err error) error {
 }
 
 func (h *ExecutionHandler) orchestrationStep(c *fiber.Ctx) (*application.WorkflowItem, *workflowdomain.Task, error) {
-	if h.orchestrations == nil {
-		return nil, nil, workflowdomain.ErrWorkflowNotV3
-	}
 	operation, err := h.orchestrations.Get(c.Context(), c.Params("id"))
 	if err != nil {
 		return nil, nil, err

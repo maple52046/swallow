@@ -102,7 +102,7 @@ contain at most ten entries ordered by severity (`critical`, `warning`, then oth
 `startsAt` descending.
 
 `operations.active` counts operations that have not finished: every status other than
-`succeeded`, `failed`, `partially_succeeded`, `canceled`, and the schema-v2 `indeterminate`.
+`succeeded`, `failed`, `partially_succeeded`, and `canceled`.
 Waiting, canceling, and `requires_attention` work is active, as it still holds its Servers.
 `failedLast24Hours` counts failed operations whose `requestedAt` is within the 24
 hours before `generatedAt`. `unmatchedMembers` is the sum of positive differences

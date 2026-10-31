@@ -59,8 +59,8 @@ export function platformUninstallDeleteHint(releaseServers: boolean, scope: 'sin
     ? platformBulkUninstallConfirmLabel({ releaseServers, deleteRecord: true }, count)
     : platformUninstallConfirmLabel({ releaseServers, deleteRecord: true })
   return scope === 'bulk'
-    ? `“${primary}” keeps the Swallow records. To also delete them, choose “${variant}” from the arrow next to that button: each record is deleted only after that Platform’s operation succeeds, and a failed, canceled, or indeterminate operation keeps it.`
-    : `“${primary}” keeps the Swallow record. To also delete it, choose “${variant}” from the arrow next to that button: the record is deleted only after the operation succeeds, and a failed, canceled, or indeterminate operation keeps it.`
+    ? `“${primary}” keeps the Swallow records. To also delete them, choose “${variant}” from the arrow next to that button: each record is deleted only after that Platform’s operation succeeds, and a failed or canceled operation keeps it.`
+    : `“${primary}” keeps the Swallow record. To also delete it, choose “${variant}” from the arrow next to that button: the record is deleted only after the operation succeeds, and a failed or canceled operation keeps it.`
 }
 
 /** Submit label of the single-Platform Uninstall dialog. */

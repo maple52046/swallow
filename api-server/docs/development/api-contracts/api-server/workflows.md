@@ -74,11 +74,6 @@ GET  /api/v1/operations/{id}/steps/{stepId}/logs           -> /workflows/{id}/ta
 GET  /api/v1/operations/{id}/steps/{stepId}/stderr         -> /workflows/{id}/tasks/{taskId}/stderr
 GET  /api/v1/operations/{id}/steps/{stepId}/events         -> /workflows/{id}/tasks/{taskId}/events
 GET  /api/v1/operations/{id}/steps/{stepId}/artifacts      -> /workflows/{id}/tasks/{taskId}/artifacts
-
-# schema-v2 compatibility (legacy path only)
-GET  /api/v1/operations/{id}/logs
-GET  /api/v1/operations/{id}/events
-POST /api/v1/operations/{id}/retry
 ```
 
 ### Wire field rename (in progress)
@@ -130,16 +125,12 @@ and live Server Lock checks. Success is `202 Accepted` after intent is persisted
 dispatcher starts the Workflow's first run after the response
 ([workflow-execution.md](../../../../../docs/development/workflow-execution.md) §3).
 
-The `202` body of create is the accepted Workflow in the compatibility (Operation) shape, the
-same shape as a schema-v2 record (OpenAPI `LegacyOperation`) with `schemaVersion` 3: `id`,
-`kind`, `intent`, `siteId`, `platformId`, `clusterId`, `targetServerIds`, `retryOfOperationId`,
-`steps[]`, `execution`, `requestedBy`, `requestedAt`, and `updatedAt`. It carries no `status`,
-`temporal`, `intentSnapshot`, or `leases`; read `GET /workflows/{workflowId}` for the full
-projection below.
+The `202` body of create is the accepted Workflow, the projection below with `status` `pending`,
+`startState` `pending`, and `leases` `null` (it owns nothing until it starts).
 
 ## Response
 
-`GET /workflows/{workflowId}`, the list, and rerun return the Workflow projection: its intent,
+`GET /workflows/{workflowId}`, the list, create, and rerun return the Workflow projection: its intent,
 status, Tasks (currently serialized under `steps[]` with an `executor` field, see the
 wire-rename note above), resource leases, and a compatibility `execution` projection (the
 example shows one of the Workflow's Tasks):
@@ -232,7 +223,7 @@ value crosses the API.
 
 `leases` lists the resources the Workflow owns. It is populated only by
 `GET /workflows/{workflowId}` (an empty array when the Workflow owns none, which is the case before
-it starts and after it ends); it is `null` in list items and in the rerun response. A Workflow owns
+it starts and after it ends); it is `null` in list items and in the create and rerun responses. A Workflow owns
 its resources from its first run until it ends, with no expiry: `owner` is the Workflow id,
 `fencingToken` is the Workflow's current dispatch generation (it increases each time the Workflow is
 dispatched or resumed), and `updatedAt` is when ownership was taken. `startState` is `pending` until
@@ -254,9 +245,7 @@ Ansible Runner populates `live`.
 
 Optional filters are `siteId`, `platformId`, deprecated `clusterId`, `serverId`, `kind`,
 `status`, `active=true`, and common pagination. `active` constrains only when it is exactly
-`true`. Results merge schema-v2 and schema-v3 history and sort by `requestedAt` descending; each
-item is either the Workflow projection above or, for a schema-v2 record, the compatibility shape
-(see Schema-v2 Compatibility).
+`true`. Results are Workflow projections sorted by `requestedAt` descending.
 
 ## Timeline And Task Diagnostics
 
@@ -287,8 +276,8 @@ an Ansible run), the Task's `status`, and derived counts (`okCount`, `changedCou
 play/task is on the Task's `live` field above, not in this list. Raw stdout stays on disk and is
 served by `logs`; it is not part of this projection. Task artifacts return metadata only
 (`id`, `name`, `mediaType`, `sizeBytes`, `createdAt`; never a server-side path). `targets`,
-`artifacts`, and timeline results are JSON arrays and never `null`; so is `dependsOn` on every
-schema-v3 Workflow, but the synthetic Task of a schema-v2 record carries `"dependsOn": null`.
+`artifacts`, and timeline results are JSON arrays and never `null`; `dependsOn` is `null` or
+empty for a Task that waits for none.
 
 ## Cancel
 
@@ -378,27 +367,6 @@ Workflow starts; a resource another Workflow owns keeps it in `waiting_dependenc
 no expiry and is released when the Workflow ends, so a Workflow parked in `requires_attention`
 keeps its Servers for as long as it waits, with no renewal that a transient outage could break.
 
-## Schema-v2 Compatibility
-
-Historical schema-v2 records retain the status set `pending | running | succeeded | failed
-| canceled | indeterminate` and are returned by get and list with `schemaVersion=2` in the
-compatibility shape (the fields listed for the create response; the run status is
-`execution.status`) plus a synthetic single Task: ID `ansible`, kind `ansible-playbook`, Runner
-`ansible`, `dependsOn` `null`, its status the run status except that `indeterminate` becomes
-`requires_attention` with error code `legacy_outcome_indeterminate`; a `failed` run carries
-error code `legacy_ansible_failed`. Neither error is retryable. A schema-v2 record has no
-timeline, controls, or per-Task endpoints: timeline, cancel, rerun, and every
-`/tasks/{taskId}/...` route return `not_found` for it.
-
-Their legacy `GET /operations/{id}/logs`, `GET /operations/{id}/events`, and `POST
-/operations/{id}/retry` remain available on the deprecated path only; the v3 equivalents are
-the per-Task endpoints above. The legacy events response has the per-Task events shape with the
-run's status. The legacy retry accepts only a finished record, creates a new schema-v3 Workflow
-from the original's kind, targets, Platform, playbook, and carried variables, and returns it in
-the compatibility shape with `schemaVersion` 3; for a schema-v3 Workflow it is `conflict`. The
-legacy logs and events are also `conflict` for a schema-v3 Workflow, whose logs and events are
-per Task, and `not_found` for an unknown ID.
-
 ## Errors
 
 Target overlap, Server Lock, a target not in the required provisioning state, Platform policy,
@@ -439,3 +407,10 @@ required provisioning state is `conflict` (it was `validation_error`), and the l
 events of a schema-v3 Workflow are `conflict` (they were `not_found`, because the conflict was
 overwritten). Targets of more than one Site stay `validation_error` here and are now that in
 every context.
+
+On 2026-10-31 (AR-10, [decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md))
+the schema-v2 Operation records were retired. Breaking: create answers with the Workflow projection
+(it was the compatibility `LegacyOperation` shape); the list and get serve Workflows only, so a
+schema-v2 ID is `not_found`; and `GET /operations/{id}/logs`, `GET /operations/{id}/events`, and
+`POST /operations/{id}/retry` were removed (use the per-Task endpoints, Task retry, or rerun).
+Schema v10 drops the records.

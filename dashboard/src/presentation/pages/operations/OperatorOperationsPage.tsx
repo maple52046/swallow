@@ -51,7 +51,6 @@ const WORKFLOW_STATUSES: readonly OperationStatus[] = [
   'failed',
   'requires_attention',
   'canceled',
-  'indeterminate',
 ]
 
 const OTHER_STATUS_OPTIONS = [
@@ -63,7 +62,6 @@ const OTHER_STATUS_OPTIONS = [
   { value: 'succeeded', label: 'Succeeded' },
   { value: 'partially_succeeded', label: 'Partially succeeded' },
   { value: 'canceled', label: 'Canceled' },
-  { value: 'indeterminate', label: 'Indeterminate' },
 ] as const
 
 type WorkflowLens = 'all' | 'active' | 'requires_attention' | 'failed'
@@ -87,7 +85,7 @@ function workflowTone(status: OperationStatus): 'changing' | 'attention' | 'hist
   return 'history'
 }
 
-/** Human elapsed time using canonical Workflow timestamps with legacy execution fallback. */
+/** Human elapsed time from the Workflow timestamps, falling back to its `execution` summary. */
 function workflowDuration(operation: Operation): string {
   const startedAt = operation.startedAt ?? operation.execution.startedAt
   if (!startedAt) return 'Not started'
@@ -133,7 +131,7 @@ function WorkflowStatusLine({ operation }: { operation: Operation }) {
   )
 }
 
-/** Current Task or legacy runner context without inventing percentage progress. */
+/** Current Task context without inventing percentage progress. */
 function WorkflowActivityCopy({ summary }: { summary: WorkflowActivitySummary }) {
   return (
     <div className="sw-workflow-activity-copy">
@@ -150,7 +148,7 @@ function WorkflowTaskContext({ summary }: { summary: WorkflowActivitySummary }) 
   return (
     <div className="sw-workflow-task-context">
       <Text as="span" fontWeight="medium">
-        {summary.taskTotal > 0 ? summary.taskTotal + (summary.taskTotal === 1 ? ' Task' : ' Tasks') : 'Legacy'}
+        {summary.taskTotal > 0 ? summary.taskTotal + (summary.taskTotal === 1 ? ' Task' : ' Tasks') : 'No Tasks'}
       </Text>
       <Text as="span" color="fg.muted" fontSize="xs" lineClamp={1}>{summary.taskCounts}</Text>
     </div>

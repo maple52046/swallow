@@ -31,7 +31,6 @@ type ExporterOwnerResolver interface {
 // rather than a failure.
 type AutoExporterDeployUseCase struct {
 	servers        serverdomain.ServerRepository
-	operations     workflowdomain.ExecutionRepository
 	executor       *ExecutionService
 	orchestrations workflowdomain.WorkflowRepository
 	owners         ExporterOwnerResolver
@@ -40,16 +39,11 @@ type AutoExporterDeployUseCase struct {
 // NewAutoExporterDeployUseCase wires the auto-install loop's dependencies.
 func NewAutoExporterDeployUseCase(
 	servers serverdomain.ServerRepository,
-	operations workflowdomain.ExecutionRepository,
 	executor *ExecutionService,
 	owners ExporterOwnerResolver,
-	orchestrations ...workflowdomain.WorkflowRepository,
+	orchestrations workflowdomain.WorkflowRepository,
 ) *AutoExporterDeployUseCase {
-	useCase := &AutoExporterDeployUseCase{servers: servers, operations: operations, executor: executor, owners: owners}
-	if len(orchestrations) > 0 {
-		useCase.orchestrations = orchestrations[0]
-	}
-	return useCase
+	return &AutoExporterDeployUseCase{servers: servers, executor: executor, owners: owners, orchestrations: orchestrations}
 }
 
 // Run scans deployed servers and installs exporters where they are missing and owned by
@@ -109,26 +103,13 @@ func (uc *AutoExporterDeployUseCase) Run(ctx context.Context) error {
 // the server in any state, so a one-shot auto-install is not repeated on every sweep. A
 // failed attempt is left for an operator to retry rather than being recreated in a loop.
 func (uc *AutoExporterDeployUseCase) hasInstallOperation(ctx context.Context, serverID string) (bool, error) {
-	existing, err := uc.operations.List(ctx, workflowdomain.ExecutionListFilter{
-		ServerID: serverID,
-		Kind:     workflowdomain.WorkflowKindInstallExporters,
-		Limit:    1,
+	_, total, err := uc.orchestrations.List(ctx, workflowdomain.WorkflowFilter{
+		ServerID: serverID, Kind: workflowdomain.WorkflowKindInstallExporters, Limit: 1,
 	})
 	if err != nil {
 		return false, err
 	}
-	if existing.Total > 0 {
-		return true, nil
-	}
-	if uc.orchestrations != nil {
-		v3, total, listErr := uc.orchestrations.List(ctx, workflowdomain.WorkflowFilter{ServerID: serverID, Kind: workflowdomain.WorkflowKindInstallExporters, Limit: 1})
-		_ = v3
-		if listErr != nil {
-			return false, listErr
-		}
-		return total > 0, nil
-	}
-	return false, nil
+	return total > 0, nil
 }
 
 // platformExporterOwnerAnsible mirrors the platform domain's ansible owner value without

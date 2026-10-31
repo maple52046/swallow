@@ -269,16 +269,15 @@ mongo_database() {
 }
 
 # active_operations counts the Workflows that have not reached a terminal status, including
-# requires_attention ones still waiting for an operator. Schema v4 keeps them in `workflows`; an
-# installation upgrade has not migrated yet keeps them in `operations` (v2 `terminal`, v3
-# `status`), and upgrade asks before it migrates, so both collections are counted.
+# requires_attention ones still waiting for an operator. Schema v4 and later keep them in
+# `workflows`. upgrade counts before it migrates, so a database from before v4 still keeps its
+# schema-v3 Workflows in `operations`; those are counted too. Schema-v2 records are not: no
+# release runs them, and v10 drops them.
 active_operations() {
   mongo_eval "const d = db.getSiblingDB('$(mongo_database)');
     const terminal = ['succeeded', 'failed', 'partially_succeeded', 'canceled'];
     print(d.workflows.countDocuments({status: {\$nin: terminal}}) +
-      d.operations.countDocuments({\$or: [
-        {schemaVersion: 2, terminal: false},
-        {schemaVersion: 3, status: {\$nin: terminal}}]}))"
+      d.operations.countDocuments({schemaVersion: 3, status: {\$nin: terminal}}))"
 }
 
 prune_backups() {

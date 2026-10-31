@@ -165,10 +165,6 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("provisioning task repo init: %w", err)
 	}
-	operationRepo, err := workflowstore.NewMongoExecutionRepo(db, sealer)
-	if err != nil {
-		return fmt.Errorf("operation repo init: %w", err)
-	}
 	orchestrationRepo, err := workflowstore.NewMongoWorkflowRepo(db)
 	if err != nil {
 		return fmt.Errorf("orchestration repo init: %w", err)
@@ -246,7 +242,7 @@ func RunAPI(cfg config.APIConfig) error {
 	sshKeyService.AttachRequester(convergencestore.NewMongoRequester(db))
 	sshKeyHandler := sshkeydelivery.NewSSHKeyHandler(sshKeyService)
 	deploymentKeys := deploymentKeySource{keys: sshKeyService}
-	activeWork := activeServerWorkReader{operations: operationRepo, orchestrations: orchestrationRepo, tasks: taskRepo}
+	activeWork := activeServerWorkReader{orchestrations: orchestrationRepo, tasks: taskRepo}
 	integrationReader := provisioningapp.NewIntegrationReader(integrationRepo, siteRepo)
 	templateService := provisioningapp.NewDeploymentTemplateService(
 		templateRepo, integrationReader, providerFactory)
@@ -346,7 +342,7 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("playbook catalog: %w", err)
 	}
-	lifecycleReader := platformLifecycleReader{operations: operationRepo, orchestrations: orchestrationRepo}
+	lifecycleReader := platformLifecycleReader{orchestrations: orchestrationRepo}
 	integrationCleaner := managedPlatformIntegrationCleaner{integrations: integrationRepo}
 	platformService := platformapp.NewPlatformService(transactor, platformRepo, siteRepo, serverRepo, lifecycleReader, integrationCleaner)
 	platformService.AttachGPUOperatorRecorder(platformRepo)
@@ -406,7 +402,7 @@ func RunAPI(cfg config.APIConfig) error {
 		return fmt.Errorf("ansible event repo init: %w", err)
 	}
 	operationService := workflowapp.NewExecutionService(
-		operationRepo, serverRepo, effectiveAutomation, catalog, runner, ansibleEventRepo,
+		serverRepo, effectiveAutomation, catalog, runner, ansibleEventRepo,
 		platformapp.NewPolicyChecker(platformRepo, serverRepo),
 		serverProtection,
 	)
@@ -460,8 +456,7 @@ func RunAPI(cfg config.APIConfig) error {
 	operationHandler := workflowdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
 
 	overviewReader := NewOverviewReader(
-		siteRepo, integrationRepo, serverRepo, healthResolver, platformRepo, operationRepo,
-		alertService, orchestrationRepo,
+		siteRepo, integrationRepo, serverRepo, healthResolver, platformRepo, orchestrationRepo, alertService,
 	)
 	overviewHandler := overviewdelivery.NewHandler(
 		overviewapp.NewService(overviewReader, overviewapp.SystemClock{}))
@@ -542,16 +537,11 @@ func RunAPI(cfg config.APIConfig) error {
 	// exporter owner is ansible. The resolver bridges the provisioning lock and platform
 	// policy so the operation context stays free of platform types.
 	autoExporterDeploy := workflowapp.NewAutoExporterDeployUseCase(
-		serverRepo, operationRepo, operationService,
-		exporterOwnerResolver{platforms: platformRepo}, orchestrationRepo,
+		serverRepo, operationService, exporterOwnerResolver{platforms: platformRepo}, orchestrationRepo,
 	)
 
 	discoveryUseCase := discoveryapp.NewDiscoveryUseCase(serverRepo)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(discoveryUseCase)
-	// The v2 embedded dispatcher and Mongo site lease were removed (ADR 016/017): Temporal
-	// is the sole execution engine, and per-resource fencing leases replace the site lease.
-	// Historical schema-v2 records remain readable through ExecutionService.
-
 	fiberApp := fiber.New(fiber.Config{
 		// OS image upload (POST /provisioning/images) streams a potentially multi-gigabyte
 		// artifact, so the body is read as a stream and the limit is raised well past the 4 MiB
@@ -1054,8 +1044,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	workflows.Get("/:id/tasks/:taskId/artifacts", deps.operations.StepArtifacts)
 
 	// Deprecated /operations alias for one release (ADR 017). Same handlers; the
-	// Deprecation header points clients at the canonical /workflows surface. The v2
-	// operation-level logs/events/retry remain only on this legacy path.
+	// Deprecation header points clients at the canonical /workflows surface.
 	operations := v1.Group("/operations", admin...)
 	operations.Use(func(c *fiber.Ctx) error {
 		c.Set("Deprecation", "true")
@@ -1073,9 +1062,6 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	operations.Get("/:id/steps/:stepId/stderr", deps.operations.StepStderr)
 	operations.Get("/:id/steps/:stepId/events", deps.operations.StepEvents)
 	operations.Get("/:id/steps/:stepId/artifacts", deps.operations.StepArtifacts)
-	operations.Get("/:id/logs", deps.operations.Logs)
-	operations.Get("/:id/events", deps.operations.Events)
-	operations.Post("/:id/retry", deps.operations.Retry)
 
 	// Machine-to-machine discovery remains pull-based for Prometheus and external
 	// Ansible diagnostics. The embedded runner calls the same use case directly.

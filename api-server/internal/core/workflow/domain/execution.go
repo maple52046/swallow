@@ -107,43 +107,7 @@ var (
 	ErrAutomationDisabled          = errors.New("automation is disabled for this site")
 	ErrAutomationCredentialMissing = errors.New("automation credential is not configured")
 	ErrPlaybookNotAllowed          = errors.New("playbook is not registered in the release manifest")
-	ErrExecutionLeaseLost          = errors.New("execution lease is no longer owned by this dispatcher")
 )
-
-// ExecutionListFilter narrows execution-operation listings.
-type ExecutionListFilter struct {
-	SiteID      string
-	PlatformID  string
-	PlatformIDs []string
-	ServerID    string
-	Kind        WorkflowKind
-	Kinds       []WorkflowKind
-	Status      Status
-	ActiveOnly  bool
-	Offset      int
-	Limit       int
-}
-
-// ExecutionListResult is a page of execution operations.
-type ExecutionListResult struct {
-	Operations []*ExecutionOperation
-	Total      int
-}
-
-// ExecutionRepository persists locally owned operations and their leases.
-type ExecutionRepository interface {
-	Create(ctx context.Context, operation *ExecutionOperation) error
-	FindByID(ctx context.Context, id string) (*ExecutionOperation, error)
-	List(ctx context.Context, filter ExecutionListFilter) (ExecutionListResult, error)
-	FindActiveByServerIDs(ctx context.Context, serverIDs []string) ([]*ExecutionOperation, error)
-	Claim(ctx context.Context, id, owner string, leaseExpiresAt time.Time) (bool, error)
-	UpdateExecution(ctx context.Context, id, owner string, execution Execution) error
-	MarkExpiredIndeterminate(ctx context.Context, now time.Time) (int64, error)
-	// SecretVars decrypts the sealed run-time secret vars for one operation. It is called
-	// by the dispatcher immediately before a run and nowhere else, so that secret material
-	// has exactly one read path rather than riding along on every list and get.
-	SecretVars(ctx context.Context, id string) (map[string]any, error)
-}
 
 // AutomationConfigurationRepository stores site settings and sealed credentials.
 type AutomationConfigurationRepository interface {

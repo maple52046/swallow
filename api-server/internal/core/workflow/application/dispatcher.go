@@ -111,7 +111,7 @@ func (d *Dispatcher) Reconcile(ctx context.Context, request convergence.Request)
 		return d.engine.ReleaseStaleOwnership(ctx)
 	}
 	w, err := d.workflows.FindByID(ctx, request.Key)
-	if errors.Is(err, workflowdomain.ErrWorkflowNotV3) || errors.Is(err, workflowdomain.ErrWorkflowNotFound) {
+	if errors.Is(err, workflowdomain.ErrWorkflowNotFound) {
 		return nil
 	}
 	if err != nil {
@@ -191,7 +191,7 @@ func (d *Dispatcher) sweepOrphans(ctx context.Context) error {
 		w, err := d.workflows.FindByID(ctx, workflowIDOf(run.WorkflowID))
 		var reason string
 		switch {
-		case errors.Is(err, workflowdomain.ErrWorkflowNotV3) || errors.Is(err, workflowdomain.ErrWorkflowNotFound):
+		case errors.Is(err, workflowdomain.ErrWorkflowNotFound):
 			reason = "The store has no Workflow for this run."
 		case err != nil:
 			failed = errors.Join(failed, err)

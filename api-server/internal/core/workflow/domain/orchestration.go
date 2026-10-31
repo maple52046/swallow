@@ -206,7 +206,6 @@ type TimelineEvent struct {
 var (
 	ErrTaskNotFound            = errors.New("operation step not found")
 	ErrTaskRetryUnsafe         = errors.New("operation step cannot be retried safely")
-	ErrWorkflowNotV3           = errors.New("operation is not an orchestration operation")
 	ErrWorkflowControlConflict = errors.New("operation cannot accept this control in its current state")
 	// ErrWorkflowExecutionGone reports that a Workflow has no running execution, so a signal or
 	// cancel cannot reach it; the dispatcher then dispatches the Workflow again (decision 072).

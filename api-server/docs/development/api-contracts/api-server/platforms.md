@@ -1007,7 +1007,7 @@ flag needs the durable orchestration topology, like `releaseServers`.
 A running uninstall, an already successful uninstall, a missing, absent, locked, or busy target
 (without `cancelActiveWorkflows`), a deployment still running (without the flag), or a registered
 Platform returns `409 conflict`. The busy conflict names the Workflow holding the target, its
-intent, and its status. Failed, canceled, or indeterminate uninstalls may be submitted again; the
+intent, and its status. Failed or canceled uninstalls may be submitted again; the
 new Operation records `retryOfOperationId` pointing to the latest uninstall.
 
 When servers are kept, the release-owned playbook stops k0s services, runs `k0s reset`,
@@ -1033,7 +1033,7 @@ succeeds, so an operator who wants both host cleanup and record removal does not
 back for a separate Delete. It is recorded on the uninstall Operation when the request is
 accepted and applies to both the kept-servers and the `releaseServers` path. It changes
 nothing until that success cleanup: the Platform stays addressable (`uninstalling`) while the
-Operation runs, and a failed, canceled, or indeterminate uninstall keeps the record
+Operation runs, and a failed or canceled uninstall keeps the record
 (`uninstall_failed`) for diagnosis and retry. Retrying a Step of, or rerunning, that same
 Workflow keeps the choice it was accepted with; submitting the uninstall again is a new
 request, which deletes the record only if it also sends `deleteRecord: true`. The removal runs

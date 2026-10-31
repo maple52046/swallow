@@ -10,7 +10,6 @@ import (
 
 // platformLifecycleReader adapts durable operation history to the platform lifecycle port.
 type platformLifecycleReader struct {
-	operations     workflowdomain.ExecutionRepository
 	orchestrations workflowdomain.WorkflowRepository
 }
 
@@ -23,86 +22,39 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 		return snapshots, nil
 	}
 
-	result, err := r.operations.List(ctx, workflowdomain.ExecutionListFilter{
-		PlatformIDs: platformIDs,
-		Kinds: []workflowdomain.WorkflowKind{
-			workflowdomain.WorkflowKindDeployKubernetes,
-			workflowdomain.WorkflowKindConfigureSlurm,
-			workflowdomain.WorkflowKindUninstallKubernetes,
-			workflowdomain.WorkflowKindUninstallSlurm,
-		},
-	})
+	workflows, _, err := r.orchestrations.List(ctx, workflowdomain.WorkflowFilter{PlatformIDs: platformIDs})
 	if err != nil {
 		return nil, err
 	}
-
-	for _, operation := range result.Operations {
+	for _, operation := range workflows {
+		isDeploy := operation.Kind == workflowdomain.WorkflowKindDeployKubernetes ||
+			operation.Kind == workflowdomain.WorkflowKindConfigureSlurm
+		isUninstall := operation.Kind == workflowdomain.WorkflowKindUninstallKubernetes ||
+			operation.Kind == workflowdomain.WorkflowKindUninstallSlurm
 		snapshot, expected := snapshots[operation.PlatformID]
-		if !expected {
+		if !expected || (!isDeploy && !isUninstall) {
 			continue
 		}
-		projected := &platformdomain.LifecycleOperation{
-			ID:              operation.ID,
-			Status:          string(operation.Execution.Status),
-			TargetServerIDs: append([]string(nil), operation.TargetServerIDs...),
-			RequestedAt:     operation.RequestedAt,
-		}
-		switch operation.Kind {
-		case workflowdomain.WorkflowKindDeployKubernetes, workflowdomain.WorkflowKindConfigureSlurm:
-			// A Slurm deployment claims its targets and drives the deploying/active/failed
-			// projection the same way k0s does; only the k0s-shaped topology Intent is left
-			// nil, since deploymentIntent reads k0s role vars that Slurm does not set.
-			projected.Intent = deploymentIntent(operation)
-			if snapshot.Deployment == nil {
+		projected := &platformdomain.LifecycleOperation{ID: operation.ID, Status: lifecycleStatus(operation.Status),
+			TargetServerIDs: append([]string(nil), operation.TargetServerIDs...), RequestedAt: operation.RequestedAt}
+		if isDeploy {
+			// Project the deployment intent per platform type: k0s from its role vars,
+			// Slurm from its recorded controller/compute id lists. Slurm needs its own
+			// projection because slurmrestd only reports compute (slurmd) nodes as members,
+			// so without the recorded controller ids the manager nodes would be invisible to
+			// the read model.
+			if operation.Kind == workflowdomain.WorkflowKindConfigureSlurm {
+				projected.Intent = deploymentIntentSlurm(operation)
+			} else {
+				projected.Intent = deploymentIntentKubernetes(operation)
+			}
+			if snapshot.Deployment == nil || snapshot.Deployment.RequestedAt.Before(projected.RequestedAt) {
 				snapshot.Deployment = projected
 			}
-		case workflowdomain.WorkflowKindUninstallKubernetes, workflowdomain.WorkflowKindUninstallSlurm:
-			if snapshot.Uninstall == nil {
-				snapshot.Uninstall = projected
-			}
+		} else if snapshot.Uninstall == nil || snapshot.Uninstall.RequestedAt.Before(projected.RequestedAt) {
+			snapshot.Uninstall = projected
 		}
 		snapshots[operation.PlatformID] = snapshot
-	}
-
-	if r.orchestrations != nil {
-		v3, _, err := r.orchestrations.List(ctx, workflowdomain.WorkflowFilter{PlatformIDs: platformIDs})
-		if err != nil {
-			return nil, err
-		}
-		expectedIDs := map[string]bool{}
-		for _, id := range platformIDs {
-			expectedIDs[id] = true
-		}
-		for _, operation := range v3 {
-			isDeploy := operation.Kind == workflowdomain.WorkflowKindDeployKubernetes ||
-				operation.Kind == workflowdomain.WorkflowKindConfigureSlurm
-			isUninstall := operation.Kind == workflowdomain.WorkflowKindUninstallKubernetes ||
-				operation.Kind == workflowdomain.WorkflowKindUninstallSlurm
-			if !expectedIDs[operation.PlatformID] || (!isDeploy && !isUninstall) {
-				continue
-			}
-			snapshot := snapshots[operation.PlatformID]
-			projected := &platformdomain.LifecycleOperation{ID: operation.ID, Status: lifecycleStatus(operation.Status),
-				TargetServerIDs: append([]string(nil), operation.TargetServerIDs...), RequestedAt: operation.RequestedAt}
-			if isDeploy {
-				// Project the deployment intent per platform type: k0s from its role vars,
-				// Slurm from its recorded controller/compute id lists. Slurm needs its own
-				// projection because slurmrestd only reports compute (slurmd) nodes as members,
-				// so without the recorded controller ids the manager nodes would be invisible to
-				// the read model.
-				if operation.Kind == workflowdomain.WorkflowKindConfigureSlurm {
-					projected.Intent = deploymentIntentSlurm(operation)
-				} else {
-					projected.Intent = deploymentIntentV3(operation)
-				}
-				if snapshot.Deployment == nil || snapshot.Deployment.RequestedAt.Before(projected.RequestedAt) {
-					snapshot.Deployment = projected
-				}
-			} else if snapshot.Uninstall == nil || snapshot.Uninstall.RequestedAt.Before(projected.RequestedAt) {
-				snapshot.Uninstall = projected
-			}
-			snapshots[operation.PlatformID] = snapshot
-		}
 	}
 
 	for id, snapshot := range snapshots {
@@ -111,16 +63,17 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 	return snapshots, nil
 }
 
-// deploymentIntent narrows persisted runner variables back into Platform vocabulary. The
-// general extra-vars map stays private to Operations; malformed historical values produce
-// no deployment projection instead of a plausible but incorrect topology.
-func deploymentIntent(operation *workflowdomain.ExecutionOperation) *platformdomain.LifecycleDeployment {
-	roles := decodeStringMap(operation.ExtraVars["swallow_k0s_roles"])
+// deploymentIntentKubernetes narrows a k0s deployment's recorded runner variables back into
+// Platform vocabulary. The general extra-vars map stays private to Workflows; malformed historical
+// values produce no deployment projection instead of a plausible but incorrect topology.
+func deploymentIntentKubernetes(operation *workflowdomain.Workflow) *platformdomain.LifecycleDeployment {
+	extraVars, _ := operation.Intent["extraVars"].(map[string]any)
+	roles := decodeStringMap(extraVars["swallow_k0s_roles"])
 	if len(roles) == 0 || len(operation.TargetServerIDs) == 0 {
 		return nil
 	}
 	workloadControllers := stringSet(decodeStringSlice(
-		operation.ExtraVars["swallow_k0s_workload_controller_ids"],
+		extraVars["swallow_k0s_workload_controller_ids"],
 	))
 	assignments := make([]platformdomain.RoleAssignment, 0, len(operation.TargetServerIDs))
 	for _, serverID := range operation.TargetServerIDs {
@@ -138,7 +91,7 @@ func deploymentIntent(operation *workflowdomain.ExecutionOperation) *platformdom
 	if topology == "" {
 		return nil
 	}
-	k0sVersion, _ := operation.ExtraVars["swallow_k0s_version"].(string)
+	k0sVersion, _ := extraVars["swallow_k0s_version"].(string)
 	return &platformdomain.LifecycleDeployment{
 		Topology: topology, RoleAssignments: assignments, K0sVersion: k0sVersion,
 	}
@@ -234,15 +187,6 @@ func lifecycleStatus(status workflowdomain.WorkflowStatus) string {
 	default:
 		return string(workflowdomain.StatusFailed)
 	}
-}
-
-func deploymentIntentV3(operation *workflowdomain.Workflow) *platformdomain.LifecycleDeployment {
-	extraVars, _ := operation.Intent["extraVars"].(map[string]any)
-	legacy := &workflowdomain.ExecutionOperation{
-		TargetServerIDs: operation.TargetServerIDs,
-		ExtraVars:       extraVars,
-	}
-	return deploymentIntent(legacy)
 }
 
 // deploymentIntentSlurm projects a Slurm deployment's per-daemon node roles from the durable

@@ -232,7 +232,8 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
   `--force` 時執行中的 Task 也隨之中止。
 - 啟動 MongoDB 與 PostgreSQL 並等兩者 healthy。replica set 之前的 installation 在這一步轉換：補上的
   `mongo-keyfile` 與新的 mongo 設定讓 container 重建，healthcheck 在既有資料上執行 `rs.initiate`（資料保留）。
-- `swallow-api migrate --backup-confirmed`（確認已有備份，允許破壞性的 schema rename）、
+- `swallow-api migrate --backup-confirmed`（確認已有備份，允許破壞性的 schema 變更：v3 的 Platform rename、
+  v10 刪除 schema-v2 的 Operation 紀錄）、
   `deployment-key ensure`、以新 image 啟動 stack、等 `/readyz`、更新 CLI。
 - 重新套用冪等步驟：`local-ntp.sh install` 與 `upstream`；有共置 MAAS 時另有
   `local-maas.sh ensure-virsh-identity` 與 `bootstrap.sh apply`。

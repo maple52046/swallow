@@ -1,4 +1,4 @@
-/** Operator-visible lifecycle of a legacy run or durable workflow. */
+/** Operator-visible lifecycle of a durable workflow. */
 export type OperationStatus =
   | "pending"
   | "running"
@@ -9,17 +9,13 @@ export type OperationStatus =
   | "failed"
   | "partially_succeeded"
   | "canceled"
-  | "requires_attention"
-  | "indeterminate";
+  | "requires_attention";
 
 export type OperationStepStatus =
-  | Exclude<
-      OperationStatus,
-      "canceling" | "partially_succeeded" | "indeterminate"
-    >
+  | Exclude<OperationStatus, "canceling" | "partially_succeeded">
   | "skipped";
 
-/** The legacy execution projection remains present on every API response for compatibility. */
+/** The `execution` compatibility summary every Workflow response still carries. */
 export interface OperationExecution {
   runId: string;
   playbook: string;
@@ -80,7 +76,7 @@ export interface OperationStep {
   name: string;
   /**
    * The Job this Step belongs to (ADR 017), e.g. "ensure-os" or "configure-k0s". Empty for a
-   * legacy/flat operation that has no Jobs. The detail view groups Steps by this value.
+   * flat Workflow that has no Jobs. The detail view groups Steps by this value.
    */
   job?: string;
   executor: "internal" | "ansible" | "maas" | string;
@@ -121,10 +117,7 @@ export interface OperationTimelineEvent {
   createdAt: string;
 }
 
-/**
- * An Operation is the durable record of an operator intent. Schema v3 exposes its Step
- * workflow while legacy records continue to expose only the compatibility execution.
- */
+/** An Operation is a Workflow: the durable record of an operator intent and its Steps. */
 export interface Operation {
   id: string;
   schemaVersion?: number;
@@ -195,18 +188,13 @@ export function operationStatus(operation: Operation): OperationStatus {
   return operation.status ?? operation.execution.status;
 }
 
-export function isOrchestrationOperation(operation: Operation): boolean {
-  return operation.schemaVersion === 3 && Array.isArray(operation.steps);
-}
-
 /** Whether a workflow can no longer advance without a new operator command. */
 export function isTerminalStatus(status: OperationStatus): boolean {
   return (
     status === "succeeded" ||
     status === "failed" ||
     status === "partially_succeeded" ||
-    status === "canceled" ||
-    status === "indeterminate"
+    status === "canceled"
   );
 }
 

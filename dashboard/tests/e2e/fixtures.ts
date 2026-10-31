@@ -92,8 +92,53 @@ function realizedConditions(generation: number): Server['status']['conditions'] 
 
 const servers = Array.from({ length: 4 }, (_, index) => makeServer(index))
 const operations = [
-  { id: 'op-running', kind: 'deploy-kubernetes', intent: 'Deploy production k0s platform', siteId: 'site-a', platformId: 'platform-a', targetServerIds: servers.slice(0, 3).map((server) => server.id), retryOfOperationId: null, execution: { runId: 'run-1024', playbook: 'deploy-k0s.yml', status: 'running', statusReason: null, startedAt: '2026-08-27T02:54:00Z', finishedAt: null }, requestedBy: 'admin', requestedAt: '2026-08-27T02:53:00Z', updatedAt: now },
-  { id: 'op-failed', kind: 'exporter.install', intent: 'Install GPU exporters', siteId: 'site-a', platformId: 'platform-a', targetServerIds: ['srv-4'], retryOfOperationId: null, execution: { runId: 'run-1023', playbook: 'install-exporters.yml', status: 'failed', statusReason: 'Host unreachable', startedAt: '2026-08-27T01:10:00Z', finishedAt: '2026-08-27T01:12:00Z' }, requestedBy: 'admin', requestedAt: '2026-08-27T01:09:00Z', updatedAt: '2026-08-27T01:12:00Z' },
+  {
+    id: 'op-running', schemaVersion: 3, kind: 'deploy-kubernetes',
+    intent: 'Deploy production k0s platform', intentSnapshot: {},
+    definition: 'platform-deployment', definitionVersion: 1,
+    status: 'running', statusReason: null,
+    startState: 'started', temporal: { workflowId: 'swallow-operation/op-running', runId: 'temporal-run-1024' },
+    siteId: 'site-a', platformId: 'platform-a',
+    targetResources: [{ kind: 'platform', id: 'platform-a' }, ...servers.slice(0, 3).map((server) => ({ kind: 'server', id: server.id }))],
+    targetServerIds: servers.slice(0, 3).map((server) => server.id), retryOfOperationId: null,
+    steps: [
+      {
+        id: 'install-platform', kind: 'ansible-playbook', name: 'Install k0s Platform', job: 'configure-k0s',
+        executor: 'ansible', dependsOn: [], targets: servers.slice(0, 3).map((server) => ({ kind: 'server', id: server.id })),
+        status: 'running', attempt: 1, progress: 0, error: null,
+        externalExecution: { provider: 'ansible-runner', id: 'run-1024', generation: 1 }, artifacts: [],
+        startedAt: '2026-08-27T02:54:00Z', finishedAt: null,
+      },
+    ],
+    leases: [], requestCorrelation: null,
+    execution: { runId: 'run-1024', playbook: 'ansible-playbook', status: 'running', statusReason: null, startedAt: '2026-08-27T02:54:00Z', finishedAt: null },
+    requestedBy: 'admin', requestedAt: '2026-08-27T02:53:00Z',
+    startedAt: '2026-08-27T02:54:00Z', finishedAt: null, updatedAt: now,
+  },
+  {
+    id: 'op-failed', schemaVersion: 3, kind: 'install-exporters',
+    intent: 'Install GPU exporters', intentSnapshot: {},
+    definition: 'ansible-operation', definitionVersion: 1,
+    status: 'failed', statusReason: 'Host unreachable',
+    startState: 'started', temporal: { workflowId: 'swallow-operation/op-failed', runId: 'temporal-run-1023' },
+    siteId: 'site-a', platformId: 'platform-a',
+    targetResources: [{ kind: 'platform', id: 'platform-a' }, { kind: 'server', id: 'srv-4' }],
+    targetServerIds: ['srv-4'], retryOfOperationId: null,
+    steps: [
+      {
+        id: 'ansible', kind: 'ansible-playbook', name: 'Run install-exporters',
+        executor: 'ansible', dependsOn: [], targets: [{ kind: 'server', id: 'srv-4' }],
+        status: 'failed', attempt: 1, progress: 0,
+        error: { code: 'ansible_failed', message: 'Host unreachable', retryable: true },
+        externalExecution: { provider: 'ansible-runner', id: 'run-1023', generation: 1 }, artifacts: [],
+        startedAt: '2026-08-27T01:10:00Z', finishedAt: '2026-08-27T01:12:00Z',
+      },
+    ],
+    leases: [], requestCorrelation: null,
+    execution: { runId: 'run-1023', playbook: 'ansible-playbook', status: 'failed', statusReason: 'Host unreachable', startedAt: '2026-08-27T01:10:00Z', finishedAt: '2026-08-27T01:12:00Z' },
+    requestedBy: 'admin', requestedAt: '2026-08-27T01:09:00Z',
+    startedAt: '2026-08-27T01:10:00Z', finishedAt: '2026-08-27T01:12:00Z', updatedAt: '2026-08-27T01:12:00Z',
+  },
   {
     id: 'op-deploy-failed', schemaVersion: 3, kind: 'deploy-kubernetes',
     intent: 'Deploy edge-staging k0s platform', intentSnapshot: {},
@@ -2253,7 +2298,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     // Models `cancelActiveWorkflows` (decision 061): the backend cancels every unfinished Operation
     // holding a target and accepts the request, or answers 409 naming one whose cancel it refused.
     const supersedeActiveOperations = (serverIds: string[]): string | null => {
-      const terminal = new Set(['succeeded', 'failed', 'partially_succeeded', 'canceled', 'indeterminate'])
+      const terminal = new Set(['succeeded', 'failed', 'partially_succeeded', 'canceled'])
       const holders = operationItems.filter((item) =>
         item.targetServerIds.some((serverId) => serverIds.includes(serverId)) &&
         !terminal.has(item.status ?? item.execution.status))
@@ -3076,7 +3121,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         const refused = supersedeActiveOperations(targets)
         if (refused) return json(route, { error: { code: 'conflict', message: refused, requestId: 'req-uninstall-busy' } }, 409)
       } else {
-        const terminal = new Set(['succeeded', 'failed', 'partially_succeeded', 'canceled', 'indeterminate'])
+        const terminal = new Set(['succeeded', 'failed', 'partially_succeeded', 'canceled'])
         const holder = operationItems.find((item) =>
           item.targetServerIds.some((serverId) => targets.includes(serverId)) && !terminal.has(item.status ?? item.execution.status))
         if (holder) {
@@ -3111,7 +3156,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const serverId = url.searchParams.get('serverId')
       const kind = url.searchParams.get('kind')
       const active = url.searchParams.get('active') === 'true'
-      const terminal = new Set(['succeeded', 'failed', 'partially_succeeded', 'canceled', 'indeterminate'])
+      const terminal = new Set(['succeeded', 'failed', 'partially_succeeded', 'canceled'])
       if (siteId) items = items.filter((item) => item.siteId === siteId)
       if (status) items = items.filter((item) => (item.status ?? item.execution.status) === status)
       if (platformId) items = items.filter((item) => item.platformId === platformId)
@@ -3186,17 +3231,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
       return json(route, rerun, 202)
     }
-    if (path === '/api/v1/operations') {
-      let items = [...operationItems]
-      const status = url.searchParams.get('status')
-      const platformId = url.searchParams.get('platformId')
-      const serverId = url.searchParams.get('serverId')
-      if (status) items = items.filter((item) => item.execution.status === status)
-      if (platformId) items = items.filter((item) => item.platformId === platformId)
-      if (serverId) items = items.filter((item) => item.targetServerIds.includes(serverId))
-      return json(route, { items, total: items.length, page: 1, pageSize: 30 })
-    }
-    const timelineMatch = path.match(/^\/api\/v1\/operations\/([^/]+)\/timeline$/)
+    const timelineMatch = path.match(/^\/api\/v1\/workflows\/([^/]+)\/timeline$/)
     if (timelineMatch) {
       return json(route, [{
         id: `timeline-${timelineMatch[1]}`,
@@ -3229,69 +3264,6 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
       return json(route, { operationId: cancelMatch[1] }, 202)
     }
-    const stepRetryMatch = path.match(/^\/api\/v1\/operations\/([^/]+)\/steps\/([^/]+)\/retry$/)
-    if (stepRetryMatch && request.method() === 'POST') {
-      const operation = operationItems.find((item) => item.id === stepRetryMatch[1]) as unknown as Record<string, unknown> | undefined
-      const steps = operation?.steps as Array<Record<string, unknown>> | undefined
-      const step = steps?.find((item) => item.id === stepRetryMatch[2])
-      if (!operation || !step) return json(route, { error: { code: 'not_found', message: 'Operation Step not found' } }, 404)
-      step.attempt = Number(step.attempt) + 1
-      step.status = 'pending'
-      step.progress = 0
-      step.error = null
-      step.finishedAt = null
-      operation.status = 'running'
-      operation.statusReason = 'Retrying the selected Step.'
-      operation.execution = {
-        ...(operation.execution as Record<string, unknown>),
-        status: 'running',
-        statusReason: 'Retrying the selected Step.',
-      }
-      operation.updatedAt = now
-      if (operation.kind === 'deploy-kubernetes') {
-        const platform = platformItems.find((item) => item.id === operation.platformId)
-        if (platform) {
-          platform.lifecycleState = 'deploying'
-          platform.updatedAt = now
-        }
-      }
-      return json(route, { operationId: stepRetryMatch[1], stepId: stepRetryMatch[2] }, 202)
-    }
-    const retryMatch = path.match(/^\/api\/v1\/operations\/([^/]+)\/retry$/)
-    if (retryMatch && request.method() === 'POST') {
-      const original = operationItems.find((item) => item.id === retryMatch[1])
-      if (!original) {
-        return json(route, { error: { code: 'not_found', message: 'Operation not found' } }, 404)
-      }
-      const isDeploymentRepair = original.kind === 'deploy-kubernetes'
-      const retry = {
-        ...original,
-        id: isDeploymentRepair ? 'op-repair' : 'op-retry',
-        retryOfOperationId: original.id,
-        execution: {
-          ...original.execution,
-          runId: isDeploymentRepair ? 'run-repair' : 'run-retry',
-          status: 'running',
-          statusReason: null,
-          startedAt: now,
-          finishedAt: null,
-        },
-        requestedAt: now,
-        updatedAt: now,
-      }
-      operationItems.unshift(retry)
-      if (isDeploymentRepair) {
-        const platform = platformItems.find((item) => item.id === original.platformId)
-        if (platform) {
-          platform.lifecycleState = 'deploying'
-          platform.lifecycleOperationId = retry.id
-          platform.updatedAt = now
-        }
-      }
-      return json(route, retry, 202)
-    }
-    const operationMatch = path.match(/^\/api\/v1\/operations\/([^/]+)$/)
-    if (operationMatch) return json(route, operationItems.find((item) => item.id === operationMatch[1]) ?? operationItems[0])
     return json(route, { error: { code: 'not_found', message: `No fixture for ${path}` } }, 404)
   })
 }

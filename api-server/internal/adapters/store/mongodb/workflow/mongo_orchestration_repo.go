@@ -68,7 +68,7 @@ func (r *MongoWorkflowRepo) FindByID(ctx context.Context, id string) (*workflowd
 	var operation workflowdomain.Workflow
 	err := r.operations.FindOne(ctx, bson.M{"_id": id, "schemaVersion": 4}).Decode(&operation)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		return nil, workflowdomain.ErrWorkflowNotV3
+		return nil, workflowdomain.ErrWorkflowNotFound
 	}
 	return &operation, err
 }

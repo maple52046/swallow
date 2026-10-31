@@ -1196,7 +1196,7 @@ test.describe('operator interactions', () => {
     await page.goto('/platforms/platform-a?site=site-a')
     await page.getByRole('button', { name: 'Uninstall platform', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
-    await expect(dialog.getByText(/the record is deleted only after the operation succeeds, and a failed, canceled, or indeterminate operation keeps it/)).toBeVisible()
+    await expect(dialog.getByText(/the record is deleted only after the operation succeeds, and a failed or canceled operation keeps it/)).toBeVisible()
     await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
     await dialog.getByLabel('Cancel these workflows, then uninstall').locator('..').click()
     // The variant sits behind the submit chevron, inside the dialog, and submits directly.
@@ -1419,8 +1419,8 @@ test.describe('operator interactions', () => {
 
     const running = table.getByRole('row', { name: /Deploy production k0s platform/ })
     await expect(running).toContainText('Deploying')
-    await expect(running).toContainText('deploy-k0s.yml')
-    await expect(running).toContainText('Legacy execution')
+    await expect(running).toContainText('Install k0s Platform')
+    await expect(running).toContainText('1 Task')
     await expect(running.getByRole('link', { name: 'View workflow' }))
       .toHaveAttribute('href', '/workflows/op-running?site=site-a')
 
@@ -1540,15 +1540,22 @@ test.describe('operator interactions', () => {
       }
       const succeeded = requests >= 4
       const status = succeeded ? 'succeeded' : 'running'
+      const finishedAt = succeeded ? '2026-08-27T03:05:00Z' : null
       const operation = {
-        id: 'op-polling', kind: 'custom', intent: 'Observe polling convergence',
+        id: 'op-polling', schemaVersion: 3, kind: 'custom', intent: 'Observe polling convergence',
+        status, statusReason: null, startState: 'started',
         siteId: 'site-a', platformId: null, targetServerIds: [], retryOfOperationId: null,
+        steps: [{
+          id: 'ansible', kind: 'ansible-playbook', name: 'Run observe', executor: 'ansible',
+          dependsOn: [], targets: [], status, attempt: 1, progress: 0, error: null,
+          externalExecution: null, artifacts: [], startedAt: '2026-08-27T03:00:00Z', finishedAt,
+        }],
         execution: {
-          runId: 'run-polling', playbook: 'observe.yml', status, statusReason: null,
-          startedAt: '2026-08-27T03:00:00Z', finishedAt: succeeded ? '2026-08-27T03:05:00Z' : null,
+          runId: 'run-polling', playbook: 'ansible-playbook', status, statusReason: null,
+          startedAt: '2026-08-27T03:00:00Z', finishedAt,
         },
         requestedBy: 'admin', requestedAt: '2026-08-27T02:59:00Z',
-        updatedAt: '2026-08-27T03:05:00Z',
+        startedAt: '2026-08-27T03:00:00Z', finishedAt, updatedAt: '2026-08-27T03:05:00Z',
       }
       await route.fulfill({
         status: 200,
@@ -1581,12 +1588,11 @@ test.describe('operator interactions', () => {
     expect(requests).toBe(5)
   })
 
-  test('AWX stdout is first and supports search, navigation, copy, download, events, and retry', async ({ page }) => {
+  test('Task stdout is first and supports search, navigation, copy, download, events, and retry', async ({ page }) => {
     await page.goto('/workflows?site=site-a')
     await page.getByRole('button', { name: 'Failed', exact: true }).click()
     await expect(page).toHaveURL(/status=failed/)
     await page.goto('/workflows/op-running?site=site-a')
-    await expect(page.getByText('Deploying', { exact: true }).first()).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Stdout' })).toHaveAttribute('aria-selected', 'true')
     await page.getByPlaceholder('Search stdout').fill('TASK')
     await expect(page.getByText('1 / 3')).toBeVisible()
@@ -1602,14 +1608,15 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('stdout copied', { exact: true })).toBeVisible()
     const download = page.waitForEvent('download')
     await page.getByLabel('Download stdout').click()
-    expect((await download).suggestedFilename()).toBe('swallow-operation-op-running-stdout.log')
+    expect((await download).suggestedFilename()).toBe('swallow-operation-op-running-install-platform-stdout.log')
     await page.getByRole('tab', { name: 'Events' }).click()
     await page.getByText('Errors only', { exact: true }).click()
     await expect(page.getByRole('button', { name: 'Start controller', exact: true })).toBeVisible()
     await expect(page.getByText('Gather facts', { exact: true })).toHaveCount(0)
     await page.goto('/workflows/op-failed?site=site-a')
-    await page.getByRole('button', { name: 'Retry' }).click()
-    await expect(page).toHaveURL('/workflows/op-retry?site=site-a')
+    await page.getByRole('button', { name: /^Retry / }).first().click()
+    await expect(page.getByText('Step retry requested', { exact: true })).toBeVisible()
+    await expect(page).toHaveURL('/workflows/op-failed?site=site-a')
   })
 
   test('Workflow Step events copy task names and explain failed hosts', async ({ page }) => {

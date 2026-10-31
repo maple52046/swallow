@@ -17,11 +17,9 @@ paths:
       operationId: createWorkflow
       summary: Accept a single-Task Ansible Workflow against Servers of one Site.
       description: >-
-        Requires the `admin` role. Persists the intent as a pending schema-v3 Workflow with one
-        `ansible-playbook` Task and returns 202 before Temporal starts it. The response is the
-        Workflow in the compatibility (Operation) shape, `LegacyOperation` with
-        `schemaVersion` 3, not the full `Workflow` projection; read `GET /api/v1/workflows/{id}`
-        for status, Tasks' live state, leases, and the Temporal reference.
+        Requires the `admin` role. Persists the intent as a pending Workflow with one
+        `ansible-playbook` Task and returns 202 with that Workflow before it starts; `leases` is
+        null until `GET /api/v1/workflows/{id}` reads them.
       requestBody:
         required: true
         content:
@@ -34,7 +32,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LegacyOperation'
+                $ref: '#/components/schemas/Workflow'
         '400':
           $ref: '#/components/responses/WorkflowCreateRejected'
         '401':
@@ -52,11 +50,10 @@ paths:
     get:
       tags: [workflows]
       operationId: listWorkflows
-      summary: List schema-v3 Workflows and schema-v2 history, newest first.
+      summary: List Workflows, newest first.
       description: >-
-        Requires the `admin` role. Merges schema-v3 Workflows and historical schema-v2 records,
-        sorted by `requestedAt` descending, then pages the merged list. Every filter is optional
-        and exact-match; `total` counts both schema versions.
+        Requires the `admin` role. Workflows sorted by `requestedAt` descending, paged. Every
+        filter is optional and exact-match.
       parameters:
         - $ref: '#/components/parameters/WorkflowSiteIdFilter'
         - $ref: '#/components/parameters/WorkflowPlatformIdFilter'
@@ -69,7 +66,7 @@ paths:
         - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
-          description: One page of the merged history.
+          description: One page of Workflows.
           content:
             application/json:
               schema:
@@ -86,18 +83,16 @@ paths:
     get:
       tags: [workflows]
       operationId: getWorkflow
-      summary: Read one Workflow, or one historical schema-v2 record.
+      summary: Read one Workflow.
       description: >-
-        Requires the `admin` role. A schema-v3 Workflow is returned as `Workflow`, including the
-        resources it currently owns; an ID that is only a schema-v2 record is returned as
-        `LegacyOperation` with `schemaVersion` 2.
+        Requires the `admin` role. The Workflow, including the resources it currently owns.
       responses:
         '200':
           description: The Workflow.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WorkflowOrLegacyOperation'
+                $ref: '#/components/schemas/Workflow'
         '401':
           $ref: '#/components/responses/Error'
         '403':
@@ -114,8 +109,7 @@ paths:
       operationId: getWorkflowTimeline
       summary: Read a Workflow's normalized, immutable state-transition events.
       description: >-
-        Requires the `admin` role. Events are ordered by `createdAt`, then ID. A schema-v2
-        record has no timeline and is `not_found`.
+        Requires the `admin` role. Events are ordered by `createdAt`, then ID.
       responses:
         '200':
           description: The timeline; an empty array when nothing has been recorded.
@@ -130,7 +124,7 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
-          $ref: '#/components/responses/WorkflowV3NotFound'
+          $ref: '#/components/responses/WorkflowNotFound'
         default:
           $ref: '#/components/responses/Error'
   /api/v1/workflows/{id}/cancel:
@@ -156,7 +150,7 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
-          $ref: '#/components/responses/WorkflowV3NotFound'
+          $ref: '#/components/responses/WorkflowNotFound'
         '409':
           $ref: '#/components/responses/WorkflowControlConflict'
         default:
@@ -187,7 +181,7 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
-          $ref: '#/components/responses/WorkflowV3NotFound'
+          $ref: '#/components/responses/WorkflowNotFound'
         '409':
           $ref: '#/components/responses/WorkflowRerunConflict'
         default:
@@ -327,9 +321,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
 
-  # Deprecated /operations alias (operations.md): the same handlers, plus the schema-v2
-  # operation-level logs, events, and retry. Successful responses carry the Deprecation and
-  # Link headers.
+  # Deprecated /operations alias (operations.md): the same handlers. Successful responses carry
+  # the Deprecation and Link headers.
   /api/v1/operations:
     post:
       tags: [workflows]
@@ -354,7 +347,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LegacyOperation'
+                $ref: '#/components/schemas/Workflow'
         '400':
           $ref: '#/components/responses/WorkflowCreateRejected'
         '401':
@@ -387,7 +380,7 @@ paths:
         - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
-          description: One page of the merged history.
+          description: One page of Workflows.
           headers:
             Deprecation:
               $ref: '#/components/headers/Deprecation'
@@ -423,7 +416,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WorkflowOrLegacyOperation'
+                $ref: '#/components/schemas/Workflow'
         '401':
           $ref: '#/components/responses/Error'
         '403':
@@ -460,7 +453,7 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
-          $ref: '#/components/responses/WorkflowV3NotFound'
+          $ref: '#/components/responses/WorkflowNotFound'
         default:
           $ref: '#/components/responses/Error'
   /api/v1/operations/{id}/cancel:
@@ -489,7 +482,7 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
-          $ref: '#/components/responses/WorkflowV3NotFound'
+          $ref: '#/components/responses/WorkflowNotFound'
         '409':
           $ref: '#/components/responses/WorkflowControlConflict'
         default:
@@ -522,7 +515,7 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
-          $ref: '#/components/responses/WorkflowV3NotFound'
+          $ref: '#/components/responses/WorkflowNotFound'
         '409':
           $ref: '#/components/responses/WorkflowRerunConflict'
         default:
@@ -681,132 +674,7 @@ paths:
           $ref: '#/components/responses/WorkflowTaskNotFound'
         default:
           $ref: '#/components/responses/Error'
-  /api/v1/operations/{id}/logs:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-    get:
-      tags: [workflows]
-      operationId: getOperationLogsViaDeprecatedAlias
-      summary: Read a schema-v2 record's retained runner output (deprecated path only).
-      deprecated: true
-      description: >-
-        Requires the `admin` role. UTF-8 plain text of the run's output, empty when nothing was
-        retained. A schema-v3 Workflow exposes logs per Task instead and is `conflict` here.
-      responses:
-        '200':
-          description: The runner output.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            text/plain:
-              schema:
-                type: string
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/OperationV2NotFound'
-        '409':
-          description: A schema-v3 Workflow, which exposes this per Task instead (`conflict`).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/operations/{id}/events:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-    get:
-      tags: [workflows]
-      operationId: getOperationEventsViaDeprecatedAlias
-      summary: Read a schema-v2 record's per-host Ansible results (deprecated path only).
-      deprecated: true
-      description: >-
-        Requires the `admin` role. `status` is the schema-v2 run status. A schema-v3 Workflow
-        exposes events per Task instead and is `conflict` here.
-      responses:
-        '200':
-          description: The per-host results and their counts.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WorkflowTaskEvents'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/OperationV2NotFound'
-        '409':
-          description: A schema-v3 Workflow, which exposes this per Task instead (`conflict`).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/operations/{id}/retry:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-    post:
-      tags: [workflows]
-      operationId: retryOperationViaDeprecatedAlias
-      summary: Repeat a finished schema-v2 record as a new Workflow (deprecated path only).
-      deprecated: true
-      description: >-
-        Requires the `admin` role. Creates a new schema-v3 Workflow with the original's kind,
-        targets, Platform, playbook, and carried variables, linked through
-        `retryOfOperationId`; the original is unchanged. Accepted only for a finished schema-v2
-        record. A schema-v3 Workflow is `conflict`: retry one of its Tasks or rerun it instead.
-        The new Workflow passes the same checks as `createWorkflow`, with the same error cases.
-      responses:
-        '202':
-          description: The new Workflow was persisted and starts asynchronously.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LegacyOperation'
-        '400':
-          description: >-
-            The schema-v2 record has not finished, or the new Workflow failed a `createWorkflow`
-            validation (`validation_error`).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/WorkflowCreateTargetNotFound'
-        '409':
-          description: >-
-            The ID is a schema-v3 Workflow, or the new Workflow conflicts as in `createWorkflow`
-            (`conflict`).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/WorkflowCreateAutomationUnavailable'
-        default:
-          $ref: '#/components/responses/Error'
+
 components:
   parameters:
     WorkflowId:
@@ -814,8 +682,7 @@ components:
       in: path
       required: true
       description: >-
-        The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record
-        where they say so.
+        The Workflow ID.
       schema:
         type: string
     WorkflowTaskId:
@@ -873,9 +740,7 @@ components:
       in: query
       required: false
       description: >-
-        Only Workflows in this status: a `WorkflowStatus` for schema-v3 Workflows, or a
-        schema-v2 run status (`pending | running | succeeded | failed | canceled |
-        indeterminate`) for historical records.
+        Only Workflows in this `WorkflowStatus`.
       schema:
         type: string
     WorkflowActiveFilter:
@@ -889,22 +754,14 @@ components:
         type: string
   responses:
     WorkflowNotFound:
-      description: No Workflow or schema-v2 record has this ID (`not_found`).
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-    WorkflowV3NotFound:
-      description: >-
-        No schema-v3 Workflow has this ID (`not_found`); a historical schema-v2 record has no
-        timeline, controls, or Tasks here.
+      description: No Workflow has this ID (`not_found`).
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     WorkflowTaskNotFound:
       description: >-
-        No schema-v3 Workflow has this ID, or it has no Task with this ID (`not_found`).
+        No Workflow has this ID, or it has no Task with this ID (`not_found`).
       content:
         application/json:
           schema:
@@ -936,13 +793,6 @@ components:
         The Workflow succeeded or is still advancing (`pending`, `running`, `waiting_external`,
         `waiting_dependency`, `canceling`), or a target became busy with other work
         (`conflict`).
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-    OperationV2NotFound:
-      description: >-
-        No schema-v2 record or schema-v3 Workflow has this ID (`not_found`).
       content:
         application/json:
           schema:
@@ -1025,7 +875,7 @@ components:
     WorkflowStatus:
       type: string
       description: >-
-        The canonical status of a schema-v3 Workflow. `succeeded`, `failed`,
+        The canonical status of a Workflow. `succeeded`, `failed`,
         `partially_succeeded`, and `canceled` are terminal; `requires_attention` waits for an
         operator.
       enum:
@@ -1093,7 +943,7 @@ components:
     Workflow:
       type: object
       description: >-
-        The canonical projection of a schema-v3 Workflow: its frozen intent, status, Tasks
+        The canonical projection of a Workflow: its frozen intent, status, Tasks
         (still serialized as `steps[]`), and Temporal correlation. Credential, cloud-init, and
         other secret values never appear: sensitive keys are removed from `intentSnapshot`, and
         Task parameters and secret references are not part of the projection.
@@ -1226,92 +1076,15 @@ components:
           $ref: '#/components/schemas/Timestamp'
         execution:
           $ref: '#/components/schemas/WorkflowExecutionSummary'
-    LegacyOperation:
-      type: object
-      description: >-
-        A Workflow in the former Operation (schema-v2) shape. Returned for historical schema-v2
-        records (`schemaVersion` 2, with one synthetic Task) and as the acceptance response of
-        create and of the deprecated schema-v2 retry (`schemaVersion` 3). It carries no
-        Workflow status of its own; `execution.status` is the compatibility status.
-      required:
-        - schemaVersion
-        - steps
-        - id
-        - kind
-        - intent
-        - siteId
-        - platformId
-        - clusterId
-        - targetServerIds
-        - retryOfOperationId
-        - execution
-        - requestedBy
-        - requestedAt
-        - updatedAt
-      properties:
-        schemaVersion:
-          type: integer
-          enum: [2, 3]
-        steps:
-          type: array
-          nullable: true
-          description: >-
-            The Tasks. A schema-v2 record has exactly one synthetic `ansible-playbook` Task with
-            ID `ansible`.
-          items:
-            $ref: '#/components/schemas/WorkflowTask'
-        id:
-          type: string
-        kind:
-          type: string
-          description: >-
-            A `WorkflowKind`. Historical schema-v2 records keep the kind they were accepted
-            with.
-        intent:
-          type: string
-          description: Operator-facing summary; may be empty.
-        siteId:
-          type: string
-        platformId:
-          type: string
-          nullable: true
-        clusterId:
-          type: string
-          nullable: true
-          deprecated: true
-          description: Deprecated alias; always equal to `platformId`.
-        targetServerIds:
-          type: array
-          nullable: true
-          items:
-            type: string
-        retryOfOperationId:
-          type: string
-          nullable: true
-        execution:
-          $ref: '#/components/schemas/WorkflowExecutionSummary'
-        requestedBy:
-          type: string
-        requestedAt:
-          $ref: '#/components/schemas/Timestamp'
-        updatedAt:
-          $ref: '#/components/schemas/Timestamp'
-    WorkflowOrLegacyOperation:
-      description: >-
-        A schema-v3 `Workflow`, or a historical schema-v2 record as `LegacyOperation`
-        (`schemaVersion` 2).
-      oneOf:
-        - $ref: '#/components/schemas/Workflow'
-        - $ref: '#/components/schemas/LegacyOperation'
     WorkflowPage:
       type: object
-      description: The pagination envelope (conventions.md, Pagination) over the merged history.
+      description: The pagination envelope (conventions.md, Pagination) over Workflows.
       required: [items, total, page, pageSize]
       properties:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/WorkflowOrLegacyOperation'
+            $ref: '#/components/schemas/Workflow'
         total:
           type: integer
         page:
@@ -1322,8 +1095,7 @@ components:
       type: object
       description: >-
         The compatibility `execution` projection for clients written against Operation v2. It
-        must not be used to infer Task state. For a schema-v3 Workflow, `status` repeats the
-        Workflow status; `runId` is the single Task's external execution ID when the Workflow
+        must not be used to infer Task state. `status` repeats the Workflow status; `runId` is the single Task's external execution ID when the Workflow
         has exactly one Task that started, and the Temporal run ID otherwise; and `playbook` is
         the single Task's kind (not a playbook name), empty for a multi-Task Workflow.
       required: [runId, playbook, status, statusReason, startedAt, finishedAt]
@@ -1334,7 +1106,7 @@ components:
           type: string
         status:
           type: string
-          description: A `WorkflowStatus`, or `indeterminate` for a schema-v2 run whose outcome cannot be proven.
+          description: The Workflow's `WorkflowStatus`.
           enum:
             - pending
             - running
@@ -1346,7 +1118,6 @@ components:
             - partially_succeeded
             - canceled
             - requires_attention
-            - indeterminate
         statusReason:
           type: string
           nullable: true
@@ -1443,8 +1214,7 @@ components:
           type: array
           nullable: true
           description: >-
-            IDs of the Tasks this one waits for. An array on every schema-v3 Workflow; null only
-            on the synthetic Task of a schema-v2 record.
+            IDs of the Tasks this one waits for; null or empty when it waits for none.
           items:
             type: string
         continueOn:
@@ -1501,7 +1271,7 @@ components:
       properties:
         code:
           type: string
-          description: Machine-readable failure code, for example `legacy_ansible_failed`.
+          description: Machine-readable failure code, for example `ansible_failed`.
         message:
           type: string
         retryable:
@@ -1621,8 +1391,7 @@ components:
         status:
           type: string
           description: >-
-            The Task's status, or, on the deprecated schema-v2 events endpoint, the schema-v2
-            run status.
+            The Task's status.
           enum:
             - pending
             - running
@@ -1633,7 +1402,6 @@ components:
             - canceled
             - skipped
             - requires_attention
-            - indeterminate
         okCount:
           type: integer
         changedCount:

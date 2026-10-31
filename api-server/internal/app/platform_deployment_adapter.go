@@ -75,8 +75,8 @@ const (
 	jobFinalizeUninstall = "finalize-uninstall"
 )
 
-// platformDeploymentLauncher composes optional MAAS preparation and k0s automation into
-// one durable Operation while retaining the legacy launcher for unavailable Temporal.
+// platformDeploymentLauncher composes optional MAAS preparation and the platform automation into
+// one durable Workflow.
 type platformDeploymentLauncher struct {
 	operations     *workflowapp.ExecutionService
 	orchestrations *workflowapp.WorkflowService
@@ -96,16 +96,13 @@ type platformDeploymentLauncher struct {
 
 // preparedPlatformDeployment is the plan the platform launchers' prepare steps return
 // (platformdomain.PreparedWorkflow): the complete durable Workflow, with the Software Assignments
-// a Slurm deployment composes, or, for a deployment without durable orchestration, the legacy
-// single-step Operation. Only the launcher that prepared it persists it.
+// a Slurm deployment composes. Only the launcher that prepared it persists it.
 type preparedPlatformDeployment struct {
 	workflow workflowapp.CreateWorkflowInput
 	composed composedPlan
-	// legacy is set instead of workflow when durable orchestration is unavailable.
-	legacy *workflowapp.CreateExecutionInput
 }
 
-// OperationID is the preassigned Workflow id; the legacy path learns its id only when persisted.
+// OperationID is the preassigned Workflow id.
 func (p *preparedPlatformDeployment) OperationID() string { return p.workflow.ID }
 
 // PrepareDeployment plans the durable Operation that deploys a Platform (see
@@ -130,13 +127,6 @@ func (l platformDeploymentLauncher) PersistDeployment(ctx context.Context, prepa
 	if !ok || plan == nil {
 		return "", fmt.Errorf("persist platform deployment: plan %T was not prepared by this launcher", prepared)
 	}
-	if plan.legacy != nil {
-		item, err := l.operations.Create(ctx, *plan.legacy)
-		if err != nil {
-			return "", err
-		}
-		return item.ID, nil
-	}
 	created, err := l.orchestrations.Create(ctx, plan.workflow)
 	if err != nil {
 		return "", err
@@ -154,25 +144,12 @@ func (l platformDeploymentLauncher) PersistDeployment(ctx context.Context, prepa
 
 // prepareKubernetes plans the k0s deployment: the ensure-os Job, the install and health-validation
 // Tasks, and the optional GPU Operator Job, under the Workflow id the deploy use case preassigned.
-// Without durable orchestration it plans the legacy single-step Operation instead, which supports
-// neither OS provisioning nor the GPU Operator.
 func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launch platformdomain.DeploymentLaunch) (*preparedPlatformDeployment, error) {
+	if l.orchestrations == nil {
+		return nil, fmt.Errorf("durable Kubernetes deployment is unavailable")
+	}
 	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
 	launch.TrustedVars = l.ntp.withCheckVars(launch.TrustedVars, launch.TimeSyncCheck)
-	if l.orchestrations == nil {
-		if provisionFirst {
-			return nil, fmt.Errorf("durable Platform provisioning is unavailable")
-		}
-		if launch.GPUOperatorVars != nil {
-			return nil, fmt.Errorf("durable GPU Operator installation is unavailable")
-		}
-		return &preparedPlatformDeployment{legacy: &workflowapp.CreateExecutionInput{
-			Kind: deployKubernetesKind, Intent: "Deploy k0s platform " + launch.Platform.Name,
-			TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
-			TrustedVars: launch.TrustedVars, SecretVars: launch.SecretVars,
-			RequestedBy: launch.RequestedBy,
-		}}, nil
-	}
 
 	operationID := launch.OperationID
 	if operationID == "" {
@@ -236,8 +213,7 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 // mode) and then runs the hardcoded deploy-slurm playbook. Unlike k0s it adds no internal
 // validate-platform-health Task: the deployed reader integration only exists once the
 // install step's result is recorded, so cluster validation lives in the playbook itself and
-// membership is filled in by the background sync. Durable orchestration is required; there is
-// no legacy single-step Slurm path. With the container runtime or Omnistat feature (decision 063)
+// membership is filled in by the background sync. With the container runtime or Omnistat feature (decision 063)
 // the Workflow also carries the composed software Jobs and the configure-omnistat Job after
 // install-platform, under the Workflow id the deploy use case preassigned for the Omnistat
 // record's fence. The composed Software Assignments are written by PersistDeployment.
@@ -668,27 +644,7 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 		deletePlatformRecordVar: launch.DeleteRecord,
 	}
 	if l.orchestrations == nil {
-		// Server release is a multi-step durable operation; without Temporal we can only
-		// run the legacy single-step uninstall, so reject a release request rather than
-		// silently dropping it. Superseding running work needs the durable leases too.
-		if launch.ReleaseServers {
-			return "", fmt.Errorf("durable Platform uninstall is unavailable; releasing servers requires it")
-		}
-		if launch.CancelActiveWorkflows {
-			return "", fmt.Errorf("durable Platform uninstall is unavailable; canceling active Workflows requires it")
-		}
-		item, err := l.operations.Create(ctx, workflowapp.CreateExecutionInput{
-			Kind: uninstallKind, Intent: intent,
-			TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
-			PlaybookName:       uninstallPlaybook,
-			TrustedVars:        trustedVars,
-			RetryOfOperationID: launch.RetryOfOperationID,
-			RequestedBy:        launch.RequestedBy,
-		})
-		if err != nil {
-			return "", err
-		}
-		return item.ID, nil
+		return "", fmt.Errorf("durable Platform uninstall is unavailable")
 	}
 
 	operationID := uuid.NewString()
@@ -796,78 +752,6 @@ type platformDeploymentObserver struct {
 	platforms   *platformapp.PlatformService
 	operations  *workflowapp.ExecutionService
 	servers     serverdomain.ServerRepository
-}
-
-func (o platformDeploymentObserver) OperationSucceeded(
-	ctx context.Context,
-	operation *workflowdomain.ExecutionOperation,
-	result workflowdomain.RunnerResult,
-) {
-	if operation.PlatformID == "" {
-		return
-	}
-	switch operation.Kind {
-	case workflowdomain.WorkflowKindDeployKubernetes:
-		o.completeDeployment(ctx, operation, result)
-	case workflowdomain.WorkflowKindConfigureSlurm:
-		o.completeSlurmDeployment(ctx, operation, result)
-	case workflowdomain.WorkflowKindUninstallKubernetes, workflowdomain.WorkflowKindUninstallSlurm:
-		o.completeUninstall(ctx, operation)
-	}
-}
-
-func (o platformDeploymentObserver) completeDeployment(
-	ctx context.Context,
-	operation *workflowdomain.ExecutionOperation,
-	result workflowdomain.RunnerResult,
-) {
-	credential := platformCredentialFromResult(result)
-	if credential == nil {
-		slog.Error("platform deployment succeeded but returned no credential",
-			"operationId", operation.ID, "platformId", operation.PlatformID)
-		return
-	}
-	if err := o.credentials.Record(ctx, operation.PlatformID, *credential); err != nil {
-		slog.Error("record platform deployment credential",
-			"operationId", operation.ID, "platformId", operation.PlatformID, "error", err)
-	}
-}
-
-// completeSlurmDeployment records the slurmrestd reader credential a successful Slurm
-// deployment wrote to its result file, turning the platform into one swallow can read
-// membership from. A missing credential is logged rather than fatal here because the
-// operation has already succeeded; the install Task's credential completion is the path that
-// fails the Task when no credential is produced.
-func (o platformDeploymentObserver) completeSlurmDeployment(
-	ctx context.Context,
-	operation *workflowdomain.ExecutionOperation,
-	result workflowdomain.RunnerResult,
-) {
-	credential := slurmCredentialFromResult(result)
-	if credential == nil {
-		// Not an error: a Slurm cluster works without slurmrestd; membership simply cannot be
-		// read until the image includes slurm-smd-slurmrestd. See the slurm-credential completion.
-		slog.Warn("slurm deployment produced no reader credential; membership will not populate until slurmrestd is available",
-			"operationId", operation.ID, "platformId", operation.PlatformID)
-		return
-	}
-	if err := o.credentials.RecordSlurm(ctx, operation.PlatformID, *credential); err != nil {
-		slog.Error("record slurm deployment credential",
-			"operationId", operation.ID, "platformId", operation.PlatformID, "error", err)
-	}
-}
-
-func (o platformDeploymentObserver) completeUninstall(
-	ctx context.Context,
-	operation *workflowdomain.ExecutionOperation,
-) {
-	deleteRecord, _ := operation.ExtraVars[deletePlatformRecordVar].(bool)
-	if err := o.platforms.CompleteUninstall(ctx, operation.PlatformID, deleteRecord); err != nil {
-		slog.Error("complete platform uninstall projections",
-			"operationId", operation.ID, "platformId", operation.PlatformID, "error", err)
-		return
-	}
-	o.restoreExporters(ctx, operation)
 }
 
 func (o platformDeploymentObserver) restoreExporters(ctx context.Context, operation *workflowdomain.ExecutionOperation) {
@@ -999,8 +883,7 @@ func stringField(data map[string]any, key string) string {
 
 // finishUninstall finishes a platform uninstall whose playbook succeeded: it removes the
 // Platform's swallow-owned state (and the record when the request asked for it) and restores the
-// exporters the uninstall removed. Unlike completeUninstall, which serves the schema-v2 path, it
-// returns the failure so the Task fails and can be retried.
+// exporters the uninstall removed. It returns the failure so the Task fails and can be retried.
 func (o platformDeploymentObserver) finishUninstall(ctx context.Context, operation *workflowdomain.ExecutionOperation) error {
 	// An uninstall accepted before deleteRecord existed has no such var and keeps the record.
 	deleteRecord, _ := operation.ExtraVars[deletePlatformRecordVar].(bool)

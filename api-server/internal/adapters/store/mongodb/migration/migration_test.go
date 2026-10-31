@@ -171,11 +171,9 @@ func TestMigrateV2ToV3_RenamesAndRewrites(t *testing.T) {
 	if got := count(t, ctx, db.Collection("servers"), bson.M{"membership.clusterId": bson.M{"$exists": true}}); got != 0 {
 		t.Errorf("legacy membership.clusterId still present")
 	}
-	if got := count(t, ctx, db.Collection("operations"), bson.M{"platformId": "platform-1"}); got != 1 {
-		t.Errorf("operation platformId not rewritten")
-	}
-	if got := count(t, ctx, db.Collection("operations"), bson.M{"clusterId": bson.M{"$exists": true}}); got != 0 {
-		t.Errorf("legacy operation clusterId still present")
+	// The operation v3 rewrote is a schema-v2 record, which v10 drops with its indexes.
+	if names, _ := db.ListCollectionNames(ctx, bson.M{"name": "operations"}); len(names) != 0 {
+		t.Errorf("operations collection still present after v10")
 	}
 	if got := count(t, ctx, db.Collection("integrations"), bson.M{"kind": "platform"}); got != 1 {
 		t.Errorf("integration kind not rewritten to platform")
@@ -191,10 +189,6 @@ func TestMigrateV2ToV3_RenamesAndRewrites(t *testing.T) {
 	serverIdx := indexNames(t, ctx, db.Collection("servers"))
 	if !serverIdx["membership_platform"] || serverIdx["membership_cluster"] {
 		t.Errorf("server indexes not renamed: %v", serverIdx)
-	}
-	operationIdx := indexNames(t, ctx, db.Collection("operations"))
-	if !operationIdx["execution_platform_lifecycle"] || operationIdx["execution_cluster_lifecycle"] {
-		t.Errorf("operation indexes not renamed: %v", operationIdx)
 	}
 }
 
@@ -504,5 +498,43 @@ func TestMigrateV7ToV8_MovesOSImageOverlaysToMetadata(t *testing.T) {
 	}
 	if names, _ := db.ListCollectionNames(ctx, bson.M{"name": "os_image_overlays"}); len(names) != 0 {
 		t.Errorf("os_image_overlays still exists")
+	}
+}
+
+// TestMigrateV9ToV10_DropsTheSchemaV2Operations verifies v10 refuses to run without a backup
+// confirmation, then drops `operations` and leaves the Workflows alone.
+func TestMigrateV9ToV10_DropsTheSchemaV2Operations(t *testing.T) {
+	db := testDatabase(t)
+	ctx := ctxFor(t)
+	if _, err := db.Collection("operations").InsertOne(ctx, bson.M{"_id": "op-v2", "schemaVersion": 2, "terminal": true}); err != nil {
+		t.Fatalf("seed operations: %v", err)
+	}
+	if _, err := db.Collection("workflows").InsertOne(ctx, bson.M{"_id": "wf-1", "schemaVersion": 4}); err != nil {
+		t.Fatalf("seed workflows: %v", err)
+	}
+	if _, err := db.Collection("schema_metadata").InsertOne(ctx, bson.M{
+		"_id": "database", "version": 9, "updatedAt": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed schema marker: %v", err)
+	}
+
+	if err := Migrate(ctx, db); err == nil {
+		t.Fatal("Migrate without backup confirmation should fail")
+	}
+	if got := count(t, ctx, db.Collection("operations"), bson.M{}); got != 1 || schemaVersion(t, ctx, db) != 9 {
+		t.Fatalf("the refused migration changed the database: operations=%d schema=%d", got, schemaVersion(t, ctx, db))
+	}
+
+	if err := Migrate(ctx, db, true); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if names, _ := db.ListCollectionNames(ctx, bson.M{"name": "operations"}); len(names) != 0 {
+		t.Errorf("operations still exists")
+	}
+	if got := count(t, ctx, db.Collection("workflows"), bson.M{}); got != 1 {
+		t.Errorf("workflows = %d, want the Workflow kept", got)
+	}
+	if got := schemaVersion(t, ctx, db); got != 10 {
+		t.Errorf("schema version = %d, want 10", got)
 	}
 }

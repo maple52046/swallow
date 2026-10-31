@@ -3,7 +3,7 @@ import { Badge, Button, HStack, Table, Tabs, Text } from '@chakra-ui/react'
 import { ChartLine, ExternalLink, RefreshCw } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
-import { isOrchestrationOperation, type Operation } from '@/domain/operation/types'
+import type { Operation } from '@/domain/operation/types'
 import { formatGPUDriverModuleOptions } from '@/domain/platform/gpuDriver'
 import type { DeviceMetricsExporterState, ObservabilityInstallMethod, OmnistatState, Platform } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -505,13 +505,10 @@ function LifecycleNotice({
  * shared by both deployment kinds.
  */
 function deploymentFailureMessage(operation?: Operation): string {
-  if (!operation || !isOrchestrationOperation(operation)) {
+  if (!operation) {
     return 'Review the automation details, then use Repair deployment to rerun the original configuration.'
   }
   const failedStep = operation.steps?.find((step) => step.status === 'failed' || step.status === 'requires_attention')
-  if (failedStep?.kind === 'wait-for-ssh') {
-    return `${failedStep.error?.message ?? 'SSH readiness verification failed.'} This older Operation can only recheck SSH; it cannot repair a missing provider address or redeploy the operating system. Correct the provider network state first, or release and redeploy the affected Server.`
-  }
   const installStep = operation.steps?.find((step) => step.id === 'install-platform')
   if (installStep && (installStep.status === 'pending' || installStep.status === 'skipped')) {
     const reason = failedStep?.error?.message ?? 'Machine preparation did not complete.'

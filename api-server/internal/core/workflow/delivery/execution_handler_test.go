@@ -59,7 +59,7 @@ func TestPutAutomationCredential(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &recordingAutomationRepo{}
-			handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(repo, nil, nil))
+			handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(repo, nil, nil), nil)
 			app := fiber.New()
 			app.Use(apicontract.ResponseValidator(t))
 			app.Put("/api/v1/sites/:id/automation/credential", handler.PutAutomationCredential)
@@ -111,7 +111,7 @@ type contractWorkflowRepo struct {
 func (r *contractWorkflowRepo) FindByID(_ context.Context, id string) (*workflowdomain.Workflow, error) {
 	workflow, ok := r.workflows[id]
 	if !ok {
-		return nil, workflowdomain.ErrWorkflowNotV3
+		return nil, workflowdomain.ErrWorkflowNotFound
 	}
 	return workflow, nil
 }
@@ -187,37 +187,6 @@ func (contractSecrets) CloneForOperation(context.Context, string, string) (map[s
 	return map[string]string{}, nil
 }
 
-// contractExecutionRepo serves historical schema-v2 records; none of their targets is busy.
-type contractExecutionRepo struct {
-	workflowdomain.ExecutionRepository
-	operations map[string]*workflowdomain.ExecutionOperation
-}
-
-func (r *contractExecutionRepo) FindByID(_ context.Context, id string) (*workflowdomain.ExecutionOperation, error) {
-	operation, ok := r.operations[id]
-	if !ok {
-		return nil, workflowdomain.ErrWorkflowNotFound
-	}
-	return operation, nil
-}
-
-func (r *contractExecutionRepo) List(context.Context, workflowdomain.ExecutionListFilter) (workflowdomain.ExecutionListResult, error) {
-	result := workflowdomain.ExecutionListResult{}
-	for _, operation := range r.operations {
-		result.Operations = append(result.Operations, operation)
-	}
-	result.Total = len(result.Operations)
-	return result, nil
-}
-
-func (r *contractExecutionRepo) FindActiveByServerIDs(context.Context, []string) ([]*workflowdomain.ExecutionOperation, error) {
-	return nil, nil
-}
-
-func (r *contractExecutionRepo) SecretVars(context.Context, string) (map[string]any, error) {
-	return nil, nil
-}
-
 // contractServers places every Server in site-1 with no provisioning state, which the custom kind
 // accepts.
 type contractServers struct {
@@ -264,12 +233,11 @@ func (r contractRunner) Events(context.Context, string) ([]workflowdomain.TaskEv
 
 // newWorkflowContractHandler builds an ExecutionHandler over fresh fakes holding a running
 // schema-v3 Workflow (wf-running: an ansible Task mid-run with a retryable error, live progress,
-// and an artifact, plus Tasks of the other Runners), a failed one (wf-failed), and an
-// indeterminate schema-v2 record (op-legacy). Nullable and omitted-when-empty fields appear both
-// set and unset across the fixtures, so the validator sees every shape a consumer can receive;
+// and an artifact, plus Tasks of the other Runners) and a failed one (wf-failed). Nullable and
+// omitted-when-empty fields appear both set and unset across the fixtures, so the validator sees every shape a consumer can receive;
 // Task parameters, secret references, and an artifact's relative key are set too, and the closed
 // response schemas fail the test if any of them is ever emitted. Every call returns independent
-// state because Create, Rerun, and Retry write to the store.
+// state because Create, Rerun, and Task retry write to the store.
 func newWorkflowContractHandler() *ExecutionHandler {
 	now := time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)
 	started := now.Add(time.Minute)
@@ -345,17 +313,6 @@ func newWorkflowContractHandler() *ExecutionHandler {
 		RetryOfOperationID: "wf-older", RequestedBy: "admin",
 		RequestedAt: now, StartedAt: &started, FinishedAt: &finished, UpdatedAt: finished,
 	}
-	legacy := &workflowdomain.ExecutionOperation{
-		ID: "op-legacy", Kind: workflowdomain.WorkflowKindCustom, Intent: "verify SSH connectivity",
-		SiteID: "site-1", TargetServerIDs: []string{"server-3"},
-		ExtraVars: map[string]any{"swallow_operation_id": "op-legacy", "probe": true},
-		Execution: workflowdomain.Execution{
-			RunID: "legacy-run", Playbook: "diagnostic-ping", Status: workflowdomain.StatusIndeterminate,
-			StatusReason: "The API stopped while the run held its lease.", StartedAt: &started,
-		},
-		RequestedBy: "admin", RequestedAt: now.Add(-time.Hour), UpdatedAt: now,
-	}
-
 	workflows := &contractWorkflowRepo{
 		workflows: map[string]*workflowdomain.Workflow{running.ID: running, failed.ID: failed},
 		timeline: []workflowdomain.TimelineEvent{
@@ -376,7 +333,6 @@ func newWorkflowContractHandler() *ExecutionHandler {
 		{Play: "Install k0s", Task: "Start k0s", Host: "server-1", Status: "failed"},
 	}}
 	operations := application.NewExecutionService(
-		&contractExecutionRepo{operations: map[string]*workflowdomain.ExecutionOperation{legacy.ID: legacy}},
 		contractServers{}, contractAutomation{}, contractCatalog{}, runner, nil, nil,
 	)
 	operations.AttachWorkflow(orchestrations)
@@ -422,14 +378,11 @@ func newWorkflowContractApp(t *testing.T, handler *ExecutionHandler) *fiber.App 
 	operations.Get("/:id/steps/:stepId/stderr", handler.StepStderr)
 	operations.Get("/:id/steps/:stepId/events", handler.StepEvents)
 	operations.Get("/:id/steps/:stepId/artifacts", handler.StepArtifacts)
-	operations.Get("/:id/logs", handler.Logs)
-	operations.Get("/:id/events", handler.Events)
-	operations.Post("/:id/retry", handler.Retry)
 	return app
 }
 
 // TestWorkflowRoutesMatchTheContract drives every Workflow route, on the canonical surface and the
-// deprecated alias, through each response shape it can produce (schema-v3 and schema-v2 records,
+// deprecated alias, through each response shape it can produce (running and finished Workflows,
 // text and JSON diagnostics, accepted controls, and the documented error statuses). The contract
 // validator fails the test when a response carries an undocumented status, Content-Type, or
 // property, which is how the workflows contract is kept equal to what the handlers emit.
@@ -443,16 +396,15 @@ func TestWorkflowRoutesMatchTheContract(t *testing.T) {
 		body       string
 		wantStatus int
 	}{
-		{name: "create returns the compatibility shape", method: http.MethodPost, path: "/api/v1/workflows", body: customBody, wantStatus: http.StatusAccepted},
+		{name: "create returns the Workflow", method: http.MethodPost, path: "/api/v1/workflows", body: customBody, wantStatus: http.StatusAccepted},
 		{name: "create rejects an unknown kind", method: http.MethodPost, path: "/api/v1/workflows", body: `{"kind":"nope","targetServerIds":["server-9"]}`, wantStatus: http.StatusBadRequest},
-		{name: "list merges both schema versions", method: http.MethodGet, path: "/api/v1/workflows", wantStatus: http.StatusOK},
+		{name: "list returns Workflows", method: http.MethodGet, path: "/api/v1/workflows", wantStatus: http.StatusOK},
 		{name: "list pages active work", method: http.MethodGet, path: "/api/v1/workflows?active=true&page=1&pageSize=1", wantStatus: http.StatusOK},
 		{name: "get returns a Workflow with its leases", method: http.MethodGet, path: "/api/v1/workflows/wf-running", wantStatus: http.StatusOK},
 		{name: "get returns a finished Workflow", method: http.MethodGet, path: "/api/v1/workflows/wf-failed", wantStatus: http.StatusOK},
-		{name: "get returns a schema-v2 record", method: http.MethodGet, path: "/api/v1/workflows/op-legacy", wantStatus: http.StatusOK},
 		{name: "get of an unknown ID is not found", method: http.MethodGet, path: "/api/v1/workflows/missing", wantStatus: http.StatusNotFound},
 		{name: "timeline lists events", method: http.MethodGet, path: "/api/v1/workflows/wf-running/timeline", wantStatus: http.StatusOK},
-		{name: "a schema-v2 record has no timeline", method: http.MethodGet, path: "/api/v1/workflows/op-legacy/timeline", wantStatus: http.StatusNotFound},
+		{name: "timeline of an unknown ID is not found", method: http.MethodGet, path: "/api/v1/workflows/missing/timeline", wantStatus: http.StatusNotFound},
 		{name: "cancel is accepted", method: http.MethodPost, path: "/api/v1/workflows/wf-running/cancel", wantStatus: http.StatusAccepted},
 		{name: "cancel of a finished Workflow conflicts", method: http.MethodPost, path: "/api/v1/workflows/wf-failed/cancel", wantStatus: http.StatusConflict},
 		{name: "rerun returns the new Workflow", method: http.MethodPost, path: "/api/v1/workflows/wf-failed/rerun", wantStatus: http.StatusAccepted},
@@ -468,7 +420,7 @@ func TestWorkflowRoutesMatchTheContract(t *testing.T) {
 		{name: "an unknown Task is not found", method: http.MethodGet, path: "/api/v1/workflows/wf-running/tasks/missing/artifacts", wantStatus: http.StatusNotFound},
 		{name: "alias create", method: http.MethodPost, path: "/api/v1/operations", body: customBody, wantStatus: http.StatusAccepted},
 		{name: "alias list", method: http.MethodGet, path: "/api/v1/operations", wantStatus: http.StatusOK},
-		{name: "alias get", method: http.MethodGet, path: "/api/v1/operations/op-legacy", wantStatus: http.StatusOK},
+		{name: "alias get", method: http.MethodGet, path: "/api/v1/operations/wf-running", wantStatus: http.StatusOK},
 		{name: "alias timeline", method: http.MethodGet, path: "/api/v1/operations/wf-running/timeline", wantStatus: http.StatusOK},
 		{name: "alias cancel", method: http.MethodPost, path: "/api/v1/operations/wf-running/cancel", wantStatus: http.StatusAccepted},
 		{name: "alias rerun", method: http.MethodPost, path: "/api/v1/operations/wf-failed/rerun", wantStatus: http.StatusAccepted},
@@ -477,14 +429,6 @@ func TestWorkflowRoutesMatchTheContract(t *testing.T) {
 		{name: "alias step stderr", method: http.MethodGet, path: "/api/v1/operations/wf-running/steps/install-platform/stderr", wantStatus: http.StatusOK},
 		{name: "alias step events", method: http.MethodGet, path: "/api/v1/operations/wf-running/steps/install-platform/events", wantStatus: http.StatusOK},
 		{name: "alias step artifacts", method: http.MethodGet, path: "/api/v1/operations/wf-running/steps/install-platform/artifacts", wantStatus: http.StatusOK},
-		{name: "schema-v2 logs are plain text", method: http.MethodGet, path: "/api/v1/operations/op-legacy/logs", wantStatus: http.StatusOK},
-		// A Workflow exposes logs and events per Task; the legacy operation-level endpoints refuse it
-		// with a conflict rather than falling through to the schema-v2 reader's not_found (DF-05).
-		{name: "schema-v2 logs of a Workflow conflict", method: http.MethodGet, path: "/api/v1/operations/wf-running/logs", wantStatus: http.StatusConflict},
-		{name: "schema-v2 events list per-host results", method: http.MethodGet, path: "/api/v1/operations/op-legacy/events", wantStatus: http.StatusOK},
-		{name: "schema-v2 events of a Workflow conflict", method: http.MethodGet, path: "/api/v1/operations/wf-running/events", wantStatus: http.StatusConflict},
-		{name: "schema-v2 retry creates a Workflow", method: http.MethodPost, path: "/api/v1/operations/op-legacy/retry", wantStatus: http.StatusAccepted},
-		{name: "schema-v2 retry of a Workflow conflicts", method: http.MethodPost, path: "/api/v1/operations/wf-running/retry", wantStatus: http.StatusConflict},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -515,7 +459,7 @@ func (noSites) FindByID(context.Context, string) (*sitedomain.Site, error) {
 
 // DF-05: configuring automation for a Site that does not exist is 404, not an internal error.
 func TestPutAutomationOfAnUnknownSiteIsNotFound(t *testing.T) {
-	handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(&recordingAutomationRepo{}, noSites{}, nil))
+	handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(&recordingAutomationRepo{}, noSites{}, nil), nil)
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
 	app.Put("/api/v1/sites/:id/automation", handler.PutAutomation)

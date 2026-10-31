@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -749,6 +748,3 @@ func cloneMap(source map[string]any) map[string]any {
 	}
 	return result
 }
-
-// IsNotV3 allows delivery to fall back to the permanent v2 compatibility reader.
-func IsNotV3(err error) bool { return errors.Is(err, workflowdomain.ErrWorkflowNotV3) }

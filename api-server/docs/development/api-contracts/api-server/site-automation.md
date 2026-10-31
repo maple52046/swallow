@@ -143,10 +143,8 @@ credential request carrying a non-null `sshPrivateKey` return `validation_error`
 made `sshUser` optional and added `credentialSource`.
 [Decision 041](../../../../../docs/decisions/041-deployment-key-only-automation.md) removed
 the Site private-key override (breaking): `sshPrivateKey` is refused, `credentialSource`
-no longer reports `site`, and a key stored by an earlier release is ignored. New schema-v3
-Operations consume this configuration through the standalone Ansible executor; legacy
-schema-v2 Operations may still consume it through the compatibility dispatcher while that
-queue drains.
+no longer reports `site`, and a key stored by an earlier release is ignored. Workflows consume
+this configuration through the standalone Ansible executor.
 
 Since 2026-10-31 clearing the become password with `{}` removes the stored credential, so
 `hasCredential` reads `false` (DF-13); it stayed `true` before.

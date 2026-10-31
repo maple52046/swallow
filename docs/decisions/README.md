@@ -140,6 +140,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [071](071-provisioner-realized-desired-state.md) | 由 provisioner 實現的欄位以 spec／status 呈現、由 controller 收斂：非破壞性欄位在定期 resync 時自動修正，第一次觀察即接管，Server 記錄 origin，swallow 擁有所有手動 tag | refine 002、029、069；supersede 025 的一部分 |
 | [072](072-store-driven-workflow-execution.md) | store 是 Workflow 執行狀態的唯一紀錄：`workflow-dispatch` controller 依 store 派發與接續 run，派發世代 fencing，Workflow 在生命週期內擁有資源，Job 宣告重試粒度，Task 宣告完成行為與取消補償，ansible-executor 是 Temporal worker | refine 006、016、017、020、030、069 |
 | [073](073-hold-os-package-maintenance-during-automation.md) | swallow 改套件的 playbook 執行期間暫緩 OS 的自動套件維護：只停 timer、不停用，以有期限的租約歸還，由內容測試強制 | — |
+| [074](074-retire-schema-v2-and-deprecated-aliases.md) | 退役 schema-v2 Operation 紀錄（schema v10 刪除）與「保留一個 release」的 alias：`/operations`、`/clusters`、`clusterId` 等欄位、request `ephemeral` 與同步的部署路由 | supersede 016（v2 永久可讀）；refine 014、017 |
 
 `001`–`003` 的章節結構與上方格式不同（Decision / Context / Consequences / Rejected
 alternatives）。2026-09-05 已為三者補上 `Status`；但當時未記錄 `Date`，依「不得杜撰歷史理由」

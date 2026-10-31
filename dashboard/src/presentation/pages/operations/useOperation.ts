@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "@/di/AppProvider";
 import {
-  isOrchestrationOperation,
   isTerminalStatus,
   type Operation,
-  type OperationEvents,
   type OperationStatus,
 } from "@/domain/operation/types";
 
@@ -17,8 +15,6 @@ const POLL_INTERVAL_MS = 5000;
 
 export interface OperationDetailData {
   operation: Operation;
-  /** Task-level progress; null when the events read failed but the operation loaded. */
-  events: OperationEvents | null;
   /** Manual refetch, e.g. after a retry navigates back to this view. */
   reload: () => void;
   /**
@@ -37,12 +33,10 @@ export type OperationDetailState =
   | { status: "ready"; data: OperationDetailData };
 
 /**
- * Loads one operation and its task events, polling while the run is active.
+ * Loads one operation, polling while the run is active.
  *
- * The operation projection is authoritative for status. Only legacy Operations use the
- * top-level runner events endpoint; schema-v3 diagnostics load events per Step, avoiding a
- * compatibility 404. A legacy events failure degrades to null rather than failing the page.
- * Polling is bounded: it runs
+ * The operation projection is authoritative for status; diagnostics load per Step. Polling is
+ * bounded: it runs
  * only while the status is non-terminal and is always cleared on unmount or completion, so
  * it cannot outlive the screen. `reload` forces an immediate refetch.
  */
@@ -78,13 +72,7 @@ export function useOperation(id: string | undefined): OperationDetailState {
     const load = () => {
       operations
         .getOperation(id)
-        .then(async (operation) => {
-          const events = operation && !isOrchestrationOperation(operation)
-            ? await operations.getEvents(id).catch(() => null)
-            : null
-          return { operation, events }
-        })
-        .then(({ operation, events }) => {
+        .then((operation) => {
           if (cancelled) return;
           if (operation === null) {
             // A 404 for an operation we are already showing is treated as a transient read gap:
@@ -99,7 +87,7 @@ export function useOperation(id: string | undefined): OperationDetailState {
           statusRef.current = operation.status ?? operation.execution.status;
           loadedIdRef.current = id;
           // A successful read replaces the data and clears any prior transient refresh error.
-          setState({ status: "ready", data: { operation, events, reload } });
+          setState({ status: "ready", data: { operation, reload } });
           scheduleNext();
         })
         .catch((err: Error) => {

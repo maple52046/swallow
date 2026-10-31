@@ -90,10 +90,8 @@ func TestServiceExecuteBuildsBoundedOverview(t *testing.T) {
 			status = "requires_attention"
 		case 4:
 			status = "canceling"
-		case 5:
+		case 5, 6:
 			status = "canceled"
-		case 6:
-			status = "indeterminate"
 		}
 		requestedAt := now.Add(-time.Duration(i) * time.Hour)
 		source.operations = append(source.operations, Operation{

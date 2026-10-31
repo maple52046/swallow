@@ -11,14 +11,13 @@ type LogsState =
   | { status: 'ready'; text: string }
 
 /**
- * Retained-output workspace for a legacy run or one durable Step.
+ * Retained-output workspace for one durable Step.
  *
  * `variant` selects the stream: "stdout" is the full runner output; "stderr" is
  * the focused error-only report (failed/unreachable tasks and their
  * stderr/stdout), so a failing Step's cause is readable without scrolling the
- * whole play. The stderr stream is per-Step only. Fetching is guarded against
- * stale responses, and the display (search, copy, download, refresh) is delegated
- * to the shared `LogViewer`.
+ * whole play. Fetching is guarded against stale responses, and the display
+ * (search, copy, download, refresh) is delegated to the shared `LogViewer`.
  */
 export function OperationLogWorkspace({
   operationId,
@@ -26,7 +25,7 @@ export function OperationLogWorkspace({
   variant = 'stdout',
 }: {
   operationId: string
-  stepId?: string
+  stepId: string
   variant?: 'stdout' | 'stderr'
 }) {
   const { operations } = useApp()
@@ -38,11 +37,9 @@ export function OperationLogWorkspace({
   useEffect(() => {
     let cancelled = false
     const request =
-      variant === 'stderr' && stepId
+      variant === 'stderr'
         ? operations.getStepStderr(operationId, stepId)
-        : stepId
-          ? operations.getStepLogs(operationId, stepId)
-          : operations.getLogs(operationId)
+        : operations.getStepLogs(operationId, stepId)
     request
       .then((text) => {
         if (!cancelled) setState({ status: 'ready', text })
@@ -69,7 +66,7 @@ export function OperationLogWorkspace({
     <LogViewer
       text={state.text}
       label={noun}
-      downloadName={`swallow-operation-${operationId}${stepId ? `-${stepId}` : ''}-${noun}`}
+      downloadName={`swallow-operation-${operationId}-${stepId}-${noun}`}
       onRefresh={reload}
     />
   )

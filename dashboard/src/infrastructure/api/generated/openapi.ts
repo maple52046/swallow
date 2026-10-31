@@ -1157,7 +1157,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -1181,7 +1181,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -1200,60 +1200,12 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/operations/{id}/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Read a schema-v2 record's per-host Ansible results (deprecated path only).
-         * @deprecated
-         * @description Requires the `admin` role. `status` is the schema-v2 run status. A schema-v3 Workflow exposes events per Task instead and is `conflict` here.
-         */
-        get: operations["getOperationEventsViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operations/{id}/logs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Read a schema-v2 record's retained runner output (deprecated path only).
-         * @deprecated
-         * @description Requires the `admin` role. UTF-8 plain text of the run's output, empty when nothing was retained. A schema-v3 Workflow exposes logs per Task instead and is `conflict` here.
-         */
-        get: operations["getOperationLogsViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/operations/{id}/rerun": {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -1272,36 +1224,12 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/operations/{id}/retry": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Repeat a finished schema-v2 record as a new Workflow (deprecated path only).
-         * @deprecated
-         * @description Requires the `admin` role. Creates a new schema-v3 Workflow with the original's kind, targets, Platform, playbook, and carried variables, linked through `retryOfOperationId`; the original is unchanged. Accepted only for a finished schema-v2 record. A schema-v3 Workflow is `conflict`: retry one of its Tasks or rerun it instead. The new Workflow passes the same checks as `createWorkflow`, with the same error cases.
-         */
-        post: operations["retryOperationViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/operations/{id}/steps/{stepId}/artifacts": {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description Deprecated name of the Task ID on the /operations alias. */
                 stepId: components["parameters"]["OperationStepId"];
@@ -1327,7 +1255,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description Deprecated name of the Task ID on the /operations alias. */
                 stepId: components["parameters"]["OperationStepId"];
@@ -1353,7 +1281,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description Deprecated name of the Task ID on the /operations alias. */
                 stepId: components["parameters"]["OperationStepId"];
@@ -1379,7 +1307,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description Deprecated name of the Task ID on the /operations alias. */
                 stepId: components["parameters"]["OperationStepId"];
@@ -1405,7 +1333,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description Deprecated name of the Task ID on the /operations alias. */
                 stepId: components["parameters"]["OperationStepId"];
@@ -1431,7 +1359,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -4198,14 +4126,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List schema-v3 Workflows and schema-v2 history, newest first.
-         * @description Requires the `admin` role. Merges schema-v3 Workflows and historical schema-v2 records, sorted by `requestedAt` descending, then pages the merged list. Every filter is optional and exact-match; `total` counts both schema versions.
+         * List Workflows, newest first.
+         * @description Requires the `admin` role. Workflows sorted by `requestedAt` descending, paged. Every filter is optional and exact-match.
          */
         get: operations["listWorkflows"];
         put?: never;
         /**
          * Accept a single-Task Ansible Workflow against Servers of one Site.
-         * @description Requires the `admin` role. Persists the intent as a pending schema-v3 Workflow with one `ansible-playbook` Task and returns 202 before Temporal starts it. The response is the Workflow in the compatibility (Operation) shape, `LegacyOperation` with `schemaVersion` 3, not the full `Workflow` projection; read `GET /api/v1/workflows/{id}` for status, Tasks' live state, leases, and the Temporal reference.
+         * @description Requires the `admin` role. Persists the intent as a pending Workflow with one `ansible-playbook` Task and returns 202 with that Workflow before it starts; `leases` is null until `GET /api/v1/workflows/{id}` reads them.
          */
         post: operations["createWorkflow"];
         delete?: never;
@@ -4219,14 +4147,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
         };
         /**
-         * Read one Workflow, or one historical schema-v2 record.
-         * @description Requires the `admin` role. A schema-v3 Workflow is returned as `Workflow`, including the resources it currently owns; an ID that is only a schema-v2 record is returned as `LegacyOperation` with `schemaVersion` 2.
+         * Read one Workflow.
+         * @description Requires the `admin` role. The Workflow, including the resources it currently owns.
          */
         get: operations["getWorkflow"];
         put?: never;
@@ -4242,7 +4170,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -4265,7 +4193,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -4288,7 +4216,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description The Task ID within the Workflow (a Task's `id` in `steps[]`). */
                 taskId: components["parameters"]["WorkflowTaskId"];
@@ -4313,7 +4241,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description The Task ID within the Workflow (a Task's `id` in `steps[]`). */
                 taskId: components["parameters"]["WorkflowTaskId"];
@@ -4338,7 +4266,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description The Task ID within the Workflow (a Task's `id` in `steps[]`). */
                 taskId: components["parameters"]["WorkflowTaskId"];
@@ -4363,7 +4291,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description The Task ID within the Workflow (a Task's `id` in `steps[]`). */
                 taskId: components["parameters"]["WorkflowTaskId"];
@@ -4388,7 +4316,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description The Task ID within the Workflow (a Task's `id` in `steps[]`). */
                 taskId: components["parameters"]["WorkflowTaskId"];
@@ -4413,14 +4341,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
         };
         /**
          * Read a Workflow's normalized, immutable state-transition events.
-         * @description Requires the `admin` role. Events are ordered by `createdAt`, then ID. A schema-v2 record has no timeline and is `not_found`.
+         * @description Requires the `admin` role. Events are ordered by `createdAt`, then ID.
          */
         get: operations["getWorkflowTimeline"];
         put?: never;
@@ -5576,31 +5504,6 @@ export interface components {
          * @enum {string}
          */
         KubernetesTopology: "standalone" | "multi-node" | "high-availability";
-        /** @description A Workflow in the former Operation (schema-v2) shape. Returned for historical schema-v2 records (`schemaVersion` 2, with one synthetic Task) and as the acceptance response of create and of the deprecated schema-v2 retry (`schemaVersion` 3). It carries no Workflow status of its own; `execution.status` is the compatibility status. */
-        LegacyOperation: {
-            /**
-             * @deprecated
-             * @description Deprecated alias; always equal to `platformId`.
-             */
-            clusterId: string | null;
-            execution: components["schemas"]["WorkflowExecutionSummary"];
-            id: string;
-            /** @description Operator-facing summary; may be empty. */
-            intent: string;
-            /** @description A `WorkflowKind`. Historical schema-v2 records keep the kind they were accepted with. */
-            kind: string;
-            platformId: string | null;
-            requestedAt: components["schemas"]["Timestamp"];
-            requestedBy: string;
-            retryOfOperationId: string | null;
-            /** @enum {integer} */
-            schemaVersion: 2 | 3;
-            siteId: string;
-            /** @description The Tasks. A schema-v2 record has exactly one synthetic `ansible-playbook` Task with ID `ansible`. */
-            steps: components["schemas"]["WorkflowTask"][] | null;
-            targetServerIds: string[] | null;
-            updatedAt: components["schemas"]["Timestamp"];
-        };
         /** @description The latest probe of a virtual machine's Hypervisor. */
         LibvirtCapability: {
             account?: string;
@@ -7332,7 +7235,7 @@ export interface components {
             /** @description Hard power-off a running domain instead of asking for attention; default false. */
             powerOffRunning?: boolean;
         };
-        /** @description The canonical projection of a schema-v3 Workflow: its frozen intent, status, Tasks (still serialized as `steps[]`), and Temporal correlation. Credential, cloud-init, and other secret values never appear: sensitive keys are removed from `intentSnapshot`, and Task parameters and secret references are not part of the projection. */
+        /** @description The canonical projection of a Workflow: its frozen intent, status, Tasks (still serialized as `steps[]`), and Temporal correlation. Credential, cloud-init, and other secret values never appear: sensitive keys are removed from `intentSnapshot`, and Task parameters and secret references are not part of the projection. */
         Workflow: {
             /**
              * @deprecated
@@ -7390,17 +7293,17 @@ export interface components {
             /** @description The Workflow ID (wire name `operationId`). */
             operationId: string;
         };
-        /** @description The compatibility `execution` projection for clients written against Operation v2. It must not be used to infer Task state. For a schema-v3 Workflow, `status` repeats the Workflow status; `runId` is the single Task's external execution ID when the Workflow has exactly one Task that started, and the Temporal run ID otherwise; and `playbook` is the single Task's kind (not a playbook name), empty for a multi-Task Workflow. */
+        /** @description The compatibility `execution` projection for clients written against Operation v2. It must not be used to infer Task state. `status` repeats the Workflow status; `runId` is the single Task's external execution ID when the Workflow has exactly one Task that started, and the Temporal run ID otherwise; and `playbook` is the single Task's kind (not a playbook name), empty for a multi-Task Workflow. */
         WorkflowExecutionSummary: {
             finishedAt: components["schemas"]["Timestamp"] | null;
             playbook: string;
             runId: string;
             startedAt: components["schemas"]["Timestamp"] | null;
             /**
-             * @description A `WorkflowStatus`, or `indeterminate` for a schema-v2 run whose outcome cannot be proven.
+             * @description The Workflow's `WorkflowStatus`.
              * @enum {string}
              */
-            status: "pending" | "running" | "waiting_external" | "waiting_dependency" | "canceling" | "succeeded" | "failed" | "partially_succeeded" | "canceled" | "requires_attention" | "indeterminate";
+            status: "pending" | "running" | "waiting_external" | "waiting_dependency" | "canceling" | "succeeded" | "failed" | "partially_succeeded" | "canceled" | "requires_attention";
             statusReason: string | null;
         };
         /**
@@ -7408,11 +7311,9 @@ export interface components {
          * @enum {string}
          */
         WorkflowKind: "deploy-os" | "release-os" | "recover-server" | "verify-os-image" | "inspect-hardware" | "enroll-virtual-machines" | "install-gpu-driver" | "deploy-kubernetes" | "uninstall-kubernetes" | "configure-gpu-operator" | "configure-slurm" | "uninstall-slurm" | "install-exporters" | "uninstall-exporters" | "deploy-k8s-exporters" | "remove-k8s-exporters" | "configure-docker-ce" | "uninstall-docker-ce" | "configure-podman" | "uninstall-podman" | "configure-nfs" | "uninstall-nfs" | "configure-prometheus" | "uninstall-prometheus" | "configure-grafana" | "uninstall-grafana" | "configure-omnistat" | "configure-device-metrics-exporter" | "uninstall-device-metrics-exporter" | "configure-ntp" | "custom";
-        /** @description A schema-v3 `Workflow`, or a historical schema-v2 record as `LegacyOperation` (`schemaVersion` 2). */
-        WorkflowOrLegacyOperation: components["schemas"]["Workflow"] | components["schemas"]["LegacyOperation"];
-        /** @description The pagination envelope (conventions.md, Pagination) over the merged history. */
+        /** @description The pagination envelope (conventions.md, Pagination) over Workflows. */
         WorkflowPage: {
-            items: components["schemas"]["WorkflowOrLegacyOperation"][];
+            items: components["schemas"]["Workflow"][];
             page: number;
             pageSize: number;
             total: number;
@@ -7437,7 +7338,7 @@ export interface components {
             kind: string;
         };
         /**
-         * @description The canonical status of a schema-v3 Workflow. `succeeded`, `failed`, `partially_succeeded`, and `canceled` are terminal; `requires_attention` waits for an operator.
+         * @description The canonical status of a Workflow. `succeeded`, `failed`, `partially_succeeded`, and `canceled` are terminal; `requires_attention` waits for an operator.
          * @enum {string}
          */
         WorkflowStatus: "pending" | "running" | "waiting_external" | "waiting_dependency" | "canceling" | "succeeded" | "failed" | "partially_succeeded" | "canceled" | "requires_attention";
@@ -7448,7 +7349,7 @@ export interface components {
             attempt: number;
             /** @description Extra dependency outcomes that still let this Task run; absent when it runs only after every dependency is satisfied. */
             continueOn?: components["schemas"]["WorkflowTaskStatus"][];
-            /** @description IDs of the Tasks this one waits for. An array on every schema-v3 Workflow; null only on the synthetic Task of a schema-v2 record. */
+            /** @description IDs of the Tasks this one waits for; null or empty when it waits for none. */
             dependsOn: string[] | null;
             /** @description The latest normalized error; null when the Task has none. */
             error: components["schemas"]["WorkflowTaskError"] | null;
@@ -7487,7 +7388,7 @@ export interface components {
         };
         /** @description The stable, operator-facing diagnostic of a Task failure. */
         WorkflowTaskError: {
-            /** @description Machine-readable failure code, for example `legacy_ansible_failed`. */
+            /** @description Machine-readable failure code, for example `ansible_failed`. */
             code: string;
             message: string;
             /** @description Whether a Task retry may be requested. */
@@ -7507,10 +7408,10 @@ export interface components {
             runId: string;
             skippedCount: number;
             /**
-             * @description The Task's status, or, on the deprecated schema-v2 events endpoint, the schema-v2 run status.
+             * @description The Task's status.
              * @enum {string}
              */
-            status: "pending" | "running" | "waiting_external" | "waiting_dependency" | "succeeded" | "failed" | "canceled" | "skipped" | "requires_attention" | "indeterminate";
+            status: "pending" | "running" | "waiting_external" | "waiting_dependency" | "succeeded" | "failed" | "canceled" | "skipped" | "requires_attention";
             unreachableCount: number;
         };
         /** @description Correlates a Task with its Runner's own execution. */
@@ -7652,15 +7553,6 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description No schema-v2 record or schema-v3 Workflow has this ID (`not_found`). */
-        OperationV2NotFound: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["Error"];
-            };
-        };
         /** @description The Workflow already finished, or its execution cannot accept the control in its current state (`conflict`). */
         WorkflowControlConflict: {
             headers: {
@@ -7706,7 +7598,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description No Workflow or schema-v2 record has this ID (`not_found`). */
+        /** @description No Workflow has this ID (`not_found`). */
         WorkflowNotFound: {
             headers: {
                 [name: string]: unknown;
@@ -7733,7 +7625,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description No schema-v3 Workflow has this ID, or it has no Task with this ID (`not_found`). */
+        /** @description No Workflow has this ID, or it has no Task with this ID (`not_found`). */
         WorkflowTaskNotFound: {
             headers: {
                 [name: string]: unknown;
@@ -7744,15 +7636,6 @@ export interface components {
         };
         /** @description The Task is not `failed` or `requires_attention` with a retryable error, or the Workflow's execution no longer exists and cannot receive the retry (`conflict`). */
         WorkflowTaskRetryConflict: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["Error"];
-            };
-        };
-        /** @description No schema-v3 Workflow has this ID (`not_found`); a historical schema-v2 record has no timeline, controls, or Tasks here. */
-        WorkflowV3NotFound: {
             headers: {
                 [name: string]: unknown;
             };
@@ -7805,7 +7688,7 @@ export interface components {
          * @description Deprecated alias of `platformId`, used only when `platformId` is absent.
          */
         WorkflowClusterIdFilter: string;
-        /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+        /** @description The Workflow ID. */
         WorkflowId: string;
         /** @description Only Workflows of this kind. */
         WorkflowKindFilter: string;
@@ -7815,7 +7698,7 @@ export interface components {
         WorkflowServerIdFilter: string;
         /** @description Only Workflows of this Site. */
         WorkflowSiteIdFilter: string;
-        /** @description Only Workflows in this status: a `WorkflowStatus` for schema-v3 Workflows, or a schema-v2 run status (`pending | running | succeeded | failed | canceled | indeterminate`) for historical records. */
+        /** @description Only Workflows in this `WorkflowStatus`. */
         WorkflowStatusFilter: string;
         /** @description The Task ID within the Workflow (a Task's `id` in `steps[]`). */
         WorkflowTaskId: string;
@@ -10364,7 +10247,7 @@ export interface operations {
                 serverId?: components["parameters"]["WorkflowServerIdFilter"];
                 /** @description Only Workflows of this kind. */
                 kind?: components["parameters"]["WorkflowKindFilter"];
-                /** @description Only Workflows in this status: a `WorkflowStatus` for schema-v3 Workflows, or a schema-v2 run status (`pending | running | succeeded | failed | canceled | indeterminate`) for historical records. */
+                /** @description Only Workflows in this `WorkflowStatus`. */
                 status?: components["parameters"]["WorkflowStatusFilter"];
                 /** @description `true` keeps only unfinished Workflows. Any other value, or absence, applies no constraint. */
                 active?: components["parameters"]["WorkflowActiveFilter"];
@@ -10377,7 +10260,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description One page of the merged history. */
+            /** @description One page of Workflows. */
             200: {
                 headers: {
                     Deprecation: components["headers"]["Deprecation"];
@@ -10414,7 +10297,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LegacyOperation"];
+                    "application/json": components["schemas"]["Workflow"];
                 };
             };
             400: components["responses"]["WorkflowCreateRejected"];
@@ -10431,7 +10314,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -10446,7 +10329,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorkflowOrLegacyOperation"];
+                    "application/json": components["schemas"]["Workflow"];
                 };
             };
             401: components["responses"]["Error"];
@@ -10460,7 +10343,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -10480,84 +10363,8 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowV3NotFound"];
+            404: components["responses"]["WorkflowNotFound"];
             409: components["responses"]["WorkflowControlConflict"];
-            default: components["responses"]["Error"];
-        };
-    };
-    getOperationEventsViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The per-host results and their counts. */
-            200: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowTaskEvents"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["OperationV2NotFound"];
-            /** @description A schema-v3 Workflow, which exposes this per Task instead (`conflict`). */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    getOperationLogsViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The runner output. */
-            200: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["OperationV2NotFound"];
-            /** @description A schema-v3 Workflow, which exposes this per Task instead (`conflict`). */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
             default: components["responses"]["Error"];
         };
     };
@@ -10566,7 +10373,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -10587,56 +10394,8 @@ export interface operations {
             400: components["responses"]["WorkflowRerunRejected"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowV3NotFound"];
+            404: components["responses"]["WorkflowNotFound"];
             409: components["responses"]["WorkflowRerunConflict"];
-            default: components["responses"]["Error"];
-        };
-    };
-    retryOperationViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The new Workflow was persisted and starts asynchronously. */
-            202: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LegacyOperation"];
-                };
-            };
-            /** @description The schema-v2 record has not finished, or the new Workflow failed a `createWorkflow` validation (`validation_error`). */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowCreateTargetNotFound"];
-            /** @description The ID is a schema-v3 Workflow, or the new Workflow conflicts as in `createWorkflow` (`conflict`). */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            503: components["responses"]["WorkflowCreateAutomationUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -10645,7 +10404,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description Deprecated name of the Task ID on the /operations alias. */
                 stepId: components["parameters"]["OperationStepId"];
@@ -10676,7 +10435,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description Deprecated name of the Task ID on the /operations alias. */
                 stepId: components["parameters"]["OperationStepId"];
@@ -10707,7 +10466,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description Deprecated name of the Task ID on the /operations alias. */
                 stepId: components["parameters"]["OperationStepId"];
@@ -10738,7 +10497,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description Deprecated name of the Task ID on the /operations alias. */
                 stepId: components["parameters"]["OperationStepId"];
@@ -10770,7 +10529,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description Deprecated name of the Task ID on the /operations alias. */
                 stepId: components["parameters"]["OperationStepId"];
@@ -10801,7 +10560,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -10821,7 +10580,7 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowV3NotFound"];
+            404: components["responses"]["WorkflowNotFound"];
             default: components["responses"]["Error"];
         };
     };
@@ -16557,7 +16316,7 @@ export interface operations {
                 serverId?: components["parameters"]["WorkflowServerIdFilter"];
                 /** @description Only Workflows of this kind. */
                 kind?: components["parameters"]["WorkflowKindFilter"];
-                /** @description Only Workflows in this status: a `WorkflowStatus` for schema-v3 Workflows, or a schema-v2 run status (`pending | running | succeeded | failed | canceled | indeterminate`) for historical records. */
+                /** @description Only Workflows in this `WorkflowStatus`. */
                 status?: components["parameters"]["WorkflowStatusFilter"];
                 /** @description `true` keeps only unfinished Workflows. Any other value, or absence, applies no constraint. */
                 active?: components["parameters"]["WorkflowActiveFilter"];
@@ -16570,7 +16329,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description One page of the merged history. */
+            /** @description One page of Workflows. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -16603,7 +16362,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LegacyOperation"];
+                    "application/json": components["schemas"]["Workflow"];
                 };
             };
             400: components["responses"]["WorkflowCreateRejected"];
@@ -16620,7 +16379,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -16633,7 +16392,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorkflowOrLegacyOperation"];
+                    "application/json": components["schemas"]["Workflow"];
                 };
             };
             401: components["responses"]["Error"];
@@ -16647,7 +16406,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -16665,7 +16424,7 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowV3NotFound"];
+            404: components["responses"]["WorkflowNotFound"];
             409: components["responses"]["WorkflowControlConflict"];
             default: components["responses"]["Error"];
         };
@@ -16675,7 +16434,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -16694,7 +16453,7 @@ export interface operations {
             400: components["responses"]["WorkflowRerunRejected"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowV3NotFound"];
+            404: components["responses"]["WorkflowNotFound"];
             409: components["responses"]["WorkflowRerunConflict"];
             default: components["responses"]["Error"];
         };
@@ -16704,7 +16463,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description The Task ID within the Workflow (a Task's `id` in `steps[]`). */
                 taskId: components["parameters"]["WorkflowTaskId"];
@@ -16733,7 +16492,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description The Task ID within the Workflow (a Task's `id` in `steps[]`). */
                 taskId: components["parameters"]["WorkflowTaskId"];
@@ -16762,7 +16521,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description The Task ID within the Workflow (a Task's `id` in `steps[]`). */
                 taskId: components["parameters"]["WorkflowTaskId"];
@@ -16791,7 +16550,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description The Task ID within the Workflow (a Task's `id` in `steps[]`). */
                 taskId: components["parameters"]["WorkflowTaskId"];
@@ -16821,7 +16580,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
                 /** @description The Task ID within the Workflow (a Task's `id` in `steps[]`). */
                 taskId: components["parameters"]["WorkflowTaskId"];
@@ -16850,7 +16609,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The Workflow ID. Read endpoints also accept the ID of a historical schema-v2 record where they say so. */
+                /** @description The Workflow ID. */
                 id: components["parameters"]["WorkflowId"];
             };
             cookie?: never;
@@ -16868,7 +16627,7 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowV3NotFound"];
+            404: components["responses"]["WorkflowNotFound"];
             default: components["responses"]["Error"];
         };
     };

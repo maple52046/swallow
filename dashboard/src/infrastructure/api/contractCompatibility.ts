@@ -190,10 +190,8 @@ export type ContractCompatibility = [
   // getMetricRange: GET /api/v1/monitoring/metrics/range (read as the adapter's DTO, then mapped)
   Assert<Readable<JsonResponse<operations['getMetricRange'], 200>, MetricRangeDto>>,
 
-  // ApiOperationRepository (listOperations, getOperation, retryOperation, rerunOperation: see
+  // ApiOperationRepository (listOperations, getOperation, rerunOperation: see
   // KnownContractMismatches)
-  // getEvents: GET /api/v1/operations/{id}/events (deprecated alias)
-  Assert<Readable<JsonResponse<operations['getOperationEventsViaDeprecatedAlias'], 200>, OperationEvents>>,
   // getTimeline: GET /api/v1/workflows/{id}/timeline
   Assert<Readable<JsonResponse<operations['getWorkflowTimeline'], 200>, OperationTimelineEvent[] | null>>,
   // getStepEvents: GET /api/v1/workflows/{id}/tasks/{taskId}/events
@@ -474,9 +472,6 @@ export type KnownContractMismatches = [
   AssertNot<Readable<JsonResponse<operations['listWorkflows'], 200>, OperationPage<Operation>>>,
   // getOperation: GET /api/v1/workflows/{id}. Same five fields as listOperations.
   AssertNot<Readable<JsonResponse<operations['getWorkflow'], 200>, Operation>>,
-  // retryOperation: POST /api/v1/operations/{id}/retry (deprecated alias, LegacyOperation).
-  // `targetServerIds`, `steps`, `steps[].dependsOn` are `T[] | null` on the wire.
-  AssertNot<Readable<JsonResponse<operations['retryOperationViaDeprecatedAlias'], 202>, Operation>>,
   // rerunOperation: POST /api/v1/workflows/{id}/rerun. Same five fields as listOperations.
   AssertNot<Readable<JsonResponse<operations['rerunWorkflow'], 202>, Operation>>,
 

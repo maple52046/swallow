@@ -24,9 +24,9 @@ platform deployment、OS provisioning、software deployment 都建立在它之�
 
 - **讀者**：修改或除錯 orchestration（`internal/core/workflow`）、新增 Workflow kind 或 Task kind、或需要判斷
   「這個 Workflow 卡住時該 retry、rerun 還是 cancel」的開發者與 AI agent。
-- **範圍內**：所有 schema-v3 Workflow 共用的執行語意（§3–§12）。
-- **範圍外**：個別 kind 的 Task 組成、Runner 內部的 provider／playbook 行為、schema-v2 歷史紀錄的相容讀取
-  （見 workflows 契約的 Schema-v2 Compatibility）。
+- **範圍內**：所有 Workflow 共用的執行語意（§3–§12）。
+- **範圍外**：個別 kind 的 Task 組成、Runner 內部的 provider／playbook 行為。schema-v2 的 Operation 紀錄已退役：
+  沒有任何 API 讀取，schema v10 刪除它們（[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)）。
 
 語言以 glossary 為準：[Workflow](glossaries/terms/workflow.md)、[Job](glossaries/terms/job.md)、
 [Task](glossaries/terms/task.md)、[Runner](glossaries/terms/runner.md)。程式與 wire 仍有舊名（`Operation`、

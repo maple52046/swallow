@@ -8,89 +8,50 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-type lifecycleExecutionRepo struct {
-	filter workflowdomain.ExecutionListFilter
-	items  []*workflowdomain.ExecutionOperation
+// lifecycleWorkflowRepo returns fixed Workflows and records the filter it was listed with.
+type lifecycleWorkflowRepo struct {
+	workflowdomain.WorkflowRepository
+	filter workflowdomain.WorkflowFilter
+	items  []*workflowdomain.Workflow
 }
 
-func (r *lifecycleExecutionRepo) Create(context.Context, *workflowdomain.ExecutionOperation) error {
-	return nil
-}
-
-func (r *lifecycleExecutionRepo) FindByID(
-	context.Context,
-	string,
-) (*workflowdomain.ExecutionOperation, error) {
-	return nil, workflowdomain.ErrWorkflowNotFound
-}
-
-func (r *lifecycleExecutionRepo) List(
-	_ context.Context,
-	filter workflowdomain.ExecutionListFilter,
-) (workflowdomain.ExecutionListResult, error) {
+func (r *lifecycleWorkflowRepo) List(_ context.Context, filter workflowdomain.WorkflowFilter) ([]*workflowdomain.Workflow, int, error) {
 	r.filter = filter
-	return workflowdomain.ExecutionListResult{
-		Operations: r.items, Total: len(r.items),
-	}, nil
-}
-
-func (r *lifecycleExecutionRepo) FindActiveByServerIDs(
-	context.Context,
-	[]string,
-) ([]*workflowdomain.ExecutionOperation, error) {
-	return nil, nil
-}
-
-func (r *lifecycleExecutionRepo) Claim(context.Context, string, string, time.Time) (bool, error) {
-	return false, nil
-}
-
-func (r *lifecycleExecutionRepo) UpdateExecution(
-	context.Context,
-	string,
-	string,
-	workflowdomain.Execution,
-) error {
-	return nil
-}
-
-func (r *lifecycleExecutionRepo) MarkExpiredIndeterminate(
-	context.Context,
-	time.Time,
-) (int64, error) {
-	return 0, nil
-}
-
-func (r *lifecycleExecutionRepo) SecretVars(context.Context, string) (map[string]any, error) {
-	return nil, nil
+	return r.items, len(r.items), nil
 }
 
 func TestPlatformLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 	deployedAt := time.Now().UTC().Add(-time.Hour)
 	uninstalledAt := deployedAt.Add(time.Minute)
-	repo := &lifecycleExecutionRepo{items: []*workflowdomain.ExecutionOperation{
+	repo := &lifecycleWorkflowRepo{items: []*workflowdomain.Workflow{
 		{
 			ID: "uninstall-1", PlatformID: "platform-deployed",
 			Kind:            workflowdomain.WorkflowKindUninstallKubernetes,
 			TargetServerIDs: []string{"server-1"},
-			Execution:       workflowdomain.Execution{Status: workflowdomain.StatusFailed},
+			Status:          workflowdomain.WorkflowFailed,
 			RequestedAt:     uninstalledAt,
 		},
 		{
 			ID: "deploy-1", PlatformID: "platform-deployed",
 			Kind:            workflowdomain.WorkflowKindDeployKubernetes,
 			TargetServerIDs: []string{"server-1", "server-2"},
-			ExtraVars: map[string]any{
+			Intent: map[string]any{"extraVars": map[string]any{
 				"swallow_k0s_roles": map[string]any{
 					"server-1": "control-plane", "server-2": "worker",
 				},
 				"swallow_k0s_workload_controller_ids": []any{"server-1"},
-			},
-			Execution:   workflowdomain.Execution{Status: workflowdomain.StatusSucceeded},
+			}},
+			Status:      workflowdomain.WorkflowSucceeded,
 			RequestedAt: deployedAt,
 		},
+		{
+			ID: "verify-1", PlatformID: "platform-deployed",
+			Kind:        workflowdomain.WorkflowKindInstallExporters,
+			Status:      workflowdomain.WorkflowRunning,
+			RequestedAt: uninstalledAt.Add(time.Minute),
+		},
 	}}
-	reader := platformLifecycleReader{operations: repo}
+	reader := platformLifecycleReader{orchestrations: repo}
 
 	result, err := reader.Read(
 		context.Background(),
@@ -99,9 +60,7 @@ func TestPlatformLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	// The lifecycle reader queries deploy-kubernetes, configure-slurm, uninstall-kubernetes, and
-	// uninstall-slurm so Slurm deploy and uninstall drive the same lifecycle projection as k0s.
-	if len(repo.filter.PlatformIDs) != 2 || len(repo.filter.Kinds) != 4 {
+	if len(repo.filter.PlatformIDs) != 2 {
 		t.Fatalf("batch filter = %+v", repo.filter)
 	}
 	deployed := result["platform-deployed"]
@@ -127,12 +86,12 @@ func TestPlatformLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 }
 
 func TestDeploymentIntentProjectsStandaloneWorkloadController(t *testing.T) {
-	intent := deploymentIntent(&workflowdomain.ExecutionOperation{
+	intent := deploymentIntentKubernetes(&workflowdomain.Workflow{
 		TargetServerIDs: []string{"server-1"},
-		ExtraVars: map[string]any{
+		Intent: map[string]any{"extraVars": map[string]any{
 			"swallow_k0s_roles":                   map[string]any{"server-1": "control-plane"},
 			"swallow_k0s_workload_controller_ids": []string{"server-1"},
-		},
+		}},
 	})
 
 	if intent == nil || intent.Topology != "standalone" {

@@ -6,20 +6,9 @@ import (
 	"time"
 
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
-
-type legacyProjectionOperationRepo struct {
-	workflowdomain.WorkflowRepository
-	operations []*workflowdomain.Workflow
-}
-
-func (r *legacyProjectionOperationRepo) List(
-	context.Context,
-	workflowdomain.WorkflowFilter,
-) ([]*workflowdomain.Workflow, int, error) {
-	return r.operations, len(r.operations), nil
-}
 
 func TestServerDeploymentObserverKeepsProviderFactSeparateFromVerifiedFailure(t *testing.T) {
 	now := time.Now().UTC()
@@ -32,7 +21,7 @@ func TestServerDeploymentObserverKeepsProviderFactSeparateFromVerifiedFailure(t 
 	observer := serverDeploymentStepObserver{
 		servers: &deploymentProjectionTestRepo{server: server},
 	}
-	err := observer.ObserveStep(context.Background(), "operation-id", workflowdomain.Task{
+	err := observer.projectDeployment(context.Background(), "operation-id", workflowdomain.Task{
 		ID: "provision-server", Kind: "provision-os", Attempt: 1,
 		Status:  workflowdomain.TaskFailed,
 		Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}},
@@ -59,75 +48,26 @@ func TestServerDeploymentObserverKeepsProviderFactSeparateFromVerifiedFailure(t 
 	}
 }
 
-func TestServerDeploymentObserverClearsResultAfterSuccessfulRelease(t *testing.T) {
+func TestServerDeploymentClearedCompletionClearsResultAfterSuccessfulRelease(t *testing.T) {
 	server := &serverdomain.Server{
 		ID:         "server-id",
 		Deployment: &serverdomain.DeploymentStatus{State: serverdomain.DeploymentSucceeded},
 	}
-	observer := serverDeploymentStepObserver{
-		servers: &deploymentProjectionTestRepo{server: server},
-	}
-	err := observer.ObserveStep(context.Background(), "release-operation", workflowdomain.Task{
-		ID: "release-server", Kind: "release-os", Status: workflowdomain.TaskSucceeded,
+	cleared := workflowProjections(&deploymentProjectionTestRepo{server: server}, nil, nil, nil, nil)[completionServerDeploymentCleared]
+	release := workflowdomain.Task{
+		ID: "release-server", Kind: "release-os", Status: workflowdomain.TaskRunning,
 		Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}},
-	})
-	if err != nil {
+	}
+	transition := workflowapp.TaskTransition{Workflow: &workflowdomain.Workflow{ID: "release-operation"}, Task: release}
+	if err := cleared.Project(context.Background(), transition); err != nil || server.Deployment == nil {
+		t.Fatalf("a running release cleared the deployment (%v): %+v", err, server.Deployment)
+	}
+	transition.Task.Status = workflowdomain.TaskSucceeded
+	if err := cleared.Project(context.Background(), transition); err != nil {
 		t.Fatal(err)
 	}
 	if server.Deployment != nil {
 		t.Fatalf("deployment = %+v, want cleared after release", server.Deployment)
-	}
-}
-
-func TestLegacyPlatformReadinessFailureProjectsPerServerDeploymentFailure(t *testing.T) {
-	now := time.Now().UTC()
-	server := &serverdomain.Server{
-		ID:       "server-id",
-		Observed: serverdomain.Observed{Hostname: "lab-control-1"},
-		Provisioning: &serverdomain.ProvisioningStatus{
-			State: "deployed", ProviderState: "Deployed",
-		},
-	}
-	serverRepo := &deploymentProjectionTestRepo{server: server}
-	operations := &legacyProjectionOperationRepo{operations: []*workflowdomain.Workflow{{
-		ID: "operation-id", Kind: workflowdomain.WorkflowKindDeployKubernetes,
-		SiteID: "site-id", RequestedAt: now,
-		Steps: []workflowdomain.Task{
-			{
-				ID: "provision-server-id", Kind: "provision-os", Attempt: 1,
-				Status:    workflowdomain.TaskSucceeded,
-				Targets:   []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}},
-				StartedAt: &now, FinishedAt: &now,
-			},
-			{
-				ID: "wait-for-ssh", Kind: "wait-for-ssh", Attempt: 1,
-				Status:  workflowdomain.TaskFailed,
-				Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}},
-				Error: &workflowdomain.NormalizedError{
-					Code: "ssh_readiness_timeout", Stage: "ssh_readiness",
-				},
-				FinishedAt: &now,
-			},
-		},
-	}}}
-
-	err := reconcileLegacyDeploymentProjections(context.Background(), operations, providerStepExecutor{
-		servers: serverRepo,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if server.Deployment == nil || server.Deployment.State != serverdomain.DeploymentFailed {
-		t.Fatalf("deployment = %+v, want failed", server.Deployment)
-	}
-	if server.Deployment.Stage != "ssh_readiness" {
-		t.Fatalf("stage = %q, want ssh_readiness", server.Deployment.Stage)
-	}
-	if server.Deployment.StatusReason == "" {
-		t.Fatal("status reason is empty, want per-Server missing-address diagnosis")
-	}
-	if server.Provisioning.State != "deployed" {
-		t.Fatalf("provider state = %q, want installed OS fact preserved", server.Provisioning.State)
 	}
 }
 
@@ -147,7 +87,7 @@ func TestServerDeploymentObserverKeepsSucceededDeploymentOnWorkflowCancel(t *tes
 		},
 	}
 	observer := serverDeploymentStepObserver{servers: &deploymentProjectionTestRepo{server: server}}
-	err := observer.ObserveStep(context.Background(), "operation-id", workflowdomain.Task{
+	err := observer.projectDeployment(context.Background(), "operation-id", workflowdomain.Task{
 		ID: "provision-server-id", Kind: "provision-os", Attempt: 1,
 		Status:  workflowdomain.TaskCanceled,
 		Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}},
@@ -171,7 +111,7 @@ func TestServerDeploymentObserverCancelsInFlightDeploy(t *testing.T) {
 		},
 	}
 	observer := serverDeploymentStepObserver{servers: &deploymentProjectionTestRepo{server: server}}
-	err := observer.ObserveStep(context.Background(), "operation-id", workflowdomain.Task{
+	err := observer.projectDeployment(context.Background(), "operation-id", workflowdomain.Task{
 		ID: "provision-server-id", Kind: "provision-os", Attempt: 1,
 		Status:  workflowdomain.TaskCanceled,
 		Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}},
@@ -198,7 +138,7 @@ func TestServerDeploymentObserverIgnoresStaleCancelOfLaterOutcome(t *testing.T) 
 				},
 			}
 			observer := serverDeploymentStepObserver{servers: &deploymentProjectionTestRepo{server: server}}
-			err := observer.ObserveStep(context.Background(), "operation-id", workflowdomain.Task{
+			err := observer.projectDeployment(context.Background(), "operation-id", workflowdomain.Task{
 				ID: "provision-server-id", Kind: "provision-os", Attempt: 1,
 				Status:  workflowdomain.TaskCanceled,
 				Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}},
@@ -225,7 +165,7 @@ func TestServerDeploymentObserverCancelAppliesToNewerAttempt(t *testing.T) {
 		},
 	}
 	observer := serverDeploymentStepObserver{servers: &deploymentProjectionTestRepo{server: server}}
-	err := observer.ObserveStep(context.Background(), "operation-id", workflowdomain.Task{
+	err := observer.projectDeployment(context.Background(), "operation-id", workflowdomain.Task{
 		ID: "provision-server-id", Kind: "provision-os", Attempt: 2,
 		Status:  workflowdomain.TaskCanceled,
 		Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}},
