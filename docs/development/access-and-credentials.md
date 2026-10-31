@@ -387,7 +387,7 @@ API 認證的決策與時效、cookie、rotation 細節見
 | SSH Key use case（匯入、產生、替換、重產、安裝時建立） | `internal/sshkey/application/service.go` |
 | Provisioner realization 與佈署前 ensure | `internal/sshkey/application/sync.go` |
 | 金鑰材料解析、產生與型別限制 | `internal/sshkey/infra/keymaterial.go` |
-| `ssh_keys`（封存私鑰、unique indexes）與同步紀錄 | `internal/sshkey/infra/mongo_key_repo.go`、`internal/sshkey/infra/mongo_sync_repo.go` |
+| `ssh_keys`（封存私鑰、unique indexes）與同步紀錄 | `internal/adapters/store/mongodb/sshkey/mongo_key_repo.go`、`internal/adapters/store/mongodb/sshkey/mongo_sync_repo.go` |
 | provisioner 能力判斷 | `internal/sshkey/infra/provisioner_keys.go` |
 | `SSHKeyRegistration` capability 與 `SSHKeyRegistrar` interface | `internal/provisioning/domain/provider.go` |
 | MAAS `SSHKeyRegistrar` | `internal/provisioning/infra/maas/sshkeys.go` |
@@ -399,7 +399,7 @@ API 認證的決策與時效、cookie、rotation 細節見
 | Platform deploy 的 Deployment Key 檢查 | `internal/platform/application/deploy_platform.go` |
 | Effective automation credential 與 `credentialSource` | `internal/operation/application/effective_credential.go` |
 | `CheckRunnable`、`CredentialSource` | `internal/operation/domain/execution.go` |
-| Site credential 儲存（只存 become password） | `internal/operation/infra/mongo_automation_config_repo.go` |
+| Site credential 儲存（只存 become password） | `internal/adapters/store/mongodb/workflow/mongo_automation_config_repo.go` |
 | Site credential HTTP（拒絕 `sshPrivateKey`） | `internal/operation/delivery/execution_handler.go` |
 | Ansible Task 的可執行檢查 | `internal/operation/infra/temporalworkflow/ansible_executor.go` |
 | 登入帳號候選與探測 | `internal/shared/sshprobe/sshprobe.go` |

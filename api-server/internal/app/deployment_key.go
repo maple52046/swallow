@@ -7,10 +7,10 @@ import (
 
 	"github.com/maple52046/swallow/config"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
-	"github.com/maple52046/swallow/internal/migration"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
+	sitestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/site"
 	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
 	"github.com/maple52046/swallow/internal/shared/secret"
-	siteinfra "github.com/maple52046/swallow/internal/site/infra"
 )
 
 // DeploymentKeyResult reports the outcome of EnsureDeploymentKey without any secret material.
@@ -53,7 +53,7 @@ func EnsureDeploymentKey(cfg config.APIConfig) (DeploymentKeyResult, error) {
 		return DeploymentKeyResult{}, fmt.Errorf("database schema (run `swallow-api migrate` first): %w", err)
 	}
 
-	integrations, err := siteinfra.NewMongoIntegrationRepo(db, sealer)
+	integrations, err := sitestore.NewMongoIntegrationRepo(db, sealer)
 	if err != nil {
 		return DeploymentKeyResult{}, fmt.Errorf("integration repo init: %w", err)
 	}

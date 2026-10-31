@@ -517,7 +517,7 @@ lifecycle 表達。三道機制保證這件事：
 | execution 已不存在時的取消投影與 lease 釋放 | `internal/operation/application/lost_execution.go` |
 | `OperationWorkflowV1`、`JobWorkflowV1`、停等續租、取消路徑、回收被中斷的部署、Controller、Starter、Reconciler | `internal/operation/infra/temporalworkflow/workflow.go` |
 | ExecuteStep activity 的 timeout 與重試設定、worker drain 的判斷 | `internal/operation/infra/temporalworkflow/activity_options.go`、`activity_shutdown.go` |
-| Workflow repository（monotonic guard、`UpdateStepLive`、索引）與 resource lease repository | `internal/operation/infra/mongo_orchestration_repo.go` |
+| Workflow repository（monotonic guard、`UpdateStepLive`、索引）與 resource lease repository | `internal/adapters/store/mongodb/workflow/mongo_orchestration_repo.go` |
 | `cancelActiveWorkflows` 的後端實作 | `internal/app/workflow_supersede.go` |
 | Release／Recover 的受理與取代 | `internal/app/provisioning_operation_adapter.go` |
 | Platform uninstall 的受理與取代 | `internal/app/platform_deployment_adapter.go`、`internal/platform/application/uninstall_platform.go` |
@@ -527,7 +527,7 @@ lifecycle 表達。三道機制保證這件事：
 | Starter、Reconciler、repair sweep 的接線 | `internal/app/api.go`、`internal/app/worker.go` |
 | ansible activity（提早發佈 reference、鏡射 `Task.Live`） | `internal/operation/infra/temporalworkflow/ansible_executor.go` |
 | ansible executor process（串流、Progress、executor lease 與 fencing） | `internal/operation/application/ansible_executor.go` |
-| `ansible_task_events` store | `internal/operation/infra/mongo_ansible_event_repo.go` |
+| `ansible_task_events` store | `internal/adapters/store/mongodb/workflow/mongo_ansible_event_repo.go` |
 | 讀取 run 的增量 events | `internal/operation/infra/local_runner.go` |
 | Task events 的 API 讀取 | `internal/operation/application/execution_service.go` |
 | artifact retention | `internal/app/artifact_retention.go`、`internal/operation/infra/artifact_retention.go` |

@@ -4,9 +4,11 @@
 // multi-document transactions.
 //
 // It is a provider adapter (docs/development/core-and-extensions.md §3): MongoDB types, sessions,
-// and error labels stay here and in the repositories, and never reach the core. The repositories
-// still live in each feature's infra package; they move here when the codebase adopts the target
-// layout. Nothing in this package may hold business rules.
+// and error labels stay here and in the repositories, and never reach the core. Each context's
+// repositories live in a subpackage named after the context (apikey, auth, infrastructure,
+// platform, provisioning, server, site, software, sshkey, workflow) and schema evolution lives in
+// migration; a subpackage may import this package but not another context's subpackage. Nothing
+// in this package or its subpackages may hold business rules.
 package mongodb
 
 import (

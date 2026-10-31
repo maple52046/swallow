@@ -9,7 +9,7 @@ import (
 
 	"github.com/maple52046/swallow/config"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
-	"github.com/maple52046/swallow/internal/migration"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
 )
 
 // migrateBackupConfirmed gates the destructive v2 -> v3 Platform rename behind an

@@ -11,18 +11,20 @@ import (
 
 	"github.com/maple52046/swallow/config"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
+	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
+	serverstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/server"
+	sitestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/site"
+	softwarestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/software"
+	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
 	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
-	"github.com/maple52046/swallow/internal/migration"
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationinfra "github.com/maple52046/swallow/internal/operation/infra"
 	platformapp "github.com/maple52046/swallow/internal/platform/application"
 	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
 	provisioninginfra "github.com/maple52046/swallow/internal/provisioning/infra"
-	serverinfra "github.com/maple52046/swallow/internal/server/infra"
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
-	siteinfra "github.com/maple52046/swallow/internal/site/infra"
-	softwareinfra "github.com/maple52046/swallow/internal/software/infra"
 )
 
 // RunAnsibleExecutor owns all v3 ansible-runner processes. Stopping this process leaves
@@ -48,31 +50,31 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err := migration.Check(connectCtx, db); err != nil {
 		return fmt.Errorf("database schema: %w", err)
 	}
-	integrations, err := siteinfra.NewMongoIntegrationRepo(db, sealer)
+	integrations, err := sitestore.NewMongoIntegrationRepo(db, sealer)
 	if err != nil {
 		return err
 	}
-	servers, err := serverinfra.NewMongoServerRepo(db)
+	servers, err := serverstore.NewMongoServerRepo(db)
 	if err != nil {
 		return err
 	}
-	executions, err := operationinfra.NewMongoAnsibleExecutionRepo(db)
+	executions, err := workflowstore.NewMongoAnsibleExecutionRepo(db)
 	if err != nil {
 		return err
 	}
-	ansibleEvents, err := operationinfra.NewMongoAnsibleEventRepo(db)
+	ansibleEvents, err := workflowstore.NewMongoAnsibleEventRepo(db)
 	if err != nil {
 		return err
 	}
-	legacyOperations, err := operationinfra.NewMongoExecutionRepo(db, sealer)
+	legacyOperations, err := workflowstore.NewMongoExecutionRepo(db, sealer)
 	if err != nil {
 		return err
 	}
-	orchestrations, err := operationinfra.NewMongoWorkflowRepo(db)
+	orchestrations, err := workflowstore.NewMongoWorkflowRepo(db)
 	if err != nil {
 		return err
 	}
-	operationSecrets, err := operationinfra.NewMongoOperationSecretRepo(db, sealer)
+	operationSecrets, err := workflowstore.NewMongoOperationSecretRepo(db, sealer)
 	if err != nil {
 		return err
 	}
@@ -88,18 +90,18 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		return err
 	}
 	configurations := operationapp.NewEffectiveAutomationConfigurations(
-		operationinfra.NewMongoAutomationConfigurationRepo(db, sealer), deploymentKeySource{keys: sshKeys})
+		workflowstore.NewMongoAutomationConfigurationRepo(db, sealer), deploymentKeySource{keys: sshKeys})
 	runner := operationinfra.NewLocalRunner(cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
 	// Resolve each host's SSH login user per host (images use different default users), so a fleet
 	// mixing image families deploys and is managed under one Site without hand-switching sshUser.
 	runner.AttachUserProber(sshprobe.DefaultProber{})
 	protection := providerServerMutationGuard{servers: servers, providers: providers}
 	discovery := discoveryapp.NewDiscoveryUseCase(servers)
-	sites, err := siteinfra.NewMongoSiteRepo(db)
+	sites, err := sitestore.NewMongoSiteRepo(db)
 	if err != nil {
 		return err
 	}
-	platforms, err := platforminfra.NewMongoPlatformRepo(db)
+	platforms, err := platformstore.NewMongoPlatformRepo(db)
 	if err != nil {
 		return err
 	}
@@ -112,7 +114,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	// An uninstall completed by its ansible Step frees its Servers (decision 067) and, for Slurm,
 	// retires their Device Metrics Exporter records (decision 068).
 	platformService.AttachPlatformClaims(servers)
-	softwareAssignments, err := softwareinfra.NewMongoAssignmentRepo(db)
+	softwareAssignments, err := softwarestore.NewMongoAssignmentRepo(db)
 	if err != nil {
 		return err
 	}
@@ -122,7 +124,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	operationService := operationapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
 	operationService.AttachWorkflow(durable)
 	completion := platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers}
-	leases := operationinfra.NewMongoResourceLeaseRepo(db)
+	leases := workflowstore.NewMongoResourceLeaseRepo(db)
 	queue := operationapp.NewAnsibleQueueWorker(
 		executions, configurations, catalog, runner, ansibleEvents,
 		executionInventoryAdapter{discovery: discovery}, protection, leases, completion,

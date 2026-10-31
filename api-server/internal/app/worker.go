@@ -16,11 +16,16 @@ import (
 
 	"github.com/maple52046/swallow/config"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
+	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
+	provisioningstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/provisioning"
+	serverstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/server"
+	sitestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/site"
+	softwarestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/software"
+	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
 	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
-	"github.com/maple52046/swallow/internal/migration"
 	operationapp "github.com/maple52046/swallow/internal/operation/application"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	operationinfra "github.com/maple52046/swallow/internal/operation/infra"
 	"github.com/maple52046/swallow/internal/operation/infra/temporalworkflow"
 	platformapp "github.com/maple52046/swallow/internal/platform/application"
 	platforminfra "github.com/maple52046/swallow/internal/platform/infra"
@@ -31,8 +36,6 @@ import (
 	"github.com/maple52046/swallow/internal/server/infra/libvirt"
 	"github.com/maple52046/swallow/internal/server/infra/redfish"
 	"github.com/maple52046/swallow/internal/shared/secret"
-	siteinfra "github.com/maple52046/swallow/internal/site/infra"
-	softwareinfra "github.com/maple52046/swallow/internal/software/infra"
 )
 
 // RunWorker starts the Temporal workflow/activity worker. It owns orchestration only;
@@ -59,24 +62,24 @@ func RunWorker(cfg config.APIConfig) error {
 	if err := migration.Check(connectCtx, db); err != nil {
 		return fmt.Errorf("database schema: %w", err)
 	}
-	operations, err := operationinfra.NewMongoWorkflowRepo(db)
+	operations, err := workflowstore.NewMongoWorkflowRepo(db)
 	if err != nil {
 		return fmt.Errorf("orchestration repo: %w", err)
 	}
-	leases := operationinfra.NewMongoResourceLeaseRepo(db)
-	ansibleExecutions, err := operationinfra.NewMongoAnsibleExecutionRepo(db)
+	leases := workflowstore.NewMongoResourceLeaseRepo(db)
+	ansibleExecutions, err := workflowstore.NewMongoAnsibleExecutionRepo(db)
 	if err != nil {
 		return fmt.Errorf("Ansible execution repo: %w", err)
 	}
-	operationSecrets, err := operationinfra.NewMongoOperationSecretRepo(db, sealer)
+	operationSecrets, err := workflowstore.NewMongoOperationSecretRepo(db, sealer)
 	if err != nil {
 		return fmt.Errorf("operation secret repo: %w", err)
 	}
-	integrations, err := siteinfra.NewMongoIntegrationRepo(db, sealer)
+	integrations, err := sitestore.NewMongoIntegrationRepo(db, sealer)
 	if err != nil {
 		return err
 	}
-	servers, err := serverinfra.NewMongoServerRepo(db)
+	servers, err := serverstore.NewMongoServerRepo(db)
 	if err != nil {
 		return err
 	}
@@ -88,39 +91,39 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
+	automationRepo := workflowstore.NewMongoAutomationConfigurationRepo(db, sealer)
 	automationConfigurations := operationapp.NewEffectiveAutomationConfigurations(
 		automationRepo, deploymentKeySource{keys: sshKeys})
 	// Hypervisor access (decision 055): libvirt Boot Media ensures and virtual-machine enrollment
 	// log in to a Hypervisor with the Deployment Key on the Site's SSH port.
 	libvirtHosts := libvirt.NewHost(serverinfra.NewSSHHostAccess(deploymentKeySource{keys: sshKeys}, siteSSHPorts{configurations: automationRepo}))
-	platforms, err := platforminfra.NewMongoPlatformRepo(db)
+	platforms, err := platformstore.NewMongoPlatformRepo(db)
 	if err != nil {
 		return err
 	}
 	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, platforminfra.NewReaderFactory(integrations))
-	templates, err := provisioninginfra.NewMongoDeploymentTemplateRepo(db, sealer)
+	templates, err := provisioningstore.NewMongoDeploymentTemplateRepo(db, sealer)
 	if err != nil {
 		return err
 	}
-	tasks, err := provisioninginfra.NewMongoProvisioningTaskRepo(db)
+	tasks, err := provisioningstore.NewMongoProvisioningTaskRepo(db)
 	if err != nil {
 		return err
 	}
-	osImageVerifications, err := provisioninginfra.NewMongoOSImageVerificationRepo(db)
+	osImageVerifications, err := provisioningstore.NewMongoOSImageVerificationRepo(db)
 	if err != nil {
 		return err
 	}
 	// Software Assignments back the software Workflow's internal record step (installed/absent) and
 	// the step observer's failure marking (decision 038).
-	softwareAssignments, err := softwareinfra.NewMongoAssignmentRepo(db)
+	softwareAssignments, err := softwarestore.NewMongoAssignmentRepo(db)
 	if err != nil {
 		return err
 	}
 	// The overlay repo lets a deploy completion fill the mirrored OS image display name at once
 	// (RefreshServer), so the fleet list shows the friendly name instead of the raw id while the
 	// worker observes the deploy, rather than waiting for the next reconcile pass.
-	osImageOverlays, err := provisioninginfra.NewMongoOSImageOverlayRepo(db)
+	osImageOverlays, err := provisioningstore.NewMongoOSImageOverlayRepo(db)
 	if err != nil {
 		return err
 	}
@@ -170,7 +173,7 @@ func RunWorker(cfg config.APIConfig) error {
 	// runs (decision 053), so the worker's catalog needs the Boot Media directory and base URL like
 	// the API's. The enable and view paths of the use case are never called here, and the guard is
 	// unused.
-	bootISORepo, err := provisioninginfra.NewMongoBootISORepo(db)
+	bootISORepo, err := provisioningstore.NewMongoBootISORepo(db)
 	if err != nil {
 		return fmt.Errorf("boot ISO repo init: %w", err)
 	}

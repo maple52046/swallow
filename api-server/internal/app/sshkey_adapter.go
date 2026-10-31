@@ -9,6 +9,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/mongo"
 
+	sshkeystore "github.com/maple52046/swallow/internal/adapters/store/mongodb/sshkey"
 	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
@@ -29,13 +30,13 @@ func newSSHKeyService(
 	integrations sitedomain.IntegrationRepository,
 	providers provisioningdomain.ProviderFactory,
 ) (*sshkeyapp.Service, error) {
-	keys, err := sshkeyinfra.NewMongoKeyRepo(db, sealer)
+	keys, err := sshkeystore.NewMongoKeyRepo(db, sealer)
 	if err != nil {
 		return nil, fmt.Errorf("ssh key repo init: %w", err)
 	}
 	return sshkeyapp.NewService(
 		keys,
-		sshkeyinfra.NewMongoSyncRepo(db),
+		sshkeystore.NewMongoSyncRepo(db),
 		sshkeyinfra.NewKeyMaterial(),
 		sshkeyinfra.NewProvisionerKeys(integrations, providers),
 	), nil

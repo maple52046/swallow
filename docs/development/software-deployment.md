@@ -348,7 +348,7 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
 | 失敗標記 observer | `api-server/internal/app/software_assignment_observer.go` |
 | Playbooks 與 roles | `api-server/automation/playbooks/deploy-*.yml`、`roles/docker_ce`（Engine API listener：`tasks/api.yml`）、`roles/podman`、`roles/nfs_server`、`roles/nfs_client`、`roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用） |
 | Docker Host Explorer（view types、use case、Engine client、handler） | `api-server/internal/software/domain/docker.go`（port 常數 `DockerEngineAPIPort` 在 `domain/software.go`）、`application/docker_explorer.go`、`infra/dockerengine/`、`delivery/docker_handler.go` |
-| Registry Credential（registry 正規化與解析、service、sealed Mongo repo、handler） | `api-server/internal/software/domain/registry.go`、`application/registry_credentials.go`、`infra/mongo_registry_credential_repo.go`、`delivery/registry_credential_handler.go` |
+| Registry Credential（registry 正規化與解析、service、sealed Mongo repo、handler） | `api-server/internal/software/domain/registry.go`、`application/registry_credentials.go`、`delivery/registry_credential_handler.go`、`api-server/internal/adapters/store/mongodb/software/mongo_registry_credential_repo.go` |
 | Device Metrics Exporter（pinned version、port、job attribution） | `api-server/internal/software/domain/device_metrics_exporter.go`；Slurm 組入：`api-server/internal/app/slurm_composition_adapter.go` |
 | API 契約 | `api-server/docs/development/api-contracts/api-server/software.md`、`servers-docker.md`、`registry-credentials.md` |
 

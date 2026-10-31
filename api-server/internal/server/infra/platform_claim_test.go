@@ -9,18 +9,6 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
-// A stored claim reads back onto the Server, and a document without one reads as unclaimed.
-func TestPlatformClaimDocRoundTrip(t *testing.T) {
-	claimedAt := time.Date(2026, 10, 29, 15, 0, 0, 0, time.UTC)
-	got := toServer(&serverDoc{ID: "srv-1", PlatformClaim: &platformClaimDoc{PlatformID: "platform-a", ClaimedAt: claimedAt}})
-	if got.PlatformClaim == nil || got.PlatformClaim.PlatformID != "platform-a" || !got.PlatformClaim.ClaimedAt.Equal(claimedAt) {
-		t.Errorf("toServer() claim = %+v, want platform-a at %s", got.PlatformClaim, claimedAt)
-	}
-	if unclaimed := toServer(&serverDoc{ID: "srv-2"}); unclaimed.PlatformClaim != nil {
-		t.Errorf("toServer() claim = %+v, want nil without a stored claim", unclaimed.PlatformClaim)
-	}
-}
-
 // claimRepo is an in-memory ServerRepository and PlatformClaimStore for the decorator test; only
 // the methods the decorator calls are meaningful.
 type claimRepo struct {

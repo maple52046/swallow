@@ -571,7 +571,7 @@ Operation 也不能同時宣告同一台 Server。把 provider 失敗改成不�
 | Provider port、`ProviderCapabilities` 與 optional interface | `internal/provisioning/domain/provider.go` |
 | Recovery policy 矩陣與 Recover 計畫 | `internal/provisioning/domain/recovery_policy.go` |
 | Deploy Target 與架構相容性 | `internal/provisioning/domain/deploy_target.go` |
-| OS Image 驗證 model 與 repository | `internal/provisioning/domain/os_image_verification.go`、`internal/provisioning/infra/mongo_os_image_verification_repo.go` |
+| OS Image 驗證 model 與 repository | `internal/provisioning/domain/os_image_verification.go`、`internal/adapters/store/mongodb/provisioning/mongo_os_image_verification_repo.go` |
 | Deployment Template | `internal/provisioning/domain/deployment_template.go`、`internal/provisioning/application/deployment_templates.go` |
 | 部署網路模式 | `internal/provisioning/domain/network.go` |
 | Network inspection 與建議 | `internal/provisioning/application/network_configuration.go` |

@@ -23,18 +23,25 @@ import (
 	"github.com/maple52046/swallow/bootstrap"
 	"github.com/maple52046/swallow/config"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	apikeystore "github.com/maple52046/swallow/internal/adapters/store/mongodb/apikey"
+	authstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/auth"
+	infrastructurestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/infrastructure"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
+	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
+	provisioningstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/provisioning"
+	serverstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/server"
+	sitestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/site"
+	softwarestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/software"
+	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
 	apikeyapp "github.com/maple52046/swallow/internal/apikey/application"
 	apikeydelivery "github.com/maple52046/swallow/internal/apikey/delivery"
-	apikeyinfra "github.com/maple52046/swallow/internal/apikey/infra"
 	authapp "github.com/maple52046/swallow/internal/auth/application"
 	authdelivery "github.com/maple52046/swallow/internal/auth/delivery"
-	authinfra "github.com/maple52046/swallow/internal/auth/infra"
 	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
 	discoverydelivery "github.com/maple52046/swallow/internal/discovery/delivery"
 	infrastructureapp "github.com/maple52046/swallow/internal/infrastructure/application"
 	infrastructuredelivery "github.com/maple52046/swallow/internal/infrastructure/delivery"
 	infrastructureinfra "github.com/maple52046/swallow/internal/infrastructure/infra"
-	"github.com/maple52046/swallow/internal/migration"
 	monitoringapp "github.com/maple52046/swallow/internal/monitoring/application"
 	monitoringdelivery "github.com/maple52046/swallow/internal/monitoring/delivery"
 	monitoringinfra "github.com/maple52046/swallow/internal/monitoring/infra"
@@ -63,10 +70,8 @@ import (
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	siteapp "github.com/maple52046/swallow/internal/site/application"
 	sitedelivery "github.com/maple52046/swallow/internal/site/delivery"
-	siteinfra "github.com/maple52046/swallow/internal/site/infra"
 	softwareapp "github.com/maple52046/swallow/internal/software/application"
 	softwaredelivery "github.com/maple52046/swallow/internal/software/delivery"
-	softwareinfra "github.com/maple52046/swallow/internal/software/infra"
 	"github.com/maple52046/swallow/internal/software/infra/dockerengine"
 	sshkeydelivery "github.com/maple52046/swallow/internal/sshkey/delivery"
 	"github.com/maple52046/swallow/internal/version"
@@ -120,16 +125,16 @@ func RunAPI(cfg config.APIConfig) error {
 		return fmt.Errorf("database schema: %w", err)
 	}
 
-	userRepo := authinfra.NewMongoUserRepo(db)
-	siteRepo, err := siteinfra.NewMongoSiteRepo(db)
+	userRepo := authstore.NewMongoUserRepo(db)
+	siteRepo, err := sitestore.NewMongoSiteRepo(db)
 	if err != nil {
 		return fmt.Errorf("site repo init: %w", err)
 	}
-	integrationRepo, err := siteinfra.NewMongoIntegrationRepo(db, sealer)
+	integrationRepo, err := sitestore.NewMongoIntegrationRepo(db, sealer)
 	if err != nil {
 		return fmt.Errorf("integration repo init: %w", err)
 	}
-	mongoServerRepo, err := serverinfra.NewMongoServerRepo(db)
+	mongoServerRepo, err := serverstore.NewMongoServerRepo(db)
 	if err != nil {
 		return fmt.Errorf("server repo init: %w", err)
 	}
@@ -139,43 +144,43 @@ func RunAPI(cfg config.APIConfig) error {
 	// through the reconcile pump within its interval, deduplicated by the broker.
 	serverEventBroker := serverinfra.NewServerEventBroker()
 	serverRepo := serverinfra.NewEventingServerRepository(mongoServerRepo, serverEventBroker)
-	templateRepo, err := provisioninginfra.NewMongoDeploymentTemplateRepo(db, sealer)
+	templateRepo, err := provisioningstore.NewMongoDeploymentTemplateRepo(db, sealer)
 	if err != nil {
 		return fmt.Errorf("deployment template repo init: %w", err)
 	}
 	// Swallow-owned OS Image name overlays merged onto the provider catalog at read
 	// (docs/decisions/025). Owned data, so no sealing or staleness applies.
-	osImageOverlayRepo, err := provisioninginfra.NewMongoOSImageOverlayRepo(db)
+	osImageOverlayRepo, err := provisioningstore.NewMongoOSImageOverlayRepo(db)
 	if err != nil {
 		return fmt.Errorf("os image overlay repo init: %w", err)
 	}
 	// Swallow-owned OS Image verification attestations: which deploy targets (disk/ram) a real
 	// verification deploy has proven for an image. Owned data keyed by the provider image identity,
 	// kept separate from the display overlay so pruning one never erases the other.
-	osImageVerificationRepo, err := provisioninginfra.NewMongoOSImageVerificationRepo(db)
+	osImageVerificationRepo, err := provisioningstore.NewMongoOSImageVerificationRepo(db)
 	if err != nil {
 		return fmt.Errorf("os image verification repo init: %w", err)
 	}
 	// Swallow-owned Server tag overlays: the fallback half of the capability-first tag rule
 	// (docs/decisions/031), merged into Observed.Tags by reconcile only when a provisioner cannot
 	// own tags. Owned data, so no sealing or staleness applies; inert while MAAS is tagging-capable.
-	serverTagOverlayRepo, err := provisioninginfra.NewMongoServerTagOverlayRepo(db)
+	serverTagOverlayRepo, err := provisioningstore.NewMongoServerTagOverlayRepo(db)
 	if err != nil {
 		return fmt.Errorf("server tag overlay repo init: %w", err)
 	}
-	taskRepo, err := provisioninginfra.NewMongoProvisioningTaskRepo(db)
+	taskRepo, err := provisioningstore.NewMongoProvisioningTaskRepo(db)
 	if err != nil {
 		return fmt.Errorf("provisioning task repo init: %w", err)
 	}
-	operationRepo, err := operationinfra.NewMongoExecutionRepo(db, sealer)
+	operationRepo, err := workflowstore.NewMongoExecutionRepo(db, sealer)
 	if err != nil {
 		return fmt.Errorf("operation repo init: %w", err)
 	}
-	orchestrationRepo, err := operationinfra.NewMongoWorkflowRepo(db)
+	orchestrationRepo, err := workflowstore.NewMongoWorkflowRepo(db)
 	if err != nil {
 		return fmt.Errorf("orchestration repo init: %w", err)
 	}
-	operationSecretRepo, err := operationinfra.NewMongoOperationSecretRepo(db, sealer)
+	operationSecretRepo, err := workflowstore.NewMongoOperationSecretRepo(db, sealer)
 	if err != nil {
 		return fmt.Errorf("operation secret repo init: %w", err)
 	}
@@ -199,7 +204,7 @@ func RunAPI(cfg config.APIConfig) error {
 			"jwtExpiryHours", cfg.JWTExpiryHours, "accessTokenTTL", cfg.AccessTokenTTL.String())
 	}
 	jwtSvc := jwt.NewService(cfg.JWTSecret, cfg.AccessTokenTTL)
-	sessionRepo, err := authinfra.NewMongoSessionRepo(db)
+	sessionRepo, err := authstore.NewMongoSessionRepo(db)
 	if err != nil {
 		return fmt.Errorf("session repo init: %w", err)
 	}
@@ -210,7 +215,7 @@ func RunAPI(cfg config.APIConfig) error {
 		}),
 		authapp.NewMeUseCase(userRepo),
 	)
-	apiKeyRepo, err := apikeyinfra.NewMongoKeyRepo(db)
+	apiKeyRepo, err := apikeystore.NewMongoKeyRepo(db)
 	if err != nil {
 		return fmt.Errorf("api key repo init: %w", err)
 	}
@@ -301,11 +306,11 @@ func RunAPI(cfg config.APIConfig) error {
 	// Infrastructure: swallow-owned Zones and Pools (decision 029). The grouping realizer reuses
 	// the provisioning ProviderFactory so there is a single MAAS transport, and reads Sites and
 	// Servers through narrow adapters. Provider realization is optional per Site capability.
-	zoneRepo, err := infrastructureinfra.NewMongoZoneRepo(db)
+	zoneRepo, err := infrastructurestore.NewMongoZoneRepo(db)
 	if err != nil {
 		return fmt.Errorf("zone repo init: %w", err)
 	}
-	poolRepo, err := infrastructureinfra.NewMongoPoolRepo(db)
+	poolRepo, err := infrastructurestore.NewMongoPoolRepo(db)
 	if err != nil {
 		return fmt.Errorf("pool repo init: %w", err)
 	}
@@ -319,7 +324,7 @@ func RunAPI(cfg config.APIConfig) error {
 		),
 	)
 
-	platformRepo, err := platforminfra.NewMongoPlatformRepo(db)
+	platformRepo, err := platformstore.NewMongoPlatformRepo(db)
 	if err != nil {
 		return fmt.Errorf("platform repo init: %w", err)
 	}
@@ -337,7 +342,7 @@ func RunAPI(cfg config.APIConfig) error {
 			zones: zoneRepo, pools: poolRepo, platforms: platformRepo, servers: serverRepo,
 		}),
 	)
-	requirementRepo := platforminfra.NewMongoDeploymentRequirementRepo(db)
+	requirementRepo := platformstore.NewMongoDeploymentRequirementRepo(db)
 	requirementService := platformapp.NewDeploymentRequirementService(requirementRepo)
 	platformReaderFactory := platforminfra.NewReaderFactory(integrationRepo)
 	membershipSync := platformapp.NewMembershipSyncUseCase(
@@ -370,7 +375,7 @@ func RunAPI(cfg config.APIConfig) error {
 		slog.Error("reconcile platform claims", "error", err)
 	}
 	cancelClaims()
-	automationRepo := operationinfra.NewMongoAutomationConfigurationRepo(db, sealer)
+	automationRepo := workflowstore.NewMongoAutomationConfigurationRepo(db, sealer)
 	// Automation readers get the effective credential (the Deployment Key, decision 041) and the
 	// derived credential source; the configuration service reads the plain repository and derives
 	// the same source itself, because it reports what is stored and never needs key material.
@@ -390,7 +395,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// Server's BMC for Redfish capability, and applies a Server's chosen Boot ISO through Redfish
 	// with the BMC connection read live from the provisioner. The setting and capability are
 	// written straight to the Mongo repository (the event broker only carries projection changes).
-	bootISORepo, err := provisioninginfra.NewMongoBootISORepo(db)
+	bootISORepo, err := provisioningstore.NewMongoBootISORepo(db)
 	if err != nil {
 		return fmt.Errorf("boot ISO repo init: %w", err)
 	}
@@ -409,7 +414,7 @@ func RunAPI(cfg config.APIConfig) error {
 	runner.AttachUserProber(sshprobe.DefaultProber{})
 	// Live Ansible task events, streamed by the executor and read here to serve a durable Step's
 	// task list during a run rather than only after it finishes (decision: live progress).
-	ansibleEventRepo, err := operationinfra.NewMongoAnsibleEventRepo(db)
+	ansibleEventRepo, err := workflowstore.NewMongoAnsibleEventRepo(db)
 	if err != nil {
 		return fmt.Errorf("ansible event repo init: %w", err)
 	}
@@ -425,7 +430,7 @@ func RunAPI(cfg config.APIConfig) error {
 	orchestrationService := operationapp.NewWorkflowService(
 		transactor, orchestrationRepo, temporalworkflow.NewController(temporalClient), operationSecretRepo,
 	)
-	resourceLeases := operationinfra.NewMongoResourceLeaseRepo(db)
+	resourceLeases := workflowstore.NewMongoResourceLeaseRepo(db)
 	orchestrationService.AttachLeaseReader(resourceLeases)
 	// Cancel and Rerun free the leases a Workflow whose execution is gone can never release.
 	orchestrationService.AttachLeaseReleaser(resourceLeases)
@@ -488,7 +493,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// the operation orchestration (PrepareAnsibleStep + WorkflowService) through a launcher, so it
 	// shares the platform deployment engine rather than owning a second one. It is built before the
 	// platform launcher because a Slurm deployment with Omnistat composes software (decision 063).
-	softwareAssignmentRepo, err := softwareinfra.NewMongoAssignmentRepo(db)
+	softwareAssignmentRepo, err := softwarestore.NewMongoAssignmentRepo(db)
 	if err != nil {
 		return fmt.Errorf("software assignment repo init: %w", err)
 	}
@@ -546,7 +551,7 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 	// Registry Credentials (decision 044): installation-wide, sealed with the credential key, and
 	// attached to an explorer pull whose image reference resolves to their registry.
-	registryCredentialRepo, err := softwareinfra.NewMongoRegistryCredentialRepo(db, sealer)
+	registryCredentialRepo, err := softwarestore.NewMongoRegistryCredentialRepo(db, sealer)
 	if err != nil {
 		return fmt.Errorf("registry credential repo init: %w", err)
 	}
