@@ -279,12 +279,37 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 
 - `backup` 在 `backups/`（`SWALLOW_BACKUP_DIR` 可改）建立 `daily-<UTC 時間戳>`，內容為 MongoDB `swallow`
   database 的 archive、job artifacts、用來解開封存 secrets 的 credential key、有共置 MAAS 時的 `maasdb`
-  dump，以及 `SHA256SUMS`。MAAS boot images 不備份：restore 後從 `images.maas.io` 重新同步。
+  dump、記錄取得時的 release 與資料庫 schema 版本的 `backup.json`，以及 `SHA256SUMS`。MAAS boot images 不備份：
+  restore 後從 `images.maas.io` 重新同步。**Temporal 不備份**（見下方的還原語意）。
+- `SHA256SUMS` 以備份目錄內的相對檔名記錄，所以 weekly 副本、或搬到其他主機的備份都能獨立驗證。
 - 週日的備份另以 hard link 複製為 `weekly-<時間戳>`；保留最近 7 份 daily 與 4 份 weekly。
 - Compose installation 不自帶備份排程；`upgrade` 一律先備份，寫成 `pre-upgrade-<已安裝版本>-<時間戳>`，內容
   相同但不參與輪替，保留到 operator 手動刪除。
-- `restore BACKUP_DIRECTORY` 先驗證 `SHA256SUMS`，再還原 MongoDB（`--drop`）、job artifacts、credential
-  key，以及（備份含 dump 且有共置 MAAS 時，期間停止 MAAS snap）`maasdb`，最後 recreate API 與 Dashboard。
+- 排程的 `backup` 在系統執行中取得，不停任何 process；MongoDB 的各 collection 因此不是同一瞬間的快照。
+- `restore BACKUP_DIRECTORY --yes`：
+  1. 驗證 `SHA256SUMS`（早於相對檔名的備份記的是絕對路徑，只取其檔名，檢查的仍是這個目錄中的檔案），並確認
+     MongoDB archive、job artifacts 與 credential key 都在其中。
+  2. 啟動 MongoDB 與 PostgreSQL；依 `backup.json` 拒絕 schema 比目前 API image 服務的還新的備份（不支援降級），
+     或比它最舊可升級的 schema 還舊的備份。沒有 `backup.json` 的舊備份不檢查，`migrate` 仍會拒絕較新的 schema，
+     但那時資料已經還原。
+  3. 沒有 `--yes` 時列出將被取代的內容後停止。
+  4. 停止 API、worker 與 Ansible executor：還原期間沒有任何 process 寫入資料庫。
+  5. 還原 MongoDB（`--drop`）；**先清空**再還原 job artifacts；還原 credential key；備份含 dump 且有共置 MAAS
+     時，停止 MAAS snap 並還原 `maasdb`。
+  6. `migrate --backup-confirmed`：較舊 release 的備份升級到目前的 schema。
+  7. 終止 Temporal 中所有 `swallow-operation/` 開頭、仍在執行的 run。
+  8. 啟動整個 stack，等 `/readyz`，執行 `doctor`。
+- **還原語意：以 store 為準。** Temporal 不備份，它的 run 屬於被取代的 store，所以全部終止；
+  `workflow-dispatch` 在下一次 resync 把還原後 store 中每個未結束的 Workflow 派發成新的 run，依 store 接續
+  （[workflow-execution.md](workflow-execution.md) §10）。留著舊 run 的話，它可能帶著還原後 store 會再發一次的
+  派發世代。
+  - backup 之後才完成的 Task 在 store 中仍未完成。當時還是 `pending` 的會再執行一次（ensure 語意讓重跑安全）；
+    當時為 `running` 的依 Task kind 的接續方式：可重新觀察的 Runner 先觀察再接續，Ansible Task 記為
+    `requires_attention`（`executor_outcome_unknown`）等 operator 重試。backup 之後才受理的 Workflow 不存在。
+  - 資源所有權與 Workflow 可能對不上（collection 不是同一瞬間取得）：新世代的第一輪重新取得 Workflow 的資源
+    （被另一個 Workflow 擁有時等待），resync 釋放 owner 已結束或不存在的所有權（workflow-execution.md §4）。
+  - 被終止的 run 若正在 Server 上執行 playbook，沒有跑到釋放 OS 套件維護 hold 的最後一個 play；那些 Server 的
+    hold 在 TTL（預設 3 小時）到期時自行解除（[decision 073](../decisions/073-hold-os-package-maintenance-during-automation.md)）。
 
 ### 3.7 `uninstall`
 
@@ -307,6 +332,8 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
   [decision 006](../decisions/006-embedded-ansible-execution.md) 的 Consequences。
 - backup／restore 包含 `maasdb`，因為 MAAS 依賴 Compose 的 PostgreSQL：見
   [decision 040](../decisions/040-single-vm-production-installation.md)。
+- 還原以 store 為準、不備份 Temporal：store 是唯一的真相，execution 遺失時由 store 重新派發，見
+  [decision 072](../decisions/072-store-driven-workflow-execution.md)。
 
 ---
 

@@ -137,6 +137,9 @@ glossary [Task](glossaries/terms/task.md)。終態是 `succeeded`、`failed`、`
   5 秒再試，直到全部取得或 Workflow 被取消。取得後才開始任何 Task。
 - **期限**：所有權沒有 TTL，也不續租。Workflow 執行中、停等中都持有它，直到 Workflow 進入終態：釋放與終態轉換在
   同一個 transaction 中。
+- **每個世代重新取得**：派發（§10）把 Workflow 記為尚未取得資源，新世代的第一輪再取得一次。取得對同一個 owner
+  是可重入的，已持有的資源保留原本的取得時間；從備份還原、store 中少了的所有權則在任何 Task 接續之前補回，被別的
+  Workflow 擁有時等待。
 - **派發世代**：每次派發（第一次派發與每次接續，§10），Workflow 的派發世代加一。driver 的每個 activity 都帶著
   啟動它的世代；core 拒絕舊世代的寫入（`dispatch_fenced`），舊 run 的 driver 因此停止。
 - **Runner 的 fencing**：執行 Task 的 activity 在呼叫 Runner 之前，以及執行中每 15 秒，確認自己的世代仍是目前的
@@ -430,8 +433,12 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
   - 可以重新觀察的 Runner（provider、internal）：以同一個 attempt 重新執行並標記為接續，Runner 先觀察再接續同一個
     外部工作。
   - Ansible：結果無法證明，Task 記為 `requires_attention`（`executor_outcome_unknown`），等 operator 重試。
-- **孤兒**：resync 時列出 Temporal 中仍在執行的 driver run；store 不認得的、已結束的、或不是 store 記錄的目前 run，
-  一律終止。
+- **孤兒**：resync 時列出 Temporal 中仍在執行的 driver run，終止 store 不認得的、Workflow 已結束的，以及 Workflow
+  已改由目前 driver 執行時舊 driver 留下的 run（包括舊 driver 的 Job child）。不比對 run ID：每個 Workflow 的
+  Temporal workflow ID 固定，同時最多一個 run，而派發在啟動新 run 前已終止舊的。
+- **所有權**：resync 時另外釋放 owner 不是未結束 Workflow 的所有權（Workflow 已結束，或 store 中沒有它）。正常
+  情況下終態轉換已釋放，這一步什麼都不做；它修復從執行中取得的備份還原的 store（§4、
+  [installation.md](installation.md) §3.6）。
 - **升級**：升級後 dispatcher 終止每個舊 driver 的 execution，以新的 driver 接續它的 Workflow。
 
 ### 規則與不變式

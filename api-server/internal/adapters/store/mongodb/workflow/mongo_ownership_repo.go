@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -57,12 +58,17 @@ func (r *MongoOwnershipRepo) Acquire(ctx context.Context, owner string, resource
 	if err := cursor.All(ctx, &docs); err != nil {
 		return false, err
 	}
+	held := map[string]bool{}
 	for _, doc := range docs {
 		if doc.Owner != "" && doc.Owner != owner {
 			return false, nil
 		}
+		held[doc.ResourceKey] = doc.Owner == owner
 	}
 	for _, key := range resourceKeys {
+		if held[key] {
+			continue
+		}
 		if _, err := r.col.UpdateOne(ctx, bson.M{"_id": key}, bson.M{
 			"$set": bson.M{"owner": owner, "acquiredAt": at, "updatedAt": at},
 		}, options.Update().SetUpsert(true)); err != nil {
@@ -102,4 +108,20 @@ func (r *MongoOwnershipRepo) IsHeld(ctx context.Context, resourceKey string) (bo
 		"_id": resourceKey, "owner": bson.M{"$nin": bson.A{"", nil}},
 	}, options.Count().SetLimit(1))
 	return n > 0, err
+}
+
+// Owners implements workflowdomain.OwnershipRepository.
+func (r *MongoOwnershipRepo) Owners(ctx context.Context) ([]string, error) {
+	values, err := r.col.Distinct(ctx, "owner", bson.M{"owner": bson.M{"$nin": bson.A{"", nil}}})
+	if err != nil {
+		return nil, err
+	}
+	owners := make([]string, 0, len(values))
+	for _, value := range values {
+		if owner, ok := value.(string); ok {
+			owners = append(owners, owner)
+		}
+	}
+	sort.Strings(owners)
+	return owners, nil
 }

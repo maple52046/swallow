@@ -99,6 +99,8 @@ func (s *driverStore) IsHeld(_ context.Context, key string) (bool, error) {
 	return s.owners[key] != "", nil
 }
 
+func (s *driverStore) Owners(context.Context) ([]string, error) { return nil, nil }
+
 func (s *driverStore) workflow(t *testing.T, id string) *workflowdomain.Workflow {
 	t.Helper()
 	w, err := s.FindByID(context.Background(), id)

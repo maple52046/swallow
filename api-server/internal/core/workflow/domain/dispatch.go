@@ -62,7 +62,8 @@ type ResourceOwnership struct {
 // transition is retried and then waits).
 type OwnershipRepository interface {
 	// Acquire takes every resource for owner, or none: it reports false without writing when any
-	// resource is owned by another Workflow. Resources owner already holds count as acquired.
+	// resource is owned by another Workflow. Resources owner already holds count as acquired and
+	// keep the time they were first acquired.
 	Acquire(ctx context.Context, owner string, resourceKeys []string, at time.Time) (bool, error)
 	// Release frees every resource owner holds; freeing none is not an error.
 	Release(ctx context.Context, owner string) error
@@ -70,6 +71,8 @@ type OwnershipRepository interface {
 	FindByOwner(ctx context.Context, owner string) ([]ResourceOwnership, error)
 	// IsHeld reports whether any Workflow owns resourceKey.
 	IsHeld(ctx context.Context, resourceKey string) (bool, error)
+	// Owners returns the id of every Workflow that owns at least one resource, sorted.
+	Owners(ctx context.Context) ([]string, error)
 }
 
 var (

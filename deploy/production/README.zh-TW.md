@@ -154,12 +154,16 @@ sudo ./swallowctl ensure
 - `sudo ./swallowctl ntp upstream [show | set SERVER... | default]` 顯示、設定或重設 NTP server
   的上游。`set` 與 `default` 會先套用，成功後才寫入 `.env`。MAAS 的 `ntp_servers` 由 swallowctl
   管理：在 MAAS UI 設定的值，會在下次 install、upgrade 或 ensure 時被取代。
-- `sudo ./swallowctl backup` 把 MongoDB、job artifacts、credential key 與 MAAS database
-  寫到 `backups/`。請每日排程；retention 是七份 daily 與四份 Sunday weekly。MAAS boot
-  images 會從 `images.maas.io` 重新同步。
-- `sudo ./swallowctl restore BACKUP_DIRECTORY` 驗證 checksum，還原 MongoDB、artifacts、
-  credential key 與 MAAS database，再重建 API 與 Dashboard。MAAS 重啟期間的 SSH key 登錄
-  會以退避重試，並在下一次 controller resync 再試；`swallow ssh-keys sync`（或 **Sync to
+- `sudo ./swallowctl backup` 把 MongoDB、job artifacts、credential key、MAAS database 與
+  `backup.json`（取得時的 release 與 database schema）寫到 `backups/`，checksum 以備份內的相對
+  檔名記錄。請每日排程；retention 是七份 daily 與四份 Sunday weekly。MAAS boot images 會從
+  `images.maas.io` 重新同步。Temporal 不備份。
+- `sudo ./swallowctl restore BACKUP_DIRECTORY --yes` 驗證 checksum、拒絕較新 release 的備份，停止
+  API、worker 與 Ansible executor，還原 MongoDB、artifacts（取代現有的）、credential key 與 MAAS
+  database，migrate，終止 Temporal 中所有 swallow 的 run，再啟動 stack 並執行 `doctor`。還原後的
+  database 就是真相：每個未結束的 Workflow 依它重新派發，所以 backup 之後記錄的工作會遺失，
+  backup 之後才完成的 Task 會再跑一次。沒有 `--yes` 時只說明將取代什麼。MAAS 重啟期間的 SSH key
+  登錄會以退避重試，並在下一次 controller resync 再試；`swallow ssh-keys sync`（或 **Sync to
   provisioners**）可立即重試。
 - `sudo ./swallowctl uninstall` 停止 stack 與 MAAS，保留 volumes、secrets 與 backups；
   `--purge-data` 會一併移除 MAAS snap、volumes 與 backups。

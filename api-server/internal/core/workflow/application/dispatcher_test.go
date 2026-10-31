@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/maple52046/swallow/internal/core/convergence"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
@@ -157,5 +158,20 @@ func TestDispatcher_TerminatesOrphanRuns(t *testing.T) {
 		if executor.terminated[i] != want[i] {
 			t.Fatalf("terminated %v, want %v", executor.terminated, want)
 		}
+	}
+}
+
+// Every resync releases ownership no unfinished Workflow accounts for, which a restored store can
+// hold (installation.md §3.6).
+func TestDispatcher_ReleasesStaleOwnershipOnResync(t *testing.T) {
+	d, f, _ := newDispatcherFixture(t, currentWorkflow("w"))
+	keys, err := d.Keys(context.Background())
+	if err != nil || len(keys) != 3 || keys[0] != "w" || keys[1] != orphansKey || keys[2] != ownershipKey {
+		t.Fatalf("Keys = %v (%v), want w, then the orphan and the ownership sweeps", keys, err)
+	}
+	_, _ = f.ownership.Acquire(context.Background(), "gone", []string{"server:s9"}, time.Now())
+	reconcile(t, d, ownershipKey, convergence.TriggerResync)
+	if held, _ := f.ownership.IsHeld(context.Background(), "server:s9"); held {
+		t.Fatal("ownership of a Workflow the store does not hold was kept")
 	}
 }

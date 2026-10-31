@@ -125,6 +125,21 @@ func (o *memoryOwnership) IsHeld(_ context.Context, key string) (bool, error) {
 	return o.owner[key] != "", nil
 }
 
+func (o *memoryOwnership) Owners(context.Context) ([]string, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	seen := map[string]bool{}
+	var owners []string
+	for _, holder := range o.owner {
+		if !seen[holder] {
+			seen[holder] = true
+			owners = append(owners, holder)
+		}
+	}
+	sort.Strings(owners)
+	return owners, nil
+}
+
 type directTransactor struct{}
 
 func (directTransactor) InTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
@@ -255,6 +270,53 @@ func TestEngine_WaitsForAResourceAnotherWorkflowOwns(t *testing.T) {
 	}
 	if w := f.workflows.get(t, "w"); w.Status != workflowdomain.WorkflowWaitingDependency || w.Steps[0].Status != workflowdomain.TaskPending {
 		t.Fatalf("Workflow = %s, Task %s; want waiting_dependency with nothing begun", w.Status, w.Steps[0].Status)
+	}
+}
+
+// A store restored from a backup can hold a Workflow that took its resources while the backed-up
+// ownership does not show it. The next generation takes them back before it resumes any Task, and
+// waits while another Workflow owns them.
+func TestEngine_ANewGenerationTakesItsResourcesAgain(t *testing.T) {
+	f := newEngineFixture(t, 4, newWorkflow("w", pendingTask("a", "deploy", workflowdomain.RunnerKindProvisioner)))
+	gen := f.dispatch(t, "w")
+	if result := f.advance(t, "w", gen); len(result.Start) != 1 {
+		t.Fatalf("first Advance = %+v, want a started", result)
+	}
+	_ = f.ownership.Release(context.Background(), "w")
+	_, _ = f.ownership.Acquire(context.Background(), "other", []string{"server:s1"}, time.Now())
+
+	gen = f.dispatch(t, "w")
+	if w := f.workflows.get(t, "w"); w.ResourcesAcquired {
+		t.Fatal("a new generation still counts the resources as taken")
+	}
+	if result := f.advance(t, "w", gen, "a"); result.Action != AdvanceWaitResources || len(result.Start) != 0 {
+		t.Fatalf("Advance while another Workflow owns s1 = %+v, want to wait", result)
+	}
+
+	_ = f.ownership.Release(context.Background(), "other")
+	result := f.advance(t, "w", gen)
+	if result.Action != AdvanceRun || len(result.Start) != 1 || !result.Start[0].Resumed {
+		t.Fatalf("Advance once s1 is free = %+v, want a resumed", result)
+	}
+	if owned, _ := f.ownership.FindByOwner(context.Background(), "w"); len(owned) != 1 {
+		t.Fatalf("w owns %v, want s1 again", owned)
+	}
+}
+
+func TestEngine_ReleasesOwnershipOfOwnersThatAreNotUnfinishedWorkflows(t *testing.T) {
+	done := newWorkflow("done", pendingTask("a", "deploy", workflowdomain.RunnerKindProvisioner))
+	done.Status = workflowdomain.WorkflowSucceeded
+	f := newEngineFixture(t, 4, newWorkflow("w", pendingTask("a", "deploy", workflowdomain.RunnerKindProvisioner)), done)
+	ctx := context.Background()
+	_, _ = f.ownership.Acquire(ctx, "w", []string{"server:s1"}, time.Now())
+	_, _ = f.ownership.Acquire(ctx, "done", []string{"server:s2"}, time.Now())
+	_, _ = f.ownership.Acquire(ctx, "gone", []string{"server:s3", "platform:p1"}, time.Now())
+
+	if err := f.engine.ReleaseStaleOwnership(ctx); err != nil {
+		t.Fatalf("ReleaseStaleOwnership: %v", err)
+	}
+	if owners, _ := f.ownership.Owners(ctx); len(owners) != 1 || owners[0] != "w" {
+		t.Fatalf("owners = %v, want only the unfinished Workflow w", owners)
 	}
 }
 

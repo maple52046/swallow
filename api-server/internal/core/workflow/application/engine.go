@@ -221,8 +221,11 @@ const (
 
 // Dispatch starts a new dispatch generation: the generation increases, the Workflow is marked
 // started for the current driver, every stored command counts as delivered (the new run applies
-// them), and the run reference is cleared until RecordRun. It returns the new generation, or
-// ErrWorkflowControlConflict for a terminal Workflow.
+// them), and the run reference is cleared until RecordRun. The new generation takes the
+// Workflow's resources again in its first round; Acquire is re-entrant, so ownership the Workflow
+// still holds is kept, and ownership a restored store lost is taken back (or waited for) before
+// any Task runs. It returns the new generation, or ErrWorkflowControlConflict for a terminal
+// Workflow.
 func (e *Engine) Dispatch(ctx context.Context, id string) (int64, error) {
 	var generation int64
 	err := e.transactor.InTransaction(ctx, func(ctx context.Context) error {
@@ -240,10 +243,38 @@ func (e *Engine) Dispatch(ctx context.Context, id string) (int64, error) {
 		w.Dispatch.DispatchedAt = &now
 		w.StartState = "started"
 		w.Temporal.RunID = ""
+		w.ResourcesAcquired = false
 		generation = w.Dispatch.Generation
 		return e.workflows.Save(ctx, w)
 	})
 	return generation, err
+}
+
+// ReleaseStaleOwnership frees the resources of every owner that is not an unfinished Workflow:
+// one that already ended, or one the store does not hold. A terminal transition releases its
+// Workflow's resources itself, so this finds nothing in normal operation; it repairs a store
+// restored from a backup that was taken while Workflows ran, whose collections were not captured
+// at one instant. Each owner is checked and released in its own transaction.
+func (e *Engine) ReleaseStaleOwnership(ctx context.Context) error {
+	owners, err := e.ownership.Owners(ctx)
+	if err != nil {
+		return err
+	}
+	var failed error
+	for _, owner := range owners {
+		failed = errors.Join(failed, e.transactor.InTransaction(ctx, func(ctx context.Context) error {
+			w, err := e.workflows.FindByID(ctx, owner)
+			switch {
+			case errors.Is(err, workflowdomain.ErrWorkflowNotFound) || errors.Is(err, workflowdomain.ErrWorkflowNotV3):
+			case err != nil:
+				return err
+			case !w.Status.Terminal():
+				return nil
+			}
+			return e.ownership.Release(ctx, owner)
+		}))
+	}
+	return failed
 }
 
 // Advance runs one round of a Workflow for the run of request.Generation: it takes the

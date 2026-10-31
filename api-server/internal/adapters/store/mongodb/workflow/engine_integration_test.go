@@ -168,6 +168,43 @@ func TestEngineOwnershipIsExclusiveAndReleasedWithTheTerminalTransition(t *testi
 	}
 }
 
+// A new generation takes the resources again without moving their acquisition time, and the
+// stale-ownership sweep frees only what no unfinished Workflow owns.
+func TestEngineRedispatchKeepsOwnershipAndTheSweepFreesStaleOwners(t *testing.T) {
+	s := newEngineStore(t)
+	ctx := context.Background()
+	s.create(t, "w1", "s1")
+	s.start(t, "w1")
+	before, _ := s.ownership.FindByOwner(ctx, "w1")
+	if len(before) != 1 {
+		t.Fatalf("w1 owns %+v, want s1", before)
+	}
+	gen, err := s.engine.Dispatch(ctx, "w1")
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if _, err := s.engine.Advance(ctx, application.AdvanceRequest{WorkflowID: "w1", Generation: gen, Running: []string{"deploy"}}); err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	after, _ := s.ownership.FindByOwner(ctx, "w1")
+	if len(after) != 1 || !after[0].AcquiredAt.Equal(before[0].AcquiredAt) {
+		t.Fatalf("after a re-dispatch w1 owns %+v, want s1 acquired at %v", after, before[0].AcquiredAt)
+	}
+
+	if _, err := s.ownership.Acquire(ctx, "restored-gone", []string{"server:s2"}, time.Now()); err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if owners, err := s.ownership.Owners(ctx); err != nil || len(owners) != 2 || owners[0] != "restored-gone" || owners[1] != "w1" {
+		t.Fatalf("Owners = %v, %v; want restored-gone and w1", owners, err)
+	}
+	if err := s.engine.ReleaseStaleOwnership(ctx); err != nil {
+		t.Fatalf("ReleaseStaleOwnership: %v", err)
+	}
+	if owners, _ := s.ownership.Owners(ctx); len(owners) != 1 || owners[0] != "w1" {
+		t.Fatalf("Owners after the sweep = %v, want only w1", owners)
+	}
+}
+
 // Live progress is fenced by the dispatch generation, and commands are refused once a Workflow
 // finished.
 func TestWorkflowRepoLiveFencingAndCommands(t *testing.T) {

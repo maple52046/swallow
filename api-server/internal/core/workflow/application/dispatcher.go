@@ -44,9 +44,14 @@ const DispatcherName = "workflow-dispatch"
 // orphansKey is the resync key that sweeps executor runs the store does not account for.
 const orphansKey = "orphans"
 
+// ownershipKey is the resync key that releases resource ownership whose owner is no unfinished
+// Workflow (Engine.ReleaseStaleOwnership).
+const ownershipKey = "ownership"
+
 // Dispatcher is the workflow-dispatch convergence controller (decision 072). It makes the executor
 // match the store: a Workflow that was never dispatched, or whose run is gone, gets a run; stored
-// commands reach the run; runs the store does not account for are terminated. It runs in the
+// commands reach the run; runs the store does not account for are terminated, and resource
+// ownership no unfinished Workflow accounts for is released. It runs in the
 // worker on the controller runtime, so one instance is active and the change feed of `workflows`
 // wakes it from any process.
 //
@@ -87,19 +92,23 @@ func (d *Dispatcher) KeysForChange(_ context.Context, change store.Change) ([]st
 	return []string{change.Key}, nil
 }
 
-// Keys implements convergence.Controller: every unfinished Workflow, then the orphan sweep.
+// Keys implements convergence.Controller: every unfinished Workflow, then the orphan and the
+// ownership sweeps.
 func (d *Dispatcher) Keys(ctx context.Context) ([]string, error) {
 	ids, err := d.workflows.ListUnfinishedIDs(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return append(ids, orphansKey), nil
+	return append(ids, orphansKey, ownershipKey), nil
 }
 
 // Reconcile implements convergence.Controller.
 func (d *Dispatcher) Reconcile(ctx context.Context, request convergence.Request) error {
-	if request.Key == orphansKey {
+	switch request.Key {
+	case orphansKey:
 		return d.sweepOrphans(ctx)
+	case ownershipKey:
+		return d.engine.ReleaseStaleOwnership(ctx)
 	}
 	w, err := d.workflows.FindByID(ctx, request.Key)
 	if errors.Is(err, workflowdomain.ErrWorkflowNotV3) || errors.Is(err, workflowdomain.ErrWorkflowNotFound) {

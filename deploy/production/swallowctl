@@ -6,7 +6,8 @@
 #   swallowctl install [--profile production] [--release-manifest PATH]
 #   swallowctl upgrade [--force] [--release-manifest PATH]
 #   swallowctl doctor | ensure [--profile production|dev]
-#   swallowctl preflight | backup | restore BACKUP_DIRECTORY
+#   swallowctl preflight | backup
+#   swallowctl restore BACKUP_DIRECTORY --yes
 #   swallowctl uninstall [--purge-data]
 #   swallowctl ntp upstream [show | set SERVER... | default]
 #
@@ -293,14 +294,23 @@ prune_backups() {
 
 # take_backup writes one backup to backups/NAME-<UTC stamp> and prints its path. It captures
 # MongoDB, the job artifacts, the credential key that unseals stored secrets, and, when the
-# co-located MAAS exists, its database (boot images re-sync from images.maas.io).
+# co-located MAAS exists, its database (boot images re-sync from images.maas.io). backup.json
+# records the release and the database schema it was taken from, which restore checks first.
+# SHA256SUMS names the files relative to the backup, so a copy (the weekly hard link, or one moved
+# to another host) verifies on its own.
 take_backup() {
-  local name="$1" stamp target user password
+  local name="$1" release="${2:-$(installed_version)}" stamp target user password schema
+  local -a files=(backup.json mongo.archive.gz job-artifacts.tar.gz credential-key)
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   target="${backup_root}/${name}-${stamp}"
   user="$(<"${script_dir}/secrets/mongo-root-username")"
   password="$(<"${script_dir}/secrets/mongo-root-password")"
+  schema="$(database_schema_version)"
+  [[ "${schema}" =~ ^[0-9]+$ ]] || die "cannot read the database schema version: ${schema}"
   install -d -m 0700 "${target}"
+  jq -n --arg release "${release}" --argjson schema "${schema}" \
+    --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{releaseVersion: $release, schemaVersion: $schema, createdAt: $created}' >"${target}/backup.json"
   "${compose[@]}" exec -T mongo mongodump --username "${user}" --password "${password}" \
     --authenticationDatabase admin --db swallow --archive --gzip >"${target}/mongo.archive.gz"
   "${compose[@]}" run --rm --no-deps --entrypoint tar api-server \
@@ -308,8 +318,9 @@ take_backup() {
   install -m 0600 "${script_dir}/secrets/credential-key" "${target}/credential-key"
   if [[ -f "${maas_marker}" ]]; then
     "${compose[@]}" exec -T postgres pg_dump -U temporal -Fc maasdb >"${target}/maas.pgdump"
+    files+=(maas.pgdump)
   fi
-  sha256sum "${target}"/* >"${target}/SHA256SUMS"
+  (cd "${target}" && sha256sum -- "${files[@]}" >SHA256SUMS)
   printf '%s\n' "${target}"
 }
 
@@ -478,7 +489,7 @@ upgrade() {
   pull_images
   log 'stopping the API, worker, and Ansible executor'
   "${compose[@]}" stop api-server worker ansible-executor
-  saved="$(take_backup "pre-upgrade-${from:-unknown}")"
+  saved="$(take_backup "pre-upgrade-${from:-unknown}" "${from}")"
   log "backed up to ${saved} (kept until removed by hand)"
   start_stores
   "${compose[@]}" run --rm --no-deps api-server migrate --backup-confirmed
@@ -500,28 +511,115 @@ upgrade() {
   mark_installed
 }
 
+# verify_backup checks a backup's checksums and that it holds what restore needs. A backup from
+# before SHA256SUMS used relative names lists absolute paths; only the file names are kept, so the
+# files in this directory are the ones checked.
+verify_backup() {
+  local source="$1" file
+  [[ -s "${source}/SHA256SUMS" ]] || die "${source} has no SHA256SUMS: not a swallowctl backup"
+  (cd "${source}" && awk '{ sub(/^.*\//, "", $2); print $1 "  " $2 }' SHA256SUMS |
+    sha256sum --check --strict --quiet -) || die "${source} does not match its SHA256SUMS"
+  for file in mongo.archive.gz job-artifacts.tar.gz credential-key; do
+    awk -v name="${file}" '{ sub(/^.*\//, "", $2) } $2 == name { found = 1 } END { exit !found }' \
+      "${source}/SHA256SUMS" || die "${source} is incomplete: SHA256SUMS does not list ${file}"
+  done
+}
+
+# check_backup_schema refuses a backup this release cannot migrate: one taken from a newer release
+# (no downgrades) or from a schema older than its oldest upgrade source. A backup from before
+# backup.json is not checked; migrate still refuses a newer schema, after the data was restored.
+check_backup_schema() {
+  local source="$1" schema info
+  if [[ ! -f "${source}/backup.json" ]]; then
+    log 'the backup has no backup.json (taken before swallowctl recorded it); its schema is not checked'
+    return 0
+  fi
+  schema="$(jq -e '.schemaVersion' "${source}/backup.json")" || die "${source}/backup.json has no schemaVersion"
+  info="$("${compose[@]}" run --rm --no-deps -T api-server version --json)" ||
+    die 'cannot read the schema version of the installed API image'
+  jq -e --argjson schema "${schema}" '.schemaVersion >= $schema' <<<"${info}" >/dev/null ||
+    die "refusing restore: the backup is at schema ${schema}, newer than this release serves ($(jq -r '.schemaVersion' <<<"${info}")); downgrades are not supported"
+  jq -e --argjson schema "${schema}" '$schema >= .oldestUpgradableSchemaVersion' <<<"${info}" >/dev/null ||
+    die "refusing restore: this release cannot upgrade a schema ${schema} database"
+}
+
+# terminate_workflow_runs ends every open swallow run in Temporal. Temporal is not backed up, so its
+# runs belong to the store being replaced: the restored store dispatches each of its unfinished
+# Workflows to a new run, and a leftover run could otherwise carry a dispatch generation the
+# restored store issues again.
+terminate_workflow_runs() {
+  local listing id
+  local -a ids=()
+  listing="$("${compose[@]}" exec -T temporal temporal workflow list --address temporal:7233 \
+    --query 'ExecutionStatus="Running"' -o json)" || die 'cannot list the Temporal runs'
+  mapfile -t ids < <(jq -r '.[]?.execution.workflowId | select(startswith("swallow-operation/"))' <<<"${listing:-[]}")
+  for id in "${ids[@]}"; do
+    "${compose[@]}" exec -T temporal temporal workflow terminate --address temporal:7233 \
+      --workflow-id "${id}" --reason 'swallowctl restore: the restored store dispatches its Workflows again' \
+      </dev/null >/dev/null || log "could not terminate ${id}; it may have ended meanwhile"
+  done
+  log "terminated ${#ids[@]} Temporal run(s)"
+}
+
+# restore makes the installation's store the backup's (installation.md §3.6). The store is the
+# truth: nothing writes while it is replaced, it is migrated to this release's schema, and every
+# Temporal run is terminated, so the workflow-dispatch controller resumes each unfinished Workflow
+# from the restored store. Tasks that finished after the backup was taken run again.
 restore() {
-  local source="${1:?usage: swallowctl restore BACKUP_DIRECTORY}" user password
+  local source="" confirmed=false user password
+  while (($# > 0)); do
+    case "$1" in
+      --yes) confirmed=true; shift ;;
+      -*) die "unknown restore option: $1" ;;
+      *) [[ -z "${source}" ]] || die 'usage: swallowctl restore BACKUP_DIRECTORY --yes'; source="$1"; shift ;;
+    esac
+  done
+  [[ -n "${source}" ]] || die 'usage: swallowctl restore BACKUP_DIRECTORY --yes'
   require_root
+  [[ -d "${source}" ]] || die "backup directory not found: ${source}"
+  source="$(cd -- "${source}" && pwd)"
   load_env
-  (cd "${source}" && sha256sum -c SHA256SUMS)
+  verify_backup "${source}"
+  start_stores
+  check_backup_schema "${source}"
+  if [[ "${confirmed}" != true ]]; then
+    cat >&2 <<EOF
+[swallowctl] restore replaces this installation's MongoDB database, job artifacts, credential key,
+[swallowctl] and (when the backup has it) the co-located MAAS database with those of
+[swallowctl]   ${source}
+[swallowctl] and terminates every swallow run in Temporal. Work recorded after the backup is lost,
+[swallowctl] and Tasks that finished after it run again. Rerun with --yes to proceed.
+EOF
+    exit 1
+  fi
   user="$(<"${script_dir}/secrets/mongo-root-username")"
   password="$(<"${script_dir}/secrets/mongo-root-password")"
-  "${compose[@]}" stop api-server
+  log 'stopping the API, worker, and Ansible executor'
+  "${compose[@]}" stop api-server worker ansible-executor
+  log 'restoring MongoDB'
   "${compose[@]}" exec -T mongo mongorestore --username "${user}" --password "${password}" \
     --authenticationDatabase admin --archive --gzip --drop <"${source}/mongo.archive.gz"
-  "${compose[@]}" run --rm --no-deps --entrypoint tar api-server \
-    -C /var/lib/swallow/jobs -xzf - <"${source}/job-artifacts.tar.gz"
+  log 'restoring the job artifacts'
+  "${compose[@]}" run --rm --no-deps -T --entrypoint sh api-server -c \
+    'find /var/lib/swallow/jobs -mindepth 1 -delete && tar -C /var/lib/swallow/jobs -xzf -' \
+    <"${source}/job-artifacts.tar.gz"
   # Same mode prepare-secrets.sh uses: containers read secrets as non-root, and the 0700
   # secrets directory keeps other host users out.
   install -m 0444 "${source}/credential-key" "${script_dir}/secrets/credential-key"
   if [[ -f "${source}/maas.pgdump" && -f "${maas_marker}" ]]; then
+    log 'restoring the MAAS database'
     snap stop maas
     "${compose[@]}" exec -T postgres pg_restore -U temporal --clean --if-exists \
       -d maasdb <"${source}/maas.pgdump"
     snap start maas
   fi
-  "${compose[@]}" up -d --force-recreate api-server dashboard
+  "${compose[@]}" run --rm --no-deps api-server migrate --backup-confirmed
+  "${compose[@]}" up -d --wait --wait-timeout 300 temporal ||
+    die 'Temporal did not become healthy (docker compose logs temporal)'
+  terminate_workflow_runs
+  "${compose[@]}" up -d
+  wait_for_ready
+  doctor
 }
 
 # --- Installation desired state ----------------------------------------------------------------

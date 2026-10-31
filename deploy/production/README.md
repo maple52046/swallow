@@ -167,13 +167,19 @@ applies a changed `.env` (that is `upgrade`), and it never cancels or retries Wo
   NTP server's upstream. `set` and `default` apply the change first and record it in `.env` only
   when it succeeded. swallowctl owns MAAS's `ntp_servers`: a value set in the MAAS UI is replaced
   on the next install, upgrade, or ensure.
-- `sudo ./swallowctl backup` writes MongoDB, the job artifacts, the credential key, and the
-  MAAS database under `backups/`. Schedule it daily; retention is seven daily and four Sunday
-  weekly recovery points. MAAS boot images re-sync from `images.maas.io`.
-- `sudo ./swallowctl restore BACKUP_DIRECTORY` verifies checksums, restores MongoDB, the
-  artifacts, the credential key, and the MAAS database, then recreates the API and Dashboard.
-  SSH key registration attempted while MAAS restarts is retried with backoff and at the next
-  controller resync; `swallow ssh-keys sync` (or **Sync to provisioners**) repeats it at once.
+- `sudo ./swallowctl backup` writes MongoDB, the job artifacts, the credential key, the MAAS
+  database, and `backup.json` (the release and database schema it was taken from) under
+  `backups/`, with checksums relative to the backup. Schedule it daily; retention is seven daily
+  and four Sunday weekly recovery points. MAAS boot images re-sync from `images.maas.io`.
+  Temporal is not backed up.
+- `sudo ./swallowctl restore BACKUP_DIRECTORY --yes` verifies the checksums, refuses a backup from
+  a newer release, stops the API, worker, and Ansible executor, restores MongoDB, the artifacts
+  (replacing the current ones), the credential key, and the MAAS database, migrates, terminates
+  every swallow run in Temporal, starts the stack, and runs `doctor`. The restored database is the
+  truth: each unfinished Workflow is dispatched again from it, so work recorded after the backup
+  is lost and Tasks that finished after it run again. Without `--yes` it only says what it would
+  replace. SSH key registration attempted while MAAS restarts is retried with backoff and at the
+  next controller resync; `swallow ssh-keys sync` (or **Sync to provisioners**) repeats it at once.
 - `sudo ./swallowctl uninstall` stops the stack and MAAS and keeps volumes, secrets, and
   backups; `--purge-data` also removes the MAAS snap, the volumes, and the backups.
 
