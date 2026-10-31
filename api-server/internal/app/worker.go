@@ -213,13 +213,13 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("resource ownership repo: %w", err)
 	}
+	// The worker's Runners return no result data, so it registers only projections; the Ansible
+	// executor records results.
 	engine, err := workflowapp.NewEngine(transactor, operations, ownership, workflowPlanCatalog(),
-		workflowapp.CompletionHandlers{}, cfg.OperationMaxParallelism)
+		workflowapp.CompletionHandlers{Projections: workflowProjections(servers, softwareAssignments, platforms)},
+		cfg.OperationMaxParallelism)
 	if err != nil {
 		return err
-	}
-	for _, observer := range observers {
-		engine.AttachObservers(observer)
 	}
 	driverActivities := temporalworkflow.NewDriverActivities(engine)
 	taskActivities := temporalworkflow.NewTaskActivities(engine, runners, map[string]temporalworkflow.CompensationExecutor{

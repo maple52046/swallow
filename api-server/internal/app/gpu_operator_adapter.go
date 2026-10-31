@@ -46,6 +46,9 @@ func gpuOperatorTask(
 			gpuOperatorStepParamMode: mode, gpuOperatorStepParamOwner: platformID,
 			gpuOperatorStepParamRecord: recordID,
 		},
+		Completion: []workflowdomain.Completion{{Type: completionGPUOperatorState, Params: map[string]any{
+			completionParamPlatform: platformID, completionParamRecord: recordID, completionParamMode: mode,
+		}}},
 	}
 }
 

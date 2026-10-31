@@ -22,6 +22,7 @@ import (
 	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	"github.com/maple52046/swallow/modules/platform/platformapi"
@@ -123,7 +124,12 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	durable := workflowapp.NewWorkflowService(transactor, orchestrations, workflowPlanCatalog(), operationSecrets)
 	operationService := workflowapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
 	operationService.AttachWorkflow(durable)
-	completion := platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers}
+	legacyCompletion := platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers}
+	results := workflowResults(legacyCompletion)
+	if err := (workflowapp.CompletionHandlers{Results: results}).Require(workflowPlanCatalog(), workflowdomain.CompletionResult); err != nil {
+		return err
+	}
+	completion := declaredResultsObserver{workflows: orchestrations, results: results, legacy: legacyCompletion}
 	leases := workflowstore.NewMongoResourceLeaseRepo(db)
 	queue := workflowapp.NewAnsibleQueueWorker(
 		executions, configurations, catalog, runner, ansibleEvents,
@@ -132,5 +138,37 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	)
 	slog.Info("Ansible executor started", "parallelism", cfg.OperationMaxParallelism, "artifactDir", cfg.JobArtifactDir)
 	queue.Run(ctx)
+	return nil
+}
+
+// declaredResultsObserver runs the result completions an Ansible Task of a current-driver Workflow
+// declares (decision 072), with the playbook's result data; a Workflow of the earlier driver keeps
+// its observer.
+type declaredResultsObserver struct {
+	workflows workflowdomain.WorkflowRepository
+	results   map[string]workflowapp.ResultHandler
+	legacy    workflowapp.StepCompletionObserver
+}
+
+// AnsibleStepSucceeded implements workflowapp.StepCompletionObserver.
+func (o declaredResultsObserver) AnsibleStepSucceeded(ctx context.Context, execution *workflowdomain.AnsibleExecution, result workflowdomain.RunnerResult) error {
+	w, err := o.workflows.FindByID(ctx, execution.OperationID)
+	if err != nil || w.Dispatch.Driver != workflowdomain.DriverVersion {
+		return o.legacy.AnsibleStepSucceeded(ctx, execution, result)
+	}
+	for _, task := range w.Steps {
+		if task.ID != execution.StepID {
+			continue
+		}
+		for _, completion := range task.Completion {
+			handler := o.results[completion.Type]
+			if handler == nil {
+				continue
+			}
+			if err := handler.Complete(ctx, workflowapp.TaskResult{Workflow: w, Task: task, Completion: completion, Data: result.Data}); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }

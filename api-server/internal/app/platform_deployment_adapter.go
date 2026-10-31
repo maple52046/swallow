@@ -208,6 +208,7 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 		Executor: workflowdomain.RunnerKindAnsible, DependsOn: ensure.installDeps,
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
+		Completion: []workflowdomain.Completion{{Type: completionKubernetesCredential}},
 	})
 	steps = append(steps, workflowdomain.Task{
 		ID: "validate-platform", Kind: "validate-platform-health", Name: "Validate Platform health",
@@ -273,6 +274,7 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 		Executor: workflowdomain.RunnerKindAnsible, DependsOn: ensure.installDeps,
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
+		Completion: []workflowdomain.Completion{{Type: completionSlurmCredential}},
 	})
 	composed, err := l.planSlurmComposition(ctx, launch, operationID, provisionFirst)
 	if err != nil {
@@ -409,6 +411,7 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 				Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: serverID}},
 				Parameters: map[string]any{"request": structToMap(targetRequest)},
 				OnCancel:   returnCanceledDeployment(),
+				Completion: []workflowdomain.Completion{{Type: completionServerDeployment}},
 			})
 			dependencies = append(dependencies, stepID)
 			plan.secretStepIDs = append(plan.secretStepIDs, stepID)
@@ -745,6 +748,7 @@ func uninstallSteps(
 			Job:      jobUninstallPlatform,
 			Executor: workflowdomain.RunnerKindAnsible, Targets: prepared.Targets,
 			Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
+			Completion: []workflowdomain.Completion{{Type: completionPlatformUninstall}},
 		}}
 	}
 
@@ -767,6 +771,7 @@ func uninstallSteps(
 			Executor:   workflowdomain.RunnerKindProvisioner,
 			Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: serverID}},
 			Parameters: map[string]any{"request": structToMap(releaseInput)},
+			Completion: []workflowdomain.Completion{{Type: completionServerDeploymentCleared}},
 		})
 		releaseDeps = append(releaseDeps, stepID)
 	}
@@ -943,7 +948,7 @@ func slurmCredentialFromResult(result workflowdomain.RunnerResult) *platformapp.
 // itself is projected by omnistatStepObserver.
 func (o platformDeploymentObserver) completeOmnistat(
 	ctx context.Context,
-	execution *workflowdomain.AnsibleExecution,
+	platformID string,
 	result workflowdomain.RunnerResult,
 ) error {
 	grafanaURL := ""
@@ -953,7 +958,7 @@ func (o platformDeploymentObserver) completeOmnistat(
 	if grafanaURL == "" {
 		return fmt.Errorf("omnistat installation returned no Grafana URL")
 	}
-	return o.platforms.RecordOmnistatGrafana(ctx, execution.PlatformID, grafanaURL)
+	return o.platforms.RecordOmnistatGrafana(ctx, platformID, grafanaURL)
 }
 
 // completeDeviceMetricsExporter records what a successful Slurm run of deploy-device-metrics-exporter
@@ -965,7 +970,8 @@ func (o platformDeploymentObserver) completeOmnistat(
 // this Workflow; the State itself is projected by deviceMetricsExporterStepObserver.
 func (o platformDeploymentObserver) completeDeviceMetricsExporter(
 	ctx context.Context,
-	execution *workflowdomain.AnsibleExecution,
+	platformID, workflowID string,
+	extraVars map[string]any,
 	result workflowdomain.RunnerResult,
 ) error {
 	grafanaURL, identity := "", ""
@@ -976,11 +982,11 @@ func (o platformDeploymentObserver) completeDeviceMetricsExporter(
 	if grafanaURL == "" {
 		return fmt.Errorf("device metrics exporter installation returned no Grafana URL")
 	}
-	recordID, _ := execution.ExtraVars[platformapp.VarDeviceMetricsExporterRecordID].(string)
+	recordID, _ := extraVars[platformapp.VarDeviceMetricsExporterRecordID].(string)
 	if recordID == "" {
-		recordID = execution.OperationID
+		recordID = workflowID
 	}
-	return o.platforms.RecordDeviceMetricsExporterResult(ctx, execution.PlatformID, recordID, grafanaURL,
+	return o.platforms.RecordDeviceMetricsExporterResult(ctx, platformID, recordID, grafanaURL,
 		platformdomain.ParseGPUIdentity(identity))
 }
 
@@ -1029,9 +1035,9 @@ func (o platformDeploymentObserver) AnsibleStepSucceeded(
 		switch execution.StepID {
 		case installPlatformStepID:
 		case omnistatStepID:
-			return o.completeOmnistat(ctx, execution, result)
+			return o.completeOmnistat(ctx, execution.PlatformID, result)
 		case deviceMetricsExporterStepID:
-			return o.completeDeviceMetricsExporter(ctx, execution, result)
+			return o.completeDeviceMetricsExporter(ctx, execution.PlatformID, execution.OperationID, execution.ExtraVars, result)
 		default:
 			return nil
 		}
@@ -1047,12 +1053,21 @@ func (o platformDeploymentObserver) AnsibleStepSucceeded(
 		}
 		return o.credentials.RecordSlurm(ctx, execution.PlatformID, *credential)
 	case workflowdomain.WorkflowKindUninstallKubernetes, workflowdomain.WorkflowKindUninstallSlurm:
-		// An uninstall accepted before deleteRecord existed has no such var and keeps the record.
-		deleteRecord, _ := execution.ExtraVars[deletePlatformRecordVar].(bool)
-		if err := o.platforms.CompleteUninstall(ctx, execution.PlatformID, deleteRecord); err != nil {
-			return err
-		}
-		o.restoreExporters(ctx, operation)
+		return o.finishUninstall(ctx, operation)
 	}
+	return nil
+}
+
+// finishUninstall finishes a platform uninstall whose playbook succeeded: it removes the
+// Platform's swallow-owned state (and the record when the request asked for it) and restores the
+// exporters the uninstall removed. Unlike completeUninstall, which serves the schema-v2 path, it
+// returns the failure so the Task fails and can be retried.
+func (o platformDeploymentObserver) finishUninstall(ctx context.Context, operation *workflowdomain.ExecutionOperation) error {
+	// An uninstall accepted before deleteRecord existed has no such var and keeps the record.
+	deleteRecord, _ := operation.ExtraVars[deletePlatformRecordVar].(bool)
+	if err := o.platforms.CompleteUninstall(ctx, operation.PlatformID, deleteRecord); err != nil {
+		return err
+	}
+	o.restoreExporters(ctx, operation)
 	return nil
 }

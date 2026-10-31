@@ -116,6 +116,7 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 			Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: serverID}},
 			Parameters: map[string]any{"request": structToMap(targetInput)},
 			OnCancel:   returnCanceledDeployment(),
+			Completion: []workflowdomain.Completion{{Type: completionServerDeployment}},
 		}
 		secretStepIDs = append(secretStepIDs, stepID)
 	}
@@ -248,6 +249,7 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 			Executor:   workflowdomain.RunnerKindProvisioner,
 			Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: input.ServerID}},
 			Parameters: map[string]any{"request": structToMap(input)},
+			Completion: []workflowdomain.Completion{{Type: completionServerDeploymentCleared}},
 		}
 	}
 	if l.protection != nil {
@@ -428,6 +430,7 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 			Executor:   workflowdomain.RunnerKindProvisioner,
 			Targets:    target,
 			Parameters: map[string]any{"request": structToMap(resolvedInput)},
+			Completion: []workflowdomain.Completion{{Type: completionServerDeployment}},
 		},
 		{
 			// Records the attestation only when the proving deploy succeeded. If provision fails,

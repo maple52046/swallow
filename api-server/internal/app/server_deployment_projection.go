@@ -33,7 +33,17 @@ func (o serverDeploymentStepObserver) ObserveStep(ctx context.Context, operation
 	if step.Kind != "provision-os" {
 		return nil
 	}
+	return o.projectDeployment(ctx, operationID, step)
+}
 
+// projectDeployment writes a provision-os Task's transition onto its Server's Deployment result:
+// pending and running are deploying, and each outcome is the matching result. It is the
+// server-deployment completion's projection.
+func (o serverDeploymentStepObserver) projectDeployment(ctx context.Context, operationID string, step workflowdomain.Task) error {
+	serverID := firstTargetServer(step)
+	if serverID == "" {
+		return nil
+	}
 	state, terminal, ok := deploymentStateFromStep(step.Status)
 	if !ok {
 		return nil

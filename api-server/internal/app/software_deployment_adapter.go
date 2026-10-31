@@ -180,6 +180,7 @@ func (l softwareDeploymentLauncher) prepare(
 				"softwareKind": string(launch.Kind), "serverIds": launch.ServerIDs,
 				"softwareMode": mode,
 			},
+			Completion: installCompletions(mode, launch.Kind, launch.ServerIDs),
 		},
 		{
 			ID: softwareRecordStepID, Kind: recordKind, Name: "Record software assignment",
@@ -265,4 +266,13 @@ func (c kubernetesMembershipChecker) IsKubernetesMember(ctx context.Context, ser
 		return false, nil
 	}
 	return platform.Type == platformdomain.PlatformTypeKubernetes, nil
+}
+
+// installCompletions declares the failure marking of an install's Assignments; the record Task owns
+// the success path, and an uninstall failure leaves its Assignments uninstalling for a retry.
+func installCompletions(mode string, kind softwaredomain.Kind, serverIDs []string) []workflowdomain.Completion {
+	if mode != "install" {
+		return nil
+	}
+	return []workflowdomain.Completion{softwareFailure(kind, serverIDs)}
 }

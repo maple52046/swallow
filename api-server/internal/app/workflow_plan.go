@@ -52,7 +52,7 @@ func workflowPlanCatalog() workflowdomain.PlanCatalog {
 				Resume: workflowdomain.ResumeAttention,
 			},
 		},
-		Completions:   map[string]workflowdomain.CompletionClass{},
+		Completions:   completionClasses(),
 		Compensations: map[string]bool{compensationReturnCanceledDeployment: true},
 	}
 }

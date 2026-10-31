@@ -106,7 +106,10 @@ func (h CompletionHandlers) Require(catalog workflowdomain.PlanCatalog, classes 
 }
 
 // NewEngine builds the engine. Every projection type in catalog needs a handler, because any
-// transition may apply one; maxParallel bounds the sliding window (a non-positive value is 4).
+// transition may apply one. Result handlers belong to the process whose Runners return data (the
+// Ansible executor): a nil Results map means this process runs no such Runner and leaves result
+// completions to the one that does, while a non-nil map must cover every result type.
+// maxParallel bounds the sliding window (a non-positive value is 4).
 func NewEngine(
 	transactor store.Transactor,
 	workflows workflowdomain.WorkflowRepository,
@@ -118,7 +121,11 @@ func NewEngine(
 	if transactor == nil || workflows == nil || ownership == nil {
 		return nil, errors.New("workflow engine: transactor, workflows, and ownership are required")
 	}
-	if err := handlers.Require(catalog, workflowdomain.CompletionProjection); err != nil {
+	classes := []workflowdomain.CompletionClass{workflowdomain.CompletionProjection}
+	if handlers.Results != nil {
+		classes = append(classes, workflowdomain.CompletionResult)
+	}
+	if err := handlers.Require(catalog, classes...); err != nil {
 		return nil, fmt.Errorf("workflow engine: %w", err)
 	}
 	if maxParallel <= 0 {
@@ -489,7 +496,7 @@ func (e *Engine) Complete(ctx context.Context, ref TaskRef, outcome Outcome) err
 	if outcome.Status == "" {
 		outcome.Status = workflowdomain.TaskSucceeded
 	}
-	if outcome.Status == workflowdomain.TaskSucceeded {
+	if outcome.Status == workflowdomain.TaskSucceeded && e.handlers.Results != nil {
 		w, err := e.workflows.FindByID(ctx, ref.WorkflowID)
 		if err != nil {
 			return err

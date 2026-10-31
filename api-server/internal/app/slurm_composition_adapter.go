@@ -82,12 +82,24 @@ type slurmMonitoring struct {
 	stepID, stepName, job, playbook string
 	workflowKind                    workflowdomain.WorkflowKind
 	ownerParam, recordParam         string
+	// stateCompletion and resultCompletion are the feature's declared completions: its State
+	// projection and the recording of the Grafana URL its playbook returns.
+	stateCompletion, resultCompletion string
 	// portVars names the playbook variables the software domain's Prometheus and Grafana ports go in.
 	prometheusPortVar, grafanaPortVar string
 }
 
 // slurmMonitoringOf returns the deployment's monitoring feature, or nil when it has none. The
 // deploy use case never sets both features.
+// completions declares the feature Task's State projection and result recording, fenced on the
+// Platform and the record of this Workflow.
+func (m *slurmMonitoring) completions(platformID, recordID string) []workflowdomain.Completion {
+	return []workflowdomain.Completion{
+		featureState(m.stateCompletion, platformID, recordID),
+		{Type: m.resultCompletion},
+	}
+}
+
 func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring {
 	switch {
 	case launch.Omnistat != nil:
@@ -100,6 +112,7 @@ func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring 
 			stepID: omnistatStepID, stepName: "Install Omnistat", job: jobConfigureOmnistat,
 			playbook: omnistatPlaybook, workflowKind: workflowdomain.WorkflowKindConfigureOmnistat,
 			ownerParam: omnistatStepParamOwner, recordParam: omnistatStepParamRecord,
+			stateCompletion: completionOmnistatState, resultCompletion: completionOmnistatResult,
 			prometheusPortVar: "swallow_omnistat_prometheus_port", grafanaPortVar: "swallow_omnistat_grafana_port",
 		}
 	case launch.DeviceMetricsExporter != nil:
@@ -111,6 +124,7 @@ func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring 
 			dashboardBundle: platformdomain.DeviceMetricsExporterDashboardBundle, trustedVars: exporter.TrustedVars,
 			composedKind: softwaredomain.KindDeviceMetricsExporter, composedServerIDs: exporter.GPUComputeServerIDs,
 			ownerParam: deviceMetricsExporterStepParamOwner, recordParam: deviceMetricsExporterStepParamRecord,
+			stateCompletion: completionDeviceMetricsExporterState, resultCompletion: completionDeviceMetricsExporterResult,
 			prometheusPortVar: "swallow_device_metrics_exporter_prometheus_port",
 			grafanaPortVar:    "swallow_device_metrics_exporter_grafana_port",
 		}
@@ -206,7 +220,8 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 			"Install "+softwareLabel(monitoring.composedKind)+" on "+launch.Platform.Name,
 			composedInstallExtras{
 				ansibleTargetIDs: launch.TargetServerIDs, trustedVars: trustedVars,
-				params: map[string]any{monitoring.ownerParam: launch.Platform.ID, monitoring.recordParam: operationID},
+				params:      map[string]any{monitoring.ownerParam: launch.Platform.ID, monitoring.recordParam: operationID},
+				completions: monitoring.completions(launch.Platform.ID, operationID),
 			})
 		return plan, err
 	}
@@ -228,6 +243,7 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 			"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars,
 			monitoring.ownerParam: launch.Platform.ID, monitoring.recordParam: operationID,
 		},
+		Completion: monitoring.completions(launch.Platform.ID, operationID),
 	})
 	return plan, nil
 }
@@ -243,6 +259,8 @@ type composedInstallExtras struct {
 	trustedVars map[string]any
 	// params are added to the install Task's parameters, for the feature's step observer.
 	params map[string]any
+	// completions are added to the install Task's declared completions.
+	completions []workflowdomain.Completion
 }
 
 // appendComposedInstall plans one composed software install on serverIDs and appends its Job (the
@@ -316,6 +334,7 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 			Executor: workflowdomain.RunnerKindAnsible, DependsOn: []string{previous},
 			Targets:    prepared.Targets,
 			Parameters: installParams,
+			Completion: append([]workflowdomain.Completion{softwareFailure(kind, install.ServerIDs)}, extras.completions...),
 		},
 		workflowdomain.Task{
 			ID: recordID, Kind: softwareStepKindRecord, Name: "Record " + softwareLabel(kind) + " assignment",
