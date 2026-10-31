@@ -29,9 +29,9 @@ import { platformUninstallOptions } from './platformUninstallRequest'
 type RemovalDialog = 'uninstall' | 'delete'
 
 /**
- * Whether a repair error is an HTTP 409 conflict. For a Step retry this means the durable
- * workflow execution is gone and can no longer accept the signal, which is the cue to recover
- * by rerunning instead. Duck-typed on the API error's status so this presentation code stays
+ * Whether a repair error is an HTTP 409 conflict. For a Step retry this means the Step is no
+ * longer retryable (its state changed since the page loaded), which is the cue to recover by
+ * rerunning instead. Duck-typed on the API error's status so this presentation code stays
  * decoupled from the infrastructure error class (the layering rule forbids importing
  * `@/infrastructure/**` here).
  */
@@ -199,8 +199,9 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         const failedSteps = (operation.steps ?? []).filter((step) => (step.status === 'failed' || step.status === 'requires_attention') && step.error?.retryable)
         if (failedSteps.length > 0) {
           try {
-            // Preferred path while the durable workflow is still alive: signal each retryable
-            // failed Step so successful provider effects and protected inputs are preserved.
+            // Preferred path: retry each retryable failed Step in place, so successful provider
+            // effects and protected inputs are preserved. The backend resumes the Workflow when
+            // its execution was lost, so this also works after a host restart.
             for (const step of failedSteps) {
               await operations.retryStep(operation.id, step.id)
             }
@@ -209,16 +210,14 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
                 ? `${failedSteps[0].name} will retry in Operation ${operation.id}.`
                 : `${failedSteps.length} failed Steps will retry in Operation ${operation.id}.`
           } catch (retryError) {
-            // A conflict means the workflow execution is gone (a host restart or execution
-            // timeout ended it), so it can no longer accept a Step retry. Recover by rerunning
-            // the deployment as a new Operation on the same Platform instead.
+            // A conflict means a Step stopped being retryable meanwhile. Recover by rerunning the
+            // deployment as a new Operation on the same Platform instead.
             if (!isConflict(retryError)) throw retryError
             const created = await operations.rerunOperation(operation.id)
             description = `Operation ${created.id} is rerunning the deployment on the same platform.`
           }
         } else {
-          // No live retryable Step (for example the execution was lost mid-run and left its
-          // Steps non-terminal). Rerun the deployment on the same Platform.
+          // No retryable Step: rerun the deployment on the same Platform.
           const created = await operations.rerunOperation(operation.id)
           description = `Operation ${created.id} is rerunning the deployment on the same platform.`
         }

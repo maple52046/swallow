@@ -99,11 +99,15 @@ export interface OperationStep {
   finishedAt: string | null;
 }
 
+/**
+ * One Server or Platform a Workflow owns from its first run until it ends; ownership has no expiry.
+ * `owner` is the Workflow id and `fencingToken` its current dispatch generation, which increases each
+ * time the Workflow is dispatched or resumed.
+ */
 export interface OperationResourceLease {
   resourceKey: string;
   owner: string;
   fencingToken: number;
-  expiresAt: string;
   updatedAt: string;
 }
 

@@ -1,14 +1,14 @@
 # Automation execution context map
 
-`operation` owns intent, execution status, leases, logs, and the site Automation
-Configuration. It consumes server identity and policy through application ports.
+`operation` owns intent, execution status, resource ownership, logs, and the site Automation
+Configuration; its store is the only record of execution state (decision 072). It consumes server identity and policy through application ports.
 
 ```text
 site identity ──> operation automation configuration
 sshkey Deployment Key ──DeploymentKeySource port──> operation effective credential
 server projection (image default user) ──> discovery inventory ──> operation runner
 Platform policy ──> operation guard
-operation dispatcher ──> ansible-runner ──> managed hosts
+operation workflow-dispatch ──> executor (Temporal) ──> ansible executor activity ──> ansible-runner ──> managed hosts
 ```
 
 The `sshkey` feature (Access context, decision 039) is upstream of automation for key

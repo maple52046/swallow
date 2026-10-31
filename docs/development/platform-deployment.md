@@ -52,9 +52,10 @@ deployment 一律以這四層表達（完整定義見 glossary：
 [Task](glossaries/terms/task.md)、[Runner](glossaries/terms/runner.md)）：
 
 - **Workflow** — operator 的意圖，表達為「一組 resource 的 desired end-state」（例如「這 7 台
-  Server 是一個帶這些角色的 k0s Platform」）。durable、可觀察、可取消，由 Temporal 編排。
+  Server 是一個帶這些角色的 k0s Platform」）。durable、可觀察、可取消；狀態在 store，由 Temporal 的 driver
+  執行（[workflow-execution.md](workflow-execution.md) §2）。
 - **Job** — 可重用、convergent 的中間單元，把一組 resource 帶到子目標（`ensure-os`、
-  `configure-k0s`）。以 Temporal **child workflow** 執行，可被多個 Workflow 重用。
+  `configure-k0s`），並宣告自己的重試粒度（[workflow-execution.md](workflow-execution.md) §5.4）。
 - **Task** — 由**單一 Runner** 執行的原子單元（「在 Server X 上 ensure OS」「跑 k0s playbook」
   「驗證 membership」）。**idempotent（ensure）**：目標已在 desired state 時為 no-op。
 - **Runner** — 執行 Task 的機制：`provisioner`（透過 vendor adapter 驅動 OS provisioning
@@ -83,9 +84,9 @@ deployment 一律以這四層表達（完整定義見 glossary：
 
 - Workflow `kind` = `deploy-kubernetes`；definition = `platform-deployment`（version 1）。
 - 由 launcher [`platformDeploymentLauncher`](../../api-server/internal/app/platform_deployment_adapter.go)
-  組裝，經 `WorkflowService.Create` 交給 Temporal `OperationWorkflowV1`。
-- 分成兩個 Job，依 **cross-Job 依賴序**以 child workflow 執行：先 `ensure-os`，後
-  `configure-k0s`。
+  組裝，經 `WorkflowService.Create` 受理，由 `workflow-dispatch` 派發給 driver。
+- 分成兩個 Job，依 **cross-Job 依賴序**執行：先 `ensure-os`，後 `configure-k0s`。兩者都宣告重試粒度
+  `job`：重試會讓整個 Job 的 Task 以下一個 attempt 重跑。
 
 **拓樸與角色**（[decision 007](../decisions/007-cluster-deployment-ownership.md)、
 [decision 011](../decisions/011-flexible-k0s-topologies.md)）：deploy 請求以 `roleAssignments[]`
@@ -125,14 +126,14 @@ deploy use case 由它推導 [Kubernetes Topology](glossaries/terms/kubernetes-t
 
 ```mermaid
 flowchart TB
-    subgraph ensure["Job: ensure-os (child workflow)"]
+    subgraph ensure["Job: ensure-os"]
         p1["provision-&lt;id&gt; (provisioner)"]
         p2["provision-&lt;id&gt; (provisioner)"]
         n1["configure-ntp-&lt;id&gt; (ansible)"]
         n2["configure-ntp-&lt;id&gt; (ansible)"]
         w["wait-for-ssh (internal)"]
     end
-    subgraph configure["Job: configure-k0s (child workflow)"]
+    subgraph configure["Job: configure-k0s"]
         inst["install-platform (ansible)"]
         val["validate-platform (internal)"]
     end
@@ -322,11 +323,10 @@ Uninstall 與 deploy 一樣把 Task 以 `Task.Job` 分組，因此 API 的 `step
 | Release 主機 | `finalize-uninstall` | `complete-uninstall`（`DependsOn` 全部 `release-*`） | `internal` |
 
 與 deploy 相同，Job 順序由 **cross-Job 的 `DependsOn`** 推導（`finalize-uninstall` 依賴
-`release-servers` 的全部 Task，故在其整包成功後才跑），執行時每個 Job 為一個 Temporal child
-workflow。events/live 本來就是 per-Task，故分組後即與 deploy 一致，無需另外處理。**一旦任一
-Task 帶 Job，所有 Task 都必須帶 Job**（Temporal 只要偵測到任一 Job 就切換到 child-Job 執行路徑，
-混用會把無 Job 的 Task 落到未命名桶）。Release 捷徑（略過 ansible）仍依 [ADR 022](../decisions/022-uninstall-release-shortcut.md)，
-此處只加 Job 邊界，不改步驟語意；legacy（無 Temporal）單步 uninstall 無 v3 Job。
+`release-servers` 的全部 Task，故在其整包成功後才跑），每個 Job 宣告重試粒度 `job`。events/live 本來就是
+per-Task，故分組後即與 deploy 一致，無需另外處理。Release 捷徑（略過 ansible）仍依
+[ADR 022](../decisions/022-uninstall-release-shortcut.md)，此處只加 Job 邊界，不改步驟語意；legacy（無 Temporal）
+單步 uninstall 無 v3 Job。
 
 **Release 捷徑**（[ADR 022](../decisions/022-uninstall-release-shortcut.md)）：release 會清除 OS，所以帶 `releaseServers`
 時不跑 platform 軟體的 uninstall playbook，直接並行 release 每台成員。`complete-uninstall` 做的就是保留主機路徑上
@@ -359,8 +359,8 @@ platforms 契約的 [Uninstall A Deployed Platform](../../api-server/docs/develo
 - **`deleteRecord`**：受理時記錄在 uninstall Operation 上；只有 uninstall 成功時才在清理的最後刪除紀錄，刪除的紀錄與投影
   與 Delete 相同，但不取消 Operation，因為正在完成的 uninstall 就是持有 target 的 Workflow。失敗、取消或 indeterminate 時
   保留紀錄（`uninstall_failed`）。清理把已不存在的紀錄視為成功，所以重試是安全的。
-- **Delete** 只移除紀錄與 swallow 擁有的投影：先取消該 Platform 未完成的 durable Operation 以釋放 lease（無法取消就拒絕
-  Delete、保留紀錄），再清 membership、Platform Claim 與 swallow 擁有的 credential Integration，最後刪紀錄。它永不執行
+- **Delete** 只移除紀錄與 swallow 擁有的投影：先對該 Platform 未完成的 durable Operation 寫入取消命令（它們在取消
+  路徑結束時釋放所有權；寫不進去就拒絕 Delete、保留紀錄），再清 membership、Platform Claim 與 swallow 擁有的 credential Integration，最後刪紀錄。它永不執行
   automation、不改主機、不等 uninstall、不還原 exporter，target locked 時仍可執行。Platform 刪除後，已結束的
   deploy／uninstall Operation 不能再重試。
 - **Lifecycle read model**：`origin`、`lifecycleState`、`lifecycleOperationId` 由 API 從 durable deploy 與 uninstall
@@ -644,14 +644,13 @@ image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線
   [workflow-execution.md](workflow-execution.md) 為準：
   - worker turnover 的 infrastructure retry 接續同一個 Task attempt、不取消外部工作 → §5.3；
   - 可重試的失敗停在 `requires_attention`，由 operator 觸發 Task／Job 重試 → §5.4；
-  - 停等期間續租 lease 的失敗不會結束 Workflow → §6；
-  - 終態或 execution 已消失的 Workflow 以 rerun 收斂（新 Workflow、`RetryOfOperationId`、ensure 類
-    Task 一律重跑、已部署的節點不重裝）→ §7；
-  - lost-execution reconciler 只標記、不自動 rerun → §10。
+  - 停等不依賴計時器或續租，暫時性中斷不會結束 Workflow → §6；
+  - 已結束的 Workflow 以 rerun 收斂（新 Workflow、`RetryOfOperationId`、ensure 類 Task 一律重跑、已部署的
+    節點不重裝）→ §7；
+  - execution 遺失時 dispatcher 依 store 接續，Task 重試與取消照常可用 → §10。
 - Platform 特有的部分：Platform lifecycle 以 `requestedAt` 最新的 deploy Workflow 為準，rerun 的新
-  Workflow 自然接管、原 Workflow 留作診斷，全程不需刪 Platform。execution 遺失時 lifecycle 顯示
-  `deploy_failed`；dashboard 的 Repair 先試單一 Task 重試，遇 409（execution 已消失）或沒有可重試的
-  Task 時改走 rerun。
+  Workflow 自然接管、原 Workflow 留作診斷，全程不需刪 Platform。dashboard 的 Repair 先試單一 Task 重試，
+  沒有可重試的 Task 時改走 rerun。
 
 Kubernetes 的 ephemeral（RAM）部署語意見 §2.3.2。
 
@@ -663,16 +662,16 @@ Platform deploy 失敗**不會**自動 release、mark-broken 或清 claim；它�
 > **取消不回退已完成的 OS 佈署**：取消 platform deploy Workflow **不會**把成員 Server 已成功的 OS
 > 佈署改成 `canceled`。Server 的 `deployment` 軸是它**自身的 OS 佈署結果**，與 platform 分離；platform
 > 的取消只由 Workflow 狀態與 `Platform.lifecycleState` 表達（見 glossary [Server](glossaries/terms/server.md)
-> 的 Deployment result）。取消當下仍在執行的 `provision-os` 會在釋放 lease 前被帶回 Ready。保證這兩點
+> 的 Deployment result）。取消當下仍在執行的 `provision-os` 會在釋放所有權前被帶回 Ready。保證這兩點
 > 的機制見 [workflow-execution.md](workflow-execution.md) §8.2（投影單調性）與 §8.3（回收被中斷的部署）。
 
 - **provider 層失敗（Server 的 `provisioning` 軸不是 `ready`）**：`ensure-os`／`provision-os`
   失敗會讓該 Server 落在 `failed`（或 `allocated`／`broken`／`rescue`）。Workflow 停在
   `requires_attention` 時仍佔著該 Server，另開的 Recover Operation 會被拒為 busy，所以收斂方式是
-  **直接重試該 `provision-os` Task**：明確 Retry 會先在同一個 Workflow 內、以它的 lease 執行與
+  **直接重試該 `provision-os` Task**：明確 Retry 會先在同一個 Workflow 內、在它擁有 Server 時執行與
   **Recover**（Return to Ready）相同的 provider recovery（decision 033）把 Server 收回 `ready`
   （不解除 static IP），再重送凍結的部署內容；同批其他 Server 與已完成的 Task 保留（decision 059）。
-  首次 attempt 與 activity 重試不會自動回復，已 `deployed` 但 image 不符的 Server 也不會被覆蓋。
+  首次 attempt、activity 重試與接續都不會自動回復，已 `deployed` 但 image 不符的 Server 也不會被覆蓋。
   若要放棄整個部署，才 cancel Workflow，再對錯誤節點 Recover（直接 Release 會因 Platform Claim
   被拒，見下方「Platform Claim 與 `deploy_failed`」）。不要用 Mark fixed 去修一個
   `failed` 節點（Mark fixed 只清 `broken`），也不要期待 Rescue 讓它變 `ready`——Rescue 是診斷環境，
@@ -690,7 +689,7 @@ Platform Claim（[decision 067](../decisions/067-platform-claim-on-server.md)）
 **Delete** 解除 claim。Uninstall+release（[ADR 022](../decisions/022-uninstall-release-shortcut.md)）
 對非 `deployed` 的 failed 目標**沿用同一條 Release 政策**（與 Server 的 Release 一致，見
 decision 033），不另立門檻，避免捷徑與獨立 Release 規則分裂。失敗的 deploy 停在 `requires_attention`
-時仍握著目標的 lease，所以 uninstall 需帶 `cancelActiveWorkflows`（帶旗標時 `deploying` 也可
+時仍擁有目標，所以 uninstall 需帶 `cancelActiveWorkflows`（帶旗標時 `deploying` 也可
 uninstall）；後端取代佔用工作的流程見 [workflow-execution.md](workflow-execution.md) §9。
 
 ---
@@ -1036,10 +1035,11 @@ API 契約的 "Read Slurm Cluster State"。
 | Workflow/Task/Runner domain model | `internal/core/workflow/domain/orchestration.go` |
 | Workflow 持久化與 secret sealing | `internal/core/workflow/application/orchestration.go` |
 | Ansible 準備（playbook 解析、extra vars 合併） | `internal/core/workflow/application/execution_service.go` |
-| Temporal 編排（parent + Job child workflow、retry） | `internal/adapters/executor/temporalworkflow/workflow.go` |
+| 排程與狀態轉換（Job、重試粒度） | `internal/core/workflow/domain/schedule.go`、`internal/core/workflow/application/engine.go` |
+| Temporal driver workflow | `internal/adapters/executor/temporalworkflow/` |
 | Runner 接線 | `internal/app/worker.go` |
 | `internal` Runner（wait-for-ssh、validate） | `internal/app/platform_workflow_step_executor.go` |
-| `ansible` Runner（含 host-key 擷取） | `internal/adapters/executor/temporalworkflow/ansible_executor.go` |
+| `ansible` Runner（含 host-key 擷取，在 ansible executor 執行） | `internal/core/workflow/application/ansible_task.go` |
 | `provisioner` Runner | `internal/app/provider_step_executor.go` |
 | Dynamic inventory | `internal/core/discovery/application/discovery.go` |
 | ansible-runner 執行（known_hosts、result.json） | `internal/adapters/hostautomation/ansible/local_runner.go` |

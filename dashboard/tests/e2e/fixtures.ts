@@ -1593,9 +1593,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       steps,
       leases: serverIds.map((serverId, index) => ({
         resourceKey: `server:${serverId}`,
-        owner: `swallow-operation/${id}`,
+        owner: id,
         fencingToken: index + 1,
-        expiresAt: now,
         updatedAt: now,
       })),
       retryOfOperationId: null,

@@ -54,6 +54,10 @@ core 只包含：
 - 資源模型、desired 與 observed state、controller 框架、Change Plan（見 [desired-state-model.md](desired-state-model.md)）。
 - Workflow 的模型與語意：Workflow／Job／Task、attempt、重試、取消、fencing、等待 operator（目前的行為見
   [workflow-execution.md](workflow-execution.md)）。
+- **開發原則：deployment 以宣告式定義開發，Workflow 是實際的執行者。** 一個 Workflow 是一份完整的執行計畫——
+  Job、Task、依賴、重試粒度、完成行為、取消補償、目標與資源——engine 只依宣告執行，不認得任何 Workflow kind 或
+  Task kind（[workflow-execution.md](workflow-execution.md) §12）。新增一種 deployment 只需要產生這份計畫與它需要
+  的 handler，不修改 engine。
 - 各類 provider interface 與模組契約。
 - 身分與認證、Site 與 Integration 的登錄、監控關聯（把 metrics 接回 Server 的身分對應）。
 

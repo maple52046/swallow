@@ -1,8 +1,8 @@
 # 020. Durable Operation 失敗回復：以新 execution 重跑，不刪 Platform
 
-- Status: Accepted
+- Status: Accepted; the mark-only reconciler and the parked lease renewal superseded by [ADR 072](072-store-driven-workflow-execution.md) (a lost execution is resumed by re-dispatch; ownership needs no renewal); rerun unchanged
 - Date: 2026-09-07
-- 現行規格：[workflow-execution.md](../development/workflow-execution.md) §6 `requires_attention` 停等與 lease 續租、§7 Rerun：以新 Workflow 收斂、§10 Lost-execution reconciliation
+- 現行規格：[workflow-execution.md](../development/workflow-execution.md) §6 `requires_attention` 停等、§7 Rerun：以新 Workflow 收斂、§10 派發與接續
 
 ## Context
 

@@ -237,8 +237,9 @@ provisioner 自行 enlist 的 machine，所以 schema migration 不需要連線 
 
 ### 6.4 Hold
 
-- 以下情況暫停收斂：Server 在 Rescue Mode、Server 被 lock、operator 明確 hold、資源被進行中的 Workflow
-  以 lease 佔用。
+- 以下情況暫停收斂：Server 在 Rescue Mode、Server 被 lock、operator 明確 hold、資源由未結束的 Workflow
+  擁有（[workflow-execution.md](workflow-execution.md) §4）。所有權沒有 TTL，Workflow 結束時在同一個 transaction
+  中釋放；controller 監看所有權的變化，所以釋放後立即收斂，不等下一次 resync。
 - hold 期間觀察與 drift 回報照常進行；controller 不執行收斂動作。Change Plan 可以產生，但要等 hold 解除才能
   apply；明確允許的回復動作（例如對 rescue 中的 Server 做 Recover）除外。
 - hold 以 `held` condition 與原因呈現。
@@ -277,13 +278,17 @@ controller 不直接呼叫廠商 SDK 或 API，也不知道是哪個 adapter 在
 - **放棄**：永久性錯誤（provider 拒絕）設定 `requires_attention` condition 與正規化的錯誤，停止自動嘗試，
   直到 spec 改變（`generation` 增加）或 operator 要求重試。缺少能力是 `realized=false`、reason `capability_missing`，
   不是失敗。
-- **並行**：controller 不對被進行中的 Workflow 以 lease 佔用的資源動作（§6.4）。
+- **並行**：controller 不對由未結束的 Workflow 擁有的資源動作（§6.4）。
 
 ### 7.6 執行位置
 
 controller 不在 API process 執行，目前在 worker process。同一種 controller 同一時間只有一個 active instance，
-以 store 中帶 TTL 的 lease 保證：持有者定期續租，process 停止後 lease 過期，由其他 instance 接手。這個 lease 與
-Workflow 的 resource lease 是不同的紀錄。
+以 store 中帶 TTL 的 lease（`controller_leases`）保證：持有者定期續租，process 停止後 lease 過期，由其他 instance
+接手。這個 lease 與 Workflow 的資源所有權是不同的紀錄：後者沒有 TTL。
+
+每種 controller 可以宣告自己的 resync 間隔；未宣告時使用 `controllerResyncInterval`（預設 10 分鐘）。派發
+Workflow 的 `workflow-dispatch` 也是一個 controller，resync 間隔為 `workflowResyncInterval`（預設 30 秒），因為
+execution 遺失不會出現在 change feed 上（[workflow-execution.md](workflow-execution.md) §10）。
 
 ## 8. Provider 在收斂中的角色
 
@@ -306,10 +311,13 @@ Workflow 的 resource lease 是不同的紀錄。
   Temporal 的型別與概念（workflow context、activity options、history event）不得越過 adapter。
 - **狀態轉換只有一個寫入者**：core 的 Workflow service。executor adapter 的 activity 呼叫它回報進度；API 只寫入
   intent 與命令（例如取消要求），不直接改寫狀態。
-- **受理與啟動**：API 在同一個 transaction 中寫入 Workflow intent 與相關的 domain 變更；把 Workflow 交給 executor
-  的動作由 store 的 outbox 或 change feed 驅動，不靠多個 process 輪詢。
-- **execution 遺失**：executor 沒有某個未結束 Workflow 的 execution 時，swallow 依 store 中的狀態重新派發；已成功的
-  Task 因為是 idempotent 的 ensure 且結果已記錄，不會重做。
+- **受理與派發**：API 在同一個 transaction 中寫入 Workflow intent 與相關的 domain 變更；API process 不連
+  executor。worker 的 `workflow-dispatch` controller 從 change feed 看到 Workflow 與命令（取消、Task 重試），派發
+  run 並送達命令，不靠多個 process 輪詢。
+- **派發世代**：每次派發世代加一，舊世代的寫入被拒絕，舊的 run 不再產生副作用；資源由 Workflow 在生命週期內擁有，
+  沒有 TTL。
+- **execution 遺失**：executor 沒有某個未結束 Workflow 的 execution 時，dispatcher 依 store 中的狀態重新派發；已成功
+  的 Task 因為是 idempotent 的 ensure 且結果已記錄，不會重做；結果無法證明的 Task 交給 operator。
 - **來源**：Workflow 由三種方式產生：operator 的明確要求、controller 的非破壞性收斂（§5.3）、核准的 Change Plan
   （§5.4）。
 

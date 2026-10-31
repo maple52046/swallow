@@ -25,14 +25,16 @@ contract 整合。`api-server` 不發布 HTTP 以外的 public protocol。
 
 同一個 `swallow-api` binary 提供四個 process role：
 
-- `api` — HTTP delivery、queries、reconciliation loops 與 Workflow start/control。
-- `worker` — Temporal Workflow definition 與 activities。
-- `ansible-executor` — 執行 idempotent Ansible attempt、保存 artifacts、發布 events。
+- `api` — HTTP delivery、queries、reconciliation loops；Workflow 只寫入 intent 與命令，不連 Temporal。
+- `worker` — desired-state controller（含派發 Workflow 的 `workflow-dispatch`）、Temporal driver workflow，以及
+  provider 與 internal Runner 的 activities。
+- `ansible-executor` — `swallow-ansible` task queue 的 Temporal worker：執行 idempotent Ansible attempt、保存
+  artifacts、發布 events。
 - `migrate` — service startup 前的 explicit migration。
 
-Workflow executor port 目前唯一的 adapter 是 Temporal。API process 不執行 in-process
-fallback。完整 execution topology 還需要 Temporal Server/PostgreSQL、MongoDB、
-worker 與 ansible-executor。
+Workflow executor port 目前唯一的 adapter 是 Temporal；Workflow 的狀態只在 store
+（workflow-execution.md §2）。API process 不執行 in-process fallback。完整 execution topology 還需要 Temporal
+Server/PostgreSQL、MongoDB、worker 與 ansible-executor。
 
 desired state 的 controller（desired-state-model.md §7）在 worker process 執行，不在 API process。
 

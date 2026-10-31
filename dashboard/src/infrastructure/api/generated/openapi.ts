@@ -4226,7 +4226,7 @@ export interface paths {
         };
         /**
          * Read one Workflow, or one historical schema-v2 record.
-         * @description Requires the `admin` role. A schema-v3 Workflow is returned as `Workflow`, including the resource leases it currently holds; an ID that is only a schema-v2 record is returned as `LegacyOperation` with `schemaVersion` 2.
+         * @description Requires the `admin` role. A schema-v3 Workflow is returned as `Workflow`, including the resources it currently owns; an ID that is only a schema-v2 record is returned as `LegacyOperation` with `schemaVersion` 2.
          */
         get: operations["getWorkflow"];
         put?: never;
@@ -4250,8 +4250,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ask a Workflow's durable execution to cancel.
-         * @description Requires the `admin` role. Returns 202 once Temporal accepted the request; the workflow itself records `canceling` then `canceled`. When the execution no longer exists, swallow releases its leases and records `canceled` itself, and still returns 202.
+         * Cancel an unfinished Workflow.
+         * @description Requires the `admin` role. Returns 202 once the cancel request is stored; the worker delivers it, resuming the Workflow when its execution is gone, and the Workflow records `canceling` then `canceled`.
          */
         post: operations["cancelWorkflow"];
         delete?: never;
@@ -4274,7 +4274,7 @@ export interface paths {
         put?: never;
         /**
          * Recover a Workflow that cannot advance by launching a new one for the same intent.
-         * @description Requires the `admin` role. Accepted for a `failed`, `partially_succeeded`, `canceled`, or `requires_attention` Workflow; the new Workflow's `retryOfOperationId` names the original. The new Workflow holds no leases yet, so `leases` is null in this response.
+         * @description Requires the `admin` role. Accepted for a `failed`, `partially_succeeded`, `canceled`, or `requires_attention` Workflow; the new Workflow's `retryOfOperationId` names the original. A `requires_attention` original is canceled in the same request. The new Workflow owns no resources yet, so `leases` is null in this response.
          */
         post: operations["rerunWorkflow"];
         delete?: never;
@@ -4374,7 +4374,7 @@ export interface paths {
         put?: never;
         /**
          * Retry one failed, retryable Task in place, at its next attempt.
-         * @description Requires the `admin` role. Accepted only when the Task is `failed` or `requires_attention` and its normalized error has `retryable` true.
+         * @description Requires the `admin` role. Accepted only when the Task is `failed` or `requires_attention` and its normalized error has `retryable` true. The retry is stored and applied by the Workflow, also after its execution was lost; a Task in a Job that retries as a whole runs that Job again.
          */
         post: operations["retryWorkflowTask"];
         delete?: never;
@@ -7346,7 +7346,7 @@ export interface components {
                 [key: string]: unknown;
             };
             kind: components["schemas"]["WorkflowKind"];
-            /** @description The resource leases the execution currently holds. Populated only by `GET /api/v1/workflows/{id}` (an empty array when none are held); null in listings and in create and rerun responses. */
+            /** @description The resources the Workflow owns, from its first run until it ends. Populated only by `GET /api/v1/workflows/{id}` (an empty array when none are owned); null in listings and in create and rerun responses. */
             leases: components["schemas"]["WorkflowResourceLease"][] | null;
             platformId: string | null;
             /** @description The request ID of the HTTP request that accepted the intent, when known. */
@@ -7409,15 +7409,14 @@ export interface components {
             pageSize: number;
             total: number;
         };
-        /** @description A fencing lease that serializes mutations of one Server or Platform. */
+        /** @description Ownership of one Server or Platform by a Workflow, which serializes its mutations. It has no expiry and is released when the Workflow ends. */
         WorkflowResourceLease: {
-            expiresAt: components["schemas"]["Timestamp"];
             /**
              * Format: int64
-             * @description Monotonically increasing per resource; verified before every side effect.
+             * @description The owner's current dispatch generation; a run of an older generation cannot write state or cause side effects.
              */
             fencingToken: number;
-            /** @description The Temporal workflow ID holding the lease. */
+            /** @description The id of the Workflow that owns the resource. */
             owner: string;
             /** @description `server:<id>` or `platform:<id>`. */
             resourceKey: string;
@@ -16739,7 +16738,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The retry was delivered to the Workflow's execution. */
+            /** @description The retry was stored. */
             202: {
                 headers: {
                     [name: string]: unknown;

@@ -122,17 +122,17 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
     { label: 'Request correlation', value: <span className="mono">{operation.requestCorrelation ?? '-'}</span> },
     { label: 'Targets', value: `${operation.targetServerIds.length} Servers` },
     {
-      label: 'Resource leases',
+      label: 'Owned resources',
       value: operation.leases?.length ? (
-        <HStack gap="1" wrap="wrap" aria-label="Active resource leases">
+        <HStack gap="1" wrap="wrap" aria-label="Owned resources">
           {operation.leases.map((lease) => (
             <Badge key={lease.resourceKey} variant="outline">
-              {lease.resourceKey} · fence {lease.fencingToken}
+              {lease.resourceKey} · generation {lease.fencingToken}
             </Badge>
           ))}
         </HStack>
       ) : (
-        'No active leases'
+        'None'
       ),
     },
     { label: 'Updated', value: formatDateTime(operation.updatedAt) },

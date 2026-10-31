@@ -126,8 +126,9 @@ as a Job, a Task retry re-runs the whole Job rather than only the failed Task.
 the hypervisor Server and has one independent `enroll-virtual-machine` Task per libvirt domain, so a
 Task retry re-runs only that domain ([server-enrollment.md](server-enrollment.md#virtual-machines-libvirt)). Targets are frozen,
 must belong to one Site, and must pass current provisioning, Platform policy, active-work,
-and live Server Lock checks. Success is `202 Accepted` after intent is persisted; Temporal
-may start after the response through starter reconciliation.
+and live Server Lock checks. Success is `202 Accepted` after intent is persisted; the worker's
+dispatcher starts the Workflow's first run after the response
+([workflow-execution.md](../../../../../docs/development/workflow-execution.md) §3).
 
 The `202` body of create is the accepted Workflow in the compatibility (Operation) shape, the
 same shape as a schema-v2 record (OpenAPI `LegacyOperation`) with `schemaVersion` 3: `id`,
@@ -193,9 +194,8 @@ example shows one of the Workflow's Tasks):
   "leases": [
     {
       "resourceKey": "server:server-id",
-      "owner": "swallow-operation/workflow-id",
-      "fencingToken": 4,
-      "expiresAt": "2026-09-03T00:11:00Z",
+      "owner": "workflow-id",
+      "fencingToken": 2,
       "updatedAt": "2026-09-03T00:01:00Z"
     }
   ],
@@ -230,8 +230,13 @@ similar) are removed from `intentSnapshot` at every depth, and Task `parameters`
 secret references are never returned at all, so no credential, cloud-init, or Kubernetes secret
 value crosses the API.
 
-`leases` is populated only by `GET /workflows/{workflowId}` (an empty array when the execution
-holds none); it is `null` in list items and in the rerun response. `targetResources`,
+`leases` lists the resources the Workflow owns. It is populated only by
+`GET /workflows/{workflowId}` (an empty array when the Workflow owns none, which is the case before
+it starts and after it ends); it is `null` in list items and in the rerun response. A Workflow owns
+its resources from its first run until it ends, with no expiry: `owner` is the Workflow id,
+`fencingToken` is the Workflow's current dispatch generation (it increases each time the Workflow is
+dispatched or resumed), and `updatedAt` is when ownership was taken. `startState` is `pending` until
+the Workflow is first dispatched and `started` after; `temporal.runId` is the current run. `targetResources`,
 `targetServerIds`, and `steps` are `null`, not `[]`, when the Workflow has none. A Task's `job`,
 `continueOn`, `waitingReason`, and `live` are omitted when unset, while its `error`,
 `externalExecution`, `startedAt`, and `finishedAt` are present as `null`.
@@ -287,33 +292,23 @@ schema-v3 Workflow, but the synthetic Task of a schema-v2 record carries `"depen
 
 ## Cancel
 
-`POST /{id}/cancel` returns `202` with `{ "operationId": "<workflowId>" }` after Temporal accepts
-the request. The workflow writes `canceling` then `canceled`; the handler never writes Mongo
-status. Unstarted Tasks become
-canceled; active MAAS or Ansible execution receives best-effort abort and remains observed
-when the provider cannot stop it. Confirmed prior effects are preserved.
-
-When the Workflow's Temporal execution no longer exists (terminated, timed out, or past
-retention), no workflow code will ever record the outcome, so swallow records it instead and
-still returns `202`: the leases the execution held are released, the Workflow becomes
-`canceled` with `statusReason` `Canceled by operator; its workflow execution had already
-ended.`, and every non-terminal Task (including `requires_attention`) becomes `canceled`. Tasks
-that already reached an outcome keep it. Cancel on a finished Workflow is still `conflict`.
+`POST /{id}/cancel` returns `202` with `{ "operationId": "<workflowId>" }` once the cancel request is
+stored. The worker delivers it to the Workflow's run, or resumes the Workflow when its execution is
+gone or it has not started yet, so a cancel always completes. The Workflow writes `canceling`, then
+`canceled` with `statusReason` `Canceled by operator.`; a Workflow superseded by a rerun or by
+`cancelActiveWorkflows` carries that reason instead. Every non-terminal Task, including
+`requires_attention`, becomes `canceled`; Tasks that already reached an outcome keep it. Active MAAS
+or Ansible execution receives a best-effort abort. Cancel on a finished Workflow is `conflict`.
 
 A Task that was running when the cancel arrived also ends `canceled`. A canceled
 `provision-os` Task sets its Server's `deployment` result to `canceled`; a `provision-os` that
 already `succeeded` or `failed` keeps that outcome, including in a platform deployment whose Jobs
 retried it. The provider-owned `provisioning.state` is not rewritten by the cancel itself and keeps
-following the provider. If a Server's `deployment` result is still `deploying` or `verifying` after
-the Workflow it names has ended, a background sweep settles it from that Workflow's Task outcome
-(`canceled` when the Workflow was canceled before the Task recorded one) within one reconcile
-interval. The same sweep restores a `canceled` result whose Task recorded `succeeded` or `failed`
-at the same or a later attempt. The sweep never acts while the Workflow is still advancing,
-`canceling`, or `requires_attention`.
+following the provider.
 
 A cancel also returns the Servers whose `provision-os` it interrupted to Ready
 ([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md)). Before the
-Workflow becomes `canceled`, and while it still holds its leases, Swallow aborts a deployment the
+Workflow becomes `canceled`, and while it still owns its resources, Swallow aborts a deployment the
 provider still reports as Deploying, waits up to 10 minutes for the provider to leave it, and
 returns an Allocated Machine (where MAAS parks an aborted deployment) to Ready with the Recover
 plan: a plain Release that keeps static IP bindings and erases no disk. A Machine the provider
@@ -329,22 +324,23 @@ its borrowed Server through its own recover Task instead.
 `POST /{id}/tasks/{taskId}/retry` returns `202` only when the Task is `failed` or
 `requires_attention` and its normalized error has `retryable=true`; any other Task is
 `conflict`. The body names the Task under both the canonical and the deprecated keys:
-`{ "workflowId", "operationId", "taskId", "stepId" }`. Temporal increments the
-Task attempt in the same Workflow; successful dependencies are not repeated. A provider or
-Ansible idempotency identity includes Workflow, Task, target, and attempt. When the
-Workflow's Temporal execution no longer exists the retry cannot be delivered and returns
-`conflict`; its message directs the operator to cancel the Workflow (see Cancel) and start the
-work again.
+`{ "workflowId", "operationId", "taskId", "stepId" }`. The retry is stored and the Workflow
+applies it in the same Workflow, also when its execution was lost (the worker resumes it). A Task
+without a Job, or in a Job that retries by Task, runs again at the next attempt and its successful
+dependencies are not repeated; a Task in a Job that retries as a whole (for example a platform
+deployment's `ensure-os` and `configure-k0s`, or `inspect-hardware`'s `ensure-inspected`) runs
+every Task of that Job again at the next attempt. A provider or Ansible idempotency identity
+includes Workflow, Task, target, and attempt.
 
 ## Rerun (recovery)
 
-`POST /{id}/rerun` recovers a Workflow that can no longer advance in place. The stable
-Workflow ID rejects a duplicate start and the starter only launches `startState=pending`
-records, so a Workflow that finished `failed`, `partially_succeeded`, or `canceled`, or one
-whose Temporal execution was lost (a host restart or execution timeout left it non-terminal
-with no live execution), cannot be restarted or retried by Task. Rerun instead launches a new
+`POST /{id}/rerun` converges a Workflow's intent again as a new Workflow, for a Workflow that
+finished `failed`, `partially_succeeded`, or `canceled`, or one parked in `requires_attention`
+that the operator wants to converge from the start rather than retry by Task. It launches a new
 Workflow for the same intent, on the same Platform, and returns `202` with the new Workflow
-projection (its `leases` is `null`: it holds none yet). The new Workflow's
+projection (its `leases` is `null`: it owns none yet). A `requires_attention` original is canceled
+(`statusReason` `Superseded by a rerun.`) in the same request, and the new Workflow waits in
+`waiting_dependency` until the original's cancel completes and frees its Servers. The new Workflow's
 `retryOfOperationId` points at the original, it carries a later
 `requestedAt` so the platform lifecycle follows it, and the original stays in history.
 
@@ -364,30 +360,23 @@ the rest run again. A succeeded `ansible-playbook` is also preserved once a `rel
 same Workflow succeeded, because a released host no longer runs the OS the playbook needs. A
 Workflow that already `succeeded` or is still actively advancing
 (`pending`, `running`, `waiting_external`, `waiting_dependency`, `canceling`) is rejected with
-`conflict`; those cases use Task retry or cancel instead. The lost-execution reconciler
-independently marks a Workflow whose execution vanished as `requires_attention` (or annotates
-one already there) so it surfaces as repairable rather than stuck.
+`conflict`; those cases use Task retry or cancel instead.
 
 ## Durability And Protection
 
-The stable Temporal Workflow ID is `swallow-operation/<workflowId>` (the Temporal name is
-history-tied and retained). The starter retries records with `startState=pending`, and
-duplicate starts are rejected by Temporal. Resource mutations acquire sorted `server:<id>`
-and `platform:<id>` leases, each with a monotonically increasing fencing token, renewed
-while waiting and verified before side effects. While a Workflow is parked in
-`requires_attention` its leases are extended to 24 hours and renewed every 8 hours, so a long
-wait for the operator stays far below Temporal's per-execution history limit (an execution
-that outgrows it is terminated by Temporal). A lease-renewal failure while parked does not end
-the Workflow: it keeps waiting (it exits only on a Task retry or an operator cancel), so a
-transient outage cannot cancel work that only needs to be resumed.
+A Workflow's state lives only in swallow's store; Temporal executes its runs. The stable Temporal
+Workflow ID is `swallow-operation/<workflowId>` (the Temporal name is history-tied and retained);
+each dispatch is a new run under it, and at most one run exists at a time. The worker dispatches a
+new Workflow, delivers cancel and retry requests, and resumes a Workflow whose execution is gone:
+Tasks whose Runner can observe continue at the same attempt and observe before acting, and an
+Ansible Task whose outcome cannot be proven becomes `requires_attention` with
+`executor_outcome_unknown`. A run superseded by a later dispatch cannot write state or cause side
+effects (dispatch-generation fencing).
 
-A background reconciler checks every started, non-terminal Workflow against Temporal. When the
-execution is gone, a forward-progress Workflow (`pending`, `waiting_dependency`, `running`,
-`waiting_external`) is marked `requires_attention`; a Workflow already in `requires_attention`
-keeps its status and gets the same lost-execution `statusReason`; a `canceling` Workflow has its
-leases released and becomes `canceled`, because its cancel was already requested. The
-lost-execution `statusReason` tells the operator to cancel the Workflow to free its Servers, or
-to recover it with `POST /{id}/rerun`, which does so without deleting the Platform (see Rerun).
+Resource mutations take sorted `server:<id>` and `platform:<id>` ownership in one step when the
+Workflow starts; a resource another Workflow owns keeps it in `waiting_dependency`. Ownership has
+no expiry and is released when the Workflow ends, so a Workflow parked in `requires_attention`
+keeps its Servers for as long as it waits, with no renewal that a transient outage could break.
 
 ## Schema-v2 Compatibility
 
@@ -433,3 +422,13 @@ compatibility shape; `leases` is populated only on get by ID; an ineligible Task
 Site with no Automation Configuration are `conflict` and `not_found` (not `validation_error` and
 `provider_unavailable`); Task events never carry a `changed` status; the legacy logs and events
 of a schema-v3 Workflow are `not_found`; and the cancel and Task-retry bodies are documented.
+
+On 2026-10-31 ([decision 072](../../../../../docs/decisions/072-store-driven-workflow-execution.md))
+execution state moved to the store alone. Breaking: a lease is ownership with no `expiresAt`, its
+`owner` is the Workflow id instead of the Temporal Workflow ID, and `fencingToken` is the dispatch
+generation. Task retry and cancel no longer return `conflict` when the execution is gone; the
+Workflow is resumed instead, so no Workflow is marked with a lost-execution `statusReason` any
+more. Cancel now also cancels a parked Workflow's `requires_attention` Tasks, and a rerun of a
+`requires_attention` Workflow cancels the original through its own cancel path. Every existing Job
+keeps retrying as a whole, and Tasks now start in a sliding window of `OperationMaxParallelism`
+instead of batches; neither changes a route or a status.

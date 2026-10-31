@@ -1,6 +1,6 @@
 # 006. Embedded Ansible execution
 
-- Status: Accepted; execution engine superseded in part by [ADR 016](016-temporal-operation-orchestration.md); Refined by [ADR 070](070-core-providers-and-extensions.md) (Ansible is the current host automation adapter)
+- Status: Accepted; execution engine superseded in part by [ADR 016](016-temporal-operation-orchestration.md); Refined by [ADR 070](070-core-providers-and-extensions.md) (Ansible is the current host automation adapter); the executor process runs Ansible Tasks as Temporal activities on its own task queue ([ADR 072](072-store-driven-workflow-execution.md))
 - Date: 2026-08-25
 
 > **Superseded in part by [ADR 016](016-temporal-operation-orchestration.md):** the embedded

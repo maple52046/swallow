@@ -68,7 +68,7 @@ type WorkflowItem struct {
 	TargetResources    []workflowdomain.ResourceReference `json:"targetResources"`
 	TargetServerIDs    []string                           `json:"targetServerIds"`
 	Steps              []workflowdomain.Task              `json:"steps"`
-	Leases             []workflowdomain.ResourceLease     `json:"leases"`
+	Leases             []WorkflowLeaseItem                `json:"leases"`
 	RetryOfOperationID *string                            `json:"retryOfOperationId"`
 	RequestedBy        string                             `json:"requestedBy"`
 	RequestCorrelation *string                            `json:"requestCorrelation"`
@@ -77,6 +77,15 @@ type WorkflowItem struct {
 	FinishedAt         *string                            `json:"finishedAt"`
 	UpdatedAt          string                             `json:"updatedAt"`
 	Execution          ExecutionItem                      `json:"execution"`
+}
+
+// WorkflowLeaseItem is one resource a Workflow owns, as the API reports it: the owner is the
+// Workflow id and the fencing token its dispatch generation (decision 072).
+type WorkflowLeaseItem struct {
+	ResourceKey  string    `json:"resourceKey"`
+	Owner        string    `json:"owner"`
+	FencingToken int64     `json:"fencingToken"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 // WorkflowService accepts durable workflows and exposes their query projection.
@@ -391,7 +400,13 @@ func (s *WorkflowService) Get(ctx context.Context, id string) (*WorkflowItem, er
 		if leaseErr != nil {
 			return nil, leaseErr
 		}
-		item.Leases = leases
+		item.Leases = make([]WorkflowLeaseItem, len(leases))
+		for index, lease := range leases {
+			item.Leases[index] = WorkflowLeaseItem{
+				ResourceKey: lease.ResourceKey, Owner: operation.ID,
+				FencingToken: lease.FencingToken, UpdatedAt: lease.UpdatedAt,
+			}
+		}
 	}
 	return &item, nil
 }

@@ -8433,7 +8433,7 @@ paths:
         - workflows
   /api/v1/workflows/{id}:
     get:
-      description: Requires the `admin` role. A schema-v3 Workflow is returned as `Workflow`, including the resource leases it currently holds; an ID that is only a schema-v2 record is returned as `LegacyOperation` with `schemaVersion` 2.
+      description: Requires the `admin` role. A schema-v3 Workflow is returned as `Workflow`, including the resources it currently owns; an ID that is only a schema-v2 record is returned as `LegacyOperation` with `schemaVersion` 2.
       operationId: getWorkflow
       responses:
         "200":
@@ -8459,7 +8459,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/WorkflowId'
     post:
-      description: Requires the `admin` role. Returns 202 once Temporal accepted the request; the workflow itself records `canceling` then `canceled`. When the execution no longer exists, swallow releases its leases and records `canceled` itself, and still returns 202.
+      description: Requires the `admin` role. Returns 202 once the cancel request is stored; the worker delivers it, resuming the Workflow when its execution is gone, and the Workflow records `canceling` then `canceled`.
       operationId: cancelWorkflow
       responses:
         "202":
@@ -8478,14 +8478,14 @@ paths:
           $ref: '#/components/responses/WorkflowControlConflict'
         default:
           $ref: '#/components/responses/Error'
-      summary: Ask a Workflow's durable execution to cancel.
+      summary: Cancel an unfinished Workflow.
       tags:
         - workflows
   /api/v1/workflows/{id}/rerun:
     parameters:
       - $ref: '#/components/parameters/WorkflowId'
     post:
-      description: Requires the `admin` role. Accepted for a `failed`, `partially_succeeded`, `canceled`, or `requires_attention` Workflow; the new Workflow's `retryOfOperationId` names the original. The new Workflow holds no leases yet, so `leases` is null in this response.
+      description: Requires the `admin` role. Accepted for a `failed`, `partially_succeeded`, `canceled`, or `requires_attention` Workflow; the new Workflow's `retryOfOperationId` names the original. A `requires_attention` original is canceled in the same request. The new Workflow owns no resources yet, so `leases` is null in this response.
       operationId: rerunWorkflow
       responses:
         "202":
@@ -8591,7 +8591,7 @@ paths:
       - $ref: '#/components/parameters/WorkflowId'
       - $ref: '#/components/parameters/WorkflowTaskId'
     post:
-      description: Requires the `admin` role. Accepted only when the Task is `failed` or `requires_attention` and its normalized error has `retryable` true.
+      description: Requires the `admin` role. Accepted only when the Task is `failed` or `requires_attention` and its normalized error has `retryable` true. The retry is stored and applied by the Workflow, also after its execution was lost; a Task in a Job that retries as a whole runs that Job again.
       operationId: retryWorkflowTask
       responses:
         "202":
@@ -8599,7 +8599,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WorkflowTaskRetryAccepted'
-          description: The retry was delivered to the Workflow's execution.
+          description: The retry was stored.
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -15315,7 +15315,7 @@ components:
         kind:
           $ref: '#/components/schemas/WorkflowKind'
         leases:
-          description: The resource leases the execution currently holds. Populated only by `GET /api/v1/workflows/{id}` (an empty array when none are held); null in listings and in create and rerun responses.
+          description: The resources the Workflow owns, from its first run until it ends. Populated only by `GET /api/v1/workflows/{id}` (an empty array when none are owned); null in listings and in create and rerun responses.
           items:
             $ref: '#/components/schemas/WorkflowResourceLease'
           nullable: true
@@ -15518,16 +15518,14 @@ components:
         - pageSize
       type: object
     WorkflowResourceLease:
-      description: A fencing lease that serializes mutations of one Server or Platform.
+      description: Ownership of one Server or Platform by a Workflow, which serializes its mutations. It has no expiry and is released when the Workflow ends.
       properties:
-        expiresAt:
-          $ref: '#/components/schemas/Timestamp'
         fencingToken:
-          description: Monotonically increasing per resource; verified before every side effect.
+          description: The owner's current dispatch generation; a run of an older generation cannot write state or cause side effects.
           format: int64
           type: integer
         owner:
-          description: The Temporal workflow ID holding the lease.
+          description: The id of the Workflow that owns the resource.
           type: string
         resourceKey:
           description: '`server:<id>` or `platform:<id>`.'
@@ -15538,7 +15536,6 @@ components:
         - resourceKey
         - owner
         - fencingToken
-        - expiresAt
         - updatedAt
       type: object
     WorkflowResourceReference:

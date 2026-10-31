@@ -1,8 +1,8 @@
 # 030. Live Ansible task-event streaming and progress projection
 
-- Status: Accepted
+- Status: Accepted; the executor writes `Task.Live` through the core instead of a worker mirroring it, and events follow the artifact retention ([ADR 072](072-store-driven-workflow-execution.md))
 - Date: 2026-09-14
-- 現行規格：[workflow-execution.md](../development/workflow-execution.md) §11 Ansible Task 即時事件串流與進度投影（`Task.Live`）
+- 現行規格：[workflow-execution.md](../development/workflow-execution.md) §11 Ansible Task 的執行、即時事件串流與進度投影（`Task.Live`）
 
 ## Context
 
