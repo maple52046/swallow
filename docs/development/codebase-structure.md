@@ -105,6 +105,7 @@ flowchart LR
   - [`core-and-extensions.md`](core-and-extensions.md) — 大尺度結構：core 的內容、provider interface 與可抽換的 adapter、三種擴充模組與其契約、支援矩陣（decision 070）。
   - [`platform-deployment.md`](platform-deployment.md) — platform deployment 的設計、開發與整合規範（Workflow/Job/Task/Runner；新增 platform 的現行做法）。
   - [`software-deployment.md`](software-deployment.md) — software deployment（Managed Software）的設計與整合規範：單一軟體的安裝/卸載，與 platform 的分界是 deploy target 的粒度。
+  - [`module-authoring.md`](module-authoring.md) — 模組撰寫指南：`api-server/modules/` 的佈局、playbook 的登錄、role 的解析與命名、每支 playbook 的規則與內容測試。
   - [`os-provisioning.md`](os-provisioning.md) — OS provisioning 的現行行為：OS Image、Deployment Template、部署網路意圖、provider recovery、Zone/Pool 與 write-through 的 provisioner 設定。
   - [`server-enrollment-and-boot-media.md`](server-enrollment-and-boot-media.md) — Server Enrollment、硬體檢視、Power Configuration、Boot Media 與 Boot ISO。
   - [`workflow-execution.md`](workflow-execution.md) — durable Workflow 的跨功能執行語意：啟動、lease、Task 重試、rerun、取消、取代佔用的工作與即時事件。
@@ -136,7 +137,8 @@ component 之內，不是新的頂層 component。位置：
 Layout；依賴方向由 `api-server/tests/layout_test.go` 的 import 檢查守住。
 
 既有程式碼已依此配置搬移：provider adapter 在 `api-server/internal/adapters/`，host automation 內容與模組的
-Go 程式碼在 `api-server/modules/`。仍在 core 與 `internal/app` 內的平台與 GPU 廠商專屬邏輯（例如
+Go 程式碼在 `api-server/modules/`；搬移前的路徑與現在的對照見同一份 architecture spec 的「2026-10-31 搬移前的路徑」。
+在模組中新增或修改內容的規則見 [`module-authoring.md`](module-authoring.md)。仍在 core 與 `internal/app` 內的平台與 GPU 廠商專屬邏輯（例如
 `api-server/internal/core/platform` 的 Kubernetes、Slurm、AMD 規則）列在
 [core-and-extensions.md](core-and-extensions.md) §3.6，修改時不得擴大。
 

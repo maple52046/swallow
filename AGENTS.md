@@ -73,6 +73,13 @@ platform deploy, also read:
  deploy-target boundary versus platform deployment, and the inventory / trusted-vars / manifest
  integration contract.
 
+If the task creates or changes host automation content — playbooks, roles,
+`api-server/modules/manifest.json`, `api-server/modules/shared/`, or the module directory layout — also
+read:
+
+1. `docs/development/module-authoring.md` — the module layout, how playbooks are registered and
+ roles resolve, the rules every playbook follows, and the content tests to add.
+
 If the task involves OS provisioning (OS Images and their verification, Deployment Templates,
 deployment network intent, provider recovery such as Release / Recover / Rescue, Zones and Pools,
 or provisioner settings written through such as HTTP proxy and Subnet DNS), also read:

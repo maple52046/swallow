@@ -28,6 +28,8 @@ follows.
    [core and extensions design](docs/development/core-and-extensions.md).
 6. For API work, locate and update the provider-owned
    [API contract](docs/development/api-contracts.md) before or with the code.
+7. For playbooks, roles, or a plugin's content under `api-server/modules/`,
+   follow the [module authoring guide](docs/development/module-authoring.md).
 
 Plans for implementation work belong under the repository root
 `docs/plans/manuscripts/`; do not create component-local plan trees.

@@ -141,6 +141,47 @@ api-server/
 
 新增的 import 違反上述規則時應修正依賴方向（例如把 port 或常數移到 core），不得放寬檢查。
 
+### 2026-10-31 搬移前的路徑
+
+程式碼在 2026-10-31 依上面的配置搬移（commit `b5cdbf9`、`dce2e79`、`e00b840`、`6027074`），行為不變。帶著搬移前
+context 的人或 agent、引用舊路徑的 ADR 與紀錄，以下面的對照換算到現在的位置（路徑相對於 `api-server/`；之後被刪除
+或改名的檔案以現在的檔案為準）：
+
+```text
+搬移前                                                    現在
+internal/<context>/{domain,application,delivery}/        internal/core/<context>/{domain,application,delivery}/
+internal/operation/                                      internal/core/workflow/（operation 改名為 workflow）
+internal/<context>/infra/mongo_*.go                      internal/adapters/store/mongodb/<context>/
+internal/operation/infra/mongo_*.go                      internal/adapters/store/mongodb/workflow/
+internal/migration/                                      internal/adapters/store/mongodb/migration/
+internal/version/                                        internal/shared/version/
+internal/provisioning/infra/maas/、infra/factory.go       internal/adapters/osprovisioning/maas/
+internal/operation/infra/temporalworkflow/               internal/adapters/executor/temporalworkflow/
+internal/operation/infra/（runner、catalog、retention、
+  playbook 內容測試、local_runner*）                      internal/adapters/hostautomation/ansible/
+internal/monitoring/infra/promstack/、infra/factory.go    internal/adapters/metrics/promstack/
+internal/server/infra/redfish/                           internal/adapters/bmc/redfish/
+internal/server/infra/libvirt/                           internal/adapters/hypervisor/libvirt/
+internal/server/infra/ssh_host_access*.go                internal/adapters/hostaccess/sshaccess/
+internal/server/infra/{eventing_server_repo*,
+  server_event_broker*}                                  internal/adapters/events/memory/
+internal/provisioning/infra/boot_iso_builder*.go         internal/adapters/bootiso/genfsimg/
+internal/sshkey/infra/keymaterial*.go                    internal/adapters/keys/openssh/
+internal/platform/infra/platformapi/、infra/factory.go    modules/platform/platformapi/
+internal/software/infra/dockerengine/                    modules/software/docker-ce/dockerengine/
+internal/platform/infra 的 Setting* 常數                  internal/core/platform/domain/integration_settings.go
+internal/provisioning/infra/integration_reader.go        internal/core/provisioning/application/
+internal/infrastructure/infra/readers.go                 internal/app/infrastructure_readers.go
+internal/overview/infra/reader.go                        internal/app/overview_reader.go
+internal/sshkey/infra/provisioner_keys.go                internal/app/provisioner_keys.go
+automation/playbooks/<file>.yml                          modules/<種類>/<id>/playbooks/ 或 modules/shared/playbooks/
+automation/playbooks/roles/<role>/                       modules/<種類>/<id>/roles/ 或 modules/shared/roles/
+automation/manifest.json                                 modules/manifest.json
+automation/requirements.{txt,yml}                        internal/adapters/hostautomation/ansible/
+```
+
+playbook 與 role 屬於哪個模組，以 `modules/` 的目錄為準；在 `modules/` 底下找同名的檔案或目錄即可。
+
 ## Feature Slices
 
 `internal/core/<context>` 的主要 vertical slices 包含：

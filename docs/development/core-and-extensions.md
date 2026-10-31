@@ -71,8 +71,8 @@ core **不得**含有任何廠商、產品、平台或 GPU 廠商的名稱、型
 | --- | --- | --- | --- |
 | OS provisioning | MAAS | `internal/adapters/osprovisioning/maas` | Site 的 `provisioner` Integration |
 | Workflow executor | Temporal | `internal/adapters/executor/temporalworkflow` | 安裝層級，由 composition root 選擇 |
-| Host automation | Ansible（`ansible-runner`） | ansible executor process 與其 Workflow 端 | 安裝層級；內容來自 release 的 manifest |
-| Store | MongoDB | 各 feature 的 `infra` repository | 安裝層級，由 composition root 選擇 |
+| Host automation | Ansible（`ansible-runner`） | `internal/adapters/hostautomation/ansible`（ansible executor process 執行）；內容在 `api-server/modules/` | 安裝層級；內容來自 release 的 manifest |
+| Store | MongoDB | `internal/adapters/store/mongodb`（各 context 的 repository 在 `<context>/`） | 安裝層級，由 composition root 選擇 |
 | Metrics 與 alerts | Prometheus、Alertmanager | `internal/adapters/metrics/promstack` | Site 的 `metrics` Integration |
 | BMC 與 hypervisor | Redfish、libvirt | `internal/adapters/bmc/redfish`、`internal/adapters/hypervisor/libvirt` | 依 Server（連線資料由 provisioner 提供，或以 Deployment Key 經 SSH 連到 Hypervisor） |
 
@@ -111,12 +111,24 @@ interface，而是 Platform 模組與 Software 模組提供的能力（§4）。
 
 ### 3.6 現有的越界（遷移時處理）
 
-- Boot ISO 的 domain 程式包含 MAAS rack 的預設 port、chain URL 與 iPXE／GRUB 範本。
-- Workflow 的 domain 有 Ansible 專屬的執行模型，`RunnerKind` 以產品命名（`ansible`、`maas`）。
-- Site 的 domain 定義 provider kind 常數與 Integration 種類的對照。
-- 平台與 AMD 專屬的模型與流程位於 `internal/core/platform` 與 `internal/app`（§4）。
+2026-11-01 盤點的結果；`api-server/tests/layout_test.go` 以每個檔案的基準數字守住 core 中的廠商詞彙，只能減少：
 
-Temporal 已經只出現在 adapter 與 composition root，是邊界的參考範例。
+- **Boot ISO**：provisioning 的 domain 有 MAAS rack 的預設 port、chain URL 與 iPXE／GRUB 範本。
+- **Workflow**：
+  - Ansible 專屬的執行模型（playbook、playbook catalog、Ansible event、`ansible_host`）在 workflow 的 domain 與
+    application；`RunnerKind` 以產品命名（`ansible`、`maas`），delivery 依它分支。
+  - domain 有 Temporal 的執行參照（`TemporalReference`）與 Mongo 的 `bson` struct tag，repository 直接 decode 成
+    domain 型別。import 規則守住了 Temporal 與 Mongo 的 SDK，但它們的概念仍在 domain。
+- **Site**：domain 定義 provider kind 常數與 Integration 種類的對照。
+- **Platform 與 AMD**：平台與 AMD 專屬的模型與流程位於 `internal/core/platform` 與 `internal/app`（§4），GPU 分類
+  （PCI vendor id）在 server 的 domain。
+- **Managed Software**：產品型錄、各 kind 的分支與 Docker Engine 的 port 在 `internal/core/software`。
+- **BMC 與 hypervisor**：server 的 port 以 Redfish、libvirt 命名，hypervisor 的 `virsh` 指令在 domain。
+- **Metrics**：monitoring 寫死 PromQL 與 GPU exporter 的指標名稱；discovery 直接產生 Prometheus http_sd 與 Ansible
+  inventory 的格式。
+- **provisioning**：MAAS 的 subarch 正規化在 domain 與 application。
+
+core 不 import 任何 adapter 或廠商 SDK，這一點已由 import 檢查守住；上面是詞彙與概念層面的越界。
 
 ### 3.7 一致性測試
 
@@ -186,6 +198,8 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
   command）仍要 `register` + `until: ... is succeeded` + `retries`，以涵蓋 mirror 的暫時性錯誤。
 - `internal/adapters/hostautomation/ansible/package_hold_playbook_test.go` 依 manifest 與 role 閉包強制以上規則。
 
+撰寫 host automation 內容的實際做法（佈局、登錄、role 的解析、內容測試）見 [module-authoring.md](module-authoring.md)。
+
 ### 5.3 Go hook
 
 - 只用於資料表達不了的邏輯，例如需要計算的 trusted variables 或 Platform 專屬的狀態解讀。
@@ -246,8 +260,9 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
   [codebase-structure.md](codebase-structure.md)）。這個目錄本身就是模組的套件格式，第一階段不另外定義套件。
 - **負責人**：每個模組目錄在 `.github/CODEOWNERS` 登錄負責人，review 依此分派；core、adapter 與共用的 role
   也各有負責人。
-- **模組撰寫指南**：說明一個模組可以做什麼、不可以做什麼、如何測試與提交，放在 `docs/development/`（第一階段
-  實作時建立）；公開的 `CONTRIBUTING.md` 可以連到它。
+- **模組撰寫指南**：說明一個模組可以做什麼、不可以做什麼、如何測試與提交，見
+  [module-authoring.md](module-authoring.md)；目前涵蓋 host automation 內容，Module Manifest 與 Go hook 隨其實作
+  補上。公開的 `CONTRIBUTING.md` 連到它。
 - **守門機制**：§9 的一致性測試與 import 檢查，讓越界在 CI 中失敗，而不是靠 review 才發現。
 - **契約版本**：manifest 從第一天就帶契約版本，core 拒絕載入不支援的版本；相容性檢查等其他機制留給第二階段。
 - **發行版組裝**：release 建置時依一份設定選擇模組，支援矩陣由同一份設定產生（§8）。
@@ -283,7 +298,7 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 - [ ] 對其他模組的依賴只經由契約（§5.4）。
 - [ ] spec 欄位的所有權與破壞性分類已依 [desired-state-model.md](desired-state-model.md) 宣告（§6）。
 - [ ] dashboard 的呈現已決定：專屬畫面或依 schema 產生（§7）。
-- [ ] 模組目錄已在 `.github/CODEOWNERS` 登錄負責人，並依模組撰寫指南提交（§10.1）。
+- [ ] 模組目錄已在 `.github/CODEOWNERS` 登錄負責人，並依[模組撰寫指南](module-authoring.md)提交（§10.1）。
 - [ ] 支援矩陣已更新（§8）。
 
 ## 12. 設計理由與相關文件
@@ -300,6 +315,7 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 - 資源的所有權與收斂：[desired-state-model.md](desired-state-model.md)、[decision 069](../decisions/069-swallow-owns-desired-state.md)。
 - 現行的 Platform 與 Managed Software 設計：[platform-deployment.md](platform-deployment.md)、
   [software-deployment.md](software-deployment.md)。
+- 在模組中撰寫 host automation 內容：[module-authoring.md](module-authoring.md)。
 - glossary：[Provider Interface](glossaries/terms/provider-interface.md)、
   [Provider Adapter](glossaries/terms/provider-adapter.md)、[Extension Module](glossaries/terms/extension-module.md)、
   [Platform Module](glossaries/terms/platform-module.md)、[Accelerator Module](glossaries/terms/accelerator-module.md)、

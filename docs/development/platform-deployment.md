@@ -698,23 +698,17 @@ uninstall）；後端取代佔用工作的流程見 [workflow-execution.md](work
 
 ## 5. 規範：撰寫 platform playbook 的硬規則
 
-新增或修改 platform playbook 時，必須全數滿足：
+新增或修改 platform playbook 時，先遵守[模組撰寫指南](module-authoring.md)的共通規則（§4：冪等、只依賴契約、以
+serverId 為身分、排序留在 playbook、依賴鎖定、不逃出內容根目錄、結果與 secret 走契約、可離線；§5：改套件時暫緩
+OS 的套件維護）、登錄方式（§2）與 role 的解析（§3）。platform 另外要滿足：
 
-1. **冪等**：可安全重跑；已達 desired state 時不產生變更（ensure 語意）。
-2. **只依賴契約**：消費 §4.1 的 inventory 與 §4.2 的 trusted vars；不得假設 client 可設定
-   `swallow_` 前綴變數，不得假設 swallow 內部實作或非契約的 hostvar/group。
-3. **以 serverId 為身分**：`inventory_hostname` 是 serverId；連線用 `ansible_host`；需要 OS
-   hostname 時自行 `gather_facts`/`ansible_hostname`（如 k0s 記錄節點名）。
-4. **排序留在 playbook**：`serial`、handlers、host loop 等屬 ansible 的排序留在 playbook；只有當
-   中途必須插入**非 ansible** 動作時，才拆成兩個 Task。
-5. **註冊與鎖定**：在 `manifest.json` 註冊；Python/collection 依賴 pin 在 `requirements.txt`/
-   `requirements.yml`；不得引用 project root（`api-server/modules/`）外的路徑，也不得使用其他模組的 role（執行時
-   看不到）。executor image 目前不裝任何 galaxy collection
-   （`requirements.yml` 為空），所以只用 `ansible.builtin`：例如 Slurm 的 NFS mount 以 fstab＋有防護的 `mount`＋
-   `mountpoint` 驗證實作，不引入 `ansible.posix`（[ADR 023](../decisions/023-slurm-ha-shared-state-provisioning.md)）。
-6. **credential 走契約**：需要回傳結果時只透過 `swallow_result_path` 寫 `result.json`。
-7. **secret 走契約**：機密只經 sealed secret ref 傳入，不得寫入 log 或 history。
-8. **可離線**：release 需可打包（air-gap）；避免執行期對外抓取未鎖定的內容。
+1. **契約是 §4**：inventory 是 §4.1、trusted vars 是 §4.2、結果是 §4.4。
+2. **節點名稱自己取得**：需要 OS hostname 時自行 `gather_facts`／`ansible_hostname`（如 k0s 記錄節點名）。
+3. **只有非 Ansible 的動作才拆 Task**：中途必須插入非 Ansible 的動作（例如等 provisioner）時，才把 playbook 拆成
+   兩個 Task。
+4. **只用 `ansible.builtin` 的實例**：Slurm 的 NFS mount 以 fstab、有防護的 `mount` 與 `mountpoint` 驗證實作，不引入
+   `ansible.posix`（[ADR 023](../decisions/023-slurm-ha-shared-state-provisioning.md)）。
+5. **release 可離線打包**（air-gap）：避免執行期對外抓取未鎖定的內容。
 
 ---
 
@@ -744,9 +738,9 @@ deploy handler 與憑證記錄，並重用 `ensure-os`。具體對照見 §6.3�
 1. **設計 Job**：重用 `ensure-os`（OS + SSH 就緒的骨架不必重寫）；新增 `configure-slurm` Job。
 2. **寫 playbook**：於模組目錄 `api-server/modules/platform/slurm/` 的 `playbooks/` 新增 `deploy-slurm.yml`，
    所需 roles 放在同一個模組的 `roles/`（被多個模組使用的 role 放 `api-server/modules/shared/roles/`），
-   遵守 §5。以 Kubernetes 模組的 `deploy-kubernetes.yml` + `roles/k0s_*` 為範本。
+   遵守 §5 與[模組撰寫指南](module-authoring.md)。以 Kubernetes 模組的 `deploy-kubernetes.yml` + `roles/k0s_*` 為範本。
 3. **註冊**：在 `manifest.json` 加入 `{ "name": "deploy-slurm", "path": "platform/slurm/playbooks/deploy-slurm.yml" }`；
-   pin 依賴。
+   pin 依賴（模組撰寫指南 §2、§4）。
 4. **決定 trusted vars**：屬 (A) 就只用 standard vars + operator vars；屬 (B) 就在 Go 定義
    `swallow_slurm_*` 並於 launcher 組裝（比照 `buildDeploymentVars`），client 不可偽造。
 5. **site mapping**：設定 `playbookMappings["deploy-slurm"] = "deploy-slurm"`（或比照 uninstall
@@ -754,8 +748,9 @@ deploy handler 與憑證記錄，並重用 `ensure-os`。具體對照見 §6.3�
 6. **消費 inventory**：以 `role_*`/`platform_*` group 或在 playbook 內 `group_by` 依 trusted vars
    分組。
 7. **credential（如需）**：以 `swallow_result_path` 寫 `result.json`。
-8. **測試**：比照 k0s 的 topology 測試（斷言 playbook 引用了必要的 trusted-var 表達式），並在 lab
-   以真機驗證端到端（切勿動 `tainan-` 實體機、勿刪 MAAS 資料）。
+8. **測試**：比照 `api-server/internal/adapters/hostautomation/ansible/k0s_topology_playbook_test.go`（斷言 playbook
+   引用了必要的 trusted-var 表達式；結構測試與 helper 見模組撰寫指南 §6），並在 lab 以真機驗證端到端（切勿動
+   `tainan-` 實體機、勿刪 MAAS 資料）。
 
 ### 6.3 Slurm reference（已實作現況）
 
@@ -1062,7 +1057,7 @@ playbook 使用的內容放在 `shared/`。
 | DME（Managed Software） | `software/device-metrics-exporter/`：`deploy-device-metrics-exporter.yml`、`uninstall-device-metrics-exporter.yml`；role 是共用的 `device_metrics_exporter` |
 | Prometheus／Grafana（Managed Software） | `software/prometheus/`、`software/grafana/`（Omnistat dashboards 在 grafana role 的 `files/dashboards/omnistat`） |
 | 共用 playbook | `shared/playbooks/`：`diagnostic-ping.yml`、`configure-ntp.yml`、`install-exporters.yml`、`uninstall-exporters.yml` |
-| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`device_metrics_exporter`（Slurm 與 DME）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`docker_runtime`、`node_exporter`、`rdc_exporter` |
+| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`device_metrics_exporter`（Slurm 與 DME）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`package_maintenance_hold`（decision 073；改套件的 playbook 第一個 play 取得、最後一個 play 釋放）、`docker_runtime`、`node_exporter`、`rdc_exporter` |
 
 映像：production 於 build 時把 `api-server/modules`（去掉 Go 原始碼）複製到 `/opt/swallow/automation/modules`；`ansible`
 與 API/worker 共用同一映像，以不同 command 啟動。

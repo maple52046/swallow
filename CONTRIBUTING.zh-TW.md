@@ -26,6 +26,8 @@ swallow 的 core 是通用的：組合負責和外部系統溝通的 provider，
    [core and extensions](docs/development/core-and-extensions.md)。
 6. API work 需先找到並更新 provider-owned
    [API contract](docs/development/api-contracts.md)，再實作或同步實作。
+7. `api-server/modules/` 底下的 playbook、role 或 plugin 內容，依
+   [模組撰寫指南](docs/development/module-authoring.md)撰寫。
 
 Implementation plan 一律放在 repository root `docs/plans/manuscripts/`，
 不要建立 component-local plan tree。

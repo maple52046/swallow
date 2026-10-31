@@ -15,6 +15,9 @@ Before adding or modifying any code, read:
 1. `docs/development/architecture-spec.md` — understand that swallow uses Clean Architecture as its design principle.
 2. `docs/development/coding-style.md` — follow Go naming, comments, errors, concurrency, and testing rules.
 
+When the change touches `modules/` (playbooks, roles, the playbook manifest, or a module's layout),
+also read `../docs/development/module-authoring.md`.
+
 ## Coding Style Completion Gate
 
 For any Go code addition or modification, `docs/development/coding-style.md` is

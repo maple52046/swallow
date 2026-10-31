@@ -208,19 +208,18 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
   `device_metrics_exporter` 與 `amdgpu_loader`（Slurm 也使用它們）。
 - playbook 名由 launcher **硬編碼**（比照 Slurm / uninstall-kubernetes），**不需**站台
   `playbookMappings`。
-- Python/collection 依賴 pin 於 `requirements.txt` / `requirements.yml`；只用 `ansible.builtin`
-  即可者不新增 collection。
+- Python 依賴 pin 於 `requirements.txt`；image 不安裝任何 collection，所以只用 `ansible.builtin`
+  （[模組撰寫指南](module-authoring.md) §4）。
 
 ### 4.5 撰寫 software playbook 的硬規則
 
-1. 冪等（ensure），可安全重跑。
-2. 只依賴 §4.1 inventory 與 §4.2 trusted vars。
-3. 以 serverId 為身分（`inventory_hostname`）。
-4. 排序（handlers、host loop）留在 playbook。
-5. 於 manifest 註冊、依賴鎖定、不逃逸 project root。
-6. 可離線為目標（第一刀 lab 可走 distro / 官方 repo，但須 pin 版本；air-gap 為後續）。
-7. 改套件的 playbook 以第一個 play 取得、最後一個 play 釋放 `package_maintenance_hold`，套件 task 要重試
-   （[core-and-extensions.md](core-and-extensions.md) §5.2，decision 073）。
+先遵守[模組撰寫指南](module-authoring.md)的共通規則（§4：冪等、只依賴契約、以 serverId 為身分、排序留在
+playbook、依賴鎖定、不逃出內容根目錄、結果與 secret 走契約；§5：改套件的 playbook 取得與釋放
+`package_maintenance_hold`，套件 task 要重試）、登錄方式（§2）與 role 的解析（§3）。software 另外要滿足：
+
+1. 契約是 §4.1 的 inventory 與 §4.2 的 trusted vars；每個 kind 的 install 與 uninstall playbook 都要登錄
+   （`TestEverySoftwareKindHasRegisteredPlaybooks`）。
+2. 可離線為目標：第一刀 lab 可走 distro／官方 repo，但須 pin 版本；air-gap 為後續。
 
 ### 4.6 Docker CE 的 Engine API 與 Docker Host Explorer
 
@@ -350,7 +349,7 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
 | Software launcher（Job 組裝） | `api-server/internal/app/software_deployment_adapter.go` |
 | record/clear internal step | `api-server/internal/app/platform_workflow_step_executor.go` |
 | 失敗標記（`software-assignment-failure` 完成行為） | `api-server/internal/app/workflow_completions.go`、`api-server/internal/app/software_assignment_failure.go` |
-| Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用） |
+| Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用）與 `amdgpu_loader`；撰寫規則見[模組撰寫指南](module-authoring.md) |
 | Docker Host Explorer（view types、use case、Engine client、handler） | `api-server/internal/core/software/domain/docker.go`（port 常數 `DockerEngineAPIPort` 在 `domain/software.go`）、`application/docker_explorer.go`、`delivery/docker_handler.go`、`api-server/modules/software/docker-ce/dockerengine/` |
 | Registry Credential（registry 正規化與解析、service、sealed Mongo repo、handler） | `api-server/internal/core/software/domain/registry.go`、`application/registry_credentials.go`、`delivery/registry_credential_handler.go`、`api-server/internal/adapters/store/mongodb/software/mongo_registry_credential_repo.go` |
 | Device Metrics Exporter（pinned version、port、job attribution） | `api-server/internal/core/software/domain/device_metrics_exporter.go`；Slurm 組入：`api-server/internal/app/slurm_composition_adapter.go` |

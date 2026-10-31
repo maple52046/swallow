@@ -222,3 +222,37 @@ func TestShippedRoleNamesAreUnique(t *testing.T) {
 		t.Errorf("role %q is defined by %v, want exactly one module", name, owners[name])
 	}
 }
+
+// A playbook file name must be shipped by exactly one module (shared counts as one): content tests
+// and readers name a playbook by its file name, so a second module shipping the same name would make
+// that name mean two different playbooks.
+func TestShippedPlaybookFileNamesAreUnique(t *testing.T) {
+	owners := map[string][]string{}
+	for _, module := range moduleDirs(t) {
+		entries, err := os.ReadDir(filepath.Join(module, "playbooks"))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				owners[entry.Name()] = append(owners[entry.Name()], module)
+			}
+		}
+	}
+	if len(owners) == 0 {
+		t.Fatal("found no shipped playbooks; is modulesRoot right?")
+	}
+	var duplicated []string
+	for name, modules := range owners {
+		if len(modules) > 1 {
+			duplicated = append(duplicated, name)
+		}
+	}
+	sort.Strings(duplicated)
+	for _, name := range duplicated {
+		t.Errorf("playbook %q is shipped by %v, want exactly one module", name, owners[name])
+	}
+}
