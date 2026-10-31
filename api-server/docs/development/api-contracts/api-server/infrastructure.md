@@ -114,6 +114,10 @@ shape and behavior; the sections below describe Zones and note that Pools are id
   managed the Site — is adopted into the catalog when swallow first sees it: a new Zone or Pool
   with the provisioner's name and description. The provisioner's default group (MAAS `default`)
   is never part of the catalog; it is where a Server with no placement belongs.
+- A Zone or Pool stored before the upgrade to desired state has generation `0` until swallow
+  first observes it. Then the description of the provisioner's group with its name becomes the
+  spec and the generation becomes 1, with no provisioner write; if no provisioner holds such a
+  group, the stored description becomes the spec and the group is created.
 
 ### List
 
@@ -225,6 +229,7 @@ provider `400`; a delete of a group still in a Server's placement is `409`. A pl
 writes the Server's spec: `null` clears a field instead of leaving it unchanged, the response is
 `{serverId, generation, zoneId, poolId}` instead of the effective names, a provisioner without
 grouping no longer fails the request, and `409` is returned for a Server not adopted yet.
+Existing Zones and Pools are adopted at their first observation.
 
 ## Implementation Notes
 

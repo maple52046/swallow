@@ -73,3 +73,47 @@ func TestZoneRepo_SpecAndStatusRoundTrip(t *testing.T) {
 		t.Errorf("conditions = %+v, want realized", got.Status.Conditions)
 	}
 }
+
+// AdoptSpec stores the observed description only on a Zone that has no generation yet, whether the
+// field is missing (a migrated document) or zero. Skipped without SWALLOW_TEST_MONGO_URI.
+func TestZoneRepo_AdoptSpecOnlyBeforeTheFirstGeneration(t *testing.T) {
+	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
+	if uri == "" {
+		t.Skip("SWALLOW_TEST_MONGO_URI is not set")
+	}
+	ctx := context.Background()
+	client, err := storemongo.Connect(ctx, uri)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	db := client.Database(fmt.Sprintf("swallow_zone_adopt_test_%d", time.Now().UnixNano()))
+	t.Cleanup(func() {
+		_ = db.Drop(context.Background())
+		_ = client.Disconnect(context.Background())
+	})
+	repo, err := NewMongoZoneRepo(db)
+	if err != nil {
+		t.Fatalf("NewMongoZoneRepo: %v", err)
+	}
+	if _, err := db.Collection("zones").InsertOne(ctx, map[string]any{
+		"_id": "migrated", "siteId": "s", "name": "default", "description": "swallow's copy",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Millisecond)
+
+	if err := repo.AdoptSpec(ctx, "migrated", "", now); err != nil {
+		t.Fatalf("AdoptSpec: %v", err)
+	}
+	if err := repo.AdoptSpec(ctx, "migrated", "a later observation", now); err != nil {
+		t.Fatalf("second AdoptSpec: %v", err)
+	}
+
+	zone, err := repo.FindByID(ctx, "migrated")
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if zone.Generation != 1 || zone.Description != "" {
+		t.Errorf("zone = generation %d, description %q; want generation 1 with the first observation", zone.Generation, zone.Description)
+	}
+}

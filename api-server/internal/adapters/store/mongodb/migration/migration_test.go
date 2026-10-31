@@ -393,8 +393,9 @@ func TestMigrateV4ToV5_MovesTagOverlaysIntoTheSpec(t *testing.T) {
 	}
 }
 
-// TestMigrateV5ToV6_MakesZonesAndPoolsResources verifies each existing Zone and Pool gets
-// generation 1 and loses providerRealized, and a group that already has a generation keeps it.
+// TestMigrateV5ToV6_MakesZonesAndPoolsResources verifies each existing Zone and Pool loses
+// providerRealized without gaining a generation (the catalog controller adopts it), and a group
+// that already has a generation keeps it.
 func TestMigrateV5ToV6_MakesZonesAndPoolsResources(t *testing.T) {
 	db := testDatabase(t)
 	ctx := ctxFor(t)
@@ -417,14 +418,14 @@ func TestMigrateV5ToV6_MakesZonesAndPoolsResources(t *testing.T) {
 		t.Fatalf("Migrate: %v", err)
 	}
 
-	for collection, want := range map[string]map[string]int64{"zones": {"z1": 1, "z2": 4}, "pools": {"p1": 1}} {
+	for collection, want := range map[string]map[string]any{"zones": {"z1": nil, "z2": int64(4)}, "pools": {"p1": nil}} {
 		for id, generation := range want {
 			var doc bson.M
 			if err := db.Collection(collection).FindOne(ctx, bson.M{"_id": id}).Decode(&doc); err != nil {
 				t.Fatalf("read %s/%s: %v", collection, id, err)
 			}
 			if doc["generation"] != generation {
-				t.Errorf("%s/%s generation = %v, want %d", collection, id, doc["generation"], generation)
+				t.Errorf("%s/%s generation = %v, want %v", collection, id, doc["generation"], generation)
 			}
 			if _, present := doc["providerRealized"]; present {
 				t.Errorf("%s/%s still has providerRealized", collection, id)

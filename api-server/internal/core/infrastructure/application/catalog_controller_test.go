@@ -194,6 +194,61 @@ func TestCatalog_AdoptsProvisionerOnlyGroups(t *testing.T) {
 	}
 }
 
+// A group migrated without a generation adopts the provisioner's description at its first
+// observation, even on a resync, and the provisioner is not written.
+func TestCatalog_AdoptsAMigratedGroupAtFirstObservation(t *testing.T) {
+	f := newCatalogFixture(t)
+	f.zones.byID["z-default"] = &infradomain.Zone{ID: "z-default", SiteID: "site-a", Name: "default", Description: "swallow's copy"}
+	f.pools.byID["p-research"] = &infradomain.Pool{ID: "p-research", SiteID: "site-a", Name: "research", Description: "stale"}
+	f.provider.pools = append(f.provider.pools, provisioningdomain.ProviderGroup{Name: "research", Description: "Research allocations"})
+
+	f.mustReconcile(t, "zone:z-default", convergence.TriggerResync)
+	f.mustReconcile(t, "pool:p-research", convergence.TriggerResync)
+
+	if len(f.provider.calls) != 0 {
+		t.Fatalf("adoption drove the provisioner: %v", f.provider.calls)
+	}
+	zone := f.zones.get("z-default")
+	if zone.Generation != 1 || zone.Description != "" || zone.Status.ObservedGeneration != 1 {
+		t.Fatalf("zone = %+v, want generation 1 with the provisioner's empty description, realized", zone)
+	}
+	assertGroupCondition(t, zone.Status.Conditions, convergence.ConditionRealized, convergence.ConditionTrue, convergence.ReasonConverged)
+	pool, _ := f.pools.FindByID(context.Background(), "p-research")
+	if pool.Generation != 1 || pool.Description != "Research allocations" {
+		t.Fatalf("pool = %+v, want generation 1 with the provisioner's description", pool)
+	}
+	assertGroupCondition(t, pool.Status.Conditions, convergence.ConditionDrifted, convergence.ConditionFalse, convergence.ReasonInSync)
+}
+
+// A migrated group that no provisioner holds keeps its own description as the spec and is created.
+func TestCatalog_MigratedGroupMissingFromTheProvisionerIsCreated(t *testing.T) {
+	f := newCatalogFixture(t)
+	f.zones.byID["z-rack-c"] = &infradomain.Zone{ID: "z-rack-c", SiteID: "site-a", Name: "rack-c", Description: "row C"}
+
+	f.mustReconcile(t, "zone:z-rack-c", convergence.TriggerChange)
+
+	if !slices.Equal(f.provider.calls, []string{"ensureZone rack-c"}) {
+		t.Fatalf("provider calls = %v, want [ensureZone rack-c]", f.provider.calls)
+	}
+	if zone := f.zones.get("z-rack-c"); zone.Generation != 1 || zone.Description != "row C" {
+		t.Fatalf("zone = %+v, want generation 1 keeping its description", zone)
+	}
+}
+
+// A migrated group stays unadopted while its provisioner cannot be read.
+func TestCatalog_MigratedGroupWaitsForItsProvisioner(t *testing.T) {
+	f := newCatalogFixture(t)
+	f.zones.byID["z-rack-a"] = &infradomain.Zone{ID: "z-rack-a", SiteID: "site-a", Name: "rack-a"}
+	f.provider.listErr = errors.New("connection refused")
+
+	if err := f.reconcile(t, "zone:z-rack-a", convergence.TriggerChange); err == nil {
+		t.Fatal("an unreachable provisioner must be returned for retry")
+	}
+	if zone := f.zones.get("z-rack-a"); zone.Generation != 0 || len(f.provider.calls) != 0 {
+		t.Fatalf("zone generation = %d, calls = %v; want it unadopted and the provisioner untouched", zone.Generation, f.provider.calls)
+	}
+}
+
 // A realized Zone causes no status write on a change trigger, so the change feed does not loop.
 func TestCatalog_SteadyStateWritesNothing(t *testing.T) {
 	f := newCatalogFixture(t)

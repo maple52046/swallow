@@ -31,7 +31,10 @@ import (
 //
 // Adoption runs on resync and when an Integration changes. A provisioner group that is not the
 // provisioner's default and that no catalog group already names becomes a catalog group whose
-// spec is the provisioner's name and description; adopting writes nothing to the provisioner.
+// spec is the provisioner's name and description. A catalog group that has no generation yet (one
+// migrated from before desired state) is adopted at its first observation: the provisioner's
+// description of the group with its name becomes the spec. Adopting writes nothing to the
+// provisioner.
 // Groups are never deleted from a provisioner here: deleting is the API's synchronous action.
 type CatalogController struct {
 	zones     infradomain.ZoneRepository
@@ -136,6 +139,11 @@ func (c *CatalogController) reconcileGroup(ctx context.Context, kind groupKind, 
 	targets, err := c.targets.ForSite(ctx, group.SiteID)
 	if err != nil {
 		return err
+	}
+	if group.Generation == 0 {
+		if err := c.adoptGroup(ctx, kind, group, targets); err != nil {
+			return err
+		}
 	}
 	now := c.now()
 	next := infradomain.GroupStatus{ObservedGeneration: group.Status.ObservedGeneration}
@@ -385,6 +393,58 @@ func (c *CatalogController) adoptKind(ctx context.Context, kind groupKind, gc pr
 	return nil
 }
 
+// adoptGroup makes a group without a generation desired state: the first grouping-capable
+// provisioner that holds a group of its name supplies the description, which only the store
+// receives, and that provisioner counts as having realized generation 1. When no provisioner holds
+// it, the group's own description becomes the spec and is realized normally. A provisioner that
+// cannot be read leaves the group unadopted; the runtime retries.
+func (c *CatalogController) adoptGroup(ctx context.Context, kind groupKind, group *catalogGroup, targets []string) error {
+	description, source := group.Description, ""
+	for _, target := range targets {
+		provider, err := c.providers.For(ctx, target)
+		if err != nil {
+			return err
+		}
+		gc, ok := provider.(provisioningdomain.GroupingController)
+		if !ok || !provider.Capabilities().Grouping {
+			continue
+		}
+		groups, err := kind.providerGroups(ctx, gc)
+		if err != nil {
+			return err
+		}
+		if observed := findGroup(groups, group.Name); observed != nil {
+			description, source = observed.Description, target
+			break
+		}
+	}
+	if err := kind.adoptSpec(ctx, group.ID, description, c.now()); err != nil {
+		return err
+	}
+	group.Generation, group.Description = 1, description
+	message := "The catalog group became the spec."
+	if source != "" {
+		group.Status.Provisioners = adoptedRealization(group.Status.Provisioners, source, group.Name)
+		message = "The provisioner's group became the spec."
+	}
+	c.record(ctx, kind, group, convergence.EventAdopted, message)
+	return nil
+}
+
+// adoptedRealization records that target already holds generation 1 of the group as name.
+func adoptedRealization(realizations []infradomain.GroupRealization, target, name string) []infradomain.GroupRealization {
+	for i := range realizations {
+		if realizations[i].TargetID == target {
+			realizations[i].ObservedGeneration, realizations[i].ProviderName = 1, name
+			return realizations
+		}
+	}
+	return append(realizations, infradomain.GroupRealization{
+		TargetStatus: convergence.TargetStatus{TargetID: target, ObservedGeneration: 1},
+		ProviderName: name,
+	})
+}
+
 func (c *CatalogController) record(ctx context.Context, kind groupKind, group *catalogGroup, eventType convergence.EventType, message string) {
 	if c.events == nil {
 		return
@@ -481,6 +541,7 @@ type groupKind struct {
 	list           func(ctx context.Context, siteID string) ([]*catalogGroup, error)
 	create         func(ctx context.Context, group *catalogGroup) error
 	setStatus      func(ctx context.Context, id string, status infradomain.GroupStatus) error
+	adoptSpec      func(ctx context.Context, id, description string, at time.Time) error
 	providerGroups func(ctx context.Context, gc provisioningdomain.GroupingController) ([]provisioningdomain.ProviderGroup, error)
 	ensure         func(ctx context.Context, gc provisioningdomain.GroupingController, name, description string) error
 	rename         func(ctx context.Context, gc provisioningdomain.GroupingController, from, to, description string) error
@@ -515,6 +576,7 @@ func (c *CatalogController) kinds() []groupKind {
 				})
 			},
 			setStatus: c.zones.SetStatus,
+			adoptSpec: c.zones.AdoptSpec,
 			providerGroups: func(ctx context.Context, gc provisioningdomain.GroupingController) ([]provisioningdomain.ProviderGroup, error) {
 				return gc.ListZones(ctx)
 			},
@@ -552,6 +614,7 @@ func (c *CatalogController) kinds() []groupKind {
 				})
 			},
 			setStatus: c.pools.SetStatus,
+			adoptSpec: c.pools.AdoptSpec,
 			providerGroups: func(ctx context.Context, gc provisioningdomain.GroupingController) ([]provisioningdomain.ProviderGroup, error) {
 				return gc.ListPools(ctx)
 			},

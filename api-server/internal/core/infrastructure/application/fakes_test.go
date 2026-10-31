@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sort"
 	"sync"
+	"time"
 
 	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
@@ -78,6 +79,15 @@ func (r *fakeZoneRepo) UpdateSpec(_ context.Context, zone *infradomain.Zone) err
 	stored.Name, stored.Description, stored.UpdatedAt = zone.Name, zone.Description, zone.UpdatedAt
 	stored.Generation++
 	zone.Generation = stored.Generation
+	return nil
+}
+
+func (r *fakeZoneRepo) AdoptSpec(_ context.Context, id, description string, at time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if stored, ok := r.byID[id]; ok && stored.Generation == 0 {
+		stored.Description, stored.Generation, stored.UpdatedAt = description, 1, at
+	}
 	return nil
 }
 
@@ -176,6 +186,15 @@ func (r *fakePoolRepo) UpdateSpec(_ context.Context, pool *infradomain.Pool) err
 	stored.Name, stored.Description, stored.UpdatedAt = pool.Name, pool.Description, pool.UpdatedAt
 	stored.Generation++
 	pool.Generation = stored.Generation
+	return nil
+}
+
+func (r *fakePoolRepo) AdoptSpec(_ context.Context, id, description string, at time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if stored, ok := r.byID[id]; ok && stored.Generation == 0 {
+		stored.Description, stored.Generation, stored.UpdatedAt = description, 1, at
+	}
 	return nil
 }
 

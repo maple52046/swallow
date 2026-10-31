@@ -51,9 +51,10 @@ import (
 // the migration carried. A missing origin reads as discovered. The migration never contacts a
 // provisioner.
 //
-// v6 makes Zones and Pools migrated resources (decision 071): each existing one gets generation 1
-// and loses `providerRealized`; the catalog controller judges them on its first pass, creating any
-// that a provisioner of their Site does not hold yet.
+// v6 makes Zones and Pools migrated resources (decision 071): each existing one loses
+// `providerRealized` and keeps no generation, so the catalog controller adopts it at its first
+// observation — the provisioner's description becomes the spec — and creates only those that no
+// provisioner of their Site holds.
 //
 // v7 makes SSH Keys migrated resources (decision 071): each key gets generation 1, and each
 // provider sync record loses its `state`, `error`, and `syncedAt`, which the SSH Key controller
@@ -231,15 +232,12 @@ func migrateV4ToV5(ctx context.Context, db *mongo.Database) error {
 	return overlays.Drop(ctx)
 }
 
-// migrateV5ToV6 gives every Zone and Pool without a generation generation 1 and removes the
-// last-write `providerRealized` flag. Both updates are idempotent.
+// migrateV5ToV6 removes the last-write `providerRealized` flag from every Zone and Pool. They keep
+// no generation, so the catalog controller adopts each at its first observation instead of the
+// migration declaring swallow's copy the spec. The update is idempotent.
 func migrateV5ToV6(ctx context.Context, db *mongo.Database) error {
 	for _, collection := range []string{"zones", "pools"} {
 		col := db.Collection(collection)
-		if _, err := col.UpdateMany(ctx, bson.M{"generation": bson.M{"$exists": false}},
-			bson.M{"$set": bson.M{"generation": int64(1)}}); err != nil {
-			return err
-		}
 		if _, err := col.UpdateMany(ctx, bson.M{"providerRealized": bson.M{"$exists": true}},
 			bson.M{"$unset": bson.M{"providerRealized": ""}}); err != nil {
 			return err

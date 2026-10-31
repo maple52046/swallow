@@ -131,6 +131,14 @@ func (r *MongoPoolRepo) UpdateSpec(ctx context.Context, pool *infradomain.Pool) 
 	return nil
 }
 
+func (r *MongoPoolRepo) AdoptSpec(ctx context.Context, id, description string, at time.Time) error {
+	_, err := r.col.UpdateOne(ctx,
+		bson.M{"_id": id, "generation": bson.M{"$in": bson.A{nil, int64(0)}}},
+		bson.M{"$set": bson.M{"description": description, "generation": int64(1), "updatedAt": at}},
+	)
+	return err
+}
+
 func (r *MongoPoolRepo) SetStatus(ctx context.Context, id string, status infradomain.GroupStatus) error {
 	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"status": toGroupStatusDoc(status)}})
 	if err != nil {

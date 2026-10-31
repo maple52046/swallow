@@ -40,6 +40,10 @@ type PoolRepository interface {
 	// UpdateSpec stores pool's name and description and increments its generation, writing the
 	// new generation and updatedAt back onto pool.
 	UpdateSpec(ctx context.Context, pool *Pool) error
+	// AdoptSpec makes a Pool that has no generation yet (one migrated from before desired state)
+	// desired state at its first observation: it stores description and sets generation 1. It
+	// does nothing when the Pool already has a generation or no longer exists.
+	AdoptSpec(ctx context.Context, id, description string, at time.Time) error
 	// SetStatus replaces the controller-written status; nothing else changes.
 	SetStatus(ctx context.Context, id string, status GroupStatus) error
 	Delete(ctx context.Context, id string) error

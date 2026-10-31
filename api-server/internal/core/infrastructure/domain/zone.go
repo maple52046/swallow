@@ -44,6 +44,10 @@ type ZoneRepository interface {
 	// UpdateSpec stores zone's name and description and increments its generation, writing the
 	// new generation and updatedAt back onto zone.
 	UpdateSpec(ctx context.Context, zone *Zone) error
+	// AdoptSpec makes a Zone that has no generation yet (one migrated from before desired state)
+	// desired state at its first observation: it stores description and sets generation 1. It
+	// does nothing when the Zone already has a generation or no longer exists.
+	AdoptSpec(ctx context.Context, id, description string, at time.Time) error
 	// SetStatus replaces the controller-written status; nothing else changes.
 	SetStatus(ctx context.Context, id string, status GroupStatus) error
 	Delete(ctx context.Context, id string) error
