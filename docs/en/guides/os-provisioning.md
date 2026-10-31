@@ -24,8 +24,8 @@ hide the Upload action; see [Features in development](dashboard.md#features-in-d
 
 Upload limits, content types, and provider requirements are defined by the
 [active provisioning contract](../../../api-server/docs/development/api-contracts/api-server/provisioning.md).
-Deleting an image acts on its owning provider or overlay according to that
-contract.
+Deleting an image removes it from its owning provider and also removes the
+metadata swallow keeps for it.
 
 ## Deployment templates
 

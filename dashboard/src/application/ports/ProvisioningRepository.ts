@@ -1,4 +1,4 @@
-import type { OSImage } from "@/domain/site/types";
+import type { OSImage, OSImageMetadata } from "@/domain/site/types";
 import type {
   BootISO,
   BootISOCatalog,
@@ -96,23 +96,23 @@ export interface ProvisioningRepository {
     architecture: string,
   ): Promise<void>;
   /**
-   * Sets the swallow-owned overlay (name, OS, release, tags, default user) for one image. Each
-   * non-empty field becomes the effective value on the next catalog read while the provider
-   * value is preserved; an empty field clears that override. When every field is empty the
-   * overlay is removed entirely. The provider is never changed. Rejects with `validation_error`
-   * for an over-long field or a non-POSIX default user.
+   * Replaces the metadata (name, OS, release, tags, default user) of one image. Each non-empty
+   * label becomes the effective value on the next catalog read while the provider value is
+   * preserved; an empty field clears that label. When every field is empty the metadata is
+   * removed entirely. The provider is never changed. Rejects with `validation_error` for an
+   * over-long field or a non-POSIX default user.
    */
-  setOSImageOverlay(
+  setOSImageMetadata(
     integrationId: string,
     imageId: string,
     architecture: string,
-    overlay: OSImageOverlayInput,
+    metadata: OSImageMetadata,
   ): Promise<void>;
   /**
-   * Removes the swallow-owned overlay, reverting every field to its provider value. Safe to
-   * call when no overlay exists.
+   * Removes the metadata, reverting every field to its provider value. Safe to call when the
+   * image has none.
    */
-  clearOSImageOverlay(
+  clearOSImageMetadata(
     integrationId: string,
     imageId: string,
     architecture: string,
@@ -225,23 +225,9 @@ export interface UploadOSImageInput {
   title?: string;
   filetype?: string;
   /**
-   * Optional default login user stored on the new image's swallow overlay (decision 039). The
+   * Optional default login user stored in the new image's metadata (decision 039). The
    * backend rejects a non-POSIX value before any bytes are uploaded.
    */
   defaultUser?: string;
   file: File;
-}
-
-/**
- * The complete swallow-owned overlay of an OS image: display overrides, tags, and default user.
- * The backend replaces the whole overlay on every set, so callers editing one field must send the
- * current values of the others. An empty field clears that override (for `defaultUser`, the
- * built-in default applies again); an empty `tags` list clears the tags.
- */
-export interface OSImageOverlayInput {
-  name: string;
-  osSystem: string;
-  release: string;
-  tags: string[];
-  defaultUser: string;
 }

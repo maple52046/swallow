@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from 'playwright/test'
-import { installApiFixtures, type FixtureOptions } from './fixtures'
+import { catalogImage, installApiFixtures, type FixtureOptions } from './fixtures'
 
 async function chooseOption(page: Page, label: string, option: string) {
   await page.getByRole('combobox', { name: label, exact: true }).click()
@@ -425,19 +425,13 @@ test('image capability chooses the deploy-mode default without overwriting an op
     name: string,
     providerOsSystem: 'ubuntu' | 'custom',
     verifiedDeployTargets: Array<'disk' | 'ram'>,
-  ) => ({
+  ) => catalogImage({
     id,
     name,
-    providerName: name,
     osSystem: providerOsSystem,
-    providerOsSystem,
     release: id,
-    providerRelease: id,
-    tags: [],
-    architecture: 'amd64',
     sizeBytes: 1_073_741_824,
     verifiedDeployTargets,
-    failedDeployTargets: [],
   })
   await page.route('**/api/v1/provisioning/images?*', async (route) => {
     if (route.request().method() !== 'GET') return route.fallback()

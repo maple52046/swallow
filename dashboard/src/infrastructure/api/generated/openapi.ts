@@ -2337,8 +2337,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the OS Images one provisioner can deploy, with the swallow overlay merged.
-         * @description Requires role `admin`. Reads the provisioner's catalog live and merges the swallow-owned overlay and verification records onto it. Returns a plain array; it contains only resources the provisioner accepts for OS deployment.
+         * List the OS Images one provisioner can deploy, with swallow's metadata merged.
+         * @description Requires role `admin`. Reads the provisioner's catalog live and merges swallow's OS Image metadata and verification records onto it. Returns a plain array; it contains only resources the provisioner accepts for OS deployment.
          */
         get: operations["listOsImages"];
         put?: never;
@@ -2349,7 +2349,7 @@ export interface paths {
         post: operations["uploadOsImage"];
         /**
          * Delete one operator-uploaded custom OS Image from its provisioner.
-         * @description Requires role `admin`. The image is addressed by the identity the catalog returns, as query parameters, because an image id can contain a slash. Also removes the swallow overlay of the image.
+         * @description Requires role `admin`. The image is addressed by the identity the catalog returns, as query parameters, because an image id can contain a slash. Also removes swallow's metadata of the image.
          */
         delete: operations["deleteOsImage"];
         options?: never;
@@ -2357,7 +2357,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/provisioning/images/overlay": {
+    "/api/v1/provisioning/images/metadata": {
         parameters: {
             query?: never;
             header?: never;
@@ -2365,20 +2365,20 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /**
+         * Replace swallow's metadata (name, OS, release, tags, default user) of one OS Image.
+         * @description Requires role `admin` (decision 071). Replaces the whole metadata: an empty or omitted field clears that value, and all-empty metadata is removed. The metadata needs no provider realization: it does not read the provider catalog and never returns `503`. The new effective name and default user are propagated to the Server projections best-effort.
+         */
+        put: operations["setOsImageMetadata"];
         post?: never;
         /**
-         * Remove the swallow-owned overlay of one OS Image, reverting it to its provider values.
-         * @description Requires role `admin`. Idempotent: answers `204` even when no overlay existed.
+         * Remove swallow's metadata of one OS Image, reverting it to its provider values.
+         * @description Requires role `admin`. Idempotent: answers `204` even when no metadata existed.
          */
-        delete: operations["clearOsImageOverlay"];
+        delete: operations["clearOsImageMetadata"];
         options?: never;
         head?: never;
-        /**
-         * Replace the swallow-owned overlay (display fields, tags, default user) of one OS Image.
-         * @description Requires role `admin`. A PATCH replaces the whole overlay: an empty or omitted field clears that override, and an all-empty overlay is removed. Swallow-local: it does not read the provider catalog and never returns `503`. The new effective name and default user are propagated to the Server projections best-effort.
-         */
-        patch: operations["setOsImageOverlay"];
+        patch?: never;
         trace?: never;
     };
     "/api/v1/provisioning/integrations/{id}/enroll-bundle": {
@@ -5901,42 +5901,45 @@ export interface components {
             /** @description Cloud-init user data for this request only (`replace`); never stored readable or returned. */
             value?: string;
         };
-        /** @description One deployable OS Image of a provisioner. `name`, `osSystem`, and `release` are the effective values (the swallow overlay value when set, else the provider value); `provider*` always carry the provider's values and `custom*` the overrides. */
+        /** @description One deployable OS Image of a provisioner (decision 071): the provider's artifact, with the metadata swallow owns for it as `spec` and what is effectively shown and used, with the provider's own values and swallow's verification, as `status`. The metadata needs no provider realization, so there is no generation or conditions. */
         OsImage: {
             architecture: string;
-            /** @description The overlay's default user; omitted when none is set. */
-            customDefaultUser?: string;
-            /** @description Omitted when the name has no override. */
-            customName?: string;
-            /** @description Omitted when the OS has no override. */
-            customOsSystem?: string;
-            /** @description Omitted when the release has no override. */
-            customRelease?: string;
-            /** @description The effective login user automation uses on Servers deployed with the image: the overlay value, else swallow's built-in for the provider OS family. Omitted when none applies. */
-            defaultUser?: string;
-            /** @description The Deploy Targets whose latest verification failed; never overlaps `verifiedDeployTargets`. */
-            failedDeployTargets: ("disk" | "ram")[];
             /** @description The provider's image id; with `architecture` it identifies the deployable artifact and is never overridable. */
             id: string;
-            name: string;
-            osSystem: string;
-            providerName: string;
-            /** @description The provider's classification; `custom` for an uploaded image. */
-            providerOsSystem: string;
-            providerRelease: string;
-            release: string;
-            /**
-             * Format: int64
-             * @description Provider-reported size of the newest complete resource set; omitted when unknown.
-             */
-            sizeBytes?: number;
-            /** @description Swallow-owned labels; empty when the image has none. */
-            tags: string[];
-            /** @description The Deploy Targets a swallow verification proved; empty when none. */
-            verifiedDeployTargets: ("disk" | "ram")[];
+            /** @description Swallow's metadata; `""` means "use the provider's value". */
+            spec: {
+                /** @description The default login user swallow sets for the image; `""` when none is set. */
+                defaultUser: string;
+                name: string;
+                osSystem: string;
+                release: string;
+                /** @description Swallow-owned labels; empty when the image has none. */
+                tags: string[];
+            };
+            status: {
+                /** @description The effective login user automation uses on Servers deployed with the image: `spec.defaultUser`, else swallow's built-in for the provider OS family. Omitted when none applies. */
+                defaultUser?: string;
+                /** @description The Deploy Targets whose latest verification failed; never overlaps `verifiedDeployTargets`. */
+                failedDeployTargets: ("disk" | "ram")[];
+                /** @description The effective name, `spec.name` when set, else the provider's. */
+                name: string;
+                osSystem: string;
+                providerName: string;
+                /** @description The provider's classification; `custom` for an uploaded image. */
+                providerOsSystem: string;
+                providerRelease: string;
+                release: string;
+                /**
+                 * Format: int64
+                 * @description Provider-reported size of the newest complete resource set; omitted when unknown.
+                 */
+                sizeBytes?: number;
+                /** @description The Deploy Targets a swallow verification proved; empty when none. */
+                verifiedDeployTargets: ("disk" | "ram")[];
+            };
         };
-        /** @description The whole swallow-owned overlay of one OS Image. Every field is optional and trimmed; an empty or omitted field clears its override. */
-        OsImageOverlayRequest: {
+        /** @description The whole metadata swallow keeps for one OS Image. Every field is optional and trimmed; an empty or omitted field clears it. */
+        OsImageMetadataRequest: {
             /** @description A POSIX login name (`^[a-z_][a-z0-9_-]{0,31}$`), or empty to clear. */
             defaultUser?: string;
             name?: string;
@@ -5954,7 +5957,7 @@ export interface components {
              * @description The non-empty image file, streamed to the provider.
              */
             content: string;
-            /** @description Stored as the overlay's default user once the provider accepts the upload. */
+            /** @description Stored as the image's metadata default user once the provider accepts the upload. */
             defaultUser?: string;
             /** @description The artifact format, validated by the provider; the provider's default when omitted. */
             filetype?: string;
@@ -12465,7 +12468,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The created image, in the shape of one catalog row. A freshly uploaded image has no overlay, so its `custom*` fields are absent except `customDefaultUser` when `defaultUser` was sent. */
+            /** @description The created image, in the shape of one catalog row. A freshly uploaded image has no metadata, so its spec is empty except `spec.defaultUser` when `defaultUser` was sent. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -12494,7 +12497,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `internal_error`: the provider accepted the artifact but storing its default user failed; the image exists and the default user can be set with the overlay. */
+            /** @description `internal_error`: the provider accepted the artifact but storing its default user failed; the image exists and the default user can be set with its metadata. */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -12570,44 +12573,7 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
-    clearOsImageOverlay: {
-        parameters: {
-            query: {
-                /** @description The provisioner Integration whose catalog holds the image. */
-                integrationId: components["parameters"]["OsImageIntegrationId"];
-                /** @description The OS Image's provider id as the catalog returns it; it can contain a slash. */
-                imageId: components["parameters"]["OsImageId"];
-                /** @description The image's architecture as the catalog returns it; one image id can back several. */
-                architecture: components["parameters"]["OsImageArchitecture"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No overlay remains for the image. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description `validation_error`: a query parameter is missing. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    setOsImageOverlay: {
+    setOsImageMetadata: {
         parameters: {
             query: {
                 /** @description The provisioner Integration whose catalog holds the image. */
@@ -12623,11 +12589,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["OsImageOverlayRequest"];
+                "application/json": components["schemas"]["OsImageMetadataRequest"];
             };
         };
         responses: {
-            /** @description The overlay was stored (or removed, when nothing remained after normalization). */
+            /** @description The metadata was stored (or removed, when nothing remained after normalization). */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -12635,6 +12601,43 @@ export interface operations {
                 content?: never;
             };
             /** @description `validation_error`: a query parameter is missing, the body is invalid, a field or tag is longer than 200 characters, there are more than 50 tags, or `defaultUser` is not a POSIX login name. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    clearOsImageMetadata: {
+        parameters: {
+            query: {
+                /** @description The provisioner Integration whose catalog holds the image. */
+                integrationId: components["parameters"]["OsImageIntegrationId"];
+                /** @description The OS Image's provider id as the catalog returns it; it can contain a slash. */
+                imageId: components["parameters"]["OsImageId"];
+                /** @description The image's architecture as the catalog returns it; one image id can back several. */
+                architecture: components["parameters"]["OsImageArchitecture"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No metadata remains for the image. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `validation_error`: a query parameter is missing. */
             400: {
                 headers: {
                     [name: string]: unknown;

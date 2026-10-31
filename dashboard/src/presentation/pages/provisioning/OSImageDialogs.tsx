@@ -7,7 +7,7 @@ import { isValidDefaultUser } from '@/domain/site/types'
 import { ResourceTag } from '@/presentation/components/ResourceTag'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
-import { hasOSImageOverride } from './osImageListPresentation'
+import { hasOSImageMetadata } from './osImageListPresentation'
 
 /** Edits operator-facing image details without mutating the underlying image artifact. */
 export function EditImageDialog({
@@ -21,16 +21,16 @@ export function EditImageDialog({
   onClose: () => void
   onSaved: (title: string) => void
 }) {
-  const [name, setName] = useState(image.customName ?? '')
-  const [osSystem, setOsSystem] = useState(image.customOsSystem ?? '')
-  const [release, setRelease] = useState(image.customRelease ?? '')
-  const [tags, setTags] = useState<string[]>(image.tags)
+  const [name, setName] = useState(image.spec.name)
+  const [osSystem, setOsSystem] = useState(image.spec.osSystem)
+  const [release, setRelease] = useState(image.spec.release)
+  const [tags, setTags] = useState<string[]>(image.spec.tags)
   const [tagDraft, setTagDraft] = useState('')
-  const [defaultUser, setDefaultUser] = useState(image.customDefaultUser ?? '')
+  const [defaultUser, setDefaultUser] = useState(image.spec.defaultUser)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const defaultUserInvalid = defaultUser.trim() !== '' && !isValidDefaultUser(defaultUser.trim())
-  const builtinDefaultUser = image.customDefaultUser ? '' : image.defaultUser ?? ''
+  const builtinDefaultUser = image.spec.defaultUser ? '' : image.status.defaultUser ?? ''
 
   const close = () => {
     if (!submitting) onClose()
@@ -49,7 +49,7 @@ export function EditImageDialog({
     setSubmitting(true)
     setError('')
     try {
-      await repository.setOSImageOverlay(image.integrationId, image.id, image.architecture, {
+      await repository.setOSImageMetadata(image.integrationId, image.id, image.architecture, {
         name: name.trim(),
         osSystem: osSystem.trim(),
         release: release.trim(),
@@ -68,7 +68,7 @@ export function EditImageDialog({
     setSubmitting(true)
     setError('')
     try {
-      await repository.clearOSImageOverlay(image.integrationId, image.id, image.architecture)
+      await repository.clearOSImageMetadata(image.integrationId, image.id, image.architecture)
       onSaved('Original OS image details restored')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The image could not be reset.')
@@ -86,7 +86,7 @@ export function EditImageDialog({
       footer={
         <>
           <Button variant="ghost" onClick={close} disabled={submitting}>Cancel</Button>
-          {hasOSImageOverride(image) && (
+          {hasOSImageMetadata(image) && (
             <Button variant="outline" onClick={() => void reset()} disabled={submitting}>Restore original details</Button>
           )}
           <Button colorPalette="brand" onClick={() => void save()} loading={submitting} disabled={submitting || defaultUserInvalid}>Save</Button>
@@ -212,7 +212,7 @@ export function DeleteImageDialog({
       <Stack gap="4">
         {error && <Alert status="error" title="Image could not be deleted">{error}</Alert>}
         <Alert status="warning" title="This cannot be undone">
-          This will permanently remove <strong>{image.name || image.id}</strong> ({image.architecture}) from its provider. Deployment templates and
+          This will permanently remove <strong>{image.status.name || image.id}</strong> ({image.architecture}) from its provider. Deployment templates and
           in-flight deployments that reference this image may fail after deletion. Make the image available again or update the affected templates before retrying.
         </Alert>
       </Stack>

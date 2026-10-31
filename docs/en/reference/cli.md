@@ -76,7 +76,7 @@ and follow each link into the complete usage manual.
   `power-configuration`, `network`, `placement`, `boot-media`, Redfish probing,
   libvirt `virtual-machines` (`vms`), and host-side `enroll`.
 - [`provisioning`](../../../cli/docs/usage.md#provisioning) — manage `images`
-  and overlays, `templates` and user data, `boot-isos`, and `tags`; run
+  and their metadata, `templates` and user data, `boot-isos`, and `tags`; run
   `preflight`, `deploy`, `release`, `recover`, `verify-image`, network
   inspection, and task reads/retries.
 - [`ssh-keys`](../../../cli/docs/usage.md#ssh-keys) — `list`, `get`, `import`,

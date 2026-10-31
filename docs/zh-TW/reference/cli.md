@@ -74,7 +74,7 @@ usage manual。
   `power-configuration`、`network`、`placement`、`boot-media`、Redfish probe、
   libvirt `virtual-machines`（`vms`）與 host-side `enroll`。
 - [`provisioning`](../../../cli/docs/usage.zh-TW.md#provisioning)：管理 `images`
-  與 overlay、`templates` 與 user data、`boot-isos`、`tags`；執行
+  與其 metadata、`templates` 與 user data、`boot-isos`、`tags`；執行
   `preflight`、`deploy`、`release`、`recover`、`verify-image`、network
   inspection，以及 task read／retry。
 - [`ssh-keys`](../../../cli/docs/usage.zh-TW.md#ssh-keys)：以 `list`、`get`、

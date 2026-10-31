@@ -49,22 +49,22 @@ type ReconcileUseCase struct {
 	integrations sitedomain.IntegrationRepository
 	servers      serverdomain.ServerRepository
 	providers    provisioningdomain.ProviderFactory
-	// overlays supplies swallow-owned OS image display names so the mirrored deployed-image
+	// metadata records supplies swallow-owned OS image display names so the mirrored deployed-image
 	// name reflects an operator's custom rename, not just the provider catalog title.
-	overlays provisioningdomain.OSImageOverlayRepository
+	metadataRecords provisioningdomain.OSImageMetadataRepository
 }
 
 func NewReconcileUseCase(
 	integrations sitedomain.IntegrationRepository,
 	servers serverdomain.ServerRepository,
 	providers provisioningdomain.ProviderFactory,
-	overlays provisioningdomain.OSImageOverlayRepository,
+	metadataRecords provisioningdomain.OSImageMetadataRepository,
 ) *ReconcileUseCase {
 	return &ReconcileUseCase{
-		integrations: integrations,
-		servers:      servers,
-		providers:    providers,
-		overlays:     overlays,
+		integrations:    integrations,
+		servers:         servers,
+		providers:       providers,
+		metadataRecords: metadataRecords,
 	}
 }
 
@@ -114,15 +114,15 @@ func (uc *ReconcileUseCase) Execute(ctx context.Context, integrationID string) (
 }
 
 // RefreshDeployedImageNames re-mirrors the effective OS image display name and default user onto
-// one integration's Server projections so an OS Image overlay write shows on the fleet list and
+// one integration's Server projections so an OS Image metadata write shows on the fleet list and
 // detail, and reaches automation, immediately instead of waiting for the next reconcile pass. It
-// does a single catalog + overlay read and no provider machine poll — both values are fully
-// determined by the overlay and the catalog — then Upserts only the servers whose mirrored values
+// does a single catalog + metadata read and no provider machine poll — both values are fully
+// determined by the metadata and the catalog — then Upserts only the servers whose mirrored values
 // actually changed, so each change publishes exactly one server event.
 //
-// This is the DeployedImageNameRefresher the overlay use case invokes best-effort: a returned
+// This is the DeployedImageNameRefresher the metadata use case invokes best-effort: a returned
 // error means some names could not be refreshed now (the next reconcile still corrects them), so
-// the caller must not treat it as a failed overlay write. Absent servers are intentionally
+// the caller must not treat it as a failed metadata write. Absent servers are intentionally
 // skipped — they are excluded from the fleet list and Upsert would revive them (it forces
 // absent=false) — and are refreshed when the provider next reports them.
 func (uc *ReconcileUseCase) RefreshDeployedImageNames(ctx context.Context, integrationID string) error {
@@ -132,7 +132,7 @@ func (uc *ReconcileUseCase) RefreshDeployedImageNames(ctx context.Context, integ
 	}
 	// A catalog read failure must not blank every mirrored name: skip this refresh and let the
 	// next reconcile pass recompute once the catalog is readable again.
-	resolver, ok := buildDeployedImageResolver(ctx, provider, uc.overlays, integrationID)
+	resolver, ok := buildDeployedImageResolver(ctx, provider, uc.metadataRecords, integrationID)
 	if !ok {
 		return fmt.Errorf("refresh deployed image names: read image catalog for %q", integrationID)
 	}
@@ -383,9 +383,9 @@ type deployedImage struct {
 
 // deployedImageResolver maps a deployed item's observed OSSystem/DistroSeries and CPU architecture
 // to the effective deployed image: the provider catalog title overlaid with any swallow custom
-// name, and the overlay default user or the built-in for the provider OS family. It is built once
-// from a single catalog + overlay read so the same lookup serves both a reconcile pass (per
-// machine) and the eager refresh an overlay write triggers (per Server projection), never a
+// name, and the metadata default user or the built-in for the provider OS family. It is built once
+// from a single catalog + metadata read so the same lookup serves both a reconcile pass (per
+// machine) and the eager refresh metadata write triggers (per Server projection), never a
 // per-item provider round trip.
 //
 // The lookup tolerates MAAS reporting a machine's architecture with a subarch
@@ -424,21 +424,21 @@ func (r deployedImageResolver) resolve(osSystem, distroSeries, architecture stri
 	return deployedImage{DefaultUser: provisioningdomain.BuiltinDefaultUser(osSystem)}
 }
 
-// buildDeployedImageResolver reads one integration's image catalog and overlay set once and
+// buildDeployedImageResolver reads one integration's image catalog and metadata set once and
 // returns a resolver from an observed OSSystem/DistroSeries/architecture to the effective deployed
 // image. The bool reports whether the catalog could be read: on a read failure it returns a
 // zero-value resolver and false, so a mirrored name stays empty rather than aborting the caller.
-// The overlay read is best effort — a failure there means no custom names or default users this
+// The metadata read is best effort — a failure there means no custom names or default users this
 // pass, not a failure.
 //
 // It is a package function (not a ReconcileUseCase method) so the single-server RefreshServer path
 // can reuse the exact same resolution at deploy completion, filling the mirrored values
-// immediately instead of only on the next reconcile pass. Callers must pass a non-nil overlay
+// immediately instead of only on the next reconcile pass. Callers must pass a non-nil metadata
 // repository.
 func buildDeployedImageResolver(
 	ctx context.Context,
 	provider provisioningdomain.OSProvisioningProvider,
-	overlays provisioningdomain.OSImageOverlayRepository,
+	metadataRecords provisioningdomain.OSImageMetadataRepository,
 	integrationID string,
 ) (deployedImageResolver, bool) {
 	images, err := provider.ListOSImages(ctx)
@@ -446,10 +446,10 @@ func buildDeployedImageResolver(
 		return deployedImageResolver{}, false
 	}
 
-	byImage := map[string]*provisioningdomain.OSImageOverlay{}
-	if list, err := overlays.ListByIntegration(ctx, integrationID); err == nil {
-		for _, overlay := range list {
-			byImage[imageArchKey(overlay.ImageID, overlay.Architecture)] = overlay
+	byImage := map[string]*provisioningdomain.OSImageMetadata{}
+	if list, err := metadataRecords.ListByIntegration(ctx, integrationID); err == nil {
+		for _, metadata := range list {
+			byImage[imageArchKey(metadata.ImageID, metadata.Architecture)] = metadata
 		}
 	}
 
@@ -460,16 +460,16 @@ func buildDeployedImageResolver(
 	}
 	for _, image := range images {
 		effective := deployedImage{Name: image.Name}
-		overlayDefaultUser := ""
-		if overlay, ok := byImage[imageArchKey(image.ID, image.Architecture)]; ok {
-			if overlay.DisplayName != "" {
-				effective.Name = overlay.DisplayName
+		metadataDefaultUser := ""
+		if metadata, ok := byImage[imageArchKey(image.ID, image.Architecture)]; ok {
+			if metadata.DisplayName != "" {
+				effective.Name = metadata.DisplayName
 			}
-			overlayDefaultUser = overlay.DefaultUser
+			metadataDefaultUser = metadata.DefaultUser
 		}
-		// The built-in keys off the provider OS family, never an overlay label, so relabeling an
+		// The built-in keys off the provider OS family, never metadata label, so relabeling an
 		// image for display cannot change which account automation logs in as.
-		effective.DefaultUser = provisioningdomain.EffectiveDefaultUser(overlayDefaultUser, image.OSSystem)
+		effective.DefaultUser = provisioningdomain.EffectiveDefaultUser(metadataDefaultUser, image.OSSystem)
 		arch := primaryArch(image.Architecture)
 		resolver.byIDArch[imageArchKey(image.ID, arch)] = effective
 		resolver.byOSReleaseArch[osReleaseArchKey(image.OSSystem, image.Release, arch)] = effective
@@ -487,7 +487,7 @@ func (uc *ReconcileUseCase) buildDeployedImageNamer(
 	provider provisioningdomain.OSProvisioningProvider,
 	integrationID string,
 ) deployedImageNamer {
-	resolver, _ := buildDeployedImageResolver(ctx, provider, uc.overlays, integrationID)
+	resolver, _ := buildDeployedImageResolver(ctx, provider, uc.metadataRecords, integrationID)
 	return func(machine *provisioningdomain.Machine) deployedImage {
 		return resolver.resolve(
 			machine.OSSystem,

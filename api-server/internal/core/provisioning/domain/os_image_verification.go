@@ -11,7 +11,7 @@ import (
 //
 // Verification is not a provider capability: the provider does not certify that its image works,
 // swallow does, by running a real deploy on an operator-chosen Server and observing success. It is
-// therefore swallow-owned data (like a Provider Data Overlay, docs/decisions/025) keyed by the same
+// therefore swallow-owned data (like OS Image metadata, decision 071) keyed by the same
 // provider image identity — (IntegrationID, ImageID, Architecture) — because one image name can back
 // several architectures. An image with no verification row is simply unverified; absence is normal,
 // not an error.
@@ -101,8 +101,8 @@ func (v *OSImageVerification) FailedTargetsList() []DeployTarget {
 // OSImageVerificationRepository persists swallow-owned OS Image verification attestations.
 //
 // Implementations must be safe for concurrent use and enforce the (IntegrationID, ImageID,
-// Architecture) key as a uniqueness constraint. Kept separate from the display overlay so the
-// overlay's "delete when it has no overrides" rule can never erase a verification. A missing record
+// Architecture) key as a uniqueness constraint. Kept separate from the display metadata so the
+// metadata's "delete when it has no overrides" rule can never erase a verification. A missing record
 // is a normal absence (the image is unverified), not an error.
 type OSImageVerificationRepository interface {
 	// ListByIntegration returns every verification stored for one Integration, or an empty slice.

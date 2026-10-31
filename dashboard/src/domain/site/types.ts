@@ -60,38 +60,38 @@ export function autoInspectEnabled(integration: Pick<Integration, 'settings'>): 
 }
 
 /**
- * An operating system a provisioner can currently deploy.
- *
- * `name`, `osSystem`, and `release` are the effective display values: the swallow overlay value
- * when one is set, otherwise the provider value. Each `provider*` field always carries the
- * provider's own value (shown when reverting an override), and each `custom*` field is present
- * only when that field has a swallow override. `id` and `architecture` identify the deployable
- * artifact and are never overridable. See ADR 025 (Provider Data Overlay).
+ * The metadata swallow keeps for one OS image: display labels, tags, and default user (decision
+ * 071). It is desired state that needs no provider realization, so it has no generation or
+ * conditions. An empty label means "use the provider value"; an empty `defaultUser` means the
+ * built-in default (if any) applies. The backend replaces the whole metadata on every write, so a
+ * caller editing one field must send the current values of the others.
  */
-export interface OSImage {
-  /** Pass this back as `distroSeries` when deploying. */
-  id: string
+export interface OSImageMetadata {
   name: string
-  providerName: string
-  customName?: string
   osSystem: string
-  providerOsSystem: string
-  customOsSystem?: string
   release: string
-  providerRelease: string
-  customRelease?: string
   /** Swallow-owned labels for organizing and searching images; no provider counterpart. */
   tags: string[]
+  defaultUser: string
+}
+
+/** What the catalog observed for one OS image, with the metadata merged over the provider values. */
+export interface OSImageStatus {
+  /** The effective display values: the metadata value when set, otherwise the provider value. */
+  name: string
+  osSystem: string
+  release: string
   /**
    * The effective default login user swallow automation uses on Servers deployed with this image
-   * (decision 039): `customDefaultUser` when an operator set one, otherwise swallow's built-in for
-   * the provider OS family (e.g. `ubuntu` → `ubuntu`). Absent when neither applies, which is
-   * typical for an uploaded custom image until an operator sets one.
+   * (decision 039): the metadata `defaultUser` when set, otherwise swallow's built-in for the
+   * provider OS family (e.g. `ubuntu` → `ubuntu`). Absent when neither applies, which is typical
+   * for an uploaded custom image until an operator sets one.
    */
   defaultUser?: string
-  /** The swallow-owned default user override; absent when the built-in (or nothing) applies. */
-  customDefaultUser?: string
-  architecture: string
+  /** The provider's own values, shown when reverting a label. */
+  providerName: string
+  providerOsSystem: string
+  providerRelease: string
   /** Provider-reported bytes for the current complete artifact; absent when unavailable. */
   sizeBytes?: number
   /**
@@ -109,6 +109,19 @@ export interface OSImage {
    * other); a failed target is still gate-blocked exactly like an unverified one.
    */
   failedDeployTargets: string[]
+}
+
+/**
+ * An operating system a provisioner can currently deploy, in the shared spec/status shape.
+ * `id` and `architecture` identify the provider-owned deployable artifact and are never
+ * overridable.
+ */
+export interface OSImage {
+  /** Pass this back as `distroSeries` when deploying. */
+  id: string
+  architecture: string
+  spec: OSImageMetadata
+  status: OSImageStatus
 }
 
 /**

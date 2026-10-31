@@ -114,15 +114,10 @@ export function osImageVerificationKey(
   return `${integrationId}\u0000${imageId}\u0000${primaryImageArchitecture(architecture)}\u0000${target}`
 }
 
-/** Whether Swallow owns any presentation or login metadata layered over the provider artifact. */
-export function hasOSImageOverride(image: OSImageCatalogRow): boolean {
-  return Boolean(
-    image.customName
-      || image.customOsSystem
-      || image.customRelease
-      || image.customDefaultUser
-      || image.tags.length,
-  )
+/** Whether Swallow keeps any presentation or login metadata for the provider artifact. */
+export function hasOSImageMetadata(image: OSImageCatalogRow): boolean {
+  const { name, osSystem, release, defaultUser, tags } = image.spec
+  return Boolean(name || osSystem || release || defaultUser || tags.length)
 }
 
 /** Parses malformed and legacy URL state into safe catalog defaults. */
@@ -205,14 +200,14 @@ export function matchesOSImageFocus(image: OSImageCatalogRow, params: URLSearchP
   const expectedID = osSystem && release ? `${osSystem}/${release}` : ''
   return Boolean(
     (expectedID && image.id === expectedID)
-      || (osSystem && release && image.osSystem === osSystem && image.release === release)
-      || image.name === imageName,
+      || (osSystem && release && image.status.osSystem === osSystem && image.status.release === release)
+      || image.status.name === imageName,
   )
 }
 
 function storedTargetOutcome(image: OSImageCatalogRow, target: OSImageTarget): 'supported' | 'failed' | 'not_tested' {
-  if (image.providerOsSystem !== 'custom' || image.verifiedDeployTargets.includes(target)) return 'supported'
-  if (image.failedDeployTargets.includes(target)) return 'failed'
+  if (image.status.providerOsSystem !== 'custom' || image.status.verifiedDeployTargets.includes(target)) return 'supported'
+  if (image.status.failedDeployTargets.includes(target)) return 'failed'
   return 'not_tested'
 }
 
@@ -271,10 +266,10 @@ export function osImageContextAction(
   if (changing) return { kind: 'workflow', label: 'View workflow', operationId: changing.operationId }
   const attention = current.find((activity) => activity.status === 'requires_attention')
   if (attention) return { kind: 'workflow', label: 'Review workflow', operationId: attention.operationId }
-  if (image.providerOsSystem === 'custom' && image.verifiedDeployTargets.length === 0) {
-    const target: OSImageTarget = image.failedDeployTargets.includes('disk')
+  if (image.status.providerOsSystem === 'custom' && image.status.verifiedDeployTargets.length === 0) {
+    const target: OSImageTarget = image.status.failedDeployTargets.includes('disk')
       ? 'disk'
-      : image.failedDeployTargets.includes('ram') ? 'ram' : 'disk'
+      : image.status.failedDeployTargets.includes('ram') ? 'ram' : 'disk'
     return { kind: 'test', label: 'Test deployment', target }
   }
   return { kind: 'deploy', label: 'Deploy OS' }
@@ -291,10 +286,10 @@ export function matchesOSImageInventory(
   activities: OSImageVerificationActivityMap,
   sites: readonly Site[],
 ): boolean {
-  if (query.view === 'verification_failed' && image.failedDeployTargets.length === 0) return false
-  if (query.os.length > 0 && !query.os.includes(image.osSystem)) return false
+  if (query.view === 'verification_failed' && image.status.failedDeployTargets.length === 0) return false
+  if (query.os.length > 0 && !query.os.includes(image.status.osSystem)) return false
   if (query.architectures.length > 0 && !query.architectures.includes(image.architecture)) return false
-  if (query.tags.length > 0 && !query.tags.some((tag) => image.tags.includes(tag))) return false
+  if (query.tags.length > 0 && !query.tags.some((tag) => image.spec.tags.includes(tag))) return false
   if (query.integrations.length > 0 && !query.integrations.includes(image.integrationId)) return false
 
   if (query.target !== 'any' && query.readiness !== 'any') {
@@ -313,15 +308,15 @@ export function matchesOSImageInventory(
   if (!needle) return true
   const siteName = sites.find((site) => site.id === image.siteId)?.name ?? image.siteId
   return [
-    image.name,
+    image.status.name,
     image.id,
-    image.osSystem,
-    image.release,
-    image.defaultUser,
+    image.status.osSystem,
+    image.status.release,
+    image.status.defaultUser,
     image.architecture,
     image.integrationName,
     siteName,
-    ...image.tags,
+    ...image.spec.tags,
   ].some((value) => textIncludes(value, needle))
 }
 
@@ -332,14 +327,14 @@ function compareText(left: string, right: string): number {
 /** Stable catalog ordering; provider identity breaks ties between equal display metadata. */
 export function compareOSImages(left: OSImageCatalogRow, right: OSImageCatalogRow, query: OSImageInventoryQuery): number {
   let result = 0
-  if (query.sort === 'name') result = compareText(left.name || left.id, right.name || right.id)
-  else if (query.sort === 'release') result = compareText(left.release, right.release)
-  else if (query.sort === 'size') result = (left.sizeBytes ?? Number.MAX_SAFE_INTEGER) - (right.sizeBytes ?? Number.MAX_SAFE_INTEGER)
+  if (query.sort === 'name') result = compareText(left.status.name || left.id, right.status.name || right.id)
+  else if (query.sort === 'release') result = compareText(left.status.release, right.status.release)
+  else if (query.sort === 'size') result = (left.status.sizeBytes ?? Number.MAX_SAFE_INTEGER) - (right.status.sizeBytes ?? Number.MAX_SAFE_INTEGER)
   else if (query.sort === 'refreshed') result = left.refreshedAt.localeCompare(right.refreshedAt)
   else {
-    result = compareText(left.osSystem, right.osSystem)
-      || compareText(left.release, right.release)
-      || compareText(left.name || left.id, right.name || right.id)
+    result = compareText(left.status.osSystem, right.status.osSystem)
+      || compareText(left.status.release, right.status.release)
+      || compareText(left.status.name || left.id, right.status.name || right.id)
   }
   if (result === 0) result = compareText(left.architecture, right.architecture)
   if (result === 0) result = compareText(left.integrationName, right.integrationName)
@@ -374,9 +369,9 @@ export function osImageFacetOptions(images: readonly OSImageCatalogRow[], query:
     if (!integrationCounts.has(id)) integrationCounts.set(id, { label: id, count: 0 })
   })
   return {
-    os: countedOptions(images.map((image) => image.osSystem), query.os, osImageOSFamilyLabel),
+    os: countedOptions(images.map((image) => image.status.osSystem), query.os, osImageOSFamilyLabel),
     architectures: countedOptions(images.map((image) => image.architecture), query.architectures),
-    tags: countedOptions(images.flatMap((image) => image.tags), query.tags),
+    tags: countedOptions(images.flatMap((image) => image.spec.tags), query.tags),
     integrations: [...integrationCounts.entries()]
       .sort(([, left], [, right]) => compareText(left.label, right.label))
       .map(([value, item]) => ({ value, label: item.label, count: item.count })),
@@ -389,12 +384,12 @@ export function osImageCatalogFacts(
   failures: readonly OSImageCatalogFailure[],
 ): OSImageCatalogFacts {
   const supports = (image: OSImageCatalogRow, target: OSImageTarget) =>
-    image.providerOsSystem !== 'custom' || image.verifiedDeployTargets.includes(target)
+    image.status.providerOsSystem !== 'custom' || image.status.verifiedDeployTargets.includes(target)
   return {
     loaded: images.length,
     diskSupported: images.filter((image) => supports(image, 'disk')).length,
     ramSupported: images.filter((image) => supports(image, 'ram')).length,
-    failedTargets: images.reduce((total, image) => total + image.failedDeployTargets.length, 0),
+    failedTargets: images.reduce((total, image) => total + image.status.failedDeployTargets.length, 0),
     unavailableProviders: failures.length,
   }
 }
@@ -404,7 +399,7 @@ export function groupOSImages(images: readonly OSImageCatalogRow[], group: OSIma
   if (group === 'none') return [{ key: '', label: '', items: [...images] }]
   const groups = new Map<string, OSImageCatalogRow[]>()
   images.forEach((image) => {
-    const key = group === 'os' ? osImageOSFamilyLabel(image.osSystem) : image.integrationName || image.integrationId
+    const key = group === 'os' ? osImageOSFamilyLabel(image.status.osSystem) : image.integrationName || image.integrationId
     groups.set(key, [...(groups.get(key) ?? []), image])
   })
   return [...groups.entries()].map(([key, items]) => ({ key, label: key, items }))

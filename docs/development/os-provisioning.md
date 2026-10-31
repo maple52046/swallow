@@ -58,10 +58,10 @@ OS Provisioning bounded context 的參與者、上下游關係與翻譯方式見
 [OS provisioning context map](context-maps/os-provisioning.md)。決定 ownership 的上位規則不在此重述：
 
 - 哪些事實由誰擁有、owned data 與 mirrored fact 的區分：[ADR 001](../decisions/001-system-ownership-boundaries.md)。
-- provider-owned fact 上的 swallow overlay：[ADR 025](../decisions/025-provider-data-overlay.md)；
-  「provisioner 可能擁有」的事實一律 capability-first with a swallow-owned fallback：
-  [ADR 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)（摘要在
-  [architecture-spec.md](architecture-spec.md)）。
+- swallow 擁有 desired state、provider 去實現：[ADR 069](../decisions/069-swallow-owns-desired-state.md) 與
+  [ADR 071](../decisions/071-provisioner-realized-desired-state.md)（規則在
+  [desired-state-model.md](desired-state-model.md)）；它取代了 provider-owned fact 上的 swallow overlay
+  （ADR 025）與 capability-first with a swallow-owned fallback（ADR 031）。
 - Server 身分與三個狀態軸：[ADR 002](../decisions/002-server-identity.md)、glossary
   [Server Status](glossaries/terms/server-status.md)；`provisioning.state` 的值集由 swallow 擁有、adapter 只做
   對應：[ADR 048](../decisions/048-os-provisioning-generic-states.md)、glossary
@@ -75,7 +75,7 @@ OS Provisioning bounded context 的參與者、上下游關係與翻譯方式見
 | --- | --- | --- | --- |
 | Machine inventory、OS 部署的執行與 provider 狀態 | provisioner | reconcile 鏡射到 Server 的 `provisioning` 軸 | mirrored projection |
 | OS Image artifact 與 catalog | provisioner | 每次 live read；上傳／刪除由 swallow 驅動（§4） | 不存 |
-| OS Image 的顯示名稱、OS、release、tags、default user | swallow | [Provider Data Overlay](glossaries/terms/provider-data-overlay.md)，讀時合併 | `os_image_overlays` |
+| OS Image 的顯示名稱、OS、release、tags、default user | swallow | OS Image metadata：desired state，不需要 provider 實現，讀時合併（§4.1） | `os_image_metadata` |
 | OS Image 驗證 | swallow | 每個 Deploy Target 的證據（§5） | `os_image_verifications` |
 | Deployment Template | swallow | 完整 CRUD（§3） | owned collection |
 | 部署網路意圖 | swallow | 部署時、或修改 Ready Server 的網路時套用（§6） | Template 與 Workflow 的 intent snapshot |
@@ -130,20 +130,23 @@ swallow 擁有；可變的 automation 內容屬於 release 內的 playbook，不
 ## 4. OS Image：目錄、上傳與刪除
 
 API 見 [provisioning.md](../../api-server/docs/development/api-contracts/api-server/provisioning.md) 的
-OS Image Catalog、OS Image Upload、OS Image Overlay。
+OS Image Catalog、OS Image Upload、OS Image Metadata。
 
-### 4.1 目錄與 overlay
+### 4.1 目錄與 metadata
 
-- 目錄每次依 `integrationId` live read，再合併 swallow 的 overlay（effective 值 = `overlay ?? provider`，回應同時
-  帶 `provider*` 原值）。`id` 與 `architecture` 是可部署 artifact 的身分，不可覆寫。
+- OS Image 的名稱、OS、release、tags 與 default user 是 swallow 的 desired metadata
+  （[desired-state-model.md](desired-state-model.md) §4.4）。provider 沒有改名或重新標示 image 的操作，所以它
+  不需要 provider 實現：沒有 controller、generation 與 conditions，也不寫回 provider。
+- 目錄每次依 `integrationId` live read，再合併 metadata：每個 image 是 `{id, architecture, spec, status}`，
+  `spec` 是 metadata，`status` 帶 effective 值（`metadata ?? provider`）、`provider*` 原值與驗證結果。`id` 與
+  `architecture` 是可部署 artifact 的身分，不可覆寫。
 - 目錄只含 provisioner 接受部署的 resource（MAAS 會排除同一 API 回傳的 PXE 與 bootloader artifact）。
-  `sizeBytes` 等 artifact metadata 屬於 provider，不進 overlay。
-- overlay 的欄位與 default user 規則見 glossary [OS Image](glossaries/terms/os-image.md) 與
-  [Provider Data Overlay](glossaries/terms/provider-data-overlay.md)。
+  `sizeBytes` 屬於 provider 的 artifact，不進 metadata。
+- metadata 的欄位與 default user 規則見 glossary [OS Image](glossaries/terms/os-image.md)。
 - **唯一被鏡射的衍生值**：reconcile 每輪對每個 Integration 讀一次 catalog，把已部署 machine 的
   `osSystem`／`distroSeries` 解析成 image 的 effective 名稱，鏡射到 Server 的
-  `provisioning.deployedImageName`（帶 `observedAt`），讓 fleet 列表不必逐筆 fan-out。overlay 改名後另以
-  best-effort 立即傳播（[ADR 025](../decisions/025-provider-data-overlay.md)）。catalog 本身不鏡射。
+  `provisioning.deployedImageName`（帶 `observedAt`），讓 fleet 列表不必逐筆 fan-out。metadata 改名後另以
+  best-effort 立即傳播。catalog 本身不鏡射。
 
 ### 4.2 上傳
 
@@ -156,7 +159,7 @@ OS Image Catalog、OS Image Upload、OS Image Overlay。
   放進記憶體，也不保留副本。
 - 一次上傳是單一同步的 provider 呼叫，不是 Workflow；不受 catalog read 的短 timeout 限制。api-server 的
   request body 上限由 `SWALLOW_API_IMAGE_UPLOAD_MAX_BYTES` 設定（預設 64 GiB）。
-- 選用的 `defaultUser` 在 provider 接受上傳後寫入 overlay；寫入失敗時 image 已存在，可之後再以 overlay 設定。
+- 選用的 `defaultUser` 在 provider 接受上傳後寫入 metadata；寫入失敗時 image 已存在，可之後再以 metadata 設定。
 - MAAS adapter：先建立 boot resource，再分段上傳內容；架構展開成 `<arch>/generic`，放進 custom namespace；
   未指定 `filetype` 時用 MAAS 預設（`tgz`）。
 
@@ -164,7 +167,7 @@ OS Image Catalog、OS Image Upload、OS Image Overlay。
 
 - 只有操作者上傳的 custom image 可刪；synced release 會被 provider 立即重新同步，provider 拒絕並以 `400`
   帶回 provider 原文。刪除同樣是可選能力。
-- 刪除成功後一併刪除該 image 的 overlay 與驗證紀錄。刪除 Integration 時不清理驗證紀錄；孤兒紀錄不會再被合併，
+- 刪除成功後一併刪除該 image 的 metadata 與驗證紀錄。刪除 Integration 時不清理驗證紀錄；孤兒紀錄不會再被合併，
   不影響使用者。
 
 **設計理由**：swallow 可以**驅動** provider 擁有的動作，但不因此擁有 artifact（ADR 001）；custom 與否是
@@ -185,9 +188,9 @@ provisioner 的性質，所以由後端決定；在 api-server spool 讓 hash �
 
 ### 5.2 驗證紀錄
 
-- 驗證是 swallow 擁有的事實（swallow 真的跑過一次部署而且成功），不是 provider 能力。它沿用 overlay 的身分鍵
-  `(integrationId, imageId, architecture)`，但存在獨立的 `os_image_verifications` collection：overlay 沒有任何
-  覆寫時會刪除自己，放在一起會連帶抹掉驗證。
+- 驗證是 swallow 擁有的事實（swallow 真的跑過一次部署而且成功），不是 provider 能力。它沿用 metadata 的身分鍵
+  `(integrationId, imageId, architecture)`，但存在獨立的 `os_image_verifications` collection：metadata 沒有任何
+  值時會刪除自己，放在一起會連帶抹掉驗證。
 - 每個 Deploy Target 只記最新一次結果：成功（`verifiedAt`、`operationId`、`serverId`）或失敗（`failedAt`、
   `operationId`、`serverId`，可帶簡短 `reason`），兩者互斥，記下一種就清掉另一種。catalog 以 `verifiedDeployTargets` 與 `failedDeployTargets` 投影。
 

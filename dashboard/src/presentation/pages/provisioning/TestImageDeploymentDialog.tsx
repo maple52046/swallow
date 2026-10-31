@@ -94,8 +94,8 @@ export function TestImageDeploymentDialog({
       })
       onLaunched(
         keepServer
-          ? `Testing ${image.name || image.id} — the Server will stay deployed when done`
-          : `Testing ${image.name || image.id} — the Server will auto-return to Ready when done`,
+          ? `Testing ${image.status.name || image.id} — the Server will stay deployed when done`
+          : `Testing ${image.status.name || image.id} — the Server will auto-return to Ready when done`,
       )
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The deployment test could not be started.')
@@ -111,7 +111,7 @@ export function TestImageDeploymentDialog({
       onClose={close}
       closeOnInteractOutside={!submitting}
       title="Test image deployment"
-      description={`Run a real deployment of ${image.name || image.id} (${image.architecture}) on a ready Server and confirm Swallow can log in over SSH.`}
+      description={`Run a real deployment of ${image.status.name || image.id} (${image.architecture}) on a ready Server and confirm Swallow can log in over SSH.`}
       footer={
         <>
           <Button variant="ghost" onClick={close} disabled={submitting}>

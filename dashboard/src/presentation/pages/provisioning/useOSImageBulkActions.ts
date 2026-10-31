@@ -5,14 +5,14 @@ import { useToast } from '@/presentation/components/toast/toastContext'
 /**
  * The bulk operations the OS image catalog offers over a multi-selection.
  *
- * `delete` removes provider-owned custom images; `reset-overrides` clears the swallow-owned
- * overlay (docs/decisions/025) and reverts each image's name, OS, and release to its provider
+ * `delete` removes provider-owned custom images; `reset-overrides` clears the metadata swallow
+ * keeps for each image (decision 071) and reverts its name, OS, and release to the provider
  * values. Deploy and edit are deliberately absent: each needs a per-image target or distinct
  * values, so they are not batchable.
  */
 export type OSImageBulkAction = 'delete' | 'reset-overrides'
 
-/** One image a bulk action runs against, identified by the catalog's overlay-key identity. */
+/** One image a bulk action runs against, identified by the catalog's metadata-key identity. */
 export interface OSImageBulkTarget {
   integrationId: string
   imageId: string
@@ -57,7 +57,7 @@ export function useOSImageBulkActions() {
           targets.map((target) =>
             action === 'delete'
               ? provisioning.deleteOSImage(target.integrationId, target.imageId, target.architecture)
-              : provisioning.clearOSImageOverlay(target.integrationId, target.imageId, target.architecture),
+              : provisioning.clearOSImageMetadata(target.integrationId, target.imageId, target.architecture),
           ),
         )
 

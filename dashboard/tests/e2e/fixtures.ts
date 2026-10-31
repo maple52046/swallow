@@ -221,10 +221,49 @@ const integrations = [
   { id: 'maas-b', siteId: 'site-b', kind: 'provisioner', providerKind: 'maas', name: 'MAAS Edge', endpoint: 'https://maas-edge.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now },
   { id: 'prom-a', siteId: 'site-a', kind: 'metrics', providerKind: 'prometheus', name: 'Prometheus Taipei', endpoint: 'https://prom.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: 'Alertmanager timeout' }, createdAt: now, updatedAt: now },
 ]
+/** The provider-observed facts and swallow metadata of one fixture OS image catalog entry. */
+export interface CatalogImageFixture {
+  id: string
+  architecture?: string
+  /** The provider's own name, OS family, and release. */
+  name: string
+  osSystem: string
+  release: string
+  spec?: Partial<{ name: string; osSystem: string; release: string; tags: string[]; defaultUser: string }>
+  /** The built-in default user the backend derives for the provider OS family, if any. */
+  builtinDefaultUser?: string
+  sizeBytes?: number
+  verifiedDeployTargets?: string[]
+  failedDeployTargets?: string[]
+}
+
+/** Builds a catalog entry the way the backend does: each metadata label wins over the provider value. */
+export function catalogImage(fixture: CatalogImageFixture) {
+  const spec = { name: '', osSystem: '', release: '', tags: [] as string[], defaultUser: '', ...fixture.spec }
+  const defaultUser = spec.defaultUser || fixture.builtinDefaultUser
+  return {
+    id: fixture.id,
+    architecture: fixture.architecture ?? 'amd64',
+    spec,
+    status: {
+      name: spec.name || fixture.name,
+      osSystem: spec.osSystem || fixture.osSystem,
+      release: spec.release || fixture.release,
+      ...(defaultUser ? { defaultUser } : {}),
+      providerName: fixture.name,
+      providerOsSystem: fixture.osSystem,
+      providerRelease: fixture.release,
+      ...(fixture.sizeBytes === undefined ? {} : { sizeBytes: fixture.sizeBytes }),
+      verifiedDeployTargets: fixture.verifiedDeployTargets ?? [],
+      failedDeployTargets: fixture.failedDeployTargets ?? [],
+    },
+  }
+}
+
 const osImages = [
-  { id: 'ubuntu/jammy', name: 'Ubuntu 22.04 LTS', providerName: 'Ubuntu 22.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'jammy', providerRelease: 'jammy', tags: ['general-purpose', 'lts', 'production'], defaultUser: 'ubuntu', architecture: 'amd64', sizeBytes: 4294967296, verifiedDeployTargets: [], failedDeployTargets: [] },
-  { id: 'ubuntu/noble', name: 'Ubuntu 24.04 LTS', providerName: 'Ubuntu 24.04 LTS', osSystem: 'ubuntu', providerOsSystem: 'ubuntu', release: 'noble', providerRelease: 'noble', tags: ['latest', 'lts'], defaultUser: 'ubuntu', architecture: 'amd64', sizeBytes: 5368709120, verifiedDeployTargets: [], failedDeployTargets: [] },
-  { id: 'ubuntu-24.04-rocm', name: 'Ubuntu 24.04 ROCm', providerName: 'Ubuntu 24.04 ROCm', osSystem: 'custom', providerOsSystem: 'custom', release: 'ubuntu-24.04-rocm', providerRelease: 'ubuntu-24.04-rocm', tags: ['gpu', 'rocm'], architecture: 'amd64', verifiedDeployTargets: ['ram'], failedDeployTargets: ['disk'] },
+  catalogImage({ id: 'ubuntu/jammy', name: 'Ubuntu 22.04 LTS', osSystem: 'ubuntu', release: 'jammy', spec: { tags: ['general-purpose', 'lts', 'production'] }, builtinDefaultUser: 'ubuntu', sizeBytes: 4294967296 }),
+  catalogImage({ id: 'ubuntu/noble', name: 'Ubuntu 24.04 LTS', osSystem: 'ubuntu', release: 'noble', spec: { tags: ['latest', 'lts'] }, builtinDefaultUser: 'ubuntu', sizeBytes: 5368709120 }),
+  catalogImage({ id: 'ubuntu-24.04-rocm', name: 'Ubuntu 24.04 ROCm', osSystem: 'custom', release: 'ubuntu-24.04-rocm', spec: { tags: ['gpu', 'rocm'] }, verifiedDeployTargets: ['ram'], failedDeployTargets: ['disk'] }),
 ]
 const baseDeploymentTemplates = [
   { id: 'template-a', siteId: 'site-a', integrationId: 'maas-a', name: 'GPU compute baseline', description: 'Ubuntu baseline for accelerator nodes', imageId: 'ubuntu/jammy', ephemeral: false, network: { mode: 'dhcp', subnetId: 'subnet-a', defaultGateway: false }, hasUserData: true, createdAt: now, updatedAt: now },
@@ -367,8 +406,8 @@ export interface FixtureOptions {
   onOSImageUploadRequest?: (integrationId: string) => void
   /** Called with the multipart `defaultUser` field (or '') of an OS image upload. */
   onOSImageUploadDefaultUser?: (defaultUser: string) => void
-  /** Called with the body of an OS image overlay PATCH. */
-  onOSImageOverlayRequest?: (body: Record<string, unknown>) => void
+  /** Called with the body of an OS image metadata PUT. */
+  onOSImageMetadataRequest?: (body: Record<string, unknown>) => void
   /** Called for every SSH Keys request with its method, path, and JSON body (if any). */
   onSSHKeyRequest?: (method: string, path: string, body: Record<string, unknown> | null) => void
   onDeploymentRequest?: (body: Record<string, unknown>) => void
@@ -662,21 +701,15 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     ...Array.from({ length: options.extraOSImageCount ?? 0 }, (_, index) => {
       const release = `validation-${String(index + 1).padStart(2, '0')}`
       const name = `Validation Linux ${String(index + 1).padStart(2, '0')}`
-      return {
+      return catalogImage({
         id: `validation/${release}`,
         name,
-        providerName: name,
         osSystem: 'validation-linux',
-        providerOsSystem: 'validation-linux',
         release,
-        providerRelease: release,
-        tags: ['validation'],
-        defaultUser: 'operator',
+        spec: { tags: ['validation'], defaultUser: 'operator' },
         architecture: index % 2 === 0 ? 'amd64' : 'arm64',
         sizeBytes: 2_147_483_648 + index,
-        verifiedDeployTargets: [],
-        failedDeployTargets: [],
-      }
+      })
     }),
   ]
   // Mirrors the refresh cookie: the startup refresh succeeds only while a Session exists.
@@ -1993,18 +2026,13 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         options.onOSImageUploadDefaultUser?.(request.postData()?.match(/name="defaultUser"\r?\n\r?\n([^\r\n]+)/)?.[1] ?? '')
         return json(
           route,
-          {
+          catalogImage({
             id: 'ubuntu-24.04-rocm',
             name: 'Ubuntu 24.04 ROCm',
-            providerName: 'Ubuntu 24.04 ROCm',
             osSystem: 'custom',
-            providerOsSystem: 'custom',
             release: 'ubuntu-24.04-rocm',
-            providerRelease: 'ubuntu-24.04-rocm',
-            tags: [],
-            architecture: 'amd64',
             sizeBytes: 16,
-          },
+          }),
           201,
         )
       }
@@ -2015,8 +2043,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
       return json(route, imageCatalog)
     }
-    if (path === '/api/v1/provisioning/images/overlay' && request.method() === 'PATCH') {
-      options.onOSImageOverlayRequest?.(request.postDataJSON() as Record<string, unknown>)
+    if (path === '/api/v1/provisioning/images/metadata' && request.method() === 'PUT') {
+      options.onOSImageMetadataRequest?.(request.postDataJSON() as Record<string, unknown>)
       return route.fulfill({ status: 204 })
     }
     if (path.startsWith('/api/v1/ssh-keys')) {

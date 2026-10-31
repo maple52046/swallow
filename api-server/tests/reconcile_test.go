@@ -19,12 +19,12 @@ const (
 )
 
 type reconcileFixture struct {
-	uc           *provisioningapp.ReconcileUseCase
-	servers      *fakeServerRepo
-	integrations *fakeIntegrationRepo
-	provider     *fakeProvider
-	factory      *fakeProviderFactory
-	overlays     *fakeOSImageOverlayRepo
+	uc              *provisioningapp.ReconcileUseCase
+	servers         *fakeServerRepo
+	integrations    *fakeIntegrationRepo
+	provider        *fakeProvider
+	factory         *fakeProviderFactory
+	metadataRecords *fakeOSImageMetadataRepo
 }
 
 func setupReconcile(t *testing.T) *reconcileFixture {
@@ -49,14 +49,14 @@ func setupReconcile(t *testing.T) *reconcileFixture {
 		UpdatedAt:    now,
 	}, "ck:tk:ts")
 
-	overlays := newFakeOSImageOverlayRepo()
+	metadataRecords := newFakeOSImageMetadataRepo()
 	return &reconcileFixture{
-		uc:           provisioningapp.NewReconcileUseCase(integrations, servers, factory, overlays),
-		servers:      servers,
-		integrations: integrations,
-		provider:     provider,
-		factory:      factory,
-		overlays:     overlays,
+		uc:              provisioningapp.NewReconcileUseCase(integrations, servers, factory, metadataRecords),
+		servers:         servers,
+		integrations:    integrations,
+		provider:        provider,
+		factory:         factory,
+		metadataRecords: metadataRecords,
 	}
 }
 
@@ -189,14 +189,14 @@ func TestReconcile_MirrorsDeployedImageName(t *testing.T) {
 	if server.Provisioning.DeployedImageName != "Ubuntu 22.04 LTS" {
 		t.Errorf("DeployedImageName = %q, want the catalog name %q", server.Provisioning.DeployedImageName, "Ubuntu 22.04 LTS")
 	}
-	// No overlay default user: the built-in for the provider OS family applies (decision 039).
+	// No metadata default user: the built-in for the provider OS family applies (decision 039).
 	if server.Provisioning.DeployedImageDefaultUser != "ubuntu" {
 		t.Errorf("DeployedImageDefaultUser = %q, want the built-in %q", server.Provisioning.DeployedImageDefaultUser, "ubuntu")
 	}
 }
 
 // Renaming an OS Image re-mirrors the effective name onto that image's deployed servers at once,
-// without a reconcile pass: RefreshDeployedImageNames reads the catalog + overlay and updates the
+// without a reconcile pass: RefreshDeployedImageNames reads the catalog + metadata and updates the
 // projection so the fleet list shows the swallow name immediately.
 func TestReconcile_RefreshDeployedImageNamesAfterRename(t *testing.T) {
 	f := setupReconcile(t)
@@ -212,16 +212,16 @@ func TestReconcile_RefreshDeployedImageNamesAfterRename(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	// The operator renames the image via the overlay; the provider catalog title is
-	// "Ubuntu 22.04 LTS", and the overlay's architecture matches the catalog's primary arch.
-	if err := f.overlays.Upsert(context.Background(), &provisioningdomain.OSImageOverlay{
+	// The operator renames the image via the metadata; the provider catalog title is
+	// "Ubuntu 22.04 LTS", and the metadata's architecture matches the catalog's primary arch.
+	if err := f.metadataRecords.Upsert(context.Background(), &provisioningdomain.OSImageMetadata{
 		IntegrationID: testIntegrationID,
 		ImageID:       "ubuntu/jammy",
 		Architecture:  "amd64",
 		DisplayName:   "Golden Ubuntu",
 		DefaultUser:   "ops",
 	}); err != nil {
-		t.Fatalf("seed overlay: %v", err)
+		t.Fatalf("seed metadata: %v", err)
 	}
 
 	if err := f.uc.RefreshDeployedImageNames(context.Background(), testIntegrationID); err != nil {
@@ -239,7 +239,7 @@ func TestReconcile_RefreshDeployedImageNamesAfterRename(t *testing.T) {
 		t.Errorf("DeployedImageName = %q, want the renamed %q", server.Provisioning.DeployedImageName, "Golden Ubuntu")
 	}
 	if server.Provisioning.DeployedImageDefaultUser != "ops" {
-		t.Errorf("DeployedImageDefaultUser = %q, want the overlay default user %q", server.Provisioning.DeployedImageDefaultUser, "ops")
+		t.Errorf("DeployedImageDefaultUser = %q, want the metadata default user %q", server.Provisioning.DeployedImageDefaultUser, "ops")
 	}
 }
 
@@ -267,7 +267,7 @@ func TestRefreshServer_FillsDeployedImageNameOnFreshDeploy(t *testing.T) {
 		t.Fatalf("seed server: %v", err)
 	}
 
-	uc := provisioningapp.NewRefreshServerUseCase(f.servers, f.factory, f.overlays)
+	uc := provisioningapp.NewRefreshServerUseCase(f.servers, f.factory, f.metadataRecords)
 	if _, err := uc.Execute(context.Background(), "srv-1"); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestRefreshServer_DropsStaleDefaultUserOnRedeploy(t *testing.T) {
 		t.Fatalf("seed server: %v", err)
 	}
 
-	uc := provisioningapp.NewRefreshServerUseCase(f.servers, f.factory, f.overlays)
+	uc := provisioningapp.NewRefreshServerUseCase(f.servers, f.factory, f.metadataRecords)
 	if _, err := uc.Execute(context.Background(), "srv-1"); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}

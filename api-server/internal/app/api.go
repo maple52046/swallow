@@ -149,15 +149,16 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("deployment template repo init: %w", err)
 	}
-	// Swallow-owned OS Image name overlays merged onto the provider catalog at read
-	// (docs/decisions/025). Owned data, so no sealing or staleness applies.
-	osImageOverlayRepo, err := provisioningstore.NewMongoOSImageOverlayRepo(db)
+	// OS Image metadata (decision 071): the names, OS and release labels, tags, and default user
+	// swallow keeps for provider images, merged onto the live catalog. Desired state that needs no
+	// provider realization, so no controller and no sealing apply.
+	osImageMetadataRepo, err := provisioningstore.NewMongoOSImageMetadataRepo(db)
 	if err != nil {
-		return fmt.Errorf("os image overlay repo init: %w", err)
+		return fmt.Errorf("os image metadata repo init: %w", err)
 	}
 	// Swallow-owned OS Image verification attestations: which deploy targets (disk/ram) a real
 	// verification deploy has proven for an image. Owned data keyed by the provider image identity,
-	// kept separate from the display overlay so pruning one never erases the other.
+	// kept separate from the display metadata so pruning one never erases the other.
 	osImageVerificationRepo, err := provisioningstore.NewMongoOSImageVerificationRepo(db)
 	if err != nil {
 		return fmt.Errorf("os image verification repo init: %w", err)
@@ -266,11 +267,11 @@ func RunAPI(cfg config.APIConfig) error {
 	deployServerUC.AttachDeploymentKeys(sshKeyService)
 	taskWorker := provisioningapp.NewProvisioningTaskWorker(
 		taskRepo, serverRepo, providerFactory, 5*time.Second, 30*time.Second)
-	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageOverlayRepo)
+	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageMetadataRepo)
 	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
 	// One RefreshServer use case is shared by the HTTP handler and the durable launcher so the
 	// Release/Recover acceptance gate can live-sync a target's provisioning state before deciding.
-	refreshServerUC := provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory, osImageOverlayRepo)
+	refreshServerUC := provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory, osImageMetadataRepo)
 	// The direct-release path names the Platform that claims a refused Server; its name reader is
 	// attached once the platform repository exists below.
 	releaseServerUC := provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory, taskRepo)
@@ -284,15 +285,15 @@ func RunAPI(cfg config.APIConfig) error {
 		taskService,
 		releaseServerUC,
 		refreshServerUC,
-		provisioningapp.NewListOSImagesUseCase(providerFactory, osImageOverlayRepo, osImageVerificationRepo),
+		provisioningapp.NewListOSImagesUseCase(providerFactory, osImageMetadataRepo, osImageVerificationRepo),
 		reconcileUC,
 		provisioningapp.NewGetProvisionerDetailUseCase(serverRepo, providerFactory),
 		provisioningapp.NewGetProviderEventsUseCase(serverRepo, providerFactory),
 		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory, activeWork),
 		deleteServerUC,
-		provisioningapp.NewDeleteOSImageUseCase(providerFactory, osImageOverlayRepo, osImageVerificationRepo),
-		provisioningapp.NewUploadOSImageUseCase(providerFactory, osImageOverlayRepo),
-		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlayRepo, reconcileUC),
+		provisioningapp.NewDeleteOSImageUseCase(providerFactory, osImageMetadataRepo, osImageVerificationRepo),
+		provisioningapp.NewUploadOSImageUseCase(providerFactory, osImageMetadataRepo),
+		provisioningapp.NewSetOSImageMetadataUseCase(osImageMetadataRepo, reconcileUC),
 		provisioningapp.NewListServerTagsUseCase(integrationRepo, providerFactory, serverRepo),
 		provisioningapp.NewEditServerTagsUseCase(transactor, serverRepo, serverRepo, providerFactory),
 	)
@@ -944,11 +945,10 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// provider decides whether it becomes a custom image (docs/decisions/027).
 	provisioning.Post("/images", deps.provisioning.UploadImage)
 	provisioning.Delete("/images", deps.provisioning.DeleteImage)
-	// Swallow-owned OS Image overlay: set or clear the display overrides (name, OS, release)
-	// merged over the provider values. Same query-parameter identity as DELETE /images
-	// (docs/decisions/025).
-	provisioning.Patch("/images/overlay", deps.provisioning.SetImageOverlay)
-	provisioning.Delete("/images/overlay", deps.provisioning.ClearImageOverlay)
+	// OS Image metadata: replace or clear the swallow-owned name, OS, release, tags, and default
+	// user of one image. Same query-parameter identity as DELETE /images (decision 071).
+	provisioning.Put("/images/metadata", deps.provisioning.SetImageMetadata)
+	provisioning.Delete("/images/metadata", deps.provisioning.ClearImageMetadata)
 	// Server tags: list the Site's known tags for the editor, and apply a tri-state add/remove edit
 	// to one or more Servers. Under /provisioning to avoid the GET /servers/:id route collision, and
 	// capability-first — MAAS-driven or swallow-owned fallback (docs/decisions/031).

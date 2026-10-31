@@ -22,7 +22,6 @@ Templates, and submit one OS deployment configuration to one or more eligible Se
 ## Related Glossary Terms
 
 - OS Image
-- Provider Data Overlay
 - OS Deployment
 - Deployment Template
 - Server
@@ -44,8 +43,8 @@ timestamps, and authentication behavior follow [conventions.md](conventions.md).
 GET    /api/v1/provisioning/images?integrationId={integrationId}
 POST   /api/v1/provisioning/images                                              (multipart/form-data)
 DELETE /api/v1/provisioning/images?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
-PATCH  /api/v1/provisioning/images/overlay?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
-DELETE /api/v1/provisioning/images/overlay?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
+PUT    /api/v1/provisioning/images/metadata?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
+DELETE /api/v1/provisioning/images/metadata?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
 GET    /api/v1/provisioning/templates?siteId={optional}&integrationId={optional}
 POST   /api/v1/provisioning/templates
 GET    /api/v1/provisioning/templates/{id}
@@ -71,51 +70,60 @@ unchanged for backward compatibility.
 
 ## OS Image Catalog
 
-`GET /images` requires `integrationId` and reads the named provisioner live,
-then merges the Swallow-owned overlay (see "OS Image Overlay" below) onto it. It
-returns:
+`GET /images` requires `integrationId` and reads the named provisioner live, then merges
+Swallow's OS Image metadata (see "OS Image Metadata" below) onto it. Each image is the provider's
+artifact with the metadata Swallow owns for it as `spec` and what is effectively shown and used,
+with the provider's own values and Swallow's verification, as `status`
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). The
+metadata needs no provider realization, so an image has no `generation` or conditions. It returns:
 
 ```json
 [
   {
     "id": "ubuntu/jammy",
-    "name": "Golden Ubuntu",
-    "providerName": "Ubuntu 22.04 LTS",
-    "customName": "Golden Ubuntu",
-    "osSystem": "Ubuntu LTS",
-    "providerOsSystem": "ubuntu",
-    "customOsSystem": "Ubuntu LTS",
-    "release": "22.04",
-    "providerRelease": "jammy",
-    "customRelease": "22.04",
-    "tags": ["gpu", "ml"],
-    "defaultUser": "ubuntu",
     "architecture": "amd64",
-    "sizeBytes": 5368709120,
-    "verifiedDeployTargets": ["disk", "ram"],
-    "failedDeployTargets": []
+    "spec": {
+      "name": "Golden Ubuntu",
+      "osSystem": "Ubuntu LTS",
+      "release": "22.04",
+      "tags": ["gpu", "ml"],
+      "defaultUser": ""
+    },
+    "status": {
+      "name": "Golden Ubuntu",
+      "osSystem": "Ubuntu LTS",
+      "release": "22.04",
+      "defaultUser": "ubuntu",
+      "providerName": "Ubuntu 22.04 LTS",
+      "providerOsSystem": "ubuntu",
+      "providerRelease": "jammy",
+      "sizeBytes": 5368709120,
+      "verifiedDeployTargets": ["disk", "ram"],
+      "failedDeployTargets": []
+    }
   }
 ]
 ```
 
-`name`, `osSystem`, and `release` are the effective values a client displays: the
-Swallow overlay value when one is set, otherwise the provider value. The
-`provider*` fields (`providerName`, `providerOsSystem`, `providerRelease`) always
-carry the provider's own values. The `custom*` fields (`customName`,
-`customOsSystem`, `customRelease`) carry the Swallow overrides and are each omitted
-when that field has no override, in which case the effective value equals the
-provider value. `id` and `architecture` are never overridable — they identify the
-deployable artifact. `tags` is a Swallow-owned list of labels with no provider
-counterpart, always returned as an array (empty when the image has no tags).
+`spec` is Swallow's metadata: `name`, `osSystem`, and `release` are `""` when Swallow keeps no
+value and the provider's applies; `tags` is a Swallow-owned list of labels with no provider
+counterpart, always an array; `defaultUser` is the default login user Swallow sets for the image,
+`""` when none is set. `id` and `architecture` are never overridable — they identify the deployable
+artifact.
 
-`defaultUser` is the effective login user Swallow automation uses on Servers deployed
-with this image (see the glossary OS Image and
+`status.name`, `status.osSystem`, and `status.release` are the effective values a client displays:
+the `spec` value when set, otherwise the provider value. The `status.provider*` fields
+(`providerName`, `providerOsSystem`, `providerRelease`) always carry the provider's own values.
+
+`status.defaultUser` is the effective login user Swallow automation uses on Servers deployed with
+this image (see the glossary OS Image and
 [decision 039](../../../../../docs/decisions/039-ssh-key-management-and-default-user.md)):
-the Swallow overlay value when set (also returned as `customDefaultUser`), otherwise a
-Swallow built-in derived from `providerOsSystem` (`ubuntu` → `ubuntu`, `centos` →
-`centos`, `rhel` → `cloud-user`). Both fields are omitted when no value applies, which is
-the usual case for an uploaded custom image until an operator sets one; automation then
-falls back to the Site SSH user and built-in candidates.
+`spec.defaultUser` when set, otherwise a Swallow built-in derived from `providerOsSystem`
+(`ubuntu` → `ubuntu`, `centos` → `centos`, `rhel` → `cloud-user`). It is omitted when no value
+applies, which is the usual case for an uploaded custom image until an operator sets one;
+automation then falls back to the Site SSH user and built-in candidates.
+
+The `status` fields below are described without their `status.` prefix.
 
 `sizeBytes`, when present, is a positive integer containing the provider-reported
 total bytes of the newest complete resource set that backs the image. It is omitted
@@ -123,7 +131,7 @@ when the provider does not expose a complete size or its detail is temporarily
 unavailable. Providers may expose multiple kernel or subarchitecture variants that
 collapse into the same `id` + `architecture` row; in that case the catalog returns
 the largest current complete-set size rather than summing mutually exclusive
-variants. Size is provider-owned live metadata and cannot be changed by the overlay.
+variants. Size is provider-owned and cannot be changed by Swallow's metadata.
 
 `verifiedDeployTargets` is a Swallow-owned array of the deploy targets (`"disk"`
 and/or `"ram"`) a Swallow verification has proven this image can deploy in. It is
@@ -133,8 +141,8 @@ been verified for any target. For a custom image (`providerOsSystem: "custom"`) 
 Deploy Target absent from this array is blocked for a normal deploy (see "Custom
 image verification gate"); synced provider images are provider-trusted and are
 never gated regardless of this array. It is keyed by the same
-`integrationId` + `imageId` + `architecture` identity as the overlay but stored
-separately, so clearing an overlay never clears verification.
+`integrationId` + `imageId` + `architecture` identity as the metadata but stored
+separately, so clearing the metadata never clears verification.
 
 `failedDeployTargets` is the mirror Swallow-owned array of deploy targets whose
 most recent verification run failed. It is always present, defaulting to an empty
@@ -152,8 +160,8 @@ excludes PXE and bootloader artifacts returned by the same boot-resources API.
 An uploaded image keeps its provider resource name as `id` and is returned with
 `providerOsSystem: "custom"`.
 
-The image artifact is provider-owned and is not persisted by Swallow; only the
-overlay is Swallow-owned (see ADR 025). Missing `integrationId` is
+The image artifact is provider-owned and is not persisted by Swallow; only the metadata is
+Swallow-owned. Missing `integrationId` is
 `400 validation_error`; an unknown integration is `404 not_found`; a provider
 failure is `503 provider_unavailable`.
 
@@ -168,8 +176,8 @@ it — as it refuses an `imageId`/`architecture` that matches no deletable image
 `400 validation_error` carrying the provider's own wording. A provisioner whose adapter
 does not implement image deletion is refused the same way. Any missing query parameter is
 also `400 validation_error`; an unknown integration is `404 not_found`; a provider
-transport failure is `503 provider_unavailable`. Deleting an image also removes any
-Swallow overlay for it, so a deleted image leaves no orphan override behind.
+transport failure is `503 provider_unavailable`. Deleting an image also removes Swallow's
+metadata for it, so a deleted image leaves no orphan metadata behind.
 
 ## OS Image Upload
 
@@ -191,7 +199,7 @@ The request is `multipart/form-data` with these parts:
 - `title` (optional): a human-readable label.
 - `filetype` (optional): the artifact format, validated by the provider. When omitted the
   provider's default is used (for MAAS, `tgz`).
-- `defaultUser` (optional): the image's default login user, stored as the Swallow overlay
+- `defaultUser` (optional): the image's default login user, stored as the image's metadata
   `defaultUser` once the provider accepts the upload. It must be a POSIX login name
   (`^[a-z_][a-z0-9_-]{0,31}$`); an invalid value is rejected before anything is uploaded.
 - `content` (required): the image file. It is streamed; Swallow never buffers the whole artifact
@@ -202,27 +210,29 @@ On success it returns `201` with the created image in the same shape as one `GET
 ```json
 {
   "id": "custom/ubuntu-24.04-rocm",
-  "name": "Ubuntu 24.04 ROCm",
-  "providerName": "Ubuntu 24.04 ROCm",
-  "osSystem": "custom",
-  "providerOsSystem": "custom",
-  "release": "ubuntu-24.04-rocm",
-  "providerRelease": "ubuntu-24.04-rocm",
-  "tags": [],
   "architecture": "amd64",
-  "sizeBytes": 5368709120,
-  "verifiedDeployTargets": [],
-  "failedDeployTargets": []
+  "spec": { "name": "", "osSystem": "", "release": "", "tags": [], "defaultUser": "" },
+  "status": {
+    "name": "Ubuntu 24.04 ROCm",
+    "osSystem": "custom",
+    "release": "ubuntu-24.04-rocm",
+    "providerName": "Ubuntu 24.04 ROCm",
+    "providerOsSystem": "custom",
+    "providerRelease": "ubuntu-24.04-rocm",
+    "sizeBytes": 5368709120,
+    "verifiedDeployTargets": [],
+    "failedDeployTargets": []
+  }
 }
 ```
 
 `providerOsSystem` reflects the provider's classification of the uploaded artifact (for MAAS,
-`custom`); the caller never sends it. A freshly uploaded image has no Swallow overlay, so its
-`custom*` fields are absent and each effective field equals its provider value. `sizeBytes` is
-present when the provider reports the completed artifact size. When `defaultUser` was sent, the
-response carries it as `defaultUser` and `customDefaultUser`. If the provider accepted the
-artifact but storing the default user failed, the endpoint returns `500 internal_error`; the
-image exists and the default user can be set afterwards with `PATCH /images/overlay`.
+`custom`); the caller never sends it. A freshly uploaded image has no metadata, so its `spec` is
+empty and each effective field equals its provider value. `sizeBytes` is present when the provider
+reports the completed artifact size. When `defaultUser` was sent, the response carries it as
+`spec.defaultUser` and `status.defaultUser`. If the provider accepted the artifact but storing the
+default user failed, the endpoint returns `500 internal_error`; the image exists and the default
+user can be set afterwards with `PUT /images/metadata`.
 
 A missing `integrationId`, `name`, `architecture`, or `content`, an empty or unreadable
 `content` file, a `name`, `architecture`, `title`, or `filetype` longer than 200 characters, an
@@ -232,51 +242,50 @@ preserved for a provider-side refusal. An unknown integration is `404 not_found`
 or 5xx during upload is `503 provider_unavailable`. Because the artifact can be large, this
 endpoint is not bounded by the short provider read timeout used for catalog reads.
 
-## OS Image Overlay
+## OS Image Metadata
 
-No supported provider exposes an operation to rename an image or relabel its OS and
-release, and these display strings have no external owner, so Swallow owns an overlay
-merged onto the provider catalog at read as a Provider Data Overlay (see ADR 025). The
-overlay is Swallow-owned data: it never changes the provider or the deployable image
-identity, and it is keyed by the same `integrationId` + `imageId` + `architecture`
-identity the catalog returns, passed as query parameters because an `imageId` can contain
-a slash and one image name can back several architectures.
+No supported provider exposes an operation to rename an image or relabel its OS and release, and
+these values have no external owner, so Swallow keeps them as the image's metadata: desired state
+that needs no provider realization
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). It never
+changes the provider or the deployable image identity, and it is keyed by the same
+`integrationId` + `imageId` + `architecture` identity the catalog returns, passed as query
+parameters because an `imageId` can contain a slash and one image name can back several
+architectures.
 
-`PATCH /images/overlay` sets the overlay. The body carries the overridable display fields,
-the Swallow-owned tag list, and the Swallow-owned default login user, each optional:
+`PUT /images/metadata` replaces the metadata. The body carries the name, OS, and release labels,
+the tag list, and the default login user, each optional:
 
 ```json
 { "name": "Golden Ubuntu", "osSystem": "Ubuntu LTS", "release": "22.04", "tags": ["gpu", "ml"], "defaultUser": "ubuntu" }
 ```
 
-`defaultUser` follows the same set/clear rule as the display fields: a non-empty value
-becomes the effective `defaultUser` (and `customDefaultUser`); an empty or omitted value
-clears the override so the built-in default, if any, applies again. A non-empty value that
-is not a POSIX login name (`^[a-z_][a-z0-9_-]{0,31}$`) is `400 validation_error`. Like the
-other overlay fields, a `PATCH` replaces the whole overlay, so a client editing one field
-sends the current values of the others.
+`defaultUser` follows the same set/clear rule as the labels: a non-empty value becomes
+`spec.defaultUser` and the effective `status.defaultUser`; an empty or omitted value clears it so
+the built-in default, if any, applies again. A non-empty value that is not a POSIX login name
+(`^[a-z_][a-z0-9_-]{0,31}$`) is `400 validation_error`. A `PUT` replaces the whole metadata, so a
+client editing one field sends the current values of the others.
 
-Each override field is trimmed before storage. A non-empty field becomes the effective value
-on subsequent `GET /images` responses while the corresponding `provider*` field continues to
-show the provider value; an empty or omitted field clears that override so the image shows its
-provider value. `tags` are trimmed, blanks dropped, and duplicates removed while preserving
-order; an empty or omitted list clears them. When no override field, no tag, and no default
-user remains after normalization, the overlay is removed entirely, so an all-empty `PATCH` reverts the image to
-its provider values (the same effect as `DELETE`). It returns `204 No Content` on success. A
-field or tag longer than 200 characters, or more than 50 tags, is `400 validation_error`. Any
-missing query parameter or an invalid body is also `400 validation_error`.
+Each field is trimmed before storage. A non-empty label becomes the effective value on subsequent
+`GET /images` responses while the corresponding `status.provider*` field continues to show the
+provider value; an empty or omitted label clears it so the image shows its provider value. `tags`
+are trimmed, blanks dropped, and duplicates removed while preserving order; an empty or omitted
+list clears them. When no label, no tag, and no default user remains after normalization, the
+metadata is removed entirely, so an all-empty `PUT` reverts the image to its provider values (the
+same effect as `DELETE`). It returns `204 No Content` on success. A field or tag longer than 200
+characters, or more than 50 tags, is `400 validation_error`. Any missing query parameter or an
+invalid body is also `400 validation_error`.
 
-`DELETE /images/overlay` removes the overlay, reverting every field to its provider value.
-It uses the same query-parameter identity and returns `204 No Content` even when no overlay
-existed, because the requested end state already holds. Any missing query parameter is
+`DELETE /images/metadata` removes the metadata, reverting every field to its provider value. It
+uses the same query-parameter identity and returns `204 No Content` even when no metadata existed,
+because the requested end state already holds. Any missing query parameter is
 `400 validation_error`.
 
-Setting or clearing an overlay does not validate the image against the live provider
-catalog: an overlay for an image that later disappears is simply not merged, so these
-endpoints stay Swallow-local with no provider round trip and do not return
-`503 provider_unavailable`.
+Setting or clearing metadata does not validate the image against the live provider catalog:
+metadata for an image that later disappears is simply not merged, so these endpoints stay
+Swallow-local with no provider round trip and do not return `503 provider_unavailable`.
 
-A successful `PATCH` or `DELETE` propagates the new effective name to the Server
+A successful `PUT` or `DELETE` propagates the new effective name to the Server
 projections immediately: the effective display name mirrored onto each deployed Server
 of that integration (the `provisioning.deployedImageName` field on the Servers List and
 Server detail) is re-resolved and updated for any server whose deployed image is the one
@@ -978,6 +987,13 @@ answers `200`, and the same message is recorded as the Integration's last sync e
 unknown Integration is `404 not_found` and a non-provisioner Integration `400 validation_error`.
 
 ## Compatibility Notes
+
+On 2026-10-31 the OS Image overlay became OS Image metadata
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). Breaking,
+with no alias: a catalog image is `{id, architecture, spec, status}` — the `custom*` fields and
+`tags` became `spec`, and the effective and `provider*` values, `sizeBytes`, and the verification
+arrays moved under `status` — and `PATCH /images/overlay` / `DELETE /images/overlay` became
+`PUT /images/metadata` / `DELETE /images/metadata` with the same body and responses.
 
 `POST /provisioning/deployments`, `POST /servers/{id}/deploy`, and
 `POST /servers/{id}/release` preserve their existing wire behavior for one release and

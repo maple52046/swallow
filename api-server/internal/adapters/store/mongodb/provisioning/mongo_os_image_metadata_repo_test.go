@@ -10,11 +10,11 @@ import (
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
-// TestOSImageOverlayDocPersistsOverlayKey locks the persisted field names to the ones the
-// unique index and the overlay queries rely on. A silent rename here would break the merge
+// TestOSImageMetadataDocPersistsOverlayKey locks the persisted field names to the ones the
+// unique index and the metadata queries rely on. A silent rename here would break the merge
 // and let one image carry two names, so the schema is asserted explicitly rather than trusted.
-func TestOSImageOverlayDocPersistsOverlayKey(t *testing.T) {
-	doc := osImageOverlayDoc{
+func TestOSImageMetadataDocPersistsOverlayKey(t *testing.T) {
+	doc := osImageMetadataDoc{
 		IntegrationID: "integration-1",
 		ImageID:       "ubuntu/jammy",
 		Architecture:  "amd64",
@@ -34,16 +34,16 @@ func TestOSImageOverlayDocPersistsOverlayKey(t *testing.T) {
 	}
 	for _, key := range []string{"integrationId", "imageId", "architecture", "displayName", "osSystem", "release", "tags", "updatedAt"} {
 		if _, ok := decoded[key]; !ok {
-			t.Errorf("serialized overlay document missing key %q; got keys %v", key, decoded)
+			t.Errorf("serialized metadata document missing key %q; got keys %v", key, decoded)
 		}
 	}
 }
 
-// TestToOSImageOverlayRoundTrips verifies the store mapper carries every overlay field into
+// TestToOSImageMetadataRoundTrips verifies the store mapper carries every metadata field into
 // the domain type, so a read returns exactly what was stored.
-func TestToOSImageOverlayRoundTrips(t *testing.T) {
+func TestToOSImageMetadataRoundTrips(t *testing.T) {
 	updated := time.Now().UTC()
-	doc := osImageOverlayDoc{
+	doc := osImageMetadataDoc{
 		IntegrationID: "integration-1",
 		ImageID:       "ubuntu/jammy",
 		Architecture:  "amd64",
@@ -53,8 +53,8 @@ func TestToOSImageOverlayRoundTrips(t *testing.T) {
 		Tags:          []string{"gpu", "ml"},
 		UpdatedAt:     updated,
 	}
-	got := toOSImageOverlay(&doc)
-	want := &provisioningdomain.OSImageOverlay{
+	got := toOSImageMetadata(&doc)
+	want := &provisioningdomain.OSImageMetadata{
 		IntegrationID: "integration-1",
 		ImageID:       "ubuntu/jammy",
 		Architecture:  "amd64",
@@ -65,6 +65,6 @@ func TestToOSImageOverlayRoundTrips(t *testing.T) {
 		UpdatedAt:     updated,
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("toOSImageOverlay() = %+v, want %+v", *got, *want)
+		t.Errorf("toOSImageMetadata() = %+v, want %+v", *got, *want)
 	}
 }

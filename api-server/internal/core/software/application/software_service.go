@@ -888,7 +888,7 @@ func buildInstallVars(kind softwaredomain.Kind, rolesByServer map[string][]softw
 		vars["swallow_grafana_dashboards"] = nonNilStrings(dashboards)
 	case softwaredomain.KindDeviceMetricsExporter:
 		// A record written by this release always carries the version; fall back for safety. A
-		// composing Slurm deployment overlays its own job attribution and topology on these.
+		// composing Slurm deployment metadata records its own job attribution and topology on these.
 		version := strings.TrimSpace(specString(spec, softwaredomain.SpecVersion))
 		if version == "" {
 			version = softwaredomain.DeviceMetricsExporterVersion

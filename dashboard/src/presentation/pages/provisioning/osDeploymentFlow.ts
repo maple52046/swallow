@@ -55,7 +55,7 @@ export function hasFixedDeploymentImage(
 
 /** Mirrors deployment acceptance when presenting or defaulting an image's target modes. */
 export function osImageSupportsDeployTarget(image: OSImage, target: DeployTarget): boolean {
-  return image.providerOsSystem !== 'custom' || image.verifiedDeployTargets.includes(target)
+  return image.status.providerOsSystem !== 'custom' || image.status.verifiedDeployTargets.includes(target)
 }
 
 /**

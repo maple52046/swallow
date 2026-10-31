@@ -40,7 +40,7 @@ func (r *fakeOSImageVerificationRepo) Find(
 ) (*provisioningdomain.OSImageVerification, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	verification, ok := r.verifications[fakeOSImageOverlayKey(integrationID, imageID, architecture)]
+	verification, ok := r.verifications[fakeOSImageMetadataKey(integrationID, imageID, architecture)]
 	if !ok {
 		return nil, nil
 	}
@@ -54,7 +54,7 @@ func (r *fakeOSImageVerificationRepo) RecordTarget(
 ) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	key := fakeOSImageOverlayKey(integrationID, imageID, architecture)
+	key := fakeOSImageMetadataKey(integrationID, imageID, architecture)
 	verification, ok := r.verifications[key]
 	if !ok {
 		verification = &provisioningdomain.OSImageVerification{
@@ -76,7 +76,7 @@ func (r *fakeOSImageVerificationRepo) RecordFailedTarget(
 ) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	key := fakeOSImageOverlayKey(integrationID, imageID, architecture)
+	key := fakeOSImageMetadataKey(integrationID, imageID, architecture)
 	verification, ok := r.verifications[key]
 	if !ok {
 		verification = &provisioningdomain.OSImageVerification{
@@ -97,7 +97,7 @@ func (r *fakeOSImageVerificationRepo) RecordFailedTarget(
 func (r *fakeOSImageVerificationRepo) Delete(_ context.Context, integrationID, imageID, architecture string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.verifications, fakeOSImageOverlayKey(integrationID, imageID, architecture))
+	delete(r.verifications, fakeOSImageMetadataKey(integrationID, imageID, architecture))
 	return nil
 }
 

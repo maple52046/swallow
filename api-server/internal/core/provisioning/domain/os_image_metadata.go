@@ -9,29 +9,29 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
-// OSImageOverlay is swallow-owned display data layered over a provider-owned OS Image.
+// OSImageMetadata is swallow's desired metadata of one provider-owned OS Image (decision 071): the
+// name, OS, and release labels swallow shows, its tags, and its default login user.
 //
-// It is a Provider Data Overlay (see docs/decisions/025): the provider stays authoritative for
-// the image artifact and its own fields, while swallow owns only the display overrides it adds
-// here. The overlay is owned data — there is no external owner, so it carries no observedAt and
-// no staleness — and it is never written back to the provider. It is keyed by the same identity
-// the provider catalog uses to name an image within one Integration; because one image name can
-// back several architectures, the architecture is part of that key.
+// The provider owns the image artifact and reports it live; swallow owns this metadata outright.
+// It needs no provider realization — the provider offers no way to relabel an image — so it has
+// no controller, generation, or conditions, and it is never written to the provider. It is keyed
+// by the same identity the provider catalog uses to name an image within one Integration; because
+// one image name can back several architectures, the architecture is part of that key.
 //
 // Each override field is optional: an empty string means "no override, use the provider value".
 // The provider offers no way to rename an image or relabel its OS/release, and none of these
 // display strings has an external owner, so swallow may hold them without conflicting with the
 // provider. The deployable image identity (its ID/distroSeries) is never overridden — only the
 // human-facing labels are.
-type OSImageOverlay struct {
-	// IntegrationID scopes the overlay to one provisioner Integration; an image ID only
+type OSImageMetadata struct {
+	// IntegrationID scopes the metadata to one provisioner Integration; an image ID only
 	// identifies an image within the provisioner that reported it.
 	IntegrationID string
 	// ImageID is the provider's opaque image identifier, exactly as ListOSImages reports it
-	// (for example "ubuntu/jammy"). It is part of the overlay key.
+	// (for example "ubuntu/jammy"). It is part of the metadata key.
 	ImageID string
 	// Architecture is the CPU architecture the overlaid image targets (for example "amd64").
-	// One image name can back several architectures, so it completes the overlay key.
+	// One image name can back several architectures, so it completes the metadata key.
 	Architecture string
 	// DisplayName overrides the provider label as the effective image name. Empty means the
 	// image keeps its provider label.
@@ -53,14 +53,14 @@ type OSImageOverlay struct {
 	// merged over a swallow built-in (BuiltinDefaultUser), not over a provider value, and never
 	// changes what the image deploys. Empty means "use the built-in, if any".
 	DefaultUser string
-	// UpdatedAt records when swallow last wrote this overlay. It is swallow's own write time,
+	// UpdatedAt records when swallow last wrote this metadata. It is swallow's own write time,
 	// not a provider observation, so it is not a staleness signal.
 	UpdatedAt time.Time
 }
 
-// HasOverride reports whether the overlay carries at least one override, tag, or default user.
-// An overlay with nothing set is meaningless and callers delete it rather than storing it.
-func (o *OSImageOverlay) HasOverride() bool {
+// HasOverride reports whether the metadata carries at least one override, tag, or default user.
+// Metadata with nothing set is meaningless and callers delete it rather than storing it.
+func (o *OSImageMetadata) HasOverride() bool {
 	return o.DisplayName != "" || o.OSSystem != "" || o.Release != "" || len(o.Tags) > 0 || o.DefaultUser != ""
 }
 
@@ -74,7 +74,7 @@ func ValidDefaultUser(user string) bool {
 
 // builtinDefaultUsers maps a provider OS family to the default user its official cloud images
 // create. It is swallow's convention for synced images; a custom image (OS family "custom") has
-// no reliable default, so an operator sets one on the overlay.
+// no reliable default, so an operator sets one on the metadata.
 var builtinDefaultUsers = map[string]string{
 	"ubuntu": "ubuntu",
 	"centos": "centos",
@@ -82,45 +82,44 @@ var builtinDefaultUsers = map[string]string{
 }
 
 // BuiltinDefaultUser returns swallow's built-in default user for a provider OS family, or "".
-// providerOSSystem must be the provider's own value, never an overlay label: relabeling an image's
+// providerOSSystem must be the provider's own value, never metadata label: relabeling an image's
 // OS for display must not change which account automation logs in as.
 func BuiltinDefaultUser(providerOSSystem string) string {
 	return builtinDefaultUsers[strings.ToLower(strings.TrimSpace(providerOSSystem))]
 }
 
-// EffectiveDefaultUser is the single precedence rule for an image's default user: the overlay
+// EffectiveDefaultUser is the single precedence rule for an image's default user: the metadata
 // value, else the built-in for the provider OS family, else "" (automation then falls back to the
 // Site SSH user and built-in candidates).
-func EffectiveDefaultUser(overlayDefaultUser, providerOSSystem string) string {
-	if overlayDefaultUser != "" {
-		return overlayDefaultUser
+func EffectiveDefaultUser(metadataDefaultUser, providerOSSystem string) string {
+	if metadataDefaultUser != "" {
+		return metadataDefaultUser
 	}
 	return BuiltinDefaultUser(providerOSSystem)
 }
 
-// OSImageOverlayRepository persists swallow-owned OS Image overlays.
+// OSImageMetadataRepository persists swallow's OS Image metadata.
 //
-// Implementations must be safe for concurrent use. The overlay key is
-// (IntegrationID, ImageID, Architecture); implementations enforce it as a uniqueness
-// constraint so one image never carries two conflicting overlays. Overlays are owned data, so a
-// missing overlay is a normal absence — the image simply shows its provider values — not an
-// error: ListByIntegration returns only the overlays that exist, and Delete treats an
-// already-absent overlay as success. Production implementations must use durable storage;
-// in-memory implementations are limited to tests.
-type OSImageOverlayRepository interface {
-	// ListByIntegration returns every overlay stored for one Integration. It returns an empty
+// Implementations must be safe for concurrent use. The metadata key is
+// (IntegrationID, ImageID, Architecture); implementations enforce it as a uniqueness constraint
+// so one image never carries two conflicting records. Missing metadata is a normal absence — the
+// image simply shows its provider values — not an error: ListByIntegration returns only the
+// records that exist, and Delete treats already-absent metadata as success. Production
+// implementations must use durable storage; in-memory implementations are limited to tests.
+type OSImageMetadataRepository interface {
+	// ListByIntegration returns every metadata record stored for one Integration. It returns an empty
 	// slice, not an error, when none exist.
-	ListByIntegration(ctx context.Context, integrationID string) ([]*OSImageOverlay, error)
-	// Upsert stores or replaces the overlay for its (IntegrationID, ImageID, Architecture)
+	ListByIntegration(ctx context.Context, integrationID string) ([]*OSImageMetadata, error)
+	// Upsert stores or replaces the metadata for its (IntegrationID, ImageID, Architecture)
 	// key, replacing every override field so cleared fields are persisted as empty.
-	Upsert(ctx context.Context, overlay *OSImageOverlay) error
-	// Delete removes the overlay for the given key, reverting the image to its provider values.
-	// Deleting an overlay that does not exist is not an error: the requested end state (no
+	Upsert(ctx context.Context, metadata *OSImageMetadata) error
+	// Delete removes the metadata for the given key, reverting the image to its provider values.
+	// Deleting metadata that does not exist is not an error: the requested end state (no
 	// swallow overrides) is already true.
 	Delete(ctx context.Context, integrationID, imageID, architecture string) error
 }
 
-// ErrOSImageOverlayInvalid means a requested OS Image overlay field failed validation — for
+// ErrOSImageMetadataInvalid means a requested OS Image metadata field failed validation — for
 // example an override exceeded the allowed length. It is a domain validation miss, mapped by
 // delivery onto a 400, not an infrastructure failure.
-var ErrOSImageOverlayInvalid = errors.New("invalid os image overlay")
+var ErrOSImageMetadataInvalid = errors.New("invalid os image metadata")

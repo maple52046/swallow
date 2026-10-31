@@ -125,7 +125,7 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 | Managed Software（Software Assignment） | kind、variant 或 role、版本 | 已套用的狀態與版本 | 現行設計已有 desired 與 last-applied，最接近本模型 |
 | Zone／Pool | 存在與否、名稱、說明 | provisioner 中的實現狀態 | 已遷移（§4.4） |
 | SSH Key | 公鑰與用途 | 各 provisioner 的同步狀態 | 已遷移（§4.4） |
-| OS Image | swallow 的命名與 `defaultUser` 等 metadata | provider 擁有的 artifact 本身 | 現行的 Provider Data Overlay 改為 desired metadata，overlay 概念隨遷移淘汰 |
+| OS Image | swallow 的命名與 `defaultUser` 等 metadata | provider 擁有的 artifact 本身 | 已遷移（§4.4）；Provider Data Overlay 隨之淘汰 |
 | Deployment Template | 可重用的部署意圖 | — | 只有 desired；它是 Server desired state 的輸入，自己不被實現 |
 | Provisioner 設定（HTTP Proxy、Subnet DNS） | 設定值 | provider 目前的值 | 已遷移（§4.4）；外部的改動是 drift |
 
@@ -142,8 +142,9 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 | Provisioner HTTP Proxy | 每個 provisioner Integration 的 mode 與 URL | HTTP Proxy controller：寫入並讀回；第一次讀取接管 | glossary [Provisioner HTTP Proxy](glossaries/terms/provisioner-http-proxy.md)、[os-provisioning.md](os-provisioning.md) §7 |
 | Subnet DNS | 每個 provisioner subnet 的 DNS server 清單 | Subnet DNS controller：寫入並讀回；接管新 subnet、移除已消失 subnet 的設定 | glossary [Subnet DNS](glossaries/terms/subnet-dns.md)、[os-provisioning.md](os-provisioning.md) §6.4 |
 | SSH Key | 要登錄的金鑰（名稱、用途、公鑰材料） | SSH Key controller：每個 provisioner 一次同步，只移除 swallow 登錄過的金鑰；resync 補回被刪除的金鑰 | glossary [SSH Key](glossaries/terms/ssh-key.md)、[access-and-credentials.md](access-and-credentials.md) §5 |
+| OS Image metadata | 每個 provider image 的名稱、OS、release、tags 與 `defaultUser` | 無：不需要 provider 實現，所以沒有 controller、generation 與 conditions；讀取時合併到 live catalog | glossary [OS Image](glossaries/terms/os-image.md)、[os-provisioning.md](os-provisioning.md) §4.1 |
 
-（第一段其餘的資源遷移時逐一加入。）
+第一段的資源都已遷移。第二段的資源（Power Configuration、Server Default User、Boot Media）尚未遷移，維持現行行為。
 
 遷移後的資源共同遵守：
 

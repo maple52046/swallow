@@ -126,10 +126,10 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	// The overlay repo lets a deploy completion fill the mirrored OS image display name at once
+	// The metadata repo lets a deploy completion fill the mirrored OS image display name at once
 	// (RefreshServer), so the fleet list shows the friendly name instead of the raw id while the
 	// worker observes the deploy, rather than waiting for the next reconcile pass.
-	osImageOverlays, err := provisioningstore.NewMongoOSImageOverlayRepo(db)
+	osImageMetadata, err := provisioningstore.NewMongoOSImageMetadataRepo(db)
 	if err != nil {
 		return err
 	}
@@ -138,7 +138,7 @@ func RunWorker(cfg config.APIConfig) error {
 	providerExecutor := providerStepExecutor{
 		deployments: deployments,
 		release:     provisioningapp.NewReleaseServerUseCase(servers, providers, tasks),
-		refresh:     provisioningapp.NewRefreshServerUseCase(servers, providers, osImageOverlays),
+		refresh:     provisioningapp.NewRefreshServerUseCase(servers, providers, osImageMetadata),
 		servers:     servers, providers: providers, secrets: operationSecrets, tasks: tasks, poll: 5 * time.Second,
 		configurations: automationConfigurations,
 		// The executor re-checks the provider-owned Server Lock before every host

@@ -21,7 +21,7 @@ const (
 )
 
 // defaultUserPattern is the portable POSIX login-name shape (the useradd default). It is the one
-// rule for every default user swallow accepts — on a Server and on an OS Image overlay — so a name
+// rule for every default user swallow accepts — on a Server and on an OS Image metadata — so a name
 // that is valid in one place is valid in the other.
 var defaultUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 

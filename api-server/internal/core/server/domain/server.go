@@ -320,7 +320,7 @@ type ProvisioningStatus struct {
 	DistroSeries string
 	// DeployedImageName is the effective display name of the currently deployed OS image,
 	// resolved by matching OSSystem/DistroSeries against the provider's image catalog and applying
-	// any swallow overlay (custom) name. It is mirrored when a deploy completes (RefreshServer) and
+	// any swallow metadata (custom) name. It is mirrored when a deploy completes (RefreshServer) and
 	// refreshed by reconcile and by an image rename, so a freshly deployed Server shows the
 	// friendly name promptly rather than only after the next reconcile pass. A mirrored fact
 	// carried alongside the other provider observations here, refreshed with ObservedAt, and
@@ -329,7 +329,7 @@ type ProvisioningStatus struct {
 	// docs/decisions/001 and 009).
 	DeployedImageName string
 	// DeployedImageDefaultUser is the effective default login user of the currently deployed OS
-	// image (its swallow overlay value, else the built-in for its OS family), mirrored exactly
+	// image (its swallow metadata value, else the built-in for its OS family), mirrored exactly
 	// like DeployedImageName. Automation logs in to the Server as this user exclusively; empty
 	// means no default user is known and automation falls back to the Site SSH user and built-in
 	// candidates (decision 039).

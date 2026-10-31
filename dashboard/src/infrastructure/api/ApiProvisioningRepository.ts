@@ -1,5 +1,4 @@
 import type {
-  OSImageOverlayInput,
   ProvisioningRepository,
   UploadOSImageInput,
 } from "@/application/ports/ProvisioningRepository";
@@ -28,7 +27,7 @@ import type {
   VirtualMachineEnrollmentAccepted,
   VirtualMachineEnrollmentInput,
 } from "@/domain/provisioning/types";
-import type { OSImage } from "@/domain/site/types";
+import type { OSImage, OSImageMetadata } from "@/domain/site/types";
 import { ApiRequestError, apiRequest, apiUpload, type UploadProgress } from "./client";
 
 /**
@@ -209,26 +208,26 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
     });
   }
 
-  async setOSImageOverlay(
+  async setOSImageMetadata(
     integrationId: string,
     imageId: string,
     architecture: string,
-    overlay: OSImageOverlayInput,
+    metadata: OSImageMetadata,
   ): Promise<void> {
     const query = new URLSearchParams({ integrationId, imageId, architecture });
-    await apiRequest<void>(`/api/v1/provisioning/images/overlay?${query}`, {
-      method: "PATCH",
-      body: JSON.stringify(overlay),
+    await apiRequest<void>(`/api/v1/provisioning/images/metadata?${query}`, {
+      method: "PUT",
+      body: JSON.stringify(metadata),
     });
   }
 
-  async clearOSImageOverlay(
+  async clearOSImageMetadata(
     integrationId: string,
     imageId: string,
     architecture: string,
   ): Promise<void> {
     const query = new URLSearchParams({ integrationId, imageId, architecture });
-    await apiRequest<void>(`/api/v1/provisioning/images/overlay?${query}`, {
+    await apiRequest<void>(`/api/v1/provisioning/images/metadata?${query}`, {
       method: "DELETE",
     });
   }

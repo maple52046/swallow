@@ -92,7 +92,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [022](022-uninstall-release-shortcut.md) | Uninstall 同時 release 主機時直接 release，略過 platform 軟體的 uninstall | — |
 | [023](023-slurm-ha-shared-state-provisioning.md) | Slurm HA 的共享 StateSaveLocation 由 Swallow 自動佈署，不由 operator 提供 | — |
 | [024](024-slurm-login-and-workload-storage.md) | Slurm 新增 login 角色與選用的 workload 共享檔案系統，與 controller state 分離 | — |
-| [025](025-provider-data-overlay.md) | provider 擁有的事實可疊加 swallow-owned overlay，讀取時合併、永不回寫 provider | refine 001、009 |
+| [025](025-provider-data-overlay.md) | provider 擁有的事實可疊加 swallow-owned overlay，讀取時合併、永不回寫 provider | refine 001、009；被 071 取代 |
 | [026](026-slurm-minimum-resource-policy.md) | Slurm 部署採單一選用的全系統 CPU／記憶體／儲存資格門檻，前後端都檢查 | — |
 | [027](027-os-image-upload.md) | swallow 可驅動 provisioner 上傳 OS image，但不持有 artifact，custom 與否由 provider 判定 | refine 001、009 |
 | [028](028-ephemeral-kubernetes-deployment.md) | Kubernetes 接受 ephemeral（RAM）OS，以開機後主機相容性檢查把關 | — |

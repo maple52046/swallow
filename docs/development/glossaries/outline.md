@@ -14,7 +14,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Site](terms/site.md): A swallow-owned location that owns its own infrastructure and frames every other managed fact.
 - [Integration](terms/integration.md): A swallow-owned registration of one Provider Adapter at one Site (`provisioner` / `metrics` / `platform`).
 - [Staleness](terms/staleness.md): The freshness of a mirrored fact (Observed State) — its source and last-observed time — surfaced as part of the API.
-- [Provider Data Overlay](terms/provider-data-overlay.md): Swallow-owned fields merged onto a provider-owned fact at read time (e.g. an OS Image name), owned data keyed by provider identity and never written back; current behavior that retires as features move to Desired State.
+- [Provider Data Overlay](terms/provider-data-overlay.md): Retired: swallow-owned fields once merged onto a provider-owned fact at read time (the OS Image overlay, the Server tag fallback); both became Desired State (decision 071).
 
 ### Resource Ownership and Convergence
 

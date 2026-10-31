@@ -81,7 +81,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	sites := newFakeSiteRepo()
 	integrations := newFakeIntegrationRepo()
 	templates := newFakeDeploymentTemplateRepo()
-	osImageOverlays := newFakeOSImageOverlayRepo()
+	osImageMetadata := newFakeOSImageMetadataRepo()
 	osImageVerifications := newFakeOSImageVerificationRepo()
 	provider := newFakeProvider()
 	factory := newFakeProviderFactory()
@@ -99,10 +99,10 @@ func setupPlatform(t *testing.T) *platformFixture {
 		serverapp.NewListServersUseCase(servers, health),
 		serverapp.NewGetServerUseCase(servers, health),
 	)
-	// The reconcile use case is also the DeployedImageNameRefresher, so the overlay edit and the
+	// The reconcile use case is also the DeployedImageNameRefresher, so the metadata edit and the
 	// handler share one instance and a rename propagates to server projections through the same
 	// server repo the reconcile pass uses.
-	reconcileUC := provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageOverlays)
+	reconcileUC := provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageMetadata)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		provisioningapp.NewDeployServerUseCase(servers, factory),
 		provisioningapp.NewDeployServersUseCase(servers, templates, factory, osImageVerifications),
@@ -115,16 +115,16 @@ func setupPlatform(t *testing.T) *platformFixture {
 		nil,
 		nil,
 		provisioningapp.NewReleaseServerUseCase(servers, factory, nil),
-		provisioningapp.NewRefreshServerUseCase(servers, factory, osImageOverlays),
-		provisioningapp.NewListOSImagesUseCase(factory, osImageOverlays, osImageVerifications),
+		provisioningapp.NewRefreshServerUseCase(servers, factory, osImageMetadata),
+		provisioningapp.NewListOSImagesUseCase(factory, osImageMetadata, osImageVerifications),
 		reconcileUC,
 		provisioningapp.NewGetProvisionerDetailUseCase(servers, factory),
 		provisioningapp.NewGetProviderEventsUseCase(servers, factory),
 		provisioningapp.NewMachineActionsUseCase(servers, factory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(servers, factory),
-		provisioningapp.NewDeleteOSImageUseCase(factory, osImageOverlays, osImageVerifications),
-		provisioningapp.NewUploadOSImageUseCase(factory, osImageOverlays),
-		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlays, reconcileUC),
+		provisioningapp.NewDeleteOSImageUseCase(factory, osImageMetadata, osImageVerifications),
+		provisioningapp.NewUploadOSImageUseCase(factory, osImageMetadata),
+		provisioningapp.NewSetOSImageMetadataUseCase(osImageMetadata, reconcileUC),
 		provisioningapp.NewListServerTagsUseCase(integrations, factory, servers),
 		provisioningapp.NewEditServerTagsUseCase(&storetest.Transactor{}, servers, servers, factory),
 	)
@@ -208,8 +208,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 	provisioningGroup.Get("/images", provisioningHandler.ListImages)
 	provisioningGroup.Post("/images", provisioningHandler.UploadImage)
 	provisioningGroup.Delete("/images", provisioningHandler.DeleteImage)
-	provisioningGroup.Patch("/images/overlay", provisioningHandler.SetImageOverlay)
-	provisioningGroup.Delete("/images/overlay", provisioningHandler.ClearImageOverlay)
+	provisioningGroup.Put("/images/metadata", provisioningHandler.SetImageMetadata)
+	provisioningGroup.Delete("/images/metadata", provisioningHandler.ClearImageMetadata)
 	provisioningGroup.Get("/tags", provisioningHandler.ListServerTags)
 	provisioningGroup.Post("/tags", provisioningHandler.EditServerTags)
 	provisioningGroup.Get("/templates", provisioningHandler.ListTemplates)

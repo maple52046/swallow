@@ -14,19 +14,19 @@ import (
 type RefreshServerUseCase struct {
 	servers   serverdomain.ServerRepository
 	providers provisioningdomain.ProviderFactory
-	// overlays lets a deploy completion fill the mirrored OS image display name immediately, so
+	// metadata records lets a deploy completion fill the mirrored OS image display name immediately, so
 	// the fleet list shows the friendly name instead of the raw OS/release id until the next
 	// reconcile pass. Optional: a nil repository skips that resolution (the name is still carried
 	// forward and reconcile fills it), which the app-layer executor unit tests rely on.
-	overlays provisioningdomain.OSImageOverlayRepository
+	metadataRecords provisioningdomain.OSImageMetadataRepository
 }
 
 func NewRefreshServerUseCase(
 	servers serverdomain.ServerRepository,
 	providers provisioningdomain.ProviderFactory,
-	overlays provisioningdomain.OSImageOverlayRepository,
+	metadataRecords provisioningdomain.OSImageMetadataRepository,
 ) *RefreshServerUseCase {
-	return &RefreshServerUseCase{servers: servers, providers: providers, overlays: overlays}
+	return &RefreshServerUseCase{servers: servers, providers: providers, metadataRecords: metadataRecords}
 }
 
 func (uc *RefreshServerUseCase) Execute(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
@@ -61,14 +61,14 @@ func (uc *RefreshServerUseCase) Execute(ctx context.Context, serverID string) (*
 // name is still blank — the fresh-deploy case, which updateProvisioningProjection guarantees for a
 // redeploy to a different image — so the deploy-observe poll does not re-read the provider catalog
 // on every tick. A catalog read failure still fills the built-in default user for the observed OS
-// family; a nil overlay repository leaves the carried-forward values untouched.
+// family; a nil metadata repository leaves the carried-forward values untouched.
 func (uc *RefreshServerUseCase) fillDeployedImageName(
 	ctx context.Context,
 	server *serverdomain.Server,
 	machine *provisioningdomain.Machine,
 	provider provisioningdomain.OSProvisioningProvider,
 ) {
-	if uc.overlays == nil || server.Provisioning == nil {
+	if uc.metadataRecords == nil || server.Provisioning == nil {
 		return
 	}
 	if machine.Status != provisioningdomain.MachineStatusDeployed || server.Provisioning.DeployedImageName != "" {
@@ -76,7 +76,7 @@ func (uc *RefreshServerUseCase) fillDeployedImageName(
 	}
 	// A failed catalog read yields the zero resolver, whose resolve still returns the built-in
 	// default user, so the bool is not needed here.
-	resolver, _ := buildDeployedImageResolver(ctx, provider, uc.overlays, server.Source.IntegrationID)
+	resolver, _ := buildDeployedImageResolver(ctx, provider, uc.metadataRecords, server.Source.IntegrationID)
 	image := resolver.resolve(machine.OSSystem, machine.DistroSeries, machine.Architecture, true)
 	server.Provisioning.DeployedImageName = image.Name
 	server.Provisioning.DeployedImageDefaultUser = image.DefaultUser

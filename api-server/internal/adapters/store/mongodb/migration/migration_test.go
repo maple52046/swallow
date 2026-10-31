@@ -476,3 +476,32 @@ func TestMigrateV6ToV7_MakesSSHKeysResources(t *testing.T) {
 		t.Errorf("record lost its provider key id: %v", record)
 	}
 }
+
+// TestMigrateV7ToV8_MovesOSImageOverlaysToMetadata verifies the overlay documents arrive unchanged
+// in os_image_metadata and the old collection is gone.
+func TestMigrateV7ToV8_MovesOSImageOverlaysToMetadata(t *testing.T) {
+	db := testDatabase(t)
+	ctx := ctxFor(t)
+	if _, err := db.Collection("os_image_overlays").InsertOne(ctx, bson.M{
+		"integrationId": "maas-a", "imageId": "ubuntu/jammy", "architecture": "amd64", "displayName": "Golden",
+	}); err != nil {
+		t.Fatalf("seed overlays: %v", err)
+	}
+	if _, err := db.Collection("schema_metadata").InsertOne(ctx, bson.M{
+		"_id": "database", "version": 7, "updatedAt": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed schema marker: %v", err)
+	}
+
+	if err := Migrate(ctx, db, true); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	var doc bson.M
+	if err := db.Collection("os_image_metadata").FindOne(ctx, bson.M{"imageId": "ubuntu/jammy"}).Decode(&doc); err != nil || doc["displayName"] != "Golden" {
+		t.Fatalf("metadata = %v, %v; want the overlay moved", doc, err)
+	}
+	if names, _ := db.ListCollectionNames(ctx, bson.M{"name": "os_image_overlays"}); len(names) != 0 {
+		t.Errorf("os_image_overlays still exists")
+	}
+}

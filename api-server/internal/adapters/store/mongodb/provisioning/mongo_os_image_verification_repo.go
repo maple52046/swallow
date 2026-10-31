@@ -14,7 +14,7 @@ import (
 
 // osImageVerificationDoc is the MongoDB shape of a swallow-owned OS Image verification.
 //
-// Like the overlay document it carries no synthetic _id: the identity is the provider image
+// Like the metadata document it carries no synthetic _id: the identity is the provider image
 // identity (integrationId, imageId, architecture), enforced by a unique compound index. Per-target
 // evidence is stored as a nested map keyed by deploy target ("disk"/"ram"). bson tags live only here.
 type osImageVerificationDoc struct {

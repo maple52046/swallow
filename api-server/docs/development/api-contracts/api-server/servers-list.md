@@ -296,7 +296,7 @@ deployed or the image cannot be resolved from the catalog; clients fall back to
 `osSystem`/`distroSeries` in that case.
 
 `deployedImageDefaultUser` is the effective default login user of the currently deployed
-OS image (the image's Swallow `defaultUser` overlay, else the built-in derived from the OS
+OS image (the image's metadata `defaultUser`, else the built-in derived from the OS
 family), mirrored the same way as `deployedImageName`. It is the account an operator's
 Access Key authorizes on Servers the provisioner deployed, and the account automation logs
 in as unless the Server has its own default user (automation uses `defaultUser` below). It

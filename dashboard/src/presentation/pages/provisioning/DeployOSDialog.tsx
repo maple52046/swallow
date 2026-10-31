@@ -851,7 +851,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
           )}
           {selectedImageModeUnsupported && (
             <UnsupportedDeployModeWarning
-              imageName={selectedImage?.name || effectiveImageId}
+              imageName={selectedImage?.status.name || effectiveImageId}
               deployTarget={effectiveDeployTarget}
               className="sw-deploy-config-grid__wide"
             />
@@ -941,7 +941,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
                 { label: 'Site', value: context.siteId },
                 { label: 'Provisioner', value: integration?.name ?? '-' },
                 { label: 'Configuration', value: 'Custom' },
-                { label: 'Image', value: selectedImage?.name || effectiveImageId },
+                { label: 'Image', value: selectedImage?.status.name || effectiveImageId },
                 {
                   label: 'Deploy mode',
                   value: DEPLOY_TARGET_LABELS[effectiveDeployTarget],
@@ -1226,7 +1226,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
         title="Deploy OS"
         description={
           context.kind === 'fixed-image'
-            ? `Choose Servers for ${context.image.name || context.image.id}. The image is fixed from the catalog.`
+            ? `Choose Servers for ${context.image.status.name || context.image.id}. The image is fixed from the catalog.`
             : 'Configure the selected Servers without leaving this page.'
         }
         footer={footer}

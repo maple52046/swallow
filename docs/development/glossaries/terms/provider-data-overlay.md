@@ -17,7 +17,7 @@
   capability flag (an operation the provider cannot perform is refused through provider
   capabilities, not overlaid).
 - Synonyms: Overlay (within a specific entity, e.g. OS Image name overlay).
-- Deprecated terms: None.
+- Deprecated terms: Provider Data Overlay itself (retired 2026-10-31; see the change note).
 - Examples: "MAAS exposes no way to relabel an image, so swallow stores an OS Image overlay
   (name, OS family, release) keyed by `(integrationId, imageId, architecture)` and merges each
   non-empty field over the provider value at read." / "An operator relabels an image; the catalog
@@ -41,4 +41,6 @@
   fields are swallow-owned Desired State on the resource, and the overlay concept retires as the
   OS Image catalog and Server tags migrate. 2026-10-31
   ([decision 071](../../../decisions/071-provisioner-realized-desired-state.md)): the Server tag
-  fallback is retired; its tags became the Server's spec.
+  fallback is retired; its tags became the Server's spec. The same day the OS Image overlay
+  became OS Image metadata, so no feature uses the pattern any more: the term is retired and kept
+  only to explain the old `custom*` fields and the `os_image_overlays` collection.

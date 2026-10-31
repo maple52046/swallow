@@ -142,11 +142,11 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 	type provisioning struct {
 		State, ProviderState, ErrorDescription, PowerState, OSSystem, DistroSeries string
 		// DeployedImageName is part of the fingerprint because an OS Image rename changes only
-		// this mirrored field: without it a rename's eager re-mirror (SetOSImageOverlayUseCase)
+		// this mirrored field: without it a rename's eager re-mirror (SetOSImageMetadataUseCase)
 		// would collide with the prior fingerprint and be suppressed, so the fleet list would not
 		// update live until an unrelated field changed.
 		DeployedImageName string
-		// DeployedImageDefaultUser is included for the same reason: an overlay default-user edit
+		// DeployedImageDefaultUser is included for the same reason: metadata default-user edit
 		// changes only this mirrored field.
 		DeployedImageDefaultUser                      string
 		Ephemeral, Locked                             bool

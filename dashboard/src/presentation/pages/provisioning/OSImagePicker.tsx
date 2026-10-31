@@ -76,7 +76,7 @@ function imageFamilyLabel(value: string): string {
 }
 
 function imageTitle(image: OSImage): string {
-  return image.name.trim() || image.id
+  return image.status.name.trim() || image.id
 }
 
 /**
@@ -88,7 +88,7 @@ function hasDistinctImageId(image: OSImage): boolean {
 }
 
 function sortedImageTags(image: OSImage): string[] {
-  return [...new Set(image.tags.map((tag) => tag.trim()).filter(Boolean))]
+  return [...new Set(image.spec.tags.map((tag) => tag.trim()).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }))
 }
 
@@ -193,9 +193,9 @@ function OSImageCardContent({
         {title}
         <Badge size="sm" variant="subtle">{image.architecture}</Badge>
       </HStack>
-      {(image.sizeBytes || showId) && (
+      {(image.status.sizeBytes || showId) && (
         <div className="sw-os-image-picker__card-description">
-          {image.sizeBytes && <span>{formatBytes(image.sizeBytes)}</span>}
+          {image.status.sizeBytes && <span>{formatBytes(image.status.sizeBytes)}</span>}
           {showId && <span className="sw-os-image-picker__id">{image.id}</span>}
         </div>
       )}
@@ -211,10 +211,10 @@ function OSImageCardContent({
 function imageMatches(image: OSImage, normalizedQuery: string): boolean {
   if (!normalizedQuery) return true
   return [
-    image.name,
+    image.status.name,
     image.id,
     image.architecture,
-    ...image.tags,
+    ...image.spec.tags,
   ].some((candidate) => candidate.toLocaleLowerCase().includes(normalizedQuery))
 }
 
@@ -222,13 +222,13 @@ function imageMatches(image: OSImage, normalizedQuery: string): boolean {
 function groupImagesByFamily(images: readonly OSImage[]): OSImageFamily[] {
   const groups = new Map<string, { label: string; images: OSImage[] }>()
   for (const image of images) {
-    const key = imageFamilyKey(image.osSystem)
+    const key = imageFamilyKey(image.status.osSystem)
     const existing = groups.get(key)
     if (existing) {
       existing.images.push(image)
     } else {
       groups.set(key, {
-        label: imageFamilyLabel(image.osSystem),
+        label: imageFamilyLabel(image.status.osSystem),
         images: [image],
       })
     }
@@ -273,13 +273,13 @@ export function OSImagePicker({
   const [query, setQuery] = useState('')
   const [familyIntent, setFamilyIntent] = useState<FamilyIntent | null>(null)
   const [keyboardNavigation, setKeyboardNavigation] = useState(false)
-  const hasCustomImages = images.some((image) => image.providerOsSystem === 'custom')
+  const hasCustomImages = images.some((image) => image.status.providerOsSystem === 'custom')
   const verifyingTargets = useOSImageVerificationSnapshot(
     hasCustomImages && integrationId ? siteId : undefined,
   )
   const families = useMemo(() => groupImagesByFamily(images), [images])
   const selectedImage = images.find((image) => image.id === value)
-  const selectedFamilyKey = selectedImage ? imageFamilyKey(selectedImage.osSystem) : ''
+  const selectedFamilyKey = selectedImage ? imageFamilyKey(selectedImage.status.osSystem) : ''
   const intendedFamily = familyIntent?.valueWhenChosen === value
     ? families.find((family) => family.key === familyIntent.key)
     : undefined

@@ -23,7 +23,7 @@ converge 到 requested result。
 
 Upload limit、content type 與 provider requirement 定義於
 [active provisioning contract](../../../api-server/docs/development/api-contracts/api-server/provisioning.md)。
-刪除 image 時會依 contract 操作 owning provider 或 overlay。
+刪除 image 時會從 owning provider 移除它，並一併刪除 swallow 為它保存的 metadata。
 
 ## Deployment template
 

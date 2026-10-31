@@ -10,68 +10,68 @@ import (
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
-// osImageOverlayStoreKey mirrors the natural overlay key inside the in-memory fake so a test
-// can seed and assert overlays by the same identity the repository stores them under.
-func osImageOverlayStoreKey(integrationID, imageID, architecture string) string {
+// osImageMetadataStoreKey mirrors the natural metadata key inside the in-memory fake so a test
+// can seed and assert metadata records by the same identity the repository stores them under.
+func osImageMetadataStoreKey(integrationID, imageID, architecture string) string {
 	return integrationID + "\x00" + imageID + "\x00" + architecture
 }
 
-// osImageOverlayRepoFake is an in-memory OSImageOverlayRepository for use-case tests. listErr
+// osImageMetadataRepoFake is an in-memory OSImageMetadataRepository for use-case tests. listErr
 // lets a test force a store failure to check that the catalog read surfaces it.
-type osImageOverlayRepoFake struct {
-	mu       sync.Mutex
-	overlays map[string]*provisioningdomain.OSImageOverlay
-	listErr  error
+type osImageMetadataRepoFake struct {
+	mu              sync.Mutex
+	metadataRecords map[string]*provisioningdomain.OSImageMetadata
+	listErr         error
 }
 
-func newOSImageOverlayRepoFake() *osImageOverlayRepoFake {
-	return &osImageOverlayRepoFake{overlays: map[string]*provisioningdomain.OSImageOverlay{}}
+func newOSImageMetadataRepoFake() *osImageMetadataRepoFake {
+	return &osImageMetadataRepoFake{metadataRecords: map[string]*provisioningdomain.OSImageMetadata{}}
 }
 
-func (r *osImageOverlayRepoFake) ListByIntegration(
+func (r *osImageMetadataRepoFake) ListByIntegration(
 	_ context.Context, integrationID string,
-) ([]*provisioningdomain.OSImageOverlay, error) {
+) ([]*provisioningdomain.OSImageMetadata, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.listErr != nil {
 		return nil, r.listErr
 	}
-	var out []*provisioningdomain.OSImageOverlay
-	for _, overlay := range r.overlays {
-		if overlay.IntegrationID == integrationID {
-			clone := *overlay
+	var out []*provisioningdomain.OSImageMetadata
+	for _, metadata := range r.metadataRecords {
+		if metadata.IntegrationID == integrationID {
+			clone := *metadata
 			out = append(out, &clone)
 		}
 	}
 	return out, nil
 }
 
-func (r *osImageOverlayRepoFake) Upsert(_ context.Context, overlay *provisioningdomain.OSImageOverlay) error {
+func (r *osImageMetadataRepoFake) Upsert(_ context.Context, metadata *provisioningdomain.OSImageMetadata) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	clone := *overlay
-	r.overlays[osImageOverlayStoreKey(overlay.IntegrationID, overlay.ImageID, overlay.Architecture)] = &clone
+	clone := *metadata
+	r.metadataRecords[osImageMetadataStoreKey(metadata.IntegrationID, metadata.ImageID, metadata.Architecture)] = &clone
 	return nil
 }
 
-func (r *osImageOverlayRepoFake) Delete(_ context.Context, integrationID, imageID, architecture string) error {
+func (r *osImageMetadataRepoFake) Delete(_ context.Context, integrationID, imageID, architecture string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.overlays, osImageOverlayStoreKey(integrationID, imageID, architecture))
+	delete(r.metadataRecords, osImageMetadataStoreKey(integrationID, imageID, architecture))
 	return nil
 }
 
-func (r *osImageOverlayRepoFake) get(integrationID, imageID, architecture string) (*provisioningdomain.OSImageOverlay, bool) {
+func (r *osImageMetadataRepoFake) get(integrationID, imageID, architecture string) (*provisioningdomain.OSImageMetadata, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	overlay, ok := r.overlays[osImageOverlayStoreKey(integrationID, imageID, architecture)]
-	return overlay, ok
+	metadata, ok := r.metadataRecords[osImageMetadataStoreKey(integrationID, imageID, architecture)]
+	return metadata, ok
 }
 
-func (r *osImageOverlayRepoFake) seed(overlay *provisioningdomain.OSImageOverlay) {
+func (r *osImageMetadataRepoFake) seed(metadata *provisioningdomain.OSImageMetadata) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.overlays[osImageOverlayStoreKey(overlay.IntegrationID, overlay.ImageID, overlay.Architecture)] = overlay
+	r.metadataRecords[osImageMetadataStoreKey(metadata.IntegrationID, metadata.ImageID, metadata.Architecture)] = metadata
 }
 
 // osImageVerificationRepoFake is an in-memory OSImageVerificationRepository for use-case tests.
@@ -107,7 +107,7 @@ func (r *osImageVerificationRepoFake) Find(
 ) (*provisioningdomain.OSImageVerification, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.rows[osImageOverlayStoreKey(integrationID, imageID, architecture)], nil
+	return r.rows[osImageMetadataStoreKey(integrationID, imageID, architecture)], nil
 }
 
 func (r *osImageVerificationRepoFake) RecordTarget(
@@ -116,7 +116,7 @@ func (r *osImageVerificationRepoFake) RecordTarget(
 ) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	key := osImageOverlayStoreKey(integrationID, imageID, architecture)
+	key := osImageMetadataStoreKey(integrationID, imageID, architecture)
 	verification, ok := r.rows[key]
 	if !ok {
 		verification = &provisioningdomain.OSImageVerification{
@@ -136,7 +136,7 @@ func (r *osImageVerificationRepoFake) RecordFailedTarget(
 ) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	key := osImageOverlayStoreKey(integrationID, imageID, architecture)
+	key := osImageMetadataStoreKey(integrationID, imageID, architecture)
 	verification, ok := r.rows[key]
 	if !ok {
 		verification = &provisioningdomain.OSImageVerification{
@@ -156,7 +156,7 @@ func (r *osImageVerificationRepoFake) RecordFailedTarget(
 func (r *osImageVerificationRepoFake) Delete(_ context.Context, integrationID, imageID, architecture string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.rows, osImageOverlayStoreKey(integrationID, imageID, architecture))
+	delete(r.rows, osImageMetadataStoreKey(integrationID, imageID, architecture))
 	return nil
 }
 
@@ -174,7 +174,7 @@ func (r *osImageVerificationRepoFake) DeleteByIntegration(_ context.Context, int
 func (r *osImageVerificationRepoFake) seed(verification *provisioningdomain.OSImageVerification) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.rows[osImageOverlayStoreKey(verification.IntegrationID, verification.ImageID, verification.Architecture)] = verification
+	r.rows[osImageMetadataStoreKey(verification.IntegrationID, verification.ImageID, verification.Architecture)] = verification
 }
 
 // osImageBaseProvider implements the minimum OSProvisioningProvider with no optional
@@ -218,7 +218,7 @@ func (p *osImageBaseProvider) Release(context.Context, string) (*provisioningdom
 }
 
 // osImageRemovableProvider adds the optional OSImageRemover capability and records deletions,
-// so a test can confirm the provider was asked to delete before the overlay is pruned.
+// so a test can confirm the provider was asked to delete before the metadata is pruned.
 type osImageRemovableProvider struct {
 	osImageBaseProvider
 	deleted [][2]string
@@ -253,17 +253,17 @@ func TestListOSImagesProjectsVerifiedDeployTargets(t *testing.T) {
 		},
 	})
 
-	uc := NewListOSImagesUseCase(osImageTestFactory{provider: provider}, newOSImageOverlayRepoFake(), verifications)
+	uc := NewListOSImagesUseCase(osImageTestFactory{provider: provider}, newOSImageMetadataRepoFake(), verifications)
 	items, err := uc.Execute(context.Background(), "integration-1")
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	rocky, noble := items[0], items[1]
-	if len(rocky.VerifiedDeployTargets) != 2 || rocky.VerifiedDeployTargets[0] != "disk" || rocky.VerifiedDeployTargets[1] != "ram" {
-		t.Errorf("rocky verifiedDeployTargets = %v, want [disk ram] (sorted)", rocky.VerifiedDeployTargets)
+	if len(rocky.Status.VerifiedDeployTargets) != 2 || rocky.Status.VerifiedDeployTargets[0] != "disk" || rocky.Status.VerifiedDeployTargets[1] != "ram" {
+		t.Errorf("rocky verifiedDeployTargets = %v, want [disk ram] (sorted)", rocky.Status.VerifiedDeployTargets)
 	}
-	if noble.VerifiedDeployTargets == nil || len(noble.VerifiedDeployTargets) != 0 {
-		t.Errorf("noble verifiedDeployTargets = %v, want an empty (non-nil) array for an unverified image", noble.VerifiedDeployTargets)
+	if noble.Status.VerifiedDeployTargets == nil || len(noble.Status.VerifiedDeployTargets) != 0 {
+		t.Errorf("noble verifiedDeployTargets = %v, want an empty (non-nil) array for an unverified image", noble.Status.VerifiedDeployTargets)
 	}
 }
 
@@ -272,85 +272,85 @@ func TestListOSImagesMergesOverlay(t *testing.T) {
 		{ID: "ubuntu/jammy", Name: "Ubuntu 22.04 LTS", OSSystem: "ubuntu", Release: "jammy", Architecture: "amd64", SizeBytes: 5 * 1024 * 1024 * 1024},
 		{ID: "ubuntu/noble", Name: "Ubuntu 24.04 LTS", OSSystem: "ubuntu", Release: "noble", Architecture: "amd64"},
 	}}
-	overlays := newOSImageOverlayRepoFake()
+	metadataRecords := newOSImageMetadataRepoFake()
 	// Override every field on jammy, but only the release on noble, to prove the merge is
 	// per field and leaves un-overridden fields on their provider value.
-	overlays.seed(&provisioningdomain.OSImageOverlay{
+	metadataRecords.seed(&provisioningdomain.OSImageMetadata{
 		IntegrationID: "integration-1", ImageID: "ubuntu/jammy", Architecture: "amd64",
 		DisplayName: "Golden Ubuntu", OSSystem: "Ubuntu LTS", Release: "22.04", Tags: []string{"golden", "baseline"},
 	})
-	overlays.seed(&provisioningdomain.OSImageOverlay{
+	metadataRecords.seed(&provisioningdomain.OSImageMetadata{
 		IntegrationID: "integration-1", ImageID: "ubuntu/noble", Architecture: "amd64", Release: "24.04 LTS",
 	})
-	// An overlay whose image the provider no longer lists must not resurrect the image.
-	overlays.seed(&provisioningdomain.OSImageOverlay{
+	// Metadata whose image the provider no longer lists must not resurrect the image.
+	metadataRecords.seed(&provisioningdomain.OSImageMetadata{
 		IntegrationID: "integration-1", ImageID: "ubuntu/focal", Architecture: "amd64", DisplayName: "Ghost",
 	})
 
-	uc := NewListOSImagesUseCase(osImageTestFactory{provider: provider}, overlays, newOSImageVerificationRepoFake())
+	uc := NewListOSImagesUseCase(osImageTestFactory{provider: provider}, metadataRecords, newOSImageVerificationRepoFake())
 	items, err := uc.Execute(context.Background(), "integration-1")
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	if len(items) != 2 {
-		t.Fatalf("Execute() returned %d items, want 2 (an overlay for a missing image must not add one)", len(items))
+		t.Fatalf("Execute() returned %d items, want 2 (metadata for a missing image must not add one)", len(items))
 	}
 
 	full := items[0]
-	if full.Name != "Golden Ubuntu" || full.CustomName != "Golden Ubuntu" || full.ProviderName != "Ubuntu 22.04 LTS" {
+	if full.Status.Name != "Golden Ubuntu" || full.Spec.Name != "Golden Ubuntu" || full.Status.ProviderName != "Ubuntu 22.04 LTS" {
 		t.Errorf("name merge = {effective:%q custom:%q provider:%q}, want %q over %q",
-			full.Name, full.CustomName, full.ProviderName, "Golden Ubuntu", "Ubuntu 22.04 LTS")
+			full.Status.Name, full.Spec.Name, full.Status.ProviderName, "Golden Ubuntu", "Ubuntu 22.04 LTS")
 	}
-	if full.OSSystem != "Ubuntu LTS" || full.CustomOSSystem != "Ubuntu LTS" || full.ProviderOSSystem != "ubuntu" {
+	if full.Status.OSSystem != "Ubuntu LTS" || full.Spec.OSSystem != "Ubuntu LTS" || full.Status.ProviderOSSystem != "ubuntu" {
 		t.Errorf("os merge = {effective:%q custom:%q provider:%q}, want %q over %q",
-			full.OSSystem, full.CustomOSSystem, full.ProviderOSSystem, "Ubuntu LTS", "ubuntu")
+			full.Status.OSSystem, full.Spec.OSSystem, full.Status.ProviderOSSystem, "Ubuntu LTS", "ubuntu")
 	}
-	if full.Release != "22.04" || full.CustomRelease != "22.04" || full.ProviderRelease != "jammy" {
+	if full.Status.Release != "22.04" || full.Spec.Release != "22.04" || full.Status.ProviderRelease != "jammy" {
 		t.Errorf("release merge = {effective:%q custom:%q provider:%q}, want %q over %q",
-			full.Release, full.CustomRelease, full.ProviderRelease, "22.04", "jammy")
+			full.Status.Release, full.Spec.Release, full.Status.ProviderRelease, "22.04", "jammy")
 	}
-	if len(full.Tags) != 2 || full.Tags[0] != "golden" || full.Tags[1] != "baseline" {
-		t.Errorf("tags merge = %v, want [golden baseline]", full.Tags)
+	if len(full.Spec.Tags) != 2 || full.Spec.Tags[0] != "golden" || full.Spec.Tags[1] != "baseline" {
+		t.Errorf("tags merge = %v, want [golden baseline]", full.Spec.Tags)
 	}
-	if full.SizeBytes != 5*1024*1024*1024 {
-		t.Errorf("sizeBytes = %d, want provider size preserved through overlay merge", full.SizeBytes)
+	if full.Status.SizeBytes != 5*1024*1024*1024 {
+		t.Errorf("sizeBytes = %d, want provider size preserved through metadata merge", full.Status.SizeBytes)
 	}
 
 	partial := items[1]
-	if len(partial.Tags) != 0 {
-		t.Errorf("partial tags = %v, want empty array when no overlay tags", partial.Tags)
+	if len(partial.Spec.Tags) != 0 {
+		t.Errorf("partial tags = %v, want empty array when no metadata tags", partial.Spec.Tags)
 	}
 	// Only the release was overridden: name and OS must stay on their provider values.
-	if partial.Name != "Ubuntu 24.04 LTS" || partial.CustomName != "" {
-		t.Errorf("partial name = {effective:%q custom:%q}, want provider label and empty custom", partial.Name, partial.CustomName)
+	if partial.Status.Name != "Ubuntu 24.04 LTS" || partial.Spec.Name != "" {
+		t.Errorf("partial name = {effective:%q custom:%q}, want provider label and empty custom", partial.Status.Name, partial.Spec.Name)
 	}
-	if partial.OSSystem != "ubuntu" || partial.CustomOSSystem != "" {
-		t.Errorf("partial os = {effective:%q custom:%q}, want provider value and empty custom", partial.OSSystem, partial.CustomOSSystem)
+	if partial.Status.OSSystem != "ubuntu" || partial.Spec.OSSystem != "" {
+		t.Errorf("partial os = {effective:%q custom:%q}, want provider value and empty custom", partial.Status.OSSystem, partial.Spec.OSSystem)
 	}
-	if partial.Release != "24.04 LTS" || partial.CustomRelease != "24.04 LTS" || partial.ProviderRelease != "noble" {
+	if partial.Status.Release != "24.04 LTS" || partial.Spec.Release != "24.04 LTS" || partial.Status.ProviderRelease != "noble" {
 		t.Errorf("partial release = {effective:%q custom:%q provider:%q}, want %q over %q",
-			partial.Release, partial.CustomRelease, partial.ProviderRelease, "24.04 LTS", "noble")
+			partial.Status.Release, partial.Spec.Release, partial.Status.ProviderRelease, "24.04 LTS", "noble")
 	}
 }
 
 func TestListOSImagesReturnsOverlayError(t *testing.T) {
-	overlays := newOSImageOverlayRepoFake()
-	overlays.listErr = errors.New("overlay store unavailable")
-	uc := NewListOSImagesUseCase(osImageTestFactory{provider: &osImageBaseProvider{}}, overlays, newOSImageVerificationRepoFake())
+	metadataRecords := newOSImageMetadataRepoFake()
+	metadataRecords.listErr = errors.New("metadata store unavailable")
+	uc := NewListOSImagesUseCase(osImageTestFactory{provider: &osImageBaseProvider{}}, metadataRecords, newOSImageVerificationRepoFake())
 	if _, err := uc.Execute(context.Background(), "integration-1"); err == nil {
-		t.Fatal("Execute() expected an error when the overlay store fails, got nil")
+		t.Fatal("Execute() expected an error when the metadata store fails, got nil")
 	}
 }
 
-func TestSetOSImageOverlayStoresTrimmedOverrides(t *testing.T) {
-	overlays := newOSImageOverlayRepoFake()
-	uc := NewSetOSImageOverlayUseCase(overlays, nil)
-	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageOverlayInput{Name: "  Golden Ubuntu  ", OSSystem: "", Release: "  22.04  ", Tags: nil}); err != nil {
+func TestSetOSImageMetadataStoresTrimmedOverrides(t *testing.T) {
+	metadataRecords := newOSImageMetadataRepoFake()
+	uc := NewSetOSImageMetadataUseCase(metadataRecords, nil)
+	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageMetadataInput{Name: "  Golden Ubuntu  ", OSSystem: "", Release: "  22.04  ", Tags: nil}); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
-	stored, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64")
+	stored, ok := metadataRecords.get("integration-1", "ubuntu/jammy", "amd64")
 	if !ok {
-		t.Fatal("Set() did not persist an overlay")
+		t.Fatal("Set() did not persist metadata")
 	}
 	if stored.DisplayName != "Golden Ubuntu" || stored.Release != "22.04" {
 		t.Errorf("stored overrides = {name:%q release:%q}, want trimmed %q / %q", stored.DisplayName, stored.Release, "Golden Ubuntu", "22.04")
@@ -363,66 +363,66 @@ func TestSetOSImageOverlayStoresTrimmedOverrides(t *testing.T) {
 	}
 }
 
-func TestSetOSImageOverlayNormalizesTags(t *testing.T) {
-	overlays := newOSImageOverlayRepoFake()
-	uc := NewSetOSImageOverlayUseCase(overlays, nil)
+func TestSetOSImageMetadataNormalizesTags(t *testing.T) {
+	metadataRecords := newOSImageMetadataRepoFake()
+	uc := NewSetOSImageMetadataUseCase(metadataRecords, nil)
 	// Tags are trimmed, blanks dropped, and duplicates removed while preserving first order.
-	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageOverlayInput{Name: "", OSSystem: "", Release: "", Tags: []string{" gpu ", "gpu", "", "ml"}}); err != nil {
+	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageMetadataInput{Name: "", OSSystem: "", Release: "", Tags: []string{" gpu ", "gpu", "", "ml"}}); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
-	stored, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64")
+	stored, ok := metadataRecords.get("integration-1", "ubuntu/jammy", "amd64")
 	if !ok {
-		t.Fatal("Set() did not persist an overlay carrying only tags")
+		t.Fatal("Set() did not persist metadata carrying only tags")
 	}
 	if len(stored.Tags) != 2 || stored.Tags[0] != "gpu" || stored.Tags[1] != "ml" {
 		t.Errorf("stored tags = %v, want [gpu ml]", stored.Tags)
 	}
 }
 
-func TestSetOSImageOverlayRejectsOverLongField(t *testing.T) {
-	overlays := newOSImageOverlayRepoFake()
-	uc := NewSetOSImageOverlayUseCase(overlays, nil)
-	err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageOverlayInput{Name: strings.Repeat("x", maxOSImageOverlayFieldLength+1)})
-	if !errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid) {
-		t.Fatalf("Set(over-long) error = %v, want %v", err, provisioningdomain.ErrOSImageOverlayInvalid)
+func TestSetOSImageMetadataRejectsOverLongField(t *testing.T) {
+	metadataRecords := newOSImageMetadataRepoFake()
+	uc := NewSetOSImageMetadataUseCase(metadataRecords, nil)
+	err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageMetadataInput{Name: strings.Repeat("x", maxOSImageMetadataFieldLength+1)})
+	if !errors.Is(err, provisioningdomain.ErrOSImageMetadataInvalid) {
+		t.Fatalf("Set(over-long) error = %v, want %v", err, provisioningdomain.ErrOSImageMetadataInvalid)
 	}
-	if _, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64"); ok {
-		t.Error("Set() must not persist an overlay when validation fails")
+	if _, ok := metadataRecords.get("integration-1", "ubuntu/jammy", "amd64"); ok {
+		t.Error("Set() must not persist metadata when validation fails")
 	}
 }
 
-func TestSetOSImageOverlayClearsWhenAllBlank(t *testing.T) {
-	overlays := newOSImageOverlayRepoFake()
-	overlays.seed(&provisioningdomain.OSImageOverlay{
+func TestSetOSImageMetadataClearsWhenAllBlank(t *testing.T) {
+	metadataRecords := newOSImageMetadataRepoFake()
+	metadataRecords.seed(&provisioningdomain.OSImageMetadata{
 		IntegrationID: "integration-1", ImageID: "ubuntu/jammy", Architecture: "amd64", DisplayName: "Golden Ubuntu",
 	})
-	uc := NewSetOSImageOverlayUseCase(overlays, nil)
-	// An all-blank edit means "use the provider values everywhere", so the overlay is removed
+	uc := NewSetOSImageMetadataUseCase(metadataRecords, nil)
+	// An all-blank edit means "use the provider values everywhere", so the metadata is removed
 	// rather than persisted as an empty record.
-	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageOverlayInput{Name: "  ", OSSystem: "", Release: "", Tags: []string{"  "}}); err != nil {
+	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageMetadataInput{Name: "  ", OSSystem: "", Release: "", Tags: []string{"  "}}); err != nil {
 		t.Fatalf("Set(all-blank) error = %v", err)
 	}
-	if _, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64"); ok {
-		t.Error("Set(all-blank) left an empty overlay in place")
+	if _, ok := metadataRecords.get("integration-1", "ubuntu/jammy", "amd64"); ok {
+		t.Error("Set(all-blank) left an empty metadata in place")
 	}
 }
 
-func TestClearOSImageOverlayRemovesOverlay(t *testing.T) {
-	overlays := newOSImageOverlayRepoFake()
-	overlays.seed(&provisioningdomain.OSImageOverlay{
+func TestClearOSImageMetadataRemovesOverlay(t *testing.T) {
+	metadataRecords := newOSImageMetadataRepoFake()
+	metadataRecords.seed(&provisioningdomain.OSImageMetadata{
 		IntegrationID: "integration-1", ImageID: "ubuntu/jammy", Architecture: "amd64", DisplayName: "Golden Ubuntu",
 	})
-	uc := NewSetOSImageOverlayUseCase(overlays, nil)
+	uc := NewSetOSImageMetadataUseCase(metadataRecords, nil)
 	if err := uc.Clear(context.Background(), "integration-1", "ubuntu/jammy", "amd64"); err != nil {
 		t.Fatalf("Clear() error = %v", err)
 	}
-	if _, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64"); ok {
-		t.Error("Clear() left the overlay in place")
+	if _, ok := metadataRecords.get("integration-1", "ubuntu/jammy", "amd64"); ok {
+		t.Error("Clear() left the metadata in place")
 	}
 }
 
 // recordingRefresher captures the integrations passed to RefreshDeployedImageNames and can be
-// primed to fail, so a test can assert an overlay write propagates the rename and that a
+// primed to fail, so a test can assert metadata write propagates the rename and that a
 // propagation failure never fails the write.
 type recordingRefresher struct {
 	calls []string
@@ -434,14 +434,14 @@ func (r *recordingRefresher) RefreshDeployedImageNames(_ context.Context, integr
 	return r.err
 }
 
-// A successful overlay Set and Clear each trigger the deployed-image-name refresh, so a rename is
+// A successful metadata Set and Clear each trigger the deployed-image-name refresh, so a rename is
 // mirrored onto the affected integration's servers immediately instead of at the next reconcile.
-func TestSetOSImageOverlayPropagatesNameToServers(t *testing.T) {
-	overlays := newOSImageOverlayRepoFake()
+func TestSetOSImageMetadataPropagatesNameToServers(t *testing.T) {
+	metadataRecords := newOSImageMetadataRepoFake()
 	refresher := &recordingRefresher{}
-	uc := NewSetOSImageOverlayUseCase(overlays, refresher)
+	uc := NewSetOSImageMetadataUseCase(metadataRecords, refresher)
 
-	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageOverlayInput{Name: "Golden Ubuntu", OSSystem: "", Release: "", Tags: nil}); err != nil {
+	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageMetadataInput{Name: "Golden Ubuntu", OSSystem: "", Release: "", Tags: nil}); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
 	if err := uc.Clear(context.Background(), "integration-1", "ubuntu/jammy", "amd64"); err != nil {
@@ -452,42 +452,42 @@ func TestSetOSImageOverlayPropagatesNameToServers(t *testing.T) {
 	}
 }
 
-// The refresh is best-effort: a failing refresher must not turn a committed overlay write into a
+// The refresh is best-effort: a failing refresher must not turn a committed metadata write into a
 // failed request, because the periodic reconcile still re-mirrors the name.
-func TestSetOSImageOverlayIgnoresRefresherFailure(t *testing.T) {
-	overlays := newOSImageOverlayRepoFake()
+func TestSetOSImageMetadataIgnoresRefresherFailure(t *testing.T) {
+	metadataRecords := newOSImageMetadataRepoFake()
 	refresher := &recordingRefresher{err: errors.New("catalog unavailable")}
-	uc := NewSetOSImageOverlayUseCase(overlays, refresher)
+	uc := NewSetOSImageMetadataUseCase(metadataRecords, refresher)
 
-	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageOverlayInput{Name: "Golden Ubuntu", OSSystem: "", Release: "", Tags: nil}); err != nil {
+	if err := uc.Set(context.Background(), "integration-1", "ubuntu/jammy", "amd64", OSImageMetadataInput{Name: "Golden Ubuntu", OSSystem: "", Release: "", Tags: nil}); err != nil {
 		t.Fatalf("Set() with a failing refresher must still succeed, got %v", err)
 	}
-	if _, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64"); !ok {
-		t.Error("Set() must persist the overlay even when propagation fails")
+	if _, ok := metadataRecords.get("integration-1", "ubuntu/jammy", "amd64"); !ok {
+		t.Error("Set() must persist the metadata even when propagation fails")
 	}
 }
 
 func TestDeleteOSImagePrunesOverlay(t *testing.T) {
 	provider := &osImageRemovableProvider{}
-	overlays := newOSImageOverlayRepoFake()
-	overlays.seed(&provisioningdomain.OSImageOverlay{
+	metadataRecords := newOSImageMetadataRepoFake()
+	metadataRecords.seed(&provisioningdomain.OSImageMetadata{
 		IntegrationID: "integration-1", ImageID: "ubuntu/jammy", Architecture: "amd64", DisplayName: "Golden Ubuntu",
 	})
-	uc := NewDeleteOSImageUseCase(osImageTestFactory{provider: provider}, overlays, newOSImageVerificationRepoFake())
+	uc := NewDeleteOSImageUseCase(osImageTestFactory{provider: provider}, metadataRecords, newOSImageVerificationRepoFake())
 	if err := uc.Execute(context.Background(), "integration-1", "ubuntu/jammy", "amd64"); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	if len(provider.deleted) != 1 {
 		t.Fatalf("provider deletions = %d, want 1", len(provider.deleted))
 	}
-	if _, ok := overlays.get("integration-1", "ubuntu/jammy", "amd64"); ok {
-		t.Error("Execute() did not prune the overlay after deleting the image")
+	if _, ok := metadataRecords.get("integration-1", "ubuntu/jammy", "amd64"); ok {
+		t.Error("Execute() did not prune the metadata after deleting the image")
 	}
 }
 
 func TestDeleteOSImageUnsupportedProviderIsRejected(t *testing.T) {
-	overlays := newOSImageOverlayRepoFake()
-	uc := NewDeleteOSImageUseCase(osImageTestFactory{provider: &osImageBaseProvider{}}, overlays, newOSImageVerificationRepoFake())
+	metadataRecords := newOSImageMetadataRepoFake()
+	uc := NewDeleteOSImageUseCase(osImageTestFactory{provider: &osImageBaseProvider{}}, metadataRecords, newOSImageVerificationRepoFake())
 	err := uc.Execute(context.Background(), "integration-1", "ubuntu/jammy", "amd64")
 	var provErr *provisioningdomain.ProviderError
 	if !errors.As(err, &provErr) || provErr.Kind != provisioningdomain.ProviderErrorRejected {
@@ -495,7 +495,7 @@ func TestDeleteOSImageUnsupportedProviderIsRejected(t *testing.T) {
 	}
 }
 
-// The catalog reports an effective default user: the overlay value, else swallow's built-in for
+// The catalog reports an effective default user: the metadata value, else swallow's built-in for
 // the provider OS family. Relabeling the OS for display must not change the built-in.
 func TestListOSImagesProjectsDefaultUser(t *testing.T) {
 	provider := &osImageBaseProvider{images: []*provisioningdomain.OSImage{
@@ -503,15 +503,15 @@ func TestListOSImagesProjectsDefaultUser(t *testing.T) {
 		{ID: "custom/rocky", Name: "Rocky", OSSystem: "custom", Release: "rocky", Architecture: "amd64"},
 		{ID: "custom/plain", Name: "Plain", OSSystem: "custom", Release: "plain", Architecture: "amd64"},
 	}}
-	overlays := newOSImageOverlayRepoFake()
-	overlays.seed(&provisioningdomain.OSImageOverlay{
+	metadataRecords := newOSImageMetadataRepoFake()
+	metadataRecords.seed(&provisioningdomain.OSImageMetadata{
 		IntegrationID: "integration-1", ImageID: "ubuntu/noble", Architecture: "amd64", OSSystem: "Golden OS",
 	})
-	overlays.seed(&provisioningdomain.OSImageOverlay{
+	metadataRecords.seed(&provisioningdomain.OSImageMetadata{
 		IntegrationID: "integration-1", ImageID: "custom/rocky", Architecture: "amd64", DefaultUser: "cloud-user",
 	})
 
-	uc := NewListOSImagesUseCase(osImageTestFactory{provider: provider}, overlays, newOSImageVerificationRepoFake())
+	uc := NewListOSImagesUseCase(osImageTestFactory{provider: provider}, metadataRecords, newOSImageVerificationRepoFake())
 	items, err := uc.Execute(context.Background(), "integration-1")
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -525,26 +525,26 @@ func TestListOSImagesProjectsDefaultUser(t *testing.T) {
 		{index: 2},
 	} {
 		item := items[tc.index]
-		if item.DefaultUser != tc.wantEffective || item.CustomDefaultUser != tc.want {
-			t.Errorf("%s default user = %q/%q, want %q/%q", item.ID, item.DefaultUser, item.CustomDefaultUser, tc.wantEffective, tc.want)
+		if item.Status.DefaultUser != tc.wantEffective || item.Spec.DefaultUser != tc.want {
+			t.Errorf("%s default user = %q/%q, want %q/%q", item.ID, item.Status.DefaultUser, item.Spec.DefaultUser, tc.wantEffective, tc.want)
 		}
 	}
 }
 
-func TestSetOSImageOverlayValidatesDefaultUser(t *testing.T) {
-	overlays := newOSImageOverlayRepoFake()
-	uc := NewSetOSImageOverlayUseCase(overlays, nil)
+func TestSetOSImageMetadataValidatesDefaultUser(t *testing.T) {
+	metadataRecords := newOSImageMetadataRepoFake()
+	uc := NewSetOSImageMetadataUseCase(metadataRecords, nil)
 
-	err := uc.Set(context.Background(), "integration-1", "custom/rocky", "amd64", OSImageOverlayInput{DefaultUser: "Cloud User"})
-	if !errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid) {
-		t.Fatalf("Set() error = %v, want ErrOSImageOverlayInvalid for a non-POSIX user", err)
+	err := uc.Set(context.Background(), "integration-1", "custom/rocky", "amd64", OSImageMetadataInput{DefaultUser: "Cloud User"})
+	if !errors.Is(err, provisioningdomain.ErrOSImageMetadataInvalid) {
+		t.Fatalf("Set() error = %v, want ErrOSImageMetadataInvalid for a non-POSIX user", err)
 	}
 
-	if err := uc.Set(context.Background(), "integration-1", "custom/rocky", "amd64", OSImageOverlayInput{DefaultUser: " cloud-user "}); err != nil {
+	if err := uc.Set(context.Background(), "integration-1", "custom/rocky", "amd64", OSImageMetadataInput{DefaultUser: " cloud-user "}); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
-	stored, _ := overlays.ListByIntegration(context.Background(), "integration-1")
+	stored, _ := metadataRecords.ListByIntegration(context.Background(), "integration-1")
 	if len(stored) != 1 || stored[0].DefaultUser != "cloud-user" {
-		t.Errorf("stored overlays = %+v, want a default-user-only overlay kept (not deleted as empty)", stored)
+		t.Errorf("stored metadataRecords = %+v, want a default-user-only metadata kept (not deleted as empty)", stored)
 	}
 }

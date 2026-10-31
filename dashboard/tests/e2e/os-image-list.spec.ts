@@ -1,5 +1,5 @@
 import { expect, test, type Route } from 'playwright/test'
-import { installApiFixtures } from './fixtures'
+import { catalogImage, installApiFixtures, type CatalogImageFixture } from './fixtures'
 
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
@@ -84,19 +84,13 @@ test('deploy-mode filters, display state, and legacy focus remain URL-owned', as
 
 test('deployment-test activity drives View, Review, Test, and Deploy actions without provider collisions', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 })
-  const image = (id: string, name: string, providerOsSystem: string, verified: string[] = [], failed: string[] = []) => ({
+  const image = (id: string, name: string, osSystem: string, spec: CatalogImageFixture['spec'] = {}) => catalogImage({
     id,
     name,
-    providerName: name,
-    osSystem: providerOsSystem,
-    providerOsSystem,
+    osSystem,
     release: id.split('/').at(-1) ?? id,
-    providerRelease: id.split('/').at(-1) ?? id,
-    tags: [],
-    architecture: 'amd64',
+    spec,
     sizeBytes: 1024,
-    verifiedDeployTargets: verified,
-    failedDeployTargets: failed,
   })
   const workflow = (id: string, imageId: string, target: 'disk' | 'ram', status: 'running' | 'requires_attention') => ({
     id,
@@ -125,7 +119,7 @@ test('deployment-test activity drives View, Review, Test, and Deploy actions wit
     }
     return json(route, [
       image('ubuntu/jammy', 'Ubuntu 22.04 LTS', 'ubuntu'),
-      { ...image('ubuntu/golden', 'Ubuntu Golden', 'ubuntu'), name: 'GPU baseline', customName: 'GPU baseline', tags: ['gpu', 'production', 'stable'], defaultUser: 'cloud-user', customDefaultUser: 'cloud-user' },
+      image('ubuntu/golden', 'Ubuntu Golden', 'ubuntu', { name: 'GPU baseline', tags: ['gpu', 'production', 'stable'], defaultUser: 'cloud-user' }),
       image('custom/running', 'Running image test', 'custom'),
       image('custom/attention', 'Attention image test', 'custom'),
       image('custom/untested', 'Untested image', 'custom'),
@@ -261,20 +255,14 @@ test('deployment-test activity drives View, Review, Test, and Deploy actions wit
 })
 
 test('out-of-range pages are corrected while display state and Site scope are preserved', async ({ page }) => {
-  const images = Array.from({ length: 26 }, (_, index) => ({
+  const images = Array.from({ length: 26 }, (_, index) => catalogImage({
     id: 'ubuntu/image-' + index,
     name: 'Ubuntu image ' + String(index).padStart(2, '0'),
-    providerName: 'Ubuntu image ' + String(index).padStart(2, '0'),
     osSystem: 'ubuntu',
-    providerOsSystem: 'ubuntu',
     release: 'release-' + index,
-    providerRelease: 'release-' + index,
-    tags: ['golden'],
-    defaultUser: 'ubuntu',
-    architecture: 'amd64',
+    spec: { tags: ['golden'] },
+    builtinDefaultUser: 'ubuntu',
     sizeBytes: 1024 + index,
-    verifiedDeployTargets: [],
-    failedDeployTargets: [],
   }))
   await page.route('**/api/v1/provisioning/images?*', async (route) => {
     const url = new URL(route.request().url())

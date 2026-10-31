@@ -59,7 +59,10 @@ import (
 // provider sync record loses its `state`, `error`, and `syncedAt`, which the SSH Key controller
 // replaces with conditions on its first pass. The recorded provider key ids are kept, so keys
 // swallow registered can still be removed.
-const CurrentSchemaVersion = 7
+//
+// v8 retires the OS Image overlay (decision 071): the documents of `os_image_overlays` move
+// unchanged into `os_image_metadata`, swallow's desired metadata of provider images.
+const CurrentSchemaVersion = 8
 
 type metadata struct {
 	ID        string    `bson:"_id"`
@@ -175,6 +178,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v6 to v7: %w", err)
 			}
 			state.Version = 7
+		case 7:
+			if err := migrateV7ToV8(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v7 to v8: %w", err)
+			}
+			state.Version = 8
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}
@@ -251,6 +259,16 @@ func migrateV6ToV7(ctx context.Context, db *mongo.Database) error {
 		bson.M{"$or": bson.A{bson.M{"state": bson.M{"$exists": true}}, bson.M{"error": bson.M{"$exists": true}}, bson.M{"syncedAt": bson.M{"$exists": true}}}},
 		bson.M{"$unset": bson.M{"state": "", "error": "", "syncedAt": ""}})
 	return err
+}
+
+// migrateV7ToV8 moves the OS Image overlays into `os_image_metadata`. copyVerifyDrop converges on
+// a rerun, and a database without overlays has nothing to move.
+func migrateV7ToV8(ctx context.Context, db *mongo.Database) error {
+	names, err := db.ListCollectionNames(ctx, bson.M{"name": "os_image_overlays"})
+	if err != nil || len(names) == 0 {
+		return err
+	}
+	return copyVerifyDrop(ctx, db, "os_image_overlays", "os_image_metadata")
 }
 
 // migrateV2ToV3 renames the managed runtime aggregate from Cluster to Platform without

@@ -1447,7 +1447,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
             </div>
             {selectedImageModeUnsupported && (
               <UnsupportedDeployModeWarning
-                imageName={selectedImage?.name || effectiveImageId}
+                imageName={selectedImage?.status.name || effectiveImageId}
                 deployTarget={effectiveDeployTarget}
               />
             )}
@@ -1625,7 +1625,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
       ? `Provision ${readySelectedServers.length}; reuse existing OS on ${deployedSelectedServers.length}`
       : 'Use existing OS on every selected Server'
     const osReviewItems = [
-      { label: 'OS image', value: images.find((image) => image.id === effectiveImageId)?.name ?? effectiveImageId },
+      { label: 'OS image', value: images.find((image) => image.id === effectiveImageId)?.status.name ?? effectiveImageId },
       { label: 'Deploy mode', value: osDeploymentModeLabel },
       {
         label: 'Addressing',

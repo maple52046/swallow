@@ -39,7 +39,7 @@ type ProvisioningHandler struct {
 	deleteServer    *application.DeleteServerUseCase
 	deleteImage     *application.DeleteOSImageUseCase
 	uploadImage     *application.UploadOSImageUseCase
-	imageOverlay    *application.SetOSImageOverlayUseCase
+	imageMetadata   *application.SetOSImageMetadataUseCase
 	serverTagsList  *application.ListServerTagsUseCase
 	serverTagsEdit  *application.EditServerTagsUseCase
 	durable         application.DurableOperationLauncher
@@ -68,7 +68,7 @@ func NewProvisioningHandler(
 	deleteServer *application.DeleteServerUseCase,
 	deleteImage *application.DeleteOSImageUseCase,
 	uploadImage *application.UploadOSImageUseCase,
-	imageOverlay *application.SetOSImageOverlayUseCase,
+	imageMetadata *application.SetOSImageMetadataUseCase,
 	serverTagsList *application.ListServerTagsUseCase,
 	serverTagsEdit *application.EditServerTagsUseCase,
 	durable ...application.DurableOperationLauncher,
@@ -90,7 +90,7 @@ func NewProvisioningHandler(
 		deleteServer:    deleteServer,
 		deleteImage:     deleteImage,
 		uploadImage:     uploadImage,
-		imageOverlay:    imageOverlay,
+		imageMetadata:   imageMetadata,
 		serverTagsList:  serverTagsList,
 		serverTagsEdit:  serverTagsEdit,
 	}
@@ -646,11 +646,11 @@ func (h *ProvisioningHandler) UploadImage(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(item)
 }
 
-// imageOverlayRequest carries the swallow-owned display overrides, tags, and default user for an
-// OS Image overlay. Each field is optional; an empty field clears that value so the image shows
+// imageMetadataRequest carries the swallow-owned display overrides, tags, and default user for an
+// OS Image metadata. Each field is optional; an empty field clears that value so the image shows
 // its provider value (or, for defaultUser, the built-in default). Tags and defaultUser are
 // swallow-owned with no provider counterpart; an empty or omitted value clears them.
-type imageOverlayRequest struct {
+type imageMetadataRequest struct {
 	Name        string   `json:"name"`
 	OSSystem    string   `json:"osSystem"`
 	Release     string   `json:"release"`
@@ -658,13 +658,13 @@ type imageOverlayRequest struct {
 	DefaultUser string   `json:"defaultUser"`
 }
 
-// SetImageOverlay writes the swallow-owned display overlay (name, OS, release) for one OS Image,
-// the effective values a user sees over the provider's. The image is selected by the same
-// identity GET /images returns — integration, image ID, and architecture — passed as query
-// parameters because an image ID contains a slash and cannot be a path segment, and one image
-// name can back several architectures. The overlay is swallow-local and never changes the
-// provider (docs/decisions/025).
-func (h *ProvisioningHandler) SetImageOverlay(c *fiber.Ctx) error {
+// SetImageMetadata replaces swallow's metadata (name, OS, release, tags, default user) of one OS
+// Image, which becomes the effective values a user sees over the provider's. The image is selected
+// by the same identity GET /images returns — integration, image ID, and architecture — passed as
+// query parameters because an image ID contains a slash and cannot be a path segment, and one
+// image name can back several architectures. The metadata needs no provider realization and never
+// changes the provider (decision 071).
+func (h *ProvisioningHandler) SetImageMetadata(c *fiber.Ctx) error {
 	integrationID := c.Query("integrationId")
 	if integrationID == "" {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "integrationId is required."))
@@ -677,12 +677,12 @@ func (h *ProvisioningHandler) SetImageOverlay(c *fiber.Ctx) error {
 	if architecture == "" {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "architecture is required."))
 	}
-	var req imageOverlayRequest
+	var req imageMetadataRequest
 	if err := c.BodyParser(&req); err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
 
-	if err := h.imageOverlay.Set(c.Context(), integrationID, imageID, architecture, application.OSImageOverlayInput{
+	if err := h.imageMetadata.Set(c.Context(), integrationID, imageID, architecture, application.OSImageMetadataInput{
 		Name: req.Name, OSSystem: req.OSSystem, Release: req.Release, Tags: req.Tags, DefaultUser: req.DefaultUser,
 	}); err != nil {
 		return RespondError(c, err)
@@ -690,10 +690,10 @@ func (h *ProvisioningHandler) SetImageOverlay(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
-// ClearImageOverlay removes the swallow-owned overlay for one OS Image, reverting it to the
-// provider values. It uses the same query-parameter identity as SetImageOverlay and DeleteImage,
-// and returns 204 even when no overlay existed, because the requested end state already holds.
-func (h *ProvisioningHandler) ClearImageOverlay(c *fiber.Ctx) error {
+// ClearImageMetadata removes the swallow-owned metadata for one OS Image, reverting it to the
+// provider values. It uses the same query-parameter identity as SetImageMetadata and DeleteImage,
+// and returns 204 even when no metadata existed, because the requested end state already holds.
+func (h *ProvisioningHandler) ClearImageMetadata(c *fiber.Ctx) error {
 	integrationID := c.Query("integrationId")
 	if integrationID == "" {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "integrationId is required."))
@@ -707,7 +707,7 @@ func (h *ProvisioningHandler) ClearImageOverlay(c *fiber.Ctx) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "architecture is required."))
 	}
 
-	if err := h.imageOverlay.Clear(c.Context(), integrationID, imageID, architecture); err != nil {
+	if err := h.imageMetadata.Clear(c.Context(), integrationID, imageID, architecture); err != nil {
 		return RespondError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -862,7 +862,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, provisioningdomain.ErrInvalidReleaseRequest),
 		errors.Is(err, provisioningdomain.ErrInvalidNetworkConfiguration),
 		errors.Is(err, provisioningdomain.ErrInvalidEnrollmentRequest),
-		errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid),
+		errors.Is(err, provisioningdomain.ErrOSImageMetadataInvalid),
 		errors.Is(err, provisioningdomain.ErrInvalidPowerConfiguration),
 		errors.Is(err, provisioningdomain.ErrInvalidHTTPProxy),
 		errors.Is(err, provisioningdomain.ErrInvalidSubnetDNS),

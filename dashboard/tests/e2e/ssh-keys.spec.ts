@@ -128,9 +128,9 @@ test('Regenerating the deployment key warns about deployed Servers before sendin
   await expect(page.getByText('ssh-ed25519 AAAAREGENERATED swallow-deployment')).toBeVisible()
 })
 
-test('OS image default user is shown, validated, and saved with the rest of the overlay', async ({ page }) => {
-  const overlays: Array<Record<string, unknown>> = []
-  await installApiFixtures(page, { onOSImageOverlayRequest: (body) => overlays.push(body) })
+test('OS image default user is shown, validated, and saved with the rest of the metadata', async ({ page }) => {
+  const writes: Array<Record<string, unknown>> = []
+  await installApiFixtures(page, { onOSImageMetadataRequest: (body) => writes.push(body) })
   await page.goto('/provisioning/images?site=site-a')
   await expect(page.getByRole('columnheader', { name: 'Tags' })).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'Default user' })).toBeVisible()
@@ -153,8 +153,8 @@ test('OS image default user is shown, validated, and saved with the rest of the 
   await field.fill('cloud-user')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByText('OS image updated')).toBeVisible()
-  // The PATCH replaces the whole overlay, so every field is sent, including the default user.
-  expect(overlays).toEqual([{
+  // The PUT replaces the whole metadata, so every field is sent, including the default user.
+  expect(writes).toEqual([{
     name: '',
     osSystem: '',
     release: '',

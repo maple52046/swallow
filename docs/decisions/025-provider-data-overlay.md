@@ -1,6 +1,6 @@
 # 025. Provider-owned data carries a swallow overlay merged at read
 
-- Status: Accepted; Superseded in part by [071](071-provisioner-realized-desired-state.md) (the Server tag fallback and the OS Image overlay become desired state)
+- Status: Superseded by [071](071-provisioner-realized-desired-state.md) (both uses, the Server tag fallback and the OS Image overlay, became desired state)
 - Date: 2026-09-12
 
 ## Context

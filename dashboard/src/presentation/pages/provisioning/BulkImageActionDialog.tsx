@@ -23,7 +23,7 @@ interface BulkImageActionDialogProps {
  * Confirms and fans out a delete or name-reset across the selected OS images.
  *
  * Delete is irreversible on the provider, so it is gated by typing the verb, matching the
- * platform bulk dialog; resetting a swallow name overlay is reversible by renaming again, so it
+ * platform bulk dialog; resetting swallow's image metadata is reversible by renaming again, so it
  * confirms with a single click. The dialog stays open with an inline error only when every
  * target failed; a partial success hands control back to the page, where the per-image toast
  * summary explains what was skipped or refused.

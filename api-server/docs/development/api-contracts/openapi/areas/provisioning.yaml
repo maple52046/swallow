@@ -5,7 +5,7 @@
 tags:
   - name: provisioning
     description: >-
-      Provider-owned OS Images and their swallow overlay, Deployment Templates, OS Deployment
+      Provider-owned OS Images and the metadata swallow keeps for them, Deployment Templates, OS Deployment
       acceptance (target preflight, the durable deploy, release, recover, and image-verification
       Workflows, and the deprecated direct batch), network inspection, Provisioning Tasks,
       provisioner reconciliation, Server Enrollment, and Boot ISOs.
@@ -14,10 +14,10 @@ paths:
     get:
       tags: [provisioning]
       operationId: listOsImages
-      summary: List the OS Images one provisioner can deploy, with the swallow overlay merged.
+      summary: List the OS Images one provisioner can deploy, with swallow's metadata merged.
       description: >-
-        Requires role `admin`. Reads the provisioner's catalog live and merges the swallow-owned
-        overlay and verification records onto it. Returns a plain array; it contains only
+        Requires role `admin`. Reads the provisioner's catalog live and merges swallow's OS Image
+        metadata and verification records onto it. Returns a plain array; it contains only
         resources the provisioner accepts for OS deployment.
       parameters:
         - $ref: '#/components/parameters/OsImageIntegrationId'
@@ -77,8 +77,7 @@ paths:
         '201':
           description: >-
             The created image, in the shape of one catalog row. A freshly uploaded image has no
-            overlay, so its `custom*` fields are absent except `customDefaultUser` when
-            `defaultUser` was sent.
+            metadata, so its spec is empty except `spec.defaultUser` when `defaultUser` was sent.
           content:
             application/json:
               schema:
@@ -107,7 +106,7 @@ paths:
         '500':
           description: >-
             `internal_error`: the provider accepted the artifact but storing its default user
-            failed; the image exists and the default user can be set with the overlay.
+            failed; the image exists and the default user can be set with its metadata.
           content:
             application/json:
               schema:
@@ -128,7 +127,7 @@ paths:
       summary: Delete one operator-uploaded custom OS Image from its provisioner.
       description: >-
         Requires role `admin`. The image is addressed by the identity the catalog returns, as query
-        parameters, because an image id can contain a slash. Also removes the swallow overlay of
+        parameters, because an image id can contain a slash. Also removes swallow's metadata of
         the image.
       parameters:
         - $ref: '#/components/parameters/OsImageIntegrationId'
@@ -164,16 +163,16 @@ paths:
                 $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
-  /api/v1/provisioning/images/overlay:
-    patch:
+  /api/v1/provisioning/images/metadata:
+    put:
       tags: [provisioning]
-      operationId: setOsImageOverlay
-      summary: Replace the swallow-owned overlay (display fields, tags, default user) of one OS Image.
+      operationId: setOsImageMetadata
+      summary: Replace swallow's metadata (name, OS, release, tags, default user) of one OS Image.
       description: >-
-        Requires role `admin`. A PATCH replaces the whole overlay: an empty or omitted field clears
-        that override, and an all-empty overlay is removed. Swallow-local: it does not read the
-        provider catalog and never returns `503`. The new effective name and default user are
-        propagated to the Server projections best-effort.
+        Requires role `admin` (decision 071). Replaces the whole metadata: an empty or omitted
+        field clears that value, and all-empty metadata is removed. The metadata needs no provider
+        realization: it does not read the provider catalog and never returns `503`. The new
+        effective name and default user are propagated to the Server projections best-effort.
       parameters:
         - $ref: '#/components/parameters/OsImageIntegrationId'
         - $ref: '#/components/parameters/OsImageId'
@@ -183,10 +182,10 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/OsImageOverlayRequest'
+              $ref: '#/components/schemas/OsImageMetadataRequest'
       responses:
         '204':
-          description: The overlay was stored (or removed, when nothing remained after normalization).
+          description: The metadata was stored (or removed, when nothing remained after normalization).
         '400':
           description: >-
             `validation_error`: a query parameter is missing, the body is invalid, a field or tag
@@ -204,17 +203,17 @@ paths:
           $ref: '#/components/responses/Error'
     delete:
       tags: [provisioning]
-      operationId: clearOsImageOverlay
-      summary: Remove the swallow-owned overlay of one OS Image, reverting it to its provider values.
+      operationId: clearOsImageMetadata
+      summary: Remove swallow's metadata of one OS Image, reverting it to its provider values.
       description: >-
-        Requires role `admin`. Idempotent: answers `204` even when no overlay existed.
+        Requires role `admin`. Idempotent: answers `204` even when no metadata existed.
       parameters:
         - $ref: '#/components/parameters/OsImageIntegrationId'
         - $ref: '#/components/parameters/OsImageId'
         - $ref: '#/components/parameters/OsImageArchitecture'
       responses:
         '204':
-          description: No overlay remains for the image.
+          description: No metadata remains for the image.
         '400':
           description: '`validation_error`: a query parameter is missing.'
           content:
@@ -1538,80 +1537,77 @@ components:
     OsImage:
       type: object
       description: >-
-        One deployable OS Image of a provisioner. `name`, `osSystem`, and `release` are the
-        effective values (the swallow overlay value when set, else the provider value); `provider*`
-        always carry the provider's values and `custom*` the overrides.
-      required:
-        - id
-        - name
-        - providerName
-        - osSystem
-        - providerOsSystem
-        - release
-        - providerRelease
-        - tags
-        - architecture
-        - verifiedDeployTargets
-        - failedDeployTargets
+        One deployable OS Image of a provisioner (decision 071): the provider's artifact, with the
+        metadata swallow owns for it as `spec` and what is effectively shown and used, with the
+        provider's own values and swallow's verification, as `status`. The metadata needs no
+        provider realization, so there is no generation or conditions.
+      required: [id, architecture, spec, status]
       properties:
         id:
           type: string
           description: The provider's image id; with `architecture` it identifies the deployable artifact and is never overridable.
-        name:
-          type: string
-        providerName:
-          type: string
-        customName:
-          type: string
-          description: Omitted when the name has no override.
-        osSystem:
-          type: string
-        providerOsSystem:
-          type: string
-          description: The provider's classification; `custom` for an uploaded image.
-        customOsSystem:
-          type: string
-          description: Omitted when the OS has no override.
-        release:
-          type: string
-        providerRelease:
-          type: string
-        customRelease:
-          type: string
-          description: Omitted when the release has no override.
-        tags:
-          type: array
-          description: Swallow-owned labels; empty when the image has none.
-          items:
-            type: string
-        defaultUser:
-          type: string
-          description: >-
-            The effective login user automation uses on Servers deployed with the image: the
-            overlay value, else swallow's built-in for the provider OS family. Omitted when none
-            applies.
-        customDefaultUser:
-          type: string
-          description: The overlay's default user; omitted when none is set.
         architecture:
           type: string
-        sizeBytes:
-          type: integer
-          format: int64
-          minimum: 1
-          description: Provider-reported size of the newest complete resource set; omitted when unknown.
-        verifiedDeployTargets:
-          type: array
-          description: The Deploy Targets a swallow verification proved; empty when none.
-          items:
-            type: string
-            enum: [disk, ram]
-        failedDeployTargets:
-          type: array
-          description: The Deploy Targets whose latest verification failed; never overlaps `verifiedDeployTargets`.
-          items:
-            type: string
-            enum: [disk, ram]
+        spec:
+          type: object
+          description: Swallow's metadata; `""` means "use the provider's value".
+          required: [name, osSystem, release, tags, defaultUser]
+          properties:
+            name:
+              type: string
+            osSystem:
+              type: string
+            release:
+              type: string
+            tags:
+              type: array
+              description: Swallow-owned labels; empty when the image has none.
+              items:
+                type: string
+            defaultUser:
+              type: string
+              description: The default login user swallow sets for the image; `""` when none is set.
+        status:
+          type: object
+          required: [name, osSystem, release, providerName, providerOsSystem, providerRelease, verifiedDeployTargets, failedDeployTargets]
+          properties:
+            name:
+              type: string
+              description: The effective name, `spec.name` when set, else the provider's.
+            osSystem:
+              type: string
+            release:
+              type: string
+            defaultUser:
+              type: string
+              description: >-
+                The effective login user automation uses on Servers deployed with the image:
+                `spec.defaultUser`, else swallow's built-in for the provider OS family. Omitted
+                when none applies.
+            providerName:
+              type: string
+            providerOsSystem:
+              type: string
+              description: The provider's classification; `custom` for an uploaded image.
+            providerRelease:
+              type: string
+            sizeBytes:
+              type: integer
+              format: int64
+              minimum: 1
+              description: Provider-reported size of the newest complete resource set; omitted when unknown.
+            verifiedDeployTargets:
+              type: array
+              description: The Deploy Targets a swallow verification proved; empty when none.
+              items:
+                type: string
+                enum: [disk, ram]
+            failedDeployTargets:
+              type: array
+              description: The Deploy Targets whose latest verification failed; never overlaps `verifiedDeployTargets`.
+              items:
+                type: string
+                enum: [disk, ram]
     OsImageUploadForm:
       type: object
       description: The multipart parts of an OS Image upload; text parts are trimmed.
@@ -1643,16 +1639,16 @@ components:
         defaultUser:
           type: string
           pattern: '^[a-z_][a-z0-9_-]{0,31}$'
-          description: Stored as the overlay's default user once the provider accepts the upload.
+          description: Stored as the image's metadata default user once the provider accepts the upload.
         content:
           type: string
           format: binary
           description: The non-empty image file, streamed to the provider.
-    OsImageOverlayRequest:
+    OsImageMetadataRequest:
       type: object
       description: >-
-        The whole swallow-owned overlay of one OS Image. Every field is optional and trimmed; an
-        empty or omitted field clears its override.
+        The whole metadata swallow keeps for one OS Image. Every field is optional and trimmed; an
+        empty or omitted field clears it.
       properties:
         name:
           type: string

@@ -34,7 +34,7 @@ func (p *osImageUploadableProvider) UploadOSImage(
 // A provisioner without the upload capability is refused as a provider rejection rather than
 // silently accepting bytes it cannot keep.
 func TestUploadOSImageUnsupportedProviderIsRejected(t *testing.T) {
-	uc := NewUploadOSImageUseCase(osImageTestFactory{provider: &osImageBaseProvider{}}, newOSImageOverlayRepoFake())
+	uc := NewUploadOSImageUseCase(osImageTestFactory{provider: &osImageBaseProvider{}}, newOSImageMetadataRepoFake())
 
 	_, err := uc.Execute(context.Background(), UploadOSImageInput{
 		IntegrationID: "integration-1",
@@ -51,7 +51,7 @@ func TestUploadOSImageUnsupportedProviderIsRejected(t *testing.T) {
 }
 
 // The use case forwards the upload to a capable provider and projects the created image onto the
-// API item; a freshly uploaded image has no overlay, so provider values are the effective values.
+// API item; a freshly uploaded image has no metadata, so provider values are the effective values.
 func TestUploadOSImageForwardsToProvider(t *testing.T) {
 	provider := &osImageUploadableProvider{
 		result: &provisioningdomain.OSImage{
@@ -63,7 +63,7 @@ func TestUploadOSImageForwardsToProvider(t *testing.T) {
 			SizeBytes:    10485760,
 		},
 	}
-	uc := NewUploadOSImageUseCase(osImageTestFactory{provider: provider}, newOSImageOverlayRepoFake())
+	uc := NewUploadOSImageUseCase(osImageTestFactory{provider: provider}, newOSImageMetadataRepoFake())
 
 	item, err := uc.Execute(context.Background(), UploadOSImageInput{
 		IntegrationID: "integration-1",
@@ -86,39 +86,39 @@ func TestUploadOSImageForwardsToProvider(t *testing.T) {
 		t.Errorf("provider received unexpected request: %+v", provider.received)
 	}
 
-	if item.ID != "ubuntu-24.04-rocm" || item.Name != "Ubuntu 24.04 ROCm" || item.ProviderName != "Ubuntu 24.04 ROCm" {
+	if item.ID != "ubuntu-24.04-rocm" || item.Status.Name != "Ubuntu 24.04 ROCm" || item.Status.ProviderName != "Ubuntu 24.04 ROCm" {
 		t.Errorf("item identity/name: %+v", item)
 	}
-	if item.OSSystem != "custom" || item.ProviderOSSystem != "custom" {
-		t.Errorf("item OSSystem: got %q/%q, want custom", item.OSSystem, item.ProviderOSSystem)
+	if item.Status.OSSystem != "custom" || item.Status.ProviderOSSystem != "custom" {
+		t.Errorf("item OSSystem: got %q/%q, want custom", item.Status.OSSystem, item.Status.ProviderOSSystem)
 	}
-	if item.CustomName != "" || item.CustomOSSystem != "" || item.CustomRelease != "" {
+	if item.Spec.Name != "" || item.Spec.OSSystem != "" || item.Spec.Release != "" {
 		t.Errorf("a new image must carry no custom override, got %+v", item)
 	}
-	if item.Tags == nil || len(item.Tags) != 0 {
-		t.Errorf("tags must be a non-nil empty slice, got %#v", item.Tags)
+	if item.Spec.Tags == nil || len(item.Spec.Tags) != 0 {
+		t.Errorf("tags must be a non-nil empty slice, got %#v", item.Spec.Tags)
 	}
-	if item.SizeBytes != 10485760 {
-		t.Errorf("SizeBytes: got %d, want 10485760", item.SizeBytes)
+	if item.Status.SizeBytes != 10485760 {
+		t.Errorf("SizeBytes: got %d, want 10485760", item.Status.SizeBytes)
 	}
 }
 
-// An upload may carry the image's default user; it is stored as the image's swallow overlay once
+// An upload may carry the image's default user; it is stored as the image's swallow metadata once
 // the provider accepts the artifact, and an invalid value is refused before any bytes are sent.
 func TestUploadOSImageStoresDefaultUser(t *testing.T) {
 	provider := &osImageUploadableProvider{
 		result: &provisioningdomain.OSImage{ID: "custom/rocky-10", Name: "rocky-10", OSSystem: "custom", Architecture: "amd64"},
 	}
-	overlays := newOSImageOverlayRepoFake()
-	uc := NewUploadOSImageUseCase(osImageTestFactory{provider: provider}, overlays)
+	metadataRecords := newOSImageMetadataRepoFake()
+	uc := NewUploadOSImageUseCase(osImageTestFactory{provider: provider}, metadataRecords)
 	input := UploadOSImageInput{
 		IntegrationID: "integration-1", Name: "rocky-10", Architecture: "amd64",
 		Size: 4, SHA256: "deadbeef", Content: strings.NewReader("data"),
 	}
 
 	input.DefaultUser = "Cloud User"
-	if _, err := uc.Execute(context.Background(), input); !errors.Is(err, provisioningdomain.ErrOSImageOverlayInvalid) {
-		t.Fatalf("invalid default user error = %v, want ErrOSImageOverlayInvalid", err)
+	if _, err := uc.Execute(context.Background(), input); !errors.Is(err, provisioningdomain.ErrOSImageMetadataInvalid) {
+		t.Fatalf("invalid default user error = %v, want ErrOSImageMetadataInvalid", err)
 	}
 	if provider.received.Name != "" {
 		t.Errorf("an invalid default user must be refused before the provider upload")
@@ -129,11 +129,11 @@ func TestUploadOSImageStoresDefaultUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if item.DefaultUser != "cloud-user" || item.CustomDefaultUser != "cloud-user" {
-		t.Errorf("item default user = %q/%q, want cloud-user", item.DefaultUser, item.CustomDefaultUser)
+	if item.Status.DefaultUser != "cloud-user" || item.Spec.DefaultUser != "cloud-user" {
+		t.Errorf("item default user = %q/%q, want cloud-user", item.Status.DefaultUser, item.Spec.DefaultUser)
 	}
-	stored, _ := overlays.ListByIntegration(context.Background(), "integration-1")
+	stored, _ := metadataRecords.ListByIntegration(context.Background(), "integration-1")
 	if len(stored) != 1 || stored[0].ImageID != "custom/rocky-10" || stored[0].DefaultUser != "cloud-user" {
-		t.Errorf("stored overlays = %+v, want one cloud-user overlay for custom/rocky-10", stored)
+		t.Errorf("stored metadataRecords = %+v, want one cloud-user metadata for custom/rocky-10", stored)
 	}
 }

@@ -11,7 +11,7 @@ import (
 )
 
 // newProvisioningCommand groups the OS provisioning surface: OS image catalog
-// and overlay, deployment templates, Boot ISOs, Server tags, durable
+// and metadata, deployment templates, Boot ISOs, Server tags, durable
 // deploy/release/recover operations, image verification, network inspection,
 // and provisioning tasks (provisioning.md, boot-isos.md, server-tags.md).
 //
@@ -43,7 +43,7 @@ func newProvisioningCommand() *cobra.Command {
 func provisioningImagesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "images",
-		Short: "List, upload, delete OS images and manage their overlay",
+		Short: "List, upload, delete OS images and manage their metadata",
 	}
 
 	list := &cobra.Command{
@@ -72,7 +72,7 @@ func provisioningImagesCmd() *cobra.Command {
 	addImageIdentityFlags(del)
 	cmd.AddCommand(del)
 
-	cmd.AddCommand(provisioningImageOverlayCmd())
+	cmd.AddCommand(provisioningImageMetadataCmd())
 	return cmd
 }
 
@@ -141,16 +141,16 @@ func provisioningImageUploadCmd() *cobra.Command {
 	return cmd
 }
 
-func provisioningImageOverlayCmd() *cobra.Command {
+func provisioningImageMetadataCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "overlay",
-		Short: "Set or clear the swallow-owned image overlay (display labels, tags, default user)",
+		Use:   "metadata",
+		Short: "Set or clear the metadata swallow keeps for an image (labels, tags, default user)",
 	}
 
 	set := &cobra.Command{
 		Use:   "set",
-		Short: "Replace the overlay (name, osSystem, release, tags, defaultUser) from a JSON/YAML body",
-		Long: "Replace the whole overlay from a JSON/YAML body. Omitted fields are cleared, so " +
+		Short: "Replace the metadata (name, osSystem, release, tags, defaultUser) from a JSON/YAML body",
+		Long: "Replace the whole metadata from a JSON/YAML body. Omitted fields are cleared, so " +
 			"include every value to keep; defaultUser is the login user automation uses on Servers " +
 			"deployed with the image.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -158,18 +158,18 @@ func provisioningImageOverlayCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return sendNoContent(cmd, "PATCH", "provisioning/images/overlay", imageIdentityQuery(cmd), body)
+			return sendNoContent(cmd, "PUT", "provisioning/images/metadata", imageIdentityQuery(cmd), body)
 		},
 	}
 	addImageIdentityFlags(set)
-	addFileFlag(set, "overlay fields (name, osSystem, release, tags, defaultUser)")
+	addFileFlag(set, "metadata fields (name, osSystem, release, tags, defaultUser)")
 	cmd.AddCommand(set)
 
 	clear := &cobra.Command{
 		Use:   "clear",
-		Short: "Remove the overlay, reverting to provider values",
+		Short: "Remove the metadata, reverting to provider values",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return sendNoContent(cmd, "DELETE", "provisioning/images/overlay", imageIdentityQuery(cmd), nil)
+			return sendNoContent(cmd, "DELETE", "provisioning/images/metadata", imageIdentityQuery(cmd), nil)
 		},
 	}
 	addImageIdentityFlags(clear)
@@ -177,7 +177,7 @@ func provisioningImageOverlayCmd() *cobra.Command {
 	return cmd
 }
 
-// addImageIdentityFlags registers the query identity every image overlay/delete
+// addImageIdentityFlags registers the query identity every image metadata/delete
 // route requires: integration + image + architecture (an imageId may contain a
 // slash, so it cannot be a path segment).
 func addImageIdentityFlags(cmd *cobra.Command) {

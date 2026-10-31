@@ -404,8 +404,8 @@ swallow provisioning images list --integration int1
 swallow provisioning images upload --integration int1 --name "Ubuntu ROCm" \
   --architecture amd64 --content ./ubuntu-rocm.tgz [--title "..."] [--filetype tgz] [--default-user cloud-user]
 swallow provisioning images delete --integration int1 --image custom/ubuntu-rocm --architecture amd64
-swallow provisioning images overlay set --integration int1 --image ubuntu/jammy --architecture amd64 -f overlay.yaml
-swallow provisioning images overlay clear --integration int1 --image ubuntu/jammy --architecture amd64
+swallow provisioning images metadata set --integration int1 --image ubuntu/jammy --architecture amd64 -f metadata.yaml
+swallow provisioning images metadata clear --integration int1 --image ubuntu/jammy --architecture amd64
 
 # Deployment templates
 swallow provisioning templates list --site-id site1
@@ -452,10 +452,10 @@ recover，加上 `--cancel-active-workflows` 也一樣；`swallow servers delete
 `releaseServers: true` 來 release 該 Platform 的 Server。uninstall 成功或刪除 Platform 紀錄
 （`swallow platforms delete <platformId>`）之後，才能刪除該 Server。
 
-`overlay.yaml`：
+`metadata.yaml`：
 `{ name: "Golden Ubuntu", osSystem: "Ubuntu LTS", release: "22.04", tags: ["gpu","ml"], defaultUser: "ubuntu" }`
 
-`overlay set` 會取代整份 overlay，因此要保留的值都必須一併帶上。`defaultUser` 是 automation
+`metadata set` 會取代整份 metadata，因此要保留的值都必須一併帶上。`defaultUser` 是 automation
 在以此 image 佈署的 Server 上使用的登入帳號（`images list` 會顯示實際生效的 `defaultUser`，
 包含 swallow 為 synced Ubuntu、CentOS、RHEL image 內建的預設值）。
 

@@ -413,8 +413,8 @@ swallow provisioning images list --integration int1
 swallow provisioning images upload --integration int1 --name "Ubuntu ROCm" \
   --architecture amd64 --content ./ubuntu-rocm.tgz [--title "..."] [--filetype tgz] [--default-user cloud-user]
 swallow provisioning images delete --integration int1 --image custom/ubuntu-rocm --architecture amd64
-swallow provisioning images overlay set --integration int1 --image ubuntu/jammy --architecture amd64 -f overlay.yaml
-swallow provisioning images overlay clear --integration int1 --image ubuntu/jammy --architecture amd64
+swallow provisioning images metadata set --integration int1 --image ubuntu/jammy --architecture amd64 -f metadata.yaml
+swallow provisioning images metadata clear --integration int1 --image ubuntu/jammy --architecture amd64
 
 # Deployment templates
 swallow provisioning templates list --site-id site1
@@ -463,9 +463,9 @@ Platform's Servers through `swallow platforms uninstall <platformId> -f body.yam
 `releaseServers: true`. A claimed Server can be deleted once that uninstall succeeds or the
 Platform's record is deleted (`swallow platforms delete <platformId>`).
 
-`overlay.yaml`: `{ name: "Golden Ubuntu", osSystem: "Ubuntu LTS", release: "22.04", tags: ["gpu","ml"], defaultUser: "ubuntu" }`
+`metadata.yaml`: `{ name: "Golden Ubuntu", osSystem: "Ubuntu LTS", release: "22.04", tags: ["gpu","ml"], defaultUser: "ubuntu" }`
 
-`overlay set` replaces the whole overlay, so include every value you want to keep.
+`metadata set` replaces the whole metadata, so include every value you want to keep.
 `defaultUser` is the login user automation uses on Servers deployed with the image
 (`images list` shows the effective `defaultUser`, including swallow's built-in for
 synced Ubuntu, CentOS, and RHEL images).

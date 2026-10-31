@@ -13,26 +13,27 @@
   not chosen by Swallow or the caller (for MAAS an uploaded boot resource surfaces
   as `osSystem: custom`). Upload and delete are optional provider capabilities,
   refused through `ProviderCapabilities` when the provisioner does not offer them.
-  Swallow may own a Provider Data Overlay for it — swallow-chosen
-  display overrides (name, OS family, release) plus a swallow-owned list of tags,
-  keyed by `integrationId` + `imageId` + `architecture` — because the provider
-  offers no way to relabel or tag these and they have no external owner; each
-  override is merged over the provider value at read, tags are purely additive
-  (no provider counterpart), and the artifact and its deployable `id` stay
-  provider-owned. The overlay may also carry the image's **default user** — the
+  Swallow owns the image's **metadata** as desired state (decision 071) —
+  swallow-chosen labels (name, OS family, release) plus a swallow-owned list of
+  tags, keyed by `integrationId` + `imageId` + `architecture` — because the
+  provider offers no way to relabel or tag these and they have no external owner.
+  The metadata needs no provider realization, so it has no controller,
+  generation, or conditions; each label is merged over the provider value at
+  read, tags are purely additive (no provider counterpart), and the artifact and
+  its deployable `id` stay provider-owned. The metadata may also carry the image's **default user** — the
   login user the image's cloud-init configures and authorizes provisioner SSH
   keys for (for example `ubuntu` or `cloud-user`). The effective default user is
-  the overlay value when set, otherwise a swallow built-in derived from the
+  the metadata value when set, otherwise a swallow built-in derived from the
   provider OS family (`ubuntu` → `ubuntu`, `centos` → `centos`, `rhel` →
   `cloud-user`), otherwise none; it can be set at upload or afterwards, and
   swallow mirrors it onto each Server deployed with the image so automation logs
   in as that user unless the Server has its own Server Default User. Provider-reported artifact metadata such as its current complete
   resource-set size may accompany the live catalog but remains provider-owned and
-  is never part of the overlay.   Swallow may additionally hold a swallow-owned
+  is never part of the metadata. Swallow may additionally hold a swallow-owned
   **verification** for a custom image — a per-[Deploy Target](deploy-target.md)
   outcome of a real proving deploy in that mode, keyed by the same
   `integrationId` + `imageId` + `architecture` identity and stored separately from
-  the overlay. Each Deploy Target records the latest run's outcome, which is one of
+  the metadata. Each Deploy Target records the latest run's outcome, which is one of
   three states: verified (a proving deploy succeeded), failed (the most recent
   proving deploy failed), or absent (never attempted). The catalog projects these as
   `verifiedDeployTargets` and `failedDeployTargets`; a Deploy Target appears in at
@@ -57,7 +58,7 @@
   operator relabels that image; the catalog returns the effective `name`/`osSystem`/
   `release`, the provider's `provider*` values, and the swallow `custom*` overrides,
   and can reset to the provider values.
-- Related terms: OS Deployment, Deploy Target, Deployment Template, Server, Provider Data Overlay.
+- Related terms: OS Deployment, Deploy Target, Deployment Template, Server, Desired State.
 - Change note: Added to make the provider ownership and integration scope used by
   the OS provisioning API explicit. Updated 2026-09-13 to allow Swallow to drive a
   provider-owned image upload as an optional capability (the artifact stays
@@ -74,4 +75,4 @@
   [decision 036](../../../decisions/036-provisioning-lifecycle-integrity.md).
   Updated 2026-10-01 for the swallow-owned default user used as the automation
   login user, per
-  [decision 039](../../../decisions/039-ssh-key-management-and-default-user.md).
+  [decision 039](../../../decisions/039-ssh-key-management-and-default-user.md). On 2026-10-31 ([decision 071](../../../decisions/071-provisioner-realized-desired-state.md)) the Provider Data Overlay of an image became its metadata, desired state stored in `os_image_metadata`.
