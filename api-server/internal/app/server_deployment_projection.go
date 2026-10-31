@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 const legacyDeploymentProjectionWorkers = 8
@@ -19,13 +19,13 @@ type serverDeploymentStepObserver struct {
 	servers serverdomain.ServerRepository
 }
 
-func (o serverDeploymentStepObserver) ObserveStep(ctx context.Context, operationID string, step operationdomain.Task) error {
+func (o serverDeploymentStepObserver) ObserveStep(ctx context.Context, operationID string, step workflowdomain.Task) error {
 	serverID := firstTargetServer(step)
 	if serverID == "" {
 		return nil
 	}
 	if step.Kind == "release-os" {
-		if step.Status == operationdomain.TaskSucceeded {
+		if step.Status == workflowdomain.TaskSucceeded {
 			return o.servers.SetDeployment(ctx, serverID, nil)
 		}
 		return nil
@@ -56,7 +56,7 @@ func (o serverDeploymentStepObserver) ObserveStep(ctx context.Context, operation
 	// requiring the exact attempt let that stale cancel through. A newer attempt or a different
 	// operation still applies, and a genuinely in-flight (deploying/verifying) or
 	// attention-pending deploy can still be canceled.
-	if step.Status == operationdomain.TaskCanceled || step.Status == operationdomain.TaskSkipped {
+	if step.Status == workflowdomain.TaskCanceled || step.Status == workflowdomain.TaskSkipped {
 		if current := server.Deployment; current != nil &&
 			current.OperationID == operationID && current.StepID == step.ID &&
 			step.Attempt <= current.Attempt &&
@@ -95,18 +95,18 @@ func (o serverDeploymentStepObserver) ObserveStep(ctx context.Context, operation
 	})
 }
 
-func deploymentStateFromStep(status operationdomain.TaskStatus) (serverdomain.DeploymentState, bool, bool) {
+func deploymentStateFromStep(status workflowdomain.TaskStatus) (serverdomain.DeploymentState, bool, bool) {
 	switch status {
-	case operationdomain.TaskPending, operationdomain.TaskRunning,
-		operationdomain.TaskWaitingExternal, operationdomain.TaskWaitingDependency:
+	case workflowdomain.TaskPending, workflowdomain.TaskRunning,
+		workflowdomain.TaskWaitingExternal, workflowdomain.TaskWaitingDependency:
 		return serverdomain.DeploymentDeploying, false, true
-	case operationdomain.TaskSucceeded:
+	case workflowdomain.TaskSucceeded:
 		return serverdomain.DeploymentSucceeded, true, true
-	case operationdomain.TaskFailed:
+	case workflowdomain.TaskFailed:
 		return serverdomain.DeploymentFailed, true, true
-	case operationdomain.TaskRequiresAttention:
+	case workflowdomain.TaskRequiresAttention:
 		return serverdomain.DeploymentRequiresAttention, true, true
-	case operationdomain.TaskCanceled, operationdomain.TaskSkipped:
+	case workflowdomain.TaskCanceled, workflowdomain.TaskSkipped:
 		return serverdomain.DeploymentCanceled, true, true
 	default:
 		return "", false, false
@@ -137,7 +137,7 @@ func deploymentStateFromStep(status operationdomain.TaskStatus) (serverdomain.De
 func repairStuckDeploymentProjections(
 	ctx context.Context,
 	servers serverdomain.ServerRepository,
-	operations operationdomain.WorkflowRepository,
+	operations workflowdomain.WorkflowRepository,
 ) error {
 	if servers == nil || operations == nil {
 		return nil
@@ -169,13 +169,13 @@ func repairStuckDeploymentProjections(
 func repairStuckDeployment(
 	ctx context.Context,
 	servers serverdomain.ServerRepository,
-	operations operationdomain.WorkflowRepository,
+	operations workflowdomain.WorkflowRepository,
 	observer serverDeploymentStepObserver,
 	serverID string,
 	deployment serverdomain.DeploymentStatus,
 ) error {
 	operation, err := operations.FindByID(ctx, deployment.OperationID)
-	if errors.Is(err, operationdomain.ErrWorkflowNotV3) || errors.Is(err, operationdomain.ErrWorkflowNotFound) {
+	if errors.Is(err, workflowdomain.ErrWorkflowNotV3) || errors.Is(err, workflowdomain.ErrWorkflowNotFound) {
 		return nil
 	}
 	if err != nil {
@@ -184,7 +184,7 @@ func repairStuckDeployment(
 	if !operation.Status.Terminal() {
 		return nil
 	}
-	var task *operationdomain.Task
+	var task *workflowdomain.Task
 	for index := range operation.Steps {
 		if operation.Steps[index].ID == deployment.StepID {
 			task = &operation.Steps[index]
@@ -194,7 +194,7 @@ func repairStuckDeployment(
 	if task == nil {
 		return nil
 	}
-	var step operationdomain.Task
+	var step workflowdomain.Task
 	var ok bool
 	if deployment.State == serverdomain.DeploymentCanceled {
 		step, ok = recordedDeploymentOutcome(*task, deployment)
@@ -220,12 +220,12 @@ func repairStuckDeployment(
 // recordedDeploymentOutcome reports the Task outcome that replaces a `canceled` Deployment result:
 // only a Task that succeeded or failed at the same or a later attempt proves the cancel was a
 // stale rewrite. Any other Task state leaves the canceled result as it is.
-func recordedDeploymentOutcome(task operationdomain.Task, deployment serverdomain.DeploymentStatus) (operationdomain.Task, bool) {
+func recordedDeploymentOutcome(task workflowdomain.Task, deployment serverdomain.DeploymentStatus) (workflowdomain.Task, bool) {
 	if task.Attempt < deployment.Attempt {
-		return operationdomain.Task{}, false
+		return workflowdomain.Task{}, false
 	}
-	if task.Status != operationdomain.TaskSucceeded && task.Status != operationdomain.TaskFailed {
-		return operationdomain.Task{}, false
+	if task.Status != workflowdomain.TaskSucceeded && task.Status != workflowdomain.TaskFailed {
+		return workflowdomain.Task{}, false
 	}
 	return task, true
 }
@@ -238,17 +238,17 @@ func recordedDeploymentOutcome(task operationdomain.Task, deployment serverdomai
 // canceled under the Server's own attempt. Clearing StartedAt when the attempt is replaced makes
 // the observer keep the Server's recorded start time instead of another attempt's.
 func settledDeploymentStep(
-	operation *operationdomain.Workflow,
-	task operationdomain.Task,
+	operation *workflowdomain.Workflow,
+	task workflowdomain.Task,
 	deployment serverdomain.DeploymentStatus,
-) (operationdomain.Task, bool) {
+) (workflowdomain.Task, bool) {
 	if _, terminal, ok := deploymentStateFromStep(task.Status); ok && terminal && task.Attempt >= deployment.Attempt {
 		return task, true
 	}
-	if operation.Status != operationdomain.WorkflowCanceled {
-		return operationdomain.Task{}, false
+	if operation.Status != workflowdomain.WorkflowCanceled {
+		return workflowdomain.Task{}, false
 	}
-	task.Status = operationdomain.TaskCanceled
+	task.Status = workflowdomain.TaskCanceled
 	task.Error = nil
 	if task.Attempt != deployment.Attempt {
 		task.Attempt = deployment.Attempt
@@ -282,9 +282,9 @@ func sameDeployment(current *serverdomain.DeploymentStatus, observed serverdomai
 }
 
 type legacyDeploymentProjectionCandidate struct {
-	operation *operationdomain.Workflow
-	provision operationdomain.Task
-	wait      operationdomain.Task
+	operation *workflowdomain.Workflow
+	provision workflowdomain.Task
+	wait      workflowdomain.Task
 }
 
 // reconcileLegacyDeploymentProjections repairs the Server read model for Platform
@@ -295,7 +295,7 @@ type legacyDeploymentProjectionCandidate struct {
 // parsing historical error text. The provider is not mutated.
 func reconcileLegacyDeploymentProjections(
 	ctx context.Context,
-	operations operationdomain.WorkflowRepository,
+	operations workflowdomain.WorkflowRepository,
 	executor providerStepExecutor,
 ) error {
 	if operations == nil || executor.servers == nil {
@@ -304,8 +304,8 @@ func reconcileLegacyDeploymentProjections(
 	candidates := []legacyDeploymentProjectionCandidate{}
 	claimed := map[string]bool{}
 	for offset := 0; ; offset += 100 {
-		items, total, err := operations.List(ctx, operationdomain.WorkflowFilter{
-			Kind: operationdomain.WorkflowKindDeployKubernetes, Offset: offset, Limit: 100,
+		items, total, err := operations.List(ctx, workflowdomain.WorkflowFilter{
+			Kind: workflowdomain.WorkflowKindDeployKubernetes, Offset: offset, Limit: 100,
 		})
 		if err != nil {
 			return fmt.Errorf("list legacy deployment operations: %w", err)
@@ -377,13 +377,13 @@ func reconcileLegacyDeploymentProjections(
 	return joined
 }
 
-func legacyWaitForSSHStep(steps []operationdomain.Task) (operationdomain.Task, bool) {
+func legacyWaitForSSHStep(steps []workflowdomain.Task) (workflowdomain.Task, bool) {
 	for _, step := range steps {
 		if step.Kind == "wait-for-ssh" {
 			return step, true
 		}
 	}
-	return operationdomain.Task{}, false
+	return workflowdomain.Task{}, false
 }
 
 func (e providerStepExecutor) projectLegacyDeployment(ctx context.Context, candidate legacyDeploymentProjectionCandidate) error {
@@ -396,7 +396,7 @@ func (e providerStepExecutor) projectLegacyDeployment(ctx context.Context, candi
 	if server.Deployment != nil {
 		return nil
 	}
-	if candidate.provision.Status != operationdomain.TaskSucceeded {
+	if candidate.provision.Status != workflowdomain.TaskSucceeded {
 		return (serverDeploymentStepObserver{servers: e.servers}).ObserveStep(
 			ctx, candidate.operation.ID, candidate.provision,
 		)
@@ -406,9 +406,9 @@ func (e providerStepExecutor) projectLegacyDeployment(ctx context.Context, candi
 	stage, reason := "", ""
 	finishedAt := candidate.wait.FinishedAt
 	switch candidate.wait.Status {
-	case operationdomain.TaskSucceeded:
+	case workflowdomain.TaskSucceeded:
 		state = serverdomain.DeploymentSucceeded
-	case operationdomain.TaskFailed:
+	case workflowdomain.TaskFailed:
 		readiness, inspectErr := e.inspectDeploymentReadiness(ctx, serverID, candidate.operation.SiteID)
 		if inspectErr != nil {
 			state = serverdomain.DeploymentRequiresAttention
@@ -424,13 +424,13 @@ func (e providerStepExecutor) projectLegacyDeployment(ctx context.Context, candi
 		state = serverdomain.DeploymentFailed
 		stage = failure.Error.Stage
 		reason = failure.Error.Message
-	case operationdomain.TaskRequiresAttention:
+	case workflowdomain.TaskRequiresAttention:
 		state = serverdomain.DeploymentRequiresAttention
 		if candidate.wait.Error != nil {
 			stage = candidate.wait.Error.Stage
 			reason = candidate.wait.Error.Message
 		}
-	case operationdomain.TaskCanceled, operationdomain.TaskSkipped:
+	case workflowdomain.TaskCanceled, workflowdomain.TaskSkipped:
 		state = serverdomain.DeploymentCanceled
 	}
 

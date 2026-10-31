@@ -8,7 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 )
 
 type platformDoc struct {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // fakeServerTagOverlayRepo is an in-memory ServerTagOverlayRepository for HTTP tests. It mirrors

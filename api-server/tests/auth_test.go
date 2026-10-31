@@ -13,9 +13,9 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	authapp "github.com/maple52046/swallow/internal/auth/application"
-	authdelivery "github.com/maple52046/swallow/internal/auth/delivery"
-	authdomain "github.com/maple52046/swallow/internal/auth/domain"
+	authapp "github.com/maple52046/swallow/internal/core/auth/application"
+	authdelivery "github.com/maple52046/swallow/internal/core/auth/delivery"
+	authdomain "github.com/maple52046/swallow/internal/core/auth/domain"
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"

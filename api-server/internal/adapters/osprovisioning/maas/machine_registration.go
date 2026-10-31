@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // This file implements machine registration against MAAS (decision 055): the admin machine create,

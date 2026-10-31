@@ -10,7 +10,7 @@ import (
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // TestOperationWorkflowV1ParkedWaitRenewsLeasesRarely guards the history growth of an Operation
@@ -47,9 +47,9 @@ func TestOperationWorkflowV1ParkedWaitRenewsLeasesRarely(t *testing.T) {
 			}
 			var mu sync.Mutex
 			renewals := []LeaseRenewal{}
-			states := []operationdomain.WorkflowStatus{}
-			env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]operationdomain.ResourceLease, error) {
-				return []operationdomain.ResourceLease{{ResourceKey: "server:a", Owner: "workflow", FencingToken: 1}}, nil
+			states := []workflowdomain.WorkflowStatus{}
+			env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]workflowdomain.ResourceLease, error) {
+				return []workflowdomain.ResourceLease{{ResourceKey: "server:a", Owner: "workflow", FencingToken: 1}}, nil
 			}, activity.RegisterOptions{Name: ActivityAcquireLeases})
 			env.RegisterActivityWithOptions(func(_ context.Context, input LeaseRenewal) error {
 				mu.Lock()
@@ -57,7 +57,7 @@ func TestOperationWorkflowV1ParkedWaitRenewsLeasesRarely(t *testing.T) {
 				mu.Unlock()
 				return nil
 			}, activity.RegisterOptions{Name: ActivityRenewLeases})
-			env.RegisterActivityWithOptions(func(_ context.Context, _ []operationdomain.ResourceLease) error { return nil },
+			env.RegisterActivityWithOptions(func(_ context.Context, _ []workflowdomain.ResourceLease) error { return nil },
 				activity.RegisterOptions{Name: ActivityReleaseLeases})
 			env.RegisterActivityWithOptions(func(_ context.Context, _ StepUpdate) error { return nil },
 				activity.RegisterOptions{Name: ActivityUpdateStep})
@@ -68,19 +68,19 @@ func TestOperationWorkflowV1ParkedWaitRenewsLeasesRarely(t *testing.T) {
 				return nil
 			}, activity.RegisterOptions{Name: ActivityUpdateState})
 			env.RegisterActivityWithOptions(func(_ context.Context, _ StepExecutionInput) (StepExecutionResult, error) {
-				return StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
+				return StepExecutionResult{Status: workflowdomain.TaskFailed, Error: &workflowdomain.NormalizedError{
 					Code: "release_failed", Message: "The provisioner reported that release failed.", Retryable: true,
 				}}, nil
 			}, activity.RegisterOptions{Name: ActivityExecuteStep})
 			env.RegisterDelayedCallback(env.CancelWorkflow, tc.parkFor)
 
 			env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
-				OperationID: "operation-parked", Kind: operationdomain.WorkflowKindReleaseOS,
+				OperationID: "operation-parked", Kind: workflowdomain.WorkflowKindReleaseOS,
 				SiteID: "site-a", Definition: "os-release", DefinitionVersion: 1,
 				LeaseDuration: time.Minute, ResourceKeys: []string{"server:a"},
-				Steps: []operationdomain.Task{{
-					ID: "release-a", Kind: "release-os", Name: "Release a", Executor: operationdomain.RunnerKindProvisioner,
-					Status: operationdomain.TaskPending, Attempt: 1,
+				Steps: []workflowdomain.Task{{
+					ID: "release-a", Kind: "release-os", Name: "Release a", Executor: workflowdomain.RunnerKindProvisioner,
+					Status: workflowdomain.TaskPending, Attempt: 1,
 				}},
 			})
 			if err := env.GetWorkflowError(); err != nil {
@@ -88,7 +88,7 @@ func TestOperationWorkflowV1ParkedWaitRenewsLeasesRarely(t *testing.T) {
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			if len(states) == 0 || states[len(states)-1] != operationdomain.WorkflowCanceled {
+			if len(states) == 0 || states[len(states)-1] != workflowdomain.WorkflowCanceled {
 				t.Errorf("Operation states = %v, want to end canceled", states)
 			}
 			if len(renewals) != tc.wantRenewals {

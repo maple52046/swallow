@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
+	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
 )
 
 // newTestQuerier serves handler as the metrics store and returns a querier pointed at it.

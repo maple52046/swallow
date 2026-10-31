@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 const retryTestImage = "custom/ubuntu-24.04-rocm"
@@ -143,9 +143,9 @@ func provisionStep(attempt, activityAttempt int) temporalworkflow.StepExecutionI
 	image := retryTestImage
 	return temporalworkflow.StepExecutionInput{
 		OperationID: "operation-id", SiteID: "site-id", ActivityAttempt: activityAttempt,
-		Step: operationdomain.Task{
+		Step: workflowdomain.Task{
 			ID: "provision-server-id", Kind: "provision-os", Attempt: attempt,
-			Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "server-id"}},
+			Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "server-id"}},
 			Parameters: map[string]any{"request": provisioningapp.DeployServersInput{
 				ServerIDs: []string{"server-id"},
 				Settings:  provisioningapp.DeploymentSettingsInput{ImageID: &image},
@@ -174,7 +174,7 @@ func TestRetriedDeploymentRecoversUnusableServerBeforeRedeploying(t *testing.T) 
 
 			result := executor.Execute(context.Background(), provisionStep(2, 1))
 
-			if result.Status != operationdomain.TaskSucceeded {
+			if result.Status != workflowdomain.TaskSucceeded {
 				t.Fatalf("retried deployment = %+v, want succeeded after recovery and redeploy", result)
 			}
 			if release.calls != tc.wantReleases || provider.markFixed != tc.wantMarkFixed {
@@ -201,21 +201,21 @@ func TestDeploymentRetryLeavesOtherStatesToTheirOwnRules(t *testing.T) {
 		state         provisioningdomain.MachineStatus
 		distroSeries  string
 		step          temporalworkflow.StepExecutionInput
-		wantStatus    operationdomain.TaskStatus
+		wantStatus    workflowdomain.TaskStatus
 		wantCode      string
 		wantRetryable bool
 	}{
 		{
 			name: "activity retry of the first attempt reports the failed deployment", state: provisioningdomain.MachineStatusFailed,
-			step: provisionStep(1, 2), wantStatus: operationdomain.TaskFailed, wantCode: "deployment_failed", wantRetryable: true,
+			step: provisionStep(1, 2), wantStatus: workflowdomain.TaskFailed, wantCode: "deployment_failed", wantRetryable: true,
 		},
 		{
 			name: "retry of a deployment already installed with the image succeeds", state: provisioningdomain.MachineStatusDeployed,
-			distroSeries: retryTestImage, step: provisionStep(2, 1), wantStatus: operationdomain.TaskSucceeded,
+			distroSeries: retryTestImage, step: provisionStep(2, 1), wantStatus: workflowdomain.TaskSucceeded,
 		},
 		{
 			name: "retry never replaces a different deployed image", state: provisioningdomain.MachineStatusDeployed,
-			distroSeries: "ubuntu/noble", step: provisionStep(2, 1), wantStatus: operationdomain.TaskFailed, wantCode: "deployment_image_mismatch",
+			distroSeries: "ubuntu/noble", step: provisionStep(2, 1), wantStatus: workflowdomain.TaskFailed, wantCode: "deployment_image_mismatch",
 		},
 	}
 	for _, tc := range tests {
@@ -256,7 +256,7 @@ func TestDeploymentRetryRefusesLayoutThatNeedsInspection(t *testing.T) {
 
 		result := executor.Execute(context.Background(), provisionStep(2, 1))
 
-		if result.Status != operationdomain.TaskFailed || result.Error == nil {
+		if result.Status != workflowdomain.TaskFailed || result.Error == nil {
 			t.Fatalf("result = %+v, want a failed Step", result)
 		}
 		if result.Error.Code != "inspection_required" || result.Error.Retryable ||
@@ -282,7 +282,7 @@ func TestDeploymentRetryRefusesLayoutThatNeedsInspection(t *testing.T) {
 
 		result := executor.Execute(context.Background(), step)
 
-		if result.Status != operationdomain.TaskSucceeded {
+		if result.Status != workflowdomain.TaskSucceeded {
 			t.Fatalf("result = %+v, want succeeded after recovery and redeploy", result)
 		}
 		if release.calls != 1 || deployments.calls != 1 {
@@ -342,7 +342,7 @@ func TestDeploymentFailureNamesTheProvisionerCause(t *testing.T) {
 
 				result := executor.Execute(context.Background(), step)
 
-				if result.Status != operationdomain.TaskFailed || result.Error == nil {
+				if result.Status != workflowdomain.TaskFailed || result.Error == nil {
 					t.Fatalf("result = %+v, want a failed Step", result)
 				}
 				if result.Error.Code != "deployment_failed" || !result.Error.Retryable || result.Error.Stage != "deployment" {
@@ -368,7 +368,7 @@ func TestPreflightRejectionIsAKnownOutcome(t *testing.T) {
 
 	result := executor.Execute(context.Background(), provisionStep(1, 1))
 
-	if result.Status != operationdomain.TaskFailed || result.Error == nil {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil {
 		t.Fatalf("result = %+v, want a failed Step", result)
 	}
 	if result.Error.Code != "deployment_preflight_rejected" || result.Error.Retryable || result.Error.Stage != "deployment_preflight" {

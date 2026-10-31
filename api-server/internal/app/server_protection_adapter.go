@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 // providerServerMutationGuard is the anticorruption boundary for the provider-owned

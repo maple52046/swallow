@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 // provisioning.stateSince is optional (servers-list.md): a recorded start is an RFC 3339 time,

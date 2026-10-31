@@ -21,7 +21,7 @@
 
 ## 1. 目的與範圍
 
-- **讀者**：修改或除錯 orchestration（`internal/operation`）、新增 Workflow kind 或 Task kind、或需要判斷
+- **讀者**：修改或除錯 orchestration（`internal/core/workflow`）、新增 Workflow kind 或 Task kind、或需要判斷
   「這個 Workflow 卡住時該 retry、rerun 還是 cancel」的開發者與 AI agent。
 - **範圍內**：所有 schema-v3 Workflow 共用的執行語意（§3–§11）。
 - **範圍外**：個別 kind 的 Task 組成、Runner 內部的 provider／playbook 行為、schema-v2 歷史紀錄的相容讀取
@@ -512,24 +512,24 @@ lifecycle 表達。三道機制保證這件事：
 
 | 職責 | 路徑 |
 | --- | --- |
-| Workflow／Task／lease domain、狀態值、`ErrStepTransitionIgnored` | `internal/operation/domain/orchestration.go` |
-| `WorkflowService`：Create（驗證、busy check、secret 封存）、Cancel、RetryStep、Rerun 與 Task 複製規則 | `internal/operation/application/orchestration.go` |
-| execution 已不存在時的取消投影與 lease 釋放 | `internal/operation/application/lost_execution.go` |
+| Workflow／Task／lease domain、狀態值、`ErrStepTransitionIgnored` | `internal/core/workflow/domain/orchestration.go` |
+| `WorkflowService`：Create（驗證、busy check、secret 封存）、Cancel、RetryStep、Rerun 與 Task 複製規則 | `internal/core/workflow/application/orchestration.go` |
+| execution 已不存在時的取消投影與 lease 釋放 | `internal/core/workflow/application/lost_execution.go` |
 | `OperationWorkflowV1`、`JobWorkflowV1`、停等續租、取消路徑、回收被中斷的部署、Controller、Starter、Reconciler | `internal/adapters/executor/temporalworkflow/workflow.go` |
 | ExecuteStep activity 的 timeout 與重試設定、worker drain 的判斷 | `internal/adapters/executor/temporalworkflow/activity_options.go`、`activity_shutdown.go` |
 | Workflow repository（monotonic guard、`UpdateStepLive`、索引）與 resource lease repository | `internal/adapters/store/mongodb/workflow/mongo_orchestration_repo.go` |
 | `cancelActiveWorkflows` 的後端實作 | `internal/app/workflow_supersede.go` |
 | Release／Recover 的受理與取代 | `internal/app/provisioning_operation_adapter.go` |
-| Platform uninstall 的受理與取代 | `internal/app/platform_deployment_adapter.go`、`internal/platform/application/uninstall_platform.go` |
+| Platform uninstall 的受理與取代 | `internal/app/platform_deployment_adapter.go`、`internal/core/platform/application/uninstall_platform.go` |
 | Server deployment observer 與 repair sweep | `internal/app/server_deployment_projection.go` |
 | `return-canceled-deployment` 與 `release-os` 的先觀察 | `internal/app/provider_step_executor.go` |
 | Platform lifecycle 推導 | `internal/app/platform_lifecycle_adapter.go` |
 | Starter、Reconciler、repair sweep 的接線 | `internal/app/api.go`、`internal/app/worker.go` |
 | ansible activity（提早發佈 reference、鏡射 `Task.Live`） | `internal/adapters/executor/temporalworkflow/ansible_executor.go` |
-| ansible executor process（串流、Progress、executor lease 與 fencing） | `internal/operation/application/ansible_executor.go` |
+| ansible executor process（串流、Progress、executor lease 與 fencing） | `internal/core/workflow/application/ansible_executor.go` |
 | `ansible_task_events` store | `internal/adapters/store/mongodb/workflow/mongo_ansible_event_repo.go` |
 | 讀取 run 的增量 events | `internal/adapters/hostautomation/ansible/local_runner.go` |
-| Task events 的 API 讀取 | `internal/operation/application/execution_service.go` |
+| Task events 的 API 讀取 | `internal/core/workflow/application/execution_service.go` |
 | artifact retention | `internal/app/artifact_retention.go`、`internal/adapters/hostautomation/ansible/artifact_retention.go` |
 | 設定預設值（lease、parallelism、各 interval） | `config/defaults.go`、`config/env.go`、`config/validate.go` |
 

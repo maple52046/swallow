@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
-	sitedomain "github.com/maple52046/swallow/internal/site/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // The enroll-virtual-machines Workflow vocabulary (contract server-enrollment.md, decision 055).
@@ -126,8 +126,8 @@ func (l virtualMachineEnrollmentLauncher) LaunchVirtualMachineEnrollment(ctx con
 			return nil, err
 		}
 	}
-	target := []operationdomain.ResourceReference{{Kind: "server", ID: hypervisor.ID}}
-	steps := make([]operationdomain.Task, 0, len(request.Domains))
+	target := []workflowdomain.ResourceReference{{Kind: "server", ID: hypervisor.ID}}
+	steps := make([]workflowdomain.Task, 0, len(request.Domains))
 	ids := map[string]bool{}
 	for i, domain := range request.Domains {
 		id := enrollVirtualMachineTaskKind + "-" + provisioningdomain.MachineHostnameOf(domain)
@@ -135,9 +135,9 @@ func (l virtualMachineEnrollmentLauncher) LaunchVirtualMachineEnrollment(ctx con
 			id = enrollVirtualMachineTaskKind + "-" + strconv.Itoa(i+1)
 		}
 		ids[id] = true
-		steps = append(steps, operationdomain.Task{
+		steps = append(steps, workflowdomain.Task{
 			ID: id, Kind: enrollVirtualMachineTaskKind, Name: "Enroll virtual machine " + domain,
-			Job: virtualMachineEnrollmentJob, Executor: operationdomain.RunnerKindProvisioner, Targets: target,
+			Job: virtualMachineEnrollmentJob, Executor: workflowdomain.RunnerKindProvisioner, Targets: target,
 			Parameters: enrollVirtualMachineParameters{
 				IntegrationID: integration.ID, HypervisorServerID: hypervisor.ID, Domain: domain,
 				Account: login.Account, BootISOID: request.BootISOID, PowerOffRunning: request.PowerOffRunning,
@@ -148,8 +148,8 @@ func (l virtualMachineEnrollmentLauncher) LaunchVirtualMachineEnrollment(ctx con
 	if len(request.Domains) == 1 {
 		summary = fmt.Sprintf("Enroll virtual machine %s of %s", request.Domains[0], login.Name)
 	}
-	created, err := l.workflows.Create(ctx, operationapp.CreateWorkflowInput{
-		Kind:          operationdomain.WorkflowKindEnrollVirtualMachines,
+	created, err := l.workflows.Create(ctx, workflowapp.CreateWorkflowInput{
+		Kind:          workflowdomain.WorkflowKindEnrollVirtualMachines,
 		IntentSummary: summary,
 		IntentSnapshot: map[string]any{
 			"integrationId": integration.ID, "hypervisorServerId": hypervisor.ID, "domains": request.Domains,
@@ -344,7 +344,7 @@ func (e providerStepExecutor) awaitVirtualMachineServer(ctx context.Context, enr
 		}
 		select {
 		case <-ctx.Done():
-			result := temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
+			result := temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
 			return nil, &result
 		case <-deadline.C:
 			result := providerAttention("server_not_projected", fmt.Sprintf(

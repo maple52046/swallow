@@ -4,8 +4,8 @@ import (
 	"net/netip"
 	"testing"
 
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // TestNodeSubnetReadsTheAssignedOrBootSubnet pins where an HA deploy reads a control-plane

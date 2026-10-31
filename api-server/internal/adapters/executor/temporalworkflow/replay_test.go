@@ -15,7 +15,7 @@ import (
 	"go.temporal.io/sdk/worker"
 	sdkworkflow "go.temporal.io/sdk/workflow"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 const replayFixturePath = "testdata/operation-v1-noop.json"
@@ -66,13 +66,13 @@ func TestUpdateOperationWorkflowV1ReplayFixture(t *testing.T) {
 		ID: workflowID, TaskQueue: taskQueue,
 		WorkflowIDReusePolicy: enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	}, WorkflowNameV1, WorkflowInput{
-		OperationID: "fixture-operation-v1", Kind: operationdomain.WorkflowKindCustom,
+		OperationID: "fixture-operation-v1", Kind: workflowdomain.WorkflowKindCustom,
 		SiteID: "fixture-site", Definition: "fixture.noop", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, MaxParallelism: 1, ResourceKeys: []string{"server:fixture"},
-		Steps: []operationdomain.Task{{
+		Steps: []workflowdomain.Task{{
 			ID: "noop", Kind: "noop", Name: "No external side effect",
-			Executor: operationdomain.RunnerKindInternal,
-			Status:   operationdomain.TaskPending, Attempt: 1,
+			Executor: workflowdomain.RunnerKindInternal,
+			Status:   workflowdomain.TaskPending, Attempt: 1,
 		}},
 	})
 	if err != nil {
@@ -108,18 +108,18 @@ func TestUpdateOperationWorkflowV1ReplayFixture(t *testing.T) {
 }
 
 func registerFixtureActivities(temporalWorker worker.Worker) {
-	temporalWorker.RegisterActivityWithOptions(func(context.Context, LeaseRequest) ([]operationdomain.ResourceLease, error) {
-		return []operationdomain.ResourceLease{{ResourceKey: "server:fixture", Owner: "fixture", FencingToken: 1}}, nil
+	temporalWorker.RegisterActivityWithOptions(func(context.Context, LeaseRequest) ([]workflowdomain.ResourceLease, error) {
+		return []workflowdomain.ResourceLease{{ResourceKey: "server:fixture", Owner: "fixture", FencingToken: 1}}, nil
 	}, activity.RegisterOptions{Name: ActivityAcquireLeases})
 	temporalWorker.RegisterActivityWithOptions(func(context.Context, LeaseRenewal) error { return nil },
 		activity.RegisterOptions{Name: ActivityRenewLeases})
-	temporalWorker.RegisterActivityWithOptions(func(context.Context, []operationdomain.ResourceLease) error { return nil },
+	temporalWorker.RegisterActivityWithOptions(func(context.Context, []workflowdomain.ResourceLease) error { return nil },
 		activity.RegisterOptions{Name: ActivityReleaseLeases})
 	temporalWorker.RegisterActivityWithOptions(func(context.Context, StateUpdate) error { return nil },
 		activity.RegisterOptions{Name: ActivityUpdateState})
 	temporalWorker.RegisterActivityWithOptions(func(context.Context, StepUpdate) error { return nil },
 		activity.RegisterOptions{Name: ActivityUpdateStep})
 	temporalWorker.RegisterActivityWithOptions(func(context.Context, StepExecutionInput) (StepExecutionResult, error) {
-		return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}, nil
+		return StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}, nil
 	}, activity.RegisterOptions{Name: ActivityExecuteStep})
 }

@@ -6,10 +6,10 @@ import (
 	"reflect"
 	"testing"
 
-	infradomain "github.com/maple52046/swallow/internal/infrastructure/domain"
-	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
+	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 type scopeZones map[string]*infradomain.Zone

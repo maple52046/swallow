@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // machineJSON is the subset of a MAAS machine object swallow reads. MAAS returns far

@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // recordingImageVerificationRepo captures RecordTarget calls for the internal finalize step test.
@@ -58,9 +58,9 @@ func (r *recordingImageVerificationRepo) DeleteByIntegration(context.Context, st
 func recordVerificationInput() temporalworkflow.StepExecutionInput {
 	return temporalworkflow.StepExecutionInput{
 		OperationID: "op-1",
-		Step: operationdomain.Task{
+		Step: workflowdomain.Task{
 			ID: "record-verification", Kind: "record-image-verification",
-			Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "srv-1"}},
+			Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "srv-1"}},
 			Parameters: map[string]any{
 				"integrationId": "int-1", "imageId": "custom/rocky",
 				"architecture": "amd64", "deployTarget": "ram",
@@ -75,7 +75,7 @@ func TestRecordImageVerificationStepWritesEvidence(t *testing.T) {
 
 	result := executor.Execute(context.Background(), recordVerificationInput())
 
-	if result.Status != operationdomain.TaskSucceeded {
+	if result.Status != workflowdomain.TaskSucceeded {
 		t.Fatalf("status = %v, want succeeded", result.Status)
 	}
 	if repo.calls != 1 || repo.integrationID != "int-1" || repo.imageID != "custom/rocky" ||
@@ -93,7 +93,7 @@ func TestRecordImageVerificationStepRetriesOnWriteFailure(t *testing.T) {
 
 	result := executor.Execute(context.Background(), recordVerificationInput())
 
-	if result.Status != operationdomain.TaskFailed || result.Error == nil {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil {
 		t.Fatalf("result = %+v, want a failed result", result)
 	}
 	// The proving deploy already succeeded; only the attestation write failed, so retry.
@@ -110,7 +110,7 @@ func TestRecordImageVerificationStepRejectsBadDeployTarget(t *testing.T) {
 
 	result := executor.Execute(context.Background(), input)
 
-	if result.Status != operationdomain.TaskFailed || result.Error == nil || result.Error.Retryable {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil || result.Error.Retryable {
 		t.Fatalf("result = %+v, want a non-retryable failure for an invalid deploy target", result)
 	}
 	if repo.calls != 0 {
@@ -134,7 +134,7 @@ func TestRecordImageVerificationFailureStepWritesFailure(t *testing.T) {
 
 	result := executor.Execute(context.Background(), recordVerificationFailureInput())
 
-	if result.Status != operationdomain.TaskSucceeded {
+	if result.Status != workflowdomain.TaskSucceeded {
 		t.Fatalf("status = %v, want succeeded (the failure was recorded)", result.Status)
 	}
 	if repo.failureCalls != 1 || repo.integrationID != "int-1" || repo.imageID != "custom/rocky" ||
@@ -155,7 +155,7 @@ func TestRecordImageVerificationFailureStepRetriesOnWriteFailure(t *testing.T) {
 
 	result := executor.Execute(context.Background(), recordVerificationFailureInput())
 
-	if result.Status != operationdomain.TaskFailed || result.Error == nil || !result.Error.Retryable {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil || !result.Error.Retryable {
 		t.Fatalf("result = %+v, want a retryable failed result", result)
 	}
 }

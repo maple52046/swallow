@@ -5,24 +5,24 @@ import (
 	"errors"
 	"testing"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // fakeInspectionWorkflows records what the launcher asks of the Workflow service.
 type fakeInspectionWorkflows struct {
-	created *operationapp.CreateWorkflowInput
+	created *workflowapp.CreateWorkflowInput
 	retried [2]string
-	active  []*operationdomain.Workflow
+	active  []*workflowdomain.Workflow
 	total   int
 }
 
-func (f *fakeInspectionWorkflows) Create(_ context.Context, input operationapp.CreateWorkflowInput) (*operationapp.WorkflowItem, error) {
+func (f *fakeInspectionWorkflows) Create(_ context.Context, input workflowapp.CreateWorkflowInput) (*workflowapp.WorkflowItem, error) {
 	f.created = &input
-	return &operationapp.WorkflowItem{ID: "workflow-new"}, nil
+	return &workflowapp.WorkflowItem{ID: "workflow-new"}, nil
 }
 
 func (f *fakeInspectionWorkflows) RetryStep(_ context.Context, id, stepID string) error {
@@ -30,8 +30,8 @@ func (f *fakeInspectionWorkflows) RetryStep(_ context.Context, id, stepID string
 	return nil
 }
 
-func (f *fakeInspectionWorkflows) List(_ context.Context, filter operationdomain.WorkflowFilter) ([]*operationdomain.Workflow, int, error) {
-	if filter.Kind != operationdomain.WorkflowKindInspectHardware {
+func (f *fakeInspectionWorkflows) List(_ context.Context, filter workflowdomain.WorkflowFilter) ([]*workflowdomain.Workflow, int, error) {
+	if filter.Kind != workflowdomain.WorkflowKindInspectHardware {
 		return nil, 0, errors.New("unexpected kind")
 	}
 	if filter.ActiveOnly {
@@ -65,7 +65,7 @@ func TestHardwareInspectionLauncherStartsWorkflow(t *testing.T) {
 				t.Errorf("accepted = %+v, want the new Workflow and the stored state", accepted)
 			}
 			created := workflows.created
-			if created == nil || created.Kind != operationdomain.WorkflowKindInspectHardware || created.Definition != inspectionDefinition ||
+			if created == nil || created.Kind != workflowdomain.WorkflowKindInspectHardware || created.Definition != inspectionDefinition ||
 				created.SiteID != "site-id" || len(created.TargetServerIDs) != 1 || len(created.Steps) != 3 {
 				t.Fatalf("created = %+v, want one inspect-hardware Workflow with three Tasks", created)
 			}
@@ -87,12 +87,12 @@ func TestHardwareInspectionLauncherStartsWorkflow(t *testing.T) {
 }
 
 func TestHardwareInspectionLauncherResumesAttention(t *testing.T) {
-	attention := &operationdomain.Workflow{ID: "workflow-old", Status: operationdomain.WorkflowRequiresAttention, Steps: []operationdomain.Task{
-		{ID: "wait-enrollment-server-id", Kind: waitEnrollmentTaskKind, Status: operationdomain.TaskSucceeded},
-		{ID: "inspect-server-id", Kind: inspectTaskKind, Status: operationdomain.TaskRequiresAttention,
-			Error: &operationdomain.NormalizedError{Code: "inspect_pxe_unreached", Retryable: true}},
+	attention := &workflowdomain.Workflow{ID: "workflow-old", Status: workflowdomain.WorkflowRequiresAttention, Steps: []workflowdomain.Task{
+		{ID: "wait-enrollment-server-id", Kind: waitEnrollmentTaskKind, Status: workflowdomain.TaskSucceeded},
+		{ID: "inspect-server-id", Kind: inspectTaskKind, Status: workflowdomain.TaskRequiresAttention,
+			Error: &workflowdomain.NormalizedError{Code: "inspect_pxe_unreached", Retryable: true}},
 	}}
-	workflows := &fakeInspectionWorkflows{active: []*operationdomain.Workflow{attention}}
+	workflows := &fakeInspectionWorkflows{active: []*workflowdomain.Workflow{attention}}
 	accepted, err := inspectionLauncherFor("new", workflows).LaunchInspection(context.Background(),
 		provisioningapp.InspectionRequest{ServerID: "server-id", Origin: provisioningdomain.InspectionOriginRequested})
 	if err != nil {
@@ -102,24 +102,24 @@ func TestHardwareInspectionLauncherResumesAttention(t *testing.T) {
 		t.Errorf("accepted = %+v, retried = %v, created = %v; want the waiting Workflow retried", accepted, workflows.retried, workflows.created)
 	}
 
-	automatic := &fakeInspectionWorkflows{active: []*operationdomain.Workflow{attention}}
+	automatic := &fakeInspectionWorkflows{active: []*workflowdomain.Workflow{attention}}
 	_, err = inspectionLauncherFor("new", automatic).LaunchInspection(context.Background(),
 		provisioningapp.InspectionRequest{ServerID: "server-id", Origin: provisioningdomain.InspectionOriginAutomatic})
-	if !errors.Is(err, operationdomain.ErrTargetsBusy) || automatic.retried != [2]string{} {
+	if !errors.Is(err, workflowdomain.ErrTargetsBusy) || automatic.retried != [2]string{} {
 		t.Errorf("automatic error = %v, retried = %v; want busy and no retry", err, automatic.retried)
 	}
 }
 
 func TestHardwareInspectionLauncherRefuses(t *testing.T) {
-	running := &operationdomain.Workflow{ID: "workflow-running", Status: operationdomain.WorkflowRunning}
+	running := &workflowdomain.Workflow{ID: "workflow-running", Status: workflowdomain.WorkflowRunning}
 	cases := []struct {
 		name   string
 		state  string
 		origin provisioningdomain.InspectionOrigin
-		active []*operationdomain.Workflow
+		active []*workflowdomain.Workflow
 		want   error
 	}{
-		{"running inspection", "new", provisioningdomain.InspectionOriginRequested, []*operationdomain.Workflow{running}, operationdomain.ErrTargetsBusy},
+		{"running inspection", "new", provisioningdomain.InspectionOriginRequested, []*workflowdomain.Workflow{running}, workflowdomain.ErrTargetsBusy},
 		{"deployed Server", "deployed", provisioningdomain.InspectionOriginRequested, nil, provisioningdomain.ErrInspectionNotAllowed},
 		{"in-progress Server", "deploying", provisioningdomain.InspectionOriginRequested, nil, provisioningdomain.ErrInspectionNotAllowed},
 		{"automatic on a ready Server", "ready", provisioningdomain.InspectionOriginAutomatic, nil, provisioningdomain.ErrInspectionNotAllowed},

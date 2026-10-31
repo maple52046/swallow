@@ -5,31 +5,31 @@ import (
 	"testing"
 	"time"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 type lifecycleExecutionRepo struct {
-	filter operationdomain.ExecutionListFilter
-	items  []*operationdomain.ExecutionOperation
+	filter workflowdomain.ExecutionListFilter
+	items  []*workflowdomain.ExecutionOperation
 }
 
-func (r *lifecycleExecutionRepo) Create(context.Context, *operationdomain.ExecutionOperation) error {
+func (r *lifecycleExecutionRepo) Create(context.Context, *workflowdomain.ExecutionOperation) error {
 	return nil
 }
 
 func (r *lifecycleExecutionRepo) FindByID(
 	context.Context,
 	string,
-) (*operationdomain.ExecutionOperation, error) {
-	return nil, operationdomain.ErrWorkflowNotFound
+) (*workflowdomain.ExecutionOperation, error) {
+	return nil, workflowdomain.ErrWorkflowNotFound
 }
 
 func (r *lifecycleExecutionRepo) List(
 	_ context.Context,
-	filter operationdomain.ExecutionListFilter,
-) (operationdomain.ExecutionListResult, error) {
+	filter workflowdomain.ExecutionListFilter,
+) (workflowdomain.ExecutionListResult, error) {
 	r.filter = filter
-	return operationdomain.ExecutionListResult{
+	return workflowdomain.ExecutionListResult{
 		Operations: r.items, Total: len(r.items),
 	}, nil
 }
@@ -37,7 +37,7 @@ func (r *lifecycleExecutionRepo) List(
 func (r *lifecycleExecutionRepo) FindActiveByServerIDs(
 	context.Context,
 	[]string,
-) ([]*operationdomain.ExecutionOperation, error) {
+) ([]*workflowdomain.ExecutionOperation, error) {
 	return nil, nil
 }
 
@@ -49,7 +49,7 @@ func (r *lifecycleExecutionRepo) UpdateExecution(
 	context.Context,
 	string,
 	string,
-	operationdomain.Execution,
+	workflowdomain.Execution,
 ) error {
 	return nil
 }
@@ -68,17 +68,17 @@ func (r *lifecycleExecutionRepo) SecretVars(context.Context, string) (map[string
 func TestPlatformLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 	deployedAt := time.Now().UTC().Add(-time.Hour)
 	uninstalledAt := deployedAt.Add(time.Minute)
-	repo := &lifecycleExecutionRepo{items: []*operationdomain.ExecutionOperation{
+	repo := &lifecycleExecutionRepo{items: []*workflowdomain.ExecutionOperation{
 		{
 			ID: "uninstall-1", PlatformID: "platform-deployed",
-			Kind:            operationdomain.WorkflowKindUninstallKubernetes,
+			Kind:            workflowdomain.WorkflowKindUninstallKubernetes,
 			TargetServerIDs: []string{"server-1"},
-			Execution:       operationdomain.Execution{Status: operationdomain.StatusFailed},
+			Execution:       workflowdomain.Execution{Status: workflowdomain.StatusFailed},
 			RequestedAt:     uninstalledAt,
 		},
 		{
 			ID: "deploy-1", PlatformID: "platform-deployed",
-			Kind:            operationdomain.WorkflowKindDeployKubernetes,
+			Kind:            workflowdomain.WorkflowKindDeployKubernetes,
 			TargetServerIDs: []string{"server-1", "server-2"},
 			ExtraVars: map[string]any{
 				"swallow_k0s_roles": map[string]any{
@@ -86,7 +86,7 @@ func TestPlatformLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 				},
 				"swallow_k0s_workload_controller_ids": []any{"server-1"},
 			},
-			Execution:   operationdomain.Execution{Status: operationdomain.StatusSucceeded},
+			Execution:   workflowdomain.Execution{Status: workflowdomain.StatusSucceeded},
 			RequestedAt: deployedAt,
 		},
 	}}
@@ -127,7 +127,7 @@ func TestPlatformLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 }
 
 func TestDeploymentIntentProjectsStandaloneWorkloadController(t *testing.T) {
-	intent := deploymentIntent(&operationdomain.ExecutionOperation{
+	intent := deploymentIntent(&workflowdomain.ExecutionOperation{
 		TargetServerIDs: []string{"server-1"},
 		ExtraVars: map[string]any{
 			"swallow_k0s_roles":                   map[string]any{"server-1": "control-plane"},
@@ -146,7 +146,7 @@ func TestDeploymentIntentProjectsStandaloneWorkloadController(t *testing.T) {
 // A Slurm login host runs no cluster daemon, so it is not a role assignment; it must still be
 // projected in LoginServerIDs so the read model can show the cluster access point.
 func TestDeploymentIntentSlurmProjectsLoginNodes(t *testing.T) {
-	intent := deploymentIntentSlurm(&operationdomain.Workflow{
+	intent := deploymentIntentSlurm(&workflowdomain.Workflow{
 		TargetServerIDs: []string{"c1", "w1", "login1"},
 		Intent: map[string]any{
 			"extraVars": map[string]any{

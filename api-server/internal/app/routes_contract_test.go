@@ -8,7 +8,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	provisioningdelivery "github.com/maple52046/swallow/internal/provisioning/delivery"
+	provisioningdelivery "github.com/maple52046/swallow/internal/core/provisioning/delivery"
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 )
 

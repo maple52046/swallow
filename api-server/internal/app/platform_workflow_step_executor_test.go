@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // recordingFinalizer captures CompleteUninstall calls and returns a configurable error.
@@ -25,7 +25,7 @@ func (f *recordingFinalizer) CompleteUninstall(_ context.Context, platformID str
 func completeUninstallInput() temporalworkflow.StepExecutionInput {
 	return temporalworkflow.StepExecutionInput{
 		PlatformID: "platform-a",
-		Step:       operationdomain.Task{ID: completeUninstallStepID, Kind: "complete-uninstall", Name: "Finalize platform uninstall"},
+		Step:       workflowdomain.Task{ID: completeUninstallStepID, Kind: "complete-uninstall", Name: "Finalize platform uninstall"},
 	}
 }
 
@@ -35,7 +35,7 @@ func TestCompleteUninstallStepInvokesFinalizer(t *testing.T) {
 
 	result := executor.Execute(context.Background(), completeUninstallInput())
 
-	if result.Status != operationdomain.TaskSucceeded {
+	if result.Status != workflowdomain.TaskSucceeded {
 		t.Fatalf("status = %v, want succeeded", result.Status)
 	}
 	if len(finalizer.ids) != 1 || finalizer.ids[0] != "platform-a" {
@@ -55,7 +55,7 @@ func TestCompleteUninstallStepForwardsDeleteRecord(t *testing.T) {
 
 	result := executor.Execute(context.Background(), input)
 
-	if result.Status != operationdomain.TaskSucceeded {
+	if result.Status != workflowdomain.TaskSucceeded {
 		t.Fatalf("status = %v, want succeeded", result.Status)
 	}
 	if len(finalizer.deleteRecords) != 1 || !finalizer.deleteRecords[0] {
@@ -68,7 +68,7 @@ func TestCompleteUninstallStepFailsWithoutFinalizer(t *testing.T) {
 
 	result := executor.Execute(context.Background(), completeUninstallInput())
 
-	if result.Status != operationdomain.TaskFailed || result.Error == nil {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil {
 		t.Fatalf("result = %+v, want a failed result", result)
 	}
 }
@@ -79,7 +79,7 @@ func TestCompleteUninstallStepFailsWhenFinalizerErrors(t *testing.T) {
 
 	result := executor.Execute(context.Background(), completeUninstallInput())
 
-	if result.Status != operationdomain.TaskFailed || result.Error == nil {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil {
 		t.Fatalf("result = %+v, want a failed result", result)
 	}
 	// The cleanup is idempotent, so a transient failure should be retryable.

@@ -19,9 +19,9 @@ import (
 	sitestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/site"
 	softwarestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/software"
 	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
-	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	platformapp "github.com/maple52046/swallow/internal/platform/application"
+	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
+	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	"github.com/maple52046/swallow/modules/platform/platformapi"
@@ -89,7 +89,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	configurations := operationapp.NewEffectiveAutomationConfigurations(
+	configurations := workflowapp.NewEffectiveAutomationConfigurations(
 		workflowstore.NewMongoAutomationConfigurationRepo(db, sealer), deploymentKeySource{keys: sshKeys})
 	runner := ansible.NewLocalRunner(cfg.AnsibleRunnerCommand, catalog.ProjectRoot(), cfg.JobRuntimeDir, cfg.JobArtifactDir)
 	// Resolve each host's SSH login user per host (images use different default users), so a fleet
@@ -120,12 +120,12 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	}
 	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignments})
 	credentials := platformapp.NewDeploymentCredentialService(transactor, platforms, integrations, membership)
-	durable := operationapp.NewWorkflowService(transactor, orchestrations, nil, operationSecrets)
-	operationService := operationapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
+	durable := workflowapp.NewWorkflowService(transactor, orchestrations, nil, operationSecrets)
+	operationService := workflowapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
 	operationService.AttachWorkflow(durable)
 	completion := platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers}
 	leases := workflowstore.NewMongoResourceLeaseRepo(db)
-	queue := operationapp.NewAnsibleQueueWorker(
+	queue := workflowapp.NewAnsibleQueueWorker(
 		executions, configurations, catalog, runner, ansibleEvents,
 		executionInventoryAdapter{discovery: discovery}, protection, leases, completion,
 		cfg.OperationDispatchInterval, cfg.OperationLeaseDuration, cfg.OperationMaxParallelism, operationSecrets,

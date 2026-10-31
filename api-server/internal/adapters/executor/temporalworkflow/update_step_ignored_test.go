@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // ignoringStepRepo rejects every step write as a regression, the way the Mongo guard rejects a
@@ -13,13 +13,13 @@ type ignoringStepRepo struct {
 	eventRepo
 }
 
-func (r *ignoringStepRepo) UpdateStep(context.Context, string, operationdomain.Task) error {
-	return operationdomain.ErrStepTransitionIgnored
+func (r *ignoringStepRepo) UpdateStep(context.Context, string, workflowdomain.Task) error {
+	return workflowdomain.ErrStepTransitionIgnored
 }
 
-type recordingObserver struct{ steps []operationdomain.Task }
+type recordingObserver struct{ steps []workflowdomain.Task }
 
-func (o *recordingObserver) ObserveStep(_ context.Context, _ string, step operationdomain.Task) error {
+func (o *recordingObserver) ObserveStep(_ context.Context, _ string, step workflowdomain.Task) error {
 	o.steps = append(o.steps, step)
 	return nil
 }
@@ -33,8 +33,8 @@ func TestUpdateStepStopsAtIgnoredTransition(t *testing.T) {
 	observer := &recordingObserver{}
 	activities := NewActivities(repo, nil, nil, observer)
 
-	err := activities.UpdateStep(context.Background(), StepUpdate{OperationID: "op", Step: operationdomain.Task{
-		ID: "provision-a", Kind: "provision-os", Attempt: 1, Status: operationdomain.TaskCanceled,
+	err := activities.UpdateStep(context.Background(), StepUpdate{OperationID: "op", Step: workflowdomain.Task{
+		ID: "provision-a", Kind: "provision-os", Attempt: 1, Status: workflowdomain.TaskCanceled,
 	}})
 
 	if err != nil {

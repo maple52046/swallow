@@ -28,7 +28,7 @@ import (
 	"strings"
 	"time"
 
-	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 )
 
 const (

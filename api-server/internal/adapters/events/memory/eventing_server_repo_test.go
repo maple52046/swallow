@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	"github.com/maple52046/swallow/internal/core/store/storetest"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // memoryServerRepo implements the writes the eventing tests use; the embedded interface makes any

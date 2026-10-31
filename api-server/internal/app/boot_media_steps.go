@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	serverapp "github.com/maple52046/swallow/internal/server/application"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	serverapp "github.com/maple52046/swallow/internal/core/server/application"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // ensureBootMediaTaskKind is the internal Task that re-applies a Server's Boot Media before its
@@ -155,7 +155,7 @@ func (e platformWorkflowStepExecutor) ensureBootMedia(ctx context.Context, input
 			return *failure
 		}
 		if !enabled {
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 		}
 		iso = resolved
 	}
@@ -170,7 +170,7 @@ func (e platformWorkflowStepExecutor) ensureBootMedia(ctx context.Context, input
 		}
 		return internalStepFailed("boot_media_ensure_failed", err.Error(), true)
 	}
-	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 }
 
 // liveBootMediaISO reads the Server's Boot Media now and resolves its Boot ISO. enabled is false
@@ -228,11 +228,11 @@ type bootMediaPlanner struct {
 // of Servers without Boot Media are unchanged, so the Workflow is exactly what it was before Boot
 // Media existed. A zero planner returns steps unchanged; an unreadable Server is an error so a
 // deploy cannot silently skip its Boot Media.
-func (p bootMediaPlanner) withEnsureTasks(ctx context.Context, steps []operationdomain.Task) ([]operationdomain.Task, error) {
+func (p bootMediaPlanner) withEnsureTasks(ctx context.Context, steps []workflowdomain.Task) ([]workflowdomain.Task, error) {
 	if p.servers == nil {
 		return steps, nil
 	}
-	out := make([]operationdomain.Task, 0, len(steps))
+	out := make([]workflowdomain.Task, 0, len(steps))
 	for _, step := range steps {
 		serverID := firstTargetServer(step)
 		if step.Kind != "provision-os" || serverID == "" {
@@ -261,10 +261,10 @@ func (p bootMediaPlanner) withEnsureTasks(ctx context.Context, steps []operation
 				return nil, fmt.Errorf("resolve Boot ISO of Server %s: %w", serverID, err)
 			}
 		}
-		out = append(out, operationdomain.Task{
+		out = append(out, workflowdomain.Task{
 			ID: ensureID, Kind: ensureBootMediaTaskKind, Name: "Ensure Boot Media on " + server.DisplayName(),
-			Job: step.Job, Executor: operationdomain.RunnerKindInternal,
-			Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
+			Job: step.Job, Executor: workflowdomain.RunnerKindInternal,
+			Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: serverID}},
 			Parameters: map[string]any{ensureISOIDParameter: isoID, ensureISOURLParameter: isoURL},
 		})
 		step.DependsOn = append(append([]string(nil), step.DependsOn...), ensureID)

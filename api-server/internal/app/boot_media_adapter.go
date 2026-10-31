@@ -14,9 +14,9 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
 
 	"github.com/maple52046/swallow/internal/adapters/bootiso/genfsimg"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverapp "github.com/maple52046/swallow/internal/server/application"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverapp "github.com/maple52046/swallow/internal/core/server/application"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 // bootISORoute is the path pattern at which the API process serves Boot ISOs (decision 049). It

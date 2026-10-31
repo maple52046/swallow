@@ -110,7 +110,7 @@ interface，而是 Platform 模組與 Software 模組提供的能力（§4）。
 - Boot ISO 的 domain 程式包含 MAAS rack 的預設 port、chain URL 與 iPXE／GRUB 範本。
 - Workflow 的 domain 有 Ansible 專屬的執行模型，`RunnerKind` 以產品命名（`ansible`、`maas`）。
 - Site 的 domain 定義 provider kind 常數與 Integration 種類的對照。
-- 平台與 AMD 專屬的模型與流程位於 `internal/platform` 與 `internal/app`（§4）。
+- 平台與 AMD 專屬的模型與流程位於 `internal/core/platform` 與 `internal/app`（§4）。
 
 Temporal 已經只出現在 adapter 與 composition root，是邊界的參考範例。
 

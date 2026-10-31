@@ -13,8 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	"github.com/maple52046/swallow/internal/core/store"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // A stored claim reads back onto the Server, and a document without one reads as unclaimed.

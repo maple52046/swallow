@@ -137,7 +137,7 @@ Target Layout。
 
 過渡規則：新程式碼一律放在目標位置。既有程式碼在搬移完成之前維持原位，兩者可以並存：provider adapter 目前多半
 位於 `api-server/internal/<feature>/infra/<adapter>`，Kubernetes、Slurm、AMD 與 Managed Software 的程式碼位於
-`api-server/internal/platform`、`api-server/internal/software`、`api-server/internal/app` 與
+`api-server/internal/core/platform`、`api-server/internal/core/software`、`api-server/internal/app` 與
 `api-server/automation`。
 
 ## Rules

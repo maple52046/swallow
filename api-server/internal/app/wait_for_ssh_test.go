@@ -12,29 +12,29 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 )
 
 // fakeAutomationConfigRepo serves a fixed automation configuration and credential for the
 // wait-for-ssh readiness tests. Only FindBySiteID and Credential are exercised.
 type fakeAutomationConfigRepo struct {
-	config     operationdomain.AutomationConfiguration
-	credential operationdomain.AutomationCredential
+	config     workflowdomain.AutomationConfiguration
+	credential workflowdomain.AutomationCredential
 }
 
-func (r fakeAutomationConfigRepo) FindBySiteID(_ context.Context, _ string) (*operationdomain.AutomationConfiguration, error) {
+func (r fakeAutomationConfigRepo) FindBySiteID(_ context.Context, _ string) (*workflowdomain.AutomationConfiguration, error) {
 	config := r.config
 	return &config, nil
 }
-func (r fakeAutomationConfigRepo) Upsert(_ context.Context, _ *operationdomain.AutomationConfiguration) error {
+func (r fakeAutomationConfigRepo) Upsert(_ context.Context, _ *workflowdomain.AutomationConfiguration) error {
 	return nil
 }
-func (r fakeAutomationConfigRepo) ReplaceCredential(_ context.Context, _ string, _ operationdomain.AutomationCredential) error {
+func (r fakeAutomationConfigRepo) ReplaceCredential(_ context.Context, _ string, _ workflowdomain.AutomationCredential) error {
 	return nil
 }
-func (r fakeAutomationConfigRepo) Credential(_ context.Context, _ string) (operationdomain.AutomationCredential, error) {
+func (r fakeAutomationConfigRepo) Credential(_ context.Context, _ string) (workflowdomain.AutomationCredential, error) {
 	return r.credential, nil
 }
 
@@ -86,9 +86,9 @@ func testAutomationKey(t *testing.T) string {
 func readinessInput() temporalworkflow.StepExecutionInput {
 	return temporalworkflow.StepExecutionInput{
 		SiteID: "site-1",
-		Step: operationdomain.Task{
+		Step: workflowdomain.Task{
 			ID: "wait-for-ssh", Kind: "wait-for-ssh",
-			Targets: []operationdomain.ResourceReference{
+			Targets: []workflowdomain.ResourceReference{
 				{Kind: "server", ID: "srv-a"},
 				{Kind: "server", ID: "srv-b"},
 			},
@@ -103,8 +103,8 @@ func TestWaitForSSHSucceedsWhenEveryHostAuthenticates(t *testing.T) {
 			"srv-b": deployedReadinessServer("srv-b", "lab-b", "192.0.2.2"),
 		}},
 		configurations: fakeAutomationConfigRepo{
-			config:     operationdomain.AutomationConfiguration{SSHUser: "cloud-user", SSHPort: 22},
-			credential: operationdomain.AutomationCredential{SSHPrivateKey: testAutomationKey(t)},
+			config:     workflowdomain.AutomationConfiguration{SSHUser: "cloud-user", SSHPort: 22},
+			credential: workflowdomain.AutomationCredential{SSHPrivateKey: testAutomationKey(t)},
 		},
 		sshProber: fakeSSHProber{outcomes: map[string]sshprobe.Outcome{
 			"192.0.2.1": sshprobe.Ready,
@@ -115,7 +115,7 @@ func TestWaitForSSHSucceedsWhenEveryHostAuthenticates(t *testing.T) {
 
 	result := executor.waitForSSH(context.Background(), readinessInput())
 
-	if result.Status != operationdomain.TaskSucceeded {
+	if result.Status != workflowdomain.TaskSucceeded {
 		t.Fatalf("status = %v (err=%+v), want succeeded", result.Status, result.Error)
 	}
 }
@@ -127,8 +127,8 @@ func TestWaitForSSHFailsFastOnAuthenticationRejection(t *testing.T) {
 			"srv-b": deployedReadinessServer("srv-b", "lab-b", "192.0.2.2"),
 		}},
 		configurations: fakeAutomationConfigRepo{
-			config:     operationdomain.AutomationConfiguration{SSHUser: "cloud-user", SSHPort: 22},
-			credential: operationdomain.AutomationCredential{SSHPrivateKey: testAutomationKey(t)},
+			config:     workflowdomain.AutomationConfiguration{SSHUser: "cloud-user", SSHPort: 22},
+			credential: workflowdomain.AutomationCredential{SSHPrivateKey: testAutomationKey(t)},
 		},
 		sshProber: fakeSSHProber{outcomes: map[string]sshprobe.Outcome{
 			"192.0.2.1": sshprobe.Ready,
@@ -141,7 +141,7 @@ func TestWaitForSSHFailsFastOnAuthenticationRejection(t *testing.T) {
 
 	result := executor.waitForSSH(context.Background(), readinessInput())
 
-	if result.Status != operationdomain.TaskFailed || result.Error == nil {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil {
 		t.Fatalf("result = %+v, want a failed result", result)
 	}
 	if result.Error.Code != "ssh_authentication_failed" {
@@ -166,15 +166,15 @@ func TestWaitForSSHRejectsUnparseableKey(t *testing.T) {
 			"srv-b": deployedReadinessServer("srv-b", "lab-b", "192.0.2.2"),
 		}},
 		configurations: fakeAutomationConfigRepo{
-			config:     operationdomain.AutomationConfiguration{SSHUser: "cloud-user", SSHPort: 22},
-			credential: operationdomain.AutomationCredential{SSHPrivateKey: "not-a-valid-key"},
+			config:     workflowdomain.AutomationConfiguration{SSHUser: "cloud-user", SSHPort: 22},
+			credential: workflowdomain.AutomationCredential{SSHPrivateKey: "not-a-valid-key"},
 		},
 		poll: time.Millisecond,
 	}
 
 	result := executor.waitForSSH(context.Background(), readinessInput())
 
-	if result.Status != operationdomain.TaskFailed || result.Error == nil {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil {
 		t.Fatalf("result = %+v, want a failed result", result)
 	}
 	if result.Error.Code != "ssh_key_invalid" || result.Error.Retryable {
@@ -203,13 +203,13 @@ func TestWaitForSSHUsesEachTargetsImageDefaultUser(t *testing.T) {
 	executor := platformWorkflowStepExecutor{
 		servers: fakeReadinessServerRepo{servers: map[string]*serverdomain.Server{"srv-a": rocky, "srv-b": plain}},
 		configurations: fakeAutomationConfigRepo{
-			config:     operationdomain.AutomationConfiguration{SSHUser: "ubuntu", SSHPort: 22},
-			credential: operationdomain.AutomationCredential{SSHPrivateKey: testAutomationKey(t)},
+			config:     workflowdomain.AutomationConfiguration{SSHUser: "ubuntu", SSHPort: 22},
+			credential: workflowdomain.AutomationCredential{SSHPrivateKey: testAutomationKey(t)},
 		},
 		sshProber: userAwareProber{ready: map[string]string{"192.0.2.1": "rocky", "192.0.2.2": "cloud-user"}},
 		poll:      time.Millisecond,
 	}
-	if result := executor.waitForSSH(context.Background(), readinessInput()); result.Status != operationdomain.TaskSucceeded {
+	if result := executor.waitForSSH(context.Background(), readinessInput()); result.Status != workflowdomain.TaskSucceeded {
 		t.Fatalf("status = %v (err=%+v), want succeeded", result.Status, result.Error)
 	}
 
@@ -217,7 +217,7 @@ func TestWaitForSSHUsesEachTargetsImageDefaultUser(t *testing.T) {
 	executor.sshProber = userAwareProber{ready: map[string]string{"192.0.2.1": "ubuntu", "192.0.2.2": "cloud-user"}}
 	executor.sshAuthGrace = time.Nanosecond
 	result := executor.waitForSSH(context.Background(), readinessInput())
-	if result.Status != operationdomain.TaskFailed || result.Error == nil || result.Error.Code != "ssh_authentication_failed" {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil || result.Error.Code != "ssh_authentication_failed" {
 		t.Fatalf("result = %+v, want ssh_authentication_failed", result)
 	}
 	if !strings.Contains(result.Error.Message, "lab-a (tried rocky)") {

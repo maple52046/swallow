@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 
-	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
+	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
 )
 
 // executionInventoryAdapter keeps the operation context on the discovery use case port.

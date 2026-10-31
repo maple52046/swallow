@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // This file implements the Power Configuration capability against MAAS (decision 054): the

@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/url"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // This file implements provisioningdomain.MachineTagController against MAAS tags (decision 031).

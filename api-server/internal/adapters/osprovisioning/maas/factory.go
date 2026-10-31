@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	sitedomain "github.com/maple52046/swallow/internal/site/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 )
 
 // defaultTimeout bounds a single provider API call when the integration does not

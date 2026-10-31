@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	sshkeydomain "github.com/maple52046/swallow/internal/sshkey/domain"
+	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
 )
 
 func TestGenerate_ProducesUsableEd25519Pair(t *testing.T) {

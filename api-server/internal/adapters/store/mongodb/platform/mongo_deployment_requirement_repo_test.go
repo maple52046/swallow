@@ -7,7 +7,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 )
 
 func TestDeploymentRequirementDocUsesPlatformTypeAsUniqueID(t *testing.T) {

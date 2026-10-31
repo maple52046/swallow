@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // The SSH key registrar wraps MAAS account SSH keys. The tests pin the exact endpoints and form

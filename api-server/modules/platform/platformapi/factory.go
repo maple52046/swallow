@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	sitedomain "github.com/maple52046/swallow/internal/site/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 )
 
 const defaultTimeout = 30 * time.Second

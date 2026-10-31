@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	sitedomain "github.com/maple52046/swallow/internal/site/domain"
-	sshkeydomain "github.com/maple52046/swallow/internal/sshkey/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
+	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
 )
 
 // ProvisionerKeys implements sshkeydomain.ProvisionerKeys over the site integration repository

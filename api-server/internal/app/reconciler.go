@@ -5,12 +5,12 @@ import (
 	"log"
 	"time"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformapp "github.com/maple52046/swallow/internal/platform/application"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
-	softwareapp "github.com/maple52046/swallow/internal/software/application"
+	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // runReconciler polls every enabled provisioner on an interval until ctx is cancelled.
@@ -173,7 +173,7 @@ func runSoftwareAssignmentSweep(ctx context.Context, sweeper *softwareapp.Softwa
 func runDeploymentProjectionRepair(
 	ctx context.Context,
 	servers serverdomain.ServerRepository,
-	operations operationdomain.WorkflowRepository,
+	operations workflowdomain.WorkflowRepository,
 	interval time.Duration,
 ) {
 	repairOnce := func() {
@@ -200,7 +200,7 @@ func runDeploymentProjectionRepair(
 // servers on an interval. It shares the reconcile cadence: a server only becomes eligible
 // after a reconcile pass has projected it as deployed, so there is nothing to do more
 // often than that. Creation is deduplicated per server, so a rerun is cheap.
-func runAutoExporterDeploy(ctx context.Context, autoDeploy *operationapp.AutoExporterDeployUseCase, interval time.Duration) {
+func runAutoExporterDeploy(ctx context.Context, autoDeploy *workflowapp.AutoExporterDeployUseCase, interval time.Duration) {
 	deployOnce := func() {
 		if err := autoDeploy.Run(ctx); err != nil {
 			log.Printf("auto-exporters: sweep failed: %v", err)

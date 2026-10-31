@@ -566,8 +566,8 @@ Configuration、共用的 `check-time-sync` Task 與一律安裝 chrony，以及
 | `configure-ntp-<serverId>` 組裝與 Platform 時鐘檢查 vars | `internal/app/ntp_planner.go` |
 | Deploy OS 的呼叫點 | `internal/app/provisioning_operation_adapter.go` |
 | Platform `ensure-os` 的呼叫點 | `internal/app/platform_deployment_adapter.go` |
-| `ErrNTPServerMissing` 與其 409 對應 | `internal/provisioning/domain/machine.go`、`internal/provisioning/delivery/handler.go`、`internal/platform/delivery/handler.go` |
-| Workflow kind `configure-ntp` | `internal/operation/domain/operation.go` |
+| `ErrNTPServerMissing` 與其 409 對應 | `internal/core/provisioning/domain/machine.go`、`internal/core/provisioning/delivery/handler.go`、`internal/core/platform/delivery/handler.go` |
+| Workflow kind `configure-ntp` | `internal/core/workflow/domain/operation.go` |
 | Playbook 與 role | `automation/playbooks/configure-ntp.yml`、`automation/playbooks/roles/ntp_client`（client 順序在 `vars/`、等待預算在 `defaults/`、設定 template 在 `templates/`） |
 | Schema migration（`swallow-api migrate`） | `cmd/swallow-api/migrate.go`、`internal/adapters/store/mongodb/migration/` |
 

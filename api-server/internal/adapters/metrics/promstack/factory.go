@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
-	sitedomain "github.com/maple52046/swallow/internal/site/domain"
+	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 )
 
 const defaultTimeout = 30 * time.Second

@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
 )
 
@@ -75,7 +75,7 @@ func NewMongoExecutionRepo(db *mongo.Database, sealer *secret.Sealer) (*MongoExe
 
 // Create persists pending intent before any runner is started. Secret vars are sealed
 // here so they never touch the database in plain text.
-func (r *MongoExecutionRepo) Create(ctx context.Context, operation *operationdomain.ExecutionOperation) error {
+func (r *MongoExecutionRepo) Create(ctx context.Context, operation *workflowdomain.ExecutionOperation) error {
 	doc := toExecutionDoc(operation)
 	if len(operation.SecretVars) > 0 {
 		raw, err := json.Marshal(operation.SecretVars)
@@ -99,7 +99,7 @@ func (r *MongoExecutionRepo) SecretVars(ctx context.Context, id string) (map[str
 	err := r.col.FindOne(ctx, bson.M{"_id": id, "schemaVersion": 2},
 		options.FindOne().SetProjection(bson.M{"sealedSecretVars": 1})).Decode(&doc)
 	if err == mongo.ErrNoDocuments {
-		return nil, operationdomain.ErrWorkflowNotFound
+		return nil, workflowdomain.ErrWorkflowNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -119,11 +119,11 @@ func (r *MongoExecutionRepo) SecretVars(ctx context.Context, id string) (map[str
 }
 
 // FindByID reads one v2 operation.
-func (r *MongoExecutionRepo) FindByID(ctx context.Context, id string) (*operationdomain.ExecutionOperation, error) {
+func (r *MongoExecutionRepo) FindByID(ctx context.Context, id string) (*workflowdomain.ExecutionOperation, error) {
 	var doc executionOperationDoc
 	err := r.col.FindOne(ctx, bson.M{"_id": id, "schemaVersion": 2}).Decode(&doc)
 	if err == mongo.ErrNoDocuments {
-		return nil, operationdomain.ErrWorkflowNotFound
+		return nil, workflowdomain.ErrWorkflowNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -132,7 +132,7 @@ func (r *MongoExecutionRepo) FindByID(ctx context.Context, id string) (*operatio
 }
 
 // List returns v2 operations only.
-func (r *MongoExecutionRepo) List(ctx context.Context, filter operationdomain.ExecutionListFilter) (operationdomain.ExecutionListResult, error) {
+func (r *MongoExecutionRepo) List(ctx context.Context, filter workflowdomain.ExecutionListFilter) (workflowdomain.ExecutionListResult, error) {
 	query := bson.M{"schemaVersion": 2}
 	if filter.SiteID != "" {
 		query["siteId"] = filter.SiteID
@@ -159,7 +159,7 @@ func (r *MongoExecutionRepo) List(ctx context.Context, filter operationdomain.Ex
 
 	total, err := r.col.CountDocuments(ctx, query)
 	if err != nil {
-		return operationdomain.ExecutionListResult{}, err
+		return workflowdomain.ExecutionListResult{}, err
 	}
 	opts := options.Find().SetSort(bson.D{{Key: "requestedAt", Value: -1}}).SetSkip(int64(filter.Offset))
 	if filter.Limit > 0 {
@@ -167,22 +167,22 @@ func (r *MongoExecutionRepo) List(ctx context.Context, filter operationdomain.Ex
 	}
 	cursor, err := r.col.Find(ctx, query, opts)
 	if err != nil {
-		return operationdomain.ExecutionListResult{}, err
+		return workflowdomain.ExecutionListResult{}, err
 	}
 	defer cursor.Close(ctx)
 	var docs []executionOperationDoc
 	if err := cursor.All(ctx, &docs); err != nil {
-		return operationdomain.ExecutionListResult{}, err
+		return workflowdomain.ExecutionListResult{}, err
 	}
-	items := make([]*operationdomain.ExecutionOperation, len(docs))
+	items := make([]*workflowdomain.ExecutionOperation, len(docs))
 	for i := range docs {
 		items[i] = fromExecutionDoc(&docs[i])
 	}
-	return operationdomain.ExecutionListResult{Operations: items, Total: int(total)}, nil
+	return workflowdomain.ExecutionListResult{Operations: items, Total: int(total)}, nil
 }
 
 // FindActiveByServerIDs enforces target-overlap guards.
-func (r *MongoExecutionRepo) FindActiveByServerIDs(ctx context.Context, ids []string) ([]*operationdomain.ExecutionOperation, error) {
+func (r *MongoExecutionRepo) FindActiveByServerIDs(ctx context.Context, ids []string) ([]*workflowdomain.ExecutionOperation, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -197,7 +197,7 @@ func (r *MongoExecutionRepo) FindActiveByServerIDs(ctx context.Context, ids []st
 	if err := cursor.All(ctx, &docs); err != nil {
 		return nil, err
 	}
-	items := make([]*operationdomain.ExecutionOperation, len(docs))
+	items := make([]*workflowdomain.ExecutionOperation, len(docs))
 	for i := range docs {
 		items[i] = fromExecutionDoc(&docs[i])
 	}
@@ -208,9 +208,9 @@ func (r *MongoExecutionRepo) FindActiveByServerIDs(ctx context.Context, ids []st
 func (r *MongoExecutionRepo) Claim(ctx context.Context, id, owner string, expiresAt time.Time) (bool, error) {
 	now := time.Now().UTC()
 	result, err := r.col.UpdateOne(ctx,
-		bson.M{"_id": id, "schemaVersion": 2, "execution.status": string(operationdomain.StatusPending)},
+		bson.M{"_id": id, "schemaVersion": 2, "execution.status": string(workflowdomain.StatusPending)},
 		bson.M{"$set": bson.M{
-			"execution.status":         string(operationdomain.StatusRunning),
+			"execution.status":         string(workflowdomain.StatusRunning),
 			"execution.startedAt":      now,
 			"execution.leaseOwner":     owner,
 			"execution.leaseExpiresAt": expiresAt,
@@ -221,10 +221,10 @@ func (r *MongoExecutionRepo) Claim(ctx context.Context, id, owner string, expire
 }
 
 // UpdateExecution stores runner progress and terminal state.
-func (r *MongoExecutionRepo) UpdateExecution(ctx context.Context, id, owner string, execution operationdomain.Execution) error {
+func (r *MongoExecutionRepo) UpdateExecution(ctx context.Context, id, owner string, execution workflowdomain.Execution) error {
 	result, err := r.col.UpdateOne(ctx, bson.M{
 		"_id": id, "schemaVersion": 2,
-		"execution.status":     string(operationdomain.StatusRunning),
+		"execution.status":     string(workflowdomain.StatusRunning),
 		"execution.leaseOwner": owner,
 	}, bson.M{"$set": bson.M{
 		"execution": toExecutionSubdoc(execution),
@@ -235,7 +235,7 @@ func (r *MongoExecutionRepo) UpdateExecution(ctx context.Context, id, owner stri
 		return err
 	}
 	if result.MatchedCount == 0 {
-		return operationdomain.ErrExecutionLeaseLost
+		return workflowdomain.ErrExecutionLeaseLost
 	}
 	return nil
 }
@@ -244,10 +244,10 @@ func (r *MongoExecutionRepo) UpdateExecution(ctx context.Context, id, owner stri
 func (r *MongoExecutionRepo) MarkExpiredIndeterminate(ctx context.Context, now time.Time) (int64, error) {
 	result, err := r.col.UpdateMany(ctx, bson.M{
 		"schemaVersion":            2,
-		"execution.status":         string(operationdomain.StatusRunning),
+		"execution.status":         string(workflowdomain.StatusRunning),
 		"execution.leaseExpiresAt": bson.M{"$lt": now},
 	}, bson.M{"$set": bson.M{
-		"execution.status":       string(operationdomain.StatusIndeterminate),
+		"execution.status":       string(workflowdomain.StatusIndeterminate),
 		"execution.statusReason": "execution lease expired before a terminal result was recorded",
 		"execution.finishedAt":   now,
 		"terminal":               true,
@@ -259,7 +259,7 @@ func (r *MongoExecutionRepo) MarkExpiredIndeterminate(ctx context.Context, now t
 	return result.ModifiedCount, nil
 }
 
-func toExecutionDoc(operation *operationdomain.ExecutionOperation) executionOperationDoc {
+func toExecutionDoc(operation *workflowdomain.ExecutionOperation) executionOperationDoc {
 	return executionOperationDoc{
 		ID: operation.ID, SchemaVersion: 2, Kind: string(operation.Kind), Intent: operation.Intent,
 		SiteID: operation.SiteID, PlatformID: operation.PlatformID, TargetServerIDs: operation.TargetServerIDs,
@@ -270,7 +270,7 @@ func toExecutionDoc(operation *operationdomain.ExecutionOperation) executionOper
 	}
 }
 
-func toExecutionSubdoc(execution operationdomain.Execution) executionDoc {
+func toExecutionSubdoc(execution workflowdomain.Execution) executionDoc {
 	return executionDoc{
 		RunID: execution.RunID, Playbook: execution.Playbook, Status: string(execution.Status),
 		StatusReason: execution.StatusReason, StartedAt: execution.StartedAt,
@@ -279,14 +279,14 @@ func toExecutionSubdoc(execution operationdomain.Execution) executionDoc {
 	}
 }
 
-func fromExecutionDoc(doc *executionOperationDoc) *operationdomain.ExecutionOperation {
-	return &operationdomain.ExecutionOperation{
-		ID: doc.ID, Kind: operationdomain.WorkflowKind(doc.Kind), Intent: doc.Intent,
+func fromExecutionDoc(doc *executionOperationDoc) *workflowdomain.ExecutionOperation {
+	return &workflowdomain.ExecutionOperation{
+		ID: doc.ID, Kind: workflowdomain.WorkflowKind(doc.Kind), Intent: doc.Intent,
 		SiteID: doc.SiteID, PlatformID: doc.PlatformID, TargetServerIDs: doc.TargetServerIDs,
 		ExtraVars: doc.ExtraVars, RetryOfOperationID: doc.RetryOfOperationID,
-		Execution: operationdomain.Execution{
+		Execution: workflowdomain.Execution{
 			RunID: doc.Execution.RunID, Playbook: doc.Execution.Playbook,
-			Status: operationdomain.Status(doc.Execution.Status), StatusReason: doc.Execution.StatusReason,
+			Status: workflowdomain.Status(doc.Execution.Status), StatusReason: doc.Execution.StatusReason,
 			StartedAt: doc.Execution.StartedAt, FinishedAt: doc.Execution.FinishedAt,
 			LeaseOwner: doc.Execution.LeaseOwner, LeaseExpiresAt: doc.Execution.LeaseExpiresAt,
 		},

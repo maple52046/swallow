@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	infradomain "github.com/maple52046/swallow/internal/infrastructure/domain"
+	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
 )
 
 // zoneDoc is the MongoDB shape of a Zone. Persistence-only tags live here, never on the domain

@@ -11,8 +11,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
+	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
-	sshkeydomain "github.com/maple52046/swallow/internal/sshkey/domain"
 )
 
 // Index names. They are matched against duplicate-key errors to tell which invariant a write

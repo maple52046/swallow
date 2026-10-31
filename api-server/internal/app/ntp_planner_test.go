@@ -6,11 +6,11 @@ import (
 	"reflect"
 	"testing"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // ntpTestServers is a FindByID-only ServerRepository for the time Task tests. Servers named in
@@ -35,13 +35,13 @@ func (r ntpTestServers) FindByID(_ context.Context, id string) (*serverdomain.Se
 
 // ntpTestAutomation answers FindBySiteID with a runnable configuration unless disabled.
 type ntpTestAutomation struct {
-	operationdomain.AutomationConfigurationRepository
+	workflowdomain.AutomationConfigurationRepository
 	disabled bool
 }
 
-func (r ntpTestAutomation) FindBySiteID(_ context.Context, siteID string) (*operationdomain.AutomationConfiguration, error) {
-	return &operationdomain.AutomationConfiguration{
-		SiteID: siteID, Enabled: !r.disabled, CredentialSource: operationdomain.CredentialSourceDeploymentKey,
+func (r ntpTestAutomation) FindBySiteID(_ context.Context, siteID string) (*workflowdomain.AutomationConfiguration, error) {
+	return &workflowdomain.AutomationConfiguration{
+		SiteID: siteID, Enabled: !r.disabled, CredentialSource: workflowdomain.CredentialSourceDeploymentKey,
 	}, nil
 }
 
@@ -52,21 +52,21 @@ func (ntpTestCatalog) Resolve(name string) (string, error) {
 	if name == ntpPlaybook {
 		return "/automation/playbooks/" + name + ".yml", nil
 	}
-	return "", operationdomain.ErrPlaybookNotAllowed
+	return "", workflowdomain.ErrPlaybookNotAllowed
 }
 
 func newNTPTestPlanner(server string, deployed map[string]bool, automationDisabled bool) ntpStepPlanner {
-	operations := operationapp.NewExecutionService(
+	operations := workflowapp.NewExecutionService(
 		nil, ntpTestServers{deployed: deployed}, ntpTestAutomation{disabled: automationDisabled}, ntpTestCatalog{}, nil, nil, nil,
 	)
 	return ntpStepPlanner{server: server, operations: operations}
 }
 
-func serverRefs(ids ...string) []operationdomain.ResourceReference {
+func serverRefs(ids ...string) []workflowdomain.ResourceReference {
 	return serverResourceRefs(ids)
 }
 
-func extraVars(t *testing.T, task operationdomain.Task) map[string]any {
+func extraVars(t *testing.T, task workflowdomain.Task) map[string]any {
 	t.Helper()
 	vars, ok := task.Parameters["extraVars"].(map[string]any)
 	if !ok {
@@ -88,7 +88,7 @@ func TestNTPPlannerConfigureTasks(t *testing.T) {
 	}
 	for index, serverID := range []string{"s1", "s2"} {
 		task := tasks[index]
-		if task.Kind != "ansible-playbook" || task.Job != "" || task.Executor != operationdomain.RunnerKindAnsible ||
+		if task.Kind != "ansible-playbook" || task.Job != "" || task.Executor != workflowdomain.RunnerKindAnsible ||
 			task.Parameters["playbook"] != ntpPlaybook {
 			t.Errorf("task %s = %+v, want the configure-ntp ansible Task with no Job", task.ID, task)
 		}
@@ -114,7 +114,7 @@ func TestNTPPlannerRefusesWithoutServerOrAutomation(t *testing.T) {
 	if _, err := newNTPTestPlanner("", nil, false).configureTasks(ctx, "op-1", "admin", "", []string{"s1"}); !errors.Is(err, provisioningdomain.ErrNTPServerMissing) {
 		t.Errorf("configureTasks() without an NTP server = %v, want ErrNTPServerMissing", err)
 	}
-	if _, err := newNTPTestPlanner("10.0.0.5", nil, true).configureTasks(ctx, "op-1", "admin", "", []string{"s1"}); !errors.Is(err, operationdomain.ErrAutomationDisabled) {
+	if _, err := newNTPTestPlanner("10.0.0.5", nil, true).configureTasks(ctx, "op-1", "admin", "", []string{"s1"}); !errors.Is(err, workflowdomain.ErrAutomationDisabled) {
 		t.Errorf("configureTasks() with automation disabled = %v, want ErrAutomationDisabled", err)
 	}
 }
@@ -125,7 +125,7 @@ func TestBuildEnsureOSExistingOSAddsNoTimeTask(t *testing.T) {
 	launch := platformdomain.DeploymentLaunch{
 		TargetServerIDs: []string{"s1", "s2"}, RequestedBy: "admin", TimeSyncCheck: platformdomain.TimeSyncCheckWarn,
 	}
-	prepared := &operationapp.PreparedAnsibleStep{SiteID: "site-1", Targets: serverRefs("s1", "s2")}
+	prepared := &workflowapp.PreparedAnsibleStep{SiteID: "site-1", Targets: serverRefs("s1", "s2")}
 	launcher := platformDeploymentLauncher{ntp: newNTPTestPlanner("10.170.168.20", map[string]bool{"s1": true, "s2": true}, false)}
 
 	plan, err := launcher.buildEnsureOS(context.Background(), launch, "op-1", false, prepared)
@@ -163,17 +163,17 @@ func TestNTPPlannerWithCheckVars(t *testing.T) {
 // satisfy.
 func TestPlatformDeploymentObserverIgnoresTheTimeTasks(t *testing.T) {
 	observer := platformDeploymentObserver{}
-	for _, kind := range []operationdomain.WorkflowKind{
-		operationdomain.WorkflowKindDeployKubernetes, operationdomain.WorkflowKindConfigureSlurm,
+	for _, kind := range []workflowdomain.WorkflowKind{
+		workflowdomain.WorkflowKindDeployKubernetes, workflowdomain.WorkflowKindConfigureSlurm,
 	} {
-		execution := &operationdomain.AnsibleExecution{OperationID: "op-1", Kind: kind, PlatformID: "plat-1", StepID: ntpStepPrefix + "s1"}
-		if err := observer.AnsibleStepSucceeded(context.Background(), execution, operationdomain.RunnerResult{}); err != nil {
+		execution := &workflowdomain.AnsibleExecution{OperationID: "op-1", Kind: kind, PlatformID: "plat-1", StepID: ntpStepPrefix + "s1"}
+		if err := observer.AnsibleStepSucceeded(context.Background(), execution, workflowdomain.RunnerResult{}); err != nil {
 			t.Errorf("%s configure-ntp completion err = %v, want nil", kind, err)
 		}
 	}
 }
 
-func taskIDs(tasks []operationdomain.Task) []string {
+func taskIDs(tasks []workflowdomain.Task) []string {
 	ids := make([]string, 0, len(tasks))
 	for _, task := range tasks {
 		ids = append(ids, task.ID)

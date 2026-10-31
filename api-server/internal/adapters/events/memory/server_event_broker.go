@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 // serverEventBufferSize bounds each subscriber's pending-event queue. A live dashboard

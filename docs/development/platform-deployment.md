@@ -442,7 +442,7 @@ swallow 的內部實作。資料流總覽見
 ### 4.1 Dynamic inventory（swallow 對 playbook 的 published language）
 
 由 discovery 產生並在 Task 建立時**凍結**進該次執行（見
-[`discovery`](../../api-server/internal/discovery/application/discovery.go)）。runner 以
+[`discovery`](../../api-server/internal/core/discovery/application/discovery.go)）。runner 以
 `--limit <本次 target server IDs>` 執行。
 
 - **host key = serverId**（不是 IP）：playbook 與其輸出以 swallow 的穩定識別子為準，重裝後
@@ -476,7 +476,7 @@ client/operator **不可偽造**（operator 只能提供非 `swallow_` 前綴的
   `swallow_operation_kind`、`swallow_site_id`、`swallow_server_ids`、`swallow_platform_id`、
   `swallow_server_hostnames`。
 - **platform 專屬 trusted vars**：由該 platform 的 Go launcher 組裝。k0s 的範例（見
-  [`deploy_platform.go`](../../api-server/internal/platform/application/deploy_platform.go)
+  [`deploy_platform.go`](../../api-server/internal/core/platform/application/deploy_platform.go)
   的 `buildDeploymentVars`）：
 
   | 變數 | 意義 |
@@ -776,7 +776,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   （`configless`）與 `login_use_sackd`；workload storage 為 `workload_enabled`，啟用時另有 `workload_mode`、
   `workload_mount_path`、`workload_fstype`、`workload_mount_options`，以及 self-hosted 的 `workload_server_id`／
   `workload_export`（`/srv/slurm-workspace`）或 external 的 `workload_source`。GPU、Omnistat、DME、OCI、PMIx 的
-  vars 見 §4.2。由 [`deploy_platform.go`](../../api-server/internal/platform/application/deploy_platform.go) 的
+  vars 見 §4.2。由 [`deploy_platform.go`](../../api-server/internal/core/platform/application/deploy_platform.go) 的
   `buildSlurmVars` 組裝。
 - **套件來源**：Slurm 官方建議自編 deb/rpm 且 swallow 尚無 local repo，故 `slurm-smd` 套件由
   **MAAS image 內建**；playbook 只 `dpkg-query` 驗證、不重編/不從 distro 裝 slurm。其他支援
@@ -1018,26 +1018,26 @@ API 契約的 "Read Slurm Cluster State"。
 
 | 職責 | 路徑 |
 | --- | --- |
-| Deploy 意圖與驗證（trusted vars、ephemeral 防呆） | `internal/platform/application/deploy_platform.go` |
-| GPU Operator 設定、版本清單與驗證 | `internal/platform/domain/gpu_operator.go`、`internal/platform/application/gpu_operator.go` |
+| Deploy 意圖與驗證（trusted vars、ephemeral 防呆） | `internal/core/platform/application/deploy_platform.go` |
+| GPU Operator 設定、版本清單與驗證 | `internal/core/platform/domain/gpu_operator.go`、`internal/core/platform/application/gpu_operator.go` |
 | GPU Operator Workflow 組裝與狀態 observer | `internal/app/gpu_operator_adapter.go` |
-| Omnistat 記錄與 State | `internal/platform/domain/omnistat.go` |
-| Device Metrics Exporter 記錄、State 與 GPU identity | `internal/platform/domain/device_metrics_exporter.go` |
-| Slurm container runtime 功能 | `internal/platform/domain/container_runtime.go` |
+| Omnistat 記錄與 State | `internal/core/platform/domain/omnistat.go` |
+| Device Metrics Exporter 記錄、State 與 GPU identity | `internal/core/platform/domain/device_metrics_exporter.go` |
+| Slurm container runtime 功能 | `internal/core/platform/domain/container_runtime.go` |
 | Slurm 功能的 software Job 組入（runtime、Prometheus、Grafana、Omnistat、DME）與狀態 observer | `internal/app/slurm_composition_adapter.go` |
 | Workflow 組裝（Job/Task） | `internal/app/platform_deployment_adapter.go` |
 | `configure-ntp-<serverId>` Task 組裝（platform `ensure-os` 與 Deploy OS 共用）、`install-platform` 的時鐘檢查 vars | `internal/app/ntp_planner.go` |
 | Installation 的 NTP server 設定（`SWALLOW_API_NTP_SERVER`，validation） | `config/config.go`、`config/env.go`、`config/validate.go` |
-| `TimeSyncCheck`（`enforce` / `warn`） | `internal/platform/domain/time_sync.go` |
-| Workflow/Task/Runner domain model | `internal/operation/domain/orchestration.go` |
-| Workflow 持久化與 secret sealing | `internal/operation/application/orchestration.go` |
-| Ansible 準備（playbook 解析、extra vars 合併） | `internal/operation/application/execution_service.go` |
+| `TimeSyncCheck`（`enforce` / `warn`） | `internal/core/platform/domain/time_sync.go` |
+| Workflow/Task/Runner domain model | `internal/core/workflow/domain/orchestration.go` |
+| Workflow 持久化與 secret sealing | `internal/core/workflow/application/orchestration.go` |
+| Ansible 準備（playbook 解析、extra vars 合併） | `internal/core/workflow/application/execution_service.go` |
 | Temporal 編排（parent + Job child workflow、retry） | `internal/adapters/executor/temporalworkflow/workflow.go` |
 | Runner 接線 | `internal/app/worker.go` |
 | `internal` Runner（wait-for-ssh、validate） | `internal/app/platform_workflow_step_executor.go` |
 | `ansible` Runner（含 host-key 擷取） | `internal/adapters/executor/temporalworkflow/ansible_executor.go` |
 | `provisioner` Runner | `internal/app/provider_step_executor.go` |
-| Dynamic inventory | `internal/discovery/application/discovery.go` |
+| Dynamic inventory | `internal/core/discovery/application/discovery.go` |
 | ansible-runner 執行（known_hosts、result.json） | `internal/adapters/hostautomation/ansible/local_runner.go` |
 | Playbook manifest 載入 | `internal/adapters/hostautomation/ansible/playbook_catalog.go` |
 

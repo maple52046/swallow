@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // deploymentSubmitter submits one frozen OS deployment intent after Swallow's preflight. The
@@ -36,9 +36,9 @@ type providerStepExecutor struct {
 	refresh        *provisioningapp.RefreshServerUseCase
 	servers        serverdomain.ServerRepository
 	providers      provisioningdomain.ProviderFactory
-	secrets        operationdomain.OperationSecretRepository
+	secrets        workflowdomain.OperationSecretRepository
 	tasks          provisioningdomain.ProvisioningTaskRepository
-	configurations operationdomain.AutomationConfigurationRepository
+	configurations workflowdomain.AutomationConfigurationRepository
 	protection     serverdomain.MutationGuard
 	poll           time.Duration
 	readinessWait  time.Duration
@@ -103,7 +103,7 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 		return result
 	case "release-os":
 		result := e.releaseServer(ctx, input)
-		if result.Status == operationdomain.TaskSucceeded {
+		if result.Status == workflowdomain.TaskSucceeded {
 			serverID := firstTargetServer(input.Step)
 			if serverID != "" {
 				if err := e.servers.SetDeployment(ctx, serverID, nil); err != nil {
@@ -114,7 +114,7 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 		return result
 	case "recover-server":
 		result := e.recoverServer(ctx, input)
-		if result.Status == operationdomain.TaskSucceeded {
+		if result.Status == workflowdomain.TaskSucceeded {
 			serverID := firstTargetServer(input.Step)
 			if serverID != "" {
 				if err := e.servers.SetDeployment(ctx, serverID, nil); err != nil {
@@ -144,8 +144,8 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 // the Machine is left retryable: retrying it is safe and a transient provider outage must not be
 // recorded as a proof failure. Non-verification deploys and success/attention-for-other-reasons are
 // returned unchanged.
-func (e providerStepExecutor) hardenVerificationResult(step operationdomain.Task, result temporalworkflow.StepExecutionResult) temporalworkflow.StepExecutionResult {
-	if result.Status != operationdomain.TaskRequiresAttention && result.Status != operationdomain.TaskFailed {
+func (e providerStepExecutor) hardenVerificationResult(step workflowdomain.Task, result temporalworkflow.StepExecutionResult) temporalworkflow.StepExecutionResult {
+	if result.Status != workflowdomain.TaskRequiresAttention && result.Status != workflowdomain.TaskFailed {
 		return result
 	}
 	if result.Error != nil && result.Error.Code == "provider_unavailable" {
@@ -158,20 +158,20 @@ func (e providerStepExecutor) hardenVerificationResult(step operationdomain.Task
 	if result.Error != nil {
 		result.Error.Retryable = false
 	}
-	result.Status = operationdomain.TaskFailed
+	result.Status = workflowdomain.TaskFailed
 	return result
 }
 
 func (e providerStepExecutor) finishDeployment(ctx context.Context, input temporalworkflow.StepExecutionInput, serverID string, result temporalworkflow.StepExecutionResult) error {
 	state := serverdomain.DeploymentDeploying
 	switch result.Status {
-	case operationdomain.TaskSucceeded:
+	case workflowdomain.TaskSucceeded:
 		state = serverdomain.DeploymentSucceeded
-	case operationdomain.TaskFailed:
+	case workflowdomain.TaskFailed:
 		state = serverdomain.DeploymentFailed
-	case operationdomain.TaskRequiresAttention:
+	case workflowdomain.TaskRequiresAttention:
 		state = serverdomain.DeploymentRequiresAttention
-	case operationdomain.TaskCanceled:
+	case workflowdomain.TaskCanceled:
 		state = serverdomain.DeploymentCanceled
 	default:
 		return nil
@@ -179,7 +179,7 @@ func (e providerStepExecutor) finishDeployment(ctx context.Context, input tempor
 	return e.setDeployment(ctx, input, serverID, state, result.Error, true)
 }
 
-func (e providerStepExecutor) setDeployment(ctx context.Context, input temporalworkflow.StepExecutionInput, serverID string, state serverdomain.DeploymentState, failure *operationdomain.NormalizedError, finished bool) error {
+func (e providerStepExecutor) setDeployment(ctx context.Context, input temporalworkflow.StepExecutionInput, serverID string, state serverdomain.DeploymentState, failure *workflowdomain.NormalizedError, finished bool) error {
 	now := time.Now().UTC()
 	startedAt := now
 	server, err := e.servers.FindByID(ctx, serverID)
@@ -379,7 +379,7 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 						// this as a non-terminal reason (empty code, so it is not a failure) gives the
 						// UI something better than a silent, frozen "verifying" during the readiness
 						// wait — which can be minutes for an image that boots from RAM but not disk.
-						waiting := &operationdomain.NormalizedError{
+						waiting := &workflowdomain.NormalizedError{
 							Stage:   "ssh_readiness",
 							Message: "The provider installed the OS; waiting for the host to become reachable over SSH before confirming the deployment.",
 						}
@@ -418,7 +418,7 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 			if !temporalworkflow.IsActivityWorkerStopping(ctx) {
 				e.abort(serverID)
 			}
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
+			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
 		case <-deadline.C:
 			if !readinessDeadline.IsZero() {
 				return deploymentReadinessFailed(lastReadiness)
@@ -475,7 +475,7 @@ func (e providerStepExecutor) deploymentSSHPort(ctx context.Context, siteID stri
 		return 22, nil
 	}
 	configuration, err := e.configurations.FindBySiteID(ctx, siteID)
-	if errors.Is(err, operationdomain.ErrAutomationConfigNotFound) {
+	if errors.Is(err, workflowdomain.ErrAutomationConfigNotFound) {
 		return 22, nil
 	}
 	if err != nil {
@@ -529,7 +529,7 @@ func (e providerStepExecutor) recoverDeploymentWithoutAddress(ctx context.Contex
 		return normalizeProviderError(err, "deployment_recovery_release")
 	}
 	released := e.observeRelease(ctx, serverID, step.OperationID, false, true)
-	if released.Status != operationdomain.TaskSucceeded {
+	if released.Status != workflowdomain.TaskSucceeded {
 		return released
 	}
 	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
@@ -582,7 +582,7 @@ func (e providerStepExecutor) recoverAndRedeploy(
 	if e.release == nil || e.deployments == nil {
 		return providerFailed("deployment_recovery_unavailable", "OS deployment recovery is unavailable.", false).withStage("deployment_recovery")
 	}
-	recovering := &operationdomain.NormalizedError{
+	recovering := &workflowdomain.NormalizedError{
 		Stage:   "deployment_recovery",
 		Message: fmt.Sprintf("The provisioner reports the Server as %s; returning it to Ready before redeploying.", state),
 	}
@@ -594,7 +594,7 @@ func (e providerStepExecutor) recoverAndRedeploy(
 		Comment:   fmt.Sprintf("Redeploy Swallow operation %s step %s attempt %d", step.OperationID, step.Step.ID, step.Step.Attempt),
 		RequestID: step.OperationID,
 	})
-	if recovered.Status != operationdomain.TaskSucceeded {
+	if recovered.Status != workflowdomain.TaskSucceeded {
 		if recovered.Error != nil && !strings.HasPrefix(recovered.Error.Stage, "deployment_recovery") {
 			recovered.Error.Stage = "deployment_recovery_" + recovered.Error.Stage
 		}
@@ -690,7 +690,7 @@ func (e providerStepExecutor) releaseServer(ctx context.Context, step temporalwo
 			if resumed {
 				return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
 			}
-			if released := e.observeRelease(ctx, serverID, step.OperationID, false, true); released.Status != operationdomain.TaskSucceeded {
+			if released := e.observeRelease(ctx, serverID, step.OperationID, false, true); released.Status != workflowdomain.TaskSucceeded {
 				return released
 			}
 			return releaseFoundReady(input)
@@ -792,7 +792,7 @@ func (e providerStepExecutor) returnCanceledDeployment(ctx context.Context, step
 		}
 		select {
 		case <-ctx.Done():
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
+			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
 		case <-ticker.C:
 		}
 	}
@@ -801,7 +801,7 @@ func (e providerStepExecutor) returnCanceledDeployment(ctx context.Context, step
 // canceledDeploymentLeft reports a return-canceled-deployment step that did nothing, with the
 // reason the Workflow records on its timeline.
 func canceledDeploymentLeft(reason string) temporalworkflow.StepExecutionResult {
-	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSkipped, WaitingReason: reason}
+	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSkipped, WaitingReason: reason}
 }
 
 // canceledDeploymentAbortTimeout bounds how long a canceled deployment may still report Deploying
@@ -878,7 +878,7 @@ func (e providerStepExecutor) recoverToReady(ctx context.Context, step temporalw
 				if !releaseAttempted {
 					releaseAttempted = true
 					result := e.recoverViaRelease(ctx, step, serverID, input)
-					if result.Status == operationdomain.TaskSucceeded {
+					if result.Status == workflowdomain.TaskSucceeded {
 						return result
 					}
 					// Only a Release that ran and left the Machine failed (typically a disk erase that
@@ -974,7 +974,7 @@ func (e providerStepExecutor) recoverToReady(ctx context.Context, step temporalw
 		}
 		select {
 		case <-ctx.Done():
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
+			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
 		case <-deadline.C:
 			return providerAttention("provider_observation_timeout", "Timed out waiting for the Server to return to Ready.", "recover")
 		case <-ticker.C:
@@ -1133,7 +1133,7 @@ func (e providerStepExecutor) observeRelease(ctx context.Context, serverID, oper
 			if !temporalworkflow.IsActivityWorkerStopping(ctx) {
 				e.abort(serverID)
 			}
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
+			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
 		case <-deadline.C:
 			return providerAttention("provider_observation_timeout", "Timed out waiting for the Server to return to Ready.", "release")
 		case <-ticker.C:
@@ -1177,7 +1177,7 @@ func (e providerStepExecutor) observeReleaseCleanup(ctx context.Context, serverI
 		}
 		select {
 		case <-ctx.Done():
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
+			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
 		case <-ticker.C:
 		}
 	}
@@ -1221,7 +1221,7 @@ func decodeStepRequest(parameters map[string]any, target any) error {
 	return nil
 }
 
-func firstTargetServer(step operationdomain.Task) string {
+func firstTargetServer(step workflowdomain.Task) string {
 	for _, target := range step.Targets {
 		if target.Kind == "server" {
 			return target.ID
@@ -1321,20 +1321,20 @@ type providerResult struct {
 }
 
 func providerSucceeded() temporalworkflow.StepExecutionResult {
-	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 }
 
 func providerFailed(code, message string, retryable bool) providerResult {
 	if strings.TrimSpace(message) == "" {
 		message = "The provider Step failed."
 	}
-	return providerResult{temporalworkflow.StepExecutionResult{Status: operationdomain.TaskFailed,
-		Error: &operationdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}}}
+	return providerResult{temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskFailed,
+		Error: &workflowdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}}}
 }
 
 func providerAttention(code, message, stage string) temporalworkflow.StepExecutionResult {
-	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskRequiresAttention,
-		Error: &operationdomain.NormalizedError{Code: code, Message: message, Retryable: true, Stage: stage}}
+	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskRequiresAttention,
+		Error: &workflowdomain.NormalizedError{Code: code, Message: message, Retryable: true, Stage: stage}}
 }
 
 func (r providerResult) withStage(stage string) temporalworkflow.StepExecutionResult {

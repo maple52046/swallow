@@ -14,10 +14,10 @@ import (
 
 	"github.com/maple52046/swallow/internal/adapters/bootiso/genfsimg"
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverapp "github.com/maple52046/swallow/internal/server/application"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverapp "github.com/maple52046/swallow/internal/core/server/application"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 )
 
@@ -73,11 +73,11 @@ func (plannerISOs) URL(id string) string {
 	return "http://192.0.2.1/boot-media/ipxe/" + id + "/swallow-ipxe.iso"
 }
 
-func provisionTask(serverID string) operationdomain.Task {
-	return operationdomain.Task{
+func provisionTask(serverID string) workflowdomain.Task {
+	return workflowdomain.Task{
 		ID: "provision-" + serverID, Kind: "provision-os", Job: "ensure-os", DependsOn: []string{"prepare"},
-		Executor:   operationdomain.RunnerKindProvisioner,
-		Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
+		Executor:   workflowdomain.RunnerKindProvisioner,
+		Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: serverID}},
 		Parameters: map[string]any{"request": "snapshot"},
 	}
 }
@@ -93,7 +93,7 @@ func TestBootMediaPlannerAddsEnsureTasks(t *testing.T) {
 		}},
 		isos: plannerISOs{},
 	}
-	steps := []operationdomain.Task{{ID: "prepare", Kind: "noop"}, provisionTask("on"), provisionTask("off"), provisionTask("new")}
+	steps := []workflowdomain.Task{{ID: "prepare", Kind: "noop"}, provisionTask("on"), provisionTask("off"), provisionTask("new")}
 	got, err := planner.withEnsureTasks(context.Background(), steps)
 	if err != nil {
 		t.Fatalf("withEnsureTasks error = %v", err)
@@ -106,7 +106,7 @@ func TestBootMediaPlannerAddsEnsureTasks(t *testing.T) {
 		t.Fatalf("steps = %v, want %v", ids, want)
 	}
 	ensure, provision := got[1], got[2]
-	if ensure.Kind != ensureBootMediaTaskKind || ensure.Executor != operationdomain.RunnerKindInternal || ensure.Job != "ensure-os" {
+	if ensure.Kind != ensureBootMediaTaskKind || ensure.Executor != workflowdomain.RunnerKindInternal || ensure.Job != "ensure-os" {
 		t.Errorf("ensure task = %+v, want an internal ensure-boot-media Task in the provision Job", ensure)
 	}
 	if ensure.Parameters["isoUrl"] != (plannerISOs{}).URL("iso-a") || ensure.Parameters["isoId"] != "iso-a" {
@@ -220,7 +220,7 @@ func TestBootMediaPlannerFreezesNoURLWithoutServedBootISO(t *testing.T) {
 			}},
 			isos: plannerISOs{},
 		}
-		got, err := planner.withEnsureTasks(context.Background(), []operationdomain.Task{provisionTask("on")})
+		got, err := planner.withEnsureTasks(context.Background(), []workflowdomain.Task{provisionTask("on")})
 		if err != nil {
 			t.Fatalf("withEnsureTasks(%q) error = %v", isoID, err)
 		}
@@ -231,7 +231,7 @@ func TestBootMediaPlannerFreezesNoURLWithoutServedBootISO(t *testing.T) {
 }
 
 func TestBootMediaPlannerZeroValueIsNoOp(t *testing.T) {
-	steps := []operationdomain.Task{provisionTask("a")}
+	steps := []workflowdomain.Task{provisionTask("a")}
 	got, err := (bootMediaPlanner{}).withEnsureTasks(context.Background(), steps)
 	if err != nil || len(got) != 1 {
 		t.Fatalf("zero planner = %v, %v; want the steps unchanged", got, err)
@@ -251,9 +251,9 @@ func (f *fakeEnsurer) Ensure(_ context.Context, serverID string, iso serverapp.B
 }
 
 func ensureInput(isoURL string) temporalworkflow.StepExecutionInput {
-	return temporalworkflow.StepExecutionInput{Step: operationdomain.Task{
+	return temporalworkflow.StepExecutionInput{Step: workflowdomain.Task{
 		ID: "ensure-boot-media-srv", Kind: ensureBootMediaTaskKind,
-		Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: "srv"}},
+		Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: "srv"}},
 		Parameters: map[string]any{"isoUrl": isoURL},
 	}}
 }
@@ -262,18 +262,18 @@ func TestEnsureBootMediaStep(t *testing.T) {
 	ensurer := &fakeEnsurer{}
 	executor := platformWorkflowStepExecutor{bootMedia: ensurer}
 	result := executor.Execute(context.Background(), ensureInput("http://frozen/x.iso"))
-	if result.Status != operationdomain.TaskSucceeded || ensurer.serverID != "srv" || ensurer.isoURL != "http://frozen/x.iso" {
+	if result.Status != workflowdomain.TaskSucceeded || ensurer.serverID != "srv" || ensurer.isoURL != "http://frozen/x.iso" {
 		t.Fatalf("result = %+v, ensure(%q, %q); want success for the Task's Server and URL", result, ensurer.serverID, ensurer.isoURL)
 	}
 
 	ensurer.err = &serverdomain.BootMediaError{Err: serverdomain.ErrBMCUnreachable, Server: "tainan-ci"}
 	result = executor.Execute(context.Background(), ensureInput("http://frozen/x.iso"))
-	if result.Status != operationdomain.TaskFailed || result.Error == nil || !result.Error.Retryable {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil || !result.Error.Retryable {
 		t.Errorf("result = %+v, want a retryable failure while the BMC is unreachable", result)
 	}
 
 	result = executor.Execute(context.Background(), ensureInput(""))
-	if result.Status != operationdomain.TaskFailed || result.Error.Code != "boot_media_not_configured" || result.Error.Retryable {
+	if result.Status != workflowdomain.TaskFailed || result.Error.Code != "boot_media_not_configured" || result.Error.Retryable {
 		t.Errorf("result = %+v, want a non-retryable failure without an ISO URL", result)
 	}
 
@@ -282,7 +282,7 @@ func TestEnsureBootMediaStep(t *testing.T) {
 	ensurer.err = nil
 	input := ensureInput("")
 	input.Step.Parameters["isoId"] = "iso-a"
-	if result := executor.Execute(context.Background(), input); result.Status != operationdomain.TaskSucceeded || ensurer.isoID != "iso-a" {
+	if result := executor.Execute(context.Background(), input); result.Status != workflowdomain.TaskSucceeded || ensurer.isoID != "iso-a" {
 		t.Errorf("result = %+v, ensure id %q; want success with the frozen id", result, ensurer.isoID)
 	}
 	ensurer.err = &serverdomain.BootMediaError{Err: serverdomain.ErrBootMediaNotConfigured, Server: "tainan-ci"}

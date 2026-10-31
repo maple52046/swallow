@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // eventProvider is a deploying Machine whose provider also keeps an event stream, the shape the
@@ -48,7 +48,7 @@ func newProgressFixture(t *testing.T, provider provisioningdomain.OSProvisioning
 	t.Helper()
 	step := temporalworkflow.StepExecutionInput{
 		OperationID: "operation-id",
-		Step:        operationdomain.Task{ID: "provision-server", Kind: "provision-os", Attempt: 1},
+		Step:        workflowdomain.Task{ID: "provision-server", Kind: "provision-os", Attempt: 1},
 	}
 	server := &serverdomain.Server{
 		ID:     "server-id",
@@ -115,7 +115,7 @@ func TestObserveDeployReportsStalledProviderStage(t *testing.T) {
 
 	result := fixture.observeBriefly(t)
 
-	if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil {
+	if result.Status != workflowdomain.TaskRequiresAttention || result.Error == nil {
 		t.Fatalf("observeDeploy() = %+v, want requires-attention Step", result)
 	}
 	if result.Error.Code != "deployment_provider_stage_stall" || result.Error.Stage != "configuring_os" || !result.Error.Retryable {
@@ -148,7 +148,7 @@ func TestObserveDeployProjectsAdvancingStageWithoutStall(t *testing.T) {
 
 	result := fixture.observeBriefly(t)
 
-	if result.Status != operationdomain.TaskCanceled {
+	if result.Status != workflowdomain.TaskCanceled {
 		t.Fatalf("observeDeploy() = %+v, want observation still running until the worker stop", result)
 	}
 	deployment := fixture.repository.server.Deployment
@@ -170,7 +170,7 @@ func TestObserveDeployIgnoresEventsFromEarlierLifecycle(t *testing.T) {
 
 		result := fixture.observeBriefly(t)
 
-		if result.Status != operationdomain.TaskCanceled {
+		if result.Status != workflowdomain.TaskCanceled {
 			t.Fatalf("observeDeploy() = %+v, want observation still running", result)
 		}
 		if reason := fixture.repository.server.Deployment.StatusReason; reason != "" {
@@ -184,7 +184,7 @@ func TestObserveDeployIgnoresEventsFromEarlierLifecycle(t *testing.T) {
 
 		result := fixture.observeBriefly(t)
 
-		if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil {
+		if result.Status != workflowdomain.TaskRequiresAttention || result.Error == nil {
 			t.Fatalf("observeDeploy() = %+v, want requires-attention Step", result)
 		}
 		if result.Error.Code != "deployment_provider_stage_stall" || result.Error.Stage != "deployment_progress" {
@@ -214,7 +214,7 @@ func TestObserveDeployWithoutProgressDataKeepsObserving(t *testing.T) {
 
 			result := fixture.observeBriefly(t)
 
-			if result.Status != operationdomain.TaskCanceled {
+			if result.Status != workflowdomain.TaskCanceled {
 				t.Fatalf("observeDeploy() = %+v, want observation still running", result)
 			}
 		})

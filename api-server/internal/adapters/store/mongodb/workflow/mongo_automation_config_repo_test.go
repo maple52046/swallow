@@ -6,7 +6,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
 )
 
@@ -49,7 +49,7 @@ func TestMongoAutomationConfigurationRepo_IgnoresLegacySiteKey(t *testing.T) {
 			credential.SSHPrivateKey, credential.BecomePassword, "pw")
 	}
 
-	if err := repo.ReplaceCredential(ctx, "site-1", operationdomain.AutomationCredential{
+	if err := repo.ReplaceCredential(ctx, "site-1", workflowdomain.AutomationCredential{
 		SSHPrivateKey: "MUST-NOT-BE-STORED", BecomePassword: "pw2",
 	}); err != nil {
 		t.Fatalf("ReplaceCredential: %v", err)

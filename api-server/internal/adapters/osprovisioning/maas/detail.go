@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // nodeDeviceJSON is one entry from /nodes/{system_id}/devices/, MAAS's PCI and USB

@@ -7,7 +7,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 // Projections stored before decision 048 hold the MAAS word `commissioning`; they must read,

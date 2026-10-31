@@ -3,7 +3,7 @@ package tests
 import (
 	"context"
 
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 )
 
 type fakeDeploymentRequirementRepo struct {

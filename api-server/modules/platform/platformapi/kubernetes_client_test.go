@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 )
 
 // newTestKubernetesClient builds a client pointed at a test server with a trivial token.

@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // The provisioner Tasks of the inspect-hardware Workflow (decisions 053 and 054, contract
@@ -99,7 +99,7 @@ func (e providerStepExecutor) waitEnrollmentSettled(ctx context.Context, step te
 		}
 		select {
 		case <-ctx.Done():
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
+			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
 		case <-deadline.C:
 			return providerAttention("enrollment_not_settled",
 				fmt.Sprintf("The provisioner still reports %s as enrolling: it has not powered off after enrollment within %s. Check that the Server finished enrollment and that the provisioner can read its power (its Power Configuration; GET power-state), power it off once enrollment is done, then retry this Task to inspect it.",
@@ -300,7 +300,7 @@ func (e providerStepExecutor) observeInspection(
 			if !temporalworkflow.IsActivityWorkerStopping(ctx) {
 				e.abort(serverID)
 			}
-			return inspectionOutcome{kind: inspectionStopped, result: temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}}
+			return inspectionOutcome{kind: inspectionStopped, result: temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}}
 		case <-deadline.C:
 			return e.abortStalledInspection(ctx, serverID, validator, machineID,
 				fmt.Sprintf("the inspection did not finish within %s", e.inspectionAttemptTimeout()))
@@ -331,7 +331,7 @@ func (e providerStepExecutor) abortStalledInspection(
 		}
 		select {
 		case <-ctx.Done():
-			return inspectionOutcome{kind: inspectionStopped, result: temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}}
+			return inspectionOutcome{kind: inspectionStopped, result: temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}}
 		case <-deadline.C:
 			return inspectionOutcome{kind: inspectionStopped, result: providerAttention("inspect_abort_unsettled",
 				"swallow aborted a hardware inspection that made no progress ("+detail+"), but the provisioner still reports it as inspecting. Check the Server in the provisioner before retrying this Task.",

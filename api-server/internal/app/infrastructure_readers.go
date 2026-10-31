@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	infradomain "github.com/maple52046/swallow/internal/infrastructure/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
-	sitedomain "github.com/maple52046/swallow/internal/site/domain"
+	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 )
 
 // SiteReader adapts the site feature's repository to the grouping feature's narrow Exists port,

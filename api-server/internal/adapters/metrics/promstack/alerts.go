@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"time"
 
-	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
+	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
 )
 
 // AlertSource implements monitoringdomain.AlertSource against Alertmanager.

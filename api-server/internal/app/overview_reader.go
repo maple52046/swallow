@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	monitoringapp "github.com/maple52046/swallow/internal/monitoring/application"
-	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	overviewapp "github.com/maple52046/swallow/internal/overview/application"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
-	sitedomain "github.com/maple52046/swallow/internal/site/domain"
+	monitoringapp "github.com/maple52046/swallow/internal/core/monitoring/application"
+	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
+	overviewapp "github.com/maple52046/swallow/internal/core/overview/application"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // HealthResolver is the server context's best-effort, non-persisted health boundary.
@@ -28,8 +28,8 @@ type OverviewReader struct {
 	servers        serverdomain.ServerRepository
 	health         HealthResolver
 	platforms      platformdomain.PlatformRepository
-	operations     operationdomain.ExecutionRepository
-	orchestrations operationdomain.WorkflowRepository
+	operations     workflowdomain.ExecutionRepository
+	orchestrations workflowdomain.WorkflowRepository
 	alerts         *monitoringapp.AlertService
 }
 
@@ -40,9 +40,9 @@ func NewOverviewReader(
 	servers serverdomain.ServerRepository,
 	health HealthResolver,
 	platforms platformdomain.PlatformRepository,
-	operations operationdomain.ExecutionRepository,
+	operations workflowdomain.ExecutionRepository,
 	alerts *monitoringapp.AlertService,
-	orchestrations ...operationdomain.WorkflowRepository,
+	orchestrations ...workflowdomain.WorkflowRepository,
 ) *OverviewReader {
 	reader := &OverviewReader{sites: sites, integrations: integrations, servers: servers, health: health, platforms: platforms, operations: operations, alerts: alerts}
 	if len(orchestrations) > 0 {
@@ -139,7 +139,7 @@ func (r *OverviewReader) ListPlatforms(ctx context.Context, siteID string) ([]ov
 // ListOperations returns public fields only; sealed extra vars and credentials never cross
 // this adapter.
 func (r *OverviewReader) ListOperations(ctx context.Context, siteID string) ([]overviewapp.Operation, error) {
-	result, err := r.operations.List(ctx, operationdomain.ExecutionListFilter{SiteID: siteID})
+	result, err := r.operations.List(ctx, workflowdomain.ExecutionListFilter{SiteID: siteID})
 	if err != nil {
 		return nil, fmt.Errorf("list overview operations: %w", err)
 	}
@@ -158,7 +158,7 @@ func (r *OverviewReader) ListOperations(ctx context.Context, siteID string) ([]o
 		}
 	}
 	if r.orchestrations != nil {
-		v3, _, listErr := r.orchestrations.List(ctx, operationdomain.WorkflowFilter{SiteID: siteID})
+		v3, _, listErr := r.orchestrations.List(ctx, workflowdomain.WorkflowFilter{SiteID: siteID})
 		if listErr != nil {
 			return nil, fmt.Errorf("list overview orchestration operations: %w", listErr)
 		}

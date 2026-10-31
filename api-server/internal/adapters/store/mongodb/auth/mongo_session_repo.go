@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	authdomain "github.com/maple52046/swallow/internal/auth/domain"
+	authdomain "github.com/maple52046/swallow/internal/core/auth/domain"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 )
 
 // seedDeployedKubernetes seeds a Swallow-deployed Kubernetes platform: a platform record with a

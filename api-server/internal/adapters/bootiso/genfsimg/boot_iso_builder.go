@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // BootISOFileName is the file name of every Boot ISO, under its own directory. The directory

@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // softwareAssignmentObserver marks a Software Assignment failed when a software install's ansible
@@ -19,7 +19,7 @@ type softwareAssignmentObserver struct {
 
 // ObserveStep implements temporalworkflow.StepProjectionObserver. It ignores every Task that is not
 // a software install ansible Task in a terminal failure state.
-func (o softwareAssignmentObserver) ObserveStep(ctx context.Context, _ string, step operationdomain.Task) error {
+func (o softwareAssignmentObserver) ObserveStep(ctx context.Context, _ string, step workflowdomain.Task) error {
 	if step.Kind != "ansible-playbook" || step.Parameters == nil {
 		return nil
 	}
@@ -48,9 +48,9 @@ func (o softwareAssignmentObserver) ObserveStep(ctx context.Context, _ string, s
 // softwareStepTerminalFailure reports whether a Task status means the install cannot proceed, so the
 // assignment should be marked failed. Canceled is included because a canceled install left nothing
 // installed to record.
-func softwareStepTerminalFailure(status operationdomain.TaskStatus) bool {
+func softwareStepTerminalFailure(status workflowdomain.TaskStatus) bool {
 	switch status {
-	case operationdomain.TaskFailed, operationdomain.TaskRequiresAttention, operationdomain.TaskCanceled:
+	case workflowdomain.TaskFailed, workflowdomain.TaskRequiresAttention, workflowdomain.TaskCanceled:
 		return true
 	default:
 		return false

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 )
 
 // DefaultSlurmAPIVersion is slurmrestd's path version. It is configurable because

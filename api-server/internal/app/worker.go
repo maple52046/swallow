@@ -29,12 +29,12 @@ import (
 	sitestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/site"
 	softwarestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/software"
 	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
-	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformapp "github.com/maple52046/swallow/internal/platform/application"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	serverapp "github.com/maple52046/swallow/internal/server/application"
+	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
+	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	serverapp "github.com/maple52046/swallow/internal/core/server/application"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/modules/platform/platformapi"
 )
@@ -93,7 +93,7 @@ func RunWorker(cfg config.APIConfig) error {
 		return err
 	}
 	automationRepo := workflowstore.NewMongoAutomationConfigurationRepo(db, sealer)
-	automationConfigurations := operationapp.NewEffectiveAutomationConfigurations(
+	automationConfigurations := workflowapp.NewEffectiveAutomationConfigurations(
 		automationRepo, deploymentKeySource{keys: sshKeys})
 	// Hypervisor access (decision 055): libvirt Boot Media ensures and virtual-machine enrollment
 	// log in to a Hypervisor with the Deployment Key on the Site's SSH port.
@@ -187,14 +187,14 @@ func RunWorker(cfg config.APIConfig) error {
 	providerExecutor.virtualMachines = &virtualMachineEnroller{
 		libvirt: libvirtHosts, isos: bootISOs, bootMedia: bootMedia, integrations: integrations,
 	}
-	activities := temporalworkflow.NewActivities(operations, leases, map[operationdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
-		operationdomain.RunnerKindInternal: platformWorkflowStepExecutor{
+	activities := temporalworkflow.NewActivities(operations, leases, map[workflowdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
+		workflowdomain.RunnerKindInternal: platformWorkflowStepExecutor{
 			servers: servers, configurations: automationConfigurations, membership: membership,
 			finalizer: platformFinalizer, imageVerifications: osImageVerifications,
 			software: softwareAssignments, bootMedia: bootMedia, bootISOs: bootISOs, poll: 5 * time.Second,
 		},
-		operationdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), operations, cfg.JobArtifactDir, 2*time.Second),
-		operationdomain.RunnerKindProvisioner: providerExecutor,
+		workflowdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), operations, cfg.JobArtifactDir, 2*time.Second),
+		workflowdomain.RunnerKindProvisioner: providerExecutor,
 	}, serverDeploymentStepObserver{servers: servers}, softwareAssignmentObserver{assignments: softwareAssignments},
 		gpuOperatorStepObserver{recorder: platforms}, omnistatStepObserver{recorder: platforms},
 		deviceMetricsExporterStepObserver{recorder: platforms})

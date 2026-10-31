@@ -3,7 +3,7 @@ package maas
 import (
 	"context"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // This file implements Server Enrollment against MAAS (decisions 053 and 054): telling when MAAS's

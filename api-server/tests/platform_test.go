@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 // seedPlatform inserts a platform record directly through the repository, standing in for a

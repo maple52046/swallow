@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // subnetUpdateRecorder answers PUT /subnets/{id}/ with status and records each multipart form it

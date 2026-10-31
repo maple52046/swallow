@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 // requestTimeout bounds one HTTP exchange. BMC web servers are slow (several seconds per

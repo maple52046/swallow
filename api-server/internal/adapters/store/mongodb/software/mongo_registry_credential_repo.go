@@ -9,8 +9,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
-	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
 )
 
 // registryCredentialDoc is the BSON shape of a Registry Credential. SealedPassword is excluded from

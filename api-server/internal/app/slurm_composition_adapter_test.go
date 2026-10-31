@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	"github.com/maple52046/swallow/internal/core/store/storetest"
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
-	softwareapp "github.com/maple52046/swallow/internal/software/application"
-	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // omnistatStateRecorder captures the last fenced Omnistat State write.
@@ -34,8 +34,8 @@ func (r *omnistatStateRecorder) UpdateOmnistatState(
 	return true, nil
 }
 
-func omnistatTestTask(status operationdomain.TaskStatus) operationdomain.Task {
-	return operationdomain.Task{
+func omnistatTestTask(status workflowdomain.TaskStatus) workflowdomain.Task {
+	return workflowdomain.Task{
 		ID: omnistatStepID, Kind: "ansible-playbook", Status: status,
 		Parameters: map[string]any{omnistatStepParamOwner: "plat-1", omnistatStepParamRecord: "deploy-1"},
 	}
@@ -46,15 +46,15 @@ func omnistatTestTask(status operationdomain.TaskStatus) operationdomain.Task {
 // failed install.
 func TestOmnistatObserverProjectsTheTaskOntoTheRecordedWorkflow(t *testing.T) {
 	tests := []struct {
-		status operationdomain.TaskStatus
+		status workflowdomain.TaskStatus
 		want   platformdomain.OmnistatState
 	}{
-		{status: operationdomain.TaskRunning, want: platformdomain.OmnistatInstalling},
-		{status: operationdomain.TaskSucceeded, want: platformdomain.OmnistatReady},
-		{status: operationdomain.TaskFailed, want: platformdomain.OmnistatFailed},
-		{status: operationdomain.TaskRequiresAttention, want: platformdomain.OmnistatFailed},
-		{status: operationdomain.TaskCanceled, want: platformdomain.OmnistatFailed},
-		{status: operationdomain.TaskSkipped, want: platformdomain.OmnistatFailed},
+		{status: workflowdomain.TaskRunning, want: platformdomain.OmnistatInstalling},
+		{status: workflowdomain.TaskSucceeded, want: platformdomain.OmnistatReady},
+		{status: workflowdomain.TaskFailed, want: platformdomain.OmnistatFailed},
+		{status: workflowdomain.TaskRequiresAttention, want: platformdomain.OmnistatFailed},
+		{status: workflowdomain.TaskCanceled, want: platformdomain.OmnistatFailed},
+		{status: workflowdomain.TaskSkipped, want: platformdomain.OmnistatFailed},
 	}
 	for _, tc := range tests {
 		t.Run(string(tc.status), func(t *testing.T) {
@@ -73,9 +73,9 @@ func TestOmnistatObserverProjectsTheTaskOntoTheRecordedWorkflow(t *testing.T) {
 func TestOmnistatObserverIgnoresOtherTasksAndPending(t *testing.T) {
 	recorder := &omnistatStateRecorder{}
 	observer := omnistatStepObserver{recorder: recorder}
-	docker := operationdomain.Task{ID: "install-docker-ce", Kind: "ansible-playbook", Status: operationdomain.TaskFailed,
+	docker := workflowdomain.Task{ID: "install-docker-ce", Kind: "ansible-playbook", Status: workflowdomain.TaskFailed,
 		Parameters: map[string]any{"softwareKind": "docker-ce"}}
-	for _, task := range []operationdomain.Task{docker, omnistatTestTask(operationdomain.TaskPending)} {
+	for _, task := range []workflowdomain.Task{docker, omnistatTestTask(workflowdomain.TaskPending)} {
 		if err := observer.ObserveStep(context.Background(), "deploy-1", task); err != nil {
 			t.Fatalf("ObserveStep(%s): %v", task.ID, err)
 		}
@@ -91,17 +91,17 @@ func TestOmnistatObserverIgnoresOtherTasksAndPending(t *testing.T) {
 func TestPlatformDeploymentObserverRoutesSlurmTasksByID(t *testing.T) {
 	observer := platformDeploymentObserver{}
 	for _, stepID := range []string{"install-docker-ce", "install-prometheus", "install-grafana"} {
-		execution := &operationdomain.AnsibleExecution{
-			OperationID: "op-1", Kind: operationdomain.WorkflowKindConfigureSlurm, PlatformID: "plat-1", StepID: stepID,
+		execution := &workflowdomain.AnsibleExecution{
+			OperationID: "op-1", Kind: workflowdomain.WorkflowKindConfigureSlurm, PlatformID: "plat-1", StepID: stepID,
 		}
-		if err := observer.AnsibleStepSucceeded(context.Background(), execution, operationdomain.RunnerResult{}); err != nil {
+		if err := observer.AnsibleStepSucceeded(context.Background(), execution, workflowdomain.RunnerResult{}); err != nil {
 			t.Errorf("AnsibleStepSucceeded(%s) = %v, want nil", stepID, err)
 		}
 	}
-	execution := &operationdomain.AnsibleExecution{
-		OperationID: "op-1", Kind: operationdomain.WorkflowKindConfigureSlurm, PlatformID: "plat-1", StepID: omnistatStepID,
+	execution := &workflowdomain.AnsibleExecution{
+		OperationID: "op-1", Kind: workflowdomain.WorkflowKindConfigureSlurm, PlatformID: "plat-1", StepID: omnistatStepID,
 	}
-	if err := observer.AnsibleStepSucceeded(context.Background(), execution, operationdomain.RunnerResult{}); err == nil {
+	if err := observer.AnsibleStepSucceeded(context.Background(), execution, workflowdomain.RunnerResult{}); err == nil {
 		t.Error("an Omnistat run without a Grafana URL must fail its Task")
 	}
 }
@@ -238,20 +238,20 @@ func (r *exporterStateRecorder) UpdateDeviceMetricsExporterGPUIdentity(
 // The Device Metrics Exporter State follows its install Task exactly like Omnistat's, fenced on the
 // recorded deploy Workflow; other Tasks (including Omnistat's) and pending move nothing.
 func TestDeviceMetricsExporterObserverProjectsItsTaskOnly(t *testing.T) {
-	task := func(id string, status operationdomain.TaskStatus) operationdomain.Task {
-		return operationdomain.Task{ID: id, Kind: "ansible-playbook", Status: status, Parameters: map[string]any{
+	task := func(id string, status workflowdomain.TaskStatus) workflowdomain.Task {
+		return workflowdomain.Task{ID: id, Kind: "ansible-playbook", Status: status, Parameters: map[string]any{
 			deviceMetricsExporterStepParamOwner: "plat-1", deviceMetricsExporterStepParamRecord: "deploy-1",
 			omnistatStepParamOwner: "plat-1", omnistatStepParamRecord: "deploy-1",
 		}}
 	}
 	tests := []struct {
-		status operationdomain.TaskStatus
+		status workflowdomain.TaskStatus
 		want   platformdomain.DeviceMetricsExporterState
 	}{
-		{status: operationdomain.TaskRunning, want: platformdomain.DeviceMetricsExporterInstalling},
-		{status: operationdomain.TaskSucceeded, want: platformdomain.DeviceMetricsExporterReady},
-		{status: operationdomain.TaskFailed, want: platformdomain.DeviceMetricsExporterFailed},
-		{status: operationdomain.TaskSkipped, want: platformdomain.DeviceMetricsExporterFailed},
+		{status: workflowdomain.TaskRunning, want: platformdomain.DeviceMetricsExporterInstalling},
+		{status: workflowdomain.TaskSucceeded, want: platformdomain.DeviceMetricsExporterReady},
+		{status: workflowdomain.TaskFailed, want: platformdomain.DeviceMetricsExporterFailed},
+		{status: workflowdomain.TaskSkipped, want: platformdomain.DeviceMetricsExporterFailed},
 	}
 	for _, tc := range tests {
 		recorder := &exporterStateRecorder{}
@@ -266,8 +266,8 @@ func TestDeviceMetricsExporterObserverProjectsItsTaskOnly(t *testing.T) {
 	}
 	recorder := &exporterStateRecorder{}
 	observer := deviceMetricsExporterStepObserver{recorder: recorder}
-	for _, other := range []operationdomain.Task{task(omnistatStepID, operationdomain.TaskFailed),
-		task(deviceMetricsExporterStepID, operationdomain.TaskPending)} {
+	for _, other := range []workflowdomain.Task{task(omnistatStepID, workflowdomain.TaskFailed),
+		task(deviceMetricsExporterStepID, workflowdomain.TaskPending)} {
 		if err := observer.ObserveStep(context.Background(), "deploy-1", other); err != nil {
 			t.Fatalf("ObserveStep(%s): %v", other.ID, err)
 		}
@@ -324,11 +324,11 @@ func TestComposedContainerRuntimeForTheDeviceMetricsExporter(t *testing.T) {
 // Platform without its link.
 func TestDeviceMetricsExporterCompletionNeedsTheGrafanaURL(t *testing.T) {
 	observer := platformDeploymentObserver{}
-	execution := &operationdomain.AnsibleExecution{
-		OperationID: "op-1", Kind: operationdomain.WorkflowKindConfigureSlurm, PlatformID: "plat-1",
+	execution := &workflowdomain.AnsibleExecution{
+		OperationID: "op-1", Kind: workflowdomain.WorkflowKindConfigureSlurm, PlatformID: "plat-1",
 		StepID: deviceMetricsExporterStepID,
 	}
-	if err := observer.AnsibleStepSucceeded(context.Background(), execution, operationdomain.RunnerResult{}); err == nil {
+	if err := observer.AnsibleStepSucceeded(context.Background(), execution, workflowdomain.RunnerResult{}); err == nil {
 		t.Error("a Device Metrics Exporter run without a Grafana URL must fail its Task")
 	}
 }
@@ -365,7 +365,7 @@ func (slurmTestCatalog) Resolve(name string) (string, error) { return name + ".y
 func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
 	servers := slurmTestServers{gpus: map[string]bool{"s2": true, "s3": true}}
 	launcher := platformDeploymentLauncher{
-		operations: operationapp.NewExecutionService(nil, servers, ntpTestAutomation{}, slurmTestCatalog{}, nil, nil, nil),
+		operations: workflowapp.NewExecutionService(nil, servers, ntpTestAutomation{}, slurmTestCatalog{}, nil, nil, nil),
 		software:   softwareapp.NewSoftwareService(&storetest.Transactor{}, assignmentList{}, servers, nil),
 	}
 	launch := platformdomain.DeploymentLaunch{

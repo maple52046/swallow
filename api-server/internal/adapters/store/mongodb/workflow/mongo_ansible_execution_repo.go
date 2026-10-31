@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // MongoAnsibleExecutionRepo stores the executor queue and its unique idempotency key.
@@ -27,7 +27,7 @@ func NewMongoAnsibleExecutionRepo(db *mongo.Database) (*MongoAnsibleExecutionRep
 	return repo, err
 }
 
-func (r *MongoAnsibleExecutionRepo) CreateOrGet(ctx context.Context, execution *operationdomain.AnsibleExecution) (*operationdomain.AnsibleExecution, error) {
+func (r *MongoAnsibleExecutionRepo) CreateOrGet(ctx context.Context, execution *workflowdomain.AnsibleExecution) (*workflowdomain.AnsibleExecution, error) {
 	_, err := r.col.InsertOne(ctx, execution)
 	if err == nil {
 		copy := *execution
@@ -36,28 +36,28 @@ func (r *MongoAnsibleExecutionRepo) CreateOrGet(ctx context.Context, execution *
 	if !mongo.IsDuplicateKeyError(err) {
 		return nil, err
 	}
-	var existing operationdomain.AnsibleExecution
+	var existing workflowdomain.AnsibleExecution
 	if err := r.col.FindOne(ctx, bson.M{"idempotencyKey": execution.IdempotencyKey}).Decode(&existing); err != nil {
 		return nil, err
 	}
 	return &existing, nil
 }
 
-func (r *MongoAnsibleExecutionRepo) FindByID(ctx context.Context, id string) (*operationdomain.AnsibleExecution, error) {
-	var execution operationdomain.AnsibleExecution
+func (r *MongoAnsibleExecutionRepo) FindByID(ctx context.Context, id string) (*workflowdomain.AnsibleExecution, error) {
+	var execution workflowdomain.AnsibleExecution
 	err := r.col.FindOne(ctx, bson.M{"_id": id}).Decode(&execution)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		return nil, operationdomain.ErrAnsibleExecutionNotFound
+		return nil, workflowdomain.ErrAnsibleExecutionNotFound
 	}
 	return &execution, err
 }
 
-func (r *MongoAnsibleExecutionRepo) ClaimNext(ctx context.Context, owner string, expiresAt time.Time) (*operationdomain.AnsibleExecution, error) {
+func (r *MongoAnsibleExecutionRepo) ClaimNext(ctx context.Context, owner string, expiresAt time.Time) (*workflowdomain.AnsibleExecution, error) {
 	now := time.Now().UTC()
-	var execution operationdomain.AnsibleExecution
+	var execution workflowdomain.AnsibleExecution
 	err := r.col.FindOneAndUpdate(ctx,
-		bson.M{"status": string(operationdomain.AnsibleQueued), "cancelRequested": bson.M{"$ne": true}},
-		bson.M{"$set": bson.M{"status": string(operationdomain.AnsibleRunning), "leaseOwner": owner,
+		bson.M{"status": string(workflowdomain.AnsibleQueued), "cancelRequested": bson.M{"$ne": true}},
+		bson.M{"$set": bson.M{"status": string(workflowdomain.AnsibleRunning), "leaseOwner": owner,
 			"leaseExpiresAt": expiresAt, "startedAt": now, "updatedAt": now}},
 		options.FindOneAndUpdate().SetSort(bson.D{{Key: "createdAt", Value: 1}}).SetReturnDocument(options.After),
 	).Decode(&execution)
@@ -69,14 +69,14 @@ func (r *MongoAnsibleExecutionRepo) ClaimNext(ctx context.Context, owner string,
 
 func (r *MongoAnsibleExecutionRepo) Renew(ctx context.Context, id, owner string, expiresAt time.Time) error {
 	result, err := r.col.UpdateOne(ctx,
-		bson.M{"_id": id, "status": string(operationdomain.AnsibleRunning), "leaseOwner": owner},
+		bson.M{"_id": id, "status": string(workflowdomain.AnsibleRunning), "leaseOwner": owner},
 		bson.M{"$set": bson.M{"leaseExpiresAt": expiresAt, "updatedAt": time.Now().UTC()}},
 	)
 	if err != nil {
 		return err
 	}
 	if result.MatchedCount != 1 {
-		return operationdomain.ErrAnsibleExecutionLeaseLost
+		return workflowdomain.ErrAnsibleExecutionLeaseLost
 	}
 	return nil
 }
@@ -84,19 +84,19 @@ func (r *MongoAnsibleExecutionRepo) Renew(ctx context.Context, id, owner string,
 // UpdateProgress records live run progress for the lease-holding executor. It is best-effort: a
 // zero MatchedCount (lease lost or execution already finished) is not an error, because progress is
 // advisory and the authoritative outcome is written by Finish under the same owner guard.
-func (r *MongoAnsibleExecutionRepo) UpdateProgress(ctx context.Context, id, owner string, progress operationdomain.AnsibleRunProgress) error {
+func (r *MongoAnsibleExecutionRepo) UpdateProgress(ctx context.Context, id, owner string, progress workflowdomain.AnsibleRunProgress) error {
 	progress.UpdatedAt = time.Now().UTC()
 	_, err := r.col.UpdateOne(ctx,
-		bson.M{"_id": id, "status": string(operationdomain.AnsibleRunning), "leaseOwner": owner},
+		bson.M{"_id": id, "status": string(workflowdomain.AnsibleRunning), "leaseOwner": owner},
 		bson.M{"$set": bson.M{"progress": progress, "updatedAt": progress.UpdatedAt}},
 	)
 	return err
 }
 
-func (r *MongoAnsibleExecutionRepo) Finish(ctx context.Context, id, owner string, status operationdomain.AnsibleExecutionStatus, reason string) error {
+func (r *MongoAnsibleExecutionRepo) Finish(ctx context.Context, id, owner string, status workflowdomain.AnsibleExecutionStatus, reason string) error {
 	now := time.Now().UTC()
 	result, err := r.col.UpdateOne(ctx,
-		bson.M{"_id": id, "status": string(operationdomain.AnsibleRunning), "leaseOwner": owner},
+		bson.M{"_id": id, "status": string(workflowdomain.AnsibleRunning), "leaseOwner": owner},
 		bson.M{"$set": bson.M{"status": string(status), "statusReason": reason, "finishedAt": now,
 			"updatedAt": now}, "$unset": bson.M{"leaseOwner": "", "leaseExpiresAt": ""}},
 	)
@@ -104,22 +104,22 @@ func (r *MongoAnsibleExecutionRepo) Finish(ctx context.Context, id, owner string
 		return err
 	}
 	if result.MatchedCount != 1 {
-		return operationdomain.ErrAnsibleExecutionLeaseLost
+		return workflowdomain.ErrAnsibleExecutionLeaseLost
 	}
 	return nil
 }
 
 func (r *MongoAnsibleExecutionRepo) RequestCancel(ctx context.Context, id string) error {
 	now := time.Now().UTC()
-	queued, err := r.col.UpdateOne(ctx, bson.M{"_id": id, "status": string(operationdomain.AnsibleQueued)},
-		bson.M{"$set": bson.M{"status": string(operationdomain.AnsibleCanceled), "cancelRequested": true, "finishedAt": now, "updatedAt": now}})
+	queued, err := r.col.UpdateOne(ctx, bson.M{"_id": id, "status": string(workflowdomain.AnsibleQueued)},
+		bson.M{"$set": bson.M{"status": string(workflowdomain.AnsibleCanceled), "cancelRequested": true, "finishedAt": now, "updatedAt": now}})
 	if err != nil {
 		return err
 	}
 	if queued.MatchedCount == 1 {
 		return nil
 	}
-	running, err := r.col.UpdateOne(ctx, bson.M{"_id": id, "status": string(operationdomain.AnsibleRunning)},
+	running, err := r.col.UpdateOne(ctx, bson.M{"_id": id, "status": string(workflowdomain.AnsibleRunning)},
 		bson.M{"$set": bson.M{"cancelRequested": true, "updatedAt": now}})
 	if err != nil {
 		return err
@@ -134,9 +134,9 @@ func (r *MongoAnsibleExecutionRepo) RequestCancel(ctx context.Context, id string
 
 func (r *MongoAnsibleExecutionRepo) MarkExpiredRequiresAttention(ctx context.Context, now time.Time) (int64, error) {
 	result, err := r.col.UpdateMany(ctx, bson.M{
-		"status": string(operationdomain.AnsibleRunning), "leaseExpiresAt": bson.M{"$lt": now},
+		"status": string(workflowdomain.AnsibleRunning), "leaseExpiresAt": bson.M{"$lt": now},
 	}, bson.M{"$set": bson.M{
-		"status":       string(operationdomain.AnsibleRequiresAttention),
+		"status":       string(workflowdomain.AnsibleRequiresAttention),
 		"statusReason": "The Ansible executor stopped before it recorded an outcome. Verify the hosts and retry this Step explicitly.",
 		"finishedAt":   now, "updatedAt": now,
 	}, "$unset": bson.M{"leaseOwner": "", "leaseExpiresAt": ""}})

@@ -10,7 +10,7 @@ import (
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // awaitedProjectionDelay holds every canceled Step projection back briefly before recording it.
@@ -24,12 +24,12 @@ const awaitedProjectionDelay = 200 * time.Millisecond
 // provider Step is canceled while its activity is running.
 type cancelProjectionRecorder struct {
 	mu     sync.Mutex
-	states []operationdomain.WorkflowStatus
-	steps  map[string]operationdomain.TaskStatus
+	states []workflowdomain.WorkflowStatus
+	steps  map[string]workflowdomain.TaskStatus
 	// returned lists the Tasks a return-canceled-deployment step ran for, and events the
 	// timeline events the workflow appended for them.
 	returned []StepExecutionInput
-	events   []operationdomain.TimelineEvent
+	events   []workflowdomain.TimelineEvent
 }
 
 func (r *cancelProjectionRecorder) returnedSteps() []StepExecutionInput {
@@ -38,19 +38,19 @@ func (r *cancelProjectionRecorder) returnedSteps() []StepExecutionInput {
 	return append([]StepExecutionInput(nil), r.returned...)
 }
 
-func (r *cancelProjectionRecorder) appendedEvents() []operationdomain.TimelineEvent {
+func (r *cancelProjectionRecorder) appendedEvents() []workflowdomain.TimelineEvent {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return append([]operationdomain.TimelineEvent(nil), r.events...)
+	return append([]workflowdomain.TimelineEvent(nil), r.events...)
 }
 
-func (r *cancelProjectionRecorder) stepStatus(id string) operationdomain.TaskStatus {
+func (r *cancelProjectionRecorder) stepStatus(id string) workflowdomain.TaskStatus {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.steps[id]
 }
 
-func (r *cancelProjectionRecorder) lastState() operationdomain.WorkflowStatus {
+func (r *cancelProjectionRecorder) lastState() workflowdomain.WorkflowStatus {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(r.states) == 0 {
@@ -65,19 +65,19 @@ func (r *cancelProjectionRecorder) lastState() operationdomain.WorkflowStatus {
 // then issues succeeds at once and is recorded, as is every appended timeline event.
 func registerMidActivityCancel(t *testing.T, env *testsuite.TestWorkflowEnvironment) *cancelProjectionRecorder {
 	t.Helper()
-	recorder := &cancelProjectionRecorder{steps: map[string]operationdomain.TaskStatus{}}
+	recorder := &cancelProjectionRecorder{steps: map[string]workflowdomain.TaskStatus{}}
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 
-	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]operationdomain.ResourceLease, error) {
-		return []operationdomain.ResourceLease{{ResourceKey: "server:a", Owner: "workflow", FencingToken: 1}}, nil
+	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]workflowdomain.ResourceLease, error) {
+		return []workflowdomain.ResourceLease{{ResourceKey: "server:a", Owner: "workflow", FencingToken: 1}}, nil
 	}, activity.RegisterOptions{Name: ActivityAcquireLeases})
 	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRenewal) error { return nil },
 		activity.RegisterOptions{Name: ActivityRenewLeases})
-	env.RegisterActivityWithOptions(func(_ context.Context, _ []operationdomain.ResourceLease) error { return nil },
+	env.RegisterActivityWithOptions(func(_ context.Context, _ []workflowdomain.ResourceLease) error { return nil },
 		activity.RegisterOptions{Name: ActivityReleaseLeases})
 	env.RegisterActivityWithOptions(func(_ context.Context, input StepUpdate) error {
-		if input.Step.Status == operationdomain.TaskCanceled {
+		if input.Step.Status == workflowdomain.TaskCanceled {
 			time.Sleep(awaitedProjectionDelay)
 		}
 		recorder.mu.Lock()
@@ -91,7 +91,7 @@ func registerMidActivityCancel(t *testing.T, env *testsuite.TestWorkflowEnvironm
 		recorder.mu.Unlock()
 		return nil
 	}, activity.RegisterOptions{Name: ActivityUpdateState})
-	env.RegisterActivityWithOptions(func(_ context.Context, event operationdomain.TimelineEvent) error {
+	env.RegisterActivityWithOptions(func(_ context.Context, event workflowdomain.TimelineEvent) error {
 		recorder.mu.Lock()
 		recorder.events = append(recorder.events, event)
 		recorder.mu.Unlock()
@@ -102,7 +102,7 @@ func registerMidActivityCancel(t *testing.T, env *testsuite.TestWorkflowEnvironm
 			recorder.mu.Lock()
 			recorder.returned = append(recorder.returned, input)
 			recorder.mu.Unlock()
-			return StepExecutionResult{Status: operationdomain.TaskSucceeded}, nil
+			return StepExecutionResult{Status: workflowdomain.TaskSucceeded}, nil
 		}
 		env.CancelWorkflow()
 		select {
@@ -126,23 +126,23 @@ func TestOperationWorkflowV1CancelDuringActivityProjectsCanceledStep(t *testing.
 	recorder := registerMidActivityCancel(t, env)
 
 	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
-		OperationID: "operation-deploy-os", Kind: operationdomain.WorkflowKindDeployOS,
+		OperationID: "operation-deploy-os", Kind: workflowdomain.WorkflowKindDeployOS,
 		SiteID: "site-a", Definition: "os-deployment", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, MaxParallelism: 1, ResourceKeys: []string{"server:a"},
-		Steps: []operationdomain.Task{{
+		Steps: []workflowdomain.Task{{
 			ID: "provision-a", Kind: "provision-os", Name: "Provision a",
-			Executor: operationdomain.RunnerKindProvisioner, Status: operationdomain.TaskPending, Attempt: 1,
-			Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "a"}},
+			Executor: workflowdomain.RunnerKindProvisioner, Status: workflowdomain.TaskPending, Attempt: 1,
+			Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "a"}},
 		}},
 	})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("canceled workflow returned an error: %v", err)
 	}
-	if got := recorder.lastState(); got != operationdomain.WorkflowCanceled {
-		t.Errorf("final Operation state = %q, want %q", got, operationdomain.WorkflowCanceled)
+	if got := recorder.lastState(); got != workflowdomain.WorkflowCanceled {
+		t.Errorf("final Operation state = %q, want %q", got, workflowdomain.WorkflowCanceled)
 	}
-	if got := recorder.stepStatus("provision-a"); got != operationdomain.TaskCanceled {
-		t.Errorf("provision-a projected status = %q, want %q", got, operationdomain.TaskCanceled)
+	if got := recorder.stepStatus("provision-a"); got != workflowdomain.TaskCanceled {
+		t.Errorf("provision-a projected status = %q, want %q", got, workflowdomain.TaskCanceled)
 	}
 	assertInterruptedDeploymentReturned(t, recorder, "operation-deploy-os")
 }
@@ -182,20 +182,20 @@ func TestOperationWorkflowV1CancelRepairsWorkflowStartedBeforeFix(t *testing.T) 
 	recorder := registerMidActivityCancel(t, env)
 
 	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
-		OperationID: "operation-in-flight", Kind: operationdomain.WorkflowKindDeployOS,
+		OperationID: "operation-in-flight", Kind: workflowdomain.WorkflowKindDeployOS,
 		SiteID: "site-a", Definition: "os-deployment", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, MaxParallelism: 1, ResourceKeys: []string{"server:a"},
-		Steps: []operationdomain.Task{{
+		Steps: []workflowdomain.Task{{
 			ID: "provision-a", Kind: "provision-os", Name: "Provision a",
-			Executor: operationdomain.RunnerKindProvisioner, Status: operationdomain.TaskPending, Attempt: 1,
-			Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "a"}},
+			Executor: workflowdomain.RunnerKindProvisioner, Status: workflowdomain.TaskPending, Attempt: 1,
+			Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "a"}},
 		}},
 	})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("canceled workflow returned an error: %v", err)
 	}
-	if got := recorder.stepStatus("provision-a"); got != operationdomain.TaskCanceled {
-		t.Errorf("provision-a projected status = %q, want %q", got, operationdomain.TaskCanceled)
+	if got := recorder.stepStatus("provision-a"); got != workflowdomain.TaskCanceled {
+		t.Errorf("provision-a projected status = %q, want %q", got, workflowdomain.TaskCanceled)
 	}
 }
 
@@ -209,23 +209,23 @@ func TestJobWorkflowV1CancelDuringActivityProjectsCanceledStep(t *testing.T) {
 	recorder := registerMidActivityCancel(t, env)
 
 	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
-		OperationID: "operation-platform", Kind: operationdomain.WorkflowKindDeployKubernetes,
+		OperationID: "operation-platform", Kind: workflowdomain.WorkflowKindDeployKubernetes,
 		SiteID: "site-a", Definition: "platform-deployment", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, MaxParallelism: 1, ResourceKeys: []string{"server:a"},
-		Steps: []operationdomain.Task{{
+		Steps: []workflowdomain.Task{{
 			ID: "provision-a", Job: "ensure-os", Kind: "provision-os", Name: "Ensure OS on a",
-			Executor: operationdomain.RunnerKindProvisioner, Status: operationdomain.TaskPending, Attempt: 1,
-			Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "a"}},
+			Executor: workflowdomain.RunnerKindProvisioner, Status: workflowdomain.TaskPending, Attempt: 1,
+			Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "a"}},
 		}},
 	})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("canceled jobbed workflow returned an error: %v", err)
 	}
-	if got := recorder.lastState(); got != operationdomain.WorkflowCanceled {
-		t.Errorf("final Operation state = %q, want %q", got, operationdomain.WorkflowCanceled)
+	if got := recorder.lastState(); got != workflowdomain.WorkflowCanceled {
+		t.Errorf("final Operation state = %q, want %q", got, workflowdomain.WorkflowCanceled)
 	}
-	if got := recorder.stepStatus("provision-a"); got != operationdomain.TaskCanceled {
-		t.Errorf("provision-a projected status = %q, want %q", got, operationdomain.TaskCanceled)
+	if got := recorder.stepStatus("provision-a"); got != workflowdomain.TaskCanceled {
+		t.Errorf("provision-a projected status = %q, want %q", got, workflowdomain.TaskCanceled)
 	}
 	// The parent must wait for the child's cancellation, or the child returning the deployment
 	// would be terminated when the parent closes and releases the leases.

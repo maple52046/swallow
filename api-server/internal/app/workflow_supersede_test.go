@@ -6,21 +6,21 @@ import (
 	"strings"
 	"testing"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // uninstallLikeInput is the shape LaunchUninstall creates: one Task per target Server, which Create
 // refuses while another Workflow still holds a target unless that Workflow is superseded.
-func uninstallLikeInput(superseded []string) operationapp.CreateWorkflowInput {
-	return operationapp.CreateWorkflowInput{
-		Kind: operationdomain.WorkflowKindUninstallSlurm, IntentSummary: "Uninstall Slurm Platform lab",
+func uninstallLikeInput(superseded []string) workflowapp.CreateWorkflowInput {
+	return workflowapp.CreateWorkflowInput{
+		Kind: workflowdomain.WorkflowKindUninstallSlurm, IntentSummary: "Uninstall Slurm Platform lab",
 		Definition: "platform-uninstall", DefinitionVersion: 1, SiteID: "site-id", PlatformID: "platform-id",
 		TargetServerIDs: []string{"server-id"},
-		Steps: []operationdomain.Task{{
+		Steps: []workflowdomain.Task{{
 			ID: "release-server-id", Kind: "release-os", Name: "Release lab-afde-mi308-3",
-			Executor: operationdomain.RunnerKindProvisioner,
-			Targets:  []operationdomain.ResourceReference{{Kind: "server", ID: "server-id"}},
+			Executor: workflowdomain.RunnerKindProvisioner,
+			Targets:  []workflowdomain.ResourceReference{{Kind: "server", ID: "server-id"}},
 		}},
 		SupersededOperationIDs: superseded,
 	}
@@ -47,7 +47,7 @@ func TestUninstallSupersedesTheParkedDeployment(t *testing.T) {
 
 	launcher, repo, _ = supersedeLauncher()
 	_, err = launcher.operations.Create(context.Background(), uninstallLikeInput(nil))
-	if !errors.Is(err, operationdomain.ErrTargetsBusy) || repo.created != nil {
+	if !errors.Is(err, workflowdomain.ErrTargetsBusy) || repo.created != nil {
 		t.Fatalf("create without supersede: err = %v, created = %v; want busy and nothing created", err, repo.created != nil)
 	}
 	for _, want := range []string{"already has active durable work", "op-parked", "Deploy k0s Platform test-amd-operator", "requires_attention"} {

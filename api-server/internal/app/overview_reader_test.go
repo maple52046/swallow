@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	monitoringapp "github.com/maple52046/swallow/internal/monitoring/application"
-	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
-	overviewapp "github.com/maple52046/swallow/internal/overview/application"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	monitoringapp "github.com/maple52046/swallow/internal/core/monitoring/application"
+	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
+	overviewapp "github.com/maple52046/swallow/internal/core/overview/application"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 type overviewServerRepository struct {

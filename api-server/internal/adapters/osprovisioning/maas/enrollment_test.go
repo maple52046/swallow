@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // Compile-time proof that the adapter offers the Server Enrollment capabilities.

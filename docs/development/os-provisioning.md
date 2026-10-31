@@ -568,27 +568,27 @@ Operation 也不能同時宣告同一台 Server。把 provider 失敗改成不�
 
 | 職責 | 路徑 |
 | --- | --- |
-| Provider port、`ProviderCapabilities` 與 optional interface | `internal/provisioning/domain/provider.go` |
-| Recovery policy 矩陣與 Recover 計畫 | `internal/provisioning/domain/recovery_policy.go` |
-| Deploy Target 與架構相容性 | `internal/provisioning/domain/deploy_target.go` |
-| OS Image 驗證 model 與 repository | `internal/provisioning/domain/os_image_verification.go`、`internal/adapters/store/mongodb/provisioning/mongo_os_image_verification_repo.go` |
-| Deployment Template | `internal/provisioning/domain/deployment_template.go`、`internal/provisioning/application/deployment_templates.go` |
-| 部署網路模式 | `internal/provisioning/domain/network.go` |
-| Network inspection 與建議 | `internal/provisioning/application/network_configuration.go` |
-| Deploy resolve、受理閘門、批次送出 | `internal/provisioning/application/deploy_servers.go`、`internal/provisioning/application/deployment_targets.go` |
-| OS Image 目錄、overlay、上傳、刪除 | `internal/provisioning/application/list_os_images.go`、`set_os_image_overlay.go`、`upload_os_image.go`、`delete_os_image.go` |
-| Subnet DNS | `internal/provisioning/domain/subnet_dns.go`、`internal/provisioning/application/subnet_dns.go`、`internal/provisioning/delivery/subnet_dns_handler.go` |
-| Provisioner HTTP Proxy | `internal/provisioning/domain/http_proxy.go`、`internal/provisioning/application/http_proxy.go` |
-| Operator-state 動作（mark-*、rescue） | `internal/provisioning/application/machine_actions.go` |
-| Release 與 Provisioning Task | `internal/provisioning/application/release_server.go`、`internal/provisioning/application/provisioning_tasks.go`、`internal/provisioning/domain/provisioning_task.go` |
-| Reconcile（stale deployment 清除、deployed image 名稱鏡射） | `internal/provisioning/application/reconcile.go` |
+| Provider port、`ProviderCapabilities` 與 optional interface | `internal/core/provisioning/domain/provider.go` |
+| Recovery policy 矩陣與 Recover 計畫 | `internal/core/provisioning/domain/recovery_policy.go` |
+| Deploy Target 與架構相容性 | `internal/core/provisioning/domain/deploy_target.go` |
+| OS Image 驗證 model 與 repository | `internal/core/provisioning/domain/os_image_verification.go`、`internal/adapters/store/mongodb/provisioning/mongo_os_image_verification_repo.go` |
+| Deployment Template | `internal/core/provisioning/domain/deployment_template.go`、`internal/core/provisioning/application/deployment_templates.go` |
+| 部署網路模式 | `internal/core/provisioning/domain/network.go` |
+| Network inspection 與建議 | `internal/core/provisioning/application/network_configuration.go` |
+| Deploy resolve、受理閘門、批次送出 | `internal/core/provisioning/application/deploy_servers.go`、`internal/core/provisioning/application/deployment_targets.go` |
+| OS Image 目錄、overlay、上傳、刪除 | `internal/core/provisioning/application/list_os_images.go`、`set_os_image_overlay.go`、`upload_os_image.go`、`delete_os_image.go` |
+| Subnet DNS | `internal/core/provisioning/domain/subnet_dns.go`、`internal/core/provisioning/application/subnet_dns.go`、`internal/core/provisioning/delivery/subnet_dns_handler.go` |
+| Provisioner HTTP Proxy | `internal/core/provisioning/domain/http_proxy.go`、`internal/core/provisioning/application/http_proxy.go` |
+| Operator-state 動作（mark-*、rescue） | `internal/core/provisioning/application/machine_actions.go` |
+| Release 與 Provisioning Task | `internal/core/provisioning/application/release_server.go`、`internal/core/provisioning/application/provisioning_tasks.go`、`internal/core/provisioning/domain/provisioning_task.go` |
+| Reconcile（stale deployment 清除、deployed image 名稱鏡射） | `internal/core/provisioning/application/reconcile.go` |
 | `deploy-os`／`release-os`／`recover-server`／`verify-os-image` 的組裝 | `internal/app/provisioning_operation_adapter.go` |
 | `provisioner` Runner（`provision-os`、`release-os`、`recover-server`、Retry 回復） | `internal/app/provider_step_executor.go` |
 | 部署進度與 stage stall | `internal/app/deployment_progress.go` |
 | 驗證紀錄 Task（`record-image-verification*`） | `internal/app/platform_workflow_step_executor.go` |
 | 取消驗證時的歸還 | `internal/adapters/executor/temporalworkflow/workflow.go`（`compensateVerifyCancel`） |
 | MAAS adapter（狀態對應、網路、上傳、event、grouping、proxy、subnet DNS） | `internal/adapters/osprovisioning/maas/`（`mapping.go`、`network.go`、`provider.go`、`events.go`、`grouping.go`、`http_proxy.go`、`subnet_dns.go`） |
-| Zone／Pool 與 placement | `internal/infrastructure/application/service.go`、`internal/app/grouping_realizer.go` |
+| Zone／Pool 與 placement | `internal/core/infrastructure/application/service.go`、`internal/app/grouping_realizer.go` |
 | 上傳的 request body 上限 | `config/defaults.go`、`config/env.go`（`SWALLOW_API_IMAGE_UPLOAD_MAX_BYTES`） |
 
 ### `dashboard`

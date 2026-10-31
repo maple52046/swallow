@@ -10,15 +10,15 @@ import (
 
 	"github.com/google/uuid"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformapp "github.com/maple52046/swallow/internal/platform/application"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/pagination"
-	softwareapp "github.com/maple52046/swallow/internal/software/application"
 )
 
 const (
@@ -78,8 +78,8 @@ const (
 // platformDeploymentLauncher composes optional MAAS preparation and k0s automation into
 // one durable Operation while retaining the legacy launcher for unavailable Temporal.
 type platformDeploymentLauncher struct {
-	operations     *operationapp.ExecutionService
-	orchestrations *operationapp.WorkflowService
+	operations     *workflowapp.ExecutionService
+	orchestrations *workflowapp.WorkflowService
 	deployments    *provisioningapp.DeployServersUseCase
 	servers        serverdomain.ServerRepository
 	// bootMedia inserts ensure-boot-media into the ensure-os Job before each provision-os Task of
@@ -99,10 +99,10 @@ type platformDeploymentLauncher struct {
 // a Slurm deployment composes, or, for a deployment without durable orchestration, the legacy
 // single-step Operation. Only the launcher that prepared it persists it.
 type preparedPlatformDeployment struct {
-	workflow operationapp.CreateWorkflowInput
+	workflow workflowapp.CreateWorkflowInput
 	composed composedPlan
 	// legacy is set instead of workflow when durable orchestration is unavailable.
-	legacy *operationapp.CreateExecutionInput
+	legacy *workflowapp.CreateExecutionInput
 }
 
 // OperationID is the preassigned Workflow id; the legacy path learns its id only when persisted.
@@ -166,7 +166,7 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 		if launch.GPUOperatorVars != nil {
 			return nil, fmt.Errorf("durable GPU Operator installation is unavailable")
 		}
-		return &preparedPlatformDeployment{legacy: &operationapp.CreateExecutionInput{
+		return &preparedPlatformDeployment{legacy: &workflowapp.CreateExecutionInput{
 			Kind: deployKubernetesKind, Intent: "Deploy k0s platform " + launch.Platform.Name,
 			TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
 			TrustedVars: launch.TrustedVars, SecretVars: launch.SecretVars,
@@ -178,7 +178,7 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 	if operationID == "" {
 		operationID = uuid.NewString()
 	}
-	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
+	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: deployKubernetesKind, Intent: "Deploy k0s platform " + launch.Platform.Name,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
 		TrustedVars: launch.TrustedVars, SecretVars: launch.SecretVars,
@@ -187,7 +187,7 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 	if err != nil {
 		return nil, err
 	}
-	var gpuPrepared *operationapp.PreparedAnsibleStep
+	var gpuPrepared *workflowapp.PreparedAnsibleStep
 	if launch.GPUOperatorVars != nil {
 		gpuPrepared, err = prepareGPUOperatorStep(ctx, l.operations, operationID, launch.Platform.ID,
 			"Install AMD GPU Operator on "+launch.Platform.Name, launch.TargetServerIDs,
@@ -202,17 +202,17 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 		return nil, err
 	}
 	steps := ensure.steps
-	steps = append(steps, operationdomain.Task{
+	steps = append(steps, workflowdomain.Task{
 		ID: installPlatformStepID, Kind: "ansible-playbook", Name: "Install k0s Platform",
 		Job:      jobConfigureK0s,
-		Executor: operationdomain.RunnerKindAnsible, DependsOn: ensure.installDeps,
+		Executor: workflowdomain.RunnerKindAnsible, DependsOn: ensure.installDeps,
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 	})
-	steps = append(steps, operationdomain.Task{
+	steps = append(steps, workflowdomain.Task{
 		ID: "validate-platform", Kind: "validate-platform-health", Name: "Validate Platform health",
 		Job:      jobConfigureK0s,
-		Executor: operationdomain.RunnerKindInternal, DependsOn: []string{installPlatformStepID},
+		Executor: workflowdomain.RunnerKindInternal, DependsOn: []string{installPlatformStepID},
 		Targets: prepared.Targets,
 	})
 	if gpuPrepared != nil {
@@ -222,7 +222,7 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 			[]string{"validate-platform"}, "Install AMD GPU Operator"))
 	}
 
-	workflow, err := l.deploymentWorkflowInput(ctx, operationID, operationdomain.WorkflowKindDeployKubernetes,
+	workflow, err := l.deploymentWorkflowInput(ctx, operationID, workflowdomain.WorkflowKindDeployKubernetes,
 		"Deploy k0s Platform "+launch.Platform.Name, launch, prepared, steps, ensure)
 	if err != nil {
 		return nil, err
@@ -251,7 +251,7 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 	if operationID == "" {
 		operationID = uuid.NewString()
 	}
-	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
+	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: configureSlurmKind, PlaybookName: deploySlurmPlaybook,
 		Intent:          "Deploy Slurm platform " + launch.Platform.Name,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
@@ -267,10 +267,10 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 		return nil, err
 	}
 	steps := ensure.steps
-	steps = append(steps, operationdomain.Task{
+	steps = append(steps, workflowdomain.Task{
 		ID: installPlatformStepID, Kind: "ansible-playbook", Name: "Install Slurm Platform",
 		Job:      jobConfigureSlurm,
-		Executor: operationdomain.RunnerKindAnsible, DependsOn: ensure.installDeps,
+		Executor: workflowdomain.RunnerKindAnsible, DependsOn: ensure.installDeps,
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 	})
@@ -280,7 +280,7 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 	}
 	steps = append(steps, composed.steps...)
 
-	workflow, err := l.deploymentWorkflowInput(ctx, operationID, operationdomain.WorkflowKindConfigureSlurm,
+	workflow, err := l.deploymentWorkflowInput(ctx, operationID, workflowdomain.WorkflowKindConfigureSlurm,
 		"Deploy Slurm Platform "+launch.Platform.Name, launch, prepared, steps, ensure)
 	if err != nil {
 		return nil, err
@@ -292,7 +292,7 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 // Workflow: the install step's dependency ids, which Task ids carry per-step provisioning
 // secrets, and the frozen provisioning snapshot recorded in the operation intent.
 type ensureOSPlan struct {
-	steps         []operationdomain.Task
+	steps         []workflowdomain.Task
 	installDeps   []string
 	secretStepIDs []string
 	frozen        *provisioningapp.DeployServersInput
@@ -315,7 +315,7 @@ func (l platformDeploymentLauncher) buildEnsureOS(
 	launch platformdomain.DeploymentLaunch,
 	operationID string,
 	provisionFirst bool,
-	prepared *operationapp.PreparedAnsibleStep,
+	prepared *workflowapp.PreparedAnsibleStep,
 ) (ensureOSPlan, error) {
 	plan, err := l.buildOSReadiness(ctx, launch, provisionFirst, prepared.Targets)
 	if err != nil {
@@ -345,17 +345,17 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 	ctx context.Context,
 	launch platformdomain.DeploymentLaunch,
 	provisionFirst bool,
-	preparedTargets []operationdomain.ResourceReference,
+	preparedTargets []workflowdomain.ResourceReference,
 ) (ensureOSPlan, error) {
 	plan := ensureOSPlan{
-		steps:         make([]operationdomain.Task, 0, len(launch.TargetServerIDs)+3),
+		steps:         make([]workflowdomain.Task, 0, len(launch.TargetServerIDs)+3),
 		secretStepIDs: make([]string, 0, len(launch.TargetServerIDs)),
 	}
 	if !provisionFirst {
-		plan.steps = append(plan.steps, operationdomain.Task{
+		plan.steps = append(plan.steps, workflowdomain.Task{
 			ID: "wait-for-ssh", Kind: "wait-for-ssh", Name: "Verify existing OS SSH readiness",
 			Job:      jobEnsureOS,
-			Executor: operationdomain.RunnerKindInternal, Targets: preparedTargets,
+			Executor: workflowdomain.RunnerKindInternal, Targets: preparedTargets,
 		})
 		plan.installDeps = []string{"wait-for-ssh"}
 		return plan, nil
@@ -366,14 +366,14 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 	}
 	dependencies := make([]string, 0, len(launch.TargetServerIDs))
 	readyIDs := make([]string, 0, len(launch.TargetServerIDs))
-	deployedTargets := make([]operationdomain.ResourceReference, 0, len(launch.TargetServerIDs))
+	deployedTargets := make([]workflowdomain.ResourceReference, 0, len(launch.TargetServerIDs))
 	for _, serverID := range launch.TargetServerIDs {
 		server, err := l.servers.FindByID(ctx, serverID)
 		if err != nil {
 			return ensureOSPlan{}, err
 		}
 		if server.Provisioning != nil && server.Provisioning.State == "deployed" {
-			deployedTargets = append(deployedTargets, operationdomain.ResourceReference{Kind: "server", ID: serverID})
+			deployedTargets = append(deployedTargets, workflowdomain.ResourceReference{Kind: "server", ID: serverID})
 			continue
 		}
 		readyIDs = append(readyIDs, serverID)
@@ -402,11 +402,11 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 				}
 				targetRequest.Network = &network
 			}
-			plan.steps = append(plan.steps, operationdomain.Task{
+			plan.steps = append(plan.steps, workflowdomain.Task{
 				ID: stepID, Kind: "provision-os", Name: "Provision and verify operating system on " + serverID,
 				Job:        jobEnsureOS,
-				Executor:   operationdomain.RunnerKindProvisioner,
-				Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
+				Executor:   workflowdomain.RunnerKindProvisioner,
+				Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: serverID}},
 				Parameters: map[string]any{"request": structToMap(targetRequest)},
 			})
 			dependencies = append(dependencies, stepID)
@@ -414,10 +414,10 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 		}
 	}
 	if len(deployedTargets) > 0 {
-		plan.steps = append(plan.steps, operationdomain.Task{
+		plan.steps = append(plan.steps, workflowdomain.Task{
 			ID: "wait-for-ssh", Kind: "wait-for-ssh", Name: "Verify existing OS SSH readiness",
 			Job:      jobEnsureOS,
-			Executor: operationdomain.RunnerKindInternal, Targets: deployedTargets,
+			Executor: workflowdomain.RunnerKindInternal, Targets: deployedTargets,
 		})
 		dependencies = append(dependencies, "wait-for-ssh")
 	}
@@ -434,13 +434,13 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 func (l platformDeploymentLauncher) deploymentWorkflowInput(
 	ctx context.Context,
 	operationID string,
-	kind operationdomain.WorkflowKind,
+	kind workflowdomain.WorkflowKind,
 	summary string,
 	launch platformdomain.DeploymentLaunch,
-	prepared *operationapp.PreparedAnsibleStep,
-	steps []operationdomain.Task,
+	prepared *workflowapp.PreparedAnsibleStep,
+	steps []workflowdomain.Task,
 	ensure ensureOSPlan,
-) (operationapp.CreateWorkflowInput, error) {
+) (workflowapp.CreateWorkflowInput, error) {
 	preparation := launch.MachinePreparation
 	preparation.UserData = ""
 	stepSecrets := map[string]map[string]any{}
@@ -459,16 +459,16 @@ func (l platformDeploymentLauncher) deploymentWorkflowInput(
 	}
 	steps, err := l.bootMedia.withEnsureTasks(ctx, steps)
 	if err != nil {
-		return operationapp.CreateWorkflowInput{}, err
+		return workflowapp.CreateWorkflowInput{}, err
 	}
-	return operationapp.CreateWorkflowInput{
+	return workflowapp.CreateWorkflowInput{
 		ID: operationID, Kind: kind,
 		IntentSummary:  summary,
 		IntentSnapshot: intentSnapshot,
 		Definition:     "platform-deployment", DefinitionVersion: 1,
 		SiteID: prepared.SiteID, PlatformID: launch.Platform.ID,
 		TargetServerIDs: launch.TargetServerIDs,
-		TargetResources: []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
+		TargetResources: []workflowdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
 		Steps:           steps, RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
 		SecretStepIDs: ensure.secretStepIDs, SecretValues: sharedSecrets,
 		StepSecretValues: stepSecrets,
@@ -479,7 +479,7 @@ func (l platformDeploymentLauncher) deploymentWorkflowInput(
 // the platform's active durable Operations and canceling each one, which releases their
 // resource leases so deleting the platform frees its member servers.
 type platformOperationCanceler struct {
-	orchestrations *operationapp.WorkflowService
+	orchestrations *workflowapp.WorkflowService
 }
 
 // activeOperationsPageSize bounds one platform's active Operation listing. A platform never
@@ -490,7 +490,7 @@ func (c platformOperationCanceler) CancelActiveForPlatform(ctx context.Context, 
 	if c.orchestrations == nil {
 		return nil
 	}
-	items, _, err := c.orchestrations.List(ctx, operationapp.ListOperationsInput{
+	items, _, err := c.orchestrations.List(ctx, workflowapp.ListOperationsInput{
 		PlatformID: platformID,
 		Active:     true,
 		Page:       pagination.Page{Page: 1, PageSize: activeOperationsPageSize},
@@ -503,7 +503,7 @@ func (c platformOperationCanceler) CancelActiveForPlatform(ctx context.Context, 
 			// A run that reached a terminal state between listing and canceling is already
 			// in the desired end state; tolerate that control conflict and continue so one
 			// finished Operation cannot block deleting the platform.
-			if errors.Is(err, operationdomain.ErrWorkflowControlConflict) {
+			if errors.Is(err, workflowdomain.ErrWorkflowControlConflict) {
 				continue
 			}
 			return fmt.Errorf("cancel platform operation %s: %w", item.ID, err)
@@ -644,14 +644,14 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	// the hardcoded playbook, and operator-facing labels.
 	uninstallKind := uninstallKubernetesKind
 	uninstallPlaybook := uninstallKubernetesPlaybook
-	workflowKind := operationdomain.WorkflowKindUninstallKubernetes
+	workflowKind := workflowdomain.WorkflowKindUninstallKubernetes
 	stepName := "Uninstall k0s Platform"
 	intent := "Uninstall k0s platform " + launch.Platform.Name
 	summary := "Uninstall k0s Platform " + launch.Platform.Name
 	if launch.Platform.Type == platformdomain.PlatformTypeSlurm {
 		uninstallKind = uninstallSlurmKind
 		uninstallPlaybook = uninstallSlurmPlaybook
-		workflowKind = operationdomain.WorkflowKindUninstallSlurm
+		workflowKind = workflowdomain.WorkflowKindUninstallSlurm
 		stepName = "Uninstall Slurm Platform"
 		intent = "Uninstall Slurm platform " + launch.Platform.Name
 		summary = "Uninstall Slurm Platform " + launch.Platform.Name
@@ -672,7 +672,7 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 		if launch.CancelActiveWorkflows {
 			return "", fmt.Errorf("durable Platform uninstall is unavailable; canceling active Workflows requires it")
 		}
-		item, err := l.operations.Create(ctx, operationapp.CreateExecutionInput{
+		item, err := l.operations.Create(ctx, workflowapp.CreateExecutionInput{
 			Kind: uninstallKind, Intent: intent,
 			TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
 			PlaybookName:       uninstallPlaybook,
@@ -687,7 +687,7 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	}
 
 	operationID := uuid.NewString()
-	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
+	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: uninstallKind, Intent: intent,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
 		PlaybookName: uninstallPlaybook, TrustedVars: trustedVars,
@@ -705,14 +705,14 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 			return "", err
 		}
 	}
-	created, err := l.orchestrations.Create(ctx, operationapp.CreateWorkflowInput{
+	created, err := l.orchestrations.Create(ctx, workflowapp.CreateWorkflowInput{
 		ID: operationID, Kind: workflowKind,
 		IntentSummary:  summary,
 		IntentSnapshot: map[string]any{"platformName": launch.Platform.Name, "releaseServers": launch.ReleaseServers, "deleteRecord": launch.DeleteRecord},
 		Definition:     "platform-uninstall", DefinitionVersion: 1,
 		SiteID: prepared.SiteID, PlatformID: launch.Platform.ID,
 		TargetServerIDs: launch.TargetServerIDs,
-		TargetResources: []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
+		TargetResources: []workflowdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
 		Steps:           steps, RetryOfOperationID: launch.RetryOfOperationID, RequestedBy: launch.RequestedBy,
 		SupersededOperationIDs: superseded,
 	})
@@ -733,19 +733,19 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 // a whole-platform uninstall; a future scale-in keeps the per-node uninstall.
 func uninstallSteps(
 	launch platformdomain.UninstallLaunch,
-	prepared *operationapp.PreparedAnsibleStep,
+	prepared *workflowapp.PreparedAnsibleStep,
 	operationID, stepName string,
-) []operationdomain.Task {
+) []workflowdomain.Task {
 	if !launch.ReleaseServers {
-		return []operationdomain.Task{{
+		return []workflowdomain.Task{{
 			ID: uninstallPlatformStepID, Kind: "ansible-playbook", Name: stepName,
 			Job:      jobUninstallPlatform,
-			Executor: operationdomain.RunnerKindAnsible, Targets: prepared.Targets,
+			Executor: workflowdomain.RunnerKindAnsible, Targets: prepared.Targets,
 			Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 		}}
 	}
 
-	steps := make([]operationdomain.Task, 0, len(launch.TargetServerIDs)+1)
+	steps := make([]workflowdomain.Task, 0, len(launch.TargetServerIDs)+1)
 	releaseDeps := make([]string, 0, len(launch.TargetServerIDs))
 	for _, serverID := range launch.TargetServerIDs {
 		releaseInput := provisioningapp.ReleaseServerInput{
@@ -758,11 +758,11 @@ func uninstallSteps(
 			RequestID:       operationID,
 		}
 		stepID := "release-" + serverID
-		steps = append(steps, operationdomain.Task{
+		steps = append(steps, workflowdomain.Task{
 			ID: stepID, Kind: "release-os", Name: "Release " + serverID,
 			Job:        jobReleaseServers,
-			Executor:   operationdomain.RunnerKindProvisioner,
-			Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
+			Executor:   workflowdomain.RunnerKindProvisioner,
+			Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: serverID}},
 			Parameters: map[string]any{"request": structToMap(releaseInput)},
 		})
 		releaseDeps = append(releaseDeps, stepID)
@@ -772,11 +772,11 @@ func uninstallSteps(
 	// owned credential Integration, and sync projection once every release succeeds, and removes
 	// the record when the operator asked for it. Exporter restoration stays off (a released host
 	// is wiped).
-	steps = append(steps, operationdomain.Task{
+	steps = append(steps, workflowdomain.Task{
 		ID: completeUninstallStepID, Kind: "complete-uninstall", Name: "Finalize platform uninstall",
 		Job:      jobFinalizeUninstall,
-		Executor: operationdomain.RunnerKindInternal, DependsOn: releaseDeps,
-		Targets:    []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
+		Executor: workflowdomain.RunnerKindInternal, DependsOn: releaseDeps,
+		Targets:    []workflowdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
 		Parameters: map[string]any{deleteRecordParameter: launch.DeleteRecord},
 	})
 	return steps
@@ -786,32 +786,32 @@ func uninstallSteps(
 type platformDeploymentObserver struct {
 	credentials *platformapp.DeploymentCredentialService
 	platforms   *platformapp.PlatformService
-	operations  *operationapp.ExecutionService
+	operations  *workflowapp.ExecutionService
 	servers     serverdomain.ServerRepository
 }
 
 func (o platformDeploymentObserver) OperationSucceeded(
 	ctx context.Context,
-	operation *operationdomain.ExecutionOperation,
-	result operationdomain.RunnerResult,
+	operation *workflowdomain.ExecutionOperation,
+	result workflowdomain.RunnerResult,
 ) {
 	if operation.PlatformID == "" {
 		return
 	}
 	switch operation.Kind {
-	case operationdomain.WorkflowKindDeployKubernetes:
+	case workflowdomain.WorkflowKindDeployKubernetes:
 		o.completeDeployment(ctx, operation, result)
-	case operationdomain.WorkflowKindConfigureSlurm:
+	case workflowdomain.WorkflowKindConfigureSlurm:
 		o.completeSlurmDeployment(ctx, operation, result)
-	case operationdomain.WorkflowKindUninstallKubernetes, operationdomain.WorkflowKindUninstallSlurm:
+	case workflowdomain.WorkflowKindUninstallKubernetes, workflowdomain.WorkflowKindUninstallSlurm:
 		o.completeUninstall(ctx, operation)
 	}
 }
 
 func (o platformDeploymentObserver) completeDeployment(
 	ctx context.Context,
-	operation *operationdomain.ExecutionOperation,
-	result operationdomain.RunnerResult,
+	operation *workflowdomain.ExecutionOperation,
+	result workflowdomain.RunnerResult,
 ) {
 	credential := platformCredentialFromResult(result)
 	if credential == nil {
@@ -832,8 +832,8 @@ func (o platformDeploymentObserver) completeDeployment(
 // fails the run when no credential is produced.
 func (o platformDeploymentObserver) completeSlurmDeployment(
 	ctx context.Context,
-	operation *operationdomain.ExecutionOperation,
-	result operationdomain.RunnerResult,
+	operation *workflowdomain.ExecutionOperation,
+	result workflowdomain.RunnerResult,
 ) {
 	credential := slurmCredentialFromResult(result)
 	if credential == nil {
@@ -851,7 +851,7 @@ func (o platformDeploymentObserver) completeSlurmDeployment(
 
 func (o platformDeploymentObserver) completeUninstall(
 	ctx context.Context,
-	operation *operationdomain.ExecutionOperation,
+	operation *workflowdomain.ExecutionOperation,
 ) {
 	deleteRecord, _ := operation.ExtraVars[deletePlatformRecordVar].(bool)
 	if err := o.platforms.CompleteUninstall(ctx, operation.PlatformID, deleteRecord); err != nil {
@@ -862,7 +862,7 @@ func (o platformDeploymentObserver) completeUninstall(
 	o.restoreExporters(ctx, operation)
 }
 
-func (o platformDeploymentObserver) restoreExporters(ctx context.Context, operation *operationdomain.ExecutionOperation) {
+func (o platformDeploymentObserver) restoreExporters(ctx context.Context, operation *workflowdomain.ExecutionOperation) {
 	restore, _ := operation.ExtraVars[restoreExportersVar].(bool)
 	if !restore {
 		return
@@ -886,8 +886,8 @@ func (o platformDeploymentObserver) restoreExporters(ctx context.Context, operat
 		return
 	}
 
-	if _, err := o.operations.Create(ctx, operationapp.CreateExecutionInput{
-		Kind: string(operationdomain.WorkflowKindInstallExporters),
+	if _, err := o.operations.Create(ctx, workflowapp.CreateExecutionInput{
+		Kind: string(workflowdomain.WorkflowKindInstallExporters),
 		Intent: "Restore host exporters after uninstalling platform " +
 			stringField(operation.ExtraVars, platformNameVar),
 		TargetServerIDs: targetIDs,
@@ -900,7 +900,7 @@ func (o platformDeploymentObserver) restoreExporters(ctx context.Context, operat
 }
 
 // platformCredentialFromResult reads the credential written by a deployment playbook.
-func platformCredentialFromResult(result operationdomain.RunnerResult) *platformapp.DeploymentCredential {
+func platformCredentialFromResult(result workflowdomain.RunnerResult) *platformapp.DeploymentCredential {
 	if result.Data == nil {
 		return nil
 	}
@@ -919,7 +919,7 @@ func platformCredentialFromResult(result operationdomain.RunnerResult) *platform
 // playbook wrote to its result file: the slurmrestd base URL, a Slurm JWT, and the endpoint
 // version the controller exposes. Endpoint and token are required; apiVersion is optional and
 // lets the reader fall back to its default when absent.
-func slurmCredentialFromResult(result operationdomain.RunnerResult) *platformapp.SlurmDeploymentCredential {
+func slurmCredentialFromResult(result workflowdomain.RunnerResult) *platformapp.SlurmDeploymentCredential {
 	if result.Data == nil {
 		return nil
 	}
@@ -940,8 +940,8 @@ func slurmCredentialFromResult(result operationdomain.RunnerResult) *platformapp
 // itself is projected by omnistatStepObserver.
 func (o platformDeploymentObserver) completeOmnistat(
 	ctx context.Context,
-	execution *operationdomain.AnsibleExecution,
-	result operationdomain.RunnerResult,
+	execution *workflowdomain.AnsibleExecution,
+	result workflowdomain.RunnerResult,
 ) error {
 	grafanaURL := ""
 	if result.Data != nil {
@@ -962,8 +962,8 @@ func (o platformDeploymentObserver) completeOmnistat(
 // this Workflow; the State itself is projected by deviceMetricsExporterStepObserver.
 func (o platformDeploymentObserver) completeDeviceMetricsExporter(
 	ctx context.Context,
-	execution *operationdomain.AnsibleExecution,
-	result operationdomain.RunnerResult,
+	execution *workflowdomain.AnsibleExecution,
+	result workflowdomain.RunnerResult,
 ) error {
 	grafanaURL, identity := "", ""
 	if result.Data != nil {
@@ -992,19 +992,19 @@ func stringField(data map[string]any, key string) string {
 // used by historical v2 executions.
 func (o platformDeploymentObserver) AnsibleStepSucceeded(
 	ctx context.Context,
-	execution *operationdomain.AnsibleExecution,
-	result operationdomain.RunnerResult,
+	execution *workflowdomain.AnsibleExecution,
+	result workflowdomain.RunnerResult,
 ) error {
 	if execution.PlatformID == "" {
 		return nil
 	}
-	operation := &operationdomain.ExecutionOperation{
+	operation := &workflowdomain.ExecutionOperation{
 		ID: execution.OperationID, Kind: execution.Kind, SiteID: execution.SiteID,
 		PlatformID: execution.PlatformID, TargetServerIDs: execution.TargetServerIDs,
 		ExtraVars: execution.ExtraVars,
 	}
 	switch execution.Kind {
-	case operationdomain.WorkflowKindDeployKubernetes:
+	case workflowdomain.WorkflowKindDeployKubernetes:
 		// An execution carries its Workflow's kind, so the GPU Operator Task and the ensure-os time
 		// Tasks of a deploy arrive here too. Only the k0s install produces the credential; the GPU
 		// Task's own outcome is projected by gpuOperatorStepObserver, and the time Tasks have
@@ -1017,7 +1017,7 @@ func (o platformDeploymentObserver) AnsibleStepSucceeded(
 			return fmt.Errorf("deployment returned no Kubernetes credential")
 		}
 		return o.credentials.Record(ctx, execution.PlatformID, *credential)
-	case operationdomain.WorkflowKindConfigureSlurm:
+	case workflowdomain.WorkflowKindConfigureSlurm:
 		// A Slurm Workflow with a container runtime or a monitoring feature also runs composed
 		// software Tasks and the feature's Task (decisions 063 and 066), and its ensure-os Job runs
 		// the time Tasks (decision 065); their executions carry the Workflow's kind too. Only
@@ -1043,7 +1043,7 @@ func (o platformDeploymentObserver) AnsibleStepSucceeded(
 			return nil
 		}
 		return o.credentials.RecordSlurm(ctx, execution.PlatformID, *credential)
-	case operationdomain.WorkflowKindUninstallKubernetes, operationdomain.WorkflowKindUninstallSlurm:
+	case workflowdomain.WorkflowKindUninstallKubernetes, workflowdomain.WorkflowKindUninstallSlurm:
 		// An uninstall accepted before deleteRecord existed has no such var and keeps the record.
 		deleteRecord, _ := execution.ExtraVars[deletePlatformRecordVar].(bool)
 		if err := o.platforms.CompleteUninstall(ctx, execution.PlatformID, deleteRecord); err != nil {

@@ -8,7 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 )
 
 // assignmentDoc is the BSON shape of a Software Assignment. The compound _id keeps one record per

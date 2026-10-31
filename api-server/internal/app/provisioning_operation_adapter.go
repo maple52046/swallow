@@ -10,18 +10,18 @@ import (
 
 	"github.com/google/uuid"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // durableProvisioningLauncher performs full preflight before saving a v3 Operation.
 type durableProvisioningLauncher struct {
 	deployments *provisioningapp.DeployServersUseCase
-	operations  *operationapp.WorkflowService
+	operations  *workflowapp.WorkflowService
 	servers     serverdomain.ServerRepository
 	protection  serverdomain.MutationGuard
 	// refresh live-syncs one Server's provisioning projection from its provisioner right before
@@ -94,7 +94,7 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 	}
 	// Preassigned so the configure-ntp Tasks' trusted variables name the Workflow they run in.
 	operationID := uuid.NewString()
-	steps := make([]operationdomain.Task, len(input.ServerIDs))
+	steps := make([]workflowdomain.Task, len(input.ServerIDs))
 	secretStepIDs := make([]string, 0, len(input.ServerIDs))
 	for index, serverID := range input.ServerIDs {
 		targetInput := input
@@ -110,10 +110,10 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 			targetInput.Network = &network
 		}
 		stepID := "provision-" + serverID
-		steps[index] = operationdomain.Task{
+		steps[index] = workflowdomain.Task{
 			ID: stepID, Kind: "provision-os", Name: "Provision and verify operating system on " + serverID,
-			Executor:   operationdomain.RunnerKindProvisioner,
-			Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: serverID}},
+			Executor:   workflowdomain.RunnerKindProvisioner,
+			Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: serverID}},
 			Parameters: map[string]any{"request": structToMap(targetInput)},
 		}
 		secretStepIDs = append(secretStepIDs, stepID)
@@ -131,9 +131,9 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 	if steps, err = l.bootMedia.withEnsureTasks(ctx, steps); err != nil {
 		return nil, err
 	}
-	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
+	created, err := l.operations.Create(ctx, workflowapp.CreateWorkflowInput{
 		ID:   operationID,
-		Kind: operationdomain.WorkflowKindDeployOS, IntentSummary: fmt.Sprintf("Deploy operating system to %d Server(s)", len(input.ServerIDs)),
+		Kind: workflowdomain.WorkflowKindDeployOS, IntentSummary: fmt.Sprintf("Deploy operating system to %d Server(s)", len(input.ServerIDs)),
 		IntentSnapshot: map[string]any{"request": structToMap(input)}, Definition: "os-deployment", DefinitionVersion: 1,
 		SiteID: first.Source.SiteID, TargetServerIDs: input.ServerIDs, Steps: steps,
 		RequestedBy: requestedBy, RequestCorrelation: requestID,
@@ -148,7 +148,7 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 
 // materializeInitialDeployments closes the API-to-worker visibility gap so returning
 // to Servers immediately starts polling the accepted durable deployment.
-func materializeInitialDeployments(ctx context.Context, servers serverdomain.ServerRepository, operationID string, steps []operationdomain.Task) {
+func materializeInitialDeployments(ctx context.Context, servers serverdomain.ServerRepository, operationID string, steps []workflowdomain.Task) {
 	forEachInitialDeployment(ctx, servers, operationID, steps, func(serverID string, err error) bool {
 		slog.Error("materialize initial Server deployment projection", "operationId", operationID, "serverId", serverID, "error", err)
 		return true
@@ -158,7 +158,7 @@ func materializeInitialDeployments(ctx context.Context, servers serverdomain.Ser
 // persistInitialDeployments writes the same initial deployment projections as
 // materializeInitialDeployments, for a caller inside a store transaction: the first failure is
 // returned (and rolls the caller's unit of work back) instead of being logged.
-func persistInitialDeployments(ctx context.Context, servers serverdomain.ServerRepository, operationID string, steps []operationdomain.Task) error {
+func persistInitialDeployments(ctx context.Context, servers serverdomain.ServerRepository, operationID string, steps []workflowdomain.Task) error {
 	var failed error
 	forEachInitialDeployment(ctx, servers, operationID, steps, func(serverID string, err error) bool {
 		failed = fmt.Errorf("record the initial deployment of Server %s: %w", serverID, err)
@@ -173,7 +173,7 @@ func forEachInitialDeployment(
 	ctx context.Context,
 	servers serverdomain.ServerRepository,
 	operationID string,
-	steps []operationdomain.Task,
+	steps []workflowdomain.Task,
 	onError func(serverID string, err error) bool,
 ) {
 	if servers == nil {
@@ -207,7 +207,7 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 	}
 	seen := map[string]bool{}
 	siteID := ""
-	steps := make([]operationdomain.Task, len(inputs))
+	steps := make([]workflowdomain.Task, len(inputs))
 	targetIDs := make([]string, len(inputs))
 	for index, input := range inputs {
 		if seen[input.ServerID] {
@@ -242,10 +242,10 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 			return nil, fmt.Errorf("%w: Server %s %s", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName(), decision.Reason)
 		}
 		targetIDs[index] = input.ServerID
-		steps[index] = operationdomain.Task{
+		steps[index] = workflowdomain.Task{
 			ID: "release-" + input.ServerID, Kind: "release-os", Name: "Release " + server.DisplayName(),
-			Executor:   operationdomain.RunnerKindProvisioner,
-			Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: input.ServerID}},
+			Executor:   workflowdomain.RunnerKindProvisioner,
+			Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: input.ServerID}},
 			Parameters: map[string]any{"request": structToMap(input)},
 		}
 	}
@@ -258,8 +258,8 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 	if err != nil {
 		return nil, err
 	}
-	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
-		Kind: operationdomain.WorkflowKindReleaseOS, IntentSummary: fmt.Sprintf("Release %d Server(s)", len(inputs)),
+	created, err := l.operations.Create(ctx, workflowapp.CreateWorkflowInput{
+		Kind: workflowdomain.WorkflowKindReleaseOS, IntentSummary: fmt.Sprintf("Release %d Server(s)", len(inputs)),
 		IntentSnapshot: map[string]any{"requests": structsToMaps(inputs)}, Definition: "os-release", DefinitionVersion: 1,
 		SiteID: siteID, TargetServerIDs: targetIDs, Steps: steps, RequestedBy: requestedBy, RequestCorrelation: requestID,
 		SupersededOperationIDs: superseded,
@@ -291,7 +291,7 @@ func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs [
 	}
 	seen := map[string]bool{}
 	siteID := ""
-	steps := make([]operationdomain.Task, len(inputs))
+	steps := make([]workflowdomain.Task, len(inputs))
 	targetIDs := make([]string, len(inputs))
 	for index, input := range inputs {
 		if seen[input.ServerID] {
@@ -325,10 +325,10 @@ func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs [
 			return nil, fmt.Errorf("%w: Server %s %s", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName(), decision.Reason)
 		}
 		targetIDs[index] = input.ServerID
-		steps[index] = operationdomain.Task{
+		steps[index] = workflowdomain.Task{
 			ID: "recover-" + input.ServerID, Kind: "recover-server", Name: "Recover " + server.DisplayName(),
-			Executor:   operationdomain.RunnerKindProvisioner,
-			Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: input.ServerID}},
+			Executor:   workflowdomain.RunnerKindProvisioner,
+			Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: input.ServerID}},
 			Parameters: map[string]any{"request": structToMap(input)},
 		}
 	}
@@ -341,8 +341,8 @@ func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs [
 	if err != nil {
 		return nil, err
 	}
-	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
-		Kind: operationdomain.WorkflowKindRecoverServer, IntentSummary: fmt.Sprintf("Recover %d Server(s) to Ready", len(inputs)),
+	created, err := l.operations.Create(ctx, workflowapp.CreateWorkflowInput{
+		Kind: workflowdomain.WorkflowKindRecoverServer, IntentSummary: fmt.Sprintf("Recover %d Server(s) to Ready", len(inputs)),
 		IntentSnapshot: map[string]any{"requests": recoverInputsToMaps(inputs)}, Definition: "server-recovery", DefinitionVersion: 1,
 		SiteID: siteID, TargetServerIDs: targetIDs, Steps: steps, RequestedBy: requestedBy, RequestCorrelation: requestID,
 		SupersededOperationIDs: superseded,
@@ -413,18 +413,18 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 	recordStepID := "record-verification"
 	recordFailureStepID := "record-verification-failure"
 	returnStepID := "return-" + input.ServerID
-	target := []operationdomain.ResourceReference{{Kind: "server", ID: input.ServerID}}
+	target := []workflowdomain.ResourceReference{{Kind: "server", ID: input.ServerID}}
 	verificationIdentity := map[string]any{
 		"integrationId": input.IntegrationID,
 		"imageId":       input.ImageID,
 		"architecture":  input.Architecture,
 		"deployTarget":  string(input.DeployTarget),
 	}
-	steps := []operationdomain.Task{
+	steps := []workflowdomain.Task{
 		{
 			ID: provisionStepID, Kind: "provision-os",
 			Name:       fmt.Sprintf("Verify %s (%s deploy) on %s", imageID, input.DeployTarget, server.DisplayName()),
-			Executor:   operationdomain.RunnerKindProvisioner,
+			Executor:   workflowdomain.RunnerKindProvisioner,
 			Targets:    target,
 			Parameters: map[string]any{"request": structToMap(resolvedInput)},
 		},
@@ -433,7 +433,7 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 			// its default continueOn leaves this step unsatisfied, so the engine skips it and the
 			// failure-record step below runs instead.
 			ID: recordStepID, Kind: "record-image-verification", Name: "Record image verification",
-			Executor:   operationdomain.RunnerKindInternal,
+			Executor:   workflowdomain.RunnerKindInternal,
 			Targets:    target,
 			DependsOn:  []string{provisionStepID},
 			Parameters: verificationIdentity,
@@ -444,10 +444,10 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 			// never-attempted one. On success this step is skipped.
 			ID: recordFailureStepID, Kind: "record-image-verification-failure",
 			Name:       "Record image verification failure",
-			Executor:   operationdomain.RunnerKindInternal,
+			Executor:   workflowdomain.RunnerKindInternal,
 			Targets:    target,
 			DependsOn:  []string{provisionStepID},
-			ContinueOn: []operationdomain.TaskStatus{operationdomain.TaskFailed},
+			ContinueOn: []workflowdomain.TaskStatus{workflowdomain.TaskFailed},
 			Parameters: verificationIdentity,
 		},
 	}
@@ -456,7 +456,7 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 	// deployed on success (for an operator who wants to keep and use the verified deployment) and in
 	// its failed state on failure, which the operator can Recover from the Server detail page.
 	if !input.KeepServer {
-		steps = append(steps, operationdomain.Task{
+		steps = append(steps, workflowdomain.Task{
 			// Return-to-ready compensation: it runs after whichever record step ran (the other is
 			// skipped), because a borrowed Server must be given back whether the proving deploy
 			// succeeded or failed. recover-server converges the Server to ready from
@@ -464,18 +464,18 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 			// failure-path cleanup, replacing the former success-only release-os step.
 			ID: returnStepID, Kind: "recover-server",
 			Name:       "Return " + server.DisplayName() + " to Ready",
-			Executor:   operationdomain.RunnerKindProvisioner,
+			Executor:   workflowdomain.RunnerKindProvisioner,
 			Targets:    target,
 			DependsOn:  []string{recordStepID, recordFailureStepID},
-			ContinueOn: []operationdomain.TaskStatus{operationdomain.TaskSucceeded, operationdomain.TaskSkipped},
+			ContinueOn: []workflowdomain.TaskStatus{workflowdomain.TaskSucceeded, workflowdomain.TaskSkipped},
 			Parameters: map[string]any{"request": structToMap(provisioningapp.RecoverServerInput{ServerID: input.ServerID})},
 		})
 	}
 	if steps, err = l.bootMedia.withEnsureTasks(ctx, steps); err != nil {
 		return nil, err
 	}
-	created, err := l.operations.Create(ctx, operationapp.CreateWorkflowInput{
-		Kind:           operationdomain.WorkflowKindVerifyOSImage,
+	created, err := l.operations.Create(ctx, workflowapp.CreateWorkflowInput{
+		Kind:           workflowdomain.WorkflowKindVerifyOSImage,
 		IntentSummary:  fmt.Sprintf("Verify OS Image %s for %s deployment", imageID, input.DeployTarget),
 		IntentSnapshot: map[string]any{"request": structToMap(input)},
 		Definition:     "os-image-verification", DefinitionVersion: 1,

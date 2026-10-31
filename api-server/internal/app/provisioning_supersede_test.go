@@ -6,43 +6,43 @@ import (
 	"strings"
 	"testing"
 
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	"github.com/maple52046/swallow/internal/core/store/storetest"
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // supersedeWorkflowRepo serves one parked Workflow holding the target Server, the way the
 // projection still reports it right after a cancel request (the workflow writes canceling itself),
 // and records the Operation a launch creates.
 type supersedeWorkflowRepo struct {
-	operationdomain.WorkflowRepository
-	parked  *operationdomain.Workflow
-	created *operationdomain.Workflow
+	workflowdomain.WorkflowRepository
+	parked  *workflowdomain.Workflow
+	created *workflowdomain.Workflow
 }
 
-func (r *supersedeWorkflowRepo) FindByID(_ context.Context, id string) (*operationdomain.Workflow, error) {
+func (r *supersedeWorkflowRepo) FindByID(_ context.Context, id string) (*workflowdomain.Workflow, error) {
 	if id == r.parked.ID {
 		return r.parked, nil
 	}
-	return nil, operationdomain.ErrWorkflowNotFound
+	return nil, workflowdomain.ErrWorkflowNotFound
 }
 
-func (r *supersedeWorkflowRepo) List(_ context.Context, filter operationdomain.WorkflowFilter) ([]*operationdomain.Workflow, int, error) {
+func (r *supersedeWorkflowRepo) List(_ context.Context, filter workflowdomain.WorkflowFilter) ([]*workflowdomain.Workflow, int, error) {
 	if filter.ActiveOnly && filter.ServerID == "server-id" && !r.parked.Status.Terminal() {
-		return []*operationdomain.Workflow{r.parked}, 1, nil
+		return []*workflowdomain.Workflow{r.parked}, 1, nil
 	}
 	return nil, 0, nil
 }
 
-func (r *supersedeWorkflowRepo) Create(_ context.Context, operation *operationdomain.Workflow) error {
+func (r *supersedeWorkflowRepo) Create(_ context.Context, operation *workflowdomain.Workflow) error {
 	r.created = operation
 	return nil
 }
 
-func (r *supersedeWorkflowRepo) AppendEvent(context.Context, operationdomain.TimelineEvent) error {
+func (r *supersedeWorkflowRepo) AppendEvent(context.Context, workflowdomain.TimelineEvent) error {
 	return nil
 }
 
@@ -55,26 +55,26 @@ type supersedeController struct {
 	finish   bool
 }
 
-func (c *supersedeController) Cancel(_ context.Context, operation *operationdomain.Workflow) error {
+func (c *supersedeController) Cancel(_ context.Context, operation *workflowdomain.Workflow) error {
 	c.canceled = append(c.canceled, operation.ID)
 	if c.finish {
-		c.repo.parked.Status = operationdomain.WorkflowSucceeded
+		c.repo.parked.Status = workflowdomain.WorkflowSucceeded
 	}
 	if c.refuse {
-		return operationdomain.ErrWorkflowControlConflict
+		return workflowdomain.ErrWorkflowControlConflict
 	}
 	return nil
 }
 
-func (c *supersedeController) RetryStep(context.Context, *operationdomain.Workflow, string) error {
+func (c *supersedeController) RetryStep(context.Context, *workflowdomain.Workflow, string) error {
 	return nil
 }
 
 func supersedeLauncher() (durableProvisioningLauncher, *supersedeWorkflowRepo, *supersedeController) {
-	repo := &supersedeWorkflowRepo{parked: &operationdomain.Workflow{
-		ID: "op-parked", SchemaVersion: 4, Kind: operationdomain.WorkflowKindDeployKubernetes,
+	repo := &supersedeWorkflowRepo{parked: &workflowdomain.Workflow{
+		ID: "op-parked", SchemaVersion: 4, Kind: workflowdomain.WorkflowKindDeployKubernetes,
 		Intent: map[string]any{"summary": "Deploy k0s Platform test-amd-operator"},
-		Status: operationdomain.WorkflowRequiresAttention, TargetServerIDs: []string{"server-id"},
+		Status: workflowdomain.WorkflowRequiresAttention, TargetServerIDs: []string{"server-id"},
 	}}
 	controller := &supersedeController{repo: repo}
 	server := &serverdomain.Server{
@@ -83,7 +83,7 @@ func supersedeLauncher() (durableProvisioningLauncher, *supersedeWorkflowRepo, *
 		Provisioning: &serverdomain.ProvisioningStatus{State: "failed"},
 	}
 	return durableProvisioningLauncher{
-		operations: operationapp.NewWorkflowService(&storetest.Transactor{}, repo, controller),
+		operations: workflowapp.NewWorkflowService(&storetest.Transactor{}, repo, controller),
 		servers:    &deploymentProjectionTestRepo{server: server},
 	}, repo, controller
 }
@@ -110,7 +110,7 @@ func TestRecoveryLaunchSupersedesActiveWorkflows(t *testing.T) {
 		t.Run(name+" without the option stays refused as busy", func(t *testing.T) {
 			launcher, repo, controller := supersedeLauncher()
 			err := launch(launcher, provisioningapp.RecoveryLaunchOptions{})
-			if !errors.Is(err, operationdomain.ErrTargetsBusy) || repo.created != nil || len(controller.canceled) != 0 {
+			if !errors.Is(err, workflowdomain.ErrTargetsBusy) || repo.created != nil || len(controller.canceled) != 0 {
 				t.Fatalf("err = %v, created %v, canceled %v; want busy, nothing created or canceled", err, repo.created != nil, controller.canceled)
 			}
 		})
@@ -130,7 +130,7 @@ func TestRecoveryLaunchSupersedesActiveWorkflows(t *testing.T) {
 			launcher, repo, controller := supersedeLauncher()
 			controller.refuse = true
 			err := launch(launcher, cancelActive)
-			if !errors.Is(err, operationdomain.ErrTargetsBusy) || !strings.Contains(err.Error(), "Deploy k0s Platform test-amd-operator") {
+			if !errors.Is(err, workflowdomain.ErrTargetsBusy) || !strings.Contains(err.Error(), "Deploy k0s Platform test-amd-operator") {
 				t.Fatalf("err = %v, want a busy conflict naming the Workflow", err)
 			}
 			if repo.created != nil {

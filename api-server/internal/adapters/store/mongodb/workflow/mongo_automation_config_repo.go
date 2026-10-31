@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
 )
 
@@ -50,20 +50,20 @@ func NewMongoAutomationConfigurationRepo(db *mongo.Database, sealer *secret.Seal
 }
 
 // FindBySiteID never returns credential material.
-func (r *MongoAutomationConfigurationRepo) FindBySiteID(ctx context.Context, siteID string) (*operationdomain.AutomationConfiguration, error) {
+func (r *MongoAutomationConfigurationRepo) FindBySiteID(ctx context.Context, siteID string) (*workflowdomain.AutomationConfiguration, error) {
 	var doc automationConfigurationDoc
 	err := r.col.FindOne(ctx, bson.M{"_id": siteID}).Decode(&doc)
 	if err == mongo.ErrNoDocuments {
-		return nil, operationdomain.ErrAutomationConfigNotFound
+		return nil, workflowdomain.ErrAutomationConfigNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	mappings := make(map[operationdomain.WorkflowKind]string, len(doc.PlaybookMappings))
+	mappings := make(map[workflowdomain.WorkflowKind]string, len(doc.PlaybookMappings))
 	for kind, playbook := range doc.PlaybookMappings {
-		mappings[operationdomain.WorkflowKind(kind)] = playbook
+		mappings[workflowdomain.WorkflowKind(kind)] = playbook
 	}
-	return &operationdomain.AutomationConfiguration{
+	return &workflowdomain.AutomationConfiguration{
 		SiteID: doc.SiteID, Enabled: doc.Enabled, SSHUser: doc.SSHUser, SSHPort: doc.SSHPort,
 		KnownHosts: doc.KnownHosts, PlaybookMappings: mappings,
 		HasCredential: doc.SealedCredential != "",
@@ -72,7 +72,7 @@ func (r *MongoAutomationConfigurationRepo) FindBySiteID(ctx context.Context, sit
 }
 
 // Upsert changes non-secret settings without touching the credential.
-func (r *MongoAutomationConfigurationRepo) Upsert(ctx context.Context, configuration *operationdomain.AutomationConfiguration) error {
+func (r *MongoAutomationConfigurationRepo) Upsert(ctx context.Context, configuration *workflowdomain.AutomationConfiguration) error {
 	now := time.Now().UTC()
 	mappings := make(map[string]string, len(configuration.PlaybookMappings))
 	for kind, playbook := range configuration.PlaybookMappings {
@@ -93,7 +93,7 @@ func (r *MongoAutomationConfigurationRepo) Upsert(ctx context.Context, configura
 // whatever credential the Site stored before. credential.SSHPrivateKey is never stored: the
 // Deployment Key is the only automation key (decision 041), and callers reject a Site key
 // before reaching this port.
-func (r *MongoAutomationConfigurationRepo) ReplaceCredential(ctx context.Context, siteID string, credential operationdomain.AutomationCredential) error {
+func (r *MongoAutomationConfigurationRepo) ReplaceCredential(ctx context.Context, siteID string, credential workflowdomain.AutomationCredential) error {
 	raw, err := json.Marshal(sealedAutomationCredential{BecomePassword: credential.BecomePassword})
 	if err != nil {
 		return err
@@ -110,36 +110,36 @@ func (r *MongoAutomationConfigurationRepo) ReplaceCredential(ctx context.Context
 		return err
 	}
 	if result.MatchedCount == 0 {
-		return operationdomain.ErrAutomationConfigNotFound
+		return workflowdomain.ErrAutomationConfigNotFound
 	}
 	return nil
 }
 
 // Credential is used only by automation immediately before a run. It returns the Site's
 // become password and never an SSH private key, even when an earlier release sealed one;
-// operationapp.EffectiveAutomationConfigurations, which wraps this repository for automation,
+// workflowapp.EffectiveAutomationConfigurations, which wraps this repository for automation,
 // adds the Deployment Key. A configured Site without a stored credential is
 // ErrAutomationCredentialMissing; an unconfigured Site is ErrAutomationConfigNotFound.
-func (r *MongoAutomationConfigurationRepo) Credential(ctx context.Context, siteID string) (operationdomain.AutomationCredential, error) {
+func (r *MongoAutomationConfigurationRepo) Credential(ctx context.Context, siteID string) (workflowdomain.AutomationCredential, error) {
 	var doc automationConfigurationDoc
 	err := r.col.FindOne(ctx, bson.M{"_id": siteID},
 		options.FindOne().SetProjection(bson.M{"sealedCredential": 1})).Decode(&doc)
 	if err == mongo.ErrNoDocuments {
-		return operationdomain.AutomationCredential{}, operationdomain.ErrAutomationConfigNotFound
+		return workflowdomain.AutomationCredential{}, workflowdomain.ErrAutomationConfigNotFound
 	}
 	if err != nil {
-		return operationdomain.AutomationCredential{}, err
+		return workflowdomain.AutomationCredential{}, err
 	}
 	if doc.SealedCredential == "" {
-		return operationdomain.AutomationCredential{}, operationdomain.ErrAutomationCredentialMissing
+		return workflowdomain.AutomationCredential{}, workflowdomain.ErrAutomationCredentialMissing
 	}
 	raw, err := r.sealer.Open(doc.SealedCredential)
 	if err != nil {
-		return operationdomain.AutomationCredential{}, err
+		return workflowdomain.AutomationCredential{}, err
 	}
 	var stored sealedAutomationCredential
 	if err := json.Unmarshal([]byte(raw), &stored); err != nil {
-		return operationdomain.AutomationCredential{}, err
+		return workflowdomain.AutomationCredential{}, err
 	}
-	return operationdomain.AutomationCredential{BecomePassword: stored.BecomePassword}, nil
+	return workflowdomain.AutomationCredential{BecomePassword: stored.BecomePassword}, nil
 }

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // GPU Operator composition (decision 062). The same ansible Task installs, changes, or removes the
@@ -30,16 +30,16 @@ const (
 // trusted swallow_amd_gpu_operator_state ("present" or "absent"), stamped so the observer knows
 // which states the Task's outcome maps to.
 func gpuOperatorTask(
-	prepared *operationapp.PreparedAnsibleStep,
+	prepared *workflowapp.PreparedAnsibleStep,
 	platformID, recordID string,
 	dependsOn []string,
 	name string,
-) operationdomain.Task {
+) workflowdomain.Task {
 	mode, _ := prepared.ExtraVars["swallow_amd_gpu_operator_state"].(string)
-	return operationdomain.Task{
+	return workflowdomain.Task{
 		ID: gpuOperatorStepID, Kind: "ansible-playbook", Name: name,
 		Job:      jobConfigureGPUOperator,
-		Executor: operationdomain.RunnerKindAnsible, DependsOn: dependsOn,
+		Executor: workflowdomain.RunnerKindAnsible, DependsOn: dependsOn,
 		Targets: prepared.Targets,
 		Parameters: map[string]any{
 			"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars,
@@ -54,15 +54,15 @@ func gpuOperatorTask(
 // deploy's preceding provision-os Tasks satisfy the deployed-state requirement.
 func prepareGPUOperatorStep(
 	ctx context.Context,
-	operations *operationapp.ExecutionService,
+	operations *workflowapp.ExecutionService,
 	operationID, platformID, intent string,
 	targets []string,
 	trustedVars map[string]any,
 	requestedBy string,
 	provisionFirst bool,
-) (*operationapp.PreparedAnsibleStep, error) {
-	return operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
-		Kind: string(operationdomain.WorkflowKindConfigureGPUOperator), PlaybookName: gpuOperatorPlaybook,
+) (*workflowapp.PreparedAnsibleStep, error) {
+	return operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
+		Kind: string(workflowdomain.WorkflowKindConfigureGPUOperator), PlaybookName: gpuOperatorPlaybook,
 		Intent: intent, TargetServerIDs: targets, PlatformID: platformID,
 		TrustedVars: trustedVars, RequestedBy: requestedBy,
 	}, operationID, provisionFirst)
@@ -72,8 +72,8 @@ func prepareGPUOperatorStep(
 // readiness) followed by the configure-gpu-operator Job, over the Platform's deployment targets.
 // It requires durable orchestration; there is no legacy single-step path.
 type gpuOperatorLauncher struct {
-	operations     *operationapp.ExecutionService
-	orchestrations *operationapp.WorkflowService
+	operations     *workflowapp.ExecutionService
+	orchestrations *workflowapp.WorkflowService
 }
 
 // PrepareGPUOperator plans the Workflow under the preassigned id without writing it. Lock and
@@ -94,22 +94,22 @@ func (l gpuOperatorLauncher) PrepareGPUOperator(ctx context.Context, launch plat
 	if err != nil {
 		return nil, err
 	}
-	steps := []operationdomain.Task{
+	steps := []workflowdomain.Task{
 		{
 			ID: softwareWaitStepID, Kind: "wait-for-ssh", Name: "Verify SSH readiness",
 			Job:      jobPrepareHosts,
-			Executor: operationdomain.RunnerKindInternal, Targets: prepared.Targets,
+			Executor: workflowdomain.RunnerKindInternal, Targets: prepared.Targets,
 		},
 		gpuOperatorTask(prepared, launch.Platform.ID, launch.WorkflowID, []string{softwareWaitStepID}, stepName),
 	}
-	return &preparedPlatformDeployment{workflow: operationapp.CreateWorkflowInput{
-		ID: launch.WorkflowID, Kind: operationdomain.WorkflowKindConfigureGPUOperator,
+	return &preparedPlatformDeployment{workflow: workflowapp.CreateWorkflowInput{
+		ID: launch.WorkflowID, Kind: workflowdomain.WorkflowKindConfigureGPUOperator,
 		IntentSummary:  summary,
 		IntentSnapshot: map[string]any{"platformName": launch.Platform.Name, "extraVars": prepared.ExtraVars},
 		Definition:     "platform-gpu-operator", DefinitionVersion: 1,
 		SiteID: prepared.SiteID, PlatformID: launch.Platform.ID,
 		TargetServerIDs: launch.TargetServerIDs,
-		TargetResources: []operationdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
+		TargetResources: []workflowdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
 		Steps:           steps, RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
 	}}, nil
 }
@@ -140,7 +140,7 @@ type gpuOperatorStepObserver struct {
 // ObserveStep maps the Task status to a GPU Operator State: running is installing or
 // uninstalling, success is ready or absent, and failure, requires_attention, cancel, or skip is
 // failed.
-func (o gpuOperatorStepObserver) ObserveStep(ctx context.Context, operationID string, step operationdomain.Task) error {
+func (o gpuOperatorStepObserver) ObserveStep(ctx context.Context, operationID string, step workflowdomain.Task) error {
 	if step.ID != gpuOperatorStepID || step.Kind != "ansible-playbook" || step.Parameters == nil {
 		return nil
 	}
@@ -163,21 +163,21 @@ func (o gpuOperatorStepObserver) ObserveStep(ctx context.Context, operationID st
 
 // gpuOperatorStateForTask returns the state a Task status implies, or false for a status that
 // does not move it (pending leaves the state recorded at acceptance).
-func gpuOperatorStateForTask(status operationdomain.TaskStatus, uninstall bool) (platformdomain.GPUOperatorState, bool) {
+func gpuOperatorStateForTask(status workflowdomain.TaskStatus, uninstall bool) (platformdomain.GPUOperatorState, bool) {
 	switch status {
-	case operationdomain.TaskRunning, operationdomain.TaskWaitingExternal:
+	case workflowdomain.TaskRunning, workflowdomain.TaskWaitingExternal:
 		if uninstall {
 			return platformdomain.GPUOperatorUninstalling, true
 		}
 		return platformdomain.GPUOperatorInstalling, true
-	case operationdomain.TaskSucceeded:
+	case workflowdomain.TaskSucceeded:
 		if uninstall {
 			return platformdomain.GPUOperatorAbsent, true
 		}
 		return platformdomain.GPUOperatorReady, true
-	case operationdomain.TaskFailed, operationdomain.TaskRequiresAttention, operationdomain.TaskCanceled,
+	case workflowdomain.TaskFailed, workflowdomain.TaskRequiresAttention, workflowdomain.TaskCanceled,
 		// A skipped Task applied nothing, so the requested settings are not in effect.
-		operationdomain.TaskSkipped:
+		workflowdomain.TaskSkipped:
 		return platformdomain.GPUOperatorFailed, true
 	default:
 		return "", false

@@ -8,9 +8,9 @@ import (
 	"unicode"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // deploymentProgressEventLimit bounds each event read during deploy observation. Only the newest
@@ -97,7 +97,7 @@ func (e providerStepExecutor) observeInstallProgress(
 		if latest != progress.shown {
 			// Code stays empty so clients read this as a progress reason, not a failure; the
 			// same convention the verifying projection uses for its SSH-readiness wait.
-			reason := &operationdomain.NormalizedError{
+			reason := &workflowdomain.NormalizedError{
 				Stage:   providerEventStage(latest.eventType),
 				Message: fmt.Sprintf("Provider stage: %s (since %s).", latest.eventType, latest.at.UTC().Format(time.RFC3339)),
 			}

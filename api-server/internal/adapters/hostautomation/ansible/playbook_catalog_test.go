@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 func TestManifestCatalogAllowsOnlyRegisteredFiles(t *testing.T) {
@@ -31,7 +31,7 @@ func TestManifestCatalogAllowsOnlyRegisteredFiles(t *testing.T) {
 	if path, err := catalog.Resolve("ping"); err != nil || path != "ping.yml" {
 		t.Fatalf("resolve registered playbook: path=%q err=%v", path, err)
 	}
-	if _, err := catalog.Resolve("../arbitrary.yml"); !errors.Is(err, operationdomain.ErrPlaybookNotAllowed) {
+	if _, err := catalog.Resolve("../arbitrary.yml"); !errors.Is(err, workflowdomain.ErrPlaybookNotAllowed) {
 		t.Fatalf("unregistered path must be refused, got %v", err)
 	}
 }
@@ -71,17 +71,17 @@ func TestLocalRunnerDeletesEphemeralCredentials(t *testing.T) {
 	artifactRoot := filepath.Join(root, "artifacts")
 	runner := NewLocalRunner(command, root, runtimeRoot, artifactRoot)
 
-	operation := &operationdomain.ExecutionOperation{
+	operation := &workflowdomain.ExecutionOperation{
 		ID: "operation-1", SiteID: "site-1", TargetServerIDs: []string{"server-1"},
-		Execution: operationdomain.Execution{RunID: "run-1", Playbook: "ping"},
+		Execution: workflowdomain.Execution{RunID: "run-1", Playbook: "ping"},
 		ExtraVars: map[string]any{"safe": true},
 	}
-	_, err := runner.Run(context.Background(), operationdomain.RunnerInput{
+	_, err := runner.Run(context.Background(), workflowdomain.RunnerInput{
 		Operation: operation,
-		Configuration: &operationdomain.AutomationConfiguration{
+		Configuration: &workflowdomain.AutomationConfiguration{
 			SSHUser: "ubuntu", SSHPort: 22, KnownHosts: "host ssh-ed25519 AAAA",
 		},
-		Credential: operationdomain.AutomationCredential{
+		Credential: workflowdomain.AutomationCredential{
 			SSHPrivateKey: "private-key", BecomePassword: "become-secret",
 		},
 		Inventory: map[string]any{

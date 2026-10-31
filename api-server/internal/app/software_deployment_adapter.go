@@ -7,12 +7,12 @@ import (
 
 	"github.com/google/uuid"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
-	softwareapp "github.com/maple52046/swallow/internal/software/application"
-	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // Software deployment Jobs (ADR 017 / decision 038). A standalone software install composes three
@@ -47,29 +47,29 @@ const (
 // playbook name. Names are hardcoded on the launcher (like Slurm), so a software install needs no
 // site playbookMappings entry.
 type softwarePlaybook struct {
-	workflowKind operationdomain.WorkflowKind
+	workflowKind workflowdomain.WorkflowKind
 	playbook     string
 }
 
 var softwareInstallPlaybooks = map[softwaredomain.Kind]softwarePlaybook{
-	softwaredomain.KindDockerCE:   {operationdomain.WorkflowKindConfigureDockerCE, "deploy-docker-ce"},
-	softwaredomain.KindPodman:     {operationdomain.WorkflowKindConfigurePodman, "deploy-podman"},
-	softwaredomain.KindNFS:        {operationdomain.WorkflowKindConfigureNFS, "deploy-nfs"},
-	softwaredomain.KindPrometheus: {operationdomain.WorkflowKindConfigurePrometheus, "deploy-prometheus"},
-	softwaredomain.KindGrafana:    {operationdomain.WorkflowKindConfigureGrafana, "deploy-grafana"},
+	softwaredomain.KindDockerCE:   {workflowdomain.WorkflowKindConfigureDockerCE, "deploy-docker-ce"},
+	softwaredomain.KindPodman:     {workflowdomain.WorkflowKindConfigurePodman, "deploy-podman"},
+	softwaredomain.KindNFS:        {workflowdomain.WorkflowKindConfigureNFS, "deploy-nfs"},
+	softwaredomain.KindPrometheus: {workflowdomain.WorkflowKindConfigurePrometheus, "deploy-prometheus"},
+	softwaredomain.KindGrafana:    {workflowdomain.WorkflowKindConfigureGrafana, "deploy-grafana"},
 	softwaredomain.KindDeviceMetricsExporter: {
-		operationdomain.WorkflowKindConfigureDeviceMetricsExporter, "deploy-device-metrics-exporter",
+		workflowdomain.WorkflowKindConfigureDeviceMetricsExporter, "deploy-device-metrics-exporter",
 	},
 }
 
 var softwareUninstallPlaybooks = map[softwaredomain.Kind]softwarePlaybook{
-	softwaredomain.KindDockerCE:   {operationdomain.WorkflowKindUninstallDockerCE, "uninstall-docker-ce"},
-	softwaredomain.KindPodman:     {operationdomain.WorkflowKindUninstallPodman, "uninstall-podman"},
-	softwaredomain.KindNFS:        {operationdomain.WorkflowKindUninstallNFS, "uninstall-nfs"},
-	softwaredomain.KindPrometheus: {operationdomain.WorkflowKindUninstallPrometheus, "uninstall-prometheus"},
-	softwaredomain.KindGrafana:    {operationdomain.WorkflowKindUninstallGrafana, "uninstall-grafana"},
+	softwaredomain.KindDockerCE:   {workflowdomain.WorkflowKindUninstallDockerCE, "uninstall-docker-ce"},
+	softwaredomain.KindPodman:     {workflowdomain.WorkflowKindUninstallPodman, "uninstall-podman"},
+	softwaredomain.KindNFS:        {workflowdomain.WorkflowKindUninstallNFS, "uninstall-nfs"},
+	softwaredomain.KindPrometheus: {workflowdomain.WorkflowKindUninstallPrometheus, "uninstall-prometheus"},
+	softwaredomain.KindGrafana:    {workflowdomain.WorkflowKindUninstallGrafana, "uninstall-grafana"},
 	softwaredomain.KindDeviceMetricsExporter: {
-		operationdomain.WorkflowKindUninstallDeviceMetricsExporter, "uninstall-device-metrics-exporter",
+		workflowdomain.WorkflowKindUninstallDeviceMetricsExporter, "uninstall-device-metrics-exporter",
 	},
 }
 
@@ -78,14 +78,14 @@ var softwareUninstallPlaybooks = map[softwaredomain.Kind]softwarePlaybook{
 // and assembles trusted vars) and the WorkflowService, so software deployment shares the platform
 // deployment machinery rather than owning a second engine.
 type softwareDeploymentLauncher struct {
-	operations     *operationapp.ExecutionService
-	orchestrations *operationapp.WorkflowService
+	operations     *workflowapp.ExecutionService
+	orchestrations *workflowapp.WorkflowService
 }
 
 // preparedSoftwareWorkflow is the plan the software launcher's prepare steps return
 // (softwareapp.PreparedSoftwareWorkflow): the complete Workflow, not yet written.
 type preparedSoftwareWorkflow struct {
-	workflow operationapp.CreateWorkflowInput
+	workflow workflowapp.CreateWorkflowInput
 }
 
 // WorkflowID is the preassigned id the Workflow gets when persisted.
@@ -149,7 +149,7 @@ func (l softwareDeploymentLauncher) prepare(
 		return nil, fmt.Errorf("durable software deployment is unavailable")
 	}
 	operationID := uuid.NewString()
-	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
+	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: string(mapping.workflowKind), PlaybookName: mapping.playbook,
 		Intent: summary, TargetServerIDs: launch.ServerIDs,
 		TrustedVars: launch.TrustedVars, RequestedBy: launch.RequestedBy,
@@ -162,17 +162,17 @@ func (l softwareDeploymentLauncher) prepare(
 		"softwareKind": string(launch.Kind),
 		"serverIds":    launch.ServerIDs,
 	}
-	steps := []operationdomain.Task{
+	steps := []workflowdomain.Task{
 		{
 			ID: softwareWaitStepID, Kind: "wait-for-ssh", Name: "Verify SSH readiness",
 			Job:      jobPrepareHosts,
-			Executor: operationdomain.RunnerKindInternal, Targets: prepared.Targets,
+			Executor: workflowdomain.RunnerKindInternal, Targets: prepared.Targets,
 		},
 		{
 			ID: softwareInstallStepID, Kind: "ansible-playbook",
 			Name:      summary,
 			Job:       "configure-" + string(launch.Kind),
-			Executor:  operationdomain.RunnerKindAnsible,
+			Executor:  workflowdomain.RunnerKindAnsible,
 			DependsOn: []string{softwareWaitStepID},
 			Targets:   prepared.Targets,
 			Parameters: map[string]any{
@@ -184,14 +184,14 @@ func (l softwareDeploymentLauncher) prepare(
 		{
 			ID: softwareRecordStepID, Kind: recordKind, Name: "Record software assignment",
 			Job:        jobRecordSoftware,
-			Executor:   operationdomain.RunnerKindInternal,
+			Executor:   workflowdomain.RunnerKindInternal,
 			DependsOn:  []string{softwareInstallStepID},
 			Targets:    serverResourceRefs(launch.ServerIDs),
 			Parameters: softwareParams,
 		},
 	}
 
-	return &preparedSoftwareWorkflow{workflow: operationapp.CreateWorkflowInput{
+	return &preparedSoftwareWorkflow{workflow: workflowapp.CreateWorkflowInput{
 		ID: operationID, Kind: mapping.workflowKind,
 		IntentSummary:  summary,
 		IntentSnapshot: map[string]any{"softwareKind": string(launch.Kind), "mode": mode},
@@ -202,10 +202,10 @@ func (l softwareDeploymentLauncher) prepare(
 	}}, nil
 }
 
-func serverResourceRefs(serverIDs []string) []operationdomain.ResourceReference {
-	refs := make([]operationdomain.ResourceReference, 0, len(serverIDs))
+func serverResourceRefs(serverIDs []string) []workflowdomain.ResourceReference {
+	refs := make([]workflowdomain.ResourceReference, 0, len(serverIDs))
 	for _, serverID := range serverIDs {
-		refs = append(refs, operationdomain.ResourceReference{Kind: "server", ID: serverID})
+		refs = append(refs, workflowdomain.ResourceReference{Kind: "server", ID: serverID})
 	}
 	return refs
 }

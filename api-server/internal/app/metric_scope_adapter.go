@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	infradomain "github.com/maple52046/swallow/internal/infrastructure/domain"
-	monitoringdomain "github.com/maple52046/swallow/internal/monitoring/domain"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
+	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 // metricScopeResolver satisfies the monitoring context's ServerScopeResolver port by reading

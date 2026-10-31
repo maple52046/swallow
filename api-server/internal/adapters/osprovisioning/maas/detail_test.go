@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 func (f *fakeMAAS) onNodeDevices(statusCode int, body string) {

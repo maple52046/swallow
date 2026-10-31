@@ -11,12 +11,12 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	apikeyapp "github.com/maple52046/swallow/internal/apikey/application"
-	apikeydelivery "github.com/maple52046/swallow/internal/apikey/delivery"
-	apikeydomain "github.com/maple52046/swallow/internal/apikey/domain"
-	authapp "github.com/maple52046/swallow/internal/auth/application"
-	authdelivery "github.com/maple52046/swallow/internal/auth/delivery"
-	authdomain "github.com/maple52046/swallow/internal/auth/domain"
+	apikeyapp "github.com/maple52046/swallow/internal/core/apikey/application"
+	apikeydelivery "github.com/maple52046/swallow/internal/core/apikey/delivery"
+	apikeydomain "github.com/maple52046/swallow/internal/core/apikey/domain"
+	authapp "github.com/maple52046/swallow/internal/core/auth/application"
+	authdelivery "github.com/maple52046/swallow/internal/core/auth/delivery"
+	authdomain "github.com/maple52046/swallow/internal/core/auth/domain"
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"

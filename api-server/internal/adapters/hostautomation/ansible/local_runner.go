@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 )
 
@@ -51,10 +51,10 @@ func (r *LocalRunner) AttachUserProber(prober sshprobe.Prober) { r.userProber = 
 const resultFileVar = "swallow_result_path"
 
 // Run materializes secrets only in a private runtime directory and removes it afterward.
-func (r *LocalRunner) Run(ctx context.Context, input operationdomain.RunnerInput) (operationdomain.RunnerResult, error) {
-	var result operationdomain.RunnerResult
+func (r *LocalRunner) Run(ctx context.Context, input workflowdomain.RunnerInput) (workflowdomain.RunnerResult, error) {
+	var result workflowdomain.RunnerResult
 	if input.Credential.SSHPrivateKey == "" {
-		return result, operationdomain.ErrAutomationCredentialMissing
+		return result, workflowdomain.ErrAutomationCredentialMissing
 	}
 	if strings.TrimSpace(input.Configuration.KnownHosts) == "" {
 		return result, fmt.Errorf("knownHosts is required; SSH host-key verification cannot be disabled")
@@ -199,11 +199,11 @@ func (r *LocalRunner) Logs(_ context.Context, runID string) (string, error) {
 // ansible-runner writes one JSON file per event, named with a leading ordinal, so sorting
 // by that ordinal reproduces execution order. Only per-task host results are surfaced;
 // task output (which can contain secrets) is deliberately dropped.
-func (r *LocalRunner) Events(_ context.Context, runID string) ([]operationdomain.TaskEvent, error) {
+func (r *LocalRunner) Events(_ context.Context, runID string) ([]workflowdomain.TaskEvent, error) {
 	dir := filepath.Join(r.artifactRoot, filepath.Base(runID), "job_events")
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
-		return []operationdomain.TaskEvent{}, nil
+		return []workflowdomain.TaskEvent{}, nil
 	}
 	if err != nil {
 		return nil, err
@@ -219,7 +219,7 @@ func (r *LocalRunner) Events(_ context.Context, runID string) ([]operationdomain
 		return eventOrdinal(files[i]) < eventOrdinal(files[j])
 	})
 
-	events := make([]operationdomain.TaskEvent, 0, len(files))
+	events := make([]workflowdomain.TaskEvent, 0, len(files))
 	for _, name := range files {
 		raw, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
@@ -240,14 +240,14 @@ func (r *LocalRunner) Events(_ context.Context, runID string) ([]operationdomain
 // results become StreamedTaskEvents (output dropped, secret-safe); play-start and task-start events
 // only advance CurrentPlay/CurrentTask. A missing job_events directory (the run has not written any
 // event yet) returns an empty delta at the same cursor rather than an error.
-func (r *LocalRunner) EventsSince(runID string, afterSeq int) (operationdomain.RunProgressDelta, error) {
+func (r *LocalRunner) EventsSince(runID string, afterSeq int) (workflowdomain.RunProgressDelta, error) {
 	dir := filepath.Join(r.artifactRoot, filepath.Base(runID), "job_events")
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
-		return operationdomain.RunProgressDelta{LastSeq: afterSeq}, nil
+		return workflowdomain.RunProgressDelta{LastSeq: afterSeq}, nil
 	}
 	if err != nil {
-		return operationdomain.RunProgressDelta{}, err
+		return workflowdomain.RunProgressDelta{}, err
 	}
 
 	type ordinaled struct {
@@ -267,7 +267,7 @@ func (r *LocalRunner) EventsSince(runID string, afterSeq int) (operationdomain.R
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].seq < files[j].seq })
 
-	delta := operationdomain.RunProgressDelta{LastSeq: afterSeq}
+	delta := workflowdomain.RunProgressDelta{LastSeq: afterSeq}
 	for _, file := range files {
 		raw, readErr := os.ReadFile(filepath.Join(dir, file.name))
 		if readErr != nil {
@@ -288,7 +288,7 @@ func (r *LocalRunner) EventsSince(runID string, afterSeq int) (operationdomain.R
 			continue
 		}
 		if event, ok := parseTaskEvent(raw); ok {
-			delta.Events = append(delta.Events, operationdomain.StreamedTaskEvent{
+			delta.Events = append(delta.Events, workflowdomain.StreamedTaskEvent{
 				RunID: runID, Seq: file.seq, TaskEvent: event,
 			})
 		}
@@ -429,16 +429,16 @@ var taskEventStatus = map[string]string{
 	"runner_on_unreachable": "unreachable",
 }
 
-func parseTaskEvent(raw []byte) (operationdomain.TaskEvent, bool) {
+func parseTaskEvent(raw []byte) (workflowdomain.TaskEvent, bool) {
 	var doc jobEventJSON
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return operationdomain.TaskEvent{}, false
+		return workflowdomain.TaskEvent{}, false
 	}
 	status, ok := taskEventStatus[doc.Event]
 	if !ok || doc.EventData.Host == "" {
-		return operationdomain.TaskEvent{}, false
+		return workflowdomain.TaskEvent{}, false
 	}
-	return operationdomain.TaskEvent{
+	return workflowdomain.TaskEvent{
 		Play:      doc.EventData.Play,
 		Task:      doc.EventData.Task,
 		Host:      doc.EventData.Host,
@@ -711,7 +711,7 @@ func cloneInventory(source map[string]any) map[string]any {
 // none does it falls back to the Site sshUser. An ansible_user already present on a host is
 // preserved. Resolution is per host because OS images use different default users, and the
 // inventory is per host; the actual host-key verification still happens in the run's known_hosts.
-func (r *LocalRunner) setConnectionVars(ctx context.Context, inventory map[string]any, configuration *operationdomain.AutomationConfiguration, credential operationdomain.AutomationCredential) {
+func (r *LocalRunner) setConnectionVars(ctx context.Context, inventory map[string]any, configuration *workflowdomain.AutomationConfiguration, credential workflowdomain.AutomationCredential) {
 	meta, ok := inventory["_meta"].(map[string]any)
 	if !ok {
 		return
@@ -764,6 +764,6 @@ func (r *LocalRunner) setConnectionVars(ctx context.Context, inventory map[strin
 }
 
 // executionRunIDPrefix returns a safe identifier prefix for temporary files.
-func executionRunIDPrefix(input operationdomain.RunnerInput) string {
+func executionRunIDPrefix(input workflowdomain.RunnerInput) string {
 	return "run-" + strings.ReplaceAll(input.Operation.Execution.RunID, string(filepath.Separator), "_") + "-"
 }

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 )
 
 // newTestClient points a Client at an httptest Engine.

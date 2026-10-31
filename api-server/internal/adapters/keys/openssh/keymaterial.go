@@ -12,7 +12,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	sshkeydomain "github.com/maple52046/swallow/internal/sshkey/domain"
+	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
 )
 
 // minRSABits is the smallest RSA modulus accepted; shorter keys are considered broken.

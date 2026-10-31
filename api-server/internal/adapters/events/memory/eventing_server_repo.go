@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	"github.com/maple52046/swallow/internal/core/store"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
 )
 
 // EventingServerRepository decorates a ServerRepository so every successful write publishes

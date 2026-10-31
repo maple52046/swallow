@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"strings"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // The inspect-hardware Workflow vocabulary (contract server-enrollment.md, decision 053). Task
@@ -36,13 +36,13 @@ const (
 
 // inspectionWorkflows is the slice of the Workflow service the launcher drives.
 type inspectionWorkflows interface {
-	Create(ctx context.Context, input operationapp.CreateWorkflowInput) (*operationapp.WorkflowItem, error)
+	Create(ctx context.Context, input workflowapp.CreateWorkflowInput) (*workflowapp.WorkflowItem, error)
 	RetryStep(ctx context.Context, id, stepID string) error
 }
 
 // inspectionWorkflowReader lists inspect-hardware Workflows of one Server.
 type inspectionWorkflowReader interface {
-	List(ctx context.Context, filter operationdomain.WorkflowFilter) ([]*operationdomain.Workflow, int, error)
+	List(ctx context.Context, filter workflowdomain.WorkflowFilter) ([]*workflowdomain.Workflow, int, error)
 }
 
 // hardwareInspectionLauncher implements provisioningapp.HardwareInspectionLauncher: it gates one
@@ -97,7 +97,7 @@ func (l hardwareInspectionLauncher) LaunchInspection(ctx context.Context, reques
 		return nil, err
 	}
 	if active != nil {
-		if !automatic && active.Status == operationdomain.WorkflowRequiresAttention {
+		if !automatic && active.Status == workflowdomain.WorkflowRequiresAttention {
 			if taskID := retryableInspectionTask(active); taskID != "" {
 				if err := l.workflows.RetryStep(ctx, active.ID, taskID); err != nil {
 					return nil, err
@@ -105,14 +105,14 @@ func (l hardwareInspectionLauncher) LaunchInspection(ctx context.Context, reques
 				return inspectionAccepted(server, active.ID, true), nil
 			}
 		}
-		return nil, fmt.Errorf("%w: Server %s is already being inspected by Workflow %s", operationdomain.ErrTargetsBusy, name, active.ID)
+		return nil, fmt.Errorf("%w: Server %s is already being inspected by Workflow %s", workflowdomain.ErrTargetsBusy, name, active.ID)
 	}
 	origin := request.Origin
 	if origin == "" {
 		origin = provisioningdomain.InspectionOriginRequested
 	}
-	created, err := l.workflows.Create(ctx, operationapp.CreateWorkflowInput{
-		Kind:          operationdomain.WorkflowKindInspectHardware,
+	created, err := l.workflows.Create(ctx, workflowapp.CreateWorkflowInput{
+		Kind:          workflowdomain.WorkflowKindInspectHardware,
 		IntentSummary: "Inspect hardware of " + name,
 		IntentSnapshot: map[string]any{
 			"serverId": serverID,
@@ -131,17 +131,17 @@ func (l hardwareInspectionLauncher) LaunchInspection(ctx context.Context, reques
 
 // HasInspection implements provisioningapp.HardwareInspectionLauncher.
 func (l hardwareInspectionLauncher) HasInspection(ctx context.Context, serverID string) (bool, error) {
-	_, total, err := l.history.List(ctx, operationdomain.WorkflowFilter{
-		ServerID: serverID, Kind: operationdomain.WorkflowKindInspectHardware, Limit: 1,
+	_, total, err := l.history.List(ctx, workflowdomain.WorkflowFilter{
+		ServerID: serverID, Kind: workflowdomain.WorkflowKindInspectHardware, Limit: 1,
 	})
 	return total > 0, err
 }
 
 // activeInspection returns the Server's unfinished inspect-hardware Workflow, including one
 // waiting in requires_attention, or nil.
-func (l hardwareInspectionLauncher) activeInspection(ctx context.Context, serverID string) (*operationdomain.Workflow, error) {
-	workflows, _, err := l.history.List(ctx, operationdomain.WorkflowFilter{
-		ServerID: serverID, Kind: operationdomain.WorkflowKindInspectHardware, ActiveOnly: true, Limit: 1,
+func (l hardwareInspectionLauncher) activeInspection(ctx context.Context, serverID string) (*workflowdomain.Workflow, error) {
+	workflows, _, err := l.history.List(ctx, workflowdomain.WorkflowFilter{
+		ServerID: serverID, Kind: workflowdomain.WorkflowKindInspectHardware, ActiveOnly: true, Limit: 1,
 	})
 	if err != nil || len(workflows) == 0 {
 		return nil, err
@@ -152,10 +152,10 @@ func (l hardwareInspectionLauncher) activeInspection(ctx context.Context, server
 // retryableInspectionTask names the Task to retry in an inspect-hardware Workflow waiting for
 // attention. Any retryable failed Task resumes the whole ensure-inspected Job; the inspect Task is
 // preferred so the retry reads as a retried inspection in the timeline.
-func retryableInspectionTask(workflow *operationdomain.Workflow) string {
+func retryableInspectionTask(workflow *workflowdomain.Workflow) string {
 	found := ""
 	for _, task := range workflow.Steps {
-		retryable := (task.Status == operationdomain.TaskFailed || task.Status == operationdomain.TaskRequiresAttention) &&
+		retryable := (task.Status == workflowdomain.TaskFailed || task.Status == workflowdomain.TaskRequiresAttention) &&
 			task.Error != nil && task.Error.Retryable
 		if !retryable {
 			continue
@@ -173,26 +173,26 @@ func retryableInspectionTask(workflow *operationdomain.Workflow) string {
 // inspectionSteps builds the ensure-inspected Job: wait for the provider's enrollment, apply Boot
 // Media read live, then inspect. Running it as a Job makes any retry re-run all three, so each is
 // an idempotent ensure (decision 017).
-func inspectionSteps(server *serverdomain.Server, origin provisioningdomain.InspectionOrigin) []operationdomain.Task {
-	target := []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}}
+func inspectionSteps(server *serverdomain.Server, origin provisioningdomain.InspectionOrigin) []workflowdomain.Task {
+	target := []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}}
 	name := server.DisplayName()
 	waitID := "wait-enrollment-" + server.ID
 	ensureID := ensureBootMediaTaskKind + "-" + server.ID
-	return []operationdomain.Task{
+	return []workflowdomain.Task{
 		{
 			ID: waitID, Kind: waitEnrollmentTaskKind, Name: "Wait for the enrollment of " + name + " to finish",
-			Job: inspectionJob, Executor: operationdomain.RunnerKindProvisioner, Targets: target,
+			Job: inspectionJob, Executor: workflowdomain.RunnerKindProvisioner, Targets: target,
 			Parameters: map[string]any{skipEnrollmentWaitParameter: origin != provisioningdomain.InspectionOriginAutomatic},
 		},
 		{
 			ID: ensureID, Kind: ensureBootMediaTaskKind, Name: "Ensure Boot Media on " + name,
-			Job: inspectionJob, Executor: operationdomain.RunnerKindInternal, Targets: target,
+			Job: inspectionJob, Executor: workflowdomain.RunnerKindInternal, Targets: target,
 			DependsOn:  []string{waitID},
 			Parameters: map[string]any{resolveBootMediaLiveParameter: true},
 		},
 		{
 			ID: inspectTaskKind + "-" + server.ID, Kind: inspectTaskKind, Name: "Inspect hardware of " + name,
-			Job: inspectionJob, Executor: operationdomain.RunnerKindProvisioner, Targets: target,
+			Job: inspectionJob, Executor: workflowdomain.RunnerKindProvisioner, Targets: target,
 			DependsOn:  []string{ensureID},
 			Parameters: map[string]any{inspectionOriginParameter: string(origin)},
 		},

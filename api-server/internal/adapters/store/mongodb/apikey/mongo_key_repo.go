@@ -10,7 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	apikeydomain "github.com/maple52046/swallow/internal/apikey/domain"
+	apikeydomain "github.com/maple52046/swallow/internal/core/apikey/domain"
 )
 
 const (

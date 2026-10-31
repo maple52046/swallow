@@ -8,7 +8,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	authapp "github.com/maple52046/swallow/internal/auth/application"
+	authapp "github.com/maple52046/swallow/internal/core/auth/application"
 )
 
 // refreshCookie returns the swallow_refresh Set-Cookie of resp, or nil.

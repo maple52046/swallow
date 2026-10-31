@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // TestRescueTransitionClassification pins how the recover Step reads MAAS rescue labels:
@@ -128,7 +128,7 @@ func (r *deploymentProjectionTestRepo) SetDefaultUser(_ context.Context, _ strin
 func TestProviderStepRejectsDeploymentWithoutFrozenImage(t *testing.T) {
 	result := (providerStepExecutor{}).Execute(context.Background(), temporalworkflow.StepExecutionInput{
 		OperationID: "operation-id",
-		Step: operationdomain.Task{
+		Step: workflowdomain.Task{
 			ID: "provision-server", Kind: "provision-os", Attempt: 1,
 			Parameters: map[string]any{"request": map[string]any{
 				"serverIds": []string{"server-id"},
@@ -137,7 +137,7 @@ func TestProviderStepRejectsDeploymentWithoutFrozenImage(t *testing.T) {
 		},
 	})
 
-	if result.Status != operationdomain.TaskFailed || result.Error == nil {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil {
 		t.Fatalf("result = %+v, want failed Step with normalized error", result)
 	}
 	if result.Error.Code != "intent_snapshot_incomplete" || result.Error.Retryable {
@@ -148,7 +148,7 @@ func TestProviderStepRejectsDeploymentWithoutFrozenImage(t *testing.T) {
 func TestDeploymentReadinessFailureWithoutAddressOffersRedeployRecovery(t *testing.T) {
 	result := deploymentReadinessFailed(deploymentReadiness{serverName: "lab-control-1", port: 22})
 
-	if result.Status != operationdomain.TaskFailed || result.Error == nil {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil {
 		t.Fatalf("result = %+v, want failed Step", result)
 	}
 	if result.Error.Code != "deployment_address_unavailable" || !result.Error.Retryable {
@@ -164,7 +164,7 @@ func TestDeploymentReadinessFailureWithAddressDoesNotOfferRedeploy(t *testing.T)
 		serverName: "lab-control-2", addresses: []string{"192.168.100.57"}, port: 2222,
 	})
 
-	if result.Status != operationdomain.TaskFailed || result.Error == nil {
+	if result.Status != workflowdomain.TaskFailed || result.Error == nil {
 		t.Fatalf("result = %+v, want failed Step", result)
 	}
 	if result.Error.Code != "deployment_ssh_unreachable" || !result.Error.Retryable {
@@ -182,11 +182,11 @@ func TestProviderStepProjectsDeploymentFailureOntoServer(t *testing.T) {
 	executor := providerStepExecutor{servers: &deploymentProjectionTestRepo{server: server}}
 	result := executor.Execute(context.Background(), temporalworkflow.StepExecutionInput{
 		OperationID: "operation-id",
-		Step: operationdomain.Task{
+		Step: workflowdomain.Task{
 			ID:      "provision-server",
 			Kind:    "provision-os",
 			Attempt: 2,
-			Targets: []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}},
+			Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}},
 			Parameters: map[string]any{"request": map[string]any{
 				"serverIds": []string{server.ID},
 				"settings":  map[string]any{},
@@ -194,7 +194,7 @@ func TestProviderStepProjectsDeploymentFailureOntoServer(t *testing.T) {
 		},
 	})
 
-	if result.Status != operationdomain.TaskFailed {
+	if result.Status != workflowdomain.TaskFailed {
 		t.Fatalf("result status = %s, want failed", result.Status)
 	}
 	if server.Deployment == nil || server.Deployment.State != serverdomain.DeploymentFailed {
@@ -223,7 +223,7 @@ func TestProviderStepClearsDefaultUserOnlyWhenSubmittingDeployment(t *testing.T)
 
 		result := executor.Execute(context.Background(), provisionStep(1, 1))
 
-		if result.Status != operationdomain.TaskFailed || deployments.calls != 1 {
+		if result.Status != workflowdomain.TaskFailed || deployments.calls != 1 {
 			t.Fatalf("result = %+v after %d deployments, want a submitted deployment that failed", result, deployments.calls)
 		}
 		if server.DefaultUser != "" {
@@ -237,7 +237,7 @@ func TestProviderStepClearsDefaultUserOnlyWhenSubmittingDeployment(t *testing.T)
 
 		result := executor.Execute(context.Background(), provisionStep(2, 1))
 
-		if result.Status != operationdomain.TaskSucceeded || deployments.calls != 0 {
+		if result.Status != workflowdomain.TaskSucceeded || deployments.calls != 0 {
 			t.Fatalf("result = %+v after %d deployments, want success without a deployment", result, deployments.calls)
 		}
 		if server.DefaultUser != "amd" {
@@ -285,13 +285,13 @@ func TestProviderStepDeploymentPowerOnTimeout(t *testing.T) {
 	image := "ubuntu/custom-image"
 	result := executor.observeDeploy(
 		context.Background(),
-		temporalworkflow.StepExecutionInput{Step: operationdomain.Task{ID: "provision"}},
+		temporalworkflow.StepExecutionInput{Step: workflowdomain.Task{ID: "provision"}},
 		server.ID,
 		provisioningapp.DeployServersInput{Settings: provisioningapp.DeploymentSettingsInput{ImageID: &image}},
 		true,
 	)
 
-	if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil {
+	if result.Status != workflowdomain.TaskRequiresAttention || result.Error == nil {
 		t.Fatalf("result = %+v, want requires-attention Step", result)
 	}
 	if result.Error.Code != "deployment_power_on_timeout" || result.Error.Stage != "deployment_power_on" {
@@ -305,8 +305,8 @@ func TestProviderStepDeploymentPowerOnTimeout(t *testing.T) {
 func TestInitialDeploymentProjectionClosesWorkerStartGap(t *testing.T) {
 	server := &serverdomain.Server{ID: "server-id"}
 	repository := &deploymentProjectionTestRepo{server: server}
-	materializeInitialDeployments(context.Background(), repository, "operation-id", []operationdomain.Task{
-		{ID: "provision-server", Kind: "provision-os", Targets: []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}}},
+	materializeInitialDeployments(context.Background(), repository, "operation-id", []workflowdomain.Task{
+		{ID: "provision-server", Kind: "provision-os", Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}}},
 		{ID: "install-platform", Kind: "ansible-playbook"},
 	})
 
@@ -345,7 +345,7 @@ func TestProviderCancellationAbortsOnlyForWorkflowCancellation(t *testing.T) {
 	}
 	image := "ubuntu/custom-image"
 	input := provisioningapp.DeployServersInput{Settings: provisioningapp.DeploymentSettingsInput{ImageID: &image}}
-	step := temporalworkflow.StepExecutionInput{Step: operationdomain.Task{ID: "provision", Attempt: 1}}
+	step := temporalworkflow.StepExecutionInput{Step: workflowdomain.Task{ID: "provision", Attempt: 1}}
 
 	workerContext, stopWorker := context.WithCancelCause(context.Background())
 	stopWorker(temporalworkflow.ErrActivityWorkerStopping)

@@ -17,8 +17,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 const (
@@ -66,12 +66,12 @@ const cancelProjectionVersion = 3
 // never credential, cloud-init, or automation secret values.
 type WorkflowInput struct {
 	OperationID       string
-	Kind              operationdomain.WorkflowKind
+	Kind              workflowdomain.WorkflowKind
 	PlatformID        string
 	SiteID            string
 	Definition        string
 	DefinitionVersion int
-	Steps             []operationdomain.Task
+	Steps             []workflowdomain.Task
 	ResourceKeys      []string
 	LeaseDuration     time.Duration
 	MaxParallelism    int
@@ -85,7 +85,7 @@ type RetryStepCommand struct {
 // StateUpdate is written by an activity so workflows never access Mongo directly.
 type StateUpdate struct {
 	OperationID string
-	Status      operationdomain.WorkflowStatus
+	Status      workflowdomain.WorkflowStatus
 	Reason      string
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
@@ -94,7 +94,7 @@ type StateUpdate struct {
 // StepUpdate is one projection write.
 type StepUpdate struct {
 	OperationID string
-	Step        operationdomain.Task
+	Step        workflowdomain.Task
 }
 
 // LeaseRequest asks the persistence adapter for all resources atomically from the
@@ -107,18 +107,18 @@ type LeaseRequest struct {
 
 // LeaseRenewal extends leases while a long provider or Ansible Step is observed.
 type LeaseRenewal struct {
-	Leases   []operationdomain.ResourceLease
+	Leases   []workflowdomain.ResourceLease
 	Duration time.Duration
 }
 
 // StepExecutionInput is passed to exactly one typed lifecycle adapter.
 type StepExecutionInput struct {
 	OperationID   string
-	Kind          operationdomain.WorkflowKind
+	Kind          workflowdomain.WorkflowKind
 	PlatformID    string
 	SiteID        string
-	Step          operationdomain.Task
-	Leases        []operationdomain.ResourceLease
+	Step          workflowdomain.Task
+	Leases        []workflowdomain.ResourceLease
 	LeaseDuration time.Duration
 	// ActivityAttempt is populated inside ExecuteStep and is never persisted in workflow input.
 	ActivityAttempt int `json:"-"`
@@ -126,12 +126,12 @@ type StepExecutionInput struct {
 
 // StepExecutionResult is normalized before it reaches workflow history.
 type StepExecutionResult struct {
-	Status            operationdomain.TaskStatus
+	Status            workflowdomain.TaskStatus
 	Progress          int
 	WaitingReason     string
-	Error             *operationdomain.NormalizedError
-	ExternalExecution *operationdomain.ExternalExecutionReference
-	Artifacts         []operationdomain.ArtifactMetadata
+	Error             *workflowdomain.NormalizedError
+	ExternalExecution *workflowdomain.ExternalExecutionReference
+	Artifacts         []workflowdomain.ArtifactMetadata
 }
 
 // StepLifecycleExecutor implements Start/Observe/Cancel semantics behind one activity.
@@ -142,22 +142,22 @@ type StepLifecycleExecutor interface {
 
 // StepProjectionObserver materializes public read models from durable Step transitions.
 type StepProjectionObserver interface {
-	ObserveStep(ctx context.Context, operationID string, step operationdomain.Task) error
+	ObserveStep(ctx context.Context, operationID string, step workflowdomain.Task) error
 }
 
 // Activities contains only narrow repositories and typed executors.
 type Activities struct {
-	operations operationdomain.WorkflowRepository
-	leases     operationdomain.ResourceLeaseRepository
-	executors  map[operationdomain.RunnerKind]StepLifecycleExecutor
+	operations workflowdomain.WorkflowRepository
+	leases     workflowdomain.ResourceLeaseRepository
+	executors  map[workflowdomain.RunnerKind]StepLifecycleExecutor
 	observers  []StepProjectionObserver
 }
 
-func NewActivities(operations operationdomain.WorkflowRepository, leases operationdomain.ResourceLeaseRepository, executors map[operationdomain.RunnerKind]StepLifecycleExecutor, observers ...StepProjectionObserver) *Activities {
+func NewActivities(operations workflowdomain.WorkflowRepository, leases workflowdomain.ResourceLeaseRepository, executors map[workflowdomain.RunnerKind]StepLifecycleExecutor, observers ...StepProjectionObserver) *Activities {
 	return &Activities{operations: operations, leases: leases, executors: executors, observers: observers}
 }
 
-func (a *Activities) AcquireLeases(ctx context.Context, input LeaseRequest) ([]operationdomain.ResourceLease, error) {
+func (a *Activities) AcquireLeases(ctx context.Context, input LeaseRequest) ([]workflowdomain.ResourceLease, error) {
 	return a.leases.Acquire(ctx, input.ResourceKeys, input.Owner, time.Now().UTC().Add(input.Duration))
 }
 
@@ -165,7 +165,7 @@ func (a *Activities) RenewLeases(ctx context.Context, input LeaseRenewal) error 
 	return a.leases.Renew(ctx, input.Leases, time.Now().UTC().Add(input.Duration))
 }
 
-func (a *Activities) ReleaseLeases(ctx context.Context, leases []operationdomain.ResourceLease) error {
+func (a *Activities) ReleaseLeases(ctx context.Context, leases []workflowdomain.ResourceLease) error {
 	return a.leases.Release(ctx, leases)
 }
 
@@ -177,7 +177,7 @@ func (a *Activities) UpdateState(ctx context.Context, input StateUpdate) error {
 	// Deterministic ID per operation status so a retried projection activity upserts the
 	// same event instead of appending a duplicate. Repeated visits to the same status
 	// (for example running between batches) intentionally collapse to one timeline entry.
-	return a.operations.AppendEvent(ctx, operationdomain.TimelineEvent{
+	return a.operations.AppendEvent(ctx, workflowdomain.TimelineEvent{
 		ID: input.OperationID + "/state/" + string(input.Status), OperationID: input.OperationID, Type: "operation_status",
 		Message: message, Details: map[string]any{"status": string(input.Status), "reason": input.Reason},
 		CreatedAt: time.Now().UTC(),
@@ -190,7 +190,7 @@ func (a *Activities) UpdateState(ctx context.Context, input StateUpdate) error {
 // never rewrite a Server's finished deployment or add a false "canceled" event.
 func (a *Activities) UpdateStep(ctx context.Context, input StepUpdate) error {
 	if err := a.operations.UpdateStep(ctx, input.OperationID, input.Step); err != nil {
-		if errors.Is(err, operationdomain.ErrStepTransitionIgnored) {
+		if errors.Is(err, workflowdomain.ErrStepTransitionIgnored) {
 			return nil
 		}
 		return err
@@ -213,7 +213,7 @@ func (a *Activities) UpdateStep(ctx context.Context, input StepUpdate) error {
 		details["stage"] = failure.Stage
 		details["retryable"] = failure.Retryable
 	}
-	return a.operations.AppendEvent(ctx, operationdomain.TimelineEvent{
+	return a.operations.AppendEvent(ctx, workflowdomain.TimelineEvent{
 		ID: eventID, OperationID: input.OperationID, StepID: input.Step.ID,
 		Type: "step_status", Message: input.Step.Name + " changed to " + string(input.Step.Status) + ".",
 		Details:   details,
@@ -224,7 +224,7 @@ func (a *Activities) UpdateStep(ctx context.Context, input StepUpdate) error {
 // AppendEvent records a timeline event the workflow composes itself, such as the outcome of
 // returning a canceled deployment's Server to Ready. The workflow derives the event ID from the
 // Operation, Task, and attempt, so a retried activity upserts instead of duplicating.
-func (a *Activities) AppendEvent(ctx context.Context, event operationdomain.TimelineEvent) error {
+func (a *Activities) AppendEvent(ctx context.Context, event workflowdomain.TimelineEvent) error {
 	return a.operations.AppendEvent(ctx, event)
 }
 
@@ -238,12 +238,12 @@ func (a *Activities) ExecuteStep(ctx context.Context, input StepExecutionInput) 
 	input.ActivityAttempt = int(activity.GetInfo(ctx).Attempt)
 	executor := a.executors[input.Step.Executor]
 	if executor == nil {
-		return StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
+		return StepExecutionResult{Status: workflowdomain.TaskFailed, Error: &workflowdomain.NormalizedError{
 			Code: "executor_unavailable", Message: fmt.Sprintf("No %s executor is configured.", input.Step.Executor), Retryable: false,
 		}}, nil
 	}
 	waiting := input.Step
-	waiting.Status = operationdomain.TaskWaitingExternal
+	waiting.Status = workflowdomain.TaskWaitingExternal
 	waiting.WaitingReason = "Waiting for " + string(input.Step.Executor) + " execution."
 	_ = a.UpdateStep(ctx, StepUpdate{OperationID: input.OperationID, Step: waiting})
 	executionCtx, cancel := context.WithCancelCause(ctx)
@@ -285,7 +285,7 @@ func (a *Activities) ExecuteStep(ctx context.Context, input StepExecutionInput) 
 	}
 finished:
 	if result.Status == "" {
-		result.Status = operationdomain.TaskSucceeded
+		result.Status = workflowdomain.TaskSucceeded
 	}
 	return result, nil
 }
@@ -294,7 +294,7 @@ finished:
 type NoopExecutor struct{}
 
 func (NoopExecutor) Execute(_ context.Context, _ StepExecutionInput) StepExecutionResult {
-	return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+	return StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 }
 
 // OperationWorkflowV1 executes dependency layers in stable input order and pauses on a
@@ -319,12 +319,12 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 	projectionCtx := workflow.WithActivityOptions(ctx, projectionOptions)
 	now := workflow.Now(ctx).UTC()
 	_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-		OperationID: input.OperationID, Status: operationdomain.WorkflowWaitingDependency,
+		OperationID: input.OperationID, Status: workflowdomain.WorkflowWaitingDependency,
 		Reason: "Waiting for resource leases.", StartedAt: &now,
 	}).Get(projectionCtx, nil)
 
 	owner := workflow.GetInfo(ctx).WorkflowExecution.ID
-	var leases []operationdomain.ResourceLease
+	var leases []workflowdomain.ResourceLease
 	for {
 		leaseCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Second,
@@ -347,7 +347,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 	}()
 
 	_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-		OperationID: input.OperationID, Status: operationdomain.WorkflowRunning,
+		OperationID: input.OperationID, Status: workflowdomain.WorkflowRunning,
 		StartedAt: &now,
 	}).Get(projectionCtx, nil)
 
@@ -358,11 +358,11 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 		return runJobbedWorkflow(ctx, input, leases, projectionCtx)
 	}
 
-	steps := append([]operationdomain.Task(nil), input.Steps...)
+	steps := append([]workflowdomain.Task(nil), input.Steps...)
 	retryChannel := workflow.GetSignalChannel(ctx, RetryStepSignal)
 	// interrupted collects the provision-os Tasks whose activity was already running when the
 	// cancel arrived; only those left a deployment in flight to return to Ready.
-	var interrupted []operationdomain.Task
+	var interrupted []workflowdomain.Task
 	for {
 		if ctx.Err() != nil {
 			compensateVerifyCancel(ctx, input, steps, leases)
@@ -383,7 +383,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 		ready := []int{}
 		skippedAny := false
 		for index := range steps {
-			if steps[index].Status != operationdomain.TaskPending && steps[index].Status != operationdomain.TaskWaitingDependency {
+			if steps[index].Status != workflowdomain.TaskPending && steps[index].Status != workflowdomain.TaskWaitingDependency {
 				continue
 			}
 			switch scheduleStep(steps[index], byID, steps) {
@@ -391,7 +391,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 				ready = append(ready, index)
 			case stepSkip:
 				finished := workflow.Now(ctx).UTC()
-				steps[index].Status = operationdomain.TaskSkipped
+				steps[index].Status = workflowdomain.TaskSkipped
 				steps[index].FinishedAt = &finished
 				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: steps[index]}).Get(projectionCtx, nil)
 				skippedAny = true
@@ -405,22 +405,22 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 			if allSucceeded(steps) {
 				finished := workflow.Now(ctx).UTC()
 				return workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-					OperationID: input.OperationID, Status: operationdomain.WorkflowSucceeded, FinishedAt: &finished,
+					OperationID: input.OperationID, Status: workflowdomain.WorkflowSucceeded, FinishedAt: &finished,
 				}).Get(projectionCtx, nil)
 			}
 			failedIndex := retryableFailure(steps)
 			if failedIndex < 0 {
 				finished := workflow.Now(ctx).UTC()
-				status := operationdomain.WorkflowFailed
+				status := workflowdomain.WorkflowFailed
 				if anySucceeded(steps) {
-					status = operationdomain.WorkflowPartiallySucceeded
+					status = workflowdomain.WorkflowPartiallySucceeded
 				}
 				return workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
 					OperationID: input.OperationID, Status: status, Reason: firstFailure(steps), FinishedAt: &finished,
 				}).Get(projectionCtx, nil)
 			}
 			_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-				OperationID: input.OperationID, Status: operationdomain.WorkflowRequiresAttention,
+				OperationID: input.OperationID, Status: workflowdomain.WorkflowRequiresAttention,
 				Reason: "A failed Step requires operator attention.",
 			}).Get(projectionCtx, nil)
 			command, err := awaitRetryStep(ctx, retryChannel, leases, input.LeaseDuration)
@@ -429,9 +429,9 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 				return finishCanceled(ctx, input.OperationID, steps)
 			}
 			for index := range steps {
-				if steps[index].ID == command.StepID && (steps[index].Status == operationdomain.TaskFailed || steps[index].Status == operationdomain.TaskRequiresAttention) && steps[index].Error != nil && steps[index].Error.Retryable {
+				if steps[index].ID == command.StepID && (steps[index].Status == workflowdomain.TaskFailed || steps[index].Status == workflowdomain.TaskRequiresAttention) && steps[index].Error != nil && steps[index].Error.Retryable {
 					steps[index].Attempt++
-					steps[index].Status = operationdomain.TaskPending
+					steps[index].Status = workflowdomain.TaskPending
 					steps[index].Error = nil
 					steps[index].FinishedAt = nil
 					steps[index].Progress = 0
@@ -442,7 +442,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 		}
 
 		_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-			OperationID: input.OperationID, Status: operationdomain.WorkflowWaitingExternal,
+			OperationID: input.OperationID, Status: workflowdomain.WorkflowWaitingExternal,
 			Reason: "Waiting for an external executor or provider.",
 		}).Get(projectionCtx, nil)
 		for start := 0; start < len(ready); start += input.MaxParallelism {
@@ -455,7 +455,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 			dispatched := make([]bool, len(batch))
 			for pos, index := range batch {
 				started := workflow.Now(ctx).UTC()
-				steps[index].Status = operationdomain.TaskRunning
+				steps[index].Status = workflowdomain.TaskRunning
 				steps[index].StartedAt = &started
 				steps[index].WaitingReason = ""
 				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: steps[index]}).Get(projectionCtx, nil)
@@ -473,7 +473,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 				stepProjectionCtx := projectionCtx
 				if err != nil {
 					if temporal.IsCanceledError(err) || ctx.Err() != nil {
-						steps[index].Status = operationdomain.TaskCanceled
+						steps[index].Status = workflowdomain.TaskCanceled
 						if operationVersion >= cancelProjectionVersion {
 							stepProjectionCtx = disconnectedProjectionContext(ctx, projectionOptions)
 						}
@@ -487,12 +487,12 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 						// converge. Only genuinely uncertain infrastructure failures pause
 						// for operator attention.
 						code, message, retryable := normalizeActivityError(err)
-						status := operationdomain.TaskRequiresAttention
+						status := workflowdomain.TaskRequiresAttention
 						if !retryable {
-							status = operationdomain.TaskFailed
+							status = workflowdomain.TaskFailed
 						}
 						steps[index].Status = status
-						steps[index].Error = &operationdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}
+						steps[index].Error = &workflowdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}
 					}
 				} else {
 					steps[index].Status = result.Status
@@ -505,7 +505,7 @@ func OperationWorkflowV1(ctx workflow.Context, input WorkflowInput) (returnErr e
 				_ = workflow.ExecuteActivity(stepProjectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: steps[index]}).Get(stepProjectionCtx, nil)
 			}
 			_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-				OperationID: input.OperationID, Status: operationdomain.WorkflowRunning,
+				OperationID: input.OperationID, Status: workflowdomain.WorkflowRunning,
 			}).Get(projectionCtx, nil)
 		}
 	}
@@ -520,12 +520,12 @@ const JobWorkflowName = "swallow.job.v1"
 // only one workflow tree ever mutates a Server or Platform at a time.
 type JobWorkflowInput struct {
 	OperationID string
-	Kind        operationdomain.WorkflowKind
+	Kind        workflowdomain.WorkflowKind
 	PlatformID  string
 	SiteID      string
 	JobName     string
-	Tasks       []operationdomain.Task
-	Leases      []operationdomain.ResourceLease
+	Tasks       []workflowdomain.Task
+	Leases      []workflowdomain.ResourceLease
 	// Attempt is the 1-based Job run number. It offsets each Task's execution attempt so a
 	// retried Job re-runs its Tasks under a fresh idempotency key
 	// (Operation/Task/attempt) instead of an executor returning the prior attempt's cached
@@ -545,7 +545,7 @@ type JobResult struct {
 
 // hasJobs reports whether any Task is assigned to a Job, which selects the child-workflow
 // orchestration path.
-func hasJobs(tasks []operationdomain.Task) bool {
+func hasJobs(tasks []workflowdomain.Task) bool {
 	for _, task := range tasks {
 		if task.Job != "" {
 			return true
@@ -557,10 +557,10 @@ func hasJobs(tasks []operationdomain.Task) bool {
 // runJobbedWorkflow orchestrates a Workflow whose Tasks are grouped into Jobs. Each Job runs
 // as a child workflow in cross-Job dependency order; a retryable Job failure pauses the
 // Operation and, on an operator retry, re-runs the (idempotent) Job.
-func runJobbedWorkflow(ctx workflow.Context, input WorkflowInput, leases []operationdomain.ResourceLease, projectionCtx workflow.Context) error {
+func runJobbedWorkflow(ctx workflow.Context, input WorkflowInput, leases []workflowdomain.ResourceLease, projectionCtx workflow.Context) error {
 	// Partition Tasks into Jobs, preserving first-appearance order for determinism.
 	order := []string{}
-	byJob := map[string][]operationdomain.Task{}
+	byJob := map[string][]workflowdomain.Task{}
 	taskJob := map[string]string{}
 	for _, task := range input.Steps {
 		if _, ok := byJob[task.Job]; !ok {
@@ -619,9 +619,9 @@ func runJobbedWorkflow(ctx workflow.Context, input WorkflowInput, leases []opera
 				return finishCanceled(ctx, input.OperationID, input.Steps)
 			}
 			finished := workflow.Now(ctx).UTC()
-			status := operationdomain.WorkflowFailed
+			status := workflowdomain.WorkflowFailed
 			if anySucceeded {
-				status = operationdomain.WorkflowPartiallySucceeded
+				status = workflowdomain.WorkflowPartiallySucceeded
 			}
 			return workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
 				OperationID: input.OperationID, Status: status, Reason: result.Reason, FinishedAt: &finished,
@@ -630,25 +630,25 @@ func runJobbedWorkflow(ctx workflow.Context, input WorkflowInput, leases []opera
 		if !progressed {
 			finished := workflow.Now(ctx).UTC()
 			return workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-				OperationID: input.OperationID, Status: operationdomain.WorkflowFailed,
+				OperationID: input.OperationID, Status: workflowdomain.WorkflowFailed,
 				Reason: "Job dependencies could not be satisfied.", FinishedAt: &finished,
 			}).Get(projectionCtx, nil)
 		}
 	}
 	finished := workflow.Now(ctx).UTC()
 	return workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-		OperationID: input.OperationID, Status: operationdomain.WorkflowSucceeded, FinishedAt: &finished,
+		OperationID: input.OperationID, Status: workflowdomain.WorkflowSucceeded, FinishedAt: &finished,
 	}).Get(projectionCtx, nil)
 }
 
 // runJobChild runs one Job as a child workflow, pausing the Operation for operator retry on
 // a retryable failure and then re-running the idempotent Job.
-func runJobChild(ctx workflow.Context, input WorkflowInput, leases []operationdomain.ResourceLease, projectionCtx workflow.Context, retryChannel workflow.ReceiveChannel, job string, tasks []operationdomain.Task) JobResult {
+func runJobChild(ctx workflow.Context, input WorkflowInput, leases []workflowdomain.ResourceLease, projectionCtx workflow.Context, retryChannel workflow.ReceiveChannel, job string, tasks []workflowdomain.Task) JobResult {
 	attempt := 0
 	for {
 		attempt++
 		_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-			OperationID: input.OperationID, Status: operationdomain.WorkflowRunning,
+			OperationID: input.OperationID, Status: workflowdomain.WorkflowRunning,
 			Reason: "Running job " + job + ".",
 		}).Get(projectionCtx, nil)
 		childID := fmt.Sprintf("%s/job/%s/%d", workflow.GetInfo(ctx).WorkflowExecution.ID, job, attempt)
@@ -676,7 +676,7 @@ func runJobChild(ctx workflow.Context, input WorkflowInput, leases []operationdo
 			return result
 		}
 		_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateState, StateUpdate{
-			OperationID: input.OperationID, Status: operationdomain.WorkflowRequiresAttention,
+			OperationID: input.OperationID, Status: workflowdomain.WorkflowRequiresAttention,
 			Reason: "Job " + job + " requires operator attention.",
 		}).Get(projectionCtx, nil)
 		if _, waitErr := awaitRetryStep(ctx, retryChannel, leases, input.LeaseDuration); waitErr != nil {
@@ -706,7 +706,7 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 		RetryPolicy:         &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: 10 * time.Second, MaximumAttempts: 0},
 	}
 	projectionCtx := workflow.WithActivityOptions(ctx, projectionOptions)
-	tasks := append([]operationdomain.Task(nil), input.Tasks...)
+	tasks := append([]workflowdomain.Task(nil), input.Tasks...)
 	// Offset every Task's attempt by the Job run number so a retried Job re-runs under a
 	// fresh executor idempotency key rather than replaying the prior attempt's cached
 	// outcome. The first run (Attempt 1) keeps the Task's original attempt; each retry bumps
@@ -722,7 +722,7 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 	}
 	// interrupted collects the provision-os Tasks whose activity was already running when the
 	// cancel arrived. Only this child knows them: the parent cancels from its start snapshot.
-	var interrupted []operationdomain.Task
+	var interrupted []workflowdomain.Task
 	for {
 		if ctx.Err() != nil {
 			returnInterruptedDeployments(ctx, canceledDeploymentScope{
@@ -753,7 +753,7 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 			dispatched := make([]bool, len(batch))
 			for pos, index := range batch {
 				started := workflow.Now(ctx).UTC()
-				tasks[index].Status = operationdomain.TaskRunning
+				tasks[index].Status = workflowdomain.TaskRunning
 				tasks[index].StartedAt = &started
 				tasks[index].WaitingReason = ""
 				_ = workflow.ExecuteActivity(projectionCtx, ActivityUpdateStep, StepUpdate{OperationID: input.OperationID, Step: tasks[index]}).Get(projectionCtx, nil)
@@ -771,7 +771,7 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 				taskProjectionCtx := projectionCtx
 				if err != nil {
 					if temporal.IsCanceledError(err) || ctx.Err() != nil {
-						tasks[index].Status = operationdomain.TaskCanceled
+						tasks[index].Status = workflowdomain.TaskCanceled
 						if jobCancelProjectionVersion >= 1 {
 							taskProjectionCtx = disconnectedProjectionContext(ctx, projectionOptions)
 						}
@@ -780,12 +780,12 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 						}
 					} else {
 						code, message, retryable := normalizeActivityError(err)
-						status := operationdomain.TaskRequiresAttention
+						status := workflowdomain.TaskRequiresAttention
 						if !retryable {
-							status = operationdomain.TaskFailed
+							status = workflowdomain.TaskFailed
 						}
 						tasks[index].Status = status
-						tasks[index].Error = &operationdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}
+						tasks[index].Error = &workflowdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}
 					}
 				} else {
 					tasks[index].Status = result.Status
@@ -803,16 +803,16 @@ func JobWorkflowV1(ctx workflow.Context, input JobWorkflowInput) (JobResult, err
 
 // readyJobTasks returns runnable Task indices within one Job. A dependency on a Task outside
 // this Job's set is treated as satisfied, because the parent runs dependency Jobs first.
-func readyJobTasks(tasks []operationdomain.Task, known map[string]bool) []int {
+func readyJobTasks(tasks []workflowdomain.Task, known map[string]bool) []int {
 	succeeded := map[string]bool{}
 	for _, task := range tasks {
-		if task.Status == operationdomain.TaskSucceeded || task.Status == operationdomain.TaskSkipped {
+		if task.Status == workflowdomain.TaskSucceeded || task.Status == workflowdomain.TaskSkipped {
 			succeeded[task.ID] = true
 		}
 	}
 	ready := []int{}
 	for index, task := range tasks {
-		if task.Status != operationdomain.TaskPending && task.Status != operationdomain.TaskWaitingDependency {
+		if task.Status != workflowdomain.TaskPending && task.Status != workflowdomain.TaskWaitingDependency {
 			continue
 		}
 		all := true
@@ -849,11 +849,11 @@ const (
 // is deliberately not settled: it parks for operator retry and may yet succeed, so dependents
 // wait through the retry instead of skipping past a failure that could be recovered. This keeps
 // the pre-existing "retryable failure pauses the whole Operation for retry" behaviour intact.
-func stepSettled(step operationdomain.Task) bool {
+func stepSettled(step workflowdomain.Task) bool {
 	switch step.Status {
-	case operationdomain.TaskSucceeded, operationdomain.TaskSkipped, operationdomain.TaskCanceled:
+	case workflowdomain.TaskSucceeded, workflowdomain.TaskSkipped, workflowdomain.TaskCanceled:
 		return true
-	case operationdomain.TaskFailed:
+	case workflowdomain.TaskFailed:
 		return step.Error == nil || !step.Error.Retryable
 	default:
 		return false
@@ -863,9 +863,9 @@ func stepSettled(step operationdomain.Task) bool {
 // dependencySatisfies reports whether a settled dependency outcome permits a dependent Task to
 // run under its continueOn policy. The default (empty continueOn) permits only a succeeded or
 // skipped-as-satisfied dependency; a Task widens it by listing extra permitted outcomes.
-func dependencySatisfies(depStatus operationdomain.TaskStatus, continueOn []operationdomain.TaskStatus) bool {
+func dependencySatisfies(depStatus workflowdomain.TaskStatus, continueOn []workflowdomain.TaskStatus) bool {
 	if len(continueOn) == 0 {
-		return depStatus == operationdomain.TaskSucceeded || depStatus == operationdomain.TaskSkipped
+		return depStatus == workflowdomain.TaskSucceeded || depStatus == workflowdomain.TaskSkipped
 	}
 	for _, allowed := range continueOn {
 		if depStatus == allowed {
@@ -880,7 +880,7 @@ func dependencySatisfies(depStatus operationdomain.TaskStatus, continueOn []oper
 // by its continueOn policy, and is skipped otherwise. A dependency absent from the set is treated
 // as unsettled (wait), matching the flat path's invariant that every dependency id resolves to a
 // Task in the same Workflow.
-func scheduleStep(step operationdomain.Task, byID map[string]int, steps []operationdomain.Task) stepSchedule {
+func scheduleStep(step workflowdomain.Task, byID map[string]int, steps []workflowdomain.Task) stepSchedule {
 	permitted := true
 	for _, depID := range step.DependsOn {
 		index, known := byID[depID]
@@ -897,34 +897,34 @@ func scheduleStep(step operationdomain.Task, byID map[string]int, steps []operat
 	return stepSkip
 }
 
-func allSucceeded(steps []operationdomain.Task) bool {
+func allSucceeded(steps []workflowdomain.Task) bool {
 	for _, step := range steps {
-		if step.Status != operationdomain.TaskSucceeded && step.Status != operationdomain.TaskSkipped {
+		if step.Status != workflowdomain.TaskSucceeded && step.Status != workflowdomain.TaskSkipped {
 			return false
 		}
 	}
 	return true
 }
 
-func anySucceeded(steps []operationdomain.Task) bool {
+func anySucceeded(steps []workflowdomain.Task) bool {
 	for _, step := range steps {
-		if step.Status == operationdomain.TaskSucceeded {
+		if step.Status == workflowdomain.TaskSucceeded {
 			return true
 		}
 	}
 	return false
 }
 
-func retryableFailure(steps []operationdomain.Task) int {
+func retryableFailure(steps []workflowdomain.Task) int {
 	for index, step := range steps {
-		if (step.Status == operationdomain.TaskFailed || step.Status == operationdomain.TaskRequiresAttention) && step.Error != nil && step.Error.Retryable {
+		if (step.Status == workflowdomain.TaskFailed || step.Status == workflowdomain.TaskRequiresAttention) && step.Error != nil && step.Error.Retryable {
 			return index
 		}
 	}
 	return -1
 }
 
-func firstFailure(steps []operationdomain.Task) string {
+func firstFailure(steps []workflowdomain.Task) string {
 	for _, step := range steps {
 		if step.Error != nil {
 			return step.Error.Message
@@ -977,7 +977,7 @@ func normalizeActivityError(err error) (code string, message string, retryable b
 // deployment observer refuses to regress an already succeeded or failed provision-os. Histories
 // that reached this function before the change replay as workflow.DefaultVersion and keep their
 // original commands.
-func finishCanceled(ctx workflow.Context, operationID string, steps []operationdomain.Task) error {
+func finishCanceled(ctx workflow.Context, operationID string, steps []workflowdomain.Task) error {
 	reprojectCanceled := workflow.GetVersion(ctx, "cancel-reprojects-canceled-steps", workflow.DefaultVersion, 1) >= 1
 	disconnected := disconnectedProjectionContext(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -985,7 +985,7 @@ func finishCanceled(ctx workflow.Context, operationID string, steps []operationd
 	})
 	finished := workflow.Now(disconnected).UTC()
 	_ = workflow.ExecuteActivity(disconnected, ActivityUpdateState, StateUpdate{
-		OperationID: operationID, Status: operationdomain.WorkflowCanceling,
+		OperationID: operationID, Status: workflowdomain.WorkflowCanceling,
 		Reason: "Canceling active work.",
 	}).Get(disconnected, nil)
 	// Reflect every non-terminal step as canceled, not just the ones that never
@@ -993,12 +993,12 @@ func finishCanceled(ctx workflow.Context, operationID string, steps []operationd
 	// workflow has stopped would misreport the Operation as still working.
 	for index := range steps {
 		switch steps[index].Status {
-		case operationdomain.TaskPending, operationdomain.TaskWaitingDependency,
-			operationdomain.TaskWaitingExternal, operationdomain.TaskRunning:
-			steps[index].Status = operationdomain.TaskCanceled
+		case workflowdomain.TaskPending, workflowdomain.TaskWaitingDependency,
+			workflowdomain.TaskWaitingExternal, workflowdomain.TaskRunning:
+			steps[index].Status = workflowdomain.TaskCanceled
 			steps[index].FinishedAt = &finished
 			_ = workflow.ExecuteActivity(disconnected, ActivityUpdateStep, StepUpdate{OperationID: operationID, Step: steps[index]}).Get(disconnected, nil)
-		case operationdomain.TaskCanceled:
+		case workflowdomain.TaskCanceled:
 			if !reprojectCanceled {
 				continue
 			}
@@ -1009,7 +1009,7 @@ func finishCanceled(ctx workflow.Context, operationID string, steps []operationd
 		}
 	}
 	_ = workflow.ExecuteActivity(disconnected, ActivityUpdateState, StateUpdate{
-		OperationID: operationID, Status: operationdomain.WorkflowCanceled,
+		OperationID: operationID, Status: workflowdomain.WorkflowCanceled,
 		Reason: "Canceled by operator.", FinishedAt: &finished,
 	}).Get(disconnected, nil)
 	return nil
@@ -1030,7 +1030,7 @@ const provisionOSTaskKind = "provision-os"
 // "cancel-returns-inflight-deploys" version gate. The version is read only when a deployment was
 // interrupted, so a cancel with nothing in flight records no marker; histories recorded before the
 // gate replay as workflow.DefaultVersion and issue no extra commands.
-func returnInterruptedDeployments(ctx workflow.Context, scope canceledDeploymentScope, interrupted []operationdomain.Task) {
+func returnInterruptedDeployments(ctx workflow.Context, scope canceledDeploymentScope, interrupted []workflowdomain.Task) {
 	if len(interrupted) == 0 {
 		return
 	}
@@ -1045,10 +1045,10 @@ func returnInterruptedDeployments(ctx workflow.Context, scope canceledDeployment
 // the leases its steps are fenced by.
 type canceledDeploymentScope struct {
 	OperationID   string
-	Kind          operationdomain.WorkflowKind
+	Kind          workflowdomain.WorkflowKind
 	PlatformID    string
 	SiteID        string
-	Leases        []operationdomain.ResourceLease
+	Leases        []workflowdomain.ResourceLease
 	LeaseDuration time.Duration
 }
 
@@ -1064,8 +1064,8 @@ type canceledDeploymentScope struct {
 // state Recover accepts. The step uses a Task ID outside the Operation's Task list, so it never
 // rewrites the canceled provision-os projection. A verification borrow is excluded: its own
 // recover Task returns the Server (compensateVerifyCancel).
-func returnCanceledDeployments(ctx workflow.Context, scope canceledDeploymentScope, interrupted []operationdomain.Task) {
-	if scope.Kind == operationdomain.WorkflowKindVerifyOSImage || len(interrupted) == 0 {
+func returnCanceledDeployments(ctx workflow.Context, scope canceledDeploymentScope, interrupted []workflowdomain.Task) {
+	if scope.Kind == workflowdomain.WorkflowKindVerifyOSImage || len(interrupted) == 0 {
 		return
 	}
 	disconnected, _ := workflow.NewDisconnectedContext(ctx)
@@ -1082,10 +1082,10 @@ func returnCanceledDeployments(ctx workflow.Context, scope canceledDeploymentSco
 	for index, task := range interrupted {
 		futures[index] = workflow.ExecuteActivity(execCtx, ActivityExecuteStep, StepExecutionInput{
 			OperationID: scope.OperationID, Kind: scope.Kind, PlatformID: scope.PlatformID, SiteID: scope.SiteID,
-			Step: operationdomain.Task{
+			Step: workflowdomain.Task{
 				ID: task.ID + "/" + ReturnCanceledDeploymentKind, Kind: ReturnCanceledDeploymentKind,
 				Name: task.Name, Executor: task.Executor, Targets: task.Targets,
-				Attempt: task.Attempt, Status: operationdomain.TaskRunning,
+				Attempt: task.Attempt, Status: workflowdomain.TaskRunning,
 			},
 			Leases: scope.Leases, LeaseDuration: scope.LeaseDuration,
 		})
@@ -1094,7 +1094,7 @@ func returnCanceledDeployments(ctx workflow.Context, scope canceledDeploymentSco
 		var result StepExecutionResult
 		err := futures[index].Get(disconnected, &result)
 		eventType, message := canceledDeploymentReturnEvent(result, err)
-		_ = workflow.ExecuteActivity(eventCtx, ActivityAppendEvent, operationdomain.TimelineEvent{
+		_ = workflow.ExecuteActivity(eventCtx, ActivityAppendEvent, workflowdomain.TimelineEvent{
 			ID:          fmt.Sprintf("%s/step/%s/%s/%d", scope.OperationID, task.ID, ReturnCanceledDeploymentKind, task.Attempt),
 			OperationID: scope.OperationID, StepID: task.ID, Type: eventType, Message: message,
 			Details:   map[string]any{"attempt": task.Attempt},
@@ -1107,10 +1107,10 @@ func returnCanceledDeployments(ctx workflow.Context, scope canceledDeploymentSco
 // event type and operator-facing message.
 func canceledDeploymentReturnEvent(result StepExecutionResult, err error) (string, string) {
 	switch {
-	case err == nil && result.Status == operationdomain.TaskSucceeded:
+	case err == nil && result.Status == workflowdomain.TaskSucceeded:
 		return "canceled_deployment_returned_to_ready",
 			"The deployment was canceled; Swallow returned the Server to Ready."
-	case err == nil && result.Status == operationdomain.TaskSkipped:
+	case err == nil && result.Status == workflowdomain.TaskSkipped:
 		return "canceled_deployment_left_as_is",
 			"The deployment was canceled; Swallow left the Server as it is. " + result.WaitingReason
 	}
@@ -1131,13 +1131,13 @@ func canceledDeploymentReturnEvent(result StepExecutionResult, err error) (strin
 // state left behind is a Recover/Release source) — and only ever runs the already-defined recover
 // Task, never an invented one. It is a no-op for every other Workflow kind and for an already
 // succeeded recover.
-func compensateVerifyCancel(ctx workflow.Context, input WorkflowInput, steps []operationdomain.Task, leases []operationdomain.ResourceLease) {
-	if input.Kind != operationdomain.WorkflowKindVerifyOSImage {
+func compensateVerifyCancel(ctx workflow.Context, input WorkflowInput, steps []workflowdomain.Task, leases []workflowdomain.ResourceLease) {
+	if input.Kind != workflowdomain.WorkflowKindVerifyOSImage {
 		return
 	}
 	for index := range steps {
 		step := steps[index]
-		if step.Kind != "recover-server" || step.Status == operationdomain.TaskSucceeded {
+		if step.Kind != "recover-server" || step.Status == workflowdomain.TaskSucceeded {
 			continue
 		}
 		disconnected, _ := workflow.NewDisconnectedContext(ctx)
@@ -1152,7 +1152,7 @@ func compensateVerifyCancel(ctx workflow.Context, input WorkflowInput, steps []o
 		// Present the recover Task as a fresh run so its executor acts now rather than
 		// short-circuiting on a pending/canceled projection; the outcome is intentionally not
 		// projected back onto the Operation, which finishCanceled records as canceled.
-		step.Status = operationdomain.TaskRunning
+		step.Status = workflowdomain.TaskRunning
 		var result StepExecutionResult
 		_ = workflow.ExecuteActivity(execCtx, ActivityExecuteStep, StepExecutionInput{
 			OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID,
@@ -1168,7 +1168,7 @@ func NewController(temporalClient client.Client) *Controller {
 	return &Controller{client: temporalClient}
 }
 
-func (c *Controller) Cancel(ctx context.Context, operation *operationdomain.Workflow) error {
+func (c *Controller) Cancel(ctx context.Context, operation *workflowdomain.Workflow) error {
 	err := c.client.CancelWorkflow(ctx, operation.Temporal.WorkflowID, operation.Temporal.RunID)
 	if isWorkflowExecutionGone(err) {
 		// The persisted Operation is still non-terminal, but its Temporal execution has already
@@ -1176,12 +1176,12 @@ func (c *Controller) Cancel(ctx context.Context, operation *operationdomain.Work
 		// The signal cannot be delivered. Report ErrWorkflowExecutionGone so WorkflowService.Cancel
 		// records the cancellation itself, wrapped as a control conflict so callers that only
 		// tolerate a conflict (Rerun) keep working instead of failing with an internal error.
-		return fmt.Errorf("%w: %w", operationdomain.ErrWorkflowControlConflict, operationdomain.ErrWorkflowExecutionGone)
+		return fmt.Errorf("%w: %w", workflowdomain.ErrWorkflowControlConflict, workflowdomain.ErrWorkflowExecutionGone)
 	}
 	return err
 }
 
-func (c *Controller) RetryStep(ctx context.Context, operation *operationdomain.Workflow, stepID string) error {
+func (c *Controller) RetryStep(ctx context.Context, operation *workflowdomain.Workflow, stepID string) error {
 	err := c.client.SignalWorkflow(ctx, operation.Temporal.WorkflowID, operation.Temporal.RunID, RetryStepSignal, RetryStepCommand{StepID: stepID})
 	if isWorkflowExecutionGone(err) {
 		// Same desync as Cancel: the Step shows retryable but the workflow execution is gone, so
@@ -1189,7 +1189,7 @@ func (c *Controller) RetryStep(ctx context.Context, operation *operationdomain.W
 		// than a raw Temporal error (500), and point the operator at Cancel, which closes such an
 		// Operation so new work on its Servers can start.
 		return fmt.Errorf("%w: %w, so this Step cannot be retried; cancel the Operation, then start the work again",
-			operationdomain.ErrWorkflowControlConflict, operationdomain.ErrWorkflowExecutionGone)
+			workflowdomain.ErrWorkflowControlConflict, workflowdomain.ErrWorkflowExecutionGone)
 	}
 	return err
 }
@@ -1221,14 +1221,14 @@ func isWorkflowExecutionGone(err error) bool {
 // change; both fall back to safe defaults.
 type Starter struct {
 	client         client.Client
-	operations     operationdomain.WorkflowRepository
+	operations     workflowdomain.WorkflowRepository
 	taskQueue      string
 	interval       time.Duration
 	leaseDuration  time.Duration
 	maxParallelism int
 }
 
-func NewStarter(temporalClient client.Client, operations operationdomain.WorkflowRepository, taskQueue string, interval, leaseDuration time.Duration, maxParallelism int) *Starter {
+func NewStarter(temporalClient client.Client, operations workflowdomain.WorkflowRepository, taskQueue string, interval, leaseDuration time.Duration, maxParallelism int) *Starter {
 	if taskQueue == "" {
 		taskQueue = TaskQueue
 	}
@@ -1287,7 +1287,7 @@ func (s *Starter) StartPending(ctx context.Context) {
 	}
 }
 
-func resourceKeys(resources []operationdomain.ResourceReference) []string {
+func resourceKeys(resources []workflowdomain.ResourceReference) []string {
 	keys := make([]string, 0, len(resources))
 	for _, resource := range resources {
 		keys = append(keys, resource.Kind+":"+resource.ID)
@@ -1311,8 +1311,8 @@ func resourceKeys(resources []operationdomain.ResourceReference) []string {
 // completes it. It is safe to run in more than one process because each write is idempotent.
 type Reconciler struct {
 	client     client.Client
-	operations operationdomain.WorkflowRepository
-	leases     operationdomain.ResourceLeaseReleaser
+	operations workflowdomain.WorkflowRepository
+	leases     workflowdomain.ResourceLeaseReleaser
 	interval   time.Duration
 }
 
@@ -1323,7 +1323,7 @@ const lostExecutionReason = "The workflow execution was lost (a host restart, an
 
 // NewReconciler builds the lost-execution sweeper. A non-positive interval falls back to a safe
 // default so a misconfigured interval cannot spin.
-func NewReconciler(temporalClient client.Client, operations operationdomain.WorkflowRepository, interval time.Duration) *Reconciler {
+func NewReconciler(temporalClient client.Client, operations workflowdomain.WorkflowRepository, interval time.Duration) *Reconciler {
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
@@ -1332,7 +1332,7 @@ func NewReconciler(temporalClient client.Client, operations operationdomain.Work
 
 // AttachLeaseReleaser lets the sweep free the leases of a canceling Operation whose execution is
 // gone. Without it the Operation is still completed, but its leases stay until they expire.
-func (r *Reconciler) AttachLeaseReleaser(releaser operationdomain.ResourceLeaseReleaser) {
+func (r *Reconciler) AttachLeaseReleaser(releaser workflowdomain.ResourceLeaseReleaser) {
 	r.leases = releaser
 }
 
@@ -1368,7 +1368,7 @@ func (r *Reconciler) SweepLostExecutions(ctx context.Context) {
 	if operations, err := r.operations.ListNonTerminalStarted(ctx, 100); err == nil {
 		for _, operation := range operations {
 			if r.lost(ctx, operation) {
-				_ = r.operations.UpdateState(ctx, operation.ID, operationdomain.WorkflowRequiresAttention, lostExecutionReason, nil, nil)
+				_ = r.operations.UpdateState(ctx, operation.ID, workflowdomain.WorkflowRequiresAttention, lostExecutionReason, nil, nil)
 			}
 		}
 	}
@@ -1381,16 +1381,16 @@ func (r *Reconciler) SweepLostExecutions(ctx context.Context) {
 			continue
 		}
 		switch operation.Status {
-		case operationdomain.WorkflowRequiresAttention:
+		case workflowdomain.WorkflowRequiresAttention:
 			if operation.StatusReason != lostExecutionReason {
-				_ = r.operations.UpdateState(ctx, operation.ID, operationdomain.WorkflowRequiresAttention, lostExecutionReason, nil, nil)
+				_ = r.operations.UpdateState(ctx, operation.ID, workflowdomain.WorkflowRequiresAttention, lostExecutionReason, nil, nil)
 			}
-		case operationdomain.WorkflowCanceling:
+		case workflowdomain.WorkflowCanceling:
 			// Release before closing, as Cancel does: a failed release leaves the record canceling,
 			// so the next sweep tries again instead of leaving a canceled Operation's leases held.
-			if operationapp.ReleaseExecutionLeases(ctx, r.leases, operation) == nil {
-				_ = operationapp.FinalizeCanceledProjection(ctx, r.operations, operation,
-					operationapp.CanceledWithoutExecutionReason, time.Now().UTC())
+			if workflowapp.ReleaseExecutionLeases(ctx, r.leases, operation) == nil {
+				_ = workflowapp.FinalizeCanceledProjection(ctx, r.operations, operation,
+					workflowapp.CanceledWithoutExecutionReason, time.Now().UTC())
 			}
 		}
 	}
@@ -1398,7 +1398,7 @@ func (r *Reconciler) SweepLostExecutions(ctx context.Context) {
 
 // lost reports whether an Operation's execution is gone, treating a transient describe error as
 // not lost so the record is retried on the next sweep rather than acted on.
-func (r *Reconciler) lost(ctx context.Context, operation *operationdomain.Workflow) bool {
+func (r *Reconciler) lost(ctx context.Context, operation *workflowdomain.Workflow) bool {
 	lost, err := r.executionLost(ctx, operation)
 	return err == nil && lost
 }
@@ -1408,7 +1408,7 @@ func (r *Reconciler) lost(ctx context.Context, operation *operationdomain.Workfl
 // execution status is lost; a running execution is not. A transient describe error is returned
 // so the caller skips the record and retries on the next sweep rather than mislabeling a live
 // Operation.
-func (r *Reconciler) executionLost(ctx context.Context, operation *operationdomain.Workflow) (bool, error) {
+func (r *Reconciler) executionLost(ctx context.Context, operation *workflowdomain.Workflow) (bool, error) {
 	description, err := r.client.DescribeWorkflowExecution(ctx, operation.Temporal.WorkflowID, operation.Temporal.RunID)
 	if isWorkflowExecutionGone(err) {
 		return true, nil
@@ -1419,7 +1419,7 @@ func (r *Reconciler) executionLost(ctx context.Context, operation *operationdoma
 	return description.GetWorkflowExecutionInfo().GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING, nil
 }
 
-var _ operationapp.WorkflowController = (*Controller)(nil)
+var _ workflowapp.WorkflowController = (*Controller)(nil)
 
 const (
 	// parkedLeaseTTL is how long a parked Operation's leases stay valid between renewals. A
@@ -1442,7 +1442,7 @@ const (
 // Temporal terminates the execution. The next ExecuteStep heartbeat returns the leases to the
 // normal leaseDuration cadence. Histories recorded before the change replay as
 // workflow.DefaultVersion and keep renewing every leaseDuration/3.
-func awaitRetryStep(ctx workflow.Context, retryChannel workflow.ReceiveChannel, leases []operationdomain.ResourceLease, leaseDuration time.Duration) (RetryStepCommand, error) {
+func awaitRetryStep(ctx workflow.Context, retryChannel workflow.ReceiveChannel, leases []workflowdomain.ResourceLease, leaseDuration time.Duration) (RetryStepCommand, error) {
 	if leaseDuration <= 0 {
 		leaseDuration = 90 * time.Second
 	}
@@ -1489,7 +1489,7 @@ func awaitRetryStep(ctx workflow.Context, retryChannel workflow.ReceiveChannel, 
 // Replay safety: continuing after a failure only changes the branch taken after a future
 // renewal-failure event. A history that already recorded a renewal failure ran the old return
 // path to completion and is no longer open, so no open history replays differently.
-func renewLeasesWhileParked(ctx workflow.Context, leases []operationdomain.ResourceLease, ttl time.Duration) {
+func renewLeasesWhileParked(ctx workflow.Context, leases []workflowdomain.ResourceLease, ttl time.Duration) {
 	renewCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{

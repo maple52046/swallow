@@ -4,19 +4,19 @@ import (
 	"context"
 	"testing"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // eventRepo records the timeline events UpdateStep appends. It embeds the repository interface so
 // the methods UpdateStep never calls stay nil.
 type eventRepo struct {
-	operationdomain.WorkflowRepository
-	events []operationdomain.TimelineEvent
+	workflowdomain.WorkflowRepository
+	events []workflowdomain.TimelineEvent
 }
 
-func (r *eventRepo) UpdateStep(context.Context, string, operationdomain.Task) error { return nil }
+func (r *eventRepo) UpdateStep(context.Context, string, workflowdomain.Task) error { return nil }
 
-func (r *eventRepo) AppendEvent(_ context.Context, event operationdomain.TimelineEvent) error {
+func (r *eventRepo) AppendEvent(_ context.Context, event workflowdomain.TimelineEvent) error {
 	r.events = append(r.events, event)
 	return nil
 }
@@ -27,13 +27,13 @@ func (r *eventRepo) AppendEvent(_ context.Context, event operationdomain.Timelin
 func TestUpdateStepEventKeepsEachAttemptsError(t *testing.T) {
 	repo := &eventRepo{}
 	activities := NewActivities(repo, nil, nil)
-	step := operationdomain.Task{ID: "provision-a", Kind: "provision-os", Name: "Provision a"}
-	updates := []operationdomain.Task{
-		{Status: operationdomain.TaskRunning, Attempt: 1},
-		{Status: operationdomain.TaskFailed, Attempt: 1, Error: &operationdomain.NormalizedError{
+	step := workflowdomain.Task{ID: "provision-a", Kind: "provision-os", Name: "Provision a"}
+	updates := []workflowdomain.Task{
+		{Status: workflowdomain.TaskRunning, Attempt: 1},
+		{Status: workflowdomain.TaskFailed, Attempt: 1, Error: &workflowdomain.NormalizedError{
 			Code: "deployment_failed", Message: "The provisioner reported that OS deployment failed.", Stage: "deployment", Retryable: true,
 		}},
-		{Status: operationdomain.TaskFailed, Attempt: 2, Error: &operationdomain.NormalizedError{
+		{Status: workflowdomain.TaskFailed, Attempt: 2, Error: &workflowdomain.NormalizedError{
 			Code: "deployment_preflight_rejected", Message: "The Server provisioning state is not ready.", Stage: "deployment_preflight",
 		}},
 	}

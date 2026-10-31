@@ -7,11 +7,11 @@ import (
 	"slices"
 	"time"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	softwareapp "github.com/maple52046/swallow/internal/software/application"
-	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // Slurm feature composition (decisions 063, 066, and 068). After its install-platform Task a Slurm
@@ -80,7 +80,7 @@ type slurmMonitoring struct {
 	composedServerIDs []string
 	// The feature's own install Task (Omnistat) and the parameters its step observer reads.
 	stepID, stepName, job, playbook string
-	workflowKind                    operationdomain.WorkflowKind
+	workflowKind                    workflowdomain.WorkflowKind
 	ownerParam, recordParam         string
 	// portVars names the playbook variables the software domain's Prometheus and Grafana ports go in.
 	prometheusPortVar, grafanaPortVar string
@@ -98,7 +98,7 @@ func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring 
 			scrapeServerIDs: omnistat.ComputeServerIDs, scrapePort: platformdomain.OmnistatExporterPort,
 			dashboardBundle: platformdomain.OmnistatDashboardBundle, trustedVars: omnistat.TrustedVars,
 			stepID: omnistatStepID, stepName: "Install Omnistat", job: jobConfigureOmnistat,
-			playbook: omnistatPlaybook, workflowKind: operationdomain.WorkflowKindConfigureOmnistat,
+			playbook: omnistatPlaybook, workflowKind: workflowdomain.WorkflowKindConfigureOmnistat,
 			ownerParam: omnistatStepParamOwner, recordParam: omnistatStepParamRecord,
 			prometheusPortVar: "swallow_omnistat_prometheus_port", grafanaPortVar: "swallow_omnistat_grafana_port",
 		}
@@ -133,7 +133,7 @@ func composedSoftwarePlaybook(kind softwaredomain.Kind) (softwarePlaybook, error
 // install-platform and the software installs whose pending assignments are written once the
 // Workflow exists.
 type composedPlan struct {
-	steps    []operationdomain.Task
+	steps    []workflowdomain.Task
 	installs []softwareapp.ComposedInstall
 }
 
@@ -210,7 +210,7 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 			})
 		return plan, err
 	}
-	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
+	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: string(monitoring.workflowKind), PlaybookName: monitoring.playbook,
 		Intent:          "Install " + monitoring.label + " on " + launch.Platform.Name,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
@@ -219,10 +219,10 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	if err != nil {
 		return plan, err
 	}
-	plan.steps = append(plan.steps, operationdomain.Task{
+	plan.steps = append(plan.steps, workflowdomain.Task{
 		ID: monitoring.stepID, Kind: "ansible-playbook", Name: monitoring.stepName,
 		Job:      monitoring.job,
-		Executor: operationdomain.RunnerKindAnsible, DependsOn: []string{previous},
+		Executor: workflowdomain.RunnerKindAnsible, DependsOn: []string{previous},
 		Targets: prepared.Targets,
 		Parameters: map[string]any{
 			"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars,
@@ -289,7 +289,7 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 	if extras.ansibleTargetIDs != nil {
 		ansibleTargets = extras.ansibleTargetIDs
 	}
-	prepared, err := l.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
+	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: string(mapping.workflowKind), PlaybookName: mapping.playbook,
 		Intent: intent, TargetServerIDs: ansibleTargets, PlatformID: launch.Platform.ID,
 		TrustedVars: trustedVars, RequestedBy: launch.RequestedBy,
@@ -310,17 +310,17 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 	recordID := "record-" + string(kind)
 	job := "configure-" + string(kind)
 	plan.steps = append(plan.steps,
-		operationdomain.Task{
+		workflowdomain.Task{
 			ID: installID, Kind: "ansible-playbook", Name: "Install " + softwareLabel(kind),
 			Job:      job,
-			Executor: operationdomain.RunnerKindAnsible, DependsOn: []string{previous},
+			Executor: workflowdomain.RunnerKindAnsible, DependsOn: []string{previous},
 			Targets:    prepared.Targets,
 			Parameters: installParams,
 		},
-		operationdomain.Task{
+		workflowdomain.Task{
 			ID: recordID, Kind: softwareStepKindRecord, Name: "Record " + softwareLabel(kind) + " assignment",
 			Job:        job,
-			Executor:   operationdomain.RunnerKindInternal,
+			Executor:   workflowdomain.RunnerKindInternal,
 			DependsOn:  []string{installID},
 			Targets:    serverResourceRefs(install.ServerIDs),
 			Parameters: map[string]any{"softwareKind": string(kind), "serverIds": install.ServerIDs},
@@ -449,7 +449,7 @@ type omnistatStepObserver struct {
 
 // ObserveStep maps the Task status: running is installing, success is ready, and failure,
 // requires_attention, cancel, or skip (an earlier Job failed) is failed.
-func (o omnistatStepObserver) ObserveStep(ctx context.Context, operationID string, step operationdomain.Task) error {
+func (o omnistatStepObserver) ObserveStep(ctx context.Context, operationID string, step workflowdomain.Task) error {
 	if step.ID != omnistatStepID || step.Kind != "ansible-playbook" || step.Parameters == nil {
 		return nil
 	}
@@ -471,7 +471,7 @@ func (o omnistatStepObserver) ObserveStep(ctx context.Context, operationID strin
 
 // omnistatStateForTask returns the state a Task status implies, or false for a status that does
 // not move it (pending leaves the state recorded at acceptance).
-func omnistatStateForTask(status operationdomain.TaskStatus) (platformdomain.OmnistatState, bool) {
+func omnistatStateForTask(status workflowdomain.TaskStatus) (platformdomain.OmnistatState, bool) {
 	switch installTaskPhaseOf(status) {
 	case installPhaseRunning:
 		return platformdomain.OmnistatInstalling, true
@@ -496,14 +496,14 @@ const (
 	installPhaseFailed
 )
 
-func installTaskPhaseOf(status operationdomain.TaskStatus) installTaskPhase {
+func installTaskPhaseOf(status workflowdomain.TaskStatus) installTaskPhase {
 	switch status {
-	case operationdomain.TaskRunning, operationdomain.TaskWaitingExternal:
+	case workflowdomain.TaskRunning, workflowdomain.TaskWaitingExternal:
 		return installPhaseRunning
-	case operationdomain.TaskSucceeded:
+	case workflowdomain.TaskSucceeded:
 		return installPhaseSucceeded
-	case operationdomain.TaskFailed, operationdomain.TaskRequiresAttention, operationdomain.TaskCanceled,
-		operationdomain.TaskSkipped:
+	case workflowdomain.TaskFailed, workflowdomain.TaskRequiresAttention, workflowdomain.TaskCanceled,
+		workflowdomain.TaskSkipped:
 		return installPhaseFailed
 	default:
 		return installPhaseNone
@@ -519,7 +519,7 @@ type deviceMetricsExporterStepObserver struct {
 }
 
 // ObserveStep maps the Task status through installTaskPhaseOf.
-func (o deviceMetricsExporterStepObserver) ObserveStep(ctx context.Context, operationID string, step operationdomain.Task) error {
+func (o deviceMetricsExporterStepObserver) ObserveStep(ctx context.Context, operationID string, step workflowdomain.Task) error {
 	if step.ID != deviceMetricsExporterStepID || step.Kind != "ansible-playbook" || step.Parameters == nil {
 		return nil
 	}

@@ -1,0 +1,544 @@
+package application
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	"github.com/maple52046/swallow/internal/core/store/storetest"
+)
+
+type fakeLifecycleReader struct {
+	snapshots map[string]platformdomain.LifecycleSnapshot
+}
+
+func (r fakeLifecycleReader) Read(
+	_ context.Context,
+	platformIDs []string,
+) (map[string]platformdomain.LifecycleSnapshot, error) {
+	result := make(map[string]platformdomain.LifecycleSnapshot, len(platformIDs))
+	for _, id := range platformIDs {
+		if snapshot, ok := r.snapshots[id]; ok {
+			result[id] = snapshot
+		}
+	}
+	return result, nil
+}
+
+type recordingUninstallLauncher struct {
+	launch *platformdomain.UninstallLaunch
+	err    error
+}
+
+func (l *recordingUninstallLauncher) LaunchUninstall(
+	_ context.Context,
+	launch platformdomain.UninstallLaunch,
+) (string, error) {
+	l.launch = &launch
+	return "uninstall-operation", l.err
+}
+
+type recordingIntegrationCleaner struct {
+	platformID  string
+	allowLegacy bool
+}
+
+func (c *recordingIntegrationCleaner) DeleteForPlatform(
+	_ context.Context,
+	platform *platformdomain.Platform,
+	allowLegacy bool,
+) error {
+	c.platformID = platform.ID
+	c.allowLegacy = allowLegacy
+	return nil
+}
+
+type lifecycleServerRepo struct {
+	*deployFakeServerRepo
+	memberships map[string][]string
+	cleared     []string
+}
+
+func (r *lifecycleServerRepo) List(
+	_ context.Context,
+	filter serverdomain.ListFilter,
+) (serverdomain.ListResult, error) {
+	ids := r.memberships[filter.PlatformID]
+	servers := make([]*serverdomain.Server, 0, len(ids))
+	for _, id := range ids {
+		servers = append(servers, r.servers[id])
+	}
+	return serverdomain.ListResult{Servers: servers, Total: len(servers)}, nil
+}
+
+func (r *lifecycleServerRepo) SetMembership(
+	_ context.Context,
+	id string,
+	membership *serverdomain.MembershipStatus,
+) error {
+	if membership == nil {
+		r.cleared = append(r.cleared, id)
+		r.servers[id].Membership = nil
+	}
+	return nil
+}
+
+func deployedLifecycle(
+	state platformdomain.PlatformLifecycleState,
+) platformdomain.LifecycleSnapshot {
+	deploymentTime := time.Now().UTC().Add(-time.Hour)
+	snapshot := platformdomain.LifecycleSnapshot{
+		Origin: platformdomain.PlatformOriginDeployed,
+		State:  state,
+		Deployment: &platformdomain.LifecycleOperation{
+			ID: "deploy-operation", Status: "succeeded",
+			TargetServerIDs: []string{"server-1", "server-2"},
+			RequestedAt:     deploymentTime,
+		},
+		OperationID: "deploy-operation",
+	}
+	if state == platformdomain.PlatformLifecycleUninstallFailed ||
+		state == platformdomain.PlatformLifecycleUninstalling ||
+		state == platformdomain.PlatformLifecycleUninstalled {
+		snapshot.Uninstall = &platformdomain.LifecycleOperation{
+			ID: "failed-uninstall", Status: "failed",
+			TargetServerIDs: []string{"server-1", "server-2"},
+			RequestedAt:     deploymentTime.Add(time.Minute),
+		}
+		snapshot.OperationID = snapshot.Uninstall.ID
+	}
+	return snapshot
+}
+
+func newUninstallHarness(
+	state platformdomain.PlatformLifecycleState,
+) (*UninstallService, *recordingUninstallLauncher, *deployFakeServerRepo, *platformdomain.Platform) {
+	platform := &platformdomain.Platform{
+		ID: "platform-1", SiteID: "site-1", Name: "lab",
+		Type:          platformdomain.PlatformTypeKubernetes,
+		ExporterOwner: platformdomain.ExporterOwnerK8s,
+	}
+	platforms := &deployFakePlatformRepo{
+		platforms: map[string]*platformdomain.Platform{platform.ID: platform},
+	}
+	servers := &deployFakeServerRepo{servers: map[string]*serverdomain.Server{
+		"server-1": deployedServer("server-1", "node-1", "site-1"),
+		"server-2": deployedServer("server-2", "node-2", "site-1"),
+	}}
+	lifecycle := fakeLifecycleReader{snapshots: map[string]platformdomain.LifecycleSnapshot{
+		platform.ID: deployedLifecycle(state),
+	}}
+	launcher := &recordingUninstallLauncher{}
+	return NewUninstallService(platforms, servers, lifecycle, launcher), launcher, servers, platform
+}
+
+func TestUninstallUsesDeploymentTargetSnapshot(t *testing.T) {
+	service, launcher, _, _ := newUninstallHarness(platformdomain.PlatformLifecycleActive)
+
+	result, err := service.Uninstall(context.Background(), UninstallPlatformInput{
+		PlatformID: "platform-1", RequestedBy: "admin",
+	})
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if result.OperationID != "uninstall-operation" {
+		t.Fatalf("operation id = %q", result.OperationID)
+	}
+	if launcher.launch == nil {
+		t.Fatal("launcher was not called")
+	}
+	if got := launcher.launch.TargetServerIDs; len(got) != 2 ||
+		got[0] != "server-1" || got[1] != "server-2" {
+		t.Fatalf("targets = %v, want deployment snapshot", got)
+	}
+	if !launcher.launch.RestoreExporters {
+		t.Error("k8s exporter owner must request independent host exporter restoration")
+	}
+	if launcher.launch.RetryOfOperationID != "" {
+		t.Errorf("unexpected retry lineage %q", launcher.launch.RetryOfOperationID)
+	}
+	if launcher.launch.DeleteRecord {
+		t.Error("a plain uninstall must keep the platform record")
+	}
+}
+
+func TestUninstallForwardsDeleteRecord(t *testing.T) {
+	service, launcher, _, _ := newUninstallHarness(platformdomain.PlatformLifecycleActive)
+
+	if _, err := service.Uninstall(context.Background(), UninstallPlatformInput{
+		PlatformID: "platform-1", DeleteRecord: true,
+	}); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if launcher.launch == nil || !launcher.launch.DeleteRecord {
+		t.Fatalf("launch = %+v, want deleteRecord forwarded", launcher.launch)
+	}
+}
+
+func TestUninstallReleaseServersForwardsOptionsAndSkipsExporterRestore(t *testing.T) {
+	service, launcher, _, _ := newUninstallHarness(platformdomain.PlatformLifecycleActive)
+
+	_, err := service.Uninstall(context.Background(), UninstallPlatformInput{
+		PlatformID: "platform-1", RequestedBy: "admin",
+		ReleaseServers: true,
+		ReleaseOptions: platformdomain.ServerReleaseOptions{
+			Erase: true, SecureErase: true, UnbindStaticIPs: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if launcher.launch == nil {
+		t.Fatal("launcher was not called")
+	}
+	if !launcher.launch.ReleaseServers {
+		t.Error("ReleaseServers must be propagated to the launch")
+	}
+	if launcher.launch.ReleaseOptions.Erase != true ||
+		launcher.launch.ReleaseOptions.SecureErase != true ||
+		launcher.launch.ReleaseOptions.UnbindStaticIPs != true {
+		t.Errorf("release options not forwarded: %+v", launcher.launch.ReleaseOptions)
+	}
+	// The k8s exporter owner would normally request exporter restoration, but releasing
+	// wipes the hosts, so restoration must be turned off.
+	if launcher.launch.RestoreExporters {
+		t.Error("releasing servers must disable host exporter restoration")
+	}
+}
+
+func TestUninstallRetriesFailedOperationWithLineage(t *testing.T) {
+	service, launcher, _, _ := newUninstallHarness(
+		platformdomain.PlatformLifecycleUninstallFailed,
+	)
+
+	if _, err := service.Uninstall(context.Background(), UninstallPlatformInput{
+		PlatformID: "platform-1",
+	}); err != nil {
+		t.Fatalf("retry uninstall: %v", err)
+	}
+	if launcher.launch.RetryOfOperationID != "failed-uninstall" {
+		t.Errorf("retryOfOperationId = %q", launcher.launch.RetryOfOperationID)
+	}
+}
+
+func TestUninstallRejectsUnsafeTargetsAndStates(t *testing.T) {
+	tests := []struct {
+		name   string
+		state  platformdomain.PlatformLifecycleState
+		mutate func(*deployFakeServerRepo, *platformdomain.Platform)
+		want   error
+	}{
+		{
+			name: "locked target", state: platformdomain.PlatformLifecycleActive,
+			mutate: func(servers *deployFakeServerRepo, _ *platformdomain.Platform) {
+				servers.servers["server-1"].Provisioning.Locked = true
+			},
+			want: serverdomain.ErrServerLocked,
+		},
+		{
+			name: "absent target", state: platformdomain.PlatformLifecycleActive,
+			mutate: func(servers *deployFakeServerRepo, _ *platformdomain.Platform) {
+				servers.servers["server-1"].Absent = true
+			},
+			want: platformdomain.ErrPlatformUninstallConflict,
+		},
+		{
+			name: "missing target", state: platformdomain.PlatformLifecycleActive,
+			mutate: func(servers *deployFakeServerRepo, _ *platformdomain.Platform) {
+				delete(servers.servers, "server-2")
+			},
+			want: platformdomain.ErrPlatformUninstallConflict,
+		},
+		{
+			name: "deployment running", state: platformdomain.PlatformLifecycleDeploying,
+			want: platformdomain.ErrPlatformUninstallConflict,
+		},
+		{
+			name: "already uninstalled", state: platformdomain.PlatformLifecycleUninstalled,
+			want: platformdomain.ErrPlatformAlreadyUninstalled,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service, launcher, servers, platform := newUninstallHarness(test.state)
+			if test.mutate != nil {
+				test.mutate(servers, platform)
+			}
+			_, err := service.Uninstall(context.Background(), UninstallPlatformInput{
+				PlatformID: platform.ID,
+			})
+			if !errors.Is(err, test.want) {
+				t.Fatalf("error = %v, want %v", err, test.want)
+			}
+			if launcher.launch != nil {
+				t.Fatal("unsafe request reached launcher")
+			}
+		})
+	}
+}
+
+// cancelActiveWorkflows (decision 061) reaches the launcher, which cancels the Workflows holding the
+// targets; it is also the only way to uninstall over a deployment that is still running, while an
+// uninstall already in progress stays a conflict.
+func TestUninstallCancelActiveWorkflows(t *testing.T) {
+	for _, state := range []platformdomain.PlatformLifecycleState{
+		platformdomain.PlatformLifecycleActive,
+		platformdomain.PlatformLifecycleDeployFailed,
+		platformdomain.PlatformLifecycleDeploying,
+		platformdomain.PlatformLifecycleUninstallFailed,
+	} {
+		service, launcher, _, platform := newUninstallHarness(state)
+		_, err := service.Uninstall(context.Background(), UninstallPlatformInput{
+			PlatformID: platform.ID, ReleaseServers: true, CancelActiveWorkflows: true,
+		})
+		if err != nil {
+			t.Fatalf("%s: uninstall error = %v", state, err)
+		}
+		if launcher.launch == nil || !launcher.launch.CancelActiveWorkflows || !launcher.launch.ReleaseServers {
+			t.Errorf("%s: launch = %+v, want cancelActiveWorkflows and releaseServers forwarded", state, launcher.launch)
+		}
+	}
+
+	service, launcher, _, platform := newUninstallHarness(platformdomain.PlatformLifecycleUninstalling)
+	_, err := service.Uninstall(context.Background(), UninstallPlatformInput{PlatformID: platform.ID, CancelActiveWorkflows: true})
+	if !errors.Is(err, platformdomain.ErrPlatformUninstallConflict) || launcher.launch != nil {
+		t.Fatalf("uninstalling: error = %v, launched = %v; want a conflict and no launch", err, launcher.launch != nil)
+	}
+}
+
+// A Slurm platform deployed by Swallow can be uninstalled just like a Kubernetes one; the
+// launcher then selects the Slurm uninstall path from the platform type it receives.
+func TestUninstallAcceptsSlurmPlatform(t *testing.T) {
+	service, launcher, _, platform := newUninstallHarness(platformdomain.PlatformLifecycleActive)
+	platform.Type = platformdomain.PlatformTypeSlurm
+
+	if _, err := service.Uninstall(context.Background(), UninstallPlatformInput{PlatformID: platform.ID}); err != nil {
+		t.Fatalf("slurm uninstall should be accepted, got %v", err)
+	}
+	if launcher.launch == nil {
+		t.Fatal("slurm uninstall did not reach the launcher")
+	}
+	if launcher.launch.Platform.Type != platformdomain.PlatformTypeSlurm {
+		t.Errorf("launch platform type = %v, want slurm", launcher.launch.Platform.Type)
+	}
+}
+
+func TestDeleteRemovesRecordMembershipAndOwnedIntegrationOnly(t *testing.T) {
+	platform := &platformdomain.Platform{
+		ID: "platform-1", SiteID: "site-1", Name: "lab",
+		Type:               platformdomain.PlatformTypeKubernetes,
+		OwnedIntegrationID: "integration-owned",
+	}
+	platforms := &deployFakePlatformRepo{
+		platforms: map[string]*platformdomain.Platform{platform.ID: platform},
+	}
+	servers := &lifecycleServerRepo{
+		deployFakeServerRepo: &deployFakeServerRepo{servers: map[string]*serverdomain.Server{
+			"server-1": {
+				ID:         "server-1",
+				Membership: &serverdomain.MembershipStatus{PlatformID: platform.ID},
+			},
+		}},
+		memberships: map[string][]string{platform.ID: {"server-1"}},
+	}
+	lifecycle := fakeLifecycleReader{snapshots: map[string]platformdomain.LifecycleSnapshot{
+		platform.ID: deployedLifecycle(platformdomain.PlatformLifecycleUninstalling),
+	}}
+	cleaner := &recordingIntegrationCleaner{}
+	service := NewPlatformService(&storetest.Transactor{}, platforms, &deployFakeSiteRepo{}, servers, lifecycle, cleaner)
+
+	if err := service.Delete(context.Background(), platform.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, ok := platforms.platforms[platform.ID]; ok {
+		t.Error("platform record remains")
+	}
+	if len(servers.cleared) != 1 || servers.cleared[0] != "server-1" {
+		t.Errorf("cleared memberships = %v", servers.cleared)
+	}
+	if cleaner.platformID != platform.ID || !cleaner.allowLegacy {
+		t.Errorf("cleaner call = platform %q legacy=%v", cleaner.platformID, cleaner.allowLegacy)
+	}
+}
+
+// recordingPlatformOperationCanceler captures the platform whose operations Delete asked to
+// cancel and can inject a failure to prove the delete aborts instead of orphaning work.
+type recordingPlatformOperationCanceler struct {
+	platformID string
+	called     bool
+	err        error
+}
+
+func (c *recordingPlatformOperationCanceler) CancelActiveForPlatform(_ context.Context, platformID string) error {
+	c.called = true
+	c.platformID = platformID
+	return c.err
+}
+
+func newDeleteHarness() (*deployFakePlatformRepo, *lifecycleServerRepo, fakeLifecycleReader, *platformdomain.Platform) {
+	platform := &platformdomain.Platform{
+		ID: "platform-1", SiteID: "site-1", Name: "lab",
+		Type: platformdomain.PlatformTypeKubernetes,
+	}
+	platforms := &deployFakePlatformRepo{
+		platforms: map[string]*platformdomain.Platform{platform.ID: platform},
+	}
+	servers := &lifecycleServerRepo{
+		deployFakeServerRepo: &deployFakeServerRepo{servers: map[string]*serverdomain.Server{}},
+		memberships:          map[string][]string{},
+	}
+	lifecycle := fakeLifecycleReader{snapshots: map[string]platformdomain.LifecycleSnapshot{
+		platform.ID: deployedLifecycle(platformdomain.PlatformLifecycleUninstalling),
+	}}
+	return platforms, servers, lifecycle, platform
+}
+
+func TestDeleteCancelsInFlightOperationsBeforeRemovingTheRecord(t *testing.T) {
+	platforms, servers, lifecycle, platform := newDeleteHarness()
+	canceler := &recordingPlatformOperationCanceler{}
+	service := NewPlatformService(&storetest.Transactor{}, platforms, &deployFakeSiteRepo{}, servers, lifecycle, &recordingIntegrationCleaner{})
+	service.AttachOperationCanceler(canceler)
+
+	if err := service.Delete(context.Background(), platform.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if !canceler.called || canceler.platformID != platform.ID {
+		t.Errorf("canceler called=%v platform=%q, want true and %q", canceler.called, canceler.platformID, platform.ID)
+	}
+	if _, ok := platforms.platforms[platform.ID]; ok {
+		t.Error("platform record remains after delete")
+	}
+}
+
+func TestDeleteAbortsWhenOperationCancellationFails(t *testing.T) {
+	platforms, servers, lifecycle, platform := newDeleteHarness()
+	canceler := &recordingPlatformOperationCanceler{err: errors.New("temporal unavailable")}
+	service := NewPlatformService(&storetest.Transactor{}, platforms, &deployFakeSiteRepo{}, servers, lifecycle, &recordingIntegrationCleaner{})
+	service.AttachOperationCanceler(canceler)
+
+	if err := service.Delete(context.Background(), platform.ID); err == nil {
+		t.Fatal("expected delete to abort when operation cancellation fails")
+	}
+	// The record must survive so the operator can retry once cancellation is possible; a
+	// deleted platform with still-running operations is exactly the orphaned state to avoid.
+	if _, ok := platforms.platforms[platform.ID]; !ok {
+		t.Error("platform record deleted despite cancellation failure")
+	}
+}
+
+func TestCompleteUninstallKeepsRecordAndClearsOwnedProjections(t *testing.T) {
+	platform := &platformdomain.Platform{
+		ID: "platform-1", SiteID: "site-1", Name: "lab",
+		Type:          platformdomain.PlatformTypeKubernetes,
+		IntegrationID: "integration-owned", OwnedIntegrationID: "integration-owned",
+		Sync: platformdomain.SyncState{MemberCount: 1, MatchedCount: 1},
+	}
+	platforms := &deployFakePlatformRepo{
+		platforms: map[string]*platformdomain.Platform{platform.ID: platform},
+	}
+	servers := &lifecycleServerRepo{
+		deployFakeServerRepo: &deployFakeServerRepo{servers: map[string]*serverdomain.Server{
+			"server-1": {
+				ID:         "server-1",
+				Membership: &serverdomain.MembershipStatus{PlatformID: platform.ID},
+			},
+		}},
+		memberships: map[string][]string{platform.ID: {"server-1"}},
+	}
+	cleaner := &recordingIntegrationCleaner{}
+	service := NewPlatformService(&storetest.Transactor{}, platforms, &deployFakeSiteRepo{}, servers, nil, cleaner)
+
+	if err := service.CompleteUninstall(context.Background(), platform.ID, false); err != nil {
+		t.Fatalf("complete uninstall: %v", err)
+	}
+	persisted, ok := platforms.platforms[platform.ID]
+	if !ok {
+		t.Fatal("successful uninstall deleted the platform record")
+	}
+	if persisted.IntegrationID != "" || persisted.OwnedIntegrationID != "" {
+		t.Fatalf("integration projection remains: %#v", persisted)
+	}
+	if persisted.Sync != (platformdomain.SyncState{}) {
+		t.Fatalf("sync projection remains: %#v", persisted.Sync)
+	}
+	if platforms.syncPlatformID != platform.ID || platforms.syncIntegrationID != "" ||
+		platforms.syncState != (platformdomain.SyncState{}) {
+		t.Fatalf("sync cleanup write = platform %q integration %q state %#v",
+			platforms.syncPlatformID, platforms.syncIntegrationID, platforms.syncState)
+	}
+	if len(servers.cleared) != 1 || servers.cleared[0] != "server-1" {
+		t.Fatalf("cleared memberships = %v", servers.cleared)
+	}
+	if cleaner.platformID != platform.ID || !cleaner.allowLegacy {
+		t.Fatalf("cleaner call = platform %q legacy=%v", cleaner.platformID, cleaner.allowLegacy)
+	}
+}
+
+func TestCompleteUninstallAfterDeleteIsIdempotent(t *testing.T) {
+	service := NewPlatformService(&storetest.Transactor{}, &deployFakePlatformRepo{platforms: map[string]*platformdomain.Platform{}},
+		&deployFakeSiteRepo{},
+		&deployFakeServerRepo{servers: map[string]*serverdomain.Server{}},
+		nil,
+		nil,
+	)
+	for _, deleteRecord := range []bool{false, true} {
+		if err := service.CompleteUninstall(context.Background(), "deleted-platform", deleteRecord); err != nil {
+			t.Fatalf("CompleteUninstall(deleteRecord=%v) after delete: %v", deleteRecord, err)
+		}
+	}
+}
+
+// deleteRecord removes the record after the same projection cleanup, and must not cancel the
+// platform's Operations: the caller is the uninstall's own success hook.
+func TestCompleteUninstallWithDeleteRecordRemovesRecordWithoutCanceling(t *testing.T) {
+	platforms, servers, lifecycle, platform := newDeleteHarness()
+	platform.OwnedIntegrationID = "integration-owned"
+	servers.servers["server-1"] = &serverdomain.Server{
+		ID: "server-1", Membership: &serverdomain.MembershipStatus{PlatformID: platform.ID},
+	}
+	servers.memberships[platform.ID] = []string{"server-1"}
+	canceler := &recordingPlatformOperationCanceler{}
+	cleaner := &recordingIntegrationCleaner{}
+	service := NewPlatformService(&storetest.Transactor{}, platforms, &deployFakeSiteRepo{}, servers, lifecycle, cleaner)
+	service.AttachOperationCanceler(canceler)
+
+	if err := service.CompleteUninstall(context.Background(), platform.ID, true); err != nil {
+		t.Fatalf("CompleteUninstall(deleteRecord) error = %v", err)
+	}
+	if _, ok := platforms.platforms[platform.ID]; ok {
+		t.Error("platform record remains after a deleteRecord uninstall completed")
+	}
+	if canceler.called {
+		t.Error("deleteRecord completion canceled the platform's Operations, which include the completing uninstall")
+	}
+	if len(servers.cleared) != 1 || servers.cleared[0] != "server-1" {
+		t.Errorf("cleared memberships = %v, want [server-1]", servers.cleared)
+	}
+	if cleaner.platformID != platform.ID || !cleaner.allowLegacy {
+		t.Errorf("cleaner call = platform %q legacy=%v, want %q and true", cleaner.platformID, cleaner.allowLegacy, platform.ID)
+	}
+}
+
+func TestUninstallLiveLockGuardRunsBeforeOperationCreation(t *testing.T) {
+	service, launcher, _, _ := newUninstallHarness(platformdomain.PlatformLifecycleActive)
+	guard := &recordingMutationGuard{
+		err: &serverdomain.ServerLockedError{Name: "node-2"},
+	}
+	service.protection = guard
+
+	_, err := service.Uninstall(context.Background(), UninstallPlatformInput{
+		PlatformID: "platform-1",
+	})
+	if !errors.Is(err, serverdomain.ErrServerLocked) {
+		t.Fatalf("Uninstall() error = %v, want ErrServerLocked", err)
+	}
+	if len(guard.serverIDs) != 2 {
+		t.Fatalf("guard targets = %v, want deployment snapshot", guard.serverIDs)
+	}
+	if launcher.launch != nil {
+		t.Fatal("live lock conflict reached the Operation launcher")
+	}
+}

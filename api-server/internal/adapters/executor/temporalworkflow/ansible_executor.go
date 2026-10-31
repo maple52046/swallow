@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/activity"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // AnsibleInventorySource creates the canonical inventory frozen for one Step attempt.
@@ -39,14 +39,14 @@ type HostKeyScanner interface {
 // and this activity mirrors it onto the Task so the operation payload shows movement (the run's
 // reference, current task, and counts) while the run is still in flight.
 type StepLiveProjector interface {
-	UpdateStepLive(ctx context.Context, operationID, stepID string, ref *operationdomain.ExternalExecutionReference, startedAt *time.Time, live *operationdomain.TaskLive) error
+	UpdateStepLive(ctx context.Context, operationID, stepID string, ref *workflowdomain.ExternalExecutionReference, startedAt *time.Time, live *workflowdomain.TaskLive) error
 }
 
 // AnsibleStepExecutor enqueues once and observes the standalone executor. An unknown
 // executor outcome becomes requires_attention and is never automatically re-enqueued.
 type AnsibleStepExecutor struct {
-	executions     operationdomain.AnsibleExecutionRepository
-	configurations operationdomain.AutomationConfigurationRepository
+	executions     workflowdomain.AnsibleExecutionRepository
+	configurations workflowdomain.AutomationConfigurationRepository
 	inventory      AnsibleInventorySource
 	hostKeys       HostKeyScanner
 	// projector mirrors live run state onto the Task projection. Optional: a nil projector
@@ -56,7 +56,7 @@ type AnsibleStepExecutor struct {
 	poll         time.Duration
 }
 
-func NewAnsibleStepExecutor(executions operationdomain.AnsibleExecutionRepository, configurations operationdomain.AutomationConfigurationRepository, inventory AnsibleInventorySource, hostKeys HostKeyScanner, projector StepLiveProjector, artifactRoot string, poll time.Duration) *AnsibleStepExecutor {
+func NewAnsibleStepExecutor(executions workflowdomain.AnsibleExecutionRepository, configurations workflowdomain.AutomationConfigurationRepository, inventory AnsibleInventorySource, hostKeys HostKeyScanner, projector StepLiveProjector, artifactRoot string, poll time.Duration) *AnsibleStepExecutor {
 	if poll <= 0 {
 		poll = 2 * time.Second
 	}
@@ -99,19 +99,19 @@ func (e *AnsibleStepExecutor) Execute(ctx context.Context, input StepExecutionIn
 	}
 	now := time.Now().UTC()
 	extraVars, _ := input.Step.Parameters["extraVars"].(map[string]any)
-	execution, err := e.executions.CreateOrGet(ctx, &operationdomain.AnsibleExecution{
+	execution, err := e.executions.CreateOrGet(ctx, &workflowdomain.AnsibleExecution{
 		ID: uuid.NewString(), IdempotencyKey: fmt.Sprintf("%s/%s/%d", input.OperationID, input.Step.ID, input.Step.Attempt),
 		OperationID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, StepID: input.Step.ID, Attempt: input.Step.Attempt,
 		SiteID: input.SiteID, TargetServerIDs: targets, ResourceLeases: input.Leases, Playbook: playbook,
-		ExtraVars: extraVars, Inventory: inventory, Configuration: &operationdomain.AutomationInputSnapshot{
+		ExtraVars: extraVars, Inventory: inventory, Configuration: &workflowdomain.AutomationInputSnapshot{
 			SSHUser: configuration.SSHUser, SSHPort: configuration.SSHPort, KnownHosts: knownHosts,
 		}, SecretRefs: input.Step.SecretRefs, RunID: uuid.NewString(),
-		Status: operationdomain.AnsibleQueued, CreatedAt: now, UpdatedAt: now,
+		Status: workflowdomain.AnsibleQueued, CreatedAt: now, UpdatedAt: now,
 	})
 	if err != nil {
 		return failedStep("executor_queue_unavailable", "The Ansible execution queue is unavailable.", true)
 	}
-	reference := &operationdomain.ExternalExecutionReference{Provider: "ansible-runner", ID: execution.RunID, Generation: input.Step.Attempt}
+	reference := &workflowdomain.ExternalExecutionReference{Provider: "ansible-runner", ID: execution.RunID, Generation: input.Step.Attempt}
 
 	// Publish the run reference immediately so the API can serve this Step's live events and logs
 	// while the run is in flight, instead of only after this activity returns. startedAt is stamped
@@ -135,25 +135,25 @@ func (e *AnsibleStepExecutor) Execute(ctx context.Context, input StepExecutionIn
 			_ = e.projector.UpdateStepLive(ctx, input.OperationID, input.Step.ID, reference, nil, liveFromProgress(execution.Progress))
 		}
 		switch execution.Status {
-		case operationdomain.AnsibleSucceeded:
-			return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100, ExternalExecution: reference, Artifacts: e.artifacts(execution.RunID)}
-		case operationdomain.AnsibleFailed:
+		case workflowdomain.AnsibleSucceeded:
+			return StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100, ExternalExecution: reference, Artifacts: e.artifacts(execution.RunID)}
+		case workflowdomain.AnsibleFailed:
 			result := failedStep("ansible_failed", execution.StatusReason, true)
 			result.ExternalExecution = reference
 			result.Artifacts = e.artifacts(execution.RunID)
 			return result
-		case operationdomain.AnsibleCanceled:
-			return StepExecutionResult{Status: operationdomain.TaskCanceled, ExternalExecution: reference}
-		case operationdomain.AnsibleRequiresAttention:
-			return StepExecutionResult{Status: operationdomain.TaskRequiresAttention, ExternalExecution: reference, Artifacts: e.artifacts(execution.RunID),
-				Error: &operationdomain.NormalizedError{Code: "executor_outcome_unknown", Message: execution.StatusReason, Retryable: true}}
+		case workflowdomain.AnsibleCanceled:
+			return StepExecutionResult{Status: workflowdomain.TaskCanceled, ExternalExecution: reference}
+		case workflowdomain.AnsibleRequiresAttention:
+			return StepExecutionResult{Status: workflowdomain.TaskRequiresAttention, ExternalExecution: reference, Artifacts: e.artifacts(execution.RunID),
+				Error: &workflowdomain.NormalizedError{Code: "executor_outcome_unknown", Message: execution.StatusReason, Retryable: true}}
 		}
 		select {
 		case <-ctx.Done():
 			if !IsActivityWorkerStopping(ctx) {
 				_ = e.executions.RequestCancel(context.Background(), execution.ID)
 			}
-			return StepExecutionResult{Status: operationdomain.TaskCanceled, ExternalExecution: reference}
+			return StepExecutionResult{Status: workflowdomain.TaskCanceled, ExternalExecution: reference}
 		case <-ticker.C:
 		}
 	}
@@ -231,11 +231,11 @@ func sshPortOrDefault(port int) int {
 
 // liveFromProgress maps the executor's run progress onto the Task's live projection, returning nil
 // before any progress has been recorded so a not-yet-started run shows no live block.
-func liveFromProgress(progress *operationdomain.AnsibleRunProgress) *operationdomain.TaskLive {
+func liveFromProgress(progress *workflowdomain.AnsibleRunProgress) *workflowdomain.TaskLive {
 	if progress == nil {
 		return nil
 	}
-	return &operationdomain.TaskLive{
+	return &workflowdomain.TaskLive{
 		CurrentPlay: progress.CurrentPlay,
 		CurrentTask: progress.CurrentTask,
 		Total:       progress.Total,
@@ -252,13 +252,13 @@ func failedStep(code, message string, retryable bool) StepExecutionResult {
 	if message == "" {
 		message = "The Ansible Step failed."
 	}
-	return StepExecutionResult{Status: operationdomain.TaskFailed,
-		Error: &operationdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}}
+	return StepExecutionResult{Status: workflowdomain.TaskFailed,
+		Error: &workflowdomain.NormalizedError{Code: code, Message: message, Retryable: retryable}}
 }
 
-func (e *AnsibleStepExecutor) artifacts(runID string) []operationdomain.ArtifactMetadata {
+func (e *AnsibleStepExecutor) artifacts(runID string) []workflowdomain.ArtifactMetadata {
 	if e.artifactRoot == "" || filepath.Base(runID) != runID {
-		return []operationdomain.ArtifactMetadata{}
+		return []workflowdomain.ArtifactMetadata{}
 	}
 	type candidate struct {
 		name      string
@@ -269,7 +269,7 @@ func (e *AnsibleStepExecutor) artifacts(runID string) []operationdomain.Artifact
 		{name: "process.log", mediaType: "text/plain"},
 		{name: "job_events", mediaType: "application/vnd.swallow.ansible-events"},
 	}
-	artifacts := make([]operationdomain.ArtifactMetadata, 0, len(candidates))
+	artifacts := make([]workflowdomain.ArtifactMetadata, 0, len(candidates))
 	for _, candidate := range candidates {
 		path := filepath.Join(e.artifactRoot, runID, candidate.name)
 		info, err := os.Stat(path)
@@ -289,7 +289,7 @@ func (e *AnsibleStepExecutor) artifacts(runID string) []operationdomain.Artifact
 				return nil
 			})
 		}
-		artifacts = append(artifacts, operationdomain.ArtifactMetadata{
+		artifacts = append(artifacts, workflowdomain.ArtifactMetadata{
 			ID: candidate.name, Name: candidate.name, MediaType: candidate.mediaType,
 			SizeBytes: size, RelativeKey: filepath.Join(runID, candidate.name), CreatedAt: info.ModTime().UTC(),
 		})

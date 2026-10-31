@@ -7,7 +7,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	authdomain "github.com/maple52046/swallow/internal/auth/domain"
+	authdomain "github.com/maple52046/swallow/internal/core/auth/domain"
 )
 
 type userDoc struct {

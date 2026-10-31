@@ -383,38 +383,38 @@ API 認證的決策與時效、cookie、rotation 細節見
 
 | 職責 | 路徑 |
 | --- | --- |
-| SSH Key domain（purpose、不變式、同步狀態、ports、錯誤） | `internal/sshkey/domain/` |
-| SSH Key use case（匯入、產生、替換、重產、安裝時建立） | `internal/sshkey/application/service.go` |
-| Provisioner realization 與佈署前 ensure | `internal/sshkey/application/sync.go` |
+| SSH Key domain（purpose、不變式、同步狀態、ports、錯誤） | `internal/core/sshkey/domain/` |
+| SSH Key use case（匯入、產生、替換、重產、安裝時建立） | `internal/core/sshkey/application/service.go` |
+| Provisioner realization 與佈署前 ensure | `internal/core/sshkey/application/sync.go` |
 | 金鑰材料解析、產生與型別限制 | `internal/adapters/keys/openssh/keymaterial.go` |
 | `ssh_keys`（封存私鑰、unique indexes）與同步紀錄 | `internal/adapters/store/mongodb/sshkey/mongo_key_repo.go`、`internal/adapters/store/mongodb/sshkey/mongo_sync_repo.go` |
 | provisioner 能力判斷 | `internal/app/provisioner_keys.go` |
-| `SSHKeyRegistration` capability 與 `SSHKeyRegistrar` interface | `internal/provisioning/domain/provider.go` |
+| `SSHKeyRegistration` capability 與 `SSHKeyRegistrar` interface | `internal/core/provisioning/domain/provider.go` |
 | MAAS `SSHKeyRegistrar` | `internal/adapters/osprovisioning/maas/sshkeys.go` |
-| SSH Keys HTTP | `internal/sshkey/delivery/handler.go` |
+| SSH Keys HTTP | `internal/core/sshkey/delivery/handler.go` |
 | 組裝、同步迴圈、Deployment Key adapter | `internal/app/sshkey_adapter.go`、`internal/app/api.go` |
 | 安裝步驟 `deployment-key ensure` | `cmd/swallow-api/deployment_key.go`、`internal/app/deployment_key.go` |
-| OS 佈署的受理前檢查與佈署前 ensure | `internal/provisioning/application/deploy_servers.go`、`internal/provisioning/application/deploy_server.go` |
+| OS 佈署的受理前檢查與佈署前 ensure | `internal/core/provisioning/application/deploy_servers.go`、`internal/core/provisioning/application/deploy_server.go` |
 | `provision-os` 錯誤碼與送出佈署前清除 Server Default User | `internal/app/provider_step_executor.go` |
-| Platform deploy 的 Deployment Key 檢查 | `internal/platform/application/deploy_platform.go` |
-| Effective automation credential 與 `credentialSource` | `internal/operation/application/effective_credential.go` |
-| `CheckRunnable`、`CredentialSource` | `internal/operation/domain/execution.go` |
+| Platform deploy 的 Deployment Key 檢查 | `internal/core/platform/application/deploy_platform.go` |
+| Effective automation credential 與 `credentialSource` | `internal/core/workflow/application/effective_credential.go` |
+| `CheckRunnable`、`CredentialSource` | `internal/core/workflow/domain/execution.go` |
 | Site credential 儲存（只存 become password） | `internal/adapters/store/mongodb/workflow/mongo_automation_config_repo.go` |
-| Site credential HTTP（拒絕 `sshPrivateKey`） | `internal/operation/delivery/execution_handler.go` |
+| Site credential HTTP（拒絕 `sshPrivateKey`） | `internal/core/workflow/delivery/execution_handler.go` |
 | Ansible Task 的可執行檢查 | `internal/adapters/executor/temporalworkflow/ansible_executor.go` |
 | 登入帳號候選與探測 | `internal/shared/sshprobe/sshprobe.go` |
 | `ansible_user` 解析 | `internal/adapters/hostautomation/ansible/local_runner.go` |
 | `wait-for-ssh` | `internal/app/platform_workflow_step_executor.go` |
-| Inventory `default_user`／`image_default_user` | `internal/discovery/application/discovery.go` |
-| OS Image default user 的內建值與 effective 值 | `internal/provisioning/domain/os_image_overlay.go` |
-| 鏡射到 Server、無 OS 時清除 Server Default User | `internal/provisioning/application/reconcile.go` |
-| Server Default User（effective 值、名稱規則、sudo、錯誤） | `internal/server/domain/default_user.go` |
-| Server Default User use case | `internal/server/application/default_user.go` |
+| Inventory `default_user`／`image_default_user` | `internal/core/discovery/application/discovery.go` |
+| OS Image default user 的內建值與 effective 值 | `internal/core/provisioning/domain/os_image_overlay.go` |
+| 鏡射到 Server、無 OS 時清除 Server Default User | `internal/core/provisioning/application/reconcile.go` |
+| Server Default User（effective 值、名稱規則、sudo、錯誤） | `internal/core/server/domain/default_user.go` |
+| Server Default User use case | `internal/core/server/application/default_user.go` |
 | 一次性密碼安裝金鑰與 Deployment Key 驗證登入 | `internal/adapters/hostaccess/sshaccess/ssh_host_access.go` |
-| Server Default User HTTP | `internal/server/delivery/default_user_handler.go` |
+| Server Default User HTTP | `internal/core/server/delivery/default_user_handler.go` |
 | Docker CE 的 `docker` group | `automation/playbooks/roles/docker_ce/`（`defaults/main.yml`、`tasks/main.yml`） |
 | 認證 middleware（access token 與 API Key） | `internal/shared/middleware/auth.go` |
-| Session、API Key | `internal/auth/`、`internal/apikey/` |
+| Session、API Key | `internal/core/auth/`、`internal/core/apikey/` |
 | 封存（sealer） | `internal/shared/secret/` |
 | 設定（`sshKeySyncInterval`、`credentialKey`） | `config/config.go`、`config/defaults.go`、`config/env.go` |
 

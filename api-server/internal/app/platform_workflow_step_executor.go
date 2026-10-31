@@ -14,12 +14,12 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformapp "github.com/maple52046/swallow/internal/platform/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
-	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
 )
 
 // platformUninstallFinalizer clears a Platform's projections after a successful uninstall, and
@@ -36,7 +36,7 @@ type platformUninstallFinalizer interface {
 // the adapters that own them.
 type platformWorkflowStepExecutor struct {
 	servers            serverdomain.ServerRepository
-	configurations     operationdomain.AutomationConfigurationRepository
+	configurations     workflowdomain.AutomationConfigurationRepository
 	membership         *platformapp.MembershipSyncUseCase
 	finalizer          platformUninstallFinalizer
 	imageVerifications provisioningdomain.OSImageVerificationRepository
@@ -61,7 +61,7 @@ type platformWorkflowStepExecutor struct {
 func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
 	switch input.Step.Kind {
 	case "noop":
-		return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+		return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 	case "wait-for-ssh":
 		return e.waitForSSH(ctx, input)
 	case "validate-platform-health":
@@ -108,7 +108,7 @@ func (e platformWorkflowStepExecutor) recordImageVerification(ctx context.Contex
 	if err := e.imageVerifications.RecordTarget(ctx, integrationID, imageID, architecture, target, evidence); err != nil {
 		return internalStepFailed("image_verification_write_failed", err.Error(), true)
 	}
-	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 }
 
 // recordImageVerificationFailure is the failure-path finalize step of a verify-os-image Workflow:
@@ -142,7 +142,7 @@ func (e platformWorkflowStepExecutor) recordImageVerificationFailure(ctx context
 	if err := e.imageVerifications.RecordFailedTarget(ctx, integrationID, imageID, architecture, target, failure); err != nil {
 		return internalStepFailed("image_verification_write_failed", err.Error(), true)
 	}
-	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 }
 
 // completeUninstall finalizes a release-and-uninstall Operation by clearing the Platform's
@@ -151,7 +151,7 @@ func (e platformWorkflowStepExecutor) recordImageVerificationFailure(ctx context
 // step succeeds, replacing the ansible step's AnsibleStepSucceeded cleanup that this path
 // omits. A missing finalizer or platform id is a non-retryable failure; the cleanup itself is
 // idempotent, so a retried step is safe.
-func (e platformWorkflowStepExecutor) completeUninstall(ctx context.Context, platformID string, step operationdomain.Task) temporalworkflow.StepExecutionResult {
+func (e platformWorkflowStepExecutor) completeUninstall(ctx context.Context, platformID string, step workflowdomain.Task) temporalworkflow.StepExecutionResult {
 	if e.finalizer == nil || strings.TrimSpace(platformID) == "" {
 		return internalStepFailed("platform_finalize_unavailable", "Platform uninstall finalization is unavailable.", false)
 	}
@@ -160,7 +160,7 @@ func (e platformWorkflowStepExecutor) completeUninstall(ctx context.Context, pla
 	if err := e.finalizer.CompleteUninstall(ctx, platformID, deleteRecord); err != nil {
 		return internalStepFailed("platform_finalize_failed", err.Error(), true)
 	}
-	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 }
 
 // recordSoftwareAssignment is the software Workflow's internal record step (decision 038): on a
@@ -188,7 +188,7 @@ func (e platformWorkflowStepExecutor) recordSoftwareAssignment(ctx context.Conte
 			return internalStepFailed("software_record_write_failed", err.Error(), true)
 		}
 	}
-	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 }
 
 // sshAuthGracePeriod is how long a reachable-but-rejecting host is tolerated before wait-for-ssh
@@ -277,12 +277,12 @@ func (e platformWorkflowStepExecutor) waitForSSH(ctx context.Context, input temp
 		} else {
 			firstAuthFailureAt = time.Time{}
 			if len(observation.missing) == 0 && len(observation.unreachable) == 0 {
-				return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+				return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 			}
 		}
 		select {
 		case <-ctx.Done():
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
+			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
 		case <-deadline.C:
 			failure := internalStepFailed("ssh_readiness_timeout", sshReadinessTimeoutMessage(observation, port), true)
 			failure.Error.Stage = "ssh_readiness"
@@ -310,7 +310,7 @@ type readinessObservation struct {
 // authenticate is false the probe degrades to TCP reachability and never reports an auth failure.
 func (e platformWorkflowStepExecutor) probeReadiness(
 	ctx context.Context,
-	step operationdomain.Task,
+	step workflowdomain.Task,
 	port int,
 	signer ssh.Signer,
 	prober sshprobe.Prober,
@@ -438,7 +438,7 @@ func sshReadinessTimeoutMessage(observation readinessObservation, port int) stri
 	return strings.Join(parts, " ")
 }
 
-func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, platformID string, step operationdomain.Task) temporalworkflow.StepExecutionResult {
+func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, platformID string, step workflowdomain.Task) temporalworkflow.StepExecutionResult {
 	if strings.TrimSpace(platformID) == "" || e.membership == nil {
 		return internalStepFailed("platform_validation_unavailable", "Platform health validation is unavailable.", false)
 	}
@@ -462,7 +462,7 @@ func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, plat
 			if checkErr != nil {
 				lastReason = checkErr.Error()
 			} else if len(missing) == 0 {
-				return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+				return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 			} else {
 				lastReason = fmt.Sprintf("Platform membership is missing %d of %d target Servers: %s.",
 					len(missing), joined+len(missing), strings.Join(missing, ", "))
@@ -470,7 +470,7 @@ func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, plat
 		}
 		select {
 		case <-ctx.Done():
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskCanceled}
+			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
 		case <-deadline.C:
 			return internalStepFailed("platform_health_timeout", lastReason, true)
 		case <-ticker.C:
@@ -481,7 +481,7 @@ func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, plat
 // targetsJoined reports how many of the Operation's target Servers now carry a membership
 // projection naming this Platform, and which are still missing. It reads each target's own
 // projection (written by the membership sync) rather than trusting an aggregate count.
-func (e platformWorkflowStepExecutor) targetsJoined(ctx context.Context, platformID string, step operationdomain.Task) (int, []string, error) {
+func (e platformWorkflowStepExecutor) targetsJoined(ctx context.Context, platformID string, step workflowdomain.Task) (int, []string, error) {
 	joined := 0
 	missing := []string{}
 	for _, target := range step.Targets {
@@ -510,7 +510,7 @@ func (e platformWorkflowStepExecutor) pollInterval() time.Duration {
 }
 
 func internalStepFailed(code, message string, retryable bool) temporalworkflow.StepExecutionResult {
-	return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
+	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskFailed, Error: &workflowdomain.NormalizedError{
 		Code: code, Message: message, Retryable: retryable,
 	}}
 }

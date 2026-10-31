@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 const testBootISOID = "6b3f0c1e-4f7a-4f53-9d2a-2a7f1d0c9e11"

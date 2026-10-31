@@ -11,8 +11,8 @@ import (
 	"go.temporal.io/sdk/testsuite"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // repairServerRepo is an in-memory fleet for the deployment repair sweep. beforeFind lets a test
@@ -60,14 +60,14 @@ func (r *repairServerRepo) SetDeployment(_ context.Context, id string, deploymen
 // repairWorkflowRepo serves Workflow records by ID and reports an unknown ID the way the Mongo
 // adapter does.
 type repairWorkflowRepo struct {
-	operationdomain.WorkflowRepository
-	workflows map[string]*operationdomain.Workflow
+	workflowdomain.WorkflowRepository
+	workflows map[string]*workflowdomain.Workflow
 }
 
-func (r *repairWorkflowRepo) FindByID(_ context.Context, id string) (*operationdomain.Workflow, error) {
+func (r *repairWorkflowRepo) FindByID(_ context.Context, id string) (*workflowdomain.Workflow, error) {
 	workflow, ok := r.workflows[id]
 	if !ok {
-		return nil, operationdomain.ErrWorkflowNotV3
+		return nil, workflowdomain.ErrWorkflowNotV3
 	}
 	return workflow, nil
 }
@@ -80,16 +80,16 @@ func TestRepairStuckDeploymentProjections(t *testing.T) {
 			State: state, OperationID: "operation-1", StepID: "provision-a", Attempt: 1, StartedAt: started,
 		}
 	}
-	workflowWith := func(status operationdomain.WorkflowStatus, task operationdomain.TaskStatus, failure *operationdomain.NormalizedError) *operationdomain.Workflow {
+	workflowWith := func(status workflowdomain.WorkflowStatus, task workflowdomain.TaskStatus, failure *workflowdomain.NormalizedError) *workflowdomain.Workflow {
 		var finishedAt *time.Time
 		if status.Terminal() {
 			finishedAt = &finished
 		}
-		return &operationdomain.Workflow{
-			ID: "operation-1", Kind: operationdomain.WorkflowKindDeployOS, Status: status, FinishedAt: finishedAt,
-			Steps: []operationdomain.Task{{
+		return &workflowdomain.Workflow{
+			ID: "operation-1", Kind: workflowdomain.WorkflowKindDeployOS, Status: status, FinishedAt: finishedAt,
+			Steps: []workflowdomain.Task{{
 				ID: "provision-a", Kind: "provision-os", Status: task, Attempt: 1, Error: failure,
-				Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "server-a"}},
+				Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "server-a"}},
 			}},
 		}
 	}
@@ -97,7 +97,7 @@ func TestRepairStuckDeploymentProjections(t *testing.T) {
 	tests := []struct {
 		name       string
 		deployment *serverdomain.DeploymentStatus
-		workflow   *operationdomain.Workflow
+		workflow   *workflowdomain.Workflow
 		beforeFind func(id string, server *serverdomain.Server)
 		wantState  serverdomain.DeploymentState
 		wantOpID   string
@@ -107,38 +107,38 @@ func TestRepairStuckDeploymentProjections(t *testing.T) {
 		{
 			name:       "canceled workflow settles a task left waiting on the provider",
 			deployment: inFlight(serverdomain.DeploymentDeploying),
-			workflow:   workflowWith(operationdomain.WorkflowCanceled, operationdomain.TaskWaitingExternal, nil),
+			workflow:   workflowWith(workflowdomain.WorkflowCanceled, workflowdomain.TaskWaitingExternal, nil),
 			wantState:  serverdomain.DeploymentCanceled, wantOpID: "operation-1", wantWrites: 1,
 		},
 		{
 			name:       "canceled workflow settles a verifying deployment",
 			deployment: inFlight(serverdomain.DeploymentVerifying),
-			workflow:   workflowWith(operationdomain.WorkflowCanceled, operationdomain.TaskRunning, nil),
+			workflow:   workflowWith(workflowdomain.WorkflowCanceled, workflowdomain.TaskRunning, nil),
 			wantState:  serverdomain.DeploymentCanceled, wantOpID: "operation-1", wantWrites: 1,
 		},
 		{
 			name:       "recorded task outcome is projected as-is",
 			deployment: inFlight(serverdomain.DeploymentDeploying),
-			workflow: workflowWith(operationdomain.WorkflowFailed, operationdomain.TaskFailed,
-				&operationdomain.NormalizedError{Code: "deployment_failed", Message: "Install failed."}),
+			workflow: workflowWith(workflowdomain.WorkflowFailed, workflowdomain.TaskFailed,
+				&workflowdomain.NormalizedError{Code: "deployment_failed", Message: "Install failed."}),
 			wantState: serverdomain.DeploymentFailed, wantOpID: "operation-1", wantCode: "deployment_failed", wantWrites: 1,
 		},
 		{
 			name:       "running workflow is never touched",
 			deployment: inFlight(serverdomain.DeploymentDeploying),
-			workflow:   workflowWith(operationdomain.WorkflowRunning, operationdomain.TaskRunning, nil),
+			workflow:   workflowWith(workflowdomain.WorkflowRunning, workflowdomain.TaskRunning, nil),
 			wantState:  serverdomain.DeploymentDeploying, wantOpID: "operation-1",
 		},
 		{
 			name:       "workflow parked for the operator is never touched",
 			deployment: inFlight(serverdomain.DeploymentDeploying),
-			workflow:   workflowWith(operationdomain.WorkflowRequiresAttention, operationdomain.TaskRunning, nil),
+			workflow:   workflowWith(workflowdomain.WorkflowRequiresAttention, workflowdomain.TaskRunning, nil),
 			wantState:  serverdomain.DeploymentDeploying, wantOpID: "operation-1",
 		},
 		{
 			name:       "ended workflow without a task outcome is not guessed",
 			deployment: inFlight(serverdomain.DeploymentDeploying),
-			workflow:   workflowWith(operationdomain.WorkflowFailed, operationdomain.TaskRunning, nil),
+			workflow:   workflowWith(workflowdomain.WorkflowFailed, workflowdomain.TaskRunning, nil),
 			wantState:  serverdomain.DeploymentDeploying, wantOpID: "operation-1",
 		},
 		{
@@ -151,13 +151,13 @@ func TestRepairStuckDeploymentProjections(t *testing.T) {
 			deployment: &serverdomain.DeploymentStatus{
 				State: serverdomain.DeploymentSucceeded, OperationID: "operation-1", StepID: "provision-a", Attempt: 1,
 			},
-			workflow:  workflowWith(operationdomain.WorkflowCanceled, operationdomain.TaskCanceled, nil),
+			workflow:  workflowWith(workflowdomain.WorkflowCanceled, workflowdomain.TaskCanceled, nil),
 			wantState: serverdomain.DeploymentSucceeded, wantOpID: "operation-1",
 		},
 		{
 			name:       "deploy accepted after the list is not overwritten",
 			deployment: inFlight(serverdomain.DeploymentDeploying),
-			workflow:   workflowWith(operationdomain.WorkflowCanceled, operationdomain.TaskWaitingExternal, nil),
+			workflow:   workflowWith(workflowdomain.WorkflowCanceled, workflowdomain.TaskWaitingExternal, nil),
 			beforeFind: func(_ string, server *serverdomain.Server) {
 				server.Deployment = &serverdomain.DeploymentStatus{
 					State: serverdomain.DeploymentDeploying, OperationID: "operation-2", StepID: "provision-a", Attempt: 1,
@@ -172,7 +172,7 @@ func TestRepairStuckDeploymentProjections(t *testing.T) {
 				servers:    map[string]*serverdomain.Server{"server-a": {ID: "server-a", Deployment: tc.deployment}},
 				beforeFind: tc.beforeFind,
 			}
-			workflows := &repairWorkflowRepo{workflows: map[string]*operationdomain.Workflow{}}
+			workflows := &repairWorkflowRepo{workflows: map[string]*workflowdomain.Workflow{}}
 			if tc.workflow != nil {
 				workflows.workflows[tc.workflow.ID] = tc.workflow
 			}
@@ -220,53 +220,53 @@ func TestRepairCanceledDeploymentFromRecordedOutcome(t *testing.T) {
 			Attempt: attempt, StartedAt: canceledAt, FinishedAt: &canceledAt,
 		}
 	}
-	workflowWith := func(status operationdomain.WorkflowStatus, task operationdomain.TaskStatus, attempt int) *operationdomain.Workflow {
-		return &operationdomain.Workflow{
-			ID: "operation-1", Kind: operationdomain.WorkflowKindDeployKubernetes, Status: status, FinishedAt: &canceledAt,
-			Steps: []operationdomain.Task{{
+	workflowWith := func(status workflowdomain.WorkflowStatus, task workflowdomain.TaskStatus, attempt int) *workflowdomain.Workflow {
+		return &workflowdomain.Workflow{
+			ID: "operation-1", Kind: workflowdomain.WorkflowKindDeployKubernetes, Status: status, FinishedAt: &canceledAt,
+			Steps: []workflowdomain.Task{{
 				ID: "provision-a", Kind: "provision-os", Status: task, Attempt: attempt,
 				StartedAt: &taskStarted, FinishedAt: &taskFinished,
-				Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "server-a"}},
+				Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "server-a"}},
 			}},
 		}
 	}
 	tests := []struct {
 		name        string
 		deployment  *serverdomain.DeploymentStatus
-		workflow    *operationdomain.Workflow
+		workflow    *workflowdomain.Workflow
 		wantState   serverdomain.DeploymentState
 		wantAttempt int
 	}{
 		{
 			name:       "succeeded task restores the result",
-			deployment: staleCancel(1), workflow: workflowWith(operationdomain.WorkflowCanceled, operationdomain.TaskSucceeded, 6),
+			deployment: staleCancel(1), workflow: workflowWith(workflowdomain.WorkflowCanceled, workflowdomain.TaskSucceeded, 6),
 			wantState: serverdomain.DeploymentSucceeded, wantAttempt: 6,
 		},
 		{
 			name:       "failed task restores the result",
-			deployment: staleCancel(1), workflow: workflowWith(operationdomain.WorkflowCanceled, operationdomain.TaskFailed, 6),
+			deployment: staleCancel(1), workflow: workflowWith(workflowdomain.WorkflowCanceled, workflowdomain.TaskFailed, 6),
 			wantState: serverdomain.DeploymentFailed, wantAttempt: 6,
 		},
 		{
 			name:       "task that was itself canceled keeps the canceled result",
-			deployment: staleCancel(1), workflow: workflowWith(operationdomain.WorkflowCanceled, operationdomain.TaskCanceled, 1),
+			deployment: staleCancel(1), workflow: workflowWith(workflowdomain.WorkflowCanceled, workflowdomain.TaskCanceled, 1),
 			wantState: serverdomain.DeploymentCanceled, wantAttempt: 1,
 		},
 		{
 			name:       "outcome of an older attempt does not replace a newer cancel",
-			deployment: staleCancel(2), workflow: workflowWith(operationdomain.WorkflowCanceled, operationdomain.TaskSucceeded, 1),
+			deployment: staleCancel(2), workflow: workflowWith(workflowdomain.WorkflowCanceled, workflowdomain.TaskSucceeded, 1),
 			wantState: serverdomain.DeploymentCanceled, wantAttempt: 2,
 		},
 		{
 			name:       "workflow that has not ended is never touched",
-			deployment: staleCancel(1), workflow: workflowWith(operationdomain.WorkflowRunning, operationdomain.TaskSucceeded, 6),
+			deployment: staleCancel(1), workflow: workflowWith(workflowdomain.WorkflowRunning, workflowdomain.TaskSucceeded, 6),
 			wantState: serverdomain.DeploymentCanceled, wantAttempt: 1,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			servers := &repairServerRepo{servers: map[string]*serverdomain.Server{"server-a": {ID: "server-a", Deployment: tc.deployment}}}
-			workflows := &repairWorkflowRepo{workflows: map[string]*operationdomain.Workflow{tc.workflow.ID: tc.workflow}}
+			workflows := &repairWorkflowRepo{workflows: map[string]*workflowdomain.Workflow{tc.workflow.ID: tc.workflow}}
 
 			if err := repairStuckDeploymentProjections(context.Background(), servers, workflows); err != nil {
 				t.Fatalf("repairStuckDeploymentProjections() error = %v", err)
@@ -290,19 +290,19 @@ func TestRepairCanceledDeploymentFromRecordedOutcome(t *testing.T) {
 // cancelProjectionWorkflowRepo keeps the durable Task projection the workflow writes through the
 // real UpdateStep activity.
 type cancelProjectionWorkflowRepo struct {
-	operationdomain.WorkflowRepository
+	workflowdomain.WorkflowRepository
 	mu    sync.Mutex
-	tasks map[string]operationdomain.Task
+	tasks map[string]workflowdomain.Task
 }
 
-func (r *cancelProjectionWorkflowRepo) UpdateStep(_ context.Context, _ string, step operationdomain.Task) error {
+func (r *cancelProjectionWorkflowRepo) UpdateStep(_ context.Context, _ string, step workflowdomain.Task) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.tasks[step.ID] = step
 	return nil
 }
 
-func (r *cancelProjectionWorkflowRepo) AppendEvent(context.Context, operationdomain.TimelineEvent) error {
+func (r *cancelProjectionWorkflowRepo) AppendEvent(context.Context, workflowdomain.TimelineEvent) error {
 	return nil
 }
 
@@ -317,26 +317,26 @@ func TestDeployOSCancelDuringProvisionSettlesServerDeployment(t *testing.T) {
 		State: serverdomain.DeploymentDeploying, OperationID: "operation-deploy-os", StepID: "provision-a", Attempt: 1,
 	}}
 	servers := &deploymentProjectionTestRepo{server: server}
-	operations := &cancelProjectionWorkflowRepo{tasks: map[string]operationdomain.Task{}}
+	operations := &cancelProjectionWorkflowRepo{tasks: map[string]workflowdomain.Task{}}
 	activities := temporalworkflow.NewActivities(operations, nil, nil, serverDeploymentStepObserver{servers: servers})
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	var mu sync.Mutex
-	states := []operationdomain.WorkflowStatus{}
+	states := []workflowdomain.WorkflowStatus{}
 
-	env.RegisterActivityWithOptions(func(context.Context, temporalworkflow.LeaseRequest) ([]operationdomain.ResourceLease, error) {
-		return []operationdomain.ResourceLease{{ResourceKey: "server:server-a", Owner: "workflow", FencingToken: 1}}, nil
+	env.RegisterActivityWithOptions(func(context.Context, temporalworkflow.LeaseRequest) ([]workflowdomain.ResourceLease, error) {
+		return []workflowdomain.ResourceLease{{ResourceKey: "server:server-a", Owner: "workflow", FencingToken: 1}}, nil
 	}, activity.RegisterOptions{Name: temporalworkflow.ActivityAcquireLeases})
 	env.RegisterActivityWithOptions(func(context.Context, temporalworkflow.LeaseRenewal) error { return nil },
 		activity.RegisterOptions{Name: temporalworkflow.ActivityRenewLeases})
-	env.RegisterActivityWithOptions(func(context.Context, []operationdomain.ResourceLease) error { return nil },
+	env.RegisterActivityWithOptions(func(context.Context, []workflowdomain.ResourceLease) error { return nil },
 		activity.RegisterOptions{Name: temporalworkflow.ActivityReleaseLeases})
 	env.RegisterActivityWithOptions(func(ctx context.Context, input temporalworkflow.StepUpdate) error {
 		// Real Temporal never dispatches a projection scheduled on the canceled workflow context,
 		// but the test environment still runs it on a goroutine nobody waits for. Holding canceled
 		// projections back keeps such a write from landing before the workflow completes, so only
 		// projections the workflow awaited are observed.
-		if input.Step.Status == operationdomain.TaskCanceled {
+		if input.Step.Status == workflowdomain.TaskCanceled {
 			time.Sleep(200 * time.Millisecond)
 		}
 		return activities.UpdateStep(ctx, input)
@@ -352,7 +352,7 @@ func TestDeployOSCancelDuringProvisionSettlesServerDeployment(t *testing.T) {
 		// The cancel then returns the interrupted deployment; that step has its own executor
 		// tests, so here it only reports that it left the Server as it is.
 		if input.Step.Kind == temporalworkflow.ReturnCanceledDeploymentKind {
-			return temporalworkflow.StepExecutionResult{Status: operationdomain.TaskSkipped, WaitingReason: "The Server is already Ready."}, nil
+			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSkipped, WaitingReason: "The Server is already Ready."}, nil
 		}
 		env.CancelWorkflow()
 		select {
@@ -364,13 +364,13 @@ func TestDeployOSCancelDuringProvisionSettlesServerDeployment(t *testing.T) {
 	}, activity.RegisterOptions{Name: temporalworkflow.ActivityExecuteStep})
 
 	env.ExecuteWorkflow(temporalworkflow.OperationWorkflowV1, temporalworkflow.WorkflowInput{
-		OperationID: "operation-deploy-os", Kind: operationdomain.WorkflowKindDeployOS,
+		OperationID: "operation-deploy-os", Kind: workflowdomain.WorkflowKindDeployOS,
 		SiteID: "site-a", Definition: "os-deployment", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, MaxParallelism: 1, ResourceKeys: []string{"server:server-a"},
-		Steps: []operationdomain.Task{{
+		Steps: []workflowdomain.Task{{
 			ID: "provision-a", Kind: "provision-os", Name: "Provision server-a",
-			Executor: operationdomain.RunnerKindProvisioner, Status: operationdomain.TaskPending, Attempt: 1,
-			Targets: []operationdomain.ResourceReference{{Kind: "server", ID: server.ID}},
+			Executor: workflowdomain.RunnerKindProvisioner, Status: workflowdomain.TaskPending, Attempt: 1,
+			Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}},
 		}},
 	})
 	if err := env.GetWorkflowError(); err != nil {
@@ -378,14 +378,14 @@ func TestDeployOSCancelDuringProvisionSettlesServerDeployment(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(states) == 0 || states[len(states)-1] != operationdomain.WorkflowCanceled {
+	if len(states) == 0 || states[len(states)-1] != workflowdomain.WorkflowCanceled {
 		t.Errorf("Operation states = %v, want to end canceled", states)
 	}
 	operations.mu.Lock()
 	task := operations.tasks["provision-a"]
 	operations.mu.Unlock()
-	if task.Status != operationdomain.TaskCanceled {
-		t.Errorf("provision-a Task status = %q, want %q", task.Status, operationdomain.TaskCanceled)
+	if task.Status != workflowdomain.TaskCanceled {
+		t.Errorf("provision-a Task status = %q, want %q", task.Status, workflowdomain.TaskCanceled)
 	}
 	if server.Deployment == nil || server.Deployment.State != serverdomain.DeploymentCanceled {
 		t.Errorf("Server deployment = %+v, want state %q", server.Deployment, serverdomain.DeploymentCanceled)

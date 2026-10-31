@@ -3,16 +3,16 @@ package app
 import (
 	"context"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // activeServerWorkReader lets provisioning reject Lock without depending on operation
 // repository types. It reports only identifiers needed for an actionable conflict.
 type activeServerWorkReader struct {
-	operations     operationdomain.ExecutionRepository
-	orchestrations operationdomain.WorkflowRepository
+	operations     workflowdomain.ExecutionRepository
+	orchestrations workflowdomain.WorkflowRepository
 	tasks          provisioningdomain.ProvisioningTaskRepository
 }
 
@@ -29,7 +29,7 @@ func (r activeServerWorkReader) ActiveWork(
 		work.OperationIDs = append(work.OperationIDs, operation.ID)
 	}
 	if r.orchestrations != nil {
-		v3, _, listErr := r.orchestrations.List(ctx, operationdomain.WorkflowFilter{ServerID: serverID, ActiveOnly: true})
+		v3, _, listErr := r.orchestrations.List(ctx, workflowdomain.WorkflowFilter{ServerID: serverID, ActiveOnly: true})
 		if listErr != nil {
 			return work, listErr
 		}

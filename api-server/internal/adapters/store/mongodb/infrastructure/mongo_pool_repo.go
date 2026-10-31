@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	infradomain "github.com/maple52046/swallow/internal/infrastructure/domain"
+	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
 )
 
 // poolDoc is the MongoDB shape of a Pool. It mirrors zoneDoc but lives in its own collection so

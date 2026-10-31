@@ -4,14 +4,14 @@ import (
 	"context"
 	"encoding/json"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // platformLifecycleReader adapts durable operation history to the platform lifecycle port.
 type platformLifecycleReader struct {
-	operations     operationdomain.ExecutionRepository
-	orchestrations operationdomain.WorkflowRepository
+	operations     workflowdomain.ExecutionRepository
+	orchestrations workflowdomain.WorkflowRepository
 }
 
 func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string) (map[string]platformdomain.LifecycleSnapshot, error) {
@@ -23,13 +23,13 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 		return snapshots, nil
 	}
 
-	result, err := r.operations.List(ctx, operationdomain.ExecutionListFilter{
+	result, err := r.operations.List(ctx, workflowdomain.ExecutionListFilter{
 		PlatformIDs: platformIDs,
-		Kinds: []operationdomain.WorkflowKind{
-			operationdomain.WorkflowKindDeployKubernetes,
-			operationdomain.WorkflowKindConfigureSlurm,
-			operationdomain.WorkflowKindUninstallKubernetes,
-			operationdomain.WorkflowKindUninstallSlurm,
+		Kinds: []workflowdomain.WorkflowKind{
+			workflowdomain.WorkflowKindDeployKubernetes,
+			workflowdomain.WorkflowKindConfigureSlurm,
+			workflowdomain.WorkflowKindUninstallKubernetes,
+			workflowdomain.WorkflowKindUninstallSlurm,
 		},
 	})
 	if err != nil {
@@ -48,7 +48,7 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 			RequestedAt:     operation.RequestedAt,
 		}
 		switch operation.Kind {
-		case operationdomain.WorkflowKindDeployKubernetes, operationdomain.WorkflowKindConfigureSlurm:
+		case workflowdomain.WorkflowKindDeployKubernetes, workflowdomain.WorkflowKindConfigureSlurm:
 			// A Slurm deployment claims its targets and drives the deploying/active/failed
 			// projection the same way k0s does; only the k0s-shaped topology Intent is left
 			// nil, since deploymentIntent reads k0s role vars that Slurm does not set.
@@ -56,7 +56,7 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 			if snapshot.Deployment == nil {
 				snapshot.Deployment = projected
 			}
-		case operationdomain.WorkflowKindUninstallKubernetes, operationdomain.WorkflowKindUninstallSlurm:
+		case workflowdomain.WorkflowKindUninstallKubernetes, workflowdomain.WorkflowKindUninstallSlurm:
 			if snapshot.Uninstall == nil {
 				snapshot.Uninstall = projected
 			}
@@ -65,7 +65,7 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 	}
 
 	if r.orchestrations != nil {
-		v3, _, err := r.orchestrations.List(ctx, operationdomain.WorkflowFilter{PlatformIDs: platformIDs})
+		v3, _, err := r.orchestrations.List(ctx, workflowdomain.WorkflowFilter{PlatformIDs: platformIDs})
 		if err != nil {
 			return nil, err
 		}
@@ -74,10 +74,10 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 			expectedIDs[id] = true
 		}
 		for _, operation := range v3 {
-			isDeploy := operation.Kind == operationdomain.WorkflowKindDeployKubernetes ||
-				operation.Kind == operationdomain.WorkflowKindConfigureSlurm
-			isUninstall := operation.Kind == operationdomain.WorkflowKindUninstallKubernetes ||
-				operation.Kind == operationdomain.WorkflowKindUninstallSlurm
+			isDeploy := operation.Kind == workflowdomain.WorkflowKindDeployKubernetes ||
+				operation.Kind == workflowdomain.WorkflowKindConfigureSlurm
+			isUninstall := operation.Kind == workflowdomain.WorkflowKindUninstallKubernetes ||
+				operation.Kind == workflowdomain.WorkflowKindUninstallSlurm
 			if !expectedIDs[operation.PlatformID] || (!isDeploy && !isUninstall) {
 				continue
 			}
@@ -90,7 +90,7 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 				// projection because slurmrestd only reports compute (slurmd) nodes as members,
 				// so without the recorded controller ids the manager nodes would be invisible to
 				// the read model.
-				if operation.Kind == operationdomain.WorkflowKindConfigureSlurm {
+				if operation.Kind == workflowdomain.WorkflowKindConfigureSlurm {
 					projected.Intent = deploymentIntentSlurm(operation)
 				} else {
 					projected.Intent = deploymentIntentV3(operation)
@@ -114,7 +114,7 @@ func (r platformLifecycleReader) Read(ctx context.Context, platformIDs []string)
 // deploymentIntent narrows persisted runner variables back into Platform vocabulary. The
 // general extra-vars map stays private to Operations; malformed historical values produce
 // no deployment projection instead of a plausible but incorrect topology.
-func deploymentIntent(operation *operationdomain.ExecutionOperation) *platformdomain.LifecycleDeployment {
+func deploymentIntent(operation *workflowdomain.ExecutionOperation) *platformdomain.LifecycleDeployment {
 	roles := decodeStringMap(operation.ExtraVars["swallow_k0s_roles"])
 	if len(roles) == 0 || len(operation.TargetServerIDs) == 0 {
 		return nil
@@ -197,12 +197,12 @@ func deriveLifecycle(snapshot platformdomain.LifecycleSnapshot) platformdomain.L
 	}
 	snapshot.OperationID = latest.ID
 
-	status := operationdomain.Status(latest.Status)
+	status := workflowdomain.Status(latest.Status)
 	if isUninstall {
 		switch status {
-		case operationdomain.StatusPending, operationdomain.StatusRunning:
+		case workflowdomain.StatusPending, workflowdomain.StatusRunning:
 			snapshot.State = platformdomain.PlatformLifecycleUninstalling
-		case operationdomain.StatusSucceeded:
+		case workflowdomain.StatusSucceeded:
 			snapshot.State = platformdomain.PlatformLifecycleUninstalled
 		default:
 			snapshot.State = platformdomain.PlatformLifecycleUninstallFailed
@@ -211,9 +211,9 @@ func deriveLifecycle(snapshot platformdomain.LifecycleSnapshot) platformdomain.L
 	}
 
 	switch status {
-	case operationdomain.StatusPending, operationdomain.StatusRunning:
+	case workflowdomain.StatusPending, workflowdomain.StatusRunning:
 		snapshot.State = platformdomain.PlatformLifecycleDeploying
-	case operationdomain.StatusSucceeded:
+	case workflowdomain.StatusSucceeded:
 		snapshot.State = platformdomain.PlatformLifecycleActive
 	default:
 		snapshot.State = platformdomain.PlatformLifecycleDeployFailed
@@ -221,24 +221,24 @@ func deriveLifecycle(snapshot platformdomain.LifecycleSnapshot) platformdomain.L
 	return snapshot
 }
 
-func lifecycleStatus(status operationdomain.WorkflowStatus) string {
+func lifecycleStatus(status workflowdomain.WorkflowStatus) string {
 	switch status {
-	case operationdomain.WorkflowPending, operationdomain.WorkflowWaitingDependency:
-		return string(operationdomain.StatusPending)
-	case operationdomain.WorkflowRunning, operationdomain.WorkflowWaitingExternal, operationdomain.WorkflowCanceling:
-		return string(operationdomain.StatusRunning)
-	case operationdomain.WorkflowSucceeded:
-		return string(operationdomain.StatusSucceeded)
-	case operationdomain.WorkflowCanceled:
-		return string(operationdomain.StatusCanceled)
+	case workflowdomain.WorkflowPending, workflowdomain.WorkflowWaitingDependency:
+		return string(workflowdomain.StatusPending)
+	case workflowdomain.WorkflowRunning, workflowdomain.WorkflowWaitingExternal, workflowdomain.WorkflowCanceling:
+		return string(workflowdomain.StatusRunning)
+	case workflowdomain.WorkflowSucceeded:
+		return string(workflowdomain.StatusSucceeded)
+	case workflowdomain.WorkflowCanceled:
+		return string(workflowdomain.StatusCanceled)
 	default:
-		return string(operationdomain.StatusFailed)
+		return string(workflowdomain.StatusFailed)
 	}
 }
 
-func deploymentIntentV3(operation *operationdomain.Workflow) *platformdomain.LifecycleDeployment {
+func deploymentIntentV3(operation *workflowdomain.Workflow) *platformdomain.LifecycleDeployment {
 	extraVars, _ := operation.Intent["extraVars"].(map[string]any)
-	legacy := &operationdomain.ExecutionOperation{
+	legacy := &workflowdomain.ExecutionOperation{
 		TargetServerIDs: operation.TargetServerIDs,
 		ExtraVars:       extraVars,
 	}
@@ -253,7 +253,7 @@ func deploymentIntentV3(operation *operationdomain.Workflow) *platformdomain.Lif
 // runs both slurmctld and slurmd is a control-plane assignment that also runs workloads (its
 // slurmd compute). Returns nil when the recorded intent is incomplete, so a malformed history
 // yields no projection instead of a guessed topology.
-func deploymentIntentSlurm(operation *operationdomain.Workflow) *platformdomain.LifecycleDeployment {
+func deploymentIntentSlurm(operation *workflowdomain.Workflow) *platformdomain.LifecycleDeployment {
 	extraVars, _ := operation.Intent["extraVars"].(map[string]any)
 	// Trusted-var names owned by the Slurm deploy use case (buildSlurmVars). Referenced as
 	// literals here, like the k0s role vars above, because they are the deployment's published

@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
-	sitedomain "github.com/maple52046/swallow/internal/site/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // vmServers holds the Hypervisor and projects the registered Machine's Server after
@@ -187,9 +187,9 @@ func newVMFixture() vmFixture {
 }
 
 func vmTask(parameters enrollVirtualMachineParameters) temporalworkflow.StepExecutionInput {
-	return temporalworkflow.StepExecutionInput{OperationID: "workflow-id", Step: operationdomain.Task{
+	return temporalworkflow.StepExecutionInput{OperationID: "workflow-id", Step: workflowdomain.Task{
 		ID: "enroll-virtual-machine-lab-afde-mi308-1", Kind: enrollVirtualMachineTaskKind, Attempt: 1,
-		Parameters: parameters.toMap(), Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "hv-1"}},
+		Parameters: parameters.toMap(), Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "hv-1"}},
 	}}
 }
 
@@ -203,7 +203,7 @@ var vmParameters = enrollVirtualMachineParameters{
 func TestEnrollVirtualMachineRegistersAndKeepsBootMedia(t *testing.T) {
 	f := newVMFixture()
 	result := f.executor.Execute(context.Background(), vmTask(vmParameters))
-	if result.Status != operationdomain.TaskSucceeded {
+	if result.Status != workflowdomain.TaskSucceeded {
 		t.Fatalf("result = %+v, want success", result)
 	}
 	if want := []string{"domain", "authorize", "boot-media"}; !equalStringSlices(f.libvirt.calls, want) {
@@ -229,7 +229,7 @@ func TestEnrollVirtualMachineRegistersAndKeepsBootMedia(t *testing.T) {
 func TestEnrollVirtualMachineReusesMachine(t *testing.T) {
 	f := newVMFixture()
 	f.provider.existing = "machine-old"
-	if result := f.executor.Execute(context.Background(), vmTask(vmParameters)); result.Status != operationdomain.TaskSucceeded {
+	if result := f.executor.Execute(context.Background(), vmTask(vmParameters)); result.Status != workflowdomain.TaskSucceeded {
 		t.Fatalf("result = %+v, want success", result)
 	}
 	if len(f.provider.registrations) != 0 || len(f.provider.rewrites) != 1 {
@@ -242,7 +242,7 @@ func TestEnrollVirtualMachineRunningDomain(t *testing.T) {
 	f := newVMFixture()
 	f.libvirt.machine.State = "running"
 	result := f.executor.Execute(context.Background(), vmTask(vmParameters))
-	if result.Status != operationdomain.TaskRequiresAttention || result.Error.Code != "domain_running" || !result.Error.Retryable {
+	if result.Status != workflowdomain.TaskRequiresAttention || result.Error.Code != "domain_running" || !result.Error.Retryable {
 		t.Fatalf("result = %+v, want domain_running attention", result)
 	}
 	if len(f.provider.registrations) != 0 {
@@ -251,7 +251,7 @@ func TestEnrollVirtualMachineRunningDomain(t *testing.T) {
 
 	parameters := vmParameters
 	parameters.PowerOffRunning = true
-	if result := f.executor.Execute(context.Background(), vmTask(parameters)); result.Status != operationdomain.TaskSucceeded {
+	if result := f.executor.Execute(context.Background(), vmTask(parameters)); result.Status != workflowdomain.TaskSucceeded {
 		t.Fatalf("result with powerOffRunning = %+v, want success", result)
 	}
 	if f.libvirt.calls[len(f.libvirt.calls)-3] != "destroy" {
@@ -264,28 +264,28 @@ func TestEnrollVirtualMachineFailures(t *testing.T) {
 	cases := []struct {
 		name      string
 		arrange   func(f vmFixture)
-		status    operationdomain.TaskStatus
+		status    workflowdomain.TaskStatus
 		code      string
 		retryable bool
 	}{
 		{"domain missing", func(f vmFixture) {
 			f.libvirt.domainErr = &serverdomain.HypervisorError{Err: serverdomain.ErrDomainNotFound, Hypervisor: "tainan-ci", Domain: "x"}
-		}, operationdomain.TaskFailed, "domain_not_found", false},
+		}, workflowdomain.TaskFailed, "domain_not_found", false},
 		{"hypervisor unreachable", func(f vmFixture) {
 			f.libvirt.domainErr = &serverdomain.HypervisorError{Err: serverdomain.ErrHostUnreachable, Hypervisor: "tainan-ci"}
-		}, operationdomain.TaskRequiresAttention, "hypervisor_unreachable", true},
+		}, workflowdomain.TaskRequiresAttention, "hypervisor_unreachable", true},
 		{"unsupported architecture", func(f vmFixture) { f.libvirt.machine.Architecture = "ppc64le" },
-			operationdomain.TaskFailed, "architecture_unsupported", false},
+			workflowdomain.TaskFailed, "architecture_unsupported", false},
 		{"registration refused", func(f vmFixture) {
 			f.provider.registerErr = &provisioningdomain.ProviderError{Kind: provisioningdomain.ProviderErrorRejected, Detail: "hostname in use"}
-		}, operationdomain.TaskRequiresAttention, "machine_registration_refused", true},
+		}, workflowdomain.TaskRequiresAttention, "machine_registration_refused", true},
 		{"provisioner cannot reach the hypervisor", func(f vmFixture) {
 			f.provider.powerErr = &provisioningdomain.ProviderError{Kind: provisioningdomain.ProviderErrorUnavailable, Detail: "virsh failed"}
-		}, operationdomain.TaskRequiresAttention, "provisioner_cannot_reach_hypervisor", true},
+		}, workflowdomain.TaskRequiresAttention, "provisioner_cannot_reach_hypervisor", true},
 		{"power error state", func(f vmFixture) { f.provider.power = provisioningdomain.PowerStateError },
-			operationdomain.TaskRequiresAttention, "provisioner_cannot_reach_hypervisor", true},
+			workflowdomain.TaskRequiresAttention, "provisioner_cannot_reach_hypervisor", true},
 		{"not projected", func(f vmFixture) { f.servers.projectAfter = -1 },
-			operationdomain.TaskRequiresAttention, "server_not_projected", true},
+			workflowdomain.TaskRequiresAttention, "server_not_projected", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -316,7 +316,7 @@ func TestVirtualMachineEnrollmentLauncher(t *testing.T) {
 		t.Fatalf("Launch error = %v", err)
 	}
 	created := workflows.created
-	if accepted.WorkflowID != "workflow-new" || created.Kind != operationdomain.WorkflowKindEnrollVirtualMachines ||
+	if accepted.WorkflowID != "workflow-new" || created.Kind != workflowdomain.WorkflowKindEnrollVirtualMachines ||
 		created.Definition != virtualMachineEnrollmentDefinition || !equalStringSlices(created.TargetServerIDs, []string{"hv-1"}) {
 		t.Fatalf("created = %+v", created)
 	}
@@ -324,7 +324,7 @@ func TestVirtualMachineEnrollmentLauncher(t *testing.T) {
 		t.Fatalf("steps = %+v, want one per domain", created.Steps)
 	}
 	for _, step := range created.Steps {
-		if step.Kind != enrollVirtualMachineTaskKind || step.Executor != operationdomain.RunnerKindProvisioner || len(step.DependsOn) != 0 || step.Parameters["account"] != "ubuntu" {
+		if step.Kind != enrollVirtualMachineTaskKind || step.Executor != workflowdomain.RunnerKindProvisioner || len(step.DependsOn) != 0 || step.Parameters["account"] != "ubuntu" {
 			t.Errorf("step = %+v, want an independent provisioner Task with the effective account", step)
 		}
 	}

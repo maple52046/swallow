@@ -3,9 +3,9 @@ package app
 import (
 	"context"
 
-	infradomain "github.com/maple52046/swallow/internal/infrastructure/domain"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	sitedomain "github.com/maple52046/swallow/internal/site/domain"
+	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 )
 
 // GroupingRealizer realizes swallow-owned Zone/Pool intent in a Site's provisioner (decision 029).

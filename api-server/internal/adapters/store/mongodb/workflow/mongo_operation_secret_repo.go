@@ -11,7 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
 )
 
@@ -71,7 +71,7 @@ func (r *MongoOperationSecretRepo) Resolve(ctx context.Context, reference string
 	var doc operationSecretDoc
 	err := r.col.FindOne(ctx, bson.M{"_id": reference}).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		return nil, operationdomain.ErrWorkflowNotFound
+		return nil, workflowdomain.ErrWorkflowNotFound
 	}
 	if err != nil {
 		return nil, err

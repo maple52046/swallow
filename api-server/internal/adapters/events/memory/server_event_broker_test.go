@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 func brokerTestServer(id, siteID, provisioningState string) *serverdomain.Server {

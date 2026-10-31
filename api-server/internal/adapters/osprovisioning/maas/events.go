@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 type eventsJSON struct {

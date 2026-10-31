@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 // claimRepo is an in-memory ServerRepository and PlatformClaimStore for the decorator test; only

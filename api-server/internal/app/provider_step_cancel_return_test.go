@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // returnCanceledDeploymentStep is the internal step a canceled Workflow issues for the harness
@@ -17,9 +17,9 @@ import (
 func returnCanceledDeploymentStep() temporalworkflow.StepExecutionInput {
 	return temporalworkflow.StepExecutionInput{
 		OperationID: "operation-id", SiteID: "site-id",
-		Step: operationdomain.Task{
+		Step: workflowdomain.Task{
 			ID: "provision-server-id/" + temporalworkflow.ReturnCanceledDeploymentKind, Kind: temporalworkflow.ReturnCanceledDeploymentKind,
-			Attempt: 1, Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "server-id"}},
+			Attempt: 1, Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "server-id"}},
 		},
 	}
 }
@@ -33,30 +33,30 @@ func TestReturnCanceledDeployment(t *testing.T) {
 		name         string
 		state        provisioningdomain.MachineStatus
 		abortTo      provisioningdomain.MachineStatus
-		wantStatus   operationdomain.TaskStatus
+		wantStatus   workflowdomain.TaskStatus
 		wantAborts   int
 		wantReleases int
 		wantReason   string
 	}{
 		{
 			name: "deploying is aborted and returned to ready", state: provisioningdomain.MachineStatusDeploying,
-			abortTo: provisioningdomain.MachineStatusAllocated, wantStatus: operationdomain.TaskSucceeded, wantAborts: 1, wantReleases: 1,
+			abortTo: provisioningdomain.MachineStatusAllocated, wantStatus: workflowdomain.TaskSucceeded, wantAborts: 1, wantReleases: 1,
 		},
 		{
 			name: "allocated after an abort is returned to ready", state: provisioningdomain.MachineStatusAllocated,
-			wantStatus: operationdomain.TaskSucceeded, wantReleases: 1,
+			wantStatus: workflowdomain.TaskSucceeded, wantReleases: 1,
 		},
 		{
 			name: "a finished deployment is kept", state: provisioningdomain.MachineStatusDeployed,
-			wantStatus: operationdomain.TaskSkipped, wantReason: "deployed",
+			wantStatus: workflowdomain.TaskSkipped, wantReason: "deployed",
 		},
 		{
 			name: "a failed deployment is kept", state: provisioningdomain.MachineStatusFailed,
-			wantStatus: operationdomain.TaskSkipped, wantReason: "failed",
+			wantStatus: workflowdomain.TaskSkipped, wantReason: "failed",
 		},
 		{
 			name: "a ready Server needs nothing", state: provisioningdomain.MachineStatusReady,
-			wantStatus: operationdomain.TaskSkipped, wantReason: "already Ready",
+			wantStatus: workflowdomain.TaskSkipped, wantReason: "already Ready",
 		},
 	}
 	for _, tc := range tests {
@@ -87,9 +87,9 @@ func TestReturnCanceledDeployment(t *testing.T) {
 func releaseStep(unbindStaticIPs bool) temporalworkflow.StepExecutionInput {
 	return temporalworkflow.StepExecutionInput{
 		OperationID: "operation-id", SiteID: "site-id", ActivityAttempt: 1,
-		Step: operationdomain.Task{
+		Step: workflowdomain.Task{
 			ID: "release-server-id", Kind: "release-os", Attempt: 1,
-			Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "server-id"}},
+			Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "server-id"}},
 			Parameters: map[string]any{"request": provisioningapp.ReleaseServerInput{
 				ServerID: "server-id", UnbindStaticIPs: unbindStaticIPs,
 			}},
@@ -106,16 +106,16 @@ func TestReleaseObservesBeforeActingOnFirstAttempt(t *testing.T) {
 		name         string
 		state        provisioningdomain.MachineStatus
 		unbind       bool
-		wantStatus   operationdomain.TaskStatus
+		wantStatus   workflowdomain.TaskStatus
 		wantCode     string
 		wantReleases int
 	}{
-		{name: "already ready", state: provisioningdomain.MachineStatusReady, wantStatus: operationdomain.TaskSucceeded},
+		{name: "already ready", state: provisioningdomain.MachineStatusReady, wantStatus: workflowdomain.TaskSucceeded},
 		{
 			name: "already ready with static IP cleanup requested", state: provisioningdomain.MachineStatusReady, unbind: true,
-			wantStatus: operationdomain.TaskFailed, wantCode: "release_cleanup_not_applied",
+			wantStatus: workflowdomain.TaskFailed, wantCode: "release_cleanup_not_applied",
 		},
-		{name: "deployed is released", state: provisioningdomain.MachineStatusDeployed, wantStatus: operationdomain.TaskSucceeded, wantReleases: 1},
+		{name: "deployed is released", state: provisioningdomain.MachineStatusDeployed, wantStatus: workflowdomain.TaskSucceeded, wantReleases: 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -144,7 +144,7 @@ func TestReturnCanceledDeploymentStopsWhenAbortDoesNotTakeEffect(t *testing.T) {
 
 	result := executor.Execute(context.Background(), returnCanceledDeploymentStep())
 
-	if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil ||
+	if result.Status != workflowdomain.TaskRequiresAttention || result.Error == nil ||
 		result.Error.Code != "canceled_deployment_still_in_progress" {
 		t.Fatalf("result = %+v, want requires_attention canceled_deployment_still_in_progress", result)
 	}

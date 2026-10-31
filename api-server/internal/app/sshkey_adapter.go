@@ -11,12 +11,12 @@ import (
 
 	"github.com/maple52046/swallow/internal/adapters/keys/openssh"
 	sshkeystore "github.com/maple52046/swallow/internal/adapters/store/mongodb/sshkey"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
+	sshkeyapp "github.com/maple52046/swallow/internal/core/sshkey/application"
+	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
-	sitedomain "github.com/maple52046/swallow/internal/site/domain"
-	sshkeyapp "github.com/maple52046/swallow/internal/sshkey/application"
-	sshkeydomain "github.com/maple52046/swallow/internal/sshkey/domain"
 )
 
 // newSSHKeyService assembles the SSH Key service (decision 039) over the process's MongoDB, sealer,
@@ -70,13 +70,13 @@ func (s deploymentKeySource) HasDeploymentKey(ctx context.Context) (bool, error)
 // the logins that set a Server Default User use the same port as automation. A Site without an
 // Automation Configuration reports 0 (the adapter then uses 22) rather than failing the request.
 type siteSSHPorts struct {
-	configurations operationdomain.AutomationConfigurationRepository
+	configurations workflowdomain.AutomationConfigurationRepository
 }
 
 // SSHPort returns the Site's configured SSH port, or 0 when the Site has none.
 func (p siteSSHPorts) SSHPort(ctx context.Context, siteID string) (int, error) {
 	configuration, err := p.configurations.FindBySiteID(ctx, siteID)
-	if errors.Is(err, operationdomain.ErrAutomationConfigNotFound) {
+	if errors.Is(err, workflowdomain.ErrAutomationConfigNotFound) {
 		return 0, nil
 	}
 	if err != nil {

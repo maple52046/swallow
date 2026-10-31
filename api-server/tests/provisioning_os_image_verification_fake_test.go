@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // fakeOSImageVerificationRepo is an in-memory OSImageVerificationRepository for HTTP tests. It

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // InspectNetwork reads live machine interfaces and the provider subnets compatible

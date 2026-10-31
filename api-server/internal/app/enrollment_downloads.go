@@ -6,7 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
 )
 
 // The unauthenticated Server Enrollment downloads (decision 053, contract server-enrollment.md).

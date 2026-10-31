@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 type playbookManifest struct {
@@ -52,7 +52,7 @@ func LoadManifestCatalog(manifestPath, projectRoot string) (*ManifestCatalog, er
 		}
 		clean := filepath.Clean(entry.Path)
 		if filepath.IsAbs(clean) || clean == ".." || len(clean) >= 3 && clean[:3] == ".."+string(filepath.Separator) {
-			return nil, fmt.Errorf("%w: %q escapes project root", operationdomain.ErrPlaybookNotAllowed, entry.Path)
+			return nil, fmt.Errorf("%w: %q escapes project root", workflowdomain.ErrPlaybookNotAllowed, entry.Path)
 		}
 		full := filepath.Join(root, clean)
 		if info, statErr := os.Stat(full); statErr != nil || info.IsDir() {
@@ -67,7 +67,7 @@ func LoadManifestCatalog(manifestPath, projectRoot string) (*ManifestCatalog, er
 func (c *ManifestCatalog) Resolve(name string) (string, error) {
 	path, ok := c.paths[name]
 	if !ok {
-		return "", fmt.Errorf("%w: %s", operationdomain.ErrPlaybookNotAllowed, name)
+		return "", fmt.Errorf("%w: %s", workflowdomain.ErrPlaybookNotAllowed, name)
 	}
 	return path, nil
 }

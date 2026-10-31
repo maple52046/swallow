@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/hostautomation/ansible"
-	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 )
 
 // Every catalog kind must install and uninstall through a playbook the shipped manifest registers,

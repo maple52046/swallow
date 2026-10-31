@@ -9,8 +9,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
-	"github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	"github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
 )
 
@@ -35,9 +35,9 @@ func TestWorkflowCreateRollsBackItsSecretsWhenTheRecordFails(t *testing.T) {
 
 	input := application.CreateWorkflowInput{
 		ID:   "8b9f2f8e-5a4c-4c1e-9f0e-1f2a3b4c5d6e",
-		Kind: operationdomain.WorkflowKindDeployOS, Definition: "deploy-os", DefinitionVersion: 1,
+		Kind: workflowdomain.WorkflowKindDeployOS, Definition: "deploy-os", DefinitionVersion: 1,
 		SiteID:       "site-1",
-		Steps:        []operationdomain.Task{{ID: "provision-os", Kind: "provision-os", Name: "Provision OS"}},
+		Steps:        []workflowdomain.Task{{ID: "provision-os", Kind: "provision-os", Name: "Provision OS"}},
 		SecretValues: map[string]any{"password": "first"},
 	}
 	if _, err := service.Create(ctx, input); err != nil {

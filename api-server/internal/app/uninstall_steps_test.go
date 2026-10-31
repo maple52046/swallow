@@ -3,18 +3,18 @@ package app
 import (
 	"testing"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-func stepByID(steps []operationdomain.Task, id string) (operationdomain.Task, bool) {
+func stepByID(steps []workflowdomain.Task, id string) (workflowdomain.Task, bool) {
 	for _, step := range steps {
 		if step.ID == id {
 			return step, true
 		}
 	}
-	return operationdomain.Task{}, false
+	return workflowdomain.Task{}, false
 }
 
 // TestUninstallStepsReleaseSkipsUninstall verifies the release path releases every server
@@ -30,7 +30,7 @@ func TestUninstallStepsReleaseSkipsUninstall(t *testing.T) {
 		ReleaseOptions:  platformdomain.ServerReleaseOptions{Erase: true},
 		DeleteRecord:    true,
 	}
-	prepared := &operationapp.PreparedAnsibleStep{SiteID: "site-a"}
+	prepared := &workflowapp.PreparedAnsibleStep{SiteID: "site-a"}
 
 	steps := uninstallSteps(launch, prepared, "op-1", "Uninstall Slurm Platform")
 
@@ -42,7 +42,7 @@ func TestUninstallStepsReleaseSkipsUninstall(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing release step for %s", serverID)
 		}
-		if release.Kind != "release-os" || release.Executor != operationdomain.RunnerKindProvisioner {
+		if release.Kind != "release-os" || release.Executor != workflowdomain.RunnerKindProvisioner {
 			t.Errorf("release step = %+v, want release-os/provisioner", release)
 		}
 		if release.Job != jobReleaseServers {
@@ -56,7 +56,7 @@ func TestUninstallStepsReleaseSkipsUninstall(t *testing.T) {
 	if !ok {
 		t.Fatal("release path must include the complete-uninstall finalize step")
 	}
-	if finalize.Kind != "complete-uninstall" || finalize.Executor != operationdomain.RunnerKindInternal {
+	if finalize.Kind != "complete-uninstall" || finalize.Executor != workflowdomain.RunnerKindInternal {
 		t.Errorf("finalize step = %+v, want complete-uninstall/internal", finalize)
 	}
 	if finalize.Job != jobFinalizeUninstall {
@@ -92,8 +92,8 @@ func TestUninstallStepsKeepServersUsesAnsibleStep(t *testing.T) {
 		TargetServerIDs: []string{"srv-1"},
 		ReleaseServers:  false,
 	}
-	prepared := &operationapp.PreparedAnsibleStep{
-		SiteID: "site-a", Playbook: "uninstall-kubernetes", Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "srv-1"}},
+	prepared := &workflowapp.PreparedAnsibleStep{
+		SiteID: "site-a", Playbook: "uninstall-kubernetes", Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "srv-1"}},
 	}
 
 	steps := uninstallSteps(launch, prepared, "op-1", "Uninstall k0s Platform")
@@ -101,7 +101,7 @@ func TestUninstallStepsKeepServersUsesAnsibleStep(t *testing.T) {
 	if len(steps) != 1 {
 		t.Fatalf("keep-servers uninstall = %d steps, want 1", len(steps))
 	}
-	if steps[0].ID != uninstallPlatformStepID || steps[0].Executor != operationdomain.RunnerKindAnsible {
+	if steps[0].ID != uninstallPlatformStepID || steps[0].Executor != workflowdomain.RunnerKindAnsible {
 		t.Fatalf("step = %+v, want the uninstall-platform ansible step", steps[0])
 	}
 	if steps[0].Job != jobUninstallPlatform {

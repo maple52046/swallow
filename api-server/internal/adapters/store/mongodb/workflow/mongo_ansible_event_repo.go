@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // MongoAnsibleEventRepo is the durable, append-only store of per-task Ansible events streamed
@@ -49,7 +49,7 @@ func NewMongoAnsibleEventRepo(db *mongo.Database) (*MongoAnsibleEventRepo, error
 // AppendEvents idempotently upserts the given events by their deterministic (runId, seq) id, so
 // re-streaming an overlapping window (after a worker restart or a retry) never duplicates a row.
 // An empty slice is a no-op.
-func (r *MongoAnsibleEventRepo) AppendEvents(ctx context.Context, events []operationdomain.StreamedTaskEvent) error {
+func (r *MongoAnsibleEventRepo) AppendEvents(ctx context.Context, events []workflowdomain.StreamedTaskEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -82,7 +82,7 @@ func (r *MongoAnsibleEventRepo) AppendEvents(ctx context.Context, events []opera
 
 // ListEvents returns a run's streamed task events in ascending ordinal order. A run with no
 // streamed events yet returns an empty slice, not an error.
-func (r *MongoAnsibleEventRepo) ListEvents(ctx context.Context, runID string) ([]operationdomain.TaskEvent, error) {
+func (r *MongoAnsibleEventRepo) ListEvents(ctx context.Context, runID string) ([]workflowdomain.TaskEvent, error) {
 	cursor, err := r.col.Find(ctx, bson.M{"runId": runID}, options.Find().SetSort(bson.D{{Key: "seq", Value: 1}}))
 	if err != nil {
 		return nil, err
@@ -92,9 +92,9 @@ func (r *MongoAnsibleEventRepo) ListEvents(ctx context.Context, runID string) ([
 	if err := cursor.All(ctx, &docs); err != nil {
 		return nil, err
 	}
-	events := make([]operationdomain.TaskEvent, 0, len(docs))
+	events := make([]workflowdomain.TaskEvent, 0, len(docs))
 	for i := range docs {
-		events = append(events, operationdomain.TaskEvent{
+		events = append(events, workflowdomain.TaskEvent{
 			Play:      docs[i].Play,
 			Task:      docs[i].Task,
 			Host:      docs[i].Host,

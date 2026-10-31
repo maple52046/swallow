@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 func TestServerLock_ImmediatelyUpdatesProjectionAndUnlocks(t *testing.T) {

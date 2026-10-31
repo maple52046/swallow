@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strconv"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // This file implements provisioningdomain.SSHKeyRegistrar against MAAS account SSH keys

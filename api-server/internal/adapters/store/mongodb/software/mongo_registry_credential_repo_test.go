@@ -13,8 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
-	softwaredomain "github.com/maple52046/swallow/internal/software/domain"
 )
 
 // credentialTestDatabase connects to SWALLOW_TEST_MONGO_URI and returns a throwaway database dropped

@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // inspectionProvider is a scripted provisioner for the inspect-hardware Tasks. Inspect and Abort
@@ -138,9 +138,9 @@ func inspectionExecutor(provider provisioningdomain.OSProvisioningProvider) prov
 }
 
 func inspectionTask(kind string, parameters map[string]any) temporalworkflow.StepExecutionInput {
-	return temporalworkflow.StepExecutionInput{OperationID: "workflow-id", Step: operationdomain.Task{
+	return temporalworkflow.StepExecutionInput{OperationID: "workflow-id", Step: workflowdomain.Task{
 		ID: kind + "-server-id", Kind: kind, Attempt: 1, Parameters: parameters,
-		Targets: []operationdomain.ResourceReference{{Kind: "server", ID: "server-id"}},
+		Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "server-id"}},
 	}}
 }
 
@@ -152,7 +152,7 @@ func TestWaitEnrollmentSettled(t *testing.T) {
 		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{enrolling}}
 		result := inspectionExecutor(provider).Execute(context.Background(),
 			inspectionTask(waitEnrollmentTaskKind, map[string]any{skipEnrollmentWaitParameter: true}))
-		if result.Status != operationdomain.TaskSucceeded || provider.settles != 1 {
+		if result.Status != workflowdomain.TaskSucceeded || provider.settles != 1 {
 			t.Errorf("result = %+v after %d readings, want success after one reading", result, provider.settles)
 		}
 	})
@@ -160,7 +160,7 @@ func TestWaitEnrollmentSettled(t *testing.T) {
 		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{noDriverEnrolling}}
 		result := inspectionExecutor(provider).Execute(context.Background(),
 			inspectionTask(waitEnrollmentTaskKind, map[string]any{skipEnrollmentWaitParameter: true}))
-		if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil ||
+		if result.Status != workflowdomain.TaskRequiresAttention || result.Error == nil ||
 			result.Error.Code != "power_configuration_required" || !result.Error.Retryable {
 			t.Errorf("result = %+v, want retryable power_configuration_required attention", result)
 		}
@@ -172,7 +172,7 @@ func TestWaitEnrollmentSettled(t *testing.T) {
 		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{manual}}
 		result := inspectionExecutor(provider).Execute(context.Background(),
 			inspectionTask(waitEnrollmentTaskKind, map[string]any{skipEnrollmentWaitParameter: true}))
-		if result.Status != operationdomain.TaskSucceeded {
+		if result.Status != workflowdomain.TaskSucceeded {
 			t.Errorf("result = %+v, want success: an operator can switch a manual driver", result)
 		}
 	})
@@ -180,21 +180,21 @@ func TestWaitEnrollmentSettled(t *testing.T) {
 		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{enrolling, settled, settled}}
 		input := waitTask()
 		input.Step.Attempt = 2
-		if result := inspectionExecutor(provider).Execute(context.Background(), input); result.Status != operationdomain.TaskSucceeded || provider.settles != 3 {
+		if result := inspectionExecutor(provider).Execute(context.Background(), input); result.Status != workflowdomain.TaskSucceeded || provider.settles != 3 {
 			t.Errorf("result = %+v after %d readings, want success after 3 readings", result, provider.settles)
 		}
 	})
 	t.Run("two consecutive settled readings are needed", func(t *testing.T) {
 		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{enrolling, settled, enrolling, settled, settled}}
 		result := inspectionExecutor(provider).Execute(context.Background(), waitTask())
-		if result.Status != operationdomain.TaskSucceeded || provider.settles != 5 {
+		if result.Status != workflowdomain.TaskSucceeded || provider.settles != 5 {
 			t.Errorf("result = %+v after %d readings, want success after 5", result, provider.settles)
 		}
 	})
 	t.Run("an unobservable power-off asks for a Power Configuration without waiting for the timeout", func(t *testing.T) {
 		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{noDriverEnrolling, unobservable, unobservable}}
 		result := inspectionExecutor(provider).Execute(context.Background(), waitTask())
-		if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil ||
+		if result.Status != workflowdomain.TaskRequiresAttention || result.Error == nil ||
 			result.Error.Code != "power_configuration_required" || !result.Error.Retryable || provider.settles != 3 {
 			t.Fatalf("result = %+v after %d readings, want retryable power_configuration_required after 3", result, provider.settles)
 		}
@@ -205,14 +205,14 @@ func TestWaitEnrollmentSettled(t *testing.T) {
 	t.Run("a single unobservable reading is not enough", func(t *testing.T) {
 		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{unobservable, settled, settled}}
 		result := inspectionExecutor(provider).Execute(context.Background(), waitTask())
-		if result.Status != operationdomain.TaskSucceeded {
+		if result.Status != workflowdomain.TaskSucceeded {
 			t.Errorf("result = %+v, want success once the power-off was observed", result)
 		}
 	})
 	t.Run("an enrollment that never settles asks for attention", func(t *testing.T) {
 		provider := &inspectionProvider{observations: []provisioningdomain.EnrollmentObservation{enrolling}}
 		result := inspectionExecutor(provider).Execute(context.Background(), waitTask())
-		if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil ||
+		if result.Status != workflowdomain.TaskRequiresAttention || result.Error == nil ||
 			result.Error.Code != "enrollment_not_settled" || !result.Error.Retryable {
 			t.Errorf("result = %+v, want retryable enrollment_not_settled attention", result)
 		}
@@ -221,7 +221,7 @@ func TestWaitEnrollmentSettled(t *testing.T) {
 		provider := &cancellationProvider{}
 		result := inspectionExecutor(provider).Execute(context.Background(),
 			inspectionTask(waitEnrollmentTaskKind, map[string]any{skipEnrollmentWaitParameter: false}))
-		if result.Status != operationdomain.TaskSucceeded {
+		if result.Status != workflowdomain.TaskSucceeded {
 			t.Errorf("result = %+v, want success", result)
 		}
 	})
@@ -238,7 +238,7 @@ func TestInspectServer(t *testing.T) {
 			},
 		}
 		result := inspectionExecutor(provider).Execute(context.Background(), inspectionTask(inspectTaskKind, nil))
-		if result.Status != operationdomain.TaskSucceeded || provider.inspects != 1 || provider.aborts != 0 {
+		if result.Status != workflowdomain.TaskSucceeded || provider.inspects != 1 || provider.aborts != 0 {
 			t.Errorf("result = %+v (%d inspects, %d aborts), want success after one inspect", result, provider.inspects, provider.aborts)
 		}
 	})
@@ -250,7 +250,7 @@ func TestInspectServer(t *testing.T) {
 		executor := inspectionExecutor(provider)
 		executor.inspectionAttempts = 3
 		result := executor.Execute(context.Background(), inspectionTask(inspectTaskKind, nil))
-		if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil ||
+		if result.Status != workflowdomain.TaskRequiresAttention || result.Error == nil ||
 			result.Error.Code != "inspect_pxe_unreached" || !result.Error.Retryable {
 			t.Fatalf("result = %+v, want retryable inspect_pxe_unreached attention", result)
 		}
@@ -286,7 +286,7 @@ func TestInspectServer(t *testing.T) {
 		executor := inspectionExecutor(provider)
 		executor.inspectionAttempts = 2
 		result := executor.Execute(context.Background(), inspectionTask(inspectTaskKind, nil))
-		if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil || result.Error.Code != "inspect_failed" {
+		if result.Status != workflowdomain.TaskRequiresAttention || result.Error == nil || result.Error.Code != "inspect_failed" {
 			t.Fatalf("result = %+v, want inspect_failed attention", result)
 		}
 		if provider.inspects != 2 || provider.aborts != 0 {
@@ -305,7 +305,7 @@ func TestInspectServer(t *testing.T) {
 		executor := inspectionExecutor(provider)
 		executor.inspectionStallWait = time.Hour
 		result := executor.Execute(context.Background(), inspectionTask(inspectTaskKind, nil))
-		if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil || result.Error.Code != "inspect_interrupted" {
+		if result.Status != workflowdomain.TaskRequiresAttention || result.Error == nil || result.Error.Code != "inspect_interrupted" {
 			t.Fatalf("result = %+v, want inspect_interrupted attention", result)
 		}
 		if provider.inspects != 1 {
@@ -321,7 +321,7 @@ func TestInspectServer(t *testing.T) {
 			},
 		}
 		result := inspectionExecutor(provider).Execute(context.Background(), inspectionTask(inspectTaskKind, nil))
-		if result.Status != operationdomain.TaskSucceeded || provider.inspects != 0 {
+		if result.Status != workflowdomain.TaskSucceeded || provider.inspects != 0 {
 			t.Errorf("result = %+v after %d inspects, want success without a second inspection", result, provider.inspects)
 		}
 	})
@@ -333,7 +333,7 @@ func TestInspectServer(t *testing.T) {
 			provider := &inspectionProvider{status: provisioningdomain.MachineStatusReady}
 			result := inspectionExecutor(provider).Execute(context.Background(),
 				inspectionTask(inspectTaskKind, map[string]any{inspectionOriginParameter: string(origin)}))
-			if result.Status != operationdomain.TaskSucceeded || provider.inspects != wantInspects {
+			if result.Status != workflowdomain.TaskSucceeded || provider.inspects != wantInspects {
 				t.Errorf("%s: result = %+v after %d inspects, want success after %d", origin, result, provider.inspects, wantInspects)
 			}
 		}
@@ -343,7 +343,7 @@ func TestInspectServer(t *testing.T) {
 		executor := inspectionExecutor(provider)
 		executor.protection = stubMutationGuard{err: &serverdomain.ServerLockedError{Name: "gpu-07"}}
 		result := executor.Execute(context.Background(), inspectionTask(inspectTaskKind, nil))
-		if result.Status != operationdomain.TaskRequiresAttention || result.Error == nil || result.Error.Code != "target_locked" || provider.inspects != 0 {
+		if result.Status != workflowdomain.TaskRequiresAttention || result.Error == nil || result.Error.Code != "target_locked" || provider.inspects != 0 {
 			t.Errorf("result = %+v after %d inspects, want target_locked attention and no inspect", result, provider.inspects)
 		}
 	})
@@ -354,9 +354,9 @@ func TestInspectServer(t *testing.T) {
 // enabled setting whose Boot ISO has no URL is passed by id to the use case, whose refusal (the
 // method needs a URL or the file) fails retryably so the operator can fix it and retry.
 func TestEnsureBootMediaResolvesLive(t *testing.T) {
-	live := temporalworkflow.StepExecutionInput{Step: operationdomain.Task{
+	live := temporalworkflow.StepExecutionInput{Step: workflowdomain.Task{
 		ID: "ensure-boot-media-srv", Kind: ensureBootMediaTaskKind,
-		Targets:    []operationdomain.ResourceReference{{Kind: "server", ID: "srv"}},
+		Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: "srv"}},
 		Parameters: map[string]any{resolveBootMediaLiveParameter: true},
 	}}
 	cases := []struct {
@@ -383,12 +383,12 @@ func TestEnsureBootMediaResolvesLive(t *testing.T) {
 			}
 			result := executor.Execute(context.Background(), live)
 			if tc.wantCode != "" {
-				if result.Status != operationdomain.TaskFailed || result.Error == nil || result.Error.Code != tc.wantCode || !result.Error.Retryable {
+				if result.Status != workflowdomain.TaskFailed || result.Error == nil || result.Error.Code != tc.wantCode || !result.Error.Retryable {
 					t.Errorf("result = %+v, want retryable %s", result, tc.wantCode)
 				}
 				return
 			}
-			if result.Status != operationdomain.TaskSucceeded {
+			if result.Status != workflowdomain.TaskSucceeded {
 				t.Fatalf("result = %+v, want success", result)
 			}
 			if called := ensurer.serverID != ""; called != tc.wantCalls || ensurer.isoURL != tc.wantISO {

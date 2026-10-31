@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // Time synchronization (decision 065). Every provision-os Task is followed by a configure-ntp Task
@@ -47,7 +47,7 @@ const (
 // Task, so a Site whose automation cannot run refuses the deployment at acceptance.
 type ntpStepPlanner struct {
 	server     string
-	operations *operationapp.ExecutionService
+	operations *workflowapp.ExecutionService
 }
 
 // ntpTaskInput places one time Task inside the Workflow being accepted.
@@ -77,7 +77,7 @@ func (p ntpStepPlanner) servers() []string {
 // only on that Server's provision-<serverId>, which already proved SSH. It returns
 // provisioningdomain.ErrNTPServerMissing when the installation has no NTP server, and nil when
 // the planner is unwired or there is nothing to provision.
-func (p ntpStepPlanner) configureTasks(ctx context.Context, operationID, requestedBy, job string, provisionedServerIDs []string) ([]operationdomain.Task, error) {
+func (p ntpStepPlanner) configureTasks(ctx context.Context, operationID, requestedBy, job string, provisionedServerIDs []string) ([]workflowdomain.Task, error) {
 	if p.operations == nil || len(provisionedServerIDs) == 0 {
 		return nil, nil
 	}
@@ -85,13 +85,13 @@ func (p ntpStepPlanner) configureTasks(ctx context.Context, operationID, request
 	if len(servers) == 0 {
 		return nil, provisioningdomain.ErrNTPServerMissing
 	}
-	tasks := make([]operationdomain.Task, 0, len(provisionedServerIDs))
+	tasks := make([]workflowdomain.Task, 0, len(provisionedServerIDs))
 	for _, serverID := range provisionedServerIDs {
 		task, err := p.task(ctx, ntpTaskInput{
 			OperationID: operationID, StepID: ntpStepPrefix + serverID, Job: job,
 			ServerIDs: []string{serverID}, DependsOn: []string{"provision-" + serverID},
 			ProvisionFirst: true, RequestedBy: requestedBy,
-		}, operationdomain.WorkflowKindConfigureNTP, ntpPlaybook, "Configure time synchronization",
+		}, workflowdomain.WorkflowKindConfigureNTP, ntpPlaybook, "Configure time synchronization",
 			map[string]any{ntpServersVar: servers})
 		if err != nil {
 			return nil, err
@@ -123,21 +123,21 @@ func (p ntpStepPlanner) withCheckVars(trustedVars map[string]any, mode platformd
 func (p ntpStepPlanner) task(
 	ctx context.Context,
 	input ntpTaskInput,
-	kind operationdomain.WorkflowKind,
+	kind workflowdomain.WorkflowKind,
 	playbook, name string,
 	trustedVars map[string]any,
-) (*operationdomain.Task, error) {
-	prepared, err := p.operations.PrepareAnsibleStep(ctx, operationapp.CreateExecutionInput{
+) (*workflowdomain.Task, error) {
+	prepared, err := p.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: string(kind), PlaybookName: playbook, Intent: name,
 		TargetServerIDs: input.ServerIDs, TrustedVars: trustedVars, RequestedBy: input.RequestedBy,
 	}, input.OperationID, input.ProvisionFirst)
 	if err != nil {
 		return nil, err
 	}
-	return &operationdomain.Task{
+	return &workflowdomain.Task{
 		ID: input.StepID, Kind: "ansible-playbook", Name: name,
 		Job:        input.Job,
-		Executor:   operationdomain.RunnerKindAnsible,
+		Executor:   workflowdomain.RunnerKindAnsible,
 		DependsOn:  append([]string(nil), input.DependsOn...),
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},

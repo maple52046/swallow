@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 )
 
@@ -60,8 +60,8 @@ func TestSetConnectionVarsResolvesUserPerHost(t *testing.T) {
 	inventory := inventoryWith(map[string]string{"host-a": "10.0.0.1", "host-b": "10.0.0.2"})
 
 	runner.setConnectionVars(context.Background(), inventory,
-		&operationdomain.AutomationConfiguration{SSHUser: "cloud-user", SSHPort: 22},
-		operationdomain.AutomationCredential{SSHPrivateKey: testKeyPEM(t)})
+		&workflowdomain.AutomationConfiguration{SSHUser: "cloud-user", SSHPort: 22},
+		workflowdomain.AutomationCredential{SSHPrivateKey: testKeyPEM(t)})
 
 	if got := userOf(inventory, "host-a"); got != "cloud-user" {
 		t.Errorf("host-a ansible_user = %v, want cloud-user", got)
@@ -78,8 +78,8 @@ func TestSetConnectionVarsFallsBackToSiteUserWithoutProber(t *testing.T) {
 	inventory := inventoryWith(map[string]string{"host-a": "10.0.0.1"})
 
 	runner.setConnectionVars(context.Background(), inventory,
-		&operationdomain.AutomationConfiguration{SSHUser: "cloud-user", SSHPort: 22},
-		operationdomain.AutomationCredential{SSHPrivateKey: testKeyPEM(t)})
+		&workflowdomain.AutomationConfiguration{SSHUser: "cloud-user", SSHPort: 22},
+		workflowdomain.AutomationCredential{SSHPrivateKey: testKeyPEM(t)})
 
 	if got := userOf(inventory, "host-a"); got != "cloud-user" {
 		t.Errorf("host-a ansible_user = %v, want cloud-user (site fallback)", got)
@@ -96,8 +96,8 @@ func TestSetConnectionVarsUsesImageDefaultUserWithoutProbing(t *testing.T) {
 	inventory["_meta"].(map[string]any)["hostvars"].(map[string]any)["host-a"].(map[string]any)["image_default_user"] = "rocky"
 
 	runner.setConnectionVars(context.Background(), inventory,
-		&operationdomain.AutomationConfiguration{SSHUser: "ubuntu", SSHPort: 22},
-		operationdomain.AutomationCredential{SSHPrivateKey: testKeyPEM(t)})
+		&workflowdomain.AutomationConfiguration{SSHUser: "ubuntu", SSHPort: 22},
+		workflowdomain.AutomationCredential{SSHPrivateKey: testKeyPEM(t)})
 
 	if got := userOf(inventory, "host-a"); got != "rocky" {
 		t.Errorf("host-a ansible_user = %v, want the image default user rocky", got)
@@ -116,8 +116,8 @@ func TestSetConnectionVarsPrefersServerDefaultUser(t *testing.T) {
 	vars["image_default_user"] = "ubuntu"
 
 	runner.setConnectionVars(context.Background(), inventory,
-		&operationdomain.AutomationConfiguration{SSHUser: "ubuntu", SSHPort: 22},
-		operationdomain.AutomationCredential{SSHPrivateKey: testKeyPEM(t)})
+		&workflowdomain.AutomationConfiguration{SSHUser: "ubuntu", SSHPort: 22},
+		workflowdomain.AutomationCredential{SSHPrivateKey: testKeyPEM(t)})
 
 	if got := userOf(inventory, "host-a"); got != "amd" {
 		t.Errorf("host-a ansible_user = %v, want the Server Default User amd", got)

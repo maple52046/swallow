@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
-	serverdomain "github.com/maple52046/swallow/internal/server/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
 // exporterOwnerResolver resolves a server's effective exporter owner from its lock state

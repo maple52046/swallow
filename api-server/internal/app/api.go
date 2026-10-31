@@ -42,37 +42,37 @@ import (
 	sitestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/site"
 	softwarestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/software"
 	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
-	apikeyapp "github.com/maple52046/swallow/internal/apikey/application"
-	apikeydelivery "github.com/maple52046/swallow/internal/apikey/delivery"
-	authapp "github.com/maple52046/swallow/internal/auth/application"
-	authdelivery "github.com/maple52046/swallow/internal/auth/delivery"
-	discoveryapp "github.com/maple52046/swallow/internal/discovery/application"
-	discoverydelivery "github.com/maple52046/swallow/internal/discovery/delivery"
-	infrastructureapp "github.com/maple52046/swallow/internal/infrastructure/application"
-	infrastructuredelivery "github.com/maple52046/swallow/internal/infrastructure/delivery"
-	monitoringapp "github.com/maple52046/swallow/internal/monitoring/application"
-	monitoringdelivery "github.com/maple52046/swallow/internal/monitoring/delivery"
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdelivery "github.com/maple52046/swallow/internal/operation/delivery"
-	overviewapp "github.com/maple52046/swallow/internal/overview/application"
-	overviewdelivery "github.com/maple52046/swallow/internal/overview/delivery"
-	platformapp "github.com/maple52046/swallow/internal/platform/application"
-	platformdelivery "github.com/maple52046/swallow/internal/platform/delivery"
-	provisioningapp "github.com/maple52046/swallow/internal/provisioning/application"
-	provisioningdelivery "github.com/maple52046/swallow/internal/provisioning/delivery"
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
-	serverapp "github.com/maple52046/swallow/internal/server/application"
-	serverdelivery "github.com/maple52046/swallow/internal/server/delivery"
+	apikeyapp "github.com/maple52046/swallow/internal/core/apikey/application"
+	apikeydelivery "github.com/maple52046/swallow/internal/core/apikey/delivery"
+	authapp "github.com/maple52046/swallow/internal/core/auth/application"
+	authdelivery "github.com/maple52046/swallow/internal/core/auth/delivery"
+	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
+	discoverydelivery "github.com/maple52046/swallow/internal/core/discovery/delivery"
+	infrastructureapp "github.com/maple52046/swallow/internal/core/infrastructure/application"
+	infrastructuredelivery "github.com/maple52046/swallow/internal/core/infrastructure/delivery"
+	monitoringapp "github.com/maple52046/swallow/internal/core/monitoring/application"
+	monitoringdelivery "github.com/maple52046/swallow/internal/core/monitoring/delivery"
+	overviewapp "github.com/maple52046/swallow/internal/core/overview/application"
+	overviewdelivery "github.com/maple52046/swallow/internal/core/overview/delivery"
+	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
+	platformdelivery "github.com/maple52046/swallow/internal/core/platform/delivery"
+	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdelivery "github.com/maple52046/swallow/internal/core/provisioning/delivery"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverapp "github.com/maple52046/swallow/internal/core/server/application"
+	serverdelivery "github.com/maple52046/swallow/internal/core/server/delivery"
+	siteapp "github.com/maple52046/swallow/internal/core/site/application"
+	sitedelivery "github.com/maple52046/swallow/internal/core/site/delivery"
+	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
+	softwaredelivery "github.com/maple52046/swallow/internal/core/software/delivery"
+	sshkeydelivery "github.com/maple52046/swallow/internal/core/sshkey/delivery"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdelivery "github.com/maple52046/swallow/internal/core/workflow/delivery"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	"github.com/maple52046/swallow/internal/shared/version"
-	siteapp "github.com/maple52046/swallow/internal/site/application"
-	sitedelivery "github.com/maple52046/swallow/internal/site/delivery"
-	softwareapp "github.com/maple52046/swallow/internal/software/application"
-	softwaredelivery "github.com/maple52046/swallow/internal/software/delivery"
-	sshkeydelivery "github.com/maple52046/swallow/internal/sshkey/delivery"
 	"github.com/maple52046/swallow/modules/platform/platformapi"
 	"github.com/maple52046/swallow/modules/software/docker-ce/dockerengine"
 )
@@ -379,7 +379,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// Automation readers get the effective credential (the Deployment Key, decision 041) and the
 	// derived credential source; the configuration service reads the plain repository and derives
 	// the same source itself, because it reports what is stored and never needs key material.
-	effectiveAutomation := operationapp.NewEffectiveAutomationConfigurations(automationRepo, deploymentKeys)
+	effectiveAutomation := workflowapp.NewEffectiveAutomationConfigurations(automationRepo, deploymentKeys)
 	// Server Default User (decision 045): setting one logs in to the host directly — once with an
 	// optional one-time password to install the Deployment Key, then with the key to verify — on the
 	// Site's SSH port, behind the live Server Lock guard.
@@ -418,16 +418,16 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("ansible event repo init: %w", err)
 	}
-	operationService := operationapp.NewExecutionService(
+	operationService := workflowapp.NewExecutionService(
 		operationRepo, serverRepo, effectiveAutomation, catalog, runner, ansibleEventRepo,
 		platformapp.NewPolicyChecker(platformRepo, serverRepo),
 		serverProtection,
 	)
-	automationService := operationapp.NewAutomationConfigurationService(
+	automationService := workflowapp.NewAutomationConfigurationService(
 		automationRepo, siteRepo, catalog,
 	)
 	automationService.AttachDeploymentKeys(deploymentKeys)
-	orchestrationService := operationapp.NewWorkflowService(
+	orchestrationService := workflowapp.NewWorkflowService(
 		transactor, orchestrationRepo, temporalworkflow.NewController(temporalClient), operationSecretRepo,
 	)
 	resourceLeases := workflowstore.NewMongoResourceLeaseRepo(db)
@@ -467,7 +467,7 @@ func RunAPI(cfg config.APIConfig) error {
 		servers: serverRepo, protection: serverProtection, isos: bootISOs, keys: sshKeyService,
 	})
 	autoInspect := provisioningapp.NewAutoInspectUseCase(integrationRepo, serverRepo, inspectionLauncher)
-	operationHandler := operationdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
+	operationHandler := workflowdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
 	orchestrationStarter := temporalworkflow.NewStarter(
 		temporalClient, orchestrationRepo, cfg.TemporalTaskQueue, cfg.TemporalStartInterval,
 		cfg.OperationLeaseDuration, cfg.OperationMaxParallelism,
@@ -563,7 +563,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// Auto-install exporters when a server reaches the deployed state and its effective
 	// exporter owner is ansible. The resolver bridges the provisioning lock and platform
 	// policy so the operation context stays free of platform types.
-	autoExporterDeploy := operationapp.NewAutoExporterDeployUseCase(
+	autoExporterDeploy := workflowapp.NewAutoExporterDeployUseCase(
 		serverRepo, operationRepo, operationService,
 		exporterOwnerResolver{platforms: platformRepo}, orchestrationRepo,
 	)
@@ -705,7 +705,7 @@ type routeDeps struct {
 	bootISOs       *provisioningdelivery.BootISOHandler
 	serverStream   *serverdelivery.ServerStreamHandler
 	provisioning   *provisioningdelivery.ProvisioningHandler
-	operations     *operationdelivery.ExecutionHandler
+	operations     *workflowdelivery.ExecutionHandler
 	monitoring     *monitoringdelivery.MonitoringHandler
 	platforms      *platformdelivery.PlatformHandler
 	software       *softwaredelivery.SoftwareHandler

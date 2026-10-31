@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	provisioningdomain "github.com/maple52046/swallow/internal/provisioning/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // The stored name key is case-folded so the unique index enforces case-insensitive names per

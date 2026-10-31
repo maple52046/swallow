@@ -50,16 +50,18 @@ flowchart TB
     application --> domain
 ```
 
-- `internal/<feature>/domain` 定義 entity、value、invariant、domain error 與
+- `internal/core/<context>/domain` 定義 entity、value、invariant、domain error 與
   inner-owned port。不得 import Fiber、MongoDB、Temporal、Ansible、provider SDK
   或 config，也不得含有廠商或產品專屬的詞彙、型別與常數（例如 MAAS 的 port、狀態碼或
   chain URL）；這些屬於 provider adapter。
-- `internal/<feature>/application` 實作 use case，協調 domain 與 port。不得
-  import delivery／infra implementation。
-- `internal/<feature>/delivery` 將 HTTP transport 映射到 use-case input/output。
-- `internal/<feature>/infra` 實作 MongoDB、MAAS、Prometheus/Alertmanager、
-  Kubernetes、Slurm 等 adapters。
-- `internal/app` 是 composition root，可組合 delivery、infra、loops 與 runtime
+- `internal/core/<context>/application` 實作 use case，協調 domain 與 port。不得
+  import delivery 或 adapter。
+- `internal/core/<context>/delivery` 將 HTTP transport 映射到 use-case input/output。
+- `internal/adapters/<port>/<adapter>` 實作 core 的 port：MongoDB store、MAAS、Temporal、Ansible、
+  Prometheus/Alertmanager、Redfish、libvirt 等。
+- `modules/` 放擴充模組的 Go 程式碼與 host automation 內容（目前的 Go 程式碼是 Kubernetes／Slurm API client
+  與 Docker Engine client）。
+- `internal/app` 是 composition root，可組合 core、adapter、模組、loops 與 runtime
   process。
 - `cmd/swallow-api` 只負責 Cobra command、signal/context、config load 與啟動。
 
@@ -79,17 +81,22 @@ api-server/
 │   │   ├── store/                   # store port：Transactor、AfterCommit
 │   │   └── <context>/domain|application|delivery
 │   ├── adapters/                    # 依 provider interface 分組
-│   │   ├── store/mongodb/           # client、topology 檢查、Transactor；之後放各 context 的 repo 與 migration
+│   │   ├── store/mongodb/           # client、topology 檢查、Transactor；<context>/ 各 context 的 repository；migration/
 │   │   ├── osprovisioning/maas/
-│   │   ├── executor/temporal/
+│   │   ├── executor/temporalworkflow/
 │   │   ├── hostautomation/ansible/
 │   │   ├── metrics/promstack/
 │   │   ├── bmc/redfish/
-│   │   └── hypervisor/libvirt/
+│   │   ├── hypervisor/libvirt/
+│   │   ├── hostaccess/sshaccess/    # Ansible 之外直接 SSH 到 host（Server Default User、Hypervisor）
+│   │   ├── bootiso/genfsimg/
+│   │   ├── keys/openssh/
+│   │   └── events/memory/           # process 內的 Server 事件
 │   ├── shared/                      # 無業務規則的共用 helper
 │   └── app/                         # composition root
 └── modules/
     ├── platform/kubernetes/  platform/slurm/
+    ├── platform/platformapi/        # Kubernetes 與 Slurm 模組暫時共用的 API client
     ├── accelerator/amd/
     ├── software/<kind>/
     └── shared/roles/                # 跨模組共用的 role
@@ -100,7 +107,8 @@ api-server/
   Delivery（HTTP）屬於 core，因為它是 swallow 自己發佈的契約。core 不得 import `internal/adapters` 或
   `modules`。
 - **adapters**：依它實作的 provider interface 分組；只依賴 core 的 port 與外部 SDK，不得 import 其他 adapter
-  或模組。Mongo repository 屬於 `store/mongodb`，不再分散在各 feature 的 `infra`。
+  或模組。Mongo repository 依 context 放在 `store/mongodb/<context>`，schema migration 放在
+  `store/mongodb/migration`。
 - **modules**：一個模組一個目錄，Go hook 與 manifest、host automation 內容放在一起；只經由模組契約依賴 core，
   不得 import adapter 或其他模組的內部程式碼。執行時讀取的 playbook 目錄與 manifest 由 release 建置時從模組
   目錄組合，安裝路徑不變。
@@ -111,7 +119,7 @@ api-server/
 
 ## Feature Slices
 
-目前主要 vertical slices 包含：
+`internal/core/<context>` 的主要 vertical slices 包含：
 
 - `auth` — Session（password login、refresh token 換發與重用偵測、logout）與 current identity；
   只存 refresh token 的 SHA-256 hash（decision 042）。
@@ -119,18 +127,19 @@ api-server/
   `OwnerDirectory` port 由 `internal/app` adapter 對接 auth 的 user store（decision 042）。
 - `site`／`infrastructure` — Sites、Integrations、Zones、Pools。
 - `server` — stable Server projection 與 event stream。
-- `provisioning` — OS provisioning port 與其 MAAS adapter、images、templates、tags、network、deploy/release/recovery。
+- `provisioning` — OS provisioning port、images、templates、tags、network、deploy/release/recovery（MAAS adapter 在
+  `internal/adapters/osprovisioning/maas`）。
 - `platform` — Kubernetes／Slurm deployment policy、credentials、membership、live APIs。
 - `software` — Managed Software catalog、Assignments 與 lifecycle intent。
 - `sshkey` — SSH Keys（Deployment Key 與 Access Keys）、provisioner 同步；Deployment Key 由安裝步驟
-  `swallow-api deployment-key ensure` 建立（API 啟動不建立也不檢查），operation 經 `DeploymentKeySource`
+  `swallow-api deployment-key ensure` 建立（API 啟動不建立也不檢查），workflow 經 `DeploymentKeySource`
   port 取得、OS／Platform 佈署受理前檢查其存在（decision 039）。
-- `operation` — Workflow/Job/Task domain、execution records、artifacts 與 runners。
+- `workflow` — Workflow/Job/Task domain、execution records 與 artifacts（型別與 collection 沿用先前的 Operation
+  名稱；runner 在 `internal/adapters/hostautomation/ansible`）。
 - `monitoring`／`overview`／`discovery` — read models 與 external live queries。
-- `migration` — explicit schema/data evolution。
 
-Feature 間不得直接 import 對方 infra implementation。Cross-feature coordination
-透過 application port 或 `internal/app` adapter 組合。
+Schema／data evolution 在 store adapter 的 `migration`。Context 之間不得 import 對方的 adapter；cross-context
+coordination 透過 application port 或 `internal/app` adapter 組合。
 
 認證由 `internal/shared/middleware` 的 `Authenticator` 統一處理：access JWT 與 API Key 都轉成
 framework-free 的 `internal/shared/identity.Principal`，handler 只透過 `GetPrincipal` 讀取呼叫者，
@@ -140,7 +149,7 @@ framework-free 的 `internal/shared/identity.Principal`，handler 只透過 `Get
 
 - Delivery 先 parse／validate HTTP request，再轉成 application input。
 - Application/domain 回傳 stable inner type，由 delivery shape response 與 status。
-- Infra 將 Mongo document、provider response、Temporal payload、Ansible event
+- Adapter 將 Mongo document、provider response、Temporal payload、Ansible event
   映射成 inner type。
 - Persistence document 與 API DTO 不得直接成為 domain entity。
 - Shared wire helpers（timestamp、pagination、API error）只承載 cross-feature
@@ -199,8 +208,7 @@ Interface 不用來包裝每個 concrete type；只有需要保護 boundary、�
 依 root 的 [`desired-state-model.md`](../../../docs/development/desired-state-model.md) §10：
 
 - MongoDB 必須以 single-node replica set 執行；每個 process role 啟動時檢查 store 支援 transaction 與
-  change stream，不支援時拒絕啟動。目前 dev、testing 與 production 的 compose 仍是 standalone，
-  在改為 replica set 之前，新功能不得依賴「沒有 transaction」來設計，也不得新增補償邏輯。
+  change stream，不支援時拒絕啟動。
 - 跨文件的不變式（例如 Platform 與其 Server 上的 Platform Claim）必須在同一個 transaction 內完成。
   Application 透過 transaction port 表達交易範圍，不 import driver 的 session 型別。
 - Transaction callback 不得有外部 I/O（provider、HTTP、Temporal、檔案），而且必須可以重跑。需要 provider 資料的
@@ -209,9 +217,9 @@ Interface 不用來包裝每個 concrete type；只有需要保護 boundary、�
   transaction，之後的操作以 transient 錯誤失敗，driver 重試整個 unit 直到逾時。冪等寫入改用 `$setOnInsert` upsert 之類
   的單一條件式寫入。
 - 事件（包括 SSE 的 Server 事件）在 commit 之後才發布；跨 process 的變化以 change feed port 取得。
-- `bson`、Mongo update operator、change stream resume token 只出現在 infra。
+- `bson`、Mongo update operator、change stream resume token 只出現在 store adapter。
 - Application tests 使用 `internal/core/store/storetest` 的 fake Transactor，驗證 use case 在 transaction 內寫入，
-  以及事件只在成功後發布；記憶體 fake 無法 rollback，所以「失敗時沒有任何寫入」由 replica set 上的 infra 整合測試
+  以及事件只在成功後發布；記憶體 fake 無法 rollback，所以「失敗時沒有任何寫入」由 replica set 上的 store adapter 整合測試
   驗證。
 
 Platform deploy 受理、Platform Delete、CompleteUninstall、Workflow 建立與 rerun、GPU Operator 變更與 Software
@@ -231,7 +239,7 @@ Temporal、artifact path、retention、parallelism 等 security/lifecycle semant
 ## Error Boundary
 
 - Domain/application 回傳具有業務語意的 error，不暴露 driver error。
-- Infra 將 Mongo/provider/Temporal/Ansible error 翻譯為 inner error。
+- Adapter 將 Mongo/provider/Temporal/Ansible error 翻譯為 inner error。
 - Delivery 透過 shared API error mapping 產生 contract-defined status、code、
   message 與 request ID。
 - Error message 給人閱讀；consumer 只能對 code 分支。
@@ -241,7 +249,7 @@ Temporal、artifact path、retention、parallelism 等 security/lifecycle semant
 - Domain unit tests 不需要 MongoDB、HTTP、Temporal 或 provider。
 - Application tests 使用 fake ports，涵蓋 invariant、conflict、rollback/recovery。
 - Delivery tests驗證 request/response mapping、auth、status 與 error envelope。
-- Infra tests驗證 mapping、Mongo uniqueness、provider capability 與 runner behavior。
+- Adapter tests 驗證 mapping、Mongo uniqueness、provider capability 與 runner behavior。
 - Temporal tests需涵蓋 deterministic replay、worker restart、activity retry/cancel。
 - Cross-layer tests 放在 `tests/`；unit tests 與 source 同 package。
 

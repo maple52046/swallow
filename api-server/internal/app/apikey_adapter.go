@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	apikeydomain "github.com/maple52046/swallow/internal/apikey/domain"
-	authdomain "github.com/maple52046/swallow/internal/auth/domain"
+	apikeydomain "github.com/maple52046/swallow/internal/core/apikey/domain"
+	authdomain "github.com/maple52046/swallow/internal/core/auth/domain"
 )
 
 // apiKeyOwners adapts the auth slice's user store to the apikey slice's OwnerDirectory port, so

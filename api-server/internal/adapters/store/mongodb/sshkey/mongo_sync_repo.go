@@ -8,7 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	sshkeydomain "github.com/maple52046/swallow/internal/sshkey/domain"
+	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
 )
 
 // providerSyncDoc is the MongoDB shape of one ProviderSync. The document id is derived from the

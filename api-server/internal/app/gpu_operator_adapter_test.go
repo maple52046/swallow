@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	operationapp "github.com/maple52046/swallow/internal/operation/application"
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // stateRecorder captures UpdateGPUOperatorState calls; SetGPUOperator is unused by the observer.
@@ -29,11 +29,11 @@ func (r *stateRecorder) UpdateGPUOperatorState(
 	return true, nil
 }
 
-func gpuOperatorTestTask(mode string, status operationdomain.TaskStatus) operationdomain.Task {
-	prepared := &operationapp.PreparedAnsibleStep{
+func gpuOperatorTestTask(mode string, status workflowdomain.TaskStatus) workflowdomain.Task {
+	prepared := &workflowapp.PreparedAnsibleStep{
 		Playbook:  gpuOperatorPlaybook,
 		ExtraVars: map[string]any{"swallow_amd_gpu_operator_state": mode},
-		Targets:   []operationdomain.ResourceReference{{Kind: "server", ID: "c1"}},
+		Targets:   []workflowdomain.ResourceReference{{Kind: "server", ID: "c1"}},
 	}
 	task := gpuOperatorTask(prepared, "p1", "deploy-1", []string{"validate-platform"}, "Install AMD GPU Operator")
 	task.Status = status
@@ -41,8 +41,8 @@ func gpuOperatorTestTask(mode string, status operationdomain.TaskStatus) operati
 }
 
 func TestGPUOperatorTaskCarriesTheObserverIdentity(t *testing.T) {
-	task := gpuOperatorTestTask("present", operationdomain.TaskPending)
-	if task.ID != gpuOperatorStepID || task.Job != jobConfigureGPUOperator || task.Executor != operationdomain.RunnerKindAnsible {
+	task := gpuOperatorTestTask("present", workflowdomain.TaskPending)
+	if task.ID != gpuOperatorStepID || task.Job != jobConfigureGPUOperator || task.Executor != workflowdomain.RunnerKindAnsible {
 		t.Errorf("gpuOperatorTask = %+v, want the configure-gpu-operator ansible Task", task)
 	}
 	if len(task.DependsOn) != 1 || task.DependsOn[0] != "validate-platform" {
@@ -59,16 +59,16 @@ func TestGPUOperatorObserverProjectsTaskStates(t *testing.T) {
 	tests := []struct {
 		name   string
 		mode   string
-		status operationdomain.TaskStatus
+		status workflowdomain.TaskStatus
 		want   platformdomain.GPUOperatorState
 	}{
-		{name: "install running", mode: "present", status: operationdomain.TaskRunning, want: platformdomain.GPUOperatorInstalling},
-		{name: "install succeeded", mode: "present", status: operationdomain.TaskSucceeded, want: platformdomain.GPUOperatorReady},
-		{name: "install needs attention", mode: "present", status: operationdomain.TaskRequiresAttention, want: platformdomain.GPUOperatorFailed},
-		{name: "install canceled", mode: "present", status: operationdomain.TaskCanceled, want: platformdomain.GPUOperatorFailed},
-		{name: "uninstall running", mode: "absent", status: operationdomain.TaskRunning, want: platformdomain.GPUOperatorUninstalling},
-		{name: "uninstall succeeded", mode: "absent", status: operationdomain.TaskSucceeded, want: platformdomain.GPUOperatorAbsent},
-		{name: "uninstall failed", mode: "absent", status: operationdomain.TaskFailed, want: platformdomain.GPUOperatorFailed},
+		{name: "install running", mode: "present", status: workflowdomain.TaskRunning, want: platformdomain.GPUOperatorInstalling},
+		{name: "install succeeded", mode: "present", status: workflowdomain.TaskSucceeded, want: platformdomain.GPUOperatorReady},
+		{name: "install needs attention", mode: "present", status: workflowdomain.TaskRequiresAttention, want: platformdomain.GPUOperatorFailed},
+		{name: "install canceled", mode: "present", status: workflowdomain.TaskCanceled, want: platformdomain.GPUOperatorFailed},
+		{name: "uninstall running", mode: "absent", status: workflowdomain.TaskRunning, want: platformdomain.GPUOperatorUninstalling},
+		{name: "uninstall succeeded", mode: "absent", status: workflowdomain.TaskSucceeded, want: platformdomain.GPUOperatorAbsent},
+		{name: "uninstall failed", mode: "absent", status: workflowdomain.TaskFailed, want: platformdomain.GPUOperatorFailed},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -89,9 +89,9 @@ func TestGPUOperatorObserverProjectsTaskStates(t *testing.T) {
 func TestGPUOperatorObserverIgnoresOtherTasksAndPending(t *testing.T) {
 	recorder := &stateRecorder{}
 	observer := gpuOperatorStepObserver{recorder: recorder}
-	other := operationdomain.Task{ID: installPlatformStepID, Kind: "ansible-playbook", Status: operationdomain.TaskSucceeded,
+	other := workflowdomain.Task{ID: installPlatformStepID, Kind: "ansible-playbook", Status: workflowdomain.TaskSucceeded,
 		Parameters: map[string]any{"playbook": "deploy-kubernetes"}}
-	for _, task := range []operationdomain.Task{other, gpuOperatorTestTask("present", operationdomain.TaskPending)} {
+	for _, task := range []workflowdomain.Task{other, gpuOperatorTestTask("present", workflowdomain.TaskPending)} {
 		if err := observer.ObserveStep(context.Background(), "deploy-1", task); err != nil {
 			t.Fatalf("ObserveStep(%s): %v", task.ID, err)
 		}
@@ -106,16 +106,16 @@ func TestGPUOperatorObserverIgnoresOtherTasksAndPending(t *testing.T) {
 // does not run the k0s completion, which only the install-platform Task can satisfy.
 func TestPlatformDeploymentObserverLeavesTheGPUOperatorTaskToItsObserver(t *testing.T) {
 	observer := platformDeploymentObserver{}
-	execution := &operationdomain.AnsibleExecution{
-		OperationID: "op-1", Kind: operationdomain.WorkflowKindDeployKubernetes, PlatformID: "plat-1",
+	execution := &workflowdomain.AnsibleExecution{
+		OperationID: "op-1", Kind: workflowdomain.WorkflowKindDeployKubernetes, PlatformID: "plat-1",
 		StepID: gpuOperatorStepID,
 	}
-	if err := observer.AnsibleStepSucceeded(context.Background(), execution, operationdomain.RunnerResult{}); err != nil {
+	if err := observer.AnsibleStepSucceeded(context.Background(), execution, workflowdomain.RunnerResult{}); err != nil {
 		t.Fatalf("GPU Operator Task completion err = %v, want nil", err)
 	}
 
 	execution.StepID = installPlatformStepID
-	if err := observer.AnsibleStepSucceeded(context.Background(), execution, operationdomain.RunnerResult{}); err == nil {
+	if err := observer.AnsibleStepSucceeded(context.Background(), execution, workflowdomain.RunnerResult{}); err == nil {
 		t.Fatal("k0s install without a credential succeeded, want the missing-credential error")
 	}
 }

@@ -16,7 +16,7 @@ import (
 
 	yaml "gopkg.in/yaml.v3"
 
-	platformdomain "github.com/maple52046/swallow/internal/platform/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 )
 
 // maxLogBytes bounds how much of a pod log snapshot the explorer reads. tailLines already

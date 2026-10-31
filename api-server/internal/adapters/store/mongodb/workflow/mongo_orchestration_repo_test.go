@@ -12,7 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // workflowTestDatabase connects to the MongoDB named by SWALLOW_TEST_MONGO_URI and returns a
@@ -56,7 +56,7 @@ func TestUpdateStepIsMonotonicForCancel(t *testing.T) {
 		t.Fatalf("new repo: %v", err)
 	}
 
-	insert := func(id string, status operationdomain.TaskStatus) {
+	insert := func(id string, status workflowdomain.TaskStatus) {
 		if _, err := db.Collection("workflows").InsertOne(ctx, bson.M{
 			"_id": id, "schemaVersion": 4,
 			"tasks": bson.A{bson.M{
@@ -68,7 +68,7 @@ func TestUpdateStepIsMonotonicForCancel(t *testing.T) {
 	}
 	statusOf := func(id string) string {
 		var doc struct {
-			Tasks []operationdomain.Task `bson:"tasks"`
+			Tasks []workflowdomain.Task `bson:"tasks"`
 		}
 		if err := db.Collection("workflows").FindOne(ctx, bson.M{"_id": id}).Decode(&doc); err != nil {
 			t.Fatalf("read %s: %v", id, err)
@@ -79,12 +79,12 @@ func TestUpdateStepIsMonotonicForCancel(t *testing.T) {
 		return string(doc.Tasks[0].Status)
 	}
 
-	cancel := operationdomain.Task{ID: "provision-a", Kind: "provision-os", Attempt: 1, Status: operationdomain.TaskCanceled}
+	cancel := workflowdomain.Task{ID: "provision-a", Kind: "provision-os", Attempt: 1, Status: workflowdomain.TaskCanceled}
 
 	// A succeeded Task is not regressed to canceled (the reported bug), and the no-op is reported
 	// so the caller does not project the rejected Task onto the Server deployment result.
-	insert("op-succeeded", operationdomain.TaskSucceeded)
-	if err := repo.UpdateStep(ctx, "op-succeeded", cancel); !errors.Is(err, operationdomain.ErrStepTransitionIgnored) {
+	insert("op-succeeded", workflowdomain.TaskSucceeded)
+	if err := repo.UpdateStep(ctx, "op-succeeded", cancel); !errors.Is(err, workflowdomain.ErrStepTransitionIgnored) {
 		t.Fatalf("cancel of succeeded task err = %v, want ErrStepTransitionIgnored", err)
 	}
 	if got := statusOf("op-succeeded"); got != "succeeded" {
@@ -92,7 +92,7 @@ func TestUpdateStepIsMonotonicForCancel(t *testing.T) {
 	}
 
 	// A non-terminal Task still cancels normally.
-	insert("op-running", operationdomain.TaskRunning)
+	insert("op-running", workflowdomain.TaskRunning)
 	if err := repo.UpdateStep(ctx, "op-running", cancel); err != nil {
 		t.Fatalf("cancel of running task: %v", err)
 	}
@@ -101,9 +101,9 @@ func TestUpdateStepIsMonotonicForCancel(t *testing.T) {
 	}
 
 	// A genuinely missing Task still surfaces ErrTaskNotFound rather than a silent no-op.
-	insert("op-missing", operationdomain.TaskRunning)
-	err = repo.UpdateStep(ctx, "op-missing", operationdomain.Task{ID: "nonexistent", Status: operationdomain.TaskCanceled})
-	if !errors.Is(err, operationdomain.ErrTaskNotFound) {
+	insert("op-missing", workflowdomain.TaskRunning)
+	err = repo.UpdateStep(ctx, "op-missing", workflowdomain.Task{ID: "nonexistent", Status: workflowdomain.TaskCanceled})
+	if !errors.Is(err, workflowdomain.ErrTaskNotFound) {
 		t.Fatalf("cancel of missing task err = %v, want ErrTaskNotFound", err)
 	}
 }

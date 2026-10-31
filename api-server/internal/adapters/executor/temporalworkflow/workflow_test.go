@@ -16,7 +16,7 @@ import (
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 
-	operationdomain "github.com/maple52046/swallow/internal/operation/domain"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // normalizeActivityError must keep raw activity error text out of workflow history and
@@ -44,25 +44,25 @@ func TestOperationWorkflowV1RunsDependenciesInOrder(t *testing.T) {
 	env := suite.NewTestWorkflowEnvironment()
 	var mu sync.Mutex
 	executed := []string{}
-	states := []operationdomain.WorkflowStatus{}
+	states := []workflowdomain.WorkflowStatus{}
 
 	registerWorkflowActivityMocks(env, func(input StepExecutionInput) StepExecutionResult {
 		mu.Lock()
 		executed = append(executed, input.Step.ID)
 		mu.Unlock()
-		return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+		return StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 	}, func(input StateUpdate) {
 		states = append(states, input.Status)
 	})
 
 	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
-		OperationID: "operation-a", Kind: operationdomain.WorkflowKindDeployKubernetes,
+		OperationID: "operation-a", Kind: workflowdomain.WorkflowKindDeployKubernetes,
 		SiteID: "site-a", Definition: "test", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, MaxParallelism: 1,
 		ResourceKeys: []string{"server:a"},
-		Steps: []operationdomain.Task{
-			{ID: "prepare", Kind: "noop", Name: "Prepare", Executor: operationdomain.RunnerKindInternal, Status: operationdomain.TaskPending, Attempt: 1},
-			{ID: "install", Kind: "noop", Name: "Install", Executor: operationdomain.RunnerKindInternal, Status: operationdomain.TaskPending, Attempt: 1, DependsOn: []string{"prepare"}},
+		Steps: []workflowdomain.Task{
+			{ID: "prepare", Kind: "noop", Name: "Prepare", Executor: workflowdomain.RunnerKindInternal, Status: workflowdomain.TaskPending, Attempt: 1},
+			{ID: "install", Kind: "noop", Name: "Install", Executor: workflowdomain.RunnerKindInternal, Status: workflowdomain.TaskPending, Attempt: 1, DependsOn: []string{"prepare"}},
 		},
 	})
 	if err := env.GetWorkflowError(); err != nil {
@@ -73,7 +73,7 @@ func TestOperationWorkflowV1RunsDependenciesInOrder(t *testing.T) {
 	if len(executed) != 2 || executed[0] != "prepare" || executed[1] != "install" {
 		t.Fatalf("execution order = %v, want [prepare install]", executed)
 	}
-	if len(states) == 0 || states[len(states)-1] != operationdomain.WorkflowSucceeded {
+	if len(states) == 0 || states[len(states)-1] != workflowdomain.WorkflowSucceeded {
 		t.Fatalf("last operation state = %v, want succeeded", states)
 	}
 }
@@ -86,23 +86,23 @@ func TestOperationWorkflowV1RunsJobsAsChildWorkflows(t *testing.T) {
 	env.RegisterWorkflowWithOptions(JobWorkflowV1, workflow.RegisterOptions{Name: JobWorkflowName})
 	var mu sync.Mutex
 	executed := []string{}
-	states := []operationdomain.WorkflowStatus{}
+	states := []workflowdomain.WorkflowStatus{}
 	registerWorkflowActivityMocks(env, func(input StepExecutionInput) StepExecutionResult {
 		mu.Lock()
 		executed = append(executed, input.Step.ID)
 		mu.Unlock()
-		return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+		return StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 	}, func(input StateUpdate) {
 		states = append(states, input.Status)
 	})
 
 	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
-		OperationID: "operation-jobs", Kind: operationdomain.WorkflowKindDeployKubernetes,
+		OperationID: "operation-jobs", Kind: workflowdomain.WorkflowKindDeployKubernetes,
 		SiteID: "site-a", Definition: "platform-deployment", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, MaxParallelism: 2, ResourceKeys: []string{"server:a"},
-		Steps: []operationdomain.Task{
-			{ID: "provision", Job: "ensure-os", Kind: "provision-os", Name: "Ensure OS", Executor: operationdomain.RunnerKindProvisioner, Status: operationdomain.TaskPending, Attempt: 1},
-			{ID: "install", Job: "configure-k0s", Kind: "ansible-playbook", Name: "Install k0s", Executor: operationdomain.RunnerKindAnsible, Status: operationdomain.TaskPending, Attempt: 1, DependsOn: []string{"provision"}},
+		Steps: []workflowdomain.Task{
+			{ID: "provision", Job: "ensure-os", Kind: "provision-os", Name: "Ensure OS", Executor: workflowdomain.RunnerKindProvisioner, Status: workflowdomain.TaskPending, Attempt: 1},
+			{ID: "install", Job: "configure-k0s", Kind: "ansible-playbook", Name: "Install k0s", Executor: workflowdomain.RunnerKindAnsible, Status: workflowdomain.TaskPending, Attempt: 1, DependsOn: []string{"provision"}},
 		},
 	})
 	if err := env.GetWorkflowError(); err != nil {
@@ -113,7 +113,7 @@ func TestOperationWorkflowV1RunsJobsAsChildWorkflows(t *testing.T) {
 	if len(executed) != 2 || executed[0] != "provision" || executed[1] != "install" {
 		t.Fatalf("execution order = %v, want [provision install] across child Jobs", executed)
 	}
-	if len(states) == 0 || states[len(states)-1] != operationdomain.WorkflowSucceeded {
+	if len(states) == 0 || states[len(states)-1] != workflowdomain.WorkflowSucceeded {
 		t.Fatalf("last operation state = %v, want succeeded", states)
 	}
 }
@@ -128,7 +128,7 @@ func TestOperationWorkflowV1RetriesFailedJobWithBumpedAttempt(t *testing.T) {
 	env.RegisterWorkflowWithOptions(JobWorkflowV1, workflow.RegisterOptions{Name: JobWorkflowName})
 	var mu sync.Mutex
 	installAttempts := []int{}
-	states := []operationdomain.WorkflowStatus{}
+	states := []workflowdomain.WorkflowStatus{}
 	registerWorkflowActivityMocks(env, func(input StepExecutionInput) StepExecutionResult {
 		if input.Step.ID == "install" {
 			mu.Lock()
@@ -136,12 +136,12 @@ func TestOperationWorkflowV1RetriesFailedJobWithBumpedAttempt(t *testing.T) {
 			first := len(installAttempts) == 1
 			mu.Unlock()
 			if first {
-				return StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
+				return StepExecutionResult{Status: workflowdomain.TaskFailed, Error: &workflowdomain.NormalizedError{
 					Code: "transient", Message: "host key not yet learned", Retryable: true,
 				}}
 			}
 		}
-		return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+		return StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 	}, func(input StateUpdate) {
 		mu.Lock()
 		states = append(states, input.Status)
@@ -152,12 +152,12 @@ func TestOperationWorkflowV1RetriesFailedJobWithBumpedAttempt(t *testing.T) {
 	}, 2*time.Second)
 
 	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
-		OperationID: "operation-job-retry", Kind: operationdomain.WorkflowKindDeployKubernetes,
+		OperationID: "operation-job-retry", Kind: workflowdomain.WorkflowKindDeployKubernetes,
 		SiteID: "site-a", Definition: "platform-deployment", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, MaxParallelism: 2, ResourceKeys: []string{"server:a"},
-		Steps: []operationdomain.Task{
-			{ID: "provision", Job: "ensure-os", Kind: "provision-os", Name: "Ensure OS", Executor: operationdomain.RunnerKindProvisioner, Status: operationdomain.TaskPending, Attempt: 1},
-			{ID: "install", Job: "configure-k0s", Kind: "ansible-playbook", Name: "Install k0s", Executor: operationdomain.RunnerKindAnsible, Status: operationdomain.TaskPending, Attempt: 1, DependsOn: []string{"provision"}},
+		Steps: []workflowdomain.Task{
+			{ID: "provision", Job: "ensure-os", Kind: "provision-os", Name: "Ensure OS", Executor: workflowdomain.RunnerKindProvisioner, Status: workflowdomain.TaskPending, Attempt: 1},
+			{ID: "install", Job: "configure-k0s", Kind: "ansible-playbook", Name: "Install k0s", Executor: workflowdomain.RunnerKindAnsible, Status: workflowdomain.TaskPending, Attempt: 1, DependsOn: []string{"provision"}},
 		},
 	})
 	if err := env.GetWorkflowError(); err != nil {
@@ -173,9 +173,9 @@ func TestOperationWorkflowV1RetriesFailedJobWithBumpedAttempt(t *testing.T) {
 	}
 	seenAttention := false
 	for _, state := range states {
-		seenAttention = seenAttention || state == operationdomain.WorkflowRequiresAttention
+		seenAttention = seenAttention || state == workflowdomain.WorkflowRequiresAttention
 	}
-	if !seenAttention || states[len(states)-1] != operationdomain.WorkflowSucceeded {
+	if !seenAttention || states[len(states)-1] != workflowdomain.WorkflowSucceeded {
 		t.Fatalf("states = %v, want requires_attention then succeeded", states)
 	}
 }
@@ -184,18 +184,18 @@ func TestOperationWorkflowV1RetriesFailedStepInSameOperation(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
 	attempts := 0
-	states := []operationdomain.WorkflowStatus{}
+	states := []workflowdomain.WorkflowStatus{}
 	registerWorkflowActivityMocks(env, func(input StepExecutionInput) StepExecutionResult {
 		attempts++
 		if attempts == 1 {
-			return StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
+			return StepExecutionResult{Status: workflowdomain.TaskFailed, Error: &workflowdomain.NormalizedError{
 				Code: "transient", Message: "try again", Retryable: true,
 			}}
 		}
 		if input.Step.Attempt != 2 {
 			t.Fatalf("retry attempt = %d, want 2", input.Step.Attempt)
 		}
-		return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}
+		return StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
 	}, func(input StateUpdate) {
 		states = append(states, input.Status)
 	})
@@ -204,11 +204,11 @@ func TestOperationWorkflowV1RetriesFailedStepInSameOperation(t *testing.T) {
 	}, time.Second)
 
 	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
-		OperationID: "operation-a", Kind: operationdomain.WorkflowKindCustom,
+		OperationID: "operation-a", Kind: workflowdomain.WorkflowKindCustom,
 		SiteID: "site-a", Definition: "test", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, ResourceKeys: []string{"server:a"},
-		Steps: []operationdomain.Task{{
-			ID: "step-a", Kind: "noop", Name: "Step A", Executor: operationdomain.RunnerKindInternal, Status: operationdomain.TaskPending, Attempt: 1,
+		Steps: []workflowdomain.Task{{
+			ID: "step-a", Kind: "noop", Name: "Step A", Executor: workflowdomain.RunnerKindInternal, Status: workflowdomain.TaskPending, Attempt: 1,
 		}},
 	})
 	if err := env.GetWorkflowError(); err != nil {
@@ -219,21 +219,21 @@ func TestOperationWorkflowV1RetriesFailedStepInSameOperation(t *testing.T) {
 	}
 	seenAttention := false
 	for _, state := range states {
-		seenAttention = seenAttention || state == operationdomain.WorkflowRequiresAttention
+		seenAttention = seenAttention || state == workflowdomain.WorkflowRequiresAttention
 	}
-	if !seenAttention || states[len(states)-1] != operationdomain.WorkflowSucceeded {
+	if !seenAttention || states[len(states)-1] != workflowdomain.WorkflowSucceeded {
 		t.Fatalf("states = %v, want requires_attention then succeeded", states)
 	}
 }
 func TestOperationWorkflowV1CancellationMarksPendingSteps(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
-	states := []operationdomain.WorkflowStatus{}
-	stepUpdates := []operationdomain.Task{}
-	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]operationdomain.ResourceLease, error) {
+	states := []workflowdomain.WorkflowStatus{}
+	stepUpdates := []workflowdomain.Task{}
+	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]workflowdomain.ResourceLease, error) {
 		return nil, errors.New("resources busy")
 	}, activity.RegisterOptions{Name: ActivityAcquireLeases})
-	env.RegisterActivityWithOptions(func(_ context.Context, _ []operationdomain.ResourceLease) error { return nil },
+	env.RegisterActivityWithOptions(func(_ context.Context, _ []workflowdomain.ResourceLease) error { return nil },
 		activity.RegisterOptions{Name: ActivityReleaseLeases})
 	env.RegisterActivityWithOptions(func(_ context.Context, input StepUpdate) error {
 		stepUpdates = append(stepUpdates, input.Step)
@@ -246,22 +246,22 @@ func TestOperationWorkflowV1CancellationMarksPendingSteps(t *testing.T) {
 	env.RegisterDelayedCallback(env.CancelWorkflow, time.Second)
 
 	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
-		OperationID: "operation-cancel", Kind: operationdomain.WorkflowKindCustom,
+		OperationID: "operation-cancel", Kind: workflowdomain.WorkflowKindCustom,
 		SiteID: "site-a", Definition: "test", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, ResourceKeys: []string{"server:a"},
-		Steps: []operationdomain.Task{{
-			ID: "step-a", Kind: "noop", Name: "Step A", Executor: operationdomain.RunnerKindInternal,
-			Status: operationdomain.TaskPending, Attempt: 1,
+		Steps: []workflowdomain.Task{{
+			ID: "step-a", Kind: "noop", Name: "Step A", Executor: workflowdomain.RunnerKindInternal,
+			Status: workflowdomain.TaskPending, Attempt: 1,
 		}},
 	})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("canceled workflow returned an error: %v", err)
 	}
-	if len(states) < 3 || states[len(states)-2] != operationdomain.WorkflowCanceling ||
-		states[len(states)-1] != operationdomain.WorkflowCanceled {
+	if len(states) < 3 || states[len(states)-2] != workflowdomain.WorkflowCanceling ||
+		states[len(states)-1] != workflowdomain.WorkflowCanceled {
 		t.Fatalf("states = %v, want canceling then canceled", states)
 	}
-	if len(stepUpdates) != 1 || stepUpdates[0].Status != operationdomain.TaskCanceled {
+	if len(stepUpdates) != 1 || stepUpdates[0].Status != workflowdomain.TaskCanceled {
 		t.Fatalf("Step updates = %#v, want one canceled pending Step", stepUpdates)
 	}
 }
@@ -277,15 +277,15 @@ func TestOperationWorkflowV1SurvivesLeaseRenewalFailureWhileWaiting(t *testing.T
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
 	attempts := 0
-	states := []operationdomain.WorkflowStatus{}
-	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]operationdomain.ResourceLease, error) {
-		return []operationdomain.ResourceLease{{ResourceKey: "server:a", Owner: "workflow", FencingToken: 1}}, nil
+	states := []workflowdomain.WorkflowStatus{}
+	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]workflowdomain.ResourceLease, error) {
+		return []workflowdomain.ResourceLease{{ResourceKey: "server:a", Owner: "workflow", FencingToken: 1}}, nil
 	}, activity.RegisterOptions{Name: ActivityAcquireLeases})
 	// Renewal fails for the entire wait, standing in for a host restart or database blip.
 	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRenewal) error {
 		return errors.New("lease store unavailable")
 	}, activity.RegisterOptions{Name: ActivityRenewLeases})
-	env.RegisterActivityWithOptions(func(_ context.Context, _ []operationdomain.ResourceLease) error { return nil },
+	env.RegisterActivityWithOptions(func(_ context.Context, _ []workflowdomain.ResourceLease) error { return nil },
 		activity.RegisterOptions{Name: ActivityReleaseLeases})
 	env.RegisterActivityWithOptions(func(_ context.Context, _ StepUpdate) error { return nil },
 		activity.RegisterOptions{Name: ActivityUpdateStep})
@@ -296,11 +296,11 @@ func TestOperationWorkflowV1SurvivesLeaseRenewalFailureWhileWaiting(t *testing.T
 	env.RegisterActivityWithOptions(func(_ context.Context, input StepExecutionInput) (StepExecutionResult, error) {
 		attempts++
 		if attempts == 1 {
-			return StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
+			return StepExecutionResult{Status: workflowdomain.TaskFailed, Error: &workflowdomain.NormalizedError{
 				Code: "transient", Message: "try again", Retryable: true,
 			}}, nil
 		}
-		return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}, nil
+		return StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}, nil
 	}, activity.RegisterOptions{Name: ActivityExecuteStep})
 
 	// The wait renews as it parks and then every parkedRenewInterval. Delaying the signal past
@@ -311,12 +311,12 @@ func TestOperationWorkflowV1SurvivesLeaseRenewalFailureWhileWaiting(t *testing.T
 	}, parkedRenewInterval+time.Hour)
 
 	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
-		OperationID: "operation-renew-fail", Kind: operationdomain.WorkflowKindCustom,
+		OperationID: "operation-renew-fail", Kind: workflowdomain.WorkflowKindCustom,
 		SiteID: "site-a", Definition: "test", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, ResourceKeys: []string{"server:a"},
-		Steps: []operationdomain.Task{{
-			ID: "step-a", Kind: "noop", Name: "Step A", Executor: operationdomain.RunnerKindInternal,
-			Status: operationdomain.TaskPending, Attempt: 1,
+		Steps: []workflowdomain.Task{{
+			ID: "step-a", Kind: "noop", Name: "Step A", Executor: workflowdomain.RunnerKindInternal,
+			Status: workflowdomain.TaskPending, Attempt: 1,
 		}},
 	})
 	if err := env.GetWorkflowError(); err != nil {
@@ -326,11 +326,11 @@ func TestOperationWorkflowV1SurvivesLeaseRenewalFailureWhileWaiting(t *testing.T
 		t.Fatalf("execute attempts = %d, want 2 (fail then retry succeed)", attempts)
 	}
 	for _, state := range states {
-		if state == operationdomain.WorkflowCanceled || state == operationdomain.WorkflowCanceling {
+		if state == workflowdomain.WorkflowCanceled || state == workflowdomain.WorkflowCanceling {
 			t.Fatalf("states = %v, want no cancellation from a transient renewal failure", states)
 		}
 	}
-	if states[len(states)-1] != operationdomain.WorkflowSucceeded {
+	if states[len(states)-1] != workflowdomain.WorkflowSucceeded {
 		t.Fatalf("final state = %v, want succeeded", states[len(states)-1])
 	}
 }
@@ -340,11 +340,11 @@ func TestOperationWorkflowV1SurvivesLeaseRenewalFailureWhileWaiting(t *testing.T
 // permitted by its continueOn, and is skipped otherwise. A retryable failure is not settled, so a
 // dependent waits through the retry rather than skipping past a recoverable failure.
 func TestScheduleStepResolvesContinueOn(t *testing.T) {
-	steps := []operationdomain.Task{
-		{ID: "provision", Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{Retryable: false}},
-		{ID: "record", DependsOn: []string{"provision"}, Status: operationdomain.TaskPending},
-		{ID: "recover", DependsOn: []string{"record"}, Status: operationdomain.TaskPending,
-			ContinueOn: []operationdomain.TaskStatus{operationdomain.TaskSucceeded, operationdomain.TaskSkipped}},
+	steps := []workflowdomain.Task{
+		{ID: "provision", Status: workflowdomain.TaskFailed, Error: &workflowdomain.NormalizedError{Retryable: false}},
+		{ID: "record", DependsOn: []string{"provision"}, Status: workflowdomain.TaskPending},
+		{ID: "recover", DependsOn: []string{"record"}, Status: workflowdomain.TaskPending,
+			ContinueOn: []workflowdomain.TaskStatus{workflowdomain.TaskSucceeded, workflowdomain.TaskSkipped}},
 	}
 	byID := map[string]int{"provision": 0, "record": 1, "recover": 2}
 
@@ -357,14 +357,14 @@ func TestScheduleStepResolvesContinueOn(t *testing.T) {
 		t.Fatalf("recover schedule (record pending) = %v, want stepWait", got)
 	}
 	// Once record is skipped, recover permits skipped -> run.
-	steps[1].Status = operationdomain.TaskSkipped
+	steps[1].Status = workflowdomain.TaskSkipped
 	if got := scheduleStep(steps[2], byID, steps); got != stepRun {
 		t.Fatalf("recover schedule (record skipped) = %v, want stepRun", got)
 	}
 	// A retryable provision failure is not settled, so record must wait (park for retry), not skip.
-	steps[0].Status = operationdomain.TaskFailed
-	steps[0].Error = &operationdomain.NormalizedError{Retryable: true}
-	steps[1].Status = operationdomain.TaskPending
+	steps[0].Status = workflowdomain.TaskFailed
+	steps[0].Error = &workflowdomain.NormalizedError{Retryable: true}
+	steps[1].Status = workflowdomain.TaskPending
 	if got := scheduleStep(steps[1], byID, steps); got != stepWait {
 		t.Fatalf("record schedule (provision retryable) = %v, want stepWait", got)
 	}
@@ -380,15 +380,15 @@ func TestOperationWorkflowV1SkipsFinalizeAndRunsCompensation(t *testing.T) {
 	env := suite.NewTestWorkflowEnvironment()
 	var mu sync.Mutex
 	executed := []string{}
-	stepStatus := map[string]operationdomain.TaskStatus{}
-	states := []operationdomain.WorkflowStatus{}
+	stepStatus := map[string]workflowdomain.TaskStatus{}
+	states := []workflowdomain.WorkflowStatus{}
 
-	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]operationdomain.ResourceLease, error) {
-		return []operationdomain.ResourceLease{{ResourceKey: "server:a", Owner: "workflow", FencingToken: 1}}, nil
+	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]workflowdomain.ResourceLease, error) {
+		return []workflowdomain.ResourceLease{{ResourceKey: "server:a", Owner: "workflow", FencingToken: 1}}, nil
 	}, activity.RegisterOptions{Name: ActivityAcquireLeases})
 	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRenewal) error { return nil },
 		activity.RegisterOptions{Name: ActivityRenewLeases})
-	env.RegisterActivityWithOptions(func(_ context.Context, _ []operationdomain.ResourceLease) error { return nil },
+	env.RegisterActivityWithOptions(func(_ context.Context, _ []workflowdomain.ResourceLease) error { return nil },
 		activity.RegisterOptions{Name: ActivityReleaseLeases})
 	env.RegisterActivityWithOptions(func(_ context.Context, input StepUpdate) error {
 		mu.Lock()
@@ -407,22 +407,22 @@ func TestOperationWorkflowV1SkipsFinalizeAndRunsCompensation(t *testing.T) {
 		executed = append(executed, input.Step.ID)
 		mu.Unlock()
 		if input.Step.ID == "provision" {
-			return StepExecutionResult{Status: operationdomain.TaskFailed, Error: &operationdomain.NormalizedError{
+			return StepExecutionResult{Status: workflowdomain.TaskFailed, Error: &workflowdomain.NormalizedError{
 				Code: "deployment_failed", Message: "proof failed", Retryable: false,
 			}}, nil
 		}
-		return StepExecutionResult{Status: operationdomain.TaskSucceeded, Progress: 100}, nil
+		return StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}, nil
 	}, activity.RegisterOptions{Name: ActivityExecuteStep})
 
 	env.ExecuteWorkflow(OperationWorkflowV1, WorkflowInput{
-		OperationID: "operation-verify-fail", Kind: operationdomain.WorkflowKindVerifyOSImage,
+		OperationID: "operation-verify-fail", Kind: workflowdomain.WorkflowKindVerifyOSImage,
 		SiteID: "site-a", Definition: "os-image-verification", DefinitionVersion: 1,
 		LeaseDuration: time.Minute, MaxParallelism: 1, ResourceKeys: []string{"server:a"},
-		Steps: []operationdomain.Task{
-			{ID: "provision", Kind: "provision-os", Name: "Verify", Executor: operationdomain.RunnerKindProvisioner, Status: operationdomain.TaskPending, Attempt: 1},
-			{ID: "record", Kind: "record-image-verification", Name: "Record", Executor: operationdomain.RunnerKindInternal, Status: operationdomain.TaskPending, Attempt: 1, DependsOn: []string{"provision"}},
-			{ID: "recover", Kind: "recover-server", Name: "Return", Executor: operationdomain.RunnerKindProvisioner, Status: operationdomain.TaskPending, Attempt: 1, DependsOn: []string{"record"},
-				ContinueOn: []operationdomain.TaskStatus{operationdomain.TaskSucceeded, operationdomain.TaskSkipped}},
+		Steps: []workflowdomain.Task{
+			{ID: "provision", Kind: "provision-os", Name: "Verify", Executor: workflowdomain.RunnerKindProvisioner, Status: workflowdomain.TaskPending, Attempt: 1},
+			{ID: "record", Kind: "record-image-verification", Name: "Record", Executor: workflowdomain.RunnerKindInternal, Status: workflowdomain.TaskPending, Attempt: 1, DependsOn: []string{"provision"}},
+			{ID: "recover", Kind: "recover-server", Name: "Return", Executor: workflowdomain.RunnerKindProvisioner, Status: workflowdomain.TaskPending, Attempt: 1, DependsOn: []string{"record"},
+				ContinueOn: []workflowdomain.TaskStatus{workflowdomain.TaskSucceeded, workflowdomain.TaskSkipped}},
 		},
 	})
 	if err := env.GetWorkflowError(); err != nil {
@@ -438,10 +438,10 @@ func TestOperationWorkflowV1SkipsFinalizeAndRunsCompensation(t *testing.T) {
 	if len(executed) != 2 || executed[0] != "provision" || executed[1] != "recover" {
 		t.Fatalf("executed = %v, want [provision recover]", executed)
 	}
-	if stepStatus["record"] != operationdomain.TaskSkipped {
+	if stepStatus["record"] != workflowdomain.TaskSkipped {
 		t.Fatalf("record status = %v, want skipped", stepStatus["record"])
 	}
-	if len(states) == 0 || states[len(states)-1] != operationdomain.WorkflowPartiallySucceeded {
+	if len(states) == 0 || states[len(states)-1] != workflowdomain.WorkflowPartiallySucceeded {
 		t.Fatalf("final state = %v, want partially_succeeded", states)
 	}
 }
@@ -451,12 +451,12 @@ func registerWorkflowActivityMocks(
 	execute func(StepExecutionInput) StepExecutionResult,
 	updateState func(StateUpdate),
 ) {
-	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]operationdomain.ResourceLease, error) {
-		return []operationdomain.ResourceLease{{ResourceKey: "server:a", Owner: "workflow", FencingToken: 1}}, nil
+	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRequest) ([]workflowdomain.ResourceLease, error) {
+		return []workflowdomain.ResourceLease{{ResourceKey: "server:a", Owner: "workflow", FencingToken: 1}}, nil
 	}, activity.RegisterOptions{Name: ActivityAcquireLeases})
 	env.RegisterActivityWithOptions(func(_ context.Context, _ LeaseRenewal) error { return nil },
 		activity.RegisterOptions{Name: ActivityRenewLeases})
-	env.RegisterActivityWithOptions(func(_ context.Context, _ []operationdomain.ResourceLease) error { return nil },
+	env.RegisterActivityWithOptions(func(_ context.Context, _ []workflowdomain.ResourceLease) error { return nil },
 		activity.RegisterOptions{Name: ActivityReleaseLeases})
 	env.RegisterActivityWithOptions(func(_ context.Context, _ StepUpdate) error { return nil },
 		activity.RegisterOptions{Name: ActivityUpdateStep})

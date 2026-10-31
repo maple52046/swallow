@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	authdomain "github.com/maple52046/swallow/internal/auth/domain"
+	authdomain "github.com/maple52046/swallow/internal/core/auth/domain"
 )
 
 func EnsureAdminUser(ctx context.Context, repo authdomain.UserRepository, username, password string) error {
