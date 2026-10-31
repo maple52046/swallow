@@ -61,7 +61,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Site'
         '400':
-          description: '`validation_error`: the body is not valid JSON, or `name` is missing or empty.'
+          description: '`validation_error`: the body is not valid JSON, or `name` is missing or empty after trimming.'
           content:
             application/json:
               schema:
@@ -115,7 +115,8 @@ paths:
       operationId: updateSite
       summary: Change a Site's name or description.
       description: >-
-        Requires role `admin`. Only present fields change; `name` is trimmed before it is stored.
+        Requires role `admin`. Only present fields change; `name` is trimmed before it is stored
+        and must not be empty.
       requestBody:
         required: true
         content:
@@ -135,7 +136,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Site'
         '400':
-          description: '`validation_error`: the body is not valid JSON.'
+          description: '`validation_error`: the body is not valid JSON, or `name` is empty after trimming.'
           content:
             application/json:
               schema:

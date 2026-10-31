@@ -8,6 +8,8 @@ package application
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -41,11 +43,29 @@ type CreateSiteInput struct {
 	Description string
 }
 
+// ErrInvalidSite covers the Site validation failures the delivery layer turns into a 400 with
+// the message attached.
+var ErrInvalidSite = errors.New("invalid site")
+
+// siteName trims a requested Site name and refuses one that is empty after trimming, so a
+// whitespace-only name is never stored as "" (DF-13).
+func siteName(name string) (string, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return "", fmt.Errorf("%w: name is required", ErrInvalidSite)
+	}
+	return trimmed, nil
+}
+
 func (s *SiteService) Create(ctx context.Context, input CreateSiteInput) (*SiteItem, error) {
+	name, err := siteName(input.Name)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	site := &sitedomain.Site{
 		ID:          uuid.NewString(),
-		Name:        strings.TrimSpace(input.Name),
+		Name:        name,
 		Description: input.Description,
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -93,7 +113,9 @@ func (s *SiteService) Update(ctx context.Context, id string, input UpdateSiteInp
 	}
 
 	if input.Name != nil {
-		site.Name = strings.TrimSpace(*input.Name)
+		if site.Name, err = siteName(*input.Name); err != nil {
+			return nil, err
+		}
 	}
 	if input.Description != nil {
 		site.Description = *input.Description

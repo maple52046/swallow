@@ -93,19 +93,30 @@ func (r *MongoAutomationConfigurationRepo) Upsert(ctx context.Context, configura
 // whatever credential the Site stored before. credential.SSHPrivateKey is never stored: the
 // Deployment Key is the only automation key (decision 041), and callers reject a Site key
 // before reaching this port.
+//
+// An empty become password clears the credential: the sealed value is removed rather than
+// sealing an empty one, so hasCredential reads false again (DF-13) and automation runs with the
+// Deployment Key and no become password.
 func (r *MongoAutomationConfigurationRepo) ReplaceCredential(ctx context.Context, siteID string, credential workflowdomain.AutomationCredential) error {
-	raw, err := json.Marshal(sealedAutomationCredential{BecomePassword: credential.BecomePassword})
-	if err != nil {
-		return err
+	update := bson.M{
+		"$set":   bson.M{"updatedAt": time.Now().UTC()},
+		"$unset": bson.M{credentialHasPrivateKeyField: "", "sealedCredential": ""},
 	}
-	sealed, err := r.sealer.Seal(string(raw))
-	if err != nil {
-		return err
+	if credential.BecomePassword != "" {
+		raw, err := json.Marshal(sealedAutomationCredential{BecomePassword: credential.BecomePassword})
+		if err != nil {
+			return err
+		}
+		sealed, err := r.sealer.Seal(string(raw))
+		if err != nil {
+			return err
+		}
+		update = bson.M{
+			"$set":   bson.M{"sealedCredential": sealed, "updatedAt": time.Now().UTC()},
+			"$unset": bson.M{credentialHasPrivateKeyField: ""},
+		}
 	}
-	result, err := r.col.UpdateOne(ctx, bson.M{"_id": siteID}, bson.M{
-		"$set":   bson.M{"sealedCredential": sealed, "updatedAt": time.Now().UTC()},
-		"$unset": bson.M{credentialHasPrivateKeyField: ""},
-	})
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": siteID}, update)
 	if err != nil {
 		return err
 	}

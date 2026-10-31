@@ -105,9 +105,8 @@ installation's Deployment Key ([decision 041](../../../../../docs/decisions/041-
 - `deploymentKey` — the Deployment Key exists and is used.
 - `none` — no Deployment Key exists (the installation step that creates it has not run).
 
-`hasCredential` reports that the Site stores a become password. It currently stays `true`
-after the password is cleared with `{}`, because the cleared credential is still stored
-(known defect).
+`hasCredential` reports that the Site stores a become password; it is `false` again once the
+password is cleared with `{}`.
 
 Ansible Tasks for a Site run only when `enabled` is `true` and `credentialSource` is
 `deploymentKey`; otherwise acceptance fails with `503 provider_unavailable` and a running
@@ -149,3 +148,6 @@ no longer reports `site`, and a key stored by an earlier release is ignored. New
 Operations consume this configuration through the standalone Ansible executor; legacy
 schema-v2 Operations may still consume it through the compatibility dispatcher while that
 queue drains.
+
+Since 2026-10-31 clearing the become password with `{}` removes the stored credential, so
+`hasCredential` reads `false` (DF-13); it stayed `true` before.

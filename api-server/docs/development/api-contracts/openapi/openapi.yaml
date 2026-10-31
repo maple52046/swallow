@@ -7577,7 +7577,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`validation_error`: the body is not valid JSON, or `name` is missing or empty.'
+          description: '`validation_error`: the body is not valid JSON, or `name` is missing or empty after trimming.'
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -7658,7 +7658,7 @@ paths:
         schema:
           type: string
     patch:
-      description: Requires role `admin`. Only present fields change; `name` is trimmed before it is stored.
+      description: Requires role `admin`. Only present fields change; `name` is trimmed before it is stored and must not be empty.
       operationId: updateSite
       requestBody:
         content:
@@ -7683,7 +7683,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`validation_error`: the body is not valid JSON.'
+          description: '`validation_error`: the body is not valid JSON, or `name` is empty after trimming.'
         "401":
           $ref: '#/components/responses/Error'
         "403":

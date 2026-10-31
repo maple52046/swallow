@@ -34,10 +34,6 @@ func (h *SiteHandler) CreateSite(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
-	if req.Name == "" {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "name is required."))
-	}
-
 	item, err := h.sites.Create(c.Context(), application.CreateSiteInput{
 		Name:        req.Name,
 		Description: req.Description,
@@ -224,6 +220,8 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, sitedomain.ErrIntegrationHasDeploymentTemplates):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"Deployment templates still reference this integration. Delete them first."))
+	case errors.Is(err, application.ErrInvalidSite):
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "name is required."))
 	case errors.Is(err, application.ErrInvalidIntegration):
 		// The message names what was wrong and what the valid values are, which is
 		// the whole value of validating the kind and provider kind together.

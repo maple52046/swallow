@@ -67,7 +67,8 @@ Lists are plain arrays: Sites ordered by `name`, Integrations by `siteId` then `
 ## Sites
 
 `name` is required on create, trimmed, and unique across Sites: a create or rename onto a
-taken name is `409 conflict`. `description` is stored as sent and is `""` when absent.
+taken name is `409 conflict`, and a name that is empty after trimming is `400 validation_error`
+on create and on `PATCH`. `description` is stored as sent and is `""` when absent.
 `PATCH` changes only the fields present. A Site that still has Integrations cannot be deleted
 (`409 conflict`).
 
@@ -121,3 +122,8 @@ Integration created before the key existed has it absent, which means on.
 | Key | Value | Meaning |
 | --- | --- | --- |
 | `virshSshPublicKey` | An OpenSSH public key line, or absent | The public key the provisioner's rack controller uses for `virsh` power over `qemu+ssh` ([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md)). Virtual-machine enrollment authorizes it for the login account on the hypervisor ([server-enrollment.md](server-enrollment.md#virtual-machines-libvirt)). The installation sets it for a co-located MAAS. It is a public key, not a secret. |
+
+## Compatibility Notes
+
+- Since 2026-10-31 a Site name that is empty after trimming is refused on create and on `PATCH`
+  (DF-13). Before, a whitespace-only name was stored as `""` and `PATCH` accepted an empty name.

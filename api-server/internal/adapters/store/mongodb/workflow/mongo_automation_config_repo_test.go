@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -68,5 +69,39 @@ func TestMongoAutomationConfigurationRepo_IgnoresLegacySiteKey(t *testing.T) {
 	}
 	if opened != `{"becomePassword":"pw2"}` {
 		t.Errorf("sealed credential = %s, want only the become password", opened)
+	}
+}
+
+// DF-13: clearing the become password (`{}`) removes the stored credential, so the Site reads as
+// having none; before, an empty password was sealed and hasCredential stayed true.
+func TestMongoAutomationConfigurationRepo_EmptyBecomePasswordClearsTheCredential(t *testing.T) {
+	db := workflowTestDatabase(t)
+	ctx := context.Background()
+	sealer, err := secret.NewSealer("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+	if err != nil {
+		t.Fatalf("NewSealer: %v", err)
+	}
+	if _, err := db.Collection("automation_configurations").InsertOne(ctx, bson.M{"_id": "site-1", "enabled": true}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	repo := NewMongoAutomationConfigurationRepo(db, sealer)
+	if err := repo.ReplaceCredential(ctx, "site-1", workflowdomain.AutomationCredential{BecomePassword: "pw"}); err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	if err := repo.ReplaceCredential(ctx, "site-1", workflowdomain.AutomationCredential{}); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	configuration, err := repo.FindBySiteID(ctx, "site-1")
+	if err != nil {
+		t.Fatalf("FindBySiteID: %v", err)
+	}
+	if configuration.HasCredential {
+		t.Error("HasCredential = true after the become password was cleared")
+	}
+	if _, err := repo.Credential(ctx, "site-1"); !errors.Is(err, workflowdomain.ErrAutomationCredentialMissing) {
+		t.Errorf("Credential() error = %v, want ErrAutomationCredentialMissing", err)
+	}
+	if err := repo.ReplaceCredential(ctx, "missing", workflowdomain.AutomationCredential{}); !errors.Is(err, workflowdomain.ErrAutomationConfigNotFound) {
+		t.Errorf("clearing an unconfigured Site err = %v, want ErrAutomationConfigNotFound", err)
 	}
 }

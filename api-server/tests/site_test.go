@@ -37,9 +37,28 @@ func TestCreateSite_AndDuplicateName(t *testing.T) {
 func TestCreateSite_RequiresName(t *testing.T) {
 	f := setupPlatform(t)
 
-	resp := doRequest(t, f.app, "POST", "/api/v1/sites/", map[string]string{}, f.adminAuth(t))
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	for _, body := range []map[string]string{{}, {"name": "   "}} {
+		resp := doRequest(t, f.app, "POST", "/api/v1/sites/", body, f.adminAuth(t))
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("create %v: expected 400, got %d", body, resp.StatusCode)
+		}
+	}
+}
+
+// DF-13: a PATCH cannot blank a Site's name; the name is trimmed before it is checked.
+func TestUpdateSite_RequiresANonEmptyName(t *testing.T) {
+	f := setupPlatform(t)
+	siteID := createSite(t, f, "dc-west")
+
+	for _, name := range []string{"", "  "} {
+		resp := doRequest(t, f.app, "PATCH", "/api/v1/sites/"+siteID, map[string]string{"name": name}, f.adminAuth(t))
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("patch name %q: expected 400, got %d", name, resp.StatusCode)
+		}
+	}
+	resp := doRequest(t, f.app, "PATCH", "/api/v1/sites/"+siteID, map[string]string{"name": "  dc-west-2 "}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch a valid name: expected 200, got %d", resp.StatusCode)
 	}
 }
 

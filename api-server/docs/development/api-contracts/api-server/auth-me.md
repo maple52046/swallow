@@ -83,12 +83,16 @@ See [`conventions.md`](conventions.md) for the envelope.
 | --- | ---: | --- |
 | `unauthorized` | 401 | The credential is missing, malformed, expired, or revoked. |
 | `not_found` | 404 | The token is valid but the referenced user no longer exists. |
+| `internal_error` | 500 | The user store could not be read. The Session is not ended; retry later. |
 
 ## Compatibility Notes
 
 The `404` case is deliberate: a structurally valid token for a deleted user is
 not an authentication failure, and consumers should clear the session rather than
 retry. Collapsing it into `401` would hide the distinction.
+
+Since 2026-10-31 a failing user store is `500 internal_error` (DF-04). It was `404`, so a store
+outage signed the dashboard out.
 
 Adding a role value is a change to swallow's glossary first, then to this
 contract, then to every consumer that branches on role.

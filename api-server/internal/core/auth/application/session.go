@@ -86,10 +86,14 @@ func NewSessionService(users authdomain.UserRepository, sessions authdomain.Sess
 
 // Login checks the password and creates a Session. Unknown users and wrong passwords both
 // return authdomain.ErrInvalidCredentials, which the contract requires to be indistinguishable.
+// A failing user store is returned wrapped (a 500), not reported as wrong credentials.
 func (s *SessionService) Login(ctx context.Context, input LoginInput) (*Tokens, error) {
 	user, err := s.users.FindByUsername(ctx, input.Username)
-	if err != nil {
+	if errors.Is(err, authdomain.ErrUserNotFound) {
 		return nil, authdomain.ErrInvalidCredentials
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find user: %w", err)
 	}
 	if !user.PasswordHash.Matches(input.Password) {
 		return nil, authdomain.ErrInvalidCredentials

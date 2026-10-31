@@ -117,12 +117,16 @@ See [`conventions.md`](conventions.md) for the envelope.
 | --- | ---: | --- |
 | `validation_error` | 400 | The body is not valid JSON, `username` or `password` is missing, or `refreshTokenDelivery` is not `cookie` or `body` (an empty string counts as omitted). |
 | `unauthorized` | 401 | Credentials are wrong, or the user does not exist. Both cases return the same code and an indistinguishable message. |
+| `internal_error` | 500 | The user store could not be read. |
 
 ## Compatibility Notes
 
 Wrong credentials and unknown username MUST stay indistinguishable. Splitting
 them into different codes or messages would be a security regression, not an
 improvement in error reporting.
+
+Since 2026-10-31 a failing user store is `500 internal_error` (DF-04); it was reported as
+`401` wrong credentials.
 
 `accessToken` keeps its name and meaning, so a client that reads only it (installation
 tooling) keeps working; it just receives a shorter-lived token. `accessTokenExpiresAt`,

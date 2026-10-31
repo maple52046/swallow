@@ -3889,7 +3889,7 @@ export interface paths {
         head?: never;
         /**
          * Change a Site's name or description.
-         * @description Requires role `admin`. Only present fields change; `name` is trimmed before it is stored.
+         * @description Requires role `admin`. Only present fields change; `name` is trimmed before it is stored and must not be empty.
          */
         patch: operations["updateSite"];
         trace?: never;
@@ -15551,7 +15551,7 @@ export interface operations {
                     "application/json": components["schemas"]["Site"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON, or `name` is missing or empty. */
+            /** @description `validation_error`: the body is not valid JSON, or `name` is missing or empty after trimming. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -15681,7 +15681,7 @@ export interface operations {
                     "application/json": components["schemas"]["Site"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON. */
+            /** @description `validation_error`: the body is not valid JSON, or `name` is empty after trimming. */
             400: {
                 headers: {
                     [name: string]: unknown;
