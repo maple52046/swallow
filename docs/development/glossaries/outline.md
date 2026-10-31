@@ -65,7 +65,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Power Configuration](terms/power-configuration.md): The provisioner-owned power driver and parameters that let the provisioner switch and read a Server's power — family `bmc` (`ipmi`, `redfish`) or `virsh`, control `none`/`manual`/`automatic`; swallow writes it through, password write-only.
 - [Boot Media](terms/boot-media.md): A Server's setting that a chosen Boot ISO is attached and booted first to reach the provisioner on externally served networks — method `redfish` (BMC virtual media) or `libvirt` (a VM's CD-ROM on its Hypervisor); swallow owns the setting, applied as a preflight and re-ensured before every inspection and OS Deployment.
 - [Hypervisor](terms/hypervisor.md): A deployed Server that runs libvirt virtual machines swallow can enroll by name and give Boot Media, reached over SSH with the Deployment Key; the provisioner still switches their power.
-- [Boot ISO](terms/boot-iso.md): A swallow-built iPXE ISO for one provisioner Integration that takes a site DHCP lease and chains to its MAAS rack; built from a fixed template, served by swallow, selected by Boot Media.
+- [Boot ISO](terms/boot-iso.md): A swallow-built boot ISO for one provisioner Integration that takes a site DHCP lease and boots through its MAAS rack — iPXE on BIOS, the ISO's own GRUB on UEFI; built from fixed templates, served by swallow, selected by Boot Media.
 
 ### Platform Management
 
@@ -109,8 +109,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
   installation whose progress is observed on each Server provisioning axis.
 - [Deploy Target](terms/deploy-target.md): Where an OS Deployment runs — `disk` or `ram` (memory-backed, the fact still called `ephemeral` at the boundary); the canonical deploy-mode vocabulary and the axis a custom OS Image is verified against.
 - [Release](terms/release.md): Returning a Machine to the provider's available pool
-  (`ready` again) without removing the Server; allowed from deployed, failed, broken, or rescue.
-- [Provider Recovery](terms/provider-recovery.md): Swallow-owned policy and the Recover/Release intents that return a `failed`, `broken`, or `rescue` Server to `ready`.
+  (`ready` again) without removing the Server; allowed from deployed, allocated, failed, broken, or rescue.
+- [Provider Recovery](terms/provider-recovery.md): Swallow-owned policy and the Recover/Release intents that return a `failed`, `broken`, `rescue`, or `allocated` Server to `ready`.
 - [Rescue Mode](terms/rescue-mode.md): A provider diagnostic environment; exiting restores the prior state and does not by itself reach `ready`.
 - [Deployment Template](terms/deployment-template.md): Reusable,
   integration-scoped Swallow-owned deployment intent without automation content.

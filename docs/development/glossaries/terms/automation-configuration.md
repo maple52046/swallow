@@ -12,10 +12,11 @@ key source is reported as `credentialSource` (`deploymentKey`, or `none` before 
 installation step has created the Deployment Key). Ansible may run for a Site when
 automation is enabled and the Deployment Key exists.
 
-The login user is resolved per host: when the Server's deployed OS Image has an effective
-default user, that user is used exclusively; otherwise the site SSH user is tried first,
-then swallow's built-in candidates (`cloud-user`, `ubuntu`). The site SSH user is therefore
-a fallback, not a requirement.
+The login user is resolved per host: when the Server has an effective
+[Server Default User](server-default-user.md) (set on the Server, otherwise its deployed OS
+Image's default user), that user is used exclusively; otherwise the site SSH user is tried
+first, then swallow's built-in candidates (`cloud-user`, `ubuntu`). The site SSH user is
+therefore a fallback, not a requirement.
 
 Automation is not an external integration: Swallow owns the dispatcher, execution state,
 logs, artifacts, and retention policy. Automation still respects provider-owned Server
@@ -30,4 +31,6 @@ Deployment Key and the login user prefers the OS Image default user, per
 [decision 039](../../../decisions/039-ssh-key-management-and-default-user.md). Updated
 2026-10-02 to remove the site private-key override: automation uses only the Deployment
 Key and a Site stores only its become password, per
-[decision 041](../../../decisions/041-deployment-key-only-automation.md).
+[decision 041](../../../decisions/041-deployment-key-only-automation.md). Corrected
+2026-10-31: the Server Default User precedes the OS Image default user, per
+[decision 045](../../../decisions/045-server-default-user.md).

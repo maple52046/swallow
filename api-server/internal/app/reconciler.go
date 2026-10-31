@@ -13,9 +13,8 @@ import (
 
 // runReconciler polls every enabled provisioner on an interval until ctx is cancelled.
 //
-// This is one of only two background loops in the service, and both are periodic
-// readers of external state. swallow executes nothing itself; a loop that reads is the
-// most it needs. See docs/decisions/001-system-ownership-boundaries.md.
+// It reads the provisioner's machine state into swallow's projection; it changes nothing in the
+// provisioner. See docs/decisions/001-system-ownership-boundaries.md.
 func runReconciler(ctx context.Context, reconcile *provisioningapp.ReconcileUseCase, interval time.Duration) {
 	// Run once at startup so that a restart does not leave the projection stale for a
 	// whole interval.

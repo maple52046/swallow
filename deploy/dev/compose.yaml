@@ -208,6 +208,9 @@ services:
         UID: ${DEV_UID:-1001}
         GID: ${DEV_GID:-1001}
     restart: unless-stopped
+    # ansible-runner leaves its ssh-agent to be reaped by PID 1; Docker's init reaps it and
+    # forwards signals, so finished runs do not accumulate zombies (DF-21).
+    init: true
     depends_on:
       mongo:
         condition: service_healthy

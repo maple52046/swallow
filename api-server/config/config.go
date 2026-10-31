@@ -124,7 +124,8 @@ type APIConfig struct {
 	RedfishProbeMaxAge time.Duration `yaml:"redfishProbeMaxAge"`
 	// NTPServer is the address (IP or DNS name) of the installation's Control-Plane NTP Server, as
 	// the Servers swallow deploys reach it (decision 065). Every OS provisioning points the new
-	// Server's chrony at it, and Platform deployments measure node clocks against it. The
+	// Server's time client (systemd-timesyncd, chrony, or ntpd, whichever the OS has) at it, and
+	// Platform deployments measure node clocks against it. The
 	// production installation sets it to SWALLOW_ADDRESS. Optional for the process to start, but
 	// without it every OS deployment is refused at acceptance with the setting to fix.
 	NTPServer string `yaml:"ntpServer"`
@@ -144,7 +145,8 @@ type BootMediaConfig struct {
 	// BaseURL is the absolute http(s) URL, without path, at which BMCs reach this API process.
 	BaseURL string `yaml:"baseURL"`
 	// Dir is where the API process writes Boot ISOs, one subdirectory per ISO. It must be
-	// writable by the API process and persistent across restarts; the worker never reads it.
+	// writable by the API process and persistent across restarts. The worker reads it (read-only)
+	// when hardware inspection resolves a Server's Boot ISO.
 	Dir string `yaml:"dir"`
 	// IPXEDir holds the prebuilt iPXE assets a build packages: ipxe.lkrn, ipxe.efi, iPXE's
 	// genfsimg script, and a VERSION file. The api-server image installs them; a missing file

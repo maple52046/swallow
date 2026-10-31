@@ -147,7 +147,8 @@ func serveBootISO(files *genfsimg.GenfsimgBuilder) fiber.Handler {
 // to the server domain port: the BMC extension of a bmc-family driver (not a VM-host member) yields
 // the redfish endpoint, and a virsh driver not owned by a VM host yields libvirt, with the swallow
 // Server of the same Site that the address's host names as its Hypervisor. Any other machine has no
-// method, with no driver-name check here. The BMC password passes through in memory only.
+// method; the power adapter registry, not a driver-name list here, decides which drivers have a BMC.
+// The BMC password passes through in memory only.
 type bootMediaEndpointSource struct {
 	providers provisioningdomain.ProviderFactory
 	adapters  *provisioningdomain.PowerAdapterRegistry

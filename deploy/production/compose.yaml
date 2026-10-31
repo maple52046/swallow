@@ -220,6 +220,9 @@ services:
     image: ${SWALLOW_API_IMAGE:?set a digest-pinned SWALLOW_API_IMAGE}
     command: ["ansible-executor"]
     restart: unless-stopped
+    # ansible-runner leaves its ssh-agent to be reaped by PID 1; Docker's init reaps it and
+    # forwards signals, so finished runs do not accumulate zombies (DF-21).
+    init: true
     <<: *backend-hosts
     depends_on:
       mongo:

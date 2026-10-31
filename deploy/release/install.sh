@@ -18,7 +18,9 @@ usage() {
   cat <<'EOF'
 usage: install.sh [--address ADDRESS] [--dir DIRECTORY] [--version VERSION]
   --address  the IP address or host name that machines and BMCs use to reach this host
-             (default: the address of the interface with the default route)
+             (default: the address an earlier install recorded, else the host the
+             co-located MAAS was first initialized with, else the address of the
+             interface with the default route)
   --dir      the installation directory (default /opt/swallow)
   --version  the release to install (default: the release this script was published with)
 Each option may also be set in the environment: SWALLOW_ADDRESS, SWALLOW_INSTALL_DIR,

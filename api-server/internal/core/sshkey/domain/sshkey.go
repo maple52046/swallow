@@ -26,9 +26,9 @@ const (
 	PurposeAccess Purpose = "access"
 )
 
-// DefaultDeploymentKeyName is the name the Deployment Key gets when swallow generates it at
-// first start. It also becomes the public key's comment so the key is recognizable in a
-// provisioner's UI.
+// DefaultDeploymentKeyName is the name the Deployment Key gets when the installation step
+// `swallow-api deployment-key ensure` generates it. It also becomes the public key's comment so the
+// key is recognizable in a provisioner's UI.
 const DefaultDeploymentKeyName = "swallow-deployment"
 
 // MaxNameLength bounds an SSH Key name so a list stays readable and a provider comment stays

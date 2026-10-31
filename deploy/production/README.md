@@ -99,7 +99,7 @@ write the ones set in the environment into `.env`, so later runs keep them:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SWALLOW_ADDRESS` | the primary IPv4 | address machines and BMCs use to reach this host (`install.sh --address`) |
+| `SWALLOW_ADDRESS` | the value already in `.env`, else the host the co-located MAAS was first initialized with, else the primary IPv4 | address machines and BMCs use to reach this host (`install.sh --address`) |
 | `SWALLOW_HTTP_PORT` | `80` | Dashboard and API port |
 | `SWALLOW_POSTGRES_HOST_PORT` | `5432` | loopback port MAAS uses for PostgreSQL |
 | `SWALLOW_MAAS_URL` | `http://<SWALLOW_ADDRESS>:5240/MAAS` | address machines use to reach MAAS; fixed at the first install |

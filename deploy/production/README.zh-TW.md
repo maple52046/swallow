@@ -91,7 +91,7 @@ playbook 在安裝前會檢查每個節點的時鐘。網路連不到 `ntp.ubunt
 
 | Variable | Default | 用途 |
 | --- | --- | --- |
-| `SWALLOW_ADDRESS` | primary IPv4 | 機器與 BMC 連到這台主機的位址（`install.sh --address`） |
+| `SWALLOW_ADDRESS` | `.env` 中已有的值；沒有時為共置 MAAS 首次初始化時的主機；再沒有時為 primary IPv4 | 機器與 BMC 連到這台主機的位址（`install.sh --address`） |
 | `SWALLOW_HTTP_PORT` | `80` | Dashboard 與 API port |
 | `SWALLOW_POSTGRES_HOST_PORT` | `5432` | MAAS 連 PostgreSQL 的 loopback port |
 | `SWALLOW_MAAS_URL` | `http://<SWALLOW_ADDRESS>:5240/MAAS` | 機器連 MAAS 的位址；第一次安裝後固定 |

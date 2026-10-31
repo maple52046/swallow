@@ -92,8 +92,8 @@ func Validate(cfg *Config) error {
 	if cfg.API.RedfishProbeInterval <= 0 || cfg.API.RedfishProbeMaxAge <= 0 {
 		return fmt.Errorf("api.redfishProbeInterval and api.redfishProbeMaxAge must be > 0")
 	}
-	// The address is written into chrony's configuration on every provisioned Server, so it must
-	// be exactly one IP address or DNS name: no port, scheme, option, or whitespace.
+	// The address is written into the time client's configuration on every provisioned Server,
+	// so it must be exactly one IP address or DNS name: no port, scheme, option, or whitespace.
 	if server := strings.TrimSpace(cfg.API.NTPServer); server != "" {
 		if net.ParseIP(server) == nil && !ntpHostName.MatchString(server) {
 			return fmt.Errorf("api.ntpServer must be one IP address or DNS name, got %q", cfg.API.NTPServer)

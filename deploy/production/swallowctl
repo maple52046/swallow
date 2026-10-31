@@ -739,8 +739,8 @@ converge_local_ntp() {
   "${script_dir}/local-ntp.sh" install && "${script_dir}/local-ntp.sh" upstream
 }
 
-# converge_installation_records reapplies the idempotent bootstrap (Site, MAAS Integration,
-# automation and NTP defaults that exist only when none do) when its read-only verify fails.
+# converge_installation_records reapplies the idempotent bootstrap (Site, MAAS Integration, and
+# Site automation defaults written only when the Site has none) when its read-only verify fails.
 converge_installation_records() {
   if "${script_dir}/bootstrap.sh" verify >/dev/null 2>&1; then
     printf 'ok    installation records exist\n'

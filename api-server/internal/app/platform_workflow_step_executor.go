@@ -416,7 +416,7 @@ func (e platformWorkflowStepExecutor) probeReadiness(
 func sshAuthFailedMessage(authFailed []string) string {
 	return fmt.Sprintf(
 		"SSH authentication failed for: %s. The host is reachable but rejected the automation SSH key (publickey) for the login users tried. "+
-			"Check that the OS Image's default user is correct and that the Deployment Key (or the site's key override) is authorized for it — "+
+			"Check that the OS Image's default user is correct and that the Deployment Key is authorized for it — "+
 			"swallow registers the Deployment Key in key-capable provisioners, so a Server deployed before a key change may need redeploying — then retry this Step.",
 		strings.Join(authFailed, ", "))
 }
