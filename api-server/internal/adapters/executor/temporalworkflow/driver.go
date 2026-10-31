@@ -193,6 +193,8 @@ func DriverWorkflow(ctx workflow.Context, input DriverInput) error {
 			})
 		}
 		selector.AddReceive(wake, func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, nil) })
+		// Select does not return on cancellation by itself; a parked run must still see a cancel.
+		selector.AddReceive(ctx.Done(), func(workflow.ReceiveChannel, bool) {})
 		if result.Action == workflowapp.AdvanceWaitResources || (result.Action == workflowapp.AdvanceRun && len(running) == 0) {
 			selector.AddFuture(workflow.NewTimer(ctx, resourcePoll), func(workflow.Future) {})
 		}

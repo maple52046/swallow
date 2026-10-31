@@ -200,6 +200,7 @@ services:
       SWALLOW_API_TEMPORAL_ADDRESS: temporal:7233
       SWALLOW_API_TEMPORAL_NAMESPACE: default
       SWALLOW_API_TEMPORAL_TASK_QUEUE: swallow-operations
+      SWALLOW_API_ANSIBLE_TASK_QUEUE: swallow-ansible
       SWALLOW_API_JOB_ARTIFACT_DIR: /var/lib/swallow/jobs
       # Hardware inspection resolves a Server's Boot ISO when its ensure-boot-media Task runs
       # (decision 053), so the worker reads the Boot ISO files and their URL like the API does.
@@ -232,6 +233,8 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+      temporal:
+        condition: service_healthy
     environment:
       SWALLOW_API_ADDR: ":30051"
       SWALLOW_API_RELEASE_VERSION: ${SWALLOW_RELEASE_VERSION:?set promoted SemVer}
@@ -247,6 +250,7 @@ services:
       SWALLOW_API_TEMPORAL_ADDRESS: temporal:7233
       SWALLOW_API_TEMPORAL_NAMESPACE: default
       SWALLOW_API_TEMPORAL_TASK_QUEUE: swallow-operations
+      SWALLOW_API_ANSIBLE_TASK_QUEUE: swallow-ansible
       SWALLOW_API_JOB_RUNTIME_DIR: /run/swallow/jobs
       SWALLOW_API_JOB_ARTIFACT_DIR: /var/lib/swallow/jobs
       SWALLOW_API_JOB_ARTIFACT_RETENTION: 720h

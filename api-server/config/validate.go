@@ -77,6 +77,9 @@ func Validate(cfg *Config) error {
 	if cfg.API.TemporalAddress == "" || cfg.API.TemporalNamespace == "" || cfg.API.TemporalTaskQueue == "" {
 		return fmt.Errorf("api.temporalAddress, api.temporalNamespace, and api.temporalTaskQueue are required")
 	}
+	if cfg.API.AnsibleTaskQueue == "" || cfg.API.AnsibleTaskQueue == cfg.API.TemporalTaskQueue {
+		return fmt.Errorf("api.ansibleTaskQueue is required and must differ from api.temporalTaskQueue")
+	}
 	if cfg.API.TemporalStartInterval <= 0 {
 		return fmt.Errorf("api.temporalStartInterval must be > 0")
 	}

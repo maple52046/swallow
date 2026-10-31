@@ -9,7 +9,12 @@ import (
 	"syscall"
 	"time"
 
+	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
+
 	"github.com/maple52046/swallow/config"
+	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
 	"github.com/maple52046/swallow/internal/adapters/hostautomation/ansible"
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
@@ -136,9 +141,62 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		executionInventoryAdapter{discovery: discovery}, protection, leases, completion,
 		cfg.OperationDispatchInterval, cfg.OperationLeaseDuration, cfg.OperationMaxParallelism, operationSecrets,
 	)
-	slog.Info("Ansible executor started", "parallelism", cfg.OperationMaxParallelism, "artifactDir", cfg.JobArtifactDir)
+	// Ansible Tasks of the store-driven driver (decision 072) arrive as Temporal activities on the
+	// executor's own task queue; the queue above keeps serving Workflows of the earlier driver.
+	temporalClient, err := dialTemporal(ctx, client.Options{HostPort: cfg.TemporalAddress, Namespace: cfg.TemporalNamespace}, temporalDialTimeout)
+	if err != nil {
+		return fmt.Errorf("temporal connect: %w", err)
+	}
+	defer temporalClient.Close()
+	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
+	if err != nil {
+		return fmt.Errorf("resource ownership repo: %w", err)
+	}
+	engine, err := workflowapp.NewEngine(transactor, orchestrations, ownership, workflowPlanCatalog(), workflowapp.CompletionHandlers{
+		Projections: workflowProjections(servers, softwareAssignments, platforms), Results: results,
+	}, cfg.OperationMaxParallelism)
+	if err != nil {
+		return err
+	}
+	ansibleTasks, err := workflowapp.NewAnsibleTaskRunner(configurations, catalog, runner, ansibleEvents,
+		executionInventoryAdapter{discovery: discovery}, protection, operationSecrets,
+		temporalworkflow.NewSSHKeyscanHostKeyScanner(), engine, cfg.JobArtifactDir)
+	if err != nil {
+		return err
+	}
+	tasks := temporalworkflow.NewTaskActivities(engine, map[workflowdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
+		workflowdomain.RunnerKindAnsible: ansibleTaskExecutor{runner: ansibleTasks},
+	}, nil)
+	ansibleWorker := worker.New(temporalClient, cfg.AnsibleTaskQueue, worker.Options{
+		MaxConcurrentActivityExecutionSize: cfg.OperationMaxParallelism, WorkerStopTimeout: 10 * time.Second,
+	})
+	ansibleWorker.RegisterActivityWithOptions(tasks.ExecuteTask, activity.RegisterOptions{Name: temporalworkflow.ActivityExecuteTask})
+	ansibleWorker.RegisterActivityWithOptions(tasks.Compensate, activity.RegisterOptions{Name: temporalworkflow.ActivityCompensate})
+	if err := ansibleWorker.Start(); err != nil {
+		return fmt.Errorf("start the Ansible task worker: %w", err)
+	}
+	defer ansibleWorker.Stop()
+	slog.Info("Ansible executor started", "parallelism", cfg.OperationMaxParallelism, "artifactDir", cfg.JobArtifactDir,
+		"taskQueue", cfg.AnsibleTaskQueue)
 	queue.Run(ctx)
 	return nil
+}
+
+// ansibleTaskExecutor adapts the core Ansible Task runner to the executor adapter's Runner port.
+type ansibleTaskExecutor struct {
+	runner *workflowapp.AnsibleTaskRunner
+}
+
+// Execute implements temporalworkflow.StepLifecycleExecutor.
+func (e ansibleTaskExecutor) Execute(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
+	outcome := e.runner.Run(ctx, workflowapp.AnsibleTask{
+		WorkflowID: input.OperationID, Kind: input.Kind, PlatformID: input.PlatformID, SiteID: input.SiteID,
+		Generation: input.Generation, Task: input.Step, Resumed: input.Resumed,
+	})
+	return temporalworkflow.StepExecutionResult{
+		Status: outcome.Status, Progress: outcome.Progress, WaitingReason: outcome.WaitingReason, Error: outcome.Error,
+		ExternalExecution: outcome.ExternalExecution, Artifacts: outcome.Artifacts, Data: outcome.Data,
+	}
 }
 
 // declaredResultsObserver runs the result completions an Ansible Task of a current-driver Workflow

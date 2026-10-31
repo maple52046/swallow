@@ -29,6 +29,7 @@ func DefaultConfig() Config {
 			TemporalAddress:           "localhost:7233",
 			TemporalNamespace:         "default",
 			TemporalTaskQueue:         "swallow-operations",
+			AnsibleTaskQueue:          "swallow-ansible",
 			TemporalStartInterval:     time.Second,
 			AnsibleRunnerCommand:      "ansible-runner",
 			PlaybookManifest:          "modules/manifest.json",

@@ -116,6 +116,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("SWALLOW_API_TEMPORAL_TASK_QUEUE"); v != "" {
 		cfg.API.TemporalTaskQueue = v
 	}
+	if v := os.Getenv("SWALLOW_API_ANSIBLE_TASK_QUEUE"); v != "" {
+		cfg.API.AnsibleTaskQueue = v
+	}
 	if v := os.Getenv("SWALLOW_API_TEMPORAL_START_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.API.TemporalStartInterval = d

@@ -222,7 +222,10 @@ func RunWorker(cfg config.APIConfig) error {
 		return err
 	}
 	driverActivities := temporalworkflow.NewDriverActivities(engine)
-	taskActivities := temporalworkflow.NewTaskActivities(engine, runners, map[string]temporalworkflow.CompensationExecutor{
+	taskActivities := temporalworkflow.NewTaskActivities(engine, map[workflowdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
+		workflowdomain.RunnerKindInternal:    runners[workflowdomain.RunnerKindInternal],
+		workflowdomain.RunnerKindProvisioner: runners[workflowdomain.RunnerKindProvisioner],
+	}, map[string]temporalworkflow.CompensationExecutor{
 		compensationReturnCanceledDeployment: canceledDeploymentCompensation{runner: providerExecutor},
 	})
 	temporalWorker := worker.New(temporalClient, cfg.TemporalTaskQueue, worker.Options{WorkerStopTimeout: 10 * time.Second})
@@ -261,7 +264,9 @@ func RunWorker(cfg config.APIConfig) error {
 	executor := temporalworkflow.NewExecutor(temporalClient, cfg.TemporalTaskQueue, map[string]temporalworkflow.RunnerRoute{
 		string(workflowdomain.RunnerKindProvisioner): workerRoute,
 		string(workflowdomain.RunnerKindInternal):    workerRoute,
-		string(workflowdomain.RunnerKindAnsible):     workerRoute,
+		// Ansible Tasks run in the Ansible executor, once: their outcome cannot be proven after
+		// that process stopped.
+		string(workflowdomain.RunnerKindAnsible): {TaskQueue: cfg.AnsibleTaskQueue, SingleAttempt: true},
 	})
 
 	go taskWorker.Run(ctx)

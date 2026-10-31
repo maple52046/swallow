@@ -6,9 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
 	"go.mongodb.org/mongo-driver/bson"
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 
@@ -191,12 +194,17 @@ func newDriverFixture(t *testing.T, w *workflowdomain.Workflow) *driverFixture {
 
 func (f *driverFixture) run(t *testing.T, id string) {
 	t.Helper()
+	f.runWith(t, id, RunnerRoute{TaskQueue: "default-test-taskqueue"})
+}
+
+func (f *driverFixture) runWith(t *testing.T, id string, route RunnerRoute) {
+	t.Helper()
 	generation, err := f.engine.Dispatch(context.Background(), id)
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
 	f.env.ExecuteWorkflow(DriverWorkflowName, DriverInput{WorkflowID: id, Generation: generation, Routes: map[string]RunnerRoute{
-		string(workflowdomain.RunnerKindProvisioner): {TaskQueue: "default-test-taskqueue"},
+		string(workflowdomain.RunnerKindProvisioner): route,
 	}})
 	if !f.env.IsWorkflowCompleted() {
 		t.Fatal("the run did not complete")
@@ -293,4 +301,24 @@ func TestDriverOfASupersededGenerationEndsWithoutSideEffects(t *testing.T) {
 	if len(f.runner.ran) != 0 || f.store.workflow(t, "w").Steps[0].Status != workflowdomain.TaskPending {
 		t.Fatalf("the superseded run acted: ran %v", f.runner.ran)
 	}
+}
+
+// A single-attempt executor that stops (its heartbeat times out) leaves the Task's outcome
+// unknown: the Task is handed to the operator instead of being run again.
+func TestDriverRecordsAnUnknownOutcomeWhenASingleAttemptExecutorStops(t *testing.T) {
+	f := newDriverFixture(t, driverWorkflow("w", driverTask("a")))
+	f.env.OnActivity(ActivityExecuteTask, mock.Anything, mock.Anything).
+		Return(temporal.NewTimeoutError(enumspb.TIMEOUT_TYPE_HEARTBEAT, nil))
+	f.env.RegisterDelayedCallback(func() {
+		w := f.store.workflow(t, "w")
+		task := w.Steps[0]
+		if task.Status != workflowdomain.TaskRequiresAttention || task.Error == nil || task.Error.Code != "executor_outcome_unknown" {
+			t.Errorf("Task = %s %+v, want requires_attention with executor_outcome_unknown", task.Status, task.Error)
+		}
+		if w.Status != workflowdomain.WorkflowRequiresAttention {
+			t.Errorf("Workflow = %s, want it parked", w.Status)
+		}
+		f.env.CancelWorkflow()
+	}, time.Hour)
+	f.runWith(t, "w", RunnerRoute{TaskQueue: "default-test-taskqueue", SingleAttempt: true})
 }

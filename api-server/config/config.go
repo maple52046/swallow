@@ -76,9 +76,12 @@ type APIConfig struct {
 	// fan-out. It is a per-Operation ceiling, not a global worker limit.
 	OperationMaxParallelism int `yaml:"operationMaxParallelism"`
 	// TemporalAddress and Namespace locate the durable workflow service shared by API and worker.
-	TemporalAddress       string        `yaml:"temporalAddress"`
-	TemporalNamespace     string        `yaml:"temporalNamespace"`
-	TemporalTaskQueue     string        `yaml:"temporalTaskQueue"`
+	TemporalAddress   string `yaml:"temporalAddress"`
+	TemporalNamespace string `yaml:"temporalNamespace"`
+	TemporalTaskQueue string `yaml:"temporalTaskQueue"`
+	// AnsibleTaskQueue is the task queue on which the Ansible executor runs Ansible Tasks; only
+	// that process registers it, because only it owns ansible-runner (decision 072).
+	AnsibleTaskQueue      string        `yaml:"ansibleTaskQueue"`
 	TemporalStartInterval time.Duration `yaml:"temporalStartInterval"`
 	// AnsibleRunnerCommand is the pinned runner binary from the Execution Environment.
 	AnsibleRunnerCommand string `yaml:"ansibleRunnerCommand"`

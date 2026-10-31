@@ -192,6 +192,7 @@ services:
       SWALLOW_API_TEMPORAL_ADDRESS: "temporal:7233"
       SWALLOW_API_TEMPORAL_NAMESPACE: "default"
       SWALLOW_API_TEMPORAL_TASK_QUEUE: "swallow-operations"
+      SWALLOW_API_ANSIBLE_TASK_QUEUE: "swallow-ansible"
       SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
       # Hardware inspection resolves a Server's Boot ISO when its ensure-boot-media Task runs
@@ -220,6 +221,8 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+      temporal:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -236,6 +239,7 @@ services:
       SWALLOW_API_TEMPORAL_ADDRESS: "temporal:7233"
       SWALLOW_API_TEMPORAL_NAMESPACE: "default"
       SWALLOW_API_TEMPORAL_TASK_QUEUE: "swallow-operations"
+      SWALLOW_API_ANSIBLE_TASK_QUEUE: "swallow-ansible"
       SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
     volumes:
