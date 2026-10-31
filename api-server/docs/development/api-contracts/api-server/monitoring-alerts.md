@@ -70,17 +70,18 @@ Alert items contain `fingerprint`, `name`, `severity`, `state`, `summary`, `desc
 
 ## Acknowledge
 
-The request body is JSON:
+The path `fingerprint` names the alert being acknowledged and must be one the Site's
+Alertmanager reports (active, silenced, or inhibited); otherwise the request is `404 not_found`.
+The request body is optional JSON:
 
 | Field | Type | Required | Meaning |
 | --- | --- | ---: | --- |
-| `matchers` | object of label name to string value | Yes, non-empty | The labels the silence matches by exact equality, usually `alertname` plus `server_id`. |
+| `matchers` | object of label name to string value | No | The labels the silence matches by exact equality. Each must be a label of the alert with the same value, so the silence covers it; `alertname` plus `server_id` also covers the alert's later instances. Omitted or empty, the silence matches the alert's full label set. |
 | `duration` | string | No | A positive Go duration such as `"4h"`. Omitted or empty means `4h`. |
 | `comment` | string | No | The silence comment. Omitted or empty means `Acknowledged in swallow`. |
 
-Alertmanager silences match labels, not fingerprints, so the silence is built from `matchers`
-alone; the path `fingerprint` names the alert being acknowledged but does not select what is
-silenced. The caller's username is recorded as the silence's creator. Success is `200` with
+Alertmanager silences match labels, not fingerprints, so the fingerprint selects the alert and
+its labels, and the silence is built from them. The caller's username is recorded as the silence's creator. Success is `200` with
 `{"silenceId": "string"}`, Alertmanager's id of the new silence.
 
 ## Errors
@@ -89,9 +90,9 @@ The common error envelope applies.
 
 | Code | HTTP Status | When |
 | --- | ---: | --- |
-| `validation_error` | 400 | Acknowledge: the body is not valid JSON, `matchers` is missing or empty, or `duration` is not a positive Go duration. Either route: Alertmanager rejected the request with a client error. |
+| `validation_error` | 400 | Acknowledge: the body is not valid JSON, a matcher is not a label of the alert, or `duration` is not a positive Go duration. Either route: Alertmanager rejected the request with a client error. |
 | `unauthorized` / `forbidden` | 401 / 403 | Missing or invalid credential / a non-admin caller (conventions). |
-| `not_found` | 404 | The `siteId` names no Site. |
+| `not_found` | 404 | The `siteId` names no Site. Acknowledge: the Site's Alertmanager reports no alert with the fingerprint. |
 | `provider_unavailable` | 503 | No metrics Integration is registered, it sets no Alertmanager address, or Alertmanager cannot be reached, rejects swallow's credential, or answers with a server error. |
 | `internal_error` | 500 | An unexpected failure. |
 
@@ -103,3 +104,8 @@ The common error envelope applies.
   defined an Alert value set (Pending Terms), so a consumer must tolerate any severity string.
 - Since 2026-10-31 (DF-05) a `siteId` that names no Site is `404 not_found` on both routes; it was
   `503 provider_unavailable`, as if the Site had no metrics Integration.
+- Since 2026-10-31 (DF-14) the acknowledge fingerprint names a reported alert (`404` otherwise),
+  and `matchers` is optional and must be labels of that alert. Before, the fingerprint was not
+  read and `matchers` was required, so a request could silence labels that did not cover the
+  alert it named. A client that sends the alert's labels as `matchers`, as the dashboard does,
+  keeps working.

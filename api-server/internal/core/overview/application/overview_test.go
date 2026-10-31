@@ -78,11 +78,22 @@ func TestServiceExecuteBuildsBoundedOverview(t *testing.T) {
 	}
 	for i := 0; i < 10; i++ {
 		status := "succeeded"
-		if i == 0 {
+		switch i {
+		case 0:
 			status = "running"
-		}
-		if i == 1 || i == 9 {
+		case 1, 9:
 			status = "failed"
+		// Waiting, canceling, and parked work still holds its Servers, so it counts as active.
+		case 2:
+			status = "waiting_external"
+		case 3:
+			status = "requires_attention"
+		case 4:
+			status = "canceling"
+		case 5:
+			status = "canceled"
+		case 6:
+			status = "indeterminate"
 		}
 		requestedAt := now.Add(-time.Duration(i) * time.Hour)
 		source.operations = append(source.operations, Operation{
@@ -121,9 +132,9 @@ func TestServiceExecuteBuildsBoundedOverview(t *testing.T) {
 	if result.Platforms != (PlatformSummary{Total: 2, Unreachable: 1, UnmatchedMembers: 2}) {
 		t.Errorf("Execute() platforms = %+v, want total=2 unreachable=1 unmatched=2", result.Platforms)
 	}
-	if result.Operations.Active != 1 || result.Operations.FailedLast24Hours != 2 ||
+	if result.Operations.Active != 4 || result.Operations.FailedLast24Hours != 2 ||
 		len(result.Operations.Recent) != recentOperationLimit {
-		t.Errorf("Execute() operations = %+v, want active=1 failed=2 recent=%d",
+		t.Errorf("Execute() operations = %+v, want active=4 failed=2 recent=%d",
 			result.Operations, recentOperationLimit)
 	}
 	if result.Operations.Recent[0].ID != "operation-a" {

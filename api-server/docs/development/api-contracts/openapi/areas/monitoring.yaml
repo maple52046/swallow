@@ -150,9 +150,10 @@ paths:
       summary: Acknowledge an alert by creating a label-matched Alertmanager silence.
       description: >-
         Requires the `admin` role. There is no swallow-side acknowledged flag: the silence lives in
-        Alertmanager and matches `matchers` by exact label equality; the path fingerprint only
-        names the alert being acknowledged. The caller's username is recorded as the silence's
-        creator (monitoring-alerts.md).
+        Alertmanager and matches labels by exact equality. The path fingerprint must name an alert
+        the Site's Alertmanager reports; the silence matches `matchers`, each of which must be a
+        label of that alert, or the alert's full label set when `matchers` is omitted. The
+        caller's username is recorded as the silence's creator (monitoring-alerts.md).
       parameters:
         - name: fingerprint
           in: path
@@ -167,7 +168,7 @@ paths:
           schema:
             type: string
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -181,7 +182,7 @@ paths:
                 $ref: '#/components/schemas/AlertSilence'
         '400':
           description: >-
-            The body is not valid JSON, `matchers` is missing or empty, `duration` is not a
+            The body is not valid JSON, a matcher is not a label of the alert, `duration` is not a
             positive Go duration, or Alertmanager rejected the silence (validation_error).
           content:
             application/json:
@@ -200,7 +201,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: The `siteId` names no Site (not_found).
+          description: >-
+            The `siteId` names no Site, or the Site's Alertmanager reports no alert with the
+            fingerprint (not_found).
           content:
             application/json:
               schema:
@@ -646,7 +649,9 @@ components:
           properties:
             active:
               type: integer
-              description: Operations whose status is `pending` or `running`.
+              description: >-
+                Operations that have not finished: every status except `succeeded`, `failed`,
+                `partially_succeeded`, `canceled`, and the schema-v2 `indeterminate`.
             failedLast24Hours:
               type: integer
               description: Failed operations requested within the 24 hours before `generatedAt`.
@@ -932,15 +937,14 @@ components:
           description: Deprecated one-release alias mirroring `platformId` (ADR-014).
     AlertAcknowledgement:
       type: object
-      description: What to silence and for how long.
-      required: [matchers]
+      description: What to silence and for how long. Every field is optional.
       properties:
         matchers:
           type: object
-          minProperties: 1
           description: >-
-            Label name to exact value; the silence matches these labels, usually `alertname` plus
-            `server_id`.
+            Label name to exact value, each a label of the acknowledged alert; the silence matches
+            these labels, for example `alertname` plus `server_id` to cover the alert's later
+            instances too. Omitted or empty, the silence matches the alert's full label set.
           additionalProperties:
             type: string
         duration:

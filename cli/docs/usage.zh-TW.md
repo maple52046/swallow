@@ -751,6 +751,8 @@ swallow workflows task artifacts wf1 task1
 
 ```bash
 swallow monitoring alerts list --severity critical --state firing
+swallow monitoring alerts acknowledge <fingerprint> --site-id site1
+# 不帶 -f 時 silence 比對該告警的全部 labels；ack.yaml 可縮小範圍，例如 { matchers: { alertname: GPUHot, server_id: srv1 } }。
 swallow monitoring alerts acknowledge <fingerprint> -f ack.yaml --site-id site1
 swallow monitoring metrics get --server srv1 --server srv2 --metric cpuUsagePercent
 swallow monitoring metrics names

@@ -1057,7 +1057,7 @@ export interface paths {
         put?: never;
         /**
          * Acknowledge an alert by creating a label-matched Alertmanager silence.
-         * @description Requires the `admin` role. There is no swallow-side acknowledged flag: the silence lives in Alertmanager and matches `matchers` by exact label equality; the path fingerprint only names the alert being acknowledged. The caller's username is recorded as the silence's creator (monitoring-alerts.md).
+         * @description Requires the `admin` role. There is no swallow-side acknowledged flag: the silence lives in Alertmanager and matches labels by exact equality. The path fingerprint must name an alert the Site's Alertmanager reports; the silence matches `matchers`, each of which must be a label of that alert, or the alert's full label set when `matchers` is omitted. The caller's username is recorded as the silence's creator (monitoring-alerts.md).
          */
         post: operations["acknowledgeAlert"];
         delete?: never;
@@ -4566,14 +4566,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description What to silence and for how long. */
+        /** @description What to silence and for how long. Every field is optional. */
         AlertAcknowledgement: {
             /** @description The silence comment; `Acknowledged in swallow` when omitted or empty. */
             comment?: string;
             /** @description A positive Go duration such as `4h`; `4h` when omitted or empty. */
             duration?: string;
-            /** @description Label name to exact value; the silence matches these labels, usually `alertname` plus `server_id`. */
-            matchers: {
+            /** @description Label name to exact value, each a label of the acknowledged alert; the silence matches these labels, for example `alertname` plus `server_id` to cover the alert's later instances too. Omitted or empty, the silence matches the alert's full label set. */
+            matchers?: {
                 [key: string]: string;
             };
         };
@@ -6000,7 +6000,7 @@ export interface components {
             inventory: components["schemas"]["OverviewInventory"];
             monitoring: components["schemas"]["OverviewMonitoring"];
             operations: {
-                /** @description Operations whose status is `pending` or `running`. */
+                /** @description Operations that have not finished: every status except `succeeded`, `failed`, `partially_succeeded`, `canceled`, and the schema-v2 `indeterminate`. */
                 active: number;
                 /** @description Failed operations requested within the 24 hours before `generatedAt`. */
                 failedLast24Hours: number;
@@ -10072,7 +10072,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": components["schemas"]["AlertAcknowledgement"];
             };
@@ -10087,7 +10087,7 @@ export interface operations {
                     "application/json": components["schemas"]["AlertSilence"];
                 };
             };
-            /** @description The body is not valid JSON, `matchers` is missing or empty, `duration` is not a positive Go duration, or Alertmanager rejected the silence (validation_error). */
+            /** @description The body is not valid JSON, a matcher is not a label of the alert, `duration` is not a positive Go duration, or Alertmanager rejected the silence (validation_error). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10114,7 +10114,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The `siteId` names no Site (not_found). */
+            /** @description The `siteId` names no Site, or the Site's Alertmanager reports no alert with the fingerprint (not_found). */
             404: {
                 headers: {
                     [name: string]: unknown;

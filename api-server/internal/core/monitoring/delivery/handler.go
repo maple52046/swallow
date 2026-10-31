@@ -51,8 +51,8 @@ func (h *MonitoringHandler) ListAlerts(c *fiber.Ctx) error {
 }
 
 type acknowledgeRequest struct {
-	// Matchers are the labels to silence on. Alertmanager silences match labels, so
-	// the caller says which ones — usually alertname plus server_id.
+	// Matchers are the labels to silence on, each a label of the acknowledged alert; omitted,
+	// the silence matches the alert's full label set.
 	Matchers map[string]string `json:"matchers"`
 	Duration string            `json:"duration"`
 	Comment  string            `json:"comment"`
@@ -67,12 +67,10 @@ func (h *MonitoringHandler) Acknowledge(c *fiber.Ctx) error {
 	}
 
 	var req acknowledgeRequest
-	if err := c.BodyParser(&req); err != nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
-	}
-	if len(req.Matchers) == 0 {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation,
-			"matchers is required: Alertmanager silences match labels, not fingerprints."))
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&req); err != nil {
+			return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+		}
 	}
 
 	var duration time.Duration
@@ -238,6 +236,13 @@ func respondError(c *fiber.Ctx, err error) error {
 
 	case errors.Is(err, application.ErrUnknownSite):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Site not found."))
+
+	case errors.Is(err, application.ErrAlertNotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound,
+			"Alertmanager reports no alert with this fingerprint."))
+
+	case errors.Is(err, application.ErrInvalidMatchers):
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 	}
 
 	var queryErr *monitoringdomain.QueryError

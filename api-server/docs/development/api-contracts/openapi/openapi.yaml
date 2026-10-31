@@ -2142,7 +2142,7 @@ paths:
         - monitoring
   /api/v1/monitoring/alerts/{fingerprint}/acknowledge:
     post:
-      description: 'Requires the `admin` role. There is no swallow-side acknowledged flag: the silence lives in Alertmanager and matches `matchers` by exact label equality; the path fingerprint only names the alert being acknowledged. The caller''s username is recorded as the silence''s creator (monitoring-alerts.md).'
+      description: 'Requires the `admin` role. There is no swallow-side acknowledged flag: the silence lives in Alertmanager and matches labels by exact equality. The path fingerprint must name an alert the Site''s Alertmanager reports; the silence matches `matchers`, each of which must be a label of that alert, or the alert''s full label set when `matchers` is omitted. The caller''s username is recorded as the silence''s creator (monitoring-alerts.md).'
       operationId: acknowledgeAlert
       parameters:
         - description: Alertmanager's opaque fingerprint of the alert.
@@ -2162,7 +2162,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AlertAcknowledgement'
-        required: true
+        required: false
       responses:
         "200":
           content:
@@ -2175,7 +2175,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: The body is not valid JSON, `matchers` is missing or empty, `duration` is not a positive Go duration, or Alertmanager rejected the silence (validation_error).
+          description: The body is not valid JSON, a matcher is not a label of the alert, `duration` is not a positive Go duration, or Alertmanager rejected the silence (validation_error).
         "401":
           content:
             application/json:
@@ -2193,7 +2193,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: The `siteId` names no Site (not_found).
+          description: The `siteId` names no Site, or the Site's Alertmanager reports no alert with the fingerprint (not_found).
         "500":
           content:
             application/json:
@@ -9244,7 +9244,7 @@ components:
       description: No schema-v3 Workflow has this ID (`not_found`); a historical schema-v2 record has no timeline, controls, or Tasks here.
   schemas:
     AlertAcknowledgement:
-      description: What to silence and for how long.
+      description: What to silence and for how long. Every field is optional.
       properties:
         comment:
           description: The silence comment; `Acknowledged in swallow` when omitted or empty.
@@ -9255,11 +9255,8 @@ components:
         matchers:
           additionalProperties:
             type: string
-          description: Label name to exact value; the silence matches these labels, usually `alertname` plus `server_id`.
-          minProperties: 1
+          description: Label name to exact value, each a label of the acknowledged alert; the silence matches these labels, for example `alertname` plus `server_id` to cover the alert's later instances too. Omitted or empty, the silence matches the alert's full label set.
           type: object
-      required:
-        - matchers
       type: object
     AlertSilence:
       properties:
@@ -12429,7 +12426,7 @@ components:
         operations:
           properties:
             active:
-              description: Operations whose status is `pending` or `running`.
+              description: 'Operations that have not finished: every status except `succeeded`, `failed`, `partially_succeeded`, `canceled`, and the schema-v2 `indeterminate`.'
               type: integer
             failedLast24Hours:
               description: Failed operations requested within the 24 hours before `generatedAt`.

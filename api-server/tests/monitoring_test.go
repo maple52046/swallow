@@ -201,13 +201,40 @@ func TestAcknowledgeAlert_CreatesSilence(t *testing.T) {
 	}
 }
 
-func TestAcknowledgeAlert_RequiresMatchers(t *testing.T) {
+// DF-14: the path fingerprint names the alert being acknowledged. An unknown one is 404; without
+// matchers the silence matches the alert's full label set; a matcher the alert does not carry is
+// 400, because the silence would not cover the alert.
+func TestAcknowledgeAlert_ResolvesTheFingerprint(t *testing.T) {
 	f := setupPlatform(t)
+	seedAlert(f, "GPUTemperatureCritical", "critical", "srv-1", monitoringdomain.AlertStateFiring)
+	auth := f.adminAuth(t)
 
 	resp := doRequest(t, f.app, "POST", "/api/v1/monitoring/alerts/abc/acknowledge",
-		map[string]any{"duration": "2h"}, f.adminAuth(t))
+		map[string]any{"duration": "2h"}, auth)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown fingerprint: expected 404, got %d", resp.StatusCode)
+	}
+	if len(f.monitoring.alerts.silences) != 0 {
+		t.Fatal("an unknown fingerprint created a silence")
+	}
+
+	resp = doRequest(t, f.app, "POST", "/api/v1/monitoring/alerts/GPUTemperatureCritical-srv-1/acknowledge",
+		map[string]any{"matchers": map[string]string{"server_id": "srv-2"}}, auth)
 	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", resp.StatusCode)
+		t.Fatalf("a matcher the alert lacks: expected 400, got %d", resp.StatusCode)
+	}
+
+	resp = doRequest(t, f.app, "POST", "/api/v1/monitoring/alerts/GPUTemperatureCritical-srv-1/acknowledge",
+		map[string]any{}, auth)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("no matchers: expected 200, got %d", resp.StatusCode)
+	}
+	if len(f.monitoring.alerts.silences) != 1 {
+		t.Fatalf("expected 1 silence, got %d", len(f.monitoring.alerts.silences))
+	}
+	matchers := f.monitoring.alerts.silences[0].Matchers
+	if matchers["alertname"] != "GPUTemperatureCritical" || matchers["server_id"] != "srv-1" || matchers["severity"] != "critical" {
+		t.Errorf("matchers = %v, want the alert's full label set", matchers)
 	}
 }
 

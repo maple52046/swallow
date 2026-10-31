@@ -49,10 +49,14 @@ func monitoringAlertsCmd() *cobra.Command {
 
 	ack := &cobra.Command{
 		Use:   "acknowledge <fingerprint>",
-		Short: "Create a silence for an alert from a JSON/YAML body",
-		Args:  cobra.ExactArgs(1),
+		Short: "Create a silence for an alert, optionally narrowed by a JSON/YAML body",
+		Long: "Create an Alertmanager silence for the alert the fingerprint names. Without a body the\n" +
+			"silence matches the alert's full label set; a body's matchers narrow it to some of the\n" +
+			"alert's labels (for example alertname and server_id).",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			body, err := requireBodyFile(cmd)
+			// The body is optional: without one the silence matches the alert's labels.
+			body, _, err := readBodyFile(cmd)
 			if err != nil {
 				return err
 			}
@@ -61,7 +65,7 @@ func monitoringAlertsCmd() *cobra.Command {
 			return sendJSON(cmd, "POST", fmt.Sprintf("monitoring/alerts/%s/acknowledge", args[0]), q, body)
 		},
 	}
-	addFileFlag(ack, "acknowledge body (matchers, optional duration, comment)")
+	addFileFlag(ack, "optional acknowledge body (matchers, duration, comment)")
 	ack.Flags().String("site-id", "", "scope the silence to one Site (defaults to the global --site)")
 	cmd.AddCommand(ack)
 

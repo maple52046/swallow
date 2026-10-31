@@ -101,7 +101,9 @@ Firing alert items reuse the Monitoring Alert shape of
 contain at most ten entries ordered by severity (`critical`, `warning`, then other) and
 `startsAt` descending.
 
-`operations.active` counts operations whose status is `pending` or `running`.
+`operations.active` counts operations that have not finished: every status other than
+`succeeded`, `failed`, `partially_succeeded`, `canceled`, and the schema-v2 `indeterminate`.
+Waiting, canceling, and `requires_attention` work is active, as it still holds its Servers.
 `failedLast24Hours` counts failed operations whose `requestedAt` is within the 24
 hours before `generatedAt`. `unmatchedMembers` is the sum of positive differences
 between each platform's reported and matched member counts.
@@ -146,3 +148,7 @@ one-release aliases that mirror `inventory.platformed`, the `platforms` section,
 New consumers must read the platform-named fields; the aliases are removed after the
 deprecation window (see
 [ADR-014](../../../../../docs/decisions/014-platform-resource-language.md)).
+
+On 2026-10-31 (DF-14) `operations.active` began counting every unfinished operation. It counted
+only `pending` and `running`, so waiting, canceling, and `requires_attention` work, which still
+holds Servers, was missing. This is a semantic change; the field and its type are unchanged.

@@ -336,6 +336,13 @@ func summarizePlatforms(platforms []Platform) PlatformSummary {
 	return summary
 }
 
+// terminalOperationStatuses are the statuses of finished work: the Workflow terminal statuses
+// and the schema-v2 `indeterminate`. Every other status is active, as for the Workflow busy check
+// (DF-14): waiting, canceling, and requires_attention work still holds its Servers.
+var terminalOperationStatuses = map[string]bool{
+	"succeeded": true, "failed": true, "partially_succeeded": true, "canceled": true, "indeterminate": true,
+}
+
 func summarizeOperations(operations []Operation, generatedAt time.Time) OperationSummary {
 	sorted := append([]Operation(nil), operations...)
 	sort.SliceStable(sorted, func(i, j int) bool {
@@ -344,13 +351,11 @@ func summarizeOperations(operations []Operation, generatedAt time.Time) Operatio
 	summary := OperationSummary{}
 	cutoff := generatedAt.Add(-24 * time.Hour)
 	for _, operation := range sorted {
-		switch operation.Status {
-		case "pending", "running":
+		if !terminalOperationStatuses[operation.Status] {
 			summary.Active++
-		case "failed":
-			if !operation.RequestedAt.Before(cutoff) {
-				summary.FailedLast24Hours++
-			}
+		}
+		if operation.Status == "failed" && !operation.RequestedAt.Before(cutoff) {
+			summary.FailedLast24Hours++
 		}
 	}
 	if len(sorted) > recentOperationLimit {
