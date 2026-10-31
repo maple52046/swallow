@@ -69,10 +69,87 @@ func (s *countingConvergenceStore) SetConvergence(ctx context.Context, id string
 	return s.fakeServerRepo.SetConvergence(ctx, id, status)
 }
 
+// fakeGroupCatalog answers the Server controller's catalog lookups from fixed Zones and Pools:
+// each maps a catalog id to its name on the provisioner ("" while not realized there).
+type fakeGroupCatalog struct {
+	zones map[string]string
+	pools map[string]string
+}
+
+func (c *fakeGroupCatalog) ZoneOn(_ context.Context, id, _ string) (string, bool, bool, error) {
+	name, found := c.zones[id]
+	return name, name != "", found, nil
+}
+
+func (c *fakeGroupCatalog) PoolOn(_ context.Context, id, _ string) (string, bool, bool, error) {
+	name, found := c.pools[id]
+	return name, name != "", found, nil
+}
+
+func (c *fakeGroupCatalog) ZoneNamed(_ context.Context, _, _, name string) (string, bool, error) {
+	for id, zone := range c.zones {
+		if zone == name {
+			return id, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+func (c *fakeGroupCatalog) PoolNamed(_ context.Context, _, _, name string) (string, bool, error) {
+	for id, pool := range c.pools {
+		if pool == name {
+			return id, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// groupingFakeProvider is fakeProvider with zones and pools: assigning one moves the machine.
+type groupingFakeProvider struct {
+	*fakeProvider
+}
+
+func (p *groupingFakeProvider) Capabilities() provisioningdomain.ProviderCapabilities {
+	capabilities := p.fakeProvider.Capabilities()
+	capabilities.Grouping = true
+	return capabilities
+}
+
+func (p *groupingFakeProvider) ListZones(context.Context) ([]provisioningdomain.ProviderGroup, error) {
+	return nil, nil
+}
+
+func (p *groupingFakeProvider) ListPools(context.Context) ([]provisioningdomain.ProviderGroup, error) {
+	return nil, nil
+}
+
+func (p *groupingFakeProvider) DefaultGroupNames() (string, string) { return "default", "default" }
+
+func (p *groupingFakeProvider) EnsureZone(context.Context, string, string) error         { return nil }
+func (p *groupingFakeProvider) RenameZone(context.Context, string, string, string) error { return nil }
+func (p *groupingFakeProvider) DeleteZone(context.Context, string) error                 { return nil }
+func (p *groupingFakeProvider) EnsurePool(context.Context, string, string) error         { return nil }
+func (p *groupingFakeProvider) RenamePool(context.Context, string, string, string) error { return nil }
+func (p *groupingFakeProvider) DeletePool(context.Context, string) error                 { return nil }
+
+func (p *groupingFakeProvider) SetMachineZone(_ context.Context, machineID, zone string) (*provisioningdomain.Machine, error) {
+	p.actions = append(p.actions, "setZone "+zone)
+	p.machines[machineID].Zone = zone
+	return p.machines[machineID], nil
+}
+
+func (p *groupingFakeProvider) SetMachinePool(_ context.Context, machineID, pool string) (*provisioningdomain.Machine, error) {
+	p.actions = append(p.actions, "setPool "+pool)
+	p.machines[machineID].ResourcePool = pool
+	return p.machines[machineID], nil
+}
+
 type serverControllerFixture struct {
 	servers    *fakeServerRepo
 	store      *countingConvergenceStore
 	provider   *fakeProvider
+	factory    *fakeProviderFactory
+	catalog    *fakeGroupCatalog
 	machine    *provisioningdomain.Machine
 	holds      *fakeServerHolds
 	events     *fakeConvergenceEvents
@@ -102,10 +179,21 @@ func setupServerController(t *testing.T, observedTags ...string) *serverControll
 	store := &countingConvergenceStore{fakeServerRepo: servers}
 	holds := &fakeServerHolds{held: map[string]bool{}}
 	events := &fakeConvergenceEvents{}
+	catalog := &fakeGroupCatalog{zones: map[string]string{}, pools: map[string]string{}}
 	return &serverControllerFixture{
-		servers: servers, store: store, provider: provider, machine: machine, holds: holds, events: events,
-		controller: provisioningapp.NewServerController(servers, store, factory, holds, events),
+		servers: servers, store: store, provider: provider, factory: factory, catalog: catalog,
+		machine: machine, holds: holds, events: events,
+		controller: provisioningapp.NewServerController(servers, store, factory, holds, catalog, events),
 	}
+}
+
+// withGrouping makes the provisioner hold zones and pools, with the machine observed in the given
+// ones. It must run before the first reconcile, which caches the provisioner's default groups.
+func (f *serverControllerFixture) withGrouping(zone, pool string) *serverControllerFixture {
+	f.factory.providers[testIntegrationID] = &groupingFakeProvider{fakeProvider: f.provider}
+	f.machine.Zone, f.machine.ResourcePool = zone, pool
+	f.server().Observed.ProviderZone, f.server().Observed.ProviderResourcePool = zone, pool
+	return f
 }
 
 func (f *serverControllerFixture) reconcile(t *testing.T, trigger convergence.Trigger) error {
@@ -127,7 +215,19 @@ func (f *serverControllerFixture) server() *serverdomain.Server {
 // setSpec writes a spec change the way the tag edit does, on top of the adopted spec.
 func (f *serverControllerFixture) setSpec(t *testing.T, tags ...string) {
 	t.Helper()
-	if _, err := f.servers.UpdateSpec(context.Background(), "srv-1", f.server().Generation, serverdomain.ServerSpec{Tags: tags}); err != nil {
+	spec := f.server().Spec
+	spec.Tags = tags
+	if _, err := f.servers.UpdateSpec(context.Background(), "srv-1", f.server().Generation, spec); err != nil {
+		t.Fatalf("update spec: %v", err)
+	}
+}
+
+// setPlacement writes a placement change the way the placement endpoint does.
+func (f *serverControllerFixture) setPlacement(t *testing.T, zoneID, poolID string) {
+	t.Helper()
+	spec := f.server().Spec
+	spec.ZoneID, spec.PoolID = zoneID, poolID
+	if _, err := f.servers.UpdateSpec(context.Background(), "srv-1", f.server().Generation, spec); err != nil {
 		t.Fatalf("update spec: %v", err)
 	}
 }
@@ -363,5 +463,103 @@ func TestServerController_SteadyStateWritesNothing(t *testing.T) {
 
 	if f.store.statusWrites != writes {
 		t.Errorf("status writes = %d, want %d (no change)", f.store.statusWrites, writes)
+	}
+}
+
+// Adoption maps the observed zone and pool onto catalog ids (the provisioner's default onto "")
+// without moving the machine.
+func TestServerController_AdoptsThePlacementAsCatalogIDs(t *testing.T) {
+	f := setupServerController(t, "gpu").withGrouping("rack-a", "default")
+	f.catalog.zones["z1"] = "rack-a"
+
+	f.mustReconcile(t, convergence.TriggerResync)
+
+	if spec := f.server().Spec; spec.ZoneID != "z1" || spec.PoolID != "" {
+		t.Fatalf("adopted placement = %+v, want zone z1 and the default pool", spec)
+	}
+	f.assertCondition(t, convergence.ConditionRealized, convergence.ConditionTrue, convergence.ReasonConverged)
+	if len(f.provider.actions) != 0 {
+		t.Errorf("adoption moved the machine: %v", f.provider.actions)
+	}
+}
+
+// A machine in a group the catalog does not hold yet waits for the catalog controller to adopt it,
+// rather than adopting a spec that would move the machine to the default group.
+func TestServerController_AdoptionWaitsForTheCatalog(t *testing.T) {
+	f := setupServerController(t).withGrouping("rack-new", "default")
+
+	if err := f.reconcile(t, convergence.TriggerResync); err == nil {
+		t.Fatal("adoption must wait (and be retried) while the zone is not in the catalog")
+	}
+	if f.server().Generation != 0 {
+		t.Fatalf("generation = %d, want 0 until adopted", f.server().Generation)
+	}
+
+	f.catalog.zones["z-new"] = "rack-new"
+	f.mustReconcile(t, convergence.TriggerResync)
+	if f.server().Spec.ZoneID != "z-new" {
+		t.Errorf("zone = %q, want z-new once the catalog holds it", f.server().Spec.ZoneID)
+	}
+}
+
+// A placement change moves the machine at once; clearing it returns the machine to the default.
+func TestServerController_ConvergesAndClearsThePlacement(t *testing.T) {
+	f := setupServerController(t).withGrouping("default", "default")
+	f.catalog.zones["z1"] = "rack-a"
+	f.catalog.pools["p1"] = "gpu"
+	f.mustReconcile(t, convergence.TriggerResync)
+
+	f.setPlacement(t, "z1", "p1")
+	f.mustReconcile(t, convergence.TriggerChange)
+
+	if !slices.Equal(f.provider.actions, []string{"setZone rack-a", "setPool gpu"}) {
+		t.Fatalf("actions = %v, want the machine moved to rack-a and gpu", f.provider.actions)
+	}
+	if observed := f.server().Observed; observed.ProviderZone != "rack-a" || observed.ProviderResourcePool != "gpu" {
+		t.Errorf("observed placement = %q/%q, want rack-a/gpu", observed.ProviderZone, observed.ProviderResourcePool)
+	}
+	f.assertCondition(t, convergence.ConditionRealized, convergence.ConditionTrue, convergence.ReasonConverged)
+
+	f.setPlacement(t, "", "p1")
+	f.mustReconcile(t, convergence.TriggerChange)
+
+	if got := f.provider.actions[len(f.provider.actions)-1]; got != "setZone default" {
+		t.Fatalf("last action = %q, want the machine back in the default zone", got)
+	}
+}
+
+// A Zone the catalog controller has not created on the provisioner yet is transient; a Zone that
+// no longer exists stops convergence until the spec changes.
+func TestServerController_PlacementWaitsForOrRejectsTheGroup(t *testing.T) {
+	f := setupServerController(t).withGrouping("default", "default")
+	f.mustReconcile(t, convergence.TriggerResync)
+
+	f.catalog.zones["z-pending"] = ""
+	f.setPlacement(t, "z-pending", "")
+	if err := f.reconcile(t, convergence.TriggerChange); err == nil {
+		t.Fatal("a zone not on the provisioner yet must be retried")
+	}
+	if len(f.provider.actions) != 0 {
+		t.Fatalf("the machine moved before its zone existed: %v", f.provider.actions)
+	}
+
+	f.setPlacement(t, "z-gone", "")
+	f.mustReconcile(t, convergence.TriggerChange)
+	f.assertCondition(t, convergence.ConditionRequiresAttention, convergence.ConditionTrue, convergence.ReasonProviderRejected)
+}
+
+// Tags a schema migration carried into the spec of a Server not adopted yet are kept by adoption
+// and converge at once.
+func TestServerController_AdoptionKeepsMigratedTags(t *testing.T) {
+	f := setupServerController(t, "gpu")
+	f.server().Spec.Tags = []string{"legacy"}
+
+	f.mustReconcile(t, convergence.TriggerChange)
+
+	if !equalStringSet(f.server().Spec.Tags, []string{"gpu", "legacy"}) {
+		t.Fatalf("adopted tags = %v, want gpu and legacy", f.server().Spec.Tags)
+	}
+	if !slices.Equal(f.provider.actions, []string{"addTag legacy"}) {
+		t.Errorf("actions = %v, want legacy added at once", f.provider.actions)
 	}
 }

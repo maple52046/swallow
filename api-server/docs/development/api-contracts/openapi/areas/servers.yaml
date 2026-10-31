@@ -1157,8 +1157,8 @@ paths:
         Requires role `admin`. Not gated on Server Lock. Atomic across the listed Servers; the
         provisioner converges asynchronously (the Servers' conditions report it). 400 for an
         invalid body, empty `serverIds`, no `add` or `remove`, or an invalid, contradictory, or
-        automatic tag name; 404 for an unknown Server; 409 when a Server's spec changed during the
-        edit.
+        automatic tag name; 404 for an unknown Server; 409 when a Server is not adopted yet or its
+        spec changed during the edit.
       requestBody:
         required: true
         content:
@@ -1269,14 +1269,24 @@ components:
           $ref: '#/components/schemas/ServerStatus'
     ServerSpec:
       type: object
-      description: The desired provisioner-realized fields of a Server; written by the tag edit, converged by the Server controller.
-      required: [tags]
+      description: >-
+        The desired provisioner-realized fields of a Server; written by the tag edit and the
+        placement request, converged by the Server controller.
+      required: [tags, zoneId, poolId]
       properties:
         tags:
           type: array
           description: The complete set of manual tags the Server must carry (server-tags.md).
           items:
             type: string
+        zoneId:
+          type: string
+          nullable: true
+          description: The Zone the Server must be in (infrastructure.md); `null` for the provisioner's default zone.
+        poolId:
+          type: string
+          nullable: true
+          description: The Pool the Server must be in; `null` for the provisioner's default pool.
     ServerStatus:
       type: object
       description: >-

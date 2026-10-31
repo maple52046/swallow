@@ -81,7 +81,8 @@ OS Provisioning bounded context 的參與者、上下游關係與翻譯方式見
 | 部署網路意圖 | swallow | 部署時、或修改 Ready Server 的網路時套用（§6） | Template 與 Workflow 的 intent snapshot |
 | NIC、subnet、link、IP 分配 | provisioner | live read，每次 mutation 前重新驗證 | 不存；provider id 只當 live reference |
 | Subnet DNS、Provisioner HTTP Proxy | provisioner | live read + write-through（§6、§7） | 不存 |
-| Zone 與 Pool 的 catalog | swallow | 完整 CRUD，provisioner 有能力時同步實現（§8） | owned collection |
+| Zone 與 Pool 的 catalog | swallow | spec；catalog controller 在 Site 的每個 provisioner 實現（§8） | `zones`、`pools` |
+| Server 的 placement（Zone／Pool） | swallow | Server 的 spec；Server controller 收斂（§8） | `servers` 的 `spec.zoneId`、`spec.poolId` |
 | Server 的 observed zone／pool | provisioner | reconcile 鏡射 | mirrored |
 | Server 的手動 tag | swallow | Server 的 spec；Server controller 收斂、resync 修正 drift（[desired-state-model.md](desired-state-model.md) §4.4） | `servers` 的 `spec.tags` |
 | Server 的自動 tag（provisioner 自己算的，例如 MAAS 帶 definition 的 tag） | provisioner | reconcile 鏡射，只觀察 | `servers` 的 `observed.automaticTags` |
@@ -337,31 +338,38 @@ provisioner 自己的設定而不由 swallow 產生 cloud-init。見
 
 ## 8. Zone 與 Pool
 
-[Zone](glossaries/terms/zone.md) 與 [Pool](glossaries/terms/pool.md) 是 swallow 擁有、Site 範圍的受管分組，由
-`infrastructure` feature 提供完整 CRUD 與 Server placement。API 見
+[Zone](glossaries/terms/zone.md) 與 [Pool](glossaries/terms/pool.md) 是 swallow 擁有、Site 範圍的受管分組，以 desired
+state 管理（[desired-state-model.md](desired-state-model.md) §4.4）。API 見
 [infrastructure.md](../../api-server/docs/development/api-contracts/api-server/infrastructure.md)。
 
-- catalog 由 swallow 儲存，名稱在 Site 內唯一，不依賴 provisioner 保存它們。`providerRealized` 只反映最近一次寫入
-  是否傳到具 grouping 能力的 provisioner；`false` 代表紀錄只存在於 swallow，不是錯誤。
-- **實現在 provider**（Site 的 provisioner 具 `Grouping` 能力時，MAAS 為 physical zone 與 resource pool）：
-  - 建立是 ensure 語意：provider 已有同名 group（MAAS 內建 `default`）視為已滿足。
-  - 改名同步到 provider。
-  - 寫入順序是先 provider、後 swallow：provider 拒絕時不留下 swallow 紀錄；刪除時 provider 拒絕（例如 group 仍有
-    machine）則整個刪除中止。
-  - Site 的 provisioner 沒有 grouping 能力時，catalog 寫入只存在 swallow，不算錯誤。
-- **Server placement**：`PUT /servers/{id}/placement` 把 Server 指派到 Zone 與／或 Pool。被指派的 Zone／Pool 必須與
-  Server 同 Site；指派會寫入該 Server 的 provisioner。因為 Server 一定來自某個 provisioner，provisioner 沒有 grouping
-  能力時回 `validation_error`，不默默略過。
-- Server 上的 observed zone／pool 是 provider 的鏡射，由 reconcile 更新；它是指派的觀察結果，不是 swallow 的 catalog。
-- swallow 不匯入、也不 reconcile provider 的 group 集合，因此直接在 MAAS 建立的 group 或實現失敗會造成漂移；目前
-  接受這個代價，指派失敗會回報給 operator。
-- `infrastructure` feature 只依賴 `provisioning` 的 domain port（`ProviderFactory`）與自己的 `GroupingRealizer` port，
-  MAAS 詞彙只在 provisioning adapter。
+- **catalog**：spec 是名稱與說明，名稱在 Site 內唯一。API 的建立與修改只寫 spec（generation 加一）並立即回應，不呼叫
+  provisioner。worker 中的 catalog controller 讓 Site 的每個 provisioner 都持有它：
+  - 每個 provisioner Integration 各有一份 realization（`status.provisioners[]`），記錄該 group 在那裡的名稱；資源的
+    conditions 是它們的總和，只有全部都持有目前的 spec 才是 `realized`。Site 沒有 provisioner 時沒有東西要實現。
+  - 缺少就建立（provider 已有同名 group 視為已存在）；改名時改名 provider 上原本那個 group，machine 留在裡面；
+    說明不同時改寫。spec 變更與第一次看到的 provisioner（包括之後才加入的）立即收斂。
+  - 在 provisioner 刪除、改名或改說明是 drift：立刻回報，在定期 resync 修正。provisioner 沒有 grouping 能力時保留
+    spec、回報 `capability_missing`；provisioner 拒絕時該 provisioner `requires_attention`，直到 spec 改變。
+  - 只存在於 provisioner 的 group（在 MAAS UI 建立，或 swallow 管理 Site 之前就有）在第一次被看到時接管進 catalog，
+    以 provider 的名稱與說明為 spec，不寫入 provisioner。provider 的預設 group（MAAS 的 `default`）永遠不進 catalog。
+  - **刪除**是唯一同步呼叫 provisioner 的寫入：有 Server 的 placement spec 指向它時以 `409` 拒絕；否則先從每個持有它
+    的 provisioner 刪除（provider 的預設 group 保留），再刪除紀錄。provisioner 拒絕（例如 group 仍有 machine）就中止，
+    紀錄保留。
+- **Server placement**：Server spec 的 `zoneId`、`poolId`，以 id 指向 catalog；`null` 代表 provisioner 的預設 group，
+  清除 placement 就是回到預設。`PUT /servers/{id}/placement` 以 generation 條件寫入 spec；被指派的 Zone／Pool 必須與
+  Server 同 Site。Server controller 使用該 group 在這台 Server 的 provisioner 上的名稱移動 machine，所以改名後 Server
+  會跟著 group 走；group 還沒在 provisioner 建立時等待；被指向的 group 已不存在時 `requires_attention`。在 MAAS UI 搬動
+  machine 是 drift，在 resync 時搬回。Server 接管時，observed 的 zone／pool 以名稱對應到 catalog 的 id（預設 group 對應到
+  `null`）；catalog 尚未有該 group 時等 catalog controller 接管後再接管，避免把 machine 搬回預設 group。
+- Server 上的 observed zone／pool 是 provider 的鏡射，由 reconcile 與 Server controller 更新。
+- `infrastructure` feature 只依賴 `provisioning` 的 domain port（`ProviderFactory`、`GroupingController`）與自己的
+  port（Site 的 provisioner、Server placement），MAAS 詞彙只在 provisioning adapter。
 
-**設計理由**：operator 需要在 swallow 管理分組並搬動 Server，而且不論 provisioner 是否支援；原本的 opaque provider
-label 無法滿足，所以 Zone／Pool 成為 swallow 的概念，provider 有能力時再實現。它也是
-[ADR 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md) 規則的 provider-can-write 情形。
-見 [decision 029](../decisions/029-infrastructure-zone-pool-ownership.md)。
+**設計理由**：operator 需要在 swallow 管理分組並搬動 Server，不論 provisioner 是否支援，也不希望 MAAS 上的分組與 swallow
+不一致；所以 Zone／Pool 與 placement 是 swallow 的 desired state，由 controller 在每個 provisioner 實現。只存在於
+provisioner 的 group 被接管而不是被刪除，因為它可能仍有 machine。見
+[decision 071](../decisions/071-provisioner-realized-desired-state.md)（取代 [decision 029](../decisions/029-infrastructure-zone-pool-ownership.md)
+接受的 catalog 漂移）。
 
 ---
 
@@ -590,7 +598,7 @@ Operation 也不能同時宣告同一台 Server。把 provider 失敗改成不�
 | 驗證紀錄 Task（`record-image-verification*`） | `internal/app/platform_workflow_step_executor.go` |
 | 取消驗證時的歸還 | `internal/adapters/executor/temporalworkflow/workflow.go`（`compensateVerifyCancel`） |
 | MAAS adapter（狀態對應、網路、上傳、event、grouping、proxy、subnet DNS） | `internal/adapters/osprovisioning/maas/`（`mapping.go`、`network.go`、`provider.go`、`events.go`、`grouping.go`、`http_proxy.go`、`subnet_dns.go`） |
-| Zone／Pool 與 placement | `internal/core/infrastructure/application/service.go`、`internal/app/grouping_realizer.go` |
+| Zone／Pool 與 placement | `internal/core/infrastructure/application/service.go`、`internal/core/infrastructure/application/catalog_controller.go`、`internal/core/provisioning/application/server_controller.go`（`serverPlacement`）、`internal/app/grouping_adapters.go` |
 | 上傳的 request body 上限 | `config/defaults.go`、`config/env.go`（`SWALLOW_API_IMAGE_UPLOAD_MAX_BYTES`） |
 
 ### `dashboard`

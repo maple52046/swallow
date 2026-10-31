@@ -25,22 +25,26 @@ type LoadState =
   | { status: 'error'; message: string }
   | { status: 'ready'; options: PlacementOptions }
 
+/** The select value for "no swallow group": the Server belongs in its provisioner's default group. */
+const PROVIDER_DEFAULT = 'provider-default'
+
 /**
- * Assigns one Server to a swallow-owned Zone and/or Pool (decision 029).
+ * Sets one Server's Zone and/or Pool in its spec (decision 071).
  *
- * The choices are the groups defined for the Server's own Site; the current selections are
- * pre-matched from the Server's observed provider zone/pool by name. Only changed selections are
- * sent, and submit stays disabled until something changes, so the request never re-asserts the
- * current placement. The provisioner is written through, so the observed value on the projection
- * converges on the next reconcile; this dialog reports the effective names immediately.
+ * The choices are the groups defined for the Server's own Site plus the provisioner's default
+ * group, which clears the placement. The dialog opens on the Server's spec, not on what the
+ * provisioner reports, because the spec is what an edit changes; the observed group is shown as a
+ * hint. Only changed selections are sent, and submit stays disabled until something changes. The
+ * backend moves the machine afterwards, and the Server's provisioner sync status reports when it
+ * has.
  */
 export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlacementDialogProps) {
   const { infrastructure } = useApp()
   const [load, setLoad] = useState<LoadState>({ status: 'loading' })
-  const [zoneId, setZoneId] = useState('')
-  const [poolId, setPoolId] = useState('')
-  const [initialZoneId, setInitialZoneId] = useState('')
-  const [initialPoolId, setInitialPoolId] = useState('')
+  const initialZoneId = server.spec.zoneId ?? PROVIDER_DEFAULT
+  const initialPoolId = server.spec.poolId ?? PROVIDER_DEFAULT
+  const [zoneId, setZoneId] = useState(initialZoneId)
+  const [poolId, setPoolId] = useState(initialPoolId)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -50,16 +54,7 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
     let cancelled = false
     Promise.all([infrastructure.listGroups('zone', siteId), infrastructure.listGroups('pool', siteId)])
       .then(([zones, pools]) => {
-        if (cancelled) return
-        // Pre-match the current selection from the observed provider names so the dialog opens on
-        // the Server's real placement rather than blank.
-        const currentZone = zones.find((zone) => zone.name === server.status.providerZone)?.id ?? ''
-        const currentPool = pools.find((pool) => pool.name === server.status.providerResourcePool)?.id ?? ''
-        setZoneId(currentZone)
-        setPoolId(currentPool)
-        setInitialZoneId(currentZone)
-        setInitialPoolId(currentPool)
-        setLoad({ status: 'ready', options: { zones, pools } })
+        if (!cancelled) setLoad({ status: 'ready', options: { zones, pools } })
       })
       .catch((caught: Error) => {
         if (!cancelled) setLoad({ status: 'error', message: caught.message })
@@ -67,12 +62,12 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
     return () => {
       cancelled = true
     }
-  }, [infrastructure, siteId, server.status.providerZone, server.status.providerResourcePool])
+  }, [infrastructure, siteId])
 
   // Only changed selections are submitted; an unchanged field is omitted so the backend leaves it
-  // alone and the request always carries a real change.
-  const zoneChanged = zoneId !== '' && zoneId !== initialZoneId
-  const poolChanged = poolId !== '' && poolId !== initialPoolId
+  // alone, and the provisioner default is sent as null, which clears that field of the spec.
+  const zoneChanged = zoneId !== initialZoneId
+  const poolChanged = poolId !== initialPoolId
   const canSubmit = load.status === 'ready' && (zoneChanged || poolChanged) && !submitting
 
   const emptyForSite = load.status === 'ready' && load.options.zones.length === 0 && load.options.pools.length === 0
@@ -86,11 +81,13 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
     setSubmitting(true)
     setError('')
     try {
-      // The backend returns the effective zone/pool names; the caller reports them and the
-      // projection converges on the next reconcile, so the result is not needed here.
+      // The backend answers with the new spec; the caller reloads the Server, whose conditions
+      // report the move, so the result is not needed here.
+      const field = (changed: boolean, value: string) =>
+        changed ? (value === PROVIDER_DEFAULT ? null : value) : undefined
       await infrastructure.assignServerPlacement(server.id, {
-        zoneId: zoneChanged ? zoneId : undefined,
-        poolId: poolChanged ? poolId : undefined,
+        zoneId: field(zoneChanged, zoneId),
+        poolId: field(poolChanged, poolId),
       })
       onChanged()
       onClose()
@@ -101,14 +98,8 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
     }
   }
 
-  const zoneOptions = useMemo(
-    () => (load.status === 'ready' ? load.options.zones.map((zone) => ({ value: zone.id, label: zone.name })) : []),
-    [load],
-  )
-  const poolOptions = useMemo(
-    () => (load.status === 'ready' ? load.options.pools.map((pool) => ({ value: pool.id, label: pool.name })) : []),
-    [load],
-  )
+  const zoneOptions = useMemo(() => placementOptions(load.status === 'ready' ? load.options.zones : []), [load])
+  const poolOptions = useMemo(() => placementOptions(load.status === 'ready' ? load.options.pools : []), [load])
 
   return (
     <Modal
@@ -116,7 +107,7 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
       onClose={close}
       closeOnInteractOutside={!submitting}
       title="Set zone and pool"
-      description={`Assign ${serverDisplayName(server)} to a swallow-owned zone and/or pool. The provisioner is updated when it supports grouping.`}
+      description={`Place ${serverDisplayName(server)} in a swallow-owned zone and/or pool. The provisioner moves the machine shortly after you save.`}
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
@@ -146,10 +137,10 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
         )}
         {emptyForSite && (
           <Alert status="info" title="No zones or pools yet">
-            Create a zone or pool for this site under Infrastructure before assigning servers.
+            Create a zone or pool for this site under Infrastructure to place servers in it.
           </Alert>
         )}
-        {load.status === 'ready' && !emptyForSite && (
+        {load.status === 'ready' && (
           <>
             <Field.Root>
               <Field.Label>Zone</Field.Label>
@@ -157,12 +148,10 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
                 id="placement-zone"
                 value={zoneId}
                 aria-label="Zone"
-                placeholder={zoneOptions.length ? 'Select a zone' : 'No zones defined'}
-                disabled={zoneOptions.length === 0}
                 onChange={setZoneId}
                 options={zoneOptions}
               />
-              <Field.HelperText>Currently {server.status.providerZone || 'unset'}.</Field.HelperText>
+              <Field.HelperText>The provisioner reports {server.status.providerZone || 'no zone'}.</Field.HelperText>
             </Field.Root>
             <Field.Root>
               <Field.Label>Pool</Field.Label>
@@ -170,16 +159,22 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
                 id="placement-pool"
                 value={poolId}
                 aria-label="Pool"
-                placeholder={poolOptions.length ? 'Select a pool' : 'No pools defined'}
-                disabled={poolOptions.length === 0}
                 onChange={setPoolId}
                 options={poolOptions}
               />
-              <Field.HelperText>Currently {server.status.providerResourcePool || 'unset'}.</Field.HelperText>
+              <Field.HelperText>The provisioner reports {server.status.providerResourcePool || 'no pool'}.</Field.HelperText>
             </Field.Root>
           </>
         )}
       </Stack>
     </Modal>
   )
+}
+
+/** The select options for one grouping: the provisioner's default first, then the Site's groups. */
+function placementOptions(groups: readonly GroupingResource[]) {
+  return [
+    { value: PROVIDER_DEFAULT, label: 'Provisioner default' },
+    ...groups.map((group) => ({ value: group.id, label: group.spec.name })),
+  ]
 }

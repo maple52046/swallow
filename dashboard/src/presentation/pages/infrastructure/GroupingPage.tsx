@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Badge, Button, Table, Text, VisuallyHidden } from '@chakra-ui/react'
+import { Button, Table, Text, VisuallyHidden } from '@chakra-ui/react'
 import { Plus } from 'lucide-react'
 import { useApp } from '@/di/AppProvider'
 import { type GroupKind, type GroupingResource, groupKindLabel } from '@/domain/infrastructure/types'
+import { ConvergenceStatus } from '@/presentation/components/convergence/ConvergenceStatus'
+import { describeConvergence, isSettling } from '@/presentation/components/convergence/convergencePresentation'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
@@ -27,11 +29,16 @@ type GroupingState =
   | { status: 'error'; message: string }
   | { status: 'ready'; groups: GroupingResource[] }
 
+/** How often the list is re-read while a saved change is still being applied to provisioners. */
+const SETTLE_POLL_MS = 5000
+
 /**
  * Admin registry for swallow-owned Zones or Pools, sharing one implementation across both
- * kinds (decision 029). Results honor the global Site scope, and each row shows whether the last
- * write reached a grouping-capable provisioner. Desktop and mobile share the same filtered
- * working set and mutation callbacks; a save or delete refreshes the list.
+ * kinds (decision 071). Results honor the global Site scope, and each row shows whether the Site's
+ * provisioners hold the group as specified. Desktop and mobile share the same filtered working set
+ * and mutation callbacks; a save or delete refreshes the list, and while any group is still being
+ * applied the list is re-read quietly so its status settles in place (a failed re-read keeps the
+ * last list).
  */
 export function GroupingPage({ kind }: GroupingPageProps) {
   const { infrastructure } = useApp()
@@ -76,12 +83,32 @@ export function GroupingPage({ kind }: GroupingPageProps) {
     }
   }, [infrastructure, kind, siteId])
 
+  const settling =
+    state.status === 'ready' &&
+    state.groups.some((group) => isSettling(describeConvergence(group.status.conditions, group.generation).state))
+  useEffect(() => {
+    if (!settling) return
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      infrastructure
+        .listGroups(kind, siteId)
+        .then((groups) => {
+          if (!cancelled) setState({ status: 'ready', groups })
+        })
+        .catch(() => undefined)
+    }, SETTLE_POLL_MS)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [settling, state, infrastructure, kind, siteId])
+
   const visibleGroups = useMemo(() => {
     if (state.status !== 'ready') return []
     const needle = query.trim().toLowerCase()
     if (!needle) return state.groups
     return state.groups.filter((group) =>
-      [group.name, group.description, siteName(group.siteId)].some((value) => value.toLowerCase().includes(needle)),
+      [group.spec.name, group.spec.description, siteName(group.siteId)].some((value) => value.toLowerCase().includes(needle)),
     )
   }, [query, siteName, state])
 
@@ -135,7 +162,7 @@ export function GroupingPage({ kind }: GroupingPageProps) {
                     <Table.ColumnHeader>Name</Table.ColumnHeader>
                     <Table.ColumnHeader>Site</Table.ColumnHeader>
                     <Table.ColumnHeader>Description</Table.ColumnHeader>
-                    <Table.ColumnHeader>Provider</Table.ColumnHeader>
+                    <Table.ColumnHeader>Provisioner sync</Table.ColumnHeader>
                     <Table.ColumnHeader>Updated</Table.ColumnHeader>
                     <Table.ColumnHeader>
                       <VisuallyHidden>Actions</VisuallyHidden>
@@ -146,22 +173,22 @@ export function GroupingPage({ kind }: GroupingPageProps) {
                   {visibleGroups.map((group) => (
                     <Table.Row key={group.id} id={`${kind}-${group.id}`}>
                       <Table.Cell>
-                        <strong>{group.name}</strong>
+                        <strong>{group.spec.name}</strong>
                         <Text as="small" display="block" color="fg.muted" className="sw-mono">
                           {group.id}
                         </Text>
                       </Table.Cell>
                       <Table.Cell>{siteName(group.siteId)}</Table.Cell>
-                      <Table.Cell>{group.description || '-'}</Table.Cell>
+                      <Table.Cell>{group.spec.description || '-'}</Table.Cell>
                       <Table.Cell>
-                        <ProviderRealizedBadge realized={group.providerRealized} />
+                        <ConvergenceStatus conditions={group.status.conditions} generation={group.generation} />
                       </Table.Cell>
-                      <Table.Cell>{formatDateTime(group.updatedAt)}</Table.Cell>
+                      <Table.Cell>{formatDateTime(group.status.updatedAt)}</Table.Cell>
                       <Table.Cell textAlign="end">
                         <ResourceRowActions
                           actions={[
-                            { kind: 'edit', label: `Edit ${group.name}`, onClick: () => setEditor(group) },
-                            { kind: 'delete', label: `Delete ${group.name}`, onClick: () => setDeleting(group) },
+                            { kind: 'edit', label: `Edit ${group.spec.name}`, onClick: () => setEditor(group) },
+                            { kind: 'delete', label: `Delete ${group.spec.name}`, onClick: () => setDeleting(group) },
                           ]}
                         />
                       </Table.Cell>
@@ -176,22 +203,22 @@ export function GroupingPage({ kind }: GroupingPageProps) {
               {visibleGroups.map((group) => (
                 <ResourceCard
                   key={group.id}
-                  title={group.name}
-                  description={group.description || group.id}
+                  title={group.spec.name}
+                  description={group.spec.description || group.id}
                   actions={
                     <ResourceRowActions
                       actions={[
-                        { kind: 'edit', label: `Edit ${group.name}`, onClick: () => setEditor(group) },
-                        { kind: 'delete', label: `Delete ${group.name}`, onClick: () => setDeleting(group) },
+                        { kind: 'edit', label: `Edit ${group.spec.name}`, onClick: () => setEditor(group) },
+                        { kind: 'delete', label: `Delete ${group.spec.name}`, onClick: () => setDeleting(group) },
                       ]}
                     />
                   }
                 >
                   <ResourceCardField label="Site">{siteName(group.siteId)}</ResourceCardField>
-                  <ResourceCardField label="Provider">
-                    <ProviderRealizedBadge realized={group.providerRealized} />
+                  <ResourceCardField label="Provisioner sync">
+                    <ConvergenceStatus conditions={group.status.conditions} generation={group.generation} />
                   </ResourceCardField>
-                  <ResourceCardField label="Updated">{formatDateTime(group.updatedAt)}</ResourceCardField>
+                  <ResourceCardField label="Updated">{formatDateTime(group.status.updatedAt)}</ResourceCardField>
                 </ResourceCard>
               ))}
             </div>
@@ -212,7 +239,7 @@ export function GroupingPage({ kind }: GroupingPageProps) {
       {deleting && (
         <ResourceDeleteDialog
           resourceLabel={label}
-          name={deleting.name}
+          name={deleting.spec.name}
           intro={`Removing this ${noun} deletes it from Swallow and, when the site's provisioner supports grouping, from the provisioner too.`}
           warning={`The provisioner may refuse if the ${noun} still has servers.`}
           onClose={() => setDeleting(null)}
@@ -221,21 +248,5 @@ export function GroupingPage({ kind }: GroupingPageProps) {
         />
       )}
     </div>
-  )
-}
-
-/**
- * Shows whether a Zone/Pool's last write reached the provisioner. Text carries the meaning so it
- * is not conveyed by color alone; the palette only reinforces it.
- */
-function ProviderRealizedBadge({ realized }: { realized: boolean }) {
-  return realized ? (
-    <Badge colorPalette="green" variant="subtle">
-      Synced to provider
-    </Badge>
-  ) : (
-    <Badge colorPalette="gray" variant="subtle">
-      Swallow only
-    </Badge>
   )
 }

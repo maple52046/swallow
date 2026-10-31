@@ -57,7 +57,13 @@ type ServerConvergenceStore interface {
 	AdoptSpec(ctx context.Context, id string, spec ServerSpec) (bool, error)
 	SetConvergence(ctx context.Context, id string, status ServerConvergence) error
 	SetObservedTags(ctx context.Context, id string, tags, automaticTags []string) error
+	// SetObservedPlacement records the zone and pool names the provisioner reports right after
+	// the controller changed them, without waiting for the next reconcile.
+	SetObservedPlacement(ctx context.Context, id string, zone, pool string) error
 	SetOrigin(ctx context.Context, id string, origin Origin) error
+	// CountSpecPlacement counts the Servers whose spec places them in the Zone (or Pool) with this
+	// id; an empty id counts nothing.
+	CountSpecPlacement(ctx context.Context, zoneID, poolID string) (int, error)
 }
 
 // ServerRepository persists server projections.

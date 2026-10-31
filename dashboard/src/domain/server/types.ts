@@ -441,12 +441,16 @@ export interface SetServerBootMediaResult extends ServerBootMedia {
 export type ServerOrigin = string
 
 /**
- * The provisioner-realized fields swallow owns for a Server. The tag editor writes it; the Server
- * controller makes the provisioner match it, reporting progress in `ServerStatus.conditions`.
+ * The provisioner-realized fields swallow owns for a Server. The tag editor and the placement
+ * dialog write it; the Server controller makes the provisioner match it, reporting progress in
+ * `ServerStatus.conditions`.
  */
 export interface ServerSpec {
   /** The complete set of manual tags the Server must carry; automatic tags are never here. */
   tags: string[]
+  /** The Zone and Pool the Server must be in; null for the provisioner's default group. */
+  zoneId: string | null
+  poolId: string | null
 }
 
 /**

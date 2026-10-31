@@ -9,12 +9,16 @@ import (
 )
 
 // A tag edit writes each Server's spec and never drives the provisioner: the Server controller
-// converges the tags afterwards (decision 071). The response carries each Server's new generation
+// converges the tags afterwards (decision 071). The spec is the base, whatever is observed, and
+// the rest of the spec (the placement) is kept. The response carries each Server's new generation
 // and complete manual tag set.
 func TestEditServerTags_WritesSpecWithoutDrivingProvider(t *testing.T) {
 	f := setupPlatform(t)
 	seedProvisionerIntegration(t, f)
-	f.seedServer("s1", "gpu-1", "10.0.0.1", func(s *serverdomain.Server) { s.Observed.Tags = []string{"gpu"} })
+	f.seedServer("s1", "gpu-1", "10.0.0.1", func(s *serverdomain.Server) {
+		s.Observed.Tags = []string{"gpu", "observed-only"}
+		s.Generation, s.Spec = 1, serverdomain.ServerSpec{Tags: []string{"gpu"}, ZoneID: "z1"}
+	})
 	f.seedServer("s2", "gpu-2", "10.0.0.2", func(s *serverdomain.Server) {
 		s.Observed.Tags = nil
 		s.Generation, s.Spec.Tags = 3, []string{"kept"}
@@ -36,19 +40,36 @@ func TestEditServerTags_WritesSpecWithoutDrivingProvider(t *testing.T) {
 	if !ok || len(servers) != 2 {
 		t.Fatalf("expected 2 servers in response, got %v", body)
 	}
-	// s1 had no spec: its observed manual tags were the base, so gpu is removed and rack-a added.
 	assertResponseTags(t, servers, "s1", []string{"rack-a"})
-	// s2 already had a spec, which is the base regardless of what is observed.
 	assertResponseTags(t, servers, "s2", []string{"kept", "rack-a"})
 
 	if n := len(f.provider.actions); n != 0 {
 		t.Errorf("the provisioner was driven %d times (%v); a tag edit only writes the spec", n, f.provider.actions)
 	}
-	if s := f.servers.servers["s1"]; s.Generation != 1 || !equalStringSet(s.Spec.Tags, []string{"rack-a"}) {
-		t.Errorf("s1 spec = %v at generation %d, want [rack-a] at 1", s.Spec.Tags, s.Generation)
+	if s := f.servers.servers["s1"]; s.Generation != 2 || !equalStringSet(s.Spec.Tags, []string{"rack-a"}) || s.Spec.ZoneID != "z1" {
+		t.Errorf("s1 spec = %+v at generation %d, want [rack-a] in z1 at 2", s.Spec, s.Generation)
 	}
 	if s := f.servers.servers["s2"]; s.Generation != 4 {
 		t.Errorf("s2 generation = %d, want 4", s.Generation)
+	}
+}
+
+// A Server not adopted yet has no spec to edit; the edit is refused as a retryable conflict and
+// changes no Server.
+func TestEditServerTags_RefusesAServerNotAdoptedYet(t *testing.T) {
+	f := setupPlatform(t)
+	seedProvisionerIntegration(t, f)
+	f.seedServer("s1", "gpu-1", "10.0.0.1", func(s *serverdomain.Server) { s.Generation, s.Spec.Tags = 1, []string{"a"} })
+	f.seedServer("s2", "gpu-2", "10.0.0.2", nil)
+
+	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/tags", map[string]any{
+		"serverIds": []string{"s1", "s2"}, "add": []string{"rack-a"},
+	}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status: got %d, want 409 (%s)", resp.StatusCode, rawBody(t, resp))
+	}
+	if s := f.servers.servers["s1"]; s.Generation != 1 {
+		t.Errorf("s1 generation = %d, want 1: the edit is all or nothing", s.Generation)
 	}
 }
 
@@ -87,7 +108,7 @@ func TestListServerTags_ReportsEditableFlag(t *testing.T) {
 func TestEditServerTags_AutoTagRefusalIsValidationError(t *testing.T) {
 	f := setupPlatform(t)
 	seedProvisionerIntegration(t, f)
-	f.seedServer("s1", "gpu-1", "10.0.0.1", nil)
+	f.seedServer("s1", "gpu-1", "10.0.0.1", func(s *serverdomain.Server) { s.Generation = 1 })
 	f.provider.withMachine(&provisioningdomain.Machine{ID: "machine-s1"})
 	f.provider.autoTags["amd-gpu"] = true
 

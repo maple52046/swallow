@@ -14,13 +14,13 @@ export interface UpdateGroupInput {
 }
 
 /**
- * A Server placement request. Each field is optional: a present id assigns that grouping, an
- * explicit `null` is not used by the UI, and an omitted field leaves the grouping unchanged.
- * At least one of the two must be present.
+ * A Server placement request. Each field is optional: an id places the Server in that group,
+ * `null` returns it to the provisioner's default group, and an omitted field leaves the grouping
+ * unchanged. At least one of the two must be present.
  */
 export interface AssignServerPlacementInput {
-  zoneId?: string
-  poolId?: string
+  zoneId?: string | null
+  poolId?: string | null
 }
 
 /**
@@ -29,7 +29,7 @@ export interface AssignServerPlacementInput {
  * Methods are keyed by {@link GroupKind} so one adapter and one set of screens serve both
  * resources; the adapter maps the kind onto the provider's `/zones` or `/pools` endpoint. The
  * repository speaks domain types only — screens never see the transport DTO. Realization in the
- * provisioner is the backend's concern and is reported through `providerRealized`.
+ * provisioner is the backend's concern and is reported through each resource's conditions.
  */
 export interface InfrastructureRepository {
   /** Lists groupings of one kind, optionally restricted to a single Site. */

@@ -137,6 +137,8 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 | 資源 | spec | controller | 規格與契約 |
 | --- | --- | --- | --- |
 | Server 的手動 tag | `spec.tags`：Server 必須帶的手動 tag 全集；自動 tag 只觀察，不進 spec | Server controller：補上缺少的、移除多出的手動 tag；provisioner 沒有 tag 能力時 `capability_missing` | glossary [Tag](glossaries/terms/tag.md)、[os-provisioning.md](os-provisioning.md) §2、[server-tags.md](../../api-server/docs/development/api-contracts/api-server/server-tags.md)、[servers-list.md](../../api-server/docs/development/api-contracts/api-server/servers-list.md#spec-and-status) |
+| Server 的 placement | `spec.zoneId`、`spec.poolId`：以 id 指向 catalog；`null` 為 provisioner 的預設 group | Server controller：以 group 在該 provisioner 上的名稱移動 machine；group 尚未建立時等待 | [os-provisioning.md](os-provisioning.md) §8、[infrastructure.md](../../api-server/docs/development/api-contracts/api-server/infrastructure.md#server-placement) |
+| Zone 與 Pool 的 catalog | 名稱與說明 | catalog controller：在 Site 的每個 provisioner 建立、改名、改說明；接管只存在於 provisioner 的 group；刪除由 API 同步執行 | glossary [Zone](glossaries/terms/zone.md)、[Pool](glossaries/terms/pool.md)、[os-provisioning.md](os-provisioning.md) §8 |
 
 （第一段其餘的資源遷移時逐一加入。）
 

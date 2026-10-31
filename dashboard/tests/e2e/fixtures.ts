@@ -14,7 +14,7 @@ function makeServer(index: number): Server {
     id: `srv-${ordinal}`,
     origin: 'discovered',
     generation: 1,
-    spec: { tags },
+    spec: { tags, zoneId: null, poolId: null },
     status: {
     observedGeneration: 1,
     conditions: realizedConditions(1),
@@ -40,6 +40,19 @@ function makeServer(index: number): Server {
     health: ordinal === 4 ? { state: 'down', observedAt: now } : { state: 'up', observedAt: now },
     defaultUser: { user: 'ubuntu', source: 'os_image' },
     absent: false, lastSeenAt: now, createdAt: '2026-08-01T00:00:00Z', updatedAt: now,
+    },
+  }
+}
+
+/** A Zone or Pool of site-a realized on its provisioner, as the infrastructure list returns it. */
+function groupFixture(id: string, name: string) {
+  return {
+    id, siteId: 'site-a', generation: 1,
+    spec: { name, description: '' },
+    status: {
+      observedGeneration: 1, conditions: realizedConditions(1).filter((condition) => condition.type !== 'held'),
+      provisioners: [{ integrationId: 'maas-a', providerName: name, observedGeneration: 1, observedAt: now, conditions: realizedConditions(1).slice(0, 1) }],
+      createdAt: now, updatedAt: now,
     },
   }
 }
@@ -269,6 +282,8 @@ export interface FixtureOptions {
   automaticTags?: Record<string, string[]>
   /** Servers whose manual tags were changed outside swallow: `drifted` true until the next resync. */
   driftedServerIds?: string[]
+  /** Overrides a Server's placement spec (Zone and Pool ids; null is the provisioner's default). */
+  serverPlacements?: Record<string, { zoneId?: string | null; poolId?: string | null }>
   serverListFailuresAfterInitial?: number
   serverListFailureRequestNumbers?: number[]
   onServerListRequest?: (requestCount: number) => void
@@ -905,6 +920,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       server.status.tags = [...server.status.tags, ...tags]
       server.status.automaticTags = [...server.status.automaticTags, ...tags]
     }
+  }
+  for (const [serverId, placement] of Object.entries(options.serverPlacements ?? {})) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.spec = { ...server.spec, ...placement }
   }
   for (const serverId of options.driftedServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
@@ -2563,10 +2582,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       return json(route, { silenceId: 'silence-e2e' })
     }
     if (path === '/api/v1/infrastructure/zones' && request.method() === 'GET') {
-      return json(route, [{ id: 'zone-a', siteId: 'site-a', name: 'rack-a', description: '', providerRealized: true, createdAt: now, updatedAt: now }])
+      return json(route, [groupFixture('zone-a', 'rack-a')])
     }
     if (path === '/api/v1/infrastructure/pools' && request.method() === 'GET') {
-      return json(route, [{ id: 'pool-research', siteId: 'site-a', name: 'research', description: '', providerRealized: true, createdAt: now, updatedAt: now }])
+      return json(route, [groupFixture('pool-research', 'research')])
     }
     if (path === '/api/v1/monitoring/metrics/range') {
       options.onMetricRangeRequest?.(url.searchParams)

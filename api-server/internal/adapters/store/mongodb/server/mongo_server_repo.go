@@ -11,7 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/maple52046/swallow/internal/core/convergence"
+	convergencestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/convergence"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
@@ -74,21 +74,14 @@ type serverDoc struct {
 }
 
 type serverSpecDoc struct {
-	Tags []string `bson:"tags,omitempty"`
+	Tags   []string `bson:"tags,omitempty"`
+	ZoneID string   `bson:"zoneId,omitempty"`
+	PoolID string   `bson:"poolId,omitempty"`
 }
 
 type convergenceDoc struct {
-	ObservedGeneration int64          `bson:"observedGeneration"`
-	Conditions         []conditionDoc `bson:"conditions,omitempty"`
-}
-
-type conditionDoc struct {
-	Type               string    `bson:"type"`
-	Status             string    `bson:"status"`
-	Reason             string    `bson:"reason"`
-	Message            string    `bson:"message,omitempty"`
-	LastTransitionTime time.Time `bson:"lastTransitionTime"`
-	ObservedGeneration int64     `bson:"observedGeneration"`
+	ObservedGeneration int64                           `bson:"observedGeneration"`
+	Conditions         []convergencestore.ConditionDoc `bson:"conditions,omitempty"`
 }
 
 type sourceDoc struct {
@@ -879,7 +872,7 @@ func (r *MongoServerRepo) UpdateSpec(ctx context.Context, id string, expectedGen
 		filter["generation"] = bson.M{"$in": bson.A{0, nil}}
 	}
 	result, err := r.col.UpdateOne(ctx, filter, bson.M{
-		"$set": bson.M{"spec": serverSpecDoc{Tags: spec.Tags}, "generation": expectedGeneration + 1, "updatedAt": time.Now().UTC()},
+		"$set": bson.M{"spec": specDoc(spec), "generation": expectedGeneration + 1, "updatedAt": time.Now().UTC()},
 	})
 	if err != nil {
 		return 0, err
@@ -900,7 +893,7 @@ func (r *MongoServerRepo) UpdateSpec(ctx context.Context, id string, expectedGen
 func (r *MongoServerRepo) AdoptSpec(ctx context.Context, id string, spec serverdomain.ServerSpec) (bool, error) {
 	result, err := r.col.UpdateOne(ctx,
 		bson.M{"_id": id, "generation": bson.M{"$in": bson.A{0, nil}}},
-		bson.M{"$set": bson.M{"spec": serverSpecDoc{Tags: spec.Tags}, "generation": int64(1)}},
+		bson.M{"$set": bson.M{"spec": specDoc(spec), "generation": int64(1)}},
 	)
 	if err != nil {
 		return false, err
@@ -911,7 +904,7 @@ func (r *MongoServerRepo) AdoptSpec(ctx context.Context, id string, spec serverd
 // SetConvergence implements serverdomain.ServerConvergenceStore.
 func (r *MongoServerRepo) SetConvergence(ctx context.Context, id string, status serverdomain.ServerConvergence) error {
 	return r.updateExisting(ctx, id, bson.M{"$set": bson.M{"convergence": convergenceDoc{
-		ObservedGeneration: status.ObservedGeneration, Conditions: conditionDocs(status.Conditions),
+		ObservedGeneration: status.ObservedGeneration, Conditions: convergencestore.ConditionDocs(status.Conditions),
 	}}})
 }
 
@@ -921,6 +914,30 @@ func (r *MongoServerRepo) SetObservedTags(ctx context.Context, id string, tags, 
 	return r.updateExisting(ctx, id, bson.M{"$set": bson.M{
 		"observed.tags": tags, "observed.automaticTags": automaticTags, "updatedAt": time.Now().UTC(),
 	}})
+}
+
+// SetObservedPlacement implements serverdomain.ServerConvergenceStore; it writes only the two
+// observed group names.
+func (r *MongoServerRepo) SetObservedPlacement(ctx context.Context, id string, zone, pool string) error {
+	return r.updateExisting(ctx, id, bson.M{"$set": bson.M{
+		"observed.providerZone": zone, "observed.providerResourcePool": pool, "updatedAt": time.Now().UTC(),
+	}})
+}
+
+// CountSpecPlacement implements serverdomain.ServerConvergenceStore.
+func (r *MongoServerRepo) CountSpecPlacement(ctx context.Context, zoneID, poolID string) (int, error) {
+	var filters bson.A
+	if zoneID != "" {
+		filters = append(filters, bson.M{"spec.zoneId": zoneID})
+	}
+	if poolID != "" {
+		filters = append(filters, bson.M{"spec.poolId": poolID})
+	}
+	if len(filters) == 0 {
+		return 0, nil
+	}
+	count, err := r.col.CountDocuments(ctx, bson.M{"$or": filters})
+	return int(count), err
 }
 
 // SetOrigin implements serverdomain.ServerConvergenceStore.
@@ -935,26 +952,8 @@ func originOrDiscovered(origin serverdomain.Origin) string {
 	return string(origin)
 }
 
-func conditionDocs(conditions []convergence.Condition) []conditionDoc {
-	docs := make([]conditionDoc, len(conditions))
-	for i, c := range conditions {
-		docs[i] = conditionDoc{
-			Type: string(c.Type), Status: string(c.Status), Reason: c.Reason, Message: c.Message,
-			LastTransitionTime: c.LastTransitionTime.UTC(), ObservedGeneration: c.ObservedGeneration,
-		}
-	}
-	return docs
-}
-
-func toConditions(docs []conditionDoc) []convergence.Condition {
-	conditions := make([]convergence.Condition, len(docs))
-	for i, d := range docs {
-		conditions[i] = convergence.Condition{
-			Type: convergence.ConditionType(d.Type), Status: convergence.ConditionStatus(d.Status), Reason: d.Reason,
-			Message: d.Message, LastTransitionTime: d.LastTransitionTime, ObservedGeneration: d.ObservedGeneration,
-		}
-	}
-	return conditions
+func specDoc(spec serverdomain.ServerSpec) serverSpecDoc {
+	return serverSpecDoc{Tags: spec.Tags, ZoneID: spec.ZoneID, PoolID: spec.PoolID}
 }
 
 func (r *MongoServerRepo) CountByIntegration(ctx context.Context, integrationID string) (int, error) {
@@ -1103,7 +1102,7 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 		},
 		Origin:      serverdomain.Origin(originOrDiscovered(serverdomain.Origin(doc.Origin))),
 		Generation:  doc.Generation,
-		Spec:        serverdomain.ServerSpec{Tags: doc.Spec.Tags},
+		Spec:        serverdomain.ServerSpec{Tags: doc.Spec.Tags, ZoneID: doc.Spec.ZoneID, PoolID: doc.Spec.PoolID},
 		DefaultUser: doc.DefaultUser,
 		Absent:      doc.Absent,
 		LastSeenAt:  doc.LastSeenAt,
@@ -1112,7 +1111,7 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 	}
 
 	if c := doc.Convergence; c != nil {
-		s.Convergence = serverdomain.ServerConvergence{ObservedGeneration: c.ObservedGeneration, Conditions: toConditions(c.Conditions)}
+		s.Convergence = serverdomain.ServerConvergence{ObservedGeneration: c.ObservedGeneration, Conditions: convergencestore.ToConditions(c.Conditions)}
 	}
 	if b := doc.BootMedia; b != nil {
 		s.BootMedia = &serverdomain.BootMediaSetting{

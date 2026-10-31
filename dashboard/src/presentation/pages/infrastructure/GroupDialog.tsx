@@ -32,8 +32,8 @@ interface GroupDialogProps {
 export function GroupDialog({ kind, group, sites, defaultSiteId, onClose, onSaved }: GroupDialogProps) {
   const { infrastructure } = useApp()
   const [siteId, setSiteId] = useState(group?.siteId ?? defaultSiteId ?? '')
-  const [name, setName] = useState(group?.name ?? '')
-  const [description, setDescription] = useState(group?.description ?? '')
+  const [name, setName] = useState(group?.spec.name ?? '')
+  const [description, setDescription] = useState(group?.spec.description ?? '')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const editing = Boolean(group)

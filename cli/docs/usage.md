@@ -357,7 +357,7 @@ swallow servers network delete-link srv1 <interfaceId> <linkId>
 
 # Placement (Zone/Pool) — flags or --file
 swallow servers placement srv1 --zone zone1 --pool pool1
-swallow servers placement srv1 --clear-zone --clear-pool
+swallow servers placement srv1 --clear-zone --clear-pool   # back to the provisioner's default zone and pool
 swallow servers placement srv1 -f placement.yaml   # { zoneId, poolId }
 
 # Boot Media: the Server boots a Boot ISO of its own provisioner first. The method follows its

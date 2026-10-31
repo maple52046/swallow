@@ -15,13 +15,14 @@ import (
 // zoneDoc is the MongoDB shape of a Zone. Persistence-only tags live here, never on the domain
 // entity, so the domain stays free of storage concerns.
 type zoneDoc struct {
-	ID               string    `bson:"_id"`
-	SiteID           string    `bson:"siteId"`
-	Name             string    `bson:"name"`
-	Description      string    `bson:"description,omitempty"`
-	ProviderRealized bool      `bson:"providerRealized"`
-	CreatedAt        time.Time `bson:"createdAt"`
-	UpdatedAt        time.Time `bson:"updatedAt"`
+	ID          string         `bson:"_id"`
+	SiteID      string         `bson:"siteId"`
+	Generation  int64          `bson:"generation"`
+	Name        string         `bson:"name"`
+	Description string         `bson:"description,omitempty"`
+	Status      groupStatusDoc `bson:"status"`
+	CreatedAt   time.Time      `bson:"createdAt"`
+	UpdatedAt   time.Time      `bson:"updatedAt"`
 }
 
 // MongoZoneRepo is the durable ZoneRepository.
@@ -33,7 +34,7 @@ type MongoZoneRepo struct {
 //
 // Names are unique per Site, not globally, so the unique index is the compound (siteId, name):
 // two Sites may both have a Zone "rack-a", but one Site may not have two. The index is what makes
-// Create/Update return ErrZoneNameTaken instead of silently allowing a duplicate.
+// Create/UpdateSpec return ErrZoneNameTaken instead of silently allowing a duplicate.
 func NewMongoZoneRepo(db *mongo.Database) (*MongoZoneRepo, error) {
 	col := db.Collection("zones")
 
@@ -53,13 +54,14 @@ func NewMongoZoneRepo(db *mongo.Database) (*MongoZoneRepo, error) {
 
 func (r *MongoZoneRepo) Create(ctx context.Context, zone *infradomain.Zone) error {
 	_, err := r.col.InsertOne(ctx, zoneDoc{
-		ID:               zone.ID,
-		SiteID:           zone.SiteID,
-		Name:             zone.Name,
-		Description:      zone.Description,
-		ProviderRealized: zone.ProviderRealized,
-		CreatedAt:        zone.CreatedAt,
-		UpdatedAt:        zone.UpdatedAt,
+		ID:          zone.ID,
+		SiteID:      zone.SiteID,
+		Generation:  zone.Generation,
+		Name:        zone.Name,
+		Description: zone.Description,
+		Status:      toGroupStatusDoc(zone.Status),
+		CreatedAt:   zone.CreatedAt,
+		UpdatedAt:   zone.UpdatedAt,
 	})
 	if mongo.IsDuplicateKeyError(err) {
 		return infradomain.ErrZoneNameTaken
@@ -68,8 +70,16 @@ func (r *MongoZoneRepo) Create(ctx context.Context, zone *infradomain.Zone) erro
 }
 
 func (r *MongoZoneRepo) FindByID(ctx context.Context, id string) (*infradomain.Zone, error) {
+	return r.findOne(ctx, bson.M{"_id": id})
+}
+
+func (r *MongoZoneRepo) FindByName(ctx context.Context, siteID, name string) (*infradomain.Zone, error) {
+	return r.findOne(ctx, bson.M{"siteId": siteID, "name": name})
+}
+
+func (r *MongoZoneRepo) findOne(ctx context.Context, filter bson.M) (*infradomain.Zone, error) {
 	var doc zoneDoc
-	err := r.col.FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
+	err := r.col.FindOne(ctx, filter).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, infradomain.ErrZoneNotFound
 	}
@@ -101,19 +111,33 @@ func (r *MongoZoneRepo) List(ctx context.Context, siteID string) ([]*infradomain
 	return zones, nil
 }
 
-func (r *MongoZoneRepo) Update(ctx context.Context, zone *infradomain.Zone) error {
-	result, err := r.col.UpdateOne(ctx,
+// UpdateSpec increments the generation in the same update that writes the spec, so the catalog
+// controller always sees a generation that matches the name and description it reads.
+func (r *MongoZoneRepo) UpdateSpec(ctx context.Context, zone *infradomain.Zone) error {
+	var doc zoneDoc
+	err := r.col.FindOneAndUpdate(ctx,
 		bson.M{"_id": zone.ID},
-		bson.M{"$set": bson.M{
-			"name":             zone.Name,
-			"description":      zone.Description,
-			"providerRealized": zone.ProviderRealized,
-			"updatedAt":        zone.UpdatedAt,
-		}},
-	)
+		bson.M{
+			"$set": bson.M{"name": zone.Name, "description": zone.Description, "updatedAt": zone.UpdatedAt},
+			"$inc": bson.M{"generation": 1},
+		},
+		options.FindOneAndUpdate().SetReturnDocument(options.After),
+	).Decode(&doc)
 	if mongo.IsDuplicateKeyError(err) {
 		return infradomain.ErrZoneNameTaken
 	}
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return infradomain.ErrZoneNotFound
+	}
+	if err != nil {
+		return err
+	}
+	zone.Generation = doc.Generation
+	return nil
+}
+
+func (r *MongoZoneRepo) SetStatus(ctx context.Context, id string, status infradomain.GroupStatus) error {
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"status": toGroupStatusDoc(status)}})
 	if err != nil {
 		return err
 	}
@@ -136,12 +160,13 @@ func (r *MongoZoneRepo) Delete(ctx context.Context, id string) error {
 
 func toZone(doc *zoneDoc) *infradomain.Zone {
 	return &infradomain.Zone{
-		ID:               doc.ID,
-		SiteID:           doc.SiteID,
-		Name:             doc.Name,
-		Description:      doc.Description,
-		ProviderRealized: doc.ProviderRealized,
-		CreatedAt:        doc.CreatedAt,
-		UpdatedAt:        doc.UpdatedAt,
+		ID:          doc.ID,
+		SiteID:      doc.SiteID,
+		Generation:  doc.Generation,
+		Name:        doc.Name,
+		Description: doc.Description,
+		Status:      toGroupStatus(doc.Status),
+		CreatedAt:   doc.CreatedAt,
+		UpdatedAt:   doc.UpdatedAt,
 	}
 }

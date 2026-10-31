@@ -852,8 +852,8 @@ export interface paths {
         get: operations["listPools"];
         put?: never;
         /**
-         * Create a Pool, realized in the Site's provisioner when it is grouping-capable.
-         * @description Requires role `admin` (infrastructure.md). The provider resource pool is ensured before the Pool is stored, so a provider refusal leaves no swallow record; an existing provider pool of the same name counts as satisfied.
+         * Create a Pool; the catalog controller creates it on the Site's provisioners.
+         * @description Requires role `admin` (infrastructure.md). Stores the spec at generation 1 and answers at once; the Pool's conditions report when every grouping-capable provisioner of the Site holds it. No provisioner is called.
          */
         post: operations["createPool"];
         delete?: never;
@@ -880,15 +880,15 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete a Pool, removing the provider resource pool first when the provisioner holds it.
-         * @description Requires role `admin`. A provisioner that refuses to delete the pool (for example one still holding machines) aborts the delete, so the swallow record stays.
+         * Delete a Pool, removing it from the provisioners that hold it first.
+         * @description Requires role `admin`. Refused while a Server's placement spec names the Pool. Otherwise the resource pool is removed from every provisioner that holds it (a provisioner's default resource pool stays), then the record. A provisioner that refuses (for example one still holding machines) aborts the delete, so the record stays.
          */
         delete: operations["deletePool"];
         options?: never;
         head?: never;
         /**
-         * Rename a Pool or change its description, propagated to the provisioner when capable.
-         * @description Requires role `admin`. Only present fields change; a request that changes nothing answers the stored Pool without calling the provisioner.
+         * Rename a Pool or change its description.
+         * @description Requires role `admin`. Only present fields change, and a change increments the generation; a request that changes nothing answers the stored Pool. The catalog controller then renames the group on the Site's provisioners, so the machines in it stay there.
          */
         patch: operations["updatePool"];
         trace?: never;
@@ -907,8 +907,8 @@ export interface paths {
         get: operations["listZones"];
         put?: never;
         /**
-         * Create a Zone, realized in the Site's provisioner when it is grouping-capable.
-         * @description Requires role `admin` (infrastructure.md). The provider group is ensured before the Zone is stored, so a provider refusal leaves no swallow record; an existing provider group of the same name counts as satisfied.
+         * Create a Zone; the catalog controller creates it on the Site's provisioners.
+         * @description Requires role `admin` (infrastructure.md). Stores the spec at generation 1 and answers at once; the Zone's conditions report when every grouping-capable provisioner of the Site holds it. No provisioner is called.
          */
         post: operations["createZone"];
         delete?: never;
@@ -935,15 +935,15 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete a Zone, removing the provider group first when the provisioner holds it.
-         * @description Requires role `admin`. A provisioner that refuses to delete the group (for example one still holding machines) aborts the delete, so the swallow record stays.
+         * Delete a Zone, removing it from the provisioners that hold it first.
+         * @description Requires role `admin`. Refused while a Server's placement spec names the Zone. Otherwise the zone is removed from every provisioner that holds it (a provisioner's default zone stays), then the record. A provisioner that refuses (for example one still holding machines) aborts the delete, so the record stays.
          */
         delete: operations["deleteZone"];
         options?: never;
         head?: never;
         /**
-         * Rename a Zone or change its description, propagated to the provisioner when capable.
-         * @description Requires role `admin`. Only present fields change; a request that changes nothing answers the stored Zone without calling the provisioner.
+         * Rename a Zone or change its description.
+         * @description Requires role `admin`. Only present fields change, and a change increments the generation; a request that changes nothing answers the stored Zone. The catalog controller then renames the group on the Site's provisioners, so the machines in it stay there.
          */
         patch: operations["updateZone"];
         trace?: never;
@@ -2597,7 +2597,7 @@ export interface paths {
         put?: never;
         /**
          * Write a tri-state tag edit into the spec of one or more Servers.
-         * @description Requires role `admin`. Not gated on Server Lock. Atomic across the listed Servers; the provisioner converges asynchronously (the Servers' conditions report it). 400 for an invalid body, empty `serverIds`, no `add` or `remove`, or an invalid, contradictory, or automatic tag name; 404 for an unknown Server; 409 when a Server's spec changed during the edit.
+         * @description Requires role `admin`. Not gated on Server Lock. Atomic across the listed Servers; the provisioner converges asynchronously (the Servers' conditions report it). 400 for an invalid body, empty `serverIds`, no `add` or `remove`, or an invalid, contradictory, or automatic tag name; 404 for an unknown Server; 409 when a Server is not adopted yet or its spec changed during the edit.
          */
         post: operations["editServerTags"];
         delete?: never;
@@ -3504,8 +3504,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Assign a Server to a Zone and/or Pool, written through to its provisioner.
-         * @description Requires role `admin` (infrastructure.md). Each id is optional; an omitted or `null` id leaves that grouping unchanged, and at least one must be given. A placement cannot be cleared. The referenced Zone or Pool must belong to the Server's Site, and the Server's provisioner must be grouping-capable. The Server projection's observed zone and pool are refreshed later by reconcile.
+         * Set a Server's Zone and/or Pool; its controller moves the machine.
+         * @description Requires role `admin` (infrastructure.md). Writes the placement into the Server's spec, conditional on its generation, and answers at once; the Server controller moves the machine, and the Server's conditions report when it has. An omitted field is unchanged and `null` returns the Server to its provisioner's default group; at least one field must be given. A referenced Zone or Pool must belong to the Server's Site. A provisioner that cannot group keeps the spec and reports `capability_missing`.
          */
         put: operations["assignServerPlacement"];
         post?: never;
@@ -5293,6 +5293,38 @@ export interface components {
             /** @description Unencrypted OpenSSH private key, returned exactly once; swallow keeps no copy. */
             privateKey: string;
         };
+        /** @description A Zone's or Pool's realization on one provisioner Integration. */
+        GroupRealization: {
+            conditions: components["schemas"]["Condition"][];
+            integrationId: string;
+            /** @description When the provisioner was last checked; `null` before the first check. */
+            observedAt: components["schemas"]["Timestamp"] | null;
+            /** Format: int64 */
+            observedGeneration: number;
+            /** @description The group's name on that provisioner; `""` until it exists there. */
+            providerName: string;
+        };
+        /** @description The desired name and description of a Zone or Pool. */
+        GroupSpec: {
+            /** @description `""` when none was given. */
+            description: string;
+            /** @description Unique within the Site. */
+            name: string;
+        };
+        /** @description The catalog controller's report on a Zone or Pool. The conditions summarize the provisioners: `realized` is `true` only when every provisioner of the Site holds the current spec, and `true` for a Site with no provisioner. */
+        GroupStatus: {
+            /** @description Empty until the controller first judged the group. */
+            conditions: components["schemas"]["Condition"][];
+            createdAt: components["schemas"]["Timestamp"];
+            /**
+             * Format: int64
+             * @description The generation every provisioner holds.
+             */
+            observedGeneration: number;
+            /** @description One realization per enabled provisioner Integration of the Site. */
+            provisioners: components["schemas"]["GroupRealization"][];
+            updatedAt: components["schemas"]["Timestamp"];
+        };
         /** @description swallow's registration of one external system for one Site (glossary Integration). It has no credential field of any kind; `hasCredential` only reports whether one is stored. */
         Integration: {
             createdAt: components["schemas"]["Timestamp"];
@@ -6303,18 +6335,17 @@ export interface components {
             operationId: string;
             platformId: string;
         };
-        /** @description A swallow-owned, Site-scoped resource pool (glossary Pool), realized as a provisioner resource pool when the Site's provisioner is grouping-capable. */
+        /** @description A swallow-owned, Site-scoped resource pool (glossary Pool) as a migrated resource, with the same shape and meaning as a Zone. */
         Pool: {
-            createdAt: components["schemas"]["Timestamp"];
-            /** @description `""` when none was given. */
-            description: string;
+            /**
+             * Format: int64
+             * @description Counts spec changes; 1 when created.
+             */
+            generation: number;
             id: string;
-            /** @description Unique within the Site. */
-            name: string;
-            /** @description Whether the most recent write reached a grouping-capable provisioner; `false` means the Pool exists only in swallow, which is not an error. */
-            providerRealized: boolean;
             siteId: string;
-            updatedAt: components["schemas"]["Timestamp"];
+            spec: components["schemas"]["GroupSpec"];
+            status: components["schemas"]["GroupStatus"];
         };
         /** @description A Server's Power Configuration as read live from its provisioner; never carries the password. */
         PowerConfiguration: {
@@ -6748,13 +6779,18 @@ export interface components {
             /** @description Matching Servers across all pages. */
             total: number;
         };
-        /** @description A Server's effective Zone and Pool after a placement request. */
+        /** @description A Server's placement spec after a placement request. */
         ServerPlacement: {
-            /** @description The Pool name now assigned, or the Server's currently observed pool when the request left it unchanged; `""` when it has none. */
-            pool: string;
+            /**
+             * Format: int64
+             * @description The Server's spec generation after the request.
+             */
+            generation: number;
+            /** @description The Pool the Server must be in; `null` for the provisioner's default pool. */
+            poolId: string | null;
             serverId: string;
-            /** @description The Zone name now assigned, or the Server's currently observed zone when the request left it unchanged; `""` when it has none. */
-            zone: string;
+            /** @description The Zone the Server must be in; `null` for the provisioner's default zone. */
+            zoneId: string | null;
         };
         /** @description The Platform whose accepted deployment targets this Server (Platform Claim). */
         ServerPlatformClaim: {
@@ -6827,10 +6863,14 @@ export interface components {
             providerMachineId: string;
             siteId: string;
         };
-        /** @description The desired provisioner-realized fields of a Server; written by the tag edit, converged by the Server controller. */
+        /** @description The desired provisioner-realized fields of a Server; written by the tag edit and the placement request, converged by the Server controller. */
         ServerSpec: {
+            /** @description The Pool the Server must be in; `null` for the provisioner's default pool. */
+            poolId: string | null;
             /** @description The complete set of manual tags the Server must carry (server-tags.md). */
             tags: string[];
+            /** @description The Zone the Server must be in (infrastructure.md); `null` for the provisioner's default zone. */
+            zoneId: string | null;
         };
         /** @description Everything observed, derived, or written by the Server's controller (servers-list.md). Optional observations are null; an axis that has never been observed is null rather than defaulted. */
         ServerStatus: {
@@ -7466,18 +7506,17 @@ export interface components {
             stepId?: string;
             type: string;
         };
-        /** @description A swallow-owned, Site-scoped grouping of Servers (glossary Zone), realized as a provisioner zone when the Site's provisioner is grouping-capable. */
+        /** @description A swallow-owned, Site-scoped grouping of Servers (glossary Zone) as a migrated resource (infrastructure.md, decision 071): the spec is its name and description, and the status its realization on every provisioner of the Site. */
         Zone: {
-            createdAt: components["schemas"]["Timestamp"];
-            /** @description `""` when none was given. */
-            description: string;
+            /**
+             * Format: int64
+             * @description Counts spec changes; 1 when created.
+             */
+            generation: number;
             id: string;
-            /** @description Unique within the Site. */
-            name: string;
-            /** @description Whether the most recent write reached a grouping-capable provisioner; `false` means the Zone exists only in swallow, which is not an error. */
-            providerRealized: boolean;
             siteId: string;
-            updatedAt: components["schemas"]["Timestamp"];
+            spec: components["schemas"]["GroupSpec"];
+            status: components["schemas"]["GroupStatus"];
         };
     };
     responses: {
@@ -9149,7 +9188,7 @@ export interface operations {
                     "application/json": components["schemas"]["Pool"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON; `siteId` or `name` is missing, blank, or `name` is longer than 100 characters; or the provisioner refused the request (the message carries its explanation). */
+            /** @description `validation_error`: the body is not valid JSON; `siteId` or `name` is missing, blank, or `name` is longer than 100 characters. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9171,15 +9210,6 @@ export interface operations {
             };
             /** @description `conflict`: a Pool with this `name` already exists in the Site. */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `provider_unavailable`: the Site's provisioner could not be reached, refused the credential, or has no credential. */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9264,6 +9294,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description `conflict`: a Server is still placed in it. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description `provider_unavailable`: the Site's provisioner could not be reached, refused the credential, or has no credential. */
             503: {
                 headers: {
@@ -9304,7 +9343,7 @@ export interface operations {
                     "application/json": components["schemas"]["Pool"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON; a present `name` is blank or longer than 100 characters; or the provisioner refused the change. */
+            /** @description `validation_error`: the body is not valid JSON, or a present `name` is blank or longer than 100 characters. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9326,15 +9365,6 @@ export interface operations {
             };
             /** @description `conflict`: another Pool in the Site already has this `name`. */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `provider_unavailable`: the Site's provisioner could not be reached, refused the credential, or has no credential. */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9398,7 +9428,7 @@ export interface operations {
                     "application/json": components["schemas"]["Zone"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON; `siteId` or `name` is missing, blank, or `name` is longer than 100 characters; or the provisioner refused the request (the message carries its explanation). */
+            /** @description `validation_error`: the body is not valid JSON; `siteId` or `name` is missing, blank, or `name` is longer than 100 characters. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9420,15 +9450,6 @@ export interface operations {
             };
             /** @description `conflict`: a Zone with this `name` already exists in the Site. */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `provider_unavailable`: the Site's provisioner could not be reached, refused the credential, or has no credential. */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9513,6 +9534,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description `conflict`: a Server is still placed in it. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description `provider_unavailable`: the Site's provisioner could not be reached, refused the credential, or has no credential. */
             503: {
                 headers: {
@@ -9553,7 +9583,7 @@ export interface operations {
                     "application/json": components["schemas"]["Zone"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON; a present `name` is blank or longer than 100 characters; or the provisioner refused the change. */
+            /** @description `validation_error`: the body is not valid JSON, or a present `name` is blank or longer than 100 characters. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9575,15 +9605,6 @@ export interface operations {
             };
             /** @description `conflict`: another Zone in the Site already has this `name`. */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `provider_unavailable`: the Site's provisioner could not be reached, refused the credential, or has no credential. */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14888,15 +14909,15 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description The swallow id of the Pool to assign; `null` is the same as omitted. */
+                    /** @description The swallow id of the Pool; `null` returns the Server to the provisioner's default pool. */
                     poolId?: string | null;
-                    /** @description The swallow id of the Zone to assign; `null` is the same as omitted. */
+                    /** @description The swallow id of the Zone; `null` returns the Server to the provisioner's default zone. */
                     zoneId?: string | null;
                 };
             };
         };
         responses: {
-            /** @description The effective placement after the assignment. */
+            /** @description The Server's placement spec after the request. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -14905,7 +14926,7 @@ export interface operations {
                     "application/json": components["schemas"]["ServerPlacement"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON; neither `zoneId` nor `poolId` is given; the Zone or Pool belongs to another Site; the Server's Integration is not a provisioner, has no adapter, or cannot group; or the provisioner refused the assignment. */
+            /** @description `validation_error`: the body is not valid JSON or a field is not a string or `null`; neither `zoneId` nor `poolId` is given; or the Zone or Pool belongs to another Site. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -14916,7 +14937,7 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            /** @description `not_found`: the Server, the Zone, the Pool, or the Server's Integration does not exist, or the provisioner no longer has the machine. */
+            /** @description `not_found`: the Server, the Zone, or the Pool does not exist. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14925,8 +14946,8 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `provider_unavailable`: the provisioner could not be reached, refused the credential, or has no credential. */
-            503: {
+            /** @description `conflict`: the Server is not adopted yet (retry shortly), or its spec changed during the request. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

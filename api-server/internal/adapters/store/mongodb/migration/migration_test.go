@@ -335,7 +335,8 @@ func TestCopyVerifyDrop(t *testing.T) {
 }
 
 // TestMigrateV4ToV5_MovesTagOverlaysIntoTheSpec verifies a Server's swallow-owned overlay tags
-// survive as its spec, a Server that already has a spec keeps it, and the overlays are gone.
+// survive in its spec for adoption to keep, a Server that already has a spec keeps it, and the
+// overlays are gone.
 func TestMigrateV4ToV5_MovesTagOverlaysIntoTheSpec(t *testing.T) {
 	db := testDatabase(t)
 	ctx := ctxFor(t)
@@ -374,8 +375,8 @@ func TestMigrateV4ToV5_MovesTagOverlaysIntoTheSpec(t *testing.T) {
 		}
 		return doc.Generation, doc.Spec.Tags
 	}
-	if generation, tags := spec("srv-overlay"); generation != 1 || fmt.Sprint(tags) != "[gpu ml]" {
-		t.Errorf("srv-overlay spec = generation %d tags %v, want generation 1 tags [gpu ml]", generation, tags)
+	if generation, tags := spec("srv-overlay"); generation != 0 || fmt.Sprint(tags) != "[gpu ml]" {
+		t.Errorf("srv-overlay spec = generation %d tags %v, want generation 0 (adoption pending) tags [gpu ml]", generation, tags)
 	}
 	if generation, tags := spec("srv-spec"); generation != 3 || fmt.Sprint(tags) != "[kept]" {
 		t.Errorf("srv-spec spec = generation %d tags %v, want it untouched", generation, tags)
@@ -386,6 +387,49 @@ func TestMigrateV4ToV5_MovesTagOverlaysIntoTheSpec(t *testing.T) {
 	names, err := db.ListCollectionNames(ctx, bson.M{"name": "server_tag_overlays"})
 	if err != nil || len(names) != 0 {
 		t.Errorf("server_tag_overlays after migration = %v (err %v), want dropped", names, err)
+	}
+	if got := schemaVersion(t, ctx, db); got != CurrentSchemaVersion {
+		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)
+	}
+}
+
+// TestMigrateV5ToV6_MakesZonesAndPoolsResources verifies each existing Zone and Pool gets
+// generation 1 and loses providerRealized, and a group that already has a generation keeps it.
+func TestMigrateV5ToV6_MakesZonesAndPoolsResources(t *testing.T) {
+	db := testDatabase(t)
+	ctx := ctxFor(t)
+	if _, err := db.Collection("zones").InsertMany(ctx, []any{
+		bson.M{"_id": "z1", "siteId": "s", "name": "rack-a", "providerRealized": true},
+		bson.M{"_id": "z2", "siteId": "s", "name": "rack-b", "generation": int64(4)},
+	}); err != nil {
+		t.Fatalf("seed zones: %v", err)
+	}
+	if _, err := db.Collection("pools").InsertOne(ctx, bson.M{"_id": "p1", "siteId": "s", "name": "gpu", "providerRealized": false}); err != nil {
+		t.Fatalf("seed pools: %v", err)
+	}
+	if _, err := db.Collection("schema_metadata").InsertOne(ctx, bson.M{
+		"_id": "database", "version": 5, "updatedAt": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed schema marker: %v", err)
+	}
+
+	if err := Migrate(ctx, db, true); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	for collection, want := range map[string]map[string]int64{"zones": {"z1": 1, "z2": 4}, "pools": {"p1": 1}} {
+		for id, generation := range want {
+			var doc bson.M
+			if err := db.Collection(collection).FindOne(ctx, bson.M{"_id": id}).Decode(&doc); err != nil {
+				t.Fatalf("read %s/%s: %v", collection, id, err)
+			}
+			if doc["generation"] != generation {
+				t.Errorf("%s/%s generation = %v, want %d", collection, id, doc["generation"], generation)
+			}
+			if _, present := doc["providerRealized"]; present {
+				t.Errorf("%s/%s still has providerRealized", collection, id)
+			}
+		}
 	}
 	if got := schemaVersion(t, ctx, db); got != CurrentSchemaVersion {
 		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)

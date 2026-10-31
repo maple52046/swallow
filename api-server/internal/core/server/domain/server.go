@@ -284,6 +284,10 @@ type ServerSpec struct {
 	// Tags is the complete set of manual tags the Server must carry. A manual tag present on the
 	// machine but not here is removed; automatic tags are never touched.
 	Tags []string
+	// ZoneID and PoolID are the swallow Zone and Pool the Server must be placed in; "" means the
+	// provisioner's default group, which is where clearing a placement returns it.
+	ZoneID string
+	PoolID string
 }
 
 // ServerConvergence is the status the Server's controller writes: the spec generation its
@@ -513,6 +517,10 @@ var (
 	// ErrSpecConflict means a spec write expected a generation the Server no longer has: someone
 	// else changed the spec first. The caller re-reads and retries or reports a conflict.
 	ErrSpecConflict = errors.New("server spec changed concurrently")
+	// ErrSpecNotAdopted means the Server has no spec yet (generation 0). Its controller adopts the
+	// first observation shortly; a spec write is refused until then so it cannot replace fields
+	// that would otherwise have been adopted.
+	ErrSpecNotAdopted = errors.New("server is not adopted yet; retry shortly")
 	// ErrAmbiguousHardware means more than one existing server matches a machine's
 	// hardware identifiers. Never resolved by guessing: merging two servers is
 	// unrecoverable, so this surfaces as a conflict instead.

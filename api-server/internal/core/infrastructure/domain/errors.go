@@ -1,10 +1,11 @@
 // Package domain defines swallow's Infrastructure grouping model: Zone and Pool.
 //
-// Zone and Pool are swallow-owned, Site-scoped groupings of Servers (decision 029). swallow
-// owns their catalog and lifecycle; when a Site's provisioner can express the same grouping the
-// intent is realized there through the GroupingRealizer port, but the concept exists in swallow
-// regardless of provider support. This package holds the entities, their persistence ports, the
-// provider-realization port, and the domain errors — no MongoDB, HTTP, or provider vocabulary.
+// Zone and Pool are swallow-owned, Site-scoped groupings of Servers (decision 071). swallow owns
+// their catalog as desired state; the catalog controller realizes it on every grouping-capable
+// provisioner of the Site, and the concept exists in swallow regardless of provider support. This
+// package holds the entities and their status, their persistence ports, the ports onto Site
+// provisioners and Server placements, and the domain errors — no MongoDB, HTTP, or provider
+// vocabulary.
 //
 // This is not a Clean Architecture infrastructure layer. "Infrastructure" here is the
 // operator-facing area (the dashboard's Infrastructure section) whose domain is Zones and Pools;
@@ -44,9 +45,14 @@ var (
 	// is no state change to make.
 	ErrNothingToAssign = errors.New("placement request specifies neither a zone nor a pool")
 
-	// ErrProviderGroupingUnsupported means a Server's provisioner cannot express zones/pools,
-	// so a placement cannot be realized. Unlike Zone/Pool catalog writes — which a Site with no
-	// capable provisioner simply keeps swallow-local — a placement always targets a provisioner,
-	// so its inability to group is surfaced rather than silently skipped.
-	ErrProviderGroupingUnsupported = errors.New("provisioner does not support zone or pool grouping")
+	// ErrGroupInUse means a Zone or Pool cannot be deleted because a Server's placement spec
+	// still references it.
+	ErrGroupInUse = errors.New("zone or pool is still the placement of a server")
+
+	// ErrPlacementConflict means the Server's spec changed while a placement was being written.
+	ErrPlacementConflict = errors.New("server spec changed during the placement")
+
+	// ErrServerNotAdopted means the Server has no spec yet; its controller adopts it from the
+	// first observation shortly, and a placement is accepted after that.
+	ErrServerNotAdopted = errors.New("server is not adopted yet")
 )

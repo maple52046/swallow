@@ -94,7 +94,7 @@ default (`1` and `20`) instead of being refused.
       "id": "server-id",
       "origin": "discovered",
       "generation": 2,
-      "spec": {"tags": ["rack-a"]},
+      "spec": {"tags": ["rack-a"], "zoneId": "zone-id", "poolId": null},
       "status": {
         "observedGeneration": 2,
         "conditions": [
@@ -182,6 +182,7 @@ judged is in `status`. Every field described in the sections below is relative t
 | `origin` | How the Server arrived: `discovered` (its provisioner enlisted it, for example PXE enlistment in MAAS), `enrolled` (swallow registered it, [server-enrollment.md](server-enrollment.md)), or `imported` (registered with an OS already installed). Display only; after adoption swallow owns the spec whatever the origin. Ignore an unknown value. |
 | `generation` | Counts spec changes. A Server's first observation is adopted as its spec (generation `1`) without changing the provisioner. |
 | `spec.tags` | The complete set of manual tags the Server must carry ([server-tags.md](server-tags.md)). |
+| `spec.zoneId`, `spec.poolId` | The Zone and Pool the Server must be in ([infrastructure.md](infrastructure.md#server-placement)); `null` for the provisioner's default group. |
 | `status.observedGeneration` | The generation the conditions were judged for. Lower than `generation` while a spec change is converging. |
 | `status.conditions` | The Server controller's judgement, one entry per type. Empty until the controller has judged the Server. |
 
@@ -190,7 +191,7 @@ The condition types and reasons a client may branch on:
 | Type | `true` means | Reasons |
 | --- | --- | --- |
 | `realized` | The provisioner matches the spec. | `converged`; when `false`: `converging` (a spec change or drift correction is pending), `capability_missing` (the provisioner cannot set a field; the spec is kept), `provider_unreachable` (retrying), `provider_missing` (the provisioner no longer reports the machine), `failed` (the provisioner rejected the change). |
-| `drifted` | The provisioner departed from a realized spec, for example a tag changed in the MAAS UI. Swallow corrects it at its next periodic resync (default every 10 minutes), not at once. | `drift_detected`; when `false`: `in_sync`. |
+| `drifted` | The provisioner departed from a realized spec, for example a tag or the zone changed in the MAAS UI. Swallow corrects it at its next periodic resync (default every 10 minutes), not at once. | `drift_detected`; when `false`: `in_sync`. |
 | `requires_attention` | Convergence stopped and only a spec change retries it. | `provider_rejected`; when `false`: `none`. |
 | `held` | Swallow is deliberately not changing the machine. A spec change waits. | `server_locked`, `rescue_mode`, `workflow_lease` (a running Workflow holds the Server); when `false`: `not_held`. |
 
@@ -202,9 +203,10 @@ its `status` changes.
 Workflow and Task that ran it, a failed Task's `code`, and a progress `stage`), `null` when
 none is recorded; see [server-detail-actions.md](server-detail-actions.md). `tags` is every tag the
 provisioner reports on the machine, and `automaticTags` the subset it computes itself (a MAAS tag
-with a definition), which is never part of the spec ([server-tags.md](server-tags.md)). `providerZone`,
-`providerResourcePool`, and `providerPod` (the provisioner VM host of a virtual machine,
-empty for bare metal) are the provisioner's own names, display only. `membership.nodeName`
+with a definition), which is never part of the spec ([server-tags.md](server-tags.md)). `providerZone` and
+`providerResourcePool` are the group names the provisioner reports for the machine (the
+observation of `spec.zoneId` and `spec.poolId`), and `providerPod` the provisioner VM host of a
+virtual machine (empty for bare metal); all are display only. `membership.nodeName`
 is the platform's own name for the machine.
 
 ### GPU inventory
@@ -381,7 +383,8 @@ On 2026-10-31 the Server representation was restructured into spec and status
 ([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). This is
 a breaking change with no alias: every former top-level field except `id` moved unchanged under
 `status`, and `origin`, `generation`, `spec`, `status.observedGeneration`, `status.conditions`,
-and `status.automaticTags` were added. `status.tags` is now the provisioner's observation only; a
+and `status.automaticTags` were added; the same day `spec.zoneId` and `spec.poolId` joined the
+spec. `status.tags` is now the provisioner's observation only; a
 tag swallow kept for a provisioner without tag support is in `spec.tags`.
 
 Following the Cluster to Platform rename, the `clusterId` query parameter and the

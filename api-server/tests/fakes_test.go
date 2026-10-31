@@ -239,6 +239,29 @@ func (r *fakeServerRepo) SetObservedTags(_ context.Context, id string, tags, aut
 	return nil
 }
 
+func (r *fakeServerRepo) SetObservedPlacement(_ context.Context, id string, zone, pool string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.servers[id]
+	if !ok {
+		return serverdomain.ErrServerNotFound
+	}
+	s.Observed.ProviderZone, s.Observed.ProviderResourcePool = zone, pool
+	return nil
+}
+
+func (r *fakeServerRepo) CountSpecPlacement(_ context.Context, zoneID, poolID string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	count := 0
+	for _, s := range r.servers {
+		if (zoneID != "" && s.Spec.ZoneID == zoneID) || (poolID != "" && s.Spec.PoolID == poolID) {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (r *fakeServerRepo) SetOrigin(_ context.Context, id string, origin serverdomain.Origin) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -71,3 +71,12 @@ export function describeConvergence(conditions: readonly Condition[], generation
   }
   return { state: 'converging', label: 'Applying', badgeStatus: 'running', detail: 'The provisioner is being updated to match.' }
 }
+
+/**
+ * Whether a state is expected to change by itself shortly — the controller has not judged the
+ * resource yet, or is applying a change — so a view may re-read the resource to let it settle.
+ * Retrying and every state that needs a person or a resync are not settling.
+ */
+export function isSettling(state: ConvergenceState): boolean {
+  return state === 'pending' || state === 'converging'
+}

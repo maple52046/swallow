@@ -852,6 +852,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, provisioningdomain.ErrInspectionNotAllowed),
 		errors.Is(err, serverdomain.ErrServerLocked),
 		errors.Is(err, serverdomain.ErrSpecConflict),
+		errors.Is(err, serverdomain.ErrSpecNotAdopted),
 		errors.Is(err, provisioningdomain.ErrNetworkConfigurationConflict),
 		errors.Is(err, provisioningdomain.ErrNetworkConfigurationUnsupported):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))

@@ -3,6 +3,8 @@ package domain
 import (
 	"context"
 	"strings"
+
+	"github.com/maple52046/swallow/internal/core/convergence"
 )
 
 // maxGroupNameLen bounds a Zone/Pool name so a single field cannot carry an unbounded string
@@ -32,48 +34,66 @@ type SiteReader interface {
 	Exists(ctx context.Context, siteID string) (bool, error)
 }
 
-// ServerPlacementTarget is the minimum a placement needs about a Server: which Site and
-// provisioner integration it belongs to, the provider's own machine id to address it by, and its
-// currently observed group names so a response can show the effective state of a field that a
-// request left unchanged.
-type ServerPlacementTarget struct {
-	ServerID          string
-	SiteID            string
-	IntegrationID     string
-	ProviderMachineID string
-	ObservedZone      string
-	ObservedPool      string
+// GroupStatus is what the catalog controller reports for a Zone or Pool. ObservedGeneration is the
+// generation realized on every target; Conditions summarize the targets (realized only when every
+// target is), and Provisioners holds one realization per provisioner Integration of the Site.
+type GroupStatus struct {
+	ObservedGeneration int64
+	Conditions         []convergence.Condition
+	Provisioners       []GroupRealization
 }
 
-// ServerLocator resolves a Server id into its placement target. It is a narrow read port over
-// the server feature's projection; the composition adapter maps the server repository's not-found onto
-// ErrServerNotFound so this feature does not import the server domain's error vocabulary.
-type ServerLocator interface {
-	Locate(ctx context.Context, serverID string) (*ServerPlacementTarget, error)
+// GroupRealization is a Zone's or Pool's realization on one provisioner (TargetID is the
+// provisioner Integration id). ProviderName is the name the group carries there, "" until swallow
+// has created or recognized it, so a rename knows which provider group to rename.
+type GroupRealization struct {
+	convergence.TargetStatus
+	ProviderName string
 }
 
-// GroupingRealizer propagates swallow-owned Zone/Pool intent to a provisioner when that
-// provisioner can express the same grouping (decision 029).
-//
-// Catalog writes are keyed by Site: the implementation resolves the Site's provisioner
-// integration itself, and a Site with no grouping-capable provisioner is not an error — the
-// boolean result reports whether the intent was actually realized, so a swallow-only Zone/Pool
-// returns (false, nil). A provider transport or refusal is returned as an error (a
-// provisioningdomain.ProviderError, surfaced to the caller).
-//
-// Placement is keyed by the Server's own provisioner integration and provider machine id, which
-// the caller already holds from the Server projection. Because a Server always has a provisioner,
-// a provisioner that lacks the grouping capability is returned as ErrProviderGroupingUnsupported
-// rather than as a silent no-op.
-type GroupingRealizer interface {
-	EnsureZone(ctx context.Context, siteID, name, description string) (realized bool, err error)
-	RenameZone(ctx context.Context, siteID, currentName, newName, description string) (realized bool, err error)
-	DeleteZone(ctx context.Context, siteID, name string) (realized bool, err error)
+// Realization returns the realization for one provisioner, or a fresh one when there is none.
+func (s GroupStatus) Realization(integrationID string) GroupRealization {
+	for _, r := range s.Provisioners {
+		if r.TargetID == integrationID {
+			return r
+		}
+	}
+	return GroupRealization{TargetStatus: convergence.TargetStatus{TargetID: integrationID}}
+}
 
-	EnsurePool(ctx context.Context, siteID, name, description string) (realized bool, err error)
-	RenamePool(ctx context.Context, siteID, currentName, newName, description string) (realized bool, err error)
-	DeletePool(ctx context.Context, siteID, name string) (realized bool, err error)
+// GroupingTargets resolves the provisioners Zones and Pools are realized on: every enabled
+// provisioner Integration of a Site.
+type GroupingTargets interface {
+	// ForSite returns the enabled provisioner Integration ids of one Site.
+	ForSite(ctx context.Context, siteID string) ([]string, error)
+	// Sites returns every Site that has an enabled provisioner Integration.
+	Sites(ctx context.Context) ([]string, error)
+}
 
-	AssignServerZone(ctx context.Context, integrationID, providerMachineID, zoneName string) error
-	AssignServerPool(ctx context.Context, integrationID, providerMachineID, poolName string) error
+// PlacementReferences counts the Servers whose spec places them in a Zone or Pool, so a group a
+// Server still needs is not deleted.
+type PlacementReferences interface {
+	CountZone(ctx context.Context, zoneID string) (int, error)
+	CountPool(ctx context.Context, poolID string) (int, error)
+}
+
+// ServerPlacement is a Server's placement spec: the Zone and Pool it must be in, "" meaning the
+// provisioner's default group.
+type ServerPlacement struct {
+	ServerID   string
+	SiteID     string
+	Generation int64
+	ZoneID     string
+	PoolID     string
+}
+
+// ServerPlacements reads and writes the placement part of a Server's spec. It is a narrow port
+// over the server feature: the composition adapter maps that feature's not-found, conflict, and
+// not-adopted errors onto this package's ErrServerNotFound, ErrPlacementConflict, and
+// ErrServerNotAdopted.
+type ServerPlacements interface {
+	Read(ctx context.Context, serverID string) (*ServerPlacement, error)
+	// Write replaces the placement, conditional on the Server still being at expectedGeneration,
+	// and returns the new generation. The rest of the Server's spec is kept.
+	Write(ctx context.Context, serverID string, expectedGeneration int64, zoneID, poolID string) (int64, error)
 }

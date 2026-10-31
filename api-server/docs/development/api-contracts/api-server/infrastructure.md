@@ -15,11 +15,12 @@ Active
 
 ## Purpose
 
-Manage swallow-owned **Zone** and **Pool** (resource pool) records and assign a **Server**
-to a Zone and/or Pool. Zones and Pools are Site-scoped swallow-owned groupings; when the
-Site's provisioner is grouping-capable (MAAS), swallow realizes the change in the provisioner
-as part of the same request. See decision 029. This surface backs the dashboard
-*Infrastructure* area.
+Manage swallow-owned **Zone** and **Pool** (resource pool) records and place a **Server** in a
+Zone and/or Pool. Zones and Pools are Site-scoped groupings that swallow owns as desired state
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)): an
+API write stores the spec and answers at once, and swallow's controllers make every
+grouping-capable provisioner of the Site (MAAS) match it, including a provisioner added later.
+This surface backs the dashboard *Infrastructure* area and the Server placement action.
 
 These conventions are inherited from [conventions.md](conventions.md): base path,
 bearer authentication, error envelope and code-to-status map, and timestamp format. Only the
@@ -31,6 +32,8 @@ endpoint-specific behavior is described below.
 - `Pool`
 - `Site`
 - `Server`
+- `Controller`
+- `Condition`
 
 ## Authentication
 
@@ -58,8 +61,10 @@ DELETE /api/v1/infrastructure/pools/{id}
 PUT    /api/v1/servers/{id}/placement
 ```
 
-Zones and Pools have the same shape and behavior; the sections below describe Zones and note
-that Pools are identical with `pool`/`poolId` in place of `zone`/`zoneId`.
+The wire shape is the `sites` area of the OpenAPI contract
+([`../openapi/areas/sites.yaml`](../openapi/areas/sites.yaml)). Zones and Pools have the same
+shape and behavior; the sections below describe Zones and note that Pools are identical with
+`pool`/`poolId` in place of `zone`/`zoneId`.
 
 ## Zone / Pool resource
 
@@ -67,23 +72,53 @@ that Pools are identical with `pool`/`poolId` in place of `zone`/`zoneId`.
 {
   "id": "b8d1…",
   "siteId": "b0a2…",
-  "name": "rack-a",
-  "description": "Top-of-rack A",
-  "providerRealized": true,
-  "createdAt": "2026-09-14T04:00:00Z",
-  "updatedAt": "2026-09-14T04:00:00Z"
+  "generation": 2,
+  "spec": { "name": "rack-a", "description": "Top-of-rack A" },
+  "status": {
+    "observedGeneration": 2,
+    "conditions": [
+      { "type": "realized", "status": "true", "reason": "converged", "message": "", "lastTransitionTime": "2026-10-31T04:00:00Z", "observedGeneration": 2 },
+      { "type": "drifted", "status": "false", "reason": "in_sync", "message": "", "lastTransitionTime": "2026-10-31T04:00:00Z", "observedGeneration": 2 },
+      { "type": "requires_attention", "status": "false", "reason": "none", "message": "", "lastTransitionTime": "2026-10-31T04:00:00Z", "observedGeneration": 2 }
+    ],
+    "provisioners": [
+      {
+        "integrationId": "c7f3…",
+        "providerName": "rack-a",
+        "observedGeneration": 2,
+        "observedAt": "2026-10-31T04:10:00Z",
+        "conditions": [ { "type": "realized", "status": "true", "reason": "converged", "message": "", "lastTransitionTime": "2026-10-31T04:00:00Z", "observedGeneration": 2 } ]
+      }
+    ],
+    "createdAt": "2026-09-14T04:00:00Z",
+    "updatedAt": "2026-10-31T04:00:00Z"
+  }
 }
 ```
 
-- `name` is unique within its `siteId`.
-- `providerRealized` reports whether the most recent write was propagated to a
-  grouping-capable provisioner. `false` means the Site has no grouping-capable provisioner
-  and the record exists only in swallow; it is not an error.
+- `spec.name` is unique within its `siteId`. `generation` counts spec changes.
+- `status.provisioners` has one entry per enabled provisioner Integration of the Site.
+  `providerName` is the group's name there (`""` until it exists); each entry has its own
+  conditions with the meanings of [servers-list.md](servers-list.md#spec-and-status).
+- `status.conditions` summarize the provisioners: `realized` is `true` only when every
+  provisioner holds the current spec (and for a Site with no provisioner, which has nothing to
+  realize); otherwise it carries the first unrealized provisioner's reason, for example
+  `capability_missing` for a provisioner that cannot group (the spec is kept) or `converging`
+  while a change is applied. `drifted` and `requires_attention` are `true` when any provisioner's
+  are. `status.observedGeneration` is the generation every provisioner holds.
+- Drift is a change made in the provisioner: the group was removed, renamed, or given another
+  description there. It is reported at once and corrected at swallow's periodic resync (every 10
+  minutes by default). A provisioner that refuses a change stops that provisioner with
+  `requires_attention` until the spec changes.
+- A group that exists only in a provisioner — created in the MAAS UI, or present before swallow
+  managed the Site — is adopted into the catalog when swallow first sees it: a new Zone or Pool
+  with the provisioner's name and description. The provisioner's default group (MAAS `default`)
+  is never part of the catalog; it is where a Server with no placement belongs.
 
 ### List
 
-`GET /api/v1/infrastructure/zones` returns a plain array ordered by `name` (the set is small and
-bounded).
+`GET /api/v1/infrastructure/zones` returns a plain array ordered by `spec.name` (the set is
+small and bounded).
 
 | Query | Type | Required | Description |
 | --- | --- | ---: | --- |
@@ -98,10 +133,9 @@ bounded).
 ```
 
 `siteId` and `name` are required. `name` is trimmed and must be 1 to 100 characters after
-trimming. Returns `201` with the created resource. If the Site's provisioner is
-grouping-capable, the matching provider group is ensured before the record is stored (an
-existing provider group of the same name is treated as satisfied), so a provider refusal
-leaves no swallow record.
+trimming. Returns `201` with the stored resource at generation 1 and empty conditions; no
+provisioner is called. The Zone is created on each provisioner shortly after (an existing
+provider group of the same name is taken as it is).
 
 ### Get
 
@@ -116,48 +150,54 @@ leaves no swallow record.
 ```
 
 Both fields optional; only present fields change, and a present `name` follows the create rule.
-A rename is propagated to the provider when capable. A request that changes nothing returns the
-stored resource without calling the provider. Returns the updated resource.
+A change increments the generation; a request that changes nothing returns the stored resource.
+The group is renamed on each provisioner afterwards, so its machines stay in it.
 
 ### Delete
 
-`DELETE /api/v1/infrastructure/zones/{id}` returns `204`. The matching provider group is
-removed first when the provisioner is grouping-capable and holds it; a provider that refuses to
-delete a non-empty or protected group aborts the delete with `400 validation_error` carrying the
-provider's explanation, and the swallow record stays.
+`DELETE /api/v1/infrastructure/zones/{id}` returns `204`. It is refused with `409 conflict` while
+a Server's placement spec names the Zone. Otherwise the group is removed from every provisioner
+that holds it, then the record; a provisioner's default group is left in place. This is the one
+request that calls the provisioners: one that refuses (for example a group still holding
+machines) aborts the delete with `400 validation_error` carrying its explanation, and one that
+cannot be reached with `503`; either way the record stays.
 
 ## Server placement
 
-`PUT /api/v1/servers/{id}/placement` assigns a Server's Zone and/or Pool. The Server is
+`PUT /api/v1/servers/{id}/placement` sets a Server's Zone and/or Pool in its spec. The Server is
 addressed by its `serverId`.
 
 ```json
-{ "zoneId": "b8d1…", "poolId": "c9e2…" }
+{ "zoneId": "b8d1…", "poolId": null }
 ```
 
-- Each field is optional and nullable. A present non-null id assigns that grouping; an
-  omitted field or an explicit `null` leaves it unchanged. A placement cannot be cleared.
-  A request that gives neither id is `400 validation_error`.
-- The referenced Zone/Pool must exist (`404 not_found`) and belong to the same Site as the
-  Server (`400 validation_error` otherwise).
-- The assignment is written through to the Server's provisioner. Because a Server always has a
-  provisioner, a provisioner that lacks the grouping capability yields `validation_error`
-  rather than being silently skipped. A provisioner that no longer has the machine is
-  `404 not_found`.
+- Each field is optional. A string sets that grouping; an explicit `null` returns the Server to
+  its provisioner's default group; an omitted field leaves it unchanged. A request that gives
+  neither is `400 validation_error`.
+- A referenced Zone/Pool must exist (`404 not_found`) and belong to the same Site as the Server
+  (`400 validation_error` otherwise).
+- The write is conditional on the Server's spec generation: `409 conflict` when the spec changed
+  during the request, or when the Server is not adopted yet (a newly discovered Server is adopted
+  within moments; retry).
+- The Server controller then moves the machine; the Server's `status.conditions` report when it
+  has. A provisioner that cannot group keeps the spec and reports `capability_missing`. A
+  placement in a Zone that is not on the provisioner yet waits for the Zone to be created there.
+  Moving a machine in the MAAS UI is drift, put back at the next periodic resync.
 
 ### Success Response
 
 ```json
 {
   "serverId": "a1b2…",
-  "zone": "rack-a",
-  "pool": "research"
+  "generation": 5,
+  "zoneId": "b8d1…",
+  "poolId": null
 }
 ```
 
-`zone` / `pool` are the effective provider group names after the assignment: the assigned name,
-or the Server's currently observed value for a field the request left unchanged; either is `""`
-when unset. The Server projection's observed zone/pool is refreshed by reconcile.
+The Server's placement spec after the request: its new `generation`, and the Zone and Pool ids,
+`null` for the provisioner's default group. The observed zone and pool names are the Server's
+`status.providerZone` and `status.providerResourcePool`.
 
 ## Error Codes
 
@@ -165,10 +205,10 @@ Beyond the shared codes in [conventions.md](conventions.md):
 
 | Code | HTTP Status | Description |
 | --- | ---: | --- |
-| `validation_error` | 400 | The body is not valid JSON; missing/blank `siteId` or `name`, or a `name` over 100 characters; a placement naming neither a Zone nor a Pool, or one in another Site; provider refused the request (including deleting a group still in use); the Server's Integration is not a provisioner, has no adapter, or is not grouping-capable for a Server placement. |
-| `not_found` | 404 | The Zone, Pool, Site, Server, or the Server's Integration does not exist, or the provisioner no longer has the Server's machine. |
-| `conflict` | 409 | A Zone/Pool with this `name` already exists in the Site. |
-| `provider_unavailable` | 503 | The Site's provisioner could not be reached, refused the credential, or has no credential. |
+| `validation_error` | 400 | The body is not valid JSON; missing/blank `siteId` or `name`, or a `name` over 100 characters; a placement field that is not a string or `null`, a placement naming neither a Zone nor a Pool, or one in another Site; a provisioner refused a delete. |
+| `not_found` | 404 | The Zone, Pool, Site, or Server does not exist. |
+| `conflict` | 409 | A Zone/Pool with this `name` already exists in the Site; a Server is still placed in the Zone/Pool being deleted; a placement raced another spec change or targeted a Server not adopted yet. |
+| `provider_unavailable` | 503 | A delete could not reach a provisioner, or it has no credential. |
 
 ## Compatibility Notes
 
@@ -176,12 +216,22 @@ New surface introduced with decision 029. Field names and enum-like values follo
 glossary (`Zone`, `Pool`, `Site`, `Server`). Adding an optional field is backward compatible;
 see [conventions.md](conventions.md) for the breaking-change rules.
 
+On 2026-10-31 Zones, Pools, and Server placement became desired state
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). Breaking,
+with no alias: a Zone/Pool is `{id, siteId, generation, spec, status}` (`name` and `description`
+moved under `spec`, `createdAt`/`updatedAt` under `status`, `providerRealized` was replaced by the
+conditions); create and update no longer call the provisioner and no longer return `503` or a
+provider `400`; a delete of a group still in a Server's placement is `409`. A placement now
+writes the Server's spec: `null` clears a field instead of leaving it unchanged, the response is
+`{serverId, generation, zoneId, poolId}` instead of the effective names, a provisioner without
+grouping no longer fails the request, and `409` is returned for a Server not adopted yet.
+
 ## Implementation Notes
 
 - Zones and Pools are persisted by swallow (Mongo), keyed by a swallow-issued id, unique on
-  `(siteId, name)`.
-- Provider realization reuses the `provisioning` `ProviderFactory` and the optional
-  `GroupingController` capability; MAAS is the first realization. No provider vocabulary
-  appears in this contract.
-- `providerRealized` reflects the last write only; swallow does not currently reconcile its
-  catalog against the provider's actual set.
+  `(siteId, name)`; a spec write increments the generation in the same update.
+- The catalog controller (worker process) realizes each Zone and Pool through the provisioning
+  `ProviderFactory` and the optional `GroupingController` capability, and adopts
+  provisioner-only groups at its resync. The Server controller realizes placement with the same
+  capability, using the group's name on the Server's own provisioner, so a Server follows a rename
+  once the group is renamed there. No provider vocabulary appears in this contract.

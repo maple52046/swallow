@@ -1387,7 +1387,7 @@ paths:
       tags:
         - sites
     post:
-      description: Requires role `admin` (infrastructure.md). The provider resource pool is ensured before the Pool is stored, so a provider refusal leaves no swallow record; an existing provider pool of the same name counts as satisfied.
+      description: Requires role `admin` (infrastructure.md). Stores the spec at generation 1 and answers at once; the Pool's conditions report when every grouping-capable provisioner of the Site holds it. No provisioner is called.
       operationId: createPool
       requestBody:
         content:
@@ -1421,7 +1421,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`validation_error`: the body is not valid JSON; `siteId` or `name` is missing, blank, or `name` is longer than 100 characters; or the provisioner refused the request (the message carries its explanation).'
+          description: '`validation_error`: the body is not valid JSON; `siteId` or `name` is missing, blank, or `name` is longer than 100 characters.'
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -1438,20 +1438,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: '`conflict`: a Pool with this `name` already exists in the Site.'
-        "503":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: '`provider_unavailable`: the Site''s provisioner could not be reached, refused the credential, or has no credential.'
         default:
           $ref: '#/components/responses/Error'
-      summary: Create a Pool, realized in the Site's provisioner when it is grouping-capable.
+      summary: Create a Pool; the catalog controller creates it on the Site's provisioners.
       tags:
         - sites
   /api/v1/infrastructure/pools/{id}:
     delete:
-      description: Requires role `admin`. A provisioner that refuses to delete the pool (for example one still holding machines) aborts the delete, so the swallow record stays.
+      description: Requires role `admin`. Refused while a Server's placement spec names the Pool. Otherwise the resource pool is removed from every provisioner that holds it (a provisioner's default resource pool stays), then the record. A provisioner that refuses (for example one still holding machines) aborts the delete, so the record stays.
       operationId: deletePool
       responses:
         "204":
@@ -1472,6 +1466,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: '`not_found`: the Pool does not exist.'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: a Server is still placed in it.'
         "503":
           content:
             application/json:
@@ -1480,7 +1480,7 @@ paths:
           description: '`provider_unavailable`: the Site''s provisioner could not be reached, refused the credential, or has no credential.'
         default:
           $ref: '#/components/responses/Error'
-      summary: Delete a Pool, removing the provider resource pool first when the provisioner holds it.
+      summary: Delete a Pool, removing it from the provisioners that hold it first.
       tags:
         - sites
     get:
@@ -1516,7 +1516,7 @@ paths:
         schema:
           type: string
     patch:
-      description: Requires role `admin`. Only present fields change; a request that changes nothing answers the stored Pool without calling the provisioner.
+      description: Requires role `admin`. Only present fields change, and a change increments the generation; a request that changes nothing answers the stored Pool. The catalog controller then renames the group on the Site's provisioners, so the machines in it stay there.
       operationId: updatePool
       requestBody:
         content:
@@ -1543,7 +1543,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`validation_error`: the body is not valid JSON; a present `name` is blank or longer than 100 characters; or the provisioner refused the change.'
+          description: '`validation_error`: the body is not valid JSON, or a present `name` is blank or longer than 100 characters.'
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -1560,15 +1560,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: '`conflict`: another Pool in the Site already has this `name`.'
-        "503":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: '`provider_unavailable`: the Site''s provisioner could not be reached, refused the credential, or has no credential.'
         default:
           $ref: '#/components/responses/Error'
-      summary: Rename a Pool or change its description, propagated to the provisioner when capable.
+      summary: Rename a Pool or change its description.
       tags:
         - sites
   /api/v1/infrastructure/zones:
@@ -1601,7 +1595,7 @@ paths:
       tags:
         - sites
     post:
-      description: Requires role `admin` (infrastructure.md). The provider group is ensured before the Zone is stored, so a provider refusal leaves no swallow record; an existing provider group of the same name counts as satisfied.
+      description: Requires role `admin` (infrastructure.md). Stores the spec at generation 1 and answers at once; the Zone's conditions report when every grouping-capable provisioner of the Site holds it. No provisioner is called.
       operationId: createZone
       requestBody:
         content:
@@ -1635,7 +1629,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`validation_error`: the body is not valid JSON; `siteId` or `name` is missing, blank, or `name` is longer than 100 characters; or the provisioner refused the request (the message carries its explanation).'
+          description: '`validation_error`: the body is not valid JSON; `siteId` or `name` is missing, blank, or `name` is longer than 100 characters.'
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -1652,20 +1646,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: '`conflict`: a Zone with this `name` already exists in the Site.'
-        "503":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: '`provider_unavailable`: the Site''s provisioner could not be reached, refused the credential, or has no credential.'
         default:
           $ref: '#/components/responses/Error'
-      summary: Create a Zone, realized in the Site's provisioner when it is grouping-capable.
+      summary: Create a Zone; the catalog controller creates it on the Site's provisioners.
       tags:
         - sites
   /api/v1/infrastructure/zones/{id}:
     delete:
-      description: Requires role `admin`. A provisioner that refuses to delete the group (for example one still holding machines) aborts the delete, so the swallow record stays.
+      description: Requires role `admin`. Refused while a Server's placement spec names the Zone. Otherwise the zone is removed from every provisioner that holds it (a provisioner's default zone stays), then the record. A provisioner that refuses (for example one still holding machines) aborts the delete, so the record stays.
       operationId: deleteZone
       responses:
         "204":
@@ -1686,6 +1674,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: '`not_found`: the Zone does not exist.'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: a Server is still placed in it.'
         "503":
           content:
             application/json:
@@ -1694,7 +1688,7 @@ paths:
           description: '`provider_unavailable`: the Site''s provisioner could not be reached, refused the credential, or has no credential.'
         default:
           $ref: '#/components/responses/Error'
-      summary: Delete a Zone, removing the provider group first when the provisioner holds it.
+      summary: Delete a Zone, removing it from the provisioners that hold it first.
       tags:
         - sites
     get:
@@ -1730,7 +1724,7 @@ paths:
         schema:
           type: string
     patch:
-      description: Requires role `admin`. Only present fields change; a request that changes nothing answers the stored Zone without calling the provisioner.
+      description: Requires role `admin`. Only present fields change, and a change increments the generation; a request that changes nothing answers the stored Zone. The catalog controller then renames the group on the Site's provisioners, so the machines in it stay there.
       operationId: updateZone
       requestBody:
         content:
@@ -1757,7 +1751,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`validation_error`: the body is not valid JSON; a present `name` is blank or longer than 100 characters; or the provisioner refused the change.'
+          description: '`validation_error`: the body is not valid JSON, or a present `name` is blank or longer than 100 characters.'
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -1774,15 +1768,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: '`conflict`: another Zone in the Site already has this `name`.'
-        "503":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: '`provider_unavailable`: the Site''s provisioner could not be reached, refused the credential, or has no credential.'
         default:
           $ref: '#/components/responses/Error'
-      summary: Rename a Zone or change its description, propagated to the provisioner when capable.
+      summary: Rename a Zone or change its description.
       tags:
         - sites
   /api/v1/integrations:
@@ -5074,7 +5062,7 @@ paths:
       tags:
         - servers
     post:
-      description: Requires role `admin`. Not gated on Server Lock. Atomic across the listed Servers; the provisioner converges asynchronously (the Servers' conditions report it). 400 for an invalid body, empty `serverIds`, no `add` or `remove`, or an invalid, contradictory, or automatic tag name; 404 for an unknown Server; 409 when a Server's spec changed during the edit.
+      description: Requires role `admin`. Not gated on Server Lock. Atomic across the listed Servers; the provisioner converges asynchronously (the Servers' conditions report it). 400 for an invalid body, empty `serverIds`, no `add` or `remove`, or an invalid, contradictory, or automatic tag name; 404 for an unknown Server; 409 when a Server is not adopted yet or its spec changed during the edit.
       operationId: editServerTags
       requestBody:
         content:
@@ -6905,7 +6893,7 @@ paths:
         schema:
           type: string
     put:
-      description: Requires role `admin` (infrastructure.md). Each id is optional; an omitted or `null` id leaves that grouping unchanged, and at least one must be given. A placement cannot be cleared. The referenced Zone or Pool must belong to the Server's Site, and the Server's provisioner must be grouping-capable. The Server projection's observed zone and pool are refreshed later by reconcile.
+      description: Requires role `admin` (infrastructure.md). Writes the placement into the Server's spec, conditional on its generation, and answers at once; the Server controller moves the machine, and the Server's conditions report when it has. An omitted field is unchanged and `null` returns the Server to its provisioner's default group; at least one field must be given. A referenced Zone or Pool must belong to the Server's Site. A provisioner that cannot group keeps the spec and reports `capability_missing`.
       operationId: assignServerPlacement
       requestBody:
         content:
@@ -6913,11 +6901,11 @@ paths:
             schema:
               properties:
                 poolId:
-                  description: The swallow id of the Pool to assign; `null` is the same as omitted.
+                  description: The swallow id of the Pool; `null` returns the Server to the provisioner's default pool.
                   nullable: true
                   type: string
                 zoneId:
-                  description: The swallow id of the Zone to assign; `null` is the same as omitted.
+                  description: The swallow id of the Zone; `null` returns the Server to the provisioner's default zone.
                   nullable: true
                   type: string
               type: object
@@ -6928,13 +6916,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServerPlacement'
-          description: The effective placement after the assignment.
+          description: The Server's placement spec after the request.
         "400":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`validation_error`: the body is not valid JSON; neither `zoneId` nor `poolId` is given; the Zone or Pool belongs to another Site; the Server''s Integration is not a provisioner, has no adapter, or cannot group; or the provisioner refused the assignment.'
+          description: '`validation_error`: the body is not valid JSON or a field is not a string or `null`; neither `zoneId` nor `poolId` is given; or the Zone or Pool belongs to another Site.'
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -6944,16 +6932,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`not_found`: the Server, the Zone, the Pool, or the Server''s Integration does not exist, or the provisioner no longer has the machine.'
-        "503":
+          description: '`not_found`: the Server, the Zone, or the Pool does not exist.'
+        "409":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`provider_unavailable`: the provisioner could not be reached, refused the credential, or has no credential.'
+          description: '`conflict`: the Server is not adopted yet (retry shortly), or its spec changed during the request.'
         default:
           $ref: '#/components/responses/Error'
-      summary: Assign a Server to a Zone and/or Pool, written through to its provisioner.
+      summary: Set a Server's Zone and/or Pool; its controller moves the machine.
       tags:
         - sites
   /api/v1/servers/{id}/power-configuration:
@@ -10764,6 +10752,74 @@ components:
         - key
         - privateKey
       type: object
+    GroupRealization:
+      description: A Zone's or Pool's realization on one provisioner Integration.
+      properties:
+        conditions:
+          items:
+            $ref: '#/components/schemas/Condition'
+          type: array
+        integrationId:
+          type: string
+        observedAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          description: When the provisioner was last checked; `null` before the first check.
+          nullable: true
+        observedGeneration:
+          format: int64
+          type: integer
+        providerName:
+          description: The group's name on that provisioner; `""` until it exists there.
+          type: string
+      required:
+        - integrationId
+        - providerName
+        - observedGeneration
+        - observedAt
+        - conditions
+      type: object
+    GroupSpec:
+      description: The desired name and description of a Zone or Pool.
+      properties:
+        description:
+          description: '`""` when none was given.'
+          type: string
+        name:
+          description: Unique within the Site.
+          type: string
+      required:
+        - name
+        - description
+      type: object
+    GroupStatus:
+      description: 'The catalog controller''s report on a Zone or Pool. The conditions summarize the provisioners: `realized` is `true` only when every provisioner of the Site holds the current spec, and `true` for a Site with no provisioner.'
+      properties:
+        conditions:
+          description: Empty until the controller first judged the group.
+          items:
+            $ref: '#/components/schemas/Condition'
+          type: array
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        observedGeneration:
+          description: The generation every provisioner holds.
+          format: int64
+          type: integer
+        provisioners:
+          description: One realization per enabled provisioner Integration of the Site.
+          items:
+            $ref: '#/components/schemas/GroupRealization'
+          type: array
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+      required:
+        - observedGeneration
+        - conditions
+        - provisioners
+        - createdAt
+        - updatedAt
+      type: object
     Integration:
       description: swallow's registration of one external system for one Site (glossary Integration). It has no credential field of any kind; `hasCredential` only reports whether one is stored.
       properties:
@@ -13086,33 +13142,26 @@ components:
         - operationId
       type: object
     Pool:
-      description: A swallow-owned, Site-scoped resource pool (glossary Pool), realized as a provisioner resource pool when the Site's provisioner is grouping-capable.
+      description: A swallow-owned, Site-scoped resource pool (glossary Pool) as a migrated resource, with the same shape and meaning as a Zone.
       properties:
-        createdAt:
-          $ref: '#/components/schemas/Timestamp'
-        description:
-          description: '`""` when none was given.'
-          type: string
+        generation:
+          description: Counts spec changes; 1 when created.
+          format: int64
+          type: integer
         id:
           type: string
-        name:
-          description: Unique within the Site.
-          type: string
-        providerRealized:
-          description: Whether the most recent write reached a grouping-capable provisioner; `false` means the Pool exists only in swallow, which is not an error.
-          type: boolean
         siteId:
           type: string
-        updatedAt:
-          $ref: '#/components/schemas/Timestamp'
+        spec:
+          $ref: '#/components/schemas/GroupSpec'
+        status:
+          $ref: '#/components/schemas/GroupStatus'
       required:
         - id
         - siteId
-        - name
-        - description
-        - providerRealized
-        - createdAt
-        - updatedAt
+        - generation
+        - spec
+        - status
       type: object
     PowerConfiguration:
       description: A Server's Power Configuration as read live from its provisioner; never carries the password.
@@ -14105,20 +14154,27 @@ components:
         - pageSize
       type: object
     ServerPlacement:
-      description: A Server's effective Zone and Pool after a placement request.
+      description: A Server's placement spec after a placement request.
       properties:
-        pool:
-          description: The Pool name now assigned, or the Server's currently observed pool when the request left it unchanged; `""` when it has none.
+        generation:
+          description: The Server's spec generation after the request.
+          format: int64
+          type: integer
+        poolId:
+          description: The Pool the Server must be in; `null` for the provisioner's default pool.
+          nullable: true
           type: string
         serverId:
           type: string
-        zone:
-          description: The Zone name now assigned, or the Server's currently observed zone when the request left it unchanged; `""` when it has none.
+        zoneId:
+          description: The Zone the Server must be in; `null` for the provisioner's default zone.
+          nullable: true
           type: string
       required:
         - serverId
-        - zone
-        - pool
+        - generation
+        - zoneId
+        - poolId
       type: object
     ServerPlatformClaim:
       description: The Platform whose accepted deployment targets this Server (Platform Claim).
@@ -14277,15 +14333,25 @@ components:
         - providerMachineId
       type: object
     ServerSpec:
-      description: The desired provisioner-realized fields of a Server; written by the tag edit, converged by the Server controller.
+      description: The desired provisioner-realized fields of a Server; written by the tag edit and the placement request, converged by the Server controller.
       properties:
+        poolId:
+          description: The Pool the Server must be in; `null` for the provisioner's default pool.
+          nullable: true
+          type: string
         tags:
           description: The complete set of manual tags the Server must carry (server-tags.md).
           items:
             type: string
           type: array
+        zoneId:
+          description: The Zone the Server must be in (infrastructure.md); `null` for the provisioner's default zone.
+          nullable: true
+          type: string
       required:
         - tags
+        - zoneId
+        - poolId
       type: object
     ServerStatus:
       description: Everything observed, derived, or written by the Server's controller (servers-list.md). Optional observations are null; an axis that has never been observed is null rather than defaulted.
@@ -15685,33 +15751,26 @@ components:
         - createdAt
       type: object
     Zone:
-      description: A swallow-owned, Site-scoped grouping of Servers (glossary Zone), realized as a provisioner zone when the Site's provisioner is grouping-capable.
+      description: 'A swallow-owned, Site-scoped grouping of Servers (glossary Zone) as a migrated resource (infrastructure.md, decision 071): the spec is its name and description, and the status its realization on every provisioner of the Site.'
       properties:
-        createdAt:
-          $ref: '#/components/schemas/Timestamp'
-        description:
-          description: '`""` when none was given.'
-          type: string
+        generation:
+          description: Counts spec changes; 1 when created.
+          format: int64
+          type: integer
         id:
           type: string
-        name:
-          description: Unique within the Site.
-          type: string
-        providerRealized:
-          description: Whether the most recent write reached a grouping-capable provisioner; `false` means the Zone exists only in swallow, which is not an error.
-          type: boolean
         siteId:
           type: string
-        updatedAt:
-          $ref: '#/components/schemas/Timestamp'
+        spec:
+          $ref: '#/components/schemas/GroupSpec'
+        status:
+          $ref: '#/components/schemas/GroupStatus'
       required:
         - id
         - siteId
-        - name
-        - description
-        - providerRealized
-        - createdAt
-        - updatedAt
+        - generation
+        - spec
+        - status
       type: object
   securitySchemes:
     accessTokenQuery:

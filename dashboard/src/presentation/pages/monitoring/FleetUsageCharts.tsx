@@ -91,8 +91,8 @@ export function FleetUsageCharts({ selectedServerIds, onClearSelection, refreshK
           siteKey,
           state: {
             status: 'ready',
-            zone: zones.map((zone) => ({ id: zone.id, name: zone.name })),
-            pool: pools.map((pool) => ({ id: pool.id, name: pool.name })),
+            zone: zones.map((zone) => ({ id: zone.id, name: zone.spec.name })),
+            pool: pools.map((pool) => ({ id: pool.id, name: pool.spec.name })),
             platform: platformList.map((platform) => ({ id: platform.id, name: platform.name })),
           },
         })

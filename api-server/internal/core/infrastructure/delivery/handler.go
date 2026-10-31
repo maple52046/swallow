@@ -6,7 +6,9 @@
 package delivery
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -43,11 +45,28 @@ type updateGroupRequest struct {
 	Description *string `json:"description"`
 }
 
-// placementRequest assigns a Server to a Zone and/or Pool by swallow id. A nil pointer leaves
-// that grouping unchanged; at least one must be present.
+// placementRequest assigns a Server to a Zone and/or Pool by swallow id. A field is kept raw so
+// an omitted field (unchanged) can be told from an explicit null (back to the provisioner's
+// default group); at least one must be present.
 type placementRequest struct {
-	ZoneID *string `json:"zoneId"`
-	PoolID *string `json:"poolId"`
+	ZoneID json.RawMessage `json:"zoneId"`
+	PoolID json.RawMessage `json:"poolId"`
+}
+
+// placementChange decodes one raw placement field: absent leaves it unchanged, null or "" clears
+// it, and a string sets it.
+func placementChange(raw json.RawMessage) (application.PlacementChange, bool) {
+	if len(raw) == 0 {
+		return application.PlacementChange{}, true
+	}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return application.PlacementChange{Set: true}, true
+	}
+	var id string
+	if err := json.Unmarshal(raw, &id); err != nil {
+		return application.PlacementChange{}, false
+	}
+	return application.PlacementChange{Set: true, ID: strings.TrimSpace(id)}, true
 }
 
 // --- Zones ---
@@ -97,8 +116,9 @@ func (h *InfrastructureHandler) DeletePool(c *fiber.Ctx) error {
 // --- Placement ---
 
 // AssignServerPlacement handles PUT /servers/{id}/placement. It is defined in this feature
-// because the placement drives the provisioner through the grouping realizer, but it is mounted
-// under the servers group where clients address a Server.
+// because the placement references Zones and Pools, but it is mounted under the servers group
+// where clients address a Server. It writes the Server's placement spec and returns it; the
+// Server controller moves the machine afterwards.
 func (h *InfrastructureHandler) AssignServerPlacement(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
@@ -109,11 +129,12 @@ func (h *InfrastructureHandler) AssignServerPlacement(c *fiber.Ctx) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
 
-	result, err := h.groups.AssignServer(c.Context(), application.AssignServerInput{
-		ServerID: id,
-		ZoneID:   req.ZoneID,
-		PoolID:   req.PoolID,
-	})
+	zone, zoneOK := placementChange(req.ZoneID)
+	pool, poolOK := placementChange(req.PoolID)
+	if !zoneOK || !poolOK {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "zoneId and poolId must be strings or null."))
+	}
+	result, err := h.groups.AssignServer(c.Context(), application.AssignServerInput{ServerID: id, Zone: zone, Pool: pool})
 	if err != nil {
 		return respondError(c, err)
 	}
@@ -206,11 +227,12 @@ func (h *InfrastructureHandler) deleteGroup(
 
 // respondError maps grouping and provider failures onto the shared API error envelope.
 //
-// Not-found domain errors become 404; per-Site name collisions become 409; the validation-class
-// domain errors (bad name, cross-Site placement, empty placement, a provisioner that cannot
-// group) become 400. Provider failures reuse the same classification as the provisioning surface:
-// a rejected request keeps the provider's own wording as a 400, and an unreachable provider or a
-// missing credential is a 503.
+// Not-found domain errors become 404; per-Site name collisions, a group still in use, and a
+// placement that raced another spec change or a Server not adopted yet become 409; the
+// validation-class domain errors (bad name, cross-Site placement, empty placement) become 400.
+// Provider failures — only a delete calls a provisioner — reuse the provisioning surface's
+// classification: a rejected request keeps the provider's own wording as a 400, and an
+// unreachable provider or a missing credential is a 503.
 func respondError(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, infradomain.ErrZoneNotFound):
@@ -240,9 +262,15 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, infradomain.ErrNothingToAssign):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation,
 			"Specify a zoneId, a poolId, or both."))
-	case errors.Is(err, infradomain.ErrProviderGroupingUnsupported):
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation,
-			"This server's provisioner does not support zone or pool assignment."))
+	case errors.Is(err, infradomain.ErrGroupInUse):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"A server is still placed in this zone or pool; move it first."))
+	case errors.Is(err, infradomain.ErrPlacementConflict):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"The server's spec changed during the request; read it and try again."))
+	case errors.Is(err, infradomain.ErrServerNotAdopted):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"The server is still being adopted; try again in a moment."))
 
 	case errors.Is(err, provisioningdomain.ErrMachineNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound,

@@ -23,6 +23,7 @@ import (
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	convergencestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/convergence"
+	infrastructurestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/infrastructure"
 	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
 	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
 	provisioningstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/provisioning"
@@ -32,6 +33,7 @@ import (
 	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
 	"github.com/maple52046/swallow/internal/core/convergence"
 	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
+	infrastructureapp "github.com/maple52046/swallow/internal/core/infrastructure/application"
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
 	serverapp "github.com/maple52046/swallow/internal/core/server/application"
@@ -246,8 +248,18 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("convergence event store init: %w", err)
 	}
+	zones, err := infrastructurestore.NewMongoZoneRepo(db)
+	if err != nil {
+		return fmt.Errorf("zone repo init: %w", err)
+	}
+	pools, err := infrastructurestore.NewMongoPoolRepo(db)
+	if err != nil {
+		return fmt.Errorf("pool repo init: %w", err)
+	}
 	runControllers := controllerRuntime(db, convergence.RuntimeOptions{ResyncInterval: cfg.ControllerResyncInterval},
-		provisioningapp.NewServerController(servers, servers, providers, serverWorkflowHolds{leases: leases}, convergenceEvents),
+		provisioningapp.NewServerController(servers, servers, providers, serverWorkflowHolds{leases: leases},
+			serverGroupCatalog{zones: zones, pools: pools}, convergenceEvents),
+		infrastructureapp.NewCatalogController(zones, pools, groupingTargets{integrations: integrations}, providers, convergenceEvents),
 	)
 	controllersDone := make(chan struct{})
 	go func() {

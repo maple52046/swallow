@@ -296,9 +296,9 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewEditServerTagsUseCase(transactor, serverRepo, serverRepo, providerFactory),
 	)
 
-	// Infrastructure: swallow-owned Zones and Pools (decision 029). The grouping realizer reuses
-	// the provisioning ProviderFactory so there is a single MAAS transport, and reads Sites and
-	// Servers through narrow adapters. Provider realization is optional per Site capability.
+	// Infrastructure: swallow-owned Zones and Pools (decision 071). The API writes their spec and
+	// the Servers' placement spec; the worker's catalog and Server controllers realize them. The
+	// provider factory is used here only to delete a group from the provisioners that hold it.
 	zoneRepo, err := infrastructurestore.NewMongoZoneRepo(db)
 	if err != nil {
 		return fmt.Errorf("zone repo init: %w", err)
@@ -312,8 +312,9 @@ func RunAPI(cfg config.APIConfig) error {
 			zoneRepo,
 			poolRepo,
 			NewSiteReader(siteRepo),
-			NewServerLocator(serverRepo),
-			NewGroupingRealizer(integrationRepo, providerFactory),
+			serverPlacements{servers: serverRepo, specs: serverRepo},
+			placementReferences{specs: serverRepo},
+			providerFactory,
 		),
 	)
 

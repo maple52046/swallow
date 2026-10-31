@@ -2,11 +2,14 @@
  * swallow-owned Infrastructure grouping: Zone and Pool.
  *
  * A Zone groups Servers for availability/fault/organization; a Pool (resource pool)
- * partitions them for allocation. Both are Site-scoped and swallow-owned, and are realized in
- * the Site's provisioner (MAAS) when it is grouping-capable. See the Zone and Pool glossary
- * terms and docs/decisions/029. This mirrors the provider-owned contract shape returned by
+ * partitions them for allocation. Both are Site-scoped desired state (docs/decisions/071): the
+ * dashboard writes the spec, and the backend's catalog controller makes every grouping-capable
+ * provisioner of the Site (MAAS) match it, reporting progress in the status. See the Zone and Pool
+ * glossary terms. This mirrors the provider-owned contract shape returned by
  * `/api/v1/infrastructure`; it carries no HTTP, React, or provider vocabulary.
  */
+
+import type { Condition } from '@/domain/convergence/types'
 
 /**
  * Which grouping a value is. The two resources are structurally identical, so a single kind
@@ -15,32 +18,58 @@
  */
 export type GroupKind = 'zone' | 'pool'
 
-/**
- * One swallow-owned Zone or Pool.
- *
- * `name` is unique within `siteId`. `providerRealized` reflects only the most recent write: it
- * is true when that write was propagated to a grouping-capable provisioner and false when the
- * Site had none, in which case the record exists in swallow alone. It is not a live
- * reconciliation against the provider's actual set.
- */
-export interface GroupingResource {
-  readonly id: string
-  readonly siteId: string
+/** The desired name (unique within the Site) and description of a Zone or Pool. */
+export interface GroupSpec {
   readonly name: string
   readonly description: string
-  readonly providerRealized: boolean
+}
+
+/**
+ * A Zone's or Pool's realization on one provisioner Integration of its Site. `providerName` is the
+ * group's name there, empty until it exists; `observedAt` is null before the first check.
+ */
+export interface GroupRealization {
+  readonly integrationId: string
+  readonly providerName: string
+  readonly observedGeneration: number
+  readonly observedAt: string | null
+  readonly conditions: Condition[]
+}
+
+/**
+ * The backend's report on a Zone or Pool. `conditions` summarize every provisioner (realized
+ * only when all of them hold the current spec); `provisioners` has one entry per provisioner.
+ */
+export interface GroupStatus {
+  readonly observedGeneration: number
+  readonly conditions: Condition[]
+  readonly provisioners: GroupRealization[]
   readonly createdAt: string
   readonly updatedAt: string
 }
 
 /**
- * The effective provider group names for a Server after a placement. A field is empty when the
- * Server has no such grouping; a field left unchanged by the request carries its current value.
+ * One swallow-owned Zone or Pool as a migrated resource: identity, `generation` (counts spec
+ * changes), the spec the dashboard edits, and the read-only status.
+ */
+export interface GroupingResource {
+  readonly id: string
+  readonly siteId: string
+  readonly generation: number
+  readonly spec: GroupSpec
+  readonly status: GroupStatus
+}
+
+/**
+ * A Server's placement spec after a placement request: its new spec generation and the Zone and
+ * Pool ids, null for the provisioner's default group. The machine is moved afterwards; the
+ * Server's conditions report when it has.
  */
 export interface ServerPlacement {
   readonly serverId: string
-  readonly zone: string
-  readonly pool: string
+  readonly generation: number
+  readonly zoneId: string | null
+  readonly poolId: string | null
 }
 
 /** Human-facing label for a grouping kind, used in headings, buttons, and messages. */

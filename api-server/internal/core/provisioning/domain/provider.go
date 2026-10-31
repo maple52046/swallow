@@ -338,11 +338,20 @@ type OSImageUploader interface {
 	UploadOSImage(ctx context.Context, req UploadOSImageRequest) (*OSImage, error)
 }
 
-// GroupingController realizes swallow-owned Zone and Pool intent in a provisioner that
+// ProviderGroup is one zone or resource pool as a provisioner reports it. Default marks the group
+// the provisioner puts a machine in when nothing else is chosen (MAAS: the built-in `default`); it
+// is never part of swallow's catalog, and a Server placed nowhere belongs to it.
+type ProviderGroup struct {
+	Name        string
+	Description string
+	Default     bool
+}
+
+// GroupingController realizes swallow-owned Zone and Pool desired state in a provisioner that
 // supports machine grouping (for MAAS: physical zones and resource pools), and assigns a
-// machine to a zone or pool. It is the provider side of decision 029: swallow owns the
-// Zone/Pool catalog, and this capability drives the provisioner when it can express the
-// same grouping.
+// machine to a zone or pool. The infrastructure catalog controller and the Server controller
+// drive it (decision 071): swallow owns the catalog and each Server's placement, and this
+// capability makes the provisioner match.
 //
 // The controller speaks swallow's currency — group names — and hides any provider-internal
 // identifier. Create is deliberately *ensure* semantics: a group the provider already holds
@@ -355,6 +364,13 @@ type OSImageUploader interface {
 // caller can echo the effective zone/pool without a second read; an unknown machine maps to
 // ErrMachineNotFound. An adapter that sets ProviderCapabilities.Grouping must implement this.
 type GroupingController interface {
+	// ListZones returns every zone the provider holds, including its default.
+	ListZones(ctx context.Context) ([]ProviderGroup, error)
+	// ListPools returns every resource pool the provider holds, including its default.
+	ListPools(ctx context.Context) ([]ProviderGroup, error)
+	// DefaultGroupNames returns the names of the provider's default zone and pool without I/O.
+	DefaultGroupNames() (zone, pool string)
+
 	// EnsureZone creates the named zone, treating an existing one as already satisfied.
 	EnsureZone(ctx context.Context, name, description string) error
 	// RenameZone changes a zone's name (and description) from currentName to newName.

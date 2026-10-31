@@ -351,7 +351,7 @@ swallow servers network delete-link srv1 <interfaceId> <linkId>
 
 # Placement（Zone／Pool）— flags 或 --file
 swallow servers placement srv1 --zone zone1 --pool pool1
-swallow servers placement srv1 --clear-zone --clear-pool
+swallow servers placement srv1 --clear-zone --clear-pool   # 回到 provisioner 預設的 zone 與 pool
 swallow servers placement srv1 -f placement.yaml   # { zoneId, poolId }
 
 # Boot Media：Server 優先從所屬 provisioner 的 Boot ISO 開機。方式依 Power Configuration 而定：

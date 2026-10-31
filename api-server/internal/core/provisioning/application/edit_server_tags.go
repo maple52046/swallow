@@ -34,9 +34,9 @@ type EditServerTagsInput struct {
 // manual tags to its spec. The edit is atomic across Servers — every Server's spec changes, or none
 // does — and each write is conditional on the generation read in the same transaction.
 //
-// A Server that has no spec yet takes its observed manual tags as the base, so an edit on a Server
-// the controller has not adopted keeps its other manual tags. An automatic tag (computed by the
-// provisioner) can be neither added nor removed. Tag editing is metadata, not a host change, so it
+// A Server that has no spec yet is refused with ErrSpecNotAdopted: its controller adopts the first
+// observation within moments, and an edit before that could not keep the fields adoption would
+// take. An automatic tag (computed by the provisioner) can be neither added nor removed. Tag editing is metadata, not a host change, so it
 // is not gated on Server Lock; a locked Server simply holds convergence until it is unlocked.
 type EditServerTagsUseCase struct {
 	servers    serverdomain.ServerRepository
@@ -58,8 +58,8 @@ func NewEditServerTagsUseCase(
 
 // Execute validates the diff, refuses automatic tag names, writes every Server's new spec in one
 // transaction, and returns each Server's spec in the input order. ErrServerNotFound for an unknown
-// Server; ErrSpecConflict when a Server's spec changed during the edit; ErrInvalidTag for an
-// invalid, contradictory, or automatic name.
+// Server; ErrSpecNotAdopted for one not adopted yet; ErrSpecConflict when a Server's spec changed
+// during the edit; ErrInvalidTag for an invalid, contradictory, or automatic name.
 func (uc *EditServerTagsUseCase) Execute(ctx context.Context, input EditServerTagsInput) ([]ServerTagsItem, error) {
 	add, remove, err := normalizeTagDiff(input.Add, input.Remove)
 	if err != nil {
@@ -83,6 +83,9 @@ func (uc *EditServerTagsUseCase) Execute(ctx context.Context, input EditServerTa
 		if err != nil {
 			return nil, err
 		}
+		if server.Generation == 0 {
+			return nil, serverdomain.ErrSpecNotAdopted
+		}
 		servers = append(servers, server)
 	}
 	if err := uc.refuseAutomaticTags(ctx, servers, append(slices.Clone(add), remove...)); err != nil {
@@ -97,12 +100,13 @@ func (uc *EditServerTagsUseCase) Execute(ctx context.Context, input EditServerTa
 			if err != nil {
 				return err
 			}
-			base := server.Spec.Tags
 			if server.Generation == 0 {
-				base = server.Observed.ManualTags()
+				return serverdomain.ErrSpecNotAdopted
 			}
-			next := applyTagDiff(base, add, remove)
-			generation, err := uc.specs.UpdateSpec(ctx, id, server.Generation, serverdomain.ServerSpec{Tags: next})
+			next := applyTagDiff(server.Spec.Tags, add, remove)
+			spec := server.Spec
+			spec.Tags = next
+			generation, err := uc.specs.UpdateSpec(ctx, id, server.Generation, spec)
 			if err != nil {
 				return err
 			}

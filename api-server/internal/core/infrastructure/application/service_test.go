@@ -6,360 +6,185 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/convergence"
 	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
-// newTestService builds a GroupingService over in-memory fakes with a fixed clock and id, so
-// created records are deterministic and no external system is needed.
-func newTestService(
-	zones *fakeZoneRepo,
-	pools *fakePoolRepo,
-	sites *fakeSiteReader,
-	servers *fakeServerLocator,
-	realizer *fakeRealizer,
-) *GroupingService {
-	svc := NewGroupingService(zones, pools, sites, servers, realizer)
-	svc.now = func() time.Time { return time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC) }
-	svc.newID = func() string { return "generated-id" }
-	return svc
+type serviceFixture struct {
+	service    *GroupingService
+	zones      *fakeZoneRepo
+	pools      *fakePoolRepo
+	placements *fakePlacements
+	provider   *fakeGroupingProvider
+	references fakeReferences
 }
 
-func TestCreateZone_RealizesAndPersists(t *testing.T) {
-	zones := newFakeZoneRepo()
-	realizer := &fakeRealizer{realized: true}
-	svc := newTestService(zones, newFakePoolRepo(), &fakeSiteReader{exists: true}, &fakeServerLocator{}, realizer)
+func newServiceFixture(t *testing.T) *serviceFixture {
+	t.Helper()
+	f := &serviceFixture{
+		zones: newFakeZoneRepo(), pools: newFakePoolRepo(),
+		placements: &fakePlacements{current: &infradomain.ServerPlacement{ServerID: "srv-1", SiteID: "site-a", Generation: 1}},
+		provider:   newFakeGroupingProvider(),
+		references: fakeReferences{zones: map[string]int{}, pools: map[string]int{}},
+	}
+	factory := &fakeFactory{providers: map[string]provisioningdomain.OSProvisioningProvider{"maas-a": f.provider}}
+	f.service = NewGroupingService(f.zones, f.pools, &fakeSiteReader{exists: true}, f.placements, f.references, factory)
+	f.service.now = func() time.Time { return time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC) }
+	ids := 0
+	f.service.newID = func() string { ids++; return "id-" + string(rune('0'+ids)) }
+	return f
+}
 
-	// A surrounding-whitespace name proves ValidateName trims before both storage and realize.
-	item, err := svc.CreateZone(context.Background(), CreateGroupInput{SiteID: "site-1", Name: "  rack-a  ", Description: "d"})
+// Creating a Zone only stores its spec: the catalog controller creates it on the provisioners, so
+// the API never waits for, or fails on, a provisioner.
+func TestCreateZone_StoresTheSpecWithoutTheProvisioner(t *testing.T) {
+	f := newServiceFixture(t)
+
+	item, err := f.service.CreateZone(context.Background(), CreateGroupInput{SiteID: "site-a", Name: " rack-a ", Description: "top"})
 	if err != nil {
 		t.Fatalf("CreateZone: %v", err)
 	}
-	if item.Name != "rack-a" {
-		t.Errorf("name: got %q, want rack-a", item.Name)
+	if item.Generation != 1 || item.Spec.Name != "rack-a" || item.Spec.Description != "top" {
+		t.Errorf("created = %+v, want generation 1 with the trimmed name", item)
 	}
-	if !item.ProviderRealized {
-		t.Errorf("providerRealized: got false, want true")
+	if len(item.Status.Conditions) != 0 || len(item.Status.Provisioners) != 0 {
+		t.Errorf("a new Zone has no judgement yet, got %+v", item.Status)
 	}
-	if realizer.ensuredZone != "rack-a" {
-		t.Errorf("realizer ensured %q, want rack-a", realizer.ensuredZone)
-	}
-	if _, ok := zones.byID["generated-id"]; !ok {
-		t.Errorf("zone was not persisted")
+	if len(f.provider.calls) != 0 {
+		t.Errorf("create drove the provisioner: %v", f.provider.calls)
 	}
 }
 
-func TestCreateZone_SwallowOnlyWhenProviderNotCapable(t *testing.T) {
-	zones := newFakeZoneRepo()
-	realizer := &fakeRealizer{realized: false}
-	svc := newTestService(zones, newFakePoolRepo(), &fakeSiteReader{exists: true}, &fakeServerLocator{}, realizer)
-
-	item, err := svc.CreateZone(context.Background(), CreateGroupInput{SiteID: "site-1", Name: "rack-a"})
-	if err != nil {
-		t.Fatalf("CreateZone: %v", err)
+func TestCreateZone_SiteMustExistAndNameMustBeValid(t *testing.T) {
+	f := newServiceFixture(t)
+	f.service.sites = &fakeSiteReader{exists: false}
+	if _, err := f.service.CreateZone(context.Background(), CreateGroupInput{SiteID: "nope", Name: "rack-a"}); !errors.Is(err, infradomain.ErrSiteNotFound) {
+		t.Errorf("unknown Site: err = %v, want ErrSiteNotFound", err)
 	}
-	if item.ProviderRealized {
-		t.Errorf("providerRealized: got true, want false for a site with no capable provisioner")
-	}
-	if _, ok := zones.byID["generated-id"]; !ok {
-		t.Errorf("a swallow-only zone must still be persisted")
+	f.service.sites = &fakeSiteReader{exists: true}
+	if _, err := f.service.CreateZone(context.Background(), CreateGroupInput{SiteID: "site-a", Name: "   "}); !errors.Is(err, infradomain.ErrInvalidGroup) {
+		t.Errorf("blank name: err = %v, want ErrInvalidGroup", err)
 	}
 }
 
-func TestCreateZone_SiteMustExist(t *testing.T) {
-	zones := newFakeZoneRepo()
-	svc := newTestService(zones, newFakePoolRepo(), &fakeSiteReader{exists: false}, &fakeServerLocator{}, &fakeRealizer{})
+// A rename is a spec change (a new generation); a patch that changes nothing keeps the generation.
+func TestUpdateZone_IncrementsTheGenerationOnlyOnChange(t *testing.T) {
+	f := newServiceFixture(t)
+	created, _ := f.service.CreateZone(context.Background(), CreateGroupInput{SiteID: "site-a", Name: "rack-a"})
 
-	_, err := svc.CreateZone(context.Background(), CreateGroupInput{SiteID: "missing", Name: "rack-a"})
-	if !errors.Is(err, infradomain.ErrSiteNotFound) {
-		t.Fatalf("error: got %v, want ErrSiteNotFound", err)
+	same := "rack-a"
+	unchanged, err := f.service.UpdateZone(context.Background(), created.ID, UpdateGroupInput{Name: &same})
+	if err != nil || unchanged.Generation != 1 {
+		t.Fatalf("no-op update = %+v, %v; want generation 1", unchanged, err)
 	}
-	if len(zones.byID) != 0 {
-		t.Errorf("no zone should be created when the site is missing")
+	renamed := "rack-b"
+	updated, err := f.service.UpdateZone(context.Background(), created.ID, UpdateGroupInput{Name: &renamed})
+	if err != nil || updated.Generation != 2 || updated.Spec.Name != "rack-b" {
+		t.Fatalf("rename = %+v, %v; want generation 2 named rack-b", updated, err)
 	}
-}
-
-func TestCreateZone_InvalidName(t *testing.T) {
-	zones := newFakeZoneRepo()
-	svc := newTestService(zones, newFakePoolRepo(), &fakeSiteReader{exists: true}, &fakeServerLocator{}, &fakeRealizer{})
-
-	_, err := svc.CreateZone(context.Background(), CreateGroupInput{SiteID: "site-1", Name: "   "})
-	if !errors.Is(err, infradomain.ErrInvalidGroup) {
-		t.Fatalf("error: got %v, want ErrInvalidGroup", err)
+	if len(f.provider.calls) != 0 {
+		t.Errorf("update drove the provisioner: %v", f.provider.calls)
 	}
 }
 
-func TestCreateZone_ProviderErrorLeavesNoRecord(t *testing.T) {
-	zones := newFakeZoneRepo()
-	realizer := &fakeRealizer{opErr: errors.New("maas refused")}
-	svc := newTestService(zones, newFakePoolRepo(), &fakeSiteReader{exists: true}, &fakeServerLocator{}, realizer)
+// Deleting removes the group from each provisioner that holds it before the record, keeps the
+// provisioner's default group, and refuses while a Server is placed in it.
+func TestDeleteZone_RemovesFromProvisionersThenTheRecord(t *testing.T) {
+	f := newServiceFixture(t)
+	f.provider.zones = append(f.provider.zones, provisioningdomain.ProviderGroup{Name: "rack-a"})
+	f.zones.byID["z1"] = &infradomain.Zone{ID: "z1", SiteID: "site-a", Generation: 1, Name: "rack-a",
+		Status: realizedOn("maas-a", "rack-a", 1)}
+	f.zones.byID["z-default"] = &infradomain.Zone{ID: "z-default", SiteID: "site-a", Generation: 1, Name: "default",
+		Status: realizedOn("maas-a", "default", 1)}
 
-	if _, err := svc.CreateZone(context.Background(), CreateGroupInput{SiteID: "site-1", Name: "rack-a"}); err == nil {
-		t.Fatalf("CreateZone should fail when realization fails")
+	f.references.zones["z1"] = 1
+	if err := f.service.DeleteZone(context.Background(), "z1"); !errors.Is(err, infradomain.ErrGroupInUse) {
+		t.Fatalf("delete of a placed Zone: err = %v, want ErrGroupInUse", err)
 	}
-	if len(zones.byID) != 0 {
-		t.Errorf("no zone should be persisted when realization fails")
-	}
-}
+	delete(f.references.zones, "z1")
 
-func TestDeleteZone_AbortsWhenProviderRefuses(t *testing.T) {
-	zones := newFakeZoneRepo()
-	zones.byID["z1"] = &infradomain.Zone{ID: "z1", SiteID: "site-1", Name: "rack-a"}
-	realizer := &fakeRealizer{opErr: errors.New("zone still has machines")}
-	svc := newTestService(zones, newFakePoolRepo(), &fakeSiteReader{exists: true}, &fakeServerLocator{}, realizer)
-
-	if err := svc.DeleteZone(context.Background(), "z1"); err == nil {
-		t.Fatalf("DeleteZone should fail when the provider refuses")
+	if err := f.service.DeleteZone(context.Background(), "z1"); err != nil {
+		t.Fatalf("DeleteZone: %v", err)
 	}
-	if _, ok := zones.byID["z1"]; !ok {
-		t.Errorf("the swallow record must remain when provider delete is refused")
+	if f.zones.get("z1") != nil || len(f.provider.calls) != 1 || f.provider.calls[0] != "deleteZone rack-a" {
+		t.Errorf("after delete: record %v, provider calls %v", f.zones.get("z1"), f.provider.calls)
 	}
-}
-
-func TestAssignServer_NothingToAssign(t *testing.T) {
-	svc := newTestService(newFakeZoneRepo(), newFakePoolRepo(), &fakeSiteReader{}, &fakeServerLocator{}, &fakeRealizer{})
-	_, err := svc.AssignServer(context.Background(), AssignServerInput{ServerID: "s1"})
-	if !errors.Is(err, infradomain.ErrNothingToAssign) {
-		t.Fatalf("error: got %v, want ErrNothingToAssign", err)
+	if err := f.service.DeleteZone(context.Background(), "z-default"); err != nil {
+		t.Fatalf("DeleteZone(default): %v", err)
+	}
+	if len(f.provider.calls) != 1 {
+		t.Errorf("the provisioner's default zone must stay, calls %v", f.provider.calls)
 	}
 }
 
-func TestAssignServer_RejectsCrossSite(t *testing.T) {
-	zones := newFakeZoneRepo()
-	zones.byID["z1"] = &infradomain.Zone{ID: "z1", SiteID: "other-site", Name: "rack-a"}
-	servers := &fakeServerLocator{target: &infradomain.ServerPlacementTarget{
-		ServerID: "s1", SiteID: "site-1", IntegrationID: "int-1", ProviderMachineID: "m1",
-	}}
-	realizer := &fakeRealizer{}
-	svc := newTestService(zones, newFakePoolRepo(), &fakeSiteReader{}, servers, realizer)
+func TestDeleteZone_AbortsWhenTheProvisionerRefuses(t *testing.T) {
+	f := newServiceFixture(t)
+	f.zones.byID["z1"] = &infradomain.Zone{ID: "z1", SiteID: "site-a", Generation: 1, Name: "rack-a",
+		Status: realizedOn("maas-a", "rack-a", 1)}
+	f.provider.writeErr = &provisioningdomain.ProviderError{Kind: provisioningdomain.ProviderErrorRejected, Detail: "zone has machines"}
 
-	zoneID := "z1"
-	_, err := svc.AssignServer(context.Background(), AssignServerInput{ServerID: "s1", ZoneID: &zoneID})
-	if !errors.Is(err, infradomain.ErrGroupingSiteMismatch) {
-		t.Fatalf("error: got %v, want ErrGroupingSiteMismatch", err)
+	if err := f.service.DeleteZone(context.Background(), "z1"); err == nil {
+		t.Fatal("a provisioner refusal must abort the delete")
 	}
-	if realizer.assignedZone != "" {
-		t.Errorf("no provider assignment should happen on a cross-site reference")
+	if f.zones.get("z1") == nil {
+		t.Error("the record must stay while the provisioner still holds the zone")
 	}
 }
 
-func TestAssignServer_AssignsZoneAndPool(t *testing.T) {
-	zones := newFakeZoneRepo()
-	zones.byID["z1"] = &infradomain.Zone{ID: "z1", SiteID: "site-1", Name: "rack-a"}
-	pools := newFakePoolRepo()
-	pools.byID["p1"] = &infradomain.Pool{ID: "p1", SiteID: "site-1", Name: "research"}
-	servers := &fakeServerLocator{target: &infradomain.ServerPlacementTarget{
-		ServerID: "s1", SiteID: "site-1", IntegrationID: "int-1", ProviderMachineID: "m1",
-		ObservedZone: "default", ObservedPool: "default",
-	}}
-	realizer := &fakeRealizer{}
-	svc := newTestService(zones, pools, &fakeSiteReader{}, servers, realizer)
+func TestAssignServer_WritesThePlacementSpec(t *testing.T) {
+	f := newServiceFixture(t)
+	f.zones.byID["z1"] = &infradomain.Zone{ID: "z1", SiteID: "site-a", Name: "rack-a"}
+	f.placements.current.PoolID = "p-old"
 
-	zoneID, poolID := "z1", "p1"
-	result, err := svc.AssignServer(context.Background(), AssignServerInput{ServerID: "s1", ZoneID: &zoneID, PoolID: &poolID})
+	result, err := f.service.AssignServer(context.Background(), AssignServerInput{
+		ServerID: "srv-1", Zone: PlacementChange{Set: true, ID: "z1"}, Pool: PlacementChange{Set: true},
+	})
 	if err != nil {
 		t.Fatalf("AssignServer: %v", err)
 	}
-	if result.Zone != "rack-a" || result.Pool != "research" {
-		t.Errorf("result: got zone=%q pool=%q, want rack-a/research", result.Zone, result.Pool)
+	if result.Generation != 2 || result.ZoneID == nil || *result.ZoneID != "z1" || result.PoolID != nil {
+		t.Errorf("result = %+v, want generation 2, zone z1, pool cleared to the default", result)
 	}
-	if realizer.assignedZone != "rack-a" || realizer.assignedPool != "research" {
-		t.Errorf("realizer: got zone=%q pool=%q, want rack-a/research", realizer.assignedZone, realizer.assignedPool)
-	}
-	if realizer.assignedMachine != "m1" || realizer.assignedIntegration != "int-1" {
-		t.Errorf("realizer addressed integration=%q machine=%q, want int-1/m1",
-			realizer.assignedIntegration, realizer.assignedMachine)
+	if len(f.provider.calls) != 0 {
+		t.Errorf("placement drove the provisioner: %v", f.provider.calls)
 	}
 }
 
-func TestAssignServer_ServerNotFound(t *testing.T) {
-	servers := &fakeServerLocator{err: infradomain.ErrServerNotFound}
-	svc := newTestService(newFakeZoneRepo(), newFakePoolRepo(), &fakeSiteReader{}, servers, &fakeRealizer{})
-	zoneID := "z1"
-	_, err := svc.AssignServer(context.Background(), AssignServerInput{ServerID: "missing", ZoneID: &zoneID})
-	if !errors.Is(err, infradomain.ErrServerNotFound) {
-		t.Fatalf("error: got %v, want ErrServerNotFound", err)
+func TestAssignServer_Refusals(t *testing.T) {
+	f := newServiceFixture(t)
+	f.zones.byID["z-other"] = &infradomain.Zone{ID: "z-other", SiteID: "site-b", Name: "rack-x"}
+	ctx := context.Background()
+
+	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1"}); !errors.Is(err, infradomain.ErrNothingToAssign) {
+		t.Errorf("empty request: err = %v", err)
+	}
+	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1", Zone: PlacementChange{Set: true, ID: "z-other"}}); !errors.Is(err, infradomain.ErrGroupingSiteMismatch) {
+		t.Errorf("cross-Site zone: err = %v", err)
+	}
+	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "missing", Zone: PlacementChange{Set: true}}); !errors.Is(err, infradomain.ErrServerNotFound) {
+		t.Errorf("unknown Server: err = %v", err)
+	}
+	f.placements.current.Generation = 0
+	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1", Zone: PlacementChange{Set: true}}); !errors.Is(err, infradomain.ErrServerNotAdopted) {
+		t.Errorf("not adopted: err = %v", err)
 	}
 }
 
-// --- fakes ---
-
-type fakeZoneRepo struct {
-	byID map[string]*infradomain.Zone
-}
-
-func newFakeZoneRepo() *fakeZoneRepo { return &fakeZoneRepo{byID: map[string]*infradomain.Zone{}} }
-
-func (r *fakeZoneRepo) Create(_ context.Context, zone *infradomain.Zone) error {
-	for _, existing := range r.byID {
-		if existing.SiteID == zone.SiteID && existing.Name == zone.Name {
-			return infradomain.ErrZoneNameTaken
-		}
+// realizedOn is a status realized at generation on one provisioner as providerName.
+func realizedOn(integrationID, providerName string, generation int64) infradomain.GroupStatus {
+	at := time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
+	conditions := []convergence.Condition{
+		{Type: convergence.ConditionRealized, Status: convergence.ConditionTrue, Reason: convergence.ReasonConverged, LastTransitionTime: at, ObservedGeneration: generation},
+		{Type: convergence.ConditionDrifted, Status: convergence.ConditionFalse, Reason: convergence.ReasonInSync, LastTransitionTime: at, ObservedGeneration: generation},
+		{Type: convergence.ConditionRequiresAttention, Status: convergence.ConditionFalse, Reason: convergence.ReasonAttentionNotNeeded, LastTransitionTime: at, ObservedGeneration: generation},
 	}
-	r.byID[zone.ID] = zone
-	return nil
-}
-
-func (r *fakeZoneRepo) FindByID(_ context.Context, id string) (*infradomain.Zone, error) {
-	zone, ok := r.byID[id]
-	if !ok {
-		return nil, infradomain.ErrZoneNotFound
+	return infradomain.GroupStatus{
+		ObservedGeneration: generation,
+		Conditions:         conditions,
+		Provisioners: []infradomain.GroupRealization{{
+			TargetStatus: convergence.TargetStatus{TargetID: integrationID, ObservedGeneration: generation, ObservedAt: &at, Conditions: conditions},
+			ProviderName: providerName,
+		}},
 	}
-	return zone, nil
-}
-
-func (r *fakeZoneRepo) List(_ context.Context, siteID string) ([]*infradomain.Zone, error) {
-	var out []*infradomain.Zone
-	for _, zone := range r.byID {
-		if siteID == "" || zone.SiteID == siteID {
-			out = append(out, zone)
-		}
-	}
-	return out, nil
-}
-
-func (r *fakeZoneRepo) Update(_ context.Context, zone *infradomain.Zone) error {
-	if _, ok := r.byID[zone.ID]; !ok {
-		return infradomain.ErrZoneNotFound
-	}
-	r.byID[zone.ID] = zone
-	return nil
-}
-
-func (r *fakeZoneRepo) Delete(_ context.Context, id string) error {
-	if _, ok := r.byID[id]; !ok {
-		return infradomain.ErrZoneNotFound
-	}
-	delete(r.byID, id)
-	return nil
-}
-
-type fakePoolRepo struct {
-	byID map[string]*infradomain.Pool
-}
-
-func newFakePoolRepo() *fakePoolRepo { return &fakePoolRepo{byID: map[string]*infradomain.Pool{}} }
-
-func (r *fakePoolRepo) Create(_ context.Context, pool *infradomain.Pool) error {
-	for _, existing := range r.byID {
-		if existing.SiteID == pool.SiteID && existing.Name == pool.Name {
-			return infradomain.ErrPoolNameTaken
-		}
-	}
-	r.byID[pool.ID] = pool
-	return nil
-}
-
-func (r *fakePoolRepo) FindByID(_ context.Context, id string) (*infradomain.Pool, error) {
-	pool, ok := r.byID[id]
-	if !ok {
-		return nil, infradomain.ErrPoolNotFound
-	}
-	return pool, nil
-}
-
-func (r *fakePoolRepo) List(_ context.Context, siteID string) ([]*infradomain.Pool, error) {
-	var out []*infradomain.Pool
-	for _, pool := range r.byID {
-		if siteID == "" || pool.SiteID == siteID {
-			out = append(out, pool)
-		}
-	}
-	return out, nil
-}
-
-func (r *fakePoolRepo) Update(_ context.Context, pool *infradomain.Pool) error {
-	if _, ok := r.byID[pool.ID]; !ok {
-		return infradomain.ErrPoolNotFound
-	}
-	r.byID[pool.ID] = pool
-	return nil
-}
-
-func (r *fakePoolRepo) Delete(_ context.Context, id string) error {
-	if _, ok := r.byID[id]; !ok {
-		return infradomain.ErrPoolNotFound
-	}
-	delete(r.byID, id)
-	return nil
-}
-
-type fakeSiteReader struct {
-	exists bool
-	err    error
-}
-
-func (r *fakeSiteReader) Exists(_ context.Context, _ string) (bool, error) {
-	return r.exists, r.err
-}
-
-type fakeServerLocator struct {
-	target *infradomain.ServerPlacementTarget
-	err    error
-}
-
-func (r *fakeServerLocator) Locate(_ context.Context, _ string) (*infradomain.ServerPlacementTarget, error) {
-	if r.err != nil {
-		return nil, r.err
-	}
-	return r.target, nil
-}
-
-// fakeRealizer records what it was asked to realize and returns configurable outcomes. realized
-// and opErr drive the catalog operations; assign*Err drive placement.
-type fakeRealizer struct {
-	realized bool
-	opErr    error
-
-	ensuredZone string
-	ensuredPool string
-
-	assignZoneErr error
-	assignPoolErr error
-
-	assignedZone        string
-	assignedPool        string
-	assignedMachine     string
-	assignedIntegration string
-}
-
-func (r *fakeRealizer) EnsureZone(_ context.Context, _, name, _ string) (bool, error) {
-	r.ensuredZone = name
-	return r.realized, r.opErr
-}
-
-func (r *fakeRealizer) RenameZone(_ context.Context, _, _, newName, _ string) (bool, error) {
-	r.ensuredZone = newName
-	return r.realized, r.opErr
-}
-
-func (r *fakeRealizer) DeleteZone(_ context.Context, _, _ string) (bool, error) {
-	return r.realized, r.opErr
-}
-
-func (r *fakeRealizer) EnsurePool(_ context.Context, _, name, _ string) (bool, error) {
-	r.ensuredPool = name
-	return r.realized, r.opErr
-}
-
-func (r *fakeRealizer) RenamePool(_ context.Context, _, _, newName, _ string) (bool, error) {
-	r.ensuredPool = newName
-	return r.realized, r.opErr
-}
-
-func (r *fakeRealizer) DeletePool(_ context.Context, _, _ string) (bool, error) {
-	return r.realized, r.opErr
-}
-
-func (r *fakeRealizer) AssignServerZone(_ context.Context, integrationID, machineID, zoneName string) error {
-	r.assignedIntegration = integrationID
-	r.assignedMachine = machineID
-	r.assignedZone = zoneName
-	return r.assignZoneErr
-}
-
-func (r *fakeRealizer) AssignServerPool(_ context.Context, integrationID, machineID, poolName string) error {
-	r.assignedIntegration = integrationID
-	r.assignedMachine = machineID
-	r.assignedPool = poolName
-	return r.assignPoolErr
 }

@@ -11,10 +11,15 @@ import (
 )
 
 // This file implements provisioningdomain.GroupingController against MAAS physical zones and
-// resource pools (decision 029). swallow owns the Zone/Pool catalog; these methods only realize
-// that intent in MAAS. They speak group names — swallow's currency — and hide MAAS's internal
-// resource-pool ids. Create/delete are idempotent "ensure" operations so that a swallow write
-// over MAAS's built-in `default` zone/pool, or a repeated write, is not an error.
+// resource pools (decision 071). swallow owns the Zone/Pool catalog and each Server's placement;
+// these methods read MAAS's groups and make MAAS match. They speak group names — swallow's
+// currency — and hide MAAS's internal resource-pool ids. Create/delete are idempotent "ensure"
+// operations so that a swallow write over MAAS's built-in `default` zone/pool, or a repeated
+// write, is not an error.
+
+// maasDefaultGroup is the name of MAAS's built-in zone and resource pool. MAAS refuses to delete
+// either, and puts a new machine in both.
+const maasDefaultGroup = "default"
 
 // zonePath is the MAAS endpoint for one physical zone, addressed by its name.
 func zonePath(name string) string {
@@ -28,10 +33,54 @@ func resourcePoolPath(id int) string {
 }
 
 // resourcePoolJSON is the subset of a MAAS resource pool swallow reads: the numeric id used in
-// its endpoint path and the name swallow matches on.
+// its endpoint path, the name swallow matches on, and its description.
 type resourcePoolJSON struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// zoneJSON is the subset of a MAAS physical zone swallow reads.
+type zoneJSON struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// ListZones returns every MAAS physical zone; the built-in `default` is marked Default.
+func (p *Provider) ListZones(ctx context.Context) ([]provisioningdomain.ProviderGroup, error) {
+	var zones []zoneJSON
+	if err := p.client.get(ctx, "/zones/", nil, &zones); err != nil {
+		return nil, translateError(err, "")
+	}
+	out := make([]provisioningdomain.ProviderGroup, 0, len(zones))
+	for _, zone := range zones {
+		out = append(out, provisioningdomain.ProviderGroup{
+			Name: zone.Name, Description: zone.Description, Default: zone.Name == maasDefaultGroup,
+		})
+	}
+	return out, nil
+}
+
+// ListPools returns every MAAS resource pool. The built-in pool is id 0, named `default` unless
+// someone renamed it, so it is recognized by id.
+func (p *Provider) ListPools(ctx context.Context) ([]provisioningdomain.ProviderGroup, error) {
+	var pools []resourcePoolJSON
+	if err := p.client.get(ctx, "/resourcepools/", nil, &pools); err != nil {
+		return nil, translateError(err, "")
+	}
+	out := make([]provisioningdomain.ProviderGroup, 0, len(pools))
+	for _, pool := range pools {
+		out = append(out, provisioningdomain.ProviderGroup{
+			Name: pool.Name, Description: pool.Description, Default: pool.ID == 0,
+		})
+	}
+	return out, nil
+}
+
+// DefaultGroupNames implements provisioningdomain.GroupingController: MAAS's built-in zone and
+// pool are both named `default`.
+func (p *Provider) DefaultGroupNames() (zone, pool string) {
+	return maasDefaultGroup, maasDefaultGroup
 }
 
 // EnsureZone creates the named MAAS physical zone unless it already exists.

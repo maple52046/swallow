@@ -18,9 +18,12 @@ type ServerItem struct {
 }
 
 // ServerSpecItem is the published Server spec. Tags is the complete set of manual tags the Server
-// must carry (server-tags.md).
+// must carry (server-tags.md); ZoneID and PoolID are its placement (infrastructure.md), null for
+// the provisioner's default group.
 type ServerSpecItem struct {
-	Tags []string `json:"tags"`
+	Tags   []string `json:"tags"`
+	ZoneID *string  `json:"zoneId"`
+	PoolID *string  `json:"poolId"`
 }
 
 // ServerStatusItem is the published Server status.
@@ -197,7 +200,7 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 		ID:         s.ID,
 		Origin:     string(s.Origin),
 		Generation: s.Generation,
-		Spec:       ServerSpecItem{Tags: wire.Strings(s.Spec.Tags)},
+		Spec:       ServerSpecItem{Tags: wire.Strings(s.Spec.Tags), ZoneID: optionalID(s.Spec.ZoneID), PoolID: optionalID(s.Spec.PoolID)},
 		Status:     toServerStatusItem(s),
 	}
 }
@@ -313,4 +316,11 @@ func toServerStatusItem(s *serverdomain.Server) ServerStatusItem {
 	}
 
 	return item
+}
+
+func optionalID(id string) *string {
+	if id == "" {
+		return nil
+	}
+	return &id
 }

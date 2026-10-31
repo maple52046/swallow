@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 
-	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
-	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 )
 
@@ -32,36 +30,4 @@ func (r *SiteReader) Exists(ctx context.Context, siteID string) (bool, error) {
 		return false, err
 	}
 	return true, nil
-}
-
-// ServerLocator adapts the server feature's projection to the grouping feature's placement port.
-// It maps the server domain's not-found onto the grouping feature's own ErrServerNotFound so the
-// grouping domain does not depend on the server error vocabulary.
-type ServerLocator struct {
-	servers serverdomain.ServerRepository
-}
-
-// NewServerLocator builds the grouping feature's view of a Server placement target.
-func NewServerLocator(servers serverdomain.ServerRepository) *ServerLocator {
-	return &ServerLocator{servers: servers}
-}
-
-// Locate resolves a Server id into the Site, provisioner integration, provider machine id, and
-// currently observed group names a placement needs. An unknown Server is ErrServerNotFound.
-func (r *ServerLocator) Locate(ctx context.Context, serverID string) (*infradomain.ServerPlacementTarget, error) {
-	server, err := r.servers.FindByID(ctx, serverID)
-	if errors.Is(err, serverdomain.ErrServerNotFound) {
-		return nil, infradomain.ErrServerNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &infradomain.ServerPlacementTarget{
-		ServerID:          server.ID,
-		SiteID:            server.Source.SiteID,
-		IntegrationID:     server.Source.IntegrationID,
-		ProviderMachineID: server.Source.ProviderMachineID,
-		ObservedZone:      server.Observed.ProviderZone,
-		ObservedPool:      server.Observed.ProviderResourcePool,
-	}, nil
 }

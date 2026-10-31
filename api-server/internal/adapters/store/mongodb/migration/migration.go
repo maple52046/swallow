@@ -45,11 +45,16 @@ import (
 // documents stay in `operations` and remain readable for one release.
 //
 // v5 retires the Server tag overlay (decision 071): a Server's manual tags are its spec. An
-// overlay's tags become the spec (generation 1) of a Server that has none yet, and the
-// `server_tag_overlays` collection is dropped. Every other Server needs no rewrite: a missing
-// generation reads as "no spec yet", which the Server controller adopts from observation, and a
-// missing origin reads as discovered. The migration never contacts a provisioner.
-const CurrentSchemaVersion = 5
+// overlay's tags are carried into the spec tags of a Server that has no spec yet, and the
+// `server_tag_overlays` collection is dropped. No Server gets a generation: a missing generation
+// reads as "no spec yet", and the Server controller adopts the first observation, keeping any tags
+// the migration carried. A missing origin reads as discovered. The migration never contacts a
+// provisioner.
+//
+// v6 makes Zones and Pools migrated resources (decision 071): each existing one gets generation 1
+// and loses `providerRealized`; the catalog controller judges them on its first pass, creating any
+// that a provisioner of their Site does not hold yet.
+const CurrentSchemaVersion = 6
 
 type metadata struct {
 	ID        string    `bson:"_id"`
@@ -155,6 +160,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v4 to v5: %w", err)
 			}
 			state.Version = 5
+		case 5:
+			if err := migrateV5ToV6(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v5 to v6: %w", err)
+			}
+			state.Version = 6
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}
@@ -173,8 +183,8 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 	return Check(ctx, db)
 }
 
-// migrateV4ToV5 moves each Server tag overlay into its Server's spec, then drops the overlays.
-// The spec is written only where no generation exists, and dropping a missing collection is a
+// migrateV4ToV5 moves each Server tag overlay into its Server's spec tags, then drops the overlays.
+// The tags are written only where no generation exists, and dropping a missing collection is a
 // no-op, so an interrupted run resumes safely.
 func migrateV4ToV5(ctx context.Context, db *mongo.Database) error {
 	overlays := db.Collection("server_tag_overlays")
@@ -195,12 +205,29 @@ func migrateV4ToV5(ctx context.Context, db *mongo.Database) error {
 		}
 		if _, err := db.Collection("servers").UpdateOne(ctx,
 			bson.M{"_id": doc.ServerID, "generation": bson.M{"$in": bson.A{0, nil}}},
-			bson.M{"$set": bson.M{"spec": bson.M{"tags": doc.Tags}, "generation": int64(1)}},
+			bson.M{"$set": bson.M{"spec.tags": doc.Tags}},
 		); err != nil {
 			return err
 		}
 	}
 	return overlays.Drop(ctx)
+}
+
+// migrateV5ToV6 gives every Zone and Pool without a generation generation 1 and removes the
+// last-write `providerRealized` flag. Both updates are idempotent.
+func migrateV5ToV6(ctx context.Context, db *mongo.Database) error {
+	for _, collection := range []string{"zones", "pools"} {
+		col := db.Collection(collection)
+		if _, err := col.UpdateMany(ctx, bson.M{"generation": bson.M{"$exists": false}},
+			bson.M{"$set": bson.M{"generation": int64(1)}}); err != nil {
+			return err
+		}
+		if _, err := col.UpdateMany(ctx, bson.M{"providerRealized": bson.M{"$exists": true}},
+			bson.M{"$unset": bson.M{"providerRealized": ""}}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // migrateV2ToV3 renames the managed runtime aggregate from Cluster to Platform without

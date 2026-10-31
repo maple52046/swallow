@@ -110,8 +110,9 @@ is created and applied. A single edit is the same request with one `serverId`.
 - Tag editing is metadata, not a host state change, so it is **not** gated on Server Lock. A locked
   Server, one in Rescue Mode, or one a running Workflow holds takes the spec at once and converges
   when the hold ends (its `held` condition says why it waits).
-- The edit is atomic: every listed Server's spec changes, or none does. A Server that has no spec
-  yet (not adopted) takes its observed manual tags as the base, so its other tags are kept.
+- The edit is atomic: every listed Server's spec changes, or none does. A Server not adopted yet
+  (a newly discovered one has no spec for a moment) makes the whole edit `409 conflict`; retry.
+  The rest of each Server's spec, such as its placement, is kept.
 
 The response returns before the provisioner has changed. Each Server's `status.conditions` reports
 convergence: `realized` becomes `true` with `status.observedGeneration` equal to the returned
@@ -143,7 +144,7 @@ Beyond the shared codes in [conventions.md](conventions.md):
 | --- | ---: | --- |
 | `validation_error` | 400 | Missing `siteId`; empty `serverIds`; no `add`/`remove`; an invalid, contradictory, or automatic tag name. |
 | `not_found` | 404 | A referenced Server does not exist. |
-| `conflict` | 409 | A listed Server's spec changed while the edit was being written; nothing was changed, so read the Servers and retry. |
+| `conflict` | 409 | A listed Server is not adopted yet, or its spec changed while the edit was being written; nothing was changed, so read the Servers and retry. |
 
 A provisioner that refuses or cannot be reached no longer fails the edit; it shows on the Server's
 conditions instead.

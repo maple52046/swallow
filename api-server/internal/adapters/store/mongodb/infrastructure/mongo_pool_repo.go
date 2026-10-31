@@ -15,13 +15,14 @@ import (
 // poolDoc is the MongoDB shape of a Pool. It mirrors zoneDoc but lives in its own collection so
 // a Zone and a Pool may share a name within a Site without colliding.
 type poolDoc struct {
-	ID               string    `bson:"_id"`
-	SiteID           string    `bson:"siteId"`
-	Name             string    `bson:"name"`
-	Description      string    `bson:"description,omitempty"`
-	ProviderRealized bool      `bson:"providerRealized"`
-	CreatedAt        time.Time `bson:"createdAt"`
-	UpdatedAt        time.Time `bson:"updatedAt"`
+	ID          string         `bson:"_id"`
+	SiteID      string         `bson:"siteId"`
+	Generation  int64          `bson:"generation"`
+	Name        string         `bson:"name"`
+	Description string         `bson:"description,omitempty"`
+	Status      groupStatusDoc `bson:"status"`
+	CreatedAt   time.Time      `bson:"createdAt"`
+	UpdatedAt   time.Time      `bson:"updatedAt"`
 }
 
 // MongoPoolRepo is the durable PoolRepository.
@@ -50,13 +51,14 @@ func NewMongoPoolRepo(db *mongo.Database) (*MongoPoolRepo, error) {
 
 func (r *MongoPoolRepo) Create(ctx context.Context, pool *infradomain.Pool) error {
 	_, err := r.col.InsertOne(ctx, poolDoc{
-		ID:               pool.ID,
-		SiteID:           pool.SiteID,
-		Name:             pool.Name,
-		Description:      pool.Description,
-		ProviderRealized: pool.ProviderRealized,
-		CreatedAt:        pool.CreatedAt,
-		UpdatedAt:        pool.UpdatedAt,
+		ID:          pool.ID,
+		SiteID:      pool.SiteID,
+		Generation:  pool.Generation,
+		Name:        pool.Name,
+		Description: pool.Description,
+		Status:      toGroupStatusDoc(pool.Status),
+		CreatedAt:   pool.CreatedAt,
+		UpdatedAt:   pool.UpdatedAt,
 	})
 	if mongo.IsDuplicateKeyError(err) {
 		return infradomain.ErrPoolNameTaken
@@ -65,8 +67,16 @@ func (r *MongoPoolRepo) Create(ctx context.Context, pool *infradomain.Pool) erro
 }
 
 func (r *MongoPoolRepo) FindByID(ctx context.Context, id string) (*infradomain.Pool, error) {
+	return r.findOne(ctx, bson.M{"_id": id})
+}
+
+func (r *MongoPoolRepo) FindByName(ctx context.Context, siteID, name string) (*infradomain.Pool, error) {
+	return r.findOne(ctx, bson.M{"siteId": siteID, "name": name})
+}
+
+func (r *MongoPoolRepo) findOne(ctx context.Context, filter bson.M) (*infradomain.Pool, error) {
 	var doc poolDoc
-	err := r.col.FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
+	err := r.col.FindOne(ctx, filter).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, infradomain.ErrPoolNotFound
 	}
@@ -98,19 +108,31 @@ func (r *MongoPoolRepo) List(ctx context.Context, siteID string) ([]*infradomain
 	return pools, nil
 }
 
-func (r *MongoPoolRepo) Update(ctx context.Context, pool *infradomain.Pool) error {
-	result, err := r.col.UpdateOne(ctx,
+func (r *MongoPoolRepo) UpdateSpec(ctx context.Context, pool *infradomain.Pool) error {
+	var doc poolDoc
+	err := r.col.FindOneAndUpdate(ctx,
 		bson.M{"_id": pool.ID},
-		bson.M{"$set": bson.M{
-			"name":             pool.Name,
-			"description":      pool.Description,
-			"providerRealized": pool.ProviderRealized,
-			"updatedAt":        pool.UpdatedAt,
-		}},
-	)
+		bson.M{
+			"$set": bson.M{"name": pool.Name, "description": pool.Description, "updatedAt": pool.UpdatedAt},
+			"$inc": bson.M{"generation": 1},
+		},
+		options.FindOneAndUpdate().SetReturnDocument(options.After),
+	).Decode(&doc)
 	if mongo.IsDuplicateKeyError(err) {
 		return infradomain.ErrPoolNameTaken
 	}
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return infradomain.ErrPoolNotFound
+	}
+	if err != nil {
+		return err
+	}
+	pool.Generation = doc.Generation
+	return nil
+}
+
+func (r *MongoPoolRepo) SetStatus(ctx context.Context, id string, status infradomain.GroupStatus) error {
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"status": toGroupStatusDoc(status)}})
 	if err != nil {
 		return err
 	}
@@ -133,12 +155,13 @@ func (r *MongoPoolRepo) Delete(ctx context.Context, id string) error {
 
 func toPool(doc *poolDoc) *infradomain.Pool {
 	return &infradomain.Pool{
-		ID:               doc.ID,
-		SiteID:           doc.SiteID,
-		Name:             doc.Name,
-		Description:      doc.Description,
-		ProviderRealized: doc.ProviderRealized,
-		CreatedAt:        doc.CreatedAt,
-		UpdatedAt:        doc.UpdatedAt,
+		ID:          doc.ID,
+		SiteID:      doc.SiteID,
+		Generation:  doc.Generation,
+		Name:        doc.Name,
+		Description: doc.Description,
+		Status:      toGroupStatus(doc.Status),
+		CreatedAt:   doc.CreatedAt,
+		UpdatedAt:   doc.UpdatedAt,
 	}
 }

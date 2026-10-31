@@ -199,3 +199,29 @@ func captureMachineUpdate(t *testing.T, field string, call func(*Provider) error
 	}
 	return form
 }
+
+// Listing marks MAAS's built-in groups as the default: the zone by its name, the pool by id 0, so
+// a renamed default pool is still recognized.
+func TestListGroups_MarksTheDefault(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.respond("GET "+apiPrefix+"/zones/{$}", http.StatusOK,
+		`[{"name":"default","description":""},{"name":"rack-a","description":"top of rack"}]`)
+	fake.respond("GET "+apiPrefix+"/resourcepools/{$}", http.StatusOK,
+		`[{"id":0,"name":"shared","description":""},{"id":3,"name":"gpu","description":"accelerators"}]`)
+	provider := newTestProvider(t, fake)
+
+	zones, err := provider.ListZones(context.Background())
+	if err != nil {
+		t.Fatalf("ListZones: %v", err)
+	}
+	if len(zones) != 2 || !zones[0].Default || zones[1].Default || zones[1].Description != "top of rack" {
+		t.Errorf("zones = %+v, want default first and rack-a with its description", zones)
+	}
+	pools, err := provider.ListPools(context.Background())
+	if err != nil {
+		t.Fatalf("ListPools: %v", err)
+	}
+	if len(pools) != 2 || !pools[0].Default || pools[0].Name != "shared" || pools[1].Default {
+		t.Errorf("pools = %+v, want the id-0 pool as default", pools)
+	}
+}

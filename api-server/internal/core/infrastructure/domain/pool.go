@@ -10,37 +10,37 @@ import (
 //
 // It mirrors Zone's shape and ownership rules but is a distinct concept: a Zone groups for
 // availability/fault/organization, a Pool partitions for allocation. Name is unique within
-// SiteID. It is realized as a provider resource pool when the Site's provisioner is
-// grouping-capable, and exists in swallow otherwise.
+// SiteID. The catalog controller realizes it as a resource pool on every grouping-capable
+// provisioner of the Site.
 type Pool struct {
 	// ID is swallow-issued and stable; every swallow reference uses it.
 	ID string
 	// SiteID is the owning Site. A Pool never spans Sites.
 	SiteID string
+	// Generation counts spec changes: 1 when created, +1 on every rename or description change.
+	Generation int64
 	// Name is operator-facing and unique within SiteID.
 	Name string
 	// Description is an optional operator note.
 	Description string
-	// ProviderRealized records whether the most recent swallow write to this Pool was
-	// propagated to a grouping-capable provisioner. Swallow-owned metadata reflecting the last
-	// write only; false means the Site had no grouping-capable provisioner when it was written.
-	ProviderRealized bool
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// Status is written only by the catalog controller.
+	Status    GroupStatus
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
-// PoolRepository persists swallow-owned Pools.
-//
-// Implementations must be safe for concurrent use and must enforce name uniqueness per Site:
-// Create and Update return ErrPoolNameTaken when a different Pool in the same Site already holds
-// the name. FindByID and Update return ErrPoolNotFound for an unknown id. Production
-// implementations must use durable storage; in-memory implementations are limited to tests.
+// PoolRepository persists swallow-owned Pools, with the same contract as ZoneRepository and
+// ErrPoolNameTaken / ErrPoolNotFound in place of the Zone errors.
 type PoolRepository interface {
 	Create(ctx context.Context, pool *Pool) error
 	FindByID(ctx context.Context, id string) (*Pool, error)
+	FindByName(ctx context.Context, siteID, name string) (*Pool, error)
 	// List returns Pools sorted by name. An empty siteID returns every Pool across Sites.
 	List(ctx context.Context, siteID string) ([]*Pool, error)
-	// Update replaces the mutable fields (name, description, updatedAt) of an existing Pool.
-	Update(ctx context.Context, pool *Pool) error
+	// UpdateSpec stores pool's name and description and increments its generation, writing the
+	// new generation and updatedAt back onto pool.
+	UpdateSpec(ctx context.Context, pool *Pool) error
+	// SetStatus replaces the controller-written status; nothing else changes.
+	SetStatus(ctx context.Context, id string, status GroupStatus) error
 	Delete(ctx context.Context, id string) error
 }

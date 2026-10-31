@@ -170,6 +170,28 @@ func (r *EventingServerRepository) SetObservedTags(ctx context.Context, id strin
 	return nil
 }
 
+// SetObservedPlacement delegates and publishes the re-read projection.
+func (r *EventingServerRepository) SetObservedPlacement(ctx context.Context, id string, zone, pool string) error {
+	store, err := r.convergenceStore()
+	if err != nil {
+		return err
+	}
+	if err := store.SetObservedPlacement(ctx, id, zone, pool); err != nil {
+		return err
+	}
+	r.publishByID(ctx, id)
+	return nil
+}
+
+// CountSpecPlacement delegates; a read publishes nothing.
+func (r *EventingServerRepository) CountSpecPlacement(ctx context.Context, zoneID, poolID string) (int, error) {
+	store, err := r.convergenceStore()
+	if err != nil {
+		return 0, err
+	}
+	return store.CountSpecPlacement(ctx, zoneID, poolID)
+}
+
 // SetOrigin delegates and publishes the re-read projection.
 func (r *EventingServerRepository) SetOrigin(ctx context.Context, id string, origin serverdomain.Origin) error {
 	store, err := r.convergenceStore()
