@@ -122,9 +122,9 @@ component 的內部實作細節。
 ## Core、Provider Adapter 與擴充模組的位置
 
 [`core-and-extensions.md`](core-and-extensions.md) 定義的 core、provider adapter 與擴充模組都在 `api-server`
-component 之內，不是新的頂層 component。目標位置：
+component 之內，不是新的頂層 component。位置：
 
-| 部分 | 目標位置 |
+| 部分 | 位置 |
 | --- | --- |
 | core | `api-server/internal/core/` |
 | provider adapter | `api-server/internal/adapters/<provider interface>/<adapter>/` |
@@ -133,7 +133,7 @@ component 之內，不是新的頂層 component。目標位置：
 
 `api-server` 內部的完整目錄配置與依賴規則見
 [`api-server/docs/development/architecture-spec.md`](../../api-server/docs/development/architecture-spec.md) 的
-Target Layout。
+Layout；依賴方向由 `api-server/tests/layout_test.go` 的 import 檢查守住。
 
 既有程式碼已依此配置搬移：provider adapter 在 `api-server/internal/adapters/`，host automation 內容與模組的
 Go 程式碼在 `api-server/modules/`。仍在 core 與 `internal/app` 內的平台與 GPU 廠商專屬邏輯（例如

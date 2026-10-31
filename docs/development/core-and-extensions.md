@@ -209,8 +209,9 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 - 每個 port 一組 adapter 一致性測試（§3.7）。
 - 每個 repository 內的模組必須能只靠 manifest 與 host automation 內容載入；Go hook 以清單管理，清單之外的
   模組專屬 Go 程式碼視為違規。
-- core 的套件不得 import adapter、模組或廠商 SDK，以 import 檢查守住（與 component 現有的 Clean Architecture
-  檢查合併）。
+- core 的套件不得 import adapter、模組或廠商 SDK，adapter 與模組也不得互相 import；由 `api-server` 的 import
+  檢查守住（規則見 `api-server/docs/development/architecture-spec.md` 的 Layout，與 component 的 Clean
+  Architecture 分層檢查是同一個測試）。
 
 ## 10. 演進階段與共同開發
 

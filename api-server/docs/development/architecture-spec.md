@@ -68,7 +68,7 @@ flowchart TB
 內層不能接受 `*fiber.Ctx`、`bson.M`、Mongo cursor、Temporal activity context、
 Ansible event、provider SDK response 或 YAML node。
 
-## Target Layout
+## Layout
 
 依 root 的 [`core-and-extensions.md`](../../../docs/development/core-and-extensions.md)，`api-server` 的程式碼分成
 core、provider adapter 與擴充模組三部分：
@@ -116,8 +116,18 @@ api-server/
   所屬模組與 `shared/` 的 role（`ANSIBLE_ROLES_PATH`）。
 - **`internal/app`**：唯一可以同時看到 core、adapter 與模組的地方。
 
-過渡規則：新程式碼一律放在目標位置；既有程式碼在依此配置搬移之前維持原位，兩者可以並存。搬移時不得改變行為，
-並同時建立 import 檢查來守住上述依賴方向。
+依賴方向由 `tests/layout_test.go` 的 import 檢查守住，隨 `go test ./...` 執行，只檢查非測試檔：
+
+- `internal/` 底下只有 `core`、`adapters`、`shared`、`app`。
+- core 不得 import `internal/adapters`、`internal/app`、`modules`、`config`、`bootstrap`，也不得 import MongoDB、
+  Temporal 或 `golang.org/x/crypto/ssh`；Fiber 只出現在 delivery。domain 不得 import application 或 delivery，
+  application 不得 import delivery。
+- adapter 不得 import 其他 adapter、`internal/app` 或 `modules`；同一個 adapter 根目錄
+  （`internal/adapters/<port>/<adapter>`）底下的 package 可以互相 import。
+- 模組只依賴 core、`internal/shared` 與自己的 package，不得 import adapter、`internal/app` 或其他模組。
+- `internal/shared` 不得 import core、adapter、`internal/app` 或 `modules`。
+
+新增的 import 違反上述規則時應修正依賴方向（例如把 port 或常數移到 core），不得放寬檢查。
 
 ## Feature Slices
 
