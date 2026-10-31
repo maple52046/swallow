@@ -16,6 +16,50 @@ LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 REFERENCE_RE = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+)", re.MULTILINE)
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
 EXTERNAL_SCHEMES = {"http", "https", "mailto", "tel", "data"}
+INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
+CODE_PATH_PREFIXES = (
+    "api-server/",
+    "dashboard/",
+    "cli/",
+    "deploy/",
+    "docs/",
+    "scripts/",
+    "skills/",
+    "internal/",
+    "modules/",
+    "cmd/",
+    "config/",
+    "tests/",
+    "src/",
+)
+COMPONENT_RELATIVE_PREFIXES = ("internal/", "modules/", "cmd/", "config/", "tests/")
+COMPONENTS = ("api-server", "dashboard", "cli")
+# Inline paths in current specs that name something on purpose absent: a rejected alternative,
+# a layout that was retired, an example of a file to create, or a glossary change note recording
+# where something used to be.
+HISTORICAL_CODE_PATHS = {
+    ("docs/development/codebase-structure.md", "src/swallow"): "retired submodule layout",
+    ("docs/development/codebase-structure.md", "src/dashboard"): "retired submodule layout",
+    ("docs/development/core-and-extensions.md", "api-server/automation"): "rejected alternative",
+    ("docs/development/core-and-extensions.md", "api-server/internal/modules"): "rejected alternative",
+    (
+        "api-server/docs/development/api-contracts/api-server/planned-surface.md",
+        "docs/api-contracts/README.md",
+    ): "migrated-from note",
+    ("skills/README.md", "skills/inspect-logs/SKILL.md"): "example of a skill to add",
+    ("api-server/skills/README.md", "skills/inspect-logs/SKILL.md"): "example of a skill to add",
+    ("dashboard/skills/README.md", "skills/inspect-logs/SKILL.md"): "example of a skill to add",
+    ("docs/development/glossaries/terms/integration.md", "docs/glossaries/site.md"): "change note",
+    ("docs/development/glossaries/terms/machine.md", "docs/glossaries/provisioning.md"): "change note",
+    (
+        "docs/development/glossaries/terms/os-provisioning-provider.md",
+        "docs/glossaries/provisioning.md",
+    ): "change note",
+    ("docs/development/glossaries/terms/release.md", "docs/glossaries/provisioning.md"): "change note",
+    ("docs/development/glossaries/terms/server.md", "docs/glossaries"): "change note",
+    ("docs/development/glossaries/terms/site.md", "docs/glossaries/site.md"): "change note",
+    ("docs/development/glossaries/terms/staleness.md", "docs/glossaries/site.md"): "change note",
+}
 
 
 def markdown_files() -> list[Path]:
@@ -149,6 +193,88 @@ def check_links(files: list[Path], errors: list[str]) -> None:
                 )
 
 
+def is_current_spec(path: Path) -> bool:
+    """Return whether path is a current specification whose inline paths must exist.
+
+    ADRs are frozen records and plans are history, so either may name paths that moved since.
+    """
+    if not is_development_source(path) or "plans" in path.parts:
+        return False
+    return path.parts[:2] != ("docs", "decisions")
+
+
+def code_path_candidates(source: Path, token: str) -> list[Path]:
+    """Return the directories an inline repository path in source may be relative to."""
+    bases = [ROOT]
+    component = source.parts[0] if source.parts and source.parts[0] in COMPONENTS else None
+    if component:
+        bases.append(ROOT / component)
+    if token.startswith(COMPONENT_RELATIVE_PREFIXES):
+        bases.append(ROOT / "api-server")
+    if token.startswith("src/"):
+        bases.append(ROOT / "dashboard")
+    bases.append(ROOT / source.parent)
+    return bases
+
+
+def code_path_exists(base: Path, token: str) -> bool:
+    pattern = re.sub(r"<[^>]*>", "*", token).replace("...", "*")
+    alternatives = [pattern]
+    brace = re.search(r"\{([^{}]*)\}", pattern)
+    if brace:
+        alternatives = [
+            pattern[: brace.start()] + choice + pattern[brace.end() :]
+            for choice in brace.group(1).split(",")
+        ]
+    for alternative in alternatives:
+        if "*" in alternative or "?" in alternative:
+            if any(base.glob(alternative)):
+                return True
+        elif (base / alternative).exists():
+            return True
+    return False
+
+
+def normalize_code_path(token: str) -> str:
+    token = token.split("#", 1)[0]
+    token = re.sub(r":\d+(-\d+)?$", "", token)
+    return token.rstrip(".,;:)").rstrip("/")
+
+
+def check_code_paths(files: list[Path], errors: list[str]) -> None:
+    """Report inline repository paths in current specs that do not exist.
+
+    A path that a spec mentions but that was renamed or removed misleads every reader that
+    follows it, and check_links only sees Markdown links. Only tokens that start with a known
+    repository prefix are checked; bare file names are not.
+    """
+    for source in files:
+        if not is_current_spec(source):
+            continue
+        text = without_fenced_code((ROOT / source).read_text(encoding="utf-8"))
+        for raw in INLINE_CODE_RE.findall(text):
+            if any(character.isspace() for character in raw) or "/" not in raw:
+                continue
+            if not raw.startswith(CODE_PATH_PREFIXES):
+                continue
+            token = normalize_code_path(raw)
+            if (str(source), token) in HISTORICAL_CODE_PATHS:
+                continue
+            candidates = [token]
+            symbol = re.sub(r"\.[A-Z]\w*$", "", token)
+            if symbol != token:
+                candidates.append(symbol)
+            if not Path(token).suffix:
+                candidates.extend([token + ".ts", token + ".tsx"])
+            if any(
+                code_path_exists(base, candidate)
+                for base in code_path_candidates(source, raw)
+                for candidate in candidates
+            ):
+                continue
+            errors.append(f"{source}: inline path does not exist: {raw}")
+
+
 def check_language_mirror(errors: list[str]) -> None:
     english = {
         path.relative_to(ROOT / "docs/en")
@@ -221,6 +347,7 @@ def main() -> int:
     errors: list[str] = []
     files = markdown_files()
     check_links(files, errors)
+    check_code_paths(files, errors)
     check_language_mirror(errors)
     check_required_counterparts(errors)
     check_documentation_screenshots(errors)

@@ -593,7 +593,7 @@ Operation 也不能同時宣告同一台 Server。把 provider 失敗改成不�
 | 部署網路模式 | `internal/core/provisioning/domain/network.go` |
 | Network inspection 與建議 | `internal/core/provisioning/application/network_configuration.go` |
 | Deploy resolve、受理閘門、批次送出 | `internal/core/provisioning/application/deploy_servers.go`、`internal/core/provisioning/application/deployment_targets.go` |
-| OS Image 目錄、overlay、上傳、刪除 | `internal/core/provisioning/application/list_os_images.go`、`set_os_image_overlay.go`、`upload_os_image.go`、`delete_os_image.go` |
+| OS Image 目錄、metadata、上傳、刪除 | `internal/core/provisioning/application/list_os_images.go`、`internal/core/provisioning/application/set_os_image_metadata.go`、`internal/core/provisioning/application/upload_os_image.go`、`internal/core/provisioning/application/delete_os_image.go` |
 | Subnet DNS | `internal/core/provisioning/domain/subnet_dns.go`、`internal/core/provisioning/application/subnet_dns.go`、`internal/core/provisioning/delivery/subnet_dns_handler.go` |
 | Provisioner HTTP Proxy | `internal/core/provisioning/domain/http_proxy.go`、`internal/core/provisioning/application/http_proxy.go` |
 | Operator-state 動作（mark-*、rescue） | `internal/core/provisioning/application/machine_actions.go` |

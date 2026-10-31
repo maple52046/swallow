@@ -397,7 +397,7 @@ API 認證的決策與時效、cookie、rotation 細節見
 | SSH Keys HTTP | `internal/core/sshkey/delivery/handler.go` |
 | 組裝、同步迴圈、Deployment Key adapter | `internal/app/sshkey_adapter.go`、`internal/app/api.go` |
 | 安裝步驟 `deployment-key ensure` | `cmd/swallow-api/deployment_key.go`、`internal/app/deployment_key.go` |
-| OS 佈署的受理前檢查與佈署前 ensure | `internal/core/provisioning/application/deploy_servers.go`、`internal/core/provisioning/application/deploy_server.go` |
+| OS 佈署的受理前檢查與佈署前 ensure | `internal/core/provisioning/application/deploy_servers.go` |
 | `provision-os` 錯誤碼與送出佈署前清除 Server Default User | `internal/app/provider_step_executor.go` |
 | Platform deploy 的 Deployment Key 檢查 | `internal/core/platform/application/deploy_platform.go` |
 | Effective automation credential 與 `credentialSource` | `internal/core/workflow/application/effective_credential.go` |
@@ -409,7 +409,7 @@ API 認證的決策與時效、cookie、rotation 細節見
 | `ansible_user` 解析 | `internal/adapters/hostautomation/ansible/local_runner.go` |
 | `wait-for-ssh` | `internal/app/platform_workflow_step_executor.go` |
 | Inventory `default_user`／`image_default_user` | `internal/core/discovery/application/discovery.go` |
-| OS Image default user 的內建值與 effective 值 | `internal/core/provisioning/domain/os_image_overlay.go` |
+| OS Image default user 的內建值與 effective 值 | `internal/core/provisioning/domain/os_image_metadata.go` |
 | 鏡射到 Server、無 OS 時清除 Server Default User | `internal/core/provisioning/application/reconcile.go` |
 | Server Default User（effective 值、名稱規則、sudo、錯誤） | `internal/core/server/domain/default_user.go` |
 | Server Default User use case | `internal/core/server/application/default_user.go` |

@@ -34,7 +34,7 @@ api-server/modules/
   （`deploy/production/api-server.Dockerfile`），執行時的內容根目錄只有 manifest、playbook 與 role。
 - `modules/` 就是 ansible-runner 的 project dir，安裝在 `/opt/swallow/automation/modules`；設定是
   `SWALLOW_API_PLAYBOOK_DIR` 與 `SWALLOW_API_PLAYBOOK_MANIFEST`（預設 `modules` 與 `modules/manifest.json`）。
-- 2026-10-31 搬移前的路徑（`api-server/automation/...`）與現在的對照，見
+- 2026-10-31 搬移前的路徑（playbook 與 role 原本在 `api-server` 的 automation 目錄）與現在的對照，見
   [`api-server` architecture spec](../../api-server/docs/development/architecture-spec.md) 的「2026-10-31 搬移前的
   路徑」。
 
