@@ -222,7 +222,7 @@ func (s *ExecutionService) resolveTargets(ctx context.Context, kind workflowdoma
 			siteID = server.Source.SiteID
 		}
 		if server.Source.SiteID != siteID {
-			return nil, "", fmt.Errorf("%w: targets must belong to one site", ErrInvalidOperation)
+			return nil, "", fmt.Errorf("%w: %w", ErrInvalidOperation, ErrTargetsSpanSites)
 		}
 		if required != "" && (server.Provisioning == nil || server.Provisioning.State != required) {
 			return nil, "", fmt.Errorf("%w: %s requires %q",
@@ -610,7 +610,7 @@ func (s *ExecutionService) PrepareAnsibleStep(ctx context.Context, input CreateE
 			siteID = server.Source.SiteID
 		}
 		if server.Source.SiteID != siteID {
-			return nil, fmt.Errorf("%w: targets must belong to one site", ErrInvalidOperation)
+			return nil, fmt.Errorf("%w: %w", ErrInvalidOperation, ErrTargetsSpanSites)
 		}
 		if !provisionFirst {
 			required := kind.RequiredProvisioningState()

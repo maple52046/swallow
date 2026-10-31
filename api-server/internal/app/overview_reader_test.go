@@ -69,7 +69,7 @@ func TestReaderListFiringAlertsSeparatesNotConfiguredFromUnavailable(t *testing.
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			reader := &OverviewReader{alerts: monitoringapp.NewAlertService(overviewAlertFactory{err: tc.err})}
+			reader := &OverviewReader{alerts: monitoringapp.NewAlertService(overviewAlertFactory{err: tc.err}, knownSites{})}
 
 			_, err := reader.ListFiringAlerts(context.Background(), "site-a")
 			if !errors.Is(err, tc.wantErr) {
@@ -78,9 +78,14 @@ func TestReaderListFiringAlertsSeparatesNotConfiguredFromUnavailable(t *testing.
 		})
 	}
 
-	reader := &OverviewReader{alerts: monitoringapp.NewAlertService(overviewAlertFactory{err: errors.New("boom")})}
+	reader := &OverviewReader{alerts: monitoringapp.NewAlertService(overviewAlertFactory{err: errors.New("boom")}, knownSites{})}
 	_, err := reader.ListFiringAlerts(context.Background(), "site-a")
 	if errors.Is(err, overviewapp.ErrMonitoringNotConfigured) || errors.Is(err, overviewapp.ErrMonitoringUnavailable) {
 		t.Errorf("ListFiringAlerts() error = %v, want a fatal error outside both partial states", err)
 	}
 }
+
+// knownSites reports every Site as existing; the overview resolves its Site before reading alerts.
+type knownSites struct{}
+
+func (knownSites) SiteExists(context.Context, string) (bool, error) { return true, nil }

@@ -446,7 +446,7 @@ func (uc *DeployServersUseCase) preflight(
 	}
 	networkProvider, err := requireNetworkProvider(provider)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", provisioningdomain.ErrDeploymentBatchConflict, err)
+		return nil, fmt.Errorf("%w: %w", provisioningdomain.ErrDeploymentBatchConflict, err)
 	}
 	assignments, err := resolveNetworkAssignments(
 		ctx, networkProvider, servers, input.Network, networkMode, subnetID)

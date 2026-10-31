@@ -17,6 +17,7 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	"github.com/maple52046/swallow/internal/core/store"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // ErrInvalidRequest wraps every request-shape validation failure so delivery maps it to 400.
@@ -265,7 +266,8 @@ func (s *SoftwareService) planInstall(ctx context.Context, input InstallInput, c
 			return installPlan{}, err
 		}
 		if !composed && (server.Absent || server.Provisioning == nil || server.Provisioning.State != "deployed") {
-			return installPlan{}, fmt.Errorf("%w: %s is not deployed", ErrInvalidRequest, server.DisplayName())
+			// The same state conflict PrepareAnsibleStep reports on a race, so both answer 409.
+			return installPlan{}, fmt.Errorf("%w: %s is not deployed", workflowdomain.ErrTargetStateInvalid, server.DisplayName())
 		}
 		if !composed {
 			if err := s.refuseClaimed(ctx, entry, server, "install"); err != nil {

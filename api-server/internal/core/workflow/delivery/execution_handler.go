@@ -166,8 +166,8 @@ func operationRequestedAt(item any) string {
 
 // Logs returns locally retained runner output.
 func (h *ExecutionHandler) Logs(c *fiber.Ctx) error {
-	if resp := h.rejectOrchestratedLegacy(c, "Orchestrated Operations expose logs per Step; use the Step logs endpoint."); resp != nil {
-		return resp
+	if handled, err := h.rejectOrchestratedLegacy(c, "Orchestrated Operations expose logs per Step; use the Step logs endpoint."); handled {
+		return err
 	}
 	logs, err := h.operations.Logs(c.Context(), c.Params("id"))
 	if err != nil {
@@ -179,8 +179,8 @@ func (h *ExecutionHandler) Logs(c *fiber.Ctx) error {
 
 // Events returns a run's task-level progress.
 func (h *ExecutionHandler) Events(c *fiber.Ctx) error {
-	if resp := h.rejectOrchestratedLegacy(c, "Orchestrated Operations expose events per Step; use the Step events endpoint."); resp != nil {
-		return resp
+	if handled, err := h.rejectOrchestratedLegacy(c, "Orchestrated Operations expose events per Step; use the Step events endpoint."); handled {
+		return err
 	}
 	events, err := h.operations.Events(c.Context(), c.Params("id"))
 	if err != nil {
@@ -189,21 +189,21 @@ func (h *ExecutionHandler) Events(c *fiber.Ctx) error {
 	return c.JSON(events)
 }
 
-// rejectOrchestratedLegacy returns a response when the operation-level legacy endpoint is
-// called for a schema-v3 orchestration Operation, which exposes logs and events per Step
-// instead. It returns nil for v2 operations so they keep their operation-level behavior,
-// and surfaces any non-"not v3" lookup error. This prevents a v3 Operation from silently
-// hitting the empty legacy run path.
-func (h *ExecutionHandler) rejectOrchestratedLegacy(c *fiber.Ctx, message string) error {
+// rejectOrchestratedLegacy answers an operation-level legacy endpoint called for a schema-v3
+// Workflow, which exposes logs and events per Task instead: 409 for a Workflow, and the lookup
+// error for any failure other than "not v3". handled reports that it wrote the response, so the
+// caller returns err as is; apierror.Respond returns nil once it has written, which is why a
+// nil error cannot mean "not handled" (DF-05: the 409 used to be overwritten with a 404).
+func (h *ExecutionHandler) rejectOrchestratedLegacy(c *fiber.Ctx, message string) (handled bool, err error) {
 	if h.orchestrations == nil {
-		return nil
+		return false, nil
 	}
-	if _, err := h.orchestrations.Get(c.Context(), c.Params("id")); err == nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeConflict, message))
-	} else if !application.IsNotV3(err) {
-		return respondExecutionError(c, err)
+	if _, lookupErr := h.orchestrations.Get(c.Context(), c.Params("id")); lookupErr == nil {
+		return true, apierror.Respond(c, apierror.New(apierror.CodeConflict, message))
+	} else if !application.IsNotV3(lookupErr) {
+		return true, respondExecutionError(c, lookupErr)
 	}
-	return nil
+	return false, nil
 }
 
 // Timeline returns normalized durable events for an orchestration Operation.
@@ -383,15 +383,17 @@ func respondExecutionError(c *fiber.Ctx, err error) error {
 		errors.Is(err, workflowdomain.ErrTaskNotFound),
 		errors.Is(err, workflowdomain.ErrAutomationConfigNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, err.Error()))
+	case errors.Is(err, sitedomain.ErrSiteNotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Site not found."))
 	case errors.Is(err, workflowdomain.ErrTargetsBusy),
 		errors.Is(err, workflowdomain.ErrPolicyConflict),
 		errors.Is(err, workflowdomain.ErrWorkflowControlConflict),
 		errors.Is(err, workflowdomain.ErrTaskRetryUnsafe),
 		errors.Is(err, workflowdomain.ErrTargetLocked),
+		errors.Is(err, workflowdomain.ErrTargetStateInvalid),
 		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 	case errors.Is(err, application.ErrInvalidOperation),
-		errors.Is(err, workflowdomain.ErrTargetStateInvalid),
 		errors.Is(err, workflowdomain.ErrPlaybookNotAllowed):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 	case errors.Is(err, workflowdomain.ErrAutomationDisabled),

@@ -78,8 +78,8 @@ Create requires `siteId`, `kind`, `providerKind`, `name`, and `endpoint`; `name`
 are trimmed and must not be blank. The valid pairs are `provisioner`/`maas` and
 `metrics`/`prometheus`. `credential` is optional (omitted or `""` stores none), `enabled`
 defaults to `true`, and `settings` is a string map (see below). An unknown `siteId` is
-`404 not_found`. `name` is unique within a Site, but a duplicate is currently answered
-`500 internal_error` rather than `409 conflict` (known defect).
+`404 not_found`. `name` is unique within a Site: a create or a rename onto a name another
+Integration of the Site has is `409 conflict`.
 
 `GET /api/v1/integrations` does not validate `kind`: a value no Integration has returns `[]`.
 The deprecated alias `kind=cluster` is read as `platform` and answered with the header
@@ -127,3 +127,5 @@ Integration created before the key existed has it absent, which means on.
 
 - Since 2026-10-31 a Site name that is empty after trimming is refused on create and on `PATCH`
   (DF-13). Before, a whitespace-only name was stored as `""` and `PATCH` accepted an empty name.
+- Since 2026-10-31 a duplicate Integration name in one Site is `409 conflict` on create and on
+  rename (DF-05); it was `500 internal_error`.

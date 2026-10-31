@@ -587,3 +587,18 @@ func TestMetricNames_IsDiscoverable(t *testing.T) {
 		t.Fatalf("expected the query set to be listed, got %s", body)
 	}
 }
+
+// DF-05: a siteId that names no Site is 404, not "no metrics backend" (503).
+func TestAlerts_UnknownSiteIsNotFound(t *testing.T) {
+	f := setupPlatform(t)
+
+	for _, request := range []struct{ method, path string }{
+		{"GET", "/api/v1/monitoring/alerts?siteId=no-such-site"},
+		{"POST", "/api/v1/monitoring/alerts/abc/acknowledge?siteId=no-such-site"},
+	} {
+		resp := doRequest(t, f.app, request.method, request.path, map[string]any{"matchers": map[string]string{"alertname": "X"}}, f.adminAuth(t))
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s %s: expected 404, got %d", request.method, request.path, resp.StatusCode)
+		}
+	}
+}

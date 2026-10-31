@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 /**
  * Loading/error/ready states for an on-demand async read, plus the "unavailable" outcome a live
@@ -16,7 +16,18 @@ export type AsyncData<T> =
   | { status: 'ready'; data: T }
 
 /** API error codes that mean "the explorer is not available for this Platform", not a fault. */
-const UNAVAILABLE_STATUSES = new Set([404, 409])
+const UNAVAILABLE_STATUSES: readonly number[] = [404, 409]
+
+/** Options of {@link useAsyncData}. */
+export interface AsyncDataOptions {
+  /**
+   * The HTTP statuses read as `unavailable` rather than an error. Defaults to the explorer
+   * eligibility answers (404 and 409). A read of one named object (a workload's pods, a pod's
+   * logs) passes `[]`: there a 404 or 409 is the cluster reporting that object, which the view
+   * shows as an error, not as the explorer being unavailable.
+   */
+  unavailableStatuses?: readonly number[]
+}
 
 /**
  * Structurally extracts an HTTP status from a rejected request without importing the
@@ -37,9 +48,15 @@ function httpStatusOf(error: unknown): number | null {
  * identity (via `deps`) resets the state. Effects are cancellation-guarded so a slow response
  * for a previous Platform cannot overwrite the current one.
  */
-export function useAsyncData<T>(loader: () => Promise<T>, deps: readonly unknown[]): AsyncData<T> & { reload: () => void } {
+export function useAsyncData<T>(
+  loader: () => Promise<T>,
+  deps: readonly unknown[],
+  options: AsyncDataOptions = {},
+): AsyncData<T> & { reload: () => void } {
   const [state, setState] = useState<AsyncData<T>>({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
+  const unavailableStatuses = useRef(options.unavailableStatuses ?? UNAVAILABLE_STATUSES)
+  unavailableStatuses.current = options.unavailableStatuses ?? UNAVAILABLE_STATUSES
 
   // The loader closes over the caller's deps; we intentionally key the effect on deps + nonce
   // rather than the loader identity, which would change every render.
@@ -57,7 +74,7 @@ export function useAsyncData<T>(loader: () => Promise<T>, deps: readonly unknown
         if (cancelled) return
         const status = httpStatusOf(error)
         const message = error instanceof Error ? error.message : 'Request failed.'
-        if (status !== null && UNAVAILABLE_STATUSES.has(status)) {
+        if (status !== null && unavailableStatuses.current.includes(status)) {
           setState({ status: 'unavailable', message })
           return
         }

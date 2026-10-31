@@ -691,7 +691,7 @@ paths:
       deprecated: true
       description: >-
         Requires the `admin` role. UTF-8 plain text of the run's output, empty when nothing was
-        retained. A schema-v3 Workflow exposes logs per Task instead and is `not_found` here.
+        retained. A schema-v3 Workflow exposes logs per Task instead and is `conflict` here.
       responses:
         '200':
           description: The runner output.
@@ -710,6 +710,12 @@ paths:
           $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/OperationV2NotFound'
+        '409':
+          description: A schema-v3 Workflow, which exposes this per Task instead (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
   /api/v1/operations/{id}/events:
@@ -722,7 +728,7 @@ paths:
       deprecated: true
       description: >-
         Requires the `admin` role. `status` is the schema-v2 run status. A schema-v3 Workflow
-        exposes events per Task instead and is `not_found` here.
+        exposes events per Task instead and is `conflict` here.
       responses:
         '200':
           description: The per-host results and their counts.
@@ -741,6 +747,12 @@ paths:
           $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/OperationV2NotFound'
+        '409':
+          description: A schema-v3 Workflow, which exposes this per Task instead (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
   /api/v1/operations/{id}/retry:
@@ -930,8 +942,7 @@ components:
             $ref: '#/components/schemas/Error'
     OperationV2NotFound:
       description: >-
-        No schema-v2 record has this ID (`not_found`). This includes the ID of a schema-v3
-        Workflow, which exposes this per Task instead.
+        No schema-v2 record or schema-v3 Workflow has this ID (`not_found`).
       content:
         application/json:
           schema:
@@ -939,9 +950,9 @@ components:
     WorkflowCreateRejected:
       description: >-
         The request is invalid (`validation_error`): a malformed body, an unknown `kind`, no
-        `targetServerIds`, targets in more than one Site, a target not in the provisioning
-        state the kind requires, `custom` without `playbookName`, no playbook mapped for the
-        kind, a playbook not in the release manifest, or durable orchestration unavailable.
+        `targetServerIds`, targets in more than one Site, `custom` without `playbookName`, no
+        playbook mapped for the kind, a playbook not in the release manifest, or durable
+        orchestration unavailable.
       content:
         application/json:
           schema:
@@ -956,8 +967,9 @@ components:
             $ref: '#/components/schemas/Error'
     WorkflowCreateConflict:
       description: >-
-        A target is already in unfinished work, a target is protected by its Server Lock, or
-        the intent contradicts a Platform policy (`conflict`).
+        A target is already in unfinished work, a target is protected by its Server Lock, a
+        target is not in the provisioning state the kind requires, or the intent contradicts a
+        Platform policy (`conflict`).
       content:
         application/json:
           schema:

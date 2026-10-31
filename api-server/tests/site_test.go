@@ -166,6 +166,22 @@ func TestCreateIntegration_RejectsUnknownSite(t *testing.T) {
 	}
 }
 
+// DF-05: a second Integration with the same name in one Site is a conflict, not an internal error.
+func TestCreateIntegration_DuplicateNameConflicts(t *testing.T) {
+	f := setupPlatform(t)
+	siteID := createSite(t, f, "dc-east")
+	body := map[string]any{
+		"siteId": siteID, "kind": "provisioner", "providerKind": "maas",
+		"name": "maas-east", "endpoint": "http://maas:5240/MAAS",
+	}
+	if resp := doRequest(t, f.app, "POST", "/api/v1/integrations/", body, f.adminAuth(t)); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("first create: expected 201, got %d", resp.StatusCode)
+	}
+	if resp := doRequest(t, f.app, "POST", "/api/v1/integrations/", body, f.adminAuth(t)); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("duplicate create: expected 409, got %d", resp.StatusCode)
+	}
+}
+
 // The credential must not be readable through any response, in any form.
 func TestIntegration_CredentialIsNeverReturned(t *testing.T) {
 	f := setupPlatform(t)

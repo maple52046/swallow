@@ -135,7 +135,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	monitoringFactory := newFakeMonitoringFactory()
 	scopeResolver := &fakeScopeResolver{members: map[string][]string{}}
 	monitoringHandler := monitoringdelivery.NewMonitoringHandler(
-		monitoringapp.NewAlertService(monitoringFactory),
+		monitoringapp.NewAlertService(monitoringFactory, fakeSiteLookup{sites: sites}),
 		monitoringapp.NewServerMetricsService(monitoringFactory),
 		monitoringapp.NewMetricRangeService(monitoringFactory, scopeResolver).
 			WithClock(func() time.Time { return testMetricsNow }),

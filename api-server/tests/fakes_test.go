@@ -364,6 +364,14 @@ func (r *fakeSiteRepo) Create(_ context.Context, site *sitedomain.Site) error {
 	return nil
 }
 
+// fakeSiteLookup answers monitoringapp.SiteLookup from the fake Site store.
+type fakeSiteLookup struct{ sites *fakeSiteRepo }
+
+func (l fakeSiteLookup) SiteExists(ctx context.Context, siteID string) (bool, error) {
+	_, err := l.sites.FindByID(ctx, siteID)
+	return err == nil, nil
+}
+
 func (r *fakeSiteRepo) FindByID(_ context.Context, id string) (*sitedomain.Site, error) {
 	site, ok := r.sites[id]
 	if !ok {
@@ -416,6 +424,12 @@ func newFakeIntegrationRepo() *fakeIntegrationRepo {
 }
 
 func (r *fakeIntegrationRepo) Create(_ context.Context, integration *sitedomain.Integration, credential string) error {
+	// Names are unique within a Site, as the store's site_name index enforces.
+	for _, existing := range r.integrations {
+		if existing.SiteID == integration.SiteID && existing.Name == integration.Name {
+			return sitedomain.ErrIntegrationNameTaken
+		}
+	}
 	r.integrations[integration.ID] = integration
 	if credential != "" {
 		r.credentials[integration.ID] = credential

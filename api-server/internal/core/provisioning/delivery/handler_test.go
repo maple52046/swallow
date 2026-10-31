@@ -122,6 +122,23 @@ func TestRespondErrorTranslatesDelegatedOperationErrors(t *testing.T) {
 			wantMessageContains: "at least one Step is required",
 		},
 		{
+			// DF-05: a target in the wrong provisioning state is a state conflict.
+			name:                "a target in the wrong state is a conflict",
+			err:                 fmt.Errorf("%w: srv-a requires \"deployed\"", workflowdomain.ErrTargetStateInvalid),
+			wantStatus:          http.StatusConflict,
+			wantCode:            apierror.CodeConflict,
+			wantMessageContains: "requires",
+		},
+		{
+			// DF-05: a missing capability is a 400 like every other one, also inside a deploy batch.
+			name: "a provisioner without network configuration is a validation error in a batch",
+			err: fmt.Errorf("%w: %w", provisioningdomain.ErrDeploymentBatchConflict,
+				provisioningdomain.ErrNetworkConfigurationUnsupported),
+			wantStatus:          http.StatusBadRequest,
+			wantCode:            apierror.CodeValidation,
+			wantMessageContains: "network",
+		},
+		{
 			// Every OS provisioning points the Server at the installation's NTP server (decision 065).
 			name:                "an installation without an NTP server is a conflict",
 			err:                 provisioningdomain.ErrNTPServerMissing,

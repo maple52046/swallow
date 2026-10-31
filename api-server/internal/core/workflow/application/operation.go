@@ -18,6 +18,10 @@ import (
 // wrap it with a specific reason.
 var ErrInvalidOperation = errors.New("invalid operation")
 
+// ErrTargetsSpanSites means an operation's targets belong to more than one Site. It is a fault
+// of the request, a 400 in every delivery, and is wrapped together with ErrInvalidOperation.
+var ErrTargetsSpanSites = errors.New("targets must belong to one site")
+
 // PolicyChecker refuses operations that contradict a platform policy.
 //
 // It is a port so the operation context does not depend on the platform context: the check

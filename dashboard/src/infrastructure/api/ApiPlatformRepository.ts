@@ -42,7 +42,8 @@ function withNamespace(path: string, namespace?: string): string {
  * The live Kubernetes cluster explorer adapter. Every method maps directly onto a
  * `platforms-kubernetes.md` route; list responses are `{ items }` envelopes, so they are
  * unwrapped here. Errors propagate as {@link ApiRequestError} so the caller can degrade an
- * eligibility failure (404/409) to an "unavailable" view.
+ * eligibility failure (404/409) to an "unavailable" view. A read of one named object can also
+ * answer 404/409 for the cluster's own not-found or already-exists, which is not eligibility.
  */
 class ApiKubernetesExplorer implements KubernetesExplorer {
   async summary(platformId: string): Promise<KubernetesClusterSummary> {

@@ -10,6 +10,7 @@ import (
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	"github.com/maple52046/swallow/internal/core/store"
 	"github.com/maple52046/swallow/internal/core/store/storetest"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // fakeAssignmentRepo is an in-memory Software Assignment store keyed by (serverId, kind).
@@ -215,8 +216,8 @@ func TestInstallRejectsNonDeployedTarget(t *testing.T) {
 	_, err := service.Install(context.Background(), InstallInput{
 		Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}},
 	})
-	if !errors.Is(err, ErrInvalidRequest) {
-		t.Fatalf("err = %v, want ErrInvalidRequest", err)
+	if !errors.Is(err, workflowdomain.ErrTargetStateInvalid) {
+		t.Fatalf("err = %v, want ErrTargetStateInvalid", err)
 	}
 }
 

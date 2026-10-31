@@ -264,7 +264,12 @@ type ReaderErrorKind string
 const (
 	ReaderErrorUnavailable ReaderErrorKind = "unavailable"
 	ReaderErrorAuth        ReaderErrorKind = "auth"
-	ReaderErrorRejected    ReaderErrorKind = "rejected"
+	// ReaderErrorNotFound and ReaderErrorConflict are the platform API reporting that an object it
+	// was asked about does not exist, or already exists; the API passes them on as 404 and 409.
+	ReaderErrorNotFound ReaderErrorKind = "not_found"
+	ReaderErrorConflict ReaderErrorKind = "conflict"
+	// ReaderErrorRejected is any other refusal of the request by the platform API.
+	ReaderErrorRejected ReaderErrorKind = "rejected"
 )
 
 // ReaderError is a failure reported by, or while reaching, a platform API.

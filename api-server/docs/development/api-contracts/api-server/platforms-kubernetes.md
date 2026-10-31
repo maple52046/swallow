@@ -84,10 +84,12 @@ credential:
   `409 conflict`.
 - A `deployed` Platform whose credential Integration is not yet recorded (still `deploying`)
   returns `409 conflict`.
-- When the cluster API is unreachable or rejects the credential, the standard reader mapping
-  applies: `503 provider_unavailable` (unreachable or 5xx / auth) or `400 validation_error`
-  (any other 4xx the cluster API answered: an invalid manifest, but also an object the cluster
-  reports missing or already existing). The `error.message` carries the cluster's reason.
+- When the cluster API answers with an error, the standard reader mapping applies:
+  `503 provider_unavailable` (unreachable, 5xx, or the credential rejected), `404 not_found` for
+  an object the cluster reports missing, `409 conflict` for one it reports already existing, and
+  `400 validation_error` for any other 4xx (for example an invalid manifest). The `error.message`
+  carries the cluster's reason, which tells a cluster-reported 404 or 409 apart from the
+  eligibility answers above.
 
 ## Cluster Summary
 
@@ -168,8 +170,8 @@ them by default and can reveal them.
 ```
 
 Success is `201 Created` returning the namespace. A missing or blank name is
-`400 validation_error` before any cluster call; a name the cluster refuses, including one that
-already exists, is also `400 validation_error` with the cluster's reason.
+`400 validation_error` before any cluster call; a name the cluster refuses is also
+`400 validation_error`, and one that already exists is `409 conflict`, with the cluster's reason.
 
 `DELETE .../kubernetes/namespaces/{namespace}` deletes a namespace and returns
 `{"success": true}`. Deleting a system namespace is refused with `409 conflict` before any
@@ -231,7 +233,7 @@ as the cluster reported it (RFC 3339).
 `pods` uses the Pod shape of [Pods](#pods) and is omitted when the Application currently owns no
 Pod; the list and the scale response never carry it. `kind` must be one of the four; any other
 value is `400 validation_error` before any cluster call. A workload the cluster reports missing is
-also `400 validation_error`, with the cluster's reason.
+`404 not_found`, with the cluster's reason.
 
 `POST .../applications/{namespace}/{kind}/{name}/scale` sets the replica count:
 
@@ -344,12 +346,18 @@ first rejected document.
 
 Beyond the [shared envelope](conventions.md) and the eligibility rules above:
 
-- `404 not_found` — unknown Platform, non-Kubernetes Platform, or an API process without the
-  explorer wired.
-- `409 conflict` — a `registered` Platform, a Platform without a recorded credential, or a
-  refused system-namespace delete.
+- `404 not_found` — unknown Platform, non-Kubernetes Platform, an API process without the
+  explorer wired, or an addressed object the cluster reports missing.
+- `409 conflict` — a `registered` Platform, a Platform without a recorded credential, a
+  refused system-namespace delete, or an object the cluster reports already existing.
 - `400 validation_error` — an invalid body (name, replicas, kind, manifest), an invalid
-  `tailLines`, or any 4xx the cluster API answered, including an addressed object it reports
-  missing or a namespace that already exists.
+  `tailLines`, or any other 4xx the cluster API answered.
 - `503 provider_unavailable` — the cluster API is unreachable, answered 5xx, or rejected the
   credential.
+
+## Compatibility Notes
+
+- Since 2026-10-31 an object the cluster API reports missing is `404 not_found` and one it
+  reports already existing is `409 conflict` (DF-05); both were `400 validation_error`. The
+  eligibility answers keep their codes, so a client that degrades the whole explorer on 404 or
+  409 should do so only for the explorer's own reads, as the dashboard does.

@@ -239,7 +239,7 @@ Servers, creating a durable Workflow and a `pending` assignment per Server.
   [Prometheus and Grafana spec](#prometheus-and-grafana-spec), and the Device Metrics Exporter
   in [Device Metrics Exporter](#device-metrics-exporter).
 - Every target Server must be present and in provisioning state `deployed`; the request checks
-  this first and refuses it as `400 validation_error`. A kind installed by its
+  this first and refuses it as `409 conflict`. A kind installed by its
   `container` method also needs one of the entry's `containerRuntimes` in state `installed` on
   every target (see [Prometheus and Grafana spec](#prometheus-and-grafana-spec)).
 - All targets must belong to one Site, whose Ansible automation must be runnable.
@@ -376,11 +376,11 @@ In addition to the shared codes in [conventions](conventions.md):
 
 | `error.code` | HTTP Status | Meaning |
 | --- | ---: | --- |
-| `validation_error` | 400 | The body is not valid JSON; unknown kind; no target, a target without `serverId`, or a duplicate target; missing/invalid roles for the kind; a missing, malformed, or wrong-typed spec field, or one the kind does not accept; or a target Server is absent or not in provisioning state `deployed`. |
+| `validation_error` | 400 | The body is not valid JSON; unknown kind; no target, a target without `serverId`, or a duplicate target; missing/invalid roles for the kind; a missing, malformed, or wrong-typed spec field, or one the kind does not accept; or the targets belong to more than one Site. |
 | `not_found` | 404 | A target Server, or a Prometheus `scrapeServerIds` entry, does not exist. |
 | `conflict` | 409 | A mutually exclusive software kind is already installed on a target, the `container` method's runtime is not `installed` on a target, a target is already a Kubernetes Platform member for a kind that refuses members, a target has a Platform Claim for a kind that refuses claimed Servers, or a target lacks the AMD compute GPUs the Device Metrics Exporter needs. |
-| `conflict` | 409 | When the Workflow is created: a target already has an active durable Workflow, is locked, or (re-checked) is not in the required `deployed` provisioning state. |
-| `provider_unavailable` | 503 | The targets' Site cannot run the Workflow's Ansible automation (no automation configuration, automation disabled, automation not logging in with the Deployment Key, or a playbook outside the release manifest), or the targets belong to more than one Site. |
+| `conflict` | 409 | A target Server is absent or not in provisioning state `deployed`, checked first and re-checked when the Workflow is created; or, when the Workflow is created, a target already has an active durable Workflow or is locked. |
+| `provider_unavailable` | 503 | The targets' Site cannot run the Workflow's Ansible automation (no automation configuration, automation disabled, automation not logging in with the Deployment Key, or a playbook outside the release manifest), or the Server Lock state of a target cannot be confirmed. |
 
 ## Uninstall Software
 
@@ -409,10 +409,10 @@ On success the response is `202 Accepted`:
 
 | `error.code` | HTTP Status | Meaning |
 | --- | ---: | --- |
-| `validation_error` | 400 | The body is not valid JSON, unknown kind, or empty `serverIds`. |
+| `validation_error` | 400 | The body is not valid JSON, unknown kind, empty `serverIds`, or the targets belong to more than one Site. |
 | `not_found` | 404 | A target Server or its assignment does not exist (an `absent` assignment counts as missing). |
 | `conflict` | 409 | A target has active durable Workflow, is not `deployed`, is locked, or has a Platform Claim for a kind that refuses claimed Servers. |
-| `provider_unavailable` | 503 | As for install: the targets' Site cannot run the Ansible automation, or the targets belong to more than one Site. |
+| `provider_unavailable` | 503 | As for install: the targets' Site cannot run the Ansible automation, or the Server Lock state of a target cannot be confirmed. |
 
 ## Compatibility Notes
 
@@ -428,6 +428,9 @@ On success the response is `202 Accepted`:
   wire change): the catalog and assignment lists are `{ "items": [...] }` objects, an
   assignment's `spec` can be `null`, a not-`deployed` target is refused at install with `400`
   (not `409`), and install and uninstall can return `503 provider_unavailable`.
+- 2026-10-31 (DF-05), breaking: a not-`deployed` target is `409 conflict` at install, as on a
+  race; targets of more than one Site are `400 validation_error` (they were `503`); and a Server
+  Lock state that cannot be confirmed is `503 provider_unavailable` (it was `500`).
 
 ## Composition Into Platform Deployments
 

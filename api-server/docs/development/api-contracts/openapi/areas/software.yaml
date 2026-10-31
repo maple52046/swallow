@@ -100,8 +100,7 @@ paths:
             target, a target has no `serverId`, or a target is listed twice; the roles do not fit
             the kind; a `spec` field is missing, malformed, of the wrong type, or not accepted by
             the kind (including targets running different container runtimes and a
-            `scrapeServerIds` entry at another Site); or a target Server is absent or not in
-            provisioning state `deployed`.
+            `scrapeServerIds` entry at another Site); or the targets belong to more than one Site.
           content:
             application/json:
               schema:
@@ -122,8 +121,9 @@ paths:
             Platform member and the kind refuses members; a target has a Platform Claim and the
             kind refuses claimed Servers; a target lacks the AMD compute GPUs the kind requires;
             the `container` method's runtime is not `installed` on a target or differs from
-            `spec.containerRuntime`; or, when the Workflow is created, a target already has
-            active durable work, is locked, or is not in the required provisioning state.
+            `spec.containerRuntime`; a target Server is absent or not in provisioning state
+            `deployed`; or, when the Workflow is created, a target already has active durable work
+            or is locked.
           content:
             application/json:
               schema:
@@ -132,8 +132,8 @@ paths:
           description: >-
             `provider_unavailable`: the targets' Site cannot run the Workflow's Ansible automation
             (no automation configuration, automation disabled, automation not logging in with the
-            Deployment Key, or a playbook outside the release manifest), or the targets belong to
-            more than one Site.
+            Deployment Key, or a playbook outside the release manifest), or the Server Lock state of
+            a target cannot be confirmed.
           content:
             application/json:
               schema:
@@ -163,7 +163,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/WorkflowAccepted'
         '400':
-          description: '`validation_error`: the body is not valid JSON, the kind is unknown, or `serverIds` is empty.'
+          description: '`validation_error`: the body is not valid JSON, the kind is unknown, `serverIds` is empty, or the targets belong to more than one Site.'
           content:
             application/json:
               schema:
@@ -192,7 +192,7 @@ paths:
         '503':
           description: >-
             `provider_unavailable`: the targets' Site cannot run the Workflow's Ansible automation
-            (as for install), or the targets belong to more than one Site.
+            (as for install), or the Server Lock state of a target cannot be confirmed.
           content:
             application/json:
               schema:

@@ -405,9 +405,9 @@ paths:
   # deployed cluster's own API on demand and persists nothing. The eligibility and cluster errors
   # are the same for every route: 404 for an unknown or non-Kubernetes Platform (or when the
   # explorer is not wired), 409 for a registered Platform or one without a recorded credential,
-  # 400 for any 4xx the cluster API answered (an invalid object, but also an object it reports
-  # missing or already existing), 503 when the cluster API cannot be reached, answers 5xx, or
-  # rejects the credential.
+  # 404 and 409 also for an object the cluster API reports missing or already existing, 400 for
+  # any other 4xx it answered (an invalid object), and 503 when the cluster API cannot be reached,
+  # answers 5xx, or rejects the credential.
   /api/v1/platforms/{id}/kubernetes:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
@@ -562,7 +562,7 @@ paths:
       summary: Create a namespace.
       description: >-
         Requires the `admin` role. A missing or blank name is 400 before any cluster call; a name
-        the cluster refuses, including one that already exists, is 400 with the cluster's reason.
+        the cluster refuses is 400 and one that already exists is 409, with the cluster's reason.
       requestBody:
         required: true
         content:
@@ -661,7 +661,7 @@ paths:
       summary: Read one Kubernetes Application with the Pods it owns.
       description: >-
         Requires the `admin` role. An unsupported `kind` is 400 before any cluster call; a workload
-        the cluster reports missing is also 400, with the cluster's reason.
+        the cluster reports missing is 404, with the cluster's reason.
       responses:
         '200':
           description: The Application, with `pods` when it owns at least one Pod.

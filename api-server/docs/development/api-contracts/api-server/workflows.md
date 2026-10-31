@@ -396,14 +396,15 @@ the per-Task endpoints above. The legacy events response has the per-Task events
 run's status. The legacy retry accepts only a finished record, creates a new schema-v3 Workflow
 from the original's kind, targets, Platform, playbook, and carried variables, and returns it in
 the compatibility shape with `schemaVersion` 3; for a schema-v3 Workflow it is `conflict`. The
-legacy logs and events return `not_found` for a schema-v3 Workflow, the same as for an unknown
-ID.
+legacy logs and events are also `conflict` for a schema-v3 Workflow, whose logs and events are
+per Task, and `not_found` for an unknown ID.
 
 ## Errors
 
-Target overlap, Server Lock, Platform policy, invalid control state, and an ineligible Task
-retry return `conflict`. A malformed request, invalid target state, or unregistered or unmapped
-playbook returns `validation_error`. Disabled Site automation, a missing Deployment Key or Site
+Target overlap, Server Lock, a target not in the required provisioning state, Platform policy,
+invalid control state, and an ineligible Task retry return `conflict`. A malformed request,
+targets of more than one Site, or an unregistered or unmapped playbook returns
+`validation_error`. Disabled Site automation, a missing Deployment Key or Site
 credential, and an unknown live Server Lock state return `provider_unavailable`. An unknown
 Workflow or Task, an unknown target Server, and a Site with no Automation Configuration return
 `not_found`.
@@ -432,3 +433,9 @@ more. Cancel now also cancels a parked Workflow's `requires_attention` Tasks, an
 `requires_attention` Workflow cancels the original through its own cancel path. Every existing Job
 keeps retrying as a whole, and Tasks now start in a sliding window of `OperationMaxParallelism`
 instead of batches; neither changes a route or a status.
+
+On 2026-10-31 (DF-05) error codes were aligned with conventions.md. Breaking: a target not in the
+required provisioning state is `conflict` (it was `validation_error`), and the legacy logs and
+events of a schema-v3 Workflow are `conflict` (they were `not_found`, because the conflict was
+overwritten). Targets of more than one Site stay `validation_error` here and are now that in
+every context.

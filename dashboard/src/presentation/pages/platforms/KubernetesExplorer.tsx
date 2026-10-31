@@ -528,7 +528,9 @@ function PodLogsDialog({ platform, app, onClose }: { platform: Platform; app: Ku
     const pod = app.kind === 'Pod' ? { name: app.name, containers: [] as string[] } : detail.pods?.[0]
     if (!pod) return { container: '', logs: 'This application has no pods to read logs from.' }
     return platforms.kubernetes.podLogs(platform.id, app.namespace, pod.name, undefined, 500)
-  }, [platform.id, app.namespace, app.kind, app.name])
+    // The explorer is known to be available here; a 404 or 409 is the cluster reporting this
+    // workload or pod, shown as an error.
+  }, [platform.id, app.namespace, app.kind, app.name], { unavailableStatuses: [] })
 
   return (
     <Modal

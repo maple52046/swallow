@@ -552,9 +552,9 @@ paths:
       summary: Read the Server's typed, live Network Configuration.
       description: >-
         Requires role `admin`. The same target shape as `POST /api/v1/provisioning/networks/inspect`
-        (provisioning.md, Network Inspection). 400 when the provisioner refused; 404 for an
-        unknown Server or Machine; 409 when the provisioner cannot configure networks; 503 when
-        the provisioner is unavailable.
+        (provisioning.md, Network Inspection). 400 when the provisioner refused or cannot
+        configure networks; 404 for an unknown Server or Machine; 503 when the provisioner is
+        unavailable.
       responses:
         '200':
           description: The Server's Network Configuration and edit policy.
@@ -592,9 +592,9 @@ paths:
       summary: Create one explicit subnet link on a NIC of a Ready Server.
       description: >-
         Requires role `admin`. The provider state is read back and verified before the refreshed
-        Network Configuration is returned. 400 for an invalid body, mode, or address, or an
-        unknown interface or subnet; 404 for an unknown Server or Machine; 409 when the Server is
-        not a present, unlocked `ready` Server or the provisioner cannot configure networks; 503
+        Network Configuration is returned. 400 for an invalid body, mode, or address, an unknown
+        interface or subnet, or a provisioner that cannot configure networks; 404 for an unknown
+        Server or Machine; 409 when the Server is not a present, unlocked `ready` Server; 503
         when the provisioner or the lock state is unavailable.
       requestBody:
         required: true
@@ -802,10 +802,10 @@ paths:
         Requires role `admin`. Deprecated in favour of
         `POST /api/v1/provisioning/release-operations`; every response carries
         `Deprecation: true` and a successor `Link`. The body is optional. 400 for an invalid body,
-        erase refinements without `erase`, release options the provisioner does not support, or a
+        erase refinements without `erase`, release options the provisioner does not support
+        (including `unbindStaticIPs` on a provisioner that cannot configure networks), or a
         provisioner refusal; 404 for an unknown Server or Machine; 409 when a Platform claims the
-        Server, it is locked, or `unbindStaticIPs` is asked of a provisioner that cannot configure
-        networks; 503 when the provisioner or the lock state is unavailable.
+        Server or it is locked; 503 when the provisioner or the lock state is unavailable.
       requestBody:
         required: false
         content:

@@ -121,6 +121,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '404':
+          description: The `siteId` names no Site (not_found).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           description: An unexpected failure (internal_error).
           content:
@@ -189,6 +195,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         '403':
           description: The caller is not an admin (forbidden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: The `siteId` names no Site (not_found).
           content:
             application/json:
               schema:

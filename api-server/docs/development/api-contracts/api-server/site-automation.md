@@ -133,8 +133,7 @@ Success is `204 No Content`. No API returns the secret.
 
 The common error envelope applies. `GET .../automation` and `PUT .../automation/credential`
 answer `not_found` for a Site without a configuration, which includes a Site that does not
-exist. `PUT .../automation` for a Site that does not exist currently answers
-`500 internal_error` rather than `not_found` (known defect). Invalid ports, `enabled`
+exist, and `PUT .../automation` answers `not_found` for a Site that does not exist. Invalid ports, `enabled`
 without `knownHosts`, unknown or `custom` mapped kinds, unregistered playbooks, and a
 credential request carrying a non-null `sshPrivateKey` return `validation_error`.
 
@@ -151,3 +150,6 @@ queue drains.
 
 Since 2026-10-31 clearing the become password with `{}` removes the stored credential, so
 `hasCredential` reads `false` (DF-13); it stayed `true` before.
+
+Since 2026-10-31 `PUT .../automation` for a Site that does not exist is `404 not_found` (DF-05);
+it was `500 internal_error`.

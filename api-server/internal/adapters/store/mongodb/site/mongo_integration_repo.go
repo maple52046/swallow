@@ -92,6 +92,9 @@ func (r *MongoIntegrationRepo) Create(ctx context.Context, integration *sitedoma
 	}
 
 	_, err := r.col.InsertOne(ctx, doc)
+	if mongo.IsDuplicateKeyError(err) {
+		return sitedomain.ErrIntegrationNameTaken
+	}
 	return err
 }
 
@@ -152,6 +155,9 @@ func (r *MongoIntegrationRepo) Update(ctx context.Context, integration *sitedoma
 			"updatedAt": integration.UpdatedAt,
 		}},
 	)
+	if mongo.IsDuplicateKeyError(err) {
+		return sitedomain.ErrIntegrationNameTaken
+	}
 	if err != nil {
 		return err
 	}

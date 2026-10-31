@@ -147,6 +147,9 @@ var (
 	ErrSiteNotFound        = errors.New("site not found")
 	ErrSiteNameTaken       = errors.New("site name already exists")
 	ErrIntegrationNotFound = errors.New("integration not found")
+	// ErrIntegrationNameTaken means another Integration of the same Site has the name; names
+	// are unique within a Site.
+	ErrIntegrationNameTaken = errors.New("integration name already exists in this site")
 	// ErrSiteHasIntegrations prevents deleting a site out from under the
 	// integrations and servers that reference it.
 	ErrSiteHasIntegrations = errors.New("site still has integrations")

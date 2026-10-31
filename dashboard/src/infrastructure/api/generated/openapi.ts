@@ -1213,7 +1213,7 @@ export interface paths {
         /**
          * Read a schema-v2 record's per-host Ansible results (deprecated path only).
          * @deprecated
-         * @description Requires the `admin` role. `status` is the schema-v2 run status. A schema-v3 Workflow exposes events per Task instead and is `not_found` here.
+         * @description Requires the `admin` role. `status` is the schema-v2 run status. A schema-v3 Workflow exposes events per Task instead and is `conflict` here.
          */
         get: operations["getOperationEventsViaDeprecatedAlias"];
         put?: never;
@@ -1237,7 +1237,7 @@ export interface paths {
         /**
          * Read a schema-v2 record's retained runner output (deprecated path only).
          * @deprecated
-         * @description Requires the `admin` role. UTF-8 plain text of the run's output, empty when nothing was retained. A schema-v3 Workflow exposes logs per Task instead and is `not_found` here.
+         * @description Requires the `admin` role. UTF-8 plain text of the run's output, empty when nothing was retained. A schema-v3 Workflow exposes logs per Task instead and is `conflict` here.
          */
         get: operations["getOperationLogsViaDeprecatedAlias"];
         put?: never;
@@ -1608,7 +1608,7 @@ export interface paths {
         };
         /**
          * Read one Kubernetes Application with the Pods it owns.
-         * @description Requires the `admin` role. An unsupported `kind` is 400 before any cluster call; a workload the cluster reports missing is also 400, with the cluster's reason.
+         * @description Requires the `admin` role. An unsupported `kind` is 400 before any cluster call; a workload the cluster reports missing is 404, with the cluster's reason.
          */
         get: operations["getKubernetesApplication"];
         put?: never;
@@ -1768,7 +1768,7 @@ export interface paths {
         put?: never;
         /**
          * Create a namespace.
-         * @description Requires the `admin` role. A missing or blank name is 400 before any cluster call; a name the cluster refuses, including one that already exists, is 400 with the cluster's reason.
+         * @description Requires the `admin` role. A missing or blank name is 400 before any cluster call; a name the cluster refuses is 400 and one that already exists is 409, with the cluster's reason.
          */
         post: operations["createKubernetesNamespace"];
         delete?: never;
@@ -3402,7 +3402,7 @@ export interface paths {
         };
         /**
          * Read the Server's typed, live Network Configuration.
-         * @description Requires role `admin`. The same target shape as `POST /api/v1/provisioning/networks/inspect` (provisioning.md, Network Inspection). 400 when the provisioner refused; 404 for an unknown Server or Machine; 409 when the provisioner cannot configure networks; 503 when the provisioner is unavailable.
+         * @description Requires role `admin`. The same target shape as `POST /api/v1/provisioning/networks/inspect` (provisioning.md, Network Inspection). 400 when the provisioner refused or cannot configure networks; 404 for an unknown Server or Machine; 503 when the provisioner is unavailable.
          */
         get: operations["getServerNetwork"];
         put?: never;
@@ -3429,7 +3429,7 @@ export interface paths {
         put?: never;
         /**
          * Create one explicit subnet link on a NIC of a Ready Server.
-         * @description Requires role `admin`. The provider state is read back and verified before the refreshed Network Configuration is returned. 400 for an invalid body, mode, or address, or an unknown interface or subnet; 404 for an unknown Server or Machine; 409 when the Server is not a present, unlocked `ready` Server or the provisioner cannot configure networks; 503 when the provisioner or the lock state is unavailable.
+         * @description Requires role `admin`. The provider state is read back and verified before the refreshed Network Configuration is returned. 400 for an invalid body, mode, or address, an unknown interface or subnet, or a provisioner that cannot configure networks; 404 for an unknown Server or Machine; 409 when the Server is not a present, unlocked `ready` Server; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["createServerNetworkLink"];
         delete?: never;
@@ -3718,7 +3718,7 @@ export interface paths {
         /**
          * Release one Server to the provider's available pool directly.
          * @deprecated
-         * @description Requires role `admin`. Deprecated in favour of `POST /api/v1/provisioning/release-operations`; every response carries `Deprecation: true` and a successor `Link`. The body is optional. 400 for an invalid body, erase refinements without `erase`, release options the provisioner does not support, or a provisioner refusal; 404 for an unknown Server or Machine; 409 when a Platform claims the Server, it is locked, or `unbindStaticIPs` is asked of a provisioner that cannot configure networks; 503 when the provisioner or the lock state is unavailable.
+         * @description Requires role `admin`. Deprecated in favour of `POST /api/v1/provisioning/release-operations`; every response carries `Deprecation: true` and a successor `Link`. The body is optional. 400 for an invalid body, erase refinements without `erase`, release options the provisioner does not support (including `unbindStaticIPs` on a provisioner that cannot configure networks), or a provisioner refusal; 404 for an unknown Server or Machine; 409 when a Platform claims the Server or it is locked; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["releaseServer"];
         delete?: never;
@@ -3911,7 +3911,7 @@ export interface paths {
         get: operations["getSiteAutomationConfiguration"];
         /**
          * Create or replace a Site's non-secret Automation Configuration.
-         * @description Requires role `admin`. Every non-secret field is replaced: an omitted field takes its zero value (`enabled` false, `sshUser` and `knownHosts` empty, no `playbookMappings`), and an omitted or `0` `sshPort` becomes 22. `sshUser` and `knownHosts` are trimmed. The become password is untouched. A Site that does not exist currently fails with `500 internal_error` (site-automation.md, Errors).
+         * @description Requires role `admin`. Every non-secret field is replaced: an omitted field takes its zero value (`enabled` false, `sshUser` and `knownHosts` empty, no `playbookMappings`), and an omitted or `0` `sshPort` becomes 22. `sshUser` and `knownHosts` are trimmed. The become password is untouched. A Site that does not exist is `404 not_found`.
          */
         put: operations["replaceSiteAutomationConfiguration"];
         post?: never;
@@ -7652,7 +7652,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description No schema-v2 record has this ID (`not_found`). This includes the ID of a schema-v3 Workflow, which exposes this per Task instead. */
+        /** @description No schema-v2 record or schema-v3 Workflow has this ID (`not_found`). */
         OperationV2NotFound: {
             headers: {
                 [name: string]: unknown;
@@ -7679,7 +7679,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description A target is already in unfinished work, a target is protected by its Server Lock, or the intent contradicts a Platform policy (`conflict`). */
+        /** @description A target is already in unfinished work, a target is protected by its Server Lock, a target is not in the provisioning state the kind requires, or the intent contradicts a Platform policy (`conflict`). */
         WorkflowCreateConflict: {
             headers: {
                 [name: string]: unknown;
@@ -7688,7 +7688,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description The request is invalid (`validation_error`): a malformed body, an unknown `kind`, no `targetServerIds`, targets in more than one Site, a target not in the provisioning state the kind requires, `custom` without `playbookName`, no playbook mapped for the kind, a playbook not in the release manifest, or durable orchestration unavailable. */
+        /** @description The request is invalid (`validation_error`): a malformed body, an unknown `kind`, no `targetServerIds`, targets in more than one Site, `custom` without `playbookName`, no playbook mapped for the kind, a playbook not in the release manifest, or durable orchestration unavailable. */
         WorkflowCreateRejected: {
             headers: {
                 [name: string]: unknown;
@@ -9772,6 +9772,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description `conflict`: another Integration of the Site has the name. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             default: components["responses"]["Error"];
         };
     };
@@ -9904,6 +9913,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description `conflict`: another Integration of the Site has the new name. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             default: components["responses"]["Error"];
         };
     };
@@ -10011,6 +10029,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description The `siteId` names no Site (not_found). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description An unexpected failure (internal_error). */
             500: {
                 headers: {
@@ -10080,6 +10107,15 @@ export interface operations {
             };
             /** @description The caller is not an admin (forbidden). */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The `siteId` names no Site (not_found). */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10475,6 +10511,15 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["OperationV2NotFound"];
+            /** @description A schema-v3 Workflow, which exposes this per Task instead (`conflict`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             default: components["responses"]["Error"];
         };
     };
@@ -10504,6 +10549,15 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["OperationV2NotFound"];
+            /** @description A schema-v3 Workflow, which exposes this per Task instead (`conflict`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             default: components["responses"]["Error"];
         };
     };
@@ -12251,7 +12305,7 @@ export interface operations {
                     "application/json": components["schemas"]["OsDeploymentBatchResult"];
                 };
             };
-            /** @description `validation_error`: malformed input — the target list, an unknown `deployTarget`, a missing image without a template, an image not in the provisioner's live catalog, or invalid user data or network intent. */
+            /** @description `validation_error`: malformed input — the target list, an unknown `deployTarget`, a missing image without a template, an image not in the provisioner's live catalog, invalid user data or network intent, or a provisioner that offers no network configuration. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12271,7 +12325,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: a target is absent, not ready, locked, of another Integration than the other targets or the template, or needs a new inspection before a disk deployment; the image is a custom image not verified for the deploy target, not fully staged, or of another architecture; the provisioner cannot deploy from memory or offers no network configuration; a network conflict; or the installation has no Deployment Key. */
+            /** @description `conflict`: a target is absent, not ready, locked, of another Integration than the other targets or the template, or needs a new inspection before a disk deployment; the image is a custom image not verified for the deploy target, not fully staged, or of another architecture; the provisioner cannot deploy from memory; a network conflict; or the installation has no Deployment Key. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13016,7 +13070,7 @@ export interface operations {
                     "application/json": components["schemas"]["NetworkInspection"];
                 };
             };
-            /** @description `validation_error`: the body is invalid; `serverIds` is empty, longer than 100, contains an empty id, or repeats an id; or the Integration is not a provisioner. */
+            /** @description `validation_error`: the body is invalid; `serverIds` is empty, longer than 100, contains an empty id, or repeats an id; the Integration is not a provisioner; or the provisioner offers no network configuration. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13029,15 +13083,6 @@ export interface operations {
             403: components["responses"]["Error"];
             /** @description `not_found`: a Server, or its provider Machine, does not exist. */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `conflict`: the provisioner offers no network configuration. */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13425,7 +13470,7 @@ export interface operations {
                     "application/json": components["schemas"]["DeploymentTemplate"];
                 };
             };
-            /** @description `validation_error`: the body is invalid; `integrationId`, `name`, or `imageId` is missing; `deployTarget` is not `disk` or `ram`; the image or subnet is not in the provisioner's live catalog; the network intent is invalid (unknown mode, a default gateway outside Static, Static without a subnet); or the Integration is not a provisioner. */
+            /** @description `validation_error`: the body is invalid; `integrationId`, `name`, or `imageId` is missing; `deployTarget` is not `disk` or `ram`; the image or subnet is not in the provisioner's live catalog; the network intent is invalid (unknown mode, a default gateway outside Static, Static without a subnet); the Integration is not a provisioner; or the provisioner offers no network configuration. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13445,7 +13490,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: a template with this name (case-insensitive) exists for the Integration, or the provisioner offers no network configuration. */
+            /** @description `conflict`: a template with this name (case-insensitive) exists for the Integration. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13559,7 +13604,7 @@ export interface operations {
                     "application/json": components["schemas"]["DeploymentTemplate"];
                 };
             };
-            /** @description `validation_error`: the body is invalid; `name` or `imageId` is empty; `deployTarget` is not `disk` or `ram`; or the image, subnet, or network intent is invalid for the provisioner. */
+            /** @description `validation_error`: the body is invalid; `name` or `imageId` is empty; `deployTarget` is not `disk` or `ram`; the image, subnet, or network intent is invalid for the provisioner; or a network change was sent to a provisioner that offers no network configuration. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13579,7 +13624,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: another template of the Integration has the new name, or a network change was sent to a provisioner that offers no network configuration. */
+            /** @description `conflict`: another template of the Integration has the new name. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15803,6 +15848,15 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
+            /** @description `not_found`: the Site does not exist. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             default: components["responses"]["Error"];
         };
     };
@@ -15911,7 +15965,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowAccepted"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON; the kind is unknown; there is no target, a target has no `serverId`, or a target is listed twice; the roles do not fit the kind; a `spec` field is missing, malformed, of the wrong type, or not accepted by the kind (including targets running different container runtimes and a `scrapeServerIds` entry at another Site); or a target Server is absent or not in provisioning state `deployed`. */
+            /** @description `validation_error`: the body is not valid JSON; the kind is unknown; there is no target, a target has no `serverId`, or a target is listed twice; the roles do not fit the kind; a `spec` field is missing, malformed, of the wrong type, or not accepted by the kind (including targets running different container runtimes and a `scrapeServerIds` entry at another Site); or the targets belong to more than one Site. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -15931,7 +15985,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: a mutually exclusive kind is present on a target; a target is a Kubernetes Platform member and the kind refuses members; a target has a Platform Claim and the kind refuses claimed Servers; a target lacks the AMD compute GPUs the kind requires; the `container` method's runtime is not `installed` on a target or differs from `spec.containerRuntime`; or, when the Workflow is created, a target already has active durable work, is locked, or is not in the required provisioning state. */
+            /** @description `conflict`: a mutually exclusive kind is present on a target; a target is a Kubernetes Platform member and the kind refuses members; a target has a Platform Claim and the kind refuses claimed Servers; a target lacks the AMD compute GPUs the kind requires; the `container` method's runtime is not `installed` on a target or differs from `spec.containerRuntime`; a target Server is absent or not in provisioning state `deployed`; or, when the Workflow is created, a target already has active durable work or is locked. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15940,7 +15994,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `provider_unavailable`: the targets' Site cannot run the Workflow's Ansible automation (no automation configuration, automation disabled, automation not logging in with the Deployment Key, or a playbook outside the release manifest), or the targets belong to more than one Site. */
+            /** @description `provider_unavailable`: the targets' Site cannot run the Workflow's Ansible automation (no automation configuration, automation disabled, automation not logging in with the Deployment Key, or a playbook outside the release manifest), or the Server Lock state of a target cannot be confirmed. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -16146,7 +16200,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowAccepted"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON, the kind is unknown, or `serverIds` is empty. */
+            /** @description `validation_error`: the body is not valid JSON, the kind is unknown, `serverIds` is empty, or the targets belong to more than one Site. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -16175,7 +16229,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `provider_unavailable`: the targets' Site cannot run the Workflow's Ansible automation (as for install), or the targets belong to more than one Site. */
+            /** @description `provider_unavailable`: the targets' Site cannot run the Workflow's Ansible automation (as for install), or the Server Lock state of a target cannot be confirmed. */
             503: {
                 headers: {
                     [name: string]: unknown;

@@ -683,6 +683,13 @@ func respondError(c *fiber.Ctx, err error) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"A platform with this name already exists at this site."))
 
+	// Request faults the deploy preflight reports, checked before the conflicts and the
+	// unavailable-automation group that also wrap them (DF-05): a provisioner without network
+	// configuration is an unsupported capability, and targets of several Sites are a bad request.
+	case errors.Is(err, provisioningdomain.ErrNetworkConfigurationUnsupported),
+		errors.Is(err, workflowapp.ErrTargetsSpanSites):
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
+
 	case errors.Is(err, platformdomain.ErrPlatformNotDeployManaged),
 		errors.Is(err, platformdomain.ErrGPUOperatorConflict),
 		errors.Is(err, platformdomain.ErrPlatformAlreadyUninstalled),
@@ -690,6 +697,7 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, workflowdomain.ErrTargetsBusy),
 		errors.Is(err, workflowdomain.ErrTargetLocked),
 		errors.Is(err, workflowdomain.ErrPolicyConflict),
+		errors.Is(err, workflowdomain.ErrTargetStateInvalid),
 		// A platform deploy runs the provisioning preflight, so its batch conflicts (for example a
 		// custom OS image not yet verified for the requested deploy target) surface here. Map it to
 		// 409 with the actionable message instead of leaking a generic 500 to the dashboard.
@@ -739,7 +747,12 @@ func respondError(c *fiber.Ctx, err error) error {
 
 	var readerErr *platformdomain.ReaderError
 	if errors.As(err, &readerErr) {
-		if readerErr.Kind == platformdomain.ReaderErrorRejected {
+		switch readerErr.Kind {
+		case platformdomain.ReaderErrorNotFound:
+			return apierror.Respond(c, apierror.New(apierror.CodeNotFound, readerErr.Detail))
+		case platformdomain.ReaderErrorConflict:
+			return apierror.Respond(c, apierror.New(apierror.CodeConflict, readerErr.Detail))
+		case platformdomain.ReaderErrorRejected:
 			return apierror.Respond(c, apierror.New(apierror.CodeValidation, readerErr.Detail))
 		}
 		log.Printf("platform api %s: %v", readerErr.Kind, readerErr.Err)

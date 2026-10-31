@@ -298,8 +298,8 @@ paths:
             `validation_error`: the body is invalid; `integrationId`, `name`, or `imageId` is
             missing; `deployTarget` is not `disk` or `ram`; the image or subnet is not in the
             provisioner's live catalog; the network intent is invalid (unknown mode, a default
-            gateway outside Static, Static without a subnet); or the Integration is not a
-            provisioner.
+            gateway outside Static, Static without a subnet); the Integration is not a
+            provisioner; or the provisioner offers no network configuration.
           content:
             application/json:
               schema:
@@ -316,8 +316,7 @@ paths:
                 $ref: '#/components/schemas/Error'
         '409':
           description: >-
-            `conflict`: a template with this name (case-insensitive) exists for the Integration,
-            or the provisioner offers no network configuration.
+            `conflict`: a template with this name (case-insensitive) exists for the Integration.
           content:
             application/json:
               schema:
@@ -385,8 +384,9 @@ paths:
         '400':
           description: >-
             `validation_error`: the body is invalid; `name` or `imageId` is empty; `deployTarget`
-            is not `disk` or `ram`; or the image, subnet, or network intent is invalid for the
-            provisioner.
+            is not `disk` or `ram`; the image, subnet, or network intent is invalid for the
+            provisioner; or a network change was sent to a provisioner that offers no network
+            configuration.
           content:
             application/json:
               schema:
@@ -403,8 +403,7 @@ paths:
                 $ref: '#/components/schemas/Error'
         '409':
           description: >-
-            `conflict`: another template of the Integration has the new name, or a network change
-            was sent to a provisioner that offers no network configuration.
+            `conflict`: another template of the Integration has the new name.
           content:
             application/json:
               schema:
@@ -581,8 +580,9 @@ paths:
         '400':
           description: >-
             `validation_error`: malformed input — the target list, an unknown `deployTarget`, a
-            missing image without a template, an image not in the provisioner's live catalog, or
-            invalid user data or network intent.
+            missing image without a template, an image not in the provisioner's live catalog,
+            invalid user data or network intent, or a provisioner that offers no network
+            configuration.
           content:
             application/json:
               schema:
@@ -602,8 +602,8 @@ paths:
             `conflict`: a target is absent, not ready, locked, of another Integration than the
             other targets or the template, or needs a new inspection before a disk deployment;
             the image is a custom image not verified for the deploy target, not fully staged, or
-            of another architecture; the provisioner cannot deploy from memory or offers no
-            network configuration; a network conflict; or the installation has no Deployment Key.
+            of another architecture; the provisioner cannot deploy from memory; a network
+            conflict; or the installation has no Deployment Key.
           content:
             application/json:
               schema:
@@ -874,7 +874,8 @@ paths:
         '400':
           description: >-
             `validation_error`: the body is invalid; `serverIds` is empty, longer than 100,
-            contains an empty id, or repeats an id; or the Integration is not a provisioner.
+            contains an empty id, or repeats an id; the Integration is not a provisioner; or the
+            provisioner offers no network configuration.
           content:
             application/json:
               schema:
@@ -885,12 +886,6 @@ paths:
           $ref: '#/components/responses/Error'
         '404':
           description: '`not_found`: a Server, or its provider Machine, does not exist.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '409':
-          description: '`conflict`: the provisioner offers no network configuration.'
           content:
             application/json:
               schema:

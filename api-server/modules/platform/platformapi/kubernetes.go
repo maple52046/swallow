@@ -322,6 +322,10 @@ func translateError(err error, system string) error {
 			Detail: fmt.Sprintf("The %s API rejected the credential swallow is configured with.", system),
 			Err:    err,
 		}
+	case apiErr.StatusCode == http.StatusNotFound:
+		return &platformdomain.ReaderError{Kind: platformdomain.ReaderErrorNotFound, Detail: apiErr.Error(), Err: err}
+	case apiErr.StatusCode == http.StatusConflict:
+		return &platformdomain.ReaderError{Kind: platformdomain.ReaderErrorConflict, Detail: apiErr.Error(), Err: err}
 	case apiErr.StatusCode >= http.StatusInternalServerError:
 		return &platformdomain.ReaderError{
 			Kind:   platformdomain.ReaderErrorUnavailable,

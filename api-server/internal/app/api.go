@@ -219,7 +219,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// persisted. With no metrics integration registered the resolver returns nothing,
 	// which reads as "not known" rather than as anything about the machine.
 	monitoringFactory := promstack.NewMonitoringFactory(integrationRepo)
-	alertService := monitoringapp.NewAlertService(monitoringFactory)
+	alertService := monitoringapp.NewAlertService(monitoringFactory, siteExistence{sites: siteRepo})
 	healthResolver := monitoringapp.NewHealthResolver(monitoringFactory)
 
 	serverHandler := serverdelivery.NewServerHandler(

@@ -15,6 +15,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	"github.com/maple52046/swallow/internal/core/store/storetest"
 	"github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
@@ -477,12 +478,11 @@ func TestWorkflowRoutesMatchTheContract(t *testing.T) {
 		{name: "alias step events", method: http.MethodGet, path: "/api/v1/operations/wf-running/steps/install-platform/events", wantStatus: http.StatusOK},
 		{name: "alias step artifacts", method: http.MethodGet, path: "/api/v1/operations/wf-running/steps/install-platform/artifacts", wantStatus: http.StatusOK},
 		{name: "schema-v2 logs are plain text", method: http.MethodGet, path: "/api/v1/operations/op-legacy/logs", wantStatus: http.StatusOK},
-		// rejectOrchestratedLegacy writes a conflict but returns apierror.Respond's nil error, so
-		// Logs and Events fall through to the schema-v2 reader, which overwrites it with not_found.
-		// The contract documents that current 404.
-		{name: "schema-v2 logs of a Workflow are not found", method: http.MethodGet, path: "/api/v1/operations/wf-running/logs", wantStatus: http.StatusNotFound},
+		// A Workflow exposes logs and events per Task; the legacy operation-level endpoints refuse it
+		// with a conflict rather than falling through to the schema-v2 reader's not_found (DF-05).
+		{name: "schema-v2 logs of a Workflow conflict", method: http.MethodGet, path: "/api/v1/operations/wf-running/logs", wantStatus: http.StatusConflict},
 		{name: "schema-v2 events list per-host results", method: http.MethodGet, path: "/api/v1/operations/op-legacy/events", wantStatus: http.StatusOK},
-		{name: "schema-v2 events of a Workflow are not found", method: http.MethodGet, path: "/api/v1/operations/wf-running/events", wantStatus: http.StatusNotFound},
+		{name: "schema-v2 events of a Workflow conflict", method: http.MethodGet, path: "/api/v1/operations/wf-running/events", wantStatus: http.StatusConflict},
 		{name: "schema-v2 retry creates a Workflow", method: http.MethodPost, path: "/api/v1/operations/op-legacy/retry", wantStatus: http.StatusAccepted},
 		{name: "schema-v2 retry of a Workflow conflicts", method: http.MethodPost, path: "/api/v1/operations/wf-running/retry", wantStatus: http.StatusConflict},
 	}
@@ -503,5 +503,31 @@ func TestWorkflowRoutesMatchTheContract(t *testing.T) {
 				t.Errorf("%s %s status = %d, want %d; body %s", tc.method, tc.path, resp.StatusCode, tc.wantStatus, raw)
 			}
 		})
+	}
+}
+
+// noSites is a Site store that knows no Site.
+type noSites struct{ sitedomain.SiteRepository }
+
+func (noSites) FindByID(context.Context, string) (*sitedomain.Site, error) {
+	return nil, sitedomain.ErrSiteNotFound
+}
+
+// DF-05: configuring automation for a Site that does not exist is 404, not an internal error.
+func TestPutAutomationOfAnUnknownSiteIsNotFound(t *testing.T) {
+	handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(&recordingAutomationRepo{}, noSites{}, nil))
+	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
+	app.Put("/api/v1/sites/:id/automation", handler.PutAutomation)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/sites/site-x/automation", strings.NewReader(`{"enabled":false,"sshPort":22}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PUT automation: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
 }

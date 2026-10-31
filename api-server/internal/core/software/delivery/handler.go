@@ -225,7 +225,10 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, softwaredomain.ErrUnknownKind),
 		errors.Is(err, softwaredomain.ErrInvalidRole),
 		errors.Is(err, softwaredomain.ErrSpecInvalid),
-		errors.Is(err, softwareapp.ErrInvalidRequest):
+		errors.Is(err, softwareapp.ErrInvalidRequest),
+		// Checked before ErrInvalidOperation, which it is wrapped with: targets of several Sites
+		// are a fault of the request, not unavailable automation (DF-05).
+		errors.Is(err, workflowapp.ErrTargetsSpanSites):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 
 	case errors.Is(err, softwaredomain.ErrAssignmentNotFound),
@@ -248,6 +251,9 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, workflowdomain.ErrAutomationCredentialMissing),
 		errors.Is(err, workflowdomain.ErrPlaybookNotAllowed),
 		errors.Is(err, workflowapp.ErrInvalidOperation):
+		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, err.Error()))
+
+	case errors.Is(err, serverdomain.ErrServerLockUnavailable):
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, err.Error()))
 	}
 	log.Printf("software: unhandled error: %v", err)

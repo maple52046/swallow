@@ -211,6 +211,8 @@ func respondError(c *fiber.Ctx, err error) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Integration not found."))
 	case errors.Is(err, sitedomain.ErrSiteNameTaken):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, "A site with this name already exists."))
+	case errors.Is(err, sitedomain.ErrIntegrationNameTaken):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, "An integration with this name already exists in this site."))
 	case errors.Is(err, sitedomain.ErrSiteHasIntegrations):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"This site still has integrations. Delete them first."))

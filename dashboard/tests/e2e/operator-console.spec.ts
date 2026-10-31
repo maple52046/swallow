@@ -953,6 +953,19 @@ test.describe('operator interactions', () => {
     await expect(systemRow.getByRole('button', { name: 'Delete' })).toBeDisabled()
   })
 
+  test('a workload the cluster reports missing is an error in the logs dialog, not an unavailable explorer', async ({ page }) => {
+    await page.route('**/api/v1/platforms/platform-a/kubernetes/applications/web/Deployment/nginx', (route) =>
+      route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'not_found', message: 'deployments.apps "nginx" not found' } }) }),
+    )
+    await page.goto('/platforms/platform-a?site=site-a')
+    await page.getByRole('tab', { name: 'Applications' }).click()
+    await page.getByRole('table', { name: 'Kubernetes applications' }).getByRole('row', { name: /nginx/ }).getByRole('button', { name: 'Logs' }).click()
+
+    const dialog = page.getByRole('dialog', { name: 'Logs — nginx' })
+    await expect(dialog).toContainText('deployments.apps "nginx" not found')
+    await expect(dialog).not.toContainText('Cluster explorer is unavailable')
+  })
+
   test('registered platform hides the Kubernetes cluster explorer', async ({ page }) => {
     // research-slurm is a Slurm platform, and platform-b is a deploy-failed Kubernetes platform
     // with no credential; neither is an eligible deployed Kubernetes cluster, so the explorer

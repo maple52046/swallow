@@ -353,7 +353,7 @@ unknown Site, Integration, or template is `404 not_found`; a non-provisioner Int
 or invalid/missing field is `400 validation_error`; duplicate names and deletion of an
 Integration still referenced by a template are `409 conflict`. Create, and an update that
 changes the network, require a provisioner with network configuration: on one without it
-they are `409 conflict`. A provisioner catalog that cannot be read is
+they are `400 validation_error`, like any unsupported capability. A provisioner catalog that cannot be read is
 `503 provider_unavailable`.
 
 ## Network Inspection
@@ -438,7 +438,7 @@ are not read, and the response then has an empty `targets` array with one
 `integration_mismatch` issue per mismatched target. An empty or duplicate target list, or one
 longer than 100, is `400 validation_error`, as is a non-provisioner Integration; an unknown
 Server or provider Machine is `404 not_found`; a provisioner without network configuration
-is `409 conflict`; and an unreachable provisioner is `503 provider_unavailable`.
+is `400 validation_error`; and an unreachable provisioner is `503 provider_unavailable`.
 
 ## Deployment Target Preflight
 
@@ -1017,3 +1017,8 @@ On 2026-10-29 `POST /release-operations`, the deprecated `POST /servers/{id}/rel
 with `409 conflict` (see Durable OS Operations). Before, such a request was accepted and took
 the node out from under its Platform. Release a Platform's Servers through its uninstall
 ([decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)).
+
+On 2026-10-31 (DF-05, breaking) a provisioner without network configuration became
+`400 validation_error` for templates, network inspection, and OS deployments (also inside a
+deployment batch), like every other unsupported capability; it was `409 conflict`. A target not in
+the provisioning state an OS deployment requires became `409 conflict`; it was `400`.

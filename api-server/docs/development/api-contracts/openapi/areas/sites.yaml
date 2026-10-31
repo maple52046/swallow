@@ -235,8 +235,7 @@ paths:
         Requires role `admin`. Every non-secret field is replaced: an omitted field takes its zero
         value (`enabled` false, `sshUser` and `knownHosts` empty, no `playbookMappings`), and an
         omitted or `0` `sshPort` becomes 22. `sshUser` and `knownHosts` are trimmed. The become
-        password is untouched. A Site that does not exist currently fails with `500
-        internal_error` (site-automation.md, Errors).
+        password is untouched. A Site that does not exist is `404 not_found`.
       requestBody:
         required: true
         content:
@@ -289,6 +288,12 @@ paths:
           $ref: '#/components/responses/Error'
         '403':
           $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
   /api/v1/sites/{id}/automation/credential:
@@ -459,6 +464,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: another Integration of the Site has the name.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
   /api/v1/integrations/{id}:
@@ -537,6 +548,12 @@ paths:
           $ref: '#/components/responses/Error'
         '404':
           description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: another Integration of the Site has the new name.'
           content:
             application/json:
               schema:

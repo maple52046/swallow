@@ -235,6 +235,9 @@ func respondError(c *fiber.Ctx, err error) error {
 
 	case errors.Is(err, monitoringdomain.ErrScopeNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, err.Error()))
+
+	case errors.Is(err, application.ErrUnknownSite):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Site not found."))
 	}
 
 	var queryErr *monitoringdomain.QueryError

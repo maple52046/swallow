@@ -36,8 +36,8 @@ an API Key) according to [conventions](conventions.md). The wire shape is publis
 `acknowledgeAlert`).
 
 `siteId` selects the Site whose enabled metrics Integration supplies the Alertmanager address;
-omitted, any enabled metrics Integration's is used. A `siteId` that names no Site is not
-`not_found`: it has no metrics Integration, so it is `503 provider_unavailable`.
+omitted, any enabled metrics Integration's is used. A `siteId` that names no Site is
+`404 not_found`.
 
 ## List
 
@@ -91,6 +91,7 @@ The common error envelope applies.
 | --- | ---: | --- |
 | `validation_error` | 400 | Acknowledge: the body is not valid JSON, `matchers` is missing or empty, or `duration` is not a positive Go duration. Either route: Alertmanager rejected the request with a client error. |
 | `unauthorized` / `forbidden` | 401 / 403 | Missing or invalid credential / a non-admin caller (conventions). |
+| `not_found` | 404 | The `siteId` names no Site. |
 | `provider_unavailable` | 503 | No metrics Integration is registered, it sets no Alertmanager address, or Alertmanager cannot be reached, rejects swallow's credential, or answers with a server error. |
 | `internal_error` | 500 | An unexpected failure. |
 
@@ -100,3 +101,5 @@ The common error envelope applies.
   `platformId`.
 - Severity and state values are Alertmanager's and the alert rules'; the glossary has not yet
   defined an Alert value set (Pending Terms), so a consumer must tolerate any severity string.
+- Since 2026-10-31 (DF-05) a `siteId` that names no Site is `404 not_found` on both routes; it was
+  `503 provider_unavailable`, as if the Site had no metrics Integration.

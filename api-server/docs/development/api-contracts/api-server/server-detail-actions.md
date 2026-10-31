@@ -251,8 +251,8 @@ mode or address. Incompatible
 Server state is `409 conflict`; provider unavailability is
 `503 provider_unavailable`.
 
-Unlike the other provider capabilities, a provisioner without network configuration answers the
-network read and writes with `409 conflict`, not `400`; so does a release with `unbindStaticIPs`
+Like the other provider capabilities, a provisioner without network configuration answers the
+network read and writes with `400 validation_error`; so does a release with `unbindStaticIPs`
 on such a provisioner.
 
 Deploy requires `distroSeries` and accepts `osSystem`, `userData`,
@@ -793,3 +793,7 @@ provisioner without network configuration, the Deploy route's Deployment Key req
 `400` for an out-of-range event `limit`, the event time format (the example's
 `.000000Z` was never emitted), a `null` Power Configuration `password`, and the empty
 `observedAt`/`powerState` an inspect snapshot can carry are now written down.
+
+On 2026-10-31 (DF-05, breaking) a provisioner without network configuration began answering the
+network routes and a release with `unbindStaticIPs` with `400 validation_error`, like every other
+unsupported capability; it was `409 conflict`.

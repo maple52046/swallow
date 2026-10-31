@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -32,12 +33,40 @@ type AlertItem struct {
 	ClusterID  *string `json:"clusterId"`
 }
 
-type AlertService struct {
-	factory monitoringdomain.MonitoringFactory
+// SiteLookup reports whether a Site exists, so an alert read or acknowledgement scoped to a Site
+// that does not exist is not_found rather than "no metrics backend" (DF-05).
+type SiteLookup interface {
+	SiteExists(ctx context.Context, siteID string) (bool, error)
 }
 
-func NewAlertService(factory monitoringdomain.MonitoringFactory) *AlertService {
-	return &AlertService{factory: factory}
+// ErrUnknownSite means the request names a Site that does not exist.
+var ErrUnknownSite = errors.New("site not found")
+
+// AlertService reads and acknowledges the alerts of a Site's Alertmanager.
+type AlertService struct {
+	factory monitoringdomain.MonitoringFactory
+	sites   SiteLookup
+}
+
+// NewAlertService wires the alert use cases; both dependencies are required.
+func NewAlertService(factory monitoringdomain.MonitoringFactory, sites SiteLookup) *AlertService {
+	return &AlertService{factory: factory, sites: sites}
+}
+
+// requireSite refuses a Site id that names no Site. An empty id is not checked: it reads the
+// alerts of any metrics Integration.
+func (s *AlertService) requireSite(ctx context.Context, siteID string) error {
+	if siteID == "" {
+		return nil
+	}
+	exists, err := s.sites.SiteExists(ctx, siteID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrUnknownSite
+	}
+	return nil
 }
 
 type ListAlertsInput struct {
@@ -50,6 +79,9 @@ type ListAlertsInput struct {
 }
 
 func (s *AlertService) List(ctx context.Context, input ListAlertsInput) ([]AlertItem, error) {
+	if err := s.requireSite(ctx, input.SiteID); err != nil {
+		return nil, err
+	}
 	source, err := s.factory.Alerts(ctx, input.SiteID)
 	if err != nil {
 		return nil, err
@@ -103,6 +135,9 @@ type AcknowledgeInput struct {
 func (s *AlertService) Acknowledge(ctx context.Context, input AcknowledgeInput) (string, error) {
 	if len(input.Matchers) == 0 {
 		return "", fmt.Errorf("matchers are required: Alertmanager silences match labels, not fingerprints")
+	}
+	if err := s.requireSite(ctx, input.SiteID); err != nil {
+		return "", err
 	}
 
 	source, err := s.factory.Alerts(ctx, input.SiteID)

@@ -811,6 +811,11 @@ func RespondError(c *fiber.Ctx, err error) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"A deployment template with this name already exists for the integration."))
 
+	// A capability the provisioner does not have is a 400 like every other unsupported
+	// capability, including inside a deployment batch, which wraps it (DF-05).
+	case errors.Is(err, provisioningdomain.ErrNetworkConfigurationUnsupported):
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
+
 	case errors.Is(err, provisioningdomain.ErrDeploymentBatchConflict):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 
@@ -853,8 +858,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, serverdomain.ErrServerLocked),
 		errors.Is(err, serverdomain.ErrSpecConflict),
 		errors.Is(err, serverdomain.ErrSpecNotAdopted),
-		errors.Is(err, provisioningdomain.ErrNetworkConfigurationConflict),
-		errors.Is(err, provisioningdomain.ErrNetworkConfigurationUnsupported):
+		errors.Is(err, provisioningdomain.ErrNetworkConfigurationConflict):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 
 	case errors.Is(err, provisioningdomain.ErrInvalidDeploymentTemplate),
@@ -901,12 +905,14 @@ func RespondError(c *fiber.Ctx, err error) error {
 	// WorkflowService, so its client-safe failures reach this mapper. Translate
 	// them with the same classification the operation delivery mapper uses instead of
 	// letting them fall through to the opaque Internal error. fallback: a busy or
-	// locked target is a 409 conflict, and a rejected operation request is a 400.
-	// Genuinely internal failures (repository writes) still keep the 500 fallback.
+	// locked target, or one not in the required state, is a 409 conflict, and a rejected
+	// operation request is a 400. Genuinely internal failures (repository writes) still keep the
+	// 500 fallback.
 	case errors.Is(err, workflowdomain.ErrTargetsBusy),
 		errors.Is(err, workflowdomain.ErrTargetLocked),
 		errors.Is(err, workflowdomain.ErrPolicyConflict),
-		errors.Is(err, workflowdomain.ErrWorkflowControlConflict):
+		errors.Is(err, workflowdomain.ErrWorkflowControlConflict),
+		errors.Is(err, workflowdomain.ErrTargetStateInvalid):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 
 	// A Platform's Server is released through that Platform's uninstall (decision 067); the
@@ -914,8 +920,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, provisioningdomain.ErrServerClaimedByPlatform):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 
-	case errors.Is(err, workflowapp.ErrInvalidOperation),
-		errors.Is(err, workflowdomain.ErrTargetStateInvalid):
+	case errors.Is(err, workflowapp.ErrInvalidOperation):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 
 	// Every durable OS deployment carries configure-ntp ansible Tasks (decision 065), so it is
