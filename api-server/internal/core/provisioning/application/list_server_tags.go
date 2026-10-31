@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 )
 
@@ -21,28 +22,24 @@ type ServerTagOption struct {
 // ListServerTagsUseCase lists the tags known for a Site, so the editor can offer existing names and
 // disable the ones that are not swallow-editable.
 //
-// It is capability-first (decision 031): when the Site's provisioner owns tags, the known set is the
-// provider's own tag list (with its automatic tags flagged read-only); when it does not, the known
-// set is the union of the swallow-owned overlays for that provisioner, all editable. A Site with no
-// provisioner yields an empty list rather than an error, because there is simply nothing to offer.
+// When the Site's provisioner supports tagging, the known set is its tag catalog, with automatic
+// tags flagged read-only. When it does not, the known set is the manual tags in the specs of the
+// Site's Servers, all editable: the spec is kept even though the provisioner cannot realize it
+// (the Servers report capability_missing). A Site with no provisioner yields an empty list.
 type ListServerTagsUseCase struct {
 	integrations sitedomain.IntegrationRepository
 	providers    provisioningdomain.ProviderFactory
-	tagOverlays  provisioningdomain.ServerTagOverlayRepository
+	servers      serverdomain.ServerRepository
 }
 
 // NewListServerTagsUseCase wires the integration repository (to find a Site's provisioner), the
-// provider factory, and the swallow-owned tag overlay store the fallback reads from.
+// provider factory, and the Server repository whose specs list tags a provisioner cannot.
 func NewListServerTagsUseCase(
 	integrations sitedomain.IntegrationRepository,
 	providers provisioningdomain.ProviderFactory,
-	tagOverlays provisioningdomain.ServerTagOverlayRepository,
+	servers serverdomain.ServerRepository,
 ) *ListServerTagsUseCase {
-	return &ListServerTagsUseCase{
-		integrations: integrations,
-		providers:    providers,
-		tagOverlays:  tagOverlays,
-	}
+	return &ListServerTagsUseCase{integrations: integrations, providers: providers, servers: servers}
 }
 
 // Execute returns the known tags for the Site. An empty siteID, or a Site with no enabled
@@ -84,15 +81,14 @@ func (uc *ListServerTagsUseCase) Execute(ctx context.Context, siteID string) ([]
 		return options, nil
 	}
 
-	// Fallback: the known set is every swallow-owned tag for this provisioner, all editable.
-	overlays, err := uc.tagOverlays.ListByIntegration(ctx, integrationID)
+	result, err := uc.servers.List(ctx, serverdomain.ListFilter{IntegrationID: integrationID, IncludeAbsent: true})
 	if err != nil {
 		return nil, err
 	}
 	seen := map[string]struct{}{}
 	options := make([]ServerTagOption, 0)
-	for _, overlay := range overlays {
-		for _, name := range overlay.Tags {
+	for _, server := range result.Servers {
+		for _, name := range server.Spec.Tags {
 			if _, dup := seen[name]; dup {
 				continue
 			}
@@ -128,7 +124,7 @@ func normalizeTagDiff(rawAdd, rawRemove []string) (add, remove []string, err err
 }
 
 // applyTagDiff returns current with remove taken out and add put in, preserving order and never
-// duplicating. It is how the swallow-owned fallback computes a Server's new owned tag set.
+// duplicating. It is how a tag edit computes a Server's new spec tags.
 func applyTagDiff(current, add, remove []string) []string {
 	removeSet := make(map[string]struct{}, len(remove))
 	for _, name := range remove {

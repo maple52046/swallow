@@ -97,7 +97,7 @@ first, see [auth-refresh.md](auth-refresh.md)).
 - Comment lines (`: ping`) are heartbeats and carry no data.
 
 The `health` axis is resolved at list-query time from the metrics backend and is not part of
-this stream; an `upsert` may carry `health: null`. A consumer SHOULD preserve the row's
+this stream; an `upsert` may carry `status.health: null`. A consumer SHOULD preserve the row's
 previously known health when patching from an `upsert`.
 
 Unchanged projections are suppressed server-side: re-observing a Server with no UI-relevant
@@ -123,6 +123,10 @@ contracts evolve together: adding an optional projection field is backward compa
 a credential field is forbidden. New `type` values may be added; a consumer MUST ignore a
 frame whose `type` it does not recognise.
 
+On 2026-10-31 the `server` object took the spec/status shape of the list item
+([servers-list.md](servers-list.md#spec-and-status)), a breaking change made in both contracts
+together.
+
 A dropped or reconnecting client MUST treat the stream as best-effort delivery: on reconnect
 it re-reads [`servers-list.md`](servers-list.md) once to resync any changes missed while
 disconnected. The server may drop a subscriber that cannot keep up; the client simply
@@ -132,5 +136,6 @@ reconnects.
 
 Changes are published from the single Server persistence boundary and fanned out by an
 in-process broker with per-subscriber buffering; a subscriber that overflows is dropped
-rather than allowed to stall writers. Cross-process writes (durable Operations in the worker)
-surface through the reconcile pass within `reconcileInterval`, deduplicated by the broker.
+rather than allowed to stall writers. Cross-process writes (durable Operations and the Server
+controller's conditions, both in the worker) surface through the reconcile pass within
+`reconcileInterval`, deduplicated by the broker.

@@ -70,7 +70,7 @@ export function ServerDetailPage() {
   // This Server's inspect-hardware Workflow waiting for attention (decision 053), if any.
   const inspectionAttention = useInspectionAttention({ serverId: id })
   // The Workflow behind a Releasing state, which the projection does not reference.
-  const loadedProvisioning = state.status === 'ready' ? state.data.server.provisioning : undefined
+  const loadedProvisioning = state.status === 'ready' ? state.data.server.status.provisioning : undefined
   const releaseActivity = useServerReleaseActivity({
     serverId: id ?? '',
     releasing: loadedProvisioning?.state === 'releasing',
@@ -95,8 +95,8 @@ export function ServerDetailPage() {
   const mutationHandedOffRef = useRef(false)
   const activeProjection =
     state.status === 'ready' &&
-    (isProvisioningInProgress(state.data.server.provisioning?.state) ||
-      ['deploying', 'verifying'].includes(state.data.server.deployment?.state ?? ''))
+    (isProvisioningInProgress(state.data.server.status.provisioning?.state) ||
+      ['deploying', 'verifying'].includes(state.data.server.status.deployment?.state ?? ''))
   useEffect(() => {
     if (!activeProjection || state.status !== 'ready') return
     let canceled = false
@@ -158,12 +158,12 @@ export function ServerDetailPage() {
   const tabs = TABS.filter((tab) => (!tab.feature || features[tab.feature]) && (!tab.requiresDockerCE || dockerInstalled))
   const segment = location.pathname.split('/').pop() ?? ''
   const current = tabs.some((tab) => tab.value === segment) ? segment : 'summary'
-  const headerContext = [server.fqdn || server.addresses[0], server.architecture, server.providerZone].filter(Boolean).join(' · ')
-  const deployDisabledReason = server.absent
+  const headerContext = [server.status.fqdn || server.status.addresses[0], server.status.architecture, server.status.providerZone].filter(Boolean).join(' · ')
+  const deployDisabledReason = server.status.absent
     ? 'Server is absent'
-    : server.provisioning?.locked
+    : server.status.provisioning?.locked
       ? 'Unlock the Server before deployment'
-      : server.provisioning?.state !== 'ready'
+      : server.status.provisioning?.state !== 'ready'
         ? 'Server must be ready'
         : undefined
   return (
@@ -174,12 +174,12 @@ export function ServerDetailPage() {
         breadcrumbs={[{ label: 'Servers', href: scopedHref('/servers') }, { label: serverDisplayName(server) }]}
         metadata={
           <HStack gap="2" wrap="wrap">
-            <DeploymentBadge axis={server.deployment} provider={server.provisioning} stateOnly elapsed="inline" />
-            <LockBadge locked={server.provisioning?.locked ?? false} />
-            <MembershipBadge axis={server.membership} />
-            <HealthBadge axis={server.health} />
+            <DeploymentBadge axis={server.status.deployment} provider={server.status.provisioning} stateOnly elapsed="inline" />
+            <LockBadge locked={server.status.provisioning?.locked ?? false} />
+            <MembershipBadge axis={server.status.membership} />
+            <HealthBadge axis={server.status.health} />
             {activeProjection && <Badge colorPalette="blue" variant="subtle">Updating…</Badge>}
-            {server.absent && <Badge colorPalette="gray" variant="subtle">absent</Badge>}
+            {server.status.absent && <Badge colorPalette="gray" variant="subtle">absent</Badge>}
           </HStack>
         }
         stackActionsOnMobile
@@ -207,15 +207,15 @@ export function ServerDetailPage() {
           />
         }
       />
-      {server.absent && (
+      {server.status.absent && (
         <Alert status="warning" title="Machine is absent from its provisioner">
           Swallow retains the projection because inventory absence is commonly transient.
         </Alert>
       )}
-      {server.deployment && ['failed', 'requires_attention'].includes(server.deployment.state) && (
+      {server.status.deployment && ['failed', 'requires_attention'].includes(server.status.deployment.state) && (
         <DeploymentFailureAlert
-          deployment={server.deployment}
-          onViewOperation={() => navigate(scopedHref(`/workflows/${server.deployment?.operationId}`))}
+          deployment={server.status.deployment}
+          onViewOperation={() => navigate(scopedHref(`/workflows/${server.status.deployment?.operationId}`))}
         />
       )}
       {/* Directly under a failed deployment, because a layout that needs a new inspection is the
@@ -235,10 +235,10 @@ export function ServerDetailPage() {
         // The Power Configuration is on the Summary; offer the jump only from the other tabs.
         onConfigurePower={current === 'summary' ? undefined : (serverId) => navigate(scopedHref(`/servers/${serverId}/summary`))}
       />
-      {server.provisioning && ['failed', 'broken', 'rescue'].includes(server.provisioning.state) && (
+      {server.status.provisioning && ['failed', 'broken', 'rescue'].includes(server.status.provisioning.state) && (
         <ProviderFailureAlert
           serverId={server.id}
-          provisioning={server.provisioning}
+          provisioning={server.status.provisioning}
           onRecoverStarted={() => {
             reload()
             mutationHandedOffRef.current = false
@@ -247,22 +247,22 @@ export function ServerDetailPage() {
         />
       )}
       <ReleaseInProgressAlert serverId={server.id} activity={releaseActivity} />
-      {server.deployment?.operationId && ['deploying', 'verifying'].includes(server.deployment.state) && (
+      {server.status.deployment?.operationId && ['deploying', 'verifying'].includes(server.status.deployment.state) && (
         <Alert
           status="info"
-          title={server.deployment.state === 'verifying' ? 'Verifying the deployment' : 'Deploying an operating system'}
+          title={server.status.deployment.state === 'verifying' ? 'Verifying the deployment' : 'Deploying an operating system'}
         >
           <Stack gap="1">
             <Text>
-              {server.deployment.state === 'verifying'
+              {server.status.deployment.state === 'verifying'
                 ? 'The provider installed the OS; Swallow is waiting for the host to become reachable over SSH before confirming it. This can take several minutes and times out if the host never comes up — for example an image that boots from RAM but not from disk.'
                 : 'The provisioner is installing the operating system. This can take several minutes; Swallow asks for attention if the provider stops reporting progress.'}
             </Text>
             {/* While deploying, statusReason carries the provider's latest installation stage (for
                 example "Configuring OS" and since when), so a stuck stage is visible here instead
                 of an unchanging generic message. Verifying keeps the fuller fixed explanation. */}
-            {server.deployment.state === 'deploying' && server.deployment.statusReason && (
-              <Text color="fg.muted">{server.deployment.statusReason}</Text>
+            {server.status.deployment.state === 'deploying' && server.status.deployment.statusReason && (
+              <Text color="fg.muted">{server.status.deployment.statusReason}</Text>
             )}
             <Button
               variant="plain"
@@ -271,7 +271,7 @@ export function ServerDetailPage() {
               h="auto"
               colorPalette="brand"
               alignSelf="flex-start"
-              onClick={() => navigate(scopedHref(`/workflows/${server.deployment?.operationId}`))}
+              onClick={() => navigate(scopedHref(`/workflows/${server.status.deployment?.operationId}`))}
             >
               View operation
             </Button>

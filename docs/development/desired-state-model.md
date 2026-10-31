@@ -134,7 +134,11 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 遷移依 [decision 071](../decisions/071-provisioner-realized-desired-state.md) 分段進行。第一段是由 provisioner
 以短的呼叫實現的欄位。已遷移的資源與其規格列在下面，尚未列出的資源維持現行行為：
 
-（第一段的資源遷移時逐一加入。）
+| 資源 | spec | controller | 規格與契約 |
+| --- | --- | --- | --- |
+| Server 的手動 tag | `spec.tags`：Server 必須帶的手動 tag 全集；自動 tag 只觀察，不進 spec | Server controller：補上缺少的、移除多出的手動 tag；provisioner 沒有 tag 能力時 `capability_missing` | glossary [Tag](glossaries/terms/tag.md)、[os-provisioning.md](os-provisioning.md) §2、[server-tags.md](../../api-server/docs/development/api-contracts/api-server/server-tags.md)、[servers-list.md](../../api-server/docs/development/api-contracts/api-server/servers-list.md#spec-and-status) |
+
+（第一段其餘的資源遷移時逐一加入。）
 
 遷移後的資源共同遵守：
 

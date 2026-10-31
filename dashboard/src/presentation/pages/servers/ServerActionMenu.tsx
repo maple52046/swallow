@@ -67,7 +67,7 @@ export function ServerActionMenu({
   const { showToast } = useToast()
   const navigate = useNavigate()
   const { scopedHref } = useSiteScope()
-  const platformNames = usePlatformNames(server.source.siteId, [server])
+  const platformNames = usePlatformNames(server.status.source.siteId, [server])
   const [busy, setBusy] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [releaseOpen, setReleaseOpen] = useState(false)
@@ -85,7 +85,7 @@ export function ServerActionMenu({
   const installBlocker = softwareInstallBlocker(server)
   const installSoftwareDisabledReason = installBlocker
     ? softwareInstallBlockerReason(installBlocker)
-    : server.provisioning?.locked
+    : server.status.provisioning?.locked
       ? 'Unlock the Server before installing software'
       : undefined
 
@@ -217,7 +217,7 @@ export function ServerActionMenu({
 
       {deployOSOpen && (
         <DeployOSDialog
-          context={{ kind: 'fixed-targets', siteId: server.source.siteId, targets: [server] }}
+          context={{ kind: 'fixed-targets', siteId: server.status.source.siteId, targets: [server] }}
           onClose={() => setDeployOSOpen(false)}
           onLaunched={(operationId) => {
             setDeployOSOpen(false)

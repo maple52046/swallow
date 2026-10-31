@@ -62,7 +62,7 @@ export function VirtualMachineEnrollmentAction({ provisioners, servers }: Virtua
   const listRequest = useRef(0)
 
   const hypervisors = useMemo(
-    () => servers.filter((server) => !server.absent && server.provisioning?.state === 'deployed' && server.addresses.length > 0),
+    () => servers.filter((server) => !server.status.absent && server.status.provisioning?.state === 'deployed' && server.status.addresses.length > 0),
     [servers],
   )
   const hypervisor = hypervisors.find((server) => server.id === hypervisorId)
@@ -165,7 +165,7 @@ export function VirtualMachineEnrollmentAction({ provisioners, servers }: Virtua
           value={hypervisorId}
           disabled={accepted}
           onChange={chooseHypervisor}
-          options={hypervisors.map((server) => ({ value: server.id, label: `${serverDisplayName(server)} (${server.addresses[0]})` }))}
+          options={hypervisors.map((server) => ({ value: server.id, label: `${serverDisplayName(server)} (${server.status.addresses[0]})` }))}
         />
         <Field.HelperText>A deployed Server swallow logs in to with the Deployment Key.</Field.HelperText>
       </Field.Root>
@@ -174,7 +174,7 @@ export function VirtualMachineEnrollmentAction({ provisioners, servers }: Virtua
         <Input
           id="add-vms-account"
           value={account}
-          placeholder={hypervisor?.defaultUser?.user ?? 'Server Default User'}
+          placeholder={hypervisor?.status.defaultUser?.user ?? 'Server Default User'}
           autoComplete="off"
           spellCheck={false}
           disabled={accepted}

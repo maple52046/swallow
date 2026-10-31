@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
@@ -113,6 +114,83 @@ func (r *EventingServerRepository) SetDefaultUser(ctx context.Context, id string
 	}
 	r.publishByID(ctx, id)
 	return nil
+}
+
+// UpdateSpec delegates to the inner repository's ServerConvergenceStore and publishes the re-read
+// projection, so a tag edit shows as pending on every open list at once.
+func (r *EventingServerRepository) UpdateSpec(ctx context.Context, id string, expectedGeneration int64, spec serverdomain.ServerSpec) (int64, error) {
+	store, err := r.convergenceStore()
+	if err != nil {
+		return 0, err
+	}
+	generation, err := store.UpdateSpec(ctx, id, expectedGeneration, spec)
+	if err != nil {
+		return 0, err
+	}
+	r.publishByID(ctx, id)
+	return generation, nil
+}
+
+// AdoptSpec delegates and publishes when the spec was adopted.
+func (r *EventingServerRepository) AdoptSpec(ctx context.Context, id string, spec serverdomain.ServerSpec) (bool, error) {
+	store, err := r.convergenceStore()
+	if err != nil {
+		return false, err
+	}
+	adopted, err := store.AdoptSpec(ctx, id, spec)
+	if err == nil && adopted {
+		r.publishByID(ctx, id)
+	}
+	return adopted, err
+}
+
+// SetConvergence delegates and publishes the re-read projection.
+func (r *EventingServerRepository) SetConvergence(ctx context.Context, id string, status serverdomain.ServerConvergence) error {
+	store, err := r.convergenceStore()
+	if err != nil {
+		return err
+	}
+	if err := store.SetConvergence(ctx, id, status); err != nil {
+		return err
+	}
+	r.publishByID(ctx, id)
+	return nil
+}
+
+// SetObservedTags delegates and publishes the re-read projection.
+func (r *EventingServerRepository) SetObservedTags(ctx context.Context, id string, tags, automaticTags []string) error {
+	store, err := r.convergenceStore()
+	if err != nil {
+		return err
+	}
+	if err := store.SetObservedTags(ctx, id, tags, automaticTags); err != nil {
+		return err
+	}
+	r.publishByID(ctx, id)
+	return nil
+}
+
+// SetOrigin delegates and publishes the re-read projection.
+func (r *EventingServerRepository) SetOrigin(ctx context.Context, id string, origin serverdomain.Origin) error {
+	store, err := r.convergenceStore()
+	if err != nil {
+		return err
+	}
+	if err := store.SetOrigin(ctx, id, origin); err != nil {
+		return err
+	}
+	r.publishByID(ctx, id)
+	return nil
+}
+
+// convergenceStore returns the inner repository's ServerConvergenceStore, or an error when it does
+// not persist the desired-state parts, rather than silently dropping a spec write.
+func (r *EventingServerRepository) convergenceStore() (serverdomain.ServerConvergenceStore, error) {
+	store, ok := r.inner.(serverdomain.ServerConvergenceStore)
+	if !ok {
+		return nil, fmt.Errorf("server repository %T does not store desired state", r.inner)
+	}
+	return store, nil
 }
 
 // ClaimForPlatform delegates to the inner repository's PlatformClaimStore and publishes every

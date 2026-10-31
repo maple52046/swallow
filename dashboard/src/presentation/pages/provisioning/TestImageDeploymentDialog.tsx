@@ -59,7 +59,7 @@ export function TestImageDeploymentDialog({
         if (cancelled) return
         // Only a Server of the image's architecture can prove it; the backend enforces this too.
         const matches = page.items.filter(
-          (server) => primaryArchitecture(server.architecture) === primaryArchitecture(image.architecture),
+          (server) => primaryArchitecture(server.status.architecture) === primaryArchitecture(image.architecture),
         )
         setCandidates(matches)
         setServerId(matches[0]?.id ?? '')
@@ -158,7 +158,7 @@ export function TestImageDeploymentDialog({
               disabled={noReadyServers}
               options={candidates.map((server) => ({
                 value: server.id,
-                label: `${serverDisplayName(server)} (${server.architecture})`,
+                label: `${serverDisplayName(server)} (${server.status.architecture})`,
               }))}
             />
           )}

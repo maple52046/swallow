@@ -67,7 +67,7 @@ export function useDeployableServers(
         for (const server of workingSet.servers) byId.set(server.id, server)
       }
       return {
-        servers: [...byId.values()].filter((server) => !server.provisioning?.locked),
+        servers: [...byId.values()].filter((server) => !server.status.provisioning?.locked),
         platforms: sitePlatforms,
       }
     }

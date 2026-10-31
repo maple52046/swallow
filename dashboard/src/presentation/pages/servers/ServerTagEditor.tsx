@@ -6,6 +6,7 @@ import { useToast } from '@/presentation/components/toast/toastContext'
 import type { ServerTagOption, ServerTagsResult } from '@/domain/provisioning/types'
 import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/list'
+import { serverManualTags } from '@/domain/server/tags'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -22,7 +23,10 @@ interface ServerTagEditorProps {
   /** The Servers to edit; one for a single edit, many for a batch edit. Never empty. */
   servers: readonly Server[]
   onClose: () => void
-  /** Called with each Server's effective tags after a successful save, so the caller can reload. */
+  /**
+   * Called with each Server's new tag spec after a successful save, so the caller can reload. The
+   * provisioner has not necessarily applied it yet; the Server's conditions report when it has.
+   */
   onSaved: (results: ServerTagsResult[]) => void
 }
 
@@ -37,16 +41,17 @@ const MAX_TAG_NAME_LENGTH = 100
  * Each tag shows its state across the selection like an email label: checked when every selected
  * Server has it, unchecked when none does, and indeterminate when some do. Toggling a tag applies or
  * removes it across all selected Servers, and only the tags whose state actually changed are sent as
- * a diff (decision 031). Automatic tags (provider-computed, e.g. one that may back `amd-gpu`) are
- * shown disabled because swallow cannot assign them. Ownership — provider-driven or swallow-owned —
- * is resolved by the backend; this dialog only expresses intent.
+ * a diff. Coverage is read from each Server's manual-tag spec, which is what the edit changes; the
+ * backend then makes the provisioner match it asynchronously (decision 071). Automatic tags
+ * (provider-computed, e.g. one that may back `amd-gpu`) are shown disabled because swallow cannot
+ * assign them.
  */
 export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorProps) {
   const { provisioning } = useApp()
   const { showToast } = useToast()
   // Known tags come from the first Server's Site. A selection almost always shares one Site; when it
   // does not, this is a best-effort suggestion list and the edit still applies per Server on save.
-  const siteId = servers[0]?.source.siteId ?? ''
+  const siteId = servers[0]?.status.source.siteId ?? ''
   const [known, setKnown] = useState<ServerTagOption[] | null>(null)
   const [knownWarning, setKnownWarning] = useState('')
   const [extraTags, setExtraTags] = useState<string[]>([])
@@ -81,7 +86,11 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
   // tags are offered as editable because the operator just created them.
   const rows = useMemo(() => {
     const options: ServerTagOption[] = [...(known ?? []), ...extraTags.map((name) => ({ name, editable: true }))]
-    return buildTagRows(servers, options)
+    const tagged = servers.map((server) => ({
+      manualTags: serverManualTags(server),
+      automaticTags: server.status.automaticTags,
+    }))
+    return buildTagRows(tagged, options)
   }, [known, extraTags, servers])
 
   const diff = useMemo(() => computeTagDiff(rows, decisions), [rows, decisions])
@@ -135,9 +144,11 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
       })
       showToast({
         tone: 'success',
-        title: 'Tags updated',
+        title: 'Tags saved',
         description:
-          total === 1 ? `Updated tags on ${serverDisplayName(servers[0])}.` : `Updated tags on ${total} servers.`,
+          total === 1
+            ? `Saved tags on ${serverDisplayName(servers[0])}. The provisioner applies them shortly.`
+            : `Saved tags on ${total} servers. The provisioner applies them shortly.`,
       })
       onSaved(results)
       onClose()

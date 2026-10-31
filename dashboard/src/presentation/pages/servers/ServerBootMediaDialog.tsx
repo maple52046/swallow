@@ -83,8 +83,8 @@ export function ServerBootMediaDialog({ server, bootMedia, mode, onClose, onChan
   const current = bootMedia.image
   const choosing = mode === 'enable' || mode === 'change' || (mode === 'reapply' && !current?.available)
   const isos = useAsyncData(
-    async () => (choosing ? (await provisioning.listBootISOs({ integrationId: server.source.integrationId })).items : []),
-    [provisioning, server.source.integrationId, choosing],
+    async () => (choosing ? (await provisioning.listBootISOs({ integrationId: server.status.source.integrationId })).items : []),
+    [provisioning, server.status.source.integrationId, choosing],
   )
   const [chosenId, setChosenId] = useState('')
   const [busy, setBusy] = useState(false)
@@ -93,7 +93,7 @@ export function ServerBootMediaDialog({ server, bootMedia, mode, onClose, onChan
   // Set when the operator closes the dialog while a preflight runs, so its outcome becomes a toast.
   const closedWhileBusy = useRef(false)
   const name = serverDisplayName(server)
-  const locked = server.provisioning?.locked ?? false
+  const locked = server.status.provisioning?.locked ?? false
   const disabling = mode === 'disable'
   const libvirt = shownBootMediaMethod(bootMedia) === 'libvirt'
   const target = bootMediaTargetLabel(shownBootMediaMethod(bootMedia))

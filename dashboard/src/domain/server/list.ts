@@ -74,7 +74,7 @@ export const UNSET_GROUP = 'unknown'
 
 /** The first MAC address, or null when the provisioner reported none. */
 export function serverMacAddress(server: Server): string | null {
-  return server.hardware.macAddresses[0] ?? null
+  return server.status.hardware.macAddresses[0] ?? null
 }
 
 /**
@@ -84,15 +84,15 @@ export function serverMacAddress(server: Server): string | null {
 export function groupValueOf(server: Server, groupBy: ServerGroupBy): string {
   switch (groupBy) {
     case 'provisioning':
-      return server.provisioning?.state ?? UNSET_GROUP
+      return server.status.provisioning?.state ?? UNSET_GROUP
     case 'power':
-      return server.provisioning?.powerState ?? UNSET_GROUP
+      return server.status.provisioning?.powerState ?? UNSET_GROUP
     case 'zone':
-      return server.providerZone || UNSET_GROUP
+      return server.status.providerZone || UNSET_GROUP
     case 'pool':
-      return server.providerResourcePool || UNSET_GROUP
+      return server.status.providerResourcePool || UNSET_GROUP
     case 'architecture':
-      return server.architecture || UNSET_GROUP
+      return server.status.architecture || UNSET_GROUP
     case 'none':
     default:
       return ''
@@ -103,23 +103,23 @@ export function groupValueOf(server: Server, groupBy: ServerGroupBy): string {
 export function matchesServerFilters(server: Server, filters: ServerFilters): boolean {
   if (
     filters.provisioningStates.length > 0 &&
-    !filters.provisioningStates.includes(server.provisioning?.state ?? UNSET_GROUP)
+    !filters.provisioningStates.includes(server.status.provisioning?.state ?? UNSET_GROUP)
   ) {
     return false
   }
-  if (filters.zones.length > 0 && !filters.zones.includes(server.providerZone || UNSET_GROUP)) {
+  if (filters.zones.length > 0 && !filters.zones.includes(server.status.providerZone || UNSET_GROUP)) {
     return false
   }
-  if (filters.pools.length > 0 && !filters.pools.includes(server.providerResourcePool || UNSET_GROUP)) {
+  if (filters.pools.length > 0 && !filters.pools.includes(server.status.providerResourcePool || UNSET_GROUP)) {
     return false
   }
-  if (filters.tags.length > 0 && !filters.tags.some((tag) => server.tags.includes(tag))) {
+  if (filters.tags.length > 0 && !filters.tags.some((tag) => server.status.tags.includes(tag))) {
     return false
   }
-  if (filters.hasGpu !== null && server.gpus.length > 0 !== filters.hasGpu) {
+  if (filters.hasGpu !== null && server.status.gpus.length > 0 !== filters.hasGpu) {
     return false
   }
-  const locked = server.provisioning?.locked === true
+  const locked = server.status.provisioning?.locked === true
   if ((filters.lockState === 'locked' && !locked) ||
     (filters.lockState === 'unlocked' && locked)) {
     return false
@@ -139,19 +139,19 @@ function sortValue(server: Server, key: ServerSortKey): string | number {
     case 'name':
       return serverDisplayName(server).toLowerCase()
     case 'provisioning':
-      return server.deployment?.state ?? (server.provisioning?.state === 'deployed' ? 'unverified' : 'not_deployed')
+      return server.status.deployment?.state ?? (server.status.provisioning?.state === 'deployed' ? 'unverified' : 'not_deployed')
     case 'power':
-      return server.provisioning?.powerState ?? ''
+      return server.status.provisioning?.powerState ?? ''
     case 'cores':
-      return server.cpuCores
+      return server.status.cpuCores
     case 'memory':
-      return server.memoryMiB
+      return server.status.memoryMiB
     case 'storage':
-      return server.storageGB
+      return server.status.storageGB
     case 'zone':
-      return (server.providerZone || '').toLowerCase()
+      return (server.status.providerZone || '').toLowerCase()
     case 'pool':
-      return (server.providerResourcePool || '').toLowerCase()
+      return (server.status.providerResourcePool || '').toLowerCase()
     default:
       return ''
   }
@@ -186,15 +186,15 @@ export function compareServers(
 function dimensionValues(server: Server, dimension: ServerDimension): string[] {
   switch (dimension) {
     case 'provisioningState':
-      return [server.provisioning?.state ?? UNSET_GROUP]
+      return [server.status.provisioning?.state ?? UNSET_GROUP]
     case 'zone':
-      return [server.providerZone || UNSET_GROUP]
+      return [server.status.providerZone || UNSET_GROUP]
     case 'pool':
-      return [server.providerResourcePool || UNSET_GROUP]
+      return [server.status.providerResourcePool || UNSET_GROUP]
     case 'architecture':
-      return [server.architecture || UNSET_GROUP]
+      return [server.status.architecture || UNSET_GROUP]
     case 'tag':
-      return server.tags.length > 0 ? server.tags : []
+      return server.status.tags.length > 0 ? server.status.tags : []
     default:
       return []
   }

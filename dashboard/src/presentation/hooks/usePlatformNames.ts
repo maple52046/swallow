@@ -16,7 +16,7 @@ const NO_NAMES: ReadonlyMap<string, string> = new Map()
 export function usePlatformNames(siteId: string | undefined, servers: readonly Server[]): ReadonlyMap<string, string> {
   const { platforms } = useApp()
   const claimKey = useMemo(() => {
-    const ids = new Set(servers.flatMap((server) => (server.platformClaim ? [server.platformClaim.platformId] : [])))
+    const ids = new Set(servers.flatMap((server) => (server.status.platformClaim ? [server.status.platformClaim.platformId] : [])))
     return [...ids].sort().join(',')
   }, [servers])
   const [names, setNames] = useState<ReadonlyMap<string, string>>(NO_NAMES)

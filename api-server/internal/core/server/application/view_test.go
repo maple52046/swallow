@@ -13,7 +13,7 @@ func TestToServerItemAlwaysEmitsGPUKind(t *testing.T) {
 		{Vendor: "ASPEED Technology, Inc.", Model: "ASPEED Graphics Family", Count: 1},
 	}}}
 
-	items := ToServerItem(server).GPUs
+	items := ToServerItem(server).Status.GPUs
 	if len(items) != 2 {
 		t.Fatalf("ToServerItem GPUs length = %d, want 2", len(items))
 	}

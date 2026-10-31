@@ -309,9 +309,9 @@ export function SoftwareDetailPage() {
                         <SoftwareDeploymentTableRow
                           key={row.assignment.serverId}
                           row={row}
-                          managedByPlatformId={softwareManagedByPlatform(row.server, entry) ? row.server.platformClaim?.platformId ?? null : null}
+                          managedByPlatformId={softwareManagedByPlatform(row.server, entry) ? row.server.status.platformClaim?.platformId ?? null : null}
                           showSite={!siteId}
-                          siteName={siteName(row.server.source.siteId)}
+                          siteName={siteName(row.server.status.source.siteId)}
                           scopedHref={scopedHref}
                           onReconfigure={() => setInstallTarget(row)}
                           onUninstall={() => setUninstalling(row.assignment)}
@@ -327,9 +327,9 @@ export function SoftwareDetailPage() {
                     <SoftwareDeploymentCard
                       key={row.assignment.serverId}
                       row={row}
-                      managedByPlatformId={softwareManagedByPlatform(row.server, entry) ? row.server.platformClaim?.platformId ?? null : null}
+                      managedByPlatformId={softwareManagedByPlatform(row.server, entry) ? row.server.status.platformClaim?.platformId ?? null : null}
                       showSite={!siteId}
-                      siteName={siteName(row.server.source.siteId)}
+                      siteName={siteName(row.server.status.source.siteId)}
                       scopedHref={scopedHref}
                       onReconfigure={() => setInstallTarget(row)}
                       onUninstall={() => setUninstalling(row.assignment)}
@@ -454,7 +454,7 @@ function SoftwareDeploymentCard(props: DeploymentPresentationProps) {
   return (
     <ResourceCard
       title={<RouterLink to={scopedHref(`/servers/${row.server.id}/summary`)}>{serverDisplayName(row.server)}</RouterLink>}
-      description={showSite ? siteName : row.server.addresses[0]}
+      description={showSite ? siteName : row.server.status.addresses[0]}
       status={<Badge variant="subtle" colorPalette={assignmentStatePalette(row.assignment.state)}>{assignmentStateLabel(row.assignment.state)}</Badge>}
       actions={<SoftwareDeploymentActions {...props} />}
     >

@@ -404,12 +404,12 @@ export function InstallSoftwareDialog({
                       <Box minW="0" flex="1">
                         <Text fontWeight="semibold">{serverDisplayName(server)}</Text>
                         <Text color="fg.muted" fontSize="sm">
-                          {[server.addresses[0], showSite ? siteName(server.source.siteId) : ''].filter(Boolean).join(' · ') || server.id}
+                          {[server.status.addresses[0], showSite ? siteName(server.status.source.siteId) : ''].filter(Boolean).join(' · ') || server.id}
                         </Text>
                         {blocker && <Text color="fg.muted" fontSize="xs">{softwareTargetBlockerLabel(blocker)}</Text>}
                       </Box>
                       <HStack gap="1" wrap="wrap" justify="flex-end">
-                        {server.tags.slice(0, 2).map((tag) => <Badge key={tag} variant="subtle" colorPalette="gray">{tag}</Badge>)}
+                        {server.status.tags.slice(0, 2).map((tag) => <Badge key={tag} variant="subtle" colorPalette="gray">{tag}</Badge>)}
                       </HStack>
                     </Box>
                   )

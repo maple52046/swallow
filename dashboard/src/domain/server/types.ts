@@ -5,6 +5,8 @@
  * See docs/development/glossaries/terms/server.md and docs/decisions/002-server-identity.md.
  */
 
+import type { Condition } from '@/domain/convergence/types'
+
 /** Where a server came from. The external key the backend reconciles on. */
 export interface ServerSource {
   siteId: string
@@ -430,9 +432,32 @@ export interface SetServerBootMediaResult extends ServerBootMedia {
   revertError?: string
 }
 
-export interface Server {
-  /** The only identifier to reference a server by. */
-  id: string
+/**
+ * How a Server arrived (servers-list.md, "Spec and status"): `discovered` (its provisioner enlisted
+ * it), `enrolled` (swallow registered it), or `imported` (registered with an OS already installed).
+ * Display only: after adoption swallow owns the spec whatever the origin. An open string, because a
+ * newer backend may add a value; show an unknown one as-is.
+ */
+export type ServerOrigin = string
+
+/**
+ * The provisioner-realized fields swallow owns for a Server. The tag editor writes it; the Server
+ * controller makes the provisioner match it, reporting progress in `ServerStatus.conditions`.
+ */
+export interface ServerSpec {
+  /** The complete set of manual tags the Server must carry; automatic tags are never here. */
+  tags: string[]
+}
+
+/**
+ * Everything observed, derived, or judged about a Server. Written only by the backend
+ * (reconcile, Workflows, and the Server controller); the dashboard never sends it.
+ */
+export interface ServerStatus {
+  /** The spec generation `conditions` were judged for; below `Server.generation` while converging. */
+  observedGeneration: number
+  /** The Server controller's judgement; empty until it has judged the Server. */
+  conditions: Condition[]
   source: ServerSource
 
   /** Observed, mutable, and not unique. Two sites may share a hostname. */
@@ -460,8 +485,10 @@ export interface Server {
   providerResourcePool: string
   /** The VM host a virtual machine belongs to, empty for bare metal. */
   providerPod: string
-  /** The provisioner's own labels for the machine, e.g. "gpu". */
+  /** Every tag the provisioner reports on the machine, automatic and manual, e.g. "gpu". */
   tags: string[]
+  /** The subset of `tags` the provisioner computes itself (a MAAS tag with a definition). */
+  automaticTags: string[]
 
   hardware: ServerHardware
 
@@ -494,6 +521,20 @@ export interface Server {
 
   createdAt: string
   updatedAt: string
+}
+
+/**
+ * A Server as the API returns it: a migrated resource (docs/decisions/071) with its identity, its
+ * spec, and its status. The list, the detail, and the live stream all carry this same shape.
+ */
+export interface Server {
+  /** The only identifier to reference a server by. */
+  id: string
+  origin: ServerOrigin
+  /** Counts spec changes; 1 once the first observation was adopted as the spec. */
+  generation: number
+  spec: ServerSpec
+  status: ServerStatus
 }
 
 export interface ListServersFilters {
@@ -712,9 +753,9 @@ export interface ProviderEvents {
 
 /** Display label for a server. There is no swallow-owned name. */
 export function serverDisplayName(server: Server): string {
-  return server.hostname ?? server.fqdn ?? server.id
+  return server.status.hostname ?? server.status.fqdn ?? server.id
 }
 
 export function serverPrimaryAddress(server: Server): string | null {
-  return server.addresses.length > 0 ? server.addresses[0] : null
+  return server.status.addresses.length > 0 ? server.status.addresses[0] : null
 }

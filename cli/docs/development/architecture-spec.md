@@ -61,7 +61,9 @@ Dependency direction:
 - **output** — renders decoded JSON values (maps, slices, scalars) as a table,
   JSON, or YAML. It knows nothing about specific resources, so it works for every
   endpoint; table rendering is a best-effort convenience and JSON/YAML are the
-  lossless formats.
+  lossless formats. It knows only the shared resource shapes of the contract: the
+  pagination envelope, and the spec/status shape, whose `status` fields a table
+  shows as top-level columns and whose `conditions` it shows as `type=status`.
 - **hostenroll** — the one exception to "the CLI only talks to api-server".
   `swallow servers enroll` runs on a host that keeps its OS and registers it with
   its provisioner (decision 053), because hardware facts can only be read on that

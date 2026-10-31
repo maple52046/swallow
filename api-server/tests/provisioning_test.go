@@ -62,7 +62,7 @@ func TestDeployServer_UpdatesProvisioningAxisImmediately(t *testing.T) {
 	}, f.adminAuth(t))
 
 	resp := doRequest(t, f.app, "GET", "/api/v1/servers/srv-1", nil, f.adminAuth(t))
-	provisioning := parseBody(t, resp)["provisioning"].(map[string]any)
+	provisioning := serverStatusOf(parseBody(t, resp))["provisioning"].(map[string]any)
 	if provisioning["state"] != "deploying" {
 		t.Fatalf("expected the axis to reflect the deployment, got %v", provisioning["state"])
 	}
@@ -96,7 +96,7 @@ func TestDeployServer_EphemeralIsForwardedAndProjected(t *testing.T) {
 	// Readable afterwards: nothing else on the axis distinguishes this from a machine
 	// with the same OS installed on disk.
 	resp = doRequest(t, f.app, "GET", "/api/v1/servers/srv-1", nil, f.adminAuth(t))
-	provisioning := parseBody(t, resp)["provisioning"].(map[string]any)
+	provisioning := serverStatusOf(parseBody(t, resp))["provisioning"].(map[string]any)
 	if provisioning["ephemeral"] != true {
 		t.Errorf("the axis must show ephemerality, got %v", provisioning["ephemeral"])
 	}

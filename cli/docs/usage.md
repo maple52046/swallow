@@ -437,6 +437,9 @@ swallow provisioning boot-isos delete iso1                     # refused while a
 # Server tags
 swallow provisioning tags list --site-id site1
 swallow provisioning tags edit --server srv1 --server srv2 --add rack-a --remove decommission
+# The edit writes the Servers' spec; the provisioner follows shortly. `servers get srv1` shows the
+# conditions: realized=true once MAAS carries the tags. A tag changed in the MAAS UI is put back
+# at the next periodic resync (10 minutes by default).
 swallow provisioning tags edit -f tags.yaml
 
 # Durable operations (canonical endpoints)

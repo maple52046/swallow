@@ -1152,12 +1152,13 @@ paths:
     post:
       tags: [servers]
       operationId: editServerTags
-      summary: Apply a tri-state tag edit to one or more Servers.
+      summary: Write a tri-state tag edit into the spec of one or more Servers.
       description: >-
-        Requires role `admin`. Not gated on Server Lock. 400 for an invalid body, empty
-        `serverIds`, no `add` or `remove`, an invalid or contradictory tag name, or a provisioner
-        refusal; 404 for an unknown Server or Machine; 503 when the provisioner cannot be reached
-        or has no credential.
+        Requires role `admin`. Not gated on Server Lock. Atomic across the listed Servers; the
+        provisioner converges asynchronously (the Servers' conditions report it). 400 for an
+        invalid body, empty `serverIds`, no `add` or `remove`, or an invalid, contradictory, or
+        automatic tag name; 404 for an unknown Server; 409 when a Server's spec changed during the
+        edit.
       requestBody:
         required: true
         content:
@@ -1183,7 +1184,7 @@ paths:
                     type: string
       responses:
         '200':
-          description: Each listed Server's effective tags after the edit, in request order.
+          description: Each listed Server's spec after the edit, in request order.
           content:
             application/json:
               schema:
@@ -1196,7 +1197,7 @@ paths:
           $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
-        '503':
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1244,10 +1245,47 @@ components:
     Server:
       type: object
       description: >-
-        The complete, secret-free Server projection (servers-list.md). Optional observations are
-        null; an axis that has never been observed is null rather than defaulted.
+        A Server as a migrated resource (servers-list.md, decision 071): its identity and origin, the
+        spec generation, the spec (the desired provisioner-realized fields), and the status.
+        Secret-free.
+      required: [id, origin, generation, spec, status]
+      properties:
+        id:
+          type: string
+          description: The swallow-issued, stable Server ID.
+        origin:
+          type: string
+          description: >-
+            How the Server arrived: `discovered` (its provisioner enlisted it), `enrolled` (swallow
+            registered it), or `imported` (registered with an existing OS). Consumers ignore a value
+            they do not recognise.
+        generation:
+          type: integer
+          format: int64
+          description: Counts spec changes; 1 once the Server's first observation was adopted as its spec.
+        spec:
+          $ref: '#/components/schemas/ServerSpec'
+        status:
+          $ref: '#/components/schemas/ServerStatus'
+    ServerSpec:
+      type: object
+      description: The desired provisioner-realized fields of a Server; written by the tag edit, converged by the Server controller.
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          description: The complete set of manual tags the Server must carry (server-tags.md).
+          items:
+            type: string
+    ServerStatus:
+      type: object
+      description: >-
+        Everything observed, derived, or written by the Server's controller (servers-list.md).
+        Optional observations are null; an axis that has never been observed is null rather than
+        defaulted.
       required:
-        - id
+        - observedGeneration
+        - conditions
         - source
         - hostname
         - fqdn
@@ -1264,6 +1302,7 @@ components:
         - providerResourcePool
         - providerPod
         - tags
+        - automaticTags
         - hardware
         - deployment
         - provisioning
@@ -1275,9 +1314,15 @@ components:
         - createdAt
         - updatedAt
       properties:
-        id:
-          type: string
-          description: The swallow-issued, stable Server ID.
+        observedGeneration:
+          type: integer
+          format: int64
+          description: The spec generation the conditions were judged for; equal to `generation` once the controller has judged the current spec.
+        conditions:
+          type: array
+          description: The controller's conditions (`realized`, `drifted`, `requires_attention`, `held`); empty before the first judgement.
+          items:
+            $ref: '#/components/schemas/Condition'
         source:
           $ref: '#/components/schemas/ServerSource'
         hostname:
@@ -1321,7 +1366,12 @@ components:
           description: The provisioner VM host a virtual machine belongs to; empty for bare metal.
         tags:
           type: array
-          description: The effective Server tags (server-tags.md).
+          description: Every tag the provisioner reports on the machine, automatic and manual (server-tags.md).
+          items:
+            type: string
+        automaticTags:
+          type: array
+          description: The subset of `tags` the provisioner computes itself; never part of the spec.
           items:
             type: string
         hardware:
@@ -2191,13 +2241,16 @@ components:
             $ref: '#/components/schemas/ServerTagSet'
     ServerTagSet:
       type: object
-      required: [serverId, tags]
+      required: [serverId, generation, tags]
       properties:
         serverId:
           type: string
+        generation:
+          type: integer
+          format: int64
+          description: The Server's spec generation after the edit.
         tags:
           type: array
-          nullable: true
-          description: The Server's effective tags; null (not an empty array) when it has none.
+          description: The Server's complete manual tag spec after the edit.
           items:
             type: string

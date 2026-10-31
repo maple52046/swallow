@@ -4,9 +4,9 @@ import type { ServerTagOption } from "@/domain/provisioning/types";
  * Pure, framework-free helpers for the tri-state tag editor.
  *
  * They are separated from the React component so the diff logic — which is what actually decides
- * the add/remove sent to the backend — can be reasoned about and reused without a DOM. Ownership of
- * the tags themselves is capability-first (decision 031); this module only computes the operator's
- * intent from the checkbox states.
+ * the add/remove sent to the backend — can be reasoned about and reused without a DOM. Swallow owns
+ * every manual tag and the backend writes the edit into each Server's spec (decision 071); this
+ * module only computes the operator's intent from the checkbox states.
  */
 
 /** How many of the edited Servers currently carry a tag: all, some (mixed), or none. */
@@ -30,19 +30,25 @@ export interface TagRow {
   count: number;
 }
 
-/** A minimal Server shape for building rows; only the tag names are needed. */
-interface TaggedServer {
-  tags: string[];
+/**
+ * The tag facts of one edited Server: the manual tags swallow owns for it (its spec, see
+ * `serverManualTags`) and the automatic tags its provisioner computes, which are shown but never
+ * editable.
+ */
+export interface TaggedServer {
+  manualTags: readonly string[];
+  automaticTags: readonly string[];
 }
 
 /**
  * Builds the editor rows from the edited Servers and the Site's known tags.
  *
- * The row set is the union of every tag known for the Site and every tag already on a selected
- * Server, so the editor can both offer existing names and reflect tags a Server carries that the
- * catalog lookup did not return. Coverage is computed from how many selected Servers carry the tag.
- * A tag's editability comes from the known list; a tag seen only on Servers is assumed editable
- * (swallow would not have applied a non-editable one). Rows are sorted by name for a stable list.
+ * The row set is the union of every tag known for the Site and every tag on a selected Server, so
+ * the editor can both offer existing names and reflect tags a Server carries that the catalog lookup
+ * did not return (or that failed to load). Coverage is computed from how many selected Servers carry
+ * the tag. A tag is not editable when the known list says so or when it is automatic on any selected
+ * Server, so the Servers' own facts still protect automatic tags without the catalog. Rows are
+ * sorted by name for a stable list.
  */
 export function buildTagRows(
   servers: readonly TaggedServer[],
@@ -55,8 +61,11 @@ export function buildTagRows(
 
   const counts = new Map<string, number>();
   for (const server of servers) {
-    for (const tag of new Set(server.tags)) {
+    for (const tag of new Set([...server.manualTags, ...server.automaticTags])) {
       counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+    for (const tag of server.automaticTags) {
+      editableByName.set(tag, false);
     }
   }
 

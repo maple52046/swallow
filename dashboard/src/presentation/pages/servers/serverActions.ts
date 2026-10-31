@@ -106,7 +106,7 @@ export function actionLabel(action: ServerMenuAction): string {
  * a disk deployment keeps its data across a power cycle but a RAM one does not.
  */
 export function isRamDeploy(server: Server): boolean {
-  return server.provisioning?.ephemeral === true
+  return server.status.provisioning?.ephemeral === true
 }
 
 // State gates mirroring the Swallow-owned recovery policy (docs/decisions/033). The dashboard
@@ -137,7 +137,7 @@ export interface ServerActionAvailability {
 
 /** The normalized provisioning state to branch on, or '' when the axis is unobserved. */
 function provisioningState(server: Server): string {
-  return server.provisioning?.state ?? ''
+  return server.status.provisioning?.state ?? ''
 }
 
 /**
@@ -155,14 +155,14 @@ function stateGatedAvailability(
   allows: (server: Server) => boolean,
   reason: string,
 ): ServerActionAvailability {
-  const locked = targets.filter((server) => server.provisioning?.locked)
+  const locked = targets.filter((server) => server.status.provisioning?.locked)
   if (locked.length > 0) {
-    const name = locked[0].hostname ?? locked[0].id
+    const name = locked[0].status.hostname ?? locked[0].id
     return { eligible: [], skipped: locked, disabledReason: `${name} is locked. Unlock it before starting this action.` }
   }
-  const busy = targets.filter((server) => isProvisioningInProgress(server.provisioning?.state))
+  const busy = targets.filter((server) => isProvisioningInProgress(server.status.provisioning?.state))
   if (busy.length > 0) {
-    const name = busy[0].hostname ?? busy[0].id
+    const name = busy[0].status.hostname ?? busy[0].id
     return {
       eligible: [],
       skipped: busy,
@@ -191,16 +191,16 @@ export interface ServerActionContext {
  * API refuses both with 409, so the menu shows this once above those two actions.
  */
 export function platformClaimNote(targets: readonly Server[], platformNames?: ReadonlyMap<string, string>): string | undefined {
-  const claimed = targets.filter((server) => server.platformClaim)
+  const claimed = targets.filter((server) => server.status.platformClaim)
   if (claimed.length === 0) return undefined
   const names = [...new Set(claimed.map((server) => {
-    const platformId = server.platformClaim?.platformId ?? ''
+    const platformId = server.status.platformClaim?.platformId ?? ''
     return platformNames?.get(platformId) ?? platformId
   }))]
   const platform = `${names.length === 1 ? 'Platform' : 'Platforms'} ${names.join(', ')}`
   if (targets.length === 1) return `This server belongs to ${platform} and cannot be released or deleted.`
   if (claimed.length === 1) {
-    return `${claimed[0].hostname ?? claimed[0].id} belongs to ${platform} and cannot be released or deleted.`
+    return `${claimed[0].status.hostname ?? claimed[0].id} belongs to ${platform} and cannot be released or deleted.`
   }
   return `${claimed.length} selected servers belong to ${platform} and cannot be released or deleted.`
 }
@@ -209,7 +209,7 @@ export function platformClaimNote(targets: readonly Server[], platformNames?: Re
 function platformClaimAvailability(targets: readonly Server[], platformNames?: ReadonlyMap<string, string>): ServerActionAvailability | undefined {
   const note = platformClaimNote(targets, platformNames)
   if (!note) return undefined
-  return { eligible: [], skipped: targets.filter((server) => server.platformClaim), disabledReason: note, platformClaimed: true }
+  return { eligible: [], skipped: targets.filter((server) => server.status.platformClaim), disabledReason: note, platformClaimed: true }
 }
 
 /**
@@ -229,21 +229,21 @@ export function serverActionAvailability(
     return { eligible: [], skipped: [], disabledReason: 'Select at least one Server.' }
   }
   if (action === 'lock') {
-    const unlocked = targets.filter((server) => !server.provisioning?.locked)
-    const active = unlocked.filter((server) => isProvisioningInProgress(server.provisioning?.state))
-    const eligible = unlocked.filter((server) => server.provisioning?.state === 'deployed')
+    const unlocked = targets.filter((server) => !server.status.provisioning?.locked)
+    const active = unlocked.filter((server) => isProvisioningInProgress(server.status.provisioning?.state))
+    const eligible = unlocked.filter((server) => server.status.provisioning?.state === 'deployed')
     if (active.length > 0) {
       return {
         eligible: [],
         skipped: targets,
-        disabledReason: `${active[0].hostname ?? active[0].id} has active provider work. Wait for it to finish.`,
+        disabledReason: `${active[0].status.hostname ?? active[0].id} has active provider work. Wait for it to finish.`,
       }
     }
-    const unavailable = unlocked.filter((server) => server.provisioning?.state !== 'deployed')
+    const unavailable = unlocked.filter((server) => server.status.provisioning?.state !== 'deployed')
     if (unavailable.length > 0) {
       const server = unavailable[0]
-      const name = server.hostname ?? server.id
-      const state = server.provisioning?.state ?? 'unknown'
+      const name = server.status.hostname ?? server.id
+      const state = server.status.provisioning?.state ?? 'unknown'
       return {
         eligible: [],
         skipped: targets,
@@ -252,15 +252,15 @@ export function serverActionAvailability(
     }
     return {
       eligible,
-      skipped: targets.filter((server) => server.provisioning?.locked),
+      skipped: targets.filter((server) => server.status.provisioning?.locked),
       disabledReason: eligible.length === 0 ? 'Every selected Server is already locked.' : undefined,
     }
   }
   if (action === 'unlock') {
-    const eligible = targets.filter((server) => server.provisioning?.locked)
+    const eligible = targets.filter((server) => server.status.provisioning?.locked)
     return {
       eligible,
-      skipped: targets.filter((server) => !server.provisioning?.locked),
+      skipped: targets.filter((server) => !server.status.provisioning?.locked),
       disabledReason: eligible.length === 0 ? 'Every selected Server is already unlocked.' : undefined,
     }
   }
@@ -275,7 +275,7 @@ export function serverActionAvailability(
     // Active provider work is the reason to wait (a claimed Server may already be releasing through
     // its Platform's uninstall). Otherwise the claim wins over lock and state reasons, because
     // clearing those would still leave Release refused.
-    const busy = targets.some((server) => isProvisioningInProgress(server.provisioning?.state))
+    const busy = targets.some((server) => isProvisioningInProgress(server.status.provisioning?.state))
     return (busy ? undefined : platformClaimAvailability(targets, context.platformNames)) ??
       stateGatedAvailability(targets, (server) => RELEASE_SOURCE_STATES.has(provisioningState(server)),
         'Release is available from deployed, allocated, failed, broken, or rescue.')
@@ -286,7 +286,7 @@ export function serverActionAvailability(
   }
   if (action === 'mark-broken') {
     return stateGatedAvailability(targets,
-      (server) => provisioningState(server) !== 'broken' && !isProvisioningInProgress(server.provisioning?.state),
+      (server) => provisioningState(server) !== 'broken' && !isProvisioningInProgress(server.status.provisioning?.state),
       'Mark broken is unavailable while the Server is already broken or has active provider work.')
   }
   if (action === 'rescue-mode') {
@@ -301,9 +301,9 @@ export function serverActionAvailability(
   // precedes the lock check.
   const claimed = action === 'delete' ? platformClaimAvailability(targets, context.platformNames) : undefined
   if (claimed) return claimed
-  const locked = targets.filter((server) => server.provisioning?.locked)
+  const locked = targets.filter((server) => server.status.provisioning?.locked)
   if (locked.length > 0) {
-    const name = locked[0].hostname ?? locked[0].id
+    const name = locked[0].status.hostname ?? locked[0].id
     return {
       eligible: [],
       skipped: locked,

@@ -68,7 +68,7 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
     .filter((assignment) => assignment.role === 'worker' || assignment.runWorkloads)
     .some((assignment) => {
       const server = serversById.get(assignment.serverId)
-      return Boolean(server && hasAMDComputeGPU(server.gpus))
+      return Boolean(server && hasAMDComputeGPU(server.status.gpus))
     }), [platform.deployment, serversById])
 
   const blockedReason = platform.origin !== 'deployed'

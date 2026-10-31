@@ -428,6 +428,8 @@ swallow provisioning boot-isos delete iso1                     # 仍有 Server �
 # Server tags
 swallow provisioning tags list --site-id site1
 swallow provisioning tags edit --server srv1 --server srv2 --add rack-a --remove decommission
+# 編輯寫入 Server 的 spec，provisioner 隨後跟上。`servers get srv1` 會顯示 conditions：MAAS 套上 tag 後
+# 為 realized=true。在 MAAS UI 改動的 tag 會在下一次定期 resync（預設 10 分鐘）改回來。
 swallow provisioning tags edit -f tags.yaml
 
 # Durable operations（canonical endpoints）

@@ -1,19 +1,24 @@
 // Package domain defines Server: a physical machine swallow manages, projected from a
 // provisioner's inventory.
 //
-// A server is not created by an operator. It comes into being when the reconciler sees
-// a machine in a provisioner's inventory that has no server yet. swallow owns the
-// server's identity; everything else here is either cached observation or a status
-// read from a system that owns it.
+// A server comes into being when the reconciler sees a machine in a provisioner's
+// inventory that has no server yet, whether the provisioner enlisted it, swallow registered
+// it, or a host with an existing OS was registered (its Origin). swallow owns the server's
+// identity and its Spec (the desired state a provisioner realizes); everything else here is
+// cached observation, a status read from a system that owns it, or the convergence status
+// its controller writes.
 //
-// See docs/decisions/002-server-identity.md for the reasoning, including the
-// reconciler's matching rules and what was rejected.
+// See docs/decisions/002-server-identity.md for the identity reasoning, including the
+// reconciler's matching rules, and docs/decisions/071 for the spec and convergence model.
 package domain
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/maple52046/swallow/internal/core/convergence"
 )
 
 // Source is the external key: which provisioner, at which site, calls this machine
@@ -237,9 +242,55 @@ type Observed struct {
 	CPUModel      string
 	// ProviderPod is the VM host a virtual machine belongs to, empty for bare metal.
 	ProviderPod string
-	// Tags are the provisioner's own labels for the machine. Mirrored because a fleet
-	// is routinely filtered by them, e.g. "every machine tagged gpu".
+	// Tags are every label the provisioner reports on the machine, automatic and manual.
+	// Mirrored because a fleet is routinely filtered by them, e.g. "every machine tagged gpu".
 	Tags []string
+	// AutomaticTags is the subset of Tags the provisioner computes itself (a MAAS tag with a
+	// definition). They are provider-owned and only observed; the rest of Tags are the manual
+	// tags that ServerSpec.Tags owns (decision 071).
+	AutomaticTags []string
+}
+
+// ManualTags returns the observed tags that are not automatic, in observed order: the tags a
+// Server's spec owns and its controller converges.
+func (o Observed) ManualTags() []string {
+	manual := make([]string, 0, len(o.Tags))
+	for _, tag := range o.Tags {
+		if !slices.Contains(o.AutomaticTags, tag) {
+			manual = append(manual, tag)
+		}
+	}
+	return manual
+}
+
+// Origin records how a Server came into swallow (decision 071). It only describes the arrival:
+// whatever the origin, the Server's desired state belongs to swallow.
+type Origin string
+
+const (
+	// OriginDiscovered: the provisioner enlisted the machine on its own, for example by network
+	// boot. Also the origin of every Server that predates the field.
+	OriginDiscovered Origin = "discovered"
+	// OriginEnrolled: swallow registered the machine with the provisioner.
+	OriginEnrolled Origin = "enrolled"
+	// OriginImported: the machine was registered with an OS already installed, without
+	// reinstalling it; first observed already deployed.
+	OriginImported Origin = "imported"
+)
+
+// ServerSpec is the desired state of the provisioner-realized fields of a Server (decision 071),
+// written only by the API and by adoption. The controller converges the provisioner to it.
+type ServerSpec struct {
+	// Tags is the complete set of manual tags the Server must carry. A manual tag present on the
+	// machine but not here is removed; automatic tags are never touched.
+	Tags []string
+}
+
+// ServerConvergence is the status the Server's controller writes: the spec generation its
+// conditions were judged for and the conditions themselves. Only the controller writes it.
+type ServerConvergence struct {
+	ObservedGeneration int64
+	Conditions         []convergence.Condition
 }
 
 // ProvisioningStatus is the axis owned by the provisioner: can this be deployed, is a
@@ -382,10 +433,17 @@ const (
 type Server struct {
 	// ID is swallow-issued and stable for the machine's whole life in the platform.
 	// Every swallow reference uses this and only this.
-	ID       string
-	Source   Source
-	Hardware Hardware
-	Observed Observed
+	ID string
+	// Origin is how the Server arrived, set when it is first projected.
+	Origin Origin
+	// Generation counts spec changes; 0 means the Server has no spec yet and is adopted from its
+	// first observation (desired-state-model.md §6.5).
+	Generation  int64
+	Spec        ServerSpec
+	Convergence ServerConvergence
+	Source      Source
+	Hardware    Hardware
+	Observed    Observed
 
 	// Deployment is Swallow's verified result. Provider reconciliation preserves it.
 	Deployment *DeploymentStatus
@@ -420,7 +478,8 @@ type Server struct {
 	Health       *HealthStatus
 
 	// Absent means the machine stopped appearing in its provisioner's inventory.
-	// Absent servers are never deleted: absence is usually transient, deletion is not.
+	// Absent servers are never deleted: absence is usually transient, deletion is not. The
+	// controller reports it as realized=false with reason provider_missing.
 	Absent     bool
 	LastSeenAt time.Time
 
@@ -451,6 +510,9 @@ func (s *Server) PrimaryAddress() string {
 
 var (
 	ErrServerNotFound = errors.New("server not found")
+	// ErrSpecConflict means a spec write expected a generation the Server no longer has: someone
+	// else changed the spec first. The caller re-reads and retries or reports a conflict.
+	ErrSpecConflict = errors.New("server spec changed concurrently")
 	// ErrAmbiguousHardware means more than one existing server matches a machine's
 	// hardware identifiers. Never resolved by guessing: merging two servers is
 	// unrecoverable, so this surfaces as a conflict instead.

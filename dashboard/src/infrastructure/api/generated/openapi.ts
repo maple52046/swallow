@@ -2596,8 +2596,8 @@ export interface paths {
         get: operations["listServerTags"];
         put?: never;
         /**
-         * Apply a tri-state tag edit to one or more Servers.
-         * @description Requires role `admin`. Not gated on Server Lock. 400 for an invalid body, empty `serverIds`, no `add` or `remove`, an invalid or contradictory tag name, or a provisioner refusal; 404 for an unknown Server or Machine; 503 when the provisioner cannot be reached or has no credential.
+         * Write a tri-state tag edit into the spec of one or more Servers.
+         * @description Requires role `admin`. Not gated on Server Lock. Atomic across the listed Servers; the provisioner converges asynchronously (the Servers' conditions report it). 400 for an invalid body, empty `serverIds`, no `add` or `remove`, or an invalid, contradictory, or automatic tag name; 404 for an unknown Server; 409 when a Server's spec changed during the edit.
          */
         post: operations["editServerTags"];
         delete?: never;
@@ -4821,6 +4821,23 @@ export interface components {
             lastErrorAt: components["schemas"]["Timestamp"] | null;
             updatedAt: components["schemas"]["Timestamp"];
         };
+        /** @description One named judgement in a migrated resource's status, written only by its controller (desired-state-model.md §4.2; glossary Condition). The shared types keep the same meaning on every resource; a resource may add its own types and reasons, so consumers ignore values they do not recognise. */
+        Condition: {
+            lastTransitionTime: components["schemas"]["Timestamp"];
+            /** @description Human-readable detail; empty when there is nothing to add. */
+            message: string;
+            /**
+             * Format: int64
+             * @description The spec generation this judgement was made for.
+             */
+            observedGeneration: number;
+            /** @description A short machine-branchable code, for example `converged`, `capability_missing`, `server_locked`. */
+            reason: string;
+            /** @enum {string} */
+            status: "true" | "false" | "unknown";
+            /** @description `realized`, `drifted`, `requires_attention`, `held`, or a resource-specific type. */
+            type: string;
+        };
         /**
          * @description The container runtime a Slurm deploy installs on its compute and login nodes.
          * @enum {string}
@@ -6557,47 +6574,19 @@ export interface components {
             /** @description Also remove the static IP bindings captured before the Release. */
             unbindStaticIPs?: boolean;
         };
-        /** @description The complete, secret-free Server projection (servers-list.md). Optional observations are null; an axis that has never been observed is null rather than defaulted. */
+        /** @description A Server as a migrated resource (servers-list.md, decision 071): its identity and origin, the spec generation, the spec (the desired provisioner-realized fields), and the status. Secret-free. */
         Server: {
-            /** @description The Machine stopped appearing in its provisioner's inventory. */
-            absent: boolean;
-            addresses: string[];
-            architecture: string;
-            cpuCores: number;
-            cpuModel: string;
-            createdAt: components["schemas"]["Timestamp"];
-            defaultUser?: components["schemas"]["ServerDefaultUser"];
-            /** @description Swallow's result of its latest durable OS deployment; null when none is recorded. */
-            deployment: components["schemas"]["ServerDeploymentAxis"] | null;
-            fqdn: string | null;
-            /** @description The complete GPU Inventory, grouped by vendor, model, and kind. */
-            gpus: components["schemas"]["ServerGPUGroup"][];
-            hardware: components["schemas"]["ServerHardware"];
-            /** @description Resolved at query time from the metrics backend; null when unknown. */
-            health: components["schemas"]["ServerHealthAxis"] | null;
-            hostname: string | null;
+            /**
+             * Format: int64
+             * @description Counts spec changes; 1 once the Server's first observation was adopted as its spec.
+             */
+            generation: number;
             /** @description The swallow-issued, stable Server ID. */
             id: string;
-            lastSeenAt: components["schemas"]["Timestamp"] | null;
-            membership: components["schemas"]["ServerMembershipAxis"] | null;
-            /** Format: int64 */
-            memoryMiB: number;
-            /** @description The Platform Claim; null when no Platform claims the Server. */
-            platformClaim: components["schemas"]["ServerPlatformClaim"] | null;
-            /** @description The provisioner VM host a virtual machine belongs to; empty for bare metal. */
-            providerPod: string;
-            /** @description The provisioner's own resource pool name, display only. */
-            providerResourcePool: string;
-            /** @description The provisioner's own zone name, display only. */
-            providerZone: string;
-            provisioning: components["schemas"]["ServerProvisioningAxis"] | null;
-            source: components["schemas"]["ServerSource"];
-            storageGB: number;
-            systemProduct: string;
-            systemVendor: string;
-            /** @description The effective Server tags (server-tags.md). */
-            tags: string[];
-            updatedAt: components["schemas"]["Timestamp"];
+            /** @description How the Server arrived: `discovered` (its provisioner enlisted it), `enrolled` (swallow registered it), or `imported` (registered with an existing OS). Consumers ignore a value they do not recognise. */
+            origin: string;
+            spec: components["schemas"]["ServerSpec"];
+            status: components["schemas"]["ServerStatus"];
         };
         /** @description The JSON payload of one `data:` frame of the Server stream. Consumers ignore a `type` they do not recognise. */
         ServerChange: {
@@ -6838,6 +6827,60 @@ export interface components {
             providerMachineId: string;
             siteId: string;
         };
+        /** @description The desired provisioner-realized fields of a Server; written by the tag edit, converged by the Server controller. */
+        ServerSpec: {
+            /** @description The complete set of manual tags the Server must carry (server-tags.md). */
+            tags: string[];
+        };
+        /** @description Everything observed, derived, or written by the Server's controller (servers-list.md). Optional observations are null; an axis that has never been observed is null rather than defaulted. */
+        ServerStatus: {
+            /** @description The Machine stopped appearing in its provisioner's inventory. */
+            absent: boolean;
+            addresses: string[];
+            architecture: string;
+            /** @description The subset of `tags` the provisioner computes itself; never part of the spec. */
+            automaticTags: string[];
+            /** @description The controller's conditions (`realized`, `drifted`, `requires_attention`, `held`); empty before the first judgement. */
+            conditions: components["schemas"]["Condition"][];
+            cpuCores: number;
+            cpuModel: string;
+            createdAt: components["schemas"]["Timestamp"];
+            defaultUser?: components["schemas"]["ServerDefaultUser"];
+            /** @description Swallow's result of its latest durable OS deployment; null when none is recorded. */
+            deployment: components["schemas"]["ServerDeploymentAxis"] | null;
+            fqdn: string | null;
+            /** @description The complete GPU Inventory, grouped by vendor, model, and kind. */
+            gpus: components["schemas"]["ServerGPUGroup"][];
+            hardware: components["schemas"]["ServerHardware"];
+            /** @description Resolved at query time from the metrics backend; null when unknown. */
+            health: components["schemas"]["ServerHealthAxis"] | null;
+            hostname: string | null;
+            lastSeenAt: components["schemas"]["Timestamp"] | null;
+            membership: components["schemas"]["ServerMembershipAxis"] | null;
+            /** Format: int64 */
+            memoryMiB: number;
+            /**
+             * Format: int64
+             * @description The spec generation the conditions were judged for; equal to `generation` once the controller has judged the current spec.
+             */
+            observedGeneration: number;
+            /** @description The Platform Claim; null when no Platform claims the Server. */
+            platformClaim: components["schemas"]["ServerPlatformClaim"] | null;
+            /** @description The provisioner VM host a virtual machine belongs to; empty for bare metal. */
+            providerPod: string;
+            /** @description The provisioner's own resource pool name, display only. */
+            providerResourcePool: string;
+            /** @description The provisioner's own zone name, display only. */
+            providerZone: string;
+            provisioning: components["schemas"]["ServerProvisioningAxis"] | null;
+            source: components["schemas"]["ServerSource"];
+            storageGB: number;
+            systemProduct: string;
+            systemVendor: string;
+            /** @description Every tag the provisioner reports on the machine, automatic and manual (server-tags.md). */
+            tags: string[];
+            updatedAt: components["schemas"]["Timestamp"];
+        };
         ServerTagCatalog: {
             tags: components["schemas"]["ServerTagOption"][];
         };
@@ -6850,9 +6893,14 @@ export interface components {
             name: string;
         };
         ServerTagSet: {
+            /**
+             * Format: int64
+             * @description The Server's spec generation after the edit.
+             */
+            generation: number;
             serverId: string;
-            /** @description The Server's effective tags; null (not an empty array) when it has none. */
-            tags: string[] | null;
+            /** @description The Server's complete manual tag spec after the edit. */
+            tags: string[];
         };
         SessionLoginRequest: {
             password: string;
@@ -13114,7 +13162,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Each listed Server's effective tags after the edit, in request order. */
+            /** @description Each listed Server's spec after the edit, in request order. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13127,7 +13175,7 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
-            503: components["responses"]["Error"];
+            409: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

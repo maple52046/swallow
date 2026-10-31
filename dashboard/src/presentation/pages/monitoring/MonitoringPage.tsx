@@ -136,8 +136,8 @@ export function MonitoringPage() {
   }, [fleetState, serverQuery])
   const alerts = alertsState.status === 'ready' ? alertsState.alerts : []
   const fleet = fleetState.status === 'ready' ? fleetState.servers : []
-  const healthUp = fleet.filter((server) => server.health?.state === 'up').length
-  const healthDown = fleet.filter((server) => server.health?.state === 'down').length
+  const healthUp = fleet.filter((server) => server.status.health?.state === 'up').length
+  const healthDown = fleet.filter((server) => server.status.health?.state === 'down').length
   const metricsByServer = fleetState.status === 'ready' ? new Map(fleetState.metrics.items.map((item) => [item.serverId, item])) : new Map<string, ServerMetrics>()
   const grafana = fleetState.status === 'ready' ? fleetState.metrics.grafana : null
   // Servers ticked for the usage charts. URL-owned so a charted selection is shareable; ticking a
@@ -393,10 +393,10 @@ export function MonitoringPage() {
                           <Link to={scopedHref(`/servers/${server.id}/monitoring`)}><strong>{serverDisplayName(server)}</strong></Link>
                           <Text as="small" display="block" color="fg.muted">{serverPrimaryAddress(server) ?? server.id}</Text>
                         </Table.Cell>
-                        <Table.Cell><StatusBadge status={server.health?.state ?? 'unknown'} /></Table.Cell>
+                        <Table.Cell><StatusBadge status={server.status.health?.state ?? 'unknown'} /></Table.Cell>
                         <Table.Cell><CompactMeter value={metricPercent(item, 'cpuUsagePercent')} label={`CPU usage for ${serverDisplayName(server)}`} /></Table.Cell>
                         <Table.Cell><CompactMeter value={metricPercent(item, 'memoryUsedPercent')} label={`Memory used for ${serverDisplayName(server)}`} /></Table.Cell>
-                        <Table.Cell>{server.gpus.length ? <CompactMeter value={metricPercent(item, 'gpuUtilizationPercent')} label={`GPU utilization for ${serverDisplayName(server)}`} /> : 'Not applicable'}</Table.Cell>
+                        <Table.Cell>{server.status.gpus.length ? <CompactMeter value={metricPercent(item, 'gpuUtilizationPercent')} label={`GPU utilization for ${serverDisplayName(server)}`} /> : 'Not applicable'}</Table.Cell>
                       </Table.Row>
                     )
                   })}
@@ -413,7 +413,7 @@ export function MonitoringPage() {
                         key={server.id}
                         title={<Link to={scopedHref(`/servers/${server.id}/monitoring`)}>{serverDisplayName(server)}</Link>}
                         description={serverPrimaryAddress(server) ?? server.id}
-                        status={<StatusBadge status={server.health?.state ?? 'unknown'} />}
+                        status={<StatusBadge status={server.status.health?.state ?? 'unknown'} />}
                         actions={
                           <Checkbox checked={chartServerSet.has(server.id)} onCheckedChange={(checked) => toggleChartServer(server.id, checked)}>
                             Chart this server
@@ -422,7 +422,7 @@ export function MonitoringPage() {
                       >
                         <ResourceCardField label="CPU usage"><CompactMeter value={metricPercent(item, 'cpuUsagePercent')} label={`CPU usage for ${serverDisplayName(server)}`} /></ResourceCardField>
                         <ResourceCardField label="Memory used"><CompactMeter value={metricPercent(item, 'memoryUsedPercent')} label={`Memory used for ${serverDisplayName(server)}`} /></ResourceCardField>
-                        <ResourceCardField label="GPU utilization">{server.gpus.length ? <CompactMeter value={metricPercent(item, 'gpuUtilizationPercent')} label={`GPU utilization for ${serverDisplayName(server)}`} /> : 'Not applicable'}</ResourceCardField>
+                        <ResourceCardField label="GPU utilization">{server.status.gpus.length ? <CompactMeter value={metricPercent(item, 'gpuUtilizationPercent')} label={`GPU utilization for ${serverDisplayName(server)}`} /> : 'Not applicable'}</ResourceCardField>
                       </ResourceCard>
                     )
                   })}

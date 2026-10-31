@@ -88,9 +88,9 @@ type ProviderCapabilities struct {
 	// Grouping reports that GroupingController is implemented, i.e. the provider can
 	// realize swallow-owned Zone and Pool intent and assign a machine to them.
 	Grouping bool
-	// Tagging reports that MachineTagController is implemented, i.e. the provider owns machine
-	// tags and swallow drives it to create, assign, and unassign them. When false, swallow owns
-	// a Server's tags itself (the ServerTagOverlay fallback). See docs/decisions/031.
+	// Tagging reports that MachineTagController is implemented, i.e. the provider can realize a
+	// Server's spec tags: create, assign, and unassign manual tags. When false, the spec is kept
+	// and the Server reports realized=false with reason capability_missing (decision 071).
 	Tagging bool
 	// SSHKeyRegistration reports that SSHKeyRegistrar is implemented, i.e. the provider holds SSH
 	// public keys for the account swallow authenticates as and authorizes them on machines it
@@ -377,11 +377,9 @@ type GroupingController interface {
 	SetMachinePool(ctx context.Context, machineID, poolName string) (*Machine, error)
 }
 
-// MachineTagController lets swallow drive a provider that owns machine tags: it lists the
-// provider's tags, creates a manual tag, and assigns or unassigns a tag across a batch of
-// machines. It is the provider side of decision 031's capability-first rule for tags — when a
-// provisioner advertises Tagging, swallow drives it here; when it does not, swallow owns the tags
-// itself through the ServerTagOverlay fallback.
+// MachineTagController lets swallow realize Server spec tags on a provider: it lists the
+// provider's tags (automatic ones are not Editable), creates a manual tag, and assigns or unassigns
+// a tag across a batch of machines. The Server controller drives it (decision 071).
 //
 // The controller speaks tag names, swallow's currency, not any provider-internal identifier.
 // EnsureTag is idempotent create of a *manual* tag: a tag the provider already holds is treated

@@ -26,7 +26,7 @@ func TestListServers_ProvisioningStateSince(t *testing.T) {
 	got := map[string]any{}
 	for _, raw := range parseBody(t, resp)["items"].([]any) {
 		item := raw.(map[string]any)
-		provisioning := item["provisioning"].(map[string]any)
+		provisioning := serverStatusOf(item)["provisioning"].(map[string]any)
 		value, present := provisioning["stateSince"]
 		if !present {
 			value = "<absent>"
@@ -53,14 +53,14 @@ func TestListServers_ShapeAndAxes(t *testing.T) {
 	}
 	item := items[0].(map[string]any)
 
-	source := item["source"].(map[string]any)
+	source := serverStatusOf(item)["source"].(map[string]any)
 	if source["siteId"] != testSiteID || source["providerMachineId"] != "machine-srv-1" {
 		t.Errorf("unexpected source: %v", source)
 	}
 
-	provisioning, ok := item["provisioning"].(map[string]any)
+	provisioning, ok := serverStatusOf(item)["provisioning"].(map[string]any)
 	if !ok {
-		t.Fatalf("expected a provisioning axis, got %v", item["provisioning"])
+		t.Fatalf("expected a provisioning axis, got %v", serverStatusOf(item)["provisioning"])
 	}
 	if provisioning["state"] != "deployed" {
 		t.Errorf("provisioning state: got %v", provisioning["state"])
@@ -70,14 +70,14 @@ func TestListServers_ShapeAndAxes(t *testing.T) {
 	}
 
 	// Axes with no observation must be null, not an empty object or a default state.
-	if _, present := item["membership"]; !present {
+	if _, present := serverStatusOf(item)["membership"]; !present {
 		t.Error("membership must be present as a key")
 	}
-	if item["membership"] != nil {
-		t.Errorf("membership must be null when never observed, got %v", item["membership"])
+	if serverStatusOf(item)["membership"] != nil {
+		t.Errorf("membership must be null when never observed, got %v", serverStatusOf(item)["membership"])
 	}
-	if item["health"] != nil {
-		t.Errorf("health must be null with no metrics integration, got %v", item["health"])
+	if serverStatusOf(item)["health"] != nil {
+		t.Errorf("health must be null with no metrics integration, got %v", serverStatusOf(item)["health"])
 	}
 }
 
@@ -92,12 +92,12 @@ func TestListServers_NullableHostnameAndAddresses(t *testing.T) {
 	resp := doRequest(t, f.app, "GET", "/api/v1/servers/", nil, f.adminAuth(t))
 	item := parseBody(t, resp)["items"].([]any)[0].(map[string]any)
 
-	if item["hostname"] != nil {
-		t.Errorf("hostname must be null when the provisioner has none, got %v", item["hostname"])
+	if serverStatusOf(item)["hostname"] != nil {
+		t.Errorf("hostname must be null when the provisioner has none, got %v", serverStatusOf(item)["hostname"])
 	}
-	addresses, ok := item["addresses"].([]any)
+	addresses, ok := serverStatusOf(item)["addresses"].([]any)
 	if !ok {
-		t.Fatalf("addresses must be an array, got %v", item["addresses"])
+		t.Fatalf("addresses must be an array, got %v", serverStatusOf(item)["addresses"])
 	}
 	if len(addresses) != 0 {
 		t.Errorf("expected no addresses, got %v", addresses)
@@ -179,9 +179,9 @@ func TestGetServer_ResolvesHealthAxis(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	health, ok := parseBody(t, resp)["health"].(map[string]any)
+	health, ok := serverStatusOf(parseBody(t, resp))["health"].(map[string]any)
 	if !ok {
-		t.Fatalf("expected a health axis, got %v", parseBody(t, resp)["health"])
+		t.Fatalf("expected a health axis, got %v", serverStatusOf(parseBody(t, resp))["health"])
 	}
 	if health["state"] != "up" {
 		t.Errorf("health state: got %v", health["state"])
@@ -199,7 +199,7 @@ func TestGetServer_MetricsFailureLeavesHealthNull(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("a metrics outage must not fail the request, got %d", resp.StatusCode)
 	}
-	if parseBody(t, resp)["health"] != nil {
+	if serverStatusOf(parseBody(t, resp))["health"] != nil {
 		t.Error("health must be null rather than reporting a state nobody observed")
 	}
 }

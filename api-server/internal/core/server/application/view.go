@@ -1,18 +1,39 @@
 package application
 
 import (
+	"github.com/maple52046/swallow/internal/core/convergence"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
-// ServerItem is the API representation of a server projection.
+// ServerItem is the API representation of a Server as a migrated resource (decision 071): its
+// identity and origin, its spec generation, the spec (the desired provisioner-realized fields), and
+// the status (everything observed, derived, or written by its controller).
+type ServerItem struct {
+	ID         string           `json:"id"`
+	Origin     string           `json:"origin"`
+	Generation int64            `json:"generation"`
+	Spec       ServerSpecItem   `json:"spec"`
+	Status     ServerStatusItem `json:"status"`
+}
+
+// ServerSpecItem is the published Server spec. Tags is the complete set of manual tags the Server
+// must carry (server-tags.md).
+type ServerSpecItem struct {
+	Tags []string `json:"tags"`
+}
+
+// ServerStatusItem is the published Server status.
 //
 // Optional fields are pointers so that "not observed" serializes as null. That
 // distinction is load-bearing here: a server with no hostname is normal before
 // commissioning, and an axis that is null has never been observed rather than being
 // in some default state.
-type ServerItem struct {
-	ID     string           `json:"id"`
+type ServerStatusItem struct {
+	// ObservedGeneration is the spec generation the conditions were judged for.
+	ObservedGeneration int64                       `json:"observedGeneration"`
+	Conditions         []convergence.ConditionItem `json:"conditions"`
+
 	Source ServerSourceItem `json:"source"`
 
 	Hostname             *string         `json:"hostname"`
@@ -29,7 +50,10 @@ type ServerItem struct {
 	ProviderZone         string          `json:"providerZone"`
 	ProviderResourcePool string          `json:"providerResourcePool"`
 	ProviderPod          string          `json:"providerPod"`
-	Tags                 []string        `json:"tags"`
+	// Tags are every tag the provisioner reports; AutomaticTags is the provider-computed subset,
+	// which the spec never owns.
+	Tags          []string `json:"tags"`
+	AutomaticTags []string `json:"automaticTags"`
 
 	Hardware ServerHardwareItem `json:"hardware"`
 
@@ -167,10 +191,21 @@ func ToDefaultUserItem(s *serverdomain.Server) *DefaultUserItem {
 	return &DefaultUserItem{User: user, Source: string(source)}
 }
 
-// ToServerItem maps a server projection onto its API shape.
+// ToServerItem maps a Server onto its API shape.
 func ToServerItem(s *serverdomain.Server) ServerItem {
-	item := ServerItem{
-		ID: s.ID,
+	return ServerItem{
+		ID:         s.ID,
+		Origin:     string(s.Origin),
+		Generation: s.Generation,
+		Spec:       ServerSpecItem{Tags: wire.Strings(s.Spec.Tags)},
+		Status:     toServerStatusItem(s),
+	}
+}
+
+func toServerStatusItem(s *serverdomain.Server) ServerStatusItem {
+	item := ServerStatusItem{
+		ObservedGeneration: s.Convergence.ObservedGeneration,
+		Conditions:         convergence.ConditionItems(s.Convergence.Conditions),
 		Source: ServerSourceItem{
 			SiteID:            s.Source.SiteID,
 			IntegrationID:     s.Source.IntegrationID,
@@ -191,6 +226,7 @@ func ToServerItem(s *serverdomain.Server) ServerItem {
 		ProviderResourcePool: s.Observed.ProviderResourcePool,
 		ProviderPod:          s.Observed.ProviderPod,
 		Tags:                 wire.Strings(s.Observed.Tags),
+		AutomaticTags:        wire.Strings(s.Observed.AutomaticTags),
 		Hardware: ServerHardwareItem{
 			SystemUUID:   wire.String(s.Hardware.SystemUUID),
 			SerialNumber: wire.String(s.Hardware.SerialNumber),

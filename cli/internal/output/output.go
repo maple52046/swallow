@@ -236,8 +236,29 @@ func orderColumns(keySet map[string]struct{}) []string {
 // level deep. Nested objects contribute "parent.child" scalar columns; arrays of
 // scalars are joined; arrays of objects collapse to a "[n]" count; deeper
 // nesting is rendered as compact JSON so a column always has a printable value.
+//
+// A resource in the shared spec/status shape (an object with both `spec` and a
+// `status` object) renders its status fields as if they were top level, so its
+// observed fields keep the columns they had before the shape existed; a key
+// already at the top level wins.
 func flatten(obj map[string]any) map[string]string {
 	out := map[string]string{}
+	status, hoist := obj["status"].(map[string]any)
+	if _, hasSpec := obj["spec"]; hoist && hasSpec {
+		flattenInto(out, status)
+	} else {
+		hoist = false
+	}
+	for k, v := range obj {
+		if hoist && k == "status" {
+			continue
+		}
+		flattenInto(out, map[string]any{k: v})
+	}
+	return out
+}
+
+func flattenInto(out map[string]string, obj map[string]any) {
 	for k, v := range obj {
 		switch val := v.(type) {
 		case map[string]any:
@@ -250,12 +271,39 @@ func flatten(obj map[string]any) map[string]string {
 				out[k] = "{}"
 			}
 		case []any:
+			if k == "conditions" {
+				if cell, ok := conditionsString(val); ok {
+					out[k] = cell
+					continue
+				}
+			}
 			out[k] = sliceString(val)
 		default:
 			out[k] = scalarString(v)
 		}
 	}
-	return out
+}
+
+// conditionsString renders a list of shared Condition objects as "type=status"
+// pairs; ok is false when an item is not a condition.
+func conditionsString(items []any) (string, bool) {
+	if len(items) == 0 {
+		return "[]", true
+	}
+	parts := make([]string, 0, len(items))
+	for _, it := range items {
+		condition, ok := it.(map[string]any)
+		if !ok {
+			return "", false
+		}
+		conditionType, typeOK := condition["type"].(string)
+		status, statusOK := condition["status"].(string)
+		if !typeOK || !statusOK {
+			return "", false
+		}
+		parts = append(parts, conditionType+"="+status)
+	}
+	return strings.Join(parts, ","), true
 }
 
 // sliceString renders an array cell: scalars are comma-joined; a list that

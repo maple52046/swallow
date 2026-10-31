@@ -22,6 +22,7 @@ import (
 	"github.com/maple52046/swallow/internal/adapters/hypervisor/libvirt"
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	convergencestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/convergence"
 	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
 	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
 	provisioningstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/provisioning"
@@ -241,7 +242,13 @@ func RunWorker(cfg config.APIConfig) error {
 	go reconciler.Run(ctx)
 	slog.Info("Temporal worker started", "address", cfg.TemporalAddress,
 		"namespace", cfg.TemporalNamespace, "taskQueue", cfg.TemporalTaskQueue)
-	runControllers := controllerRuntime(db, convergence.RuntimeOptions{ResyncInterval: cfg.ControllerResyncInterval})
+	convergenceEvents, err := convergencestore.NewMongoEventRecorder(ctx, db)
+	if err != nil {
+		return fmt.Errorf("convergence event store init: %w", err)
+	}
+	runControllers := controllerRuntime(db, convergence.RuntimeOptions{ResyncInterval: cfg.ControllerResyncInterval},
+		provisioningapp.NewServerController(servers, servers, providers, serverWorkflowHolds{leases: leases}, convergenceEvents),
+	)
 	controllersDone := make(chan struct{})
 	go func() {
 		defer close(controllersDone)

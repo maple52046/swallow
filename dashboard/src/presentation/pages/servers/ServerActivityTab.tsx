@@ -171,7 +171,7 @@ export function ServerActivityTab() {
   const sourcesSettled = provider.status !== 'loading' && related.status !== 'loading' && tasks.status !== 'loading'
   // A Releasing Server is the case where an empty section misleads: Provisioning tasks exist only
   // for opt-in static IP cleanup, and the release Workflow (if any) is under Related Operations.
-  const releasing = server.provisioning?.state === 'releasing'
+  const releasing = server.status.provisioning?.state === 'releasing'
   const pagedTasks = tasks.status === 'ready'
     ? activityPage(tasks.data, activePages.tasks.page, activePages.tasks.pageSize)
     : null

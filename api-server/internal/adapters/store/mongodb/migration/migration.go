@@ -43,7 +43,13 @@ import (
 // `operation_events` / `operation_secrets` collections become `workflow_events` /
 // `workflow_secrets` with their `operationId` reference becoming `workflowId`. Schema-v2
 // documents stay in `operations` and remain readable for one release.
-const CurrentSchemaVersion = 4
+//
+// v5 retires the Server tag overlay (decision 071): a Server's manual tags are its spec. An
+// overlay's tags become the spec (generation 1) of a Server that has none yet, and the
+// `server_tag_overlays` collection is dropped. Every other Server needs no rewrite: a missing
+// generation reads as "no spec yet", which the Server controller adopts from observation, and a
+// missing origin reads as discovered. The migration never contacts a provisioner.
+const CurrentSchemaVersion = 5
 
 type metadata struct {
 	ID        string    `bson:"_id"`
@@ -144,6 +150,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v3 to v4: %w", err)
 			}
 			state.Version = 4
+		case 4:
+			if err := migrateV4ToV5(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v4 to v5: %w", err)
+			}
+			state.Version = 5
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}
@@ -160,6 +171,36 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 		}
 	}
 	return Check(ctx, db)
+}
+
+// migrateV4ToV5 moves each Server tag overlay into its Server's spec, then drops the overlays.
+// The spec is written only where no generation exists, and dropping a missing collection is a
+// no-op, so an interrupted run resumes safely.
+func migrateV4ToV5(ctx context.Context, db *mongo.Database) error {
+	overlays := db.Collection("server_tag_overlays")
+	cursor, err := overlays.Find(ctx, bson.M{})
+	if err != nil {
+		return err
+	}
+	var docs []struct {
+		ServerID string   `bson:"_id"`
+		Tags     []string `bson:"tags"`
+	}
+	if err := cursor.All(ctx, &docs); err != nil {
+		return err
+	}
+	for _, doc := range docs {
+		if len(doc.Tags) == 0 {
+			continue
+		}
+		if _, err := db.Collection("servers").UpdateOne(ctx,
+			bson.M{"_id": doc.ServerID, "generation": bson.M{"$in": bson.A{0, nil}}},
+			bson.M{"$set": bson.M{"spec": bson.M{"tags": doc.Tags}, "generation": int64(1)}},
+		); err != nil {
+			return err
+		}
+	}
+	return overlays.Drop(ctx)
 }
 
 // migrateV2ToV3 renames the managed runtime aggregate from Cluster to Platform without

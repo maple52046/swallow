@@ -23,9 +23,9 @@ export type SoftwareInstallBlocker = 'absent' | 'not_deployed' | 'deployment_run
  * exclusion) and stays authoritative; this only keeps unusable Servers out of the choice.
  */
 export function softwareInstallBlocker(server: Server): SoftwareInstallBlocker | null {
-  if (server.absent) return 'absent'
-  if (server.provisioning?.state !== 'deployed') return 'not_deployed'
-  switch (server.deployment?.state) {
+  if (server.status.absent) return 'absent'
+  if (server.status.provisioning?.state !== 'deployed') return 'not_deployed'
+  switch (server.status.deployment?.state) {
     case undefined:
     case 'succeeded':
       return null

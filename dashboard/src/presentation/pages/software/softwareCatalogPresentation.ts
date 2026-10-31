@@ -219,7 +219,7 @@ export function filterSoftwareDeployments(
   return rows.filter(({ assignment, server }) => {
     if (!assignmentMatchesLens(assignment.state, lens)) return false
     if (!needle) return true
-    return [serverDisplayName(server), server.fqdn ?? '', server.id, ...server.addresses, ...server.tags]
+    return [serverDisplayName(server), server.status.fqdn ?? '', server.id, ...server.status.addresses, ...server.status.tags]
       .some((value) => value.toLowerCase().includes(needle))
   })
 }
@@ -241,9 +241,9 @@ export function softwareTargetBlocker(
     return 'existing_assignment'
   }
   if (softwareInstallBlocker(server) !== null) return 'server_unavailable'
-  if (server.provisioning?.locked) return 'locked'
-  if (entry.requiresAmdComputeGpu && !hasAMDComputeGPU(server.gpus)) return 'no_amd_compute_gpu'
-  if (entry.refusedForKubernetesMembers && server.membership !== null) return 'kubernetes_member'
+  if (server.status.provisioning?.locked) return 'locked'
+  if (entry.requiresAmdComputeGpu && !hasAMDComputeGPU(server.status.gpus)) return 'no_amd_compute_gpu'
+  if (entry.refusedForKubernetesMembers && server.status.membership !== null) return 'kubernetes_member'
   if (assignments.some((assignment) =>
     assignment.serverId === server.id &&
     entry.mutuallyExclusiveWith.includes(assignment.kind) &&
@@ -258,7 +258,7 @@ export function softwareTargetBlocker(
  * own deployment and uninstall do.
  */
 export function softwareManagedByPlatform(server: Server, entry: SoftwareCatalogEntry): boolean {
-  return Boolean(entry.refusedForClaimedServers && server.platformClaim)
+  return Boolean(entry.refusedForClaimedServers && server.status.platformClaim)
 }
 
 /** Operator-facing reason rendered beside a disabled target or software choice. */
@@ -295,7 +295,7 @@ export function containerRuntimeLabel(kind: string): string {
 export function softwareTargetMatches(server: Server, query: string): boolean {
   const needle = query.trim().toLowerCase()
   if (!needle) return true
-  return [serverDisplayName(server), server.fqdn ?? '', server.id, ...server.addresses, ...server.tags]
+  return [serverDisplayName(server), server.status.fqdn ?? '', server.id, ...server.status.addresses, ...server.status.tags]
     .some((value) => value.toLowerCase().includes(needle))
 }
 

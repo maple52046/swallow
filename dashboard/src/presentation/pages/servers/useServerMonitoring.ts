@@ -64,8 +64,8 @@ export function useServerMonitoring(server: Server): ServerMonitoring {
     let cancelled = false
 
     const resolveOwner = async (): Promise<EffectiveExporterOwner> => {
-      if (server.provisioning?.locked) return 'unmanaged'
-      const platformId = server.membership?.platformId
+      if (server.status.provisioning?.locked) return 'unmanaged'
+      const platformId = server.status.membership?.platformId
       if (!platformId) return 'ansible'
       const platform = await platforms.getPlatform(platformId).catch(() => null)
       const byId = new Map<string, Platform>()

@@ -23,10 +23,10 @@ export function resolveExporterOwner(
   server: Server,
   platformById: Map<string, Platform>,
 ): EffectiveExporterOwner {
-  if (server.provisioning?.locked) {
+  if (server.status.provisioning?.locked) {
     return 'unmanaged'
   }
-  const platformId = server.membership?.platformId
+  const platformId = server.status.membership?.platformId
   if (platformId) {
     const platform = platformById.get(platformId)
     if (platform) {
@@ -45,5 +45,5 @@ export function isGpuServer(server: Server): boolean {
   if (serverGPUsByKind(server, 'compute').length > 0) {
     return true
   }
-  return server.tags.some((tag) => tag === 'amd-gpu' || tag === 'nvidia-gpu')
+  return server.status.tags.some((tag) => tag === 'amd-gpu' || tag === 'nvidia-gpu')
 }

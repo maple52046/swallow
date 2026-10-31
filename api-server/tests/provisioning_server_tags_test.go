@@ -1,25 +1,24 @@
 package tests
 
 import (
-	"context"
 	"net/http"
 	"testing"
 
-	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
-// The tag endpoints exercise the capability-first rule (decision 031) end to end: a MAAS-capable
-// provisioner is driven directly and each Server refreshed, and the response carries the effective
-// tags. The fallback (swallow-owned) path is exercised at the use-case level below, since it needs a
-// provisioner that does not advertise tagging.
-
-func TestEditServerTags_DrivesProviderAcrossSelection(t *testing.T) {
+// A tag edit writes each Server's spec and never drives the provisioner: the Server controller
+// converges the tags afterwards (decision 071). The response carries each Server's new generation
+// and complete manual tag set.
+func TestEditServerTags_WritesSpecWithoutDrivingProvider(t *testing.T) {
 	f := setupPlatform(t)
 	seedProvisionerIntegration(t, f)
 	f.seedServer("s1", "gpu-1", "10.0.0.1", func(s *serverdomain.Server) { s.Observed.Tags = []string{"gpu"} })
-	f.seedServer("s2", "gpu-2", "10.0.0.2", func(s *serverdomain.Server) { s.Observed.Tags = nil })
+	f.seedServer("s2", "gpu-2", "10.0.0.2", func(s *serverdomain.Server) {
+		s.Observed.Tags = nil
+		s.Generation, s.Spec.Tags = 3, []string{"kept"}
+	})
 	f.provider.withMachine(&provisioningdomain.Machine{ID: "machine-s1", Tags: []string{"gpu"}})
 	f.provider.withMachine(&provisioningdomain.Machine{ID: "machine-s2"})
 
@@ -37,20 +36,19 @@ func TestEditServerTags_DrivesProviderAcrossSelection(t *testing.T) {
 	if !ok || len(servers) != 2 {
 		t.Fatalf("expected 2 servers in response, got %v", body)
 	}
-	// s1 kept nothing but rack-a (gpu removed); s2 gained rack-a.
+	// s1 had no spec: its observed manual tags were the base, so gpu is removed and rack-a added.
 	assertResponseTags(t, servers, "s1", []string{"rack-a"})
-	assertResponseTags(t, servers, "s2", []string{"rack-a"})
+	// s2 already had a spec, which is the base regardless of what is observed.
+	assertResponseTags(t, servers, "s2", []string{"kept", "rack-a"})
 
-	// The provider was driven once per changed tag across the whole selection, not per machine.
-	assertActionCount(t, f.provider.actions, "addTag rack-a", 1)
-	assertActionCount(t, f.provider.actions, "removeTag gpu", 1)
-
-	// The Server projection reflects the change immediately (refreshed from the provider).
-	if got := f.servers.servers["s1"].Observed.Tags; !equalStringSet(got, []string{"rack-a"}) {
-		t.Errorf("s1 projected tags: got %v, want [rack-a]", got)
+	if n := len(f.provider.actions); n != 0 {
+		t.Errorf("the provisioner was driven %d times (%v); a tag edit only writes the spec", n, f.provider.actions)
 	}
-	if got := f.servers.servers["s2"].Observed.Tags; !equalStringSet(got, []string{"rack-a"}) {
-		t.Errorf("s2 projected tags: got %v, want [rack-a]", got)
+	if s := f.servers.servers["s1"]; s.Generation != 1 || !equalStringSet(s.Spec.Tags, []string{"rack-a"}) {
+		t.Errorf("s1 spec = %v at generation %d, want [rack-a] at 1", s.Spec.Tags, s.Generation)
+	}
+	if s := f.servers.servers["s2"]; s.Generation != 4 {
+		t.Errorf("s2 generation = %d, want 4", s.Generation)
 	}
 }
 
@@ -127,55 +125,6 @@ func TestEditServerTags_RejectsInvalidRequests(t *testing.T) {
 				t.Fatalf("status: got %d, want 400 (%s)", resp.StatusCode, rawBody(t, resp))
 			}
 		})
-	}
-}
-
-// TestEditServerTags_FallbackWritesSwallowOwnedOverlay exercises the swallow-owned half of the rule
-// with a provisioner that does not advertise tagging: no provider is driven, the tags are stored as
-// an overlay, and clearing them all deletes the overlay.
-func TestEditServerTags_FallbackWritesSwallowOwnedOverlay(t *testing.T) {
-	const integrationID = "int-no-tags"
-	servers := newFakeServerRepo()
-	servers.servers["s1"] = &serverdomain.Server{
-		ID:     "s1",
-		Source: serverdomain.Source{SiteID: testSiteID, IntegrationID: integrationID, ProviderMachineID: "m1"},
-	}
-	factory := newFakeProviderFactory()
-	factory.providers[integrationID] = &minimalProvider{machines: map[string]*provisioningdomain.Machine{
-		"m1": {ID: "m1"},
-	}}
-	overlays := newFakeServerTagOverlayRepo()
-	uc := provisioningapp.NewEditServerTagsUseCase(servers, factory, overlays)
-
-	if _, err := uc.Execute(context.Background(), provisioningapp.EditServerTagsInput{
-		ServerIDs: []string{"s1"},
-		Add:       []string{"owned"},
-	}); err != nil {
-		t.Fatalf("Execute add: %v", err)
-	}
-	overlay, err := overlays.Get(context.Background(), "s1")
-	if err != nil {
-		t.Fatalf("expected an overlay to be written: %v", err)
-	}
-	if !equalStringSet(overlay.Tags, []string{"owned"}) {
-		t.Errorf("overlay tags: got %v, want [owned]", overlay.Tags)
-	}
-	if got := servers.servers["s1"].Observed.Tags; !equalStringSet(got, []string{"owned"}) {
-		t.Errorf("projected tags: got %v, want [owned]", got)
-	}
-
-	// Removing the only owned tag deletes the overlay rather than storing an empty one.
-	if _, err := uc.Execute(context.Background(), provisioningapp.EditServerTagsInput{
-		ServerIDs: []string{"s1"},
-		Remove:    []string{"owned"},
-	}); err != nil {
-		t.Fatalf("Execute remove: %v", err)
-	}
-	if _, err := overlays.Get(context.Background(), "s1"); err == nil {
-		t.Errorf("expected the overlay to be deleted once empty")
-	}
-	if got := servers.servers["s1"].Observed.Tags; len(got) != 0 {
-		t.Errorf("projected tags after clear: got %v, want empty", got)
 	}
 }
 

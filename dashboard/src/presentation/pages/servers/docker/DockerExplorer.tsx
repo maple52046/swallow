@@ -40,7 +40,7 @@ interface DockerExplorerProps {
 export function DockerExplorer({ server, assignment, onAssignmentChanged }: DockerExplorerProps) {
   const { dockerHosts } = useApp()
   const summary = useAsyncData(() => dockerHosts.summary(server.id), [server.id])
-  const readOnlyReason = server.provisioning?.locked ? LOCKED_DOCKER_READ_ONLY_REASON : undefined
+  const readOnlyReason = server.status.provisioning?.locked ? LOCKED_DOCKER_READ_ONLY_REASON : undefined
   const [section, setSection] = useState('containers')
   const [confirmDisable, setConfirmDisable] = useState(false)
   const toggle = useDockerApiToggle(server.id, assignment, onAssignmentChanged)

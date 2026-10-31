@@ -64,7 +64,7 @@ export function ServerDeleteDialog({ targets, onClose, onDeleted }: ServerDelete
   const count = targets.length
   const expected = single ? serverDisplayName(single) : String(count)
   const title = single ? 'Delete server' : `Delete ${count} servers`
-  const platformMembers = targets.filter((server) => server.membership?.platformId)
+  const platformMembers = targets.filter((server) => server.status.membership?.platformId)
   const heldIds = new Set(activeOperations.flatMap((operation) => operation.serverIds))
   const held = targets.filter((server) => heldIds.has(server.id))
 

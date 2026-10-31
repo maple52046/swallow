@@ -9,8 +9,15 @@ function makeServer(index: number): Server {
   const ordinal = index + 1
   const named = ordinal <= 4
   const hasInventory = ordinal !== 4
+  const tags = hasInventory ? named ? ['gpu', 'production'] : ['compute'] : []
   return {
     id: `srv-${ordinal}`,
+    origin: 'discovered',
+    generation: 1,
+    spec: { tags },
+    status: {
+    observedGeneration: 1,
+    conditions: realizedConditions(1),
     source: { siteId: 'site-a', integrationId: 'maas-a', providerMachineId: `machine-${ordinal}` },
     hostname: named ? `gpu-node-0${ordinal}` : `compute-node-${String(ordinal).padStart(3, '0')}`,
     fqdn: named ? `gpu-node-0${ordinal}.lab.example` : `compute-node-${String(ordinal).padStart(3, '0')}.lab.example`,
@@ -23,7 +30,7 @@ function makeServer(index: number): Server {
         ]
       : [],
     systemVendor: hasInventory ? 'Supermicro' : '', systemProduct: hasInventory ? 'AS-8125GS-TNHR' : '', providerZone: hasInventory ? index < 2 ? 'rack-a' : 'rack-b' : '',
-    providerResourcePool: hasInventory ? named ? 'accelerators' : 'compute' : '', providerPod: '', tags: hasInventory ? named ? ['gpu', 'production'] : ['compute'] : [],
+    providerResourcePool: hasInventory ? named ? 'accelerators' : 'compute' : '', providerPod: '', tags, automaticTags: [],
     hardware: { systemUuid: `uuid-${ordinal}`, serialNumber: `SN${String(ordinal).padStart(4, '0')}`, macAddresses: hasInventory ? [`02:00:00:00:${String(Math.floor(index / 250)).padStart(2, '0')}:${String((index % 250) + 1).padStart(2, '0')}`] : [] },
     deployment: ordinal === 4
       ? { state: 'failed', operationId: 'op-deploy-failed', stepId: 'provision-srv-4', attempt: 1, code: 'deployment_address_unavailable', stage: 'ssh_readiness', statusReason: 'No provider address was observed after OS installation.', startedAt: now, finishedAt: now, updatedAt: now }
@@ -33,7 +40,20 @@ function makeServer(index: number): Server {
     health: ordinal === 4 ? { state: 'down', observedAt: now } : { state: 'up', observedAt: now },
     defaultUser: { user: 'ubuntu', source: 'os_image' },
     absent: false, lastSeenAt: now, createdAt: '2026-08-01T00:00:00Z', updatedAt: now,
+    },
   }
+}
+
+/** The conditions of a Server whose provisioner matches its spec at the given generation. */
+function realizedConditions(generation: number): Server['status']['conditions'] {
+  const condition = (type: string, status: 'true' | 'false', reason: string) =>
+    ({ type, status, reason, message: '', lastTransitionTime: now, observedGeneration: generation })
+  return [
+    condition('realized', 'true', 'converged'),
+    condition('drifted', 'false', 'in_sync'),
+    condition('requires_attention', 'false', 'none'),
+    condition('held', 'false', 'not_held'),
+  ]
 }
 
 const servers = Array.from({ length: 4 }, (_, index) => makeServer(index))
@@ -245,6 +265,10 @@ export interface FixtureOptions {
   /** Overrides installed image labels for truncation and responsive presentation scenarios. */
   deployedImageNames?: Record<string, string>
   extraTags?: Record<string, string[]>
+  /** Adds provisioner-computed tags: observed (`status.tags`, `status.automaticTags`), never in the spec. */
+  automaticTags?: Record<string, string[]>
+  /** Servers whose manual tags were changed outside swallow: `drifted` true until the next resync. */
+  driftedServerIds?: string[]
   serverListFailuresAfterInitial?: number
   serverListFailureRequestNumbers?: number[]
   onServerListRequest?: (requestCount: number) => void
@@ -663,7 +687,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   }
   const libvirtCapability = (serverId: string) => ({
     support: 'supported', hypervisorServerId: 'srv-1', account: 'ubuntu',
-    domain: fleet.find((entry) => entry.id === serverId)?.hostname ?? serverId, pool: 'default', cdrom: true, probedAt: now,
+    domain: fleet.find((entry) => entry.id === serverId)?.status.hostname ?? serverId, pool: 'default', cdrom: true, probedAt: now,
   })
   const bootMediaView = (live: boolean, serverId = 'srv-1') => {
     const isoId = typeof bootMediaState.setting?.isoId === 'string' ? bootMediaState.setting.isoId : ''
@@ -788,27 +812,27 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   let serverListFailuresRemaining = options.serverListFailuresAfterInitial ?? 0
   if (options.freePlatformCandidates) {
     for (const server of fleet) {
-      server.membership = null
+      server.status.membership = null
     }
   }
   if (options.minimumResourceCandidates && fleet[0] && fleet[1]) {
-    Object.assign(fleet[0], { cpuCores: 4, memoryMiB: 24576, storageGB: 80 })
-    Object.assign(fleet[1], { cpuCores: 4, memoryMiB: 16384, storageGB: 80 })
+    Object.assign(fleet[0].status, { cpuCores: 4, memoryMiB: 24576, storageGB: 80 })
+    Object.assign(fleet[1].status, { cpuCores: 4, memoryMiB: 16384, storageGB: 80 })
   }
   for (let index = 0; index < (options.readyServerCount ?? 0) && index < fleet.length; index++) {
-    fleet[index].provisioning.state = 'ready'
-    fleet[index].provisioning.providerState = 'Ready'
-    fleet[index].provisioning.osSystem = ''
-    fleet[index].provisioning.distroSeries = ''
-    fleet[index].deployment = null
+    fleet[index].status.provisioning.state = 'ready'
+    fleet[index].status.provisioning.providerState = 'Ready'
+    fleet[index].status.provisioning.osSystem = ''
+    fleet[index].status.provisioning.distroSeries = ''
+    fleet[index].status.deployment = null
   }
   for (const serverId of options.changingServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
     if (server) {
-      server.provisioning.state = 'inspecting'
-      server.provisioning.stateSince = '2026-08-27T02:58:30Z'
-      server.provisioning.providerState = 'Commissioning'
-      server.deployment = {
+      server.status.provisioning.state = 'inspecting'
+      server.status.provisioning.stateSince = '2026-08-27T02:58:30Z'
+      server.status.provisioning.providerState = 'Commissioning'
+      server.status.deployment = {
         state: 'deploying', operationId: 'op-running', stepId: `provision-${server.id}`,
         attempt: 1, code: '', stage: options.deployingStage ?? 'provisioning', statusReason: options.deployingStatusReason ?? 'Provisioning operating system.',
         startedAt: now, finishedAt: null, updatedAt: now,
@@ -818,7 +842,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   for (const serverId of options.deploymentAttentionServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
     if (server) {
-      server.deployment = {
+      server.status.deployment = {
         state: 'requires_attention', operationId: 'op-deploy-failed', stepId: `provision-${server.id}`,
         attempt: 1, code: 'deployment_failed', stage: 'verification', statusReason: 'Swallow could not verify the deployment.',
         startedAt: now, finishedAt: null, updatedAt: now,
@@ -827,19 +851,19 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   }
   for (const serverId of options.absentServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
-    if (server) server.absent = true
+    if (server) server.status.absent = true
   }
   for (const serverId of options.unobservedHealthServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
-    if (server) server.health = null
+    if (server) server.status.health = null
   }
   for (const serverId of options.cpuOnlyServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
-    if (server) server.gpus = []
+    if (server) server.status.gpus = []
   }
   for (const serverId of options.multiGpuServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
-    if (server) server.gpus = [
+    if (server) server.status.gpus = [
       { vendor: 'AMD', model: 'MI300X', count: 8, kind: 'compute' },
       { vendor: 'NVIDIA', model: 'H100', count: 4, kind: 'compute' },
       { vendor: 'ASPEED Technology, Inc.', model: 'ASPEED Graphics Family', count: 16, kind: 'display' },
@@ -847,44 +871,65 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   }
   for (const serverId of options.displayOnlyServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
-    if (server) server.gpus = [
+    if (server) server.status.gpus = [
       { vendor: 'ASPEED Technology, Inc.', model: 'ASPEED Graphics Family', count: 1, kind: 'display' },
     ]
   }
   for (const serverId of options.genericComputeServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
-    if (server) server.gpus = [
+    if (server) server.status.gpus = [
       { vendor: 'AMD', model: 'AMD GPU', count: 8, kind: 'compute' },
       { vendor: 'ASPEED Technology, Inc.', model: 'ASPEED Graphics Family', count: 1, kind: 'display' },
     ]
   }
   for (const serverId of options.cirrusDisplayOnlyServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
-    if (server) server.gpus = [
+    if (server) server.status.gpus = [
       { vendor: 'Cirrus Logic', model: 'GD 5446', count: 1, kind: 'display' },
     ]
   }
   for (const [serverId, imageName] of Object.entries(options.deployedImageNames ?? {})) {
     const server = fleet.find((item) => item.id === serverId)
-    if (server) server.provisioning.deployedImageName = imageName
+    if (server) server.status.provisioning.deployedImageName = imageName
   }
   for (const [serverId, tags] of Object.entries(options.extraTags ?? {})) {
     const server = fleet.find((item) => item.id === serverId)
-    if (server) server.tags = [...server.tags, ...tags]
+    if (server) {
+      server.status.tags = [...server.status.tags, ...tags]
+      server.spec.tags = [...server.spec.tags, ...tags]
+    }
+  }
+  for (const [serverId, tags] of Object.entries(options.automaticTags ?? {})) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) {
+      server.status.tags = [...server.status.tags, ...tags]
+      server.status.automaticTags = [...server.status.automaticTags, ...tags]
+    }
+  }
+  for (const serverId of options.driftedServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) {
+      server.status.tags = [...server.status.tags, 'hand-made']
+      server.status.conditions = server.status.conditions.map((condition) => {
+        if (condition.type === 'drifted') return { ...condition, status: 'true', reason: 'drift_detected', message: 'Manual tags differ from the spec (unexpected hand-made).' }
+        if (condition.type === 'realized') return { ...condition, status: 'false', reason: 'converging', message: 'Drift is corrected at the next resync.' }
+        return condition
+      })
+    }
   }
   for (const serverId of options.ephemeralServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
     if (server) {
-      server.provisioning.ephemeral = true
+      server.status.provisioning.ephemeral = true
     }
   }
   for (const serverId of options.lockedServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
-    if (server) server.provisioning.locked = true
+    if (server) server.status.provisioning.locked = true
   }
   for (const serverId of options.existingServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
-    if (server) server.deployment = null
+    if (server) server.status.deployment = null
   }
   // Seed the not-usable provider states the recovery policy acts on (decision 033), so tests
   // can exercise Recover / Release gating and the Failed vs Broken vs Rescue badges.
@@ -892,8 +937,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     for (const serverId of ids ?? []) {
       const server = fleet.find((item) => item.id === serverId)
       if (server) {
-        server.provisioning.state = state
-        server.provisioning.providerState = providerState
+        server.status.provisioning.state = state
+        server.status.provisioning.providerState = providerState
       }
     }
   }
@@ -903,8 +948,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   for (const serverId of options.inspectionRequiredServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
     if (server) {
-      server.provisioning.inspectionRequired = true
-      server.provisioning.inspectionRequiredReason =
+      server.status.provisioning.inspectionRequired = true
+      server.status.provisioning.inspectionRequiredReason =
         'MAAS boots this Server with UEFI, but its storage layout has no EFI system partition because it was inspected while booting BIOS. Inspect the Server again before a disk deployment.'
     }
   }
@@ -912,11 +957,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   for (const [serverId, state] of Object.entries(options.providerWorkServerIds ?? {})) {
     seedProviderState([serverId], state, providerWorkLabels[state])
     const server = fleet.find((item) => item.id === serverId)
-    if (server) server.provisioning.stateSince = '2026-08-27T02:58:30Z'
+    if (server) server.status.provisioning.stateSince = '2026-08-27T02:58:30Z'
   }
   if (options.secondReadyServerIntegrationId && fleet[1]) {
-    fleet[1].source.integrationId = options.secondReadyServerIntegrationId
-    fleet[1].provisioning.integrationId = options.secondReadyServerIntegrationId
+    fleet[1].status.source.integrationId = options.secondReadyServerIntegrationId
+    fleet[1].status.provisioning.integrationId = options.secondReadyServerIntegrationId
   }
   let deploymentTemplates = baseDeploymentTemplates.map((template) => ({ ...template }))
   let siteItems = sites
@@ -994,16 +1039,16 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     const subnetName = options.networkSubnetName ?? 'lab-network'
     return [server.id, {
       serverId: server.id,
-      editable: server.provisioning.state === 'ready' && !server.provisioning.locked,
-      disabledReason: server.provisioning.locked
+      editable: server.status.provisioning.state === 'ready' && !server.status.provisioning.locked,
+      disabledReason: server.status.provisioning.locked
         ? 'Unlock the Server before changing network configuration.'
-        : server.provisioning.state === 'ready' ? '' : 'Network configuration can only be changed while the Server is Ready.',
-      suggestion: { mode: hasStaticBinding ? 'static' : siteDhcp ? 'dhcp' : 'automatic', interfaceId, subnetId: 'subnet-a', ipAddress: hasStaticBinding ? server.addresses[0] ?? '' : '', defaultGateway: hasStaticBinding },
+        : server.status.provisioning.state === 'ready' ? '' : 'Network configuration can only be changed while the Server is Ready.',
+      suggestion: { mode: hasStaticBinding ? 'static' : siteDhcp ? 'dhcp' : 'automatic', interfaceId, subnetId: 'subnet-a', ipAddress: hasStaticBinding ? server.status.addresses[0] ?? '' : '', defaultGateway: hasStaticBinding },
       network: {
         interfaces: [{
           id: interfaceId,
           name: 'eno1',
-          macAddress: server.hardware.macAddresses[0] ?? '',
+          macAddress: server.status.hardware.macAddresses[0] ?? '',
           boot: true,
           physicalState: 'up',
           configurationState: hasStaticBinding ? 'static' : 'provider_managed',
@@ -1015,7 +1060,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
             subnetId: 'subnet-a',
             subnetName,
             cidr: '192.168.40.0/24',
-            ipAddress: server.addresses[0] ?? '',
+            ipAddress: server.status.addresses[0] ?? '',
             defaultGateway: true,
           }],
           availableSubnets: [{
@@ -1039,15 +1084,15 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       return
     }
     if (remaining <= 1) {
-      server.provisioning.state = 'ready'
-      server.provisioning.stateSince = new Date().toISOString()
-      server.provisioning.providerState = 'Ready'
-      server.provisioning.osSystem = ''
-      server.provisioning.distroSeries = ''
-      server.provisioning.ephemeral = false
-      server.deployment = null
+      server.status.provisioning.state = 'ready'
+      server.status.provisioning.stateSince = new Date().toISOString()
+      server.status.provisioning.providerState = 'Ready'
+      server.status.provisioning.osSystem = ''
+      server.status.provisioning.distroSeries = ''
+      server.status.provisioning.ephemeral = false
+      server.status.deployment = null
       if (releaseCleanupRequested.has(serverId) && !options.releaseCleanupFails) {
-        server.addresses = []
+        server.status.addresses = []
         const target = networkTargets.get(serverId)
         const iface = target?.network.interfaces[0]
         if (iface) {
@@ -1070,16 +1115,16 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       return
     }
     if (remaining <= 1) {
-      server.provisioning.state = 'deployed'
-      server.provisioning.providerState = 'Deployed'
-      server.provisioning.osSystem = 'ubuntu'
-      server.provisioning.distroSeries = 'ubuntu/jammy'
-      if (server.deployment) {
-        server.deployment.state = 'succeeded'
-        server.deployment.statusReason = ''
-        server.deployment.stage = ''
-        server.deployment.finishedAt = now
-        server.deployment.updatedAt = now
+      server.status.provisioning.state = 'deployed'
+      server.status.provisioning.providerState = 'Deployed'
+      server.status.provisioning.osSystem = 'ubuntu'
+      server.status.provisioning.distroSeries = 'ubuntu/jammy'
+      if (server.status.deployment) {
+        server.status.deployment.state = 'succeeded'
+        server.status.deployment.statusReason = ''
+        server.status.deployment.stage = ''
+        server.status.deployment.finishedAt = now
+        server.status.deployment.updatedAt = now
       }
       deploymentRefreshesRemaining.delete(serverId)
     } else {
@@ -1107,20 +1152,26 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     // Controller-only nodes carry no membership (they are not slurmd scheduler nodes); compute
     // nodes do. getServer reads from the fleet, so the controllers must live here for the
     // detail page's controller merge to resolve them.
-    const makeSlurmNode = (id: string, hostname: string, octet: number, member: boolean): Server => ({
-      ...makeServer(0),
-      id,
-      source: { siteId: 'site-a', integrationId: 'maas-a', providerMachineId: id },
-      hostname,
-      fqdn: `${hostname}.lab.example`,
-      addresses: [`192.168.60.${octet}`],
-      membership: member
-        ? { platformId: 'platform-slurm-ha', nodeName: hostname, role: 'main', state: 'idle', observedAt: now }
-        : null,
-      // The cluster has no exporter coverage, so the health axis reads "down" for every node.
-      // Controllers must not surface that monitoring "down" as their operational state.
-      health: { state: 'down', observedAt: now },
-    })
+    const makeSlurmNode = (id: string, hostname: string, octet: number, member: boolean): Server => {
+      const base = makeServer(0)
+      return {
+        ...base,
+        id,
+        status: {
+          ...base.status,
+          source: { siteId: 'site-a', integrationId: 'maas-a', providerMachineId: id },
+          hostname,
+          fqdn: `${hostname}.lab.example`,
+          addresses: [`192.168.60.${octet}`],
+          membership: member
+            ? { platformId: 'platform-slurm-ha', nodeName: hostname, role: 'main', state: 'idle', observedAt: now }
+            : null,
+          // The cluster has no exporter coverage, so the health axis reads "down" for every node.
+          // Controllers must not surface that monitoring "down" as their operational state.
+          health: { state: 'down', observedAt: now },
+        },
+      }
+    }
     fleet.push(
       makeSlurmNode('slurm-ctl-1', 'slurm-ctl-01', 11, false),
       makeSlurmNode('slurm-ctl-2', 'slurm-ctl-02', 12, false),
@@ -1150,12 +1201,12 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   const claimPlatformTargets = (platformId: string, serverIds: readonly string[]) => {
     for (const serverId of serverIds) {
       const server = fleet.find((item) => item.id === serverId)
-      if (server && !server.platformClaim) server.platformClaim = { platformId, claimedAt: now }
+      if (server && !server.status.platformClaim) server.status.platformClaim = { platformId, claimedAt: now }
     }
   }
   const releasePlatformClaims = (platformId: string) => {
     for (const server of fleet) {
-      if (server.platformClaim?.platformId === platformId) server.platformClaim = null
+      if (server.status.platformClaim?.platformId === platformId) server.status.platformClaim = null
     }
   }
   if (!options.withoutPlatformClaims && !options.freePlatformCandidates) {
@@ -1175,11 +1226,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
     for (const serverId of serverIds) {
       const server = fleet.find((item) => item.id === serverId)
-      const claim = server?.platformClaim
-      if (!server || !claim || (action === 'recover' && server.provisioning.state !== 'deployed')) continue
+      const claim = server?.status.platformClaim
+      if (!server || !claim || (action === 'recover' && server.status.provisioning.state !== 'deployed')) continue
       const platform = platformItems.find((item) => item.id === claim.platformId)
       const owner = platform ? `${platform.type} Platform ${platform.name}` : `Platform ${claim.platformId}`
-      return `Server ${server.hostname ?? server.id} belongs to ${owner}; uninstall the Platform (with releaseServers to also release its Servers) ${nextSteps[action]}`
+      return `Server ${server.status.hostname ?? server.id} belongs to ${owner}; uninstall the Platform (with releaseServers to also release its Servers) ${nextSteps[action]}`
     }
     return null
   }
@@ -1354,7 +1405,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         const server = fleet.find((candidate) => candidate.id === serverId)
         const failed = failedIds.has(serverId)
         if (!server) continue
-        server.deployment = {
+        server.status.deployment = {
           state: failed
             ? options.providerFailureRetryable ? 'requires_attention' : 'failed'
             : 'deploying',
@@ -1529,11 +1580,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (body.kind === 'device-metrics-exporter') {
         for (const target of body.assignments ?? []) {
           const server = fleet.find((item) => item.id === target.serverId)
-          if (server?.platformClaim) {
-            return json(route, { error: { code: 'conflict', message: `${server.hostname} belongs to Platform ${server.platformClaim.platformId}, which manages AMD Device Metrics Exporter on its Servers; cannot install it directly` } }, 409)
+          if (server?.status.platformClaim) {
+            return json(route, { error: { code: 'conflict', message: `${server.status.hostname} belongs to Platform ${server.status.platformClaim.platformId}, which manages AMD Device Metrics Exporter on its Servers; cannot install it directly` } }, 409)
           }
-          if (server && !server.gpus.some((gpu) => gpu.kind === 'compute' && /amd|advanced micro devices/i.test(gpu.vendor))) {
-            return json(route, { error: { code: 'conflict', message: `${server.hostname} lists no AMD compute GPU in its GPU Inventory, which AMD Device Metrics Exporter needs` } }, 409)
+          if (server && !server.status.gpus.some((gpu) => gpu.kind === 'compute' && /amd|advanced micro devices/i.test(gpu.vendor))) {
+            return json(route, { error: { code: 'conflict', message: `${server.status.hostname} lists no AMD compute GPU in its GPU Inventory, which AMD Device Metrics Exporter needs` } }, 409)
           }
         }
       }
@@ -1576,10 +1627,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const body = (request.postDataJSON() ?? {}) as { kind?: SoftwareAssignment['kind']; serverIds?: string[] }
       options.onSoftwareUninstallRequest?.(body as Record<string, unknown>)
       const claimed = body.kind === 'device-metrics-exporter'
-        ? fleet.find((item) => body.serverIds?.includes(item.id) && item.platformClaim)
+        ? fleet.find((item) => body.serverIds?.includes(item.id) && item.status.platformClaim)
         : undefined
       if (claimed) {
-        return json(route, { error: { code: 'conflict', message: `${claimed.hostname} belongs to Platform ${claimed.platformClaim?.platformId}, which manages AMD Device Metrics Exporter on its Servers; cannot uninstall it directly` } }, 409)
+        return json(route, { error: { code: 'conflict', message: `${claimed.status.hostname} belongs to Platform ${claimed.status.platformClaim?.platformId}, which manages AMD Device Metrics Exporter on its Servers; cannot uninstall it directly` } }, 409)
       }
       for (const serverId of body.serverIds ?? []) {
         const existing = softwareAssignmentItems.find((item) => item.serverId === serverId && item.kind === body.kind)
@@ -1795,7 +1846,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         return json(route, integration)
       }
       if (request.method() === 'DELETE') {
-        const referenced = fleet.some((server) => server.source.integrationId === integration.id) ||
+        const referenced = fleet.some((server) => server.status.source.integrationId === integration.id) ||
           deploymentTemplates.some((template) => template.integrationId === integration.id)
         if (referenced) {
           return json(route, { error: { code: 'conflict', message: 'Resources still reference this Integration.' } }, 409)
@@ -1999,7 +2050,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const body = request.postDataJSON() as { serverIds: string[] }
       const issues = body.serverIds.flatMap((serverId) => {
         const message = options.deploymentReadinessIssues?.[serverId]
-        const locked = fleet.find((server) => server.id === serverId)?.provisioning.locked
+        const locked = fleet.find((server) => server.id === serverId)?.status.provisioning.locked
         if (locked) return [{ serverId, code: "locked", message: "Unlock the Server before deployment." }]
         return message ? [{
           serverId,
@@ -2009,7 +2060,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       })
       return json(route, {
         valid: issues.length === 0,
-        integrationId: fleet.find((server) => body.serverIds.includes(server.id))?.source.integrationId ?? '',
+        integrationId: fleet.find((server) => body.serverIds.includes(server.id))?.status.source.integrationId ?? '',
         issues,
       })
     }
@@ -2075,9 +2126,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         const server = fleet.find((item) => item.id === serverId)
         if (server) {
           if (!options.deferReleaseProjection) {
-            server.provisioning.state = 'releasing'
-            server.provisioning.stateSince = new Date().toISOString()
-            server.provisioning.providerState = 'Releasing'
+            server.status.provisioning.state = 'releasing'
+            server.status.provisioning.stateSince = new Date().toISOString()
+            server.status.provisioning.providerState = 'Releasing'
           }
           releaseRefreshesRemaining.set(serverId, options.releaseConvergesAfterRefreshes ?? 2)
         }
@@ -2086,7 +2137,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           provisioningTasks.unshift({
             id: `task-${serverId}`,
             serverId,
-            integrationId: server?.source.integrationId ?? '',
+            integrationId: server?.status.source.integrationId ?? '',
             kind: 'release_network_cleanup',
             status: options.releaseCleanupFails ? 'failed' : 'running',
             phase: options.releaseCleanupFails ? 'cleaning_network' : 'waiting_for_ready',
@@ -2119,9 +2170,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         if (server) {
           // Recovery converges to the ready pool; model the same releasing -> ready path a
           // real Recover Operation drives so the list can follow the Server in place.
-          server.provisioning.state = 'releasing'
-          server.provisioning.stateSince = new Date().toISOString()
-          server.provisioning.providerState = 'Releasing'
+          server.status.provisioning.state = 'releasing'
+          server.status.provisioning.stateSince = new Date().toISOString()
+          server.status.provisioning.providerState = 'Releasing'
           releaseRefreshesRemaining.set(serverId, options.releaseConvergesAfterRefreshes ?? 2)
         }
       }
@@ -2137,9 +2188,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const accepted = serverIds.filter((id) => !failedIds.has(id)).map((serverId) => {
         const server = fleet.find((item) => item.id === serverId)
         if (server) {
-          server.provisioning.state = 'deploying'
-          server.provisioning.providerState = 'Deploying'
-          server.provisioning.observedAt = now
+          server.status.provisioning.state = 'deploying'
+          server.status.provisioning.providerState = 'Deploying'
+          server.status.provisioning.observedAt = now
           if (options.deploymentConvergesAfterRefreshes !== undefined) {
             deploymentRefreshesRemaining.set(serverId, Math.max(1, options.deploymentConvergesAfterRefreshes))
           }
@@ -2148,7 +2199,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           serverId,
           state: 'deploying',
           providerState: 'Deploying',
-          powerState: server?.provisioning.powerState ?? 'unknown',
+          powerState: server?.status.provisioning.powerState ?? 'unknown',
           osSystem: 'ubuntu',
           distroSeries: 'ubuntu/jammy',
           ephemeral: false,
@@ -2199,11 +2250,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       let items = [...fleet]
       const siteId = url.searchParams.get('siteId'); const platformId = url.searchParams.get('platformId'); const provisioningState = url.searchParams.get('provisioningState'); const keyword = url.searchParams.get('keyword')?.toLowerCase()
       const includeAbsent = url.searchParams.get('includeAbsent') === 'true'
-      if (!includeAbsent) items = items.filter((item) => !item.absent)
-      if (siteId) items = items.filter((item) => item.source.siteId === siteId)
-      if (platformId) items = items.filter((item) => item.membership?.platformId === platformId)
-      if (provisioningState) items = items.filter((item) => item.provisioning?.state === provisioningState)
-      if (keyword) items = items.filter((item) => [item.hostname, item.fqdn, item.id, ...item.addresses].some((value) => value?.toLowerCase().includes(keyword)))
+      if (!includeAbsent) items = items.filter((item) => !item.status.absent)
+      if (siteId) items = items.filter((item) => item.status.source.siteId === siteId)
+      if (platformId) items = items.filter((item) => item.status.membership?.platformId === platformId)
+      if (provisioningState) items = items.filter((item) => item.status.provisioning?.state === provisioningState)
+      if (keyword) items = items.filter((item) => [item.status.hostname, item.status.fqdn, item.id, ...item.status.addresses].some((value) => value?.toLowerCase().includes(keyword)))
       const pageNumber = Number(url.searchParams.get('page') ?? 1); const pageSize = Number(url.searchParams.get('pageSize') ?? 100); const start = (pageNumber - 1) * pageSize
       return json(route, { items: items.slice(start, start + pageSize), total: items.length, page: pageNumber, pageSize })
     }
@@ -2237,7 +2288,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const task = provisioningTasks.find((item) => item.id === taskMatch[1])
       if (!task) return json(route, { error: { code: 'not_found', message: 'Provisioning task not found.' } }, 404)
       const server = fleet.find((item) => item.id === task.serverId)
-      if (task.status === 'running' && server?.provisioning.state === 'ready') {
+      if (task.status === 'running' && server?.status.provisioning.state === 'ready') {
         Object.assign(task, {
           status: 'succeeded',
           phase: 'complete',
@@ -2245,7 +2296,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           retryable,
           updatedAt: now,
         })
-        server.addresses = []
+        server.status.addresses = []
         const target = networkTargets.get(server.id)
         const iface = target?.network.interfaces[0]
         if (iface) {
@@ -2310,12 +2361,12 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const server = fleet.find((item) => item.id === serverId)
       if (!server) return json(route, { error: { code: "not_found", message: "Server not found" } }, 404)
       return json(route, {
-        serverId, state: server.provisioning.state, providerState: server.provisioning.providerState,
-        powerState: server.provisioning.powerState, osSystem: server.provisioning.osSystem,
-        distroSeries: server.provisioning.distroSeries, ephemeral: server.provisioning.ephemeral,
-        hweKernel: server.provisioning.hweKernel, locked: server.provisioning.locked,
-        commissioningStatus: server.provisioning.commissioningStatus,
-        testingStatus: server.provisioning.testingStatus, observedAt: now,
+        serverId, state: server.status.provisioning.state, providerState: server.status.provisioning.providerState,
+        powerState: server.status.provisioning.powerState, osSystem: server.status.provisioning.osSystem,
+        distroSeries: server.status.provisioning.distroSeries, ephemeral: server.status.provisioning.ephemeral,
+        hweKernel: server.status.provisioning.hweKernel, locked: server.status.provisioning.locked,
+        commissioningStatus: server.status.provisioning.commissioningStatus,
+        testingStatus: server.status.provisioning.testingStatus, observedAt: now,
       })
     }
     const serverActionMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/([^/]+)$/)
@@ -2327,12 +2378,12 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
       options.onServerActionRequest?.(serverId, action)
       const actionServer = fleet.find((item) => item.id === serverId)
-      if (actionServer && action === "lock") actionServer.provisioning.locked = true
-      if (actionServer && action === "unlock") actionServer.provisioning.locked = false
-      if (actionServer && action === "inspect" && actionServer.provisioning.inspectionRequired) {
-        actionServer.provisioning.state = "inspecting"
-        actionServer.provisioning.providerState = "Commissioning"
-        actionServer.provisioning.stateSince = new Date().toISOString()
+      if (actionServer && action === "lock") actionServer.status.provisioning.locked = true
+      if (actionServer && action === "unlock") actionServer.status.provisioning.locked = false
+      if (actionServer && action === "inspect" && actionServer.status.provisioning.inspectionRequired) {
+        actionServer.status.provisioning.state = "inspecting"
+        actionServer.status.provisioning.providerState = "Commissioning"
+        actionServer.status.provisioning.stateSince = new Date().toISOString()
       }
       if (options.serverActionFailureIds?.includes(serverId)) {
         return json(route, {
@@ -2346,9 +2397,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (action === "release") {
         const server = fleet.find((item) => item.id === serverId)
         if (server) {
-          server.provisioning.state = "releasing"
-          server.provisioning.stateSince = new Date().toISOString()
-          server.provisioning.providerState = "Releasing"
+          server.status.provisioning.state = "releasing"
+          server.status.provisioning.stateSince = new Date().toISOString()
+          server.status.provisioning.providerState = "Releasing"
           releaseRefreshesRemaining.set(serverId, options.releaseConvergesAfterRefreshes ?? 2)
         }
         const body = request.postData() ? request.postDataJSON() as Record<string, unknown> : null
@@ -2356,7 +2407,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           provisioningTasks.unshift({
             id: `task-${serverId}`,
             serverId,
-            integrationId: server?.source.integrationId ?? '',
+            integrationId: server?.status.source.integrationId ?? '',
             kind: 'release_network_cleanup',
             status: options.releaseCleanupFails ? 'failed' : 'running',
             phase: options.releaseCleanupFails ? 'cleaning_network' : 'waiting_for_ready',
@@ -2374,7 +2425,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       return json(route, {
         serverId, state: action === "release" ? "releasing" : "deployed", providerState: "Accepted",
         powerState: "off", osSystem: "ubuntu", distroSeries: "jammy", ephemeral: false,
-        hweKernel: "", locked: actionServer?.provisioning.locked ?? false, commissioningStatus: "", testingStatus: "", observedAt: now,
+        hweKernel: "", locked: actionServer?.status.provisioning.locked ?? false, commissioningStatus: "", testingStatus: "", observedAt: now,
         ...(releaseBody?.unbindStaticIPs ? { taskId: `task-${serverId}` } : {}),
       }, 202)
     }
@@ -2476,13 +2527,13 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           const { status, code, message } = options.defaultUserError
           return json(route, { error: { code, message, requestId: 'req-default-user' } }, status)
         }
-        item.defaultUser = { user: String(body.user ?? ''), source: 'server' }
-        return json(route, { defaultUser: item.defaultUser, keyInstalled: Boolean(body.password), sudo: options.defaultUserSudo ?? 'passwordless' })
+        item.status.defaultUser = { user: String(body.user ?? ''), source: 'server' }
+        return json(route, { defaultUser: item.status.defaultUser, keyInstalled: Boolean(body.password), sudo: options.defaultUserSudo ?? 'passwordless' })
       }
       if (request.method() === 'DELETE') {
         options.onDefaultUserRequest?.('DELETE', null)
-        const imageUser = item.provisioning?.deployedImageDefaultUser
-        item.defaultUser = imageUser ? { user: imageUser, source: 'os_image' } : undefined
+        const imageUser = item.status.provisioning?.deployedImageDefaultUser
+        item.status.defaultUser = imageUser ? { user: imageUser, source: 'os_image' } : undefined
         return route.fulfill({ status: 204 })
       }
     }

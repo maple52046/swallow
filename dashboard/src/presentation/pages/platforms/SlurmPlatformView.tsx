@@ -257,7 +257,7 @@ function ComputeNodesSection({
 }) {
   // In degrade mode the compute nodes are the members carrying the membership axis (slurmrestd
   // reports only compute as members); controllers appear in their own section above.
-  const computeMembers = members.filter((server) => server.membership)
+  const computeMembers = members.filter((server) => server.status.membership)
   const description = live
     ? 'Live compute node scheduler state from slurmrestd.'
     : 'Compute members from the last membership sync. Live state appears once slurmrestd is reachable.'
@@ -310,9 +310,9 @@ function ComputeNodesSection({
             </Table.Header>
             <Table.Body>
               {computeMembers.map((server) => {
-                const nodeName = server.membership?.nodeName || serverDisplayName(server)
+                const nodeName = server.status.membership?.nodeName || serverDisplayName(server)
                 const address = serverPrimaryAddress(server)
-                const state = server.membership?.state ?? 'unknown'
+                const state = server.status.membership?.state ?? 'unknown'
                 return (
                   <Table.Row key={server.id} {...rowNav(server, onSelect)}>
                     <Table.Cell>
@@ -324,7 +324,7 @@ function ComputeNodesSection({
                     <Table.Cell>
                       <StatusBadge status={slurmNodeStateTone(state)} label={state} />
                     </Table.Cell>
-                    <Table.Cell>{server.membership?.role || '-'}</Table.Cell>
+                    <Table.Cell>{server.status.membership?.role || '-'}</Table.Cell>
                     <Table.Cell className="mono">
                       <span className="sw-cell-inline">
                         {address ?? '-'}
@@ -383,11 +383,11 @@ function buildServerIndex(members: Server[]): Map<string, Server> {
     if (key) index.set(key.toLowerCase(), server)
   }
   for (const server of members) {
-    add(server.hostname, server)
-    add(server.fqdn, server)
-    add(server.membership?.nodeName, server)
+    add(server.status.hostname, server)
+    add(server.status.fqdn, server)
+    add(server.status.membership?.nodeName, server)
     add(serverDisplayName(server), server)
-    for (const address of server.addresses ?? []) add(address, server)
+    for (const address of server.status.addresses ?? []) add(address, server)
   }
   return index
 }

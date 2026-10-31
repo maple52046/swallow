@@ -83,6 +83,8 @@ OS Provisioning bounded context 的參與者、上下游關係與翻譯方式見
 | Subnet DNS、Provisioner HTTP Proxy | provisioner | live read + write-through（§6、§7） | 不存 |
 | Zone 與 Pool 的 catalog | swallow | 完整 CRUD，provisioner 有能力時同步實現（§8） | owned collection |
 | Server 的 observed zone／pool | provisioner | reconcile 鏡射 | mirrored |
+| Server 的手動 tag | swallow | Server 的 spec；Server controller 收斂、resync 修正 drift（[desired-state-model.md](desired-state-model.md) §4.4） | `servers` 的 `spec.tags` |
+| Server 的自動 tag（provisioner 自己算的，例如 MAAS 帶 definition 的 tag） | provisioner | reconcile 鏡射，只觀察 | `servers` 的 `observed.automaticTags` |
 | Provider recovery policy | swallow | 單一 domain 矩陣（§11） | — |
 | Release 後的 static link 清理 | swallow | [Provisioning Task](glossaries/terms/provisioning-task.md)（§6） | owned coordination state |
 

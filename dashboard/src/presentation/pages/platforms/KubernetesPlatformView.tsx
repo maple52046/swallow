@@ -31,8 +31,8 @@ export function KubernetesPlatformView({
   const workloadControllers = intendedControllers.filter((assignment) => assignment.runWorkloads)
   // Fallback counts for a registered platform with no deployment intent: derive from the live
   // membership axis instead of the recorded topology.
-  const liveControllers = members.filter((server) => server.membership?.role === 'control-plane')
-  const liveWorkers = members.filter((server) => server.membership?.role !== 'control-plane')
+  const liveControllers = members.filter((server) => server.status.membership?.role === 'control-plane')
+  const liveWorkers = members.filter((server) => server.status.membership?.role !== 'control-plane')
 
   return (
     <>
@@ -90,11 +90,11 @@ function KubernetesMemberTable({
   const sortValue = (server: Server, columnIndex: number): string => {
     switch (columnIndex) {
       case 0:
-        return (server.membership?.nodeName || serverDisplayName(server)).toLowerCase()
+        return (server.status.membership?.nodeName || serverDisplayName(server)).toLowerCase()
       case 1:
-        return server.membership?.role ?? ''
+        return server.status.membership?.role ?? ''
       case 2:
-        return server.membership?.state ?? ''
+        return server.status.membership?.state ?? ''
       case 3:
         return serverPrimaryAddress(server) ?? ''
       default:
@@ -122,11 +122,11 @@ function KubernetesMemberTable({
     const assignment = deployment?.roleAssignments.find((candidate) => candidate.serverId === server.id)
     return {
       server,
-      nodeName: server.membership?.nodeName || serverDisplayName(server),
+      nodeName: server.status.membership?.nodeName || serverDisplayName(server),
       address: serverPrimaryAddress(server),
-      role: server.membership?.role ?? assignment?.role ?? 'unknown',
+      role: server.status.membership?.role ?? assignment?.role ?? 'unknown',
       runsWorkloads: assignment?.role === 'control-plane' && assignment.runWorkloads,
-      membershipState: server.membership?.state,
+      membershipState: server.status.membership?.state,
     }
   })
 

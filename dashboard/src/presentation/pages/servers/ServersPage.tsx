@@ -262,11 +262,11 @@ function activeAdvancedFilterCount(query: ServerInventoryQuery): number {
 }
 
 function siteNameOf(server: Server, sites: readonly Site[]): string {
-  return sites.find((site) => site.id === server.source.siteId)?.name ?? server.source.siteId
+  return sites.find((site) => site.id === server.status.source.siteId)?.name ?? server.status.source.siteId
 }
 
 function integrationNameOf(server: Server, integrations: readonly Integration[]): string {
-  return integrations.find((integration) => integration.id === server.source.integrationId)?.name ?? server.source.integrationId
+  return integrations.find((integration) => integration.id === server.status.source.integrationId)?.name ?? server.status.source.integrationId
 }
 
 /** Complete mirrored Server facts shared by desktop disclosure and mobile card details. */
@@ -276,41 +276,41 @@ function serverDetailFacts(
   integrations: readonly Integration[],
   monitoring: boolean,
 ): DetailFactGroup[] {
-  const provisioning = server.provisioning
+  const provisioning = server.status.provisioning
   return [
     {
       title: 'Identity',
       facts: [
-        { label: 'FQDN', value: textOrDash(server.fqdn) },
+        { label: 'FQDN', value: textOrDash(server.status.fqdn) },
         { label: 'Server ID', value: server.id },
         { label: 'Site', value: siteNameOf(server, sites) },
         { label: 'Provisioner', value: integrationNameOf(server, integrations) },
-        { label: 'Provider machine ID', value: server.source.providerMachineId },
-        { label: 'Addresses', value: server.addresses.length ? server.addresses.join(', ') : '—' },
-        { label: 'Serial number', value: textOrDash(server.hardware.serialNumber) },
-        { label: 'System UUID', value: textOrDash(server.hardware.systemUuid) },
-        { label: 'MAC addresses', value: server.hardware.macAddresses.length ? server.hardware.macAddresses.join(', ') : '—' },
+        { label: 'Provider machine ID', value: server.status.source.providerMachineId },
+        { label: 'Addresses', value: server.status.addresses.length ? server.status.addresses.join(', ') : '—' },
+        { label: 'Serial number', value: textOrDash(server.status.hardware.serialNumber) },
+        { label: 'System UUID', value: textOrDash(server.status.hardware.systemUuid) },
+        { label: 'MAC addresses', value: server.status.hardware.macAddresses.length ? server.status.hardware.macAddresses.join(', ') : '—' },
       ],
     },
     {
       title: 'Hardware',
       facts: [
         { label: 'GPU inventory', value: serverGpuProfile(server) },
-        { label: 'Architecture', value: textOrDash(server.architecture) },
-        { label: 'CPU cores', value: quantityOrDash(server.cpuCores) },
-        { label: 'CPU model', value: textOrDash(server.cpuModel) },
-        { label: 'Memory', value: quantityOrDash(server.memoryMiB, 'GiB', 1024) },
-        { label: 'Storage', value: quantityOrDash(server.storageGB, 'GB') },
-        { label: 'System vendor', value: textOrDash(server.systemVendor) },
-        { label: 'System product', value: textOrDash(server.systemProduct) },
+        { label: 'Architecture', value: textOrDash(server.status.architecture) },
+        { label: 'CPU cores', value: quantityOrDash(server.status.cpuCores) },
+        { label: 'CPU model', value: textOrDash(server.status.cpuModel) },
+        { label: 'Memory', value: quantityOrDash(server.status.memoryMiB, 'GiB', 1024) },
+        { label: 'Storage', value: quantityOrDash(server.status.storageGB, 'GB') },
+        { label: 'System vendor', value: textOrDash(server.status.systemVendor) },
+        { label: 'System product', value: textOrDash(server.status.systemProduct) },
       ],
     },
     {
       title: 'Resource organization',
       facts: [
-        { label: 'Zone', value: textOrDash(server.providerZone) },
-        { label: 'Pool', value: textOrDash(server.providerResourcePool) },
-        { label: 'Pod', value: textOrDash(server.providerPod) },
+        { label: 'Zone', value: textOrDash(server.status.providerZone) },
+        { label: 'Pool', value: textOrDash(server.status.providerResourcePool) },
+        { label: 'Pod', value: textOrDash(server.status.providerPod) },
         { label: 'Tags', value: sortedServerTags(server).join(', ') || '—' },
       ],
     },
@@ -327,24 +327,24 @@ function serverDetailFacts(
       title: 'Operational context',
       facts: [
         { label: 'Power', value: powerStateLabel(provisioning?.powerState ?? null) },
-        { label: 'Health', value: monitoring ? server.health?.state ?? 'Unobserved' : NOT_AVAILABLE_IN_RELEASE },
-        { label: 'Platform ID', value: textOrDash(server.membership?.platformId) },
-        { label: 'Platform node', value: textOrDash(server.membership?.nodeName) },
-        { label: 'Platform role', value: textOrDash(server.membership?.role) },
-        { label: 'Membership', value: server.membership?.state ?? 'Unassigned' },
+        { label: 'Health', value: monitoring ? server.status.health?.state ?? 'Unobserved' : NOT_AVAILABLE_IN_RELEASE },
+        { label: 'Platform ID', value: textOrDash(server.status.membership?.platformId) },
+        { label: 'Platform node', value: textOrDash(server.status.membership?.nodeName) },
+        { label: 'Platform role', value: textOrDash(server.status.membership?.role) },
+        { label: 'Membership', value: server.status.membership?.state ?? 'Unassigned' },
       ],
     },
     {
       title: 'Freshness',
       facts: [
-        { label: 'Last seen', value: server.lastSeenAt ? formatDateTime(server.lastSeenAt) : 'Never' },
+        { label: 'Last seen', value: server.status.lastSeenAt ? formatDateTime(server.status.lastSeenAt) : 'Never' },
         { label: 'Provisioning observed', value: provisioning?.observedAt ? formatDateTime(provisioning.observedAt) : 'Unobserved' },
-        { label: 'Membership observed', value: server.membership?.observedAt ? formatDateTime(server.membership.observedAt) : 'Unobserved' },
+        { label: 'Membership observed', value: server.status.membership?.observedAt ? formatDateTime(server.status.membership.observedAt) : 'Unobserved' },
         {
           label: 'Health observed',
           value: !monitoring
             ? NOT_AVAILABLE_IN_RELEASE
-            : server.health?.observedAt ? formatDateTime(server.health.observedAt) : 'Unobserved',
+            : server.status.health?.observedAt ? formatDateTime(server.status.health.observedAt) : 'Unobserved',
         },
       ],
     },
@@ -601,15 +601,15 @@ export function ServersPage() {
   }, [query.page, safePage, state.status, updateParams])
 
   const facets = useMemo<ServerFacetOptions>(() => ({
-    provisioning: facetOptions(workingSet, (server) => server.provisioning ? [server.provisioning.state] : [], query.provisioning),
-    gpuVendor: facetOptions(workingSet, (server) => server.gpus.map((gpu) => gpu.vendor), query.gpuVendors),
-    gpuModel: facetOptions(workingSet, (server) => server.gpus.map((gpu) => gpu.model), query.gpuModels),
-    architecture: facetOptions(workingSet, (server) => [server.architecture || 'unknown'], query.architectures),
-    systemVendor: facetOptions(workingSet, (server) => [server.systemVendor || 'unknown'], query.systemVendors),
-    systemProduct: facetOptions(workingSet, (server) => [server.systemProduct || 'unknown'], query.systemProducts),
-    zone: facetOptions(workingSet, (server) => [server.providerZone || 'unknown'], query.zones),
-    pool: facetOptions(workingSet, (server) => [server.providerResourcePool || 'unknown'], query.pools),
-    tag: facetOptions(workingSet, (server) => server.tags, query.tags),
+    provisioning: facetOptions(workingSet, (server) => server.status.provisioning ? [server.status.provisioning.state] : [], query.provisioning),
+    gpuVendor: facetOptions(workingSet, (server) => server.status.gpus.map((gpu) => gpu.vendor), query.gpuVendors),
+    gpuModel: facetOptions(workingSet, (server) => server.status.gpus.map((gpu) => gpu.model), query.gpuModels),
+    architecture: facetOptions(workingSet, (server) => [server.status.architecture || 'unknown'], query.architectures),
+    systemVendor: facetOptions(workingSet, (server) => [server.status.systemVendor || 'unknown'], query.systemVendors),
+    systemProduct: facetOptions(workingSet, (server) => [server.status.systemProduct || 'unknown'], query.systemProducts),
+    zone: facetOptions(workingSet, (server) => [server.status.providerZone || 'unknown'], query.zones),
+    pool: facetOptions(workingSet, (server) => [server.status.providerResourcePool || 'unknown'], query.pools),
+    tag: facetOptions(workingSet, (server) => server.status.tags, query.tags),
   }), [query, workingSet])
 
   const filterParams = new URLSearchParams(paramsKey)
@@ -643,15 +643,15 @@ export function ServersPage() {
   const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id))
   const somePageSelected = pageIds.some((id) => selected.has(id))
   const actionTargets = workingSet.filter((server) => selected.has(server.id))
-  const targetIntegrations = new Set(actionTargets.map((server) => server.source.integrationId))
-  const targetSites = new Set(actionTargets.map((server) => server.source.siteId))
+  const targetIntegrations = new Set(actionTargets.map((server) => server.status.source.integrationId))
+  const targetSites = new Set(actionTargets.map((server) => server.status.source.siteId))
   const deployDisabledReason = selected.size > 100
     ? 'Deploy OS supports at most 100 Servers.'
-    : actionTargets.some((server) => server.absent)
+    : actionTargets.some((server) => server.status.absent)
       ? 'Absent Servers cannot be deployed.'
-      : actionTargets.some((server) => server.provisioning?.locked)
+      : actionTargets.some((server) => server.status.provisioning?.locked)
         ? 'Unlock every selected Server before deployment.'
-        : actionTargets.some((server) => server.provisioning?.state !== 'ready')
+        : actionTargets.some((server) => server.status.provisioning?.state !== 'ready')
           ? 'Every selected Server must be ready.'
           : targetSites.size > 1
             ? 'Selected Servers must belong to the same Site.'
@@ -982,11 +982,11 @@ export function ServersPage() {
             {sortedServers.length === 0 ? (
               <div className="sw-server-filter-empty">
                 <EmptyState
-                  title={!hasServerInventoryFilters(query) && workingSet.every((server) => server.absent) ? 'No current Servers' : 'No matching Servers'}
-                  message={!hasServerInventoryFilters(query) && workingSet.every((server) => server.absent)
+                  title={!hasServerInventoryFilters(query) && workingSet.every((server) => server.status.absent) ? 'No current Servers' : 'No matching Servers'}
+                  message={!hasServerInventoryFilters(query) && workingSet.every((server) => server.status.absent)
                     ? 'Every retained projection is currently absent from provider inventory.'
                     : 'Adjust the discovery search or operational facets to see other Servers.'}
-                  action={!hasServerInventoryFilters(query) && workingSet.every((server) => server.absent)
+                  action={!hasServerInventoryFilters(query) && workingSet.every((server) => server.status.absent)
                     ? { label: 'Include absent', onClick: () => setSingleFilter('includeAbsent', 'true', '') }
                     : { label: 'Clear filters', onClick: clearFilters }}
                 />
@@ -1125,7 +1125,7 @@ export function ServersPage() {
         <DeployOSDialog
           context={{
             kind: 'fixed-targets',
-            siteId: deploymentTargets[0].source.siteId,
+            siteId: deploymentTargets[0].status.source.siteId,
             targets: deploymentTargets,
           }}
           onClose={() => setDeploymentTargets(null)}
@@ -1423,12 +1423,12 @@ function ServerIdentity({
     <div className="sw-server-identity">
       <div className="sw-server-identity__copy">
         <HStack gap="1" minW="0">
-          {server.provisioning?.locked && (
+          {server.status.provisioning?.locked && (
             <Tooltip content="Locked">
               <span className="sw-server-lock-icon" role="img" aria-label="Locked"><Lock size={14} /></span>
             </Tooltip>
           )}
-          {server.provisioning?.ephemeral && (
+          {server.status.provisioning?.ephemeral && (
             <Tooltip content="RAM deployment · Data written to this Server is lost on power off or reboot">
               <span className="sw-server-ram-icon" role="img" aria-label="RAM deployment"><MemoryStick size={13} aria-hidden /></span>
             </Tooltip>
@@ -1440,7 +1440,7 @@ function ServerIdentity({
           <ServerPowerButton server={server} onOpen={onOpenPower} />
           <TagSummary server={server} onEdit={onEditTags} />
         </div>
-        {server.absent && <Badge colorPalette="gray" variant="subtle">Absent</Badge>}
+        {server.status.absent && <Badge colorPalette="gray" variant="subtle">Absent</Badge>}
       </div>
     </div>
   )
@@ -1449,7 +1449,7 @@ function ServerIdentity({
 /** High-value network identifiers kept together so they scan as one fact. */
 function ServerNetworkIdentity({ server }: { server: Server }) {
   const primaryAddress = serverPrimaryAddress(server)
-  const primaryMac = server.hardware.macAddresses[0]
+  const primaryMac = server.status.hardware.macAddresses[0]
   return (
     <div className="sw-server-network-identity">
       <div>
@@ -1472,11 +1472,11 @@ function ServerNetworkIdentity({ server }: { server: Server }) {
 
 /** Power state only; RAM deployment risk is presented with Server identity. */
 function ServerPowerIndicator({ server }: { server: Server }) {
-  return <PowerBadge powerState={server.provisioning?.powerState ?? null} decorative={Boolean(server.provisioning)} />
+  return <PowerBadge powerState={server.status.provisioning?.powerState ?? null} decorative={Boolean(server.status.provisioning)} />
 }
 
 const POWER_BUTTON_PRESENTATION: Record<
-  NonNullable<Server['provisioning']>['powerState'],
+  NonNullable<Server['status']['provisioning']>['powerState'],
   { label: string; colorPalette: 'green' | 'gray' | 'red' }
 > = {
   on: { label: 'ON', colorPalette: 'green' },
@@ -1491,8 +1491,8 @@ const POWER_BUTTON_PRESENTATION: Record<
  * and tooltip retain the complete action and state wording.
  */
 function ServerPowerButton({ server, onOpen }: { server: Server; onOpen: () => void }) {
-  const fullLabel = powerStateLabel(server.provisioning?.powerState ?? null)
-  if (!server.provisioning) {
+  const fullLabel = powerStateLabel(server.status.provisioning?.powerState ?? null)
+  if (!server.status.provisioning) {
     return (
       <span className="sw-server-power-unavailable" aria-label={fullLabel}>
         <ServerPowerIndicator server={server} />
@@ -1500,15 +1500,15 @@ function ServerPowerButton({ server, onOpen }: { server: Server; onOpen: () => v
       </span>
     )
   }
-  const presentation = POWER_BUTTON_PRESENTATION[server.provisioning.powerState]
+  const presentation = POWER_BUTTON_PRESENTATION[server.status.provisioning.powerState]
   return (
-    <Tooltip content={`Power actions (${fullLabel})${server.provisioning.ephemeral ? ' · RAM deployment' : ''}`}>
+    <Tooltip content={`Power actions (${fullLabel})${server.status.provisioning.ephemeral ? ' · RAM deployment' : ''}`}>
       <Button
         variant="subtle"
         colorPalette={presentation.colorPalette}
         size="xs"
         className="sw-power-button"
-        aria-label={`Power actions for ${serverDisplayName(server)}${server.provisioning.ephemeral ? '; RAM deployment' : ''}`}
+        aria-label={`Power actions for ${serverDisplayName(server)}${server.status.provisioning.ephemeral ? '; RAM deployment' : ''}`}
         onClick={(event) => {
           event.stopPropagation()
           onOpen()
@@ -1653,9 +1653,9 @@ function ServerHardware({ server }: { server: Server }) {
   const compactProfile = serverGpuCompactSummary(server)
   const fullProfile = serverGpuProfile(server)
   const hasGPU = Boolean(compactProfile)
-  const cpuModel = server.cpuModel.trim()
-  const cpuCores = server.cpuCores > 0 ? server.cpuCores.toLocaleString() : null
-  const memory = server.memoryMiB > 0 ? quantityOrDash(server.memoryMiB, 'GiB', 1024) : null
+  const cpuModel = server.status.cpuModel.trim()
+  const cpuCores = server.status.cpuCores > 0 ? server.status.cpuCores.toLocaleString() : null
+  const memory = server.status.memoryMiB > 0 ? quantityOrDash(server.status.memoryMiB, 'GiB', 1024) : null
   const hasHardwareInventory = hasGPU || Boolean(cpuModel) || Boolean(cpuCores) || Boolean(memory)
 
   if (!hasHardwareInventory) {
@@ -1766,9 +1766,9 @@ function ServerRow({
         <Table.Cell className="sw-server-col--network"><ServerNetworkIdentity server={server} /></Table.Cell>
         <Table.Cell className="sw-server-col--deployment"><ServerDeployment server={server} scopedHref={scopedHref} onDeploy={onDeploy} /></Table.Cell>
         <Table.Cell className="sw-server-col--hardware"><ServerHardware server={server} /></Table.Cell>
-        <Table.Cell className="sw-server-col--zone">{textOrDash(server.providerZone)}</Table.Cell>
-        <Table.Cell className="sw-server-col--pool">{textOrDash(server.providerResourcePool)}</Table.Cell>
-        <Table.Cell className="sw-server-col--health"><HealthBadge axis={server.health} /></Table.Cell>
+        <Table.Cell className="sw-server-col--zone">{textOrDash(server.status.providerZone)}</Table.Cell>
+        <Table.Cell className="sw-server-col--pool">{textOrDash(server.status.providerResourcePool)}</Table.Cell>
+        <Table.Cell className="sw-server-col--health"><HealthBadge axis={server.status.health} /></Table.Cell>
         <Table.Cell className="sw-server-row-actions">
           <ServerTakeActionMenu targets={[server]} trigger="actions" targetName={serverDisplayName(server)} platformNames={platformNames} onAction={onAction} />
         </Table.Cell>
@@ -1826,7 +1826,7 @@ function ServerMobileCard({
       <ResourceCard
         title={<ServerIdentity server={server} scopedHref={scopedHref} onEditTags={onEditTags} onOpenPower={() => setPowerDialogOpen(true)} />}
         selected={checked}
-        status={server.absent ? <Badge variant="subtle">Absent</Badge> : undefined}
+        status={server.status.absent ? <Badge variant="subtle">Absent</Badge> : undefined}
         details={details.map((fact) => <ResourceCardField key={fact.label} label={fact.label}>{fact.value}</ResourceCardField>)}
         actions={
           <>
@@ -1838,8 +1838,8 @@ function ServerMobileCard({
         <ResourceCardField label="Network"><ServerNetworkIdentity server={server} /></ResourceCardField>
         <ResourceCardField label="Deployment"><ServerDeployment server={server} scopedHref={scopedHref} onDeploy={onDeploy} /></ResourceCardField>
         <ResourceCardField label="Hardware"><ServerHardware server={server} /></ResourceCardField>
-        <ResourceCardField label="Zone">{textOrDash(server.providerZone)}</ResourceCardField>
-        <ResourceCardField label="Pool">{textOrDash(server.providerResourcePool)}</ResourceCardField>
+        <ResourceCardField label="Zone">{textOrDash(server.status.providerZone)}</ResourceCardField>
+        <ResourceCardField label="Pool">{textOrDash(server.status.providerResourcePool)}</ResourceCardField>
       </ResourceCard>
       {powerDialogOpen && (
         <ServerPowerDialog

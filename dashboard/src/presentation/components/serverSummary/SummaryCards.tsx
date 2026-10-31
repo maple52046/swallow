@@ -6,6 +6,7 @@ import { gpuInventoryCount, serverGPUsByKind } from '@/domain/server/gpu'
 import { serverPrimaryAddress, type DetailSection, type Server } from '@/domain/server/types'
 import { HealthBadge, LockBadge, MembershipBadge, PowerBadge, ProvisioningBadge } from '@/presentation/components/AxisBadge'
 import { powerStateLabel } from '@/presentation/components/axisBadgeUtils'
+import { ConvergenceStatus } from '@/presentation/components/convergence/ConvergenceStatus'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { gpuInventoryProfile } from '@/presentation/components/serverGpuPresentation'
 import { ResourceTag } from '@/presentation/components/ResourceTag'
@@ -26,7 +27,7 @@ interface CapacityItem {
  * an operator can scan the axes before reading the current OS and validation detail.
  */
 export function StatusCard({ server, deployedImageHref }: { server: Server; deployedImageHref?: string }) {
-  const axis = server.provisioning
+  const axis = server.status.provisioning
   return (
     <Card.Root className="sw-server-summary-card">
       <Card.Body gap="4">
@@ -39,8 +40,8 @@ export function StatusCard({ server, deployedImageHref }: { server: Server; depl
         <HStack gap="2" wrap="wrap">
           <ProvisioningBadge axis={axis} />
           <LockBadge locked={axis?.locked ?? false} />
-          <MembershipBadge axis={server.membership} />
-          <HealthBadge axis={server.health} />
+          <MembershipBadge axis={server.status.membership} />
+          <HealthBadge axis={server.status.health} />
         </HStack>
         {axis && (
           <DescriptionList
@@ -104,18 +105,18 @@ export function CapacityCard({ server, storageDeviceCount }: { server: Server; s
   const items: CapacityItem[] = [
     {
       label: 'CPU',
-      value: server.cpuCores ? `${server.cpuCores} cores` : 'Not observed',
-      detail: [server.cpuModel, server.architecture].filter(Boolean).join(' · ') || undefined,
+      value: server.status.cpuCores ? `${server.status.cpuCores} cores` : 'Not observed',
+      detail: [server.status.cpuModel, server.status.architecture].filter(Boolean).join(' · ') || undefined,
       icon: <Cpu size={18} />,
     },
     {
       label: 'Memory',
-      value: server.memoryMiB ? `${Math.round(server.memoryMiB / 1024)} GiB` : 'Not observed',
+      value: server.status.memoryMiB ? `${Math.round(server.status.memoryMiB / 1024)} GiB` : 'Not observed',
       icon: <MemoryStick size={18} />,
     },
     {
       label: 'Storage',
-      value: server.storageGB ? `${Math.round(server.storageGB)} GB` : 'Not observed',
+      value: server.status.storageGB ? `${Math.round(server.status.storageGB)} GB` : 'Not observed',
       detail: storageDeviceCount ? `${storageDeviceCount} reported device${storageDeviceCount === 1 ? '' : 's'}` : undefined,
       icon: <HardDrive size={18} />,
     },
@@ -161,7 +162,8 @@ export function CapacityCard({ server, storageDeviceCount }: { server: Server; s
 /**
  * Shows provider placement and labels, with an icon-only tag editor kept next to the tags it
  * changes. The Tooltip and accessible name make the compact control understandable without
- * relying on the glyph.
+ * relying on the glyph. Tags are what the provisioner reports; "Provisioner sync" says whether
+ * that already matches the tags swallow owns, since a saved edit is applied asynchronously.
  */
 export function DetailsCard({ server, onEditTags }: { server: Server; onEditTags?: () => void }) {
   return (
@@ -182,10 +184,14 @@ export function DetailsCard({ server, onEditTags }: { server: Server; onEditTags
         </HStack>
         <DescriptionList
           items={[
-            { label: 'Zone', value: server.providerZone },
-            { label: 'Resource pool', value: server.providerResourcePool },
-            { label: 'VM host', value: server.providerPod },
-            { label: 'Tags', value: server.tags.length ? <TagBadges tags={server.tags} /> : null },
+            { label: 'Zone', value: server.status.providerZone },
+            { label: 'Resource pool', value: server.status.providerResourcePool },
+            { label: 'VM host', value: server.status.providerPod },
+            { label: 'Tags', value: server.status.tags.length ? <TagBadges tags={server.status.tags} /> : null },
+            {
+              label: 'Provisioner sync',
+              value: <ConvergenceStatus conditions={server.status.conditions} generation={server.generation} />,
+            },
           ]}
         />
       </Card.Body>
@@ -316,9 +322,9 @@ export function ManagementControllerCard({ management, power, bootMedia, hasBMC 
  * rendered beside the login user so the card stays a shared, page-agnostic component.
  */
 export function ConnectionCard({ server, imageHref, loginUserAction }: { server: Server; imageHref?: string; loginUserAction?: ReactNode }) {
-  const axis = server.provisioning
+  const axis = server.status.provisioning
   const deployed = axis?.state === 'deployed'
-  const user = server.defaultUser?.user
+  const user = server.status.defaultUser?.user
   const address = serverPrimaryAddress(server)
   const command = deployed && user && address ? `ssh ${user}@${address}` : ''
   const unknownUser = imageHref ? (
@@ -337,7 +343,7 @@ export function ConnectionCard({ server, imageHref, loginUserAction }: { server:
         <>
           <Text as="span" className="sw-mono">{user}</Text>
           <Text as="span" color="fg.muted" fontSize="sm">
-            ({defaultUserSourceLabel(server.defaultUser?.source ?? 'os_image')})
+            ({defaultUserSourceLabel(server.status.defaultUser?.source ?? 'os_image')})
           </Text>
         </>
       ) : (
@@ -414,11 +420,11 @@ export function HardwareProfileCard({ server, system }: { server: Server; system
     items.push({ label, value })
     labels.add(label.toLocaleLowerCase())
   }
-  addFallback('System vendor', server.systemVendor)
-  addFallback('Serial number', server.hardware.serialNumber, ['Serial'])
-  addFallback('System product', server.systemProduct)
-  addFallback('Architecture', server.architecture)
-  addFallback('CPU model', server.cpuModel)
+  addFallback('System vendor', server.status.systemVendor)
+  addFallback('Serial number', server.status.hardware.serialNumber, ['Serial'])
+  addFallback('System product', server.status.systemProduct)
+  addFallback('Architecture', server.status.architecture)
+  addFallback('CPU model', server.status.cpuModel)
   addFallback('Compute GPUs', computeGPUs.length ? gpuInventoryProfile(computeGPUs) : null)
   addFallback('Display GPUs', displayGPUs.length ? gpuInventoryProfile(displayGPUs) : null)
   return (

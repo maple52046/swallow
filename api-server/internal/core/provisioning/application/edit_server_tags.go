@@ -2,18 +2,22 @@ package application
 
 import (
 	"context"
-	"errors"
-	"time"
+	"fmt"
+	"slices"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	"github.com/maple52046/swallow/internal/core/store"
+	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
-// ServerTagsItem is the effective tag set of one Server after an edit, returned so the caller can
-// update its rows without a re-read.
+// ServerTagsItem is one Server's spec after a tag edit: its new generation and the complete set of
+// manual tags it must carry. The provisioner converges to it asynchronously; the Server's
+// conditions report when it has (server-tags.md).
 type ServerTagsItem struct {
-	ServerID string   `json:"serverId"`
-	Tags     []string `json:"tags"`
+	ServerID   string   `json:"serverId"`
+	Generation int64    `json:"generation"`
+	Tags       []string `json:"tags"`
 }
 
 // EditServerTagsInput is a tag edit applied to one or more Servers. Add and Remove are the diff the
@@ -25,39 +29,37 @@ type EditServerTagsInput struct {
 	Remove    []string
 }
 
-// EditServerTagsUseCase applies a tag edit across Servers, capability-first (decision 031).
+// EditServerTagsUseCase writes a tag edit into the spec of one or more Servers (decision 071). It
+// never calls the provisioner to change a tag: the Server controller converges each Server's
+// manual tags to its spec. The edit is atomic across Servers — every Server's spec changes, or none
+// does — and each write is conditional on the generation read in the same transaction.
 //
-// It groups the target Servers by their provisioner integration and, per group, branches on the
-// provider's Tagging capability: a capable provisioner (MAAS) is driven directly — each added tag is
-// ensured then assigned, each removed tag unassigned, in one batch call per tag across the group's
-// machines — and each Server is then refreshed from the provider so Observed.Tags reflects the
-// change immediately. A provisioner that cannot own tags falls back to the swallow-owned overlay,
-// which reconcile merges into Observed.Tags. Tag editing is metadata, not a host state change, so it
-// is not gated on Server Lock.
+// A Server that has no spec yet takes its observed manual tags as the base, so an edit on a Server
+// the controller has not adopted keeps its other manual tags. An automatic tag (computed by the
+// provisioner) can be neither added nor removed. Tag editing is metadata, not a host change, so it
+// is not gated on Server Lock; a locked Server simply holds convergence until it is unlocked.
 type EditServerTagsUseCase struct {
-	servers     serverdomain.ServerRepository
-	providers   provisioningdomain.ProviderFactory
-	tagOverlays provisioningdomain.ServerTagOverlayRepository
-	now         func() time.Time
+	servers    serverdomain.ServerRepository
+	specs      serverdomain.ServerConvergenceStore
+	providers  provisioningdomain.ProviderFactory
+	transactor store.Transactor
 }
 
-// NewEditServerTagsUseCase wires the Server repository, provider factory, and swallow-owned tag
-// overlay store the edit dispatches between.
+// NewEditServerTagsUseCase wires the Server repository and its desired-state store, the provider
+// factory (read only, to recognize automatic tags), and the store transaction boundary.
 func NewEditServerTagsUseCase(
+	transactor store.Transactor,
 	servers serverdomain.ServerRepository,
+	specs serverdomain.ServerConvergenceStore,
 	providers provisioningdomain.ProviderFactory,
-	tagOverlays provisioningdomain.ServerTagOverlayRepository,
 ) *EditServerTagsUseCase {
-	return &EditServerTagsUseCase{
-		servers:     servers,
-		providers:   providers,
-		tagOverlays: tagOverlays,
-		now:         func() time.Time { return time.Now().UTC() },
-	}
+	return &EditServerTagsUseCase{servers: servers, specs: specs, providers: providers, transactor: transactor}
 }
 
-// Execute validates the diff, loads and groups the target Servers, applies the change per group
-// through the capability-first branch, and returns each Server's effective tags in the input order.
+// Execute validates the diff, refuses automatic tag names, writes every Server's new spec in one
+// transaction, and returns each Server's spec in the input order. ErrServerNotFound for an unknown
+// Server; ErrSpecConflict when a Server's spec changed during the edit; ErrInvalidTag for an
+// invalid, contradictory, or automatic name.
 func (uc *EditServerTagsUseCase) Execute(ctx context.Context, input EditServerTagsInput) ([]ServerTagsItem, error) {
 	add, remove, err := normalizeTagDiff(input.Add, input.Remove)
 	if err != nil {
@@ -66,161 +68,90 @@ func (uc *EditServerTagsUseCase) Execute(ctx context.Context, input EditServerTa
 	if len(input.ServerIDs) == 0 {
 		return nil, provisioningdomain.ErrInvalidTag
 	}
-
-	// Load each Server once, preserving request order for the response and dropping duplicates so a
-	// repeated id does not double-apply to a provider batch.
 	order := make([]string, 0, len(input.ServerIDs))
-	byID := make(map[string]*serverdomain.Server, len(input.ServerIDs))
-	groups := map[string][]*serverdomain.Server{}
-	groupOrder := make([]string, 0)
-	for _, serverID := range input.ServerIDs {
-		if _, seen := byID[serverID]; seen {
-			continue
+	for _, id := range input.ServerIDs {
+		if !slices.Contains(order, id) {
+			order = append(order, id)
 		}
-		server, err := uc.servers.FindByID(ctx, serverID)
+	}
+
+	// Recognizing automatic tags reads the provisioner's catalog, so it happens before the
+	// transaction, which must not do provider I/O.
+	servers := make([]*serverdomain.Server, 0, len(order))
+	for _, id := range order {
+		server, err := uc.servers.FindByID(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		order = append(order, serverID)
-		byID[serverID] = server
-		integrationID := server.Source.IntegrationID
-		if _, ok := groups[integrationID]; !ok {
-			groupOrder = append(groupOrder, integrationID)
-		}
-		groups[integrationID] = append(groups[integrationID], server)
+		servers = append(servers, server)
 	}
-
-	for _, integrationID := range groupOrder {
-		if err := uc.applyGroup(ctx, integrationID, groups[integrationID], add, remove); err != nil {
-			return nil, err
-		}
+	if err := uc.refuseAutomaticTags(ctx, servers, append(slices.Clone(add), remove...)); err != nil {
+		return nil, err
 	}
 
 	items := make([]ServerTagsItem, 0, len(order))
-	for _, serverID := range order {
-		items = append(items, ServerTagsItem{
-			ServerID: serverID,
-			Tags:     append([]string(nil), byID[serverID].Observed.Tags...),
-		})
+	err = uc.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		items = items[:0]
+		for _, id := range order {
+			server, err := uc.servers.FindByID(ctx, id)
+			if err != nil {
+				return err
+			}
+			base := server.Spec.Tags
+			if server.Generation == 0 {
+				base = server.Observed.ManualTags()
+			}
+			next := applyTagDiff(base, add, remove)
+			generation, err := uc.specs.UpdateSpec(ctx, id, server.Generation, serverdomain.ServerSpec{Tags: next})
+			if err != nil {
+				return err
+			}
+			items = append(items, ServerTagsItem{ServerID: id, Generation: generation, Tags: wire.Strings(next)})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return items, nil
 }
 
-// applyGroup applies the diff to one integration's Servers, choosing the provider-driven path when
-// the provisioner is tagging-capable and the swallow-owned fallback otherwise.
-func (uc *EditServerTagsUseCase) applyGroup(
-	ctx context.Context,
-	integrationID string,
-	servers []*serverdomain.Server,
-	add, remove []string,
-) error {
-	provider, err := uc.providers.For(ctx, integrationID)
-	if err != nil {
-		return err
-	}
-	controller, ok := provider.(provisioningdomain.MachineTagController)
-	if provider.Capabilities().Tagging && ok {
-		return uc.driveProvider(ctx, provider, controller, servers, add, remove)
-	}
-	return uc.writeOverlays(ctx, integrationID, servers, add, remove)
-}
-
-// driveProvider realizes the edit on a tagging-capable provisioner and refreshes each Server.
-//
-// Assign and unassign are batched: one EnsureTag + AddTag per added name and one RemoveTag per
-// removed name, each carrying every machine in the group, because a provider that owns tags globally
-// (MAAS) applies one tag to many machines in a single call. After the writes each Server is re-read
-// so its Observed.Tags shows the change now rather than waiting for the next reconcile pass.
-func (uc *EditServerTagsUseCase) driveProvider(
-	ctx context.Context,
-	provider provisioningdomain.OSProvisioningProvider,
-	controller provisioningdomain.MachineTagController,
-	servers []*serverdomain.Server,
-	add, remove []string,
-) error {
-	machineIDs := make([]string, 0, len(servers))
+// refuseAutomaticTags rejects a name the provisioner computes itself: on any of the Servers, or in
+// the catalog of a tagging provisioner. The catalog read is best-effort; when the provisioner is
+// unreachable the observed automatic tags still guard the common case, and the controller reports a
+// rejection if the provisioner refuses the change.
+func (uc *EditServerTagsUseCase) refuseAutomaticTags(ctx context.Context, servers []*serverdomain.Server, names []string) error {
+	automatic := map[string]bool{}
+	integrations := map[string]bool{}
 	for _, server := range servers {
-		machineIDs = append(machineIDs, server.Source.ProviderMachineID)
-	}
-
-	for _, name := range add {
-		if err := controller.EnsureTag(ctx, name); err != nil {
-			return err
+		for _, tag := range server.Observed.AutomaticTags {
+			automatic[tag] = true
 		}
-		if err := controller.AddTag(ctx, name, machineIDs); err != nil {
-			return err
-		}
+		integrations[server.Source.IntegrationID] = true
 	}
-	for _, name := range remove {
-		if err := controller.RemoveTag(ctx, name, machineIDs); err != nil {
-			return err
-		}
-	}
-
-	for _, server := range servers {
-		machine, err := provider.GetMachine(ctx, server.Source.ProviderMachineID)
+	for integrationID := range integrations {
+		provider, err := uc.providers.For(ctx, integrationID)
 		if err != nil {
-			return err
+			continue
 		}
-		server.Observed.Tags = append([]string(nil), machine.Tags...)
-		server.UpdatedAt = uc.now()
-		if err := uc.servers.Upsert(ctx, server); err != nil {
-			return err
+		controller, ok := provider.(provisioningdomain.MachineTagController)
+		if !ok || !provider.Capabilities().Tagging {
+			continue
+		}
+		catalog, err := controller.ListTags(ctx)
+		if err != nil {
+			continue
+		}
+		for _, tag := range catalog {
+			if !tag.Editable {
+				automatic[tag.Name] = true
+			}
+		}
+	}
+	for _, name := range names {
+		if automatic[name] {
+			return fmt.Errorf("%w: %q is an automatic tag computed by the provisioner", provisioningdomain.ErrInvalidTag, name)
 		}
 	}
 	return nil
-}
-
-// writeOverlays applies the edit as swallow-owned tags for a provisioner that cannot own them. The
-// owned set starts from the Server's existing overlay, has the diff applied, and is persisted (or
-// deleted when empty). Observed.Tags is set to the new owned set so the response and the live row
-// reflect it immediately; reconcile re-derives the same union on its next pass.
-func (uc *EditServerTagsUseCase) writeOverlays(
-	ctx context.Context,
-	integrationID string,
-	servers []*serverdomain.Server,
-	add, remove []string,
-) error {
-	for _, server := range servers {
-		current, err := uc.currentOwnedTags(ctx, server.ID)
-		if err != nil {
-			return err
-		}
-		next := applyTagDiff(current, add, remove)
-
-		if len(next) == 0 {
-			if err := uc.tagOverlays.Delete(ctx, server.ID); err != nil {
-				return err
-			}
-		} else {
-			if err := uc.tagOverlays.Upsert(ctx, &provisioningdomain.ServerTagOverlay{
-				ServerID:      server.ID,
-				IntegrationID: integrationID,
-				Tags:          next,
-				UpdatedAt:     uc.now(),
-			}); err != nil {
-				return err
-			}
-		}
-
-		server.Observed.Tags = next
-		server.UpdatedAt = uc.now()
-		if err := uc.servers.Upsert(ctx, server); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// currentOwnedTags returns a Server's existing swallow-owned tags, or nil when it has no overlay.
-func (uc *EditServerTagsUseCase) currentOwnedTags(ctx context.Context, serverID string) ([]string, error) {
-	overlay, err := uc.tagOverlays.Get(ctx, serverID)
-	switch {
-	case err == nil:
-		return overlay.Tags, nil
-	case errors.Is(err, provisioningdomain.ErrServerTagOverlayNotFound):
-		return nil, nil
-	default:
-		return nil, err
-	}
 }

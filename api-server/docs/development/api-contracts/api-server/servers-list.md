@@ -15,14 +15,18 @@ Active
 
 ## Purpose
 
-Lists the complete, secret-free Server projections with optional filtering and
-pagination. This inventory surface includes the independently observed
-provisioning, platform-membership, and health axes.
+Lists the complete, secret-free Servers with optional filtering and pagination. Each Server
+carries its spec (the provisioner-realized fields swallow owns) and its status: the independently
+observed provisioning, platform-membership, and health axes, and the conditions that say whether
+the provisioner matches the spec.
 
 ## Related Glossary Terms
 
 - `Server`
 - `Server Status`
+- `Server Origin`
+- `Condition`
+- `Hold`
 - `OS Provisioning State`
 - `GPU Inventory`
 
@@ -88,60 +92,73 @@ default (`1` and `20`) instead of being refused.
   "items": [
     {
       "id": "server-id",
-      "source": {
-        "siteId": "site-id",
-        "integrationId": "integration-id",
-        "providerMachineId": "machine-42"
-      },
-      "hostname": "gpu-42",
-      "fqdn": "gpu-42.maas",
-      "addresses": ["192.0.2.42"],
-      "architecture": "amd64/generic",
-      "cpuCores": 192,
-      "cpuModel": "AMD EPYC 9654",
-      "memoryMiB": 1572864,
-      "storageGB": 7680,
-      "gpus": [{"vendor": "AMD", "model": "MI300X", "count": 8, "kind": "compute"}],
-      "systemVendor": "Supermicro",
-      "systemProduct": "AS-8125GS-TNMR2",
-      "providerZone": "default",
-      "providerResourcePool": "default",
-      "providerPod": "",
-      "tags": ["amd-gpu"],
-      "hardware": {"systemUuid": "uuid", "serialNumber": "serial", "macAddresses": []},
-      "deployment": null,
-      "provisioning": {
-        "state": "deployed",
-        "stateSince": "2026-05-02T14:12:09Z",
-        "providerState": "Deployed",
-        "powerState": "on",
-        "osSystem": "ubuntu",
-        "distroSeries": "jammy",
-        "deployedImageName": "Ubuntu 22.04 LTS",
-        "deployedImageDefaultUser": "ubuntu",
-        "ephemeral": false,
-        "hweKernel": "",
-        "locked": false,
-        "commissioningStatus": "Passed",
-        "testingStatus": "Passed",
-        "integrationId": "integration-id",
-        "observedAt": "2026-05-02T15:00:00Z"
-      },
-      "membership": {
-        "platformId": "platform-id",
-        "clusterId": "platform-id",
-        "nodeName": "gpu-42",
-        "role": "worker",
-        "state": "ready",
-        "observedAt": "2026-05-02T15:00:00Z"
-      },
-      "health": {"state": "up", "observedAt": "2026-05-02T15:00:00Z"},
-      "platformClaim": {"platformId": "platform-id", "claimedAt": "2026-05-02T13:40:00Z"},
-      "defaultUser": {"user": "ubuntu", "source": "os_image"},
-      "absent": false,
-      "lastSeenAt": "2026-05-02T15:00:00Z",
-      "createdAt": "2026-05-02T15:00:00Z",
-      "updatedAt": "2026-05-02T15:00:00Z"
+      "origin": "discovered",
+      "generation": 2,
+      "spec": {"tags": ["rack-a"]},
+      "status": {
+        "observedGeneration": 2,
+        "conditions": [
+          {"type": "realized", "status": "true", "reason": "converged", "message": "", "lastTransitionTime": "2026-05-02T15:00:00Z", "observedGeneration": 2},
+          {"type": "drifted", "status": "false", "reason": "in_sync", "message": "", "lastTransitionTime": "2026-05-02T15:00:00Z", "observedGeneration": 2},
+          {"type": "requires_attention", "status": "false", "reason": "none", "message": "", "lastTransitionTime": "2026-05-02T15:00:00Z", "observedGeneration": 2},
+          {"type": "held", "status": "false", "reason": "not_held", "message": "", "lastTransitionTime": "2026-05-02T15:00:00Z", "observedGeneration": 2}
+        ],
+        "source": {
+          "siteId": "site-id",
+          "integrationId": "integration-id",
+          "providerMachineId": "machine-42"
+        },
+        "hostname": "gpu-42",
+        "fqdn": "gpu-42.maas",
+        "addresses": ["192.0.2.42"],
+        "architecture": "amd64/generic",
+        "cpuCores": 192,
+        "cpuModel": "AMD EPYC 9654",
+        "memoryMiB": 1572864,
+        "storageGB": 7680,
+        "gpus": [{"vendor": "AMD", "model": "MI300X", "count": 8, "kind": "compute"}],
+        "systemVendor": "Supermicro",
+        "systemProduct": "AS-8125GS-TNMR2",
+        "providerZone": "default",
+        "providerResourcePool": "default",
+        "providerPod": "",
+        "tags": ["amd-gpu", "rack-a"],
+        "automaticTags": ["amd-gpu"],
+        "hardware": {"systemUuid": "uuid", "serialNumber": "serial", "macAddresses": []},
+        "deployment": null,
+        "provisioning": {
+          "state": "deployed",
+          "stateSince": "2026-05-02T14:12:09Z",
+          "providerState": "Deployed",
+          "powerState": "on",
+          "osSystem": "ubuntu",
+          "distroSeries": "jammy",
+          "deployedImageName": "Ubuntu 22.04 LTS",
+          "deployedImageDefaultUser": "ubuntu",
+          "ephemeral": false,
+          "hweKernel": "",
+          "locked": false,
+          "commissioningStatus": "Passed",
+          "testingStatus": "Passed",
+          "integrationId": "integration-id",
+          "observedAt": "2026-05-02T15:00:00Z"
+        },
+        "membership": {
+          "platformId": "platform-id",
+          "clusterId": "platform-id",
+          "nodeName": "gpu-42",
+          "role": "worker",
+          "state": "ready",
+          "observedAt": "2026-05-02T15:00:00Z"
+        },
+        "health": {"state": "up", "observedAt": "2026-05-02T15:00:00Z"},
+        "platformClaim": {"platformId": "platform-id", "claimedAt": "2026-05-02T13:40:00Z"},
+        "defaultUser": {"user": "ubuntu", "source": "os_image"},
+        "absent": false,
+        "lastSeenAt": "2026-05-02T15:00:00Z",
+        "createdAt": "2026-05-02T15:00:00Z",
+        "updatedAt": "2026-05-02T15:00:00Z"
+      }
     }
   ],
   "total": 1,
@@ -150,15 +167,42 @@ default (`1` and `20`) instead of being refused.
 }
 ```
 
-This is the same complete Server projection returned by the detail endpoint.
+This is the same complete Server representation returned by the detail endpoint.
 Optional observations use `null`; an unavailable axis is not assigned a default
 state. No BMC, SSH, integration, or automation credential is returned.
+
+### Spec and status
+
+A Server is a migrated resource ([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)):
+the provisioner-realized fields swallow owns are in `spec`, and everything observed, derived, or
+judged is in `status`. Every field described in the sections below is relative to `status`.
+
+| Field | Meaning |
+| --- | --- |
+| `origin` | How the Server arrived: `discovered` (its provisioner enlisted it, for example PXE enlistment in MAAS), `enrolled` (swallow registered it, [server-enrollment.md](server-enrollment.md)), or `imported` (registered with an OS already installed). Display only; after adoption swallow owns the spec whatever the origin. Ignore an unknown value. |
+| `generation` | Counts spec changes. A Server's first observation is adopted as its spec (generation `1`) without changing the provisioner. |
+| `spec.tags` | The complete set of manual tags the Server must carry ([server-tags.md](server-tags.md)). |
+| `status.observedGeneration` | The generation the conditions were judged for. Lower than `generation` while a spec change is converging. |
+| `status.conditions` | The Server controller's judgement, one entry per type. Empty until the controller has judged the Server. |
+
+The condition types and reasons a client may branch on:
+
+| Type | `true` means | Reasons |
+| --- | --- | --- |
+| `realized` | The provisioner matches the spec. | `converged`; when `false`: `converging` (a spec change or drift correction is pending), `capability_missing` (the provisioner cannot set a field; the spec is kept), `provider_unreachable` (retrying), `provider_missing` (the provisioner no longer reports the machine), `failed` (the provisioner rejected the change). |
+| `drifted` | The provisioner departed from a realized spec, for example a tag changed in the MAAS UI. Swallow corrects it at its next periodic resync (default every 10 minutes), not at once. | `drift_detected`; when `false`: `in_sync`. |
+| `requires_attention` | Convergence stopped and only a spec change retries it. | `provider_rejected`; when `false`: `none`. |
+| `held` | Swallow is deliberately not changing the machine. A spec change waits. | `server_locked`, `rescue_mode`, `workflow_lease` (a running Workflow holds the Server); when `false`: `not_held`. |
+
+`message` is display text; never branch on it. A condition's `lastTransitionTime` changes only when
+its `status` changes.
 
 `deployment` is Swallow's own outcome of its latest durable OS deployment on the Server
 (`deploying | verifying | succeeded | failed | requires_attention | canceled`, with the
 Workflow and Task that ran it, a failed Task's `code`, and a progress `stage`), `null` when
-none is recorded; see [server-detail-actions.md](server-detail-actions.md). `tags` is the
-effective tag set ([server-tags.md](server-tags.md)). `providerZone`,
+none is recorded; see [server-detail-actions.md](server-detail-actions.md). `tags` is every tag the
+provisioner reports on the machine, and `automaticTags` the subset it computes itself (a MAAS tag
+with a definition), which is never part of the spec ([server-tags.md](server-tags.md)). `providerZone`,
 `providerResourcePool`, and `providerPod` (the provisioner VM host of a virtual machine,
 empty for bare metal) are the provisioner's own names, display only. `membership.nodeName`
 is the platform's own name for the machine.
@@ -332,6 +376,13 @@ On 2026-10-30 this contract was aligned with the implementation when the OpenAPI
 was introduced, with no wire change: the path is written without its trailing slash, query
 values are documented as never refused (previously "a client error"), and the example lists
 every field the projection has always carried.
+
+On 2026-10-31 the Server representation was restructured into spec and status
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). This is
+a breaking change with no alias: every former top-level field except `id` moved unchanged under
+`status`, and `origin`, `generation`, `spec`, `status.observedGeneration`, `status.conditions`,
+and `status.automaticTags` were added. `status.tags` is now the provisioner's observation only; a
+tag swallow kept for a provisioner without tag support is in `spec.tags`.
 
 Following the Cluster to Platform rename, the `clusterId` query parameter and the
 membership `clusterId` response field are deprecated one-release aliases for

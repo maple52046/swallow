@@ -42,7 +42,7 @@ import { useServerDetailContext } from './useServerDetail'
  * falling back to the observed OS/release tuple.
  */
 function deployedImageCatalogHref(server: Server, scopedHref: (path: string) => string): string | undefined {
-  const axis = server.provisioning
+  const axis = server.status.provisioning
   if (axis?.state !== 'deployed' || !axis.deployedImageName || !axis.integrationId) {
     return undefined
   }
@@ -50,7 +50,7 @@ function deployedImageCatalogHref(server: Server, scopedHref: (path: string) => 
   const target = new URL(scopedHref('/provisioning/images'), window.location.origin)
   target.searchParams.set('integrationId', axis.integrationId)
   target.searchParams.set('imageName', axis.deployedImageName)
-  if (server.architecture) target.searchParams.set('architecture', primaryImageArchitecture(server.architecture))
+  if (server.status.architecture) target.searchParams.set('architecture', primaryImageArchitecture(server.status.architecture))
   if (axis.osSystem) target.searchParams.set('osSystem', axis.osSystem)
   if (axis.distroSeries) target.searchParams.set('release', axis.distroSeries)
   return `${target.pathname}${target.search}`
@@ -132,12 +132,12 @@ export function ServerSummaryTab() {
   )
   const power = powerPanelState(powerConfiguration, savedPower?.serverId === server.id ? savedPower : null)
   const hasBMC = power.status === 'ready'
-    ? power.data.family === 'bmc' && !server.providerPod
-    : !server.providerPod
+    ? power.data.family === 'bmc' && !server.status.providerPod
+    : !server.status.providerPod
   const virtualMachines = useExperimentalFeature('virtualMachines')
   // Only a virsh driver the operator controls (not a provisioner VM host's) can name a swallow
   // Hypervisor; whether it does is the Boot Media read's answer (`libvirt.support`).
-  const throughHypervisor = virtualMachines && power.status === 'ready' && power.data.family === 'virsh' && !server.providerPod
+  const throughHypervisor = virtualMachines && power.status === 'ready' && power.data.family === 'virsh' && !server.status.providerPod
   const readsBootMedia = hasBMC || throughHypervisor
   const bootMedia = useAsyncData(
     async () => (readsBootMedia ? servers.getBootMedia(server.id) : null),
@@ -234,10 +234,10 @@ export function ServerSummaryTab() {
             <Button
               size="xs"
               variant="outline"
-              aria-label={server.defaultUser ? 'Change default user' : 'Set default user'}
+              aria-label={server.status.defaultUser ? 'Change default user' : 'Set default user'}
               onClick={() => setDefaultUserOpen(true)}
             >
-              {server.defaultUser ? 'Change' : 'Set default user'}
+              {server.status.defaultUser ? 'Change' : 'Set default user'}
             </Button>
           }
         />

@@ -92,7 +92,7 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
   // Site is known; deriving siteId from the loaded server (not from every patch) keeps the
   // subscription stable across patches. onReset refetches once after a reconnect to resync any
   // events missed while disconnected.
-  const siteId = state.status === 'ready' ? state.data.server.source.siteId : undefined
+  const siteId = state.status === 'ready' ? state.data.server.status.source.siteId : undefined
   useEffect(() => {
     if (!id || !siteId) return
     return serverEvents.subscribe(
@@ -106,8 +106,8 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
             // Health is resolved at read time and not carried on the stream, so keep the
             // last-known value rather than blanking it until the next full reload.
             const server =
-              !incoming.health && current.data.server.health
-                ? { ...incoming, health: current.data.server.health }
+              !incoming.status.health && current.data.server.status.health
+                ? { ...incoming, health: current.data.server.status.health }
                 : incoming
             return { status: 'ready', data: { ...current.data, server } }
           })

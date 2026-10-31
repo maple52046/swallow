@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -175,11 +176,77 @@ func (r *fakeServerRepo) Upsert(_ context.Context, server *serverdomain.Server) 
 		// The Server Default User is swallow-owned and written only by SetDefaultUser; the Mongo
 		// Upsert leaves it out of its $set.
 		server.DefaultUser = existing.DefaultUser
+		// The desired-state parts and the origin are written only through
+		// ServerConvergenceStore; the Mongo Upsert leaves them out of its $set.
+		server.Origin = existing.Origin
+		server.Generation = existing.Generation
+		server.Spec = existing.Spec
+		server.Convergence = existing.Convergence
 		if !existing.CreatedAt.IsZero() {
 			server.CreatedAt = existing.CreatedAt
 		}
 	}
 	r.servers[server.ID] = server
+	return nil
+}
+
+var _ serverdomain.ServerConvergenceStore = (*fakeServerRepo)(nil)
+
+func (r *fakeServerRepo) UpdateSpec(_ context.Context, id string, expected int64, spec serverdomain.ServerSpec) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.servers[id]
+	if !ok {
+		return 0, serverdomain.ErrServerNotFound
+	}
+	if s.Generation != expected {
+		return 0, serverdomain.ErrSpecConflict
+	}
+	s.Spec, s.Generation = spec, expected+1
+	return s.Generation, nil
+}
+
+func (r *fakeServerRepo) AdoptSpec(_ context.Context, id string, spec serverdomain.ServerSpec) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.servers[id]
+	if !ok || s.Generation != 0 {
+		return false, nil
+	}
+	s.Spec, s.Generation = spec, 1
+	return true, nil
+}
+
+func (r *fakeServerRepo) SetConvergence(_ context.Context, id string, status serverdomain.ServerConvergence) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.servers[id]
+	if !ok {
+		return serverdomain.ErrServerNotFound
+	}
+	s.Convergence = status
+	return nil
+}
+
+func (r *fakeServerRepo) SetObservedTags(_ context.Context, id string, tags, automatic []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.servers[id]
+	if !ok {
+		return serverdomain.ErrServerNotFound
+	}
+	s.Observed.Tags, s.Observed.AutomaticTags = tags, automatic
+	return nil
+}
+
+func (r *fakeServerRepo) SetOrigin(_ context.Context, id string, origin serverdomain.Origin) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.servers[id]
+	if !ok {
+		return serverdomain.ErrServerNotFound
+	}
+	s.Origin = origin
 	return nil
 }
 
@@ -1468,4 +1535,14 @@ func (r *fakeActiveServerWorkReader) ActiveWork(
 		return provisioningapp.ActiveServerWork{}, r.err
 	}
 	return r.work[serverID], nil
+}
+
+// serverStatusOf returns the status block of a Server as the API sends it (decision 071), failing
+// loudly rather than with a nil map when the item is not a Server.
+func serverStatusOf(item map[string]any) map[string]any {
+	status, ok := item["status"].(map[string]any)
+	if !ok {
+		panic(fmt.Sprintf("not a Server representation (no status block): %v", item))
+	}
+	return status
 }

@@ -82,7 +82,7 @@ export function ServerContainersTab() {
 
 /** Lock reason for the Docker CE re-apply actions; the install API refuses locked Servers. */
 function reapplyBlockedReason(server: Server): string | undefined {
-  return server.provisioning?.locked ? 'Unlock the Server before changing Docker CE on it.' : undefined
+  return server.status.provisioning?.locked ? 'Unlock the Server before changing Docker CE on it.' : undefined
 }
 
 /**

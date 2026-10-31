@@ -32,7 +32,7 @@ interface ServerDefaultUserDialogProps {
 export function ServerDefaultUserDialog({ server, onClose, onChanged }: ServerDefaultUserDialogProps) {
   const { servers, sshKeys } = useApp()
   const { showToast } = useToast()
-  const current = server.defaultUser
+  const current = server.status.defaultUser
   const [user, setUser] = useState(current?.user ?? '')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState<'save' | 'clear' | null>(null)
@@ -42,7 +42,7 @@ export function ServerDefaultUserDialog({ server, onClose, onChanged }: ServerDe
     [sshKeys],
   )
   const name = serverDisplayName(server)
-  const locked = server.provisioning?.locked ?? false
+  const locked = server.status.provisioning?.locked ?? false
   const trimmed = user.trim()
   const valid = DEFAULT_USER_PATTERN.test(trimmed)
 

@@ -299,7 +299,7 @@ export interface NetworkLinkInput {
  * One tag known for a Site, as offered by the tag editor. `editable` is false for a
  * provider-computed automatic tag (a MAAS tag with a definition, e.g. one that may back
  * `amd-gpu`): it is real and meaningful but swallow cannot assign or unassign it, so the editor
- * shows it disabled. See swallow's `Tag` glossary term and decision 031.
+ * shows it disabled. See swallow's `Tag` glossary term and decision 071.
  */
 export interface ServerTagOption {
   name: string;
@@ -318,14 +318,17 @@ export interface EditServerTagsInput {
   remove: string[];
 }
 
-/** The effective tags of one Server after an edit, so callers can update rows without a re-read. */
+/**
+ * One Server's spec after a tag edit (`ServerTagSet`, server-tags.md), so callers can update rows
+ * without a re-read. The edit only writes the spec: the provisioner converges afterwards, and the
+ * Server's `realized` condition reports when it has for this `generation`.
+ */
 export interface ServerTagsResult {
   serverId: string;
-  /**
-   * The Server's effective tags after the edit. The contract (`ServerTagSet`, server-tags.md) sends
-   * `null` rather than `[]` when the Server is left with none, so a reader must treat null as empty.
-   */
-  tags: string[] | null;
+  /** The Server's spec generation after the edit. */
+  generation: number;
+  /** The complete manual-tag spec after the edit; `[]` when none. */
+  tags: string[];
 }
 
 /** Durable release follow-up shown in Server Activity. */

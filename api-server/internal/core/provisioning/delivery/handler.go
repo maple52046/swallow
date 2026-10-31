@@ -739,10 +739,10 @@ type editServerTagsRequest struct {
 	Remove    []string `json:"remove"`
 }
 
-// EditServerTags applies a tag edit to one or more Servers and returns each Server's effective tags.
-// It drives the provisioner when it owns tags (MAAS) and writes swallow-owned tags otherwise, all
-// behind one endpoint (docs/decisions/031). Editing tags is metadata, so it is not gated on Server
-// Lock; a provider refusal (an automatic tag) is surfaced as a 400 by the shared error mapper.
+// EditServerTags writes a tag edit into the spec of one or more Servers and returns each Server's
+// new spec (docs/decisions/071); the Server controller converges the provisioner afterwards. Editing
+// tags is metadata, so it is not gated on Server Lock. An automatic tag is a 400 and a spec that
+// changed during the edit a 409, both through the shared error mapper.
 func (h *ProvisioningHandler) EditServerTags(c *fiber.Ctx) error {
 	var req editServerTagsRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -851,6 +851,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, provisioningdomain.ErrPowerConfigurationManaged),
 		errors.Is(err, provisioningdomain.ErrInspectionNotAllowed),
 		errors.Is(err, serverdomain.ErrServerLocked),
+		errors.Is(err, serverdomain.ErrSpecConflict),
 		errors.Is(err, provisioningdomain.ErrNetworkConfigurationConflict),
 		errors.Is(err, provisioningdomain.ErrNetworkConfigurationUnsupported):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))

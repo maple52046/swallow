@@ -36,10 +36,35 @@ type ListResult struct {
 	Total   int
 }
 
+// ServerConvergenceStore writes the desired-state parts of a Server (decision 071) without
+// touching its projection, so reconcile, the API, and the controller never overwrite each other.
+//
+//   - UpdateSpec replaces the spec when the Server's generation is still expectedGeneration and
+//     increments it, returning the new generation. A different generation is ErrSpecConflict; an
+//     unknown id is ErrServerNotFound. Only the API writes through it.
+//   - AdoptSpec sets the spec and generation 1 only while the Server has no spec (generation 0),
+//     reporting whether it did; adoption never races an API write because both are conditional on
+//     the generation. Only the controller adopts.
+//   - SetConvergence replaces the controller's status (observedGeneration and conditions).
+//   - SetObservedTags replaces the observed tag sets after the controller changed them in the
+//     provisioner, so the projection reflects the change before the next reconcile pass.
+//   - SetOrigin records how the Server arrived when the reconciler could not infer it (enrollment
+//     by swallow).
+//
+// Implementations must be safe for concurrent use and must not change any other field.
+type ServerConvergenceStore interface {
+	UpdateSpec(ctx context.Context, id string, expectedGeneration int64, spec ServerSpec) (int64, error)
+	AdoptSpec(ctx context.Context, id string, spec ServerSpec) (bool, error)
+	SetConvergence(ctx context.Context, id string, status ServerConvergence) error
+	SetObservedTags(ctx context.Context, id string, tags, automaticTags []string) error
+	SetOrigin(ctx context.Context, id string, origin Origin) error
+}
+
 // ServerRepository persists server projections.
 //
 // There is no Create: servers are produced by reconciliation, so Upsert is the only
-// way one comes into being. Delete exists only for an explicit provider-backed removal;
+// way one comes into being; it records the Server's Origin on insert and never changes its
+// spec, generation, or convergence status (see ServerConvergenceStore). Delete exists only for an explicit provider-backed removal;
 // its application use case must remove the external Machine first so reconciliation
 // cannot recreate a locally deleted projection.
 type ServerRepository interface {

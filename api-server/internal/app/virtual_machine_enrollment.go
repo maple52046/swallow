@@ -337,6 +337,14 @@ func (e providerStepExecutor) awaitVirtualMachineServer(ctx context.Context, enr
 		server, err := e.servers.FindBySource(ctx, source)
 		switch {
 		case err == nil:
+			// swallow registered this machine, so record that rather than the discovered origin
+			// the reconciler inferred (decision 071). Best-effort: the origin only describes how the
+			// Server arrived and changes nothing the enrollment depends on.
+			if origin, ok := e.servers.(serverdomain.ServerConvergenceStore); ok && server.Origin != serverdomain.OriginEnrolled {
+				if err := origin.SetOrigin(ctx, server.ID, serverdomain.OriginEnrolled); err == nil {
+					server.Origin = serverdomain.OriginEnrolled
+				}
+			}
 			return server, nil
 		case !errors.Is(err, serverdomain.ErrServerNotFound):
 			result := providerAttention("server_not_projected", "The Server projection could not be read: "+err.Error(), "projection")

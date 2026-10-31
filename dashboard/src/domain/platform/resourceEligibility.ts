@@ -1,4 +1,4 @@
-import type { Server } from "@/domain/server/types";
+import type { ServerStatus } from "@/domain/server/types";
 import type { MinimumResources } from "./types";
 
 /** One resource deficit, retaining machine-readable dimension data and an operator label. */
@@ -22,7 +22,7 @@ export interface ResourceEligibility {
  * any enabled positive floor and are reported by dimension rather than hidden.
  */
 export function evaluateMinimumResourceEligibility(
-  server: Pick<Server, "cpuCores" | "memoryMiB" | "storageGB">,
+  server: Pick<ServerStatus, "cpuCores" | "memoryMiB" | "storageGB">,
   minimum: MinimumResources | null,
 ): ResourceEligibility {
   if (!minimum) {

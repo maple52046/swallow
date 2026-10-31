@@ -5074,7 +5074,7 @@ paths:
       tags:
         - servers
     post:
-      description: Requires role `admin`. Not gated on Server Lock. 400 for an invalid body, empty `serverIds`, no `add` or `remove`, an invalid or contradictory tag name, or a provisioner refusal; 404 for an unknown Server or Machine; 503 when the provisioner cannot be reached or has no credential.
+      description: Requires role `admin`. Not gated on Server Lock. Atomic across the listed Servers; the provisioner converges asynchronously (the Servers' conditions report it). 400 for an invalid body, empty `serverIds`, no `add` or `remove`, or an invalid, contradictory, or automatic tag name; 404 for an unknown Server; 409 when a Server's spec changed during the edit.
       operationId: editServerTags
       requestBody:
         content:
@@ -5106,7 +5106,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServerTagEditResult'
-          description: Each listed Server's effective tags after the edit, in request order.
+          description: Each listed Server's spec after the edit, in request order.
         "400":
           $ref: '#/components/responses/Error'
         "401":
@@ -5115,11 +5115,11 @@ paths:
           $ref: '#/components/responses/Error'
         "404":
           $ref: '#/components/responses/Error'
-        "503":
+        "409":
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
-      summary: Apply a tri-state tag edit to one or more Servers.
+      summary: Write a tri-state tag edit into the spec of one or more Servers.
       tags:
         - servers
   /api/v1/provisioning/tasks/{id}:
@@ -9809,6 +9809,38 @@ components:
         - lastAppliedAt
         - lastErrorAt
       type: object
+    Condition:
+      description: One named judgement in a migrated resource's status, written only by its controller (desired-state-model.md §4.2; glossary Condition). The shared types keep the same meaning on every resource; a resource may add its own types and reasons, so consumers ignore values they do not recognise.
+      properties:
+        lastTransitionTime:
+          $ref: '#/components/schemas/Timestamp'
+        message:
+          description: Human-readable detail; empty when there is nothing to add.
+          type: string
+        observedGeneration:
+          description: The spec generation this judgement was made for.
+          format: int64
+          type: integer
+        reason:
+          description: A short machine-branchable code, for example `converged`, `capability_missing`, `server_locked`.
+          type: string
+        status:
+          enum:
+            - "true"
+            - "false"
+            - unknown
+          type: string
+        type:
+          description: '`realized`, `drifted`, `requires_attention`, `held`, or a resource-specific type.'
+          type: string
+      required:
+        - type
+        - status
+        - reason
+        - message
+        - lastTransitionTime
+        - observedGeneration
+      type: object
     ContainerRuntime:
       description: The container runtime a Slurm deploy installs on its compute and login nodes.
       enum:
@@ -13700,123 +13732,28 @@ components:
         - serverIds
       type: object
     Server:
-      description: The complete, secret-free Server projection (servers-list.md). Optional observations are null; an axis that has never been observed is null rather than defaulted.
+      description: 'A Server as a migrated resource (servers-list.md, decision 071): its identity and origin, the spec generation, the spec (the desired provisioner-realized fields), and the status. Secret-free.'
       properties:
-        absent:
-          description: The Machine stopped appearing in its provisioner's inventory.
-          type: boolean
-        addresses:
-          items:
-            type: string
-          type: array
-        architecture:
-          type: string
-        cpuCores:
+        generation:
+          description: Counts spec changes; 1 once the Server's first observation was adopted as its spec.
+          format: int64
           type: integer
-        cpuModel:
-          type: string
-        createdAt:
-          $ref: '#/components/schemas/Timestamp'
-        defaultUser:
-          $ref: '#/components/schemas/ServerDefaultUser'
-        deployment:
-          allOf:
-            - $ref: '#/components/schemas/ServerDeploymentAxis'
-          description: Swallow's result of its latest durable OS deployment; null when none is recorded.
-          nullable: true
-        fqdn:
-          nullable: true
-          type: string
-        gpus:
-          description: The complete GPU Inventory, grouped by vendor, model, and kind.
-          items:
-            $ref: '#/components/schemas/ServerGPUGroup'
-          type: array
-        hardware:
-          $ref: '#/components/schemas/ServerHardware'
-        health:
-          allOf:
-            - $ref: '#/components/schemas/ServerHealthAxis'
-          description: Resolved at query time from the metrics backend; null when unknown.
-          nullable: true
-        hostname:
-          nullable: true
-          type: string
         id:
           description: The swallow-issued, stable Server ID.
           type: string
-        lastSeenAt:
-          allOf:
-            - $ref: '#/components/schemas/Timestamp'
-          nullable: true
-        membership:
-          allOf:
-            - $ref: '#/components/schemas/ServerMembershipAxis'
-          nullable: true
-        memoryMiB:
-          format: int64
-          type: integer
-        platformClaim:
-          allOf:
-            - $ref: '#/components/schemas/ServerPlatformClaim'
-          description: The Platform Claim; null when no Platform claims the Server.
-          nullable: true
-        providerPod:
-          description: The provisioner VM host a virtual machine belongs to; empty for bare metal.
+        origin:
+          description: 'How the Server arrived: `discovered` (its provisioner enlisted it), `enrolled` (swallow registered it), or `imported` (registered with an existing OS). Consumers ignore a value they do not recognise.'
           type: string
-        providerResourcePool:
-          description: The provisioner's own resource pool name, display only.
-          type: string
-        providerZone:
-          description: The provisioner's own zone name, display only.
-          type: string
-        provisioning:
-          allOf:
-            - $ref: '#/components/schemas/ServerProvisioningAxis'
-          nullable: true
-        source:
-          $ref: '#/components/schemas/ServerSource'
-        storageGB:
-          type: number
-        systemProduct:
-          type: string
-        systemVendor:
-          type: string
-        tags:
-          description: The effective Server tags (server-tags.md).
-          items:
-            type: string
-          type: array
-        updatedAt:
-          $ref: '#/components/schemas/Timestamp'
+        spec:
+          $ref: '#/components/schemas/ServerSpec'
+        status:
+          $ref: '#/components/schemas/ServerStatus'
       required:
         - id
-        - source
-        - hostname
-        - fqdn
-        - addresses
-        - architecture
-        - cpuCores
-        - cpuModel
-        - memoryMiB
-        - storageGB
-        - gpus
-        - systemVendor
-        - systemProduct
-        - providerZone
-        - providerResourcePool
-        - providerPod
-        - tags
-        - hardware
-        - deployment
-        - provisioning
-        - membership
-        - health
-        - platformClaim
-        - absent
-        - lastSeenAt
-        - createdAt
-        - updatedAt
+        - origin
+        - generation
+        - spec
+        - status
       type: object
     ServerChange:
       description: The JSON payload of one `data:` frame of the Server stream. Consumers ignore a `type` they do not recognise.
@@ -14339,6 +14276,149 @@ components:
         - integrationId
         - providerMachineId
       type: object
+    ServerSpec:
+      description: The desired provisioner-realized fields of a Server; written by the tag edit, converged by the Server controller.
+      properties:
+        tags:
+          description: The complete set of manual tags the Server must carry (server-tags.md).
+          items:
+            type: string
+          type: array
+      required:
+        - tags
+      type: object
+    ServerStatus:
+      description: Everything observed, derived, or written by the Server's controller (servers-list.md). Optional observations are null; an axis that has never been observed is null rather than defaulted.
+      properties:
+        absent:
+          description: The Machine stopped appearing in its provisioner's inventory.
+          type: boolean
+        addresses:
+          items:
+            type: string
+          type: array
+        architecture:
+          type: string
+        automaticTags:
+          description: The subset of `tags` the provisioner computes itself; never part of the spec.
+          items:
+            type: string
+          type: array
+        conditions:
+          description: The controller's conditions (`realized`, `drifted`, `requires_attention`, `held`); empty before the first judgement.
+          items:
+            $ref: '#/components/schemas/Condition'
+          type: array
+        cpuCores:
+          type: integer
+        cpuModel:
+          type: string
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        defaultUser:
+          $ref: '#/components/schemas/ServerDefaultUser'
+        deployment:
+          allOf:
+            - $ref: '#/components/schemas/ServerDeploymentAxis'
+          description: Swallow's result of its latest durable OS deployment; null when none is recorded.
+          nullable: true
+        fqdn:
+          nullable: true
+          type: string
+        gpus:
+          description: The complete GPU Inventory, grouped by vendor, model, and kind.
+          items:
+            $ref: '#/components/schemas/ServerGPUGroup'
+          type: array
+        hardware:
+          $ref: '#/components/schemas/ServerHardware'
+        health:
+          allOf:
+            - $ref: '#/components/schemas/ServerHealthAxis'
+          description: Resolved at query time from the metrics backend; null when unknown.
+          nullable: true
+        hostname:
+          nullable: true
+          type: string
+        lastSeenAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        membership:
+          allOf:
+            - $ref: '#/components/schemas/ServerMembershipAxis'
+          nullable: true
+        memoryMiB:
+          format: int64
+          type: integer
+        observedGeneration:
+          description: The spec generation the conditions were judged for; equal to `generation` once the controller has judged the current spec.
+          format: int64
+          type: integer
+        platformClaim:
+          allOf:
+            - $ref: '#/components/schemas/ServerPlatformClaim'
+          description: The Platform Claim; null when no Platform claims the Server.
+          nullable: true
+        providerPod:
+          description: The provisioner VM host a virtual machine belongs to; empty for bare metal.
+          type: string
+        providerResourcePool:
+          description: The provisioner's own resource pool name, display only.
+          type: string
+        providerZone:
+          description: The provisioner's own zone name, display only.
+          type: string
+        provisioning:
+          allOf:
+            - $ref: '#/components/schemas/ServerProvisioningAxis'
+          nullable: true
+        source:
+          $ref: '#/components/schemas/ServerSource'
+        storageGB:
+          type: number
+        systemProduct:
+          type: string
+        systemVendor:
+          type: string
+        tags:
+          description: Every tag the provisioner reports on the machine, automatic and manual (server-tags.md).
+          items:
+            type: string
+          type: array
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+      required:
+        - observedGeneration
+        - conditions
+        - source
+        - hostname
+        - fqdn
+        - addresses
+        - architecture
+        - cpuCores
+        - cpuModel
+        - memoryMiB
+        - storageGB
+        - gpus
+        - systemVendor
+        - systemProduct
+        - providerZone
+        - providerResourcePool
+        - providerPod
+        - tags
+        - automaticTags
+        - hardware
+        - deployment
+        - provisioning
+        - membership
+        - health
+        - platformClaim
+        - absent
+        - lastSeenAt
+        - createdAt
+        - updatedAt
+      type: object
     ServerTagCatalog:
       properties:
         tags:
@@ -14370,16 +14450,20 @@ components:
       type: object
     ServerTagSet:
       properties:
+        generation:
+          description: The Server's spec generation after the edit.
+          format: int64
+          type: integer
         serverId:
           type: string
         tags:
-          description: The Server's effective tags; null (not an empty array) when it has none.
+          description: The Server's complete manual tag spec after the edit.
           items:
             type: string
-          nullable: true
           type: array
       required:
         - serverId
+        - generation
         - tags
       type: object
     SessionLoginRequest:

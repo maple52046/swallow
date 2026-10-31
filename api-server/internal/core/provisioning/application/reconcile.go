@@ -52,10 +52,6 @@ type ReconcileUseCase struct {
 	// overlays supplies swallow-owned OS image display names so the mirrored deployed-image
 	// name reflects an operator's custom rename, not just the provider catalog title.
 	overlays provisioningdomain.OSImageOverlayRepository
-	// tagOverlays supplies swallow-owned Server tags for the capability-first fallback: when a
-	// provisioner cannot own tags, these are unioned into Observed.Tags at projection so every
-	// consumer sees the owned tags. Inert while the provisioner is tagging-capable (decision 031).
-	tagOverlays provisioningdomain.ServerTagOverlayRepository
 }
 
 func NewReconcileUseCase(
@@ -63,14 +59,12 @@ func NewReconcileUseCase(
 	servers serverdomain.ServerRepository,
 	providers provisioningdomain.ProviderFactory,
 	overlays provisioningdomain.OSImageOverlayRepository,
-	tagOverlays provisioningdomain.ServerTagOverlayRepository,
 ) *ReconcileUseCase {
 	return &ReconcileUseCase{
 		integrations: integrations,
 		servers:      servers,
 		providers:    providers,
 		overlays:     overlays,
-		tagOverlays:  tagOverlays,
 	}
 }
 
@@ -78,10 +72,10 @@ func NewReconcileUseCase(
 // machine, or the zero value when the machine is not deployed.
 type deployedImageNamer func(machine *provisioningdomain.Machine) deployedImage
 
-// ownedTagResolver returns the swallow-owned tags for a Server id, or nil when there are none.
-// It is the read side of the tag fallback (decision 031): non-empty only when the provisioner is
-// not tagging-capable, so a capable provisioner (MAAS) yields a resolver that always returns nil.
-type ownedTagResolver func(serverID string) []string
+// automaticTagResolver returns which of a machine's tags the provisioner computes itself (decision
+// 071), given the machine's tags and the automatic subset observed before. Automatic tags are
+// observed only; the rest are the manual tags a Server's spec owns.
+type automaticTagResolver func(machineTags, previousAutomatic []string) []string
 
 // ExecuteAll reconciles every enabled provisioner.
 //
@@ -201,10 +195,9 @@ func (uc *ReconcileUseCase) reconcile(ctx context.Context, integration *sitedoma
 	// this pass rather than failing the whole reconcile.
 	resolveImageName := uc.buildDeployedImageNamer(ctx, provider, integration.ID)
 
-	// Resolve swallow-owned tags once per pass for the capability-first fallback: only a
-	// provisioner that cannot own tags contributes owned tags, so a capable provisioner (MAAS)
-	// makes this a no-op that reads nothing (decision 031).
-	resolveOwnedTags := uc.buildOwnedTagResolver(ctx, provider, integration.ID)
+	// Classify automatic tags once per pass from the provisioner's tag catalog (one read per
+	// integration), so the Server controller knows which observed tags its spec owns.
+	resolveAutomaticTags := buildAutomaticTagResolver(ctx, provider)
 
 	// Which server each machine in this pass ended up owning.
 	//
@@ -215,7 +208,7 @@ func (uc *ReconcileUseCase) reconcile(ctx context.Context, integration *sitedoma
 	claimed := make(map[string]string, len(machines))
 
 	for _, machine := range machines {
-		outcome, conflict, err := uc.project(ctx, integration, machine, claimed, resolveImageName, resolveOwnedTags)
+		outcome, conflict, err := uc.project(ctx, integration, machine, claimed, resolveImageName, resolveAutomaticTags)
 		if err != nil {
 			return uc.recordSyncFailure(ctx, integration, report, startedAt, err)
 		}
@@ -261,7 +254,7 @@ func (uc *ReconcileUseCase) project(
 	machine *provisioningdomain.Machine,
 	claimed map[string]string,
 	resolveImageName deployedImageNamer,
-	resolveOwnedTags ownedTagResolver,
+	resolveAutomaticTags automaticTagResolver,
 ) (projectionOutcome, *Conflict, error) {
 	source := serverdomain.Source{
 		SiteID:            integration.SiteID,
@@ -271,7 +264,7 @@ func (uc *ReconcileUseCase) project(
 
 	existing, err := uc.servers.FindBySource(ctx, source)
 	if err == nil {
-		apply(existing, source, machine, integration.ID, resolveImageName, resolveOwnedTags)
+		apply(existing, source, machine, integration.ID, resolveImageName, resolveAutomaticTags)
 		claimed[existing.ID] = machine.ID
 		if err := uc.servers.Upsert(ctx, existing); err != nil {
 			return 0, nil, err
@@ -287,7 +280,7 @@ func (uc *ReconcileUseCase) project(
 		// Nothing to match on, so this can only be a new server. A machine with no
 		// usable hardware identifiers is normal before commissioning, and common on
 		// virtual machines whose firmware reports placeholders.
-		return uc.create(ctx, source, machine, integration.ID, claimed, resolveImageName, resolveOwnedTags)
+		return uc.create(ctx, source, machine, integration.ID, claimed, resolveImageName, resolveAutomaticTags)
 	}
 
 	candidates, err := uc.servers.FindByHardware(ctx, hardware)
@@ -297,7 +290,7 @@ func (uc *ReconcileUseCase) project(
 
 	switch len(candidates) {
 	case 0:
-		return uc.create(ctx, source, machine, integration.ID, claimed, resolveImageName, resolveOwnedTags)
+		return uc.create(ctx, source, machine, integration.ID, claimed, resolveImageName, resolveAutomaticTags)
 
 	case 1:
 		candidate := candidates[0]
@@ -314,7 +307,7 @@ func (uc *ReconcileUseCase) project(
 		if conflict := relinkConflict(candidate, integration, machine); conflict != nil {
 			return 0, conflict, nil
 		}
-		apply(candidate, source, machine, integration.ID, resolveImageName, resolveOwnedTags)
+		apply(candidate, source, machine, integration.ID, resolveImageName, resolveAutomaticTags)
 		claimed[candidate.ID] = machine.ID
 		if err := uc.servers.Upsert(ctx, candidate); err != nil {
 			return 0, nil, err
@@ -368,14 +361,15 @@ func (uc *ReconcileUseCase) create(
 	integrationID string,
 	claimed map[string]string,
 	resolveImageName deployedImageNamer,
-	resolveOwnedTags ownedTagResolver,
+	resolveAutomaticTags automaticTagResolver,
 ) (projectionOutcome, *Conflict, error) {
 	now := time.Now().UTC()
 	server := &serverdomain.Server{
 		ID:        uuid.NewString(),
+		Origin:    originOf(machine),
 		CreatedAt: now,
 	}
-	apply(server, source, machine, integrationID, resolveImageName, resolveOwnedTags)
+	apply(server, source, machine, integrationID, resolveImageName, resolveAutomaticTags)
 	claimed[server.ID] = machine.ID
 	return outcomeCreated, nil, uc.servers.Upsert(ctx, server)
 }
@@ -504,53 +498,59 @@ func (uc *ReconcileUseCase) buildDeployedImageNamer(
 	}
 }
 
-// buildOwnedTagResolver reads the swallow-owned tag overlays for one integration once per pass and
-// returns a resolver from a Server id to its owned tags. It is the read side of the capability-first
-// tag fallback (decision 031): a provisioner that advertises Tagging owns the tags, so no overlay is
-// merged and the resolver is a cheap no-op that reads nothing; only a non-capable provisioner has
-// owned tags to union in. A failure reading the overlays degrades to no owned tags this pass rather
-// than failing the whole reconcile, matching how the image-name overlay lookup degrades.
-func (uc *ReconcileUseCase) buildOwnedTagResolver(
-	ctx context.Context,
-	provider provisioningdomain.OSProvisioningProvider,
-	integrationID string,
-) ownedTagResolver {
-	if provider.Capabilities().Tagging {
-		return func(string) []string { return nil }
+// buildAutomaticTagResolver reads the provisioner's tag catalog once per pass and returns a
+// resolver that picks the automatic tags (MAAS tags with a definition) out of a machine's tags. A
+// provisioner without tagging has no automatic tags. A catalog read failure degrades to the
+// previously observed classification for this pass rather than failing the reconcile, so a
+// transient error never makes an automatic tag look manual (which the controller would remove).
+func buildAutomaticTagResolver(ctx context.Context, provider provisioningdomain.OSProvisioningProvider) automaticTagResolver {
+	controller, ok := provider.(provisioningdomain.MachineTagController)
+	if !ok || !provider.Capabilities().Tagging {
+		return func([]string, []string) []string { return nil }
 	}
-	byServer := map[string][]string{}
-	if overlays, err := uc.tagOverlays.ListByIntegration(ctx, integrationID); err == nil {
-		for _, overlay := range overlays {
-			byServer[overlay.ServerID] = overlay.Tags
+	catalog, err := controller.ListTags(ctx)
+	if err != nil {
+		return func(machineTags, previous []string) []string { return intersectTags(machineTags, previous) }
+	}
+	automatic := map[string]bool{}
+	for _, tag := range catalog {
+		if !tag.Editable {
+			automatic[tag.Name] = true
 		}
 	}
-	return func(serverID string) []string { return byServer[serverID] }
+	return func(machineTags, _ []string) []string {
+		out := make([]string, 0)
+		for _, tag := range machineTags {
+			if automatic[tag] {
+				out = append(out, tag)
+			}
+		}
+		return out
+	}
 }
 
-// unionTags merges owned tags into the provider-observed tags, preserving order and dropping
-// duplicates. Provider tags come first because, for a capable provisioner, they are the source of
-// truth; for the fallback the provider reports none, so the result is just the owned set.
-func unionTags(providerTags, ownedTags []string) []string {
-	if len(ownedTags) == 0 {
-		return providerTags
-	}
-	seen := make(map[string]struct{}, len(providerTags)+len(ownedTags))
-	merged := make([]string, 0, len(providerTags)+len(ownedTags))
-	for _, tag := range providerTags {
-		if _, dup := seen[tag]; dup {
-			continue
+// intersectTags returns the tags of a that are also in b, in a's order.
+func intersectTags(a, b []string) []string {
+	out := make([]string, 0)
+	for _, tag := range a {
+		for _, other := range b {
+			if tag == other {
+				out = append(out, tag)
+				break
+			}
 		}
-		seen[tag] = struct{}{}
-		merged = append(merged, tag)
 	}
-	for _, tag := range ownedTags {
-		if _, dup := seen[tag]; dup {
-			continue
-		}
-		seen[tag] = struct{}{}
-		merged = append(merged, tag)
+	return out
+}
+
+// originOf infers how a machine seen for the first time arrived (decision 071): one already
+// deployed was registered with its existing OS (imported); anything else was enlisted by the
+// provisioner (discovered). Enrollment by swallow records its own origin afterwards.
+func originOf(machine *provisioningdomain.Machine) serverdomain.Origin {
+	if machine.Status == provisioningdomain.MachineStatusDeployed {
+		return serverdomain.OriginImported
 	}
-	return merged
+	return serverdomain.OriginDiscovered
 }
 
 // imageArchKey and osReleaseArchKey join their parts with a separator that cannot appear in the
@@ -666,7 +666,7 @@ func staleFinishedDeployment(machine *provisioningdomain.Machine, deployment *se
 //
 // It never touches the membership axis, which belongs to the platform context, nor
 // CreatedAt, which belongs to whoever created the record.
-func apply(server *serverdomain.Server, source serverdomain.Source, machine *provisioningdomain.Machine, integrationID string, resolveImageName deployedImageNamer, resolveOwnedTags ownedTagResolver) {
+func apply(server *serverdomain.Server, source serverdomain.Source, machine *provisioningdomain.Machine, integrationID string, resolveImageName deployedImageNamer, resolveAutomaticTags automaticTagResolver) {
 	now := time.Now().UTC()
 
 	server.Source = source
@@ -676,10 +676,9 @@ func apply(server *serverdomain.Server, source serverdomain.Source, machine *pro
 	// wholesale would wipe what the sweep found. The Mongo repository mirrors this by
 	// keeping the stored gpus field out of the reconcile Upsert.
 	gpus := server.Observed.GPUs
-	// Effective tags are the provider's tags for a tagging-capable provisioner, or those plus the
-	// swallow-owned overlay for one that is not (decision 031). unionTags is a no-op when the
-	// resolver returns nothing, so a capable provisioner keeps exactly the provider's tags.
-	tags := unionTags(machine.Tags, resolveOwnedTags(server.ID))
+	// Tags are observed as the provisioner reports them; the automatic subset is classified so the
+	// controller converges only the manual tags the spec owns (decision 071).
+	automaticTags := resolveAutomaticTags(machine.Tags, server.Observed.AutomaticTags)
 	server.Observed = serverdomain.Observed{
 		Hostname:             machine.Hostname,
 		FQDN:                 machine.FQDN,
@@ -695,7 +694,8 @@ func apply(server *serverdomain.Server, source serverdomain.Source, machine *pro
 		SystemProduct:        machine.SystemProduct,
 		CPUModel:             machine.CPUModel,
 		ProviderPod:          machine.Pod,
-		Tags:                 tags,
+		Tags:                 machine.Tags,
+		AutomaticTags:        automaticTags,
 	}
 	image := resolveImageName(machine)
 	server.Provisioning = &serverdomain.ProvisioningStatus{

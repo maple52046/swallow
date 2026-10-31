@@ -9,7 +9,7 @@ export type GPUKind = ServerGPU['kind']
  * interpret the wire contract identically.
  */
 export function serverGPUsByKind(server: Server, kind: GPUKind): ServerGPU[] {
-  return server.gpus.filter((gpu) => gpu.kind === kind)
+  return server.status.gpus.filter((gpu) => gpu.kind === kind)
 }
 
 /**

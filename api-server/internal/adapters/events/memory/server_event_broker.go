@@ -173,10 +173,21 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 		// PlatformClaim is the claiming Platform's id: claiming or releasing changes only this
 		// field, and the Servers list gates Release on it.
 		PlatformClaim string
+		// Origin, Generation, Spec, and Convergence are the desired-state parts (decision 071): a
+		// spec write or a controller's condition change touches nothing else, so without them the
+		// list would not show a tag edit converging or a Server drifting until a reload.
+		Origin      serverdomain.Origin
+		Generation  int64
+		Spec        serverdomain.ServerSpec
+		Convergence serverdomain.ServerConvergence
 	}{
 		Absent:      s.Absent,
 		Observed:    s.Observed,
 		DefaultUser: s.DefaultUser,
+		Origin:      s.Origin,
+		Generation:  s.Generation,
+		Spec:        s.Spec,
+		Convergence: s.Convergence,
 	}
 	if s.PlatformClaim != nil {
 		fp.PlatformClaim = s.PlatformClaim.PlatformID

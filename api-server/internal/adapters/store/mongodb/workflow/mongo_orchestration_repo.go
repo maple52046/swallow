@@ -396,6 +396,16 @@ func leaseFilter(lease workflowdomain.ResourceLease) bson.M {
 	return bson.M{"_id": lease.ResourceKey, "owner": lease.Owner, "fencingToken": lease.FencingToken}
 }
 
+// IsHeld reports whether some Workflow currently holds the lease on resourceKey (an owner with an
+// unexpired lease). Desired-state controllers use it to hold a resource's convergence while a
+// Workflow changes it (glossary: Hold).
+func (r *MongoResourceLeaseRepo) IsHeld(ctx context.Context, resourceKey string) (bool, error) {
+	n, err := r.col.CountDocuments(ctx, bson.M{
+		"_id": resourceKey, "owner": bson.M{"$nin": bson.A{"", nil}}, "expiresAt": bson.M{"$gt": time.Now().UTC()},
+	}, options.Count().SetLimit(1))
+	return n > 0, err
+}
+
 // FindByOwner returns currently held leases for one workflow in stable resource order.
 func (r *MongoResourceLeaseRepo) FindByOwner(ctx context.Context, owner string) ([]workflowdomain.ResourceLease, error) {
 	cursor, err := r.col.Find(ctx, bson.M{"owner": owner, "expiresAt": bson.M{"$gt": time.Now().UTC()}},

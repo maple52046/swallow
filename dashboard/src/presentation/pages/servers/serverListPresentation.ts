@@ -255,7 +255,7 @@ export function normalizeServerInventoryParams(
  * view, the Active count, the default order, the row tone, and the refresh poll all use it.
  */
 export function isServerChanging(server: Server): boolean {
-  return isProvisioningInProgress(server.provisioning?.state) || isServerDeploymentChanging(server)
+  return isProvisioningInProgress(server.status.provisioning?.state) || isServerDeploymentChanging(server)
 }
 
 /**
@@ -264,7 +264,7 @@ export function isServerChanging(server: Server): boolean {
  * point at an unrelated, finished Operation while the provider is, say, releasing.
  */
 export function isServerDeploymentChanging(server: Server): boolean {
-  return server.deployment?.state === 'deploying' || server.deployment?.state === 'verifying'
+  return server.status.deployment?.state === 'deploying' || server.status.deployment?.state === 'verifying'
 }
 
 /**
@@ -275,14 +275,14 @@ export function isServerDeploymentChanging(server: Server): boolean {
  */
 export function hasServerProvisioningIssue(server: Server): boolean {
   return Boolean(
-    (server.provisioning && ISSUE_PROVIDER_STATES.has(server.provisioning.state)) ||
+    (server.status.provisioning && ISSUE_PROVIDER_STATES.has(server.status.provisioning.state)) ||
     hasServerDeploymentIssue(server),
   )
 }
 
 /** True only when the latest Swallow-owned deployment requires review; gates its Workflow link. */
 export function hasServerDeploymentIssue(server: Server): boolean {
-  return server.deployment?.state === 'failed' || server.deployment?.state === 'requires_attention'
+  return server.status.deployment?.state === 'failed' || server.status.deployment?.state === 'requires_attention'
 }
 
 /**
@@ -295,9 +295,9 @@ export function serverDeploymentCellInputs(server: Server): {
   axis: DeploymentAxis | null
   provider: ProvisioningAxis | null
 } {
-  const provider = server.absent ? null : server.provisioning
+  const provider = server.status.absent ? null : server.status.provisioning
   const installed = provider?.state === 'deployed'
-  const axis = server.deployment?.state === 'succeeded' && !installed ? null : server.deployment
+  const axis = server.status.deployment?.state === 'succeeded' && !installed ? null : server.status.deployment
   return { axis, provider }
 }
 
@@ -307,7 +307,7 @@ export function serverDeploymentCellInputs(server: Server): {
  * as the Deployment cell so a row never shows Releasing or Failed without the matching tone.
  */
 export function serverRowTone(server: Server): 'absent' | 'changing' | 'issue' | undefined {
-  if (server.absent) return 'absent'
+  if (server.status.absent) return 'absent'
   if (isServerChanging(server)) return 'changing'
   if (hasServerProvisioningIssue(server)) return 'issue'
   return undefined
@@ -347,7 +347,7 @@ export function serverGpuCount(server: Server): number {
 
 /** Stable effective tags; provenance is intentionally unavailable in the current projection. */
 export function sortedServerTags(server: Server): string[] {
-  return [...server.tags].sort((left, right) => left.localeCompare(right))
+  return [...server.status.tags].sort((left, right) => left.localeCompare(right))
 }
 
 /** Resource-discovery search over identity, effective tags, and accelerator inventory. */
@@ -355,42 +355,42 @@ export function matchesServerDiscovery(server: Server, query: string): boolean {
   const needle = query.trim().toLocaleLowerCase()
   if (!needle) return true
   const searchable = [
-    server.hostname,
-    server.fqdn,
-    ...server.addresses,
-    server.hardware.serialNumber,
-    server.hardware.systemUuid,
-    server.source.providerMachineId,
-    ...server.tags,
-    ...server.gpus.flatMap((gpu) => [gpu.vendor, gpu.model]),
+    server.status.hostname,
+    server.status.fqdn,
+    ...server.status.addresses,
+    server.status.hardware.serialNumber,
+    server.status.hardware.systemUuid,
+    server.status.source.providerMachineId,
+    ...server.status.tags,
+    ...server.status.gpus.flatMap((gpu) => [gpu.vendor, gpu.model]),
   ]
   return searchable.some((value) => value?.toLocaleLowerCase().includes(needle))
 }
 
 /** Applies every URL-owned facet. Dimensions AND together; repeated values OR within one facet. */
 export function matchesServerInventoryQuery(server: Server, query: ServerInventoryQuery): boolean {
-  if (!query.includeAbsent && server.absent) return false
+  if (!query.includeAbsent && server.status.absent) return false
   if (!matchesServerDiscovery(server, query.q)) return false
-  if (query.view === 'ready' && (server.absent || server.provisioning?.locked || server.provisioning?.state !== 'ready')) return false
+  if (query.view === 'ready' && (server.status.absent || server.status.provisioning?.locked || server.status.provisioning?.state !== 'ready')) return false
   if (query.view === 'changing' && !isServerChanging(server)) return false
   if (query.view === 'issues' && !hasServerProvisioningIssue(server)) return false
-  if (query.provisioning.length > 0 && (!server.provisioning || !query.provisioning.includes(server.provisioning.state))) return false
-  if (query.health === 'unobserved' && server.health !== null) return false
-  if ((query.health === 'up' || query.health === 'down') && server.health?.state !== query.health) return false
-  if (query.membership === 'assigned' && server.membership === null) return false
-  if (query.membership === 'unassigned' && server.membership !== null) return false
-  if (query.gpu === 'present' && server.gpus.length === 0) return false
-  if (query.gpu === 'none' && server.gpus.length > 0) return false
-  if (query.gpuVendors.length > 0 && !server.gpus.some((gpu) => query.gpuVendors.includes(gpu.vendor))) return false
-  if (query.gpuModels.length > 0 && !server.gpus.some((gpu) => query.gpuModels.includes(gpu.model))) return false
-  if (query.architectures.length > 0 && !query.architectures.includes(server.architecture || 'unknown')) return false
-  if (query.systemVendors.length > 0 && !query.systemVendors.includes(server.systemVendor || 'unknown')) return false
-  if (query.systemProducts.length > 0 && !query.systemProducts.includes(server.systemProduct || 'unknown')) return false
-  if (query.zones.length > 0 && !query.zones.includes(server.providerZone || 'unknown')) return false
-  if (query.pools.length > 0 && !query.pools.includes(server.providerResourcePool || 'unknown')) return false
-  if (query.tags.length > 0 && !query.tags.some((tag) => server.tags.includes(tag))) return false
+  if (query.provisioning.length > 0 && (!server.status.provisioning || !query.provisioning.includes(server.status.provisioning.state))) return false
+  if (query.health === 'unobserved' && server.status.health !== null) return false
+  if ((query.health === 'up' || query.health === 'down') && server.status.health?.state !== query.health) return false
+  if (query.membership === 'assigned' && server.status.membership === null) return false
+  if (query.membership === 'unassigned' && server.status.membership !== null) return false
+  if (query.gpu === 'present' && server.status.gpus.length === 0) return false
+  if (query.gpu === 'none' && server.status.gpus.length > 0) return false
+  if (query.gpuVendors.length > 0 && !server.status.gpus.some((gpu) => query.gpuVendors.includes(gpu.vendor))) return false
+  if (query.gpuModels.length > 0 && !server.status.gpus.some((gpu) => query.gpuModels.includes(gpu.model))) return false
+  if (query.architectures.length > 0 && !query.architectures.includes(server.status.architecture || 'unknown')) return false
+  if (query.systemVendors.length > 0 && !query.systemVendors.includes(server.status.systemVendor || 'unknown')) return false
+  if (query.systemProducts.length > 0 && !query.systemProducts.includes(server.status.systemProduct || 'unknown')) return false
+  if (query.zones.length > 0 && !query.zones.includes(server.status.providerZone || 'unknown')) return false
+  if (query.pools.length > 0 && !query.pools.includes(server.status.providerResourcePool || 'unknown')) return false
+  if (query.tags.length > 0 && !query.tags.some((tag) => server.status.tags.includes(tag))) return false
 
-  const locked = server.provisioning?.locked === true
+  const locked = server.status.provisioning?.locked === true
   if (query.lock === 'locked' && !locked) return false
   if (query.lock === 'unlocked' && locked) return false
   return true
@@ -400,12 +400,12 @@ export function matchesServerInventoryQuery(server: Server, query: ServerInvento
 export function serverInventoryGroupValue(server: Server, group: ServerInventoryGroup): string {
   switch (group) {
     case 'provisioning': return serverDeploymentPhase(server).label
-    case 'zone': return server.providerZone || 'unknown'
-    case 'pool': return server.providerResourcePool || 'unknown'
-    case 'architecture': return server.architecture || 'unknown'
-    case 'power': return server.provisioning?.powerState ?? 'unknown'
+    case 'zone': return server.status.providerZone || 'unknown'
+    case 'pool': return server.status.providerResourcePool || 'unknown'
+    case 'architecture': return server.status.architecture || 'unknown'
+    case 'power': return server.status.provisioning?.powerState ?? 'unknown'
     case 'gpu-profile': return serverGpuProfile(server)
-    case 'system-model': return [server.systemVendor, server.systemProduct].filter(Boolean).join(' ') || 'unknown'
+    case 'system-model': return [server.status.systemVendor, server.status.systemProduct].filter(Boolean).join(' ') || 'unknown'
     case 'none':
     default: return ''
   }
@@ -413,29 +413,29 @@ export function serverInventoryGroupValue(server: Server, group: ServerInventory
 
 /** Operational rank used by the default list order: running work, then problems, then idle. */
 export function serverOperationalPriority(server: Server): number {
-  if (server.absent) return 5
+  if (server.status.absent) return 5
   if (isServerChanging(server)) return 0
   if (hasServerProvisioningIssue(server)) return 1
-  if (server.provisioning?.state === 'ready') return 2
-  if (server.deployment?.state === 'succeeded') return 3
+  if (server.status.provisioning?.state === 'ready') return 2
+  if (server.status.deployment?.state === 'succeeded') return 3
   return 4
 }
 
 function displayName(server: Server): string {
-  return server.hostname ?? server.fqdn ?? server.source.providerMachineId ?? server.id
+  return server.status.hostname ?? server.status.fqdn ?? server.status.source.providerMachineId ?? server.id
 }
 
 function sortValue(server: Server, sort: Exclude<ServerInventorySort, 'priority'>): string | number {
   switch (sort) {
     case 'name': return displayName(server).toLocaleLowerCase()
     case 'provisioning': return serverDeploymentPhase(server).label
-    case 'power': return server.provisioning?.powerState ?? ''
-    case 'cores': return server.cpuCores
-    case 'memory': return server.memoryMiB
-    case 'storage': return server.storageGB
+    case 'power': return server.status.provisioning?.powerState ?? ''
+    case 'cores': return server.status.cpuCores
+    case 'memory': return server.status.memoryMiB
+    case 'storage': return server.status.storageGB
     case 'gpus': return serverGpuCount(server)
-    case 'zone': return server.providerZone.toLocaleLowerCase()
-    case 'pool': return server.providerResourcePool.toLocaleLowerCase()
+    case 'zone': return server.status.providerZone.toLocaleLowerCase()
+    case 'pool': return server.status.providerResourcePool.toLocaleLowerCase()
   }
 }
 
@@ -462,18 +462,18 @@ export function compareServerInventory(
 
 /** Computes scope-wide facts; absent projections are excluded from live external axes. */
 export function serverFleetFacts(servers: readonly Server[]): ServerFleetFacts {
-  const observed = servers.filter((server) => !server.absent)
+  const observed = servers.filter((server) => !server.status.absent)
   return {
     total: servers.length,
     absent: servers.length - observed.length,
-    deploymentVerified: observed.filter((server) => server.deployment?.state === 'succeeded').length,
+    deploymentVerified: observed.filter((server) => server.status.deployment?.state === 'succeeded').length,
     deploymentActive: observed.filter(isServerChanging).length,
     deploymentAttention: observed.filter(hasServerProvisioningIssue).length,
-    assigned: observed.filter((server) => server.membership !== null).length,
-    unassigned: observed.filter((server) => server.membership === null).length,
-    healthUp: observed.filter((server) => server.health?.state === 'up').length,
-    healthDown: observed.filter((server) => server.health?.state === 'down').length,
-    healthUnobserved: observed.filter((server) => server.health === null).length,
+    assigned: observed.filter((server) => server.status.membership !== null).length,
+    unassigned: observed.filter((server) => server.status.membership === null).length,
+    healthUp: observed.filter((server) => server.status.health?.state === 'up').length,
+    healthDown: observed.filter((server) => server.status.health?.state === 'down').length,
+    healthUnobserved: observed.filter((server) => server.status.health === null).length,
   }
 }
 
@@ -495,13 +495,13 @@ export function serverFleetFacts(servers: readonly Server[]): ServerFleetFacts {
  * an unrelated, finished Operation while the provider is, say, releasing.
  */
 export function serverContextAction(server: Server): ServerContextAction | null {
-  if (server.absent) {
+  if (server.status.absent) {
     return { kind: 'activity', label: 'Review activity', section: 'provider-events' }
   }
-  if (!server.provisioning?.locked && server.provisioning?.state === 'ready') {
+  if (!server.status.provisioning?.locked && server.status.provisioning?.state === 'ready') {
     return { kind: 'deploy', label: 'Deploy OS' }
   }
-  const operationId = server.deployment?.operationId
+  const operationId = server.status.deployment?.operationId
   if (isServerChanging(server)) {
     if (isServerDeploymentChanging(server) && operationId) {
       return { kind: 'workflow', label: 'View workflow', operationId }
@@ -528,7 +528,7 @@ export function serverContextAction(server: Server): ServerContextAction | null 
  * - Other provider work (Deploying, Testing): Provider events, the provisioner's own history.
  */
 function inProgressActivitySection(server: Server): ServerActivitySection {
-  const state = server.provisioning?.state
+  const state = server.status.provisioning?.state
   if (state === 'releasing' || state === 'inspecting' || isServerDeploymentChanging(server)) return 'related-operations'
   return 'provider-events'
 }

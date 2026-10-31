@@ -42,7 +42,7 @@ export function useTargetLockProtection(
         setState({
           targetKey,
           lockedTargets: targets.flatMap((server) =>
-            server?.provisioning?.locked ? [{ serverId: server.id, name: server.hostname || server.id }] : [],
+            server?.status.provisioning?.locked ? [{ serverId: server.id, name: server.status.hostname || server.id }] : [],
           ),
         })
       })

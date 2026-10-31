@@ -65,7 +65,7 @@ export function AddServersDialog({ provisioners, servers, onClose }: AddServersD
   // Servers present when the guide opened; anything else in the live working set is new.
   const [knownIds] = useState(() => new Set(servers.map((server) => server.id)))
   const appeared = useMemo(
-    () => servers.filter((server) => !knownIds.has(server.id) && !server.absent),
+    () => servers.filter((server) => !knownIds.has(server.id) && !server.status.absent),
     [knownIds, servers],
   )
   const previous = PREVIOUS_STEP[step]
@@ -399,7 +399,7 @@ function Waiting({ servers, provisioners, inspects = false, enableBootMedia = fa
                 <RouterLink to={scopedHref(`/servers/${server.id}/summary`)}>{serverDisplayName(server)}</RouterLink>
               </Link>
               <HStack gap="3">
-                <DeploymentBadge axis={server.deployment} provider={server.provisioning} />
+                <DeploymentBadge axis={server.status.deployment} provider={server.status.provisioning} />
                 {enableBootMedia && (
                   <Link asChild colorPalette="brand" fontSize="sm">
                     <RouterLink to={scopedHref(`/servers/${server.id}/summary`)}>Enable Boot Media</RouterLink>

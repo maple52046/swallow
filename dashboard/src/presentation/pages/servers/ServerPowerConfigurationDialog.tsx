@@ -53,7 +53,7 @@ export function ServerPowerConfigurationDialog({ server, configuration, onClose,
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const name = serverDisplayName(server)
-  const locked = server.provisioning?.locked ?? false
+  const locked = server.status.provisioning?.locked ?? false
   const family = draftFamily(draft, options)
   const errors = powerConfigurationDraftErrors(draft, options)
   const valid = Object.keys(errors).length === 0

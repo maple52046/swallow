@@ -42,6 +42,8 @@ const (
 	ReasonProviderUnreachable = "provider_unreachable"
 	// ReasonProviderMissing: the provider no longer has the resource.
 	ReasonProviderMissing = "provider_missing"
+	// ReasonFailed: realizing the spec failed; requires_attention says whether it will be retried.
+	ReasonFailed = "failed"
 	// ReasonProviderRejected: the provider refused the change; the controller stopped trying.
 	ReasonProviderRejected = "provider_rejected"
 	// ReasonInSync: drifted is false; observed state matches the spec.

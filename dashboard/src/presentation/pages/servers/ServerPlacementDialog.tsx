@@ -44,7 +44,7 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const siteId = server.source.siteId
+  const siteId = server.status.source.siteId
 
   useEffect(() => {
     let cancelled = false
@@ -53,8 +53,8 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
         if (cancelled) return
         // Pre-match the current selection from the observed provider names so the dialog opens on
         // the Server's real placement rather than blank.
-        const currentZone = zones.find((zone) => zone.name === server.providerZone)?.id ?? ''
-        const currentPool = pools.find((pool) => pool.name === server.providerResourcePool)?.id ?? ''
+        const currentZone = zones.find((zone) => zone.name === server.status.providerZone)?.id ?? ''
+        const currentPool = pools.find((pool) => pool.name === server.status.providerResourcePool)?.id ?? ''
         setZoneId(currentZone)
         setPoolId(currentPool)
         setInitialZoneId(currentZone)
@@ -67,7 +67,7 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
     return () => {
       cancelled = true
     }
-  }, [infrastructure, siteId, server.providerZone, server.providerResourcePool])
+  }, [infrastructure, siteId, server.status.providerZone, server.status.providerResourcePool])
 
   // Only changed selections are submitted; an unchanged field is omitted so the backend leaves it
   // alone and the request always carries a real change.
@@ -162,7 +162,7 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
                 onChange={setZoneId}
                 options={zoneOptions}
               />
-              <Field.HelperText>Currently {server.providerZone || 'unset'}.</Field.HelperText>
+              <Field.HelperText>Currently {server.status.providerZone || 'unset'}.</Field.HelperText>
             </Field.Root>
             <Field.Root>
               <Field.Label>Pool</Field.Label>
@@ -175,7 +175,7 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
                 onChange={setPoolId}
                 options={poolOptions}
               />
-              <Field.HelperText>Currently {server.providerResourcePool || 'unset'}.</Field.HelperText>
+              <Field.HelperText>Currently {server.status.providerResourcePool || 'unset'}.</Field.HelperText>
             </Field.Root>
           </>
         )}

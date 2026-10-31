@@ -45,7 +45,7 @@ interface ServerPowerDialogProps {
  */
 export function ServerPowerDialog({ server, onSelect, onClose }: ServerPowerDialogProps) {
   const name = serverDisplayName(server)
-  const currentState = server.provisioning?.powerState ?? null
+  const currentState = server.status.provisioning?.powerState ?? null
   // Both actions are always offered (a provider can report `unknown`/`error`, and forcing the
   // opposite action must stay possible); the current state is shown as a hint above the grid.
   const tiles: readonly PowerTile[] = [

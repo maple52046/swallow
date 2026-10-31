@@ -83,7 +83,6 @@ func setupPlatform(t *testing.T) *platformFixture {
 	templates := newFakeDeploymentTemplateRepo()
 	osImageOverlays := newFakeOSImageOverlayRepo()
 	osImageVerifications := newFakeOSImageVerificationRepo()
-	serverTagOverlays := newFakeServerTagOverlayRepo()
 	provider := newFakeProvider()
 	factory := newFakeProviderFactory()
 	factory.providers[testIntegrationID] = provider
@@ -103,7 +102,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	// The reconcile use case is also the DeployedImageNameRefresher, so the overlay edit and the
 	// handler share one instance and a rename propagates to server projections through the same
 	// server repo the reconcile pass uses.
-	reconcileUC := provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageOverlays, serverTagOverlays)
+	reconcileUC := provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageOverlays)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		provisioningapp.NewDeployServerUseCase(servers, factory),
 		provisioningapp.NewDeployServersUseCase(servers, templates, factory, osImageVerifications),
@@ -126,8 +125,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewDeleteOSImageUseCase(factory, osImageOverlays, osImageVerifications),
 		provisioningapp.NewUploadOSImageUseCase(factory, osImageOverlays),
 		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlays, reconcileUC),
-		provisioningapp.NewListServerTagsUseCase(integrations, factory, serverTagOverlays),
-		provisioningapp.NewEditServerTagsUseCase(servers, factory, serverTagOverlays),
+		provisioningapp.NewListServerTagsUseCase(integrations, factory, servers),
+		provisioningapp.NewEditServerTagsUseCase(&storetest.Transactor{}, servers, servers, factory),
 	)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
 		discoveryapp.NewDiscoveryUseCase(servers),

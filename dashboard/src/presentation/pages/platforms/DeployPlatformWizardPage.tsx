@@ -131,7 +131,7 @@ function selectedNetworkGuidance(addresses: string[]): string {
 function serverMatchesDeployQuery(server: Server, query: string): boolean {
   const needle = query.trim().toLowerCase()
   if (!needle) return true
-  return [serverDisplayName(server), server.fqdn ?? '', server.id, ...server.addresses, ...server.tags]
+  return [serverDisplayName(server), server.status.fqdn ?? '', server.id, ...server.status.addresses, ...server.status.tags]
     .some((value) => value.toLowerCase().includes(needle))
 }
 
@@ -148,10 +148,10 @@ interface ExistingPlatformAssignment {
  * blocks the Server, named by its Platform id.
  */
 function existingPlatformAssignment(server: Server, platforms: Platform[]): ExistingPlatformAssignment | null {
-  const claim = server.platformClaim
+  const claim = server.status.platformClaim
   if (claim) {
     const platform = platforms.find((candidate) => candidate.id === claim.platformId)
-    const role = server.membership?.platformId === claim.platformId ? server.membership.role : null
+    const role = server.status.membership?.platformId === claim.platformId ? server.status.membership.role : null
     const lifecycle = platform ? platformLifecycleLabel(platform.lifecycleState) : 'Claimed'
     return {
       platformName: platform?.name ?? claim.platformId,
@@ -159,12 +159,12 @@ function existingPlatformAssignment(server: Server, platforms: Platform[]): Exis
       detail: role ? `${role} · ${lifecycle}` : lifecycle,
     }
   }
-  if (!server.membership) return null
-  const platform = platforms.find((candidate) => candidate.id === server.membership?.platformId)
+  if (!server.status.membership) return null
+  const platform = platforms.find((candidate) => candidate.id === server.status.membership?.platformId)
   return {
-    platformName: platform?.name ?? server.membership.platformId,
+    platformName: platform?.name ?? server.status.membership.platformId,
     platformType: platform?.type ?? 'unknown',
-    detail: server.membership.role,
+    detail: server.status.membership.role,
   }
 }
 
@@ -360,7 +360,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
   const slurmMinimumResources = slurmRequirementState.status === 'ready' ? slurmRequirementState.requirement.minimumResources : null
   const slurmEligibilityByServerId = useMemo<Record<string, ReturnType<typeof evaluateMinimumResourceEligibility>>>(() => {
     if (state.status !== 'ready' || slurmRequirementState.status !== 'ready') return {}
-    return Object.fromEntries(state.data.servers.map((server) => [server.id, evaluateMinimumResourceEligibility(server, slurmMinimumResources)]))
+    return Object.fromEntries(state.data.servers.map((server) => [server.id, evaluateMinimumResourceEligibility(server.status, slurmMinimumResources)]))
   }, [state, slurmRequirementState.status, slurmMinimumResources])
   const assignments = useMemo<RoleAssignment[]>(
     () =>
@@ -425,7 +425,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
       .filter((assignment) => assignment.role === 'worker' || assignment.runWorkloads)
       .some((assignment) => {
         const server = state.data.servers.find((candidate) => candidate.id === assignment.serverId)
-        return Boolean(server && hasAMDComputeGPU(server.gpus))
+        return Boolean(server && hasAMDComputeGPU(server.status.gpus))
       })
   }, [assignments, state])
   const { state: gpuOperatorReleases, reload: reloadGPUOperatorReleases } = useGPUOperatorReleases(!isSlurm && gpuOperatorForm.enabled)
@@ -442,7 +442,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
     state.status === 'ready' &&
     slurmComputeIds.some((serverId) => {
       const server = state.data.servers.find((candidate) => candidate.id === serverId)
-      return Boolean(server && hasAMDComputeGPU(server.gpus))
+      return Boolean(server && hasAMDComputeGPU(server.status.gpus))
     })
   const slurmMonitoringValid = slurmMonitoring !== 'device-metrics-exporter' || slurmHasGPUComputeNode
   // What the Container runtime card sends: nothing while it is off, its choices while it is on. On with
@@ -471,7 +471,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
           return server ? [server] : []
         })
       : []
-  const selectedAddresses = selectedServers.flatMap((server) => server.addresses)
+  const selectedAddresses = selectedServers.flatMap((server) => server.status.addresses)
   // The backend makes the first controller in nodeAssignments (which follow slurmSelectedIds) the
   // primary; with a GPU monitoring feature it also hosts Prometheus and Grafana.
   const slurmPrimaryController = selectedServers.find((server) => server.id === slurmControllerIds[0])
@@ -481,8 +481,8 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
 
   // Convergent selection (ADR 017): a Server already `deployed` is reused as-is; anything else
   // (pool-ready) is provisioned first. The machine-preparation mode is derived from this.
-  const deployedSelectedServers = selectedServers.filter((server) => server.provisioning?.state === 'deployed')
-  const readySelectedServers = selectedServers.filter((server) => server.provisioning?.state !== 'deployed')
+  const deployedSelectedServers = selectedServers.filter((server) => server.status.provisioning?.state === 'deployed')
+  const readySelectedServers = selectedServers.filter((server) => server.status.provisioning?.state !== 'deployed')
   const needsProvisioning = readySelectedServers.length > 0
   const siteProvisioners = siteProvisionerState.siteKey === effectiveSiteId
     ? siteProvisionerState.items
@@ -494,8 +494,8 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
     siteProvisioner &&
       readySelectedServers.some(
         (server) =>
-          server.source.siteId !== effectiveSiteId ||
-          server.source.integrationId !== siteProvisioner.id,
+          server.status.source.siteId !== effectiveSiteId ||
+          server.status.source.integrationId !== siteProvisioner.id,
       ),
   )
   const siteProvisionerIssue = !needsProvisioning
@@ -658,7 +658,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
   // is simply not part of the cluster. Login is a submission/client host (no cluster daemon).
   const toggleSlurmDaemon = (serverId: string, daemon: 'controller' | 'compute' | 'login', checked: boolean) => {
     const server = state.status === 'ready' ? state.data.servers.find((candidate) => candidate.id === serverId) : undefined
-    if (server?.provisioning?.locked || !slurmEligibilityByServerId[serverId]?.eligible) return
+    if (server?.status.provisioning?.locked || !slurmEligibilityByServerId[serverId]?.eligible) return
     setSlurmDaemons((current) => {
       const existing = current[serverId] ?? { controller: false, compute: false, login: false }
       return { ...current, [serverId]: { ...existing, [daemon]: checked } }
@@ -667,7 +667,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
 
   const changeRole = (serverId: string, next: RoleChoice) => {
     const server = state.status === 'ready' ? state.data.servers.find((candidate) => candidate.id === serverId) : undefined
-    if (server?.provisioning?.locked) return
+    if (server?.status.provisioning?.locked) return
 
     if (topology === 'standalone') {
       setRoles(next === 'none' ? {} : { [serverId]: 'control-plane' })
@@ -1024,7 +1024,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
                 <Table.Body>
                   {visibleServers.map((server) => {
                     const existing = existingPlatformAssignment(server, state.data.platforms)
-                    const deployed = server.provisioning?.state === 'deployed'
+                    const deployed = server.status.provisioning?.state === 'deployed'
                     const eligibility = isSlurm ? slurmEligibilityByServerId[server.id] : undefined
                     const unavailable = Boolean(existing) || (isSlurm && !eligibility?.eligible)
                     const unavailableReason = existing
@@ -1061,7 +1061,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
                           )}
                         </Table.Cell>
                         <Table.Cell>
-                          {server.cpuCores} cores · {formatGiB(server.memoryMiB)} GiB · {server.storageGB} GB{server.gpus.length > 0 ? ` · ${server.gpus.length} GPU` : ''}
+                          {server.status.cpuCores} cores · {formatGiB(server.status.memoryMiB)} GiB · {server.status.storageGB} GB{server.status.gpus.length > 0 ? ` · ${server.status.gpus.length} GPU` : ''}
                         </Table.Cell>
                         {isSlurm && (
                           <>
@@ -1151,7 +1151,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
                 <div className="sw-resource-card-list sw-platform-server-card-list" aria-label="Deployable Servers">
                   {visibleServers.map((server) => {
                     const existing = existingPlatformAssignment(server, state.data.platforms)
-                    const deployed = server.provisioning?.state === 'deployed'
+                    const deployed = server.status.provisioning?.state === 'deployed'
                     const eligibility = isSlurm ? slurmEligibilityByServerId[server.id] : undefined
                     const unavailable = Boolean(existing) || (isSlurm && !eligibility?.eligible)
                     const unavailableReason = existing
@@ -1177,8 +1177,8 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
                         selected={willProvision}
                       >
                         <ResourceCardField label="Hardware">
-                          {server.cpuCores} cores · {formatGiB(server.memoryMiB)} GiB · {server.storageGB} GB
-                          {server.gpus.length > 0 ? ` · ${server.gpus.length} GPU` : ''}
+                          {server.status.cpuCores} cores · {formatGiB(server.status.memoryMiB)} GiB · {server.status.storageGB} GB
+                          {server.status.gpus.length > 0 ? ` · ${server.status.gpus.length} GPU` : ''}
                         </ResourceCardField>
                         <ResourceCardField label="Current assignment">
                           {existing ? (

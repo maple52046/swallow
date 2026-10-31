@@ -161,13 +161,6 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("os image verification repo init: %w", err)
 	}
-	// Swallow-owned Server tag overlays: the fallback half of the capability-first tag rule
-	// (docs/decisions/031), merged into Observed.Tags by reconcile only when a provisioner cannot
-	// own tags. Owned data, so no sealing or staleness applies; inert while MAAS is tagging-capable.
-	serverTagOverlayRepo, err := provisioningstore.NewMongoServerTagOverlayRepo(db)
-	if err != nil {
-		return fmt.Errorf("server tag overlay repo init: %w", err)
-	}
 	taskRepo, err := provisioningstore.NewMongoProvisioningTaskRepo(db)
 	if err != nil {
 		return fmt.Errorf("provisioning task repo init: %w", err)
@@ -272,7 +265,7 @@ func RunAPI(cfg config.APIConfig) error {
 	deployServerUC.AttachDeploymentKeys(sshKeyService)
 	taskWorker := provisioningapp.NewProvisioningTaskWorker(
 		taskRepo, serverRepo, providerFactory, 5*time.Second, 30*time.Second)
-	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageOverlayRepo, serverTagOverlayRepo)
+	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageOverlayRepo)
 	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
 	// One RefreshServer use case is shared by the HTTP handler and the durable launcher so the
 	// Release/Recover acceptance gate can live-sync a target's provisioning state before deciding.
@@ -299,8 +292,8 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewDeleteOSImageUseCase(providerFactory, osImageOverlayRepo, osImageVerificationRepo),
 		provisioningapp.NewUploadOSImageUseCase(providerFactory, osImageOverlayRepo),
 		provisioningapp.NewSetOSImageOverlayUseCase(osImageOverlayRepo, reconcileUC),
-		provisioningapp.NewListServerTagsUseCase(integrationRepo, providerFactory, serverTagOverlayRepo),
-		provisioningapp.NewEditServerTagsUseCase(serverRepo, providerFactory, serverTagOverlayRepo),
+		provisioningapp.NewListServerTagsUseCase(integrationRepo, providerFactory, serverRepo),
+		provisioningapp.NewEditServerTagsUseCase(transactor, serverRepo, serverRepo, providerFactory),
 	)
 
 	// Infrastructure: swallow-owned Zones and Pools (decision 029). The grouping realizer reuses

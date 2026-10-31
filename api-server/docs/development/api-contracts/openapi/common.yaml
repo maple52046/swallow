@@ -91,6 +91,33 @@ components:
       type: string
       format: date-time
       description: ISO 8601 in UTC (conventions.md, Timestamps).
+    Condition:
+      type: object
+      description: >-
+        One named judgement in a migrated resource's status, written only by its controller
+        (desired-state-model.md §4.2; glossary Condition). The shared types keep the same meaning on
+        every resource; a resource may add its own types and reasons, so consumers ignore values
+        they do not recognise.
+      required: [type, status, reason, message, lastTransitionTime, observedGeneration]
+      properties:
+        type:
+          type: string
+          description: '`realized`, `drifted`, `requires_attention`, `held`, or a resource-specific type.'
+        status:
+          type: string
+          enum: ['true', 'false', unknown]
+        reason:
+          type: string
+          description: A short machine-branchable code, for example `converged`, `capability_missing`, `server_locked`.
+        message:
+          type: string
+          description: Human-readable detail; empty when there is nothing to add.
+        lastTransitionTime:
+          $ref: '#/components/schemas/Timestamp'
+        observedGeneration:
+          type: integer
+          format: int64
+          description: The spec generation this judgement was made for.
     SuccessAcknowledgement:
       type: object
       description: The body of a request that completed and has nothing else to report.

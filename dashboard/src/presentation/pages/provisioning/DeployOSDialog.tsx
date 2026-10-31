@@ -105,7 +105,7 @@ function siteHref(path: string, siteId: string): string {
 }
 
 function serverIsSelectable(server: Server): boolean {
-  return !server.absent && !server.provisioning?.locked && server.provisioning?.state === 'ready'
+  return !server.status.absent && !server.status.provisioning?.locked && server.status.provisioning?.state === 'ready'
 }
 
 function serverMemoryLabel(memoryMiB: number): string {
@@ -116,10 +116,10 @@ function serverMemoryLabel(memoryMiB: number): string {
 
 function serverTargetFacts(server: Server): string {
   return [
-    server.addresses[0] || 'No assigned address',
-    server.architecture,
-    server.cpuCores > 0 ? `${server.cpuCores} CPU${server.cpuCores === 1 ? '' : 's'}` : '',
-    serverMemoryLabel(server.memoryMiB),
+    server.status.addresses[0] || 'No assigned address',
+    server.status.architecture,
+    server.status.cpuCores > 0 ? `${server.status.cpuCores} CPU${server.status.cpuCores === 1 ? '' : 's'}` : '',
+    serverMemoryLabel(server.status.memoryMiB),
   ].filter(Boolean).join(' · ')
 }
 
@@ -194,8 +194,8 @@ function resolveProvisioner(
     ? context.integrationId !== integration.id
     : context.targets.some(
         (server) =>
-          server.source.siteId !== context.siteId ||
-          server.source.integrationId !== integration.id,
+          server.status.source.siteId !== context.siteId ||
+          server.status.source.integrationId !== integration.id,
       )
   if (sourceMismatch) {
     return {
@@ -334,8 +334,8 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
     () => integration
       ? servers.filter(
           (server) =>
-            server.source.siteId === context.siteId &&
-            server.source.integrationId === integration.id &&
+            server.status.source.siteId === context.siteId &&
+            server.status.source.integrationId === integration.id &&
             serverIsSelectable(server),
         )
       : [],
@@ -347,9 +347,9 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
       if (!normalizedTargetQuery) return true
       return [
         serverDisplayName(server),
-        server.fqdn ?? '',
-        ...server.addresses,
-        server.source.providerMachineId,
+        server.status.fqdn ?? '',
+        ...server.status.addresses,
+        server.status.source.providerMachineId,
       ].some((value) => value.toLocaleLowerCase().includes(normalizedTargetQuery))
     }),
     [availableServers, normalizedTargetQuery],
@@ -380,8 +380,8 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
     selectedServers.every(
       (server) =>
         serverIsSelectable(server) &&
-        server.source.siteId === context.siteId &&
-        server.source.integrationId === integration?.id,
+        server.status.source.siteId === context.siteId &&
+        server.status.source.integrationId === integration?.id,
     )
   const networkInspection = inspectionState.status === 'ready'
     ? inspectionState.inspection

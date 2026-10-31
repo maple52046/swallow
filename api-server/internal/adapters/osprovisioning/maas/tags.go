@@ -7,12 +7,12 @@ import (
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
-// This file implements provisioningdomain.MachineTagController against MAAS tags (decision 031).
-// MAAS owns tags, so this is the capable half of the capability-first rule: swallow drives MAAS to
-// create a manual tag and to assign or unassign it across a batch of machines, and the result is
-// mirrored back onto each Server by reconcile. All MAAS vocabulary — the tags endpoints, the
-// update_nodes operation, the definition field that marks an automatic tag — stays inside this
-// adapter.
+// This file implements provisioningdomain.MachineTagController against MAAS tags (decision 071).
+// swallow owns every manual tag in the Server spec, and the Server controller uses this to make
+// MAAS match it: create a manual tag and assign or unassign it on machines. Reconcile reads the
+// tags back as the observation, using the definition field to tell automatic tags, which MAAS owns,
+// from manual ones. All MAAS vocabulary — the tags endpoints, the update_nodes operation, the
+// definition field that marks an automatic tag — stays inside this adapter.
 //
 // MAAS specifics: tags are global objects, not per-machine labels. A tag with a `definition` is
 // automatic (MAAS applies it to matching hardware via XPath) and cannot be hand-assigned; a manual

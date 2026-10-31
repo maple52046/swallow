@@ -39,4 +39,6 @@
   ([decision 069](../../../decisions/069-swallow-owns-desired-state.md)): still the current
   behavior, but no longer a pattern for new features. In the desired-state model an overlay's
   fields are swallow-owned Desired State on the resource, and the overlay concept retires as the
-  OS Image catalog and Server tags migrate.
+  OS Image catalog and Server tags migrate. 2026-10-31
+  ([decision 071](../../../decisions/071-provisioner-realized-desired-state.md)): the Server tag
+  fallback is retired; its tags became the Server's spec.

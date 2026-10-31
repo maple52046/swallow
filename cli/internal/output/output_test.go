@@ -43,6 +43,44 @@ func TestTablePaginationEnvelope(t *testing.T) {
 	}
 }
 
+// TestTableSpecStatusResource renders a resource in the spec/status shape with
+// its status fields as top-level columns and its conditions as type=status pairs.
+func TestTableSpecStatusResource(t *testing.T) {
+	out := render(t, FormatTable, `{
+		"items":[
+			{"id":"s1","generation":2,"spec":{"tags":["rack-a"]},"status":{
+				"hostname":"gpu-1","provisioning":{"state":"deployed"},
+				"conditions":[{"type":"realized","status":"true"},{"type":"drifted","status":"false"}]
+			}}
+		],
+		"total":1,"page":1,"pageSize":20
+	}`)
+	for _, want := range []string{"HOSTNAME", "PROVISIONING.STATE", "gpu-1", "deployed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("table output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "STATUS.") {
+		t.Errorf("status fields must render as top-level columns:\n%s", out)
+	}
+
+	single := render(t, FormatTable, `{"id":"s1","spec":{"tags":["rack-a"]},"status":{
+		"conditions":[{"type":"realized","status":"true"},{"type":"drifted","status":"false"}]
+	}}`)
+	if !strings.Contains(single, "realized=true,drifted=false") {
+		t.Errorf("conditions not rendered as type=status pairs:\n%s", single)
+	}
+}
+
+// TestTableScalarStatusStaysTopLevel keeps an ordinary scalar status column for
+// a resource that is not in the spec/status shape.
+func TestTableScalarStatusStaysTopLevel(t *testing.T) {
+	out := render(t, FormatTable, `[{"id":"w1","status":"running"}]`)
+	if !strings.Contains(out, "STATUS") || !strings.Contains(out, "running") {
+		t.Errorf("scalar status column missing:\n%s", out)
+	}
+}
+
 // TestTablePlainArray renders a plain array (no envelope) as a column table.
 func TestTablePlainArray(t *testing.T) {
 	out := render(t, FormatTable, `[{"id":"z1","name":"rack-a"},{"id":"z2","name":"rack-b"}]`)

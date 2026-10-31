@@ -33,7 +33,7 @@ export function InspectionRequiredAlert({
   const { servers } = useApp()
   const { showToast } = useToast()
   const [busy, setBusy] = useState(false)
-  const provisioning = server.provisioning
+  const provisioning = server.status.provisioning
   if (!provisioning?.inspectionRequired) return null
 
   const inspecting = provisioning.state === 'inspecting'

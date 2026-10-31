@@ -333,3 +333,61 @@ func TestCopyVerifyDrop(t *testing.T) {
 		t.Errorf("source collection not dropped: %v", names)
 	}
 }
+
+// TestMigrateV4ToV5_MovesTagOverlaysIntoTheSpec verifies a Server's swallow-owned overlay tags
+// survive as its spec, a Server that already has a spec keeps it, and the overlays are gone.
+func TestMigrateV4ToV5_MovesTagOverlaysIntoTheSpec(t *testing.T) {
+	db := testDatabase(t)
+	ctx := ctxFor(t)
+	if _, err := db.Collection("servers").InsertMany(ctx, []any{
+		bson.M{"_id": "srv-overlay"},
+		bson.M{"_id": "srv-spec", "generation": int64(3), "spec": bson.M{"tags": bson.A{"kept"}}},
+		bson.M{"_id": "srv-plain"},
+	}); err != nil {
+		t.Fatalf("seed servers: %v", err)
+	}
+	if _, err := db.Collection("server_tag_overlays").InsertMany(ctx, []any{
+		bson.M{"_id": "srv-overlay", "integrationId": "int-1", "tags": bson.A{"gpu", "ml"}},
+		bson.M{"_id": "srv-spec", "integrationId": "int-1", "tags": bson.A{"stale"}},
+	}); err != nil {
+		t.Fatalf("seed overlays: %v", err)
+	}
+	if _, err := db.Collection("schema_metadata").InsertOne(ctx, bson.M{
+		"_id": "database", "version": 4, "updatedAt": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed schema marker: %v", err)
+	}
+
+	if err := Migrate(ctx, db, true); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	spec := func(id string) (int64, []string) {
+		var doc struct {
+			Generation int64 `bson:"generation"`
+			Spec       struct {
+				Tags []string `bson:"tags"`
+			} `bson:"spec"`
+		}
+		if err := db.Collection("servers").FindOne(ctx, bson.M{"_id": id}).Decode(&doc); err != nil {
+			t.Fatalf("read %s: %v", id, err)
+		}
+		return doc.Generation, doc.Spec.Tags
+	}
+	if generation, tags := spec("srv-overlay"); generation != 1 || fmt.Sprint(tags) != "[gpu ml]" {
+		t.Errorf("srv-overlay spec = generation %d tags %v, want generation 1 tags [gpu ml]", generation, tags)
+	}
+	if generation, tags := spec("srv-spec"); generation != 3 || fmt.Sprint(tags) != "[kept]" {
+		t.Errorf("srv-spec spec = generation %d tags %v, want it untouched", generation, tags)
+	}
+	if generation, _ := spec("srv-plain"); generation != 0 {
+		t.Errorf("srv-plain generation = %d, want 0 (adopted later by the controller)", generation)
+	}
+	names, err := db.ListCollectionNames(ctx, bson.M{"name": "server_tag_overlays"})
+	if err != nil || len(names) != 0 {
+		t.Errorf("server_tag_overlays after migration = %v (err %v), want dropped", names, err)
+	}
+	if got := schemaVersion(t, ctx, db); got != CurrentSchemaVersion {
+		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)
+	}
+}

@@ -171,16 +171,16 @@ function applyServerEvent(
 
 /** Mirrors the coarse Server API filters for a streamed projection. */
 function matchesWorkingSetScope(server: Server, filter: WorkingSetQuery): boolean {
-  if (filter.siteId && server.source.siteId !== filter.siteId) return false
-  if (!filter.includeAbsent && server.absent) return false
+  if (filter.siteId && server.status.source.siteId !== filter.siteId) return false
+  if (!filter.includeAbsent && server.status.absent) return false
   const needle = filter.keyword?.trim().toLowerCase()
   if (needle) {
     const searchable = [
-      server.hostname ?? '',
-      server.fqdn ?? '',
-      ...server.addresses,
-      server.hardware.serialNumber ?? '',
-      server.hardware.systemUuid ?? '',
+      server.status.hostname ?? '',
+      server.status.fqdn ?? '',
+      ...server.status.addresses,
+      server.status.hardware.serialNumber ?? '',
+      server.status.hardware.systemUuid ?? '',
     ]
     if (!searchable.some((value) => value.toLowerCase().includes(needle))) return false
   }
@@ -192,7 +192,7 @@ function matchesWorkingSetScope(server: Server, filter: WorkingSetQuery): boolea
  * metrics backend at list-query time and is not carried on the Server event stream.
  */
 function preserveHealth(incoming: Server, existing: Server | undefined): Server {
-  return !incoming.health && existing?.health
-    ? { ...incoming, health: existing.health }
+  return !incoming.status.health && existing?.status.health
+    ? { ...incoming, status: { ...incoming.status, health: existing.status.health } }
     : incoming
 }
