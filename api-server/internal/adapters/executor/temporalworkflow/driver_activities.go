@@ -84,6 +84,15 @@ type TaskActivities struct {
 	fenceInterval time.Duration
 }
 
+// heartbeatInterval is how often a running Task's activity heartbeats. A cancel reaches the
+// activity only in a heartbeat response, and the SDK sends at most one heartbeat per 80% of the
+// heartbeat timeout, so taskHeartbeatTimeout bounds how late a cancel arrives.
+const heartbeatInterval = 3 * time.Second
+
+// runnerStopTimeout bounds how long a canceled or superseded activity waits for its Runner to
+// stop. It exceeds the Ansible Runner's own stop grace, after which ansible-runner is killed.
+const runnerStopTimeout = 45 * time.Second
+
 // NewTaskActivities returns the Task activities for runners and compensations.
 func NewTaskActivities(engine *workflowapp.Engine, runners map[workflowdomain.RunnerKind]StepLifecycleExecutor,
 	compensations map[string]CompensationExecutor) *TaskActivities {
@@ -114,8 +123,10 @@ func (a *TaskActivities) ExecuteTask(ctx context.Context, input TaskInput) error
 	done := make(chan StepExecutionResult, 1)
 	go func() { done <- runner.Execute(runCtx, step) }()
 	activity.RecordHeartbeat(ctx, "Task execution started")
-	ticker := time.NewTicker(a.fenceInterval)
-	defer ticker.Stop()
+	beat := time.NewTicker(heartbeatInterval)
+	defer beat.Stop()
+	fence := time.NewTicker(a.fenceInterval)
+	defer fence.Stop()
 	stopping := activity.GetWorkerStopChannel(ctx)
 	for {
 		select {
@@ -124,18 +135,41 @@ func (a *TaskActivities) ExecuteTask(ctx context.Context, input TaskInput) error
 				return ctx.Err()
 			}
 			return fenced(ignoreNotRunning(a.engine.Complete(ctx, ref, outcomeOf(result))))
-		case <-ticker.C:
+		case <-beat.C:
 			activity.RecordHeartbeat(ctx, "Task executing")
+		case <-fence.C:
 			if err := a.engine.CheckGeneration(ctx, input.WorkflowID, input.Generation); errors.Is(err, workflowdomain.ErrDispatchFenced) {
-				cancel(err)
+				stopRunner(ctx, cancel, err, done)
 				return fenced(err)
 			}
 		case <-stopping:
 			cancel(ErrActivityWorkerStopping)
 			return temporal.NewApplicationError("activity worker stopped before external execution completed", "worker_shutdown")
 		case <-ctx.Done():
-			cancel(ctx.Err())
+			stopRunner(ctx, cancel, ctx.Err(), done)
 			return ctx.Err()
+		}
+	}
+}
+
+// stopRunner cancels the Runner and waits until it returned, up to runnerStopTimeout, so the
+// external work it started (an ansible-runner process tree) has stopped before the activity ends
+// and the run's cancel path releases the Task's resources. It keeps heartbeating meanwhile so the
+// stop is not cut short by the heartbeat timeout.
+func stopRunner(ctx context.Context, cancel context.CancelCauseFunc, cause error, done <-chan StepExecutionResult) {
+	cancel(cause)
+	limit := time.NewTimer(runnerStopTimeout)
+	defer limit.Stop()
+	beat := time.NewTicker(heartbeatInterval)
+	defer beat.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-limit.C:
+			return
+		case <-beat.C:
+			activity.RecordHeartbeat(ctx, "Stopping the Task")
 		}
 	}
 }

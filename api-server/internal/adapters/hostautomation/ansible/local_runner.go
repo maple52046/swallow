@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -31,7 +32,13 @@ type LocalRunner struct {
 	// "ubuntu" vs "cloud-user") connects per host instead of being forced to one Site user. Nil keeps
 	// the single-user behaviour (ansible_user = Site sshUser), which unit tests rely on.
 	userProber sshprobe.Prober
+	// stopGrace overrides runnerStopGrace; tests shorten it.
+	stopGrace time.Duration
 }
+
+// runnerStopGrace is how long a canceled run has to stop after SIGTERM before ansible-runner is
+// killed. ansible-runner stops the playbook within seconds of SIGTERM.
+const runnerStopGrace = 30 * time.Second
 
 // NewLocalRunner constructs a runner whose mutable and persistent roots are explicit.
 func NewLocalRunner(command, projectRoot, runtimeRoot, artifactRoot string) *LocalRunner {
@@ -152,6 +159,15 @@ func (r *LocalRunner) Run(ctx context.Context, input workflowdomain.RunnerInput)
 		"--cmdline", "--extra-vars @" + extraVarsPath,
 	}
 	command := exec.CommandContext(ctx, r.command, args...)
+	// ansible-runner runs the playbook in a session of its own, so killing ansible-runner alone
+	// leaves the playbook running against the hosts after its Task was canceled and its Workflow
+	// released them. SIGTERM makes ansible-runner cancel the run and stop the playbook; the kill
+	// after the grace period is the backstop for a runner that does not exit.
+	command.Cancel = func() error { return command.Process.Signal(syscall.SIGTERM) }
+	command.WaitDelay = runnerStopGrace
+	if r.stopGrace > 0 {
+		command.WaitDelay = r.stopGrace
+	}
 	command.Stdout = logFile
 	command.Stderr = logFile
 	command.Env = append(os.Environ(),

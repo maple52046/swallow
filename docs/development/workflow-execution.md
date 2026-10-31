@@ -192,11 +192,13 @@ glossary [Task](glossaries/terms/task.md)。終態是 `succeeded`、`failed`、`
 
 ### 5.3 Infrastructure retry（不建立新的 attempt）
 
-- provider 與 internal Runner 的 activity：heartbeat timeout 30 秒，單次最長 7 天；worker 遺失時，Temporal 在 7 天
+- Task 的 activity 每 3 秒 heartbeat，heartbeat timeout 10 秒（取消只隨 heartbeat 的回應送達，SDK 最多每 8 秒送一次，
+  所以取消在約 8 秒內到達執行中的 Task）。
+- provider 與 internal Runner 的 activity：單次最長 7 天；worker 遺失時，Temporal 在 7 天
   的 schedule-to-close 內無上限重試（間隔 1 秒起、最長 30 秒）。這是 infrastructure retry，Task 的 attempt 不變。
 - **worker graceful stop** 只中止本地等待（`worker_shutdown`），不 abort MAAS、不 cancel Ansible；下一次 activity
   attempt 以同一 idempotency key 接續觀察同一個外部工作。只有真正的 Workflow cancel 才取消外部工作。
-- **ansible executor 遺失**：Ansible activity 只執行一次（MaximumAttempts 1），heartbeat timeout 30 秒。executor
+- **ansible executor 遺失**：Ansible activity 只執行一次（MaximumAttempts 1），heartbeat timeout 10 秒。executor
   停止時 activity 逾時，Task 記為 `requires_attention`（`executor_outcome_unknown`），不自動重跑；由 operator
   明確重試。結果無法證明時不報成功、也不自動重跑。
 - 狀態轉換的 activity 無上限重試；轉換是 idempotent 的，timeline 事件以 deterministic ID upsert（例如 Task 狀態
@@ -462,8 +464,10 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
   output**——以 `(runId, seq)` idempotent upsert 進 `ansible_task_events`，並經由 core 更新 `Task.Live`（current
   play／task 與累計 total、ok、changed、failed、unreachable、skipped；`changed` 是 `ok` 的子集）。append 成功後才推進
   cursor，所以寫入失敗會在下一輪重讀同一段，不遺漏也不重複計數；run 結束時再 flush 一次。
-- **取消與 fencing**：activity 以 heartbeat 回報進度；Workflow 被取消時 heartbeat 收到取消，executor 中斷
-  `ansible-runner`。執行中每 15 秒確認世代，不是目前的世代就中斷並結束。
+- **取消與 fencing**：activity 以 heartbeat 回報進度；Workflow 被取消時 heartbeat 收到取消，executor 對
+  `ansible-runner` 送 SIGTERM，由它停止 playbook（playbook 在自己的 session 中，只結束 `ansible-runner` 會留下仍在
+  操作 host 的 playbook），30 秒內沒有結束才強制終止。activity 等 Runner 結束才結束，所以 run 的取消路徑在外部工作
+  停止之後才補償與釋放資源。執行中每 15 秒確認世代，不是目前的世代就同樣中止並結束。
 - **結果**：成功時先執行 Task 宣告的結果類完成行為（例如記錄 Kubernetes 或 slurmrestd credential、Omnistat 與
   DME 的 Grafana URL、uninstall 收尾），playbook 回傳的資料不離開 executor；完成行為失敗時 Task 為 `failed`
   （`completion_failed`，可重試）。之後經由 core 記錄結果與 artifact metadata。

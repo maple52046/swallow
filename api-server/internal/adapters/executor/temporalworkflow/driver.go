@@ -94,6 +94,11 @@ var stateActivityOptions = workflow.ActivityOptions{
 	},
 }
 
+// taskHeartbeatTimeout is how long a Task activity may go without a heartbeat before Temporal
+// treats its process as lost. It also bounds how late a cancel reaches a running Task (see
+// heartbeatInterval), so it is kept short; the activity heartbeats every heartbeatInterval.
+const taskHeartbeatTimeout = 10 * time.Second
+
 // taskActivityOptions runs one Task attempt. A Runner that observes before acting is retried
 // across worker loss within seven days; a single-attempt Runner runs once and ends with its
 // heartbeat when its process stops. WaitForCancellation keeps the run waiting until the Runner
@@ -102,7 +107,7 @@ func taskActivityOptions(route RunnerRoute) workflow.ActivityOptions {
 	options := workflow.ActivityOptions{
 		TaskQueue:           route.TaskQueue,
 		StartToCloseTimeout: 7 * 24 * time.Hour,
-		HeartbeatTimeout:    30 * time.Second,
+		HeartbeatTimeout:    taskHeartbeatTimeout,
 		WaitForCancellation: true,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	}

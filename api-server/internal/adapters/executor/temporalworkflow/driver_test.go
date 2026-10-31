@@ -2,6 +2,7 @@ package temporalworkflow
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -321,4 +322,26 @@ func TestDriverRecordsAnUnknownOutcomeWhenASingleAttemptExecutorStops(t *testing
 		f.env.CancelWorkflow()
 	}, time.Hour)
 	f.runWith(t, "w", RunnerRoute{TaskQueue: "default-test-taskqueue", SingleAttempt: true})
+}
+
+// A canceled activity waits for its Runner to stop before it ends, so the run's cancel path does
+// not compensate or release resources while the interrupted work (an ansible-runner process tree)
+// still runs. The Temporal testsuite resolves a canceled activity at once, so stopRunner is tested
+// directly.
+func TestStopRunnerWaitsForTheRunnerToStop(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	done := make(chan StepExecutionResult, 1)
+	go func() {
+		<-ctx.Done()
+		time.Sleep(200 * time.Millisecond)
+		done <- StepExecutionResult{Status: workflowdomain.TaskCanceled}
+	}()
+	started := time.Now()
+	stopRunner(ctx, cancel, ErrActivityWorkerStopping, done)
+	if took := time.Since(started); took < 200*time.Millisecond {
+		t.Errorf("stopRunner returned after %s, before the Runner stopped", took)
+	}
+	if !errors.Is(context.Cause(ctx), ErrActivityWorkerStopping) {
+		t.Errorf("Runner context cause = %v, want the stop cause", context.Cause(ctx))
+	}
 }
