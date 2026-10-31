@@ -45,6 +45,10 @@ deploy/release/publish.sh 0.1.0       # 加上 --github-release 會一併建立 
 - `swallow-linux-amd64`：CLI；
 - `release-manifest.json`、`offline-media-manifest.json` 與 `SHA256SUMS`。
 
+manifest 中的 database schema 版本與可升級的來源 schema，取自已推送的 API image 執行
+`swallow-api version --json` 的結果；它回報的版本與 commit 必須就是這次發佈的。`install.sh` 與
+`swallowctl upgrade` 依這些值與版本拒絕降級。
+
 Release 只包含 Compose installation
 （[ADR 050](../../docs/decisions/050-compose-only-release-artifacts.md)）：native packaging
 完成前不出 native bundle；在支援離線安裝（含 MAAS images）之前，也不出離線 image 封存檔。

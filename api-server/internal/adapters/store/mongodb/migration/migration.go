@@ -71,6 +71,11 @@ import (
 // dropped. The workflow-dispatch controller adopts every unfinished Workflow afterwards.
 const CurrentSchemaVersion = 9
 
+// OldestUpgradableSchemaVersion is the oldest schema Migrate upgrades from; an older database
+// has no supported upgrade path. A release's manifest lists every schema from this one up to
+// CurrentSchemaVersion as its upgrade sources.
+const OldestUpgradableSchemaVersion = 2
+
 type metadata struct {
 	ID        string    `bson:"_id"`
 	Version   int       `bson:"version"`
@@ -151,7 +156,7 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 		return fmt.Errorf("database schema version %d is newer than binary schema version %d",
 			state.Version, CurrentSchemaVersion)
 	}
-	if state.Version < 2 {
+	if state.Version < OldestUpgradableSchemaVersion {
 		return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 	}
 	if state.Version == 2 && (len(backupConfirmed) == 0 || !backupConfirmed[0]) {

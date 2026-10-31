@@ -3,6 +3,8 @@
 # the Compose bundle (the single-VM installation plus the CLI), install.sh with this version
 # filled in, the CLI binary, release-manifest.json, and SHA256SUMS. publish.sh calls it after building and mirroring; it
 # builds nothing, and it reads the registry with crane rather than a local container engine.
+# The manifest's schema versions and upgrade sources come from `swallow-api version --json` of the
+# binary in the pushed API image, which must also report this version and commit.
 #
 # Usage: assemble-release.sh COMMIT
 # Environment: RELEASE_VERSION, OUT_DIR, IMAGE_REPO, API_DIGEST, DASHBOARD_DIGEST, CLI_DIGEST,
@@ -41,6 +43,18 @@ mv -- "${out}/swallow" "${out}/swallow-linux-amd64"
 chmod 0755 "${out}/swallow-linux-amd64"
 install -m 0755 "${out}/swallow-linux-amd64" "${out}/production/bin/swallow"
 
+# swallow-api is a static linux/amd64 binary, so the x86_64 publishing host runs it directly.
+api_dir="$(mktemp -d)"
+trap 'rm -rf -- "${api_dir}"' EXIT
+crane export "${api_image}" - | tar -x --no-same-owner -C "${api_dir}" usr/local/bin/swallow-api
+api_info="$("${api_dir}/usr/local/bin/swallow-api" version --json)"
+jq -e --arg version "${version}" --arg commit "${commit}" \
+  '.version == $version and .commit == $commit and (.schemaVersion | type == "number") and
+    (.oldestUpgradableSchemaVersion | type == "number") and .oldestUpgradableSchemaVersion <= .schemaVersion' \
+  <<<"${api_info}" >/dev/null ||
+  { printf 'the API image does not report release %s at commit %s: %s\n' "${version}" "${commit}" "${api_info}" >&2; exit 1; }
+playbook_manifest_schema="$(jq -e '.schemaVersion' "${root}/api-server/modules/manifest.json")"
+
 for file in compose.yaml .env.example env.sh prepare-secrets.sh mongo-entrypoint.sh swallowctl \
   local-maas.sh local-ntp.sh bootstrap.sh README.md README.zh-TW.md; do
   cp "${root}/deploy/production/${file}" "${out}/production/"
@@ -56,16 +70,18 @@ jq -n --arg version "${version}" --arg commit "${commit}" \
   --arg api "${api_image}" --arg dashboard "${dashboard_image}" --arg cli "${cli_image}" \
   --arg mongo "${mongo_image}" --arg postgres "${postgres_image}" \
   --arg temporalServer "${temporal_server_image}" --arg compose "${compose_bundle}" \
+  --argjson apiInfo "${api_info}" --argjson playbookManifest "${playbook_manifest_schema}" \
   '{schemaVersion:1,version:$version,commit:$commit,
     platforms:["linux-amd64","ubuntu-24.04-amd64"],
-    schemaVersions:{mongo:3,playbookManifest:1},
+    schemaVersions:{mongo:$apiInfo.schemaVersion,playbookManifest:$playbookManifest},
     images:{api:$api,dashboard:$dashboard,cli:$cli,mongo:$mongo,
       postgres:$postgres,temporalServer:$temporalServer},
     compatibility:{host:"ubuntu-24.04-amd64",maas:"3.6",mongodb:"8.0",
       prometheus:"release-managed",dockerCE:"release-managed"},
     artifacts:{composeBundle:$compose,cliBinary:"swallow-linux-amd64",
       thirdPartyMediaManifest:"offline-media-manifest.json"},
-    upgrade:{from:[2],to:3,downgradeSupported:false}}' >"${out}/release-manifest.json"
+    upgrade:{from:[range($apiInfo.oldestUpgradableSchemaVersion; $apiInfo.schemaVersion)],
+      to:$apiInfo.schemaVersion,downgradeSupported:false}}' >"${out}/release-manifest.json"
 
 tar -C "${out}" -caf "${out}/${compose_bundle}" production testing release-manifest.json
 (

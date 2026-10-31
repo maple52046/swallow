@@ -155,10 +155,14 @@ applies a changed `.env` (that is `upgrade`), and it never cancels or retries Wo
 
 ## Operate
 
-- `sudo ./swallowctl upgrade [--release-manifest PATH] [--force]` backs up first, refuses
-  while Workflows are active unless `--force`, migrates, ensures the Control-Plane NTP Server
-  and its upstream, the MAAS rack's `virsh` SSH key and its record on the Integration, and
-  reruns `doctor`.
+- `sudo ./swallowctl upgrade [--release-manifest PATH] [--force]` refuses a release older than
+  the installed one and a database whose schema is newer than the release serves (downgrades are
+  not supported), and refuses while Workflows are active unless `--force`. It pulls the new
+  images, stops the API, worker, and Ansible executor, backs up to
+  `backups/pre-upgrade-<installed version>-<time>` (kept until you remove it), migrates, starts
+  the stack, ensures the Control-Plane NTP Server and its upstream, the MAAS rack's `virsh` SSH
+  key and its record on the Integration, and reruns `doctor`. `install.sh` refuses a downgrade
+  before it extracts anything.
 - `sudo ./swallowctl ntp upstream [show | set SERVER... | default]` shows, sets, or resets the
   NTP server's upstream. `set` and `default` apply the change first and record it in `.env` only
   when it succeeded. swallowctl owns MAAS's `ntp_servers`: a value set in the MAAS UI is replaced

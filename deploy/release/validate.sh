@@ -7,7 +7,20 @@ if rg -n 'jobTemplateName|providerKind: awx|/webhooks/automation' \
   exit 1
 fi
 jq -e '.schemaVersion == 1 and (.playbooks | length > 0)' api-server/modules/manifest.json >/dev/null
-jq -e '.schemaVersions.mongo == 3 and .upgrade.from == [2] and .upgrade.to == 3 and .upgrade.downgradeSupported == false and
+# assemble-release.sh writes the schema fields from the binary; the example must show the same
+# values the current source would produce.
+migration_go=api-server/internal/adapters/store/mongodb/migration/migration.go
+current_schema="$(sed -n 's/^const CurrentSchemaVersion = \([0-9][0-9]*\)$/\1/p' "${migration_go}")"
+oldest_schema="$(sed -n 's/^const OldestUpgradableSchemaVersion = \([0-9][0-9]*\)$/\1/p' "${migration_go}")"
+[[ -n "${current_schema}" && -n "${oldest_schema}" ]] ||
+  { printf '%s must declare CurrentSchemaVersion and OldestUpgradableSchemaVersion as integer constants\n' "${migration_go}" >&2; exit 1; }
+jq -e --argjson current "${current_schema}" --argjson oldest "${oldest_schema}" \
+  '.schemaVersions == {mongo: $current, playbookManifest: 1} and
+    .upgrade.from == [range($oldest; $current)] and .upgrade.to == $current' \
+  deploy/release/release-manifest.example.json >/dev/null ||
+  { printf 'release-manifest.example.json: schemaVersions and upgrade must match schema %s upgrading from %s (%s)\n' \
+      "${current_schema}" "${oldest_schema}" "${migration_go}" >&2; exit 1; }
+jq -e '.upgrade.downgradeSupported == false and
   (.images | keys) == ["api", "cli", "dashboard", "mongo", "postgres", "temporalServer"] and
   (.artifacts.cliBinary | type == "string") and
   ([.images.api, .images.dashboard, .images.cli] | map(startswith("ghcr.io/maple52046/swallow@sha256:")) | all) and

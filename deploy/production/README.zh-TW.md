@@ -145,9 +145,12 @@ sudo ./swallowctl ensure
 
 ## 維運
 
-- `sudo ./swallowctl upgrade [--release-manifest PATH] [--force]` 會先 backup；有 active
-  Workflow 時拒絕，除非 `--force`；完成 migrate、確保 Control-Plane NTP Server 與它的上游、MAAS
-  rack 的 `virsh` SSH key 並記錄到 Integration 後，重新執行 `doctor`。
+- `sudo ./swallowctl upgrade [--release-manifest PATH] [--force]` 拒絕比已安裝版本舊的
+  release，也拒絕 database schema 比該 release 支援的還新（不支援降級）；有 active Workflow 時
+  拒絕，除非 `--force`。它先 pull 新 image，停止 API、worker 與 Ansible executor，備份到
+  `backups/pre-upgrade-<已安裝版本>-<時間>`（保留到你手動刪除），再 migrate、啟動 stack、確保
+  Control-Plane NTP Server 與它的上游、MAAS rack 的 `virsh` SSH key 並記錄到 Integration，最後
+  重新執行 `doctor`。`install.sh` 在解壓任何東西之前就拒絕降級。
 - `sudo ./swallowctl ntp upstream [show | set SERVER... | default]` 顯示、設定或重設 NTP server
   的上游。`set` 與 `default` 會先套用，成功後才寫入 `.env`。MAAS 的 `ntp_servers` 由 swallowctl
   管理：在 MAAS UI 設定的值，會在下次 install、upgrade 或 ensure 時被取代。

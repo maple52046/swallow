@@ -217,8 +217,19 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 
 ### 3.3 `upgrade`
 
+- 帶 `--release-manifest` 時先檢查目標 release，**不支援降級**：
+  - 目標版本比已安裝的版本（installed marker，沒有時用 `.env` 的 `SWALLOW_RELEASE_VERSION`）舊即拒絕。
+    比較依 SemVer 2.0 的優先順序（`env.sh` 的 `semver_compare`，以 `jq` 實作）：pre-release 早於正式版、
+    數字識別碼依數值比較；`sort -V` 對這兩點都會排錯。
+  - 資料庫 `schema_metadata` 的版本比 manifest 的 `schemaVersions.mongo` 新即拒絕（較新的 release 已 migrate
+    過）；不是 `upgrade.to`、也不在 `upgrade.from` 中的版本同樣拒絕（沒有升級路徑）。
+  - 這些欄位在此機制之前的 release 是寫死且過時的，所以只保護升級到之後的 release；binary 只服務自己的
+    schema、拒絕啟動在其他版本的資料庫上，仍是最後一道防線。
 - 有未到終態的 Workflow（包含停在 `requires_attention` 等待 operator 的）時拒絕，除非帶 `--force`。
-- 先執行 `backup`，再寫入新 manifest、持久化設定、補齊 secrets、preflight、pull。
+- 寫入新 manifest、持久化設定、補齊 secrets、preflight、pull 新 image。
+- **停止 API、worker 與 Ansible executor**，再備份到 `pre-upgrade-<已安裝版本>-<UTC 時間戳>`（§3.6）並印出
+  路徑：備份期間與 migrate 時沒有任何 process 寫入資料庫，也沒有舊 binary 在已遷移的 schema 上執行。
+  `--force` 時執行中的 Task 也隨之中止。
 - 啟動 MongoDB 與 PostgreSQL 並等兩者 healthy。replica set 之前的 installation 在這一步轉換：補上的
   `mongo-keyfile` 與新的 mongo 設定讓 container 重建，healthcheck 在既有資料上執行 `rs.initiate`（資料保留）。
 - `swallow-api migrate --backup-confirmed`（確認已有備份，允許破壞性的 schema rename）、
@@ -270,7 +281,8 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
   database 的 archive、job artifacts、用來解開封存 secrets 的 credential key、有共置 MAAS 時的 `maasdb`
   dump，以及 `SHA256SUMS`。MAAS boot images 不備份：restore 後從 `images.maas.io` 重新同步。
 - 週日的備份另以 hard link 複製為 `weekly-<時間戳>`；保留最近 7 份 daily 與 4 份 weekly。
-- Compose installation 不自帶備份排程；`upgrade` 一律先備份。
+- Compose installation 不自帶備份排程；`upgrade` 一律先備份，寫成 `pre-upgrade-<已安裝版本>-<時間戳>`，內容
+  相同但不參與輪替，保留到 operator 手動刪除。
 - `restore BACKUP_DIRECTORY` 先驗證 `SHA256SUMS`，再還原 MongoDB（`--drop`）、job artifacts、credential
   key，以及（備份含 dump 且有共置 MAAS 時，期間停止 MAAS snap）`maasdb`，最後 recreate API 與 Dashboard。
 
@@ -336,10 +348,17 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
   `compatibility`（host `ubuntu-24.04-amd64`、MAAS `3.6`、MongoDB `8.0` 等）、`artifacts`（`composeBundle`、
   `cliBinary`、`thirdPartyMediaManifest`）與 `upgrade`。
 - manifest 不含 Temporal UI image、OCI archive 或 native bundle 的欄位。
-- `swallowctl` 只讀 `version` 與 `images` 中的 `api`、`dashboard`、`mongo`、`postgres`、`temporalServer`，
-  缺任一項即拒絕；其餘欄位目前沒有 consumer。`cli` image 只用於組裝 release 時取出 CLI。
+- **schema 欄位由程式產生**：`assemble-release.sh` 從已推送的 API image 取出 `swallow-api`，執行
+  `swallow-api version --json`（只讀 build metadata 與 schema 常數，不讀設定、不連資料庫）；它回報的
+  `version` 與 `commit` 必須就是這次發佈的。`schemaVersions.mongo` 與 `upgrade.to` 是 binary 唯一服務的
+  schema（`CurrentSchemaVersion`），`upgrade.from` 是從 `OldestUpgradableSchemaVersion` 到它之前的每一個版本；
+  `schemaVersions.playbookManifest` 取自 `api-server/modules/manifest.json`。`downgradeSupported` 固定為 `false`。
+- `swallowctl` 讀 `version` 與 `images` 中的 `api`、`dashboard`、`mongo`、`postgres`、`temporalServer`，缺任一項
+  即拒絕；`upgrade` 另讀 `schemaVersions.mongo` 與 `upgrade`（§3.3）。其餘欄位目前沒有 consumer。`cli` image
+  只用於組裝 release 時取出 CLI。
 - `deploy/release/release-manifest.example.json` 是格式範例；`validate.sh` 檢查它的 `images` key 集合與
-  registry 前綴（swallow image 在 GHCR、runtime image 在 `docker.io`）。
+  registry 前綴（swallow image 在 GHCR、runtime image 在 `docker.io`），以及 schema 欄位與 `migration.go` 的
+  兩個常數一致。
 
 ### 4.4 發佈
 
@@ -384,7 +403,7 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
   `SWALLOW_INSTALL_DIR`（預設 `/opt/swallow`）、`SWALLOW_VERSION`（預設為腳本隨附的 release，可帶前置
   `v`）。`SWALLOW_RELEASE_URL` 可把 GitHub 下載位置換成 mirror。
 - 整支腳本在 `main` 中執行，讓 `curl | bash` 先讀完全部內容，再執行任何指令。
-- 檢查 root、x86_64 與 Ubuntu 24.04；缺少時安裝 `curl` 與 `zstd`。
+- 檢查 root、x86_64 與 Ubuntu 24.04；缺少時安裝 `curl`、`zstd` 與 `jq`。
 - 下載 `swallow-compose-<version>.tar.zst` 與 `SHA256SUMS`，以 `sha256sum --strict` 核對，不符即停止。
 - 解壓到安裝目錄，取代 bundle 內的檔案；`.env`、`secrets/`、`backups/`、`state/` 不在 bundle 中，因此保留。
 - 有 `--address` 時以 `SWALLOW_ADDRESS` 傳給 `swallowctl`，執行
@@ -392,7 +411,10 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 
 ### 5.2 install 或 upgrade
 
-- `production/state/installed` 記錄的版本非空、且與要安裝的版本不同 → `upgrade`。
+- `production/state/installed` 記錄的版本比要安裝的版本新 → **拒絕，不解壓任何東西**：不支援降級。比較用
+  下載的 bundle 中 `production/env.sh` 的 `semver_compare`（先只取出這個檔案），與 `swallowctl upgrade` 相同
+  （§3.3）。
+- 記錄的版本非空、且與要安裝的版本不同 → `upgrade`。
 - 否則 → `install`：第一次安裝、同版本重跑，或中途停止的安裝（例如 MAAS 匯入 image 時中斷）都走 `install`
   並收斂。
 - 判斷只看 installed marker，不看 `.env` 中的版本。

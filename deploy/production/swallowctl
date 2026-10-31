@@ -291,14 +291,13 @@ prune_backups() {
   done
 }
 
-# backup captures MongoDB, the job artifacts, the credential key that unseals stored secrets,
-# and, when the co-located MAAS exists, its database (boot images re-sync from images.maas.io).
-backup() {
-  local stamp target user password
-  require_root
-  load_env
+# take_backup writes one backup to backups/NAME-<UTC stamp> and prints its path. It captures
+# MongoDB, the job artifacts, the credential key that unseals stored secrets, and, when the
+# co-located MAAS exists, its database (boot images re-sync from images.maas.io).
+take_backup() {
+  local name="$1" stamp target user password
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-  target="${backup_root}/daily-${stamp}"
+  target="${backup_root}/${name}-${stamp}"
   user="$(<"${script_dir}/secrets/mongo-root-username")"
   password="$(<"${script_dir}/secrets/mongo-root-password")"
   install -d -m 0700 "${target}"
@@ -311,8 +310,18 @@ backup() {
     "${compose[@]}" exec -T postgres pg_dump -U temporal -Fc maasdb >"${target}/maas.pgdump"
   fi
   sha256sum "${target}"/* >"${target}/SHA256SUMS"
+  printf '%s\n' "${target}"
+}
+
+# backup is the scheduled recovery point: a daily backup, hard-linked as a weekly one on Sundays,
+# keeping seven daily and four weekly.
+backup() {
+  local target
+  require_root
+  load_env
+  target="$(take_backup daily)"
   if [[ "$(date -u +%u)" == "7" ]]; then
-    cp -al -- "${target}" "${backup_root}/weekly-${stamp}"
+    cp -al -- "${target}" "${backup_root}/weekly-${target##*/daily-}"
   fi
   prune_backups daily 7
   prune_backups weekly 4
@@ -397,8 +406,52 @@ install_stack() {
   print_summary
 }
 
+# installed_version prints the release this installation runs: the installed marker's, else the
+# one in .env (an installation from before the marker).
+installed_version() {
+  local version
+  version="$(sed -n 's/^SWALLOW_RELEASE_VERSION=//p' "${installed_marker}" 2>/dev/null || true)"
+  [[ -n "${version}" ]] || version="$(env_value SWALLOW_RELEASE_VERSION)"
+  printf '%s' "${version}"
+}
+
+# database_schema_version prints the schema version MongoDB records, or 0 for a database that
+# migrate has not initialized.
+database_schema_version() {
+  mongo_eval "const m = db.getSiblingDB('$(mongo_database)').schema_metadata.findOne({_id: 'database'});
+    print(m ? m.version : 0)"
+}
+
+# check_upgrade_target refuses what the target release cannot do: replace a newer installed
+# release (downgrades are not supported), or serve a database a newer release already migrated
+# or one older than its oldest upgrade source. A manifest from a release before these checks
+# carries a stale schemaVersions.mongo, so only upgrades to later releases are protected; the
+# binary still refuses to serve any schema but its own.
+check_upgrade_target() {
+  local manifest="$1" target installed order schema
+  target="$(jq -r '.version' "${manifest}")"
+  installed="$(installed_version)"
+  if [[ -n "${installed}" ]]; then
+    order="$(semver_compare "${target}" "${installed}")" ||
+      die "cannot compare release ${target} with the installed ${installed}"
+    [[ "${order}" != -1 ]] ||
+      die "refusing upgrade: ${target} is older than the installed ${installed}; downgrades are not supported"
+  fi
+  schema="$(database_schema_version)"
+  [[ "${schema}" =~ ^[0-9]+$ ]] || die "cannot read the database schema version: ${schema}"
+  jq -e --argjson schema "${schema}" \
+    '.schemaVersions.mongo | type == "number" and . >= $schema' "${manifest}" >/dev/null ||
+    die "refusing upgrade: the database is at schema ${schema}, newer than release ${target} serves ($(jq -c '.schemaVersions.mongo' "${manifest}")); downgrades are not supported"
+  jq -e --argjson schema "${schema}" \
+    '$schema == 0 or $schema == .upgrade.to or (.upgrade.from | index($schema) != null)' "${manifest}" >/dev/null ||
+    die "refusing upgrade: release ${target} cannot upgrade a schema ${schema} database (it upgrades from $(jq -c '.upgrade.from' "${manifest}"))"
+}
+
+# upgrade moves the installation to a release (or reapplies its own). The API, worker, and
+# Ansible executor stop before the backup and the migration, so nothing writes to the database
+# meanwhile and no old binary runs against the migrated schema.
 upgrade() {
-  local force=false manifest="" active
+  local force=false manifest="" active from saved
   while (($# > 0)); do
     case "$1" in
       --force) force=true; shift ;;
@@ -408,17 +461,25 @@ upgrade() {
   done
   require_root
   load_env
+  from="$(installed_version)"
+  if [[ -n "${manifest}" ]]; then
+    [[ -f "${manifest}" ]] || die "release manifest not found: ${manifest}"
+    check_upgrade_target "${manifest}"
+  fi
   active="$(active_operations)"
   if [[ "${active}" != "0" && "${force}" != true ]]; then
     die "refusing upgrade: ${active} operation(s) active; wait or pass --force"
   fi
-  backup >/dev/null
   [[ -z "${manifest}" ]] || write_env_from_manifest "${manifest}"
   persist_settings
   load_env
   "${script_dir}/prepare-secrets.sh"
   preflight
   pull_images
+  log 'stopping the API, worker, and Ansible executor'
+  "${compose[@]}" stop api-server worker ansible-executor
+  saved="$(take_backup "pre-upgrade-${from:-unknown}")"
+  log "backed up to ${saved} (kept until removed by hand)"
   start_stores
   "${compose[@]}" run --rm --no-deps api-server migrate --backup-confirmed
   ensure_deployment_key

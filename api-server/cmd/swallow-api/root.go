@@ -24,6 +24,7 @@ func init() {
 	rootCmd.AddCommand(deploymentKeyCmd)
 	rootCmd.AddCommand(workerCmd)
 	rootCmd.AddCommand(ansibleExecutorCmd)
+	rootCmd.AddCommand(versionCmd)
 }
 
 // logStartup prints non-sensitive effective config values at startup so that the

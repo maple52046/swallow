@@ -7,8 +7,10 @@
 # It downloads the release's Compose bundle, verifies it against the release's SHA256SUMS,
 # extracts it into DIRECTORY, and hands over to production/swallowctl: `upgrade` when an
 # earlier release finished installing there, `install` otherwise (a first install, a rerun, or
-# resuming an install that stopped). Extracting replaces the shipped files and keeps .env,
-# secrets/, backups/, and state/, which no bundle contains. Run with --help for the options.
+# resuming an install that stopped). A release older than the installed one is refused before
+# anything is extracted: downgrades are not supported. Extracting replaces the shipped files and
+# keeps .env, secrets/, backups/, and state/, which no bundle contains. Run with --help for the
+# options.
 set -euo pipefail
 
 log() { printf '[install] %s\n' "$*"; }
@@ -35,7 +37,7 @@ main() {
   local install_dir="${SWALLOW_INSTALL_DIR:-/opt/swallow}"
   local address="${SWALLOW_ADDRESS:-}"
   local release_url="${SWALLOW_RELEASE_URL:-https://github.com/maple52046/swallow/releases/download}"
-  local os work bundle base production action installed
+  local os work bundle base production action installed order=0
   local -a missing=()
 
   while (($# > 0)); do
@@ -58,6 +60,7 @@ main() {
 
   command -v curl >/dev/null 2>&1 || missing+=(curl)
   command -v zstd >/dev/null 2>&1 || missing+=(zstd)
+  command -v jq >/dev/null 2>&1 || missing+=(jq)
   if ((${#missing[@]} > 0)); then
     log "installing ${missing[*]}"
     apt-get update -q </dev/null
@@ -77,7 +80,18 @@ main() {
 
   production="${install_dir}/production"
   installed="$(sed -n 's/^SWALLOW_RELEASE_VERSION=//p' "${production}/state/installed" 2>/dev/null || true)"
-  if [[ -n "${installed}" && "${installed}" != "${version}" ]]; then
+  if [[ -n "${installed}" ]]; then
+    # The downloaded release's env.sh holds the version comparison swallowctl uses too.
+    tar --zstd -xf "${work}/${bundle}" -C "${work}" --no-same-owner production/env.sh ||
+      die "${bundle} has no production/env.sh"
+    # shellcheck source=../production/env.sh
+    source "${work}/production/env.sh"
+    order="$(semver_compare "${version}" "${installed}")" ||
+      die "cannot compare ${version} with the installed release ${installed}"
+  fi
+  if [[ "${order}" == -1 ]]; then
+    die "refusing to install ${version} over the newer ${installed}: downgrades are not supported"
+  elif [[ -n "${installed}" && "${installed}" != "${version}" ]]; then
     action=upgrade
     log "upgrading ${installed} to ${version} in ${install_dir}"
   else

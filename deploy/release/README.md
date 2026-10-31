@@ -47,6 +47,11 @@ builds and pushes `api`, `dashboard`, and `cli`, and assembles the artifacts wit
 - `swallow-linux-amd64` — the CLI;
 - `release-manifest.json`, `offline-media-manifest.json`, and `SHA256SUMS`.
 
+The manifest's database schema version and the schemas it upgrades from come from
+`swallow-api version --json` of the pushed API image, which must report the version and commit
+being published. `install.sh` and `swallowctl upgrade` use them, together with the version, to
+refuse a downgrade.
+
 Releases carry only the Compose installation
 ([ADR 050](../../docs/decisions/050-compose-only-release-artifacts.md)): there is no native
 bundle until native packaging is complete, and no offline image archive until offline
