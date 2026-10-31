@@ -122,7 +122,7 @@ export function toPlatformMachinePreparation(
     settings: configuration.customized
       ? {
           imageId: configuration.imageId,
-          ephemeral: configuration.deployTarget === 'ram',
+          deployTarget: configuration.deployTarget,
         }
       : undefined,
     userData: configuration.userData,

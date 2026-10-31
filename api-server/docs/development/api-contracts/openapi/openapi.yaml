@@ -12942,8 +12942,15 @@ components:
           type: object
         settings:
           properties:
+            deployTarget:
+              description: The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`. `ram` is a memory-backed root that leaves the disks untouched.
+              enum:
+                - disk
+                - ram
+              type: string
             ephemeral:
-              description: True selects the `ram` Deploy Target (a memory-backed root).
+              deprecated: true
+              description: Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
               type: boolean
             imageId:
               type: string

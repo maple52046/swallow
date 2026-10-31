@@ -45,22 +45,6 @@ type deploymentSettingsRequest struct {
 	DeployTarget *string `json:"deployTarget"`
 }
 
-// resolveEphemeral folds the deploy-target vocabulary onto the internal ephemeral flag. When
-// deployTarget is provided it is authoritative (disk=false, ram=true) and must be valid; otherwise
-// the legacy ephemeral field is used as-is. ok=false means an unknown deployTarget the handler must
-// answer with 400 rather than silently choosing a deploy mode.
-func resolveEphemeral(deployTarget *string, ephemeral *bool) (*bool, bool) {
-	if deployTarget == nil {
-		return ephemeral, true
-	}
-	target, valid := provisioningdomain.ParseDeployTarget(*deployTarget)
-	if !valid {
-		return nil, false
-	}
-	value := target.Ephemeral()
-	return &value, true
-}
-
 type deploymentNetworkSettingsRequest struct {
 	Mode           string `json:"mode"`
 	SubnetID       string `json:"subnetId"`
@@ -269,7 +253,7 @@ func (h *ProvisioningHandler) DeployServers(c *fiber.Ctx) error {
 // deployServersInput maps the HTTP request onto the application input, resolving the deploy-target
 // vocabulary onto the internal ephemeral flag. ok=false signals an invalid deployTarget value.
 func deployServersInput(req deployServersRequest) (application.DeployServersInput, bool) {
-	ephemeral, ok := resolveEphemeral(req.Settings.DeployTarget, req.Settings.Ephemeral)
+	ephemeral, ok := provisioningdomain.ResolveEphemeral(req.Settings.DeployTarget, req.Settings.Ephemeral)
 	if !ok {
 		return application.DeployServersInput{}, false
 	}

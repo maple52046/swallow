@@ -6228,7 +6228,15 @@ export interface components {
                 subnetId?: string;
             };
             settings?: {
-                /** @description True selects the `ram` Deploy Target (a memory-backed root). */
+                /**
+                 * @description The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`. `ram` is a memory-backed root that leaves the disks untouched.
+                 * @enum {string}
+                 */
+                deployTarget?: "disk" | "ram";
+                /**
+                 * @deprecated
+                 * @description Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
+                 */
                 ephemeral?: boolean;
                 imageId?: string;
             };

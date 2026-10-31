@@ -294,8 +294,8 @@ Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。
 
 ### 2.3.2 Ephemeral（RAM）Kubernetes（decision 028）
 
-Kubernetes deploy 接受既有的 `machinePreparation.settings.ephemeral`（[Deploy Target](glossaries/terms/deploy-target.md)
-`ram`），不改 schema：provider 以 memory-backed root 開機、不碰磁碟。這是刻意 volatile 的契約：節點重開後 OS、etcd、
+Kubernetes deploy 以 `machinePreparation.settings.deployTarget: "ram"`（[Deploy Target](glossaries/terms/deploy-target.md)；
+deprecated 的 `settings.ephemeral: true` 同義）選擇 RAM：provider 以 memory-backed root 開機、不碰磁碟。這是刻意 volatile 的契約：節點重開後 OS、etcd、
 container runtime 與 workload state 全部消失，swallow 不自動復原，operator 需重建或重新部署 Platform。
 
 - 本次以 RAM provision 時，launcher 帶 trusted var `swallow_k0s_ephemeral_root`；`k0s_host_preflight` 斷言 `/` 為

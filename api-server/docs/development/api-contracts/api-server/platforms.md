@@ -285,7 +285,7 @@ types):
 {
   "machinePreparation": {
     "mode": "provision_os",
-    "settings": { "imageId": "os-image-id", "ephemeral": false },
+    "settings": { "imageId": "os-image-id", "deployTarget": "disk" },
     "network": { "mode": "automatic" }
   }
 }
@@ -296,14 +296,16 @@ types):
 accepts the rest of that OS Deployment intent for the provisioned targets: `templateId`, write-only
 `userData` (`mode` `inherit`, `replace`, or `omit`, with `value`), and `network.subnetId`,
 `network.defaultGateway`, and per-target `network.assignments` (`serverId`, `interfaceId`,
-`subnetId`, `ipAddress`). `settings` takes only `imageId` and `ephemeral`; the provisioning
-contract's `settings.deployTarget` is not read by a Platform deploy.
+`subnetId`, `ipAddress`). `settings` takes `imageId` and the deploy mode exactly as an OS
+Deployment does: `deployTarget` (`"disk"` | `"ram"`) is preferred, `ephemeral` (boolean) is its
+deprecated alias, `deployTarget` wins when both are sent, and an unknown `deployTarget` is a
+`400 validation_error`.
 
 `mode` is `existing_os` (default) or `provision_os`. In `provision_os` a target that is
 already `deployed` is reused as-is while a `ready` target is provisioned first, so one
-deploy may mix both. The deploy mode is the `ram` Deploy Target — `settings.ephemeral=true`,
-the platform contract's boundary field (the dashboard's Deploy Target selector maps
-"RAM deploy (ephemeral)" onto it). RAM/ephemeral means the provider boots a
+deploy may mix both. The deploy mode is the `ram` Deploy Target (`settings.deployTarget: "ram"`,
+or the deprecated `settings.ephemeral: true`; the dashboard labels it "RAM deploy (ephemeral)").
+RAM/ephemeral means the provider boots a
 memory-backed root filesystem and leaves disks untouched; all OS and platform-local state is
 lost when a Server reboots. A platform `provision_os` deploy of a *custom* image is subject
 to the same custom-image verification gate as an OS deployment: the image must be verified
@@ -1197,3 +1199,6 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 - Control-plane lease discovery remains per Integration because its naming is k0s-specific.
 - `monitoringLinks` was added on 2026-10-12. It is additive: a Platform stored before the field
   existed reads as `[]`, and a `PATCH` that omits it leaves the links unchanged.
+- Since 2026-10-31 `machinePreparation.settings.deployTarget` is read (DF-02). Before, a deploy
+  that named only `deployTarget: "ram"` was silently deployed to disk, and an unknown value was
+  ignored; it is now a `validation_error`. `ephemeral` keeps working as a deprecated alias.

@@ -816,7 +816,7 @@ test.describe('operator interactions', () => {
     expect(submitted).toMatchObject({
       machinePreparation: {
         mode: 'provision_os',
-        settings: { ephemeral: true },
+        settings: { deployTarget: 'ram' },
       },
     })
   })

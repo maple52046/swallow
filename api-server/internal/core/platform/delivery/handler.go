@@ -98,9 +98,13 @@ type machinePreparationRequest struct {
 	Network    *machinePreparationNetworkRequest `json:"network"`
 }
 
+// machinePreparationSettingsRequest names the OS a provision_os deploy installs and its deploy
+// mode, with the OS deployment contract's vocabulary: deployTarget ("disk"/"ram") wins, and
+// ephemeral is its deprecated boolean alias.
 type machinePreparationSettingsRequest struct {
-	ImageID   string `json:"imageId"`
-	Ephemeral *bool  `json:"ephemeral"`
+	ImageID      string  `json:"imageId"`
+	Ephemeral    *bool   `json:"ephemeral"`
+	DeployTarget *string `json:"deployTarget"`
 }
 
 type machinePreparationUserDataRequest struct {
@@ -122,10 +126,17 @@ type machinePreparationAssignmentRequest struct {
 	IPAddress   string `json:"ipAddress"`
 }
 
-func machinePreparationFromRequest(request machinePreparationRequest) platformdomain.MachinePreparation {
+// machinePreparationFromRequest maps the wire machine preparation onto domain intent, folding the
+// deploy mode onto Ephemeral. ok=false means an unknown deployTarget, which the caller answers
+// with 400.
+func machinePreparationFromRequest(request machinePreparationRequest) (platformdomain.MachinePreparation, bool) {
+	ephemeral, ok := provisioningdomain.ResolveEphemeral(request.Settings.DeployTarget, request.Settings.Ephemeral)
+	if !ok {
+		return platformdomain.MachinePreparation{}, false
+	}
 	preparation := platformdomain.MachinePreparation{
 		Mode: platformdomain.MachinePreparationMode(request.Mode), TemplateID: request.TemplateID,
-		ImageID: request.Settings.ImageID, Ephemeral: request.Settings.Ephemeral,
+		ImageID: request.Settings.ImageID, Ephemeral: ephemeral,
 		UserDataMode: request.UserData.Mode, UserData: request.UserData.Value,
 	}
 	if request.Network != nil {
@@ -140,7 +151,7 @@ func machinePreparationFromRequest(request machinePreparationRequest) platformdo
 			}
 		}
 	}
-	return preparation
+	return preparation, true
 }
 
 // slurmSpecFromRequest maps the optional Slurm deploy body into domain intent. A nil request
@@ -327,6 +338,10 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 	if req.SiteID == "" {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "siteId is required."))
 	}
+	preparation, ok := machinePreparationFromRequest(req.MachinePreparation)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`))
+	}
 
 	assignments := make([]platformdomain.RoleAssignment, len(req.RoleAssignments))
 	for i, assignment := range req.RoleAssignments {
@@ -388,7 +403,7 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 		},
 		SlurmSpec:   slurmSpecFromRequest(req.Slurm),
 		RequestedBy: requestedBy, RequestCorrelation: c.GetRespHeader(fiber.HeaderXRequestID),
-		MachinePreparation: machinePreparationFromRequest(req.MachinePreparation),
+		MachinePreparation: preparation,
 		TimeSyncCheck:      platformdomain.TimeSyncCheck(req.TimeSyncCheck),
 	})
 	if err != nil {

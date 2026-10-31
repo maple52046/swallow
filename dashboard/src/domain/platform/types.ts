@@ -7,7 +7,7 @@
  * docs/development/glossaries/terms/platform.md and the Node Role glossary.
  */
 
-import type { DeploymentNetworkMode } from "@/domain/provisioning/types";
+import type { DeployTarget, DeploymentNetworkMode } from "@/domain/provisioning/types";
 
 export type PlatformType = "kubernetes" | "slurm";
 
@@ -311,7 +311,8 @@ export interface RoleAssignment {
 export interface PlatformMachinePreparation {
   mode: "existing_os" | "provision_os";
   templateId?: string;
-  settings?: { imageId?: string; ephemeral?: boolean };
+  /** The image and Deploy Target of the provisioned targets, in the OS Deployment vocabulary. */
+  settings?: { imageId?: string; deployTarget?: DeployTarget };
   userData?: { mode: "inherit" | "replace" | "omit"; value?: string };
   network?: {
     // Deployment addressing intent, the provisioning contract's network.mode: "automatic" is

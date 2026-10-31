@@ -39,3 +39,29 @@ func TestParseDeployTarget(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveEphemeral(t *testing.T) {
+	ram, disk, bogus := "RAM", "disk", "floppy"
+	yes, no := true, false
+	tests := []struct {
+		name         string
+		deployTarget *string
+		ephemeral    *bool
+		want         *bool
+		ok           bool
+	}{
+		{name: "neither names no mode", ok: true},
+		{name: "ephemeral alias alone", ephemeral: &yes, want: &yes, ok: true},
+		{name: "deployTarget ram", deployTarget: &ram, want: &yes, ok: true},
+		{name: "deployTarget wins over the alias", deployTarget: &disk, ephemeral: &yes, want: &no, ok: true},
+		{name: "unknown deployTarget", deployTarget: &bogus, ephemeral: &yes},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := ResolveEphemeral(tc.deployTarget, tc.ephemeral)
+			if ok != tc.ok || (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) {
+				t.Fatalf("ResolveEphemeral() = %v, %v; want %v, %v", got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}

@@ -54,6 +54,23 @@ func DeployTargetForEphemeral(ephemeral bool) DeployTarget {
 	return DeployTargetDisk
 }
 
+// ResolveEphemeral folds a request's deploy mode onto the ephemeral flag: deployTarget, when
+// provided, is authoritative and must be valid; otherwise the deprecated ephemeral alias is used
+// as-is (nil when the request names no mode). ok=false means an unknown deployTarget, which a
+// delivery adapter answers with 400 rather than silently choosing a deploy mode. Every request that
+// accepts both fields (OS deployments and Platform deploys) resolves them here.
+func ResolveEphemeral(deployTarget *string, ephemeral *bool) (resolved *bool, ok bool) {
+	if deployTarget == nil {
+		return ephemeral, true
+	}
+	target, valid := ParseDeployTarget(*deployTarget)
+	if !valid {
+		return nil, false
+	}
+	value := target.Ephemeral()
+	return &value, true
+}
+
 // ParseDeployTarget normalizes an operator-supplied deploy-target string. It accepts the canonical
 // "disk"/"ram" case-insensitively and returns ok=false for anything else, so a delivery adapter can
 // map an unknown value onto a 400 rather than silently defaulting a deploy mode.

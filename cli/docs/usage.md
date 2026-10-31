@@ -676,7 +676,7 @@ machinePreparation:
   mode: provision_os
   settings:
     imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-amdgpu31.50-slurm-26.05.4-maasga146-20261021
-    ephemeral: false
+    deployTarget: disk     # or ram
   network:
     mode: automatic
     defaultGateway: false

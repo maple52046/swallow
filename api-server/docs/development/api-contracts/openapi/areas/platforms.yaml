@@ -2123,9 +2123,16 @@ components:
           properties:
             imageId:
               type: string
+            deployTarget:
+              type: string
+              enum: [disk, ram]
+              description: >-
+                The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
+                `ram` is a memory-backed root that leaves the disks untouched.
             ephemeral:
               type: boolean
-              description: True selects the `ram` Deploy Target (a memory-backed root).
+              deprecated: true
+              description: Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
         userData:
           type: object
           description: Write-only user data for the provisioned targets.
