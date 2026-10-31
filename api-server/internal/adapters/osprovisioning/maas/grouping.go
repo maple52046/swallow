@@ -27,9 +27,10 @@ func zonePath(name string) string {
 }
 
 // resourcePoolPath is the MAAS endpoint for one resource pool, addressed by its numeric id.
-// Unlike zones, MAAS keys resource pools by id, so callers resolve a name to an id first.
+// Unlike zones, MAAS keys resource pools by id, so callers resolve a name to an id first, and the
+// single-pool endpoint is the singular `resourcepool`, not the collection's `resourcepools`.
 func resourcePoolPath(id int) string {
-	return "/resourcepools/" + strconv.Itoa(id) + "/"
+	return "/resourcepool/" + strconv.Itoa(id) + "/"
 }
 
 // resourcePoolJSON is the subset of a MAAS resource pool swallow reads: the numeric id used in

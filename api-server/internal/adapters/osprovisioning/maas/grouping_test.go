@@ -125,7 +125,7 @@ func TestDeletePool_ResolvesNameToIDThenDeletes(t *testing.T) {
 	fake.respond("GET "+apiPrefix+"/resourcepools/{$}", http.StatusOK,
 		`[{"id":1,"name":"default"},{"id":5,"name":"research"}]`)
 	var deletedID string
-	fake.mux.HandleFunc("DELETE "+apiPrefix+"/resourcepools/{id}/{$}", func(w http.ResponseWriter, r *http.Request) {
+	fake.mux.HandleFunc("DELETE "+apiPrefix+"/resourcepool/{id}/{$}", func(w http.ResponseWriter, r *http.Request) {
 		deletedID = r.PathValue("id")
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -136,6 +136,40 @@ func TestDeletePool_ResolvesNameToIDThenDeletes(t *testing.T) {
 	}
 	if deletedID != "5" {
 		t.Errorf("deleted pool id: got %q, want 5", deletedID)
+	}
+}
+
+func TestRenamePool_PutsTheSingularPoolEndpoint(t *testing.T) {
+	fake := newFakeMAAS(t)
+	// MAAS lists pools at resourcepools/ but addresses one pool at the singular resourcepool/{id}/.
+	fake.respond("GET "+apiPrefix+"/resourcepools/{$}", http.StatusOK,
+		`[{"id":0,"name":"default"},{"id":5,"name":"research"}]`)
+	var (
+		mu      sync.Mutex
+		putID   string
+		putForm = map[string]string{}
+	)
+	fake.mux.HandleFunc("PUT "+apiPrefix+"/resourcepool/{id}/{$}", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err == nil {
+			mu.Lock()
+			putID = r.PathValue("id")
+			for name, values := range r.MultipartForm.Value {
+				putForm[name] = values[0]
+			}
+			mu.Unlock()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":5,"name":"ml","description":"Machine learning"}`))
+	})
+	provider := newTestProvider(t, fake)
+
+	if err := provider.RenamePool(context.Background(), "research", "ml", "Machine learning"); err != nil {
+		t.Fatalf("RenamePool: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if putID != "5" || putForm["name"] != "ml" || putForm["description"] != "Machine learning" {
+		t.Errorf("PUT resourcepool/%s with %v, want id 5 renamed to ml with its description", putID, putForm)
 	}
 }
 
