@@ -1,6 +1,6 @@
 # 058. Deployments can take the site's DHCP, and Subnet DNS is written through
 
-- Status: Accepted
+- Status: Accepted; Superseded in part by [071](071-provisioner-realized-desired-state.md) (swallow stores Subnet DNS as desired state and corrects drift instead of writing it through)
 - Date: 2026-10-13
 - 現行規格：[os-provisioning.md](../development/os-provisioning.md) §6 部署網路意圖與 Subnet DNS
 

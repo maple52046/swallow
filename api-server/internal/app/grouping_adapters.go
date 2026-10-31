@@ -6,6 +6,7 @@ import (
 
 	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 )
@@ -48,6 +49,28 @@ func (t groupingTargets) Sites(ctx context.Context) ([]string, error) {
 		}
 	}
 	return sites, nil
+}
+
+// provisionerIntegrations implements provisioningdomain.ProvisionerIntegrations over the site
+// Integration repository.
+type provisionerIntegrations struct {
+	integrations sitedomain.IntegrationRepository
+}
+
+var _ provisioningdomain.ProvisionerIntegrations = provisionerIntegrations{}
+
+func (p provisionerIntegrations) ProvisionerIDs(ctx context.Context) ([]string, error) {
+	integrations, err := p.integrations.List(ctx, sitedomain.IntegrationFilter{
+		Kind: sitedomain.IntegrationKindProvisioner, EnabledOnly: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(integrations))
+	for i, integration := range integrations {
+		ids[i] = integration.ID
+	}
+	return ids, nil
 }
 
 // serverPlacements implements infradomain.ServerPlacements over the Server spec, translating the

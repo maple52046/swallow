@@ -256,10 +256,18 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("pool repo init: %w", err)
 	}
+	subnetDNS, err := provisioningstore.NewMongoSubnetDNSRepo(db)
+	if err != nil {
+		return fmt.Errorf("subnet DNS repo init: %w", err)
+	}
 	runControllers := controllerRuntime(db, convergence.RuntimeOptions{ResyncInterval: cfg.ControllerResyncInterval},
 		provisioningapp.NewServerController(servers, servers, providers, serverWorkflowHolds{leases: leases},
 			serverGroupCatalog{zones: zones, pools: pools}, convergenceEvents),
 		infrastructureapp.NewCatalogController(zones, pools, groupingTargets{integrations: integrations}, providers, convergenceEvents),
+		provisioningapp.NewHTTPProxyController(provisionerIntegrations{integrations: integrations}, providers,
+			provisioningstore.NewMongoHTTPProxyRepo(db), convergenceEvents),
+		provisioningapp.NewSubnetDNSController(provisionerIntegrations{integrations: integrations}, providers,
+			subnetDNS, convergenceEvents),
 	)
 	controllersDone := make(chan struct{})
 	go func() {

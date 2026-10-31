@@ -12,6 +12,7 @@ import (
 
 	"github.com/maple52046/swallow/internal/core/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	"github.com/maple52046/swallow/internal/core/provisioning/domain/settingstest"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/apierror"
@@ -55,7 +56,7 @@ func (f proxyHandlerProviders) For(_ context.Context, integrationID string) (pro
 func newProxyHandlerApp(t *testing.T, provider *proxyHandlerProvider) *fiber.App {
 	t.Helper()
 	handler := &ProvisioningHandler{}
-	handler.AttachHTTPProxy(application.NewHTTPProxyUseCase(proxyHandlerProviders{provider: provider}))
+	handler.AttachHTTPProxy(application.NewHTTPProxyUseCase(proxyHandlerProviders{provider: provider}, settingstest.NewHTTPProxyStore()))
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
 	app.Get("/api/v1/provisioning/integrations/:id/http-proxy", handler.GetHTTPProxy)
@@ -79,14 +80,16 @@ func doProxyRequest(t *testing.T, app *fiber.App, method, integrationID, body st
 	return resp, decoded
 }
 
-// The read is uncached and shaped by provisioner-http-proxy.md; an unknown Integration is 404.
+// The read is uncached and shaped by provisioner-http-proxy.md: the provisioner's configuration is
+// adopted as the spec; an unknown Integration is 404.
 func TestGetHTTPProxy(t *testing.T) {
 	app := newProxyHandlerApp(t, &proxyHandlerProvider{config: provisioningdomain.HTTPProxyConfiguration{
 		Mode: provisioningdomain.HTTPProxyModePeer, URL: "http://squid:3128",
 	}})
 	resp, body := doProxyRequest(t, app, http.MethodGet, "maas-a", "")
-	if resp.StatusCode != http.StatusOK || body["integrationId"] != "maas-a" || body["mode"] != "peer" || body["httpProxy"] != "http://squid:3128" {
-		t.Errorf("GET status %d body %v, want 200 with the peer proxy", resp.StatusCode, body)
+	spec, _ := body["spec"].(map[string]any)
+	if resp.StatusCode != http.StatusOK || body["integrationId"] != "maas-a" || spec["mode"] != "peer" || spec["httpProxy"] != "http://squid:3128" {
+		t.Errorf("GET status %d body %v, want 200 with the peer proxy adopted", resp.StatusCode, body)
 	}
 	if resp.Header.Get(fiber.HeaderCacheControl) != "no-store" {
 		t.Error("GET response is cacheable")
@@ -98,14 +101,16 @@ func TestGetHTTPProxy(t *testing.T) {
 	}
 }
 
-// A valid write answers 200 with the read-back; malformed bodies and URLs are 400 without a write.
+// A valid write answers 200 with the stored spec and does not call the provisioner; malformed
+// bodies and URLs are 400.
 func TestSetHTTPProxy(t *testing.T) {
 	provider := &proxyHandlerProvider{}
 	app := newProxyHandlerApp(t, provider)
 
 	resp, body := doProxyRequest(t, app, http.MethodPut, "maas-a", `{"mode":"external","httpProxy":"http://10.170.168.20:18080"}`)
-	if resp.StatusCode != http.StatusOK || body["mode"] != "external" || body["httpProxy"] != "http://10.170.168.20:18080" {
-		t.Fatalf("PUT status %d body %v, want 200 with the external proxy read back", resp.StatusCode, body)
+	spec, _ := body["spec"].(map[string]any)
+	if resp.StatusCode != http.StatusOK || spec["mode"] != "external" || spec["httpProxy"] != "http://10.170.168.20:18080" || body["generation"] != float64(1) {
+		t.Fatalf("PUT status %d body %v, want 200 with the external proxy as the spec", resp.StatusCode, body)
 	}
 	if resp.Header.Get(fiber.HeaderCacheControl) != "no-store" {
 		t.Error("PUT response is cacheable")
@@ -125,7 +130,7 @@ func TestSetHTTPProxy(t *testing.T) {
 			t.Errorf("%s: status %d body %v, want 400 validation_error", name, resp.StatusCode, body)
 		}
 	}
-	if provider.writes != 1 {
-		t.Errorf("writes = %d, want only the valid PUT to reach the provisioner", provider.writes)
+	if provider.writes != 0 {
+		t.Errorf("writes = %d, want none: the controller writes the provisioner", provider.writes)
 	}
 }

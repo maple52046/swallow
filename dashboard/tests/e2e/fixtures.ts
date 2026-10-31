@@ -57,6 +57,27 @@ function groupFixture(id: string, name: string) {
   }
 }
 
+/**
+ * The conditions of a provisioner setting realized at generation `applied`: current when it equals
+ * `generation`, otherwise still being applied, or refused with `refused` as the provisioner's reason.
+ */
+function settingConditions(applied: number, generation: number, refused: string) {
+  const condition = (type: string, status: 'true' | 'false', reason: string, message: string, observed: number) =>
+    ({ type, status, reason, message, lastTransitionTime: now, observedGeneration: observed })
+  if (refused) {
+    return [
+      condition('realized', 'false', 'failed', refused, generation),
+      condition('drifted', 'false', 'in_sync', '', generation),
+      condition('requires_attention', 'true', 'provider_rejected', refused, generation),
+    ]
+  }
+  return [
+    condition('realized', 'true', 'converged', '', applied),
+    condition('drifted', 'false', 'in_sync', '', applied),
+    condition('requires_attention', 'false', 'none', '', applied),
+  ]
+}
+
 /** The conditions of a Server whose provisioner matches its spec at the given generation. */
 function realizedConditions(generation: number): Server['status']['conditions'] {
   const condition = (type: string, status: 'true' | 'false', reason: string) =>
@@ -525,7 +546,10 @@ export interface FixtureOptions {
   httpProxies?: Record<string, { mode: string; httpProxy: string }>
   /** Called for every Provisioner HTTP Proxy PUT with the Integration id and its JSON body. */
   onHttpProxyRequest?: (integrationId: string, body: Record<string, unknown>) => void
-  /** Makes every Provisioner HTTP Proxy PUT fail the way a non-administrator MAAS account does. */
+  /**
+   * Makes MAAS refuse every Provisioner HTTP Proxy change the way a non-administrator MAAS account
+   * does: the spec is stored, and the controller then reports requires_attention.
+   */
   httpProxyWriteForbidden?: boolean
   /** Servers whose inspected subnet has no provisioner DHCP, so the API suggests `dhcp` (ADR 058). */
   siteDhcpNetworkServerIds?: string[]
@@ -998,11 +1022,51 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       settings: { ...integration.settings },
       sync: { ...integration.sync },
     }))
-  const httpProxies = new Map(Object.entries(options.httpProxies ?? {}))
+  // Provisioner settings are swallow-owned desired state (decision 071). The fixture plays the
+  // controller: a PUT stores the spec unapplied, and the next read finds it applied (or refused).
+  type HttpProxyConfigFixture = { mode: string; httpProxy: string }
+  type HttpProxyFixture = { generation: number; spec: HttpProxyConfigFixture; observed: HttpProxyConfigFixture; applied: number; refused: string }
+  const httpProxies = new Map<string, HttpProxyFixture>(
+    Object.entries(options.httpProxies ?? {}).map(([id, config]) => [id, { generation: 1, spec: { ...config }, observed: { ...config }, applied: 1, refused: '' }]),
+  )
+  const httpProxyOf = (integrationId: string): HttpProxyFixture => {
+    let proxy = httpProxies.get(integrationId)
+    if (!proxy) {
+      proxy = { generation: 1, spec: { mode: 'builtin', httpProxy: '' }, observed: { mode: 'builtin', httpProxy: '' }, applied: 1, refused: '' }
+      httpProxies.set(integrationId, proxy)
+    }
+    return proxy
+  }
+  const httpProxyBody = (integrationId: string, proxy: HttpProxyFixture) => ({
+    integrationId, generation: proxy.generation, spec: proxy.spec,
+    status: {
+      observedGeneration: proxy.applied, conditions: settingConditions(proxy.applied, proxy.generation, proxy.refused),
+      observed: proxy.observed, observedAt: now,
+    },
+  })
   // Subnet DNS is live MAAS state as well, kept per Integration so a write is read back.
   const provisionerSubnets = new Map(
     Object.entries(options.provisionerSubnets ?? {}).map(([id, subnets]) => [id, subnets.map((subnet) => ({ ...subnet }))]),
   )
+  // Each subnet's DNS setting: adopted from the fixture's dnsServers (what MAAS holds) on first use.
+  const subnetSettings = new Map<string, { generation: number; spec: string[]; applied: number }>()
+  const subnetSettingOf = (integrationId: string, subnet: ProvisionerSubnetFixture) => {
+    const key = `${integrationId}/${subnet.id}`
+    let setting = subnetSettings.get(key)
+    if (!setting) {
+      setting = { generation: 1, spec: [...subnet.dnsServers], applied: 1 }
+      subnetSettings.set(key, setting)
+    }
+    return setting
+  }
+  const subnetBody = (integrationId: string, subnet: ProvisionerSubnetFixture) => {
+    const setting = subnetSettingOf(integrationId, subnet)
+    const { dnsServers, ...facts } = subnet
+    return {
+      ...facts, generation: setting.generation, spec: { dnsServers: setting.spec },
+      status: { observedGeneration: setting.applied, conditions: settingConditions(setting.applied, setting.generation, ''), dnsServers },
+    }
+  }
   const subnetsOf = (integrationId: string): ProvisionerSubnetFixture[] => {
     let subnets = provisionerSubnets.get(integrationId)
     if (!subnets) {
@@ -1759,14 +1823,20 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         return json(route, { error: { code: 'validation_error', message: 'integration is not a provisioner' } }, 400)
       }
       if (request.method() === 'GET') {
-        return json(route, { integrationId, ...(httpProxies.get(integrationId) ?? { mode: 'builtin', httpProxy: '' }) })
+        const proxy = httpProxyOf(integrationId)
+        if (proxy.applied < proxy.generation && !proxy.refused) {
+          if (options.httpProxyWriteForbidden) {
+            proxy.refused = 'The provisioner credential may not change MAAS settings; its MAAS account must be an administrator.'
+          } else {
+            proxy.observed = { ...proxy.spec }
+            proxy.applied = proxy.generation
+          }
+        }
+        return json(route, httpProxyBody(integrationId, proxy))
       }
       if (request.method() === 'PUT') {
         const body = (request.postDataJSON() ?? {}) as { mode?: string; httpProxy?: string }
         options.onHttpProxyRequest?.(integrationId, body)
-        if (options.httpProxyWriteForbidden) {
-          return json(route, { error: { code: 'provider_unavailable', message: 'The provisioner credential may not change MAAS settings; its MAAS account must be an administrator.' } }, 503)
-        }
         const mode = body.mode ?? ''
         const needsUrl = mode === 'external' || mode === 'peer'
         if (!['none', 'builtin', 'external', 'peer'].includes(mode)) {
@@ -1775,9 +1845,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         if (needsUrl && !/^https?:\/\/[^/@?#\s]+\/?$/.test(body.httpProxy?.trim() ?? '')) {
           return json(route, { error: { code: 'validation_error', message: 'invalid provisioner HTTP proxy: httpProxy must start with http:// or https://' } }, 400)
         }
-        const stored = { mode, httpProxy: needsUrl ? (body.httpProxy ?? '').trim().replace(/\/$/, '') : '' }
-        httpProxies.set(integrationId, stored)
-        return json(route, { integrationId, ...stored })
+        const proxy = httpProxyOf(integrationId)
+        proxy.spec = { mode, httpProxy: needsUrl ? (body.httpProxy ?? '').trim().replace(/\/$/, '') : '' }
+        proxy.generation++
+        proxy.refused = ''
+        return json(route, httpProxyBody(integrationId, proxy))
       }
     }
     // Subnet DNS (provisioner-subnet-dns.md): the list, and a write validated the way the API does
@@ -1792,7 +1864,14 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         return json(route, { error: { code: 'validation_error', message: 'integration is not a provisioner' } }, 400)
       }
       if (subnetListMatch && request.method() === 'GET') {
-        return json(route, { integrationId, subnets: subnetsOf(integrationId) })
+        for (const subnet of subnetsOf(integrationId)) {
+          const setting = subnetSettingOf(integrationId, subnet)
+          if (setting.applied < setting.generation) {
+            subnet.dnsServers = [...setting.spec]
+            setting.applied = setting.generation
+          }
+        }
+        return json(route, { integrationId, subnets: subnetsOf(integrationId).map((subnet) => subnetBody(integrationId, subnet)) })
       }
       if (subnetDnsMatch && request.method() === 'PUT') {
         const subnetId = decodeURIComponent(subnetDnsMatch[2])
@@ -1807,8 +1886,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         if (servers.length > 8 || new Set(servers).size !== servers.length || servers.some((entry) => !/^[0-9a-f.:]+$/i.test(entry))) {
           return json(route, { error: { code: 'validation_error', message: 'invalid subnet DNS servers: enter up to 8 distinct IP addresses' } }, 400)
         }
-        subnet.dnsServers = servers
-        return json(route, subnet)
+        const setting = subnetSettingOf(integrationId, subnet)
+        setting.spec = servers
+        setting.generation++
+        return json(route, subnetBody(integrationId, subnet))
       }
     }
     if (path === '/api/v1/integrations' && request.method() === 'GET') {

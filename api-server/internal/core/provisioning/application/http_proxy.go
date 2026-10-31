@@ -2,17 +2,38 @@ package application
 
 import (
 	"context"
+	"errors"
+	"time"
 
+	"github.com/maple52046/swallow/internal/core/convergence"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
 // HTTPProxyItem is a provisioner Integration's Provisioner HTTP Proxy as the API reports it
-// (provisioner-http-proxy.md, decision 056). HTTPProxy is "" unless Mode is external or peer, so an
-// item can be written back unchanged.
+// (provisioner-http-proxy.md, decisions 056 and 071): the spec swallow owns and the status the
+// HTTP Proxy controller reports.
 type HTTPProxyItem struct {
-	IntegrationID string `json:"integrationId"`
-	Mode          string `json:"mode"`
-	HTTPProxy     string `json:"httpProxy"`
+	IntegrationID string              `json:"integrationId"`
+	Generation    int64               `json:"generation"`
+	Spec          HTTPProxyConfigItem `json:"spec"`
+	Status        HTTPProxyStatusItem `json:"status"`
+}
+
+// HTTPProxyConfigItem is one HTTP Proxy configuration; HTTPProxy is "" unless Mode is external or
+// peer, so a spec can be written back unchanged.
+type HTTPProxyConfigItem struct {
+	Mode      string `json:"mode"`
+	HTTPProxy string `json:"httpProxy"`
+}
+
+// HTTPProxyStatusItem is the published status. Observed is what the provisioner held when last
+// read, null before the first read.
+type HTTPProxyStatusItem struct {
+	ObservedGeneration int64                       `json:"observedGeneration"`
+	Conditions         []convergence.ConditionItem `json:"conditions"`
+	Observed           *HTTPProxyConfigItem        `json:"observed"`
+	ObservedAt         *string                     `json:"observedAt"`
 }
 
 // SetHTTPProxyInput is an operator's replacement Provisioner HTTP Proxy, still unvalidated.
@@ -21,37 +42,47 @@ type SetHTTPProxyInput struct {
 	HTTPProxy string
 }
 
-// HTTPProxyUseCase reads and writes the provisioner-owned Provisioner HTTP Proxy of one provisioner
-// Integration (decision 056).
+// HTTPProxyUseCase reads and writes the Provisioner HTTP Proxy of one provisioner Integration as
+// swallow-owned desired state (decision 071).
 //
-// Both directions are live: the provisioner is the source of truth and swallow stores nothing, so a
-// read always reflects the provisioner and a write is read back before it is reported. The setting
-// belongs to the Integration, not to a Server, so no Server Lock applies. Writes are not serialized:
-// two concurrent writes may interleave their provider calls, and the read-back of each reports what
-// the provisioner ended up holding. Authorization (admin) is enforced by the route.
+// A write validates the configuration and stores it as the spec; the HTTP Proxy controller in the
+// worker writes it to the provisioner and reports it in the status. A read returns the stored
+// setting; an Integration with none yet is adopted from a live read first, which never writes to
+// the provisioner. The setting belongs to the Integration, not to a Server, so no Server Lock
+// applies. Authorization (admin) is enforced by the route.
 type HTTPProxyUseCase struct {
 	providers provisioningdomain.ProviderFactory
+	settings  provisioningdomain.HTTPProxyStore
+	now       func() time.Time
 }
 
-// NewHTTPProxyUseCase wires the use case to the factory that resolves an Integration's provider.
-func NewHTTPProxyUseCase(providers provisioningdomain.ProviderFactory) *HTTPProxyUseCase {
-	return &HTTPProxyUseCase{providers: providers}
+// NewHTTPProxyUseCase wires the use case to the factory that resolves an Integration's provider and
+// the setting store.
+func NewHTTPProxyUseCase(providers provisioningdomain.ProviderFactory, settings provisioningdomain.HTTPProxyStore) *HTTPProxyUseCase {
+	return &HTTPProxyUseCase{providers: providers, settings: settings, now: func() time.Time { return time.Now().UTC() }}
 }
 
-// Get returns the Integration's Provisioner HTTP Proxy read live from its provisioner. A provisioner
-// without the capability is refused as unsupported; the factory's errors (unknown Integration, not a
-// provisioner, no credential) and provider errors pass through for the shared mapping.
+// Get returns the Integration's HTTP Proxy setting. A provisioner without the capability is
+// refused as unsupported; the factory's errors (unknown Integration, not a provisioner, no
+// credential) and provider errors from an adoption read pass through for the shared mapping.
 func (uc *HTTPProxyUseCase) Get(ctx context.Context, integrationID string) (*HTTPProxyItem, error) {
-	reader, _, err := uc.ports(ctx, integrationID)
+	reader, err := uc.reader(ctx, integrationID)
 	if err != nil {
 		return nil, err
 	}
-	return readHTTPProxy(ctx, integrationID, reader)
+	setting, err := uc.settings.Get(ctx, integrationID)
+	if errors.Is(err, provisioningdomain.ErrSettingNotFound) {
+		setting, err = uc.adopt(ctx, integrationID, reader)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return ToHTTPProxyItem(setting), nil
 }
 
-// Set validates input, writes it through to the provisioner, and returns the configuration read
-// back. An invalid input is ErrInvalidHTTPProxy before the provisioner is resolved or called; a
-// refusal by the provisioner is its ProviderError.
+// Set validates input and stores it as the Integration's spec, returning the stored setting. An
+// invalid input is ErrInvalidHTTPProxy before the provisioner is resolved; a provisioner without
+// the capability is refused as unsupported. The provisioner is not called.
 func (uc *HTTPProxyUseCase) Set(ctx context.Context, integrationID string, input SetHTTPProxyInput) (*HTTPProxyItem, error) {
 	config, err := provisioningdomain.NormalizeHTTPProxy(provisioningdomain.HTTPProxyConfiguration{
 		Mode: provisioningdomain.HTTPProxyMode(input.Mode), URL: input.HTTPProxy,
@@ -59,22 +90,40 @@ func (uc *HTTPProxyUseCase) Set(ctx context.Context, integrationID string, input
 	if err != nil {
 		return nil, err
 	}
-	reader, writer, err := uc.ports(ctx, integrationID)
+	if _, err := uc.reader(ctx, integrationID); err != nil {
+		return nil, err
+	}
+	setting, err := uc.settings.PutSpec(ctx, integrationID, config)
 	if err != nil {
 		return nil, err
 	}
-	if err := writer.SetHTTPProxy(ctx, config); err != nil {
-		return nil, err
-	}
-	return readHTTPProxy(ctx, integrationID, reader)
+	return ToHTTPProxyItem(setting), nil
 }
 
-// ports returns the Integration's HTTP Proxy ports, or the unsupported refusal when its provider
-// does not advertise and implement both.
-func (uc *HTTPProxyUseCase) ports(ctx context.Context, integrationID string) (
+// adopt stores the provisioner's current configuration as the Integration's setting, or returns
+// the one another adopter stored first.
+func (uc *HTTPProxyUseCase) adopt(ctx context.Context, integrationID string, reader provisioningdomain.HTTPProxyReader) (*provisioningdomain.HTTPProxySetting, error) {
+	observed, err := reader.HTTPProxy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := uc.settings.Adopt(ctx, AdoptedHTTPProxy(integrationID, observed, uc.now())); err != nil {
+		return nil, err
+	}
+	return uc.settings.Get(ctx, integrationID)
+}
+
+// reader returns the Integration's HTTP Proxy reader, or the unsupported refusal when its provider
+// does not advertise and implement both directions.
+func (uc *HTTPProxyUseCase) reader(ctx context.Context, integrationID string) (provisioningdomain.HTTPProxyReader, error) {
+	reader, _, err := httpProxyPorts(ctx, uc.providers, integrationID)
+	return reader, err
+}
+
+func httpProxyPorts(ctx context.Context, providers provisioningdomain.ProviderFactory, integrationID string) (
 	provisioningdomain.HTTPProxyReader, provisioningdomain.HTTPProxyWriter, error,
 ) {
-	provider, err := uc.providers.For(ctx, integrationID)
+	provider, err := providers.For(ctx, integrationID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -86,15 +135,55 @@ func (uc *HTTPProxyUseCase) ports(ctx context.Context, integrationID string) (
 	return reader, writer, nil
 }
 
-// readHTTPProxy shapes the live configuration into the API item.
-func readHTTPProxy(ctx context.Context, integrationID string, reader provisioningdomain.HTTPProxyReader) (*HTTPProxyItem, error) {
-	config, err := reader.HTTPProxy(ctx)
-	if err != nil {
-		return nil, err
+// AdoptedHTTPProxy is the setting the first observation adopts: the observed configuration as the
+// spec at generation 1, realized by definition.
+func AdoptedHTTPProxy(integrationID string, observed provisioningdomain.HTTPProxyConfiguration, now time.Time) *provisioningdomain.HTTPProxySetting {
+	return &provisioningdomain.HTTPProxySetting{
+		IntegrationID: integrationID, Generation: 1, Spec: observed,
+		Status: provisioningdomain.HTTPProxyStatus{
+			ObservedGeneration: 1, Conditions: adoptedConditions(now), Observed: &observed, ObservedAt: &now,
+		},
 	}
-	item := &HTTPProxyItem{IntegrationID: integrationID, Mode: string(config.Mode)}
+}
+
+// adoptedConditions are the conditions of a setting adopted from its observation.
+func adoptedConditions(now time.Time) []convergence.Condition {
+	var conditions []convergence.Condition
+	for _, c := range []convergence.Condition{
+		{Type: convergence.ConditionRealized, Status: convergence.ConditionTrue, Reason: convergence.ReasonConverged},
+		{Type: convergence.ConditionDrifted, Status: convergence.ConditionFalse, Reason: convergence.ReasonInSync},
+		{Type: convergence.ConditionRequiresAttention, Status: convergence.ConditionFalse, Reason: convergence.ReasonAttentionNotNeeded},
+	} {
+		c.ObservedGeneration = 1
+		conditions, _ = convergence.SetCondition(conditions, c, now)
+	}
+	return conditions
+}
+
+// ToHTTPProxyItem shapes a stored setting into the API item.
+func ToHTTPProxyItem(setting *provisioningdomain.HTTPProxySetting) *HTTPProxyItem {
+	item := &HTTPProxyItem{
+		IntegrationID: setting.IntegrationID, Generation: setting.Generation,
+		Spec: httpProxyConfigItem(setting.Spec),
+		Status: HTTPProxyStatusItem{
+			ObservedGeneration: setting.Status.ObservedGeneration,
+			Conditions:         convergence.ConditionItems(setting.Status.Conditions),
+		},
+	}
+	if setting.Status.Observed != nil {
+		observed := httpProxyConfigItem(*setting.Status.Observed)
+		item.Status.Observed = &observed
+	}
+	if setting.Status.ObservedAt != nil {
+		item.Status.ObservedAt = wire.TimePtr(*setting.Status.ObservedAt)
+	}
+	return item
+}
+
+func httpProxyConfigItem(config provisioningdomain.HTTPProxyConfiguration) HTTPProxyConfigItem {
+	item := HTTPProxyConfigItem{Mode: string(config.Mode)}
 	if config.Mode.NeedsURL() {
 		item.HTTPProxy = config.URL
 	}
-	return item, nil
+	return item
 }

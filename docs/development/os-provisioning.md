@@ -80,7 +80,7 @@ OS Provisioning bounded context 的參與者、上下游關係與翻譯方式見
 | Deployment Template | swallow | 完整 CRUD（§3） | owned collection |
 | 部署網路意圖 | swallow | 部署時、或修改 Ready Server 的網路時套用（§6） | Template 與 Workflow 的 intent snapshot |
 | NIC、subnet、link、IP 分配 | provisioner | live read，每次 mutation 前重新驗證 | 不存；provider id 只當 live reference |
-| Subnet DNS、Provisioner HTTP Proxy | provisioner | live read + write-through（§6、§7） | 不存 |
+| Subnet DNS、Provisioner HTTP Proxy | swallow | spec；controller 寫入 provisioner 並讀回（§6、§7） | `provisioner_subnet_dns`、`provisioner_http_proxies` |
 | Zone 與 Pool 的 catalog | swallow | spec；catalog controller 在 Site 的每個 provisioner 實現（§8） | `zones`、`pools` |
 | Server 的 placement（Zone／Pool） | swallow | Server 的 spec；Server controller 收斂（§8） | `servers` 的 `spec.zoneId`、`spec.poolId` |
 | Server 的 observed zone／pool | provisioner | reconcile 鏡射 | mirrored |
@@ -291,14 +291,18 @@ Network Inspection 與 Multi-Server Deployment。
 ### 6.4 Subnet DNS
 
 - [Subnet DNS](glossaries/terms/subnet-dns.md) 是 provisioner subnet 的 DNS server 清單（MAAS：subnet 的
-  `dns_servers`），由 provisioner 擁有。swallow 以 provider 能力 `SubnetDNS` live read 並 write-through，不儲存，
-  也不放進 Integration `settings`。API 見
+  `dns_servers`），由 swallow 以 desired state 擁有（[desired-state-model.md](desired-state-model.md) §4.4），不放進
+  Integration `settings`。API 見
   [provisioner-subnet-dns.md](../../api-server/docs/development/api-contracts/api-server/provisioner-subnet-dns.md)。
+  - subnet 本身屬於 provisioner，每次 live read；每個 subnet 的 DNS 清單是 swallow 的 spec。第一次看到的 subnet
+    以它目前的清單接管（不寫入 provisioner）；provisioner 不再有的 subnet，其設定被移除。
+  - API 寫入只存 spec；worker 中的 Subnet DNS controller 以 provider 能力 `SubnetDNS` 寫入並讀回。在 MAAS 改動是
+    drift，在定期 resync 改回；provisioner 拒絕時 `requires_attention`，直到 spec 改變。
 - 清單最多 8 個不重複的 IP（不得帶 zone），`[]` 代表清除。它只影響之後由 provisioner 開始的 `automatic` 與 `static`
   部署；`dhcp` 部署從 DHCP server 取得 DNS；已部署的主機不變。
-- 寫入需要 Integration 背後的 MAAS 帳號是 administrator，否則回 `503 provider_unavailable`。
-- swallow 仍不建模 DNS zone、record、resolver 或自己的 subnet（ADR 001）；它只透過 provisioner 編輯 provisioner 擁有
-  的一個屬性。目前 CLI 沒有對應指令。
+- 套用需要 Integration 背後的 MAAS 帳號是 administrator，否則 controller 回報 `requires_attention`。
+- swallow 仍不建模 DNS zone、record、resolver 或自己的 subnet（ADR 001）；它只擁有 provisioner subnet 上的這一個
+  屬性。目前 CLI 沒有對應指令。
 
 **設計理由**：「自動給位址」是 swallow 的意圖，不是協定；MAAS 只在觀察到 live lease 時才知道 DHCP 介面的位址，
 而 subnet 的 dynamic range 依慣例是 enlistment／commissioning 用的短期池，所以 `automatic` 改由 `AUTO` 實現，位址
@@ -315,24 +319,25 @@ provisioner 自己的設定而不由 swallow 產生 cloud-init。見
 ## 7. Provisioner HTTP Proxy
 
 - [Provisioner HTTP Proxy](glossaries/terms/provisioner-http-proxy.md) 是 provisioner 交給它部署的 machine 用來
-  抓套件的 proxy（也是 provisioner 自己下載 boot image 用的 proxy），由 provisioner 擁有。swallow 以 provider 能力
-  `HTTPProxy`，在 Integration 範圍的獨立 route 上 live read 並 write-through，不儲存。API 見
+  抓套件的 proxy（也是 provisioner 自己下載 boot image 用的 proxy），由 swallow 以 desired state 擁有，在 Integration
+  範圍的獨立 route 上讀寫：API 寫入只存 spec，worker 中的 HTTP Proxy controller 以 provider 能力 `HTTPProxy` 寫入
+  provisioner 並讀回；在 MAAS 改動是 drift，在定期 resync 改回；第一次讀取以 provisioner 目前的設定接管。API 見
   [provisioner-http-proxy.md](../../api-server/docs/development/api-contracts/api-server/provisioner-http-proxy.md)。
 - 它不是 Integration 的 `settings`：`settings` 描述 swallow 如何連到 provisioner（例如 `timeout`、
   `insecureSkipVerify`）與 swallow 自己的政策（例如 `autoInspect`），MAAS 看不到它們。
-- 封閉的 mode 值集 `none`｜`builtin`｜`external`｜`peer`（意義見 glossary）。寫入一律整組取代 mode 與 URL，所以
-  寫入後的讀取回報剛寫入的值；讀取以 MAAS 決定 machine 用哪個 proxy 的規則推導 mode，在 swallow 之外改過的設定
-  依其效果回報，讀到的值可以原樣寫回。
+- 封閉的 mode 值集 `none`｜`builtin`｜`external`｜`peer`（意義見 glossary）。spec 一律整組取代 mode 與 URL；觀察以
+  MAAS 決定 machine 用哪個 proxy 的規則推導 mode，在 swallow 之外改過的設定依其效果比較，觀察到的值可以原樣寫回。
 - URL 必須是 `http`／`https`、只有 host 與選用 port；帶帳密、query、fragment 或路徑都拒絕，因為這個設定可被讀回，
   swallow 不回傳 secret。
 - MAAS 以三個 region 設定（`enable_http_proxy`、`use_peer_proxy`、`http_proxy`）實現，逐一寫入、不是原子操作：
-  中途失敗會留下新舊混合的狀態，下次讀取如實回報，重送同一次寫入即可收斂。寫入需要 MAAS administrator 帳號；
-  不測試 proxy 是否可達；只影響之後開始的部署。
+  中途失敗會留下新舊混合的狀態，controller 重試直到收斂。套用需要 MAAS administrator 帳號（否則
+  `requires_attention`）；不測試 proxy 是否可達；只影響之後開始的部署。
 - Dashboard 的入口是 Integration 設定頁的 HTTP proxy 分頁；目前 CLI 沒有對應指令。
 
-**設計理由**：把 proxy 存在 Integration `settings` 再推送，會產生一份在有人直接改 MAAS 時漂移的副本，而且讓 swallow
-紀錄的 PATCH 帶上無法回滾的 provider 副作用；直接暴露三個 MAAS 旗標則會讓多種等價組合與 MAAS 詞彙進入 API。見
-[decision 056](../decisions/056-provisioner-http-proxy.md)。
+**設計理由**：proxy 不放在 Integration `settings`，因為它不是 swallow 連到 provisioner 的方式，也不應讓 Integration
+的 PATCH 帶上 provider 副作用；它是獨立的 desired state，由 controller 實現並修正漂移（decision 071 取代 decision 056
+接受的「不儲存、live read」）。直接暴露三個 MAAS 旗標則會讓多種等價組合與 MAAS 詞彙進入 API。見
+[decision 056](../decisions/056-provisioner-http-proxy.md)、[decision 071](../decisions/071-provisioner-realized-desired-state.md)。
 
 ---
 

@@ -1,3 +1,4 @@
+import type { Condition } from "@/domain/convergence/types";
 import type { ProvisioningActionResult } from "@/domain/server/types";
 
 /**
@@ -484,14 +485,30 @@ export type ProvisionerHttpProxyMode = "none" | "builtin" | "external" | "peer";
 export const PROVISIONER_HTTP_PROXY_MODES: readonly ProvisionerHttpProxyMode[] = ["none", "builtin", "external", "peer"];
 
 /**
- * One provisioner Integration's Provisioner HTTP Proxy, read live from the provisioner (decision
- * 056). swallow stores none of it, and it is not part of the Integration's `settings`. `httpProxy`
- * is `""` unless the mode routes through it, so a value read can be written back unchanged.
+ * One HTTP Proxy configuration. `httpProxy` is `""` unless the mode routes through it, so a value
+ * read can be written back unchanged.
+ */
+export interface ProvisionerHttpProxyConfig {
+  mode: ProvisionerHttpProxyMode;
+  httpProxy: string;
+}
+
+/**
+ * One provisioner Integration's Provisioner HTTP Proxy as swallow-owned desired state (decisions
+ * 056 and 071), not part of the Integration's `settings`. `spec` is what swallow wants; the backend
+ * controller writes it to the provisioner and reports in `status` whether it holds it
+ * (`conditions`) and what it held when last read (`observed`, null before the first read).
  */
 export interface ProvisionerHttpProxy {
   integrationId: string;
-  mode: ProvisionerHttpProxyMode;
-  httpProxy: string;
+  generation: number;
+  spec: ProvisionerHttpProxyConfig;
+  status: {
+    observedGeneration: number;
+    conditions: Condition[];
+    observed: ProvisionerHttpProxyConfig | null;
+    observedAt: string | null;
+  };
 }
 
 /**
@@ -512,10 +529,13 @@ export function httpProxyModeNeedsUrl(mode: ProvisionerHttpProxyMode): boolean {
 export const MAX_SUBNET_DNS_SERVERS = 8;
 
 /**
- * One subnet of a provisioner Integration with its Subnet DNS (glossary Subnet DNS, decision 058),
- * read live from the provisioner; swallow stores none of it. `dnsServers` is in the provisioner's
- * order and empty when the subnet has none, in which case `automatic` and `static` deployments on
- * it use the provisioner's own DNS. `dhcp` deployments take DNS from the DHCP server instead.
+ * One subnet of a provisioner Integration with its Subnet DNS (glossary Subnet DNS, decisions 058
+ * and 071). The subnet's own facts are read live from the provisioner, which owns them. Its DNS
+ * servers are swallow-owned desired state: `spec.dnsServers` is what swallow wants and
+ * `status.dnsServers` what the provisioner holds now, both in order and empty when there are none,
+ * in which case `automatic` and `static` deployments on it use the provisioner's own DNS. `dhcp`
+ * deployments take DNS from the DHCP server instead. `status.conditions` say whether the
+ * provisioner holds the spec.
  *
  * `attached` marks a real network by the provisioner's own markers (a controller interface, its
  * DHCP, a machine's boot interface, or a NIC with hardware identity is on it). The rest are
@@ -530,7 +550,9 @@ export interface ProvisionerSubnet {
   managed: boolean;
   provisionerDhcp: boolean;
   attached: boolean;
-  dnsServers: string[];
+  generation: number;
+  spec: { dnsServers: string[] };
+  status: { observedGeneration: number; conditions: Condition[]; dnsServers: string[] };
 }
 
 /** The port the MAAS rack serves `ipxe.cfg` on when `rackAddress` names none (contract boot-isos.md). */

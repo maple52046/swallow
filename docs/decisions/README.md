@@ -122,9 +122,9 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [053](053-server-enrollment-and-automatic-inspection.md) | Server Enrollment 引導 network boot 與 existing OS；硬體檢視改為自動啟動的 durable Workflow | — |
 | [054](054-provisioner-power-configuration.md) | Power Configuration 歸 provisioner、swallow 即時 write-through；以 power adapter 建模並診斷缺少的 driver | refine 053 |
 | [055](055-libvirt-virtual-machine-enrollment.md) | libvirt VM 以 domain 名稱經 Hypervisor enroll；Boot Media 新增 libvirt method | refine 054 |
-| [056](056-provisioner-http-proxy.md) | Provisioner HTTP Proxy 由 provisioner 擁有，swallow 以封閉 mode 值集即時讀寫 | — |
+| [056](056-provisioner-http-proxy.md) | Provisioner HTTP Proxy 由 provisioner 擁有，swallow 以封閉 mode 值集即時讀寫 | 部分被 071 取代 |
 | [057](057-uefi-boot-iso-hand-off.md) | Boot ISO 的 UEFI 改用內建 GRUB 走 MAAS 原生路徑，可原地 rebuild，並擋下需重新檢視的磁碟部署 | refine 049 |
-| [058](058-deployment-dhcp-and-subnet-dns.md) | `dhcp` 重新成為部署模式，Subnet DNS 由 swallow 透過 provisioner write-through | supersede 018（部分） |
+| [058](058-deployment-dhcp-and-subnet-dns.md) | `dhcp` 重新成為部署模式，Subnet DNS 由 swallow 透過 provisioner write-through | supersede 018（部分）；部分被 071 取代 |
 | [059](059-retry-recovers-failed-deployment.md) | 明確重試失敗的 `provision-os` 會先回復 Server 再重新部署 | refine 033 |
 | [060](060-cancel-and-rerun-converge.md) | 取消不改寫已完成的結果並把被中斷的部署帶回 Ready；Rerun 依現況收斂而非沿用歷史結果 | refine 017、020、059 |
 | [061](061-recovery-supersedes-blocking-work.md) | Release、Recover 與 Platform uninstall 由後端取消佔用其 Server 的 Workflow，等它們結束後自動執行 | refine 060 |

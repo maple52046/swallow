@@ -1,5 +1,5 @@
 # Sites and their provider Integrations, each Site's Automation Configuration, swallow-owned Zones
-# and Pools with Server placement, and the provisioner-owned HTTP proxy and subnet DNS of one
+# and Pools with Server placement, and the swallow-owned HTTP proxy and subnet DNS settings of one
 # provisioner Integration (contracts sites-integrations.md, site-automation.md, infrastructure.md,
 # provisioner-http-proxy.md, provisioner-subnet-dns.md; decisions 029, 032, 041, 056, 058, 071).
 tags:
@@ -7,7 +7,7 @@ tags:
     description: >-
       Sites and the provider Integrations attached to them (credentials write-only), each Site's
       Automation Configuration for embedded Ansible, Site-scoped Zones and Pools and a Server's
-      placement in them, and the live provisioner-owned HTTP proxy and subnet DNS settings of a
+      placement in them, and the HTTP proxy and subnet DNS settings swallow keeps on a
       provisioner Integration.
 paths:
   /api/v1/sites:
@@ -1142,13 +1142,14 @@ paths:
     get:
       tags: [sites]
       operationId: getProvisionerHttpProxy
-      summary: Read a provisioner Integration's HTTP proxy for deployed machines, live.
+      summary: Read a provisioner Integration's HTTP proxy setting for deployed machines.
       description: >-
-        Requires role `admin` (provisioner-http-proxy.md). Read from the provisioner on every
-        request; swallow stores nothing. Needs the provisioner's HTTP Proxy capability.
+        Requires role `admin` (provisioner-http-proxy.md). Returns swallow's stored setting; when
+        swallow holds none yet, the provisioner's current configuration is read and adopted as the
+        spec first, without writing to it. Needs the provisioner's HTTP Proxy capability.
       responses:
         '200':
-          description: The Provisioner HTTP Proxy the provisioner holds now.
+          description: The setting.
           headers:
             Cache-Control:
               $ref: '#/components/headers/NoStore'
@@ -1176,8 +1177,8 @@ paths:
                 $ref: '#/components/schemas/Error'
         '503':
           description: >-
-            `provider_unavailable`: the provisioner could not be reached, the Integration has no
-            credential, or its credential may not read provisioner settings.
+            `provider_unavailable`: an adopting read could not reach the provisioner, the
+            Integration has no credential, or its credential may not read provisioner settings.
           content:
             application/json:
               schema:
@@ -1187,12 +1188,12 @@ paths:
     put:
       tags: [sites]
       operationId: replaceProvisionerHttpProxy
-      summary: Replace a provisioner Integration's HTTP proxy for deployed machines, written through.
+      summary: Replace a provisioner Integration's HTTP proxy spec for deployed machines.
       description: >-
-        Requires role `admin`. swallow validates the body before calling the provisioner, writes
-        it through, and answers with the configuration read back. The write affects only
-        deployments the provisioner starts afterwards. A write that fails part-way may leave a mix
-        of old and new provider settings; repeating it converges.
+        Requires role `admin`. swallow validates the body and stores it as the spec (the generation
+        increments), then answers without calling the provisioner; the HTTP Proxy controller
+        writes it to the provisioner shortly after, and the setting's conditions report when it
+        has. The change affects only deployments the provisioner starts afterwards.
       requestBody:
         required: true
         content:
@@ -1216,7 +1217,7 @@ paths:
                     user or password, a query, a fragment, or a path other than `/`.
       responses:
         '200':
-          description: The Provisioner HTTP Proxy read back from the provisioner after the write.
+          description: The stored setting with the new spec.
           headers:
             Cache-Control:
               $ref: '#/components/headers/NoStore'
@@ -1227,9 +1228,8 @@ paths:
         '400':
           description: >-
             `validation_error`: the body is not valid JSON; `mode` is missing or not a mode;
-            `httpProxy` is missing, malformed, or does not apply to `mode`; the Integration is not
-            a `provisioner`, has no adapter, or its provisioner lacks the capability; or the
-            provisioner refused the value (the message carries its explanation).
+            `httpProxy` is missing, malformed, or does not apply to `mode`; or the Integration is
+            not a `provisioner`, has no adapter, or its provisioner lacks the capability.
           content:
             application/json:
               schema:
@@ -1245,10 +1245,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '503':
-          description: >-
-            `provider_unavailable`: the provisioner could not be reached, the Integration has no
-            credential, or its credential may not change provisioner settings (a MAAS account that
-            is not an administrator).
+          description: '`provider_unavailable`: the Integration has no credential.'
           content:
             application/json:
               schema:
@@ -1266,10 +1263,12 @@ paths:
     get:
       tags: [sites]
       operationId: listProvisionerSubnets
-      summary: List a provisioner Integration's subnets with their Subnet DNS, live.
+      summary: List a provisioner Integration's subnets with their Subnet DNS settings.
       description: >-
-        Requires role `admin` (provisioner-subnet-dns.md). Read from the provisioner on every
-        request; swallow stores nothing. Needs the provisioner's Subnet DNS capability.
+        Requires role `admin` (provisioner-subnet-dns.md). The subnets are read live from the
+        provisioner, which owns them; each subnet's DNS servers are swallow's stored setting, and a
+        subnet swallow holds none for yet is adopted from this read, without writing to the
+        provisioner. Needs the provisioner's Subnet DNS capability.
       responses:
         '200':
           description: The provisioner's subnets, in the provisioner's order.
@@ -1325,12 +1324,13 @@ paths:
     put:
       tags: [sites]
       operationId: replaceSubnetDnsServers
-      summary: Replace one subnet's Subnet DNS, written through to the provisioner.
+      summary: Replace one subnet's Subnet DNS spec.
       description: >-
-        Requires role `admin`. swallow validates the list before calling the provisioner, checks
-        that the provisioner lists the subnet, writes the list through, and answers with the
-        subnet read back. The write affects only `automatic` and `static` deployments the
-        provisioner starts afterwards.
+        Requires role `admin`. swallow validates the list, checks that the provisioner lists the
+        subnet, stores the list as the spec (the generation increments), and answers without
+        writing to the provisioner; the Subnet DNS controller writes it shortly after, and the
+        setting's conditions report when it has. The change affects only `automatic` and `static`
+        deployments the provisioner starts afterwards.
       requestBody:
         required: true
         content:
@@ -1351,7 +1351,7 @@ paths:
                     type: string
       responses:
         '200':
-          description: The subnet read back from the provisioner after the write.
+          description: The subnet with its new spec; `status.dnsServers` is still what the provisioner holds now.
           headers:
             Cache-Control:
               $ref: '#/components/headers/NoStore'
@@ -1362,9 +1362,8 @@ paths:
         '400':
           description: >-
             `validation_error`: the body is not valid JSON; `dnsServers` is missing, not an array,
-            or breaks a rule above; the Integration is not a `provisioner`, has no adapter, or its
-            provisioner lacks the capability; or the provisioner refused the value (the message
-            carries its explanation).
+            or breaks a rule above; or the Integration is not a `provisioner`, has no adapter, or
+            its provisioner lacks the capability.
           content:
             application/json:
               schema:
@@ -1381,9 +1380,8 @@ paths:
                 $ref: '#/components/schemas/Error'
         '503':
           description: >-
-            `provider_unavailable`: the provisioner could not be reached, the Integration has no
-            credential, or its credential may not change subnets (a MAAS account that is not an
-            administrator).
+            `provider_unavailable`: the provisioner could not be reached to read its subnets, or
+            the Integration has no credential.
           content:
             application/json:
               schema:
@@ -1668,12 +1666,46 @@ components:
     ProvisionerHTTPProxy:
       type: object
       description: >-
-        One provisioner Integration's Provisioner HTTP Proxy, read live. A read can be written back
-        unchanged.
-      required: [integrationId, mode, httpProxy]
+        One provisioner Integration's Provisioner HTTP Proxy as a migrated resource (decision 071):
+        the spec swallow owns and the controller's status. A spec can be written back unchanged.
+      required: [integrationId, generation, spec, status]
       properties:
         integrationId:
           type: string
+        generation:
+          type: integer
+          format: int64
+          description: Counts spec changes; 1 once adopted from the provisioner or first written.
+        spec:
+          $ref: '#/components/schemas/ProvisionerHTTPProxyConfig'
+        status:
+          type: object
+          required: [observedGeneration, conditions, observed, observedAt]
+          properties:
+            observedGeneration:
+              type: integer
+              format: int64
+              description: The generation the provisioner holds.
+            conditions:
+              type: array
+              description: The controller's conditions; empty before its first judgement.
+              items:
+                $ref: '#/components/schemas/Condition'
+            observed:
+              allOf:
+                - $ref: '#/components/schemas/ProvisionerHTTPProxyConfig'
+              nullable: true
+              description: What the provisioner held when last read; `null` before the first read.
+            observedAt:
+              allOf:
+                - $ref: '#/components/schemas/Timestamp'
+              nullable: true
+              description: When the provisioner was last read; `null` before the first read.
+    ProvisionerHTTPProxyConfig:
+      type: object
+      description: One HTTP Proxy configuration.
+      required: [mode, httpProxy]
+      properties:
         mode:
           $ref: '#/components/schemas/ProvisionerHTTPProxyMode'
         httpProxy:
@@ -1682,9 +1714,10 @@ components:
     ProvisionerSubnet:
       type: object
       description: >-
-        One subnet of a provisioner Integration with its Subnet DNS (glossary Subnet DNS), read
-        live from the provisioner.
-      required: [id, name, cidr, gatewayAddress, managed, provisionerDhcp, attached, dnsServers]
+        One subnet of a provisioner Integration, read live, with its Subnet DNS (glossary Subnet
+        DNS) as a migrated resource (decision 071): the subnet's own facts are the provisioner's,
+        and its DNS servers have a generation, a spec, and a status.
+      required: [id, name, cidr, gatewayAddress, managed, provisionerDhcp, attached, generation, spec, status]
       properties:
         id:
           type: string
@@ -1709,13 +1742,39 @@ components:
           description: >-
             Whether the subnet is a real network by the provisioner's own markers; `false` for a
             subnet only host-internal interfaces carry (provisioner-subnet-dns.md).
-        dnsServers:
-          type: array
-          description: >-
-            The Subnet DNS in the provisioner's order; `[]` when the subnet has none and
-            deployments on it fall back to the provisioner's own DNS.
-          items:
-            type: string
+        generation:
+          type: integer
+          format: int64
+          description: Counts spec changes of the subnet's DNS servers; 1 once adopted or first written.
+        spec:
+          type: object
+          required: [dnsServers]
+          properties:
+            dnsServers:
+              type: array
+              description: >-
+                The DNS servers swallow wants, in order; `[]` for none, in which case deployments
+                fall back to the provisioner's own DNS.
+              items:
+                type: string
+        status:
+          type: object
+          required: [observedGeneration, conditions, dnsServers]
+          properties:
+            observedGeneration:
+              type: integer
+              format: int64
+              description: The generation the provisioner holds.
+            conditions:
+              type: array
+              description: The controller's conditions; empty before its first judgement.
+              items:
+                $ref: '#/components/schemas/Condition'
+            dnsServers:
+              type: array
+              description: The DNS servers the provisioner holds now, in its order; `[]` for none.
+              items:
+                type: string
     ProvisionerSubnetCatalog:
       type: object
       description: A provisioner Integration's subnets, in the order the provisioner lists them.

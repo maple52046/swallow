@@ -9,7 +9,7 @@ interface ProvisionerLiveSettingSectionProps {
   /** Prefix of the heading's id, which labels the section for assistive technology. */
   id: string
   title: string
-  /** What the setting does for deployed machines, and that MAAS, not this Integration, holds it. */
+  /** What the setting does for deployed machines, and that swallow applies it to MAAS. */
   description: ReactNode
   /** What the operator cannot do until the Integration has a credential, ending the shared notice. */
   credentialNeededFor: string
@@ -18,11 +18,12 @@ interface ProvisionerLiveSettingSectionProps {
 }
 
 /**
- * The panel of a provisioner-owned, live setting on the Integration settings page of a MAAS
- * provisioner — the HTTP Proxy (decision 056) and Subnet DNS (decision 058) tabs. Such a setting is
- * read from and applied to MAAS by its own button and is not part of the Integration record.
- * Without a stored credential the API could not reach MAAS, so instead of rendering `children` (and
- * issuing their request) it says what is missing and where to set it.
+ * The panel of a provisioner setting on the Integration settings page of a MAAS provisioner — the
+ * HTTP Proxy (decision 056) and Subnet DNS (decision 058) tabs. swallow keeps such a setting as
+ * desired state and its backend applies it to MAAS (decision 071); it is saved by its own button
+ * and is not part of the Integration record. Without a stored credential the API could not reach
+ * MAAS to adopt or apply it, so instead of rendering `children` (and issuing their request) it says
+ * what is missing and where to set it.
  */
 export function ProvisionerLiveSettingSection({
   integration,

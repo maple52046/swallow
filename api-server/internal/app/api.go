@@ -452,8 +452,12 @@ func RunAPI(cfg config.APIConfig) error {
 	provisioningHandler.AttachHostEnrollment(provisioningapp.NewHostEnrollmentUseCase(providerFactory))
 	provisioningHandler.AttachPowerConfiguration(provisioningapp.NewPowerConfigurationUseCase(
 		serverRepo, providerFactory, provisioningdomain.DefaultPowerAdapters()))
-	provisioningHandler.AttachHTTPProxy(provisioningapp.NewHTTPProxyUseCase(providerFactory))
-	provisioningHandler.AttachSubnetDNS(provisioningapp.NewSubnetDNSUseCase(providerFactory))
+	subnetDNSRepo, err := provisioningstore.NewMongoSubnetDNSRepo(db)
+	if err != nil {
+		return fmt.Errorf("subnet DNS repo init: %w", err)
+	}
+	provisioningHandler.AttachHTTPProxy(provisioningapp.NewHTTPProxyUseCase(providerFactory, provisioningstore.NewMongoHTTPProxyRepo(db)))
+	provisioningHandler.AttachSubnetDNS(provisioningapp.NewSubnetDNSUseCase(providerFactory, subnetDNSRepo))
 	// Virtual-machine enrollment (decision 055): libvirt domains of a Hypervisor are registered with
 	// the provisioner by an enroll-virtual-machines Workflow run by the worker.
 	provisioningHandler.AttachVirtualMachineEnrollment(virtualMachineEnrollmentLauncher{

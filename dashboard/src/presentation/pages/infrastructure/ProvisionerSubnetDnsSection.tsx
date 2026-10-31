@@ -1,13 +1,16 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Button, Field, HStack, Input, Stack, Text } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { ProvisionerSubnet } from '@/domain/provisioning/types'
 import type { Integration } from '@/domain/site/types'
 import { AsyncSection } from '@/presentation/components/AsyncSection'
+import { ConvergenceStatus } from '@/presentation/components/convergence/ConvergenceStatus'
+import { describeConvergence, isSettling } from '@/presentation/components/convergence/convergencePresentation'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useAsyncData } from '@/presentation/hooks/useAsyncData'
+import { useSettlingRefresh } from '@/presentation/hooks/useSettlingRefresh'
 import { ProvisionerLiveSettingSection } from './ProvisionerLiveSettingSection'
 import { formatDnsServerList, parseDnsServerList } from './subnetDnsForm'
 
@@ -21,10 +24,11 @@ interface ProvisionerSubnetDnsSectionProps {
  * provisioner-subnet-dns.md, decision 058): per subnet, the DNS servers MAAS gives machines
  * deployed there with an Automatic or Static address.
  *
- * The values are provisioner-owned and live: read from MAAS when the tab opens and written
- * through by each subnet's own **Apply DNS** button, never by the General or Connection Save. Each subnet also
- * says in words whether MAAS runs its DHCP, because that decides whether the setting matters: on a
- * site-DHCP subnet DHCP deployments take DNS from the site server instead.
+ * The subnets are MAAS's and are read live when the tab opens; each subnet's DNS servers are
+ * desired state swallow keeps (decision 071), saved by the subnet's own **Save DNS** button, never by
+ * the General or Connection Save, and applied to MAAS by the backend. Each subnet also says in words
+ * whether MAAS runs its DHCP, because that decides whether the setting matters: on a site-DHCP
+ * subnet DHCP deployments take DNS from the site server instead.
  */
 export function ProvisionerSubnetDnsSection({ integration }: ProvisionerSubnetDnsSectionProps) {
   return (
@@ -32,7 +36,7 @@ export function ProvisionerSubnetDnsSection({ integration }: ProvisionerSubnetDn
       integration={integration}
       id="integration-subnet-dns"
       title="Subnet DNS"
-      description="The DNS servers MAAS gives machines deployed with an Automatic or Static address on each subnet; DHCP deployments use the DHCP server's. They are read from and applied to MAAS directly, not saved with this Integration."
+      description="The DNS servers MAAS gives machines deployed with an Automatic or Static address on each subnet; DHCP deployments use the DHCP server's. swallow keeps them and applies them to MAAS; they are not saved with this Integration's connection."
       credentialNeededFor="reads and applies subnet DNS"
     >
       <LiveSubnets integrationId={integration.id} />
@@ -64,8 +68,9 @@ function LiveSubnets({ integrationId }: { integrationId: string }) {
         if (list.length === 0) {
           return <EmptyState title="No subnets" message="MAAS reports no subnets for this provisioner yet." />
         }
-        const primary = list.filter((subnet) => subnet.attached || subnet.dnsServers.length > 0)
-        const other = list.filter((subnet) => !subnet.attached && subnet.dnsServers.length === 0)
+        const configured = (subnet: ProvisionerSubnet) => subnet.spec.dnsServers.length > 0 || subnet.status.dnsServers.length > 0
+        const primary = list.filter((subnet) => subnet.attached || configured(subnet))
+        const other = list.filter((subnet) => !subnet.attached && !configured(subnet))
         return (
           <Stack gap="4">
             {primary.length > 0 ? (
@@ -102,20 +107,29 @@ function LiveSubnets({ integrationId }: { integrationId: string }) {
 }
 
 /**
- * One subnet's editable DNS servers. `applied` is what MAAS last reported (the read, then each
- * read-back), so "Not applied" compares the operator's text with MAAS rather than with the opening
- * state; text that reads as the same list (other separators or spacing) is not a change.
+ * One subnet's editable DNS servers. `saved` is the subnet as last read or saved, so "Not saved yet"
+ * compares the operator's text with the spec rather than with the opening state; text that reads as
+ * the same list (other separators or spacing) is not a change. The status line says whether MAAS
+ * holds the spec and what MAAS reports; while a saved change is still being applied, the subnet list
+ * is re-read quietly and this row takes its subnet from it until it settles.
  */
 function SubnetDnsRow({ integrationId, subnet }: { integrationId: string; subnet: ProvisionerSubnet }) {
   const { provisioning } = useApp()
   const { showToast } = useToast()
-  const [applied, setApplied] = useState(subnet)
-  const [text, setText] = useState(formatDnsServerList(subnet.dnsServers))
+  const [saved, setSaved] = useState(subnet)
+  const [text, setText] = useState(formatDnsServerList(subnet.spec.dnsServers))
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState('')
 
+  const settling = isSettling(describeConvergence(saved.status.conditions, saved.generation).state)
+  const refresh = useCallback(async () => {
+    const latest = (await provisioning.listProvisionerSubnets(integrationId)).find((item) => item.id === subnet.id)
+    if (latest) setSaved(latest)
+  }, [provisioning, integrationId, subnet.id])
+  useSettlingRefresh(settling, refresh)
+
   const parsed = parseDnsServerList(text)
-  const dirty = parsed.servers === null || formatDnsServerList(parsed.servers) !== formatDnsServerList(applied.dnsServers)
+  const dirty = parsed.servers === null || formatDnsServerList(parsed.servers) !== formatDnsServerList(saved.spec.dnsServers)
   const canApply = parsed.servers !== null && dirty && !applying
   const inputId = `subnet-dns-${subnet.id}`
   // MAAS names a subnet after its CIDR unless an operator renamed it; only a real name adds a line.
@@ -127,21 +141,21 @@ function SubnetDnsRow({ integrationId, subnet }: { integrationId: string; subnet
     setError('')
     try {
       const result = await provisioning.setProvisionerSubnetDnsServers(integrationId, subnet.id, parsed.servers)
-      setApplied(result)
-      setText(formatDnsServerList(result.dnsServers))
+      setSaved(result)
+      setText(formatDnsServerList(result.spec.dnsServers))
       showToast({
         tone: 'success',
-        title: `DNS applied to ${result.cidr}`,
-        description: 'MAAS uses it for Automatic and Static deployments it starts from now on.',
+        title: `DNS saved for ${result.cidr}`,
+        description: 'swallow applies it to MAAS shortly; Automatic and Static deployments MAAS starts afterwards use it.',
       })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The DNS servers could not be applied.')
+      setError(caught instanceof Error ? caught.message : 'The DNS servers could not be saved.')
     } finally {
       setApplying(false)
     }
   }
 
-  const appliedSummary = applied.dnsServers.length > 0 ? formatDnsServerList(applied.dnsServers) : 'its own DNS (none set)'
+  const observedSummary = saved.status.dnsServers.length > 0 ? formatDnsServerList(saved.status.dnsServers) : 'its own DNS (none set)'
 
   return (
     <li className="sw-subnet-dns-row">
@@ -157,7 +171,7 @@ function SubnetDnsRow({ integrationId, subnet }: { integrationId: string; subnet
       </Stack>
       <Stack gap="2" className="sw-subnet-dns-row__editor">
         {error && (
-          <Alert status="error" title="DNS servers could not be applied">
+          <Alert status="error" title="DNS servers could not be saved">
             {error}
           </Alert>
         )}
@@ -177,7 +191,7 @@ function SubnetDnsRow({ integrationId, subnet }: { integrationId: string; subnet
             spellCheck={false}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
-              // Enter applies this subnet's DNS, which is what an operator typing an address means;
+              // Enter saves this subnet's DNS, which is what an operator typing an address means;
               // the default is suppressed so no enclosing form ever submits instead.
               if (event.key !== 'Enter') return
               event.preventDefault()
@@ -186,12 +200,19 @@ function SubnetDnsRow({ integrationId, subnet }: { integrationId: string; subnet
           />
           {parsed.problem !== null && <Field.ErrorText>{parsed.problem}</Field.ErrorText>}
         </Field.Root>
-        <HStack justify="space-between" gap="3" wrap="wrap">
-          <Text role="status" fontSize="sm" color={dirty ? 'fg' : 'fg.muted'}>
-            {dirty ? 'Not applied yet.' : `MAAS uses: ${appliedSummary}.`}
-          </Text>
+        <HStack justify="space-between" align="flex-start" gap="3" wrap="wrap">
+          <Stack gap="1" role="status">
+            {dirty ? (
+              <Text fontSize="sm">Not saved yet.</Text>
+            ) : (
+              <ConvergenceStatus conditions={saved.status.conditions} generation={saved.generation} />
+            )}
+            <Text fontSize="sm" color="fg.muted">
+              MAAS reports: {observedSummary}.
+            </Text>
+          </Stack>
           <Button type="button" size="sm" colorPalette="brand" variant="outline" loading={applying} disabled={!canApply} onClick={() => void apply()}>
-            Apply DNS
+            Save DNS
           </Button>
         </HStack>
       </Stack>

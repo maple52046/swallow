@@ -14,6 +14,7 @@ import { ResourceRowActions } from '@/presentation/components/ResourceRowActions
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useSettlingRefresh } from '@/presentation/hooks/useSettlingRefresh'
 import { formatDateTime } from '@/shared/utils/time'
 import { GroupDialog } from './GroupDialog'
 import { InfrastructureHeader } from './InfrastructureHeader'
@@ -28,9 +29,6 @@ type GroupingState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'ready'; groups: GroupingResource[] }
-
-/** How often the list is re-read while a saved change is still being applied to provisioners. */
-const SETTLE_POLL_MS = 5000
 
 /**
  * Admin registry for swallow-owned Zones or Pools, sharing one implementation across both
@@ -86,22 +84,11 @@ export function GroupingPage({ kind }: GroupingPageProps) {
   const settling =
     state.status === 'ready' &&
     state.groups.some((group) => isSettling(describeConvergence(group.status.conditions, group.generation).state))
-  useEffect(() => {
-    if (!settling) return
-    let cancelled = false
-    const timer = window.setTimeout(() => {
-      infrastructure
-        .listGroups(kind, siteId)
-        .then((groups) => {
-          if (!cancelled) setState({ status: 'ready', groups })
-        })
-        .catch(() => undefined)
-    }, SETTLE_POLL_MS)
-    return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-    }
-  }, [settling, state, infrastructure, kind, siteId])
+  const refresh = useCallback(async () => {
+    const groups = await infrastructure.listGroups(kind, siteId)
+    setState({ status: 'ready', groups })
+  }, [infrastructure, kind, siteId])
+  useSettlingRefresh(settling, refresh)
 
   const visibleGroups = useMemo(() => {
     if (state.status !== 'ready') return []

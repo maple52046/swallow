@@ -186,3 +186,59 @@ func TestRuntimeRunsOneActiveInstance(t *testing.T) {
 	<-done1
 	waitFor(t, "the takeover", func() bool { return len(second.seen()) == 1 })
 }
+
+// The single-target rules: a spec change converges on any trigger, drift waits for the resync, a
+// rejection stops until the spec changes, and a transient error is returned for retry.
+func TestConvergeSingleTarget(t *testing.T) {
+	now := time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC)
+	calls := 0
+	realize := func(remaining string, err error) func(context.Context) (string, error) {
+		return func(context.Context) (string, error) { calls++; return remaining, err }
+	}
+	rejected := func(err error) (string, bool) { return err.Error(), err.Error() == "refused" }
+	base := SingleTarget{Now: now, Generation: 2, ObservedGeneration: 1, Rejected: rejected}
+
+	pending := base
+	pending.Trigger, pending.Drift, pending.Realize = TriggerChange, "differs", realize("", nil)
+	r := ConvergeSingleTarget(context.Background(), pending)
+	if r.Err != nil || r.ObservedGeneration != 2 || !IsTrue(r.Conditions, ConditionRealized) || calls != 1 {
+		t.Fatalf("pending change: %+v (calls %d)", r, calls)
+	}
+
+	drift := base
+	drift.ObservedGeneration, drift.Conditions = 2, r.Conditions
+	drift.Trigger, drift.Drift, drift.Realize = TriggerChange, "changed outside", realize("", nil)
+	r = ConvergeSingleTarget(context.Background(), drift)
+	if calls != 1 || !IsTrue(r.Conditions, ConditionDrifted) || r.Events[0].Type != EventDriftDetected {
+		t.Fatalf("drift on change: %+v (calls %d)", r, calls)
+	}
+	drift.Conditions, drift.Trigger = r.Conditions, TriggerResync
+	r = ConvergeSingleTarget(context.Background(), drift)
+	if calls != 2 || IsTrue(r.Conditions, ConditionDrifted) || r.Events[0].Type != EventDriftCorrected {
+		t.Fatalf("drift at resync: %+v (calls %d)", r, calls)
+	}
+
+	refusal := base
+	refusal.Trigger, refusal.Drift, refusal.Realize = TriggerChange, "differs", realize("", errors.New("refused"))
+	r = ConvergeSingleTarget(context.Background(), refusal)
+	if r.Err != nil || !IsTrue(r.Conditions, ConditionRequiresAttention) {
+		t.Fatalf("rejection: %+v", r)
+	}
+	refusal.Conditions, refusal.Trigger = r.Conditions, TriggerResync
+	before := calls
+	ConvergeSingleTarget(context.Background(), refusal)
+	if calls != before {
+		t.Fatal("a rejected change was retried before the spec changed")
+	}
+
+	transient := base
+	transient.Trigger, transient.Drift, transient.Realize = TriggerChange, "differs", realize("", errors.New("timeout"))
+	if r = ConvergeSingleTarget(context.Background(), transient); r.Err == nil {
+		t.Fatal("a transient error must be returned")
+	}
+	stuck := base
+	stuck.Trigger, stuck.Drift, stuck.Realize = TriggerChange, "differs", realize("still differs", nil)
+	if r = ConvergeSingleTarget(context.Background(), stuck); r.Err == nil || IsTrue(r.Conditions, ConditionRealized) {
+		t.Fatalf("a target that still differs: %+v", r)
+	}
+}

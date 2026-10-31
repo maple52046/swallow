@@ -1,6 +1,6 @@
 # 056. Provisioner HTTP Proxy written through from the Integration
 
-- Status: Accepted
+- Status: Accepted; Superseded in part by [071](071-provisioner-realized-desired-state.md) (swallow stores the HTTP Proxy as desired state and corrects drift instead of reading it live)
 - Date: 2026-10-13
 - 現行規格：[os-provisioning.md](../development/os-provisioning.md) §7 Provisioner HTTP Proxy
 

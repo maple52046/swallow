@@ -1,18 +1,22 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Button, Field, HStack, Input, Stack, Text } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import {
   httpProxyModeNeedsUrl,
   PROVISIONER_HTTP_PROXY_MODES,
   type ProvisionerHttpProxy,
+  type ProvisionerHttpProxyConfig,
   type ProvisionerHttpProxyMode,
 } from '@/domain/provisioning/types'
 import type { Integration } from '@/domain/site/types'
 import { AsyncSection } from '@/presentation/components/AsyncSection'
+import { ConvergenceStatus } from '@/presentation/components/convergence/ConvergenceStatus'
+import { describeConvergence, isSettling } from '@/presentation/components/convergence/convergencePresentation'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Select } from '@/presentation/components/ui/select'
 import { useAsyncData } from '@/presentation/hooks/useAsyncData'
+import { useSettlingRefresh } from '@/presentation/hooks/useSettlingRefresh'
 import { HTTP_PROXY_MODE_TEXT, httpProxyUrlProblem } from './httpProxyForm'
 import { ProvisionerLiveSettingSection } from './ProvisionerLiveSettingSection'
 
@@ -25,14 +29,14 @@ interface ProvisionerHttpProxySectionProps {
 
 /**
  * The HTTP proxy tab of a MAAS provisioner's Integration settings page (contract
- * provisioner-http-proxy.md, decision 056): the proxy MAAS hands to the machines it deploys.
+ * provisioner-http-proxy.md, decisions 056 and 071): the proxy MAAS hands to the machines it deploys.
  *
- * The value is provisioner-owned and live. It is read from MAAS when the tab opens and written
- * through by the tab's own **Apply proxy** button, never by the General or Connection Save, because it is not
- * an Integration setting and a MAAS write must not hide inside the Integration PATCH. Without a
- * stored credential nothing is requested: the API could not reach MAAS, so the section says what is
- * missing instead of showing an error. Loading, the API's error, and a vanished Integration use the
- * shared AsyncSection states; the rest of the page stays usable whatever this tab shows.
+ * swallow keeps the value as desired state: the tab's own **Save proxy** button stores it, never the
+ * General or Connection Save, because it is not an Integration setting, and the backend then applies
+ * it to MAAS and puts back changes made in MAAS. Without a stored credential nothing is requested:
+ * the API could not reach MAAS, so the section says what is missing instead of showing an error.
+ * Loading, the API's error, and a vanished Integration use the shared AsyncSection states; the rest
+ * of the page stays usable whatever this tab shows.
  */
 export function ProvisionerHttpProxySection({ integration }: ProvisionerHttpProxySectionProps) {
   return (
@@ -40,19 +44,19 @@ export function ProvisionerHttpProxySection({ integration }: ProvisionerHttpProx
       integration={integration}
       id="integration-http-proxy"
       title="HTTP proxy"
-      description="The proxy MAAS gives the machines it deploys for packages. It is read from and applied to MAAS directly, not saved with this Integration."
+      description="The proxy MAAS gives the machines it deploys for packages. swallow keeps it and applies it to MAAS; it is not saved with this Integration's connection."
       credentialNeededFor="reads and applies the proxy"
     >
-      <LiveHttpProxy integrationId={integration.id} />
+      <HttpProxySetting integrationId={integration.id} />
     </ProvisionerLiveSettingSection>
   )
 }
 
 /**
- * Reads the live value once per mount (re-read when the Integration changes) and hands it to the
- * form. A 404 means the Integration was deleted meanwhile and renders as unavailable, not as a fault.
+ * Reads the setting once per mount (re-read when the Integration changes) and hands it to the form.
+ * A 404 means the Integration was deleted meanwhile and renders as unavailable, not as a fault.
  */
-function LiveHttpProxy({ integrationId }: { integrationId: string }) {
+function HttpProxySetting({ integrationId }: { integrationId: string }) {
   const { provisioning } = useApp()
   const proxy = useAsyncData(() => provisioning.getProvisionerHttpProxy(integrationId), [provisioning, integrationId])
   return (
@@ -68,58 +72,65 @@ function LiveHttpProxy({ integrationId }: { integrationId: string }) {
 }
 
 /**
- * The editable form over one read value. `applied` is what MAAS last reported (the read, then each
- * read-back), so "Not applied" compares the operator's choice with MAAS rather than with the opening
- * state. A typed URL is kept while another mode is chosen, so switching back does not lose it, but
- * only modes that route through it send it.
+ * The editable form over one setting. `setting` is the stored setting (the read, then each save and
+ * re-read), so "Not saved yet" compares the operator's choice with the spec rather than with the
+ * opening state, and the status line says whether MAAS holds the spec and what MAAS reports. While a
+ * saved change is still being applied, the setting is re-read quietly until it settles. A typed URL
+ * is kept while another mode is chosen, so switching back does not lose it, but only modes that
+ * route through it send it.
  */
 function HttpProxyForm({ integrationId, current }: { integrationId: string; current: ProvisionerHttpProxy }) {
   const { provisioning } = useApp()
   const { showToast } = useToast()
-  const [applied, setApplied] = useState(current)
-  const [mode, setMode] = useState<ProvisionerHttpProxyMode>(current.mode)
-  const [url, setUrl] = useState(current.httpProxy)
-  const [applying, setApplying] = useState(false)
+  const [setting, setSetting] = useState(current)
+  const [mode, setMode] = useState<ProvisionerHttpProxyMode>(current.spec.mode)
+  const [url, setUrl] = useState(current.spec.httpProxy)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  const settling = isSettling(describeConvergence(setting.status.conditions, setting.generation).state)
+  const refresh = useCallback(async () => {
+    setSetting(await provisioning.getProvisionerHttpProxy(integrationId))
+  }, [provisioning, integrationId])
+  useSettlingRefresh(settling, refresh)
+
   // A mode this console does not know (added to the API later) has no text; the select then shows
-  // its placeholder and nothing can be applied until the operator chooses a known mode.
+  // its placeholder and nothing can be saved until the operator chooses a known mode.
   const modeText: { label: string; help: string } | undefined = HTTP_PROXY_MODE_TEXT[mode]
-  const appliedText: { label: string; help: string } | undefined = HTTP_PROXY_MODE_TEXT[applied.mode]
   const needsUrl = httpProxyModeNeedsUrl(mode)
   const urlProblem = needsUrl ? httpProxyUrlProblem(url) : null
   const showUrlProblem = Boolean(urlProblem && url.trim())
   const requested = { mode, httpProxy: needsUrl ? url.trim() : '' }
-  const dirty = requested.mode !== applied.mode || requested.httpProxy !== applied.httpProxy
-  const canApply = Boolean(modeText) && dirty && !urlProblem && !applying
+  const dirty = requested.mode !== setting.spec.mode || requested.httpProxy !== setting.spec.httpProxy
+  const canSave = Boolean(modeText) && dirty && !urlProblem && !saving
 
-  const apply = async () => {
-    if (!canApply) return
-    setApplying(true)
+  const save = async () => {
+    if (!canSave) return
+    setSaving(true)
     setError('')
     try {
       const result = await provisioning.setProvisionerHttpProxy(integrationId, requested)
-      setApplied(result)
-      setMode(result.mode)
-      setUrl(result.httpProxy)
-      showToast({ tone: 'success', title: 'HTTP proxy applied', description: 'MAAS uses it for deployments it starts from now on.' })
+      setSetting(result)
+      setMode(result.spec.mode)
+      setUrl(result.spec.httpProxy)
+      showToast({
+        tone: 'success',
+        title: 'HTTP proxy saved',
+        description: 'swallow applies it to MAAS shortly; deployments MAAS starts afterwards use it.',
+      })
     } catch (caught) {
-      // MAAS applies its settings one at a time, so a failure may follow a partial write; the
-      // message says what failed and reopening the tab shows what MAAS now holds.
-      setError(caught instanceof Error ? caught.message : 'The HTTP proxy could not be applied.')
+      setError(caught instanceof Error ? caught.message : 'The HTTP proxy could not be saved.')
     } finally {
-      setApplying(false)
+      setSaving(false)
     }
   }
 
-  const appliedSummary = appliedText
-    ? `${appliedText.label}${applied.httpProxy ? ` (${applied.httpProxy})` : ''}`
-    : `an unrecognised mode (${applied.mode})`
+  const observed = setting.status.observed
 
   return (
     <Stack gap="4">
       {error && (
-        <Alert status="error" title="HTTP proxy could not be applied">
+        <Alert status="error" title="HTTP proxy could not be saved">
           {error}
         </Alert>
       )}
@@ -134,7 +145,7 @@ function HttpProxyForm({ integrationId, current }: { integrationId: string; curr
             // Every option is a known mode, so the value the select emits is one of them.
             onChange={(value) => setMode(value as ProvisionerHttpProxyMode)}
             options={MODE_OPTIONS}
-            disabled={applying}
+            disabled={saving}
           />
           <Field.HelperText>{modeText?.help ?? 'Choose how deployed machines reach package repositories.'}</Field.HelperText>
         </Field.Root>
@@ -147,14 +158,14 @@ function HttpProxyForm({ integrationId, current }: { integrationId: string; curr
               type="url"
               value={url}
               placeholder="http://proxy.example.com:3128"
-              disabled={applying}
+              disabled={saving}
               onChange={(event) => setUrl(event.target.value)}
               onKeyDown={(event) => {
-                // Enter applies the proxy, which is what an operator typing a proxy URL means; the
+                // Enter saves the proxy, which is what an operator typing a proxy URL means; the
                 // default is suppressed so no enclosing form ever submits instead.
                 if (event.key !== 'Enter') return
                 event.preventDefault()
-                void apply()
+                void save()
               }}
             />
             {showUrlProblem ? (
@@ -165,14 +176,28 @@ function HttpProxyForm({ integrationId, current }: { integrationId: string; curr
           </Field.Root>
         )}
       </div>
-      <HStack justify="space-between" gap="3" wrap="wrap">
-        <Text role="status" fontSize="sm" color={dirty ? 'fg' : 'fg.muted'}>
-          {dirty ? 'Not applied yet.' : `MAAS uses: ${appliedSummary}.`}
-        </Text>
-        <Button type="button" size="sm" colorPalette="brand" variant="outline" loading={applying} disabled={!canApply} onClick={() => void apply()}>
-          Apply proxy
+      <HStack justify="space-between" align="flex-start" gap="3" wrap="wrap">
+        <Stack gap="1" role="status">
+          {dirty ? (
+            <Text fontSize="sm">Not saved yet.</Text>
+          ) : (
+            <ConvergenceStatus conditions={setting.status.conditions} generation={setting.generation} />
+          )}
+          <Text fontSize="sm" color="fg.muted">
+            MAAS reports: {observed ? httpProxySummary(observed) : 'not read yet'}.
+          </Text>
+        </Stack>
+        <Button type="button" size="sm" colorPalette="brand" variant="outline" loading={saving} disabled={!canSave} onClick={() => void save()}>
+          Save proxy
         </Button>
       </HStack>
     </Stack>
   )
+}
+
+/** One configuration in words, naming a mode this console does not know by its value. */
+function httpProxySummary(config: ProvisionerHttpProxyConfig): string {
+  const text: { label: string } | undefined = HTTP_PROXY_MODE_TEXT[config.mode]
+  const label = text ? text.label : `an unrecognised mode (${config.mode})`
+  return `${label}${config.httpProxy ? ` (${config.httpProxy})` : ''}`
 }
