@@ -137,6 +137,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [068](068-device-metrics-exporter-managed-software.md) | AMD Device Metrics Exporter 成為可單台安裝的 Managed Software，Slurm 部署改為組入同一 kind | refine 038、066 |
 | [069](069-swallow-owns-desired-state.md) | swallow 擁有 desired state 與執行狀態，provider 收斂到它；混合收斂、Temporal 只執行、store 需要 transaction | refine 001、016、017、040；supersede 031 |
 | [070](070-core-providers-and-extensions.md) | core 只有領域模型、Workflow 與 provider interface；外部系統都是可抽換的 adapter，平台與 GPU 廠商邏輯放在擴充模組，交付為發行版 | refine 001、006、016、017、038 |
+| [071](071-provisioner-realized-desired-state.md) | 由 provisioner 實現的欄位以 spec／status 呈現、由 controller 收斂：非破壞性欄位在定期 resync 時自動修正，第一次觀察即接管，Server 記錄 origin，swallow 擁有所有手動 tag | refine 002、029、069；supersede 025 的一部分 |
 
 `001`–`003` 的章節結構與上方格式不同（Decision / Context / Consequences / Rejected
 alternatives）。2026-09-05 已為三者補上 `Status`；但當時未記錄 `Date`，依「不得杜撰歷史理由」

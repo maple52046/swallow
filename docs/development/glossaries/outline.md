@@ -25,6 +25,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Convergence](terms/convergence.md): The controller's continuous, level-triggered process of bringing Observed State to Desired State; not provider reconcile.
 - [Change Plan](terms/change-plan.md): The operator-approved preview of a Destructive Change, applied as a Workflow — `pending_approval | approved | applied | rejected | superseded | expired`.
 - [Destructive Change](terms/destructive-change.md): A change whose realization erases data, takes a Server out of service or a Platform, interrupts workloads, or cannot be undone by reapplying the old spec.
+- [Controller](terms/controller.md): The level-triggered convergence loop for one resource kind; one active instance (store lease), outside the API process; the only writer of that resource's Conditions.
+- [Hold](terms/hold.md): A pause on a resource's convergence — Server Lock, Rescue Mode, or a Workflow lease — shown as the `held` Condition; observation and Drift reporting continue.
 
 ### Core and Extensions
 

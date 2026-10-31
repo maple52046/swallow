@@ -1,6 +1,6 @@
 # 002 — Server Identity and the Three Status Axes
 
-- Status: Accepted (foundational refoundation decision; predates the current ADR template, so Date is unrecorded rather than fabricated)
+- Status: Accepted (foundational refoundation decision; predates the current ADR template, so Date is unrecorded rather than fabricated); Refined by [071](071-provisioner-realized-desired-state.md) (Server origin; a missing machine is a condition)
 
 ## Decision
 

@@ -1,6 +1,6 @@
 # 029. swallow-owned Zone and Pool with optional provider realization
 
-- Status: Accepted
+- Status: Accepted; Refined by [071](071-provisioner-realized-desired-state.md) (Zones, Pools, and placement converge on every provisioner; catalog drift is corrected)
 - Date: 2026-09-14
 - 現行規格：[os-provisioning.md](../development/os-provisioning.md) §8 Zone 與 Pool
 

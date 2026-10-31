@@ -34,6 +34,16 @@ Workflow executor port 目前唯一的 adapter 是 Temporal。API process 不執
 fallback。完整 execution topology 還需要 Temporal Server/PostgreSQL、MongoDB、
 worker 與 ansible-executor。
 
+desired state 的 controller（desired-state-model.md §7）在 worker process 執行，不在 API process。
+
+部署假設（2026-10-31 決定）：
+
+- swallow 是 standalone 安裝，不支援多節點；但設計不得堵死多節點：正確性不依賴 process 內的記憶體狀態，
+  背景工作以 store 中的 lease 保證同時只有一個 active instance，store 不存主機上的絕對路徑，對外部系統的呼叫是
+  idempotent。
+- 遇到取捨時以 standalone 的簡單為優先。
+- 整機遷移（主機故障後，以備份在另一台主機還原）是一級情境，優先於多節點：所有狀態都要在備份範圍內。
+
 ## Dependency Rule
 
 Source dependencies 只能向內：

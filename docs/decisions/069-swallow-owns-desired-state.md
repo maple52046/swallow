@@ -1,6 +1,6 @@
 # 069. swallow owns desired state; providers converge to it
 
-- Status: Accepted
+- Status: Accepted; Refined by [071](071-provisioner-realized-desired-state.md) (spec/status API shape, scheduled auto-correction of non-destructive provisioner-realized fields, adoption at first observation)
 - Date: 2026-10-30
 - 現行規格：[desired-state-model.md](../development/desired-state-model.md)
 

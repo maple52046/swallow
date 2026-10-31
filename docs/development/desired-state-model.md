@@ -116,7 +116,7 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 ### 4.3 現有資源的目標分類
 
 下表是遷移時的起點，不是現行行為。每個資源遷移時，在其功能規格中逐欄定案；表中標「待定」的項目在遷移時
-決定，不得在其他地方先行決定。
+決定，不得在其他地方先行決定。已經遷移的資源列在 §4.4。
 
 | 資源 | desired | observed | 備註 |
 | --- | --- | --- | --- |
@@ -128,6 +128,21 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 | OS Image | swallow 的命名與 `defaultUser` 等 metadata | provider 擁有的 artifact 本身 | 現行的 Provider Data Overlay 改為 desired metadata，overlay 概念隨遷移淘汰 |
 | Deployment Template | 可重用的部署意圖 | — | 只有 desired；它是 Server desired state 的輸入，自己不被實現 |
 | Provisioner 設定（HTTP Proxy、Subnet DNS） | 設定值 | provider 目前的值 | 目前是 provider 擁有、swallow write-through；遷移後外部的改動成為 drift |
+
+### 4.4 已遷移的資源
+
+遷移依 [decision 071](../decisions/071-provisioner-realized-desired-state.md) 分段進行。第一段是由 provisioner
+以短的呼叫實現的欄位。已遷移的資源與其規格列在下面，尚未列出的資源維持現行行為：
+
+（第一段的資源遷移時逐一加入。）
+
+遷移後的資源共同遵守：
+
+- API 以 spec／status 呈現（§11.1），遷移前的欄位在同一個變更中移除。
+- 第一次觀察即接管（§6.5）。
+- Server 記錄它的 origin：`discovered`（provisioner 自行 enlist）、`enrolled`（swallow 註冊）或 `imported`（以既有 OS
+  註冊，不重裝）。不論 origin，Server 的 desired 欄位都屬於 swallow；machine 從 provisioner 消失時，`realized`
+  為 `false`、reason 為 `provider_missing`，swallow 不會自動重建它。
 
 ## 5. 收斂模式
 
@@ -189,6 +204,10 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 
 - drift 只回報，不自動修正。
 - 某個欄位可以在其功能規格中明確宣告為 auto-correct，條件是修正它屬於非破壞性，而且規格寫出理由。
+- auto-correct 的修正時機（decision 071）：spec 改變時立即收斂；drift 由例行的觀察偵測並以 `drifted` 回報，在
+  controller 的定期 resync（預設 10 分鐘，`SWALLOW_API_CONTROLLER_RESYNC_INTERVAL`）時修正，不持續監控 provider。
+  修正寫入 timeline。
+- 修正錯值會讓硬體失去控制的欄位（例如 Power Configuration）只回報 drift，由 operator 選擇 adopt 或 reapply（§6.3）。
 
 ### 6.3 外部操作
 
@@ -199,6 +218,12 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 - **reapply**：重新實現 desired state。非破壞性時直接收斂，破壞性時產生 Change Plan。
 
 swallow 永不擁有的事實（§3.4）不會產生 drift。
+
+### 6.5 第一次觀察即接管
+
+資源還沒有 spec 時，controller 第一次觀察到它，就把 provider 目前的值寫成 spec，`generation` 與
+`observedGeneration` 同時設為 1，不對 provider 做任何寫入（decision 071）。這同時涵蓋升級時既有的資料與
+provisioner 自行 enlist 的 machine，所以 schema migration 不需要連線 provider。
 
 ### 6.4 Hold
 
@@ -236,14 +261,19 @@ controller 不直接呼叫廠商 SDK 或 API，也不知道是哪個 adapter 在
 ### 7.5 觸發、退避與失敗
 
 - **觸發來源**：store 的 change feed（spec 與 observed 的變化）、定期 resync，以及 operator 要求的立即收斂。
-- **退避**：失敗時採有上限的指數退避。
-- **放棄**：超過嘗試次數或時間上限時，設定 `requires_attention` condition 與正規化的錯誤，停止自動嘗試，
-  直到 spec 改變或 operator 要求重試。
+  change feed 觸發時只收斂 spec 的變化並回報 drift；auto-correct 欄位的 drift 在 resync 時修正（§6.2）。
+- **退避**：暫時性錯誤（provider 無法連線、逾時）採有上限的指數退避並持續重試，`realized` 為 `false`、reason
+  `provider_unreachable`。
+- **放棄**：永久性錯誤（provider 拒絕）設定 `requires_attention` condition 與正規化的錯誤，停止自動嘗試，
+  直到 spec 改變（`generation` 增加）或 operator 要求重試。缺少能力是 `realized=false`、reason `capability_missing`，
+  不是失敗。
 - **並行**：controller 不對被進行中的 Workflow 以 lease 佔用的資源動作（§6.4）。
 
 ### 7.6 執行位置
 
-controller 不在 API process 執行。同一種 controller 同一時間只有一個 active instance，以 store 中的 lease 保證。
+controller 不在 API process 執行，目前在 worker process。同一種 controller 同一時間只有一個 active instance，
+以 store 中帶 TTL 的 lease 保證：持有者定期續租，process 停止後 lease 過期，由其他 instance 接手。這個 lease 與
+Workflow 的 resource lease 是不同的紀錄。
 
 ## 8. Provider 在收斂中的角色
 
@@ -312,6 +342,9 @@ store 規則與資料庫引擎無關：
 ### 11.1 API
 
 - desired state 以宣告式資源表達：`PUT`（整份）或 `PATCH`（部分）寫入 spec，回應同時帶 spec 與 status。
+- 遷移後的資源一律呈現為：識別欄位（例如 `id`、Server 的 `origin`）、`generation`、`spec`（desired 欄位），以及
+  `status`（`observedGeneration`、`conditions[]`，以及所有 observed 與 derived 的事實）。非破壞性的 spec 寫入在
+  寫入 store 後回應，收斂是非同步的：client 以 conditions 與 `observedGeneration` 判斷是否已實現。
 - 寫入 spec 可以帶預期的 `generation`；不符時回 `409 conflict`，避免覆蓋別人的變更。
 - 會造成破壞性變更的 spec 寫入，回應 `202 Accepted` 與產生的 Change Plan，而不是直接執行。
 - Change Plan 有自己的讀取、核准與拒絕 API。
@@ -344,6 +377,8 @@ store 規則與資料庫引擎無關：
 
 - 為什麼由 swallow 擁有 desired state、為什麼採混合收斂、為什麼 Temporal 只負責執行：
   [decision 069](../decisions/069-swallow-owns-desired-state.md)。
+- spec／status 的 API 形狀、auto-correct 的時機、第一次觀察即接管、Server 的 origin 與 tag 的所有權：
+  [decision 071](../decisions/071-provisioner-realized-desired-state.md)。
 - 被取代的 capability-first fallback：[decision 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)；
   仍然有效的「swallow 永不擁有」清單：[decision 001](../decisions/001-system-ownership-boundaries.md)。
 - core、provider adapter 與擴充模組：[core-and-extensions.md](core-and-extensions.md)、
