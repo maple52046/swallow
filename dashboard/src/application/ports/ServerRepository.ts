@@ -1,12 +1,10 @@
 import type { NetworkLinkInput, NetworkTarget, ProvisioningTask } from '@/domain/provisioning/types'
 import type {
   BootMediaProbe,
-  DeployServerInput,
   HypervisorVirtualMachines,
   ListServersFilters,
   PowerStateResult,
   ProvisionerDetail,
-  ReleaseServerInput,
   ProviderEvents,
   ProvisioningActionResult,
   Server,
@@ -35,8 +33,6 @@ export interface Paginated<T> {
 export interface ServerRepository {
   listServers(filters?: ListServersFilters): Promise<Paginated<Server>>
   getServer(id: string): Promise<Server | null>
-  deployServer(id: string, input: DeployServerInput): Promise<ProvisioningActionResult>
-  releaseServer(id: string, input?: ReleaseServerInput): Promise<ProvisioningActionResult>
   /** Read one machine live and advance its provisioning state and observed addresses. */
   refreshServer(id: string): Promise<ProvisioningActionResult>
   /** Permanently remove the backing provisioner Machine and then its Server projection. */

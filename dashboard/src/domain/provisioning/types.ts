@@ -72,12 +72,8 @@ export interface CreateDeploymentTemplateInput {
   name: string;
   description?: string;
   imageId: string;
-  /**
-   * Preferred deploy-mode vocabulary; maps onto the stored ephemeral flag at the API. `ephemeral`
-   * remains accepted for backward compatibility; the dashboard sends `deployTarget`.
-   */
+  /** The deploy mode; maps onto the stored ephemeral flag at the API. */
   deployTarget?: DeployTarget;
-  ephemeral?: boolean;
   network?: DeploymentNetworkSettings;
   userData?: string;
 }
@@ -88,7 +84,6 @@ export interface UpdateDeploymentTemplateInput {
   description?: string;
   imageId?: string;
   deployTarget?: DeployTarget;
-  ephemeral?: boolean;
   network?: DeploymentNetworkSettings;
 }
 
@@ -109,9 +104,8 @@ export interface DeployServersInput {
   templateId?: string;
   settings?: {
     imageId?: string;
-    /** Preferred deploy-mode vocabulary; maps onto `ephemeral` at the API boundary. */
+    /** The deploy mode; maps onto `ephemeral` at the API boundary. */
     deployTarget?: DeployTarget;
-    ephemeral?: boolean;
   };
   userData?: {
     mode: DeploymentUserDataMode;

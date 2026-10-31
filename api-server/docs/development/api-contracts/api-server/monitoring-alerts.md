@@ -53,7 +53,7 @@ Filters narrow the array and are not validated: a value that matches no alert yi
 - `state` keeps alerts whose `state` equals it exactly.
 
 Alert items contain `fingerprint`, `name`, `severity`, `state`, `summary`, `description`,
-`labels`, `startsAt`, and the correlated `serverId`, `siteId`, `platformId`, and `clusterId`:
+`labels`, `startsAt`, and the correlated `serverId`, `siteId`, and `platformId`:
 
 - `fingerprint` is Alertmanager's opaque identifier. `name` and `severity` are the `alertname`
   and `severity` labels; `summary` and `description` are the same-named annotations. Each is
@@ -63,10 +63,8 @@ Alert items contain `fingerprint`, `name`, `severity`, `state`, `summary`, `desc
 - `labels` is the alert's full label set, always an object.
 - `startsAt` is a timestamp, or `null` when Alertmanager's value cannot be read.
 - `serverId`, `siteId`, and `platformId` come from the `server_id`, `site`, and `platform_id`
-  labels (`platformId` falls back to the legacy `platform`, then `cluster` label); each is
-  `null` when the labels do not identify one. `clusterId` is a deprecated one-release alias
-  that mirrors `platformId`
-  ([ADR-014](../../../../../docs/decisions/014-platform-resource-language.md)).
+  labels (`platformId` falls back to the legacy `platform` label); each is `null` when the
+  labels do not identify one.
 
 ## Acknowledge
 
@@ -98,8 +96,9 @@ The common error envelope applies.
 
 ## Compatibility Notes
 
-- `clusterId` is a deprecated alias of `platformId` for one release; new consumers read
-  `platformId`.
+- Since 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md),
+  breaking) alert items no longer carry the `clusterId` alias of `platformId`, and a `cluster`
+  label no longer identifies a Platform.
 - Severity and state values are Alertmanager's and the alert rules'; the glossary has not yet
   defined an Alert value set (Pending Terms), so a consumer must tolerate any severity string.
 - Since 2026-10-31 (DF-05) a `siteId` that names no Site is `404 not_found` on both routes; it was

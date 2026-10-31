@@ -464,7 +464,6 @@ export interface FixtureOptions {
   onServerRefreshRequest?: (serverId: string) => void
   onPlatformUninstallRequest?: (platformId: string, body: Record<string, unknown> | null) => void
   releaseConvergesAfterRefreshes?: number
-  deploymentConvergesAfterRefreshes?: number
   releaseCleanupFails?: boolean
   /**
    * Leaves a released Server in its "deployed" axis at accept time instead of flipping it to
@@ -1196,7 +1195,6 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     updatedAt: string | null
   } = { platformType: 'slurm', minimumResources: null, updatedAt: null }
   const releaseRefreshesRemaining = new Map<string, number>()
-  const deploymentRefreshesRemaining = new Map<string, number>()
   const releaseCleanupRequested = new Set<string>()
   const provisioningTasks: Array<Record<string, unknown>> = Array.from(
     { length: options.serverActivityItemCount ?? 0 },
@@ -1292,31 +1290,6 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       releaseRefreshesRemaining.delete(serverId)
     } else {
       releaseRefreshesRemaining.set(serverId, remaining - 1)
-    }
-  }
-  const observeDeployment = (serverId: string) => {
-    const remaining = deploymentRefreshesRemaining.get(serverId)
-    if (remaining === undefined) return
-    const server = fleet.find((item) => item.id === serverId)
-    if (!server) {
-      deploymentRefreshesRemaining.delete(serverId)
-      return
-    }
-    if (remaining <= 1) {
-      server.status.provisioning.state = 'deployed'
-      server.status.provisioning.providerState = 'Deployed'
-      server.status.provisioning.osSystem = 'ubuntu'
-      server.status.provisioning.distroSeries = 'ubuntu/jammy'
-      if (server.status.deployment) {
-        server.status.deployment.state = 'succeeded'
-        server.status.deployment.statusReason = ''
-        server.status.deployment.stage = ''
-        server.status.deployment.finishedAt = now
-        server.status.deployment.updatedAt = now
-      }
-      deploymentRefreshesRemaining.delete(serverId)
-    } else {
-      deploymentRefreshesRemaining.set(serverId, remaining - 1)
     }
   }
   const platformItems = platforms.map((platform) => ({
@@ -2221,7 +2194,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         description: String(body.description ?? ''),
         imageId: String(body.imageId),
         network: body.network ?? { mode: 'dhcp', defaultGateway: false },
-        ephemeral: Boolean(body.ephemeral),
+        ephemeral: body.deployTarget === 'ram',
         hasUserData: Boolean(body.userData),
         createdAt: now,
         updatedAt: now,
@@ -2386,48 +2359,6 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       return json(route, { operationId }, 202)
     }
 
-    if (path === '/api/v1/provisioning/deployments' && request.method() === 'POST') {
-      const body = request.postDataJSON() as Record<string, unknown>
-      options.onDeploymentRequest?.(body)
-      const serverIds = body.serverIds as string[]
-      const failedIds = new Set(options.deploymentFailureIds ?? [])
-      const accepted = serverIds.filter((id) => !failedIds.has(id)).map((serverId) => {
-        const server = fleet.find((item) => item.id === serverId)
-        if (server) {
-          server.status.provisioning.state = 'deploying'
-          server.status.provisioning.providerState = 'Deploying'
-          server.status.provisioning.observedAt = now
-          if (options.deploymentConvergesAfterRefreshes !== undefined) {
-            deploymentRefreshesRemaining.set(serverId, Math.max(1, options.deploymentConvergesAfterRefreshes))
-          }
-        }
-        return {
-          serverId,
-          state: 'deploying',
-          providerState: 'Deploying',
-          powerState: server?.status.provisioning.powerState ?? 'unknown',
-          osSystem: 'ubuntu',
-          distroSeries: 'ubuntu/jammy',
-          ephemeral: false,
-          hweKernel: '',
-          locked: false,
-          commissioningStatus: 'passed',
-          testingStatus: 'passed',
-          observedAt: now,
-        }
-      })
-      return json(route, {
-        requested: serverIds.length,
-        accepted,
-        failed: serverIds.filter((id) => failedIds.has(id)).map((serverId) => ({
-          serverId,
-          code: retryable ? 'provider_unavailable' : 'provider_rejected',
-          message: 'Machine reservation changed.',
-          stage: 'deployment',
-        })),
-      }, 202)
-    }
-
     if (path === '/api/v1/overview') {
       const siteId = url.searchParams.get('siteId')
       return json(route, {
@@ -2563,7 +2494,6 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const serverId = serverRefreshMatch[1]
       options.onServerRefreshRequest?.(serverId)
       observeRelease(serverId)
-      observeDeployment(serverId)
       const server = fleet.find((item) => item.id === serverId)
       if (!server) return json(route, { error: { code: "not_found", message: "Server not found" } }, 404)
       return json(route, {
@@ -3177,7 +3107,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         ? json(route, operation)
         : json(route, { error: { code: 'not_found', message: 'Workflow not found' } }, 404)
     }
-    // Canonical Task-retry (ADR 017 rename of /operations/{id}/steps/{stepId}/retry). When
+    // Task retry. When
     // deployExecutionLost is set it answers 409 to model a lost Workflow execution, which drives
     // the Repair action into its rerun fallback.
     const workflowTaskRetryMatch = path.match(/^\/api\/v1\/workflows\/([^/]+)\/tasks\/([^/]+)\/retry$/)

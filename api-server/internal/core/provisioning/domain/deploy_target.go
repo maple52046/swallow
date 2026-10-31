@@ -54,14 +54,13 @@ func DeployTargetForEphemeral(ephemeral bool) DeployTarget {
 	return DeployTargetDisk
 }
 
-// ResolveEphemeral folds a request's deploy mode onto the ephemeral flag: deployTarget, when
-// provided, is authoritative and must be valid; otherwise the deprecated ephemeral alias is used
-// as-is (nil when the request names no mode). ok=false means an unknown deployTarget, which a
-// delivery adapter answers with 400 rather than silently choosing a deploy mode. Every request that
-// accepts both fields (OS deployments and Platform deploys) resolves them here.
-func ResolveEphemeral(deployTarget *string, ephemeral *bool) (resolved *bool, ok bool) {
+// ResolveEphemeral folds a request's deployTarget onto the ephemeral flag: nil when the request
+// names no deploy mode, and ok=false for an unknown value, which a delivery adapter answers with
+// 400 rather than silently choosing a deploy mode. Every request that takes a deploy mode (OS
+// deployments, Deployment Templates, and Platform deploys) resolves it here.
+func ResolveEphemeral(deployTarget *string) (resolved *bool, ok bool) {
 	if deployTarget == nil {
-		return ephemeral, true
+		return nil, true
 	}
 	target, valid := ParseDeployTarget(*deployTarget)
 	if !valid {

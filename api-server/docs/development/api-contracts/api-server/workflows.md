@@ -53,28 +53,8 @@ The wire shape (paths, parameters, request and response schemas, status codes) i
 in the OpenAPI document [`../openapi/openapi.yaml`](../openapi/openapi.yaml), tag `workflows`
 (authored in `../openapi/areas/workflows.yaml`); the canonical Workflow object is its `Workflow`
 schema with `WorkflowTask` and `WorkflowTimelineEvent`. This document keeps the behavior
-semantics. OpenAPI names the path parameters `{id}` and `{taskId}` (`{stepId}` on the alias)
-and writes the collection path without its trailing slash; Fiber serves both spellings.
-
-### Deprecated `/operations` alias (one release)
-
-For one release the former surface remains available and is served by the same handlers,
-with a `Deprecation: true` response header and a `Link: </api/v1/workflows>;
-rel="successor-version"` header:
-
-```text
-POST /api/v1/operations/                                   -> /workflows/
-GET  /api/v1/operations/                                   -> /workflows/
-GET  /api/v1/operations/{id}                               -> /workflows/{id}
-POST /api/v1/operations/{id}/cancel                        -> /workflows/{id}/cancel
-POST /api/v1/operations/{id}/rerun                         -> /workflows/{id}/rerun
-GET  /api/v1/operations/{id}/timeline                      -> /workflows/{id}/timeline
-POST /api/v1/operations/{id}/steps/{stepId}/retry          -> /workflows/{id}/tasks/{taskId}/retry
-GET  /api/v1/operations/{id}/steps/{stepId}/logs           -> /workflows/{id}/tasks/{taskId}/logs
-GET  /api/v1/operations/{id}/steps/{stepId}/stderr         -> /workflows/{id}/tasks/{taskId}/stderr
-GET  /api/v1/operations/{id}/steps/{stepId}/events         -> /workflows/{id}/tasks/{taskId}/events
-GET  /api/v1/operations/{id}/steps/{stepId}/artifacts      -> /workflows/{id}/tasks/{taskId}/artifacts
-```
+semantics. OpenAPI names the path parameters `{id}` and `{taskId}` and writes the collection path
+without its trailing slash; Fiber serves both spellings.
 
 ### Wire field rename (in progress)
 
@@ -98,8 +78,7 @@ must accept both during the window.
 }
 ```
 
-`kind` and a non-empty `targetServerIds` are required. `clusterId` is accepted as a deprecated
-alias of `platformId` when `platformId` is empty. `extraVars` keys starting with `swallow_` are
+`kind` and a non-empty `targetServerIds` are required. `extraVars` keys starting with `swallow_` are
 dropped, so a client cannot forge the variables swallow sets.
 
 `playbookName` is required for `custom`; built-in kinds use the Site mapping unless an
@@ -150,7 +129,6 @@ example shows one of the Workflow's Tasks):
   "temporal": { "workflowId": "swallow-operation/workflow-id", "runId": "temporal-run-id" },
   "siteId": "site-id",
   "platformId": "platform-id",
-  "clusterId": "platform-id",
   "targetResources": [{ "kind": "platform", "id": "platform-id" }, { "kind": "server", "id": "server-id" }],
   "targetServerIds": ["server-id"],
   "steps": [
@@ -243,7 +221,7 @@ Ansible Runner populates `live`.
 
 ## List Query
 
-Optional filters are `siteId`, `platformId`, deprecated `clusterId`, `serverId`, `kind`,
+Optional filters are `siteId`, `platformId`, `serverId`, `kind`,
 `status`, `active=true`, and common pagination. `active` constrains only when it is exactly
 `true`. Results are Workflow projections sorted by `requestedAt` descending.
 
@@ -312,8 +290,8 @@ its borrowed Server through its own recover Task instead.
 
 `POST /{id}/tasks/{taskId}/retry` returns `202` only when the Task is `failed` or
 `requires_attention` and its normalized error has `retryable=true`; any other Task is
-`conflict`. The body names the Task under both the canonical and the deprecated keys:
-`{ "workflowId", "operationId", "taskId", "stepId" }`. The retry is stored and the Workflow
+`conflict`. The body names the Workflow and the Task: `{ "workflowId", "taskId" }`. The retry is
+stored and the Workflow
 applies it in the same Workflow, also when its execution was lost (the worker resumes it). A Task
 without a Job, or in a Job that retries by Task, runs again at the next attempt and its successful
 dependencies are not repeated; a Task in a Job that retries as a whole (for example a platform
@@ -414,3 +392,8 @@ the schema-v2 Operation records were retired. Breaking: create answers with the 
 schema-v2 ID is `not_found`; and `GET /operations/{id}/logs`, `GET /operations/{id}/events`, and
 `POST /operations/{id}/retry` were removed (use the per-Task endpoints, Task retry, or rerun).
 Schema v10 drops the records.
+
+Also on 2026-10-31 (decision 074) the one-release aliases ended. Breaking: the deprecated
+`/api/v1/operations` alias (including its `steps/{stepId}` paths) was removed; `clusterId` is no
+longer a Workflow field, a create field, or a list filter; and the Task-retry body no longer
+repeats the Workflow and Task as `operationId` and `stepId`.

@@ -23,13 +23,11 @@ import (
 )
 
 type ProvisioningHandler struct {
-	deploy          *application.DeployServerUseCase
 	deployments     *application.DeployServersUseCase
 	templates       *application.DeploymentTemplateService
 	targetPreflight *application.DeploymentTargetPreflightService
 	networks        *application.NetworkConfigurationService
 	tasks           *application.ProvisioningTaskService
-	release         *application.ReleaseServerUseCase
 	refresh         *application.RefreshServerUseCase
 	images          *application.ListOSImagesUseCase
 	reconcile       *application.ReconcileUseCase
@@ -52,13 +50,11 @@ type ProvisioningHandler struct {
 }
 
 func NewProvisioningHandler(
-	deploy *application.DeployServerUseCase,
 	deployments *application.DeployServersUseCase,
 	targetPreflight *application.DeploymentTargetPreflightService,
 	templates *application.DeploymentTemplateService,
 	networks *application.NetworkConfigurationService,
 	tasks *application.ProvisioningTaskService,
-	release *application.ReleaseServerUseCase,
 	refresh *application.RefreshServerUseCase,
 	images *application.ListOSImagesUseCase,
 	reconcile *application.ReconcileUseCase,
@@ -74,11 +70,9 @@ func NewProvisioningHandler(
 	durable ...application.DurableOperationLauncher,
 ) *ProvisioningHandler {
 	handler := &ProvisioningHandler{
-		deploy:          deploy,
 		deployments:     deployments,
 		templates:       templates,
 		targetPreflight: targetPreflight,
-		release:         release,
 		networks:        networks,
 		tasks:           tasks,
 		refresh:         refresh,
@@ -114,96 +108,6 @@ func (h *ProvisioningHandler) RefreshServer(c *fiber.Ctx) error {
 		return RespondError(c, err)
 	}
 	return c.JSON(item)
-}
-
-type deployRequest struct {
-	OSSystem     string `json:"osSystem"`
-	DistroSeries string `json:"distroSeries"`
-	UserData     string `json:"userData"`
-	Comment      string `json:"comment"`
-	// Ephemeral runs the OS from memory and leaves the disks untouched. Refused, not
-	// ignored, when the provisioner cannot do it.
-	Ephemeral bool `json:"ephemeral"`
-	// DeployTarget is the preferred deploy-mode vocabulary ("disk"/"ram"); when present it is
-	// authoritative and maps onto Ephemeral. Ephemeral stays accepted as a deprecated alias.
-	DeployTarget *string `json:"deployTarget"`
-}
-
-type releaseRequest struct {
-	Erase           bool   `json:"erase"`
-	SecureErase     bool   `json:"secureErase"`
-	QuickErase      bool   `json:"quickErase"`
-	Comment         string `json:"comment"`
-	UnbindStaticIPs bool   `json:"unbindStaticIPs"`
-}
-
-// Deploy starts an OS deployment on a server. Responds 202: the provisioner has
-// accepted the request, and the reconciler tracks it from there.
-func (h *ProvisioningHandler) Deploy(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if id == "" {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
-	}
-
-	var req deployRequest
-	if err := c.BodyParser(&req); err != nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
-	}
-	// Required rather than defaulted: letting the provisioner pick an OS makes a
-	// deployment a surprise.
-	if req.DistroSeries == "" {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "distroSeries is required."))
-	}
-	ephemeral := req.Ephemeral
-	if req.DeployTarget != nil {
-		target, valid := provisioningdomain.ParseDeployTarget(*req.DeployTarget)
-		if !valid {
-			return apierror.Respond(c, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`))
-		}
-		ephemeral = target.Ephemeral()
-	}
-
-	item, err := h.deploy.Execute(c.Context(), application.DeployServerInput{
-		ServerID:     id,
-		OSSystem:     req.OSSystem,
-		DistroSeries: req.DistroSeries,
-		UserData:     req.UserData,
-		Comment:      req.Comment,
-		Ephemeral:    ephemeral,
-	})
-	if err != nil {
-		return RespondError(c, err)
-	}
-	return c.Status(fiber.StatusAccepted).JSON(item)
-}
-
-func (h *ProvisioningHandler) Release(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if id == "" {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
-	}
-
-	var req releaseRequest
-	if len(c.Body()) > 0 {
-		if err := c.BodyParser(&req); err != nil {
-			return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
-		}
-	}
-
-	// The operator path: a Server a Platform claims is refused (409) rather than released.
-	item, err := h.release.ExecuteForOperator(c.Context(), application.ReleaseServerInput{
-		ServerID:        id,
-		Erase:           req.Erase,
-		SecureErase:     req.SecureErase,
-		UnbindStaticIPs: req.UnbindStaticIPs,
-		RequestID:       c.GetRespHeader(fiber.HeaderXRequestID),
-		QuickErase:      req.QuickErase,
-		Comment:         req.Comment,
-	})
-	if err != nil {
-		return RespondError(c, err)
-	}
-	return c.Status(fiber.StatusAccepted).JSON(item)
 }
 
 // DeleteServer removes the backing provisioner Machine before deleting the Server

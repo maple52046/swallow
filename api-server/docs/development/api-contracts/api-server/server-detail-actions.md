@@ -35,8 +35,6 @@ POST /api/v1/servers/{id}/network/interfaces/{interfaceId}/links
 PUT  /api/v1/servers/{id}/network/interfaces/{interfaceId}/links/{linkId}
 DELETE /api/v1/servers/{id}/network/interfaces/{interfaceId}/links/{linkId}
 GET  /api/v1/servers/{id}/provisioning-tasks
-POST /api/v1/servers/{id}/deploy
-POST /api/v1/servers/{id}/release
 POST /api/v1/servers/{id}/{power-on|power-off|inspect|test|abort}
 POST /api/v1/servers/{id}/{override-failed-testing|lock|unlock}
 POST /api/v1/servers/{id}/{mark-broken|mark-fixed|rescue-mode|exit-rescue-mode}
@@ -203,8 +201,8 @@ production-k0s; uninstall the Platform (with releaseServers to also release its 
 delete its record before deleting the Server`. Either one releases the claim
 ([platforms.md](platforms.md)).
 
-`POST /servers/{id}/release` accepts an absent body for backwards compatibility,
-or this optional JSON body:
+A Server is released through `POST /provisioning/release-operations`
+([provisioning.md](provisioning.md)); its release options mean:
 
 ```json
 {
@@ -255,15 +253,8 @@ Like the other provider capabilities, a provisioner without network configuratio
 network read and writes with `400 validation_error`; so does a release with `unbindStaticIPs`
 on such a provisioner.
 
-Deploy requires `distroSeries` and accepts `osSystem`, `userData`,
-`comment`, and the deploy mode — `deployTarget` (`"disk"` | `"ram"`, preferred)
-or its deprecated `ephemeral` boolean alias (`disk ↔ false`, `ram ↔ true`;
-`deployTarget` wins when both are sent, and an unknown value is a `400`). This
-single-server endpoint is deprecated in favour of
-`POST /provisioning/deployment-operations`, which additionally applies the
-custom-image verification gate. It requires the installation's Deployment Key
-(`409 conflict` without one) and registers swallow's SSH Keys with the provisioner
-before deploying (`503 provider_unavailable` when that fails). Other provider actions return `202` with the
+A Server is deployed through `POST /provisioning/deployment-operations`
+([provisioning.md](provisioning.md)). The provider actions here return `202` with the
 accepted provisioning snapshot. Unsupported capabilities and provider refusals use
 `400 validation_error`; unavailable providers use
 `503 provider_unavailable`; missing resources use `404 not_found`. Every error
@@ -752,6 +743,11 @@ not alter the Server projection. These are provider events, not a claim that Swa
 owns a complete durable audit trail.
 
 ## Compatibility Notes
+
+On 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md),
+breaking) the deprecated `POST /servers/{id}/deploy` and `POST /servers/{id}/release` were removed;
+deploy and release through `POST /provisioning/deployment-operations` and `POST
+/provisioning/release-operations`.
 
 On 2026-10-04 `POST /servers/{id}/commission` was renamed to `POST /servers/{id}/inspect`
 with the same behavior, and the provisioning state `commissioning` became `inspecting`

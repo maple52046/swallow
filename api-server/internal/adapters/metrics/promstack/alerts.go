@@ -62,7 +62,7 @@ func toAlert(raw alertJSON) *monitoringdomain.Alert {
 		Labels:      raw.Labels,
 		ServerID:    raw.Labels[monitoringdomain.LabelServerID],
 		SiteID:      raw.Labels[monitoringdomain.LabelSite],
-		PlatformID:  firstLabel(raw.Labels, monitoringdomain.LabelPlatform, monitoringdomain.LabelPlatformLegacy, monitoringdomain.LabelClusterLegacy),
+		PlatformID:  firstLabel(raw.Labels, monitoringdomain.LabelPlatform, monitoringdomain.LabelPlatformLegacy),
 	}
 
 	if parsed, err := time.Parse(time.RFC3339, raw.StartsAt); err == nil {

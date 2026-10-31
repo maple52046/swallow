@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
@@ -32,95 +31,6 @@ type ProvisioningStateItem struct {
 	// deployment until the Server is inspected again; the reason says why. Omitted when false.
 	InspectionRequired       bool   `json:"inspectionRequired,omitempty"`
 	InspectionRequiredReason string `json:"inspectionRequiredReason,omitempty"`
-}
-
-type DeployServerInput struct {
-	ServerID string
-	// OSSystem may be empty when DistroSeries already identifies the OS family.
-	OSSystem string
-	// DistroSeries is the release to deploy, e.g. "jammy" or "ubuntu/22.04".
-	DistroSeries string
-	// UserData is optional cloud-init user data in plain text.
-	UserData string
-	Comment  string
-	// Ephemeral asks for the OS to run from memory, leaving the disks untouched.
-	//
-	// Rejected rather than ignored when the provisioner cannot do it: an operator who
-	// asks for "nothing is written to disk" and silently gets a disk installation has
-	// had the opposite of their instruction carried out.
-	Ephemeral bool
-}
-
-// DeployServerUseCase asks a server's own provisioner to install an operating system.
-//
-// The action is addressed by server ID, not by provider machine ID: callers know
-// servers, and which provisioner to talk to is derived from the server's source. That
-// is the identity mapping swallow exists to hold.
-type DeployServerUseCase struct {
-	servers   serverdomain.ServerRepository
-	providers provisioningdomain.ProviderFactory
-	keys      DeploymentKeys
-}
-
-func NewDeployServerUseCase(
-	servers serverdomain.ServerRepository,
-	providers provisioningdomain.ProviderFactory,
-) *DeployServerUseCase {
-	return &DeployServerUseCase{servers: servers, providers: providers}
-}
-
-// AttachDeploymentKeys makes the deploy require a Deployment Key and ensure the provisioner holds
-// swallow's SSH Keys before its provider write, exactly like DeployServersUseCase.
-func (uc *DeployServerUseCase) AttachDeploymentKeys(keys DeploymentKeys) {
-	uc.keys = keys
-}
-
-func (uc *DeployServerUseCase) Execute(ctx context.Context, input DeployServerInput) (*ProvisioningStateItem, error) {
-	if err := requireDeploymentKey(ctx, uc.keys); err != nil {
-		return nil, err
-	}
-	server, err := uc.servers.FindByID(ctx, input.ServerID)
-	if err != nil {
-		return nil, err
-	}
-
-	provider, err := uc.providers.For(ctx, server.Source.IntegrationID)
-	if err != nil {
-		return nil, err
-	}
-	if err := requireServerUnlocked(ctx, uc.servers, server, provider); err != nil {
-		return nil, err
-	}
-
-	// Refused here rather than passed down, so that a provisioner which cannot deploy
-	// from memory says so instead of installing to disk. This is the one deploy option
-	// where being ignored produces the opposite of what was asked for.
-	if input.Ephemeral && !provider.Capabilities().EphemeralDeploy {
-		return nil, &provisioningdomain.ProviderError{
-			Kind: provisioningdomain.ProviderErrorRejected,
-			Detail: "This provisioner does not support ephemeral deployment, and " +
-				"silently deploying to disk would be the opposite of what was requested.",
-		}
-	}
-	if uc.keys != nil {
-		if err := uc.keys.EnsureRegistered(ctx, server.Source.IntegrationID); err != nil {
-			return nil, fmt.Errorf("%w: %v", provisioningdomain.ErrSSHKeyRegistration, err)
-		}
-	}
-
-	machine, err := provider.Deploy(ctx, provisioningdomain.DeployRequest{
-		MachineID:    server.Source.ProviderMachineID,
-		OSSystem:     input.OSSystem,
-		DistroSeries: input.DistroSeries,
-		UserData:     input.UserData,
-		Comment:      input.Comment,
-		Ephemeral:    input.Ephemeral,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return applyProvisioningResult(ctx, uc.servers, server, machine), nil
 }
 
 // applyProvisioningResult writes the post-action state onto the server so that a

@@ -13,9 +13,9 @@ import (
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 )
 
-// A Platform deploy takes the OS deployment contract's deploy-mode vocabulary (DF-02): deployTarget
-// wins, ephemeral is its deprecated alias. Before, deployTarget was not read, so a request naming
-// only `ram` was silently deployed to disk.
+// A Platform deploy takes the OS deployment contract's deploy-mode vocabulary (DF-02). Before,
+// deployTarget was not read, so a request naming only `ram` was silently deployed to disk; the
+// removed `ephemeral` alias is ignored like any unknown field.
 func TestMachinePreparationResolvesTheDeployTarget(t *testing.T) {
 	tests := []struct {
 		name string
@@ -25,8 +25,7 @@ func TestMachinePreparationResolvesTheDeployTarget(t *testing.T) {
 	}{
 		{name: "ram deploy target", body: `{"settings":{"deployTarget":"ram"}}`, want: boolPtr(true), ok: true},
 		{name: "disk deploy target", body: `{"settings":{"deployTarget":"disk"}}`, want: boolPtr(false), ok: true},
-		{name: "deploy target wins over the alias", body: `{"settings":{"deployTarget":"disk","ephemeral":true}}`, want: boolPtr(false), ok: true},
-		{name: "deprecated alias alone", body: `{"settings":{"ephemeral":true}}`, want: boolPtr(true), ok: true},
+		{name: "the removed alias is ignored", body: `{"settings":{"ephemeral":true}}`, ok: true},
 		{name: "no deploy mode", body: `{"settings":{"imageId":"noble"}}`, ok: true},
 		{name: "unknown deploy target", body: `{"settings":{"deployTarget":"tape"}}`},
 	}

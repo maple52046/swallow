@@ -6,8 +6,8 @@ tags:
   - name: provisioning
     description: >-
       Provider-owned OS Images and the metadata swallow keeps for them, Deployment Templates, OS Deployment
-      acceptance (target preflight, the durable deploy, release, recover, and image-verification
-      Workflows, and the deprecated direct batch), network inspection, Provisioning Tasks,
+      acceptance (target preflight and the durable deploy, release, recover, and image-verification
+      Workflows), network inspection, Provisioning Tasks,
       provisioner reconciliation, Server Enrollment, and Boot ISOs.
 paths:
   /api/v1/provisioning/images:
@@ -547,18 +547,16 @@ paths:
                 $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
-  /api/v1/provisioning/deployments:
+  /api/v1/provisioning/deployment-operations:
     post:
       tags: [provisioning]
-      operationId: deployServerBatchViaDeprecatedAlias
-      deprecated: true
-      summary: Deprecated direct multi-Server OS deployment; use createDeploymentOperation.
+      operationId: createDeploymentOperation
+      summary: Accept a multi-Server OS deployment as one durable Workflow.
       description: >-
-        Requires role `admin`. Kept for one release with its original wire behavior; every response
-        carries `Deprecation: true` and a successor `Link` to
-        `/api/v1/provisioning/deployment-operations`. Runs the complete preflight, then dispatches
-        with at most four workers. The `202` body is an acceptance report, not a durable job, and
-        there is no rollback.
+        Requires role `admin`. Runs the complete side-effect-free preflight, then persists one
+        Workflow (one `provision-os` Task per
+        Server, plus its `configure-ntp` and, with Boot Media, `ensure-boot-media` Tasks). Progress
+        is read through the Workflows contract.
       requestBody:
         required: true
         content:
@@ -567,22 +565,17 @@ paths:
               $ref: '#/components/schemas/OsDeploymentRequest'
       responses:
         '202':
-          description: Every target was dispatched; each one was accepted or refused by the provider.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
+          description: The Workflow was created.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/OsDeploymentBatchResult'
+                $ref: '#/components/schemas/WorkflowAccepted'
         '400':
           description: >-
             `validation_error`: malformed input — the target list, an unknown `deployTarget`, a
             missing image without a template, an image not in the provisioner's live catalog,
             invalid user data or network intent, or a provisioner that offers no network
-            configuration.
+            configuration — or the Workflow intent was refused as invalid.
           content:
             application/json:
               schema:
@@ -603,65 +596,8 @@ paths:
             other targets or the template, or needs a new inspection before a disk deployment;
             the image is a custom image not verified for the deploy target, not fully staged, or
             of another architecture; the provisioner cannot deploy from memory; a network
-            conflict; or the installation has no Deployment Key.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          description: '`provider_unavailable`: the provisioner cannot be reached before dispatch.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/provisioning/deployment-operations:
-    post:
-      tags: [provisioning]
-      operationId: createDeploymentOperation
-      summary: Accept a multi-Server OS deployment as one durable Workflow.
-      description: >-
-        Requires role `admin`. Takes the same request and runs the same side-effect-free preflight
-        as the deprecated direct batch, then persists one Workflow (one `provision-os` Task per
-        Server, plus its `configure-ntp` and, with Boot Media, `ensure-boot-media` Tasks). Progress
-        is read through the Workflows contract.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/OsDeploymentRequest'
-      responses:
-        '202':
-          description: The Workflow was created.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WorkflowAccepted'
-        '400':
-          description: >-
-            `validation_error`: malformed input (see the deprecated batch), or the Workflow intent
-            was refused as invalid.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          description: '`not_found`: a Server or the template does not exist.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '409':
-          description: >-
-            `conflict`: a preflight conflict as for the deprecated batch, a target already held by
-            an unfinished Workflow, the installation has no Deployment Key, or it has no NTP server
-            (`SWALLOW_API_NTP_SERVER`).
+            conflict; a target is already held by an unfinished Workflow; or the installation
+            has no Deployment Key or no NTP server (`SWALLOW_API_NTP_SERVER`).
           content:
             application/json:
               schema:
@@ -1754,11 +1690,7 @@ components:
         deployTarget:
           type: string
           enum: [disk, ram]
-          description: The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
-        ephemeral:
-          type: boolean
-          deprecated: true
-          description: Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
+          description: The deploy mode (matched case-insensitively).
         network:
           $ref: '#/components/schemas/DeploymentTemplateNetworkIntent'
         userData:
@@ -1778,11 +1710,7 @@ components:
         deployTarget:
           type: string
           enum: [disk, ram]
-          description: The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
-        ephemeral:
-          type: boolean
-          deprecated: true
-          description: Deprecated alias of `deployTarget`.
+          description: The deploy mode (matched case-insensitively).
         network:
           $ref: '#/components/schemas/DeploymentTemplateNetworkIntent'
     DeploymentTemplateUserDataRequest:
@@ -1880,11 +1808,7 @@ components:
         deployTarget:
           type: string
           enum: [disk, ram]
-          description: The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
-        ephemeral:
-          type: boolean
-          deprecated: true
-          description: Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
+          description: The deploy mode (matched case-insensitively).
     OsDeploymentUserData:
       type: object
       properties:
@@ -1930,91 +1854,6 @@ components:
         ipAddress:
           type: string
           description: The unique static IPv4 address of the target; valid and required only for `static`.
-    OsDeploymentBatchResult:
-      type: object
-      description: The acceptance report of the deprecated direct batch, in target order.
-      required:
-        - requested
-        - accepted
-        - failed
-      properties:
-        requested:
-          type: integer
-          minimum: 1
-        accepted:
-          type: array
-          description: >-
-            The provisioning snapshot of each target the provider accepted, as returned on
-            acceptance (the provisioning-state shape of server-detail-actions.md).
-          items:
-            type: object
-            required:
-              - serverId
-              - state
-              - providerState
-              - powerState
-              - osSystem
-              - distroSeries
-              - ephemeral
-              - hweKernel
-              - locked
-              - commissioningStatus
-              - testingStatus
-              - observedAt
-            properties:
-              serverId:
-                type: string
-              state:
-                type: string
-                description: The OS Provisioning State.
-                enum:
-                  - new
-                  - inspecting
-                  - ready
-                  - allocated
-                  - deploying
-                  - deployed
-                  - releasing
-                  - testing
-                  - rescue
-                  - broken
-                  - failed
-                  - retired
-                  - unknown
-              providerState:
-                type: string
-                description: The provider's own label; display only.
-              powerState:
-                type: string
-                description: The power state as the provider reports it (`on`, `off`, `error`, `unknown`).
-              osSystem:
-                type: string
-              distroSeries:
-                type: string
-              ephemeral:
-                type: boolean
-              hweKernel:
-                type: string
-              locked:
-                type: boolean
-              commissioningStatus:
-                type: string
-              taskId:
-                type: string
-                description: A Provisioning Task the action created; omitted when none.
-              testingStatus:
-                type: string
-              observedAt:
-                $ref: '#/components/schemas/Timestamp'
-              inspectionRequired:
-                type: boolean
-                description: Present (true) only when a disk deployment needs a new inspection first.
-              inspectionRequiredReason:
-                type: string
-        failed:
-          type: array
-          items:
-            $ref: '#/components/schemas/OsDeploymentFailure'
     OsDeploymentFailure:
       type: object
       description: A target the provider refused after the whole batch passed preflight; accepted targets are not rolled back.

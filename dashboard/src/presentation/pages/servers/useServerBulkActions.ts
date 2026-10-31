@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
 import { useApp } from "@/di/AppProvider";
 import { useToast } from "@/presentation/components/toast/toastContext";
-import type { ReleaseServerInput } from "@/domain/server/types";
-import { actionLabel, type BulkAction } from "./serverActions";
+import type { ReleaseServerInput, ServerAction } from "@/domain/server/types";
+import { actionLabel } from "./serverActions";
 import {
   failedServerActionOutcomes,
   rejectedServerActionOutcome,
@@ -13,7 +13,8 @@ import {
 } from "./serverActionResults";
 
 /**
- * Runs a provisioner action across many Servers by fanning out over the per-Server API.
+ * Runs a provisioner action across many Servers by fanning out over the per-Server API; Release
+ * and Recover are one durable Operation for the whole batch instead.
  *
  * Swallow exposes no bulk action endpoint, so failures are collected per target instead
  * of aborting the remaining independent calls. The complete result is returned for the
@@ -26,18 +27,13 @@ export function useServerBulkActions() {
 
   const run = useCallback(
     async (
-      action: BulkAction,
+      action: ServerAction,
       targets: readonly ServerActionTarget[],
-      releaseInput?: ReleaseServerInput,
     ): Promise<ServerActionRunResult> => {
       setRunning(true);
       try {
         const settled = await Promise.allSettled(
-          targets.map((target) =>
-            action === "release"
-              ? servers.releaseServer(target.serverId, releaseInput)
-              : servers.runServerAction(target.serverId, action),
-          ),
+          targets.map((target) => servers.runServerAction(target.serverId, action)),
         );
 
         const outcomes = settled.map((outcome, index) => {

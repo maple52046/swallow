@@ -163,7 +163,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Runner](terms/runner.md): The mechanism that executes a Task — `provisioner` / `ansible` (host automation) / `internal` (named by the Provider Interface it drives; code still says "executor", and `maas` → `provisioner`).
 - [Automation Configuration](terms/automation-configuration.md): Site-scoped settings for Swallow-owned Ansible execution.
 
-> Deprecated aliases kept for the [decision 017](../../decisions/017-workflow-job-task-runner-model.md) rename window: [Operation](terms/operation.md) → Workflow, [Operation Step](terms/operation-step.md) → Task.
+> Retired names that survive only in code types and unrenamed wire fields ([decision 017](../../decisions/017-workflow-job-task-runner-model.md), [decision 074](../../decisions/074-retire-schema-v2-and-deprecated-aliases.md)): [Operation](terms/operation.md) → Workflow, [Operation Step](terms/operation-step.md) → Task.
 
 ## Pending Terms
 

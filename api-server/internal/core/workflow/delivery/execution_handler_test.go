@@ -339,8 +339,8 @@ func newWorkflowContractHandler() *ExecutionHandler {
 	return NewExecutionHandler(operations, nil, orchestrations)
 }
 
-// newWorkflowContractApp mounts handler at the production paths of the /workflows surface and its
-// deprecated /operations alias (internal/app registerRoutes), behind the API contract validator,
+// newWorkflowContractApp mounts handler at the production paths of the /workflows surface
+// (internal/app registerRoutes), behind the API contract validator,
 // so every response is checked against the operation documented for its route. Authentication
 // is left out: the handlers read no principal beyond an optional requester name.
 func newWorkflowContractApp(t *testing.T, handler *ExecutionHandler) *fiber.App {
@@ -361,28 +361,11 @@ func newWorkflowContractApp(t *testing.T, handler *ExecutionHandler) *fiber.App 
 	workflows.Get("/:id/tasks/:taskId/events", handler.StepEvents)
 	workflows.Get("/:id/tasks/:taskId/artifacts", handler.StepArtifacts)
 
-	operations := app.Group("/api/v1/operations")
-	operations.Use(func(c *fiber.Ctx) error {
-		c.Set("Deprecation", "true")
-		c.Set("Link", `</api/v1/workflows>; rel="successor-version"`)
-		return c.Next()
-	})
-	operations.Post("/", handler.Create)
-	operations.Get("/", handler.List)
-	operations.Get("/:id", handler.Get)
-	operations.Get("/:id/timeline", handler.Timeline)
-	operations.Post("/:id/cancel", handler.Cancel)
-	operations.Post("/:id/rerun", handler.Rerun)
-	operations.Post("/:id/steps/:stepId/retry", handler.RetryStep)
-	operations.Get("/:id/steps/:stepId/logs", handler.StepLogs)
-	operations.Get("/:id/steps/:stepId/stderr", handler.StepStderr)
-	operations.Get("/:id/steps/:stepId/events", handler.StepEvents)
-	operations.Get("/:id/steps/:stepId/artifacts", handler.StepArtifacts)
 	return app
 }
 
-// TestWorkflowRoutesMatchTheContract drives every Workflow route, on the canonical surface and the
-// deprecated alias, through each response shape it can produce (running and finished Workflows,
+// TestWorkflowRoutesMatchTheContract drives every Workflow route through each response shape it
+// can produce (running and finished Workflows,
 // text and JSON diagnostics, accepted controls, and the documented error statuses). The contract
 // validator fails the test when a response carries an undocumented status, Content-Type, or
 // property, which is how the workflows contract is kept equal to what the handlers emit.
@@ -418,17 +401,6 @@ func TestWorkflowRoutesMatchTheContract(t *testing.T) {
 		{name: "a non-Ansible Task has no events", method: http.MethodGet, path: "/api/v1/workflows/wf-running/tasks/provision-os/events", wantStatus: http.StatusOK},
 		{name: "Task artifacts are metadata", method: http.MethodGet, path: "/api/v1/workflows/wf-running/tasks/install-platform/artifacts", wantStatus: http.StatusOK},
 		{name: "an unknown Task is not found", method: http.MethodGet, path: "/api/v1/workflows/wf-running/tasks/missing/artifacts", wantStatus: http.StatusNotFound},
-		{name: "alias create", method: http.MethodPost, path: "/api/v1/operations", body: customBody, wantStatus: http.StatusAccepted},
-		{name: "alias list", method: http.MethodGet, path: "/api/v1/operations", wantStatus: http.StatusOK},
-		{name: "alias get", method: http.MethodGet, path: "/api/v1/operations/wf-running", wantStatus: http.StatusOK},
-		{name: "alias timeline", method: http.MethodGet, path: "/api/v1/operations/wf-running/timeline", wantStatus: http.StatusOK},
-		{name: "alias cancel", method: http.MethodPost, path: "/api/v1/operations/wf-running/cancel", wantStatus: http.StatusAccepted},
-		{name: "alias rerun", method: http.MethodPost, path: "/api/v1/operations/wf-failed/rerun", wantStatus: http.StatusAccepted},
-		{name: "alias step retry", method: http.MethodPost, path: "/api/v1/operations/wf-running/steps/install-platform/retry", wantStatus: http.StatusAccepted},
-		{name: "alias step logs", method: http.MethodGet, path: "/api/v1/operations/wf-running/steps/install-platform/logs", wantStatus: http.StatusOK},
-		{name: "alias step stderr", method: http.MethodGet, path: "/api/v1/operations/wf-running/steps/install-platform/stderr", wantStatus: http.StatusOK},
-		{name: "alias step events", method: http.MethodGet, path: "/api/v1/operations/wf-running/steps/install-platform/events", wantStatus: http.StatusOK},
-		{name: "alias step artifacts", method: http.MethodGet, path: "/api/v1/operations/wf-running/steps/install-platform/artifacts", wantStatus: http.StatusOK},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

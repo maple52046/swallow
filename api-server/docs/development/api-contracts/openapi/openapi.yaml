@@ -16,7 +16,7 @@ tags:
     name: monitoring
   - description: Swallow-deployed Kubernetes and Slurm Platforms (platforms.md) and the live Kubernetes cluster explorer of a deployed Kubernetes Platform (platforms-kubernetes.md). Every operation requires the `admin` role.
     name: platforms
-  - description: Provider-owned OS Images and the metadata swallow keeps for them, Deployment Templates, OS Deployment acceptance (target preflight, the durable deploy, release, recover, and image-verification Workflows, and the deprecated direct batch), network inspection, Provisioning Tasks, provisioner reconciliation, Server Enrollment, and Boot ISOs.
+  - description: Provider-owned OS Images and the metadata swallow keeps for them, Deployment Templates, OS Deployment acceptance (target preflight and the durable deploy, release, recover, and image-verification Workflows), network inspection, Provisioning Tasks, provisioner reconciliation, Server Enrollment, and Boot ISOs.
     name: provisioning
   - description: Servers projected from provisioner inventory, their provider-backed lifecycle actions, and the swallow-owned settings attached to them. Every route requires role `admin`.
     name: servers
@@ -26,7 +26,7 @@ tags:
     name: software
   - description: Liveness, readiness, and process metrics of the API process.
     name: system
-  - description: Durable Workflows (a DAG of Tasks run by Runners), their timeline and per-Task diagnostics, and the deprecated /operations alias.
+  - description: Durable Workflows (a DAG of Tasks run by Runners), their timeline and per-Task diagnostics.
     name: workflows
 paths:
   /api/v1/api-keys:
@@ -273,979 +273,6 @@ paths:
       summary: Exchange a refresh token for a new access token, rotating the refresh token.
       tags:
         - auth
-  /api/v1/clusters:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms`. Requires the `admin` role.
-      operationId: listPlatformsViaDeprecatedAlias
-      parameters:
-        - description: Return only the Platforms of this Site.
-          in: query
-          name: siteId
-          required: false
-          schema:
-            type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: '#/components/schemas/Platform'
-                type: array
-          description: The Platforms.
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: List Platforms, optionally of one Site.
-      tags:
-        - platforms
-  /api/v1/clusters/{id}:
-    delete:
-      deprecated: true
-      description: Deprecated alias of `DELETE /api/v1/platforms/{id}`. Requires the `admin` role.
-      operationId: deletePlatformViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessAcknowledgement'
-          description: Done.
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Remove a Platform record without touching its hosts.
-      tags:
-        - platforms
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}`. Requires the `admin` role.
-      operationId: getPlatformViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Platform'
-          description: The Platform.
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Read one Platform.
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    patch:
-      deprecated: true
-      description: Deprecated alias of `PATCH /api/v1/platforms/{id}`. Requires the `admin` role.
-      operationId: updatePlatformViaDeprecatedAlias
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PlatformUpdate'
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Platform'
-          description: The updated Platform.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Change a Platform's name, ownership policies, or Monitoring Links.
-      tags:
-        - platforms
-  /api/v1/clusters/{id}/kubernetes:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes`. Requires the `admin` role.
-      operationId: getKubernetesClusterSummaryViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesClusterSummary'
-          description: The cluster summary.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Read the live summary of a deployed Kubernetes Platform.
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-  /api/v1/clusters/{id}/kubernetes/applications:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/applications`. Requires the `admin` role.
-      operationId: listKubernetesApplicationsViaDeprecatedAlias
-      parameters:
-        - $ref: '#/components/parameters/KubernetesNamespaceScope'
-        - $ref: '#/components/parameters/KubernetesIncludeSystem'
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesApplicationList'
-          description: The Applications.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: List Kubernetes Applications (aggregated workloads).
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-  /api/v1/clusters/{id}/kubernetes/applications/{namespace}/{kind}/{name}:
-    delete:
-      deprecated: true
-      description: Deprecated alias of `DELETE /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}`. Requires the `admin` role.
-      operationId: deleteKubernetesApplicationViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessAcknowledgement'
-          description: Done.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Delete the workload object (or bare Pod) behind an Application.
-      tags:
-        - platforms
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}`. Requires the `admin` role.
-      operationId: getKubernetesApplicationViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesApplication'
-          description: The Application, with `pods` when it owns at least one Pod.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Read one Kubernetes Application with the Pods it owns.
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNamespaceName'
-      - $ref: '#/components/parameters/KubernetesApplicationKind'
-      - $ref: '#/components/parameters/KubernetesObjectName'
-  /api/v1/clusters/{id}/kubernetes/applications/{namespace}/{kind}/{name}/restart:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNamespaceName'
-      - $ref: '#/components/parameters/KubernetesApplicationKind'
-      - $ref: '#/components/parameters/KubernetesObjectName'
-    post:
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}/restart`. Requires the `admin` role.
-      operationId: restartKubernetesApplicationViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessAcknowledgement'
-          description: Done.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Trigger a rolling restart of a Deployment, DaemonSet, or StatefulSet.
-      tags:
-        - platforms
-  /api/v1/clusters/{id}/kubernetes/applications/{namespace}/{kind}/{name}/scale:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNamespaceName'
-      - $ref: '#/components/parameters/KubernetesApplicationKind'
-      - $ref: '#/components/parameters/KubernetesObjectName'
-    post:
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}/scale`. Requires the `admin` role.
-      operationId: scaleKubernetesApplicationViaDeprecatedAlias
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/KubernetesApplicationScale'
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesApplication'
-          description: The updated Application summary, without `pods`.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Set a Deployment's or StatefulSet's replica count.
-      tags:
-        - platforms
-  /api/v1/clusters/{id}/kubernetes/apply:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    post:
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/apply`. Requires the `admin` role.
-      operationId: applyKubernetesManifestViaDeprecatedAlias
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/KubernetesManifestApply'
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesManifestApplyResults'
-          description: One result per applied object.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Server-side apply a YAML manifest of one or more documents.
-      tags:
-        - platforms
-  /api/v1/clusters/{id}/kubernetes/configmaps:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/configmaps`. Requires the `admin` role.
-      operationId: listKubernetesConfigMapsViaDeprecatedAlias
-      parameters:
-        - $ref: '#/components/parameters/KubernetesNamespaceScope'
-        - $ref: '#/components/parameters/KubernetesIncludeSystem'
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesConfigMapList'
-          description: The ConfigMaps.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: List ConfigMaps with their data key names (read-only).
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-  /api/v1/clusters/{id}/kubernetes/ingresses:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/ingresses`. Requires the `admin` role.
-      operationId: listKubernetesIngressesViaDeprecatedAlias
-      parameters:
-        - $ref: '#/components/parameters/KubernetesNamespaceScope'
-        - $ref: '#/components/parameters/KubernetesIncludeSystem'
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesIngressList'
-          description: The Ingresses.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: List Ingresses (read-only).
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-  /api/v1/clusters/{id}/kubernetes/namespaces:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/namespaces`. Requires the `admin` role.
-      operationId: listKubernetesNamespacesViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesNamespaceList'
-          description: The namespaces.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: List the cluster's namespaces, system namespaces flagged.
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    post:
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/namespaces`. Requires the `admin` role.
-      operationId: createKubernetesNamespaceViaDeprecatedAlias
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/KubernetesNamespaceCreation'
-        required: true
-      responses:
-        "201":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesNamespace'
-          description: The created namespace.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Create a namespace.
-      tags:
-        - platforms
-  /api/v1/clusters/{id}/kubernetes/namespaces/{namespace}:
-    delete:
-      deprecated: true
-      description: Deprecated alias of `DELETE /api/v1/platforms/{id}/kubernetes/namespaces/{namespace}`. Requires the `admin` role.
-      operationId: deleteKubernetesNamespaceViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessAcknowledgement'
-          description: Done.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Delete a namespace.
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNamespaceName'
-  /api/v1/clusters/{id}/kubernetes/nodes:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/nodes`. Requires the `admin` role.
-      operationId: listKubernetesNodesViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesNodeList'
-          description: The nodes.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: List the cluster's nodes correlated to Server identity.
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-  /api/v1/clusters/{id}/kubernetes/nodes/{node}/cordon:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNodeName'
-    post:
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/nodes/{node}/cordon`. Requires the `admin` role.
-      operationId: cordonKubernetesNodeViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesNode'
-          description: The updated node.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Mark a node unschedulable.
-      tags:
-        - platforms
-  /api/v1/clusters/{id}/kubernetes/nodes/{node}/uncordon:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNodeName'
-    post:
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/nodes/{node}/uncordon`. Requires the `admin` role.
-      operationId: uncordonKubernetesNodeViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesNode'
-          description: The updated node.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Clear a node's unschedulable flag.
-      tags:
-        - platforms
-  /api/v1/clusters/{id}/kubernetes/persistentvolumeclaims:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/persistentvolumeclaims`. Requires the `admin` role.
-      operationId: listKubernetesPersistentVolumeClaimsViaDeprecatedAlias
-      parameters:
-        - $ref: '#/components/parameters/KubernetesNamespaceScope'
-        - $ref: '#/components/parameters/KubernetesIncludeSystem'
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesPersistentVolumeClaimList'
-          description: The PersistentVolumeClaims.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: List PersistentVolumeClaims (read-only).
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-  /api/v1/clusters/{id}/kubernetes/pods:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/pods`. Requires the `admin` role.
-      operationId: listKubernetesPodsViaDeprecatedAlias
-      parameters:
-        - $ref: '#/components/parameters/KubernetesNamespaceScope'
-        - $ref: '#/components/parameters/KubernetesIncludeSystem'
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesPodList'
-          description: The Pods.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: List Pods.
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-  /api/v1/clusters/{id}/kubernetes/pods/{namespace}/{name}:
-    delete:
-      deprecated: true
-      description: Deprecated alias of `DELETE /api/v1/platforms/{id}/kubernetes/pods/{namespace}/{name}`. Requires the `admin` role.
-      operationId: deleteKubernetesPodViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessAcknowledgement'
-          description: Done.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Delete a Pod (its controller recreates it).
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNamespaceName'
-      - $ref: '#/components/parameters/KubernetesObjectName'
-  /api/v1/clusters/{id}/kubernetes/pods/{namespace}/{name}/logs:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/pods/{namespace}/{name}/logs`. Requires the `admin` role.
-      operationId: getKubernetesPodLogsViaDeprecatedAlias
-      parameters:
-        - description: The container to read; defaults to the Pod's first container.
-          in: query
-          name: container
-          required: false
-          schema:
-            type: string
-        - description: How many trailing lines to return; a value above 2000 is read as 2000.
-          in: query
-          name: tailLines
-          required: false
-          schema:
-            default: 200
-            minimum: 1
-            type: integer
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesPodLogs'
-          description: The log snapshot.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Read a bounded snapshot of one container's logs (not a stream).
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNamespaceName'
-      - $ref: '#/components/parameters/KubernetesObjectName'
-  /api/v1/clusters/{id}/kubernetes/secrets:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/secrets`. Requires the `admin` role.
-      operationId: listKubernetesSecretsViaDeprecatedAlias
-      parameters:
-        - $ref: '#/components/parameters/KubernetesNamespaceScope'
-        - $ref: '#/components/parameters/KubernetesIncludeSystem'
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesSecretList'
-          description: The Secrets.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: List Secrets with their data key names only (read-only).
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-  /api/v1/clusters/{id}/kubernetes/services:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/services`. Requires the `admin` role.
-      operationId: listKubernetesServicesViaDeprecatedAlias
-      parameters:
-        - $ref: '#/components/parameters/KubernetesNamespaceScope'
-        - $ref: '#/components/parameters/KubernetesIncludeSystem'
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KubernetesServiceList'
-          description: The Services.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: List Services (read-only).
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-  /api/v1/clusters/{id}/slurm:
-    get:
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/slurm`. Requires the `admin` role.
-      operationId: getSlurmClusterStateViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SlurmClusterState'
-          description: The live Slurm cluster state.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Read a Slurm Platform's live controllers, partitions, and nodes from slurmrestd.
-      tags:
-        - platforms
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-  /api/v1/clusters/{id}/sync:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    post:
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/{id}/sync`. Requires the `admin` role.
-      operationId: syncPlatformMembershipViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PlatformMembershipReport'
-          description: The membership report.
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Read one Platform's membership now.
-      tags:
-        - platforms
-  /api/v1/clusters/{id}/uninstall:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    post:
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/{id}/uninstall`. Requires the `admin` role.
-      operationId: uninstallPlatformViaDeprecatedAlias
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PlatformUninstall'
-        required: false
-      responses:
-        "202":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PlatformWorkflowAcceptance'
-          description: The uninstall Workflow is persisted.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Start the Workflow that uninstalls a Swallow-deployed Platform from its targets.
-      tags:
-        - platforms
-  /api/v1/clusters/deploy:
-    post:
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/deploy`. Requires the `admin` role.
-      operationId: deployPlatformViaDeprecatedAlias
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PlatformDeployRequest'
-        required: true
-      responses:
-        "202":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PlatformWorkflowAcceptance'
-          description: The Platform and the Workflow building it are persisted.
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Create a Platform and start the Workflow that builds it.
-      tags:
-        - platforms
-  /api/v1/clusters/sync:
-    post:
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/sync`. Requires the `admin` role.
-      operationId: syncAllPlatformMembershipsViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: '#/components/schemas/PlatformMembershipReport'
-                type: array
-          description: One membership report per synced Platform.
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Read the membership of every Platform with a recorded Integration now.
-      tags:
-        - platforms
   /api/v1/discovery/ansible:
     get:
       description: 'Machine authentication: the installation machine token, or an admin access token (API Keys are not accepted). For diagnostics and external tools; the embedded runner calls the same projection directly. Hosts are keyed by Server id and a Server with no known address is omitted. Never paginated (discovery-prometheus.md, Ansible Inventory).'
@@ -1775,7 +802,7 @@ paths:
         - sites
   /api/v1/integrations:
     get:
-      description: Requires role `admin`. Returns a plain array ordered by `siteId`, then `name`. A `kind` value no Integration has (including an unknown one) returns `[]`; the deprecated alias `cluster` is read as `platform` and answered with a `Deprecation` header.
+      description: Requires role `admin`. Returns a plain array ordered by `siteId`, then `name`. A `kind` value no Integration has (including an unknown one) returns `[]`.
       operationId: listIntegrations
       parameters:
         - description: Restrict to the Integrations of this Site.
@@ -1784,7 +811,7 @@ paths:
           required: false
           schema:
             type: string
-        - description: 'Restrict to one Integration kind: `provisioner`, `metrics`, or `platform` (`cluster` is its deprecated alias). Not validated.'
+        - description: 'Restrict to one Integration kind: `provisioner`, `metrics`, or `platform`. Not validated.'
           in: query
           name: kind
           required: false
@@ -1799,9 +826,6 @@ paths:
                   $ref: '#/components/schemas/Integration'
                 type: array
           description: The matching Integrations.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -1812,7 +836,7 @@ paths:
       tags:
         - sites
     post:
-      description: 'Requires role `admin`. `kind` and `providerKind` are validated together. `kind` `platform` (and its deprecated alias `cluster`, which also sets a `Deprecation` header) is refused: a platform Integration is created only by a successful Platform deployment (decision 032). `name` and `endpoint` are trimmed. `enabled` defaults to true. The credential is write-only and never returned.'
+      description: 'Requires role `admin`. `kind` and `providerKind` are validated together. `kind` `platform` is refused: a platform Integration is created only by a successful Platform deployment (decision 032). `name` and `endpoint` are trimmed. `enabled` defaults to true. The credential is write-only and never returned.'
       operationId: createIntegration
       requestBody:
         content:
@@ -1869,7 +893,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`validation_error`: the body is not valid JSON; `siteId`, `name`, or `endpoint` is missing or empty; `kind` is not a kind or is `platform`/`cluster`; or `providerKind` does not fit `kind` (the message names the valid values).'
+          description: '`validation_error`: the body is not valid JSON; `siteId`, `name`, or `endpoint` is missing or empty; `kind` is not a kind or is `platform`; or `providerKind` does not fit `kind` (the message names the valid values).'
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -2420,368 +1444,6 @@ paths:
       summary: Read bounded usage history of named metrics over a scope of Servers.
       tags:
         - monitoring
-  /api/v1/operations:
-    get:
-      deprecated: true
-      description: Requires the `admin` role. Identical to `listWorkflows`.
-      operationId: listWorkflowsViaDeprecatedAlias
-      parameters:
-        - $ref: '#/components/parameters/WorkflowSiteIdFilter'
-        - $ref: '#/components/parameters/WorkflowPlatformIdFilter'
-        - $ref: '#/components/parameters/WorkflowClusterIdFilter'
-        - $ref: '#/components/parameters/WorkflowServerIdFilter'
-        - $ref: '#/components/parameters/WorkflowKindFilter'
-        - $ref: '#/components/parameters/WorkflowStatusFilter'
-        - $ref: '#/components/parameters/WorkflowActiveFilter'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WorkflowPage'
-          description: One page of Workflows.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deprecated alias of GET /api/v1/workflows.
-      tags:
-        - workflows
-    post:
-      deprecated: true
-      description: Requires the `admin` role. Identical to `createWorkflow`.
-      operationId: createWorkflowViaDeprecatedAlias
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateWorkflowRequest'
-        required: true
-      responses:
-        "202":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Workflow'
-          description: The intent was persisted; the Workflow starts asynchronously.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-        "400":
-          $ref: '#/components/responses/WorkflowCreateRejected'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/WorkflowCreateTargetNotFound'
-        "409":
-          $ref: '#/components/responses/WorkflowCreateConflict'
-        "503":
-          $ref: '#/components/responses/WorkflowCreateAutomationUnavailable'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deprecated alias of POST /api/v1/workflows.
-      tags:
-        - workflows
-  /api/v1/operations/{id}:
-    get:
-      deprecated: true
-      description: Requires the `admin` role. Identical to `getWorkflow`.
-      operationId: getWorkflowViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Workflow'
-          description: The Workflow.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/WorkflowNotFound'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deprecated alias of GET /api/v1/workflows/{id}.
-      tags:
-        - workflows
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-  /api/v1/operations/{id}/cancel:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-    post:
-      deprecated: true
-      description: Requires the `admin` role. Identical to `cancelWorkflow`.
-      operationId: cancelWorkflowViaDeprecatedAlias
-      responses:
-        "202":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WorkflowAccepted'
-          description: The cancel request was accepted.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/WorkflowNotFound'
-        "409":
-          $ref: '#/components/responses/WorkflowControlConflict'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deprecated alias of POST /api/v1/workflows/{id}/cancel.
-      tags:
-        - workflows
-  /api/v1/operations/{id}/rerun:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-    post:
-      deprecated: true
-      description: Requires the `admin` role. Identical to `rerunWorkflow`.
-      operationId: rerunWorkflowViaDeprecatedAlias
-      responses:
-        "202":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Workflow'
-          description: The replacement Workflow was persisted and starts asynchronously.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-        "400":
-          $ref: '#/components/responses/WorkflowRerunRejected'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/WorkflowNotFound'
-        "409":
-          $ref: '#/components/responses/WorkflowRerunConflict'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deprecated alias of POST /api/v1/workflows/{id}/rerun.
-      tags:
-        - workflows
-  /api/v1/operations/{id}/steps/{stepId}/artifacts:
-    get:
-      deprecated: true
-      description: Requires the `admin` role. Identical to `listWorkflowTaskArtifacts`.
-      operationId: listWorkflowTaskArtifactsViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: '#/components/schemas/WorkflowTaskArtifact'
-                type: array
-          description: The artifact metadata; an empty array when the Task retained none.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/WorkflowTaskNotFound'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/artifacts.
-      tags:
-        - workflows
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-      - $ref: '#/components/parameters/OperationStepId'
-  /api/v1/operations/{id}/steps/{stepId}/events:
-    get:
-      deprecated: true
-      description: Requires the `admin` role. Identical to `getWorkflowTaskEvents`.
-      operationId: getWorkflowTaskEventsViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WorkflowTaskEvents'
-          description: The per-host results and their counts.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/WorkflowTaskNotFound'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/events.
-      tags:
-        - workflows
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-      - $ref: '#/components/parameters/OperationStepId'
-  /api/v1/operations/{id}/steps/{stepId}/logs:
-    get:
-      deprecated: true
-      description: Requires the `admin` role. Identical to `getWorkflowTaskLogs`.
-      operationId: getWorkflowTaskLogsViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            text/plain:
-              schema:
-                type: string
-          description: The runner output.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/WorkflowTaskNotFound'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/logs.
-      tags:
-        - workflows
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-      - $ref: '#/components/parameters/OperationStepId'
-  /api/v1/operations/{id}/steps/{stepId}/retry:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-      - $ref: '#/components/parameters/OperationStepId'
-    post:
-      deprecated: true
-      description: Requires the `admin` role. Identical to `retryWorkflowTask`.
-      operationId: retryWorkflowTaskViaDeprecatedAlias
-      responses:
-        "202":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WorkflowTaskRetryAccepted'
-          description: The retry was delivered to the Workflow's execution.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/WorkflowTaskNotFound'
-        "409":
-          $ref: '#/components/responses/WorkflowTaskRetryConflict'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deprecated alias of POST /api/v1/workflows/{id}/tasks/{taskId}/retry.
-      tags:
-        - workflows
-  /api/v1/operations/{id}/steps/{stepId}/stderr:
-    get:
-      deprecated: true
-      description: Requires the `admin` role. Identical to `getWorkflowTaskStderr`.
-      operationId: getWorkflowTaskStderrViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            text/plain:
-              schema:
-                type: string
-          description: The error-only report.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/WorkflowTaskNotFound'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/stderr.
-      tags:
-        - workflows
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-      - $ref: '#/components/parameters/OperationStepId'
-  /api/v1/operations/{id}/timeline:
-    get:
-      deprecated: true
-      description: Requires the `admin` role. Identical to `getWorkflowTimeline`.
-      operationId: getWorkflowTimelineViaDeprecatedAlias
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: '#/components/schemas/WorkflowTimelineEvent'
-                type: array
-          description: The timeline; an empty array when nothing has been recorded.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/WorkflowNotFound'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deprecated alias of GET /api/v1/workflows/{id}/timeline.
-      tags:
-        - workflows
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
   /api/v1/overview:
     get:
       description: Requires the `admin` role. Derives every section from its owning context and stores no overview state. An absent or failing alert source is reported inside `monitoring` with a 200; every other read failure fails the request (overview.md).
@@ -4082,7 +2744,7 @@ paths:
         - provisioning
   /api/v1/provisioning/deployment-operations:
     post:
-      description: Requires role `admin`. Takes the same request and runs the same side-effect-free preflight as the deprecated direct batch, then persists one Workflow (one `provision-os` Task per Server, plus its `configure-ntp` and, with Boot Media, `ensure-boot-media` Tasks). Progress is read through the Workflows contract.
+      description: Requires role `admin`. Runs the complete side-effect-free preflight, then persists one Workflow (one `provision-os` Task per Server, plus its `configure-ntp` and, with Boot Media, `ensure-boot-media` Tasks). Progress is read through the Workflows contract.
       operationId: createDeploymentOperation
       requestBody:
         content:
@@ -4102,7 +2764,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`validation_error`: malformed input (see the deprecated batch), or the Workflow intent was refused as invalid.'
+          description: '`validation_error`: malformed input — the target list, an unknown `deployTarget`, a missing image without a template, an image not in the provisioner''s live catalog, invalid user data or network intent, or a provisioner that offers no network configuration — or the Workflow intent was refused as invalid.'
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -4118,7 +2780,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`conflict`: a preflight conflict as for the deprecated batch, a target already held by an unfinished Workflow, the installation has no Deployment Key, or it has no NTP server (`SWALLOW_API_NTP_SERVER`).'
+          description: '`conflict`: a target is absent, not ready, locked, of another Integration than the other targets or the template, or needs a new inspection before a disk deployment; the image is a custom image not verified for the deploy target, not fully staged, or of another architecture; the provisioner cannot deploy from memory; a network conflict; a target is already held by an unfinished Workflow; or the installation has no Deployment Key or no NTP server (`SWALLOW_API_NTP_SERVER`).'
         "503":
           content:
             application/json:
@@ -4128,62 +2790,6 @@ paths:
         default:
           $ref: '#/components/responses/Error'
       summary: Accept a multi-Server OS deployment as one durable Workflow.
-      tags:
-        - provisioning
-  /api/v1/provisioning/deployments:
-    post:
-      deprecated: true
-      description: 'Requires role `admin`. Kept for one release with its original wire behavior; every response carries `Deprecation: true` and a successor `Link` to `/api/v1/provisioning/deployment-operations`. Runs the complete preflight, then dispatches with at most four workers. The `202` body is an acceptance report, not a durable job, and there is no rollback.'
-      operationId: deployServerBatchViaDeprecatedAlias
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/OsDeploymentRequest'
-        required: true
-      responses:
-        "202":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OsDeploymentBatchResult'
-          description: Every target was dispatched; each one was accepted or refused by the provider.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: '`validation_error`: malformed input — the target list, an unknown `deployTarget`, a missing image without a template, an image not in the provisioner''s live catalog, invalid user data or network intent, or a provisioner that offers no network configuration.'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: '`not_found`: a Server or the template does not exist.'
-        "409":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: '`conflict`: a target is absent, not ready, locked, of another Integration than the other targets or the template, or needs a new inspection before a disk deployment; the image is a custom image not verified for the deploy target, not fully staged, or of another architecture; the provisioner cannot deploy from memory; a network conflict; or the installation has no Deployment Key.'
-        "503":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: '`provider_unavailable`: the provisioner cannot be reached before dispatch.'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deprecated direct multi-Server OS deployment; use createDeploymentOperation.
       tags:
         - provisioning
   /api/v1/provisioning/deployments/preflight:
@@ -5444,13 +4050,6 @@ paths:
           required: false
           schema:
             type: string
-        - deprecated: true
-          description: One-release alias of `platformId`; ignored when `platformId` is present.
-          in: query
-          name: clusterId
-          required: false
-          schema:
-            type: string
         - description: Case-insensitive match on hostname, FQDN, address, serial number, or system UUID.
           in: query
           name: keyword
@@ -5719,81 +4318,6 @@ paths:
         default:
           $ref: '#/components/responses/Error'
       summary: Set the Server Default User, optionally installing the Deployment Key first.
-      tags:
-        - servers
-  /api/v1/servers/{id}/deploy:
-    parameters:
-      - description: The swallow-issued Server ID.
-        in: path
-        name: id
-        required: true
-        schema:
-          type: string
-    post:
-      deprecated: true
-      description: 'Requires role `admin`. Deprecated in favour of `POST /api/v1/provisioning/deployment-operations`; every response carries `Deprecation: true` and a successor `Link`. 400 for an invalid body, a missing `distroSeries`, an unknown `deployTarget`, an unsupported RAM deployment, or a provisioner refusal; 404 for an unknown Server or Machine; 409 for a locked Server or a missing Deployment Key; 503 when the provisioner, its SSH Key registration, or the lock state is unavailable.'
-      operationId: deployServer
-      requestBody:
-        content:
-          application/json:
-            schema:
-              properties:
-                comment:
-                  type: string
-                deployTarget:
-                  description: The preferred deploy-mode field; wins over `ephemeral`.
-                  enum:
-                    - disk
-                    - ram
-                  type: string
-                distroSeries:
-                  description: The release to deploy, for example `jammy`.
-                  type: string
-                ephemeral:
-                  deprecated: true
-                  description: Alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
-                  type: boolean
-                osSystem:
-                  type: string
-                userData:
-                  description: Optional cloud-init user data in plain text.
-                  type: string
-              required:
-                - distroSeries
-              type: object
-        required: true
-      responses:
-        "202":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerProvisioningSnapshot'
-          description: The provisioner accepted the deployment.
-          headers:
-            Deprecation:
-              schema:
-                enum:
-                  - "true"
-                type: string
-            Link:
-              description: The successor route, `</api/v1/provisioning/deployment-operations>; rel="successor-version"`.
-              schema:
-                type: string
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Deploy an operating system on one Server directly.
       tags:
         - servers
   /api/v1/servers/{id}/docker:
@@ -7157,73 +5681,6 @@ paths:
       summary: Read the Server's Machine live and update its provisioning axis and addresses.
       tags:
         - servers
-  /api/v1/servers/{id}/release:
-    parameters:
-      - description: The swallow-issued Server ID.
-        in: path
-        name: id
-        required: true
-        schema:
-          type: string
-    post:
-      deprecated: true
-      description: 'Requires role `admin`. Deprecated in favour of `POST /api/v1/provisioning/release-operations`; every response carries `Deprecation: true` and a successor `Link`. The body is optional. 400 for an invalid body, erase refinements without `erase`, release options the provisioner does not support (including `unbindStaticIPs` on a provisioner that cannot configure networks), or a provisioner refusal; 404 for an unknown Server or Machine; 409 when a Platform claims the Server or it is locked; 503 when the provisioner or the lock state is unavailable.'
-      operationId: releaseServer
-      requestBody:
-        content:
-          application/json:
-            schema:
-              properties:
-                comment:
-                  type: string
-                erase:
-                  description: Wipe the disks; `false` releases without wiping.
-                  type: boolean
-                quickErase:
-                  description: Wipe only the beginning and end of each disk; requires `erase`.
-                  type: boolean
-                secureErase:
-                  description: Use the device's hardware erase; requires `erase`.
-                  type: boolean
-                unbindStaticIPs:
-                  description: Remove the pre-release static links once the Server is Ready, through a Provisioning Task whose id the response carries as `taskId`.
-                  type: boolean
-              type: object
-        required: false
-      responses:
-        "202":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerProvisioningSnapshot'
-          description: The provisioner accepted the release.
-          headers:
-            Deprecation:
-              schema:
-                enum:
-                  - "true"
-                type: string
-            Link:
-              description: The successor route, `</api/v1/provisioning/release-operations>; rel="successor-version"`.
-              schema:
-                type: string
-        "400":
-          $ref: '#/components/responses/Error'
-        "401":
-          $ref: '#/components/responses/Error'
-        "403":
-          $ref: '#/components/responses/Error'
-        "404":
-          $ref: '#/components/responses/Error'
-        "409":
-          $ref: '#/components/responses/Error'
-        "503":
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-      summary: Release one Server to the provider's available pool directly.
-      tags:
-        - servers
   /api/v1/servers/{id}/rescue-mode:
     parameters:
       - description: The swallow-issued Server ID.
@@ -8295,7 +6752,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/WorkflowSiteIdFilter'
         - $ref: '#/components/parameters/WorkflowPlatformIdFilter'
-        - $ref: '#/components/parameters/WorkflowClusterIdFilter'
         - $ref: '#/components/parameters/WorkflowServerIdFilter'
         - $ref: '#/components/parameters/WorkflowKindFilter'
         - $ref: '#/components/parameters/WorkflowStatusFilter'
@@ -8788,21 +7244,11 @@ paths:
         - system
 components:
   headers:
-    Deprecation:
-      description: '`true` on a response served through a deprecated route, alias, or parameter. Clients should move to the successor named by the Link header.'
-      schema:
-        enum:
-          - "true"
-        type: string
     NoStore:
       description: 'Always `no-store`: the response carries a credential or private key, or live state read from the system that owns it, and must not be cached by a browser or an intermediary.'
       schema:
         enum:
           - no-store
-        type: string
-    SuccessorLink:
-      description: The canonical successor of a deprecated route, as `<path>; rel="successor-version"`.
-      schema:
         type: string
   parameters:
     DiscoveryProvisioningState:
@@ -8881,13 +7327,6 @@ components:
           $ref: '#/components/schemas/MetricName'
         type: array
       style: form
-    OperationStepId:
-      description: Deprecated name of the Task ID on the /operations alias.
-      in: path
-      name: stepId
-      required: true
-      schema:
-        type: string
     OsImageArchitecture:
       description: The image's architecture as the catalog returns it; one image id can back several.
       in: query
@@ -8954,14 +7393,6 @@ components:
       required: false
       schema:
         type: string
-    WorkflowClusterIdFilter:
-      deprecated: true
-      description: Deprecated alias of `platformId`, used only when `platformId` is absent.
-      in: query
-      name: clusterId
-      required: false
-      schema:
-        type: string
     WorkflowId:
       description: The Workflow ID.
       in: path
@@ -8977,7 +7408,7 @@ components:
       schema:
         type: string
     WorkflowPlatformIdFilter:
-      description: Only Workflows of this Platform. Wins over `clusterId` when both are set.
+      description: Only Workflows of this Platform.
       in: query
       name: platformId
       required: false
@@ -9743,11 +8174,6 @@ components:
     CreateWorkflowRequest:
       description: Operator intent for a single-Task Ansible Workflow. Unknown fields are ignored.
       properties:
-        clusterId:
-          deprecated: true
-          description: Deprecated alias of `platformId`, used only when `platformId` is empty.
-          nullable: true
-          type: string
         extraVars:
           additionalProperties: true
           description: Extra variables for the playbook. Keys starting with `swallow_` are dropped, so a client cannot forge the variables swallow sets.
@@ -9919,17 +8345,13 @@ components:
     DeploymentTemplateCreateRequest:
       properties:
         deployTarget:
-          description: The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
+          description: The deploy mode (matched case-insensitively).
           enum:
             - disk
             - ram
           type: string
         description:
           type: string
-        ephemeral:
-          deprecated: true
-          description: Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
-          type: boolean
         imageId:
           description: Must be in the provisioner's live catalog.
           type: string
@@ -9988,17 +8410,13 @@ components:
       description: Any subset of the template's non-secret intent; omitted fields are unchanged.
       properties:
         deployTarget:
-          description: The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
+          description: The deploy mode (matched case-insensitively).
           enum:
             - disk
             - ram
           type: string
         description:
           type: string
-        ephemeral:
-          deprecated: true
-          description: Deprecated alias of `deployTarget`.
-          type: boolean
         imageId:
           type: string
         name:
@@ -11511,11 +9929,6 @@ components:
     MonitoringAlert:
       description: An alert as Alertmanager reports it, with swallow's correlation from its label set. swallow stores no alerts.
       properties:
-        clusterId:
-          deprecated: true
-          description: Deprecated one-release alias mirroring `platformId` (ADR-014).
-          nullable: true
-          type: string
         description:
           description: The `description` annotation; empty when absent.
           type: string
@@ -11531,7 +9944,7 @@ components:
           description: The `alertname` label; empty when absent.
           type: string
         platformId:
-          description: The correlated Platform (`platform_id`, else the legacy `platform` or `cluster` label), or null.
+          description: The correlated Platform (`platform_id`, else the legacy `platform` label), or null.
           nullable: true
           type: string
         serverId:
@@ -11571,7 +9984,6 @@ components:
         - serverId
         - siteId
         - platformId
-        - clusterId
       type: object
     NetworkInspection:
       properties:
@@ -11831,89 +10243,6 @@ components:
         - failed
         - absent
       type: string
-    OsDeploymentBatchResult:
-      description: The acceptance report of the deprecated direct batch, in target order.
-      properties:
-        accepted:
-          description: The provisioning snapshot of each target the provider accepted, as returned on acceptance (the provisioning-state shape of server-detail-actions.md).
-          items:
-            properties:
-              commissioningStatus:
-                type: string
-              distroSeries:
-                type: string
-              ephemeral:
-                type: boolean
-              hweKernel:
-                type: string
-              inspectionRequired:
-                description: Present (true) only when a disk deployment needs a new inspection first.
-                type: boolean
-              inspectionRequiredReason:
-                type: string
-              locked:
-                type: boolean
-              observedAt:
-                $ref: '#/components/schemas/Timestamp'
-              osSystem:
-                type: string
-              powerState:
-                description: The power state as the provider reports it (`on`, `off`, `error`, `unknown`).
-                type: string
-              providerState:
-                description: The provider's own label; display only.
-                type: string
-              serverId:
-                type: string
-              state:
-                description: The OS Provisioning State.
-                enum:
-                  - new
-                  - inspecting
-                  - ready
-                  - allocated
-                  - deploying
-                  - deployed
-                  - releasing
-                  - testing
-                  - rescue
-                  - broken
-                  - failed
-                  - retired
-                  - unknown
-                type: string
-              taskId:
-                description: A Provisioning Task the action created; omitted when none.
-                type: string
-              testingStatus:
-                type: string
-            required:
-              - serverId
-              - state
-              - providerState
-              - powerState
-              - osSystem
-              - distroSeries
-              - ephemeral
-              - hweKernel
-              - locked
-              - commissioningStatus
-              - testingStatus
-              - observedAt
-            type: object
-          type: array
-        failed:
-          items:
-            $ref: '#/components/schemas/OsDeploymentFailure'
-          type: array
-        requested:
-          minimum: 1
-          type: integer
-      required:
-        - requested
-        - accepted
-        - failed
-      type: object
     OsDeploymentFailure:
       description: A target the provider refused after the whole batch passed preflight; accepted targets are not rolled back.
       properties:
@@ -12000,15 +10329,11 @@ components:
       description: Overrides of the template's non-secret settings.
       properties:
         deployTarget:
-          description: The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
+          description: The deploy mode (matched case-insensitively).
           enum:
             - disk
             - ram
           type: string
-        ephemeral:
-          deprecated: true
-          description: Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
-          type: boolean
         imageId:
           type: string
       type: object
@@ -12203,11 +10528,6 @@ components:
     Overview:
       description: One coherent, point-in-time operator overview (overview.md).
       properties:
-        clusters:
-          allOf:
-            - $ref: '#/components/schemas/OverviewPlatforms'
-          deprecated: true
-          description: Deprecated one-release alias mirroring `platforms` (ADR-014).
         generatedAt:
           $ref: '#/components/schemas/Timestamp'
         integrations:
@@ -12267,7 +10587,6 @@ components:
         - inventory
         - integrations
         - platforms
-        - clusters
         - operations
         - monitoring
       type: object
@@ -12317,10 +10636,6 @@ components:
       properties:
         absent:
           type: integer
-        clustered:
-          deprecated: true
-          description: Deprecated one-release alias mirroring `platformed` (ADR-014).
-          type: integer
         deployed:
           type: integer
         gpuDevices:
@@ -12354,7 +10669,6 @@ components:
         - absent
         - deployed
         - platformed
-        - clustered
         - gpuDevices
         - health
       type: object
@@ -12405,11 +10719,6 @@ components:
     OverviewOperation:
       description: The overview's secret-free summary of one Operation, projected from both Workflows and historical Ansible executions.
       properties:
-        clusterId:
-          deprecated: true
-          description: Deprecated one-release alias mirroring `platformId` (ADR-014).
-          nullable: true
-          type: string
         execution:
           description: Compatibility projection of the run; not a Task state.
           properties:
@@ -12486,7 +10795,6 @@ components:
         - intent
         - siteId
         - platformId
-        - clusterId
         - targetServerIds
         - retryOfOperationId
         - execution
@@ -12784,15 +11092,11 @@ components:
         settings:
           properties:
             deployTarget:
-              description: The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`. `ram` is a memory-backed root that leaves the disks untouched.
+              description: The deploy mode (matched case-insensitively). `ram` is a memory-backed root that leaves the disks untouched.
               enum:
                 - disk
                 - ram
               type: string
-            ephemeral:
-              deprecated: true
-              description: Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
-              type: boolean
             imageId:
               type: string
           type: object
@@ -12819,10 +11123,6 @@ components:
         cleared:
           description: How many Servers lost a membership the Platform no longer reports.
           type: integer
-        clusterId:
-          deprecated: true
-          description: One-release alias of `platformId` with the same value (ADR-014).
-          type: string
         error:
           description: Why the read failed; null on success.
           nullable: true
@@ -12844,7 +11144,6 @@ components:
           type: array
       required:
         - platformId
-        - clusterId
         - platformName
         - members
         - matched
@@ -12988,10 +11287,6 @@ components:
     PlatformWorkflowAcceptance:
       description: An accepted deployment or uninstall. `operationId` names the Workflow (the field keeps the deprecated Operation name).
       properties:
-        clusterId:
-          deprecated: true
-          description: One-release alias of `platformId` with the same value (ADR-014).
-          type: string
         operationId:
           description: The Workflow building or uninstalling the Platform.
           type: string
@@ -12999,7 +11294,6 @@ components:
           type: string
       required:
         - platformId
-        - clusterId
         - operationId
       type: object
     Pool:
@@ -13125,10 +11419,6 @@ components:
         labels:
           description: The metrics label contract (ADR-003); no other identity label may be added.
           properties:
-            cluster:
-              deprecated: true
-              description: Deprecated one-release alias mirroring `platform_id` (ADR-014); present with it.
-              type: string
             platform_id:
               description: The Platform id; present only when the Server is a known Platform member.
               type: string
@@ -13991,10 +12281,6 @@ components:
     ServerMembershipAxis:
       description: The platform runtime's own answer about this Server.
       properties:
-        clusterId:
-          deprecated: true
-          description: One-release alias of `platformId`.
-          type: string
         nodeName:
           description: The platform's own name for this machine.
           type: string
@@ -14010,7 +12296,6 @@ components:
           type: string
       required:
         - platformId
-        - clusterId
         - nodeName
         - role
         - state
@@ -15133,11 +13418,6 @@ components:
     Workflow:
       description: 'The canonical projection of a Workflow: its frozen intent, status, Tasks (still serialized as `steps[]`), and Temporal correlation. Credential, cloud-init, and other secret values never appear: sensitive keys are removed from `intentSnapshot`, and Task parameters and secret references are not part of the projection.'
       properties:
-        clusterId:
-          deprecated: true
-          description: Deprecated alias; always equal to `platformId`.
-          nullable: true
-          type: string
         definition:
           description: Name of the Workflow definition that executes the intent.
           type: string
@@ -15242,7 +13522,6 @@ components:
         - temporal
         - siteId
         - platformId
-        - clusterId
         - targetResources
         - targetServerIds
         - steps
@@ -15630,23 +13909,15 @@ components:
         - updatedAt
       type: object
     WorkflowTaskRetryAccepted:
-      description: Acknowledges a delivered Task retry. Both the canonical and the deprecated names are sent.
+      description: Acknowledges a stored Task retry.
       properties:
-        operationId:
-          description: Deprecated name of `workflowId`; always equal to it.
-          type: string
-        stepId:
-          description: Deprecated name of `taskId`; always equal to it.
-          type: string
         taskId:
           type: string
         workflowId:
           type: string
       required:
         - workflowId
-        - operationId
         - taskId
-        - stepId
       type: object
     WorkflowTaskStatus:
       description: The status of one Task.

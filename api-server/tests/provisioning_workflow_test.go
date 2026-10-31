@@ -23,7 +23,7 @@ func createTemplate(
 		"name":          name,
 		"description":   "Ubuntu compute baseline",
 		"imageId":       "ubuntu/jammy",
-		"ephemeral":     false,
+		"deployTarget":  "disk",
 		"userData":      userData,
 	}, f.adminAuth(t))
 	if resp.StatusCode != http.StatusCreated {
@@ -179,17 +179,16 @@ func TestDeployServers_InlineAndTemplateModes(t *testing.T) {
 		seedReadyServer(t, f, "srv-1")
 		seedReadyServer(t, f, "srv-2")
 
-		resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments", map[string]any{
+		resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployment-operations", map[string]any{
 			"serverIds": []string{"srv-1", "srv-2"},
-			"settings":  map[string]any{"imageId": "ubuntu/jammy", "ephemeral": true},
+			"settings":  map[string]any{"imageId": "ubuntu/jammy", "deployTarget": "ram"},
 			"userData":  map[string]any{"mode": "replace", "value": "#cloud-config"},
 		}, f.adminAuth(t))
 		if resp.StatusCode != http.StatusAccepted {
 			t.Fatalf("expected 202, got %d: %s", resp.StatusCode, rawBody(t, resp))
 		}
-		body := parseBody(t, resp)
-		if body["requested"] != float64(2) || len(body["accepted"].([]any)) != 2 || len(body["failed"].([]any)) != 0 {
-			t.Fatalf("unexpected result: %v", body)
+		if result := f.launcher.lastDeployment; result.Requested != 2 || len(result.Accepted) != 2 || len(result.Failed) != 0 {
+			t.Fatalf("unexpected result: %+v", result)
 		}
 		for _, request := range f.provider.deployRequests {
 			if request.DistroSeries != "ubuntu/jammy" || request.UserData != "#cloud-config" || !request.Ephemeral {
@@ -205,7 +204,7 @@ func TestDeployServers_InlineAndTemplateModes(t *testing.T) {
 		template := createTemplate(t, f, "Cloud baseline", "#cloud-config\\nhostname: inherited")
 		templateID := template["id"].(string)
 
-		resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments", map[string]any{
+		resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployment-operations", map[string]any{
 			"serverIds":  []string{"srv-1"},
 			"templateId": templateID,
 			"userData":   map[string]any{"mode": "inherit"},
@@ -219,7 +218,7 @@ func TestDeployServers_InlineAndTemplateModes(t *testing.T) {
 
 		f.provider.deployRequests = nil
 		f.servers.servers["srv-1"].Provisioning.State = "ready"
-		resp = doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments", map[string]any{
+		resp = doRequest(t, f.app, "POST", "/api/v1/provisioning/deployment-operations", map[string]any{
 			"serverIds":  []string{"srv-1"},
 			"templateId": templateID,
 			"userData":   map[string]any{"mode": "omit"},
@@ -253,16 +252,16 @@ func TestDeployServers_ProviderReadinessRunsAfterNetworkConfiguration(t *testing
 		t.Fatalf("read-only target preflight must defer provider network readiness: %v", issues)
 	}
 
-	resp = doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments", map[string]any{
+	resp = doRequest(t, f.app, "POST", "/api/v1/provisioning/deployment-operations", map[string]any{
 		"serverIds": []string{"srv-1"},
 		"settings":  map[string]any{"imageId": "ubuntu/jammy"},
 	}, f.adminAuth(t))
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("post-network readiness refusal: expected 202, got %d: %s", resp.StatusCode, rawBody(t, resp))
 	}
-	failure := parseBody(t, resp)["failed"].([]any)[0].(map[string]any)
-	if failure["stage"] != "network_configuration" || !strings.Contains(failure["message"].(string), "Network in MAAS") {
-		t.Fatalf("unexpected readiness failure: %v", failure)
+	failure := f.launcher.lastDeployment.Failed[0]
+	if failure.Stage != "network_configuration" || !strings.Contains(failure.Message, "Network in MAAS") {
+		t.Fatalf("unexpected readiness failure: %+v", failure)
 	}
 	if len(f.provider.deployRequests) != 0 {
 		t.Fatalf("provider readiness failure must dispatch nothing, got %d calls", len(f.provider.deployRequests))
@@ -320,7 +319,7 @@ func TestDeployServers_PreflightIsAllOrNothing(t *testing.T) {
 	f.seedServer("srv-2", "srv-2", "10.0.0.2", nil)
 	f.provider.withMachine(testMachine("machine-srv-2", "srv-2"))
 
-	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments", map[string]any{
+	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployment-operations", map[string]any{
 		"serverIds": []string{"srv-1", "srv-2"},
 		"settings":  map[string]any{"imageId": "ubuntu/jammy"},
 	}, f.adminAuth(t))
@@ -335,7 +334,7 @@ func TestDeployServers_PreflightIsAllOrNothing(t *testing.T) {
 	for index := range tooMany {
 		tooMany[index] = fmt.Sprintf("srv-%d", index)
 	}
-	resp = doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments", map[string]any{
+	resp = doRequest(t, f.app, "POST", "/api/v1/provisioning/deployment-operations", map[string]any{
 		"serverIds": tooMany,
 		"settings":  map[string]any{"imageId": "ubuntu/jammy"},
 	}, f.adminAuth(t))
@@ -354,7 +353,7 @@ func TestDeployServers_RejectsIncompleteImage(t *testing.T) {
 		{ID: "ubuntu/jammy", Name: "Ubuntu", OSSystem: "ubuntu", Release: "jammy", Architecture: "amd64", Complete: false},
 	}
 
-	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments", map[string]any{
+	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployment-operations", map[string]any{
 		"serverIds": []string{"srv-1"},
 		"settings":  map[string]any{"imageId": "ubuntu/jammy"},
 	}, f.adminAuth(t))
@@ -376,7 +375,7 @@ func TestDeployServers_RejectsArchitectureMismatch(t *testing.T) {
 		{ID: "custom/arm", Name: "ARM image", OSSystem: "custom", Release: "arm", Architecture: "arm64", Complete: true},
 	}
 
-	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments", map[string]any{
+	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployment-operations", map[string]any{
 		"serverIds": []string{"srv-1"},
 		"settings":  map[string]any{"imageId": "custom/arm"},
 	}, f.adminAuth(t))
@@ -401,20 +400,19 @@ func TestDeployServers_BoundsConcurrencyAndReturnsPartialFailures(t *testing.T) 
 		Kind: provisioningdomain.ProviderErrorRejected, Detail: "Machine reservation changed.",
 	}
 
-	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployments", map[string]any{
+	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/deployment-operations", map[string]any{
 		"serverIds": serverIDs,
 		"settings":  map[string]any{"imageId": "ubuntu/jammy"},
 	}, f.adminAuth(t))
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
-	body := parseBody(t, resp)
-	if len(body["accepted"].([]any)) != 7 || len(body["failed"].([]any)) != 1 {
-		t.Fatalf("unexpected partial result: %v", body)
+	result := f.launcher.lastDeployment
+	if len(result.Accepted) != 7 || len(result.Failed) != 1 {
+		t.Fatalf("unexpected partial result: %+v", result)
 	}
-	failure := body["failed"].([]any)[0].(map[string]any)
-	if failure["serverId"] != "srv-3" || failure["code"] != "provider_rejected" {
-		t.Fatalf("unexpected failure: %v", failure)
+	if failure := result.Failed[0]; failure.ServerID != "srv-3" || failure.Code != "provider_rejected" {
+		t.Fatalf("unexpected failure: %+v", failure)
 	}
 	if f.provider.maxActiveDeploys > 4 {
 		t.Fatalf("provider concurrency exceeded 4: %d", f.provider.maxActiveDeploys)

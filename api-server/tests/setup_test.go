@@ -62,6 +62,7 @@ type platformFixture struct {
 	health       *testHealthResolver
 	activeWork   *fakeActiveServerWorkReader
 
+	launcher          *executingLauncher
 	platformLifecycle *fakeLifecycleReader
 	uninstallLauncher *fakeUninstallLauncher
 	monitoring        *fakeMonitoringFactory
@@ -103,9 +104,13 @@ func setupPlatform(t *testing.T) *platformFixture {
 	// handler share one instance and a rename propagates to server projections through the same
 	// server repo the reconcile pass uses.
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageMetadata)
+	deployments := provisioningapp.NewDeployServersUseCase(servers, templates, factory, osImageVerifications)
+	launcher := &executingLauncher{
+		deployments: deployments,
+		release:     provisioningapp.NewReleaseServerUseCase(servers, factory, nil),
+	}
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
-		provisioningapp.NewDeployServerUseCase(servers, factory),
-		provisioningapp.NewDeployServersUseCase(servers, templates, factory, osImageVerifications),
+		deployments,
 		provisioningapp.NewDeploymentTargetPreflightService(servers, factory),
 		provisioningapp.NewDeploymentTemplateService(
 			templates,
@@ -114,7 +119,6 @@ func setupPlatform(t *testing.T) *platformFixture {
 		),
 		nil,
 		nil,
-		provisioningapp.NewReleaseServerUseCase(servers, factory, nil),
 		provisioningapp.NewRefreshServerUseCase(servers, factory, osImageMetadata),
 		provisioningapp.NewListOSImagesUseCase(factory, osImageMetadata, osImageVerifications),
 		reconcileUC,
@@ -128,6 +132,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewListServerTagsUseCase(integrations, factory, servers),
 		provisioningapp.NewEditServerTagsUseCase(&storetest.Transactor{}, servers, servers, factory),
 	)
+	provisioningHandler.AttachDurableOperations(launcher)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
 		discoveryapp.NewDiscoveryUseCase(servers),
 	)
@@ -188,8 +193,6 @@ func setupPlatform(t *testing.T) *platformFixture {
 	serverGroup.Delete("/:id", provisioningHandler.DeleteServer)
 	serverGroup.Get("/:id/provisioner-detail", provisioningHandler.ProvisionerDetail)
 	serverGroup.Get("/:id/events", provisioningHandler.ProviderEvents)
-	serverGroup.Post("/:id/deploy", provisioningHandler.Deploy)
-	serverGroup.Post("/:id/release", provisioningHandler.Release)
 	serverGroup.Post("/:id/power-on", provisioningHandler.PowerOn)
 	serverGroup.Post("/:id/power-off", provisioningHandler.PowerOff)
 	serverGroup.Get("/:id/power-state", provisioningHandler.PowerState)
@@ -220,7 +223,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 	provisioningGroup.Put("/templates/:id/user-data", provisioningHandler.ReplaceTemplateUserData)
 	provisioningGroup.Delete("/templates/:id/user-data", provisioningHandler.ClearTemplateUserData)
 	provisioningGroup.Post("/deployments/preflight", provisioningHandler.PreflightDeployServers)
-	provisioningGroup.Post("/deployments", provisioningHandler.DeployServers)
+	provisioningGroup.Post("/deployment-operations", provisioningHandler.CreateDeploymentOperation)
+	provisioningGroup.Post("/release-operations", provisioningHandler.CreateReleaseOperation)
 	provisioningGroup.Post("/reconcile", provisioningHandler.ReconcileAll)
 	provisioningGroup.Post("/integrations/:id/reconcile", provisioningHandler.Reconcile)
 
@@ -258,23 +262,6 @@ func setupPlatform(t *testing.T) *platformFixture {
 	platformGroup.Get("/:id/kubernetes/persistentvolumeclaims", platformHandler.ListKubernetesPersistentVolumeClaims)
 	platformGroup.Post("/:id/kubernetes/apply", platformHandler.ApplyKubernetesManifest)
 
-	// Deprecated one-release /clusters alias mirrors the Platform routes with a
-	// Deprecation header, matching internal/app route registration.
-	legacyPlatformGroup := v1.Group("/clusters", admin...)
-	legacyPlatformGroup.Use(func(c *fiber.Ctx) error {
-		c.Set("Deprecation", "true")
-		c.Set("Link", "</api/v1/platforms>; rel=\"successor-version\"")
-		return c.Next()
-	})
-	legacyPlatformGroup.Get("/", platformHandler.List)
-	legacyPlatformGroup.Post("/deploy", platformHandler.Deploy)
-	legacyPlatformGroup.Post("/sync", platformHandler.SyncAllMembership)
-	legacyPlatformGroup.Get("/:id", platformHandler.Get)
-	legacyPlatformGroup.Patch("/:id", platformHandler.Update)
-	legacyPlatformGroup.Delete("/:id", platformHandler.Delete)
-	legacyPlatformGroup.Post("/:id/sync", platformHandler.SyncMembership)
-	legacyPlatformGroup.Post("/:id/uninstall", platformHandler.Uninstall)
-
 	monitoringGroup := v1.Group("/monitoring", admin...)
 	monitoringGroup.Get("/alerts", monitoringHandler.ListAlerts)
 	monitoringGroup.Post("/alerts/:fingerprint/acknowledge", monitoringHandler.Acknowledge)
@@ -299,6 +286,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		factory:           factory,
 		health:            health,
 		activeWork:        activeWork,
+		launcher:          launcher,
 		monitoring:        monitoringFactory,
 		metricScopes:      scopeResolver,
 		platformRepo:      platformRepo,

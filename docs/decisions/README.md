@@ -81,10 +81,10 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [011](011-flexible-k0s-topologies.md) | k0s 支援單機、非 HA 多節點與 HA 三種拓樸，不新增 Node Role | — |
 | [012](012-provider-network-configuration.md) | swallow 擁有部署網路意圖，provider adapter 負責翻譯並驗證 NIC 設定 | — |
 | [013](013-server-lock-protection.md) | provider 擁有的 Server Lock 是所有 provider 與主機變更的共同防護 | — |
-| [014](014-platform-resource-language.md) | Platform 是跨 context 的受管 runtime 聚合，取代 Cluster | — |
+| [014](014-platform-resource-language.md) | Platform 是跨 context 的受管 runtime 聚合，取代 Cluster | 一個 release 的 alias 由 074 結束 |
 | [015](015-platform-term-disambiguation.md) | swallow 指系統本身，capital-P Platform 專指受管 runtime 聚合 | — |
-| [016](016-temporal-operation-orchestration.md) | 多步驟 Workflow 由 Temporal 編排：Task DAG、typed Runner、per-resource fencing lease | supersede 006（部分） |
-| [017](017-workflow-job-task-runner-model.md) | Workflow／Job／Task／Runner 詞彙、收斂式執行，以及 Workflow 與 playbook 的界線 | refine 016 |
+| [016](016-temporal-operation-orchestration.md) | 多步驟 Workflow 由 Temporal 編排：Task DAG、typed Runner、per-resource fencing lease | supersede 006（部分）；v2 永久可讀被 074 取代 |
+| [017](017-workflow-job-task-runner-model.md) | Workflow／Job／Task／Runner 詞彙、收斂式執行，以及 Workflow 與 playbook 的界線 | refine 016；`/operations` alias 由 074 結束 |
 | [018](018-automatic-addressing-provider-auto-assign.md) | 自動定址意圖 `automatic` 由 provider auto-assign 實現，而非 raw DHCP | refine 012 |
 | [019](019-slurm-platform-deployment.md) | Slurm 以 per-daemon 角色部署，套件由 image 提供，slurmrestd credential 為選用 | — |
 | [020](020-durable-operation-recovery.md) | 失敗或 execution 遺失的 Workflow 以帶 lineage 的新 Workflow 重跑回復、不刪 Platform；遺失只標記不自動重跑 | — |

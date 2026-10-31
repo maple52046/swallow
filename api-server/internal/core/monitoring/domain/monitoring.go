@@ -19,9 +19,8 @@ const (
 	LabelServerID = "server_id"
 	LabelSite     = "site"
 	LabelPlatform = "platform_id"
-	// LabelPlatformLegacy and LabelClusterLegacy are one-release read aliases.
+	// LabelPlatformLegacy is a read alias of LabelPlatform.
 	LabelPlatformLegacy = "platform"
-	LabelClusterLegacy  = "cluster"
 	// LabelKubernetesNode is what in-platform metrics carry instead of a server_id,
 	// because swallow does not own a platform's scrape configuration.
 	LabelKubernetesNode = "node"

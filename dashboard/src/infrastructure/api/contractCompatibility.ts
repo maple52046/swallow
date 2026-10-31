@@ -32,7 +32,6 @@ import type {
   BootISOCatalog,
   DeploymentTargetPreflightResult,
   DeploymentTemplate,
-  DeployServersResult,
   HostEnrollmentBundle,
   NetworkInspectionResult,
   NetworkTarget,
@@ -269,7 +268,7 @@ export type ContractCompatibility = [
   // getSlurmCluster: GET /api/v1/platforms/{id}/slurm
   Assert<Readable<JsonResponse<operations['getSlurmClusterState'], 200>, SlurmCluster>>,
 
-  // ApiProvisioningRepository (deployServers: see KnownContractMismatches)
+  // ApiProvisioningRepository
   // listTemplates: GET /api/v1/provisioning/templates
   Assert<Readable<JsonResponse<operations['listDeploymentTemplates'], 200>, DeploymentTemplate[]>>,
   // getTemplate: GET /api/v1/provisioning/templates/{id}
@@ -330,10 +329,6 @@ export type ContractCompatibility = [
   Assert<Readable<JsonResponse<operations['listServers'], 200>, ServerPage<Server>>>,
   // getServer: GET /api/v1/servers/{id}
   Assert<Readable<JsonResponse<operations['getServer'], 200>, Server>>,
-  // deployServer: POST /api/v1/servers/{id}/deploy (deprecated)
-  Assert<Readable<JsonResponse<operations['deployServer'], 202>, ProvisioningActionResult>>,
-  // releaseServer: POST /api/v1/servers/{id}/release (deprecated)
-  Assert<Readable<JsonResponse<operations['releaseServer'], 202>, ProvisioningActionResult>>,
   // refreshServer: POST /api/v1/servers/{id}/refresh
   Assert<Readable<JsonResponse<operations['refreshServer'], 200>, ProvisioningActionResult>>,
   // getProviderEvents: GET /api/v1/servers/{id}/events
@@ -483,15 +478,6 @@ export type KnownContractMismatches = [
   // shared with Operation consumers that dereference it; the fix is a dedicated overview projection
   // type or normalizing in the adapter (a runtime change).
   AssertNot<Readable<JsonResponse<operations['getOverview'], 200>, Overview>>,
-
-  // ApiProvisioningRepository
-  // deployServers: POST /api/v1/provisioning/deployments (deprecated alias). `accepted[].powerState`
-  // is a plain `string` on the wire and `'on' | 'off' | 'error' | 'unknown' | ''` here. The contract
-  // inlines this item instead of using ServerProvisioningSnapshot, which types the same field as
-  // ServerPowerState for the same server-side struct, so the contract should be tightened rather
-  // than the shared ProvisioningActionResult widened to `string`. No presentation code calls
-  // deployServers.
-  AssertNot<Readable<JsonResponse<operations['deployServerBatchViaDeprecatedAlias'], 202>, DeployServersResult>>,
 
   // ApiServerRepository
   // getProvisionerDetail: GET /api/v1/servers/{id}/provisioner-detail. `tables[].columns` is

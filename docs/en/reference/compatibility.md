@@ -41,11 +41,11 @@ third-party manifests, not to this overview.
 
 ## Compatibility aliases
 
-- `/api/v1/operations` and Dashboard `/operations` are deprecated aliases
-  for Workflows.
-- `/api/v1/clusters` and Dashboard `/clusters` are deprecated aliases for
-  Platforms.
-- New clients use canonical routes and terminology.
+- The Dashboard still redirects its former `/operations` and `/clusters` pages
+  to Workflows and Platforms.
+- The API's `/api/v1/operations` and `/api/v1/clusters` aliases, the `clusterId`
+  fields, and the request `ephemeral` field were removed on 2026-10-31; clients
+  use `/api/v1/workflows`, `/api/v1/platforms`, `platformId`, and `deployTarget`.
 
 ## Not implemented
 

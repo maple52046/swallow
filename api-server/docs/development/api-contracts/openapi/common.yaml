@@ -137,18 +137,6 @@ components:
         type: string
         enum:
           - no-store
-    Deprecation:
-      description: >-
-        `true` on a response served through a deprecated route, alias, or parameter. Clients
-        should move to the successor named by the Link header.
-      schema:
-        type: string
-        enum:
-          - 'true'
-    SuccessorLink:
-      description: The canonical successor of a deprecated route, as `<path>; rel="successor-version"`.
-      schema:
-        type: string
   responses:
     Error:
       description: The shared error envelope (conventions.md).

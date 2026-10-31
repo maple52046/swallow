@@ -428,8 +428,8 @@ deployment 的非終態 stage；同一 stage 25 分鐘未推進即 `requires_att
 
 > **命名現況（glossary vs 現行 code）**：glossary 已採 Workflow/Job/Task/Runner，但 code 與
 > 部分 wire/BSON 仍是舊名（`Operation`/`Step`/`executor`、`Task.Executor` 的 bson tag 為
-> `runner`、`Workflow.Steps` 的 bson 為 `tasks`、`RunnerKindProvisioner` 的值仍是 `maas`、
-> HTTP `/operations` 為 `/workflows` 的 deprecated alias）。導航 code 時以此對照，這是
+> `runner`、`Workflow.Steps` 的 bson 為 `tasks`、`RunnerKindProvisioner` 的值仍是 `maas`）。HTTP 只有
+> `/workflows`（`/operations` alias 已移除，[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)）。導航 code 時以此對照，這是
 > [decision 017](../decisions/017-workflow-job-task-runner-model.md) 追蹤中的 rename。
 
 ---
@@ -824,8 +824,8 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   eligibility floor（[ADR 026](../decisions/026-slurm-minimum-resource-policy.md)、
   [Minimum Resource Requirement](glossaries/terms/minimum-resource-requirement.md)）。啟用時三個值都必須大於 0；
   controller、compute、login 套用同一門檻，每個維度都要達到（相等即合格，observed 值未知或為 0 時不合格）。policy 以
-  Platform type 為唯一識別存放，只能經 canonical Platforms API 管理（`/platforms/deployment-requirements/slurm`，無
-  `/clusters` alias，見 [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md#manage-the-slurm-deployment-requirement)）。
+  Platform type 為唯一識別存放，只能經 Platforms API 管理（`/platforms/deployment-requirements/slurm`，見
+  [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md#manage-the-slurm-deployment-requirement)）。
   Dashboard 顯示不合格的 Server 與差距並停用其所有 Slurm 角色控制項；deploy use case 在 Slurm preflight 讀一次
   policy，於建立 Platform／Workflow 前以 inventory observed hardware 權威驗證。policy 不存在即停用（不需 migration），
   讀取失敗則 fail closed；Kubernetes 不讀也不套用。它只是資格門檻：不保留資源、不改 Slurm scheduler 容量、不從 image

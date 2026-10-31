@@ -199,8 +199,7 @@ provisioner 的性質，所以由後端決定；在 api-server spool 讓 hash �
 - *custom* image（`providerOsSystem: custom`）沒有在所要求的 Deploy Target 通過驗證時，部署在受理時以 `409`
   拒絕並帶 swallow 的理由。`failed` 與從未驗證一樣擋；`failedDeployTargets` 只影響顯示。
 - synced provider image 視為 provider 已信任，永不受閘門限制。
-- 閘門位於共用的 deploy resolve，所以涵蓋 `POST /provisioning/deployments`、`/deployment-operations` 與 Platform
-  部署；已 deprecated 的單台 `POST /servers/{id}/deploy` 不套用。
+- 閘門位於共用的 deploy resolve，所以涵蓋 `/deployment-operations` 與 Platform 部署。
 
 ### 5.4 `verify-os-image` Workflow
 
@@ -386,9 +385,9 @@ provisioner 的 group 被接管而不是被刪除，因為它可能仍有 machin
 [OS Deployment](glossaries/terms/os-deployment.md) 的入口（API 見
 [provisioning.md](../../api-server/docs/development/api-contracts/api-server/provisioning.md)）：
 
-- `POST /provisioning/deployment-operations`：建立 `deploy-os` Workflow，是 dashboard 使用的路徑。
-- `POST /provisioning/deployments`（deprecated）：直接分批送出，最多四個並行，回傳受理報告而不是 durable job，
-  不回滾。`POST /servers/{id}/deploy`（deprecated）：單台，不套用 §5.3 的驗證閘門。
+- `POST /provisioning/deployment-operations`：建立 `deploy-os` Workflow，是唯一的 OS 部署路徑。同步的
+  `POST /provisioning/deployments` 與單台 `POST /servers/{id}/deploy` 已移除
+  （[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)）。
 - Platform 部署的 `provision_os`：在 `ensure-os` Job 中使用同一個 `provision-os` Task，見
   [platform-deployment.md](platform-deployment.md)。
 - `POST /provisioning/deployments/preflight`：唯讀的 target 檢查（不檢查 image 與網路）。

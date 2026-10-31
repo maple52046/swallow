@@ -1167,6 +1167,39 @@ func (r *fakePlatformRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+// executingLauncher stands in for the durable provisioning launcher together with the worker that
+// runs its Workflows: an OS deployment runs DeployServersUseCase.Execute and a release runs
+// ReleaseServerUseCase.ExecuteWithOptions, the use cases the provision-os and release-os Tasks
+// run, synchronously and in the request. It keeps the last deployment result, so tests drive the
+// current routes and still see each target's outcome.
+type executingLauncher struct {
+	provisioningapp.DurableOperationLauncher
+	deployments    *provisioningapp.DeployServersUseCase
+	release        *provisioningapp.ReleaseServerUseCase
+	lastDeployment *provisioningapp.DeployServersResult
+	launched       int
+}
+
+func (l *executingLauncher) LaunchDeployment(ctx context.Context, input provisioningapp.DeployServersInput, _, _ string) (*provisioningapp.OperationReference, error) {
+	result, err := l.deployments.Execute(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	l.lastDeployment = result
+	l.launched++
+	return &provisioningapp.OperationReference{OperationID: fmt.Sprintf("operation-%d", l.launched)}, nil
+}
+
+func (l *executingLauncher) LaunchRelease(ctx context.Context, inputs []provisioningapp.ReleaseServerInput, _ provisioningapp.RecoveryLaunchOptions, _, _ string) (*provisioningapp.OperationReference, error) {
+	for _, input := range inputs {
+		if _, err := l.release.ExecuteWithOptions(ctx, input); err != nil {
+			return nil, err
+		}
+	}
+	l.launched++
+	return &provisioningapp.OperationReference{OperationID: fmt.Sprintf("operation-%d", l.launched)}, nil
+}
+
 // fakeDeploymentLauncher records the last launch and returns a fixed operation id, so
 // platform deployment HTTP tests can assert acceptance without an operation backend.
 type fakeDeploymentLauncher struct {

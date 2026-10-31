@@ -7,9 +7,9 @@
   mode. `ram` is exactly the fact the wire, MAAS adapter, MongoDB, durable
   snapshot, and the k0s var still call `ephemeral`; Deploy Target and `ephemeral`
   map one-to-one at every boundary (`disk ↔ ephemeral=false`,
-  `ram ↔ ephemeral=true`). Deploy requests accept an optional `deployTarget`
-  (preferred) that maps onto the internal `ephemeral` flag, with `ephemeral` kept
-  as a still-accepted deprecated alias. The dashboard label for `ram` is
+  `ram ↔ ephemeral=true`). Deploy requests take an optional `deployTarget` that
+  maps onto the internal `ephemeral` flag; read models still report `ephemeral`.
+  The dashboard label for `ram` is
   "RAM deploy (ephemeral)". A custom OS Image is verified (or not) per Deploy
   Target: an image can be trusted for `ram` but not `disk`.
 - Disallowed meaning: A new provider concept, a rename of the stored/wire
@@ -27,4 +27,6 @@
 - Change note: Added 2026-09-21 with the OS image verification mechanism per
   [decision 035](../../../decisions/035-os-image-verification-and-deploy-target.md),
   introducing `disk | ram` as the canonical deploy-mode vocabulary layered over
-  the existing `ephemeral` boundary fields.
+  the existing `ephemeral` boundary fields. On 2026-10-31 the request `ephemeral`
+  alias was removed; requests name the mode only as `deployTarget`
+  ([decision 074](../../../decisions/074-retire-schema-v2-and-deprecated-aliases.md)).

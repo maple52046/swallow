@@ -95,9 +95,7 @@ entry is one target with its labels already attached:
 ```
 
 - `server_id` and `site` are always present. `platform_id` is present only when the server
-  is a known platform member; `cluster` is then present too, as a deprecated one-release
-  alias that mirrors `platform_id`
-  ([ADR-014](../../../../../docs/decisions/014-platform-resource-language.md)). No other label
+  is a known platform member. No other label
   is emitted.
 - `targets` holds exactly one `address:port`: the server's primary address and the requested
   port.
@@ -190,6 +188,7 @@ authentication section; `500 internal_error` for an unexpected failure.
 - The label set is a contract: adding a label used to identify a server is a decision
   document ([decision 003](../../../../../docs/decisions/003-metrics-label-contract.md)),
   not a compatible response change.
-- The `cluster` label is a deprecated one-release alias of `platform_id`; scrape configs and
-  queries read `platform_id`.
+- Since 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md),
+  breaking) the one-release `cluster` alias of `platform_id` is no longer emitted; scrape configs
+  and queries read `platform_id`.
 - The Ansible inventory route predates this section, which documents it as implemented.

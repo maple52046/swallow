@@ -1,6 +1,6 @@
 # 017. Workflow model: Workflow / Job / Task / Runner, convergent and playbook-pluggable
 
-- Status: Accepted; Refined by [ADR 069](069-swallow-owns-desired-state.md) (Workflow state is swallow-owned; Change Plans for destructive changes) and [ADR 070](070-core-providers-and-extensions.md) (Runner kinds named by port; a new platform is a module); Jobs no longer run as child workflows and declare their retry granularity ([ADR 072](072-store-driven-workflow-execution.md))
+- Status: Accepted; Refined by [ADR 069](069-swallow-owns-desired-state.md) (Workflow state is swallow-owned; Change Plans for destructive changes) and [ADR 070](070-core-providers-and-extensions.md) (Runner kinds named by port; a new platform is a module); Jobs no longer run as child workflows and declare their retry granularity ([ADR 072](072-store-driven-workflow-execution.md)); the `/operations` alias and the v2 read compatibility ended by [ADR 074](074-retire-schema-v2-and-deprecated-aliases.md)
 - Date: 2026-09-05
 
 ## Context

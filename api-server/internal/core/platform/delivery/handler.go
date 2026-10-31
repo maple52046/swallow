@@ -51,18 +51,15 @@ func NewPlatformHandler(
 	}
 }
 
-// acceptedOperationResponse keeps the one-release clusterId alias at the HTTP boundary.
+// acceptedOperationResponse names the Platform and the Workflow a lifecycle request started.
 type acceptedOperationResponse struct {
 	PlatformID  string `json:"platformId"`
-	ClusterID   string `json:"clusterId"`
 	OperationID string `json:"operationId"`
 }
 
-// membershipReportResponse keeps the former clusterId field out of the canonical
-// application DTO while preserving the published compatibility projection.
+// membershipReportResponse is the HTTP projection of one Platform's membership sync.
 type membershipReportResponse struct {
 	PlatformID   string   `json:"platformId"`
-	ClusterID    string   `json:"clusterId"`
 	PlatformName string   `json:"platformName"`
 	Members      int      `json:"members"`
 	Matched      int      `json:"matched"`
@@ -73,8 +70,7 @@ type membershipReportResponse struct {
 
 func membershipResponse(report application.MembershipReport) membershipReportResponse {
 	return membershipReportResponse{
-		PlatformID: report.PlatformID, ClusterID: report.PlatformID,
-		PlatformName: report.PlatformName, Members: report.Members,
+		PlatformID: report.PlatformID, PlatformName: report.PlatformName, Members: report.Members,
 		Matched: report.Matched, Cleared: report.Cleared,
 		Unmatched: report.Unmatched, Error: report.Error,
 	}
@@ -99,11 +95,9 @@ type machinePreparationRequest struct {
 }
 
 // machinePreparationSettingsRequest names the OS a provision_os deploy installs and its deploy
-// mode, with the OS deployment contract's vocabulary: deployTarget ("disk"/"ram") wins, and
-// ephemeral is its deprecated boolean alias.
+// mode, with the OS deployment contract's vocabulary: deployTarget ("disk"/"ram").
 type machinePreparationSettingsRequest struct {
 	ImageID      string  `json:"imageId"`
-	Ephemeral    *bool   `json:"ephemeral"`
 	DeployTarget *string `json:"deployTarget"`
 }
 
@@ -130,7 +124,7 @@ type machinePreparationAssignmentRequest struct {
 // deploy mode onto Ephemeral. ok=false means an unknown deployTarget, which the caller answers
 // with 400.
 func machinePreparationFromRequest(request machinePreparationRequest) (platformdomain.MachinePreparation, bool) {
-	ephemeral, ok := provisioningdomain.ResolveEphemeral(request.Settings.DeployTarget, request.Settings.Ephemeral)
+	ephemeral, ok := provisioningdomain.ResolveEphemeral(request.Settings.DeployTarget)
 	if !ok {
 		return platformdomain.MachinePreparation{}, false
 	}
@@ -410,7 +404,7 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 		return respondError(c, err)
 	}
 	return c.Status(fiber.StatusAccepted).JSON(acceptedOperationResponse{
-		PlatformID: result.PlatformID, ClusterID: result.PlatformID,
+		PlatformID:  result.PlatformID,
 		OperationID: result.OperationID,
 	})
 }
@@ -510,7 +504,7 @@ func (h *PlatformHandler) Uninstall(c *fiber.Ctx) error {
 		return respondError(c, err)
 	}
 	return c.Status(fiber.StatusAccepted).JSON(acceptedOperationResponse{
-		PlatformID: result.PlatformID, ClusterID: result.PlatformID,
+		PlatformID:  result.PlatformID,
 		OperationID: result.OperationID,
 	})
 }

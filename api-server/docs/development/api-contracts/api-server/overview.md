@@ -58,13 +58,11 @@ An unknown `siteId` returns `not_found` rather than an empty overview.
     "absent": 1,
     "deployed": 40,
     "platformed": 32,
-    "clustered": 32,
     "gpuDevices": 64,
     "health": { "up": 45, "down": 2, "unknown": 1 }
   },
   "integrations": { "total": 4, "failing": 1, "items": [] },
   "platforms": { "total": 3, "unreachable": 1, "unmatchedMembers": 2 },
-  "clusters": { "total": 3, "unreachable": 1, "unmatchedMembers": 2 },
   "operations": { "active": 1, "failedLast24Hours": 2, "recent": [] },
   "monitoring": {
     "configured": true,
@@ -85,19 +83,18 @@ Integration items contain `id`, `siteId`, `name`, `kind`, `providerKind`,
 `enabled`, `lastSucceededAt`, and `lastError`; `lastSucceededAt` and `lastError` are `null`
 when no sync has succeeded or failed. No credential is ever included.
 
-Recent operations are the overview's own secret-free summary, projected from both Workflows
-and historical Ansible executions, and contain at most eight entries ordered by
-`requestedAt` descending. Each carries `id`, `kind`, `intent`, `siteId`, `platformId`,
-`clusterId` (deprecated alias, below), `targetServerIds`, `retryOfOperationId`, `requestedBy`,
+Recent operations are the overview's own secret-free summary, projected from Workflows, and
+contain at most eight entries ordered by `requestedAt` descending. Each carries `id`, `kind`,
+`intent`, `siteId`, `platformId`, `targetServerIds`, `retryOfOperationId`, `requestedBy`,
 `requestedAt`, `updatedAt`, and an `execution` compatibility projection with `runId`,
 `playbook`, `status`, `statusReason`, `startedAt`, and `finishedAt`. `platformId`,
 `retryOfOperationId`, `statusReason`, `startedAt`, and `finishedAt` are `null` when unset, and
 `targetServerIds` is `null` (not `[]`) when the operation has no targets. `execution.status`
-is a Workflow status ([workflows.md](workflows.md)) or, for a historical Ansible execution,
-also `indeterminate`. This is not the `GET /api/v1/workflows` item shape.
+is a Workflow status ([workflows.md](workflows.md)). This is not the `GET /api/v1/workflows` item
+shape.
 
 Firing alert items reuse the Monitoring Alert shape of
-[monitoring-alerts.md](monitoring-alerts.md), including its deprecated `clusterId` alias, and
+[monitoring-alerts.md](monitoring-alerts.md) and
 contain at most ten entries ordered by severity (`critical`, `warning`, then other) and
 `startsAt` descending.
 
@@ -141,13 +138,13 @@ treated a non-null `error` as the only signal: such a consumer stops warning for
 simply has no Alertmanager, which is the intended behavior. `available` keeps its meaning
 (alerts were read).
 
-Following the Cluster to Platform rename, `inventory.clustered`, the `clusters` section,
-and the `clusterId` field on recent operations and firing alert items are deprecated
-one-release aliases that mirror `inventory.platformed`, the `platforms` section, and
-`platformId` respectively.
-New consumers must read the platform-named fields; the aliases are removed after the
-deprecation window (see
-[ADR-014](../../../../../docs/decisions/014-platform-resource-language.md)).
+Following the Cluster to Platform rename
+([ADR-014](../../../../../docs/decisions/014-platform-resource-language.md)), the one-release
+aliases `inventory.clustered`, the `clusters` section, and `clusterId` on recent operations and
+firing alert items were removed on 2026-10-31
+([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md)),
+which is breaking; read `inventory.platformed`, `platforms`, and `platformId`. The schema-v2
+Operation records no longer appear among recent operations, and no status is `indeterminate`.
 
 On 2026-10-31 (DF-14) `operations.active` began counting every unfinished operation. It counted
 only `pending` and `running`, so waiting, canceling, and `requires_attention` work, which still

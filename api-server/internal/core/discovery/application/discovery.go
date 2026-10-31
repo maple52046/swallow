@@ -95,7 +95,6 @@ func (uc *DiscoveryUseCase) PrometheusTargets(ctx context.Context, input Discove
 		}
 		if m := server.Membership; m != nil && m.PlatformID != "" {
 			labels["platform_id"] = m.PlatformID
-			labels["cluster"] = m.PlatformID
 		}
 
 		targets = append(targets, PrometheusTarget{

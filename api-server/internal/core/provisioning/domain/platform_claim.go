@@ -17,7 +17,7 @@ var ErrServerClaimedByPlatform = errors.New("server belongs to a platform")
 type ClaimRefusedAction int
 
 const (
-	// ClaimRefusedRelease is a Release Operation or the deprecated single-Server release.
+	// ClaimRefusedRelease is a Release Operation.
 	ClaimRefusedRelease ClaimRefusedAction = iota
 	// ClaimRefusedRecover is a Recover of a deployed Server, which would release it.
 	ClaimRefusedRecover

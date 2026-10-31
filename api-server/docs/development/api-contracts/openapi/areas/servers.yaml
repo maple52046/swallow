@@ -51,13 +51,6 @@ paths:
           description: Servers whose membership axis names this Platform.
           schema:
             type: string
-        - name: clusterId
-          in: query
-          required: false
-          deprecated: true
-          description: One-release alias of `platformId`; ignored when `platformId` is present.
-          schema:
-            type: string
         - name: keyword
           in: query
           required: false
@@ -715,147 +708,6 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/servers/{id}/deploy:
-    parameters:
-      - *serverIdParameter
-    post:
-      tags: [servers]
-      operationId: deployServer
-      deprecated: true
-      summary: Deploy an operating system on one Server directly.
-      description: >-
-        Requires role `admin`. Deprecated in favour of
-        `POST /api/v1/provisioning/deployment-operations`; every response carries
-        `Deprecation: true` and a successor `Link`. 400 for an invalid body, a missing
-        `distroSeries`, an unknown `deployTarget`, an unsupported RAM deployment, or a provisioner
-        refusal; 404 for an unknown Server or Machine; 409 for a locked Server or a missing
-        Deployment Key; 503 when the provisioner, its SSH Key registration, or the lock state is
-        unavailable.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [distroSeries]
-              properties:
-                osSystem:
-                  type: string
-                distroSeries:
-                  type: string
-                  description: The release to deploy, for example `jammy`.
-                userData:
-                  type: string
-                  description: Optional cloud-init user data in plain text.
-                comment:
-                  type: string
-                deployTarget:
-                  type: string
-                  enum: [disk, ram]
-                  description: The preferred deploy-mode field; wins over `ephemeral`.
-                ephemeral:
-                  type: boolean
-                  deprecated: true
-                  description: Alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
-      responses:
-        '202':
-          description: The provisioner accepted the deployment.
-          headers:
-            Deprecation:
-              schema:
-                type: string
-                enum: ['true']
-            Link:
-              description: The successor route, `</api/v1/provisioning/deployment-operations>; rel="successor-version"`.
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerProvisioningSnapshot'
-        '400':
-          $ref: '#/components/responses/Error'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        '409':
-          $ref: '#/components/responses/Error'
-        '503':
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/servers/{id}/release:
-    parameters:
-      - *serverIdParameter
-    post:
-      tags: [servers]
-      operationId: releaseServer
-      deprecated: true
-      summary: Release one Server to the provider's available pool directly.
-      description: >-
-        Requires role `admin`. Deprecated in favour of
-        `POST /api/v1/provisioning/release-operations`; every response carries
-        `Deprecation: true` and a successor `Link`. The body is optional. 400 for an invalid body,
-        erase refinements without `erase`, release options the provisioner does not support
-        (including `unbindStaticIPs` on a provisioner that cannot configure networks), or a
-        provisioner refusal; 404 for an unknown Server or Machine; 409 when a Platform claims the
-        Server or it is locked; 503 when the provisioner or the lock state is unavailable.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                erase:
-                  type: boolean
-                  description: Wipe the disks; `false` releases without wiping.
-                secureErase:
-                  type: boolean
-                  description: Use the device's hardware erase; requires `erase`.
-                quickErase:
-                  type: boolean
-                  description: Wipe only the beginning and end of each disk; requires `erase`.
-                comment:
-                  type: string
-                unbindStaticIPs:
-                  type: boolean
-                  description: >-
-                    Remove the pre-release static links once the Server is Ready, through a
-                    Provisioning Task whose id the response carries as `taskId`.
-      responses:
-        '202':
-          description: The provisioner accepted the release.
-          headers:
-            Deprecation:
-              schema:
-                type: string
-                enum: ['true']
-            Link:
-              description: The successor route, `</api/v1/provisioning/release-operations>; rel="successor-version"`.
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerProvisioningSnapshot'
-        '400':
-          $ref: '#/components/responses/Error'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        '409':
-          $ref: '#/components/responses/Error'
-        '503':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1576,14 +1428,10 @@ components:
     ServerMembershipAxis:
       type: object
       description: The platform runtime's own answer about this Server.
-      required: [platformId, clusterId, nodeName, role, state, observedAt]
+      required: [platformId, nodeName, role, state, observedAt]
       properties:
         platformId:
           type: string
-        clusterId:
-          type: string
-          deprecated: true
-          description: One-release alias of `platformId`.
         nodeName:
           type: string
           description: The platform's own name for this machine.

@@ -71,8 +71,7 @@ All endpoints require the `admin` role per [conventions](conventions.md). All li
 plain objects with an `items` array (bounded per namespace, so not paginated). The wire shape
 (paths, parameters, schemas, status codes) is specified in
 [`../openapi/areas/platforms.yaml`](../openapi/areas/platforms.yaml); this document keeps the
-behavior. Every route is also served under the deprecated `/api/v1/clusters/{platformId}/kubernetes`
-alias (see [platforms.md](platforms.md#compatibility-notes)).
+behavior.
 
 ## Eligibility
 

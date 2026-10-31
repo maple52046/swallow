@@ -8,7 +8,6 @@ import type {
   DeploymentTemplate,
   DeploymentTargetPreflightResult,
   DeployServersInput,
-  DeployServersResult,
   EditServerTagsInput,
   HostEnrollmentBundle,
   ProvisionerHttpProxy,
@@ -54,7 +53,6 @@ export interface ProvisioningRepository {
   inspectDeploymentNetworks(
     serverIds: string[],
   ): Promise<NetworkInspectionResult>;
-  deployServers(input: DeployServersInput): Promise<DeployServersResult>;
   createDeploymentOperation(
     input: DeployServersInput,
   ): Promise<ProvisioningOperationReference>;

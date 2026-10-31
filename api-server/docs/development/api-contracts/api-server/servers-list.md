@@ -69,7 +69,6 @@ Bearer token required. See [`conventions.md`](conventions.md).
 | `integrationId` | string | No | Return Servers observed through this integration. |
 | `provisioningState` | string | No | Filter on the provisioning axis state; one of the values listed under [Provisioning state](#provisioning-state). |
 | `platformId` | string | No | Return Servers whose membership axis names this Platform. |
-| `clusterId` | string | No | Deprecated one-release alias for `platformId`; ignored when `platformId` is also present. |
 | `keyword` | string | No | Case-insensitive match on hostname, FQDN, address, serial number, or system UUID. |
 | `includeAbsent` | boolean | No | Include projections absent from the latest provider inventory; default `false`. Only the literal `true` enables it. |
 
@@ -145,7 +144,6 @@ default (`1` and `20`) instead of being refused.
         },
         "membership": {
           "platformId": "platform-id",
-          "clusterId": "platform-id",
           "nodeName": "gpu-42",
           "role": "worker",
           "state": "ready",
@@ -387,11 +385,11 @@ and `status.automaticTags` were added; the same day `spec.zoneId` and `spec.pool
 spec. `status.tags` is now the provisioner's observation only; a
 tag swallow kept for a provisioner without tag support is in `spec.tags`.
 
-Following the Cluster to Platform rename, the `clusterId` query parameter and the
-membership `clusterId` response field are deprecated one-release aliases for
-`platformId`. When both are sent, `platformId` wins; the aliases are removed after the
-deprecation window (see
-[ADR-014](../../../../../docs/decisions/014-platform-resource-language.md)).
+Following the Cluster to Platform rename
+([ADR-014](../../../../../docs/decisions/014-platform-resource-language.md)), the one-release
+aliases of `platformId` — the `clusterId` query parameter and the membership `clusterId` field —
+were removed on 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md)),
+which is breaking.
 
 ## Implementation Notes
 

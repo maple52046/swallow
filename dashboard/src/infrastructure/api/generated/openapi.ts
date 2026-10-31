@@ -131,673 +131,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/clusters": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Platforms, optionally of one Site.
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms`. Requires the `admin` role.
-         */
-        get: operations["listPlatformsViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Read one Platform.
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}`. Requires the `admin` role.
-         */
-        get: operations["getPlatformViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        /**
-         * Remove a Platform record without touching its hosts.
-         * @deprecated
-         * @description Deprecated alias of `DELETE /api/v1/platforms/{id}`. Requires the `admin` role.
-         */
-        delete: operations["deletePlatformViaDeprecatedAlias"];
-        options?: never;
-        head?: never;
-        /**
-         * Change a Platform's name, ownership policies, or Monitoring Links.
-         * @deprecated
-         * @description Deprecated alias of `PATCH /api/v1/platforms/{id}`. Requires the `admin` role.
-         */
-        patch: operations["updatePlatformViaDeprecatedAlias"];
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Read the live summary of a deployed Kubernetes Platform.
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes`. Requires the `admin` role.
-         */
-        get: operations["getKubernetesClusterSummaryViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/applications": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List Kubernetes Applications (aggregated workloads).
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/applications`. Requires the `admin` role.
-         */
-        get: operations["listKubernetesApplicationsViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/applications/{namespace}/{kind}/{name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-                /** @description The Kubernetes Application kind; any other value is 400. */
-                kind: components["parameters"]["KubernetesApplicationKind"];
-                /** @description The object's name within the namespace. */
-                name: components["parameters"]["KubernetesObjectName"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Read one Kubernetes Application with the Pods it owns.
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}`. Requires the `admin` role.
-         */
-        get: operations["getKubernetesApplicationViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete the workload object (or bare Pod) behind an Application.
-         * @deprecated
-         * @description Deprecated alias of `DELETE /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}`. Requires the `admin` role.
-         */
-        delete: operations["deleteKubernetesApplicationViaDeprecatedAlias"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/applications/{namespace}/{kind}/{name}/restart": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-                /** @description The Kubernetes Application kind; any other value is 400. */
-                kind: components["parameters"]["KubernetesApplicationKind"];
-                /** @description The object's name within the namespace. */
-                name: components["parameters"]["KubernetesObjectName"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Trigger a rolling restart of a Deployment, DaemonSet, or StatefulSet.
-         * @deprecated
-         * @description Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}/restart`. Requires the `admin` role.
-         */
-        post: operations["restartKubernetesApplicationViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/applications/{namespace}/{kind}/{name}/scale": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-                /** @description The Kubernetes Application kind; any other value is 400. */
-                kind: components["parameters"]["KubernetesApplicationKind"];
-                /** @description The object's name within the namespace. */
-                name: components["parameters"]["KubernetesObjectName"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Set a Deployment's or StatefulSet's replica count.
-         * @deprecated
-         * @description Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}/scale`. Requires the `admin` role.
-         */
-        post: operations["scaleKubernetesApplicationViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/apply": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Server-side apply a YAML manifest of one or more documents.
-         * @deprecated
-         * @description Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/apply`. Requires the `admin` role.
-         */
-        post: operations["applyKubernetesManifestViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/configmaps": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List ConfigMaps with their data key names (read-only).
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/configmaps`. Requires the `admin` role.
-         */
-        get: operations["listKubernetesConfigMapsViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/ingresses": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List Ingresses (read-only).
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/ingresses`. Requires the `admin` role.
-         */
-        get: operations["listKubernetesIngressesViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/namespaces": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List the cluster's namespaces, system namespaces flagged.
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/namespaces`. Requires the `admin` role.
-         */
-        get: operations["listKubernetesNamespacesViaDeprecatedAlias"];
-        put?: never;
-        /**
-         * Create a namespace.
-         * @deprecated
-         * @description Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/namespaces`. Requires the `admin` role.
-         */
-        post: operations["createKubernetesNamespaceViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/namespaces/{namespace}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete a namespace.
-         * @deprecated
-         * @description Deprecated alias of `DELETE /api/v1/platforms/{id}/kubernetes/namespaces/{namespace}`. Requires the `admin` role.
-         */
-        delete: operations["deleteKubernetesNamespaceViaDeprecatedAlias"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/nodes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List the cluster's nodes correlated to Server identity.
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/nodes`. Requires the `admin` role.
-         */
-        get: operations["listKubernetesNodesViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/nodes/{node}/cordon": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes node name. */
-                node: components["parameters"]["KubernetesNodeName"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Mark a node unschedulable.
-         * @deprecated
-         * @description Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/nodes/{node}/cordon`. Requires the `admin` role.
-         */
-        post: operations["cordonKubernetesNodeViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/nodes/{node}/uncordon": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes node name. */
-                node: components["parameters"]["KubernetesNodeName"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Clear a node's unschedulable flag.
-         * @deprecated
-         * @description Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/nodes/{node}/uncordon`. Requires the `admin` role.
-         */
-        post: operations["uncordonKubernetesNodeViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/persistentvolumeclaims": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List PersistentVolumeClaims (read-only).
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/persistentvolumeclaims`. Requires the `admin` role.
-         */
-        get: operations["listKubernetesPersistentVolumeClaimsViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/pods": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List Pods.
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/pods`. Requires the `admin` role.
-         */
-        get: operations["listKubernetesPodsViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/pods/{namespace}/{name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-                /** @description The object's name within the namespace. */
-                name: components["parameters"]["KubernetesObjectName"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete a Pod (its controller recreates it).
-         * @deprecated
-         * @description Deprecated alias of `DELETE /api/v1/platforms/{id}/kubernetes/pods/{namespace}/{name}`. Requires the `admin` role.
-         */
-        delete: operations["deleteKubernetesPodViaDeprecatedAlias"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/pods/{namespace}/{name}/logs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-                /** @description The object's name within the namespace. */
-                name: components["parameters"]["KubernetesObjectName"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Read a bounded snapshot of one container's logs (not a stream).
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/pods/{namespace}/{name}/logs`. Requires the `admin` role.
-         */
-        get: operations["getKubernetesPodLogsViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/secrets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List Secrets with their data key names only (read-only).
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/secrets`. Requires the `admin` role.
-         */
-        get: operations["listKubernetesSecretsViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/kubernetes/services": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List Services (read-only).
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/services`. Requires the `admin` role.
-         */
-        get: operations["listKubernetesServicesViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/slurm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Read a Slurm Platform's live controllers, partitions, and nodes from slurmrestd.
-         * @deprecated
-         * @description Deprecated alias of `GET /api/v1/platforms/{id}/slurm`. Requires the `admin` role.
-         */
-        get: operations["getSlurmClusterStateViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/sync": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Read one Platform's membership now.
-         * @deprecated
-         * @description Deprecated alias of `POST /api/v1/platforms/{id}/sync`. Requires the `admin` role.
-         */
-        post: operations["syncPlatformMembershipViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/{id}/uninstall": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start the Workflow that uninstalls a Swallow-deployed Platform from its targets.
-         * @deprecated
-         * @description Deprecated alias of `POST /api/v1/platforms/{id}/uninstall`. Requires the `admin` role.
-         */
-        post: operations["uninstallPlatformViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/deploy": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create a Platform and start the Workflow that builds it.
-         * @deprecated
-         * @description Deprecated alias of `POST /api/v1/platforms/deploy`. Requires the `admin` role.
-         */
-        post: operations["deployPlatformViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clusters/sync": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Read the membership of every Platform with a recorded Integration now.
-         * @deprecated
-         * @description Deprecated alias of `POST /api/v1/platforms/sync`. Requires the `admin` role.
-         */
-        post: operations["syncAllPlatformMembershipsViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/discovery/ansible": {
         parameters: {
             query?: never;
@@ -957,13 +290,13 @@ export interface paths {
         };
         /**
          * List Integrations, optionally of one Site and one kind.
-         * @description Requires role `admin`. Returns a plain array ordered by `siteId`, then `name`. A `kind` value no Integration has (including an unknown one) returns `[]`; the deprecated alias `cluster` is read as `platform` and answered with a `Deprecation` header.
+         * @description Requires role `admin`. Returns a plain array ordered by `siteId`, then `name`. A `kind` value no Integration has (including an unknown one) returns `[]`.
          */
         get: operations["listIntegrations"];
         put?: never;
         /**
          * Register a provisioner or metrics Integration for a Site.
-         * @description Requires role `admin`. `kind` and `providerKind` are validated together. `kind` `platform` (and its deprecated alias `cluster`, which also sets a `Deprecation` header) is refused: a platform Integration is created only by a successful Platform deployment (decision 032). `name` and `endpoint` are trimmed. `enabled` defaults to true. The credential is write-only and never returned.
+         * @description Requires role `admin`. `kind` and `providerKind` are validated together. `kind` `platform` is refused: a platform Integration is created only by a successful Platform deployment (decision 032). `name` and `endpoint` are trimmed. `enabled` defaults to true. The credential is write-only and never returned.
          */
         post: operations["createIntegration"];
         delete?: never;
@@ -1118,258 +451,6 @@ export interface paths {
          * @description Requires the `admin` role. Exactly one scope parameter (`serverIds`, `poolId`, `zoneId`, or `platformId`) must be sent; a grouping resolves to its current non-absent members when the request is served. swallow chooses the step (about 180 points, a multiple of 30 s). A scope resolving to zero Servers answers 200 without contacting the backend (server-metrics.md, Usage History).
          */
         get: operations["getMetricRange"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Deprecated alias of GET /api/v1/workflows.
-         * @deprecated
-         * @description Requires the `admin` role. Identical to `listWorkflows`.
-         */
-        get: operations["listWorkflowsViaDeprecatedAlias"];
-        put?: never;
-        /**
-         * Deprecated alias of POST /api/v1/workflows.
-         * @deprecated
-         * @description Requires the `admin` role. Identical to `createWorkflow`.
-         */
-        post: operations["createWorkflowViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operations/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Deprecated alias of GET /api/v1/workflows/{id}.
-         * @deprecated
-         * @description Requires the `admin` role. Identical to `getWorkflow`.
-         */
-        get: operations["getWorkflowViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operations/{id}/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Deprecated alias of POST /api/v1/workflows/{id}/cancel.
-         * @deprecated
-         * @description Requires the `admin` role. Identical to `cancelWorkflow`.
-         */
-        post: operations["cancelWorkflowViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operations/{id}/rerun": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Deprecated alias of POST /api/v1/workflows/{id}/rerun.
-         * @deprecated
-         * @description Requires the `admin` role. Identical to `rerunWorkflow`.
-         */
-        post: operations["rerunWorkflowViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operations/{id}/steps/{stepId}/artifacts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-                /** @description Deprecated name of the Task ID on the /operations alias. */
-                stepId: components["parameters"]["OperationStepId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/artifacts.
-         * @deprecated
-         * @description Requires the `admin` role. Identical to `listWorkflowTaskArtifacts`.
-         */
-        get: operations["listWorkflowTaskArtifactsViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operations/{id}/steps/{stepId}/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-                /** @description Deprecated name of the Task ID on the /operations alias. */
-                stepId: components["parameters"]["OperationStepId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/events.
-         * @deprecated
-         * @description Requires the `admin` role. Identical to `getWorkflowTaskEvents`.
-         */
-        get: operations["getWorkflowTaskEventsViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operations/{id}/steps/{stepId}/logs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-                /** @description Deprecated name of the Task ID on the /operations alias. */
-                stepId: components["parameters"]["OperationStepId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/logs.
-         * @deprecated
-         * @description Requires the `admin` role. Identical to `getWorkflowTaskLogs`.
-         */
-        get: operations["getWorkflowTaskLogsViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operations/{id}/steps/{stepId}/retry": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-                /** @description Deprecated name of the Task ID on the /operations alias. */
-                stepId: components["parameters"]["OperationStepId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Deprecated alias of POST /api/v1/workflows/{id}/tasks/{taskId}/retry.
-         * @deprecated
-         * @description Requires the `admin` role. Identical to `retryWorkflowTask`.
-         */
-        post: operations["retryWorkflowTaskViaDeprecatedAlias"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operations/{id}/steps/{stepId}/stderr": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-                /** @description Deprecated name of the Task ID on the /operations alias. */
-                stepId: components["parameters"]["OperationStepId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/stderr.
-         * @deprecated
-         * @description Requires the `admin` role. Identical to `getWorkflowTaskStderr`.
-         */
-        get: operations["getWorkflowTaskStderrViaDeprecatedAlias"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operations/{id}/timeline": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Deprecated alias of GET /api/v1/workflows/{id}/timeline.
-         * @deprecated
-         * @description Requires the `admin` role. Identical to `getWorkflowTimeline`.
-         */
-        get: operations["getWorkflowTimelineViaDeprecatedAlias"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2187,30 +1268,9 @@ export interface paths {
         put?: never;
         /**
          * Accept a multi-Server OS deployment as one durable Workflow.
-         * @description Requires role `admin`. Takes the same request and runs the same side-effect-free preflight as the deprecated direct batch, then persists one Workflow (one `provision-os` Task per Server, plus its `configure-ntp` and, with Boot Media, `ensure-boot-media` Tasks). Progress is read through the Workflows contract.
+         * @description Requires role `admin`. Runs the complete side-effect-free preflight, then persists one Workflow (one `provision-os` Task per Server, plus its `configure-ntp` and, with Boot Media, `ensure-boot-media` Tasks). Progress is read through the Workflows contract.
          */
         post: operations["createDeploymentOperation"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/provisioning/deployments": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Deprecated direct multi-Server OS deployment; use createDeploymentOperation.
-         * @deprecated
-         * @description Requires role `admin`. Kept for one release with its original wire behavior; every response carries `Deprecation: true` and a successor `Link` to `/api/v1/provisioning/deployment-operations`. Runs the complete preflight, then dispatches with at most four workers. The `202` body is an acceptance report, not a durable job, and there is no rollback.
-         */
-        post: operations["deployServerBatchViaDeprecatedAlias"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2801,30 +1861,6 @@ export interface paths {
          * @description Requires role `admin`. Succeeds also when nothing was set and never touches the host. 404 for an unknown Server; 409 for a locked Server; 503 when the lock state is unavailable.
          */
         delete: operations["clearServerDefaultUser"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/servers/{id}/deploy": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The swallow-issued Server ID. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Deploy an operating system on one Server directly.
-         * @deprecated
-         * @description Requires role `admin`. Deprecated in favour of `POST /api/v1/provisioning/deployment-operations`; every response carries `Deprecation: true` and a successor `Link`. 400 for an invalid body, a missing `distroSeries`, an unknown `deployTarget`, an unsupported RAM deployment, or a provisioner refusal; 404 for an unknown Server or Machine; 409 for a locked Server or a missing Deployment Key; 503 when the provisioner, its SSH Key registration, or the lock state is unavailable.
-         */
-        post: operations["deployServer"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3625,30 +2661,6 @@ export interface paths {
          * @description Requires role `admin`. One targeted provider read; not a full inventory reconciliation. 400 when the provisioner refused; 404 for an unknown Server or Machine; 503 when the provisioner is unavailable.
          */
         post: operations["refreshServer"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/servers/{id}/release": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The swallow-issued Server ID. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Release one Server to the provider's available pool directly.
-         * @deprecated
-         * @description Requires role `admin`. Deprecated in favour of `POST /api/v1/provisioning/release-operations`; every response carries `Deprecation: true` and a successor `Link`. The body is optional. 400 for an invalid body, erase refinements without `erase`, release options the provisioner does not support (including `unbindStaticIPs` on a provisioner that cannot configure networks), or a provisioner refusal; 404 for an unknown Server or Machine; 409 when a Platform claims the Server or it is locked; 503 when the provisioner or the lock state is unavailable.
-         */
-        post: operations["releaseServer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4773,11 +3785,6 @@ export interface components {
         ContainerRuntime: "docker-ce" | "podman";
         /** @description Operator intent for a single-Task Ansible Workflow. Unknown fields are ignored. */
         CreateWorkflowRequest: {
-            /**
-             * @deprecated
-             * @description Deprecated alias of `platformId`, used only when `platformId` is empty.
-             */
-            clusterId?: string | null;
             /** @description Extra variables for the playbook. Keys starting with `swallow_` are dropped, so a client cannot forge the variables swallow sets. */
             extraVars?: {
                 [key: string]: unknown;
@@ -4855,16 +3862,11 @@ export interface components {
         };
         DeploymentTemplateCreateRequest: {
             /**
-             * @description The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
+             * @description The deploy mode (matched case-insensitively).
              * @enum {string}
              */
             deployTarget?: "disk" | "ram";
             description?: string;
-            /**
-             * @deprecated
-             * @description Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
-             */
-            ephemeral?: boolean;
             /** @description Must be in the provisioner's live catalog. */
             imageId: string;
             integrationId: string;
@@ -4896,16 +3898,11 @@ export interface components {
         /** @description Any subset of the template's non-secret intent; omitted fields are unchanged. */
         DeploymentTemplateUpdateRequest: {
             /**
-             * @description The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
+             * @description The deploy mode (matched case-insensitively).
              * @enum {string}
              */
             deployTarget?: "disk" | "ram";
             description?: string;
-            /**
-             * @deprecated
-             * @description Deprecated alias of `deployTarget`.
-             */
-            ephemeral?: boolean;
             imageId?: string;
             name?: string;
             network?: components["schemas"]["DeploymentTemplateNetworkIntent"];
@@ -5583,11 +4580,6 @@ export interface components {
         };
         /** @description An alert as Alertmanager reports it, with swallow's correlation from its label set. swallow stores no alerts. */
         MonitoringAlert: {
-            /**
-             * @deprecated
-             * @description Deprecated one-release alias mirroring `platformId` (ADR-014).
-             */
-            clusterId: string | null;
             /** @description The `description` annotation; empty when absent. */
             description: string;
             /** @description Alertmanager's opaque identifier. */
@@ -5598,7 +4590,7 @@ export interface components {
             };
             /** @description The `alertname` label; empty when absent. */
             name: string;
-            /** @description The correlated Platform (`platform_id`, else the legacy `platform` or `cluster` label), or null. */
+            /** @description The correlated Platform (`platform_id`, else the legacy `platform` label), or null. */
             platformId: string | null;
             /** @description The correlated Server (`server_id` label), or null. */
             serverId: string | null;
@@ -5714,37 +4706,6 @@ export interface components {
          * @enum {string}
          */
         OmnistatState: "installing" | "ready" | "failed" | "absent";
-        /** @description The acceptance report of the deprecated direct batch, in target order. */
-        OsDeploymentBatchResult: {
-            /** @description The provisioning snapshot of each target the provider accepted, as returned on acceptance (the provisioning-state shape of server-detail-actions.md). */
-            accepted: {
-                commissioningStatus: string;
-                distroSeries: string;
-                ephemeral: boolean;
-                hweKernel: string;
-                /** @description Present (true) only when a disk deployment needs a new inspection first. */
-                inspectionRequired?: boolean;
-                inspectionRequiredReason?: string;
-                locked: boolean;
-                observedAt: components["schemas"]["Timestamp"];
-                osSystem: string;
-                /** @description The power state as the provider reports it (`on`, `off`, `error`, `unknown`). */
-                powerState: string;
-                /** @description The provider's own label; display only. */
-                providerState: string;
-                serverId: string;
-                /**
-                 * @description The OS Provisioning State.
-                 * @enum {string}
-                 */
-                state: "new" | "inspecting" | "ready" | "allocated" | "deploying" | "deployed" | "releasing" | "testing" | "rescue" | "broken" | "failed" | "retired" | "unknown";
-                /** @description A Provisioning Task the action created; omitted when none. */
-                taskId?: string;
-                testingStatus: string;
-            }[];
-            failed: components["schemas"]["OsDeploymentFailure"][];
-            requested: number;
-        };
         /** @description A target the provider refused after the whole batch passed preflight; accepted targets are not rolled back. */
         OsDeploymentFailure: {
             /** @enum {string} */
@@ -5784,15 +4745,10 @@ export interface components {
         /** @description Overrides of the template's non-secret settings. */
         OsDeploymentSettings: {
             /**
-             * @description The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
+             * @description The deploy mode (matched case-insensitively).
              * @enum {string}
              */
             deployTarget?: "disk" | "ram";
-            /**
-             * @deprecated
-             * @description Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
-             */
-            ephemeral?: boolean;
             imageId?: string;
         };
         OsDeploymentUserData: {
@@ -5887,11 +4843,6 @@ export interface components {
         };
         /** @description One coherent, point-in-time operator overview (overview.md). */
         Overview: {
-            /**
-             * @deprecated
-             * @description Deprecated one-release alias mirroring `platforms` (ADR-014).
-             */
-            clusters: components["schemas"]["OverviewPlatforms"];
             generatedAt: components["schemas"]["Timestamp"];
             integrations: {
                 /** @description Integrations whose last sync recorded an error. */
@@ -5932,11 +4883,6 @@ export interface components {
         /** @description Server inventory counts; health is independent of the lifecycle counts. */
         OverviewInventory: {
             absent: number;
-            /**
-             * @deprecated
-             * @description Deprecated one-release alias mirroring `platformed` (ADR-014).
-             */
-            clustered: number;
             deployed: number;
             /** @description GPU Inventory items of kind `compute` only; display controllers do not count. */
             gpuDevices: number;
@@ -5971,11 +4917,6 @@ export interface components {
         };
         /** @description The overview's secret-free summary of one Operation, projected from both Workflows and historical Ansible executions. */
         OverviewOperation: {
-            /**
-             * @deprecated
-             * @description Deprecated one-release alias mirroring `platformId` (ADR-014).
-             */
-            clusterId: string | null;
             /** @description Compatibility projection of the run; not a Task state. */
             execution: {
                 finishedAt: components["schemas"]["Timestamp"] | null;
@@ -6132,15 +5073,10 @@ export interface components {
             };
             settings?: {
                 /**
-                 * @description The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`. `ram` is a memory-backed root that leaves the disks untouched.
+                 * @description The deploy mode (matched case-insensitively). `ram` is a memory-backed root that leaves the disks untouched.
                  * @enum {string}
                  */
                 deployTarget?: "disk" | "ram";
-                /**
-                 * @deprecated
-                 * @description Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
-                 */
-                ephemeral?: boolean;
                 imageId?: string;
             };
             /** @description A Deployment Template supplying defaults for the provisioned targets. */
@@ -6157,11 +5093,6 @@ export interface components {
         PlatformMembershipReport: {
             /** @description How many Servers lost a membership the Platform no longer reports. */
             cleared: number;
-            /**
-             * @deprecated
-             * @description One-release alias of `platformId` with the same value (ADR-014).
-             */
-            clusterId: string;
             /** @description Why the read failed; null on success. */
             error: string | null;
             /** @description How many of them matched a Server. */
@@ -6240,11 +5171,6 @@ export interface components {
         };
         /** @description An accepted deployment or uninstall. `operationId` names the Workflow (the field keeps the deprecated Operation name). */
         PlatformWorkflowAcceptance: {
-            /**
-             * @deprecated
-             * @description One-release alias of `platformId` with the same value (ADR-014).
-             */
-            clusterId: string;
             /** @description The Workflow building or uninstalling the Platform. */
             operationId: string;
             platformId: string;
@@ -6307,11 +5233,6 @@ export interface components {
         PrometheusTarget: {
             /** @description The metrics label contract (ADR-003); no other identity label may be added. */
             labels: {
-                /**
-                 * @deprecated
-                 * @description Deprecated one-release alias mirroring `platform_id` (ADR-014); present with it.
-                 */
-                cluster?: string;
                 /** @description The Platform id; present only when the Server is a known Platform member. */
                 platform_id?: string;
                 /** @description The Server id. */
@@ -6686,11 +5607,6 @@ export interface components {
         };
         /** @description The platform runtime's own answer about this Server. */
         ServerMembershipAxis: {
-            /**
-             * @deprecated
-             * @description One-release alias of `platformId`.
-             */
-            clusterId: string;
             /** @description The platform's own name for this machine. */
             nodeName: string;
             observedAt: components["schemas"]["Timestamp"];
@@ -7237,11 +6153,6 @@ export interface components {
         };
         /** @description The canonical projection of a Workflow: its frozen intent, status, Tasks (still serialized as `steps[]`), and Temporal correlation. Credential, cloud-init, and other secret values never appear: sensitive keys are removed from `intentSnapshot`, and Task parameters and secret references are not part of the projection. */
         Workflow: {
-            /**
-             * @deprecated
-             * @description Deprecated alias; always equal to `platformId`.
-             */
-            clusterId: string | null;
             /** @description Name of the Workflow definition that executes the intent. */
             definition: string;
             /** @description Version of `definition`. */
@@ -7439,12 +6350,8 @@ export interface components {
             unreachable: number;
             updatedAt: components["schemas"]["Timestamp"];
         };
-        /** @description Acknowledges a delivered Task retry. Both the canonical and the deprecated names are sent. */
+        /** @description Acknowledges a stored Task retry. */
         WorkflowTaskRetryAccepted: {
-            /** @description Deprecated name of `workflowId`; always equal to it. */
-            operationId: string;
-            /** @description Deprecated name of `taskId`; always equal to it. */
-            stepId: string;
             taskId: string;
             workflowId: string;
         };
@@ -7665,8 +6572,6 @@ export interface components {
         KubernetesObjectName: string;
         /** @description Comma-separated metric names to evaluate; every name when omitted. */
         MetricNames: components["schemas"]["MetricName"][];
-        /** @description Deprecated name of the Task ID on the /operations alias. */
-        OperationStepId: string;
         /** @description The image's architecture as the catalog returns it; one image id can back several. */
         OsImageArchitecture: string;
         /** @description The OS Image's provider id as the catalog returns it; it can contain a slash. */
@@ -7683,16 +6588,11 @@ export interface components {
         SessionRefreshCookie: string;
         /** @description `true` keeps only unfinished Workflows. Any other value, or absence, applies no constraint. */
         WorkflowActiveFilter: string;
-        /**
-         * @deprecated
-         * @description Deprecated alias of `platformId`, used only when `platformId` is absent.
-         */
-        WorkflowClusterIdFilter: string;
         /** @description The Workflow ID. */
         WorkflowId: string;
         /** @description Only Workflows of this kind. */
         WorkflowKindFilter: string;
-        /** @description Only Workflows of this Platform. Wins over `clusterId` when both are set. */
+        /** @description Only Workflows of this Platform. */
         WorkflowPlatformIdFilter: string;
         /** @description Only Workflows whose `targetServerIds` contain this Server. */
         WorkflowServerIdFilter: string;
@@ -7705,12 +6605,8 @@ export interface components {
     };
     requestBodies: never;
     headers: {
-        /** @description `true` on a response served through a deprecated route, alias, or parameter. Clients should move to the successor named by the Link header. */
-        Deprecation: "true";
         /** @description Always `no-store`: the response carries a credential or private key, or live state read from the system that owns it, and must not be cached by a browser or an intermediary. */
         NoStore: "no-store";
-        /** @description The canonical successor of a deprecated route, as `<path>; rel="successor-version"`. */
-        SuccessorLink: string;
     };
     pathItems: never;
 }
@@ -7988,983 +6884,6 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            default: components["responses"]["Error"];
-        };
-    };
-    listPlatformsViaDeprecatedAlias: {
-        parameters: {
-            query?: {
-                /** @description Return only the Platforms of this Site. */
-                siteId?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The Platforms. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Platform"][];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    getPlatformViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The Platform. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Platform"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    deletePlatformViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Done. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SuccessAcknowledgement"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    updatePlatformViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PlatformUpdate"];
-            };
-        };
-        responses: {
-            /** @description The updated Platform. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Platform"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    getKubernetesClusterSummaryViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The cluster summary. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesClusterSummary"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    listKubernetesApplicationsViaDeprecatedAlias: {
-        parameters: {
-            query?: {
-                /** @description Return only objects in this namespace. When omitted, every namespace is read and system namespaces are excluded unless `includeSystem` is true. */
-                namespace?: components["parameters"]["KubernetesNamespaceScope"];
-                /** @description Include system namespaces (`kube-system`, `kube-public`, `kube-node-lease`) when `namespace` is omitted. Only the literal `true` enables it. */
-                includeSystem?: components["parameters"]["KubernetesIncludeSystem"];
-            };
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The Applications. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesApplicationList"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    getKubernetesApplicationViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-                /** @description The Kubernetes Application kind; any other value is 400. */
-                kind: components["parameters"]["KubernetesApplicationKind"];
-                /** @description The object's name within the namespace. */
-                name: components["parameters"]["KubernetesObjectName"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The Application, with `pods` when it owns at least one Pod. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesApplication"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    deleteKubernetesApplicationViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-                /** @description The Kubernetes Application kind; any other value is 400. */
-                kind: components["parameters"]["KubernetesApplicationKind"];
-                /** @description The object's name within the namespace. */
-                name: components["parameters"]["KubernetesObjectName"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Done. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SuccessAcknowledgement"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    restartKubernetesApplicationViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-                /** @description The Kubernetes Application kind; any other value is 400. */
-                kind: components["parameters"]["KubernetesApplicationKind"];
-                /** @description The object's name within the namespace. */
-                name: components["parameters"]["KubernetesObjectName"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Done. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SuccessAcknowledgement"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    scaleKubernetesApplicationViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-                /** @description The Kubernetes Application kind; any other value is 400. */
-                kind: components["parameters"]["KubernetesApplicationKind"];
-                /** @description The object's name within the namespace. */
-                name: components["parameters"]["KubernetesObjectName"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["KubernetesApplicationScale"];
-            };
-        };
-        responses: {
-            /** @description The updated Application summary, without `pods`. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesApplication"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    applyKubernetesManifestViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["KubernetesManifestApply"];
-            };
-        };
-        responses: {
-            /** @description One result per applied object. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesManifestApplyResults"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    listKubernetesConfigMapsViaDeprecatedAlias: {
-        parameters: {
-            query?: {
-                /** @description Return only objects in this namespace. When omitted, every namespace is read and system namespaces are excluded unless `includeSystem` is true. */
-                namespace?: components["parameters"]["KubernetesNamespaceScope"];
-                /** @description Include system namespaces (`kube-system`, `kube-public`, `kube-node-lease`) when `namespace` is omitted. Only the literal `true` enables it. */
-                includeSystem?: components["parameters"]["KubernetesIncludeSystem"];
-            };
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The ConfigMaps. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesConfigMapList"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    listKubernetesIngressesViaDeprecatedAlias: {
-        parameters: {
-            query?: {
-                /** @description Return only objects in this namespace. When omitted, every namespace is read and system namespaces are excluded unless `includeSystem` is true. */
-                namespace?: components["parameters"]["KubernetesNamespaceScope"];
-                /** @description Include system namespaces (`kube-system`, `kube-public`, `kube-node-lease`) when `namespace` is omitted. Only the literal `true` enables it. */
-                includeSystem?: components["parameters"]["KubernetesIncludeSystem"];
-            };
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The Ingresses. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesIngressList"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    listKubernetesNamespacesViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The namespaces. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesNamespaceList"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    createKubernetesNamespaceViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["KubernetesNamespaceCreation"];
-            };
-        };
-        responses: {
-            /** @description The created namespace. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesNamespace"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    deleteKubernetesNamespaceViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Done. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SuccessAcknowledgement"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    listKubernetesNodesViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The nodes. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesNodeList"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    cordonKubernetesNodeViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes node name. */
-                node: components["parameters"]["KubernetesNodeName"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The updated node. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesNode"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    uncordonKubernetesNodeViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes node name. */
-                node: components["parameters"]["KubernetesNodeName"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The updated node. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesNode"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    listKubernetesPersistentVolumeClaimsViaDeprecatedAlias: {
-        parameters: {
-            query?: {
-                /** @description Return only objects in this namespace. When omitted, every namespace is read and system namespaces are excluded unless `includeSystem` is true. */
-                namespace?: components["parameters"]["KubernetesNamespaceScope"];
-                /** @description Include system namespaces (`kube-system`, `kube-public`, `kube-node-lease`) when `namespace` is omitted. Only the literal `true` enables it. */
-                includeSystem?: components["parameters"]["KubernetesIncludeSystem"];
-            };
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The PersistentVolumeClaims. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesPersistentVolumeClaimList"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    listKubernetesPodsViaDeprecatedAlias: {
-        parameters: {
-            query?: {
-                /** @description Return only objects in this namespace. When omitted, every namespace is read and system namespaces are excluded unless `includeSystem` is true. */
-                namespace?: components["parameters"]["KubernetesNamespaceScope"];
-                /** @description Include system namespaces (`kube-system`, `kube-public`, `kube-node-lease`) when `namespace` is omitted. Only the literal `true` enables it. */
-                includeSystem?: components["parameters"]["KubernetesIncludeSystem"];
-            };
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The Pods. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesPodList"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    deleteKubernetesPodViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-                /** @description The object's name within the namespace. */
-                name: components["parameters"]["KubernetesObjectName"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Done. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SuccessAcknowledgement"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    getKubernetesPodLogsViaDeprecatedAlias: {
-        parameters: {
-            query?: {
-                /** @description The container to read; defaults to the Pod's first container. */
-                container?: string;
-                /** @description How many trailing lines to return; a value above 2000 is read as 2000. */
-                tailLines?: number;
-            };
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-                /** @description The Kubernetes namespace. */
-                namespace: components["parameters"]["KubernetesNamespaceName"];
-                /** @description The object's name within the namespace. */
-                name: components["parameters"]["KubernetesObjectName"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The log snapshot. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesPodLogs"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    listKubernetesSecretsViaDeprecatedAlias: {
-        parameters: {
-            query?: {
-                /** @description Return only objects in this namespace. When omitted, every namespace is read and system namespaces are excluded unless `includeSystem` is true. */
-                namespace?: components["parameters"]["KubernetesNamespaceScope"];
-                /** @description Include system namespaces (`kube-system`, `kube-public`, `kube-node-lease`) when `namespace` is omitted. Only the literal `true` enables it. */
-                includeSystem?: components["parameters"]["KubernetesIncludeSystem"];
-            };
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The Secrets. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesSecretList"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    listKubernetesServicesViaDeprecatedAlias: {
-        parameters: {
-            query?: {
-                /** @description Return only objects in this namespace. When omitted, every namespace is read and system namespaces are excluded unless `includeSystem` is true. */
-                namespace?: components["parameters"]["KubernetesNamespaceScope"];
-                /** @description Include system namespaces (`kube-system`, `kube-public`, `kube-node-lease`) when `namespace` is omitted. Only the literal `true` enables it. */
-                includeSystem?: components["parameters"]["KubernetesIncludeSystem"];
-            };
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The Services. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubernetesServiceList"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    getSlurmClusterStateViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The live Slurm cluster state. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SlurmClusterState"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    syncPlatformMembershipViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The membership report. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PlatformMembershipReport"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    uninstallPlatformViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["PlatformUninstall"];
-            };
-        };
-        responses: {
-            /** @description The uninstall Workflow is persisted. */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PlatformWorkflowAcceptance"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    deployPlatformViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PlatformDeployRequest"];
-            };
-        };
-        responses: {
-            /** @description The Platform and the Workflow building it are persisted. */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PlatformWorkflowAcceptance"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    syncAllPlatformMembershipsViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One membership report per synced Platform. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PlatformMembershipReport"][];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -9572,7 +7491,7 @@ export interface operations {
             query?: {
                 /** @description Restrict to the Integrations of this Site. */
                 siteId?: string;
-                /** @description Restrict to one Integration kind: `provisioner`, `metrics`, or `platform` (`cluster` is its deprecated alias). Not validated. */
+                /** @description Restrict to one Integration kind: `provisioner`, `metrics`, or `platform`. Not validated. */
                 kind?: string;
             };
             header?: never;
@@ -9584,7 +7503,6 @@ export interface operations {
             /** @description The matching Integrations. */
             200: {
                 headers: {
-                    Deprecation: components["headers"]["Deprecation"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9635,7 +7553,7 @@ export interface operations {
                     "application/json": components["schemas"]["Integration"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON; `siteId`, `name`, or `endpoint` is missing or empty; `kind` is not a kind or is `platform`/`cluster`; or `providerKind` does not fit `kind` (the message names the valid values). */
+            /** @description `validation_error`: the body is not valid JSON; `siteId`, `name`, or `endpoint` is missing or empty; `kind` is not a kind or is `platform`; or `providerKind` does not fit `kind` (the message names the valid values). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10228,359 +8146,6 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            default: components["responses"]["Error"];
-        };
-    };
-    listWorkflowsViaDeprecatedAlias: {
-        parameters: {
-            query?: {
-                /** @description Only Workflows of this Site. */
-                siteId?: components["parameters"]["WorkflowSiteIdFilter"];
-                /** @description Only Workflows of this Platform. Wins over `clusterId` when both are set. */
-                platformId?: components["parameters"]["WorkflowPlatformIdFilter"];
-                /**
-                 * @deprecated
-                 * @description Deprecated alias of `platformId`, used only when `platformId` is absent.
-                 */
-                clusterId?: components["parameters"]["WorkflowClusterIdFilter"];
-                /** @description Only Workflows whose `targetServerIds` contain this Server. */
-                serverId?: components["parameters"]["WorkflowServerIdFilter"];
-                /** @description Only Workflows of this kind. */
-                kind?: components["parameters"]["WorkflowKindFilter"];
-                /** @description Only Workflows in this `WorkflowStatus`. */
-                status?: components["parameters"]["WorkflowStatusFilter"];
-                /** @description `true` keeps only unfinished Workflows. Any other value, or absence, applies no constraint. */
-                active?: components["parameters"]["WorkflowActiveFilter"];
-                page?: components["parameters"]["Page"];
-                pageSize?: components["parameters"]["PageSize"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One page of Workflows. */
-            200: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowPage"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    createWorkflowViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateWorkflowRequest"];
-            };
-        };
-        responses: {
-            /** @description The intent was persisted; the Workflow starts asynchronously. */
-            202: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workflow"];
-                };
-            };
-            400: components["responses"]["WorkflowCreateRejected"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowCreateTargetNotFound"];
-            409: components["responses"]["WorkflowCreateConflict"];
-            503: components["responses"]["WorkflowCreateAutomationUnavailable"];
-            default: components["responses"]["Error"];
-        };
-    };
-    getWorkflowViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The Workflow. */
-            200: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workflow"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowNotFound"];
-            default: components["responses"]["Error"];
-        };
-    };
-    cancelWorkflowViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The cancel request was accepted. */
-            202: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowAccepted"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowNotFound"];
-            409: components["responses"]["WorkflowControlConflict"];
-            default: components["responses"]["Error"];
-        };
-    };
-    rerunWorkflowViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The replacement Workflow was persisted and starts asynchronously. */
-            202: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workflow"];
-                };
-            };
-            400: components["responses"]["WorkflowRerunRejected"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowNotFound"];
-            409: components["responses"]["WorkflowRerunConflict"];
-            default: components["responses"]["Error"];
-        };
-    };
-    listWorkflowTaskArtifactsViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-                /** @description Deprecated name of the Task ID on the /operations alias. */
-                stepId: components["parameters"]["OperationStepId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The artifact metadata; an empty array when the Task retained none. */
-            200: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowTaskArtifact"][];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowTaskNotFound"];
-            default: components["responses"]["Error"];
-        };
-    };
-    getWorkflowTaskEventsViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-                /** @description Deprecated name of the Task ID on the /operations alias. */
-                stepId: components["parameters"]["OperationStepId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The per-host results and their counts. */
-            200: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowTaskEvents"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowTaskNotFound"];
-            default: components["responses"]["Error"];
-        };
-    };
-    getWorkflowTaskLogsViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-                /** @description Deprecated name of the Task ID on the /operations alias. */
-                stepId: components["parameters"]["OperationStepId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The runner output. */
-            200: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowTaskNotFound"];
-            default: components["responses"]["Error"];
-        };
-    };
-    retryWorkflowTaskViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-                /** @description Deprecated name of the Task ID on the /operations alias. */
-                stepId: components["parameters"]["OperationStepId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The retry was delivered to the Workflow's execution. */
-            202: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowTaskRetryAccepted"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowTaskNotFound"];
-            409: components["responses"]["WorkflowTaskRetryConflict"];
-            default: components["responses"]["Error"];
-        };
-    };
-    getWorkflowTaskStderrViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-                /** @description Deprecated name of the Task ID on the /operations alias. */
-                stepId: components["parameters"]["OperationStepId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The error-only report. */
-            200: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowTaskNotFound"];
-            default: components["responses"]["Error"];
-        };
-    };
-    getWorkflowTimelineViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Workflow ID. */
-                id: components["parameters"]["WorkflowId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The timeline; an empty array when nothing has been recorded. */
-            200: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowTimelineEvent"][];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["WorkflowNotFound"];
             default: components["responses"]["Error"];
         };
     };
@@ -11999,7 +9564,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowAccepted"];
                 };
             };
-            /** @description `validation_error`: malformed input (see the deprecated batch), or the Workflow intent was refused as invalid. */
+            /** @description `validation_error`: malformed input — the target list, an unknown `deployTarget`, a missing image without a template, an image not in the provisioner's live catalog, invalid user data or network intent, or a provisioner that offers no network configuration — or the Workflow intent was refused as invalid. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12019,7 +9584,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: a preflight conflict as for the deprecated batch, a target already held by an unfinished Workflow, the installation has no Deployment Key, or it has no NTP server (`SWALLOW_API_NTP_SERVER`). */
+            /** @description `conflict`: a target is absent, not ready, locked, of another Integration than the other targets or the template, or needs a new inspection before a disk deployment; the image is a custom image not verified for the deploy target, not fully staged, or of another architecture; the provisioner cannot deploy from memory; a network conflict; a target is already held by an unfinished Workflow; or the installation has no Deployment Key or no NTP server (`SWALLOW_API_NTP_SERVER`). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12029,71 +9594,6 @@ export interface operations {
                 };
             };
             /** @description `provider_unavailable`: durable provisioning is not wired up, the provisioner cannot be reached, or the Site's automation cannot run the `configure-ntp` Tasks. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    deployServerBatchViaDeprecatedAlias: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OsDeploymentRequest"];
-            };
-        };
-        responses: {
-            /** @description Every target was dispatched; each one was accepted or refused by the provider. */
-            202: {
-                headers: {
-                    Deprecation: components["headers"]["Deprecation"];
-                    Link: components["headers"]["SuccessorLink"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OsDeploymentBatchResult"];
-                };
-            };
-            /** @description `validation_error`: malformed input — the target list, an unknown `deployTarget`, a missing image without a template, an image not in the provisioner's live catalog, invalid user data or network intent, or a provisioner that offers no network configuration. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            /** @description `not_found`: a Server or the template does not exist. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `conflict`: a target is absent, not ready, locked, of another Integration than the other targets or the template, or needs a new inspection before a disk deployment; the image is a custom image not verified for the deploy target, not fully staged, or of another architecture; the provisioner cannot deploy from memory; a network conflict; or the installation has no Deployment Key. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `provider_unavailable`: the provisioner cannot be reached before dispatch. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -13559,11 +11059,6 @@ export interface operations {
                 provisioningState?: components["schemas"]["OSProvisioningState"];
                 /** @description Servers whose membership axis names this Platform. */
                 platformId?: string;
-                /**
-                 * @deprecated
-                 * @description One-release alias of `platformId`; ignored when `platformId` is present.
-                 */
-                clusterId?: string;
                 /** @description Case-insensitive match on hostname, FQDN, address, serial number, or system UUID. */
                 keyword?: string;
                 /** @description Include projections absent from the latest provider inventory. Only the literal `true` enables it; any other value is false. */
@@ -13802,60 +11297,6 @@ export interface operations {
                 };
                 content?: never;
             };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    deployServer: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The swallow-issued Server ID. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    comment?: string;
-                    /**
-                     * @description The preferred deploy-mode field; wins over `ephemeral`.
-                     * @enum {string}
-                     */
-                    deployTarget?: "disk" | "ram";
-                    /** @description The release to deploy, for example `jammy`. */
-                    distroSeries: string;
-                    /**
-                     * @deprecated
-                     * @description Alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
-                     */
-                    ephemeral?: boolean;
-                    osSystem?: string;
-                    /** @description Optional cloud-init user data in plain text. */
-                    userData?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description The provisioner accepted the deployment. */
-            202: {
-                headers: {
-                    Deprecation?: "true";
-                    /** @description The successor route, `</api/v1/provisioning/deployment-operations>; rel="successor-version"`. */
-                    Link?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ServerProvisioningSnapshot"];
-                };
-            };
-            400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
@@ -15097,53 +12538,6 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
-    releaseServer: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The swallow-issued Server ID. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": {
-                    comment?: string;
-                    /** @description Wipe the disks; `false` releases without wiping. */
-                    erase?: boolean;
-                    /** @description Wipe only the beginning and end of each disk; requires `erase`. */
-                    quickErase?: boolean;
-                    /** @description Use the device's hardware erase; requires `erase`. */
-                    secureErase?: boolean;
-                    /** @description Remove the pre-release static links once the Server is Ready, through a Provisioning Task whose id the response carries as `taskId`. */
-                    unbindStaticIPs?: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description The provisioner accepted the release. */
-            202: {
-                headers: {
-                    Deprecation?: "true";
-                    /** @description The successor route, `</api/v1/provisioning/release-operations>; rel="successor-version"`. */
-                    Link?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ServerProvisioningSnapshot"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
     enterServerRescueMode: {
         parameters: {
             query?: never;
@@ -16305,13 +13699,8 @@ export interface operations {
             query?: {
                 /** @description Only Workflows of this Site. */
                 siteId?: components["parameters"]["WorkflowSiteIdFilter"];
-                /** @description Only Workflows of this Platform. Wins over `clusterId` when both are set. */
+                /** @description Only Workflows of this Platform. */
                 platformId?: components["parameters"]["WorkflowPlatformIdFilter"];
-                /**
-                 * @deprecated
-                 * @description Deprecated alias of `platformId`, used only when `platformId` is absent.
-                 */
-                clusterId?: components["parameters"]["WorkflowClusterIdFilter"];
                 /** @description Only Workflows whose `targetServerIds` contain this Server. */
                 serverId?: components["parameters"]["WorkflowServerIdFilter"];
                 /** @description Only Workflows of this kind. */

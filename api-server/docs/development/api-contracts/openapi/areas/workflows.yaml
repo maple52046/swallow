@@ -1,15 +1,14 @@
 # Swallow-owned durable Workflows (decision 017): accept operator intent, observe a Workflow's
-# Tasks, timeline, and Runner diagnostics, and control it (cancel, rerun, Task retry). Also the
-# deprecated /operations alias, served by the same handlers for one release. Behavior semantics
-# live in api-server/workflows.md and api-server/operations.md.
+# Tasks, timeline, and Runner diagnostics, and control it (cancel, rerun, Task retry). Behavior
+# semantics live in api-server/workflows.md.
 #
 # Wire names still carry the pre-rename vocabulary (steps[], executor, operationId, the
 # provisioner Runner serialized as `maas`); the schemas below describe that current wire.
 tags:
   - name: workflows
     description: >-
-      Durable Workflows (a DAG of Tasks run by Runners), their timeline and per-Task diagnostics,
-      and the deprecated /operations alias.
+      Durable Workflows (a DAG of Tasks run by Runners), their timeline and per-Task
+      diagnostics.
 paths:
   /api/v1/workflows:
     post:
@@ -57,7 +56,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/WorkflowSiteIdFilter'
         - $ref: '#/components/parameters/WorkflowPlatformIdFilter'
-        - $ref: '#/components/parameters/WorkflowClusterIdFilter'
         - $ref: '#/components/parameters/WorkflowServerIdFilter'
         - $ref: '#/components/parameters/WorkflowKindFilter'
         - $ref: '#/components/parameters/WorkflowStatusFilter'
@@ -321,360 +319,6 @@ paths:
         default:
           $ref: '#/components/responses/Error'
 
-  # Deprecated /operations alias (operations.md): the same handlers. Successful responses carry
-  # the Deprecation and Link headers.
-  /api/v1/operations:
-    post:
-      tags: [workflows]
-      operationId: createWorkflowViaDeprecatedAlias
-      summary: Deprecated alias of POST /api/v1/workflows.
-      deprecated: true
-      description: Requires the `admin` role. Identical to `createWorkflow`.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateWorkflowRequest'
-      responses:
-        '202':
-          description: The intent was persisted; the Workflow starts asynchronously.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Workflow'
-        '400':
-          $ref: '#/components/responses/WorkflowCreateRejected'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/WorkflowCreateTargetNotFound'
-        '409':
-          $ref: '#/components/responses/WorkflowCreateConflict'
-        '503':
-          $ref: '#/components/responses/WorkflowCreateAutomationUnavailable'
-        default:
-          $ref: '#/components/responses/Error'
-    get:
-      tags: [workflows]
-      operationId: listWorkflowsViaDeprecatedAlias
-      summary: Deprecated alias of GET /api/v1/workflows.
-      deprecated: true
-      description: Requires the `admin` role. Identical to `listWorkflows`.
-      parameters:
-        - $ref: '#/components/parameters/WorkflowSiteIdFilter'
-        - $ref: '#/components/parameters/WorkflowPlatformIdFilter'
-        - $ref: '#/components/parameters/WorkflowClusterIdFilter'
-        - $ref: '#/components/parameters/WorkflowServerIdFilter'
-        - $ref: '#/components/parameters/WorkflowKindFilter'
-        - $ref: '#/components/parameters/WorkflowStatusFilter'
-        - $ref: '#/components/parameters/WorkflowActiveFilter'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-      responses:
-        '200':
-          description: One page of Workflows.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WorkflowPage'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/operations/{id}:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-    get:
-      tags: [workflows]
-      operationId: getWorkflowViaDeprecatedAlias
-      summary: Deprecated alias of GET /api/v1/workflows/{id}.
-      deprecated: true
-      description: Requires the `admin` role. Identical to `getWorkflow`.
-      responses:
-        '200':
-          description: The Workflow.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Workflow'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/WorkflowNotFound'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/operations/{id}/timeline:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-    get:
-      tags: [workflows]
-      operationId: getWorkflowTimelineViaDeprecatedAlias
-      summary: Deprecated alias of GET /api/v1/workflows/{id}/timeline.
-      deprecated: true
-      description: Requires the `admin` role. Identical to `getWorkflowTimeline`.
-      responses:
-        '200':
-          description: The timeline; an empty array when nothing has been recorded.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/WorkflowTimelineEvent'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/WorkflowNotFound'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/operations/{id}/cancel:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-    post:
-      tags: [workflows]
-      operationId: cancelWorkflowViaDeprecatedAlias
-      summary: Deprecated alias of POST /api/v1/workflows/{id}/cancel.
-      deprecated: true
-      description: Requires the `admin` role. Identical to `cancelWorkflow`.
-      responses:
-        '202':
-          description: The cancel request was accepted.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WorkflowAccepted'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/WorkflowNotFound'
-        '409':
-          $ref: '#/components/responses/WorkflowControlConflict'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/operations/{id}/rerun:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-    post:
-      tags: [workflows]
-      operationId: rerunWorkflowViaDeprecatedAlias
-      summary: Deprecated alias of POST /api/v1/workflows/{id}/rerun.
-      deprecated: true
-      description: Requires the `admin` role. Identical to `rerunWorkflow`.
-      responses:
-        '202':
-          description: The replacement Workflow was persisted and starts asynchronously.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Workflow'
-        '400':
-          $ref: '#/components/responses/WorkflowRerunRejected'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/WorkflowNotFound'
-        '409':
-          $ref: '#/components/responses/WorkflowRerunConflict'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/operations/{id}/steps/{stepId}/retry:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-      - $ref: '#/components/parameters/OperationStepId'
-    post:
-      tags: [workflows]
-      operationId: retryWorkflowTaskViaDeprecatedAlias
-      summary: Deprecated alias of POST /api/v1/workflows/{id}/tasks/{taskId}/retry.
-      deprecated: true
-      description: Requires the `admin` role. Identical to `retryWorkflowTask`.
-      responses:
-        '202':
-          description: The retry was delivered to the Workflow's execution.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WorkflowTaskRetryAccepted'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/WorkflowTaskNotFound'
-        '409':
-          $ref: '#/components/responses/WorkflowTaskRetryConflict'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/operations/{id}/steps/{stepId}/logs:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-      - $ref: '#/components/parameters/OperationStepId'
-    get:
-      tags: [workflows]
-      operationId: getWorkflowTaskLogsViaDeprecatedAlias
-      summary: Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/logs.
-      deprecated: true
-      description: Requires the `admin` role. Identical to `getWorkflowTaskLogs`.
-      responses:
-        '200':
-          description: The runner output.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            text/plain:
-              schema:
-                type: string
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/WorkflowTaskNotFound'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/operations/{id}/steps/{stepId}/stderr:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-      - $ref: '#/components/parameters/OperationStepId'
-    get:
-      tags: [workflows]
-      operationId: getWorkflowTaskStderrViaDeprecatedAlias
-      summary: Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/stderr.
-      deprecated: true
-      description: Requires the `admin` role. Identical to `getWorkflowTaskStderr`.
-      responses:
-        '200':
-          description: The error-only report.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            text/plain:
-              schema:
-                type: string
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/WorkflowTaskNotFound'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/operations/{id}/steps/{stepId}/events:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-      - $ref: '#/components/parameters/OperationStepId'
-    get:
-      tags: [workflows]
-      operationId: getWorkflowTaskEventsViaDeprecatedAlias
-      summary: Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/events.
-      deprecated: true
-      description: Requires the `admin` role. Identical to `getWorkflowTaskEvents`.
-      responses:
-        '200':
-          description: The per-host results and their counts.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WorkflowTaskEvents'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/WorkflowTaskNotFound'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/operations/{id}/steps/{stepId}/artifacts:
-    parameters:
-      - $ref: '#/components/parameters/WorkflowId'
-      - $ref: '#/components/parameters/OperationStepId'
-    get:
-      tags: [workflows]
-      operationId: listWorkflowTaskArtifactsViaDeprecatedAlias
-      summary: Deprecated alias of GET /api/v1/workflows/{id}/tasks/{taskId}/artifacts.
-      deprecated: true
-      description: Requires the `admin` role. Identical to `listWorkflowTaskArtifacts`.
-      responses:
-        '200':
-          description: The artifact metadata; an empty array when the Task retained none.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
-            Link:
-              $ref: '#/components/headers/SuccessorLink'
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/WorkflowTaskArtifact'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/WorkflowTaskNotFound'
-        default:
-          $ref: '#/components/responses/Error'
-
 components:
   parameters:
     WorkflowId:
@@ -692,13 +336,6 @@ components:
       description: The Task ID within the Workflow (a Task's `id` in `steps[]`).
       schema:
         type: string
-    OperationStepId:
-      name: stepId
-      in: path
-      required: true
-      description: Deprecated name of the Task ID on the /operations alias.
-      schema:
-        type: string
     WorkflowSiteIdFilter:
       name: siteId
       in: query
@@ -710,15 +347,7 @@ components:
       name: platformId
       in: query
       required: false
-      description: Only Workflows of this Platform. Wins over `clusterId` when both are set.
-      schema:
-        type: string
-    WorkflowClusterIdFilter:
-      name: clusterId
-      in: query
-      required: false
-      deprecated: true
-      description: Deprecated alias of `platformId`, used only when `platformId` is absent.
+      description: Only Workflows of this Platform.
       schema:
         type: string
     WorkflowServerIdFilter:
@@ -923,11 +552,6 @@ components:
           type: string
           nullable: true
           description: The Platform the work belongs to, if any.
-        clusterId:
-          type: string
-          nullable: true
-          deprecated: true
-          description: Deprecated alias of `platformId`, used only when `platformId` is empty.
         playbookName:
           type: string
           description: >-
@@ -961,7 +585,6 @@ components:
         - temporal
         - siteId
         - platformId
-        - clusterId
         - targetResources
         - targetServerIds
         - steps
@@ -1016,11 +639,6 @@ components:
         platformId:
           type: string
           nullable: true
-        clusterId:
-          type: string
-          nullable: true
-          deprecated: true
-          description: Deprecated alias; always equal to `platformId`.
         targetResources:
           type: array
           nullable: true
@@ -1459,18 +1077,10 @@ components:
           description: The Workflow ID (wire name `operationId`).
     WorkflowTaskRetryAccepted:
       type: object
-      description: >-
-        Acknowledges a delivered Task retry. Both the canonical and the deprecated names are
-        sent.
-      required: [workflowId, operationId, taskId, stepId]
+      description: Acknowledges a stored Task retry.
+      required: [workflowId, taskId]
       properties:
         workflowId:
           type: string
-        operationId:
-          type: string
-          description: Deprecated name of `workflowId`; always equal to it.
         taskId:
           type: string
-        stepId:
-          type: string
-          description: Deprecated name of `taskId`; always equal to it.

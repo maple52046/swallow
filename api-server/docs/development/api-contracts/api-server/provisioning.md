@@ -53,7 +53,6 @@ DELETE /api/v1/provisioning/templates/{id}
 PUT    /api/v1/provisioning/templates/{id}/user-data
 DELETE /api/v1/provisioning/templates/{id}/user-data
 POST   /api/v1/provisioning/deployments/preflight
-POST   /api/v1/provisioning/deployments
 POST   /api/v1/provisioning/deployment-operations
 POST   /api/v1/provisioning/release-operations
 POST   /api/v1/provisioning/recover-operations
@@ -64,9 +63,6 @@ POST   /api/v1/provisioning/tasks/{id}/retry
 POST   /api/v1/provisioning/reconcile
 POST   /api/v1/provisioning/integrations/{id}/reconcile
 ```
-
-The existing `POST /api/v1/servers/{id}/deploy` contract remains active and
-unchanged for backward compatibility.
 
 ## OS Image Catalog
 
@@ -322,10 +318,9 @@ A template response contains:
 
 `POST /templates` accepts `integrationId`, required `name`, optional
 `description`, required `imageId`, optional `deployTarget` (`"disk"` | `"ram"`,
-the preferred deploy-mode field) or its deprecated `ephemeral` boolean alias,
-optional `network`, and optional write-only `userData`. The stored template
+default `disk`), optional `network`, and optional write-only `userData`. The stored template
 carries the `ephemeral` boolean; `deployTarget` maps onto it (`disk ↔ false`,
-`ram ↔ true`) and wins when both are sent. `network.mode` is `automatic`, `dhcp`, or
+`ram ↔ true`). `network.mode` is `automatic`, `dhcp`, or
 `static` (glossary Network Configuration); missing network intent defaults to Automatic.
 Automatic addressing is realized by provider auto-assign (a stable, provider-recorded
 address; see [ADR 018](../../../../../docs/decisions/018-automatic-addressing-provider-auto-assign.md));
@@ -336,8 +331,7 @@ longer an alias of `automatic`, and a template stored with `dhcp` reads as DHCP.
 gateway can be requested only for Static intent. It returns `201` and never echoes `userData`.
 
 `PATCH /templates/{id}` accepts any subset of `name`, `description`,
-`imageId`, the deploy mode (`deployTarget` or its deprecated `ephemeral` alias),
-and `network`. It cannot change `integrationId` and
+`imageId`, the deploy mode (`deployTarget`), and `network`. It cannot change `integrationId` and
 never accepts `userData`. Image or network changes validate the live provider
 catalog before persistence. Templates never store a provider interface ID or a
 target-specific static IP. Historical records without `network` read as Automatic.
@@ -451,7 +445,7 @@ is `400 validation_error`; and an unreachable provisioner is `503 provider_unava
 ```
 
 It performs the target identity, presence, Ready, unlocked, and same-Integration
-checks that `POST /deployments` repeats immediately before dispatch. Lock is
+checks that `POST /deployment-operations` repeats at acceptance. Lock is
 read live from the provisioner; unavailable lock state returns
 `503 provider_unavailable` rather than accepting mutation work. The operation
 is read-only: it does not inspect or mutate network configuration, validate an
@@ -481,13 +475,13 @@ a list longer than 100, is `400 validation_error`; a Server unknown to Swallow i
 `404 not_found`.
 
 The request names no deploy target, so this check does not report `inspection_required`,
-which blocks only a disk deployment: `POST /deployments`, `POST /deployment-operations`, and
-Platform deployment acceptance report it once the target is resolved (see
+which blocks only a disk deployment: `POST /deployment-operations` and Platform deployment
+acceptance report it once the target is resolved (see
 [Multi-Server Deployment](#multi-server-deployment)).
 
 ## Multi-Server Deployment
 
-`POST /deployments` accepts:
+`POST /deployment-operations` ([Durable OS Operations](#durable-os-operations)) accepts:
 
 ```json
 {
@@ -520,18 +514,13 @@ Platform deployment acceptance report it once the target is resolved (see
 data defaults to `omit`. With a template, omitted settings use the template and
 omitted user data defaults to `inherit`.
 
-`settings.deployTarget` (`"disk"` | `"ram"`) is the preferred way to choose the
-deploy mode; `"ram"` runs the OS from memory (what the provider calls ephemeral).
-`settings.ephemeral` (boolean) remains accepted as a deprecated alias and maps
-one-to-one (`disk ↔ false`, `ram ↔ true`); when both are sent, `deployTarget`
-wins. An unknown `deployTarget` value is a `400`. This applies identically to
-`POST /deployment-operations` and, through the platform contract, to platform
-deploys.
+`settings.deployTarget` (`"disk"` | `"ram"`) chooses the deploy mode; `"ram"` runs the
+OS from memory (what the provider calls ephemeral). An unknown `deployTarget` value is a
+`400`. This applies identically, through the platform contract, to platform deploys.
 
 **Deployment Key gate.** Swallow logs in to deployed Servers with the installation's Deployment
-Key (see [ssh-keys.md](ssh-keys.md)), so every OS deployment — `POST /deployments`,
-`POST /deployment-operations`, `POST /image-verifications`, the deprecated
-`POST /servers/{id}/deploy`, and Platform deploys with `provision_os` — is refused at acceptance
+Key (see [ssh-keys.md](ssh-keys.md)), so every OS deployment — `POST /deployment-operations`,
+`POST /image-verifications`, and Platform deploys with `provision_os` — is refused at acceptance
 with `409 conflict` when no Deployment Key exists. The message names the installation command
 that creates it (`swallow-api deployment-key ensure`). Nothing is written to the provider.
 
@@ -546,7 +535,7 @@ resources are still missing — is also refused at acceptance with `409` and a S
 reason ("the `<name>` image is not fully staged by the provisioner and cannot be
 deployed"), so an incomplete image is never handed to the provider only to fail
 opaquely mid-install. These gates are applied by the shared deploy resolve, so they
-cover `POST /deployments`, `POST /deployment-operations`, and platform deploys. See
+cover `POST /deployment-operations` and platform deploys. See
 "Image Verification".
 
 
@@ -570,8 +559,7 @@ Templates may supply mode, subnet, and gateway intent but never a NIC ID or stat
 Before any provider write, every Server must exist, be present, have provisioning
 state `ready`, be unlocked, belong to the same Integration, and match the
 template Integration when one is used. The lock preflight reads each target live from the provider before dispatch. The
-same live read refuses a **disk** deployment (`deployTarget` `disk`, or `ephemeral` false or
-omitted) of a Server whose storage layout needs a new inspection (`provisioning.inspectionRequired`,
+same live read refuses a **disk** deployment (`deployTarget` `disk` or omitted) of a Server whose storage layout needs a new inspection (`provisioning.inspectionRequired`,
 see [servers-list.md](servers-list.md#provisioning-axis-fields)) with `409 conflict` naming the
 Server and its `inspection_required` reason; a RAM deployment of that Server is allowed. The
 resolved image must exist in the
@@ -579,64 +567,16 @@ current live catalog. Swallow inspects every target's live network capability,
 NICs, subnets, existing links, and Static address before the first write. A
 preflight failure rejects the entire request without writes.
 
-After preflight, each target configures and verifies its network, then starts OS
-deployment. Target dispatch uses at most four workers. Individual provider
-refusals do not roll back accepted deployments or network changes. Every dispatched batch
-returns `202`:
-
-```json
-{
-  "requested": 2,
-  "accepted": [
-    {
-      "serverId": "server-1",
-      "state": "deploying",
-      "providerState": "Deploying",
-      "powerState": "on",
-      "osSystem": "ubuntu",
-      "distroSeries": "jammy",
-      "ephemeral": false,
-      "hweKernel": "",
-      "locked": false,
-      "commissioningStatus": "",
-      "testingStatus": "",
-      "observedAt": "2026-08-28T10:00:00Z"
-    }
-  ],
-  "failed": [
-    {
-      "serverId": "server-2",
-      "code": "provider_rejected",
-      "message": "Provider rejected deployment.",
-      "stage": "deployment"
-    }
-  ]
-}
-```
-
-The response is an acceptance report, not a durable job. Deployment progress is
-read from each Server provisioning axis. Batch deployment provides no rollback.
-
-Each `accepted[]` entry is the provisioning snapshot the provider returned on
-acceptance; it also carries `inspectionRequired` and `inspectionRequiredReason` when the
-Server's layout needs a new inspection, and omits them otherwise. `failed[].stage` is
-`network_configuration` or `deployment`; `failed[].code` is `provider_rejected` (the
-provider refused, or no longer has the Machine), `provider_unavailable` (the provider could
-not be reached during dispatch), or `provider_error` (any other dispatch failure).
-
 Preflight validation uses `400 validation_error` for malformed input (including an
 image missing from the live catalog), `404 not_found` for an unknown Server or template,
 `409 conflict` for target state or
 Integration mismatch, and `503 provider_unavailable` when the provider cannot
-be reached before dispatch. Secret values never appear in responses or errors.
-Dispatched provider refusals preserve actionable provider validation detail in
-`failed[].message`; for example, a Static IP allocation conflict remains a
-`network_configuration` failure rather than being reported as a missing Server.
+be reached. Secret values never appear in responses or errors.
 
 ## Durable OS Operations
 
-`POST /deployment-operations` accepts the same request as `/deployments`, runs the same
-complete side-effect-free preflight, and persists one schema-v3 Operation:
+`POST /deployment-operations` accepts the request above, runs the complete side-effect-free
+preflight, and persists one Workflow:
 
 ```json
 { "operationId": "operation-id" }
@@ -819,7 +759,7 @@ Both endpoints return `202` with an Operation reference, `{ "operationId": "..."
 nothing else; the request ID is recorded on the Workflow as its `requestCorrelation`, read
 through the Workflow, not returned here.
 Progress, target-specific normalized errors, Cancel, and safe Retry are read and controlled
-through the [Operations](operations.md) contract.
+through the [Workflows](workflows.md) contract.
 
 Acceptance-time rejection is reported with the shared error envelope, never as an opaque
 `500 internal_error`: malformed input (missing or out-of-range `serverIds`, a target in a
@@ -995,11 +935,12 @@ with no alias: a catalog image is `{id, architecture, spec, status}` — the `cu
 arrays moved under `status` — and `PATCH /images/overlay` / `DELETE /images/overlay` became
 `PUT /images/metadata` / `DELETE /images/metadata` with the same body and responses.
 
-`POST /provisioning/deployments`, `POST /servers/{id}/deploy`, and
-`POST /servers/{id}/release` preserve their existing wire behavior for one release and
-return `Deprecation: true` plus a successor `Link` header. Dashboard command flows use the
-durable Operation endpoints. Existing Server projections, authorization, and provider
-action behavior are unchanged.
+On 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md),
+breaking) the deprecated synchronous `POST /provisioning/deployments`, `POST /servers/{id}/deploy`,
+and `POST /servers/{id}/release` were removed; deploy and release through `POST
+/deployment-operations` and `POST /release-operations`. The removed single-Server deploy was the
+only deployment that did not clear the Server Default User (DF-12). The request `ephemeral` alias
+of templates and deployment settings is no longer read; send `deployTarget`.
 
 On 2026-10-19 `POST /release-operations` and `POST /recover-operations` gained the optional
 `cancelActiveWorkflows` field, and a first `release-os` attempt began observing a Server that is

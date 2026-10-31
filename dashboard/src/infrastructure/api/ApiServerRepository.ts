@@ -2,12 +2,10 @@ import type { Paginated, ServerRepository } from '@/application/ports/ServerRepo
 import type { NetworkLinkInput, NetworkTarget, ProvisioningTask } from '@/domain/provisioning/types'
 import type {
   BootMediaProbe,
-  DeployServerInput,
   HypervisorVirtualMachines,
   ListServersFilters,
   PowerStateResult,
   ProvisionerDetail,
-  ReleaseServerInput,
   ProviderEvents,
   ProvisioningActionResult,
   Server,
@@ -86,22 +84,6 @@ export class ApiServerRepository implements ServerRepository {
       }
       throw error
     }
-  }
-
-  async deployServer(id: string, input: DeployServerInput): Promise<ProvisioningActionResult> {
-    return apiRequest<ProvisioningActionResult>(
-      `/api/v1/servers/${encodeURIComponent(id)}/deploy`,
-      { method: 'POST', body: JSON.stringify(input) },
-    )
-  }
-
-  async releaseServer(id: string, input?: ReleaseServerInput): Promise<ProvisioningActionResult> {
-    return apiRequest<ProvisioningActionResult>(
-      `/api/v1/servers/${encodeURIComponent(id)}/release`,
-      input
-        ? { method: 'POST', body: JSON.stringify(input) }
-        : { method: 'POST' },
-    )
   }
 
   async refreshServer(id: string): Promise<ProvisioningActionResult> {

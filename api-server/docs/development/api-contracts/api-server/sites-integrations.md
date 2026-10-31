@@ -82,9 +82,6 @@ defaults to `true`, and `settings` is a string map (see below). An unknown `site
 Integration of the Site has is `409 conflict`.
 
 `GET /api/v1/integrations` does not validate `kind`: a value no Integration has returns `[]`.
-The deprecated alias `kind=cluster` is read as `platform` and answered with the header
-`Deprecation: true`; the same alias on create also sets the header and is then refused like
-`platform`.
 
 `PATCH` changes only the fields present and not `null`: `name`, `endpoint` (neither may be
 blank), `enabled`, and `settings`, which replaces the whole map when present. It never touches
@@ -98,7 +95,7 @@ An Integration cannot be deleted while Servers are projected from it or Deployme
 reference it (`409 conflict`).
 
 `POST /api/v1/integrations` accepts `kind` of `provisioner` or `metrics` only. `kind=platform`
-(and its `cluster` deprecated alias) is rejected with `400 validation_error`: a `platform`
+is rejected with `400 validation_error`: a `platform`
 Integration reads a Kubernetes/Slurm runtime's live state, and Swallow creates it only from a
 successful deployment because it manages only self-deployed platforms
 ([decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md)).
@@ -124,6 +121,10 @@ Integration created before the key existed has it absent, which means on.
 | `virshSshPublicKey` | An OpenSSH public key line, or absent | The public key the provisioner's rack controller uses for `virsh` power over `qemu+ssh` ([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md)). Virtual-machine enrollment authorizes it for the login account on the hypervisor ([server-enrollment.md](server-enrollment.md#virtual-machines-libvirt)). The installation sets it for a co-located MAAS. It is a public key, not a secret. |
 
 ## Compatibility Notes
+
+- Since 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md),
+  breaking) `kind=cluster` is no longer read as `platform`: a list filter returns what any other
+  unknown kind returns, and a create is refused as an unknown kind.
 
 - Since 2026-10-31 a Site name that is empty after trimming is refused on create and on `PATCH`
   (DF-13). Before, a whitespace-only name was stored as `""` and `PATCH` accepted an empty name.

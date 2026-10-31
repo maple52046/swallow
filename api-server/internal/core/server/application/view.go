@@ -159,7 +159,6 @@ type ProvisioningAxisItem struct {
 
 type MembershipAxisItem struct {
 	PlatformID string `json:"platformId"`
-	ClusterID  string `json:"clusterId"`
 	NodeName   string `json:"nodeName"`
 	Role       string `json:"role"`
 	State      string `json:"state"`
@@ -296,7 +295,6 @@ func toServerStatusItem(s *serverdomain.Server) ServerStatusItem {
 	if m := s.Membership; m != nil {
 		item.Membership = &MembershipAxisItem{
 			PlatformID: m.PlatformID,
-			ClusterID:  m.PlatformID,
 			NodeName:   m.NodeName,
 			Role:       m.Role,
 			State:      m.State,

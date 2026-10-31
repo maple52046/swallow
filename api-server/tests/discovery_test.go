@@ -48,8 +48,8 @@ func TestPrometheusTargets_CarryTheLabelContract(t *testing.T) {
 	if labels["platform_id"] != "platform-1" {
 		t.Errorf("platform_id: got %v", labels["platform_id"])
 	}
-	if labels["cluster"] != "platform-1" {
-		t.Errorf("legacy cluster: got %v", labels["cluster"])
+	if _, present := labels["cluster"]; present {
+		t.Errorf("the removed cluster label is still emitted: %v", labels)
 	}
 }
 

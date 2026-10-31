@@ -11,7 +11,6 @@ import type {
   DeploymentTemplate,
   DeploymentTargetPreflightResult,
   DeployServersInput,
-  DeployServersResult,
   EditServerTagsInput,
   HostEnrollmentBundle,
   ProvisionerHttpProxy,
@@ -126,13 +125,6 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
         body: JSON.stringify({ serverIds }),
       },
     );
-  }
-
-  async deployServers(input: DeployServersInput): Promise<DeployServersResult> {
-    return apiRequest<DeployServersResult>("/api/v1/provisioning/deployments", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
   }
 
   async createDeploymentOperation(

@@ -1,6 +1,6 @@
 # 014. Platform is the canonical managed runtime aggregate
 
-- Status: Accepted
+- Status: Accepted; the one-release compatibility aliases ended by [ADR 074](074-retire-schema-v2-and-deprecated-aliases.md)
 - Date: 2026-09-03
 
 ## Context

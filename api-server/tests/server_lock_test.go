@@ -128,7 +128,7 @@ func TestServerLock_BatchDeploymentReadsExternalLockBeforeAnyWrite(t *testing.T)
 	}
 
 	response = doRequest(t, f.app, http.MethodPost,
-		"/api/v1/provisioning/deployments", map[string]any{
+		"/api/v1/provisioning/deployment-operations", map[string]any{
 			"serverIds": []string{"srv-1"},
 			"settings":  map[string]any{"imageId": "ubuntu/jammy"},
 		}, f.adminAuth(t))
@@ -220,15 +220,26 @@ func TestServerLock_BlocksProvisionerLifecycleAndDeletion(t *testing.T) {
 	tests := []struct {
 		name   string
 		method string
-		path   string
-		body   any
+		path   func(serverID string) string
+		body   func(serverID string) any
 	}{
 		{
-			name: "legacy deploy", method: http.MethodPost, path: "/deploy",
-			body: map[string]string{"osSystem": "ubuntu", "distroSeries": "jammy"},
+			name: "deploy", method: http.MethodPost,
+			path: func(string) string { return "/api/v1/provisioning/deployment-operations" },
+			body: func(serverID string) any {
+				return map[string]any{"serverIds": []string{serverID}, "settings": map[string]any{"imageId": "ubuntu/jammy"}}
+			},
 		},
-		{name: "release", method: http.MethodPost, path: "/release"},
-		{name: "delete", method: http.MethodDelete},
+		{
+			name: "release", method: http.MethodPost,
+			path: func(string) string { return "/api/v1/provisioning/release-operations" },
+			body: func(serverID string) any { return map[string]any{"serverIds": []string{serverID}} },
+		},
+		{
+			name: "delete", method: http.MethodDelete,
+			path: func(serverID string) string { return "/api/v1/servers/" + serverID },
+			body: func(string) any { return nil },
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -236,8 +247,7 @@ func TestServerLock_BlocksProvisionerLifecycleAndDeletion(t *testing.T) {
 			serverID := seedActionableServer(t, f)
 			f.provider.machines["machine-"+serverID].Locked = true
 
-			response := doRequest(t, f.app, test.method,
-				"/api/v1/servers/"+serverID+test.path, test.body, f.adminAuth(t))
+			response := doRequest(t, f.app, test.method, test.path(serverID), test.body(serverID), f.adminAuth(t))
 			if response.StatusCode != http.StatusConflict {
 				t.Fatalf("%s: got %d, want 409", test.name, response.StatusCode)
 			}

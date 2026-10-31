@@ -42,7 +42,6 @@ type response struct {
 	Inventory    inventoryResponse    `json:"inventory"`
 	Integrations integrationsResponse `json:"integrations"`
 	Platforms    platformsResponse    `json:"platforms"`
-	Clusters     platformsResponse    `json:"clusters"`
 	Operations   operationsResponse   `json:"operations"`
 	Monitoring   monitoringResponse   `json:"monitoring"`
 }
@@ -57,7 +56,6 @@ type inventoryResponse struct {
 	Absent     int            `json:"absent"`
 	Deployed   int            `json:"deployed"`
 	Platformed int            `json:"platformed"`
-	Clustered  int            `json:"clustered"`
 	GPUDevices int            `json:"gpuDevices"`
 	Health     healthResponse `json:"health"`
 }
@@ -103,7 +101,6 @@ type operationResponse struct {
 	Intent          string            `json:"intent"`
 	SiteID          string            `json:"siteId"`
 	PlatformID      *string           `json:"platformId"`
-	ClusterID       *string           `json:"clusterId"`
 	TargetServerIDs []string          `json:"targetServerIds"`
 	RetryOfID       *string           `json:"retryOfOperationId"`
 	Execution       executionResponse `json:"execution"`
@@ -153,7 +150,6 @@ type alertResponse struct {
 	ServerID    *string           `json:"serverId"`
 	SiteID      *string           `json:"siteId"`
 	PlatformID  *string           `json:"platformId"`
-	ClusterID   *string           `json:"clusterId"`
 }
 
 func toResponse(result overviewapp.Result) response {
@@ -170,7 +166,6 @@ func toResponse(result overviewapp.Result) response {
 		operations[i] = operationResponse{
 			ID: item.ID, Kind: item.Kind, Intent: item.Intent, SiteID: item.SiteID,
 			PlatformID:      optionalString(item.PlatformID),
-			ClusterID:       optionalString(item.PlatformID),
 			TargetServerIDs: append([]string(nil), item.TargetServerIDs...),
 			RetryOfID:       optionalString(item.RetryOfOperationID),
 			Execution: executionResponse{
@@ -189,7 +184,7 @@ func toResponse(result overviewapp.Result) response {
 			State: item.State, Summary: item.Summary, Description: item.Description,
 			Labels: item.Labels, StartsAt: timeString(item.StartsAt),
 			ServerID: optionalString(item.ServerID), SiteID: optionalString(item.SiteID),
-			PlatformID: optionalString(item.PlatformID), ClusterID: optionalString(item.PlatformID),
+			PlatformID: optionalString(item.PlatformID),
 		}
 	}
 	var monitoringError *embeddedError
@@ -205,7 +200,7 @@ func toResponse(result overviewapp.Result) response {
 		Inventory: inventoryResponse{
 			Sites: result.Inventory.Sites, Servers: result.Inventory.Servers,
 			Absent: result.Inventory.Absent, Deployed: result.Inventory.Deployed,
-			Platformed: result.Inventory.Platformed, Clustered: result.Inventory.Platformed, GPUDevices: result.Inventory.GPUDevices,
+			Platformed: result.Inventory.Platformed, GPUDevices: result.Inventory.GPUDevices,
 			Health: healthResponse{
 				Up: result.Inventory.Health.Up, Down: result.Inventory.Health.Down,
 				Unknown: result.Inventory.Health.Unknown,
@@ -216,10 +211,6 @@ func toResponse(result overviewapp.Result) response {
 			Items: integrations,
 		},
 		Platforms: platformsResponse{
-			Total: result.Platforms.Total, Unreachable: result.Platforms.Unreachable,
-			UnmatchedMembers: result.Platforms.UnmatchedMembers,
-		},
-		Clusters: platformsResponse{
 			Total: result.Platforms.Total, Unreachable: result.Platforms.Unreachable,
 			UnmatchedMembers: result.Platforms.UnmatchedMembers,
 		},

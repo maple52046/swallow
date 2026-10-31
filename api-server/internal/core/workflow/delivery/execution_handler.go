@@ -33,7 +33,6 @@ type createExecutionRequest struct {
 	Intent          string         `json:"intent"`
 	TargetServerIDs []string       `json:"targetServerIds"`
 	PlatformID      string         `json:"platformId"`
-	ClusterID       string         `json:"clusterId"`
 	PlaybookName    string         `json:"playbookName"`
 	ExtraVars       map[string]any `json:"extraVars"`
 }
@@ -50,7 +49,7 @@ func (h *ExecutionHandler) Create(c *fiber.Ctx) error {
 	}
 	item, err := h.operations.Create(c.Context(), application.CreateExecutionInput{
 		Kind: req.Kind, Intent: req.Intent, TargetServerIDs: req.TargetServerIDs,
-		PlatformID: firstNonEmpty(req.PlatformID, req.ClusterID), PlaybookName: req.PlaybookName,
+		PlatformID: req.PlatformID, PlaybookName: req.PlaybookName,
 		ExtraVars: req.ExtraVars, RequestedBy: requestedBy,
 		RequestCorrelation: c.GetRespHeader(fiber.HeaderXRequestID),
 	})
@@ -60,40 +59,13 @@ func (h *ExecutionHandler) Create(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusAccepted).JSON(item)
 }
 
-// firstNonEmpty returns the first non-empty value: the canonical field, then its deprecated
-// alias.
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-// platformIDQuery accepts the deprecated Operation filter without exposing it to the
-// application model. Canonical platformId wins when both aliases are present.
-func platformIDQuery(c *fiber.Ctx) string {
-	if id := c.Query("platformId"); id != "" {
-		return id
-	}
-	return c.Query("clusterId")
-}
-
-// taskParam returns the Task identifier from either the canonical `taskId` route param
-// (`/workflows/:id/tasks/:taskId`) or the deprecated `stepId` alias
-// (`/operations/:id/steps/:stepId`), so both route trees share one handler.
-func taskParam(c *fiber.Ctx) string {
-	if id := c.Params("taskId"); id != "" {
-		return id
-	}
-	return c.Params("stepId")
-}
+// taskParam returns the Task identifier of a `/workflows/:id/tasks/:taskId` route.
+func taskParam(c *fiber.Ctx) string { return c.Params("taskId") }
 
 // List returns a page of Workflows, newest first.
 func (h *ExecutionHandler) List(c *fiber.Ctx) error {
 	input := application.ListOperationsInput{
-		SiteID: c.Query("siteId"), PlatformID: platformIDQuery(c), ServerID: c.Query("serverId"),
+		SiteID: c.Query("siteId"), PlatformID: c.Query("platformId"), ServerID: c.Query("serverId"),
 		Kind: c.Query("kind"), Status: c.Query("status"), Active: c.Query("active") == "true", Page: pagination.FromQuery(c),
 	}
 	items, total, err := h.orchestrations.List(c.Context(), input)
@@ -134,7 +106,7 @@ func (h *ExecutionHandler) RetryStep(c *fiber.Ctx) error {
 	if err := h.orchestrations.RetryStep(c.Context(), c.Params("id"), taskParam(c)); err != nil {
 		return respondExecutionError(c, err)
 	}
-	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"workflowId": c.Params("id"), "operationId": c.Params("id"), "taskId": taskParam(c), "stepId": taskParam(c)})
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"workflowId": c.Params("id"), "taskId": taskParam(c)})
 }
 
 // Rerun recovers a Workflow that can no longer advance by launching a new Workflow for the same

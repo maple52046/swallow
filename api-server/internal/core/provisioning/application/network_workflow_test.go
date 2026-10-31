@@ -828,32 +828,6 @@ func TestDeployServersRejectsDefaultGatewayForDHCPBeforeAnyWrite(t *testing.T) {
 	}
 }
 
-// The operator's direct release refuses a Platform's Server before any provider call, while the
-// release primitive Workflow Steps use (a Platform uninstall's release) still releases it.
-func TestDirectReleaseRefusesAPlatformClaimedServer(t *testing.T) {
-	server := workflowServer("a")
-	server.PlatformClaim = &serverdomain.PlatformClaim{PlatformID: "platform-a"}
-	repo := &networkWorkflowServerRepo{servers: map[string]*serverdomain.Server{"a": server}}
-	provider := &networkWorkflowProvider{
-		networks: map[string]*provisioningdomain.MachineNetwork{}, configureFailures: map[string]error{}, deployFailures: map[string]error{},
-		releaseResult: &provisioningdomain.Machine{ID: "machine-a", Status: provisioningdomain.MachineStatusReady, ProviderStatus: "Ready"},
-	}
-	uc := NewReleaseServerUseCase(repo, networkWorkflowFactory{provider: provider}, &networkWorkflowTaskRepo{})
-
-	_, err := uc.ExecuteForOperator(context.Background(), ReleaseServerInput{ServerID: "a"})
-	var claimed *provisioningdomain.ServerClaimedByPlatformError
-	if !errors.As(err, &claimed) || claimed.PlatformID != "platform-a" || !strings.Contains(err.Error(), "Platform platform-a") {
-		t.Fatalf("ExecuteForOperator() error = %v, want a refusal naming platform-a", err)
-	}
-	if provider.releaseCalls != 0 {
-		t.Fatalf("provider Release was called %d times for a refused Server", provider.releaseCalls)
-	}
-
-	if _, err := uc.ExecuteWithOptions(context.Background(), ReleaseServerInput{ServerID: "a"}); err != nil {
-		t.Fatalf("ExecuteWithOptions() error = %v, want the Workflow primitive to release a claimed Server", err)
-	}
-}
-
 func TestReleaseSchedulesCleanupOnlyAfterProviderAcceptance(t *testing.T) {
 	repo := &networkWorkflowServerRepo{servers: map[string]*serverdomain.Server{
 		"a": workflowServer("a"),

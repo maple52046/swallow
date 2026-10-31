@@ -250,8 +250,6 @@ func RunAPI(cfg config.APIConfig) error {
 	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo, serverProtection)
 	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory, osImageVerificationRepo)
 	deploymentsUC.AttachDeploymentKeys(sshKeyService)
-	deployServerUC := provisioningapp.NewDeployServerUseCase(serverRepo, providerFactory)
-	deployServerUC.AttachDeploymentKeys(sshKeyService)
 	taskWorker := provisioningapp.NewProvisioningTaskWorker(
 		taskRepo, serverRepo, providerFactory, 5*time.Second, 30*time.Second)
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageMetadataRepo)
@@ -259,18 +257,15 @@ func RunAPI(cfg config.APIConfig) error {
 	// One RefreshServer use case is shared by the HTTP handler and the durable launcher so the
 	// Release/Recover acceptance gate can live-sync a target's provisioning state before deciding.
 	refreshServerUC := provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory, osImageMetadataRepo)
-	// The direct-release path names the Platform that claims a refused Server; its name reader is
-	// attached once the platform repository exists below.
-	releaseServerUC := provisioningapp.NewReleaseServerUseCase(serverRepo, providerFactory, taskRepo)
+	// Delete names the Platform that claims a refused Server; its name reader is attached once the
+	// platform repository exists below.
 	deleteServerUC := provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
-		deployServerUC,
 		deploymentsUC,
 		provisioningapp.NewDeploymentTargetPreflightService(serverRepo, providerFactory),
 		templateService,
 		networkService,
 		taskService,
-		releaseServerUC,
 		refreshServerUC,
 		provisioningapp.NewListOSImagesUseCase(providerFactory, osImageMetadataRepo, osImageVerificationRepo),
 		reconcileUC,
@@ -312,7 +307,6 @@ func RunAPI(cfg config.APIConfig) error {
 		return fmt.Errorf("platform repo init: %w", err)
 	}
 	platformNames := platformNameReader{platforms: platformRepo}
-	releaseServerUC.AttachPlatformNames(platformNames)
 	deleteServerUC.AttachPlatformNames(platformNames)
 
 	// Monitoring reads (alerts, current values, usage history) need the grouping repositories
@@ -683,8 +677,7 @@ type routeDeps struct {
 	releaseVersion string
 }
 
-// registerPlatformRoutes keeps the canonical and one-release compatibility routes on
-// the same handlers, so deprecated URLs cannot drift from Platform behavior.
+// registerPlatformRoutes registers the Platform routes on routes.
 func registerPlatformRoutes(routes fiber.Router, handler *platformdelivery.PlatformHandler) {
 	// There is no POST "/": a Platform is created only by a deployment (decision 032);
 	// registering an existing one was removed.
@@ -759,23 +752,6 @@ func registerDockerExplorerRoutes(servers fiber.Router, handler *softwaredeliver
 	servers.Get("/:id/docker/networks", handler.ListNetworks)
 	servers.Post("/:id/docker/networks", handler.CreateNetwork)
 	servers.Delete("/:id/docker/networks/:networkId", handler.RemoveNetwork)
-}
-
-// markDeprecatedPlatformRoute identifies the former Cluster resource without changing
-// its response body. Clients have one release to follow the canonical successor link.
-func markDeprecatedPlatformRoute(c *fiber.Ctx) error {
-	c.Set("Deprecation", "true")
-	c.Set("Link", "</api/v1/platforms>; rel=\"successor-version\"")
-	return c.Next()
-}
-
-// markDeprecatedProvisioningCommand preserves legacy wire behavior while pointing clients at durable Operations.
-func markDeprecatedProvisioningCommand(successor string) fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		c.Set("Deprecation", "true")
-		c.Set("Link", "<"+successor+">; rel=\"successor-version\"")
-		return c.Next()
-	}
 }
 
 func registerRoutes(app *fiber.App, deps routeDeps) {
@@ -878,8 +854,6 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	servers.Put("/:id/network/interfaces/:interfaceId/links/:linkId", deps.provisioning.ReplaceNetworkLink)
 	servers.Delete("/:id/network/interfaces/:interfaceId/links/:linkId", deps.provisioning.DeleteNetworkLink)
 	servers.Get("/:id/provisioning-tasks", deps.provisioning.ListProvisioningTasks)
-	servers.Post("/:id/deploy", markDeprecatedProvisioningCommand("/api/v1/provisioning/deployment-operations"), deps.provisioning.Deploy)
-	servers.Post("/:id/release", markDeprecatedProvisioningCommand("/api/v1/provisioning/release-operations"), deps.provisioning.Release)
 	// Power, hardware validation, and operator state are the provisioner actions beyond
 	// deploy and release. Each is refused by a provisioner that does not offer it.
 	servers.Post("/:id/power-on", deps.provisioning.PowerOn)
@@ -927,7 +901,6 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Put("/templates/:id/user-data", deps.provisioning.ReplaceTemplateUserData)
 	provisioning.Delete("/templates/:id/user-data", deps.provisioning.ClearTemplateUserData)
 	provisioning.Post("/deployments/preflight", deps.provisioning.PreflightDeployServers)
-	provisioning.Post("/deployments", markDeprecatedProvisioningCommand("/api/v1/provisioning/deployment-operations"), deps.provisioning.DeployServers)
 	provisioning.Post("/deployment-operations", deps.provisioning.CreateDeploymentOperation)
 	provisioning.Post("/release-operations", deps.provisioning.CreateReleaseOperation)
 	// Prove a custom OS Image works for a deploy target by deploying it on a chosen ready Server,
@@ -959,7 +932,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	}
 
 	// Swallow owns Platform registration and policy; membership is observed from the
-	// runtime API. The former Cluster route is a delivery-only compatibility alias.
+	// runtime API.
 	platforms := v1.Group("/platforms", admin...)
 	platforms.Get("/deployment-requirements/slurm", deps.platforms.GetSlurmDeploymentRequirement)
 	platforms.Put("/deployment-requirements/slurm", deps.platforms.PutSlurmDeploymentRequirement)
@@ -968,9 +941,6 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	platforms.Get("/gpu-operator/releases", deps.platforms.GPUOperatorReleases)
 	platforms.Put("/:id/gpu-operator", deps.platforms.ConfigureGPUOperator)
 	registerPlatformRoutes(platforms, deps.platforms)
-	legacyPlatforms := v1.Group("/clusters", admin...)
-	legacyPlatforms.Use(markDeprecatedPlatformRoute)
-	registerPlatformRoutes(legacyPlatforms, deps.platforms)
 
 	// Managed Software: install/uninstall a single piece of host software on deployed Servers and
 	// read the swallow-owned Software Assignment records (contract: software.md, decision 038).
@@ -1042,26 +1012,6 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	workflows.Get("/:id/tasks/:taskId/stderr", deps.operations.StepStderr)
 	workflows.Get("/:id/tasks/:taskId/events", deps.operations.StepEvents)
 	workflows.Get("/:id/tasks/:taskId/artifacts", deps.operations.StepArtifacts)
-
-	// Deprecated /operations alias for one release (ADR 017). Same handlers; the
-	// Deprecation header points clients at the canonical /workflows surface.
-	operations := v1.Group("/operations", admin...)
-	operations.Use(func(c *fiber.Ctx) error {
-		c.Set("Deprecation", "true")
-		c.Set("Link", `</api/v1/workflows>; rel="successor-version"`)
-		return c.Next()
-	})
-	operations.Post("/", deps.operations.Create)
-	operations.Get("/", deps.operations.List)
-	operations.Get("/:id", deps.operations.Get)
-	operations.Get("/:id/timeline", deps.operations.Timeline)
-	operations.Post("/:id/cancel", deps.operations.Cancel)
-	operations.Post("/:id/rerun", deps.operations.Rerun)
-	operations.Post("/:id/steps/:stepId/retry", deps.operations.RetryStep)
-	operations.Get("/:id/steps/:stepId/logs", deps.operations.StepLogs)
-	operations.Get("/:id/steps/:stepId/stderr", deps.operations.StepStderr)
-	operations.Get("/:id/steps/:stepId/events", deps.operations.StepEvents)
-	operations.Get("/:id/steps/:stepId/artifacts", deps.operations.StepArtifacts)
 
 	// Machine-to-machine discovery remains pull-based for Prometheus and external
 	// Ansible diagnostics. The embedded runner calls the same use case directly.

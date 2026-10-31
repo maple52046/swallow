@@ -359,8 +359,7 @@ paths:
       summary: List Integrations, optionally of one Site and one kind.
       description: >-
         Requires role `admin`. Returns a plain array ordered by `siteId`, then `name`. A `kind`
-        value no Integration has (including an unknown one) returns `[]`; the deprecated alias
-        `cluster` is read as `platform` and answered with a `Deprecation` header.
+        value no Integration has (including an unknown one) returns `[]`.
       parameters:
         - name: siteId
           in: query
@@ -372,16 +371,13 @@ paths:
           in: query
           required: false
           description: >-
-            Restrict to one Integration kind: `provisioner`, `metrics`, or `platform` (`cluster` is
-            its deprecated alias). Not validated.
+            Restrict to one Integration kind: `provisioner`, `metrics`, or `platform`. Not
+            validated.
           schema:
             type: string
       responses:
         '200':
           description: The matching Integrations.
-          headers:
-            Deprecation:
-              $ref: '#/components/headers/Deprecation'
           content:
             application/json:
               schema:
@@ -400,8 +396,8 @@ paths:
       summary: Register a provisioner or metrics Integration for a Site.
       description: >-
         Requires role `admin`. `kind` and `providerKind` are validated together. `kind` `platform`
-        (and its deprecated alias `cluster`, which also sets a `Deprecation` header) is refused: a
-        platform Integration is created only by a successful Platform deployment (decision 032).
+        is refused: a platform Integration is created only by a successful Platform deployment
+        (decision 032).
         `name` and `endpoint` are trimmed. `enabled` defaults to true. The credential is
         write-only and never returned.
       requestBody:
@@ -448,7 +444,7 @@ paths:
         '400':
           description: >-
             `validation_error`: the body is not valid JSON; `siteId`, `name`, or `endpoint` is
-            missing or empty; `kind` is not a kind or is `platform`/`cluster`; or `providerKind`
+            missing or empty; `kind` is not a kind or is `platform`; or `providerKind`
             does not fit `kind` (the message names the valid values).
           content:
             application/json:

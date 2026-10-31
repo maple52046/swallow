@@ -58,7 +58,6 @@ type WorkflowItem struct {
 	Temporal           workflowdomain.TemporalReference   `json:"temporal"`
 	SiteID             string                             `json:"siteId"`
 	PlatformID         *string                            `json:"platformId"`
-	ClusterID          *string                            `json:"clusterId"`
 	TargetResources    []workflowdomain.ResourceReference `json:"targetResources"`
 	TargetServerIDs    []string                           `json:"targetServerIds"`
 	Steps              []workflowdomain.Task              `json:"steps"`
@@ -653,7 +652,7 @@ func toWorkflowItem(operation *workflowdomain.Workflow) WorkflowItem {
 		DefinitionVersion: operation.DefinitionVersion, Status: string(operation.Status),
 		StatusReason: optionalString(operation.StatusReason), StartState: operation.StartState,
 		Temporal: operation.Temporal, SiteID: operation.SiteID,
-		PlatformID: optionalString(operation.PlatformID), ClusterID: optionalString(operation.PlatformID),
+		PlatformID:      optionalString(operation.PlatformID),
 		TargetResources: append([]workflowdomain.ResourceReference(nil), operation.TargetResources...),
 		TargetServerIDs: append([]string(nil), operation.TargetServerIDs...), Steps: publicSteps(operation.Steps),
 		RetryOfOperationID: optionalString(operation.RetryOfOperationID), RequestedBy: operation.RequestedBy,

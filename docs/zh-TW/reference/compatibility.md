@@ -38,9 +38,9 @@ Exact release media version／digest 屬於 candidate/release 與 third-party ma
 
 ## Compatibility aliases
 
-- `/api/v1/operations` 與 Dashboard `/operations` 是 Workflow deprecated aliases。
-- `/api/v1/clusters` 與 Dashboard `/clusters` 是 Platform deprecated aliases。
-- 新 client 使用 canonical route 與 terminology。
+- Dashboard 仍會把舊的 `/operations` 與 `/clusters` 頁面導向 Workflows 與 Platforms。
+- API 的 `/api/v1/operations` 與 `/api/v1/clusters` alias、`clusterId` 欄位，以及 request 的 `ephemeral` 欄位已於
+  2026-10-31 移除；client 改用 `/api/v1/workflows`、`/api/v1/platforms`、`platformId` 與 `deployTarget`。
 
 ## 尚未實作
 

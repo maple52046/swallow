@@ -203,7 +203,7 @@ platforms; a Platform record and its credential Integration are produced only by
 `POST /api/v1/platforms/deploy`
 ([decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md)). A
 `platform`-kind Integration is likewise created only by a successful deployment, so
-`POST /api/v1/integrations` with `kind=platform` (or the `cluster` alias) is rejected — see
+`POST /api/v1/integrations` with `kind=platform` is rejected — see
 [sites-integrations.md](sites-integrations.md). Existing `origin=registered` records remain
 readable and deletable for one release but cannot be uninstalled and have no cluster explorer.
 
@@ -211,8 +211,7 @@ readable and deletable for one release but cannot be uninstalled and have no clu
 
 `GET /api/v1/platforms/deployment-requirements/slurm` reads the current system-wide Slurm
 deployment eligibility policy. A missing stored record is returned as the disabled representation;
-it is not a 404. `PUT` replaces the policy. These routes exist only on the canonical Platforms
-surface and have no `/clusters` compatibility alias.
+it is not a 404. `PUT` replaces the policy.
 
 ```json
 {
@@ -297,14 +296,13 @@ accepts the rest of that OS Deployment intent for the provisioned targets: `temp
 `userData` (`mode` `inherit`, `replace`, or `omit`, with `value`), and `network.subnetId`,
 `network.defaultGateway`, and per-target `network.assignments` (`serverId`, `interfaceId`,
 `subnetId`, `ipAddress`). `settings` takes `imageId` and the deploy mode exactly as an OS
-Deployment does: `deployTarget` (`"disk"` | `"ram"`) is preferred, `ephemeral` (boolean) is its
-deprecated alias, `deployTarget` wins when both are sent, and an unknown `deployTarget` is a
+Deployment does: `deployTarget` (`"disk"` | `"ram"`), where an unknown value is a
 `400 validation_error`.
 
 `mode` is `existing_os` (default) or `provision_os`. In `provision_os` a target that is
 already `deployed` is reused as-is while a `ready` target is provisioned first, so one
-deploy may mix both. The deploy mode is the `ram` Deploy Target (`settings.deployTarget: "ram"`,
-or the deprecated `settings.ephemeral: true`; the dashboard labels it "RAM deploy (ephemeral)").
+deploy may mix both. The deploy mode is the `ram` Deploy Target (`settings.deployTarget: "ram"`;
+the dashboard labels it "RAM deploy (ephemeral)").
 RAM/ephemeral means the provider boots a
 memory-backed root filesystem and leaves disks untouched; all OS and platform-local state is
 lost when a Server reboots. A platform `provision_os` deploy of a *custom* image is subject
@@ -422,13 +420,11 @@ Success is `202 Accepted` after both records are persisted:
 ```json
 {
   "platformId": "platform-id",
-  "clusterId": "platform-id",
   "operationId": "operation-id"
 }
 ```
 
-`operationId` names the Workflow; `clusterId` is the deprecated alias of `platformId` (see
-[Compatibility Notes](#compatibility-notes)). Progress is read through [operations](operations.md). On success Swallow creates and marks
+`operationId` names the Workflow. Progress is read through [workflows](workflows.md). On success Swallow creates and marks
 ownership of a credential Integration, attaches it to the Platform, and begins membership
 reads.
 
@@ -979,7 +975,6 @@ unchanged, the same shape as a deploy's:
 ```json
 {
   "platformId": "platform-id",
-  "clusterId": "platform-id",
   "operationId": "operation-id"
 }
 ```
@@ -1095,7 +1090,6 @@ Integrations are never deleted.
 ```json
 {
   "platformId": "platform-id",
-  "clusterId": "platform-id",
   "platformName": "lab-k0s",
   "members": 7,
   "matched": 7,
@@ -1105,7 +1099,7 @@ Integrations are never deleted.
 }
 ```
 
-`clusterId` is the deprecated alias of `platformId`. A failure to read the Platform's API is
+A failure to read the Platform's API is
 reported in `error` with `200 OK`, not as an error status; only an unknown Platform is
 `404 not_found`.
 
@@ -1170,21 +1164,12 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
-- The aggregate was renamed from Cluster to Platform. For one release the former surface
-  remains available as deprecated aliases:
-  - Route alias: every `/api/v1/clusters...` path mirrors the corresponding
-    `/api/v1/platforms...` path and is served by the same handler, including the Slurm read and
-    the whole [Kubernetes explorer](platforms-kubernetes.md); the Slurm deployment requirement
-    and GPU Operator routes have no alias. Responses to the alias carry a `Deprecation: true`
-    header and a `Link: </api/v1/platforms>; rel="successor-version"` header. New clients must
-    use `/api/v1/platforms`.
-  - Field alias: in this contract the deploy and uninstall acceptance bodies and the membership
-    reports include `clusterId` alongside the canonical `platformId`, with the same value. The
-    Platform resource (identified by `id`) and the GPU Operator acceptance, added after the
-    rename, carry no `clusterId`. No request body here carries a Platform reference; requests
-    elsewhere that accept one accept either name, and `platformId` wins when both are sent.
-  - The aliases are removed after the one-release deprecation window; see
-    [ADR-014](../../../../../docs/decisions/014-platform-resource-language.md).
+- The aggregate was renamed from Cluster to Platform
+  ([ADR-014](../../../../../docs/decisions/014-platform-resource-language.md)). Its one-release
+  aliases were removed on 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md)),
+  which is breaking: the `/api/v1/clusters...` routes (including the Slurm read and the
+  [Kubernetes explorer](platforms-kubernetes.md)), and `clusterId` in the deploy and uninstall
+  acceptance bodies and the membership reports.
 - Uninstall and lifecycle fields are additive. Existing paths and Delete response remain
   unchanged.
 - Delete remains non-destructive to hosts.
@@ -1201,4 +1186,5 @@ transport/auth failures return `provider_unavailable`; provider rejection return
   existed reads as `[]`, and a `PATCH` that omits it leaves the links unchanged.
 - Since 2026-10-31 `machinePreparation.settings.deployTarget` is read (DF-02). Before, a deploy
   that named only `deployTarget: "ram"` was silently deployed to disk, and an unknown value was
-  ignored; it is now a `validation_error`. `ephemeral` keeps working as a deprecated alias.
+  ignored; it is now a `validation_error`. Since the same day's decision 074 the deprecated
+  `settings.ephemeral` alias is no longer read (breaking): send `deployTarget`.

@@ -606,7 +606,6 @@ components:
         - inventory
         - integrations
         - platforms
-        - clusters
         - operations
         - monitoring
       properties:
@@ -638,11 +637,6 @@ components:
                 $ref: '#/components/schemas/OverviewIntegration'
         platforms:
           $ref: '#/components/schemas/OverviewPlatforms'
-        clusters:
-          allOf:
-            - $ref: '#/components/schemas/OverviewPlatforms'
-          deprecated: true
-          description: Deprecated one-release alias mirroring `platforms` (ADR-014).
         operations:
           type: object
           required: [active, failedLast24Hours, recent]
@@ -666,7 +660,7 @@ components:
     OverviewInventory:
       type: object
       description: Server inventory counts; health is independent of the lifecycle counts.
-      required: [sites, servers, absent, deployed, platformed, clustered, gpuDevices, health]
+      required: [sites, servers, absent, deployed, platformed, gpuDevices, health]
       properties:
         sites:
           type: integer
@@ -680,10 +674,6 @@ components:
         platformed:
           type: integer
           description: Servers whose membership axis names a Platform.
-        clustered:
-          type: integer
-          deprecated: true
-          description: Deprecated one-release alias mirroring `platformed` (ADR-014).
         gpuDevices:
           type: integer
           description: GPU Inventory items of kind `compute` only; display controllers do not count.
@@ -748,7 +738,6 @@ components:
         - intent
         - siteId
         - platformId
-        - clusterId
         - targetServerIds
         - retryOfOperationId
         - execution
@@ -769,11 +758,6 @@ components:
         platformId:
           type: string
           nullable: true
-        clusterId:
-          type: string
-          nullable: true
-          deprecated: true
-          description: Deprecated one-release alias mirroring `platformId` (ADR-014).
         targetServerIds:
           type: array
           nullable: true
@@ -884,7 +868,6 @@ components:
         - serverId
         - siteId
         - platformId
-        - clusterId
       properties:
         fingerprint:
           type: string
@@ -928,13 +911,7 @@ components:
           type: string
           nullable: true
           description: >-
-            The correlated Platform (`platform_id`, else the legacy `platform` or `cluster`
-            label), or null.
-        clusterId:
-          type: string
-          nullable: true
-          deprecated: true
-          description: Deprecated one-release alias mirroring `platformId` (ADR-014).
+            The correlated Platform (`platform_id`, else the legacy `platform` label), or null.
     AlertAcknowledgement:
       type: object
       description: What to silence and for how long. Every field is optional.
@@ -1104,11 +1081,6 @@ components:
             platform_id:
               type: string
               description: The Platform id; present only when the Server is a known Platform member.
-            cluster:
-              type: string
-              deprecated: true
-              description: >-
-                Deprecated one-release alias mirroring `platform_id` (ADR-014); present with it.
     AnsibleInventory:
       type: object
       description: >-

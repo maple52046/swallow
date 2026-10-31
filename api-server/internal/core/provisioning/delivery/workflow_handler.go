@@ -17,7 +17,6 @@ type createDeploymentTemplateRequest struct {
 	Name          string                            `json:"name"`
 	Description   string                            `json:"description"`
 	ImageID       string                            `json:"imageId"`
-	Ephemeral     bool                              `json:"ephemeral"`
 	DeployTarget  *string                           `json:"deployTarget"`
 	UserData      string                            `json:"userData"`
 	Network       *deploymentNetworkSettingsRequest `json:"network"`
@@ -27,7 +26,6 @@ type updateDeploymentTemplateRequest struct {
 	Name         *string                           `json:"name"`
 	Description  *string                           `json:"description"`
 	ImageID      *string                           `json:"imageId"`
-	Ephemeral    *bool                             `json:"ephemeral"`
 	DeployTarget *string                           `json:"deployTarget"`
 	Network      *deploymentNetworkSettingsRequest `json:"network"`
 }
@@ -37,11 +35,9 @@ type replaceTemplateUserDataRequest struct {
 }
 
 type deploymentSettingsRequest struct {
-	ImageID   *string `json:"imageId"`
-	Ephemeral *bool   `json:"ephemeral"`
-	// DeployTarget is the preferred deploy-mode vocabulary ("disk"/"ram"). When present it is
-	// authoritative and maps onto Ephemeral (disk=false, ram=true); Ephemeral remains accepted as
-	// a deprecated alias for existing clients.
+	ImageID *string `json:"imageId"`
+	// DeployTarget is the deploy mode ("disk"/"ram"); it maps onto the internal ephemeral flag
+	// (disk=false, ram=true).
 	DeployTarget *string `json:"deployTarget"`
 }
 
@@ -122,15 +118,12 @@ func (h *ProvisioningHandler) CreateTemplate(c *fiber.Ctx) error {
 	if strings.TrimSpace(req.IntegrationID) == "" {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "integrationId is required."))
 	}
-	// A template stores a bool ephemeral; the deploy-target alias, when sent, is authoritative.
-	ephemeral := req.Ephemeral
-	if req.DeployTarget != nil {
-		target, valid := provisioningdomain.ParseDeployTarget(*req.DeployTarget)
-		if !valid {
-			return apierror.Respond(c, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`))
-		}
-		ephemeral = target.Ephemeral()
+	// A template stores a bool ephemeral; a template without a deploy mode deploys to disk.
+	resolved, valid := provisioningdomain.ResolveEphemeral(req.DeployTarget)
+	if !valid {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`))
 	}
+	ephemeral := resolved != nil && *resolved
 	item, err := h.templates.Create(c.Context(), application.CreateDeploymentTemplateInput{
 		IntegrationID: req.IntegrationID,
 		Name:          req.Name,
@@ -170,15 +163,10 @@ func (h *ProvisioningHandler) UpdateTemplate(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
-	// A deploy-target alias, when sent, is authoritative and sets the ephemeral override.
-	ephemeral := req.Ephemeral
-	if req.DeployTarget != nil {
-		target, valid := provisioningdomain.ParseDeployTarget(*req.DeployTarget)
-		if !valid {
-			return apierror.Respond(c, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`))
-		}
-		value := target.Ephemeral()
-		ephemeral = &value
+	// A deploy mode, when sent, replaces the template's; without one it is unchanged.
+	ephemeral, valid := provisioningdomain.ResolveEphemeral(req.DeployTarget)
+	if !valid {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`))
 	}
 	item, err := h.templates.Update(c.Context(), c.Params("id"), application.UpdateDeploymentTemplateInput{
 		Name: req.Name, Description: req.Description, ImageID: req.ImageID,
@@ -233,27 +221,10 @@ func (h *ProvisioningHandler) PreflightDeployServers(c *fiber.Ctx) error {
 	return c.JSON(toPreflightDeployServersResponse(result))
 }
 
-// DeployServers starts an all-or-nothing-preflight deployment batch.
-func (h *ProvisioningHandler) DeployServers(c *fiber.Ctx) error {
-	var req deployServersRequest
-	if err := c.BodyParser(&req); err != nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
-	}
-	input, ok := deployServersInput(req)
-	if !ok {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`))
-	}
-	result, err := h.deployments.Execute(c.Context(), input)
-	if err != nil {
-		return RespondError(c, err)
-	}
-	return c.Status(fiber.StatusAccepted).JSON(result)
-}
-
 // deployServersInput maps the HTTP request onto the application input, resolving the deploy-target
 // vocabulary onto the internal ephemeral flag. ok=false signals an invalid deployTarget value.
 func deployServersInput(req deployServersRequest) (application.DeployServersInput, bool) {
-	ephemeral, ok := provisioningdomain.ResolveEphemeral(req.Settings.DeployTarget, req.Settings.Ephemeral)
+	ephemeral, ok := provisioningdomain.ResolveEphemeral(req.Settings.DeployTarget)
 	if !ok {
 		return application.DeployServersInput{}, false
 	}

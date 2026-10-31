@@ -26,21 +26,12 @@ func NewServerHandler(
 	return &ServerHandler{list: list, get: get}
 }
 
-// platformIDQuery accepts the former clusterId filter for one release. Canonical input
-// wins when both are supplied, keeping compatibility outside the application layer.
-func platformIDQuery(c *fiber.Ctx) string {
-	if id := c.Query("platformId"); id != "" {
-		return id
-	}
-	return c.Query("clusterId")
-}
-
 func (h *ServerHandler) List(c *fiber.Ctx) error {
 	result, err := h.list.Execute(c.Context(), application.ListServersInput{
 		SiteID:            c.Query("siteId"),
 		IntegrationID:     c.Query("integrationId"),
 		ProvisioningState: c.Query("provisioningState"),
-		PlatformID:        platformIDQuery(c),
+		PlatformID:        c.Query("platformId"),
 		Keyword:           c.Query("keyword"),
 		IncludeAbsent:     c.Query("includeAbsent") == "true",
 		Page:              pagination.FromQuery(c),

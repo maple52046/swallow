@@ -1877,7 +1877,6 @@ test.describe('operator interactions', () => {
     await page.unroute('**/api/v1/**')
     await installApiFixtures(page, {
       readyServerCount: 2,
-      deploymentConvergesAfterRefreshes: 1,
       onDeploymentRequest: (body) => { deploymentRequest = body },
     })
     await page.goto('/servers?site=site-a')
@@ -1927,7 +1926,6 @@ test.describe('operator interactions', () => {
     await installApiFixtures(page, {
       readyServerCount: 2,
       siteDhcpNetworkServerIds: ['srv-1', 'srv-2'],
-      deploymentConvergesAfterRefreshes: 1,
       onDeploymentRequest: (body) => { deploymentRequest = body },
     })
     await page.goto('/servers?site=site-a')

@@ -232,8 +232,7 @@ read.
   default, which also adds back a key someone removed in the provisioner), and before every OS
   deployment through a key-capable provisioner. A deployment is not started when the Deployment Key
   cannot be realized on a key-capable provisioner: the Workflow Task fails retryably with
-  `ssh_key_registration_failed`, and the deprecated synchronous
-  `POST /api/v1/servers/{id}/deploy` answers `503 provider_unavailable`.
+  `ssh_key_registration_failed`.
 - MAAS registers keys on the MAAS user that owns the Integration's API key and injects them
   into the deployed image's default user.
 

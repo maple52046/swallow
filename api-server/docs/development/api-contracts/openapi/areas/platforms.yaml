@@ -1,11 +1,6 @@
 # Swallow-deployed Kubernetes and Slurm Platforms: deployment, lifecycle, membership, the Slurm
 # deployment requirement, the GPU Operator, live Slurm state, and the live Kubernetes cluster
 # explorer. Behavior semantics live in platforms.md and platforms-kubernetes.md.
-#
-# Every /api/v1/clusters operation is the deprecated one-release alias of the /api/v1/platforms
-# operation it merges with `<<: *anchor`. Both are served by the same handler, so an alias overrides
-# only operationId, deprecated, and description, and cannot drift from its canonical operation.
-# The Slurm deployment requirement and GPU Operator routes have no alias.
 tags:
   - name: platforms
     description: >-
@@ -14,7 +9,7 @@ tags:
       operation requires the `admin` role.
 paths:
   /api/v1/platforms:
-    get: &listPlatforms
+    get:
       tags: [platforms]
       operationId: listPlatforms
       summary: List Platforms, optionally of one Site.
@@ -44,7 +39,7 @@ paths:
         default:
           $ref: '#/components/responses/Error'
   /api/v1/platforms/deploy:
-    post: &deployPlatform
+    post:
       tags: [platforms]
       operationId: deployPlatform
       summary: Create a Platform and start the Workflow that builds it.
@@ -86,7 +81,7 @@ paths:
         default:
           $ref: '#/components/responses/Error'
   /api/v1/platforms/sync:
-    post: &syncAllPlatformMemberships
+    post:
       tags: [platforms]
       operationId: syncAllPlatformMemberships
       summary: Read the membership of every Platform with a recorded Integration now.
@@ -181,7 +176,7 @@ paths:
   /api/v1/platforms/{id}:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    get: &getPlatform
+    get:
       tags: [platforms]
       operationId: getPlatform
       summary: Read one Platform.
@@ -201,7 +196,7 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
-    patch: &updatePlatform
+    patch:
       tags: [platforms]
       operationId: updatePlatform
       summary: Change a Platform's name, ownership policies, or Monitoring Links.
@@ -236,7 +231,7 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
-    delete: &deletePlatform
+    delete:
       tags: [platforms]
       operationId: deletePlatform
       summary: Remove a Platform record without touching its hosts.
@@ -263,7 +258,7 @@ paths:
   /api/v1/platforms/{id}/uninstall:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    post: &uninstallPlatform
+    post:
       tags: [platforms]
       operationId: uninstallPlatform
       summary: Start the Workflow that uninstalls a Swallow-deployed Platform from its targets.
@@ -306,7 +301,7 @@ paths:
   /api/v1/platforms/{id}/sync:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    post: &syncPlatformMembership
+    post:
       tags: [platforms]
       operationId: syncPlatformMembership
       summary: Read one Platform's membership now.
@@ -331,7 +326,7 @@ paths:
   /api/v1/platforms/{id}/slurm:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    get: &getSlurmClusterState
+    get:
       tags: [platforms]
       operationId: getSlurmClusterState
       summary: Read a Slurm Platform's live controllers, partitions, and nodes from slurmrestd.
@@ -411,7 +406,7 @@ paths:
   /api/v1/platforms/{id}/kubernetes:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    get: &getKubernetesClusterSummary
+    get:
       tags: [platforms]
       operationId: getKubernetesClusterSummary
       summary: Read the live summary of a deployed Kubernetes Platform.
@@ -440,7 +435,7 @@ paths:
   /api/v1/platforms/{id}/kubernetes/nodes:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    get: &listKubernetesNodes
+    get:
       tags: [platforms]
       operationId: listKubernetesNodes
       summary: List the cluster's nodes correlated to Server identity.
@@ -472,7 +467,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
       - $ref: '#/components/parameters/KubernetesNodeName'
-    post: &cordonKubernetesNode
+    post:
       tags: [platforms]
       operationId: cordonKubernetesNode
       summary: Mark a node unschedulable.
@@ -504,7 +499,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
       - $ref: '#/components/parameters/KubernetesNodeName'
-    post: &uncordonKubernetesNode
+    post:
       tags: [platforms]
       operationId: uncordonKubernetesNode
       summary: Clear a node's unschedulable flag.
@@ -530,7 +525,7 @@ paths:
   /api/v1/platforms/{id}/kubernetes/namespaces:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    get: &listKubernetesNamespaces
+    get:
       tags: [platforms]
       operationId: listKubernetesNamespaces
       summary: List the cluster's namespaces, system namespaces flagged.
@@ -556,7 +551,7 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
-    post: &createKubernetesNamespace
+    post:
       tags: [platforms]
       operationId: createKubernetesNamespace
       summary: Create a namespace.
@@ -594,7 +589,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
       - $ref: '#/components/parameters/KubernetesNamespaceName'
-    delete: &deleteKubernetesNamespace
+    delete:
       tags: [platforms]
       operationId: deleteKubernetesNamespace
       summary: Delete a namespace.
@@ -620,7 +615,7 @@ paths:
   /api/v1/platforms/{id}/kubernetes/applications:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    get: &listKubernetesApplications
+    get:
       tags: [platforms]
       operationId: listKubernetesApplications
       summary: List Kubernetes Applications (aggregated workloads).
@@ -655,7 +650,7 @@ paths:
       - $ref: '#/components/parameters/KubernetesNamespaceName'
       - $ref: '#/components/parameters/KubernetesApplicationKind'
       - $ref: '#/components/parameters/KubernetesObjectName'
-    get: &getKubernetesApplication
+    get:
       tags: [platforms]
       operationId: getKubernetesApplication
       summary: Read one Kubernetes Application with the Pods it owns.
@@ -683,7 +678,7 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
-    delete: &deleteKubernetesApplication
+    delete:
       tags: [platforms]
       operationId: deleteKubernetesApplication
       summary: Delete the workload object (or bare Pod) behind an Application.
@@ -710,7 +705,7 @@ paths:
       - $ref: '#/components/parameters/KubernetesNamespaceName'
       - $ref: '#/components/parameters/KubernetesApplicationKind'
       - $ref: '#/components/parameters/KubernetesObjectName'
-    post: &scaleKubernetesApplication
+    post:
       tags: [platforms]
       operationId: scaleKubernetesApplication
       summary: Set a Deployment's or StatefulSet's replica count.
@@ -750,7 +745,7 @@ paths:
       - $ref: '#/components/parameters/KubernetesNamespaceName'
       - $ref: '#/components/parameters/KubernetesApplicationKind'
       - $ref: '#/components/parameters/KubernetesObjectName'
-    post: &restartKubernetesApplication
+    post:
       tags: [platforms]
       operationId: restartKubernetesApplication
       summary: Trigger a rolling restart of a Deployment, DaemonSet, or StatefulSet.
@@ -776,7 +771,7 @@ paths:
   /api/v1/platforms/{id}/kubernetes/pods:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    get: &listKubernetesPods
+    get:
       tags: [platforms]
       operationId: listKubernetesPods
       summary: List Pods.
@@ -810,7 +805,7 @@ paths:
       - $ref: '#/components/parameters/PlatformId'
       - $ref: '#/components/parameters/KubernetesNamespaceName'
       - $ref: '#/components/parameters/KubernetesObjectName'
-    get: &getKubernetesPodLogs
+    get:
       tags: [platforms]
       operationId: getKubernetesPodLogs
       summary: Read a bounded snapshot of one container's logs (not a stream).
@@ -858,7 +853,7 @@ paths:
       - $ref: '#/components/parameters/PlatformId'
       - $ref: '#/components/parameters/KubernetesNamespaceName'
       - $ref: '#/components/parameters/KubernetesObjectName'
-    delete: &deleteKubernetesPod
+    delete:
       tags: [platforms]
       operationId: deleteKubernetesPod
       summary: Delete a Pod (its controller recreates it).
@@ -882,7 +877,7 @@ paths:
   /api/v1/platforms/{id}/kubernetes/services:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    get: &listKubernetesServices
+    get:
       tags: [platforms]
       operationId: listKubernetesServices
       summary: List Services (read-only).
@@ -914,7 +909,7 @@ paths:
   /api/v1/platforms/{id}/kubernetes/ingresses:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    get: &listKubernetesIngresses
+    get:
       tags: [platforms]
       operationId: listKubernetesIngresses
       summary: List Ingresses (read-only).
@@ -946,7 +941,7 @@ paths:
   /api/v1/platforms/{id}/kubernetes/configmaps:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    get: &listKubernetesConfigMaps
+    get:
       tags: [platforms]
       operationId: listKubernetesConfigMaps
       summary: List ConfigMaps with their data key names (read-only).
@@ -978,7 +973,7 @@ paths:
   /api/v1/platforms/{id}/kubernetes/secrets:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    get: &listKubernetesSecrets
+    get:
       tags: [platforms]
       operationId: listKubernetesSecrets
       summary: List Secrets with their data key names only (read-only).
@@ -1012,7 +1007,7 @@ paths:
   /api/v1/platforms/{id}/kubernetes/persistentvolumeclaims:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    get: &listKubernetesPersistentVolumeClaims
+    get:
       tags: [platforms]
       operationId: listKubernetesPersistentVolumeClaims
       summary: List PersistentVolumeClaims (read-only).
@@ -1044,7 +1039,7 @@ paths:
   /api/v1/platforms/{id}/kubernetes/apply:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
-    post: &applyKubernetesManifest
+    post:
       tags: [platforms]
       operationId: applyKubernetesManifest
       summary: Server-side apply a YAML manifest of one or more documents.
@@ -1080,293 +1075,6 @@ paths:
         default:
           $ref: '#/components/responses/Error'
 
-  # Deprecated /api/v1/clusters aliases (ADR-014, platforms.md Compatibility Notes). Same
-  # handlers as the canonical operations they merge; responses additionally carry
-  # `Deprecation: true` and `Link: </api/v1/platforms>; rel="successor-version"`.
-  /api/v1/clusters:
-    get:
-      <<: *listPlatforms
-      operationId: listPlatformsViaDeprecatedAlias
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms`. Requires the `admin` role.
-  /api/v1/clusters/deploy:
-    post:
-      <<: *deployPlatform
-      operationId: deployPlatformViaDeprecatedAlias
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/deploy`. Requires the `admin` role.
-  /api/v1/clusters/sync:
-    post:
-      <<: *syncAllPlatformMemberships
-      operationId: syncAllPlatformMembershipsViaDeprecatedAlias
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/sync`. Requires the `admin` role.
-  /api/v1/clusters/{id}:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    get:
-      <<: *getPlatform
-      operationId: getPlatformViaDeprecatedAlias
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}`. Requires the `admin` role.
-    patch:
-      <<: *updatePlatform
-      operationId: updatePlatformViaDeprecatedAlias
-      deprecated: true
-      description: Deprecated alias of `PATCH /api/v1/platforms/{id}`. Requires the `admin` role.
-    delete:
-      <<: *deletePlatform
-      operationId: deletePlatformViaDeprecatedAlias
-      deprecated: true
-      description: Deprecated alias of `DELETE /api/v1/platforms/{id}`. Requires the `admin` role.
-  /api/v1/clusters/{id}/uninstall:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    post:
-      <<: *uninstallPlatform
-      operationId: uninstallPlatformViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `POST /api/v1/platforms/{id}/uninstall`. Requires the `admin` role.
-  /api/v1/clusters/{id}/sync:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    post:
-      <<: *syncPlatformMembership
-      operationId: syncPlatformMembershipViaDeprecatedAlias
-      deprecated: true
-      description: Deprecated alias of `POST /api/v1/platforms/{id}/sync`. Requires the `admin` role.
-  /api/v1/clusters/{id}/slurm:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    get:
-      <<: *getSlurmClusterState
-      operationId: getSlurmClusterStateViaDeprecatedAlias
-      deprecated: true
-      description: Deprecated alias of `GET /api/v1/platforms/{id}/slurm`. Requires the `admin` role.
-  /api/v1/clusters/{id}/kubernetes:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    get:
-      <<: *getKubernetesClusterSummary
-      operationId: getKubernetesClusterSummaryViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes`. Requires the `admin` role.
-  /api/v1/clusters/{id}/kubernetes/nodes:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    get:
-      <<: *listKubernetesNodes
-      operationId: listKubernetesNodesViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/nodes`. Requires the `admin`
-        role.
-  /api/v1/clusters/{id}/kubernetes/nodes/{node}/cordon:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNodeName'
-    post:
-      <<: *cordonKubernetesNode
-      operationId: cordonKubernetesNodeViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/nodes/{node}/cordon`. Requires
-        the `admin` role.
-  /api/v1/clusters/{id}/kubernetes/nodes/{node}/uncordon:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNodeName'
-    post:
-      <<: *uncordonKubernetesNode
-      operationId: uncordonKubernetesNodeViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/nodes/{node}/uncordon`.
-        Requires the `admin` role.
-  /api/v1/clusters/{id}/kubernetes/namespaces:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    get:
-      <<: *listKubernetesNamespaces
-      operationId: listKubernetesNamespacesViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/namespaces`. Requires the
-        `admin` role.
-    post:
-      <<: *createKubernetesNamespace
-      operationId: createKubernetesNamespaceViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/namespaces`. Requires the
-        `admin` role.
-  /api/v1/clusters/{id}/kubernetes/namespaces/{namespace}:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNamespaceName'
-    delete:
-      <<: *deleteKubernetesNamespace
-      operationId: deleteKubernetesNamespaceViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `DELETE /api/v1/platforms/{id}/kubernetes/namespaces/{namespace}`.
-        Requires the `admin` role.
-  /api/v1/clusters/{id}/kubernetes/applications:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    get:
-      <<: *listKubernetesApplications
-      operationId: listKubernetesApplicationsViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/applications`. Requires the
-        `admin` role.
-  /api/v1/clusters/{id}/kubernetes/applications/{namespace}/{kind}/{name}:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNamespaceName'
-      - $ref: '#/components/parameters/KubernetesApplicationKind'
-      - $ref: '#/components/parameters/KubernetesObjectName'
-    get:
-      <<: *getKubernetesApplication
-      operationId: getKubernetesApplicationViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `GET
-        /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}`. Requires the
-        `admin` role.
-    delete:
-      <<: *deleteKubernetesApplication
-      operationId: deleteKubernetesApplicationViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `DELETE
-        /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}`. Requires the
-        `admin` role.
-  /api/v1/clusters/{id}/kubernetes/applications/{namespace}/{kind}/{name}/scale:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNamespaceName'
-      - $ref: '#/components/parameters/KubernetesApplicationKind'
-      - $ref: '#/components/parameters/KubernetesObjectName'
-    post:
-      <<: *scaleKubernetesApplication
-      operationId: scaleKubernetesApplicationViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `POST
-        /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}/scale`. Requires
-        the `admin` role.
-  /api/v1/clusters/{id}/kubernetes/applications/{namespace}/{kind}/{name}/restart:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNamespaceName'
-      - $ref: '#/components/parameters/KubernetesApplicationKind'
-      - $ref: '#/components/parameters/KubernetesObjectName'
-    post:
-      <<: *restartKubernetesApplication
-      operationId: restartKubernetesApplicationViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `POST
-        /api/v1/platforms/{id}/kubernetes/applications/{namespace}/{kind}/{name}/restart`.
-        Requires the `admin` role.
-  /api/v1/clusters/{id}/kubernetes/pods:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    get:
-      <<: *listKubernetesPods
-      operationId: listKubernetesPodsViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/pods`. Requires the `admin`
-        role.
-  /api/v1/clusters/{id}/kubernetes/pods/{namespace}/{name}/logs:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNamespaceName'
-      - $ref: '#/components/parameters/KubernetesObjectName'
-    get:
-      <<: *getKubernetesPodLogs
-      operationId: getKubernetesPodLogsViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/pods/{namespace}/{name}/logs`.
-        Requires the `admin` role.
-  /api/v1/clusters/{id}/kubernetes/pods/{namespace}/{name}:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-      - $ref: '#/components/parameters/KubernetesNamespaceName'
-      - $ref: '#/components/parameters/KubernetesObjectName'
-    delete:
-      <<: *deleteKubernetesPod
-      operationId: deleteKubernetesPodViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `DELETE /api/v1/platforms/{id}/kubernetes/pods/{namespace}/{name}`.
-        Requires the `admin` role.
-  /api/v1/clusters/{id}/kubernetes/services:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    get:
-      <<: *listKubernetesServices
-      operationId: listKubernetesServicesViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/services`. Requires the `admin`
-        role.
-  /api/v1/clusters/{id}/kubernetes/ingresses:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    get:
-      <<: *listKubernetesIngresses
-      operationId: listKubernetesIngressesViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/ingresses`. Requires the
-        `admin` role.
-  /api/v1/clusters/{id}/kubernetes/configmaps:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    get:
-      <<: *listKubernetesConfigMaps
-      operationId: listKubernetesConfigMapsViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/configmaps`. Requires the
-        `admin` role.
-  /api/v1/clusters/{id}/kubernetes/secrets:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    get:
-      <<: *listKubernetesSecrets
-      operationId: listKubernetesSecretsViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/secrets`. Requires the `admin`
-        role.
-  /api/v1/clusters/{id}/kubernetes/persistentvolumeclaims:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    get:
-      <<: *listKubernetesPersistentVolumeClaims
-      operationId: listKubernetesPersistentVolumeClaimsViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `GET /api/v1/platforms/{id}/kubernetes/persistentvolumeclaims`.
-        Requires the `admin` role.
-  /api/v1/clusters/{id}/kubernetes/apply:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    post:
-      <<: *applyKubernetesManifest
-      operationId: applyKubernetesManifestViaDeprecatedAlias
-      deprecated: true
-      description: >-
-        Deprecated alias of `POST /api/v1/platforms/{id}/kubernetes/apply`. Requires the `admin`
-        role.
 components:
   parameters:
     PlatformId:
@@ -1801,28 +1509,20 @@ components:
       description: >-
         An accepted deployment or uninstall. `operationId` names the Workflow (the field keeps the
         deprecated Operation name).
-      required: [platformId, clusterId, operationId]
+      required: [platformId, operationId]
       properties:
         platformId:
           type: string
-        clusterId:
-          type: string
-          deprecated: true
-          description: One-release alias of `platformId` with the same value (ADR-014).
         operationId:
           type: string
           description: The Workflow building or uninstalling the Platform.
     PlatformMembershipReport:
       type: object
       description: The result of one membership read.
-      required: [platformId, clusterId, platformName, members, matched, cleared, unmatched, error]
+      required: [platformId, platformName, members, matched, cleared, unmatched, error]
       properties:
         platformId:
           type: string
-        clusterId:
-          type: string
-          deprecated: true
-          description: One-release alias of `platformId` with the same value (ADR-014).
         platformName:
           type: string
         members:
@@ -2127,12 +1827,8 @@ components:
               type: string
               enum: [disk, ram]
               description: >-
-                The preferred deploy-mode field (matched case-insensitively); wins over `ephemeral`.
-                `ram` is a memory-backed root that leaves the disks untouched.
-            ephemeral:
-              type: boolean
-              deprecated: true
-              description: Deprecated alias of `deployTarget` (`false` is `disk`, `true` is `ram`).
+                The deploy mode (matched case-insensitively). `ram` is a memory-backed root that
+                leaves the disks untouched.
         userData:
           type: object
           description: Write-only user data for the provisioned targets.

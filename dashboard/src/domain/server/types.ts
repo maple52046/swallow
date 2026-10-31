@@ -552,21 +552,6 @@ export interface ListServersFilters {
   pageSize?: number
 }
 
-export interface DeployServerInput {
-  /** An OS image id, e.g. "ubuntu/jammy". Required: the provisioner must not choose. */
-  distroSeries: string
-  osSystem?: string
-  userData?: string
-  comment?: string
-  /**
-   * Run the OS from memory and leave the disks untouched.
-   *
-   * Refused rather than ignored by a provisioner that cannot do it, so the caller can
-   * trust that a successful response means what it says.
-   */
-  ephemeral?: boolean
-}
-
 /** Controls how a provisioner releases a Server and whether it erases disks first. */
 export interface ReleaseServerInput {
   erase: boolean

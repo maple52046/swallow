@@ -30,7 +30,6 @@ type AlertItem struct {
 	ServerID   *string `json:"serverId"`
 	SiteID     *string `json:"siteId"`
 	PlatformID *string `json:"platformId"`
-	ClusterID  *string `json:"clusterId"`
 }
 
 // SiteLookup reports whether a Site exists, so an alert read or acknowledgement scoped to a Site
@@ -232,7 +231,6 @@ func toAlertItem(alert *monitoringdomain.Alert) AlertItem {
 		ServerID:    wire.String(alert.ServerID),
 		SiteID:      wire.String(alert.SiteID),
 		PlatformID:  wire.String(alert.PlatformID),
-		ClusterID:   wire.String(alert.PlatformID),
 	}
 }
 
