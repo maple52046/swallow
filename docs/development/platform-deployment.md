@@ -545,7 +545,6 @@ client/operator **不可偽造**（operator 只能提供非 `swallow_` 前綴的
   | `swallow_device_metrics_exporter_compute_ids` | 裝 exporter 的 GPU compute serverId |
   | `swallow_device_metrics_exporter_observability_id` | 跑 Prometheus／Grafana 的 serverId（primary controller） |
   | `swallow_device_metrics_exporter_cluster_name` | exporter 的 `cluster_name` label（Slurm cluster name） |
-  | `swallow_device_metrics_exporter_record_id` | Platform 記錄所 fence 的 Workflow id；completion 以它寫入 GPU identity |
   | `swallow_device_metrics_exporter_prometheus_port` / `_grafana_port` | 由 launcher 依 software domain 填入 |
 
 ### 4.3 Secrets

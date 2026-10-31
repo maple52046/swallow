@@ -109,8 +109,7 @@ func TestDeploySlurmWithTheDeviceMetricsExporter(t *testing.T) {
 	}
 	vars := exporter.TrustedVars
 	if vars[varDeviceMetricsExporterPort] != 5001 || vars[varDeviceMetricsExporterVersion] != "1.5.3" ||
-		vars[varDeviceMetricsExporterObservabilityID] != "s1" || vars[varDeviceMetricsExporterClusterName] != "lab-slurm" ||
-		vars[VarDeviceMetricsExporterRecordID] != launch.OperationID {
+		vars[varDeviceMetricsExporterObservabilityID] != "s1" || vars[varDeviceMetricsExporterClusterName] != "lab-slurm" {
 		t.Errorf("exporter vars = %v", vars)
 	}
 	if computes, _ := vars[varDeviceMetricsExporterComputeIDs].([]string); !slices.Equal(computes, []string{"s3"}) {

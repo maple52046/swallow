@@ -86,7 +86,7 @@ type slurmMonitoring struct {
 func (m *slurmMonitoring) completions(platformID, recordID string) []workflowdomain.Completion {
 	return []workflowdomain.Completion{
 		featureState(m.stateCompletion, platformID, recordID),
-		{Type: m.resultCompletion},
+		{Type: m.resultCompletion, Params: map[string]any{completionParamRecord: recordID}},
 	}
 }
 

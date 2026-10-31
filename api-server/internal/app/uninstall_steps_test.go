@@ -88,9 +88,11 @@ func TestUninstallStepsReleaseSkipsUninstall(t *testing.T) {
 // deploy), with no release or finalize steps.
 func TestUninstallStepsKeepServersUsesAnsibleStep(t *testing.T) {
 	launch := platformdomain.UninstallLaunch{
-		Platform:        &platformdomain.Platform{ID: "platform-a", Name: "lab", Type: platformdomain.PlatformTypeKubernetes},
-		TargetServerIDs: []string{"srv-1"},
-		ReleaseServers:  false,
+		Platform:         &platformdomain.Platform{ID: "platform-a", Name: "lab", Type: platformdomain.PlatformTypeKubernetes},
+		TargetServerIDs:  []string{"srv-1"},
+		ReleaseServers:   false,
+		DeleteRecord:     true,
+		RestoreExporters: true,
 	}
 	prepared := &workflowapp.PreparedAnsibleStep{
 		SiteID: "site-a", Playbook: "uninstall-kubernetes", Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "srv-1"}},
@@ -100,6 +102,16 @@ func TestUninstallStepsKeepServersUsesAnsibleStep(t *testing.T) {
 
 	if len(steps) != 1 {
 		t.Fatalf("keep-servers uninstall = %d steps, want 1", len(steps))
+	}
+	// The operator's choices ride on the completion that carries them out, not on the playbook's
+	// variables (decision 072: a handler never reads the Runner's parameters).
+	if len(steps[0].Completion) != 1 {
+		t.Fatalf("completion = %v, want the platform-uninstall completion", steps[0].Completion)
+	}
+	if choice := uninstallChoiceOf(steps[0].Completion[0]); choice != (uninstallChoice{
+		deleteRecord: true, restoreExporters: true, platformName: "lab",
+	}) {
+		t.Errorf("uninstall choice = %+v, want delete, restore, and the Platform's name", choice)
 	}
 	if steps[0].ID != uninstallPlatformStepID || steps[0].Executor != workflowdomain.RunnerKindAnsible {
 		t.Fatalf("step = %+v, want the uninstall-platform ansible step", steps[0])

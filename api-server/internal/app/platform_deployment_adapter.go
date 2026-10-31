@@ -36,12 +36,6 @@ const (
 	// daemons while leaving the host OS and image-supplied packages intact.
 	uninstallSlurmKind     = "uninstall-slurm"
 	uninstallSlurmPlaybook = "uninstall-slurm"
-	restoreExportersVar    = "swallow_restore_ansible_exporters"
-	platformNameVar        = "swallow_platform_name"
-	// deletePlatformRecordVar carries the uninstall's deleteRecord choice on the Operation's
-	// trusted vars, where the kept-servers completion (platform-uninstall) reads it back. The
-	// uninstall playbooks ignore it.
-	deletePlatformRecordVar = "swallow_delete_platform_record"
 )
 
 // deleteRecordParameter is the complete-uninstall Task parameter carrying the same choice on the
@@ -638,11 +632,6 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 		summary = "Uninstall Slurm Platform " + launch.Platform.Name
 	}
 
-	trustedVars := map[string]any{
-		restoreExportersVar:     launch.RestoreExporters,
-		platformNameVar:         launch.Platform.Name,
-		deletePlatformRecordVar: launch.DeleteRecord,
-	}
 	if l.orchestrations == nil {
 		return "", fmt.Errorf("durable Platform uninstall is unavailable")
 	}
@@ -651,8 +640,7 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: uninstallKind, Intent: intent,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
-		PlaybookName: uninstallPlaybook, TrustedVars: trustedVars,
-		RequestedBy: launch.RequestedBy,
+		PlaybookName: uninstallPlaybook, RequestedBy: launch.RequestedBy,
 	}, operationID, false)
 	if err != nil {
 		return "", err
@@ -704,7 +692,11 @@ func uninstallSteps(
 			Job:      jobUninstallPlatform,
 			Executor: workflowdomain.RunnerKindAnsible, Targets: prepared.Targets,
 			Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
-			Completion: []workflowdomain.Completion{{Type: completionPlatformUninstall}},
+			Completion: []workflowdomain.Completion{{Type: completionPlatformUninstall, Params: map[string]any{
+				completionParamDeleteRecord:     launch.DeleteRecord,
+				completionParamRestoreExporters: launch.RestoreExporters,
+				completionParamPlatformName:     launch.Platform.Name,
+			}}},
 		}}
 	}
 
@@ -754,18 +746,34 @@ type platformDeploymentObserver struct {
 	servers     serverdomain.ServerRepository
 }
 
-func (o platformDeploymentObserver) restoreExporters(ctx context.Context, operation *workflowdomain.ExecutionOperation) {
-	restore, _ := operation.ExtraVars[restoreExportersVar].(bool)
-	if !restore {
+// uninstallChoice is what the operator chose for a kept-servers uninstall, declared on the
+// platform-uninstall completion that carries it out.
+type uninstallChoice struct {
+	deleteRecord, restoreExporters bool
+	platformName                   string
+}
+
+// uninstallChoiceOf reads the choice from a platform-uninstall completion's params.
+func uninstallChoiceOf(completion workflowdomain.Completion) uninstallChoice {
+	deleteRecord, _ := completion.Params[completionParamDeleteRecord].(bool)
+	restore, _ := completion.Params[completionParamRestoreExporters].(bool)
+	name, _ := completion.Params[completionParamPlatformName].(string)
+	return uninstallChoice{deleteRecord: deleteRecord, restoreExporters: restore, platformName: name}
+}
+
+// restoreExporters queues an install-exporters Workflow for the uninstalled Platform's Servers
+// that are still deployed and unlocked, when the operator asked for it.
+func (o platformDeploymentObserver) restoreExporters(ctx context.Context, workflow *workflowdomain.Workflow, choice uninstallChoice) {
+	if !choice.restoreExporters {
 		return
 	}
 
-	targetIDs := make([]string, 0, len(operation.TargetServerIDs))
-	for _, serverID := range operation.TargetServerIDs {
+	targetIDs := make([]string, 0, len(workflow.TargetServerIDs))
+	for _, serverID := range workflow.TargetServerIDs {
 		server, err := o.servers.FindByID(ctx, serverID)
 		if err != nil {
 			slog.Warn("skip exporter restoration target",
-				"operationId", operation.ID, "serverId", serverID, "error", err)
+				"operationId", workflow.ID, "serverId", serverID, "error", err)
 			continue
 		}
 		if server.Absent || server.Provisioning == nil ||
@@ -779,15 +787,14 @@ func (o platformDeploymentObserver) restoreExporters(ctx context.Context, operat
 	}
 
 	if _, err := o.operations.Create(ctx, workflowapp.CreateExecutionInput{
-		Kind: string(workflowdomain.WorkflowKindInstallExporters),
-		Intent: "Restore host exporters after uninstalling platform " +
-			stringField(operation.ExtraVars, platformNameVar),
+		Kind:            string(workflowdomain.WorkflowKindInstallExporters),
+		Intent:          "Restore host exporters after uninstalling platform " + choice.platformName,
 		TargetServerIDs: targetIDs,
-		PlatformID:      operation.PlatformID,
+		PlatformID:      workflow.PlatformID,
 		RequestedBy:     "system",
 	}); err != nil {
 		slog.Error("queue exporter restoration after platform uninstall",
-			"operationId", operation.ID, "platformId", operation.PlatformID, "error", err)
+			"operationId", workflow.ID, "platformId", workflow.PlatformID, "error", err)
 	}
 }
 
@@ -850,12 +857,11 @@ func (o platformDeploymentObserver) completeOmnistat(
 // Monitoring Link, and the GPU identity the exporters showed. A missing URL fails the Task, because
 // the playbook writes it only after Prometheus reported every exporter up; a missing or unknown
 // identity is recorded as collapsed, never as distinct. The identity is fenced on the record id the
-// deploy use case put in the run's variables (the same id the State is fenced on), falling back to
-// this Workflow; the State itself is projected by the device-metrics-exporter-state completion.
+// result completion declares (the same id the State is fenced on), falling back to this Workflow;
+// the State itself is projected by the device-metrics-exporter-state completion.
 func (o platformDeploymentObserver) completeDeviceMetricsExporter(
 	ctx context.Context,
-	platformID, workflowID string,
-	extraVars map[string]any,
+	platformID, workflowID, recordID string,
 	result workflowdomain.RunnerResult,
 ) error {
 	grafanaURL, identity := "", ""
@@ -866,7 +872,6 @@ func (o platformDeploymentObserver) completeDeviceMetricsExporter(
 	if grafanaURL == "" {
 		return fmt.Errorf("device metrics exporter installation returned no Grafana URL")
 	}
-	recordID, _ := extraVars[platformapp.VarDeviceMetricsExporterRecordID].(string)
 	if recordID == "" {
 		recordID = workflowID
 	}
@@ -884,12 +889,10 @@ func stringField(data map[string]any, key string) string {
 // finishUninstall finishes a platform uninstall whose playbook succeeded: it removes the
 // Platform's swallow-owned state (and the record when the request asked for it) and restores the
 // exporters the uninstall removed. It returns the failure so the Task fails and can be retried.
-func (o platformDeploymentObserver) finishUninstall(ctx context.Context, operation *workflowdomain.ExecutionOperation) error {
-	// An uninstall accepted before deleteRecord existed has no such var and keeps the record.
-	deleteRecord, _ := operation.ExtraVars[deletePlatformRecordVar].(bool)
-	if err := o.platforms.CompleteUninstall(ctx, operation.PlatformID, deleteRecord); err != nil {
+func (o platformDeploymentObserver) finishUninstall(ctx context.Context, workflow *workflowdomain.Workflow, choice uninstallChoice) error {
+	if err := o.platforms.CompleteUninstall(ctx, workflow.PlatformID, choice.deleteRecord); err != nil {
 		return err
 	}
-	o.restoreExporters(ctx, operation)
+	o.restoreExporters(ctx, workflow, choice)
 	return nil
 }

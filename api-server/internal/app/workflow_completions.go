@@ -38,6 +38,11 @@ const (
 	completionParamMode     = "mode"
 	completionParamKind     = "softwareKind"
 	completionParamServers  = "serverIds"
+	// The platform-uninstall completion's params: the operator's choices for a kept-servers
+	// uninstall and the name the exporter restoration labels its Workflow with.
+	completionParamDeleteRecord     = "deleteRecord"
+	completionParamRestoreExporters = "restoreExporters"
+	completionParamPlatformName     = "platformName"
 )
 
 // completionClasses registers each completion type's class in the plan catalog.
@@ -196,21 +201,12 @@ func workflowResults(observer platformDeploymentObserver) map[string]workflowapp
 			return observer.completeOmnistat(ctx, r.Workflow.PlatformID, workflowdomain.RunnerResult{Data: r.Data})
 		}),
 		completionDeviceMetricsExporterResult: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {
-			return observer.completeDeviceMetricsExporter(ctx, r.Workflow.PlatformID, r.Workflow.ID, taskExtraVars(r.Task),
+			recordID, _ := r.Completion.Params[completionParamRecord].(string)
+			return observer.completeDeviceMetricsExporter(ctx, r.Workflow.PlatformID, r.Workflow.ID, recordID,
 				workflowdomain.RunnerResult{Data: r.Data})
 		}),
 		completionPlatformUninstall: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {
-			return observer.finishUninstall(ctx, &workflowdomain.ExecutionOperation{
-				ID: r.Workflow.ID, Kind: r.Workflow.Kind, SiteID: r.Workflow.SiteID, PlatformID: r.Workflow.PlatformID,
-				TargetServerIDs: r.Workflow.TargetServerIDs, ExtraVars: taskExtraVars(r.Task),
-			})
+			return observer.finishUninstall(ctx, r.Workflow, uninstallChoiceOf(r.Completion))
 		}),
 	}
-}
-
-// taskExtraVars returns the playbook variables frozen on an Ansible Task, which a result handler
-// reads to interpret the playbook's result (for example the record a result is fenced on).
-func taskExtraVars(task workflowdomain.Task) map[string]any {
-	extraVars, _ := task.Parameters["extraVars"].(map[string]any)
-	return extraVars
 }

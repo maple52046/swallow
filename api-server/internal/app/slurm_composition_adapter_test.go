@@ -358,7 +358,6 @@ func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
 			TrustedVars: map[string]any{
 				"swallow_device_metrics_exporter_job_attribution": "slurm",
 				"swallow_device_metrics_exporter_compute_ids":     []string{"s2", "s3"},
-				"swallow_device_metrics_exporter_record_id":       "op-1",
 			},
 		},
 	}
@@ -383,7 +382,7 @@ func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
 	wantCompletion := []workflowdomain.Completion{
 		softwareFailure(softwaredomain.KindDeviceMetricsExporter, []string{"s2", "s3"}),
 		featureState(completionDeviceMetricsExporterState, "plat-1", "op-1"),
-		{Type: completionDeviceMetricsExporterResult},
+		{Type: completionDeviceMetricsExporterResult, Params: map[string]any{completionParamRecord: "op-1"}},
 	}
 	if !reflect.DeepEqual(install.Completion, wantCompletion) {
 		t.Errorf("install Task completion = %v, want %v", install.Completion, wantCompletion)
@@ -391,8 +390,7 @@ func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
 	vars := extraVars(t, install)
 	if vars["swallow_device_metrics_exporter_job_attribution"] != "slurm" || vars["swallow_software_kind"] != string(softwaredomain.KindDeviceMetricsExporter) ||
 		vars["swallow_device_metrics_exporter_port"] != softwaredomain.DeviceMetricsExporterPort ||
-		vars["swallow_device_metrics_exporter_grafana_port"] != softwaredomain.GrafanaPort ||
-		vars["swallow_device_metrics_exporter_record_id"] != "op-1" {
+		vars["swallow_device_metrics_exporter_grafana_port"] != softwaredomain.GrafanaPort {
 		t.Errorf("install Task extraVars = %v, want the Slurm side over the software install", vars)
 	}
 	if record.Kind != softwareStepKindRecord || !slices.Equal(record.DependsOn, []string{deviceMetricsExporterStepID}) ||

@@ -122,8 +122,6 @@ const (
 	varDeviceMetricsExporterComputeIDs      = "swallow_device_metrics_exporter_compute_ids"
 	varDeviceMetricsExporterObservabilityID = "swallow_device_metrics_exporter_observability_id"
 	varDeviceMetricsExporterClusterName     = "swallow_device_metrics_exporter_cluster_name"
-	// VarDeviceMetricsExporterRecordID is read back by the install Task's completion.
-	VarDeviceMetricsExporterRecordID = "swallow_device_metrics_exporter_record_id"
 )
 
 // DeployService owns the intent to build a platform: it validates the topology, creates the
@@ -614,7 +612,7 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 			GPUComputeServerIDs:   gpuComputeIDs,
 			InstallMethod:         exporter.InstallMethod,
 			TrustedVars: buildDeviceMetricsExporterVars(platform, validated.slurmSpec, observability,
-				gpuComputeIDs, launch.OperationID),
+				gpuComputeIDs),
 		}
 	}
 	prepared, err := s.launcher.PrepareDeployment(ctx, launch)
@@ -636,12 +634,9 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformInput) (validatedDeployment, error) {
 	var invalid validatedDeployment
 	spec := input.SlurmSpec
-	preparation := input.MachinePreparation
-	if preparation.Mode == "" {
-		preparation.Mode = platformdomain.MachinePreparationExistingOS
-	}
-	if !preparation.Mode.Valid() {
-		return invalid, fmt.Errorf("%w: machinePreparation.mode must be existing_os or provision_os", platformdomain.ErrInvalidDeployment)
+	preparation, err := normalizedPreparation(input.MachinePreparation)
+	if err != nil {
+		return invalid, err
 	}
 	if len(spec.NodeAssignments) == 0 {
 		return invalid, fmt.Errorf("%w: at least one node assignment is required", platformdomain.ErrInvalidDeployment)
@@ -666,16 +661,7 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 		}
 	}
 
-	availability, err := s.targetAvailability(ctx, input.SiteID)
-	if err != nil {
-		return invalid, err
-	}
-
-	targets := make([]*serverdomain.Server, 0, len(spec.NodeAssignments))
-	// readyServerIDs are the targets that still need an OS in provision_os mode; only they
-	// are provisioned and preflighted, so a batch may mix ready and already-deployed servers.
-	readyServerIDs := make([]string, 0, len(spec.NodeAssignments))
-	seenServer := map[string]bool{}
+	targetIDs := make([]string, 0, len(spec.NodeAssignments))
 	controllers := 0
 	computes := 0
 	for _, assignment := range spec.NodeAssignments {
@@ -683,89 +669,17 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 			return invalid, fmt.Errorf("%w: server %s must have a role: slurmctld (controller), slurmd (compute), or login",
 				platformdomain.ErrInvalidDeployment, assignment.ServerID)
 		}
-		if seenServer[assignment.ServerID] {
-			return invalid, fmt.Errorf("%w: server %s is assigned more than once",
-				platformdomain.ErrInvalidDeployment, assignment.ServerID)
-		}
-		seenServer[assignment.ServerID] = true
-
-		server, err := s.servers.FindByID(ctx, assignment.ServerID)
-		if err != nil {
-			return invalid, err
-		}
-		if minimum != nil {
-			if err := validateMinimumResources(server, *minimum); err != nil {
-				return invalid, err
-			}
-		}
-		if server.Source.SiteID != input.SiteID {
-			return invalid, fmt.Errorf("%w: server %s is not at site %s",
-				platformdomain.ErrInvalidDeployment, server.DisplayName(), input.SiteID)
-		}
-		if server.Absent {
-			return invalid, fmt.Errorf("%w: server %s is absent from its provisioner",
-				platformdomain.ErrInvalidDeployment, server.DisplayName())
-		}
-		state := ""
-		if server.Provisioning != nil {
-			state = server.Provisioning.State
-		}
-		switch preparation.Mode {
-		case platformdomain.MachinePreparationProvisionOS:
-			if state != "ready" && state != "deployed" {
-				return invalid, fmt.Errorf("%w: server %s must be ready or deployed for machine preparation mode %s",
-					platformdomain.ErrInvalidDeployment, server.DisplayName(), preparation.Mode)
-			}
-			if state == "ready" {
-				readyServerIDs = append(readyServerIDs, server.ID)
-			}
-		default:
-			if state != "deployed" {
-				return invalid, fmt.Errorf("%w: server %s must be deployed for machine preparation mode %s",
-					platformdomain.ErrInvalidDeployment, server.DisplayName(), preparation.Mode)
-			}
-		}
-		if s.protection == nil && server.Provisioning != nil && server.Provisioning.Locked {
-			return invalid, &serverdomain.ServerLockedError{Name: server.DisplayName()}
-		}
-		if server.PlatformClaim != nil {
-			return invalid, fmt.Errorf("%w: server %s is already claimed by %s",
-				platformdomain.ErrInvalidDeployment, server.DisplayName(), claimedBy(server, availability.platformsByID))
-		}
-		if server.Membership != nil {
-			platformName := server.Membership.PlatformID
-			platformType := "unknown"
-			if existing := availability.platformsByID[server.Membership.PlatformID]; existing != nil {
-				platformName = existing.Name
-				platformType = string(existing.Type)
-			}
-			return invalid, fmt.Errorf(
-				"%w: server %s already reports membership in %s Platform %s as %s",
-				platformdomain.ErrInvalidDeployment,
-				server.DisplayName(), platformType, platformName, server.Membership.Role,
-			)
-		}
 		if assignment.Controller {
 			controllers++
 		}
 		if assignment.Compute {
 			computes++
 		}
-		targets = append(targets, server)
+		targetIDs = append(targetIDs, assignment.ServerID)
 	}
-
-	if s.protection != nil {
-		if err := s.protection.RequireUnlocked(ctx, serverIDs(targets)); err != nil {
-			return invalid, err
-		}
-	}
-	if preparation.Mode == platformdomain.MachinePreparationProvisionOS && len(readyServerIDs) > 0 {
-		if s.machinePreparation == nil {
-			return invalid, fmt.Errorf("%w: OS provisioning is unavailable", platformdomain.ErrInvalidDeployment)
-		}
-		if err := s.machinePreparation.Validate(ctx, input.SiteID, readyServerIDs, preparation); err != nil {
-			return invalid, err
-		}
+	targets, err := s.checkTargets(ctx, input.SiteID, targetIDs, preparation, minimum)
+	if err != nil {
+		return invalid, err
 	}
 
 	if controllers == 0 {
@@ -849,31 +763,17 @@ func isNFSURL(value string) bool {
 // It returns a normalized spec and an API address derived from either the HA VIP or the
 // initial control-plane Server observation.
 func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput) (validatedDeployment, error) {
-	spec := input.Spec
-	preparation := input.MachinePreparation
-	if preparation.Mode == "" {
-		preparation.Mode = platformdomain.MachinePreparationExistingOS
-	}
-	if !preparation.Mode.Valid() {
-		return validatedDeployment{}, fmt.Errorf("%w: machinePreparation.mode must be existing_os or provision_os", platformdomain.ErrInvalidDeployment)
-	}
 	var invalid validatedDeployment
-
+	spec := input.Spec
+	preparation, err := normalizedPreparation(input.MachinePreparation)
+	if err != nil {
+		return invalid, err
+	}
 	if len(spec.RoleAssignments) == 0 {
 		return invalid, fmt.Errorf("%w: at least one role assignment is required", platformdomain.ErrInvalidDeployment)
 	}
 
-	availability, err := s.targetAvailability(ctx, input.SiteID)
-	if err != nil {
-		return invalid, err
-	}
-
-	targets := make([]*serverdomain.Server, 0, len(spec.RoleAssignments))
-	// readyServerIDs are the targets that still need an OS. In provision_os mode a deploy
-	// may mix these with already-deployed servers (ADR 017 convergence); only the ready
-	// ones are provisioned and preflighted.
-	readyServerIDs := make([]string, 0, len(spec.RoleAssignments))
-	seenServer := map[string]bool{}
+	targetIDs := make([]string, 0, len(spec.RoleAssignments))
 	controllers := 0
 	for _, assignment := range spec.RoleAssignments {
 		if !assignment.Role.Valid() {
@@ -882,90 +782,14 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 		if assignment.Role == platformdomain.NodeRoleWorker && assignment.RunWorkloads {
 			return invalid, fmt.Errorf("%w: runWorkloads is only valid for a control-plane assignment", platformdomain.ErrInvalidDeployment)
 		}
-		if seenServer[assignment.ServerID] {
-			return invalid, fmt.Errorf("%w: server %s is assigned more than once",
-				platformdomain.ErrInvalidDeployment, assignment.ServerID)
-		}
-		seenServer[assignment.ServerID] = true
-
-		server, err := s.servers.FindByID(ctx, assignment.ServerID)
-		if err != nil {
-			return invalid, err
-		}
-		if server.Source.SiteID != input.SiteID {
-			return invalid, fmt.Errorf("%w: server %s is not at site %s",
-				platformdomain.ErrInvalidDeployment, server.DisplayName(), input.SiteID)
-		}
-		if server.Absent {
-			return invalid, fmt.Errorf("%w: server %s is absent from its provisioner",
-				platformdomain.ErrInvalidDeployment, server.DisplayName())
-		}
-		state := ""
-		if server.Provisioning != nil {
-			state = server.Provisioning.State
-		}
-		switch preparation.Mode {
-		case platformdomain.MachinePreparationProvisionOS:
-			// Convergent deploy (ADR 017): a provision_os batch may mix already-deployed
-			// servers (used as-is) with `ready` servers (provisioned to `deployed` first).
-			// Any other state is rejected because swallow only converges from these two.
-			if state != "ready" && state != "deployed" {
-				return invalid, fmt.Errorf("%w: server %s must be ready or deployed for machine preparation mode %s",
-					platformdomain.ErrInvalidDeployment, server.DisplayName(), preparation.Mode)
-			}
-			if state == "ready" {
-				readyServerIDs = append(readyServerIDs, server.ID)
-			}
-		default:
-			// existing_os requires every target to already carry an OS.
-			if state != "deployed" {
-				return invalid, fmt.Errorf("%w: server %s must be deployed for machine preparation mode %s",
-					platformdomain.ErrInvalidDeployment, server.DisplayName(), preparation.Mode)
-			}
-		}
-		if s.protection == nil && server.Provisioning.Locked {
-			return invalid, &serverdomain.ServerLockedError{Name: server.DisplayName()}
-		}
-		if server.PlatformClaim != nil {
-			return invalid, fmt.Errorf("%w: server %s is already claimed by %s",
-				platformdomain.ErrInvalidDeployment, server.DisplayName(), claimedBy(server, availability.platformsByID))
-		}
-		if server.Membership != nil {
-			platformName := server.Membership.PlatformID
-			platformType := "unknown"
-			if existing := availability.platformsByID[server.Membership.PlatformID]; existing != nil {
-				platformName = existing.Name
-				platformType = string(existing.Type)
-			}
-			return invalid, fmt.Errorf(
-				"%w: server %s already reports membership in %s Platform %s as %s",
-				platformdomain.ErrInvalidDeployment,
-				server.DisplayName(),
-				platformType,
-				platformName,
-				server.Membership.Role,
-			)
-		}
 		if assignment.Role == platformdomain.NodeRoleControlPlane {
 			controllers++
 		}
-		targets = append(targets, server)
+		targetIDs = append(targetIDs, assignment.ServerID)
 	}
-
-	if s.protection != nil {
-		if err := s.protection.RequireUnlocked(ctx, serverIDs(targets)); err != nil {
-			return invalid, err
-		}
-	}
-	if preparation.Mode == platformdomain.MachinePreparationProvisionOS && len(readyServerIDs) > 0 {
-		// Only servers that actually need an OS are preflighted; already-deployed targets
-		// in the same batch are skipped so a mixed deploy is not rejected for them.
-		if s.machinePreparation == nil {
-			return invalid, fmt.Errorf("%w: OS provisioning is unavailable", platformdomain.ErrInvalidDeployment)
-		}
-		if err := s.machinePreparation.Validate(ctx, input.SiteID, readyServerIDs, preparation); err != nil {
-			return invalid, err
-		}
+	targets, err := s.checkTargets(ctx, input.SiteID, targetIDs, preparation, nil)
+	if err != nil {
+		return invalid, err
 	}
 
 	if controllers != 1 && (controllers < minHAControllers || controllers%2 == 0) {
@@ -1034,6 +858,120 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 	}
 
 	return validatedDeployment{spec: spec, targets: targets, apiAddress: apiAddress, machinePreparation: preparation}, nil
+}
+
+// normalizedPreparation defaults a deploy's machine preparation to existing_os and refuses an
+// unknown mode.
+func normalizedPreparation(preparation platformdomain.MachinePreparation) (platformdomain.MachinePreparation, error) {
+	if preparation.Mode == "" {
+		preparation.Mode = platformdomain.MachinePreparationExistingOS
+	}
+	if !preparation.Mode.Valid() {
+		return preparation, fmt.Errorf("%w: machinePreparation.mode must be existing_os or provision_os", platformdomain.ErrInvalidDeployment)
+	}
+	return preparation, nil
+}
+
+// checkTargets loads and checks every target Server of a deploy, whatever its Platform type, and
+// returns them in request order. Each target is assigned once, at the deploy's Site, present, in a
+// state the preparation mode converges from, unlocked, and neither claimed by nor a member of
+// another Platform; minimum, when set, is the Platform type's minimum resources. In provision_os
+// mode a batch may mix already-deployed Servers (used as-is) with ready ones (provisioned first,
+// ADR 017); only the ready ones are preflighted.
+func (s *DeployService) checkTargets(
+	ctx context.Context,
+	siteID string,
+	targetIDs []string,
+	preparation platformdomain.MachinePreparation,
+	minimum *platformdomain.MinimumResources,
+) ([]*serverdomain.Server, error) {
+	availability, err := s.targetAvailability(ctx, siteID)
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]*serverdomain.Server, 0, len(targetIDs))
+	readyServerIDs := make([]string, 0, len(targetIDs))
+	seenServer := map[string]bool{}
+	for _, serverID := range targetIDs {
+		if seenServer[serverID] {
+			return nil, fmt.Errorf("%w: server %s is assigned more than once",
+				platformdomain.ErrInvalidDeployment, serverID)
+		}
+		seenServer[serverID] = true
+
+		server, err := s.servers.FindByID(ctx, serverID)
+		if err != nil {
+			return nil, err
+		}
+		if minimum != nil {
+			if err := validateMinimumResources(server, *minimum); err != nil {
+				return nil, err
+			}
+		}
+		if server.Source.SiteID != siteID {
+			return nil, fmt.Errorf("%w: server %s is not at site %s",
+				platformdomain.ErrInvalidDeployment, server.DisplayName(), siteID)
+		}
+		if server.Absent {
+			return nil, fmt.Errorf("%w: server %s is absent from its provisioner",
+				platformdomain.ErrInvalidDeployment, server.DisplayName())
+		}
+		state := ""
+		if server.Provisioning != nil {
+			state = server.Provisioning.State
+		}
+		switch preparation.Mode {
+		case platformdomain.MachinePreparationProvisionOS:
+			if state != "ready" && state != "deployed" {
+				return nil, fmt.Errorf("%w: server %s must be ready or deployed for machine preparation mode %s",
+					platformdomain.ErrInvalidDeployment, server.DisplayName(), preparation.Mode)
+			}
+			if state == "ready" {
+				readyServerIDs = append(readyServerIDs, server.ID)
+			}
+		default:
+			if state != "deployed" {
+				return nil, fmt.Errorf("%w: server %s must be deployed for machine preparation mode %s",
+					platformdomain.ErrInvalidDeployment, server.DisplayName(), preparation.Mode)
+			}
+		}
+		if s.protection == nil && server.Provisioning != nil && server.Provisioning.Locked {
+			return nil, &serverdomain.ServerLockedError{Name: server.DisplayName()}
+		}
+		if server.PlatformClaim != nil {
+			return nil, fmt.Errorf("%w: server %s is already claimed by %s",
+				platformdomain.ErrInvalidDeployment, server.DisplayName(), claimedBy(server, availability.platformsByID))
+		}
+		if server.Membership != nil {
+			platformName := server.Membership.PlatformID
+			platformType := "unknown"
+			if existing := availability.platformsByID[server.Membership.PlatformID]; existing != nil {
+				platformName = existing.Name
+				platformType = string(existing.Type)
+			}
+			return nil, fmt.Errorf(
+				"%w: server %s already reports membership in %s Platform %s as %s",
+				platformdomain.ErrInvalidDeployment,
+				server.DisplayName(), platformType, platformName, server.Membership.Role,
+			)
+		}
+		targets = append(targets, server)
+	}
+
+	if s.protection != nil {
+		if err := s.protection.RequireUnlocked(ctx, serverIDs(targets)); err != nil {
+			return nil, err
+		}
+	}
+	if preparation.Mode == platformdomain.MachinePreparationProvisionOS && len(readyServerIDs) > 0 {
+		if s.machinePreparation == nil {
+			return nil, fmt.Errorf("%w: OS provisioning is unavailable", platformdomain.ErrInvalidDeployment)
+		}
+		if err := s.machinePreparation.Validate(ctx, siteID, readyServerIDs, preparation); err != nil {
+			return nil, err
+		}
+	}
+	return targets, nil
 }
 
 // targetAvailability loads the Site's Platforms once before any Platform record is created, so
@@ -1286,7 +1224,6 @@ func buildDeviceMetricsExporterVars(
 	spec platformdomain.SlurmDeploymentSpec,
 	observabilityID string,
 	gpuComputeIDs []string,
-	recordID string,
 ) map[string]any {
 	return map[string]any{
 		varDeviceMetricsExporterVersion:         platformdomain.DeviceMetricsExporterVersion,
@@ -1295,7 +1232,6 @@ func buildDeviceMetricsExporterVars(
 		varDeviceMetricsExporterComputeIDs:      gpuComputeIDs,
 		varDeviceMetricsExporterObservabilityID: observabilityID,
 		varDeviceMetricsExporterClusterName:     slurmClusterName(spec.ClusterName, platform.Name),
-		VarDeviceMetricsExporterRecordID:        recordID,
 	}
 }
 
