@@ -92,16 +92,6 @@ func applyEnv(cfg *Config) {
 		}
 	}
 
-	if v := os.Getenv("SWALLOW_API_OPERATION_DISPATCH_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.API.OperationDispatchInterval = d
-		}
-	}
-	if v := os.Getenv("SWALLOW_API_OPERATION_LEASE_DURATION"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.API.OperationLeaseDuration = d
-		}
-	}
 	if v := os.Getenv("SWALLOW_API_OPERATION_MAX_PARALLELISM"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.API.OperationMaxParallelism = n
@@ -118,11 +108,6 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SWALLOW_API_ANSIBLE_TASK_QUEUE"); v != "" {
 		cfg.API.AnsibleTaskQueue = v
-	}
-	if v := os.Getenv("SWALLOW_API_TEMPORAL_START_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.API.TemporalStartInterval = d
-		}
 	}
 	if v := os.Getenv("SWALLOW_API_ANSIBLE_RUNNER_COMMAND"); v != "" {
 		cfg.API.AnsibleRunnerCommand = v

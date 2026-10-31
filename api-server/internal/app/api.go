@@ -18,14 +18,12 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
-	temporalclient "go.temporal.io/sdk/client"
 
 	"github.com/maple52046/swallow/bootstrap"
 	"github.com/maple52046/swallow/config"
 	"github.com/maple52046/swallow/internal/adapters/bmc/redfish"
 	"github.com/maple52046/swallow/internal/adapters/bootiso/genfsimg"
 	"github.com/maple52046/swallow/internal/adapters/events/memory"
-	temporalworkflow "github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
 	"github.com/maple52046/swallow/internal/adapters/hostaccess/sshaccess"
 	"github.com/maple52046/swallow/internal/adapters/hostautomation/ansible"
 	"github.com/maple52046/swallow/internal/adapters/hypervisor/libvirt"
@@ -179,13 +177,6 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("operation secret repo init: %w", err)
 	}
-	temporalClient, err := temporalclient.NewLazyClient(temporalclient.Options{
-		HostPort: cfg.TemporalAddress, Namespace: cfg.TemporalNamespace,
-	})
-	if err != nil {
-		return fmt.Errorf("temporal client: %w", err)
-	}
-	defer temporalClient.Close()
 
 	if err := bootstrap.EnsureAdminUser(
 		ctx, userRepo,
@@ -424,16 +415,11 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 	automationService.AttachDeploymentKeys(deploymentKeys)
 	orchestrationService := workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog(), operationSecretRepo)
-	orchestrationService.AttachLegacyController(temporalworkflow.NewController(temporalClient))
 	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
 	if err != nil {
 		return fmt.Errorf("resource ownership repo init: %w", err)
 	}
 	orchestrationService.AttachOwnershipReader(ownership)
-	resourceLeases := workflowstore.NewMongoResourceLeaseRepo(db)
-	orchestrationService.AttachLeaseReader(resourceLeases)
-	// Cancel and Rerun free the leases a Workflow whose execution is gone can never release.
-	orchestrationService.AttachLeaseReleaser(resourceLeases)
 	operationService.AttachWorkflow(orchestrationService)
 	// Deleting a platform cancels its in-flight durable operations so their leases are
 	// released and the member servers are freed rather than left blocked by orphaned work.
@@ -472,18 +458,6 @@ func RunAPI(cfg config.APIConfig) error {
 	})
 	autoInspect := provisioningapp.NewAutoInspectUseCase(integrationRepo, serverRepo, inspectionLauncher)
 	operationHandler := workflowdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
-	orchestrationStarter := temporalworkflow.NewStarter(
-		temporalClient, orchestrationRepo, cfg.TemporalTaskQueue, cfg.TemporalStartInterval,
-		cfg.OperationLeaseDuration, cfg.OperationMaxParallelism,
-	)
-	// Surface durable Operations whose Temporal execution was lost (a host restart or
-	// execution timeout) as repairable instead of leaving them stuck in a forward-progress
-	// status. It only marks state; the operator triggers the actual rerun. Reusing the
-	// provisioning reconcile interval keeps recovery latency in line with other sweeps.
-	orchestrationReconciler := temporalworkflow.NewReconciler(
-		temporalClient, orchestrationRepo, cfg.ReconcileInterval,
-	)
-	orchestrationReconciler.AttachLeaseReleaser(resourceLeases)
 
 	overviewReader := NewOverviewReader(
 		siteRepo, integrationRepo, serverRepo, healthResolver, platformRepo, operationRepo,
@@ -656,7 +630,6 @@ func RunAPI(cfg config.APIConfig) error {
 	})
 
 	go runReconciler(ctx, reconcileUC, cfg.ReconcileInterval)
-	go runDeploymentProjectionRepair(ctx, serverRepo, orchestrationRepo, cfg.ReconcileInterval)
 	go runInventorySweep(ctx, inventorySweepUC, cfg.InventoryInterval)
 	go taskWorker.Run(ctx)
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
@@ -664,9 +637,7 @@ func RunAPI(cfg config.APIConfig) error {
 	go runAutoInspect(ctx, autoInspect, cfg.ReconcileInterval)
 	go runSoftwareAssignmentSweep(ctx, softwareSweeper, cfg.ReconcileInterval)
 	go runRedfishCapabilitySweep(ctx, bootMediaUC, cfg.RedfishProbeInterval, cfg.RedfishProbeMaxAge)
-	go orchestrationStarter.Run(ctx)
-	go orchestrationReconciler.Run(ctx)
-	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention)
+	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention, ansibleEventRepo)
 
 	serverErr := make(chan error, 1)
 	go func() {

@@ -225,14 +225,9 @@ func (r *AnsibleTaskRunner) stream(ctx context.Context, ref TaskRef, runID strin
 		}
 	}
 	state.apply(delta)
-	progress := state.prog
-	progress.UpdatedAt = time.Now().UTC()
-	live := &workflowdomain.TaskLive{
-		CurrentPlay: progress.CurrentPlay, CurrentTask: progress.CurrentTask, Total: progress.Total, OK: progress.OK,
-		Changed: progress.Changed, Failed: progress.Failed, Unreachable: progress.Unreachable, Skipped: progress.Skipped,
-		UpdatedAt: progress.UpdatedAt,
-	}
-	if err := r.live.UpdateLive(ctx, ref, nil, nil, live); err != nil && !errors.Is(err, workflowdomain.ErrTaskNotRunning) {
+	live := state.prog
+	live.UpdatedAt = time.Now().UTC()
+	if err := r.live.UpdateLive(ctx, ref, nil, nil, &live); err != nil && !errors.Is(err, workflowdomain.ErrTaskNotRunning) {
 		slog.Warn("record Ansible Task progress", "runId", runID, "error", err)
 	}
 }

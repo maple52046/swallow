@@ -208,20 +208,9 @@ var (
 	ErrTaskRetryUnsafe         = errors.New("operation step cannot be retried safely")
 	ErrWorkflowNotV3           = errors.New("operation is not an orchestration operation")
 	ErrWorkflowControlConflict = errors.New("operation cannot accept this control in its current state")
-	ErrLeaseConflict           = errors.New("one or more resources are already leased")
-	ErrLeaseFenced             = errors.New("resource lease fencing token is no longer current")
-	// ErrWorkflowExecutionGone reports that a Workflow's Temporal execution no longer exists
-	// (terminated, timed out, past retention, or never found), so no control can reach it and no
-	// workflow code will ever write its outcome. Controllers wrap it together with
-	// ErrWorkflowControlConflict: callers that only tolerate a control conflict keep working,
-	// while Cancel recognises it and records the cancellation itself.
+	// ErrWorkflowExecutionGone reports that a Workflow has no running execution, so a signal or
+	// cancel cannot reach it; the dispatcher then dispatches the Workflow again (decision 072).
 	ErrWorkflowExecutionGone = errors.New("the workflow execution is no longer running")
-	// ErrStepTransitionIgnored reports that UpdateStep left a Task unchanged because the write
-	// would regress an outcome it already recorded: a `canceled` write for a Task that already
-	// succeeded, failed, or was skipped. A jobbed Workflow finalizes cancellation from its start
-	// snapshot, so such writes are expected. Callers treat it as success, but must not derive any
-	// further projection (Server deployment result, timeline event) from the rejected Task.
-	ErrStepTransitionIgnored = errors.New("operation step transition would regress a recorded outcome")
 )
 
 // WorkflowFilter narrows v3 Operation listings.
@@ -239,32 +228,6 @@ type WorkflowRepository interface {
 	Create(ctx context.Context, operation *Workflow) error
 	FindByID(ctx context.Context, id string) (*Workflow, error)
 	List(ctx context.Context, filter WorkflowFilter) ([]*Workflow, int, error)
-	ListPendingStart(ctx context.Context, limit int) ([]*Workflow, error)
-	// ListNonTerminalStarted returns started, still-advancing Operations (status pending,
-	// waiting_dependency, running, or waiting_external) so the lost-execution reconciler can
-	// verify each one against Temporal. It excludes requires_attention and canceling records,
-	// which the reconciler handles differently and reads through ListParkedStarted. Ordering is
-	// by requestedAt ascending and the result is bounded by limit; a non-positive limit falls
-	// back to a safe default.
-	ListNonTerminalStarted(ctx context.Context, limit int) ([]*Workflow, error)
-	// ListParkedStarted returns started Operations that ListNonTerminalStarted leaves out:
-	// requires_attention (waiting for an operator) and canceling (a requested teardown). Either
-	// can outlive its execution — Temporal terminates an execution whose history outgrows its
-	// limit without running any workflow code — so the reconciler checks these too. Ordering and
-	// the limit fallback match ListNonTerminalStarted.
-	ListParkedStarted(ctx context.Context, limit int) ([]*Workflow, error)
-	MarkWorkflowStarted(ctx context.Context, id, runID string) error
-	UpdateState(ctx context.Context, id string, status WorkflowStatus, reason string, startedAt, finishedAt *time.Time) error
-	// UpdateStep replaces one Task's projection. A `canceled` write never regresses a Task that
-	// already succeeded, failed, or was skipped; that write returns ErrStepTransitionIgnored and
-	// changes nothing. A missing Task is ErrTaskNotFound.
-	UpdateStep(ctx context.Context, operationID string, step Task) error
-	// UpdateStepLive projects a running Task's live fields without replacing the whole step, so a
-	// mid-run writer (the ansible activity) cannot clobber targets, parameters, or dependencies.
-	// Each argument is applied only when non-nil: ref sets the external execution reference,
-	// startedAt stamps the first observation, and live refreshes the coarse progress. It returns
-	// ErrTaskNotFound when the step is absent.
-	UpdateStepLive(ctx context.Context, operationID, stepID string, ref *ExternalExecutionReference, startedAt *time.Time, live *TaskLive) error
 	AppendEvent(ctx context.Context, event TimelineEvent) error
 	Timeline(ctx context.Context, operationID string) ([]TimelineEvent, error)
 
@@ -292,38 +255,6 @@ type WorkflowRepository interface {
 	RecordRun(ctx context.Context, id string, generation int64, runID string) error
 	// ListUnfinishedIDs returns the ids of every Workflow that is not terminal.
 	ListUnfinishedIDs(ctx context.Context) ([]string, error)
-}
-
-// ResourceLease serializes all mutations for a Server or Platform.
-type ResourceLease struct {
-	ResourceKey  string    `json:"resourceKey" bson:"_id"`
-	Owner        string    `json:"owner" bson:"owner"`
-	FencingToken int64     `json:"fencingToken" bson:"fencingToken"`
-	ExpiresAt    time.Time `json:"expiresAt" bson:"expiresAt"`
-	UpdatedAt    time.Time `json:"updatedAt" bson:"updatedAt"`
-}
-
-// ResourceLeaseRepository owns ordered multi-resource acquisition and fencing.
-type ResourceLeaseRepository interface {
-	Acquire(ctx context.Context, resourceKeys []string, owner string, expiresAt time.Time) ([]ResourceLease, error)
-	Renew(ctx context.Context, leases []ResourceLease, expiresAt time.Time) error
-	Validate(ctx context.Context, lease ResourceLease) error
-	Release(ctx context.Context, leases []ResourceLease) error
-}
-
-// ResourceLeaseReader exposes only active leases for operator diagnostics.
-type ResourceLeaseReader interface {
-	FindByOwner(ctx context.Context, owner string) ([]ResourceLease, error)
-}
-
-// ResourceLeaseReleaser frees the leases a Workflow execution still holds when that execution is
-// gone and can never release them itself. The owner is the execution's Temporal workflow ID.
-// Release matches each lease by owner and fencing token, so a lease another owner has since
-// taken over is left untouched. Callers must use it only after confirming the execution no
-// longer exists: a live execution relies on its leases until it releases them on exit.
-type ResourceLeaseReleaser interface {
-	ResourceLeaseReader
-	Release(ctx context.Context, leases []ResourceLease) error
 }
 
 // OperationSecretRepository stores encrypted values outside Temporal history. Returned

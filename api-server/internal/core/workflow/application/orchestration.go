@@ -14,13 +14,6 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-// WorkflowController sends control requests to the durable workflow engine. It does
-// not update Mongo state directly; the workflow remains the only status writer.
-type WorkflowController interface {
-	Cancel(ctx context.Context, operation *workflowdomain.Workflow) error
-	RetryStep(ctx context.Context, operation *workflowdomain.Workflow, stepID string) error
-}
-
 // CreateWorkflowInput is trusted server-side intent. Secret values are represented by
 // opaque references before they enter this boundary.
 type CreateWorkflowInput struct {
@@ -97,14 +90,11 @@ type WorkflowLeaseItem struct {
 // that persists its own records with the Workflow (a Platform deployment, a Software
 // Assignment) calls Create inside its own transaction, which Create joins.
 type WorkflowService struct {
-	transactor    store.Transactor
-	operations    workflowdomain.WorkflowRepository
-	catalog       workflowdomain.PlanCatalog
-	controller    WorkflowController
-	secrets       workflowdomain.OperationSecretRepository
-	leases        workflowdomain.ResourceLeaseReader
-	ownership     workflowdomain.OwnershipRepository
-	leaseReleaser workflowdomain.ResourceLeaseReleaser
+	transactor store.Transactor
+	operations workflowdomain.WorkflowRepository
+	catalog    workflowdomain.PlanCatalog
+	secrets    workflowdomain.OperationSecretRepository
+	ownership  workflowdomain.OwnershipRepository
 }
 
 // NewWorkflowService builds the service. transactor is required: every multi-document write it
@@ -119,30 +109,12 @@ func NewWorkflowService(transactor store.Transactor, operations workflowdomain.W
 	return service
 }
 
-// AttachLegacyController lets Cancel, RetryStep, and Rerun control Workflows that run on the
-// driver before decision 072; Workflows on the current driver are controlled through stored
-// commands and need no controller.
-func (s *WorkflowService) AttachLegacyController(controller WorkflowController) {
-	s.controller = controller
-}
-
-// AttachLeaseReader adds active fencing diagnostics without coupling command creation to Mongo.
-func (s *WorkflowService) AttachLeaseReader(reader workflowdomain.ResourceLeaseReader) {
-	s.leases = reader
-}
-
-// AttachOwnershipReader lets Get report the resources a Workflow on the current driver owns.
+// AttachOwnershipReader lets Get report the resources a Workflow owns; without it Get reports none.
 func (s *WorkflowService) AttachOwnershipReader(ownership workflowdomain.OwnershipRepository) {
 	s.ownership = ownership
 }
 
-// AttachLeaseReleaser lets Cancel and Rerun free the leases of a Workflow whose execution is
-// gone. Without it the projection is still closed, but the leases stay until they expire.
-func (s *WorkflowService) AttachLeaseReleaser(releaser workflowdomain.ResourceLeaseReleaser) {
-	s.leaseReleaser = releaser
-}
-
-// Create persists pending intent before the starter attempts to contact Temporal. The target-busy
+// Create persists pending intent; the dispatcher starts it after the commit. The target-busy
 // check, the sealed secrets, the Workflow record, and its operation_requested event share one
 // transaction: either the Workflow is accepted with everything it needs, or nothing is written.
 func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput) (*WorkflowItem, error) {
@@ -419,7 +391,7 @@ func (s *WorkflowService) Get(ctx context.Context, id string) (*WorkflowItem, er
 		return nil, err
 	}
 	item := toWorkflowItem(operation)
-	if s.ownership != nil && operation.Dispatch.Driver == workflowdomain.DriverVersion {
+	if s.ownership != nil {
 		owned, err := s.ownership.FindByOwner(ctx, operation.ID)
 		if err != nil {
 			return nil, err
@@ -429,20 +401,6 @@ func (s *WorkflowService) Get(ctx context.Context, id string) (*WorkflowItem, er
 			item.Leases[index] = WorkflowLeaseItem{
 				ResourceKey: resource.ResourceKey, Owner: operation.ID,
 				FencingToken: operation.Dispatch.Generation, UpdatedAt: resource.AcquiredAt,
-			}
-		}
-		return &item, nil
-	}
-	if s.leases != nil {
-		leases, leaseErr := s.leases.FindByOwner(ctx, operation.Temporal.WorkflowID)
-		if leaseErr != nil {
-			return nil, leaseErr
-		}
-		item.Leases = make([]WorkflowLeaseItem, len(leases))
-		for index, lease := range leases {
-			item.Leases[index] = WorkflowLeaseItem{
-				ResourceKey: lease.ResourceKey, Owner: operation.ID,
-				FencingToken: lease.FencingToken, UpdatedAt: lease.UpdatedAt,
 			}
 		}
 	}
@@ -473,15 +431,10 @@ func (s *WorkflowService) Timeline(ctx context.Context, id string) ([]workflowdo
 	return s.operations.Timeline(ctx, id)
 }
 
-// Cancel asks the Workflow's execution to cancel; the workflow then records canceling and
-// canceled itself. A finished Workflow is a control conflict.
-//
-// When the execution is already gone (ErrWorkflowExecutionGone) no workflow code will ever record
-// the outcome, so Cancel records it here: in one transaction, the leases the dead execution still
-// holds are released and the projection is closed as canceled with
-// CanceledWithoutExecutionReason. A failure therefore leaves the Workflow cancelable again, never
-// canceled with its Servers still leased. Without this a Workflow whose execution Temporal had
-// terminated stayed non-terminal forever and blocked every new Workflow on its Servers.
+// Cancel stores a cancel command for an unfinished Workflow (decision 072). The worker's
+// dispatcher delivers it, resuming the Workflow when its execution is gone, so the Workflow always
+// runs its own cancel path: compensations, then every unfinished Task and the Workflow canceled
+// with its resources released. A finished Workflow is a control conflict.
 func (s *WorkflowService) Cancel(ctx context.Context, id string) error {
 	operation, err := s.operations.FindByID(ctx, id)
 	if err != nil {
@@ -490,23 +443,13 @@ func (s *WorkflowService) Cancel(ctx context.Context, id string) error {
 	if operation.Status.Terminal() {
 		return fmt.Errorf("%w: a finished Operation cannot be canceled", workflowdomain.ErrWorkflowControlConflict)
 	}
-	if operation.Dispatch.Driver == workflowdomain.DriverVersion {
-		return s.operations.RequestCancel(ctx, id, workflowdomain.CancelCommand{
-			Reason: workflowdomain.CanceledByOperatorReason, RequestedAt: time.Now().UTC(),
-		})
-	}
-	err = s.controller.Cancel(ctx, operation)
-	if !errors.Is(err, workflowdomain.ErrWorkflowExecutionGone) {
-		return err
-	}
-	return s.transactor.InTransaction(ctx, func(ctx context.Context) error {
-		if err := ReleaseExecutionLeases(ctx, s.leaseReleaser, operation); err != nil {
-			return err
-		}
-		return FinalizeCanceledProjection(ctx, s.operations, operation, CanceledWithoutExecutionReason, time.Now().UTC())
+	return s.operations.RequestCancel(ctx, id, workflowdomain.CancelCommand{
+		Reason: workflowdomain.CanceledByOperatorReason, RequestedAt: time.Now().UTC(),
 	})
 }
 
+// RetryStep stores a retry command for a failed, retryable Task; the Workflow applies it with the
+// retry granularity of the Task's Job, also after its execution was lost.
 func (s *WorkflowService) RetryStep(ctx context.Context, id, stepID string) error {
 	operation, err := s.operations.FindByID(ctx, id)
 	if err != nil {
@@ -519,41 +462,25 @@ func (s *WorkflowService) RetryStep(ctx context.Context, id, stepID string) erro
 		if (step.Status != workflowdomain.TaskFailed && step.Status != workflowdomain.TaskRequiresAttention) || step.Error == nil || !step.Error.Retryable {
 			return workflowdomain.ErrTaskRetryUnsafe
 		}
-		if operation.Dispatch.Driver == workflowdomain.DriverVersion {
-			return s.operations.RequestRetry(ctx, id, workflowdomain.RetryCommand{TaskID: stepID, RequestedAt: time.Now().UTC()})
-		}
-		return s.controller.RetryStep(ctx, operation, stepID)
+		return s.operations.RequestRetry(ctx, id, workflowdomain.RetryCommand{TaskID: stepID, RequestedAt: time.Now().UTC()})
 	}
 	return workflowdomain.ErrTaskNotFound
 }
 
-// Rerun recovers a durable Operation that can no longer make progress by launching a fresh
-// Temporal execution for the same intent, on the same Platform, without deleting it. It is the
-// recovery path for an Operation whose execution was lost (a host restart or execution timeout
-// leaves it non-terminal but with no live workflow) or that finished failed, partially
-// succeeded, or canceled: a new attempt cannot reuse the original because the Temporal Workflow
-// ID is stable and rejects a duplicate start, and a lost execution can no longer accept a Step
-// retry signal.
+// Rerun converges a Workflow's intent again as a new Workflow, on the same Platform, without
+// deleting anything (decision 060). It is for a Workflow that finished failed, partially
+// succeeded, or canceled, and for a parked (requires_attention) one the operator wants to converge
+// from the start rather than retry by Task. The new Workflow copies the original's plan by the
+// catalog's rerun policies, re-seals the original's secrets under itself (CloneForOperation), and
+// links back through RetryOfOperationID; its later requestedAt makes the platform lifecycle follow
+// it while the original stays for diagnosis.
 //
-// The new Operation clones the original's Steps, preserving already-succeeded and skipped ones
-// so their side effects are not repeated and only the incomplete work is re-driven, and
-// re-seals the original's secrets under the new Operation (via CloneForOperation) so its Steps
-// resolve them. It is linked to the original through RetryOfOperationID, and because it carries
-// a later requestedAt the platform lifecycle projection follows it while the original stays in
-// history for diagnosis.
-//
-// Rerun refuses an Operation that already succeeded and one that is still actively advancing
-// (pending, running, waiting, or canceling); both are ErrWorkflowControlConflict, the first
-// because there is nothing to recover and the second because the caller should retry a failed
-// Step or cancel first. A non-terminal but recoverable Operation (requires_attention) is driven
-// terminal first — best-effort canceling any still-live parked execution and forcing the
-// projection canceled — so the replacement can claim the same targets instead of being rejected
-// as busy. Secret storage is required; without it Rerun returns ErrInvalidOperation.
-//
-// The cancel request to Temporal happens before, and outside, the transaction. Everything that
-// follows — releasing a lost execution's leases, closing the original's projection, cloning its
-// secrets, and accepting the replacement — is one transaction, so a rejected rerun (for example a
-// target that became busy again) leaves the original exactly as it was and no orphaned secrets.
+// A succeeded Workflow has nothing to rerun and one still advancing (pending, running, waiting, or
+// canceling) should be retried by Task or canceled; both are ErrWorkflowControlConflict. A parked
+// original gets a cancel command in the same transaction that accepts the replacement, so a
+// rejected rerun leaves the original as it was and no orphaned secrets; the replacement waits for
+// the original's resources until its cancel path released them. Secret storage is required;
+// without it Rerun returns ErrInvalidOperation.
 func (s *WorkflowService) Rerun(ctx context.Context, id, requestedBy string) (*WorkflowItem, error) {
 	old, err := s.operations.FindByID(ctx, id)
 	if err != nil {
@@ -576,58 +503,10 @@ func (s *WorkflowService) Rerun(ctx context.Context, id, requestedBy string) (*W
 	// projection terminal so the targets are free for the same-request Create below. Leases are
 	// released here only for a lost execution: a live one still needs them for its own cancel
 	// path (for example a verification's compensation) and releases them as it exits.
-	now := time.Now().UTC()
-	if old.Dispatch.Driver == workflowdomain.DriverVersion {
-		return s.rerunSuperseding(ctx, old, requestedBy, now)
-	}
-	executionGone := false
-	if !old.Status.Terminal() {
-		cancelErr := s.controller.Cancel(ctx, old)
-		if cancelErr != nil && !errors.Is(cancelErr, workflowdomain.ErrWorkflowControlConflict) {
-			return nil, cancelErr
-		}
-		executionGone = errors.Is(cancelErr, workflowdomain.ErrWorkflowExecutionGone)
-	}
-
-	var item *WorkflowItem
-	err = s.transactor.InTransaction(ctx, func(ctx context.Context) error {
-		if !old.Status.Terminal() {
-			if executionGone {
-				if err := ReleaseExecutionLeases(ctx, s.leaseReleaser, old); err != nil {
-					return err
-				}
-			}
-			if err := FinalizeCanceledProjection(ctx, s.operations, old, "Superseded by a rerun.", now); err != nil {
-				return err
-			}
-		}
-		newID := uuid.NewString()
-		references, err := s.secrets.CloneForOperation(ctx, old.ID, newID)
-		if err != nil {
-			return fmt.Errorf("clone operation secrets: %w", err)
-		}
-		item, err = s.create(ctx, CreateWorkflowInput{
-			ID: newID, Kind: old.Kind,
-			IntentSummary:  rerunSummary(old),
-			IntentSnapshot: cloneMap(old.Intent),
-			Definition:     old.Definition, DefinitionVersion: old.DefinitionVersion,
-			SiteID: old.SiteID, PlatformID: old.PlatformID,
-			TargetServerIDs:    append([]string(nil), old.TargetServerIDs...),
-			TargetResources:    append([]workflowdomain.ResourceReference(nil), old.TargetResources...),
-			Steps:              s.cloneStepsForRerun(old.Steps, references),
-			Jobs:               rerunJobs(old),
-			RetryOfOperationID: old.ID,
-			RequestedBy:        requestedBy,
-		})
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	return item, nil
+	return s.rerunSuperseding(ctx, old, requestedBy, time.Now().UTC())
 }
 
-// rerunSuperseding reruns a Workflow on the current driver: in one transaction a parked original
+// rerunSuperseding is Rerun's unit of work: in one transaction a parked original
 // gets a cancel command ("Superseded by a rerun."), its secrets are cloned, and the new Workflow is
 // accepted past the busy check. The original runs its own cancel path — compensations included —
 // and the new Workflow waits for its resources until that path released them.

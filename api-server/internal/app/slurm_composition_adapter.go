@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"time"
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
@@ -34,23 +33,14 @@ const (
 	jobConfigureOmnistat = "configure-omnistat"
 	omnistatStepID       = "install-omnistat"
 	omnistatPlaybook     = "configure-omnistat"
-	// omnistatStepParamOwner names the Platform whose Omnistat State the Task's outcome moves.
-	omnistatStepParamOwner = "omnistatPlatformId"
-	// omnistatStepParamRecord names the Workflow the Omnistat record is fenced on; like the GPU
-	// Operator's, it survives a rerun that copies the Task under a new Workflow id.
-	omnistatStepParamRecord = "omnistatRecordId"
 	// omnistatResultGrafanaURL is the configure-omnistat result field Swallow records as the
 	// Platform's Omnistat Grafana Monitoring Link.
 	omnistatResultGrafanaURL = "grafanaUrl"
 
 	// deviceMetricsExporterStepID is the composed device-metrics-exporter install Task:
-	// appendComposedInstall names it install-<kind>, and the step observer and the result
-	// completion find the feature's Task by it, as they did before the exporter was Managed
-	// Software (decision 068).
+	// appendComposedInstall names it install-<kind>, as the feature's Task was named before the
+	// exporter was Managed Software (decision 068).
 	deviceMetricsExporterStepID = "install-" + string(softwaredomain.KindDeviceMetricsExporter)
-	// The Device Metrics Exporter's Task carries the same owner and record parameters as Omnistat's.
-	deviceMetricsExporterStepParamOwner  = "deviceMetricsExporterPlatformId"
-	deviceMetricsExporterStepParamRecord = "deviceMetricsExporterRecordId"
 	// The Slurm run's deploy-device-metrics-exporter result: the Grafana URL Swallow records as the
 	// Platform's Device Metrics Exporter Grafana Monitoring Link, and the GPU identity it found.
 	deviceMetricsExporterResultGrafanaURL  = "grafanaUrl"
@@ -78,10 +68,9 @@ type slurmMonitoring struct {
 	// (the Device Metrics Exporter); otherwise the feature has its own install Task below.
 	composedKind      softwaredomain.Kind
 	composedServerIDs []string
-	// The feature's own install Task (Omnistat) and the parameters its step observer reads.
+	// The feature's own install Task (Omnistat).
 	stepID, stepName, job, playbook string
 	workflowKind                    workflowdomain.WorkflowKind
-	ownerParam, recordParam         string
 	// stateCompletion and resultCompletion are the feature's declared completions: its State
 	// projection and the recording of the Grafana URL its playbook returns.
 	stateCompletion, resultCompletion string
@@ -92,7 +81,8 @@ type slurmMonitoring struct {
 // slurmMonitoringOf returns the deployment's monitoring feature, or nil when it has none. The
 // deploy use case never sets both features.
 // completions declares the feature Task's State projection and result recording, fenced on the
-// Platform and the record of this Workflow.
+// Platform and the record of this Workflow; like the GPU Operator's, the record survives a rerun
+// that copies the Task under a new Workflow id.
 func (m *slurmMonitoring) completions(platformID, recordID string) []workflowdomain.Completion {
 	return []workflowdomain.Completion{
 		featureState(m.stateCompletion, platformID, recordID),
@@ -111,7 +101,6 @@ func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring 
 			dashboardBundle: platformdomain.OmnistatDashboardBundle, trustedVars: omnistat.TrustedVars,
 			stepID: omnistatStepID, stepName: "Install Omnistat", job: jobConfigureOmnistat,
 			playbook: omnistatPlaybook, workflowKind: workflowdomain.WorkflowKindConfigureOmnistat,
-			ownerParam: omnistatStepParamOwner, recordParam: omnistatStepParamRecord,
 			stateCompletion: completionOmnistatState, resultCompletion: completionOmnistatResult,
 			prometheusPortVar: "swallow_omnistat_prometheus_port", grafanaPortVar: "swallow_omnistat_grafana_port",
 		}
@@ -123,7 +112,6 @@ func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring 
 			scrapeServerIDs: exporter.GPUComputeServerIDs, scrapePort: platformdomain.DeviceMetricsExporterPort,
 			dashboardBundle: platformdomain.DeviceMetricsExporterDashboardBundle, trustedVars: exporter.TrustedVars,
 			composedKind: softwaredomain.KindDeviceMetricsExporter, composedServerIDs: exporter.GPUComputeServerIDs,
-			ownerParam: deviceMetricsExporterStepParamOwner, recordParam: deviceMetricsExporterStepParamRecord,
 			stateCompletion: completionDeviceMetricsExporterState, resultCompletion: completionDeviceMetricsExporterResult,
 			prometheusPortVar: "swallow_device_metrics_exporter_prometheus_port",
 			grafanaPortVar:    "swallow_device_metrics_exporter_grafana_port",
@@ -220,7 +208,6 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 			"Install "+softwareLabel(monitoring.composedKind)+" on "+launch.Platform.Name,
 			composedInstallExtras{
 				ansibleTargetIDs: launch.TargetServerIDs, trustedVars: trustedVars,
-				params:      map[string]any{monitoring.ownerParam: launch.Platform.ID, monitoring.recordParam: operationID},
 				completions: monitoring.completions(launch.Platform.ID, operationID),
 			})
 		return plan, err
@@ -238,11 +225,8 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 		ID: monitoring.stepID, Kind: "ansible-playbook", Name: monitoring.stepName,
 		Job:      monitoring.job,
 		Executor: workflowdomain.RunnerKindAnsible, DependsOn: []string{previous},
-		Targets: prepared.Targets,
-		Parameters: map[string]any{
-			"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars,
-			monitoring.ownerParam: launch.Platform.ID, monitoring.recordParam: operationID,
-		},
+		Targets:    prepared.Targets,
+		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 		Completion: monitoring.completions(launch.Platform.ID, operationID),
 	})
 	return plan, nil
@@ -257,8 +241,6 @@ type composedInstallExtras struct {
 	ansibleTargetIDs []string
 	// trustedVars are laid over the software install's own trusted variables.
 	trustedVars map[string]any
-	// params are added to the install Task's parameters, for the feature's step observer.
-	params map[string]any
 	// completions are added to the install Task's declared completions.
 	completions []workflowdomain.Completion
 }
@@ -315,15 +297,6 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 	if err != nil {
 		return "", err
 	}
-	// The software identity lets the software step observer mark the assignments failed when this
-	// Task fails and the record Task never runs.
-	installParams := map[string]any{
-		"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars,
-		"softwareKind": string(kind), "serverIds": install.ServerIDs, "softwareMode": "install",
-	}
-	for key, value := range extras.params {
-		installParams[key] = value
-	}
 	installID := "install-" + string(kind)
 	recordID := "record-" + string(kind)
 	job := "configure-" + string(kind)
@@ -333,7 +306,8 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 			Job:      job,
 			Executor: workflowdomain.RunnerKindAnsible, DependsOn: []string{previous},
 			Targets:    prepared.Targets,
-			Parameters: installParams,
+			Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
+			// The failure marking covers a failed install whose record Task never runs.
 			Completion: append([]workflowdomain.Completion{softwareFailure(kind, install.ServerIDs)}, extras.completions...),
 		},
 		workflowdomain.Task{
@@ -458,36 +432,6 @@ func (l platformDeploymentLauncher) recordComposedInstalls(ctx context.Context, 
 	return errors.Join(errs...)
 }
 
-// omnistatStepObserver projects the install-omnistat Task onto the Platform's Omnistat State
-// (implements temporalworkflow.StepProjectionObserver); every other Task is ignored. The write is
-// fenced on the record id stamped on the Task, so a superseded Workflow — or a Task of a deleted
-// Platform — changes nothing.
-type omnistatStepObserver struct {
-	recorder platformdomain.OmnistatRecorder
-}
-
-// ObserveStep maps the Task status: running is installing, success is ready, and failure,
-// requires_attention, cancel, or skip (an earlier Job failed) is failed.
-func (o omnistatStepObserver) ObserveStep(ctx context.Context, operationID string, step workflowdomain.Task) error {
-	if step.ID != omnistatStepID || step.Kind != "ansible-playbook" || step.Parameters == nil {
-		return nil
-	}
-	platformID, _ := step.Parameters[omnistatStepParamOwner].(string)
-	if platformID == "" {
-		return nil
-	}
-	recordID, _ := step.Parameters[omnistatStepParamRecord].(string)
-	if recordID == "" {
-		recordID = operationID
-	}
-	state, ok := omnistatStateForTask(step.Status)
-	if !ok {
-		return nil
-	}
-	_, err := o.recorder.UpdateOmnistatState(ctx, platformID, recordID, state, time.Now().UTC())
-	return err
-}
-
 // omnistatStateForTask returns the state a Task status implies, or false for a status that does
 // not move it (pending leaves the state recorded at acceptance).
 func omnistatStateForTask(status workflowdomain.TaskStatus) (platformdomain.OmnistatState, bool) {
@@ -527,40 +471,4 @@ func installTaskPhaseOf(status workflowdomain.TaskStatus) installTaskPhase {
 	default:
 		return installPhaseNone
 	}
-}
-
-// deviceMetricsExporterStepObserver projects the install-device-metrics-exporter Task onto the
-// Platform's Device Metrics Exporter State (implements temporalworkflow.StepProjectionObserver);
-// every other Task is ignored. Like Omnistat's, the write is fenced on the record id stamped on the
-// Task, so a superseded Workflow — or a Task of a deleted Platform — changes nothing.
-type deviceMetricsExporterStepObserver struct {
-	recorder platformdomain.DeviceMetricsExporterRecorder
-}
-
-// ObserveStep maps the Task status through installTaskPhaseOf.
-func (o deviceMetricsExporterStepObserver) ObserveStep(ctx context.Context, operationID string, step workflowdomain.Task) error {
-	if step.ID != deviceMetricsExporterStepID || step.Kind != "ansible-playbook" || step.Parameters == nil {
-		return nil
-	}
-	platformID, _ := step.Parameters[deviceMetricsExporterStepParamOwner].(string)
-	if platformID == "" {
-		return nil
-	}
-	recordID, _ := step.Parameters[deviceMetricsExporterStepParamRecord].(string)
-	if recordID == "" {
-		recordID = operationID
-	}
-	var state platformdomain.DeviceMetricsExporterState
-	switch installTaskPhaseOf(step.Status) {
-	case installPhaseRunning:
-		state = platformdomain.DeviceMetricsExporterInstalling
-	case installPhaseSucceeded:
-		state = platformdomain.DeviceMetricsExporterReady
-	case installPhaseFailed:
-		state = platformdomain.DeviceMetricsExporterFailed
-	default:
-		return nil
-	}
-	_, err := o.recorder.UpdateDeviceMetricsExporterState(ctx, platformID, recordID, state, time.Now().UTC())
-	return err
 }

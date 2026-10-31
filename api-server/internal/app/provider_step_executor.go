@@ -237,7 +237,7 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 	if serverID == "" {
 		return providerFailed("invalid_step", "The provisioning Step has no Server target.", false).StepExecutionResult
 	}
-	if step.Step.Attempt > 1 || step.ActivityAttempt > 1 {
+	if resumedStep(step) {
 		state, err := e.refresh.Execute(ctx, serverID)
 		if err == nil && state.State == string(provisioningdomain.MachineStatusDeployed) && imageMatches(state, input) {
 			readiness, inspectErr := e.inspectDeploymentReadiness(ctx, serverID, step.SiteID)
@@ -247,7 +247,9 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 			if readiness.reachable {
 				return providerSucceeded()
 			}
-			if len(readiness.addresses) == 0 {
+			// Releasing the installation to replay the intent is an operator's retry to make; a
+			// resumed or retried activity of the same attempt only observes (DF-03).
+			if len(readiness.addresses) == 0 && step.Step.Attempt > 1 {
 				return e.recoverDeploymentWithoutAddress(ctx, step, serverID, input)
 			}
 			return e.observeDeploy(ctx, step, serverID, input, true)
@@ -510,6 +512,14 @@ func deploymentReadinessFailed(readiness deploymentReadiness) temporalworkflow.S
 	return providerFailed("deployment_ssh_unreachable", message, true).withStage("ssh_readiness")
 }
 
+// resumedStep reports whether the attempt may already have started its provider work: an
+// operator's retry (a later attempt), an activity retry, or a later dispatch continuing the attempt.
+// Such an attempt observes the provider before it acts. Only a later attempt may also replace what
+// the provider holds.
+func resumedStep(step temporalworkflow.StepExecutionInput) bool {
+	return step.Step.Attempt > 1 || step.ActivityAttempt > 1 || step.Resumed
+}
+
 // recoverDeploymentWithoutAddress is entered only by an explicit failed-Step retry.
 // MAAS exposes complete interface mutation only while Ready or Broken, so Swallow
 // releases the unusable installation before replaying the frozen deployment intent.
@@ -678,7 +688,7 @@ func (e providerStepExecutor) releaseServer(ctx context.Context, step temporalwo
 	// superseded other Workflows starts only after they end, and a canceled deployment returns its
 	// Server to Ready before its Workflow ends, so a first attempt can find the Server already Ready
 	// or Releasing. A retry resumes the Release this Step sent; a first attempt did not send one.
-	resumed := step.Step.Attempt > 1 || step.ActivityAttempt > 1
+	resumed := resumedStep(step)
 	if state, err := e.refresh.Execute(ctx, serverID); err == nil {
 		switch provisioningdomain.MachineStatus(state.State) {
 		case provisioningdomain.MachineStatusReady:

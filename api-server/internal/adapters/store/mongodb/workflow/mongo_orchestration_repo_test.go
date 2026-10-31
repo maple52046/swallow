@@ -44,66 +44,106 @@ func workflowTestDatabase(t *testing.T) *mongo.Database {
 	return db
 }
 
-// TestUpdateStepIsMonotonicForCancel verifies the durable step list never regresses a completed
-// Task to canceled: cancelling the enclosing Workflow (which, in the jobbed path, finalizes from
-// a possibly-stale snapshot) must not flip an already-succeeded provision-os to canceled, while a
-// genuinely in-flight Task still cancels and a missing Task still surfaces ErrTaskNotFound.
-func TestUpdateStepIsMonotonicForCancel(t *testing.T) {
+// Commands are only stored (decision 072): a cancel keeps the first request and its sequence, a
+// retry appends, and a finished Workflow refuses both so a late control cannot reopen it.
+func TestCommandsKeepTheFirstCancelAndRefuseFinishedWorkflows(t *testing.T) {
 	db := workflowTestDatabase(t)
 	ctx := context.Background()
 	repo, err := NewMongoWorkflowRepo(db)
 	if err != nil {
 		t.Fatalf("new repo: %v", err)
 	}
-
-	insert := func(id string, status workflowdomain.TaskStatus) {
+	insert := func(id string, status workflowdomain.WorkflowStatus) {
 		if _, err := db.Collection("workflows").InsertOne(ctx, bson.M{
-			"_id": id, "schemaVersion": 4,
-			"tasks": bson.A{bson.M{
-				"id": "provision-a", "kind": "provision-os", "status": string(status), "attempt": 1,
-			}},
+			"_id": id, "schemaVersion": 4, "status": string(status),
+			"tasks": bson.A{bson.M{"id": "provision-a", "kind": "provision-os", "status": "running", "attempt": 1}},
 		}); err != nil {
 			t.Fatalf("insert %s: %v", id, err)
 		}
 	}
-	statusOf := func(id string) string {
-		var doc struct {
-			Tasks []workflowdomain.Task `bson:"tasks"`
+	now := time.Now().UTC()
+
+	insert("op-running", workflowdomain.WorkflowRunning)
+	if err := repo.RequestRetry(ctx, "op-running", workflowdomain.RetryCommand{TaskID: "provision-a", RequestedAt: now}); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	for _, reason := range []string{"first", "second"} {
+		if err := repo.RequestCancel(ctx, "op-running", workflowdomain.CancelCommand{Reason: reason, RequestedAt: now}); err != nil {
+			t.Fatalf("cancel %s: %v", reason, err)
 		}
-		if err := db.Collection("workflows").FindOne(ctx, bson.M{"_id": id}).Decode(&doc); err != nil {
-			t.Fatalf("read %s: %v", id, err)
-		}
-		if len(doc.Tasks) == 0 {
-			t.Fatalf("%s has no tasks", id)
-		}
-		return string(doc.Tasks[0].Status)
+	}
+	running, err := repo.FindByID(ctx, "op-running")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if running.Commands.Cancel == nil || running.Commands.Cancel.Reason != "first" || running.Commands.Sequence != 2 ||
+		len(running.Commands.Retries) != 1 {
+		t.Fatalf("commands = %+v, want the retry and the first cancel at sequence 2", running.Commands)
 	}
 
-	cancel := workflowdomain.Task{ID: "provision-a", Kind: "provision-os", Attempt: 1, Status: workflowdomain.TaskCanceled}
+	insert("op-finished", workflowdomain.WorkflowSucceeded)
+	if err := repo.RequestCancel(ctx, "op-finished", workflowdomain.CancelCommand{Reason: "late"}); !errors.Is(err, workflowdomain.ErrWorkflowControlConflict) {
+		t.Errorf("cancel of a finished Workflow err = %v, want a control conflict", err)
+	}
+	if err := repo.RequestRetry(ctx, "op-finished", workflowdomain.RetryCommand{TaskID: "provision-a"}); !errors.Is(err, workflowdomain.ErrWorkflowControlConflict) {
+		t.Errorf("retry of a finished Workflow err = %v, want a control conflict", err)
+	}
+	if err := repo.RequestCancel(ctx, "op-missing", workflowdomain.CancelCommand{Reason: "x"}); err == nil {
+		t.Error("cancel of a missing Workflow err = nil, want not found")
+	}
+}
 
-	// A succeeded Task is not regressed to canceled (the reported bug), and the no-op is reported
-	// so the caller does not project the rejected Task onto the Server deployment result.
-	insert("op-succeeded", workflowdomain.TaskSucceeded)
-	if err := repo.UpdateStep(ctx, "op-succeeded", cancel); !errors.Is(err, workflowdomain.ErrStepTransitionIgnored) {
-		t.Fatalf("cancel of succeeded task err = %v, want ErrStepTransitionIgnored", err)
+// Runners and completion handlers read the Tasks the Engine loads from the store, so an array in a
+// Task's parameters or a completion's params must decode as []any, not as the driver's primitive.A
+// (a software install's serverIds would otherwise read as no Servers).
+func TestFindByIDDecodesUntypedArraysAsSlices(t *testing.T) {
+	db := workflowTestDatabase(t)
+	ctx := context.Background()
+	repo, err := NewMongoWorkflowRepo(db)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
 	}
-	if got := statusOf("op-succeeded"); got != "succeeded" {
-		t.Fatalf("status = %q, want succeeded preserved", got)
+	if err := repo.Create(ctx, &workflowdomain.Workflow{ID: "op-arrays", Steps: []workflowdomain.Task{{
+		ID: "configure-software", Parameters: map[string]any{"serverIds": []string{"s1"}},
+		Completion: []workflowdomain.Completion{{Type: "software-assignment-failure", Params: map[string]any{"serverIds": []string{"s1"}}}},
+	}}}); err != nil {
+		t.Fatalf("create: %v", err)
 	}
+	got, err := repo.FindByID(ctx, "op-arrays")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	task := got.Steps[0]
+	if _, ok := task.Parameters["serverIds"].([]any); !ok {
+		t.Errorf("parameters serverIds = %T, want []any", task.Parameters["serverIds"])
+	}
+	if _, ok := task.Completion[0].Params["serverIds"].([]any); !ok {
+		t.Errorf("completion serverIds = %T, want []any", task.Completion[0].Params["serverIds"])
+	}
+}
 
-	// A non-terminal Task still cancels normally.
-	insert("op-running", workflowdomain.TaskRunning)
-	if err := repo.UpdateStep(ctx, "op-running", cancel); err != nil {
-		t.Fatalf("cancel of running task: %v", err)
+// DeleteRuns removes only the streamed events of the named runs (DF-10).
+func TestDeleteRunsRemovesOnlyTheNamedRunsEvents(t *testing.T) {
+	db := workflowTestDatabase(t)
+	ctx := context.Background()
+	repo, err := NewMongoAnsibleEventRepo(db)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
 	}
-	if got := statusOf("op-running"); got != "canceled" {
-		t.Fatalf("status = %q, want canceled for in-flight task", got)
+	var events []workflowdomain.StreamedTaskEvent
+	for _, run := range []string{"run-old", "run-fresh"} {
+		events = append(events, workflowdomain.StreamedTaskEvent{RunID: run, Seq: 1, TaskEvent: workflowdomain.TaskEvent{Task: "t", Status: "ok"}})
 	}
-
-	// A genuinely missing Task still surfaces ErrTaskNotFound rather than a silent no-op.
-	insert("op-missing", workflowdomain.TaskRunning)
-	err = repo.UpdateStep(ctx, "op-missing", workflowdomain.Task{ID: "nonexistent", Status: workflowdomain.TaskCanceled})
-	if !errors.Is(err, workflowdomain.ErrTaskNotFound) {
-		t.Fatalf("cancel of missing task err = %v, want ErrTaskNotFound", err)
+	if err := repo.AppendEvents(ctx, events); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if err := repo.DeleteRuns(ctx, []string{"run-old"}); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if old, _ := repo.ListEvents(ctx, "run-old"); len(old) != 0 {
+		t.Errorf("run-old events = %v, want none", old)
+	}
+	if fresh, _ := repo.ListEvents(ctx, "run-fresh"); len(fresh) != 1 {
+		t.Errorf("run-fresh events = %v, want one", fresh)
 	}
 }

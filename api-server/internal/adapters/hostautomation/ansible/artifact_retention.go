@@ -7,32 +7,39 @@ import (
 	"time"
 )
 
-// PruneArtifacts removes completed runner artifact directories older than cutoff.
-// It only examines direct children so a malformed artifact cannot escape the root.
-func PruneArtifacts(root string, cutoff time.Time) (int, error) {
+// ExpiredArtifacts returns the run ids (directory names) of the runner artifact directories older
+// than cutoff. It only examines direct children so a malformed artifact cannot escape the root.
+func ExpiredArtifacts(root string, cutoff time.Time) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
-		return 0, nil
+		return nil, nil
 	}
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	removed := 0
+	var expired []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		info, err := entry.Info()
 		if err != nil {
-			return removed, err
+			return nil, err
 		}
-		if !info.ModTime().Before(cutoff) {
-			continue
+		if info.ModTime().Before(cutoff) {
+			expired = append(expired, entry.Name())
 		}
-		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
-			return removed, err
-		}
-		removed++
 	}
-	return removed, nil
+	return expired, nil
+}
+
+// RemoveArtifacts removes the artifact directories of the given runs, which ExpiredArtifacts
+// returned.
+func RemoveArtifacts(root string, runIDs []string) error {
+	for _, runID := range runIDs {
+		if err := os.RemoveAll(filepath.Join(root, filepath.Base(runID))); err != nil {
+			return err
+		}
+	}
+	return nil
 }

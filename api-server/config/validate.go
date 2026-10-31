@@ -65,12 +65,6 @@ func Validate(cfg *Config) error {
 	if cfg.API.WorkflowResyncInterval <= 0 {
 		return fmt.Errorf("api.workflowResyncInterval must be > 0")
 	}
-	if cfg.API.OperationDispatchInterval <= 0 {
-		return fmt.Errorf("api.operationDispatchInterval must be > 0")
-	}
-	if cfg.API.OperationLeaseDuration < 3*cfg.API.OperationDispatchInterval {
-		return fmt.Errorf("api.operationLeaseDuration must be at least 3x operationDispatchInterval")
-	}
 	if cfg.API.OperationMaxParallelism <= 0 {
 		return fmt.Errorf("api.operationMaxParallelism must be positive")
 	}
@@ -79,9 +73,6 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.API.AnsibleTaskQueue == "" || cfg.API.AnsibleTaskQueue == cfg.API.TemporalTaskQueue {
 		return fmt.Errorf("api.ansibleTaskQueue is required and must differ from api.temporalTaskQueue")
-	}
-	if cfg.API.TemporalStartInterval <= 0 {
-		return fmt.Errorf("api.temporalStartInterval must be > 0")
 	}
 	if cfg.API.AnsibleRunnerCommand == "" {
 		return fmt.Errorf("api.ansibleRunnerCommand is required")

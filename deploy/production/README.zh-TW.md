@@ -109,8 +109,8 @@ sudo ./swallowctl doctor
 ```
 
 `doctor` 會檢查 Dashboard 與 API、Temporal health、worker 是否 poll
-`swallow-operations` task queue、Ansible executor 是否執行且 `ansible-runner` 能跑附帶的
-`diagnostic-ping` playbook、MAAS API 與 `ubuntu/noble` boot resource、Control-Plane NTP
+`swallow-operations` task queue、Ansible executor 是否執行、是否 poll `swallow-ansible` task queue，
+且 `ansible-runner` 能跑附帶的 `diagnostic-ping` playbook、MAAS API 與 `ubuntu/noble` boot resource、Control-Plane NTP
 Server（UDP 123 有服務、MAAS 的上游等於 `SWALLOW_NTP_UPSTREAM` 或 default，以及是否跟隨該上游）、
 admin 登入、Deployment Key、Site automation、MAAS Integration 同步，以及 OS Image catalog 的
 `ubuntu/noble`，並列出尚未進入 terminal status
@@ -123,7 +123,8 @@ admin 登入、Deployment Key、Site automation、MAAS Integration 同步，以�
 1. 宣告的 Compose services 都在執行；
 2. Temporal cluster healthy；
 3. worker 在 `swallow-operations` task queue 同時有 workflow 與 activity poller；
-4. Ansible executor 進程在執行，且能跑附帶的 `diagnostic-ping` playbook；
+4. Ansible executor 進程在執行、在 `swallow-ansible` task queue 有 activity poller，且能跑附帶的
+   `diagnostic-ping` playbook；
 5. Dashboard 與 API 在 HTTP port 回應 `/readyz`；
 6. 共置 MAAS 的 API 回應、有 complete 的 `ubuntu/noble` 與 virsh SSH identity，
    Control-Plane NTP Server 以設定的上游提供 UDP 123，且安裝紀錄（admin 登入、Deployment

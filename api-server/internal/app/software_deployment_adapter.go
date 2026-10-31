@@ -25,9 +25,9 @@ const (
 	jobPrepareHosts   = "prepare-hosts"
 	jobRecordSoftware = "record-software"
 
-	// softwareInstallStepID is the ansible Task that installs (or uninstalls) the software. It
-	// carries the assignment identity so the software step observer can mark the assignment failed
-	// when this Task ends in a terminal failure and the record step never runs.
+	// softwareInstallStepID is the ansible Task that installs (or uninstalls) the software. An
+	// install declares the failure marking of its assignments, which covers a terminal failure
+	// after which the record step never runs.
 	softwareInstallStepID = "configure-software"
 	// softwareRecordStepID is the internal Task that flips the assignment to installed (install) or
 	// absent (uninstall) on success.
@@ -137,8 +137,8 @@ func softwareLabel(kind softwaredomain.Kind) string {
 
 // prepare is the shared install/uninstall composition: the lock check, playbook, and target
 // resolution read outside the store, and the Workflow is returned unwritten under a preassigned id.
-// recordKind selects the internal record step behaviour (mark installed vs absent); mode is
-// stamped on the ansible Task so the failure observer only marks assignments failed for an install.
+// recordKind selects the internal record step behaviour (mark installed vs absent); mode selects
+// whether the ansible Task declares the failure marking, which only an install does.
 func (l softwareDeploymentLauncher) prepare(
 	ctx context.Context,
 	launch softwareapp.SoftwareLaunch,
@@ -170,16 +170,12 @@ func (l softwareDeploymentLauncher) prepare(
 		},
 		{
 			ID: softwareInstallStepID, Kind: "ansible-playbook",
-			Name:      summary,
-			Job:       "configure-" + string(launch.Kind),
-			Executor:  workflowdomain.RunnerKindAnsible,
-			DependsOn: []string{softwareWaitStepID},
-			Targets:   prepared.Targets,
-			Parameters: map[string]any{
-				"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars,
-				"softwareKind": string(launch.Kind), "serverIds": launch.ServerIDs,
-				"softwareMode": mode,
-			},
+			Name:       summary,
+			Job:        "configure-" + string(launch.Kind),
+			Executor:   workflowdomain.RunnerKindAnsible,
+			DependsOn:  []string{softwareWaitStepID},
+			Targets:    prepared.Targets,
+			Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 			Completion: installCompletions(mode, launch.Kind, launch.ServerIDs),
 		},
 		{

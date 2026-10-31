@@ -24,8 +24,8 @@ import (
 
 // platformUninstallFinalizer clears a Platform's projections after a successful uninstall, and
 // removes its record when deleteRecord is set. It is the completion hook for the
-// release-and-uninstall path, whose workflow has no ansible step (the usual AnsibleStepSucceeded
-// trigger), so this narrow port lets the internal complete-uninstall step run the same cleanup
+// release-and-uninstall path, whose workflow has no ansible step (whose platform-uninstall
+// completion does it otherwise), so this narrow port lets the internal complete-uninstall step run the same cleanup
 // keyed only by platform id. Implementations must treat an already-deleted Platform as success.
 type platformUninstallFinalizer interface {
 	CompleteUninstall(ctx context.Context, platformID string, deleteRecord bool) error

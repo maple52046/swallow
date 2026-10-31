@@ -7,10 +7,8 @@ import (
 
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
-	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
-	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // runReconciler polls every enabled provisioner on an interval until ctx is cancelled.
@@ -160,38 +158,6 @@ func runSoftwareAssignmentSweep(ctx context.Context, sweeper *softwareapp.Softwa
 			return
 		case <-ticker.C:
 			sweepOnce()
-		}
-	}
-}
-
-// runDeploymentProjectionRepair settles Server Deployment results stranded in deploying or
-// verifying after their Workflow ended (see repairStuckDeploymentProjections), until ctx is
-// cancelled. It runs once at startup so a Server stranded before a restart or upgrade is settled
-// immediately, then shares the reconcile cadence: once the result is canceled, the next reconcile
-// pass can clear it when the provider is back at ready or allocated. A failed sweep is logged and
-// retried on the next tick.
-func runDeploymentProjectionRepair(
-	ctx context.Context,
-	servers serverdomain.ServerRepository,
-	operations workflowdomain.WorkflowRepository,
-	interval time.Duration,
-) {
-	repairOnce := func() {
-		if err := repairStuckDeploymentProjections(ctx, servers, operations); err != nil && ctx.Err() == nil {
-			log.Printf("deployment projection repair: sweep incomplete: %v", err)
-		}
-	}
-
-	repairOnce()
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("deployment projection repair stopped")
-			return
-		case <-ticker.C:
-			repairOnce()
 		}
 	}
 }

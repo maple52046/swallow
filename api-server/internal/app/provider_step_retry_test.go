@@ -241,6 +241,45 @@ func TestDeploymentRetryLeavesOtherStatesToTheirOwnRules(t *testing.T) {
 	}
 }
 
+// DF-03: a first attempt that may already have started its deployment (a later dispatch resumed
+// it, or the activity retried) observes the provider and reports what it sees. Only an operator's
+// retry may release the Server and redeploy; before, a resumed attempt submitted a second
+// deployment, and an activity retry of a deployed Server without an address released it.
+func TestResumedFirstAttemptOnlyObserves(t *testing.T) {
+	resumed := provisionStep(1, 1)
+	resumed.Resumed = true
+	tests := []struct {
+		name         string
+		state        provisioningdomain.MachineStatus
+		distroSeries string
+		step         temporalworkflow.StepExecutionInput
+		wantCode     string
+	}{
+		{name: "resumed attempt reports the failed deployment", state: provisioningdomain.MachineStatusFailed,
+			step: resumed, wantCode: "deployment_failed"},
+		{name: "resumed attempt observes a deployed Server without an address", state: provisioningdomain.MachineStatusDeployed,
+			distroSeries: retryTestImage, step: resumed, wantCode: "deployment_address_unavailable"},
+		{name: "activity retry observes a deployed Server without an address", state: provisioningdomain.MachineStatusDeployed,
+			distroSeries: retryTestImage, step: provisionStep(1, 2), wantCode: "deployment_address_unavailable"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			executor, _, provider, release, deployments := retryHarness(tc.state, tc.distroSeries)
+			executor.readinessWait = time.Millisecond
+
+			result := executor.Execute(context.Background(), tc.step)
+
+			if result.Status != workflowdomain.TaskFailed || result.Error == nil || result.Error.Code != tc.wantCode || !result.Error.Retryable {
+				t.Fatalf("result = %+v (error %+v), want a retryable %s", result, result.Error, tc.wantCode)
+			}
+			if release.calls != 0 || provider.markFixed != 0 || deployments.calls != 0 {
+				t.Errorf("provider writes = %d releases, %d mark fixed, %d deployments; want none",
+					release.calls, provider.markFixed, deployments.calls)
+			}
+		})
+	}
+}
+
 // TestDeploymentRetryRefusesLayoutThatNeedsInspection reproduces the second lab-afde-mi308-3
 // failure: each retry released the Machine and redeployed onto a storage layout that cannot boot
 // UEFI, failing in curtin the same way. A disk retry now ends before Recover with a non-retryable

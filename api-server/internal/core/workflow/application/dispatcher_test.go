@@ -52,7 +52,7 @@ func newDispatcherFixture(t *testing.T, workflows ...*workflowdomain.Workflow) (
 	t.Helper()
 	f := newEngineFixture(t, 4, workflows...)
 	executor := &fakeExecutor{running: map[string]bool{}}
-	return NewDispatcher(f.workflows, f.engine, executor, 0, false), f, executor
+	return NewDispatcher(f.workflows, f.engine, executor, 0), f, executor
 }
 
 func currentWorkflow(id string) *workflowdomain.Workflow {
@@ -81,11 +81,16 @@ func TestDispatcher_DispatchesANewWorkflowOnce(t *testing.T) {
 	}
 }
 
-func TestDispatcher_LeavesAnEarlierDriversWorkflowToIt(t *testing.T) {
-	d, _, executor := newDispatcherFixture(t, newWorkflow("legacy", pendingTask("a", "deploy", workflowdomain.RunnerKindProvisioner)))
+// A Workflow accepted before decision 072 (schema v9 leaves its dispatch empty) is adopted: it is
+// dispatched to the current driver, which resumes it from the store.
+func TestDispatcher_AdoptsAnEarlierDriversWorkflow(t *testing.T) {
+	legacy := newWorkflow("legacy", pendingTask("a", "deploy", workflowdomain.RunnerKindProvisioner))
+	legacy.Temporal.RunID = "old-run"
+	d, f, executor := newDispatcherFixture(t, legacy)
 	reconcile(t, d, "legacy", convergence.TriggerResync)
-	if len(executor.starts) != 0 {
-		t.Fatalf("starts = %v, want none for a Workflow of an earlier driver", executor.starts)
+	w := f.workflows.get(t, "legacy")
+	if len(executor.starts) != 1 || w.Dispatch.Driver != workflowdomain.DriverVersion || w.Dispatch.Generation != 1 {
+		t.Fatalf("starts %v, dispatch %+v; want one start on the current driver at generation 1", executor.starts, w.Dispatch)
 	}
 }
 

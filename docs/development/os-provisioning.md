@@ -604,7 +604,7 @@ Operation 也不能同時宣告同一台 Server。把 provider 失敗改成不�
 | `provisioner` Runner（`provision-os`、`release-os`、`recover-server`、Retry 回復） | `internal/app/provider_step_executor.go` |
 | 部署進度與 stage stall | `internal/app/deployment_progress.go` |
 | 驗證紀錄 Task（`record-image-verification*`） | `internal/app/platform_workflow_step_executor.go` |
-| 取消驗證時的歸還 | `internal/adapters/executor/temporalworkflow/workflow.go`（`compensateVerifyCancel`） |
+| 取消驗證時的歸還 | `internal/app/provisioning_operation_adapter.go`（`recover-server` 宣告 `OnCancel: {Run: true}`）、`internal/adapters/executor/temporalworkflow/driver.go`（`cancelWorkflow`） |
 | MAAS adapter（狀態對應、網路、上傳、event、grouping、proxy、subnet DNS） | `internal/adapters/osprovisioning/maas/`（`mapping.go`、`network.go`、`provider.go`、`events.go`、`grouping.go`、`http_proxy.go`、`subnet_dns.go`） |
 | Zone／Pool 與 placement | `internal/core/infrastructure/application/service.go`、`internal/core/infrastructure/application/catalog_controller.go`、`internal/core/provisioning/application/server_controller.go`（`serverPlacement`）、`internal/app/grouping_adapters.go` |
 | 上傳的 request body 上限 | `config/defaults.go`、`config/env.go`（`SWALLOW_API_IMAGE_UPLOAD_MAX_BYTES`） |

@@ -93,10 +93,10 @@ services:
         UID: ${DEV_UID:-1001}
         GID: ${DEV_GID:-1001}
     restart: unless-stopped
+    # The API stores Workflows and their commands; only the worker and the ansible-executor
+    # connect to Temporal (decision 072).
     depends_on:
       mongo:
-        condition: service_healthy
-      temporal:
         condition: service_healthy
     # This api-server runs on the default bridge network, where `localhost` means the
     # container itself. Map host.docker.internal to the host gateway so an integration
@@ -120,14 +120,9 @@ services:
       SWALLOW_API_CREDENTIAL_KEY: "${SWALLOW_API_CREDENTIAL_KEY:-K7i9npJw/Fx/XbU31LyNx4vOFKFFV7PmJT0XW8eH8/s=}"
       # Static bearer token for machine-to-machine discovery.
       SWALLOW_API_MACHINE_TOKEN: "${SWALLOW_API_MACHINE_TOKEN:-dev-machine-token}"
-      # Reconciliation, hardware inventory, and embedded-operation dispatch cadence.
+      # Reconciliation and hardware inventory cadence.
       SWALLOW_API_RECONCILE_INTERVAL: "${SWALLOW_API_RECONCILE_INTERVAL:-30s}"
       SWALLOW_API_INVENTORY_INTERVAL: "${SWALLOW_API_INVENTORY_INTERVAL:-15m}"
-      SWALLOW_API_OPERATION_DISPATCH_INTERVAL: "${SWALLOW_API_OPERATION_DISPATCH_INTERVAL:-1s}"
-      SWALLOW_API_OPERATION_LEASE_DURATION: "${SWALLOW_API_OPERATION_LEASE_DURATION:-90s}"
-      SWALLOW_API_TEMPORAL_ADDRESS: "temporal:7233"
-      SWALLOW_API_TEMPORAL_NAMESPACE: "default"
-      SWALLOW_API_TEMPORAL_TASK_QUEUE: "swallow-operations"
       SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_RETENTION: "${SWALLOW_API_JOB_ARTIFACT_RETENTION:-720h}"
@@ -187,14 +182,10 @@ services:
       SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD: "${SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD:-admin}"
       SWALLOW_API_CREDENTIAL_KEY: "${SWALLOW_API_CREDENTIAL_KEY:-K7i9npJw/Fx/XbU31LyNx4vOFKFFV7PmJT0XW8eH8/s=}"
       SWALLOW_API_MACHINE_TOKEN: "${SWALLOW_API_MACHINE_TOKEN:-dev-machine-token}"
-      SWALLOW_API_OPERATION_DISPATCH_INTERVAL: "${SWALLOW_API_OPERATION_DISPATCH_INTERVAL:-1s}"
-      SWALLOW_API_OPERATION_LEASE_DURATION: "${SWALLOW_API_OPERATION_LEASE_DURATION:-90s}"
       SWALLOW_API_TEMPORAL_ADDRESS: "temporal:7233"
       SWALLOW_API_TEMPORAL_NAMESPACE: "default"
       SWALLOW_API_TEMPORAL_TASK_QUEUE: "swallow-operations"
       SWALLOW_API_ANSIBLE_TASK_QUEUE: "swallow-ansible"
-      SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
-      SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
       # Hardware inspection resolves a Server's Boot ISO when its ensure-boot-media Task runs
       # (decision 053), so the worker sees the Boot ISO files and their URL like the API does.
       SWALLOW_API_BOOT_MEDIA_DIR: "/var/lib/swallow/boot-media"
@@ -205,7 +196,6 @@ services:
     volumes:
       - ../../api-server:/app
       - ./air-worker.toml:/etc/swallow/air.toml:ro
-      - job-artifacts:/var/lib/swallow/jobs
       - ./boot-media:/var/lib/swallow/boot-media:ro
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/go/cache
@@ -234,8 +224,6 @@ services:
       SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD: "${SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD:-admin}"
       SWALLOW_API_CREDENTIAL_KEY: "${SWALLOW_API_CREDENTIAL_KEY:-K7i9npJw/Fx/XbU31LyNx4vOFKFFV7PmJT0XW8eH8/s=}"
       SWALLOW_API_MACHINE_TOKEN: "${SWALLOW_API_MACHINE_TOKEN:-dev-machine-token}"
-      SWALLOW_API_OPERATION_DISPATCH_INTERVAL: "${SWALLOW_API_OPERATION_DISPATCH_INTERVAL:-1s}"
-      SWALLOW_API_OPERATION_LEASE_DURATION: "${SWALLOW_API_OPERATION_LEASE_DURATION:-90s}"
       SWALLOW_API_TEMPORAL_ADDRESS: "temporal:7233"
       SWALLOW_API_TEMPORAL_NAMESPACE: "default"
       SWALLOW_API_TEMPORAL_TASK_QUEUE: "swallow-operations"

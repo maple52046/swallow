@@ -33,8 +33,9 @@ import (
 	"github.com/maple52046/swallow/modules/platform/platformapi"
 )
 
-// RunAnsibleExecutor owns all v3 ansible-runner processes. Stopping this process leaves
-// running queue leases to expire as requires_attention instead of guessing an outcome.
+// RunAnsibleExecutor owns every ansible-runner process: it is the Temporal worker of the Ansible
+// task queue (decision 072). Stopping it ends its single-attempt activities, whose Tasks become
+// requires_attention instead of guessing an outcome.
 func RunAnsibleExecutor(cfg config.APIConfig) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -61,10 +62,6 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		return err
 	}
 	servers, err := serverstore.NewMongoServerRepo(db)
-	if err != nil {
-		return err
-	}
-	executions, err := workflowstore.NewMongoAnsibleExecutionRepo(db)
 	if err != nil {
 		return err
 	}
@@ -129,20 +126,8 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	durable := workflowapp.NewWorkflowService(transactor, orchestrations, workflowPlanCatalog(), operationSecrets)
 	operationService := workflowapp.NewExecutionService(legacyOperations, servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
 	operationService.AttachWorkflow(durable)
-	legacyCompletion := platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers}
-	results := workflowResults(legacyCompletion)
-	if err := (workflowapp.CompletionHandlers{Results: results}).Require(workflowPlanCatalog(), workflowdomain.CompletionResult); err != nil {
-		return err
-	}
-	completion := declaredResultsObserver{workflows: orchestrations, results: results, legacy: legacyCompletion}
-	leases := workflowstore.NewMongoResourceLeaseRepo(db)
-	queue := workflowapp.NewAnsibleQueueWorker(
-		executions, configurations, catalog, runner, ansibleEvents,
-		executionInventoryAdapter{discovery: discovery}, protection, leases, completion,
-		cfg.OperationDispatchInterval, cfg.OperationLeaseDuration, cfg.OperationMaxParallelism, operationSecrets,
-	)
-	// Ansible Tasks of the store-driven driver (decision 072) arrive as Temporal activities on the
-	// executor's own task queue; the queue above keeps serving Workflows of the earlier driver.
+	results := workflowResults(platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers})
+	// Ansible Tasks arrive as Temporal activities on the executor's own task queue (decision 072).
 	temporalClient, err := dialTemporal(ctx, client.Options{HostPort: cfg.TemporalAddress, Namespace: cfg.TemporalNamespace}, temporalDialTimeout)
 	if err != nil {
 		return fmt.Errorf("temporal connect: %w", err)
@@ -153,7 +138,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		return fmt.Errorf("resource ownership repo: %w", err)
 	}
 	engine, err := workflowapp.NewEngine(transactor, orchestrations, ownership, workflowPlanCatalog(), workflowapp.CompletionHandlers{
-		Projections: workflowProjections(servers, softwareAssignments, platforms), Results: results,
+		Projections: workflowProjections(servers, softwareAssignments, platforms, platforms, platforms), Results: results,
 	}, cfg.OperationMaxParallelism)
 	if err != nil {
 		return err
@@ -178,7 +163,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	defer ansibleWorker.Stop()
 	slog.Info("Ansible executor started", "parallelism", cfg.OperationMaxParallelism, "artifactDir", cfg.JobArtifactDir,
 		"taskQueue", cfg.AnsibleTaskQueue)
-	queue.Run(ctx)
+	<-ctx.Done()
 	return nil
 }
 
@@ -197,36 +182,4 @@ func (e ansibleTaskExecutor) Execute(ctx context.Context, input temporalworkflow
 		Status: outcome.Status, Progress: outcome.Progress, WaitingReason: outcome.WaitingReason, Error: outcome.Error,
 		ExternalExecution: outcome.ExternalExecution, Artifacts: outcome.Artifacts, Data: outcome.Data,
 	}
-}
-
-// declaredResultsObserver runs the result completions an Ansible Task of a current-driver Workflow
-// declares (decision 072), with the playbook's result data; a Workflow of the earlier driver keeps
-// its observer.
-type declaredResultsObserver struct {
-	workflows workflowdomain.WorkflowRepository
-	results   map[string]workflowapp.ResultHandler
-	legacy    workflowapp.StepCompletionObserver
-}
-
-// AnsibleStepSucceeded implements workflowapp.StepCompletionObserver.
-func (o declaredResultsObserver) AnsibleStepSucceeded(ctx context.Context, execution *workflowdomain.AnsibleExecution, result workflowdomain.RunnerResult) error {
-	w, err := o.workflows.FindByID(ctx, execution.OperationID)
-	if err != nil || w.Dispatch.Driver != workflowdomain.DriverVersion {
-		return o.legacy.AnsibleStepSucceeded(ctx, execution, result)
-	}
-	for _, task := range w.Steps {
-		if task.ID != execution.StepID {
-			continue
-		}
-		for _, completion := range task.Completion {
-			handler := o.results[completion.Type]
-			if handler == nil {
-				continue
-			}
-			if err := handler.Complete(ctx, workflowapp.TaskResult{Workflow: w, Task: task, Completion: completion, Data: result.Data}); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }

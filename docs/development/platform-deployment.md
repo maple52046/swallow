@@ -330,7 +330,7 @@ per-Task，故分組後即與 deploy 一致，無需另外處理。Release 捷�
 
 **Release 捷徑**（[ADR 022](../decisions/022-uninstall-release-shortcut.md)）：release 會清除 OS，所以帶 `releaseServers`
 時不跑 platform 軟體的 uninstall playbook，直接並行 release 每台成員。`complete-uninstall` 做的就是保留主機路徑上
-`uninstall-platform` 成功時由 completion observer（`AnsibleStepSucceeded`）做的投影清理（`CompleteUninstall`，§2.5），
+`uninstall-platform` 成功時由結果類完成行為 `platform-uninstall` 做的投影清理（`CompleteUninstall`，§2.5），
 只需要 Platform id、不帶 ansible result；released 主機已被清除，所以不還原 exporter。保留主機的路徑不變。
 
 - 只用於整個 Platform 的 uninstall。未來的 scale-in 必須先把節點從叢集移除（drain／remove）再 release，不沿用此捷徑。
@@ -922,7 +922,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   labels、`cluster_name`、`HealthService` 與 profiler（預設關，`swallow_device_metrics_exporter_profiler`）。
   `dme-identity-check` 比對 KFD GPU 數、`gpu_nodes_total`、health series 與 distinct `gpu_id`，result 寫
   `{grafanaUrl, gpuIdentity, nodes}`；completion 寫入 link 與 `gpuIdentity`（fence＝record id），
-  `deviceMetricsExporterStepObserver` 投影 state。collapsed 不使 Task 失敗；沒有 GPU health series 才失敗
+  `device-metrics-exporter-state` 完成行為投影 state。collapsed 不使 Task 失敗；沒有 GPU health series 才失敗
   （`[device_metrics_exporter_no_metrics]`）。
 
   launcher（`planSlurmComposition`）在 `install-platform` 之後組入（依序依賴前一個 record Task）：
@@ -937,10 +937,10 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   （DME 時最後一列改為 `configure-device-metrics-exporter`：`install-device-metrics-exporter` →
   `record-device-metrics-exporter`，ansible 目標＝全部 targets、assignment＝GPU compute。）
 
-  `omnistatStepObserver` 把 `install-omnistat` 的狀態投影成 Omnistat State（fence＝record id），
-  `AnsibleStepSucceeded` 讀 result 寫入 Monitoring Link `Omnistat Grafana`。同一 Workflow 的所有 ansible
-  execution 都帶 `configure-slurm` kind，所以 completion 依 **Task id** 分流（只有 `install-platform` 產
-  slurmrestd credential）。uninstall 移除 exporter、overlay、dispatcher 與 hook、DME 套件與設定、OCI 與 PMIx
+  `install-omnistat` 宣告投影類完成行為 `omnistat-state`，把狀態投影成 Omnistat State（fence＝record id），
+  以及結果類完成行為 `omnistat-result`，讀 result 寫入 Monitoring Link `Omnistat Grafana`。完成行為由
+  launcher 宣告在各 Task 上（只有 `install-platform` 宣告 `slurm-credential`，產 slurmrestd credential），
+  不再依 Workflow kind 或 Task id 分流（decision 072）。uninstall 移除 exporter、overlay、dispatcher 與 hook、DME 套件與設定、OCI 與 PMIx
   的 Swallow 產物、Slurm 的 amdgpu loader 與 udev 規則，state → `absent` 並移除 link；成功時把該 Platform 各
   Server 的 `device-metrics-exporter` assignment 標為 `absent`（`CompleteUninstall`，於釋放 claim 之前讀出
   claimed Servers）；container runtime／Prometheus／Grafana 的 assignment 保留。

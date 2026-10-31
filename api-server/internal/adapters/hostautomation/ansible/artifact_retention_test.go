@@ -3,11 +3,12 @@ package ansible
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
 
-func TestPruneArtifactsRemovesOnlyExpiredDirectories(t *testing.T) {
+func TestArtifactRetentionRemovesOnlyExpiredDirectories(t *testing.T) {
 	root := t.TempDir()
 	oldDir := filepath.Join(root, "old-run")
 	freshDir := filepath.Join(root, "fresh-run")
@@ -22,12 +23,15 @@ func TestPruneArtifactsRemovesOnlyExpiredDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	removed, err := PruneArtifacts(root, time.Now().Add(-30*24*time.Hour))
+	expired, err := ExpiredArtifacts(root, time.Now().Add(-30*24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if removed != 1 {
-		t.Fatalf("removed = %d, want 1", removed)
+	if !reflect.DeepEqual(expired, []string{"old-run"}) {
+		t.Fatalf("expired = %v, want [old-run]", expired)
+	}
+	if err := RemoveArtifacts(root, expired); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
 		t.Fatalf("old artifact still exists: %v", err)

@@ -39,8 +39,8 @@ const (
 	restoreExportersVar    = "swallow_restore_ansible_exporters"
 	platformNameVar        = "swallow_platform_name"
 	// deletePlatformRecordVar carries the uninstall's deleteRecord choice on the Operation's
-	// trusted vars, where the kept-servers completion hook (AnsibleStepSucceeded, or the legacy
-	// observer) reads it back. The uninstall playbooks ignore it.
+	// trusted vars, where the kept-servers completion (platform-uninstall) reads it back. The
+	// uninstall playbooks ignore it.
 	deletePlatformRecordVar = "swallow_delete_platform_record"
 )
 
@@ -638,7 +638,7 @@ const uninstallPlatformStepID = "uninstall-platform"
 
 // completeUninstallStepID is the internal finalize step used when the uninstall also releases
 // the servers: releasing wipes the OS, so the platform-software uninstall is skipped and this
-// step performs the Platform projection cleanup that AnsibleStepSucceeded would otherwise do.
+// step performs the Platform projection cleanup the platform-uninstall completion would otherwise do.
 const completeUninstallStepID = "complete-uninstall"
 
 func (l platformDeploymentLauncher) LaunchUninstall(
@@ -730,8 +730,8 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 
 // uninstallSteps composes the durable uninstall Tasks.
 //
-// When the servers are kept, it is the single ansible uninstall step (whose AnsibleStepSucceeded
-// hook clears projections and restores exporters). When the servers are released, it skips that
+// When the servers are kept, it is the single ansible uninstall step (whose platform-uninstall
+// completion clears projections and restores exporters). When the servers are released, it skips that
 // step entirely - releasing wipes the OS, so removing the platform software first is redundant
 // and can fail on a half-gone node - and instead releases every member in parallel, then runs an
 // internal complete-uninstall finalize step that depends on all releases and performs the
@@ -775,8 +775,8 @@ func uninstallSteps(
 		})
 		releaseDeps = append(releaseDeps, stepID)
 	}
-	// Internal finalize step: v3 Platform completion is otherwise tied to the ansible step
-	// (AnsibleStepSucceeded), which this path omits, so this clears the Platform's membership,
+	// Internal finalize step: Platform completion is otherwise the ansible step's
+	// platform-uninstall completion, and this path omits that step, so this clears the Platform's membership,
 	// owned credential Integration, and sync projection once every release succeeds, and removes
 	// the record when the operator asked for it. Exporter restoration stays off (a released host
 	// is wiped).
@@ -836,8 +836,8 @@ func (o platformDeploymentObserver) completeDeployment(
 // completeSlurmDeployment records the slurmrestd reader credential a successful Slurm
 // deployment wrote to its result file, turning the platform into one swallow can read
 // membership from. A missing credential is logged rather than fatal here because the
-// operation has already succeeded; the per-step AnsibleStepSucceeded hook is the path that
-// fails the run when no credential is produced.
+// operation has already succeeded; the install Task's credential completion is the path that
+// fails the Task when no credential is produced.
 func (o platformDeploymentObserver) completeSlurmDeployment(
 	ctx context.Context,
 	operation *workflowdomain.ExecutionOperation,
@@ -846,7 +846,7 @@ func (o platformDeploymentObserver) completeSlurmDeployment(
 	credential := slurmCredentialFromResult(result)
 	if credential == nil {
 		// Not an error: a Slurm cluster works without slurmrestd; membership simply cannot be
-		// read until the image includes slurm-smd-slurmrestd. See AnsibleStepSucceeded.
+		// read until the image includes slurm-smd-slurmrestd. See the slurm-credential completion.
 		slog.Warn("slurm deployment produced no reader credential; membership will not populate until slurmrestd is available",
 			"operationId", operation.ID, "platformId", operation.PlatformID)
 		return
@@ -945,7 +945,7 @@ func slurmCredentialFromResult(result workflowdomain.RunnerResult) *platformapp.
 // completeOmnistat records the Grafana URL a successful configure-omnistat run wrote to its result
 // file as the Platform's `Omnistat Grafana` Monitoring Link. A missing URL fails the Task, because
 // the playbook writes it only after Prometheus reported every exporter up; the Omnistat State
-// itself is projected by omnistatStepObserver.
+// itself is projected by the omnistat-state completion.
 func (o platformDeploymentObserver) completeOmnistat(
 	ctx context.Context,
 	platformID string,
@@ -967,7 +967,7 @@ func (o platformDeploymentObserver) completeOmnistat(
 // the playbook writes it only after Prometheus reported every exporter up; a missing or unknown
 // identity is recorded as collapsed, never as distinct. The identity is fenced on the record id the
 // deploy use case put in the run's variables (the same id the State is fenced on), falling back to
-// this Workflow; the State itself is projected by deviceMetricsExporterStepObserver.
+// this Workflow; the State itself is projected by the device-metrics-exporter-state completion.
 func (o platformDeploymentObserver) completeDeviceMetricsExporter(
 	ctx context.Context,
 	platformID, workflowID string,
@@ -995,67 +995,6 @@ func stringField(data map[string]any, key string) string {
 		return value
 	}
 	return ""
-}
-
-// AnsibleStepSucceeded adapts a v3 queue result to the same Platform completion policy
-// used by historical v2 executions.
-func (o platformDeploymentObserver) AnsibleStepSucceeded(
-	ctx context.Context,
-	execution *workflowdomain.AnsibleExecution,
-	result workflowdomain.RunnerResult,
-) error {
-	if execution.PlatformID == "" {
-		return nil
-	}
-	operation := &workflowdomain.ExecutionOperation{
-		ID: execution.OperationID, Kind: execution.Kind, SiteID: execution.SiteID,
-		PlatformID: execution.PlatformID, TargetServerIDs: execution.TargetServerIDs,
-		ExtraVars: execution.ExtraVars,
-	}
-	switch execution.Kind {
-	case workflowdomain.WorkflowKindDeployKubernetes:
-		// An execution carries its Workflow's kind, so the GPU Operator Task and the ensure-os time
-		// Tasks of a deploy arrive here too. Only the k0s install produces the credential; the GPU
-		// Task's own outcome is projected by gpuOperatorStepObserver, and the time Tasks have
-		// nothing to record.
-		if execution.StepID == gpuOperatorStepID || isTimeTask(execution.StepID) {
-			return nil
-		}
-		credential := platformCredentialFromResult(result)
-		if credential == nil {
-			return fmt.Errorf("deployment returned no Kubernetes credential")
-		}
-		return o.credentials.Record(ctx, execution.PlatformID, *credential)
-	case workflowdomain.WorkflowKindConfigureSlurm:
-		// A Slurm Workflow with a container runtime or a monitoring feature also runs composed
-		// software Tasks and the feature's Task (decisions 063 and 066), and its ensure-os Job runs
-		// the time Tasks (decision 065); their executions carry the Workflow's kind too. Only
-		// install-platform produces the slurmrestd credential, and only the feature's Task reports
-		// its Grafana URL.
-		switch execution.StepID {
-		case installPlatformStepID:
-		case omnistatStepID:
-			return o.completeOmnistat(ctx, execution.PlatformID, result)
-		case deviceMetricsExporterStepID:
-			return o.completeDeviceMetricsExporter(ctx, execution.PlatformID, execution.OperationID, execution.ExtraVars, result)
-		default:
-			return nil
-		}
-		credential := slurmCredentialFromResult(result)
-		if credential == nil {
-			// A Slurm cluster (slurmctld + slurmd) is fully functional without slurmrestd, which
-			// only powers membership reads. Its absence is not a deploy failure: the platform is
-			// deployed with no reader integration, and membership stays empty until the image
-			// includes slurm-smd-slurmrestd. Do not fail the operation over it.
-			slog.Warn("slurm deployment produced no reader credential; membership will not populate until slurmrestd is available",
-				"operationId", execution.OperationID, "platformId", execution.PlatformID)
-			return nil
-		}
-		return o.credentials.RecordSlurm(ctx, execution.PlatformID, *credential)
-	case workflowdomain.WorkflowKindUninstallKubernetes, workflowdomain.WorkflowKindUninstallSlurm:
-		return o.finishUninstall(ctx, operation)
-	}
-	return nil
 }
 
 // finishUninstall finishes a platform uninstall whose playbook succeeded: it removes the

@@ -117,8 +117,8 @@ sudo ./swallowctl doctor
 ```
 
 `doctor` checks the Dashboard and API, Temporal health, that the worker polls the
-`swallow-operations` task queue, that the Ansible executor runs and `ansible-runner` executes
-the shipped `diagnostic-ping` playbook, the MAAS API and its `ubuntu/noble` boot resource,
+`swallow-operations` task queue, that the Ansible executor runs, polls the `swallow-ansible` task
+queue, and `ansible-runner` executes the shipped `diagnostic-ping` playbook, the MAAS API and its `ubuntu/noble` boot resource,
 the Control-Plane NTP Server (UDP 123 served, MAAS's upstream equals `SWALLOW_NTP_UPSTREAM` or the
 default, and whether it follows that upstream), the admin login, the Deployment Key, Site
 automation, the MAAS Integration sync, and the `ubuntu/noble` entry in the OS Image catalog. It also prints how many Workflows have not reached a terminal status. It deploys
@@ -131,7 +131,8 @@ The installation's desired state is the contract `doctor` checks:
 1. every declared Compose service runs;
 2. the Temporal cluster is healthy;
 3. the worker polls the `swallow-operations` task queue with workflow and activity pollers;
-4. the Ansible executor process runs and executes the shipped `diagnostic-ping` playbook;
+4. the Ansible executor process runs, polls the `swallow-ansible` task queue with an activity
+   poller, and executes the shipped `diagnostic-ping` playbook;
 5. the Dashboard and API answer `/readyz` on the HTTP port;
 6. the co-located MAAS answers with a complete `ubuntu/noble` and its virsh SSH identity, the
    Control-Plane NTP Server serves UDP 123 with the configured upstream, and the installation

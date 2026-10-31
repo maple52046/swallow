@@ -27,9 +27,6 @@ type Engine struct {
 	handlers    CompletionHandlers
 	maxParallel int
 	now         func() time.Time
-	// observers see every Task transition, inside its transaction, for read models that have no
-	// declaration yet.
-	observers []TaskObserver
 }
 
 // ProjectionHandler applies one projection completion. It runs inside the transaction of every
@@ -44,12 +41,6 @@ type ProjectionHandler interface {
 // retryable completion_failed, so a retry runs the Task and the handler again.
 type ResultHandler interface {
 	Complete(ctx context.Context, result TaskResult) error
-}
-
-// TaskObserver sees every Task transition inside its transaction. It exists for read models that
-// are not declared as completions yet; it must only write the store.
-type TaskObserver interface {
-	ObserveStep(ctx context.Context, workflowID string, task workflowdomain.Task) error
 }
 
 // TaskTransition is a Task after one transition, with the Workflow it belongs to and the
@@ -135,11 +126,6 @@ func NewEngine(
 		transactor: transactor, workflows: workflows, ownership: ownership, catalog: catalog,
 		handlers: handlers, maxParallel: maxParallel, now: func() time.Time { return time.Now().UTC() },
 	}, nil
-}
-
-// AttachObservers adds observers that see every Task transition.
-func (e *Engine) AttachObservers(observers ...TaskObserver) {
-	e.observers = append(e.observers, observers...)
 }
 
 // TaskRef identifies one attempt of one Task as started by one dispatch generation.
@@ -688,8 +674,8 @@ func (e *Engine) setStatus(ctx context.Context, w *workflowdomain.Workflow, stat
 	})
 }
 
-// transition records one Task transition: its timeline event, its declared projections, and the
-// observers, all inside the caller's transaction.
+// transition records one Task transition: its timeline event and its declared projections, inside
+// the caller's transaction.
 func (e *Engine) transition(ctx context.Context, w *workflowdomain.Workflow, index int) error {
 	task := w.Steps[index]
 	details := map[string]any{"status": string(task.Status), "attempt": task.Attempt}
@@ -712,11 +698,6 @@ func (e *Engine) transition(ctx context.Context, w *workflowdomain.Workflow, ind
 		}
 		if err := e.handlers.Projections[completion.Type].Project(ctx, TaskTransition{Workflow: w, Task: task, Completion: completion}); err != nil {
 			return fmt.Errorf("project %s of task %s: %w", completion.Type, task.ID, err)
-		}
-	}
-	for _, observer := range e.observers {
-		if err := observer.ObserveStep(ctx, w.ID, task); err != nil {
-			return err
 		}
 	}
 	return nil

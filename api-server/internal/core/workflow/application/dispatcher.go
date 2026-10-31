@@ -58,7 +58,6 @@ type Dispatcher struct {
 	engine    *Engine
 	executor  WorkflowExecutor
 	resync    time.Duration
-	adopt     bool
 }
 
 var (
@@ -66,10 +65,9 @@ var (
 	_ convergence.ResyncPeriod = (*Dispatcher)(nil)
 )
 
-// NewDispatcher builds the controller; resync is its own resync interval. With adoptLegacy false
-// it leaves Workflows of an earlier driver to that driver.
-func NewDispatcher(workflows workflowdomain.WorkflowRepository, engine *Engine, executor WorkflowExecutor, resync time.Duration, adoptLegacy bool) *Dispatcher {
-	return &Dispatcher{workflows: workflows, engine: engine, executor: executor, resync: resync, adopt: adoptLegacy}
+// NewDispatcher builds the controller; resync is its own resync interval.
+func NewDispatcher(workflows workflowdomain.WorkflowRepository, engine *Engine, executor WorkflowExecutor, resync time.Duration) *Dispatcher {
+	return &Dispatcher{workflows: workflows, engine: engine, executor: executor, resync: resync}
 }
 
 // Name implements convergence.Controller.
@@ -113,11 +111,8 @@ func (d *Dispatcher) Reconcile(ctx context.Context, request convergence.Request)
 	if w.Status.Terminal() {
 		return nil
 	}
-	legacy := w.Dispatch.Driver != workflowdomain.DriverVersion
 	switch {
-	case legacy && !d.adopt:
-		return nil
-	case legacy || w.Dispatch.Generation == 0:
+	case w.Dispatch.Driver != workflowdomain.DriverVersion || w.Dispatch.Generation == 0:
 		return d.dispatch(ctx, w.ID)
 	case w.Temporal.RunID == "":
 		return d.start(ctx, w.ID, w.Dispatch.Generation)

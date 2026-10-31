@@ -80,6 +80,15 @@ func (r *MongoAnsibleEventRepo) AppendEvents(ctx context.Context, events []workf
 	return nil
 }
 
+// DeleteRuns removes every streamed event of the given runs, whose artifacts retention removed.
+func (r *MongoAnsibleEventRepo) DeleteRuns(ctx context.Context, runIDs []string) error {
+	if len(runIDs) == 0 {
+		return nil
+	}
+	_, err := r.col.DeleteMany(ctx, bson.M{"runId": bson.M{"$in": runIDs}})
+	return err
+}
+
 // ListEvents returns a run's streamed task events in ascending ordinal order. A run with no
 // streamed events yet returns an empty slice, not an error.
 func (r *MongoAnsibleEventRepo) ListEvents(ctx context.Context, runID string) ([]workflowdomain.TaskEvent, error) {

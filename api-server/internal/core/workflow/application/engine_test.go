@@ -334,6 +334,9 @@ func TestEngine_ResumesTasksAnEarlierDispatchLeftRunning(t *testing.T) {
 	}
 }
 
+// DF-11: a cancel reaches every unfinished Task, including pending ones in Jobs that never
+// started, so no Task of a canceled Workflow is left pending; each interrupted Task with a declared
+// compensation is compensated once.
 func TestEngine_CancelCompensatesAndCancelsEveryUnfinishedTask(t *testing.T) {
 	deploy := pendingTask("deploy", "deploy", workflowdomain.RunnerKindProvisioner)
 	deploy.OnCancel = &workflowdomain.CancelBehavior{Compensation: "return-deployment"}

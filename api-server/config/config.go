@@ -67,10 +67,6 @@ type APIConfig struct {
 	// WorkflowResyncInterval is how often the workflow-dispatch controller resyncs: it confirms
 	// every unfinished Workflow still has a run and resumes one that lost it (decision 072).
 	WorkflowResyncInterval time.Duration `yaml:"workflowResyncInterval"`
-	// OperationDispatchInterval controls how quickly pending embedded runs are claimed.
-	OperationDispatchInterval time.Duration `yaml:"operationDispatchInterval"`
-	// OperationLeaseDuration is renewed while ansible-runner is alive.
-	OperationLeaseDuration time.Duration `yaml:"operationLeaseDuration"`
 	// OperationMaxParallelism bounds how many Steps a durable Operation runs at once,
 	// protecting the provider, PXE, image mirror, and Temporal history from unbounded
 	// fan-out. It is a per-Operation ceiling, not a global worker limit.
@@ -81,8 +77,7 @@ type APIConfig struct {
 	TemporalTaskQueue string `yaml:"temporalTaskQueue"`
 	// AnsibleTaskQueue is the task queue on which the Ansible executor runs Ansible Tasks; only
 	// that process registers it, because only it owns ansible-runner (decision 072).
-	AnsibleTaskQueue      string        `yaml:"ansibleTaskQueue"`
-	TemporalStartInterval time.Duration `yaml:"temporalStartInterval"`
+	AnsibleTaskQueue string `yaml:"ansibleTaskQueue"`
 	// AnsibleRunnerCommand is the pinned runner binary from the Execution Environment.
 	AnsibleRunnerCommand string `yaml:"ansibleRunnerCommand"`
 	// PlaybookManifest and PlaybookDir identify the immutable release bundle. PlaybookDir is

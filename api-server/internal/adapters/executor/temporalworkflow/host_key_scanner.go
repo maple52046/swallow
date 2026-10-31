@@ -5,19 +5,21 @@ import (
 	"context"
 	"os/exec"
 	"strconv"
+
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 )
 
 // sshKeyscanHostKeyScanner is the production HostKeyScanner. It shells out to ssh-keyscan,
 // which returns every host's advertised key types in known_hosts format — matching what the
 // ssh client used by the run presents and verifies. ssh-keyscan must be present in the image
-// that runs this executor (the worker image ships it).
+// that runs the Ansible executor (the api-server image ships it).
 type sshKeyscanHostKeyScanner struct {
 	command     string
 	timeoutSecs int
 }
 
 // NewSSHKeyscanHostKeyScanner returns the production scanner.
-func NewSSHKeyscanHostKeyScanner() HostKeyScanner {
+func NewSSHKeyscanHostKeyScanner() workflowapp.HostKeyScanner {
 	return sshKeyscanHostKeyScanner{command: "ssh-keyscan", timeoutSecs: 8}
 }
 

@@ -143,9 +143,3 @@ func (p ntpStepPlanner) task(
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 	}, nil
 }
-
-// isTimeTask reports whether an ansible Task id is a configure-ntp Task, which has nothing for a
-// Platform's completion observer to record.
-func isTimeTask(stepID string) bool {
-	return strings.HasPrefix(stepID, ntpStepPrefix)
-}

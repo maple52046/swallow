@@ -148,22 +148,33 @@ func (r *contractWorkflowRepo) Timeline(context.Context, string) ([]workflowdoma
 	return r.timeline, nil
 }
 
-// contractController accepts every control request, standing in for a live Temporal execution.
-type contractController struct{}
-
-func (contractController) Cancel(context.Context, *workflowdomain.Workflow) error { return nil }
-
-func (contractController) RetryStep(context.Context, *workflowdomain.Workflow, string) error {
+// RequestCancel and RequestRetry store a command the way the store does; the contract test only
+// checks the responses.
+func (r *contractWorkflowRepo) RequestCancel(_ context.Context, id string, command workflowdomain.CancelCommand) error {
+	if w := r.workflows[id]; w != nil && w.Commands.Cancel == nil {
+		w.Commands.Cancel = &command
+		w.Commands.Sequence++
+	}
 	return nil
 }
 
-// contractLeases reports one active lease for any owner so GET by ID exercises the leases array.
-type contractLeases struct {
-	leases []workflowdomain.ResourceLease
+func (r *contractWorkflowRepo) RequestRetry(_ context.Context, id string, command workflowdomain.RetryCommand) error {
+	if w := r.workflows[id]; w != nil {
+		w.Commands.Retries = append(w.Commands.Retries, command)
+		w.Commands.Sequence++
+	}
+	return nil
 }
 
-func (l contractLeases) FindByOwner(context.Context, string) ([]workflowdomain.ResourceLease, error) {
-	return l.leases, nil
+// contractOwnership reports one owned resource for any Workflow so GET by ID exercises the
+// leases array.
+type contractOwnership struct {
+	workflowdomain.OwnershipRepository
+	owned []workflowdomain.ResourceOwnership
+}
+
+func (o contractOwnership) FindByOwner(context.Context, string) ([]workflowdomain.ResourceOwnership, error) {
+	return o.owned, nil
 }
 
 // contractSecrets lets Rerun clone an Operation that sealed no secrets.
@@ -355,10 +366,9 @@ func newWorkflowContractHandler() *ExecutionHandler {
 			},
 		},
 	}
-	orchestrations := withLegacyController(application.NewWorkflowService(&storetest.Transactor{}, workflows, workflowdomain.PlanCatalog{}, contractSecrets{}), contractController{})
-	orchestrations.AttachLeaseReader(contractLeases{leases: []workflowdomain.ResourceLease{{
-		ResourceKey: "server:server-1", Owner: running.Temporal.WorkflowID, FencingToken: 4,
-		ExpiresAt: now.Add(time.Hour), UpdatedAt: started,
+	orchestrations := application.NewWorkflowService(&storetest.Transactor{}, workflows, workflowdomain.PlanCatalog{}, contractSecrets{})
+	orchestrations.AttachOwnershipReader(contractOwnership{owned: []workflowdomain.ResourceOwnership{{
+		ResourceKey: "server:server-1", Owner: running.ID, AcquiredAt: started,
 	}}})
 	runner := contractRunner{events: []workflowdomain.TaskEvent{
 		{Play: "Install k0s", Task: "Download k0s", Host: "server-1", Status: "ok", Changed: true, StartedAt: &started, EndedAt: &finished},
@@ -494,11 +504,4 @@ func TestWorkflowRoutesMatchTheContract(t *testing.T) {
 			}
 		})
 	}
-}
-
-// withLegacyController attaches the controller of the pre-decision-072 driver for Workflows the
-// test seeds without a driver version.
-func withLegacyController(service *application.WorkflowService, controller application.WorkflowController) *application.WorkflowService {
-	service.AttachLegacyController(controller)
-	return service
 }

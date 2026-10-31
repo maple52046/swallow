@@ -84,11 +84,9 @@ func (f resultFunc) Complete(ctx context.Context, result workflowapp.TaskResult)
 func workflowProjections(
 	servers serverdomain.ServerRepository,
 	assignments softwaredomain.AssignmentRepository,
-	platforms interface {
-		platformdomain.GPUOperatorRecorder
-		platformdomain.OmnistatRecorder
-		platformdomain.DeviceMetricsExporterRecorder
-	},
+	gpuOperator platformdomain.GPUOperatorRecorder,
+	omnistat platformdomain.OmnistatRecorder,
+	exporter platformdomain.DeviceMetricsExporterRecorder,
 ) map[string]workflowapp.ProjectionHandler {
 	deployments := serverDeploymentStepObserver{servers: servers}
 	return map[string]workflowapp.ProjectionHandler{
@@ -127,7 +125,7 @@ func workflowProjections(
 			if !ok {
 				return nil
 			}
-			_, err := platforms.UpdateGPUOperatorState(ctx, platformID, recordID, state, time.Now().UTC())
+			_, err := gpuOperator.UpdateGPUOperatorState(ctx, platformID, recordID, state, time.Now().UTC())
 			return err
 		}),
 		completionOmnistatState: projectionFunc(func(ctx context.Context, t workflowapp.TaskTransition) error {
@@ -136,7 +134,7 @@ func workflowProjections(
 			if platformID == "" || !ok {
 				return nil
 			}
-			_, err := platforms.UpdateOmnistatState(ctx, platformID, recordID, state, time.Now().UTC())
+			_, err := omnistat.UpdateOmnistatState(ctx, platformID, recordID, state, time.Now().UTC())
 			return err
 		}),
 		completionDeviceMetricsExporterState: projectionFunc(func(ctx context.Context, t workflowapp.TaskTransition) error {
@@ -155,7 +153,7 @@ func workflowProjections(
 			if platformID == "" {
 				return nil
 			}
-			_, err := platforms.UpdateDeviceMetricsExporterState(ctx, platformID, recordID, state, time.Now().UTC())
+			_, err := exporter.UpdateDeviceMetricsExporterState(ctx, platformID, recordID, state, time.Now().UTC())
 			return err
 		}),
 	}

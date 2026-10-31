@@ -63,7 +63,13 @@ import (
 //
 // v8 retires the OS Image overlay (decision 071): the documents of `os_image_overlays` move
 // unchanged into `os_image_metadata`, swallow's desired metadata of provider images.
-const CurrentSchemaVersion = 8
+//
+// v9 moves Workflows to store-driven execution (decision 072): each Workflow gets the Job
+// declarations, Task completions, and cancel behaviors its launcher now declares; each unexpired
+// lease of an unfinished Workflow becomes that Workflow's resource ownership and every other old
+// lease is deleted; the old Starter and Reconciler indexes and the `ansible_executions` queue are
+// dropped. The workflow-dispatch controller adopts every unfinished Workflow afterwards.
+const CurrentSchemaVersion = 9
 
 type metadata struct {
 	ID        string    `bson:"_id"`
@@ -184,6 +190,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v7 to v8: %w", err)
 			}
 			state.Version = 8
+		case 8:
+			if err := migrateV8ToV9(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v8 to v9: %w", err)
+			}
+			state.Version = 9
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}

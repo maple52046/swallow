@@ -4,26 +4,37 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"reflect"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/bsoncodec"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-// MongoWorkflowRepo stores v3 Operation intent and its Temporal-owned projection.
+// MongoWorkflowRepo stores Workflows: their accepted plan and their execution state, of which it
+// is the only record (decision 072).
 type MongoWorkflowRepo struct {
 	operations *mongo.Collection
 	events     *mongo.Collection
 }
 
-// NewMongoWorkflowRepo creates indexes used by starter reconciliation and queries.
+// workflowRegistry decodes an array held in an untyped field (Task parameters, completion params,
+// intent) as []any, the shape Runners and completion handlers read it in, instead of the driver's
+// primitive.A. The Engine hands Runners Tasks read from the store, not ones that crossed JSON.
+var workflowRegistry = func() *bsoncodec.Registry {
+	registry := bson.NewRegistry()
+	registry.RegisterTypeMapEntry(bson.TypeArray, reflect.TypeOf([]any{}))
+	return registry
+}()
+
+// NewMongoWorkflowRepo creates the indexes of the Workflow queries.
 func NewMongoWorkflowRepo(db *mongo.Database) (*MongoWorkflowRepo, error) {
 	repo := &MongoWorkflowRepo{
-		operations: db.Collection("workflows"),
+		operations: db.Collection("workflows", options.Collection().SetRegistry(workflowRegistry)),
 		events:     db.Collection("workflow_events"),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -32,11 +43,6 @@ func NewMongoWorkflowRepo(db *mongo.Database) (*MongoWorkflowRepo, error) {
 		// v2 and v3 share this key shape. MongoDB rejects duplicate key patterns with
 		// different names, so retain the compatibility index name until v2 is retired.
 		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "requestedAt", Value: -1}}, Options: options.Index().SetName("execution_requested_at")},
-		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "startState", Value: 1}, {Key: "requestedAt", Value: 1}}, Options: options.Index().SetName("operation_v3_starter")},
-		// Backs the lost-execution reconciler sweep, which selects started records still in a
-		// forward-progress status. Keeping status in the key lets the sweep skip the many
-		// started-and-terminal history records instead of scanning them every interval.
-		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "startState", Value: 1}, {Key: "status", Value: 1}}, Options: options.Index().SetName("operation_v3_recovery")},
 		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "status", Value: 1}, {Key: "targetServerIds", Value: 1}}, Options: options.Index().SetName("operation_v3_active_targets")},
 		{Keys: bson.D{{Key: "schemaVersion", Value: 1}, {Key: "platformId", Value: 1}, {Key: "requestedAt", Value: -1}}, Options: options.Index().SetName("operation_v3_platform")},
 	})
@@ -112,189 +118,6 @@ func (r *MongoWorkflowRepo) List(ctx context.Context, filter workflowdomain.Work
 	return operations, int(total), nil
 }
 
-func (r *MongoWorkflowRepo) ListPendingStart(ctx context.Context, limit int) ([]*workflowdomain.Workflow, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	cursor, err := r.operations.Find(ctx,
-		bson.M{"schemaVersion": 4, "startState": "pending", "dispatch.driver": bson.M{"$ne": workflowdomain.DriverVersion}},
-		options.Find().SetSort(bson.D{{Key: "requestedAt", Value: 1}}).SetLimit(int64(limit)),
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-	var operations []*workflowdomain.Workflow
-	if err := cursor.All(ctx, &operations); err != nil {
-		return nil, err
-	}
-	return operations, nil
-}
-
-// ListNonTerminalStarted returns started Operations still in a forward-progress status so the
-// lost-execution reconciler can check each against Temporal. requires_attention and canceling
-// records are read separately through ListParkedStarted, because a lost one is settled
-// differently.
-func (r *MongoWorkflowRepo) ListNonTerminalStarted(ctx context.Context, limit int) ([]*workflowdomain.Workflow, error) {
-	return r.listStartedWithStatus(ctx, limit,
-		workflowdomain.WorkflowPending, workflowdomain.WorkflowWaitingDependency,
-		workflowdomain.WorkflowRunning, workflowdomain.WorkflowWaitingExternal)
-}
-
-// ListParkedStarted returns started requires_attention and canceling Operations, oldest first,
-// so the reconciler can find a parked Operation whose execution Temporal already terminated.
-func (r *MongoWorkflowRepo) ListParkedStarted(ctx context.Context, limit int) ([]*workflowdomain.Workflow, error) {
-	return r.listStartedWithStatus(ctx, limit,
-		workflowdomain.WorkflowRequiresAttention, workflowdomain.WorkflowCanceling)
-}
-
-// listStartedWithStatus reads started schema-v4 Operations in the given statuses by requestedAt
-// ascending, bounded by limit (a non-positive limit falls back to 100). An unstarted pending record
-// awaiting the starter is never returned, so it cannot be mistaken for a lost execution.
-func (r *MongoWorkflowRepo) listStartedWithStatus(ctx context.Context, limit int, statuses ...workflowdomain.WorkflowStatus) ([]*workflowdomain.Workflow, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	values := make([]string, 0, len(statuses))
-	for _, status := range statuses {
-		values = append(values, string(status))
-	}
-	cursor, err := r.operations.Find(ctx,
-		bson.M{"schemaVersion": 4, "startState": "started", "status": bson.M{"$in": values}, "dispatch.driver": bson.M{"$ne": workflowdomain.DriverVersion}},
-		options.Find().SetSort(bson.D{{Key: "requestedAt", Value: 1}}).SetLimit(int64(limit)),
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-	var operations []*workflowdomain.Workflow
-	if err := cursor.All(ctx, &operations); err != nil {
-		return nil, err
-	}
-	return operations, nil
-}
-
-func (r *MongoWorkflowRepo) MarkWorkflowStarted(ctx context.Context, id, runID string) error {
-	now := time.Now().UTC()
-	result, err := r.operations.UpdateOne(ctx,
-		bson.M{"_id": id, "schemaVersion": 4, "startState": "pending"},
-		bson.M{"$set": bson.M{"startState": "started", "temporal.runId": runID, "updatedAt": now}},
-	)
-	if err != nil {
-		return err
-	}
-	if result.MatchedCount == 0 {
-		var doc bson.M
-		if err := r.operations.FindOne(ctx, bson.M{"_id": id, "schemaVersion": 4}).Decode(&doc); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (r *MongoWorkflowRepo) UpdateState(ctx context.Context, id string, status workflowdomain.WorkflowStatus, reason string, startedAt, finishedAt *time.Time) error {
-	set := bson.M{"status": string(status), "statusReason": reason, "updatedAt": time.Now().UTC()}
-	if startedAt != nil {
-		set["startedAt"] = startedAt
-	}
-	if finishedAt != nil {
-		set["finishedAt"] = finishedAt
-	}
-	result, err := r.operations.UpdateOne(ctx, bson.M{"_id": id, "schemaVersion": 4}, bson.M{"$set": set})
-	if err != nil {
-		return err
-	}
-	if result.MatchedCount == 0 {
-		return workflowdomain.ErrWorkflowNotFound
-	}
-	return nil
-}
-
-func (r *MongoWorkflowRepo) UpdateStep(ctx context.Context, operationID string, step workflowdomain.Task) error {
-	filter := bson.M{"_id": operationID, "schemaVersion": 4, "tasks.id": step.ID}
-	// Monotonic guard: a `canceled` write must never regress a Task that already reached a
-	// terminal outcome (succeeded/failed/skipped). Cancelling the enclosing Workflow finalizes
-	// from a step snapshot that, in the jobbed path, can be stale (the parent never merges child
-	// Job outcomes), so without this a completed provision-os would be flipped to canceled in the
-	// durable step list and cascade onto the Server deployment axis. Non-terminal Tasks
-	// (pending/running/waiting) still cancel normally.
-	if step.Status == workflowdomain.TaskCanceled {
-		filter = bson.M{
-			"_id":           operationID,
-			"schemaVersion": 4,
-			"tasks": bson.M{"$elemMatch": bson.M{
-				"id":     step.ID,
-				"status": bson.M{"$nin": bson.A{workflowdomain.TaskSucceeded, workflowdomain.TaskFailed, workflowdomain.TaskSkipped}},
-			}},
-		}
-	}
-	result, err := r.operations.UpdateOne(ctx, filter,
-		bson.M{"$set": bson.M{"tasks.$": step, "updatedAt": time.Now().UTC()}},
-	)
-	if err != nil {
-		return err
-	}
-	if result.MatchedCount == 0 {
-		// For a guarded `canceled` write, zero matches can mean the Task is already terminal (a
-		// monotonic no-op) rather than genuinely missing; distinguish the two so a real missing
-		// Task still surfaces ErrTaskNotFound, and report the no-op so callers do not project the
-		// rejected Task onto other read models.
-		if step.Status == workflowdomain.TaskCanceled {
-			exists, existErr := r.taskExists(ctx, operationID, step.ID)
-			if existErr != nil {
-				return existErr
-			}
-			if exists {
-				return workflowdomain.ErrStepTransitionIgnored
-			}
-		}
-		return workflowdomain.ErrTaskNotFound
-	}
-	return nil
-}
-
-// taskExists reports whether the Operation still carries a Task with this id, used to tell a
-// monotonic-guard no-op (the Task is present but already terminal) apart from a genuinely
-// missing Task when a guarded update matches nothing.
-func (r *MongoWorkflowRepo) taskExists(ctx context.Context, operationID, stepID string) (bool, error) {
-	count, err := r.operations.CountDocuments(ctx,
-		bson.M{"_id": operationID, "schemaVersion": 4, "tasks.id": stepID},
-		options.Count().SetLimit(1),
-	)
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
-// UpdateStepLive sets only the live fields of a running step via a positional $set, so a mid-run
-// writer never overwrites the step's intent (targets, parameters, dependencies) the way the
-// full-document UpdateStep would. Nil arguments are skipped; startedAt is written verbatim, so the
-// caller passes it only on the first observation to avoid resetting it on every poll.
-func (r *MongoWorkflowRepo) UpdateStepLive(ctx context.Context, operationID, stepID string, ref *workflowdomain.ExternalExecutionReference, startedAt *time.Time, live *workflowdomain.TaskLive) error {
-	set := bson.M{"updatedAt": time.Now().UTC()}
-	if ref != nil {
-		set["tasks.$.externalExecution"] = ref
-	}
-	if startedAt != nil {
-		set["tasks.$.startedAt"] = startedAt
-	}
-	if live != nil {
-		set["tasks.$.live"] = live
-	}
-	result, err := r.operations.UpdateOne(ctx,
-		bson.M{"_id": operationID, "schemaVersion": 4, "tasks.id": stepID},
-		bson.M{"$set": set},
-	)
-	if err != nil {
-		return err
-	}
-	if result.MatchedCount == 0 {
-		return workflowdomain.ErrTaskNotFound
-	}
-	return nil
-}
-
 // AppendEvent records a timeline event idempotently. Projection activities can be retried
 // (they run with unlimited attempts), so an event whose ID is deterministic for its
 // transition is upserted by _id: a retry re-writes the same document instead of appending a
@@ -318,111 +141,6 @@ func (r *MongoWorkflowRepo) Timeline(ctx context.Context, operationID string) ([
 		events = []workflowdomain.TimelineEvent{}
 	}
 	return events, nil
-}
-
-// MongoResourceLeaseRepo uses monotonically increasing fencing tokens so a worker whose
-// lease expired cannot perform a late side effect after another workflow acquired it.
-type MongoResourceLeaseRepo struct {
-	col *mongo.Collection
-}
-
-func NewMongoResourceLeaseRepo(db *mongo.Database) *MongoResourceLeaseRepo {
-	return &MongoResourceLeaseRepo{col: db.Collection("resource_leases")}
-}
-
-func (r *MongoResourceLeaseRepo) Acquire(ctx context.Context, resourceKeys []string, owner string, expiresAt time.Time) ([]workflowdomain.ResourceLease, error) {
-	keys := append([]string(nil), resourceKeys...)
-	sort.Strings(keys)
-	leases := make([]workflowdomain.ResourceLease, 0, len(keys))
-	now := time.Now().UTC()
-	for _, key := range keys {
-		var doc workflowdomain.ResourceLease
-		err := r.col.FindOneAndUpdate(ctx, bson.M{
-			"_id": key,
-			"$or": []bson.M{{"expiresAt": bson.M{"$lte": now}}, {"owner": owner}, {"owner": bson.M{"$exists": false}}},
-		}, bson.M{
-			"$set": bson.M{"owner": owner, "expiresAt": expiresAt, "updatedAt": now},
-			"$inc": bson.M{"fencingToken": 1},
-		}, options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After)).Decode(&doc)
-		if err != nil {
-			_ = r.Release(ctx, leases)
-			if errors.Is(err, mongo.ErrNoDocuments) || mongo.IsDuplicateKeyError(err) {
-				return nil, workflowdomain.ErrLeaseConflict
-			}
-			return nil, err
-		}
-		leases = append(leases, doc)
-	}
-	return leases, nil
-}
-
-func (r *MongoResourceLeaseRepo) Renew(ctx context.Context, leases []workflowdomain.ResourceLease, expiresAt time.Time) error {
-	for _, lease := range leases {
-		result, err := r.col.UpdateOne(ctx, leaseFilter(lease), bson.M{"$set": bson.M{"expiresAt": expiresAt, "updatedAt": time.Now().UTC()}})
-		if err != nil {
-			return err
-		}
-		if result.MatchedCount != 1 {
-			return workflowdomain.ErrLeaseFenced
-		}
-	}
-	return nil
-}
-
-func (r *MongoResourceLeaseRepo) Validate(ctx context.Context, lease workflowdomain.ResourceLease) error {
-	count, err := r.col.CountDocuments(ctx, bson.M{
-		"_id": lease.ResourceKey, "owner": lease.Owner, "fencingToken": lease.FencingToken,
-		"expiresAt": bson.M{"$gt": time.Now().UTC()},
-	})
-	if err != nil {
-		return err
-	}
-	if count != 1 {
-		return workflowdomain.ErrLeaseFenced
-	}
-	return nil
-}
-
-func (r *MongoResourceLeaseRepo) Release(ctx context.Context, leases []workflowdomain.ResourceLease) error {
-	for _, lease := range leases {
-		_, err := r.col.UpdateOne(ctx, leaseFilter(lease), bson.M{"$unset": bson.M{"owner": "", "expiresAt": ""}, "$set": bson.M{"updatedAt": time.Now().UTC()}})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func leaseFilter(lease workflowdomain.ResourceLease) bson.M {
-	return bson.M{"_id": lease.ResourceKey, "owner": lease.Owner, "fencingToken": lease.FencingToken}
-}
-
-// IsHeld reports whether some Workflow currently holds the lease on resourceKey (an owner with an
-// unexpired lease). Desired-state controllers use it to hold a resource's convergence while a
-// Workflow changes it (glossary: Hold).
-func (r *MongoResourceLeaseRepo) IsHeld(ctx context.Context, resourceKey string) (bool, error) {
-	n, err := r.col.CountDocuments(ctx, bson.M{
-		"_id": resourceKey, "owner": bson.M{"$nin": bson.A{"", nil}}, "expiresAt": bson.M{"$gt": time.Now().UTC()},
-	}, options.Count().SetLimit(1))
-	return n > 0, err
-}
-
-// FindByOwner returns currently held leases for one workflow in stable resource order.
-func (r *MongoResourceLeaseRepo) FindByOwner(ctx context.Context, owner string) ([]workflowdomain.ResourceLease, error) {
-	cursor, err := r.col.Find(ctx, bson.M{"owner": owner, "expiresAt": bson.M{"$gt": time.Now().UTC()}},
-		options.Find().SetSort(bson.D{{Key: "_id", Value: 1}}))
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-	var leases []workflowdomain.ResourceLease
-	if err := cursor.All(ctx, &leases); err != nil {
-		return nil, err
-	}
-	if leases == nil {
-		leases = []workflowdomain.ResourceLease{}
-	}
-	return leases, nil
 }
 
 // terminalStatuses are the Workflow statuses after which no command or dispatch applies.

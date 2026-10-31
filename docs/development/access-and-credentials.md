@@ -404,7 +404,7 @@ API 認證的決策與時效、cookie、rotation 細節見
 | `CheckRunnable`、`CredentialSource` | `internal/core/workflow/domain/execution.go` |
 | Site credential 儲存（只存 become password） | `internal/adapters/store/mongodb/workflow/mongo_automation_config_repo.go` |
 | Site credential HTTP（拒絕 `sshPrivateKey`） | `internal/core/workflow/delivery/execution_handler.go` |
-| Ansible Task 的可執行檢查 | `internal/adapters/executor/temporalworkflow/ansible_executor.go` |
+| Ansible Task 的可執行檢查 | `internal/core/workflow/application/ansible_task.go` |
 | 登入帳號候選與探測 | `internal/shared/sshprobe/sshprobe.go` |
 | `ansible_user` 解析 | `internal/adapters/hostautomation/ansible/local_runner.go` |
 | `wait-for-ssh` | `internal/app/platform_workflow_step_executor.go` |

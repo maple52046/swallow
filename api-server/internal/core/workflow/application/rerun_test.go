@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/maple52046/swallow/internal/core/store/storetest"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
@@ -15,11 +14,10 @@ import (
 // state/step writes so a test can assert recovery behavior without Mongo or Temporal.
 type fakeRerunRepo struct {
 	workflowdomain.WorkflowRepository
-	byID        map[string]*workflowdomain.Workflow
-	created     *workflowdomain.Workflow
-	stateWrites map[string]workflowdomain.WorkflowStatus
-	reasons     map[string]string
-	canceledStp []workflowdomain.Task
+	byID    map[string]*workflowdomain.Workflow
+	created *workflowdomain.Workflow
+	// reasons records the cancel commands Rerun stores, by Workflow.
+	reasons map[string]string
 }
 
 func (r *fakeRerunRepo) FindByID(_ context.Context, id string) (*workflowdomain.Workflow, error) {
@@ -50,37 +48,11 @@ func (r *fakeRerunRepo) AppendEvent(context.Context, workflowdomain.TimelineEven
 	return nil
 }
 
-func (r *fakeRerunRepo) UpdateState(_ context.Context, id string, status workflowdomain.WorkflowStatus, reason string, _, _ *time.Time) error {
-	if r.stateWrites == nil {
-		r.stateWrites = map[string]workflowdomain.WorkflowStatus{}
+func (r *fakeRerunRepo) RequestCancel(_ context.Context, id string, command workflowdomain.CancelCommand) error {
+	if r.reasons == nil {
 		r.reasons = map[string]string{}
 	}
-	r.stateWrites[id] = status
-	r.reasons[id] = reason
-	if op, ok := r.byID[id]; ok {
-		op.Status = status
-	}
-	return nil
-}
-
-func (r *fakeRerunRepo) UpdateStep(_ context.Context, _ string, step workflowdomain.Task) error {
-	r.canceledStp = append(r.canceledStp, step)
-	return nil
-}
-
-// fakeRerunController records cancel targets and returns a configurable error so a test can
-// simulate a still-live parked execution (nil) or a lost one (control conflict).
-type fakeRerunController struct {
-	canceled  []string
-	cancelErr error
-}
-
-func (c *fakeRerunController) Cancel(_ context.Context, op *workflowdomain.Workflow) error {
-	c.canceled = append(c.canceled, op.ID)
-	return c.cancelErr
-}
-
-func (c *fakeRerunController) RetryStep(context.Context, *workflowdomain.Workflow, string) error {
+	r.reasons[id] = command.Reason
 	return nil
 }
 
@@ -143,9 +115,8 @@ func newRerunOldOp(status workflowdomain.WorkflowStatus, installStatus workflowd
 func TestRerunClonesFailedOperationConvergingEveryEnsureStep(t *testing.T) {
 	old := newRerunOldOp(workflowdomain.WorkflowFailed, workflowdomain.TaskFailed)
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
-	controller := &fakeRerunController{}
 	secrets := &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}}
-	service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, rerunTestCatalog, secrets), controller)
+	service := NewWorkflowService(&storetest.Transactor{}, repo, rerunTestCatalog, secrets)
 
 	item, err := service.Rerun(context.Background(), old.ID, "operator")
 	if err != nil {
@@ -166,8 +137,8 @@ func TestRerunClonesFailedOperationConvergingEveryEnsureStep(t *testing.T) {
 	if want := "swallow-operation/" + repo.created.ID; repo.created.Temporal.WorkflowID != want {
 		t.Fatalf("temporal workflowId = %q, want %q", repo.created.Temporal.WorkflowID, want)
 	}
-	if len(controller.canceled) != 0 {
-		t.Fatalf("a terminal Operation must not be canceled, got %v", controller.canceled)
+	if _, canceled := repo.reasons[old.ID]; canceled {
+		t.Fatal("a terminal Operation must not be canceled")
 	}
 
 	// Both Steps are ensure operations (decision 060): the succeeded readiness check runs again
@@ -263,63 +234,29 @@ func TestCloneStepsForRerunConvergesOnlyEnsureSteps(t *testing.T) {
 	})
 }
 
-func TestRerunFinalizesNonTerminalOperationBeforeReplacing(t *testing.T) {
-	// A requires_attention Operation whose execution is already gone: cancel reports a control
-	// conflict, and Rerun must still force it terminal so the replacement can claim the targets.
-	// Its leases are freed too, because a dead parked execution can hold them for up to a day.
+// A parked original is canceled through its own cancel path (decision 072): Rerun stores its
+// cancel command in the same transaction that accepts the replacement, and the replacement is
+// accepted past the busy check by naming the original as superseded.
+func TestRerunCancelsAParkedOriginalAndSupersedesIt(t *testing.T) {
 	old := newRerunOldOp(workflowdomain.WorkflowRequiresAttention, workflowdomain.TaskRequiresAttention)
-	old.Temporal.WorkflowID = "swallow-operation/" + old.ID
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
-	controller := &fakeRerunController{cancelErr: executionGoneErr()}
-	secrets := &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}}
-	leases := &fakeLeaseReleaser{held: map[string][]workflowdomain.ResourceLease{
-		old.Temporal.WorkflowID: {{ResourceKey: "server:server-1", Owner: old.Temporal.WorkflowID, FencingToken: 4}},
-	}}
-	service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, secrets), controller)
-	service.AttachLeaseReleaser(leases)
+	service := NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}})
 
 	if _, err := service.Rerun(context.Background(), old.ID, "operator"); err != nil {
 		t.Fatalf("Rerun() error = %v, want nil", err)
 	}
-	if len(controller.canceled) != 1 || controller.canceled[0] != old.ID {
-		t.Fatalf("cancel calls = %v, want [%q]", controller.canceled, old.ID)
+	if repo.reasons[old.ID] != "Superseded by a rerun." {
+		t.Fatalf("cancel command for the original = %q, want Superseded by a rerun.", repo.reasons[old.ID])
 	}
-	if repo.stateWrites[old.ID] != workflowdomain.WorkflowCanceled {
-		t.Fatalf("superseded Operation state = %v, want canceled", repo.stateWrites[old.ID])
-	}
-	if len(leases.released) != 1 {
-		t.Errorf("released leases = %v, want the lost execution's one lease", leases.released)
-	}
-	if repo.created == nil || repo.created.ID == old.ID {
-		t.Fatal("Rerun() did not create a replacement Operation after freeing the targets")
-	}
-}
-
-// TestRerunKeepsLeasesOfLiveParkedExecution verifies that a still-live parked execution keeps its
-// leases when Rerun supersedes it: its own cancel path may still need them (a verification's
-// compensation) and it releases them as it exits.
-func TestRerunKeepsLeasesOfLiveParkedExecution(t *testing.T) {
-	old := newRerunOldOp(workflowdomain.WorkflowRequiresAttention, workflowdomain.TaskRequiresAttention)
-	old.Temporal.WorkflowID = "swallow-operation/" + old.ID
-	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
-	leases := &fakeLeaseReleaser{held: map[string][]workflowdomain.ResourceLease{
-		old.Temporal.WorkflowID: {{ResourceKey: "server:server-1", Owner: old.Temporal.WorkflowID, FencingToken: 4}},
-	}}
-	service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}}), &fakeRerunController{})
-	service.AttachLeaseReleaser(leases)
-
-	if _, err := service.Rerun(context.Background(), old.ID, "operator"); err != nil {
-		t.Fatalf("Rerun() error = %v, want nil", err)
-	}
-	if len(leases.released) != 0 {
-		t.Errorf("released leases = %v, want none while the execution is live", leases.released)
+	if repo.created == nil || repo.created.ID == old.ID || repo.created.RetryOfOperationID != old.ID {
+		t.Fatal("Rerun() did not create a replacement linked to the original")
 	}
 }
 
 func TestRerunRejectsSucceededOperation(t *testing.T) {
 	old := newRerunOldOp(workflowdomain.WorkflowSucceeded, workflowdomain.TaskSucceeded)
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
-	service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &fakeRerunSecrets{}), &fakeRerunController{})
+	service := NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &fakeRerunSecrets{})
 
 	_, err := service.Rerun(context.Background(), old.ID, "operator")
 	if !errors.Is(err, workflowdomain.ErrWorkflowControlConflict) {
@@ -333,7 +270,7 @@ func TestRerunRejectsSucceededOperation(t *testing.T) {
 func TestRerunRejectsStillRunningOperation(t *testing.T) {
 	old := newRerunOldOp(workflowdomain.WorkflowRunning, workflowdomain.TaskRunning)
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
-	service := withLegacyController(NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &fakeRerunSecrets{}), &fakeRerunController{})
+	service := NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &fakeRerunSecrets{})
 
 	_, err := service.Rerun(context.Background(), old.ID, "operator")
 	if !errors.Is(err, workflowdomain.ErrWorkflowControlConflict) {
@@ -342,11 +279,4 @@ func TestRerunRejectsStillRunningOperation(t *testing.T) {
 	if repo.created != nil {
 		t.Fatal("a still-running Operation must be retried or canceled, not rerun")
 	}
-}
-
-// withLegacyController attaches the controller of the pre-decision-072 driver, which these tests
-// exercise on Workflows they seed without a driver version.
-func withLegacyController(service *WorkflowService, controller WorkflowController) *WorkflowService {
-	service.AttachLegacyController(controller)
-	return service
 }

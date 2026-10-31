@@ -537,6 +537,7 @@ deployment 只需要產生這份計畫。
 | 排程（pure function） | `internal/core/workflow/domain/schedule.go` |
 | `WorkflowService`：Create（驗證整份計畫、busy check、secret 封存）、命令、Rerun 與 Task 複製規則 | `internal/core/workflow/application/orchestration.go` |
 | 狀態轉換（單一寫入者）、完成行為的呼叫 | `internal/core/workflow/application/engine.go` |
+| 完成行為的 handler（投影類與結果類） | `internal/app/workflow_completions.go` |
 | `workflow-dispatch` controller 與 executor port | `internal/core/workflow/application/dispatcher.go` |
 | driver workflow、activities、executor adapter | `internal/adapters/executor/temporalworkflow/` |
 | Workflow repository 與資源所有權 | `internal/adapters/store/mongodb/workflow/` |
@@ -545,7 +546,7 @@ deployment 只需要產生這份計畫。
 | Release／Recover 的受理與取代 | `internal/app/provisioning_operation_adapter.go` |
 | Platform uninstall 的受理與取代 | `internal/app/platform_deployment_adapter.go`、`internal/core/platform/application/uninstall_platform.go` |
 | Server deployment 投影 | `internal/app/server_deployment_projection.go` |
-| `return-canceled-deployment` 與 `release-os` 的先觀察 | `internal/app/provider_step_executor.go` |
+| `return-canceled-deployment` 與 `release-os` 的先觀察；續跑的 attempt 只觀察（`resumedStep`） | `internal/app/provider_step_executor.go` |
 | Platform lifecycle 推導 | `internal/app/platform_lifecycle_adapter.go` |
 | worker 與 executor 的接線 | `internal/app/worker.go`、`internal/app/ansible_executor.go` |
 | Ansible activity（串流、`Task.Live`、fencing、結果類完成行為） | `internal/core/workflow/application/ansible_task.go` |
@@ -553,7 +554,8 @@ deployment 只需要產生這份計畫。
 | 讀取 run 的增量 events | `internal/adapters/hostautomation/ansible/local_runner.go` |
 | Task events 的 API 讀取 | `internal/core/workflow/application/execution_service.go` |
 | artifact 與 events retention | `internal/app/artifact_retention.go`、`internal/adapters/hostautomation/ansible/artifact_retention.go` |
-| 設定預設值（parallelism、resync interval） | `config/defaults.go`、`config/env.go`、`config/validate.go` |
+| 設定預設值（parallelism、resync interval、Ansible task queue） | `config/defaults.go`、`config/env.go`、`config/validate.go` |
+| 舊 Workflow 的計畫宣告與舊 lease 轉換（schema v9） | `internal/adapters/store/mongodb/migration/v9.go` |
 
 ---
 

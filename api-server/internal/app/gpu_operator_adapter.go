@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"time"
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
@@ -15,20 +14,16 @@ import (
 // the configure-gpu-operator Workflow that changes it later. The playbook name is hardcoded (like
 // Slurm and software), so no site playbookMappings entry is needed.
 const (
-	jobConfigureGPUOperator   = "configure-gpu-operator"
-	gpuOperatorStepID         = "install-gpu-operator"
-	gpuOperatorPlaybook       = "configure-amd-gpu-operator"
-	gpuOperatorStepParamMode  = "gpuOperatorMode"
-	gpuOperatorStepParamOwner = "gpuOperatorPlatformId"
-	// gpuOperatorStepParamRecord names the Workflow the Platform's GPU Operator record is fenced
-	// on. It is a parameter rather than the running Workflow's id because a rerun (decision 060)
-	// copies the Task under a new Workflow id and must still report the outcome of that intent.
-	gpuOperatorStepParamRecord = "gpuOperatorRecordId"
+	jobConfigureGPUOperator = "configure-gpu-operator"
+	gpuOperatorStepID       = "install-gpu-operator"
+	gpuOperatorPlaybook     = "configure-amd-gpu-operator"
 )
 
-// gpuOperatorTask builds the ansible Task that applies GPU Operator settings. mode is the
-// trusted swallow_amd_gpu_operator_state ("present" or "absent"), stamped so the observer knows
-// which states the Task's outcome maps to.
+// gpuOperatorTask builds the ansible Task that applies GPU Operator settings. Its gpu-operator-state
+// completion carries the mode, the trusted swallow_amd_gpu_operator_state ("present" or "absent"),
+// which selects the states the Task's outcome maps to, and the record the state is fenced on: a
+// parameter rather than the running Workflow's id, because a rerun (decision 060) copies the Task
+// under a new Workflow id and must still report the outcome of that intent.
 func gpuOperatorTask(
 	prepared *workflowapp.PreparedAnsibleStep,
 	platformID, recordID string,
@@ -40,12 +35,8 @@ func gpuOperatorTask(
 		ID: gpuOperatorStepID, Kind: "ansible-playbook", Name: name,
 		Job:      jobConfigureGPUOperator,
 		Executor: workflowdomain.RunnerKindAnsible, DependsOn: dependsOn,
-		Targets: prepared.Targets,
-		Parameters: map[string]any{
-			"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars,
-			gpuOperatorStepParamMode: mode, gpuOperatorStepParamOwner: platformID,
-			gpuOperatorStepParamRecord: recordID,
-		},
+		Targets:    prepared.Targets,
+		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 		Completion: []workflowdomain.Completion{{Type: completionGPUOperatorState, Params: map[string]any{
 			completionParamPlatform: platformID, completionParamRecord: recordID, completionParamMode: mode,
 		}}},
@@ -131,38 +122,6 @@ func (l gpuOperatorLauncher) PersistGPUOperator(ctx context.Context, prepared pl
 		return "", err
 	}
 	return created.ID, nil
-}
-
-// gpuOperatorStepObserver projects the GPU Operator Task onto the Platform's GPU Operator State
-// (implements temporalworkflow.StepProjectionObserver). It ignores every other Task. The write is
-// fenced on the record id stamped on the Task, so a superseded Workflow — or a Task of a deleted
-// Platform — changes nothing.
-type gpuOperatorStepObserver struct {
-	recorder platformdomain.GPUOperatorRecorder
-}
-
-// ObserveStep maps the Task status to a GPU Operator State: running is installing or
-// uninstalling, success is ready or absent, and failure, requires_attention, cancel, or skip is
-// failed.
-func (o gpuOperatorStepObserver) ObserveStep(ctx context.Context, operationID string, step workflowdomain.Task) error {
-	if step.ID != gpuOperatorStepID || step.Kind != "ansible-playbook" || step.Parameters == nil {
-		return nil
-	}
-	platformID, _ := step.Parameters[gpuOperatorStepParamOwner].(string)
-	mode, _ := step.Parameters[gpuOperatorStepParamMode].(string)
-	if platformID == "" || (mode != "present" && mode != "absent") {
-		return nil
-	}
-	recordID, _ := step.Parameters[gpuOperatorStepParamRecord].(string)
-	if recordID == "" {
-		recordID = operationID
-	}
-	state, ok := gpuOperatorStateForTask(step.Status, mode == "absent")
-	if !ok {
-		return nil
-	}
-	_, err := o.recorder.UpdateGPUOperatorState(ctx, platformID, recordID, state, time.Now().UTC())
-	return err
 }
 
 // gpuOperatorStateForTask returns the state a Task status implies, or false for a status that

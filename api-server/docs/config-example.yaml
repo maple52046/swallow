@@ -71,6 +71,12 @@ api:
   # Env: SWALLOW_API_CONTROLLER_RESYNC_INTERVAL.
   controllerResyncInterval: "10m"
 
+  # How often the workflow-dispatch controller (worker process) confirms every unfinished
+  # Workflow still has a run and resumes one that lost it (decision 072). Commands and new
+  # Workflows are dispatched at once through the change feed; this only bounds recovery.
+  # Env: SWALLOW_API_WORKFLOW_RESYNC_INTERVAL.
+  workflowResyncInterval: "30s"
+
   # Boot Media (decisions 047 and 049): Boot ISOs are built on the dashboard's Provisioning page,
   # written under dir (one subdirectory each), and served unauthenticated at
   # <baseURL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso for BMCs to mount as virtual media.
@@ -91,22 +97,21 @@ api:
   redfishProbeInterval: "10m"
   redfishProbeMaxAge: "24h"
 
-  # Operation orchestration. The embedded dispatcher drains legacy schema-v2 work; new
-  # automation runs as durable schema-v3 Operations coordinated by Temporal. The same
-  # config serves three commands: `swallow-api api` (HTTP + reconcile), `swallow-api worker`
-  # (Temporal workflow/activity worker + start reconciler), and `swallow-api ansible-executor`
-  # (owns the ansible-runner subprocesses via the Mongo-backed execution queue).
-  operationDispatchInterval: "1s"
-  operationLeaseDuration: "90s"
-  # Per-Operation Step fan-out ceiling (provider, PXE, image-mirror, and history load).
+  # Workflow execution (decision 072). The same config serves three commands: `swallow-api api`
+  # (HTTP; accepts Workflows and stores their commands, and never connects to Temporal),
+  # `swallow-api worker` (the workflow-dispatch controller and the driver and provider
+  # activities), and `swallow-api ansible-executor` (runs Ansible Tasks, owning ansible-runner).
+  # Per-Workflow Task fan-out ceiling (provider, PXE, image-mirror, and history load).
   operationMaxParallelism: 4
 
-  # Durable workflow service shared by the api, worker, and ansible-executor commands.
+  # Temporal, used by the worker and the ansible-executor only. ansibleTaskQueue carries the
+  # Ansible Tasks only the ansible-executor runs, and must differ from temporalTaskQueue.
+  # Env: SWALLOW_API_TEMPORAL_ADDRESS, SWALLOW_API_TEMPORAL_NAMESPACE,
+  # SWALLOW_API_TEMPORAL_TASK_QUEUE, SWALLOW_API_ANSIBLE_TASK_QUEUE.
   temporalAddress: "localhost:7233"
   temporalNamespace: "default"
   temporalTaskQueue: "swallow-operations"
-  # How often the API and worker reconcile persisted pending Operations into workflows.
-  temporalStartInterval: "1s"
+  ansibleTaskQueue: "swallow-ansible"
 
   # Immutable release playbooks and mutable runner paths. playbookDir is the modules root
   # (the ansible-runner project dir); manifest paths are relative to it.

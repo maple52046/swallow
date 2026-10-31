@@ -14,13 +14,28 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-// supersedeWorkflowRepo serves one parked Workflow holding the target Server, the way the
-// projection still reports it right after a cancel request (the workflow writes canceling itself),
-// and records the Operation a launch creates.
+// supersedeWorkflowRepo serves one parked Workflow holding the target Server, the way the store
+// still reports it right after a cancel request (the Workflow writes canceling itself), records the
+// cancel commands it receives and the Operation a launch creates. refuse makes a cancel request
+// fail, and finish models a Workflow that ended on its own between the list and the cancel.
 type supersedeWorkflowRepo struct {
 	workflowdomain.WorkflowRepository
-	parked  *workflowdomain.Workflow
-	created *workflowdomain.Workflow
+	parked   *workflowdomain.Workflow
+	created  *workflowdomain.Workflow
+	canceled []string
+	refuse   bool
+	finish   bool
+}
+
+func (r *supersedeWorkflowRepo) RequestCancel(_ context.Context, id string, _ workflowdomain.CancelCommand) error {
+	r.canceled = append(r.canceled, id)
+	if r.finish {
+		r.parked.Status = workflowdomain.WorkflowSucceeded
+	}
+	if r.refuse {
+		return workflowdomain.ErrWorkflowControlConflict
+	}
+	return nil
 }
 
 func (r *supersedeWorkflowRepo) FindByID(_ context.Context, id string) (*workflowdomain.Workflow, error) {
@@ -46,46 +61,21 @@ func (r *supersedeWorkflowRepo) AppendEvent(context.Context, workflowdomain.Time
 	return nil
 }
 
-// supersedeController records cancel requests; refuse makes the cancel fail, and finish models a
-// Workflow that ended on its own between the list and the cancel.
-type supersedeController struct {
-	repo     *supersedeWorkflowRepo
-	canceled []string
-	refuse   bool
-	finish   bool
-}
-
-func (c *supersedeController) Cancel(_ context.Context, operation *workflowdomain.Workflow) error {
-	c.canceled = append(c.canceled, operation.ID)
-	if c.finish {
-		c.repo.parked.Status = workflowdomain.WorkflowSucceeded
-	}
-	if c.refuse {
-		return workflowdomain.ErrWorkflowControlConflict
-	}
-	return nil
-}
-
-func (c *supersedeController) RetryStep(context.Context, *workflowdomain.Workflow, string) error {
-	return nil
-}
-
-func supersedeLauncher() (durableProvisioningLauncher, *supersedeWorkflowRepo, *supersedeController) {
+func supersedeLauncher() (durableProvisioningLauncher, *supersedeWorkflowRepo, *supersedeWorkflowRepo) {
 	repo := &supersedeWorkflowRepo{parked: &workflowdomain.Workflow{
 		ID: "op-parked", SchemaVersion: 4, Kind: workflowdomain.WorkflowKindDeployKubernetes,
 		Intent: map[string]any{"summary": "Deploy k0s Platform test-amd-operator"},
 		Status: workflowdomain.WorkflowRequiresAttention, TargetServerIDs: []string{"server-id"},
 	}}
-	controller := &supersedeController{repo: repo}
 	server := &serverdomain.Server{
 		ID: "server-id", Observed: serverdomain.Observed{Hostname: "lab-afde-mi308-3"},
 		Source:       serverdomain.Source{SiteID: "site-id", IntegrationID: "integration-id", ProviderMachineID: "machine-id"},
 		Provisioning: &serverdomain.ProvisioningStatus{State: "failed"},
 	}
 	return durableProvisioningLauncher{
-		operations: withLegacyController(workflowapp.NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}), controller),
+		operations: workflowapp.NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}),
 		servers:    &deploymentProjectionTestRepo{server: server},
-	}, repo, controller
+	}, repo, repo
 }
 
 // TestRecoveryLaunchSupersedesActiveWorkflows covers decision 061: the Release dialog used to
@@ -190,11 +180,4 @@ func (n staticPlatformNames) PlatformName(_ context.Context, platformID string) 
 		return "", "", errors.New("unknown platform")
 	}
 	return name, "kubernetes", nil
-}
-
-// withLegacyController attaches the controller of the pre-decision-072 driver for Workflows the
-// test seeds without a driver version.
-func withLegacyController(service *workflowapp.WorkflowService, controller workflowapp.WorkflowController) *workflowapp.WorkflowService {
-	service.AttachLegacyController(controller)
-	return service
 }

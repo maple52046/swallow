@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -40,7 +41,7 @@ func gpuOperatorTestTask(mode string, status workflowdomain.TaskStatus) workflow
 	return task
 }
 
-func TestGPUOperatorTaskCarriesTheObserverIdentity(t *testing.T) {
+func TestGPUOperatorTaskDeclaresItsStateCompletion(t *testing.T) {
 	task := gpuOperatorTestTask("present", workflowdomain.TaskPending)
 	if task.ID != gpuOperatorStepID || task.Job != jobConfigureGPUOperator || task.Executor != workflowdomain.RunnerKindAnsible {
 		t.Errorf("gpuOperatorTask = %+v, want the configure-gpu-operator ansible Task", task)
@@ -48,10 +49,14 @@ func TestGPUOperatorTaskCarriesTheObserverIdentity(t *testing.T) {
 	if len(task.DependsOn) != 1 || task.DependsOn[0] != "validate-platform" {
 		t.Errorf("gpuOperatorTask DependsOn = %v, want [validate-platform]", task.DependsOn)
 	}
-	params := task.Parameters
-	if params[gpuOperatorStepParamMode] != "present" || params[gpuOperatorStepParamOwner] != "p1" ||
-		params[gpuOperatorStepParamRecord] != "deploy-1" || params["playbook"] != gpuOperatorPlaybook {
-		t.Errorf("gpuOperatorTask parameters = %v, want mode, platform, record, and playbook", params)
+	if task.Parameters["playbook"] != gpuOperatorPlaybook {
+		t.Errorf("gpuOperatorTask parameters = %v, want the playbook", task.Parameters)
+	}
+	want := []workflowdomain.Completion{{Type: completionGPUOperatorState, Params: map[string]any{
+		completionParamPlatform: "p1", completionParamRecord: "deploy-1", completionParamMode: "present",
+	}}}
+	if !reflect.DeepEqual(task.Completion, want) {
+		t.Errorf("gpuOperatorTask completion = %v, want %v", task.Completion, want)
 	}
 }
 
@@ -73,11 +78,9 @@ func TestGPUOperatorObserverProjectsTaskStates(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := &stateRecorder{}
-			observer := gpuOperatorStepObserver{recorder: recorder}
 			// The running Workflow is a rerun with a new id; the fence is the recorded intent.
-			if err := observer.ObserveStep(context.Background(), "rerun-2", gpuOperatorTestTask(tc.mode, tc.status)); err != nil {
-				t.Fatalf("ObserveStep: %v", err)
-			}
+			projectWith(t, workflowProjections(nil, nil, recorder, nil, nil), completionGPUOperatorState, "rerun-2",
+				gpuOperatorTestTask(tc.mode, tc.status))
 			if recorder.state != tc.want || recorder.platformID != "p1" || recorder.workflowID != "deploy-1" {
 				t.Errorf("ObserveStep recorded %s on %s fenced %s, want %s on p1 fenced deploy-1",
 					recorder.state, recorder.platformID, recorder.workflowID, tc.want)
@@ -88,34 +91,12 @@ func TestGPUOperatorObserverProjectsTaskStates(t *testing.T) {
 
 func TestGPUOperatorObserverIgnoresOtherTasksAndPending(t *testing.T) {
 	recorder := &stateRecorder{}
-	observer := gpuOperatorStepObserver{recorder: recorder}
 	other := workflowdomain.Task{ID: installPlatformStepID, Kind: "ansible-playbook", Status: workflowdomain.TaskSucceeded,
 		Parameters: map[string]any{"playbook": "deploy-kubernetes"}}
 	for _, task := range []workflowdomain.Task{other, gpuOperatorTestTask("present", workflowdomain.TaskPending)} {
-		if err := observer.ObserveStep(context.Background(), "deploy-1", task); err != nil {
-			t.Fatalf("ObserveStep(%s): %v", task.ID, err)
-		}
+		projectWith(t, workflowProjections(nil, nil, recorder, nil, nil), completionGPUOperatorState, "deploy-1", task)
 	}
 	if recorder.calls != 0 {
 		t.Errorf("ObserveStep wrote %d states, want none for a k0s Task or a pending GPU Task", recorder.calls)
-	}
-}
-
-// TestPlatformDeploymentObserverLeavesTheGPUOperatorTaskToItsObserver pins that a GPU Operator
-// Task finishing inside a deploy-kubernetes Workflow (its execution carries the Workflow's kind)
-// does not run the k0s completion, which only the install-platform Task can satisfy.
-func TestPlatformDeploymentObserverLeavesTheGPUOperatorTaskToItsObserver(t *testing.T) {
-	observer := platformDeploymentObserver{}
-	execution := &workflowdomain.AnsibleExecution{
-		OperationID: "op-1", Kind: workflowdomain.WorkflowKindDeployKubernetes, PlatformID: "plat-1",
-		StepID: gpuOperatorStepID,
-	}
-	if err := observer.AnsibleStepSucceeded(context.Background(), execution, workflowdomain.RunnerResult{}); err != nil {
-		t.Fatalf("GPU Operator Task completion err = %v, want nil", err)
-	}
-
-	execution.StepID = installPlatformStepID
-	if err := observer.AnsibleStepSucceeded(context.Background(), execution, workflowdomain.RunnerResult{}); err == nil {
-		t.Fatal("k0s install without a credential succeeded, want the missing-credential error")
 	}
 }

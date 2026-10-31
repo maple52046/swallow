@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,8 +11,25 @@ import (
 	"strings"
 	"testing"
 
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
+
+// projectWith applies the completions of type kind that task declares through the registered
+// projection handler, as the engine does on one of the Task's transitions.
+func projectWith(t *testing.T, handlers map[string]workflowapp.ProjectionHandler, kind, workflowID string, task workflowdomain.Task) {
+	t.Helper()
+	for _, completion := range task.Completion {
+		if completion.Type != kind {
+			continue
+		}
+		if err := handlers[kind].Project(context.Background(), workflowapp.TaskTransition{
+			Workflow: &workflowdomain.Workflow{ID: workflowID}, Task: task, Completion: completion,
+		}); err != nil {
+			t.Fatalf("project %s: %v", kind, err)
+		}
+	}
+}
 
 // The engine acts only on a plan's declarations (decision 072): none of its sources may name a
 // registered Task kind, completion type, or compensation.

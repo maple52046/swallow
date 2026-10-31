@@ -32,7 +32,6 @@ import (
 	softwarestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/software"
 	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
 	"github.com/maple52046/swallow/internal/core/convergence"
-	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
 	infrastructureapp "github.com/maple52046/swallow/internal/core/infrastructure/application"
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
@@ -71,11 +70,6 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("orchestration repo: %w", err)
 	}
-	leases := workflowstore.NewMongoResourceLeaseRepo(db)
-	ansibleExecutions, err := workflowstore.NewMongoAnsibleExecutionRepo(db)
-	if err != nil {
-		return fmt.Errorf("Ansible execution repo: %w", err)
-	}
 	operationSecrets, err := workflowstore.NewMongoOperationSecretRepo(db, sealer)
 	if err != nil {
 		return fmt.Errorf("operation secret repo: %w", err)
@@ -88,7 +82,6 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	inventory := executionInventoryAdapter{discovery: discoveryapp.NewDiscoveryUseCase(servers)}
 	providers := maas.NewProviderFactory(integrations)
 	// The worker reads the Deployment Key for wait-for-ssh, ensures provisioner key registration
 	// before every OS deployment it drives (decision 039), and runs the SSH Key controller on the
@@ -198,17 +191,9 @@ func RunWorker(cfg config.APIConfig) error {
 			finalizer: platformFinalizer, imageVerifications: osImageVerifications,
 			software: softwareAssignments, bootMedia: bootMedia, bootISOs: bootISOs, poll: 5 * time.Second,
 		},
-		workflowdomain.RunnerKindAnsible:     temporalworkflow.NewAnsibleStepExecutor(ansibleExecutions, automationConfigurations, inventory, temporalworkflow.NewSSHKeyscanHostKeyScanner(), operations, cfg.JobArtifactDir, 2*time.Second),
 		workflowdomain.RunnerKindProvisioner: providerExecutor,
 	}
-	observers := []temporalworkflow.StepProjectionObserver{
-		serverDeploymentStepObserver{servers: servers}, softwareAssignmentObserver{assignments: softwareAssignments},
-		gpuOperatorStepObserver{recorder: platforms}, omnistatStepObserver{recorder: platforms},
-		deviceMetricsExporterStepObserver{recorder: platforms},
-	}
-	activities := temporalworkflow.NewActivities(operations, leases, runners, observers...)
-	// The store-driven engine (decision 072) runs every Workflow accepted from now on; the
-	// activities above keep running Workflows accepted before it.
+	// The store-driven engine (decision 072) is the only writer of execution state.
 	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
 	if err != nil {
 		return fmt.Errorf("resource ownership repo: %w", err)
@@ -216,38 +201,16 @@ func RunWorker(cfg config.APIConfig) error {
 	// The worker's Runners return no result data, so it registers only projections; the Ansible
 	// executor records results.
 	engine, err := workflowapp.NewEngine(transactor, operations, ownership, workflowPlanCatalog(),
-		workflowapp.CompletionHandlers{Projections: workflowProjections(servers, softwareAssignments, platforms)},
+		workflowapp.CompletionHandlers{Projections: workflowProjections(servers, softwareAssignments, platforms, platforms, platforms)},
 		cfg.OperationMaxParallelism)
 	if err != nil {
 		return err
 	}
 	driverActivities := temporalworkflow.NewDriverActivities(engine)
-	taskActivities := temporalworkflow.NewTaskActivities(engine, map[workflowdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
-		workflowdomain.RunnerKindInternal:    runners[workflowdomain.RunnerKindInternal],
-		workflowdomain.RunnerKindProvisioner: runners[workflowdomain.RunnerKindProvisioner],
-	}, map[string]temporalworkflow.CompensationExecutor{
+	taskActivities := temporalworkflow.NewTaskActivities(engine, runners, map[string]temporalworkflow.CompensationExecutor{
 		compensationReturnCanceledDeployment: canceledDeploymentCompensation{runner: providerExecutor},
 	})
 	temporalWorker := worker.New(temporalClient, cfg.TemporalTaskQueue, worker.Options{WorkerStopTimeout: 10 * time.Second})
-	temporalWorker.RegisterWorkflowWithOptions(temporalworkflow.OperationWorkflowV1,
-		workflowregister.RegisterOptions{Name: temporalworkflow.WorkflowNameV1})
-	// Reusable Job child workflow (ADR 017): the parent Operation runs each Job through it.
-	temporalWorker.RegisterWorkflowWithOptions(temporalworkflow.JobWorkflowV1,
-		workflowregister.RegisterOptions{Name: temporalworkflow.JobWorkflowName})
-	temporalWorker.RegisterActivityWithOptions(activities.AcquireLeases,
-		activity.RegisterOptions{Name: temporalworkflow.ActivityAcquireLeases})
-	temporalWorker.RegisterActivityWithOptions(activities.RenewLeases,
-		activity.RegisterOptions{Name: temporalworkflow.ActivityRenewLeases})
-	temporalWorker.RegisterActivityWithOptions(activities.ReleaseLeases,
-		activity.RegisterOptions{Name: temporalworkflow.ActivityReleaseLeases})
-	temporalWorker.RegisterActivityWithOptions(activities.UpdateState,
-		activity.RegisterOptions{Name: temporalworkflow.ActivityUpdateState})
-	temporalWorker.RegisterActivityWithOptions(activities.UpdateStep,
-		activity.RegisterOptions{Name: temporalworkflow.ActivityUpdateStep})
-	temporalWorker.RegisterActivityWithOptions(activities.ExecuteStep,
-		activity.RegisterOptions{Name: temporalworkflow.ActivityExecuteStep})
-	temporalWorker.RegisterActivityWithOptions(activities.AppendEvent,
-		activity.RegisterOptions{Name: temporalworkflow.ActivityAppendEvent})
 	temporalWorker.RegisterWorkflowWithOptions(temporalworkflow.DriverWorkflow,
 		workflowregister.RegisterOptions{Name: temporalworkflow.DriverWorkflowName})
 	for name, fn := range map[string]any{
@@ -273,21 +236,6 @@ func RunWorker(cfg config.APIConfig) error {
 	if err := temporalWorker.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
 	}
-	// Run the start reconciler here as well as in the API process. A deployment that
-	// runs the worker without the API would otherwise never turn a persisted
-	// startState=pending Operation into a Temporal workflow. Duplicate starts are safe:
-	// the stable Workflow ID rejects duplicates and the record is reconciled as started.
-	starter := temporalworkflow.NewStarter(
-		temporalClient, operations, cfg.TemporalTaskQueue, cfg.TemporalStartInterval,
-		cfg.OperationLeaseDuration, cfg.OperationMaxParallelism,
-	)
-	go starter.Run(ctx)
-	// Run the lost-execution reconciler here as well as in the API process so a worker-only
-	// deployment still surfaces Operations whose execution was lost as repairable. Duplicate
-	// sweeps are safe: each write is an idempotent status update.
-	reconciler := temporalworkflow.NewReconciler(temporalClient, operations, cfg.ReconcileInterval)
-	reconciler.AttachLeaseReleaser(leases)
-	go reconciler.Run(ctx)
 	slog.Info("Temporal worker started", "address", cfg.TemporalAddress,
 		"namespace", cfg.TemporalNamespace, "taskQueue", cfg.TemporalTaskQueue)
 	convergenceEvents, err := convergencestore.NewMongoEventRecorder(ctx, db)
@@ -307,7 +255,7 @@ func RunWorker(cfg config.APIConfig) error {
 		return fmt.Errorf("subnet DNS repo init: %w", err)
 	}
 	runControllers := controllerRuntime(db, convergence.RuntimeOptions{ResyncInterval: cfg.ControllerResyncInterval},
-		workflowapp.NewDispatcher(operations, engine, executor, cfg.WorkflowResyncInterval, false),
+		workflowapp.NewDispatcher(operations, engine, executor, cfg.WorkflowResyncInterval),
 		provisioningapp.NewServerController(servers, servers, providers, serverWorkflowHolds{leases: ownership},
 			serverGroupCatalog{zones: zones, pools: pools}, convergenceEvents),
 		infrastructureapp.NewCatalogController(zones, pools, groupingTargets{integrations: integrations}, providers, convergenceEvents),

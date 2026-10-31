@@ -158,17 +158,16 @@ func TestNTPPlannerWithCheckVars(t *testing.T) {
 	}
 }
 
-// configure-ntp Tasks of a deploy-kubernetes or configure-slurm Workflow carry the Workflow's kind
-// like the install Task, but must not run the platform completion, which only install-platform can
-// satisfy.
-func TestPlatformDeploymentObserverIgnoresTheTimeTasks(t *testing.T) {
-	observer := platformDeploymentObserver{}
-	for _, kind := range []workflowdomain.WorkflowKind{
-		workflowdomain.WorkflowKindDeployKubernetes, workflowdomain.WorkflowKindConfigureSlurm,
-	} {
-		execution := &workflowdomain.AnsibleExecution{OperationID: "op-1", Kind: kind, PlatformID: "plat-1", StepID: ntpStepPrefix + "s1"}
-		if err := observer.AnsibleStepSucceeded(context.Background(), execution, workflowdomain.RunnerResult{}); err != nil {
-			t.Errorf("%s configure-ntp completion err = %v, want nil", kind, err)
+// configure-ntp Tasks of a deploy-kubernetes or configure-slurm Workflow declare no completion:
+// only the platform's install Task records the credential (decision 072).
+func TestTimeTasksDeclareNoCompletion(t *testing.T) {
+	tasks, err := newNTPTestPlanner("10.170.168.20", nil, false).configureTasks(context.Background(), "op-1", "admin", "", []string{"s1"})
+	if err != nil {
+		t.Fatalf("configureTasks() error = %v", err)
+	}
+	for _, task := range tasks {
+		if len(task.Completion) != 0 {
+			t.Errorf("task %s declares %v, want no completion", task.ID, task.Completion)
 		}
 	}
 }

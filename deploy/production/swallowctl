@@ -471,7 +471,8 @@ restore() {
 #   2. MongoDB is the writable primary of the replica set rs0 (decision 069);
 #   3. the Temporal cluster is healthy;
 #   4. the worker polls the swallow-operations task queue with workflow and activity pollers;
-#   5. the Ansible executor process runs, and the shipped diagnostic-ping playbook runs;
+#   5. the Ansible executor process runs and polls the swallow-ansible task queue with an activity
+#      poller, and the shipped diagnostic-ping playbook runs;
 #   6. the Dashboard and API answer /readyz on the HTTP port;
 #   7. production only: the co-located MAAS answers with a complete ubuntu/noble and its virsh SSH
 #      identity (local-maas.sh check), the Control-Plane NTP Server serves UDP 123 with the
@@ -554,13 +555,26 @@ temporal_healthy() {
   "${compose[@]}" exec -T temporal temporal operator cluster health --address temporal:7233
 }
 
-# worker_polls_task_queue proves the worker is connected to Temporal: both a workflow and an
-# activity poller must be registered on the operations task queue.
-worker_polls_task_queue() {
+# task_queue_has_pollers proves a process is connected to Temporal: the task queue named first has a
+# poller of every type named after it (workflow, activity).
+task_queue_has_pollers() {
+  local queue="$1"
+  shift
   "${compose[@]}" exec -T temporal temporal task-queue describe \
-    --task-queue swallow-operations --address temporal:7233 -o json |
+    --task-queue "${queue}" --address temporal:7233 -o json |
     jq -e '[.. | objects | .pollers? // empty | .[]? | (.taskQueueType // "" | ascii_downcase)] as $types
-      | ($types | any(contains("workflow"))) and ($types | any(contains("activity")))'
+      | all($ARGS.positional[]; . as $type | $types | any(contains($type)))' --args "$@"
+}
+
+# worker_polls_task_queue: the worker runs the driver workflows and the provider activities.
+worker_polls_task_queue() {
+  task_queue_has_pollers swallow-operations workflow activity
+}
+
+# ansible_executor_polls_task_queue: the Ansible executor runs the Ansible Tasks, as activities
+# of their own task queue (decision 072).
+ansible_executor_polls_task_queue() {
+  task_queue_has_pollers swallow-ansible activity
 }
 
 # ansible_executor_running looks for the executor process, not just its container: in the dev
@@ -607,6 +621,7 @@ doctor() {
   check 'Temporal cluster is healthy' temporal_healthy || failed=1
   check 'worker polls the swallow-operations task queue' worker_polls_task_queue || failed=1
   check 'Ansible executor is running' ansible_executor_running || failed=1
+  check 'Ansible executor polls the swallow-ansible task queue' ansible_executor_polls_task_queue || failed=1
   check 'ansible-runner runs the shipped diagnostic-ping playbook' ansible_runner_works || failed=1
   if [[ "${profile}" == production ]]; then
     "${script_dir}/local-maas.sh" check || failed=1
@@ -753,6 +768,7 @@ ensure() {
   converge 'Temporal cluster is healthy' temporal_healthy temporal || true
   converge 'worker polls the swallow-operations task queue' worker_polls_task_queue worker || true
   converge 'Ansible executor is running' ansible_executor_running ansible-executor || true
+  converge 'Ansible executor polls the swallow-ansible task queue' ansible_executor_polls_task_queue ansible-executor || true
   converge "Dashboard and API answer on HTTP port $(http_port)" dashboard_ready api-server dashboard || true
   if [[ "${profile}" == production ]]; then
     if [[ -f "${maas_marker}" ]]; then

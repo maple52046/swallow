@@ -14,10 +14,7 @@ import (
 // MongoOwnershipRepo implements workflowdomain.OwnershipRepository over `resource_leases`, one
 // document per resource key whose `owner` is the owning Workflow's id (decision 072). The
 // collection keeps its name so the API's `leases` and the Server controller's hold read one place.
-//
-// A document of the pre-ownership lease shape (an `owner` with an `expiresAt`) counts as owned
-// until it expires, so ownership and an old run's lease exclude each other while both exist;
-// schema v9 converts the old shape.
+// Ownership has no expiry: it lasts until the owner's terminal transition releases it.
 type MongoOwnershipRepo struct {
 	col *mongo.Collection
 }
@@ -38,11 +35,10 @@ func NewMongoOwnershipRepo(db *mongo.Database) (*MongoOwnershipRepo, error) {
 }
 
 type ownershipDoc struct {
-	ResourceKey string     `bson:"_id"`
-	Owner       string     `bson:"owner,omitempty"`
-	AcquiredAt  time.Time  `bson:"acquiredAt,omitempty"`
-	UpdatedAt   time.Time  `bson:"updatedAt,omitempty"`
-	ExpiresAt   *time.Time `bson:"expiresAt,omitempty"`
+	ResourceKey string    `bson:"_id"`
+	Owner       string    `bson:"owner,omitempty"`
+	AcquiredAt  time.Time `bson:"acquiredAt,omitempty"`
+	UpdatedAt   time.Time `bson:"updatedAt,omitempty"`
 }
 
 // Acquire implements workflowdomain.OwnershipRepository. It reads before it writes, so a resource
@@ -62,18 +58,13 @@ func (r *MongoOwnershipRepo) Acquire(ctx context.Context, owner string, resource
 		return false, err
 	}
 	for _, doc := range docs {
-		if doc.Owner == "" || doc.Owner == owner {
-			continue
+		if doc.Owner != "" && doc.Owner != owner {
+			return false, nil
 		}
-		if doc.ExpiresAt != nil && !doc.ExpiresAt.After(at) {
-			continue
-		}
-		return false, nil
 	}
 	for _, key := range resourceKeys {
 		if _, err := r.col.UpdateOne(ctx, bson.M{"_id": key}, bson.M{
-			"$set":   bson.M{"owner": owner, "acquiredAt": at, "updatedAt": at},
-			"$unset": bson.M{"expiresAt": ""},
+			"$set": bson.M{"owner": owner, "acquiredAt": at, "updatedAt": at},
 		}, options.Update().SetUpsert(true)); err != nil {
 			return false, err
 		}
@@ -83,13 +74,13 @@ func (r *MongoOwnershipRepo) Acquire(ctx context.Context, owner string, resource
 
 // Release implements workflowdomain.OwnershipRepository.
 func (r *MongoOwnershipRepo) Release(ctx context.Context, owner string) error {
-	_, err := r.col.DeleteMany(ctx, bson.M{"owner": owner, "expiresAt": bson.M{"$exists": false}})
+	_, err := r.col.DeleteMany(ctx, bson.M{"owner": owner})
 	return err
 }
 
 // FindByOwner implements workflowdomain.OwnershipRepository.
 func (r *MongoOwnershipRepo) FindByOwner(ctx context.Context, owner string) ([]workflowdomain.ResourceOwnership, error) {
-	cursor, err := r.col.Find(ctx, bson.M{"owner": owner, "expiresAt": bson.M{"$exists": false}},
+	cursor, err := r.col.Find(ctx, bson.M{"owner": owner},
 		options.Find().SetSort(bson.D{{Key: "_id", Value: 1}}))
 	if err != nil {
 		return nil, err
@@ -109,7 +100,6 @@ func (r *MongoOwnershipRepo) FindByOwner(ctx context.Context, owner string) ([]w
 func (r *MongoOwnershipRepo) IsHeld(ctx context.Context, resourceKey string) (bool, error) {
 	n, err := r.col.CountDocuments(ctx, bson.M{
 		"_id": resourceKey, "owner": bson.M{"$nin": bson.A{"", nil}},
-		"$or": bson.A{bson.M{"expiresAt": bson.M{"$exists": false}}, bson.M{"expiresAt": bson.M{"$gt": time.Now().UTC()}}},
 	}, options.Count().SetLimit(1))
 	return n > 0, err
 }

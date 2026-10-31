@@ -236,7 +236,8 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 2. MongoDB 是 replica set `rs0` 的可寫入 primary（§2.3a）。
 3. Temporal cluster healthy。
 4. worker 在 `swallow-operations` task queue 上同時有 workflow 與 activity poller。
-5. Ansible executor process 在執行，且能以 `ansible-runner` 跑隨附的 `diagnostic-ping` playbook。
+5. Ansible executor process 在執行、在 `swallow-ansible` task queue 有 activity poller，且能以
+   `ansible-runner` 跑隨附的 `diagnostic-ping` playbook。
 6. Dashboard 與 API 在 HTTP port 回應 `/readyz`。
 7. 僅 production：共置 MAAS 回應、有完整的 `ubuntu/noble` amd64 與 virsh SSH identity（`local-maas.sh check`）；
    Control-Plane NTP Server 在 UDP 123 服務且上游為設定值（`local-ntp.sh check`，§6.1）；installation records
