@@ -15,13 +15,24 @@
     - amd-metrics-exporter
     - gpuagent
 
+- name: Look for apt
+  # The Slurm uninstall reaches hosts of any family; only an apt host can have the package.
+  ansible.builtin.stat:
+    path: /usr/bin/apt-get
+  register: device_metrics_exporter_apt
+
 - name: Remove the Device Metrics Exporter package
+  # apt treats a package that is not installed as already absent.
   ansible.builtin.apt:
     name: amdgpu-exporter
     state: absent
     purge: true
     lock_timeout: 600
-  failed_when: false
+  register: device_metrics_exporter_removal
+  until: device_metrics_exporter_removal is succeeded
+  retries: 60
+  delay: 5
+  when: device_metrics_exporter_apt.stat.exists
 
 - name: Remove the Device Metrics Exporter configuration, job directory, and package cache
   ansible.builtin.file:

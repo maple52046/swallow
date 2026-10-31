@@ -1,8 +1,8 @@
 ---
 - name: Restart munge
   # Restart when the shared key changed so the running daemon uses the new key before Slurm
-  # daemons authenticate with it. Retried like the slurmctld restart: a concurrent
-  # unattended-upgrades run can briefly reset systemd's D-Bus connection on a fresh image.
+  # daemons authenticate with it. Retried like the slurmctld restart: a concurrent package
+  # upgrade can briefly reset systemd's D-Bus connection.
   ansible.builtin.systemd:
     name: munge
     state: restarted

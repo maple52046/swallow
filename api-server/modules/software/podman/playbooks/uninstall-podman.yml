@@ -3,6 +3,12 @@
 # (docs/development/software-deployment.md). Idempotent: a host without Podman reruns with no
 # changes. swallow marks the Software Assignment absent on success.
 
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
 - name: Uninstall Podman
   hosts: all
   gather_facts: true
@@ -10,3 +16,12 @@
     - role: podman
       vars:
         podman_state: absent
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

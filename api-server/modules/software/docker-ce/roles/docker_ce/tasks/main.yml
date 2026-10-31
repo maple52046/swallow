@@ -47,6 +47,7 @@
         force: false
 
     - name: Register the Docker CE apt repository
+      # The install below refreshes the cache and retries a held lock; this module cannot retry.
       ansible.builtin.apt_repository:
         repo: >-
           deb [arch={{ docker_ce_apt_arch }} signed-by=/etc/apt/keyrings/docker.asc]
@@ -54,7 +55,7 @@
           {{ ansible_distribution_release }} stable
         filename: docker
         state: present
-        update_cache: true
+        update_cache: false
 
     - name: Install Docker CE packages (apt)
       # An empty docker_ce_version installs the latest available; a pinned version applies the

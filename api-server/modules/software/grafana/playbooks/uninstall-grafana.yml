@@ -3,6 +3,12 @@
 # unit, or Swallow-installed package and drop-in, plus its configuration and data, leaving the
 # container runtime and the host OS. Idempotent: a host without it reruns with no changes.
 
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
 - name: Uninstall Grafana
   hosts: all
   gather_facts: true
@@ -10,3 +16,12 @@
     - role: grafana
       vars:
         grafana_state: absent
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

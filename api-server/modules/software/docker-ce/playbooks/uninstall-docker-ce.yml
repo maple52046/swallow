@@ -5,6 +5,12 @@
 # disables the daemon, and removes the Docker CE packages; swallow marks the Software Assignment
 # absent on success.
 
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
 - name: Uninstall Docker CE
   hosts: all
   gather_facts: true
@@ -13,3 +19,12 @@
       vars:
         docker_ce_state: absent
         docker_ce_api_port: "{{ swallow_docker_api_port | default(2375) | int }}"
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

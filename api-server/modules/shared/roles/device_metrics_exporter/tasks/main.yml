@@ -29,6 +29,10 @@
   ansible.builtin.apt:
     deb: "{{ device_metrics_exporter_download.dest }}"
     lock_timeout: 600
+  register: device_metrics_exporter_deb
+  until: device_metrics_exporter_deb is succeeded
+  retries: 60
+  delay: 5
   notify:
     - Restart gpuagent
     - Restart the Device Metrics Exporter

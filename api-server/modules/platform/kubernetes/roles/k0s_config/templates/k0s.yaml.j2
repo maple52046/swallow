@@ -8,8 +8,8 @@ spec:
   api:
     # Each controller advertises the address Swallow reaches it on, which join tokens embed.
     # Left to auto-detection, k0s takes the first address it finds at that moment, which is the
-    # IPv6 link-local one while systemd-networkd restarts and renews DHCP (for example when
-    # unattended-upgrades updates systemd on a freshly deployed host).
+    # IPv6 link-local one while systemd-networkd restarts and renews DHCP (for example when a
+    # systemd upgrade restarts it).
     address: {{ ansible_host }}
     # The selected address is a SAN for both direct non-HA access and the HA VIP.
     sans:

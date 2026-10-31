@@ -219,6 +219,8 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 4. 排序（handlers、host loop）留在 playbook。
 5. 於 manifest 註冊、依賴鎖定、不逃逸 project root。
 6. 可離線為目標（第一刀 lab 可走 distro / 官方 repo，但須 pin 版本；air-gap 為後續）。
+7. 改套件的 playbook 以第一個 play 取得、最後一個 play 釋放 `package_maintenance_hold`，套件 task 要重試
+   （[core-and-extensions.md](core-and-extensions.md) §5.2，decision 073）。
 
 ### 4.6 Docker CE 的 Engine API 與 Docker Host Explorer
 

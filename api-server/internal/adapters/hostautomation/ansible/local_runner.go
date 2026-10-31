@@ -173,8 +173,10 @@ func (r *LocalRunner) Run(ctx context.Context, input workflowdomain.RunnerInput)
 	command.Env = append(os.Environ(),
 		"ANSIBLE_HOST_KEY_CHECKING=True",
 		"ANSIBLE_SSH_ARGS=-o UserKnownHostsFile="+knownHostsPath,
-		// A freshly deployed host runs unattended-upgrades, which can restart sshd mid-play;
-		// retrying a refused connection (ssh exit 255 only, with backoff) rides that out.
+		// A freshly deployed host may be in the middle of an OS package upgrade, which restarts
+		// sshd, while a playbook's package maintenance hold waits for it to finish (or in a
+		// playbook without one); retrying a refused connection (ssh exit 255 only, with backoff)
+		// rides that out.
 		"ANSIBLE_SSH_RETRIES=5",
 		// The run sees only its own module's roles and the shared roles (see rolesPath).
 		"ANSIBLE_ROLES_PATH="+roles,

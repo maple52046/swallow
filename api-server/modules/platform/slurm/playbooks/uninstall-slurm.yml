@@ -4,6 +4,12 @@
 # configured or already cleaned by an earlier attempt, so the playbook is safe to rerun and
 # runs uniformly on every target regardless of the daemon roles it had.
 
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
 - name: Uninstall Slurm from the original deployment targets
   hosts: all
   gather_facts: false
@@ -105,3 +111,12 @@
         amdgpu_loader_state: absent
         amdgpu_loader_dependents:
           - slurmd
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

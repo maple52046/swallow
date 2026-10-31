@@ -119,10 +119,10 @@ func nestedRoles(t *testing.T, dir string) map[string]bool {
 	return roles
 }
 
-// Every role a shipped playbook uses, directly or through another role, must resolve in the roles
-// path its run gets (see rolesPath), so content that only worked by reaching into another module's
-// roles fails here instead of on a host.
-func TestShippedPlaybooksResolveRolesWithinTheirModule(t *testing.T) {
+// readShippedManifest parses the release's playbook manifest; entries may share a path (a kind's
+// configure and deploy names), so callers that check content per file dedupe by Path.
+func readShippedManifest(t *testing.T) playbookManifest {
+	t.Helper()
 	raw, err := os.ReadFile(shippedManifest)
 	if err != nil {
 		t.Fatal(err)
@@ -131,38 +131,60 @@ func TestShippedPlaybooksResolveRolesWithinTheirModule(t *testing.T) {
 	if err := json.Unmarshal(raw, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	for _, entry := range manifest.Playbooks {
-		t.Run(entry.Name, func(t *testing.T) {
-			path, err := rolesPath(modulesRoot, entry.Path)
-			if err != nil {
-				t.Fatal(err)
+	return manifest
+}
+
+// roleClosure resolves every role the shipped playbook at path (relative to modulesRoot) uses,
+// directly or through another role, in the roles path its run gets (see rolesPath). It returns the
+// directory of each resolved role by name, the names it could not resolve, and the path searched.
+func roleClosure(t *testing.T, path string) (resolved map[string]string, missing, searched []string) {
+	t.Helper()
+	rolesSearch, err := rolesPath(modulesRoot, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	searched = filepath.SplitList(rolesSearch)
+	pending := playbookRoles(t, filepath.Join(modulesRoot, path))
+	resolved = map[string]string{}
+	seen := map[string]bool{}
+	for len(pending) > 0 {
+		var name string
+		for name = range pending {
+			break
+		}
+		delete(pending, name)
+		seen[name] = true
+		var dir string
+		for _, candidate := range searched {
+			if info, err := os.Stat(filepath.Join(candidate, name)); err == nil && info.IsDir() {
+				dir = filepath.Join(candidate, name)
+				break
 			}
-			searched := filepath.SplitList(path)
-			pending := playbookRoles(t, filepath.Join(modulesRoot, entry.Path))
-			resolved := map[string]bool{}
-			for len(pending) > 0 {
-				var name string
-				for name = range pending {
-					break
-				}
-				delete(pending, name)
-				resolved[name] = true
-				var dir string
-				for _, candidate := range searched {
-					if info, err := os.Stat(filepath.Join(candidate, name)); err == nil && info.IsDir() {
-						dir = filepath.Join(candidate, name)
-						break
-					}
-				}
-				if dir == "" {
-					t.Errorf("%s uses role %q, which is not in its roles path %v", entry.Path, name, searched)
-					continue
-				}
-				for nested := range nestedRoles(t, dir) {
-					if !resolved[nested] {
-						pending[nested] = true
-					}
-				}
+		}
+		if dir == "" {
+			missing = append(missing, name)
+			continue
+		}
+		resolved[name] = dir
+		for nested := range nestedRoles(t, dir) {
+			if !seen[nested] {
+				pending[nested] = true
+			}
+		}
+	}
+	sort.Strings(missing)
+	return resolved, missing, searched
+}
+
+// Every role a shipped playbook uses, directly or through another role, must resolve in the roles
+// path its run gets (see rolesPath), so content that only worked by reaching into another module's
+// roles fails here instead of on a host.
+func TestShippedPlaybooksResolveRolesWithinTheirModule(t *testing.T) {
+	for _, entry := range readShippedManifest(t).Playbooks {
+		t.Run(entry.Name, func(t *testing.T) {
+			_, missing, searched := roleClosure(t, entry.Path)
+			for _, name := range missing {
+				t.Errorf("%s uses role %q, which is not in its roles path %v", entry.Path, name, searched)
 			}
 		})
 	}

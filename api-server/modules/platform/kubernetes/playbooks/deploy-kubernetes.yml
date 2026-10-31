@@ -3,6 +3,12 @@
 # variables: one control-plane Server is non-HA, while three or more odd control-plane
 # Servers enable the keepalived path in the shared configuration.
 
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
 - name: Classify k0s nodes by assigned role
   hosts: all
   gather_facts: false
@@ -73,3 +79,12 @@
   roles:
     - role: k0s_cluster_credential
     - role: k0s_verify
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

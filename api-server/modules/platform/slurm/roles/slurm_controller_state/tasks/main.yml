@@ -16,8 +16,6 @@
     name: nfs-common
     state: present
     lock_timeout: 300
-  # The fresh-boot lock gate runs earlier, but unattended-upgrades can start after that
-  # check. Retrying the apt operation itself closes that unavoidable check/use race.
   register: slurm_controller_state_nfs_package
   until: slurm_controller_state_nfs_package is succeeded
   retries: 120

@@ -169,6 +169,23 @@ host automation 內容（目前是 playbook）以「內容類型＋參照」宣�
 manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allowlist 管控（目前是
 `api-server/modules/manifest.json`），不得來自可變的資料庫內容。
 
+**改套件的內容必須暫緩 OS 的自動套件維護**（[decision 073](../decisions/073-hold-os-package-maintenance-during-automation.md)）：
+
+- 任何會安裝、移除或更新套件、或刷新套件索引的 playbook，第一個 play 以共用 role
+  `package_maintenance_hold` 在所有目標上取得 hold（`hosts: all`、`gather_facts: false`），最後一個 play
+  以 `tasks_from: release` 釋放。hold 只在執行期間停止 apt-daily／unattended-upgrades 與
+  dnf-makecache／dnf-automatic 的 timer，不停用也不 mask，也不中斷已在執行的升級，而是等它完成（逾時則
+  `[package_maintenance_busy]`）。
+- hold 是有期限的租約：預設 TTL 3 小時，release 之後再保留 10 分鐘，讓同一個 Workflow 接續的 Task 仍在
+  hold 之內。期限到了，由 transient systemd timer 啟動 hold 停掉的 timer，所以失敗、被取消或遺失的執行最晚
+  在 TTL 後歸還主機；同一台主機上並行的 Task 各自持有租約。
+- hold 同時寫入 swallow 擁有的 `/etc/apt/apt.conf.d/50swallow-lock-timeout`（`DPkg::Lock::Timeout`），讓
+  `apt-get` 遇到 swallow 以外的人持有 lock 時等待而不是立即失敗。Ansible apt module 的 `lock_timeout` 只涵蓋
+  python-apt 自己的 lock，不涵蓋它接著執行的 `apt-get` 與 `dpkg`。
+- 每個套件 task（`apt`、`dnf`、`yum`、`package`、會刷新索引的 `apt_repository`、執行 `apt-get`／`dpkg` 的
+  command）仍要 `register` + `until: ... is succeeded` + `retries`，以涵蓋 mirror 的暫時性錯誤。
+- `internal/adapters/hostautomation/ansible/package_hold_playbook_test.go` 依 manifest 與 role 閉包強制以上規則。
+
 ### 5.3 Go hook
 
 - 只用於資料表達不了的邏輯，例如需要計算的 trusted variables 或 Platform 專屬的狀態解讀。

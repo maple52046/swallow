@@ -18,6 +18,11 @@
     name: docker.io
     state: present
     update_cache: true
+    lock_timeout: 300
+  register: docker_runtime_package
+  until: docker_runtime_package is succeeded
+  retries: 60
+  delay: 5
   become: true
   when:
     - docker_version_check.rc != 0

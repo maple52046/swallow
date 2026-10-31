@@ -1,0 +1,28 @@
+---
+# End this run's package maintenance lease (see main.yml). The hold stays
+# package_maintenance_hold_grace_seconds longer, so the next Task of the same Workflow starts before
+# the OS runs the maintenance it missed; then the timers the hold stopped start again. A failed
+# release does not fail the playbook: the lease still ends on its own at its deadline.
+
+- name: Release the package maintenance hold
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_facts.discovered_interpreter_python | default(ansible_python_interpreter | default('/usr/bin/python3')) }}"
+      - "{{ package_maintenance_hold_script }}"
+      - release
+      - "{{ package_maintenance_hold_lease }}"
+      - "{{ package_maintenance_hold_grace_seconds }}"
+  register: package_maintenance_hold_release
+  changed_when: false
+  failed_when: false
+  become: true
+  when: package_maintenance_hold_lease is defined
+
+- name: Warn when the release did not take effect
+  ansible.builtin.debug:
+    msg: >-
+      The package maintenance hold was not released ({{ package_maintenance_hold_release.stderr | default('') | trim }});
+      it ends on its own at its deadline.
+  when:
+    - package_maintenance_hold_release is not skipped
+    - package_maintenance_hold_release.rc | default(0) != 0

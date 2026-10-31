@@ -1,8 +1,8 @@
 ---
 - name: Restart slurmd
   # Notified when the configless conf-server list changes so slurmd re-fetches configuration
-  # from the current controllers. Retried like the slurmctld restart: a concurrent
-  # unattended-upgrades run can briefly reset systemd's D-Bus connection on a fresh image.
+  # from the current controllers. Retried like the slurmctld restart: a concurrent package
+  # upgrade can briefly reset systemd's D-Bus connection.
   ansible.builtin.systemd:
     name: slurmd
     state: restarted

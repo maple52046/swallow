@@ -11,6 +11,12 @@
 # the connection address (ansible_host) via SlurmctldHost host(ip) and NodeAddr, so the
 # cluster forms without depending on site DNS.
 
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
 - name: Classify Slurm nodes by assigned daemon
   hosts: all
   gather_facts: true
@@ -156,25 +162,6 @@
       ansible.builtin.group_by:
         key: "slurm_{{ 'workload_client' if slurm_workload_enabled | bool else 'nonworkload_client' }}"
       changed_when: false
-
-    - name: Wait for image-started package operations to release dpkg locks
-      # Fresh ephemeral boots may still be finishing unattended-upgrades when automation
-      # connects. apt.lock_timeout is not consistently honoured by every ansible-core/apt
-      # combination, so establish one explicit readiness gate before any Slurm role installs
-      # MUNGE or NFS packages. fuser returns 1 only when none of the locks has an owner.
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/fuser
-          - /var/lib/dpkg/lock-frontend
-          - /var/lib/dpkg/lock
-          - /var/cache/apt/archives/lock
-      register: slurm_dpkg_locks
-      until: slurm_dpkg_locks.rc != 0
-      retries: 120
-      delay: 5
-      changed_when: false
-      failed_when: false
-      become: true
   roles:
     # MUNGE rejects credentials between nodes whose clocks disagree, so every node's clock is
     # checked first (decision 065; swallow_time_sync_check decides enforce or warn).
@@ -316,3 +303,12 @@
     - role: slurm_slurmrestd
     - role: slurm_verify
     - role: slurm_cluster_credential
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

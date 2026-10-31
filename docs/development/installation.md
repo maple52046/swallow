@@ -503,6 +503,10 @@ upgrade、以 Integration endpoint 而非 Dashboard 修正 rack 預填：見
    `ansible_failed`。
 6. 冪等：已收斂的主機重跑沒有變更。
 
+`configure-ntp` 是新 provision 的 Server 上第一支 swallow playbook，所以 OS 自動套件維護的 hold 從這裡開始
+（第一個 play 取得、最後一個 play 釋放，見 [core-and-extensions.md](core-and-extensions.md) §5.2）。同一個
+Workflow 之後的 playbook 各自再取得，hold 因此涵蓋整個 Workflow。
+
 `systemd-timesyncd` 仍優先使用 DHCP lease 提供的 server；在 MAAS 服務的 subnet 上，那是 MAAS rack，也就是
 swallow 主機。
 

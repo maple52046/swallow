@@ -218,10 +218,12 @@ IPv4 子網再檢查一次。理由（lab 實測）：VIP 用較長的 prefix（
 來源為 VIP 的較窄路由，持有 VIP 的節點對那段子網改以 VIP 連線，etcd 依憑證拒絕它，其他 controller 無法 join。
 
 **API 位址契約**：每台 controller 的 `k0s.yaml` 都以 `spec.api.address: <ansible_host>` 明示自己的位址（其餘設定各台
-相同），不交給 k0s 自動偵測。join token 會內嵌 initial controller 的這個位址；新部署的主機常在佈署期間跑
-unattended-upgrades，升級 systemd 時 `systemd-networkd` 重啟、DHCP 位址消失數秒，若此時建立 token，自動偵測只
-找得到 IPv6 link-local，其他 controller 便無法 join（lab 實測）。同一原因也會讓 sshd 短暫拒絕連線與 dpkg lock
-被占用，所以 ansible-runner 以 `ANSIBLE_SSH_RETRIES` 重連、`k0s_prereq` 的 apt 會等 lock 並重試。
+相同），不交給 k0s 自動偵測。join token 會內嵌 initial controller 的這個位址；升級 systemd 時
+`systemd-networkd` 重啟、DHCP 位址消失數秒，若此時建立 token，自動偵測只找得到 IPv6 link-local，其他 controller
+便無法 join（lab 實測：新部署的主機在佈署期間跑 unattended-upgrades）。部署期間 OS 自己的套件維護由
+`package_maintenance_hold` 暫緩（[decision 073](../decisions/073-hold-os-package-maintenance-during-automation.md)，
+規則見 [core-and-extensions.md](core-and-extensions.md) §5.2）；固定位址與 ansible-runner 的 `ANSIBLE_SSH_RETRIES`
+仍保留，以防 swallow 以外的升級，以及 hold 開始時已在執行、hold 正在等它完成的升級。
 
 此流程已在 lab 以全 Rocky 10.2 的 3 controller + 4 worker HA k0s 驗證（platform active、4 worker
 Ready、membership matched 7/7）。cgroup v1 fallback、cri-dockerd、RHEL DNS nmcli fallback 與「單一

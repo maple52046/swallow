@@ -11,8 +11,23 @@
 #   swallow_grafana_dashboards        Swallow-shipped dashboard bundles to provision
 # Idempotent: a converged host reruns with no changes.
 
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
 - name: Install Grafana
   hosts: all
   gather_facts: true
   roles:
     - role: grafana
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

@@ -4,6 +4,12 @@
 # platform. Idempotent: a converged host reruns with no changes. An optional pinned version
 # arrives as swallow_podman_version.
 
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
 - name: Install Podman
   hosts: all
   gather_facts: true
@@ -11,3 +17,12 @@
     podman_version: "{{ swallow_podman_version | default('', true) }}"
   roles:
     - role: podman
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

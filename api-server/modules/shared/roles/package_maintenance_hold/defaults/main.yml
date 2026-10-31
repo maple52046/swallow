@@ -1,0 +1,15 @@
+---
+# How long a lease holds the OS's package maintenance when its playbook never releases it (a failed,
+# canceled, or lost run). It must outlast the longest shipped playbook; it is also how long the OS's
+# updates can stay deferred after such a run.
+package_maintenance_hold_ttl_seconds: 10800
+# How long the hold stays after a release, so the next Task of the same Workflow starts before the OS
+# runs the maintenance it missed (a Persistent timer runs it soon after it starts again).
+package_maintenance_hold_grace_seconds: 600
+# How long acquire waits for maintenance that was already running. A fresh image's first
+# unattended-upgrades run took about five minutes in the lab; past this the play fails with
+# [package_maintenance_busy] and the Task can be retried.
+package_maintenance_hold_wait_seconds: 2700
+# How long apt-get waits for a package lock held outside swallow (an operator, cloud-init).
+package_maintenance_hold_apt_lock_timeout_seconds: 600
+package_maintenance_hold_script: /usr/local/libexec/swallow/package-hold

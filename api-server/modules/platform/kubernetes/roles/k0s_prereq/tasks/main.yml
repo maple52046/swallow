@@ -11,8 +11,6 @@
     state: present
     update_cache: true
     lock_timeout: 300
-  # A freshly deployed host may still be running unattended-upgrades, which holds the dpkg lock
-  # past lock_timeout on some ansible-core/apt combinations; retrying the operation closes that.
   register: k0s_prereq_packages
   until: k0s_prereq_packages is succeeded
   retries: 120
@@ -33,6 +31,10 @@
       - iptables-nft
       - firewalld
     state: present
+  register: k0s_prereq_rhel_packages
+  until: k0s_prereq_rhel_packages is succeeded
+  retries: 60
+  delay: 5
   become: true
   when: ansible_facts['os_family'] == 'RedHat'
 
@@ -45,6 +47,10 @@
       - container-selinux
       - policycoreutils-python-utils
     state: present
+  register: k0s_prereq_selinux_packages
+  until: k0s_prereq_selinux_packages is succeeded
+  retries: 60
+  delay: 5
   become: true
   when:
     - ansible_facts['os_family'] == 'RedHat'

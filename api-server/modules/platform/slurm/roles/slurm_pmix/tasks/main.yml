@@ -17,6 +17,9 @@
     lock_timeout: 600
   become: true
   register: slurm_pmix_packages
+  until: slurm_pmix_packages is succeeded
+  retries: 60
+  delay: 5
   when: slurm_pmix | bool
 
 - name: Ensure Swallow's helper directory exists

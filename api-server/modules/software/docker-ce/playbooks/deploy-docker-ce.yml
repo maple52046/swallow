@@ -11,6 +11,12 @@
 # Docker Host Explorer dials (decision 043); swallow always sends both, so the defaults here only
 # keep a hand-run play closed.
 
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
 - name: Install Docker CE
   hosts: all
   gather_facts: true
@@ -20,3 +26,12 @@
     docker_ce_api_port: "{{ swallow_docker_api_port | default(2375) | int }}"
   roles:
     - role: docker_ce
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

@@ -1,0 +1,83 @@
+---
+# Hold this host's automatic package maintenance (apt-daily and unattended-upgrades, dnf-makecache
+# and dnf-automatic) for the rest of the playbook, so the OS neither takes the package lock nor upgrades and restarts
+# services while swallow configures the host (decision 073). Every shipped playbook that changes
+# packages runs this role as its first play and tasks_from: release as its last; a content test
+# enforces both. The hold is a lease: it ends on its own after package_maintenance_hold_ttl_seconds
+# when the playbook never releases it, and only the timers it stopped start again. Needs no facts,
+# so the first play runs with gather_facts: false.
+
+- name: Create swallow's helper directory
+  ansible.builtin.file:
+    path: "{{ package_maintenance_hold_script | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Install the package maintenance hold helper
+  ansible.builtin.copy:
+    src: swallow-package-hold.py
+    dest: "{{ package_maintenance_hold_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Look for apt's configuration directory
+  ansible.builtin.stat:
+    path: /etc/apt/apt.conf.d
+  register: package_maintenance_hold_apt_conf
+
+- name: Make apt-get wait for a held package lock instead of failing at once
+  # The apt module's lock_timeout only retries python-apt's own locking; the apt-get and dpkg it then
+  # runs fail on the spot when someone outside swallow holds the lock. Ubuntu gives only the `apt`
+  # binary a lock timeout.
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/50swallow-lock-timeout
+    content: |
+      // Managed by swallow: wait for a held package lock instead of failing at once.
+      DPkg::Lock::Timeout "{{ package_maintenance_hold_apt_lock_timeout_seconds }}";
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: package_maintenance_hold_apt_conf.stat.isdir | default(false)
+
+- name: Name this run's lease
+  # Facts outlive the play, so the release play ends this same lease.
+  ansible.builtin.set_fact:
+    package_maintenance_hold_lease: "{{ package_maintenance_hold_lease | default('swallow-' ~ (281474976710656 | random)) }}"
+
+- name: Hold automatic package maintenance and wait for any already running
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_facts.discovered_interpreter_python | default(ansible_python_interpreter | default('/usr/bin/python3')) }}"
+      - "{{ package_maintenance_hold_script }}"
+      - acquire
+      - "{{ package_maintenance_hold_lease }}"
+      - "{{ package_maintenance_hold_ttl_seconds }}"
+      - "{{ package_maintenance_hold_wait_seconds }}"
+      - "{{ package_maintenance_hold_grace_seconds }}"
+  register: package_maintenance_hold_acquire
+  # The hold is runtime state that every run re-establishes, not a change to the host.
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Fail when the hold could not be taken
+  ansible.builtin.fail:
+    msg: >-
+      {{ package_maintenance_hold_acquire.stderr | default('', true) | trim
+         or ('[package_maintenance_hold_failed] rc=' ~ package_maintenance_hold_acquire.rc) }}
+  when: package_maintenance_hold_acquire.rc != 0
+
+- name: Report the package maintenance this run waited for
+  vars:
+    package_maintenance_hold_result: "{{ package_maintenance_hold_acquire.stdout | from_json }}"
+  ansible.builtin.debug:
+    msg: >-
+      Waited {{ package_maintenance_hold_result.waitedSeconds }}s for
+      {{ package_maintenance_hold_result.waitedFor | join(', ') }} before changing packages
+  when: (package_maintenance_hold_acquire.stdout | from_json).waitedSeconds > 0

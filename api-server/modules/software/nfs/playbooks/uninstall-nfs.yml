@@ -4,6 +4,12 @@
 # its fstab entry, and removes the server export. Idempotent: a host without the mount/export
 # reruns with no changes. swallow marks the Software Assignment absent on success.
 
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
 - name: Classify NFS nodes by assigned role
   hosts: all
   gather_facts: true
@@ -36,3 +42,12 @@
     - role: nfs_server
       vars:
         nfs_server_state: absent
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

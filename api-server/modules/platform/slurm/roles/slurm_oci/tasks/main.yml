@@ -13,6 +13,10 @@
     update_cache: true
     cache_valid_time: 3600
     lock_timeout: 600
+  register: slurm_oci_crun_package
+  until: slurm_oci_crun_package is succeeded
+  retries: 60
+  delay: 5
   become: true
   when: slurm_oci_containers | bool
 

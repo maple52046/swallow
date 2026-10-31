@@ -5,6 +5,12 @@
 # (slurmd, k0s) after it with an amdgpu_loader drop-in; while any such drop-in exists, the loader
 # stays. Idempotent.
 
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
 - name: Uninstall the Device Metrics Exporter
   hosts: all
   gather_facts: false
@@ -29,3 +35,12 @@
         amdgpu_loader_state: absent
         amdgpu_loader_owner: Device Metrics Exporter
       when: dme_loader_dependents.matched == 0
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

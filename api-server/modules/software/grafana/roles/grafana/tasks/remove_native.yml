@@ -47,6 +47,10 @@
       ansible.builtin.dnf:
         name: grafana
         state: absent
+      register: grafana_dnf_removal
+      until: grafana_dnf_removal is succeeded
+      retries: 60
+      delay: 5
       when: ansible_facts['os_family'] == 'RedHat'
 
     - name: Remove the Grafana yum repository
