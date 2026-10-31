@@ -29,6 +29,7 @@ import (
 	sitestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/site"
 	softwarestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/software"
 	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
+	"github.com/maple52046/swallow/internal/core/convergence"
 	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
@@ -240,7 +241,14 @@ func RunWorker(cfg config.APIConfig) error {
 	go reconciler.Run(ctx)
 	slog.Info("Temporal worker started", "address", cfg.TemporalAddress,
 		"namespace", cfg.TemporalNamespace, "taskQueue", cfg.TemporalTaskQueue)
+	runControllers := controllerRuntime(db, convergence.RuntimeOptions{ResyncInterval: cfg.ControllerResyncInterval})
+	controllersDone := make(chan struct{})
+	go func() {
+		defer close(controllersDone)
+		runControllers(ctx)
+	}()
 	<-ctx.Done()
 	temporalWorker.Stop()
+	<-controllersDone
 	return nil
 }

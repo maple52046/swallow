@@ -63,6 +63,12 @@ type APIConfig struct {
 	// sync, so this periodic pass only repairs drift (a key an operator deleted in MAAS, a
 	// provisioner that was unreachable) and can be much longer than ReconcileInterval.
 	SSHKeySyncInterval time.Duration `yaml:"sshKeySyncInterval"`
+	// ControllerResyncInterval is how often each desired-state controller in the worker
+	// reconciles every resource it owns. A spec change converges at once through the change feed;
+	// this resync is when drift of an auto-correct field is corrected (decision 071), so it bounds
+	// how long a change made directly in a provider survives, and how often controllers write to
+	// providers when nothing changed in swallow.
+	ControllerResyncInterval time.Duration `yaml:"controllerResyncInterval"`
 	// OperationDispatchInterval controls how quickly pending embedded runs are claimed.
 	OperationDispatchInterval time.Duration `yaml:"operationDispatchInterval"`
 	// OperationLeaseDuration is renewed while ansible-runner is alive.

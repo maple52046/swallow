@@ -87,6 +87,12 @@ func applyEnv(cfg *Config) {
 		}
 	}
 
+	if v := os.Getenv("SWALLOW_API_CONTROLLER_RESYNC_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.ControllerResyncInterval = d
+		}
+	}
+
 	if v := os.Getenv("SWALLOW_API_OPERATION_DISPATCH_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.API.OperationDispatchInterval = d

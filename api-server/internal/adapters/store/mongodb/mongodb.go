@@ -5,9 +5,9 @@
 //
 // It is a provider adapter (docs/development/core-and-extensions.md §3): MongoDB types, sessions,
 // and error labels stay here and in the repositories, and never reach the core. Each context's
-// repositories live in a subpackage named after the context (apikey, auth, infrastructure,
-// platform, provisioning, server, site, software, sshkey, workflow) and schema evolution lives in
-// migration; a subpackage may import this package but not another context's subpackage. Nothing
+// repositories live in a subpackage named after the context (apikey, auth, convergence,
+// infrastructure, platform, provisioning, server, site, software, sshkey, workflow) and schema
+// evolution lives in migration; the store's change feed (ChangeFeed) lives here; a subpackage may import this package but not another context's subpackage. Nothing
 // in this package or its subpackages may hold business rules.
 package mongodb
 

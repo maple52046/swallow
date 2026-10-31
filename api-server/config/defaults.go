@@ -22,6 +22,7 @@ func DefaultConfig() Config {
 			ReconcileInterval:         30 * time.Second,
 			InventoryInterval:         15 * time.Minute,
 			SSHKeySyncInterval:        5 * time.Minute,
+			ControllerResyncInterval:  10 * time.Minute,
 			OperationDispatchInterval: time.Second,
 			OperationLeaseDuration:    90 * time.Second,
 			OperationMaxParallelism:   4,
