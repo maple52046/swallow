@@ -257,7 +257,7 @@ func RunAPI(cfg config.APIConfig) error {
 	networkService := provisioningapp.NewNetworkConfigurationService(serverRepo, providerFactory)
 	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo, releaseCleanupRetrier{
 		orchestrations: orchestrationRepo,
-		workflows:      workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog(modules.workflowKinds)),
+		workflows:      workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog(modules.workflowKinds, modules.software)),
 	}, serverProtection)
 	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory, osImageVerificationRepo)
 	deploymentsUC.AttachDeploymentKeys(sshKeyService)
@@ -407,7 +407,7 @@ func RunAPI(cfg config.APIConfig) error {
 		automationRepo, siteRepo, catalog, modules.workflowKinds,
 	)
 	automationService.AttachDeploymentKeys(deploymentKeys)
-	orchestrationService := workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog(modules.workflowKinds), operationSecretRepo)
+	orchestrationService := workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog(modules.workflowKinds, modules.software), operationSecretRepo)
 	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
 	if err != nil {
 		return fmt.Errorf("resource ownership repo init: %w", err)

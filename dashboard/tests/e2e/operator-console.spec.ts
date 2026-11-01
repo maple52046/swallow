@@ -1637,6 +1637,7 @@ test.describe('operator interactions', () => {
         externalExecution: { provider: 'ansible-runner', id: 'run-event-diagnostics', generation: 1 },
         artifacts: [], startedAt: '2026-08-27T02:50:00Z', finishedAt: '2026-08-27T02:51:00Z',
       }],
+      jobs: [{ name: 'configure-slurm', label: 'Configure Slurm', retry: 'job' }],
       leases: [], requestCorrelation: 'req-event-diagnostics',
       execution: {
         runId: 'run-event-diagnostics', playbook: '', status: 'requires_attention',

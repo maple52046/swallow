@@ -588,6 +588,7 @@ components:
         - targetResources
         - targetServerIds
         - steps
+        - jobs
         - leases
         - retryOfOperationId
         - requestedBy
@@ -660,6 +661,14 @@ components:
             Task, so this is null only for a record that holds none.
           items:
             $ref: '#/components/schemas/WorkflowTask'
+        jobs:
+          type: array
+          description: >-
+            Every Job the Tasks name in `steps[].job`, in plan order, each with its label and
+            retry granularity; empty when no Task belongs to a Job. A client groups Tasks by
+            `steps[].job` and titles each group with its `label`.
+          items:
+            $ref: '#/components/schemas/WorkflowJob'
         leases:
           type: array
           nullable: true
@@ -789,6 +798,26 @@ components:
             state or cause side effects.
         updatedAt:
           $ref: '#/components/schemas/Timestamp'
+    WorkflowJob:
+      type: object
+      description: One Job of a Workflow (decision 072).
+      required: [name, label, retry]
+      properties:
+        name:
+          type: string
+          description: The name the Job's Tasks give in `steps[].job`.
+        label:
+          type: string
+          description: >-
+            The operator-facing name, for example `Provision OS`. A Workflow accepted before Jobs
+            had labels reads the label the running build gives the name, or the name with each
+            hyphen-separated word capitalized when the build does not know it.
+        retry:
+          type: string
+          enum: [task, job]
+          description: >-
+            What an operator retry of a failed Task in the Job runs again: only that Task, or
+            every Task of the Job.
     WorkflowTask:
       type: object
       description: >-

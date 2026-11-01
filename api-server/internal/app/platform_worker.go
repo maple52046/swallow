@@ -64,7 +64,7 @@ func workerPlatformOperations(
 	protection := providerServerMutationGuard{servers: deps.servers, providers: deps.providers}
 	operations := workflowapp.NewExecutionService(deps.servers, deps.automation, catalog, modules.workflowKinds, runner, events,
 		platformapp.NewPolicyChecker(deps.platforms, deps.servers), protection)
-	orchestrations := workflowapp.NewWorkflowService(transactor, deps.operations, workflowPlanCatalog(modules.workflowKinds), deps.secrets)
+	orchestrations := workflowapp.NewWorkflowService(transactor, deps.operations, workflowPlanCatalog(modules.workflowKinds, modules.software), deps.secrets)
 	orchestrations.AttachOwnershipReader(deps.ownership)
 	operations.AttachWorkflow(orchestrations)
 	software := softwareapp.NewSoftwareService(transactor, modules.software, modules.accelerators, deps.software, deps.servers,

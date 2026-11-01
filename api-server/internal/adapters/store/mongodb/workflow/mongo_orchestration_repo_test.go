@@ -122,6 +122,45 @@ func TestFindByIDDecodesUntypedArraysAsSlices(t *testing.T) {
 	}
 }
 
+// A Job's label is stored under "label" and read back; a declaration stored before Jobs had labels
+// reads an empty label, which the plan catalog fills.
+func TestJobLabelsRoundTrip(t *testing.T) {
+	db := workflowTestDatabase(t)
+	ctx := context.Background()
+	repo, err := NewMongoWorkflowRepo(db)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+	if err := repo.Create(ctx, &workflowdomain.Workflow{
+		ID: "op-jobs", Steps: []workflowdomain.Task{{ID: "provision-a", Job: "ensure-os"}},
+		Jobs: []workflowdomain.JobDeclaration{{Name: "ensure-os", Label: "Provision OS", Retry: workflowdomain.RetryJob}},
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var stored bson.M
+	if err := db.Collection("workflows").FindOne(ctx, bson.M{"_id": "op-jobs"}).Decode(&stored); err != nil {
+		t.Fatalf("read document: %v", err)
+	}
+	jobs, _ := stored["jobs"].(bson.A)
+	if len(jobs) != 1 || jobs[0].(bson.M)["label"] != "Provision OS" {
+		t.Fatalf("stored jobs = %v, want the label under \"label\"", stored["jobs"])
+	}
+	if _, err := db.Collection("workflows").InsertOne(ctx, bson.M{
+		"_id": "op-old", "schemaVersion": 4, "jobs": bson.A{bson.M{"name": "ensure-os", "retry": "job"}},
+	}); err != nil {
+		t.Fatalf("insert old: %v", err)
+	}
+	for id, want := range map[string]string{"op-jobs": "Provision OS", "op-old": ""} {
+		got, err := repo.FindByID(ctx, id)
+		if err != nil {
+			t.Fatalf("read %s: %v", id, err)
+		}
+		if len(got.Jobs) != 1 || got.Jobs[0].Label != want {
+			t.Errorf("%s Jobs = %+v, want label %q", id, got.Jobs, want)
+		}
+	}
+}
+
 // DeleteRuns removes only the streamed events of the named runs (DF-10).
 func TestDeleteRunsRemovesOnlyTheNamedRunsEvents(t *testing.T) {
 	db := workflowTestDatabase(t)

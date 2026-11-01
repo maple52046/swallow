@@ -126,7 +126,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	}
 	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignments})
 	credentials := platformapp.NewDeploymentCredentialService(transactor, platforms, integrations, membership)
-	durable := workflowapp.NewWorkflowService(transactor, orchestrations, workflowPlanCatalog(modules.workflowKinds), operationSecrets)
+	durable := workflowapp.NewWorkflowService(transactor, orchestrations, workflowPlanCatalog(modules.workflowKinds, modules.software), operationSecrets)
 	operationService := workflowapp.NewExecutionService(servers, configurations, catalog, modules.workflowKinds, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
 	operationService.AttachWorkflow(durable)
 	results := workflowResults(platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers},
@@ -141,7 +141,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("resource ownership repo: %w", err)
 	}
-	engine, err := workflowapp.NewEngine(transactor, orchestrations, ownership, workflowPlanCatalog(modules.workflowKinds), workflowapp.CompletionHandlers{
+	engine, err := workflowapp.NewEngine(transactor, orchestrations, ownership, workflowPlanCatalog(modules.workflowKinds, modules.software), workflowapp.CompletionHandlers{
 		Projections: workflowProjections(servers, softwareAssignments, platforms, platforms, platforms), Results: results,
 	}, cfg.OperationMaxParallelism)
 	if err != nil {

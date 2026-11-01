@@ -157,7 +157,7 @@ func (l softwareDeploymentLauncher) prepare(
 		{
 			ID: softwareInstallStepID, Kind: "ansible-playbook",
 			Name:       summary,
-			Job:        "configure-" + string(launch.Kind),
+			Job:        softwareConfigureJob(launch.Kind),
 			Executor:   workflowdomain.RunnerKindHostAutomation,
 			DependsOn:  []string{softwareWaitStepID},
 			Targets:    prepared.Targets,
@@ -183,6 +183,12 @@ func (l softwareDeploymentLauncher) prepare(
 		TargetServerIDs: launch.ServerIDs,
 		Steps:           steps, Jobs: declareJobs(steps, workflowdomain.RetryJob), RequestedBy: launch.RequestedBy,
 	}}, nil
+}
+
+// softwareConfigureJob is the Job that runs a Software kind's playbook, "configure-<kind>", in a
+// software Workflow and in a platform deploy that composes the kind.
+func softwareConfigureJob(kind softwaredomain.Kind) string {
+	return "configure-" + string(kind)
 }
 
 func serverResourceRefs(serverIDs []string) []workflowdomain.ResourceReference {

@@ -2,7 +2,6 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge, Button, HStack, IconButton, Stack, Table, Tabs, Text, VisuallyHidden } from '@chakra-ui/react'
 import { Ban, Check, ChevronDown, ChevronRight, CircleDot, Redo, RefreshCw, TriangleAlert, X, type LucideIcon } from 'lucide-react'
 import type { ProviderEvents } from '@/domain/server/types'
-import { isSoftwareKind } from '@/domain/software/types'
 import { useApp } from '@/di/AppProvider'
 import {
   isTerminalStatus,
@@ -25,7 +24,6 @@ import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useTargetLockProtection } from '@/presentation/hooks/useTargetLockProtection'
-import { softwareKindLabel } from '@/presentation/pages/software/softwarePresentation'
 import { formatDateTime } from '@/shared/utils/time'
 import { OperationEventWorkspace } from './OperationEventWorkspace'
 import { OperationLogWorkspace } from './OperationLogWorkspace'
@@ -278,12 +276,12 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
                           <IconButton
                             variant="ghost"
                             size="xs"
-                            aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${jobLabel(group.job)}`}
+                            aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${jobLabel(operation, group.job)}`}
                             onClick={() => toggleJob(group.job, collapsed)}
                           >
                             {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
                           </IconButton>
-                          <strong>{jobLabel(group.job)}</strong>
+                          <strong>{jobLabel(operation, group.job)}</strong>
                           <StatusBadge status={rollupStatus(group.steps)} />
                           <Text as="span" color="fg.muted">
                             {progress.done}/{progress.total} done
@@ -471,31 +469,13 @@ interface StepGroup {
   steps: OperationStep[]
 }
 
-// Human labels for the Jobs a platform deployment or uninstall emits; an unknown Job id is
-// humanized. Deploy Jobs provision then configure; uninstall Jobs either remove the platform
-// software (servers kept) or release every server in parallel and then finalize.
-const JOB_LABELS: Record<string, string> = {
-  'ensure-os': 'Provision OS',
-  'configure-k0s': 'Configure Kubernetes',
-  'configure-slurm': 'Configure Slurm',
-  'configure-gpu-operator': 'Configure AMD GPU Operator',
-  'uninstall-platform': 'Remove Platform Software',
-  'release-servers': 'Release Servers',
-  'finalize-uninstall': 'Finalize Uninstall',
-}
-
-/** Prefix of the Ansible Job a Managed Software Workflow runs (`configure-<kind>`, software-deployment.md). */
-const SOFTWARE_JOB_PREFIX = 'configure-'
-
-function jobLabel(job: string): string {
-  const known = JOB_LABELS[job]
-  if (known) return known
-  // A software Job names its kind by slug; show the product's written name ("Docker CE", "NFS")
-  // instead of title-casing the slug, which would read "Docker Ce" and "Nfs".
-  if (job.startsWith(SOFTWARE_JOB_PREFIX)) {
-    const kind = job.slice(SOFTWARE_JOB_PREFIX.length)
-    if (isSoftwareKind(kind)) return `Configure ${softwareKindLabel(kind)}`
-  }
+/**
+ * The title of a Job's group of Steps: the label the Workflow declares for it, or for a Job its
+ * `jobs` does not list, the name with each hyphen-separated word capitalized, as the API names one.
+ */
+function jobLabel(operation: Operation, job: string): string {
+  const declared = operation.jobs?.find((candidate) => candidate.name === job)?.label
+  if (declared) return declared
   return job
     .split('-')
     .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
@@ -503,37 +483,15 @@ function jobLabel(job: string): string {
 }
 
 /**
- * Resolves the group a Step belongs to. It prefers the backend-assigned `job`, but when a Step
- * carries none it derives one from the Step id/kind, so operations whose Steps were persisted
- * before Jobs were tagged still group in the UI exactly like a freshly-tagged one. This is what
- * makes an uninstall group its Steps (release / finalize / remove-software) the same way a deploy
- * groups its provision / configure Steps, without depending on the backend having tagged them.
- */
-function stepJob(step: OperationStep): string {
-  if (step.job) return step.job
-  const { id, kind } = step
-  if (id.startsWith('provision-') || kind === 'provision-os') return 'ensure-os'
-  if (id === 'wait-for-ssh' || kind === 'wait-for-ssh') return 'ensure-os'
-  if (id === 'install-platform' || id === 'validate-platform' || kind === 'validate-platform-health') {
-    return 'configure-platform'
-  }
-  if (id.startsWith('release-') || kind === 'release-os') return 'release-servers'
-  if (id === 'complete-uninstall' || kind === 'complete-uninstall') return 'finalize-uninstall'
-  if (id === 'uninstall-platform') return 'uninstall-platform'
-  return ''
-}
-
-/**
- * Groups Steps by their Job, preferring the backend Job and otherwise deriving it (see stepJob),
- * preserving order and first-appearance sequence (which is dependency order: ensure-os before the
- * configure Job; release before finalize). A Step whose group cannot be resolved collapses into a
- * single '' group the caller renders flat.
+ * Groups Steps by their Job, preserving first-appearance order (which is dependency order: ensure-os
+ * before the configure Job; release before finalize). Steps outside any Job collapse into a single
+ * '' group the caller renders flat.
  */
 function groupStepsByJob(steps: OperationStep[]): StepGroup[] {
   const order: string[] = []
   const byJob = new Map<string, OperationStep[]>()
   for (const step of steps) {
-    const job = stepJob(step)
+    const job = step.job ?? ''
     const existing = byJob.get(job)
     if (existing) {
       existing.push(step)

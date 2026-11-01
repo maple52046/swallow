@@ -759,6 +759,20 @@ test.describe('Platform removal visual review', () => {
   })
 })
 
+/** Captures a Workflow's Job groups, titled with the labels the Workflow declares. */
+test.describe('Workflow detail visual review', () => {
+  test('workflow-detail-jobs', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page)
+    await setAppearance(page, appearance)
+    await page.goto('/workflows/op-running?site=site-a')
+    await expect(page.getByRole('button', { name: /^(Expand|Collapse) Configure Kubernetes$/ })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'workflow-detail-jobs', false)
+  })
+})
+
 /** Captures both contextual entry points of the shared Managed Software installation flow. */
 test.describe('Software installation flow visual review', () => {
   test('software detail multi-node dialog', async ({ page }, testInfo) => {

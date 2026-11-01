@@ -34,7 +34,7 @@ func projectWith(t *testing.T, handlers map[string]workflowapp.ProjectionHandler
 // The engine acts only on a plan's declarations (decision 072): none of its sources may name a
 // registered Task kind, completion type, or compensation.
 func TestEngineSourcesNameNoKind(t *testing.T) {
-	catalog := workflowPlanCatalog(testModules(t).workflowKinds)
+	catalog := workflowPlanCatalog(testModules(t).workflowKinds, testModules(t).software)
 	names := map[string]bool{}
 	for kind := range catalog.TaskKinds {
 		names[kind] = true
@@ -67,16 +67,17 @@ func TestEngineSourcesNameNoKind(t *testing.T) {
 }
 
 // Every Task and Completion literal a launcher writes uses a registered kind, its registered
-// Runner, and a registered completion type, so a plan is never refused at acceptance for a typo.
+// Runner, and a registered completion type, so a plan is never refused at acceptance for a typo,
+// and every constant Job it names has a label, so no Job reads as its slug.
 func TestLauncherPlansMatchTheCatalog(t *testing.T) {
-	catalog := workflowPlanCatalog(testModules(t).workflowKinds)
+	catalog := workflowPlanCatalog(testModules(t).workflowKinds, testModules(t).software)
 	runners := map[string]workflowdomain.RunnerKind{
 		"RunnerKindInternal": workflowdomain.RunnerKindInternal, "RunnerKindHostAutomation": workflowdomain.RunnerKindHostAutomation,
 		"RunnerKindProvisioner": workflowdomain.RunnerKindProvisioner,
 	}
 	files := parseAppSources(t)
 	constants := stringConstants(files)
-	checkedTasks, checkedCompletions := 0, 0
+	checkedTasks, checkedCompletions, checkedJobs := 0, 0, 0
 	for path, file := range files {
 		ast.Inspect(file, func(node ast.Node) bool {
 			lit, ok := node.(*ast.CompositeLit)
@@ -105,6 +106,12 @@ func TestLauncherPlansMatchTheCatalog(t *testing.T) {
 				if selector, ok := fields["Executor"].(*ast.SelectorExpr); ok && runners[selector.Sel.Name] != registered.Runner {
 					t.Errorf("%s: Task kind %q runs on %s, not %s", path, kind, registered.Runner, selector.Sel.Name)
 				}
+				if job, ok := resolveString(fields["Job"], constants); ok {
+					if catalog.JobLabels[job] == "" {
+						t.Errorf("%s: Job %q has no label in the plan catalog", path, job)
+					}
+					checkedJobs++
+				}
 				checkedTasks++
 			case "workflowdomain.Completion", "":
 				if typeExpr, ok := fields["Type"]; ok {
@@ -119,8 +126,21 @@ func TestLauncherPlansMatchTheCatalog(t *testing.T) {
 			return true
 		})
 	}
-	if checkedTasks < 15 || checkedCompletions < 8 {
-		t.Fatalf("checked %d Task and %d Completion literals; the scan is missing launchers", checkedTasks, checkedCompletions)
+	if checkedTasks < 15 || checkedCompletions < 8 || checkedJobs < 10 {
+		t.Fatalf("checked %d Task, %d Completion, and %d Job literals; the scan is missing launchers",
+			checkedTasks, checkedCompletions, checkedJobs)
+	}
+}
+
+// A Software kind's configure Job, which a software Workflow and a composing platform deploy both
+// declare, is labelled with the kind's catalog label.
+func TestSoftwareJobsAreLabelledFromTheCatalog(t *testing.T) {
+	modules := testModules(t)
+	catalog := workflowPlanCatalog(modules.workflowKinds, modules.software)
+	for _, entry := range modules.software.Entries() {
+		if got, want := catalog.JobLabel(softwareConfigureJob(entry.Kind)), "Configure "+entry.Label; got != want {
+			t.Errorf("Job label of %s = %q, want %q", entry.Kind, got, want)
+		}
 	}
 }
 

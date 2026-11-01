@@ -210,6 +210,14 @@ the Workflow is first dispatched and `started` after; `temporal.runId` is the cu
 `continueOn`, `waitingReason`, and `live` are omitted when unset, while its `error`,
 `externalExecution`, `startedAt`, and `finishedAt` are present as `null`.
 
+`jobs` lists every Job the Tasks name in `steps[].job`, in plan order, with the operator-facing
+`label` a client titles that group of Tasks with and its `retry` granularity (`task` or `job`, see
+[Retry Task](#retry-task)). The launcher that plans a Workflow names its Jobs, and the label is
+recorded with the plan. A Workflow accepted before Jobs had labels reads the label the running build
+gives the name, or the name with each hyphen-separated word capitalized when the build does not
+know it (`prepare-hosts` reads `Prepare Hosts`). A Task without a `job` belongs to no Job; a client
+lists such Tasks without a group. `jobs` is `[]`, never `null`, when no Task belongs to a Job.
+
 An Ansible Task's `externalExecution` is published as soon as the run starts (not only when it
 finishes), so its live diagnostics are available during the run. While it runs, `live` carries a
 coarse, output-free progress summary: the current play and task the runner started, and cumulative
@@ -397,3 +405,6 @@ Also on 2026-10-31 (decision 074) the one-release aliases ended. Breaking: the d
 `/api/v1/operations` alias (including its `steps/{stepId}` paths) was removed; `clusterId` is no
 longer a Workflow field, a create field, or a list filter; and the Task-retry body no longer
 repeats the Workflow and Task as `operationId` and `stepId`.
+
+On 2026-11-02 each Workflow gained `jobs`, the Job names with their label and retry granularity, so
+a client no longer derives Job titles or groups from Task ids. Additive: no field changed.

@@ -280,3 +280,25 @@ func TestRerunRejectsStillRunningOperation(t *testing.T) {
 		t.Fatal("a still-running Operation must be retried or canceled, not rerun")
 	}
 }
+
+// A rerun of a Workflow accepted before Jobs had labels declares its Jobs with the catalog's labels,
+// so the new Workflow reads like one a launcher declares today.
+func TestRerunLabelsTheJobsOfAnOldWorkflow(t *testing.T) {
+	old := newRerunOldOp(workflowdomain.WorkflowFailed, workflowdomain.TaskFailed)
+	old.Steps[0].Job, old.Steps[1].Job = "ensure-os", "configure-k0s"
+	old.Jobs = []workflowdomain.JobDeclaration{
+		{Name: "ensure-os", Retry: workflowdomain.RetryJob}, {Name: "configure-k0s", Retry: workflowdomain.RetryJob},
+	}
+	catalog := rerunTestCatalog
+	catalog.JobLabels = map[string]string{"ensure-os": "Provision OS"}
+	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
+	service := NewWorkflowService(&storetest.Transactor{}, repo, catalog, &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}})
+
+	if _, err := service.Rerun(context.Background(), old.ID, "operator"); err != nil {
+		t.Fatalf("Rerun() error = %v", err)
+	}
+	jobs := repo.created.Jobs
+	if len(jobs) != 2 || jobs[0].Label != "Provision OS" || jobs[1].Label != "Configure K0s" {
+		t.Errorf("rerun Jobs = %+v, want the catalog label and the default label", jobs)
+	}
+}

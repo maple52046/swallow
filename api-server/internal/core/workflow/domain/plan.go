@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // A Workflow is a declarative execution plan (decision 072): besides its Tasks and dependencies it
@@ -23,9 +24,13 @@ const (
 )
 
 // JobDeclaration declares one named Job of a Workflow. Every Job a Task names must be declared,
-// so how a retry behaves is part of the accepted plan rather than a property of the engine.
+// so how a retry behaves is part of the accepted plan rather than a property of the engine. Label
+// is the operator-facing name of the Job; a Workflow accepted before Jobs had labels has none and
+// reads one from the plan catalog (PlanCatalog.JobLabel).
 type JobDeclaration struct {
-	Name  string           `json:"name" bson:"name"`
+	Name string `json:"name" bson:"name"`
+	// Label is stored under the store's default key, "label"; the core adds no store tags.
+	Label string           `json:"label"`
 	Retry RetryGranularity `json:"retry" bson:"retry"`
 }
 
@@ -112,6 +117,40 @@ type PlanCatalog struct {
 	Compensations map[string]bool
 	// WorkflowKinds are the Workflow kinds a plan may be; the zero value accepts the built-in ones.
 	WorkflowKinds WorkflowKinds
+	// JobLabels are the operator-facing names of the Jobs launchers declare, by Job name.
+	JobLabels map[string]string
+}
+
+// JobLabel returns the label of the Job named name: the catalog's, or DefaultJobLabel for a name
+// the catalog does not register, such as one only an old Workflow declares.
+func (c PlanCatalog) JobLabel(name string) string {
+	if label := c.JobLabels[name]; label != "" {
+		return label
+	}
+	return DefaultJobLabel(name)
+}
+
+// LabelJobs returns a copy of jobs in which each declaration without a label has the catalog's.
+func (c PlanCatalog) LabelJobs(jobs []JobDeclaration) []JobDeclaration {
+	labelled := append([]JobDeclaration(nil), jobs...)
+	for i := range labelled {
+		if strings.TrimSpace(labelled[i].Label) == "" {
+			labelled[i].Label = c.JobLabel(labelled[i].Name)
+		}
+	}
+	return labelled
+}
+
+// DefaultJobLabel is the label of a Job no catalog names: its name with each hyphen-separated word
+// capitalized ("prepare-hosts" reads "Prepare Hosts").
+func DefaultJobLabel(name string) string {
+	words := strings.Split(name, "-")
+	for i, word := range words {
+		if word != "" {
+			words[i] = strings.ToUpper(word[:1]) + word[1:]
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 // ErrPlanInvalid reports a plan that declares something the catalog does not register. Delivery

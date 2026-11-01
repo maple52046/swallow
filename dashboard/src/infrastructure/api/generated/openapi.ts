@@ -6337,6 +6337,8 @@ export interface components {
             intentSnapshot: {
                 [key: string]: unknown;
             };
+            /** @description Every Job the Tasks name in `steps[].job`, in plan order, each with its label and retry granularity; empty when no Task belongs to a Job. A client groups Tasks by `steps[].job` and titles each group with its `label`. */
+            jobs: components["schemas"]["WorkflowJob"][];
             kind: components["schemas"]["WorkflowKind"];
             /** @description The resources the Workflow owns, from its first run until it ends. Populated only by `GET /api/v1/workflows/{id}` (an empty array when none are owned); null in listings and in create and rerun responses. */
             leases: components["schemas"]["WorkflowResourceLease"][] | null;
@@ -6386,6 +6388,18 @@ export interface components {
              */
             status: "pending" | "running" | "waiting_external" | "waiting_dependency" | "canceling" | "succeeded" | "failed" | "partially_succeeded" | "canceled" | "requires_attention";
             statusReason: string | null;
+        };
+        /** @description One Job of a Workflow (decision 072). */
+        WorkflowJob: {
+            /** @description The operator-facing name, for example `Provision OS`. A Workflow accepted before Jobs had labels reads the label the running build gives the name, or the name with each hyphen-separated word capitalized when the build does not know it. */
+            label: string;
+            /** @description The name the Job's Tasks give in `steps[].job`. */
+            name: string;
+            /**
+             * @description What an operator retry of a failed Task in the Job runs again: only that Task, or every Task of the Job.
+             * @enum {string}
+             */
+            retry: "task" | "job";
         };
         /**
          * @description What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings.

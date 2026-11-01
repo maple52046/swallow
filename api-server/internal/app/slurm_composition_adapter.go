@@ -288,7 +288,7 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 	}
 	installID := "install-" + string(kind)
 	recordID := "record-" + string(kind)
-	job := "configure-" + string(kind)
+	job := softwareConfigureJob(kind)
 	plan.steps = append(plan.steps,
 		workflowdomain.Task{
 			ID: installID, Kind: "ansible-playbook", Name: "Install " + l.software.Label(kind),

@@ -205,7 +205,7 @@ func RunWorker(cfg config.APIConfig) error {
 	}
 	// The worker's Runners return no result data, so it registers only projections; the Ansible
 	// executor records results.
-	engine, err := workflowapp.NewEngine(transactor, operations, ownership, workflowPlanCatalog(modules.workflowKinds),
+	engine, err := workflowapp.NewEngine(transactor, operations, ownership, workflowPlanCatalog(modules.workflowKinds, modules.software),
 		workflowapp.CompletionHandlers{Projections: workflowProjections(servers, softwareAssignments, platforms, platforms, platforms)},
 		cfg.OperationMaxParallelism)
 	if err != nil {

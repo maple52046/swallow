@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
@@ -16,8 +17,32 @@ import (
 // (decision 060). Deploy launchers declare it on provision-os.
 const compensationReturnCanceledDeployment = "return-canceled-deployment"
 
-// workflowPlanCatalog returns the registered plan catalog, accepting the Workflow kinds of kinds.
-func workflowPlanCatalog(kinds workflowdomain.WorkflowKinds) workflowdomain.PlanCatalog {
+// workflowJobLabels are the operator-facing names of the Jobs this package's launchers declare,
+// including each Software kind's configure Job, which is named after the kind's catalog label.
+func workflowJobLabels(software *softwaredomain.Catalog) map[string]string {
+	labels := map[string]string{
+		jobEnsureOS:                 "Provision OS",
+		jobConfigureK0s:             "Configure Kubernetes",
+		jobConfigureSlurm:           "Configure Slurm",
+		jobConfigureGPUOperator:     "Configure AMD GPU Operator",
+		jobConfigureOmnistat:        "Configure Omnistat",
+		jobUninstallPlatform:        "Remove Platform Software",
+		jobReleaseServers:           "Release Servers",
+		jobFinalizeUninstall:        "Finalize Uninstall",
+		jobPrepareHosts:             "Prepare Hosts",
+		jobRecordSoftware:           "Record Software",
+		inspectionJob:               "Inspect Hardware",
+		virtualMachineEnrollmentJob: "Enroll Virtual Machines",
+	}
+	for _, entry := range software.Entries() {
+		labels[softwareConfigureJob(entry.Kind)] = "Configure " + entry.Label
+	}
+	return labels
+}
+
+// workflowPlanCatalog returns the registered plan catalog, accepting the Workflow kinds of kinds
+// and labelling the Jobs this package's launchers declare.
+func workflowPlanCatalog(kinds workflowdomain.WorkflowKinds, software *softwaredomain.Catalog) workflowdomain.PlanCatalog {
 	provisioner := func(rerun workflowdomain.RerunPolicy) workflowdomain.TaskKind {
 		return workflowdomain.TaskKind{Runner: workflowdomain.RunnerKindProvisioner, Rerun: rerun, Resume: workflowdomain.ResumeObserve}
 	}
@@ -55,6 +80,7 @@ func workflowPlanCatalog(kinds workflowdomain.WorkflowKinds) workflowdomain.Plan
 		Completions:   completionClasses(),
 		Compensations: map[string]bool{compensationReturnCanceledDeployment: true},
 		WorkflowKinds: kinds,
+		JobLabels:     workflowJobLabels(software),
 	}
 }
 
@@ -63,7 +89,8 @@ func returnCanceledDeployment() *workflowdomain.CancelBehavior {
 	return &workflowdomain.CancelBehavior{Compensation: compensationReturnCanceledDeployment}
 }
 
-// declareJobs declares every Job steps name with retry, in first-appearance order.
+// declareJobs declares every Job steps name with retry, in first-appearance order. The Workflow
+// service labels each from the plan catalog when it accepts the plan.
 func declareJobs(steps []workflowdomain.Task, retry workflowdomain.RetryGranularity) []workflowdomain.JobDeclaration {
 	var jobs []workflowdomain.JobDeclaration
 	seen := map[string]bool{}

@@ -61,6 +61,7 @@ type WorkflowItem struct {
 	TargetResources    []workflowdomain.ResourceReference `json:"targetResources"`
 	TargetServerIDs    []string                           `json:"targetServerIds"`
 	Steps              []workflowdomain.Task              `json:"steps"`
+	Jobs               []WorkflowJobItem                  `json:"jobs"`
 	Leases             []WorkflowLeaseItem                `json:"leases"`
 	RetryOfOperationID *string                            `json:"retryOfOperationId"`
 	RequestedBy        string                             `json:"requestedBy"`
@@ -70,6 +71,14 @@ type WorkflowItem struct {
 	FinishedAt         *string                            `json:"finishedAt"`
 	UpdatedAt          string                             `json:"updatedAt"`
 	Execution          ExecutionItem                      `json:"execution"`
+}
+
+// WorkflowJobItem is one Job of a Workflow as the API reports it: the name its Tasks give in
+// `steps[].job`, the operator-facing label, and what a retry of a failed Task in it runs again.
+type WorkflowJobItem struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	Retry string `json:"retry"`
 }
 
 // WorkflowLeaseItem is one resource a Workflow owns, as the API reports it: the owner is the
@@ -291,7 +300,7 @@ func (s *WorkflowService) create(ctx context.Context, input CreateWorkflowInput)
 		Temporal:          workflowdomain.TemporalReference{WorkflowID: "swallow-operation/" + id},
 		SiteID:            input.SiteID, PlatformID: input.PlatformID,
 		TargetResources: resources, TargetServerIDs: append([]string(nil), input.TargetServerIDs...),
-		Steps: steps, Jobs: append([]workflowdomain.JobDeclaration(nil), input.Jobs...),
+		Steps: steps, Jobs: s.catalog.LabelJobs(input.Jobs),
 		Dispatch:           workflowdomain.Dispatch{Driver: workflowdomain.DriverVersion},
 		RetryOfOperationID: input.RetryOfOperationID,
 		RequestedBy:        input.RequestedBy, RequestCorrelation: input.RequestCorrelation,
@@ -307,7 +316,7 @@ func (s *WorkflowService) create(ctx context.Context, input CreateWorkflowInput)
 	}); err != nil {
 		return nil, fmt.Errorf("record workflow %s requested: %w", operation.ID, err)
 	}
-	item := toWorkflowItem(operation)
+	item := toWorkflowItem(operation, s.catalog)
 	return &item, nil
 }
 
@@ -388,7 +397,7 @@ func (s *WorkflowService) Get(ctx context.Context, id string) (*WorkflowItem, er
 	if err != nil {
 		return nil, err
 	}
-	item := toWorkflowItem(operation)
+	item := toWorkflowItem(operation, s.catalog)
 	if s.ownership != nil {
 		owned, err := s.ownership.FindByOwner(ctx, operation.ID)
 		if err != nil {
@@ -417,7 +426,7 @@ func (s *WorkflowService) List(ctx context.Context, input ListOperationsInput) (
 	}
 	result := make([]WorkflowItem, len(items))
 	for index, item := range items {
-		result[index] = toWorkflowItem(item)
+		result[index] = toWorkflowItem(item, s.catalog)
 	}
 	return result, total, nil
 }
@@ -636,7 +645,26 @@ func rerunSummary(old *workflowdomain.Workflow) string {
 	return "Rerun of operation " + old.ID
 }
 
-func toWorkflowItem(operation *workflowdomain.Workflow) WorkflowItem {
+// publicJobs lists every Job the Workflow's Tasks name, in declaration order, each with a label: a
+// declaration stored before Jobs had labels reads the catalog's, and a Job a Task names without a
+// declaration (which acceptance no longer allows) retries by Task.
+func publicJobs(operation *workflowdomain.Workflow, catalog workflowdomain.PlanCatalog) []WorkflowJobItem {
+	jobs := make([]WorkflowJobItem, 0, len(operation.Jobs))
+	listed := map[string]bool{}
+	for _, job := range catalog.LabelJobs(operation.Jobs) {
+		jobs = append(jobs, WorkflowJobItem{Name: job.Name, Label: job.Label, Retry: string(job.Retry)})
+		listed[job.Name] = true
+	}
+	for _, task := range operation.Steps {
+		if task.Job != "" && !listed[task.Job] {
+			listed[task.Job] = true
+			jobs = append(jobs, WorkflowJobItem{Name: task.Job, Label: catalog.JobLabel(task.Job), Retry: string(workflowdomain.RetryTask)})
+		}
+	}
+	return jobs
+}
+
+func toWorkflowItem(operation *workflowdomain.Workflow, catalog workflowdomain.PlanCatalog) WorkflowItem {
 	summary, _ := operation.Intent["summary"].(string)
 	playbook := ""
 	runID := operation.Temporal.RunID
@@ -655,6 +683,7 @@ func toWorkflowItem(operation *workflowdomain.Workflow) WorkflowItem {
 		PlatformID:      optionalString(operation.PlatformID),
 		TargetResources: append([]workflowdomain.ResourceReference(nil), operation.TargetResources...),
 		TargetServerIDs: append([]string(nil), operation.TargetServerIDs...), Steps: publicSteps(operation.Steps),
+		Jobs:               publicJobs(operation, catalog),
 		RetryOfOperationID: optionalString(operation.RetryOfOperationID), RequestedBy: operation.RequestedBy,
 		RequestCorrelation: optionalString(operation.RequestCorrelation), RequestedAt: operation.RequestedAt.UTC().Format(time.RFC3339),
 		StartedAt: formatOptionalTime(operation.StartedAt), FinishedAt: formatOptionalTime(operation.FinishedAt),

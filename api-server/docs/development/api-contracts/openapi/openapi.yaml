@@ -13832,6 +13832,11 @@ components:
           additionalProperties: true
           description: The frozen, non-secret intent the Workflow converges to. Its shape depends on `kind`; keys such as `extraVars`, `userData`, `password`, `token`, `credential`, and `privateKey` are removed at every depth. `summary` repeats `intent`.
           type: object
+        jobs:
+          description: Every Job the Tasks name in `steps[].job`, in plan order, each with its label and retry granularity; empty when no Task belongs to a Job. A client groups Tasks by `steps[].job` and titles each group with its `label`.
+          items:
+            $ref: '#/components/schemas/WorkflowJob'
+          type: array
         kind:
           $ref: '#/components/schemas/WorkflowKind'
         leases:
@@ -13917,6 +13922,7 @@ components:
         - targetResources
         - targetServerIds
         - steps
+        - jobs
         - leases
         - retryOfOperationId
         - requestedBy
@@ -13975,6 +13981,26 @@ components:
         - statusReason
         - startedAt
         - finishedAt
+      type: object
+    WorkflowJob:
+      description: One Job of a Workflow (decision 072).
+      properties:
+        label:
+          description: The operator-facing name, for example `Provision OS`. A Workflow accepted before Jobs had labels reads the label the running build gives the name, or the name with each hyphen-separated word capitalized when the build does not know it.
+          type: string
+        name:
+          description: The name the Job's Tasks give in `steps[].job`.
+          type: string
+        retry:
+          description: 'What an operator retry of a failed Task in the Job runs again: only that Task, or every Task of the Job.'
+          enum:
+            - task
+            - job
+          type: string
+      required:
+        - name
+        - label
+        - retry
       type: object
     WorkflowKind:
       description: What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings.

@@ -75,8 +75,8 @@ export interface OperationStep {
   kind: string;
   name: string;
   /**
-   * The Job this Step belongs to (ADR 017), e.g. "ensure-os" or "configure-k0s". Empty for a
-   * flat Workflow that has no Jobs. The detail view groups Steps by this value.
+   * The Job this Step belongs to (ADR 017), e.g. "ensure-os" or "configure-k0s"; its label is in
+   * the Operation's `jobs`. Empty for a Step outside any Job. The detail view groups Steps by it.
    */
   job?: string;
   executor: "internal" | "ansible" | "maas" | string;
@@ -93,6 +93,16 @@ export interface OperationStep {
   artifacts: OperationArtifact[];
   startedAt: string | null;
   finishedAt: string | null;
+}
+
+/**
+ * One Job of a Workflow (decision 072): the name its Steps give in `job`, the operator-facing
+ * label its group of Steps is titled with, and what a retry of a failed Step in it runs again.
+ */
+export interface OperationJob {
+  name: string;
+  label: string;
+  retry: "task" | "job";
 }
 
 /**
@@ -135,6 +145,8 @@ export interface Operation {
   targetResources?: OperationResourceReference[];
   targetServerIds: string[];
   steps?: OperationStep[];
+  /** Every Job the Steps name, in plan order, with its label. */
+  jobs?: OperationJob[];
   leases?: OperationResourceLease[];
   retryOfOperationId: string | null;
   requestCorrelation?: string | null;

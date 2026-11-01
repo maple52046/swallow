@@ -110,6 +110,7 @@ const operations = [
         startedAt: '2026-08-27T02:54:00Z', finishedAt: null,
       },
     ],
+    jobs: [{ name: 'configure-k0s', label: 'Configure Kubernetes', retry: 'job' }],
     leases: [], requestCorrelation: null,
     execution: { runId: 'run-1024', playbook: 'ansible-playbook', status: 'running', statusReason: null, startedAt: '2026-08-27T02:54:00Z', finishedAt: null },
     requestedBy: 'admin', requestedAt: '2026-08-27T02:53:00Z',
@@ -1557,6 +1558,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           externalExecution: null, artifacts: [], startedAt: now, finishedAt: now,
         },
       ],
+      jobs: [{ name: 'ensure-inspected', label: 'Inspect Hardware', retry: 'job' }],
       execution: { runId: 'run-inspect', playbook: '', status: 'running', statusReason: null, startedAt: now, finishedAt: null },
       requestedBy: 'system', requestedAt: now, updatedAt: now,
     }
@@ -1590,6 +1592,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         pending(`ensure-boot-media-${serverId}`, 'ensure-boot-media', `Ensure Boot Media on ${serverId}`, [`wait-enrollment-${serverId}`]),
         pending(`inspect-${serverId}`, 'inspect', `Inspect hardware of ${serverId}`, [`ensure-boot-media-${serverId}`]),
       ],
+      jobs: [{ name: 'ensure-inspected', label: 'Inspect Hardware', retry: 'job' }],
       execution: { runId: 'run-power', playbook: '', status: 'running', statusReason: null, startedAt: now, finishedAt: null },
       requestedBy: 'system', requestedAt: now, updatedAt: now,
     }
