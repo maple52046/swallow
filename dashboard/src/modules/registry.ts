@@ -2,7 +2,14 @@ import type { PlatformType } from '@/domain/platform/types'
 import { amdModule } from './accelerator/amd'
 import { kubernetesModule } from './platform/kubernetes'
 import { slurmModule } from './platform/slurm'
-import type { AcceleratorModuleUI, PlatformModuleUI, PlatformSectionContribution } from './types'
+import type { AcceleratorModuleUI, PlatformDeployFeatureContribution, PlatformModuleUI, PlatformSectionContribution } from './types'
+
+export type {
+  PlatformDeployFeature,
+  PlatformDeployFeatureContext,
+  PlatformDeployFeatureContribution,
+  PlatformModuleUI,
+} from './types'
 
 /**
  * The compiled-in module UIs, the dashboard's counterpart of the api-server module registry. This
@@ -20,4 +27,9 @@ export function platformModuleUI(type: PlatformType): PlatformModuleUI | undefin
 /** The Overview sections other modules contribute to Platforms of `type`, in registry order. */
 export function platformSections(type: PlatformType): PlatformSectionContribution[] {
   return acceleratorModules.flatMap((module) => module.platformSections.filter((section) => section.platformType === type))
+}
+
+/** The deploy features other modules contribute to Platforms of `type`, in registry order. */
+export function platformDeployFeatures(type: PlatformType): PlatformDeployFeatureContribution[] {
+  return acceleratorModules.flatMap((module) => module.deployFeatures.filter((feature) => feature.platformType === type))
 }

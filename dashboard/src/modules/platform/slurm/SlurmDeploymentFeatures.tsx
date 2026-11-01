@@ -2,8 +2,8 @@ import { Badge, CheckboxCard, Field, Input, RadioCard, Radiomark, Text, Textarea
 import { useState } from 'react'
 import type { ObservabilityInstallMethod, SlurmContainerRuntime } from '@/domain/platform/types'
 import { Alert } from '@/presentation/components/ui/alert'
-import { AdvancedSettings } from './AdvancedSettings'
-import { FeatureToggleCard } from './FeatureToggleCard'
+import { AdvancedSettings } from '@/presentation/pages/platforms/AdvancedSettings'
+import { FeatureToggleCard } from '@/presentation/pages/platforms/FeatureToggleCard'
 
 type WorkloadStorageMode = 'none' | 'self-hosted' | 'external'
 

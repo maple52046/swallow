@@ -1,6 +1,6 @@
 import { expect, test, type Page, type TestInfo } from 'playwright/test'
 import type { SoftwareAssignment } from '@/domain/software/types'
-import { installApiFixtures } from '../e2e/fixtures'
+import { approvePlatformInstall, installApiFixtures } from '../e2e/fixtures'
 
 const visualCases = [
   { name: 'login', path: '/login', heading: 'Sign in', authenticated: false, representative: true },
@@ -564,6 +564,7 @@ test.describe('Slurm Omnistat visual review', () => {
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'slurm-omnistat-wizard-review')
     await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
+    await approvePlatformInstall(page)
     await expect(page.getByText('GPU GRES type', { exact: true })).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
@@ -624,7 +625,7 @@ test.describe('Integration settings visual review', () => {
 
     await page.goto('/infrastructure/integrations/maas-a/http-proxy?site=site-a')
     const proxy = page.getByRole('region', { name: 'HTTP proxy' })
-    await expect(proxy.getByRole('status')).toHaveText('MAAS uses: External (http://10.170.168.20:18080).')
+    await expect(proxy.getByRole('status')).toContainText('MAAS reports: External (http://10.170.168.20:18080).')
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'integration-settings-http-proxy', false)
@@ -696,11 +697,10 @@ test.describe('Platform removal visual review', () => {
     await dialog.getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
     await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
     await dialog.getByLabel('Platform name confirmation').fill('edge-staging')
-    await dialog.getByRole('button', { name: 'More uninstall options' }).click()
-    await expect(dialog.getByRole('menuitem', { name: 'Release servers and delete record' })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Propose server release' })).toBeEnabled()
     await prepareCapture(page, appearance)
     if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
-    await capture(page, testInfo, 'platform-uninstall-release-and-delete', false)
+    await capture(page, testInfo, 'platform-uninstall-release-servers', false)
   })
 
   test('split button while an uninstall runs', async ({ page }, testInfo) => {

@@ -21,14 +21,14 @@ import { DescriptionList } from '@/presentation/components/ui/description-list'
 import { Modal } from '@/presentation/components/ui/modal'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import { GPUOperatorOptionsFields } from '@/presentation/pages/platforms/GPUOperatorOptionsFields'
+import { GPUOperatorOptionsFields } from './GPUOperatorOptionsFields'
 import {
   gpuOperatorFormFromPlatform,
   gpuOperatorFormProblem,
   gpuOperatorFormSettings,
   type GPUOperatorFormValue,
-} from '@/presentation/pages/platforms/gpuOperatorForm'
-import { useGPUOperatorReleases } from '@/presentation/pages/platforms/useGPUOperatorReleases'
+} from './gpuOperatorForm'
+import { useGPUOperatorReleases } from './useGPUOperatorReleases'
 
 interface PlatformGPUOperatorSectionProps {
   platform: Platform

@@ -1,10 +1,10 @@
 import { Badge } from '@chakra-ui/react'
 import type { GPUOperatorReleasesState } from './useGPUOperatorReleases'
-import { FeatureToggleCard } from './FeatureToggleCard'
+import { FeatureToggleCard } from '@/presentation/pages/platforms/FeatureToggleCard'
 import { GPUOperatorOptionsFields } from './GPUOperatorOptionsFields'
 import type { GPUOperatorFormValue } from './gpuOperatorForm'
 
-interface KubernetesDeploymentFeaturesProps {
+interface GPUOperatorDeployFeatureProps {
   value: GPUOperatorFormValue
   onChange: (value: GPUOperatorFormValue) => void
   hasAMDGPUWorkload: boolean
@@ -13,17 +13,18 @@ interface KubernetesDeploymentFeaturesProps {
   k0sVersion: string | null
 }
 /**
- * Kubernetes-only optional capabilities. The GPU Operator is a Platform feature rather than
- * Managed Software, so its enablement and settings stay together in one expandable card.
+ * The AMD GPU Operator card of a Kubernetes deploy's Features step. The GPU Operator is a Platform
+ * feature of the AMD Accelerator module rather than Managed Software, so its enablement and settings
+ * stay together in one expandable card.
  */
-export function KubernetesDeploymentFeatures({
+export function GPUOperatorDeployFeature({
   value,
   onChange,
   hasAMDGPUWorkload,
   releases,
   onRetryReleases,
   k0sVersion,
-}: KubernetesDeploymentFeaturesProps) {
+}: GPUOperatorDeployFeatureProps) {
   return (
     <div className="sw-platform-feature-list">
       <FeatureToggleCard

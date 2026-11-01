@@ -1,6 +1,8 @@
+import { Boxes } from 'lucide-react'
 import type { PlatformModuleUI } from '@/modules/types'
 import { KubernetesApplicationsTab, KubernetesClusterTab, KubernetesNamespacesTab } from './KubernetesExplorer'
 import { KubernetesOverview } from './KubernetesOverview'
+import { useKubernetesDeployForm } from './useKubernetesDeployForm'
 
 /**
  * The live cluster explorer applies only to a Swallow-deployed Kubernetes Platform with a recorded
@@ -10,7 +12,7 @@ import { KubernetesOverview } from './KubernetesOverview'
 const explorerAvailable = (platform: { origin: string; integrationId: string | null }) =>
   platform.origin === 'deployed' && Boolean(platform.integrationId)
 
-/** The Kubernetes module's UI: the k0s Overview and the live cluster explorer tabs. */
+/** The Kubernetes module's UI: the k0s deploy form, the k0s Overview, and the live cluster explorer tabs. */
 export const kubernetesModule: PlatformModuleUI = {
   kind: 'platform',
   id: 'kubernetes',
@@ -22,4 +24,5 @@ export const kubernetesModule: PlatformModuleUI = {
     { value: 'namespaces', label: 'Namespaces', available: explorerAvailable, Content: KubernetesNamespacesTab },
     { value: 'cluster', label: 'Cluster', available: explorerAvailable, Content: KubernetesClusterTab },
   ],
+  deploy: { icon: Boxes, namePlaceholder: 'lab-k0s', useForm: useKubernetesDeployForm },
 }
