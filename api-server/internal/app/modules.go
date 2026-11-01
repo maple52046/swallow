@@ -64,6 +64,8 @@ type composedModules struct {
 	accelerators platformdomain.Accelerators
 	// credentials are the Platform modules' credential readers.
 	credentials []platformdomain.CredentialReader
+	// platforms are the Platform modules' platform hooks, by Platform type.
+	platforms map[platformdomain.PlatformType]platformdomain.PlatformModule
 }
 
 // composeModules assembles the registry and derives the software catalog and the accepted Workflow
@@ -94,10 +96,34 @@ func composeModules() (composedModules, error) {
 	if err != nil {
 		return composedModules{}, err
 	}
+	platforms, err := platformModules(registry)
+	if err != nil {
+		return composedModules{}, err
+	}
 	return composedModules{
 		registry: registry, software: software, workflowKinds: kinds, platformReaders: readers,
-		accelerators: accelerators, credentials: credentials,
+		accelerators: accelerators, credentials: credentials, platforms: platforms,
 	}, nil
+}
+
+// platformModules collects the platform hook of every Platform module, by the Platform type it
+// handles; a module's id is that type.
+func platformModules(registry *moduledomain.Registry) (map[platformdomain.PlatformType]platformdomain.PlatformModule, error) {
+	platforms := map[platformdomain.PlatformType]platformdomain.PlatformModule{}
+	for _, module := range registry.Modules() {
+		if module.Manifest.Kind != moduledomain.KindPlatform {
+			continue
+		}
+		hook, ok := module.Hooks[platformdomain.HookPlatform].(platformdomain.PlatformModule)
+		if !ok {
+			return nil, fmt.Errorf("platform module %s has no %q hook", module.Manifest.Ref(), platformdomain.HookPlatform)
+		}
+		if string(hook.PlatformType()) != module.Manifest.ID {
+			return nil, fmt.Errorf("platform module %s handles Platform type %q, want its id", module.Manifest.Ref(), hook.PlatformType())
+		}
+		platforms[hook.PlatformType()] = hook
+	}
+	return platforms, nil
 }
 
 // credentialReaders collects the platform-credential hook of every Platform module; the completion

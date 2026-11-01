@@ -27,6 +27,10 @@
     {
       "name": "platform-credential",
       "reason": "Turns the k0s credential role's result into the cluster's read Integration: endpoint, token, and the CA to verify the API with, or insecureSkipVerify for an earlier role that returned none."
+    },
+    {
+      "name": "platform",
+      "reason": "Converts between the Platform spec and the Kubernetes deploy request (members as roleAssignments) and classifies a spec change per desired-state-model §5.2, marking what swallow cannot carry out yet."
     }
   ],
   "capabilities": [

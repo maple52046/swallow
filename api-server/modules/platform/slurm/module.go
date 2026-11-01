@@ -18,5 +18,6 @@ func Module() (moduledomain.Module, error) {
 	return moduledomain.Load(manifest, map[string]any{
 		platformdomain.HookPlatformReader: slurmapi.ReaderBuilder{},
 		platformdomain.HookCredential:     slurmapi.CredentialReader{},
+		platformdomain.HookPlatform:       Platform{},
 	})
 }

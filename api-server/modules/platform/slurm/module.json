@@ -29,6 +29,10 @@
     {
       "name": "platform-credential",
       "reason": "Turns the Slurm credential role's result into the slurmrestd read Integration, pinning the API version the controller reported; a deployment without slurmrestd records none."
+    },
+    {
+      "name": "platform",
+      "reason": "Converts between the Platform spec and the Slurm deploy request (members as nodeAssignments) and classifies a spec change per desired-state-model §5.2, marking what swallow cannot carry out yet."
     }
   ],
   "capabilities": [

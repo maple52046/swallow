@@ -208,6 +208,9 @@ type DeployPlatformInput struct {
 	// TimeSyncCheck is the request's timeSyncCheck as sent; Deploy normalizes it (empty is enforce)
 	// before any record is created and hands it to the launcher.
 	TimeSyncCheck platformdomain.TimeSyncCheck
+	// PlatformSpec is the request read as the Platform's spec, which the new record stores as
+	// generation 1; nil stores none.
+	PlatformSpec *platformdomain.PlatformSpec
 }
 
 // DeployPlatformResult is the accepted deployment: the created platform and the operation
@@ -404,6 +407,7 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 	if err != nil {
 		return nil, err
 	}
+	setSpec(platform, input.PlatformSpec)
 	launchedID, err := s.accept(ctx, platform, validated.targets, targetIDs, records, prepared)
 	if err != nil {
 		return nil, err
@@ -629,6 +633,7 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 	if err != nil {
 		return nil, err
 	}
+	setSpec(platform, input.PlatformSpec)
 	operationID, err := s.accept(ctx, platform, validated.targets, targetIDs, records, prepared)
 	if err != nil {
 		return nil, err
@@ -1399,4 +1404,14 @@ func acceleratorLabel(accelerator platformdomain.Accelerator) string {
 		return "accelerator"
 	}
 	return accelerator.Label()
+}
+
+// setSpec records an accepted deployment's spec on its new Platform as generation 1.
+func setSpec(platform *platformdomain.Platform, spec *platformdomain.PlatformSpec) {
+	if spec == nil {
+		return
+	}
+	stored := spec.Clone()
+	platform.Spec = &stored
+	platform.Generation = 1
 }

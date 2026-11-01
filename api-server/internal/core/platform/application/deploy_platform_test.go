@@ -368,6 +368,26 @@ func TestDeploySucceedsAndBuildsTrustedVars(t *testing.T) {
 	}
 }
 
+// A deploy that carries its request as a spec stores it on the new Platform as generation 1, so the
+// Platform starts out with desired state (decision 069).
+func TestDeployStoresTheSpecAsTheFirstGeneration(t *testing.T) {
+	service, _, platforms := newDeployHarness(haServers()...)
+	input := validDeployInput()
+	input.PlatformSpec = &platformdomain.PlatformSpec{
+		Desired:  platformdomain.PlatformPresent,
+		Members:  []platformdomain.PlatformMember{{ServerID: "c1", Roles: []string{"control-plane"}}},
+		Settings: map[string]any{"k0sVersion": input.Spec.K0sVersion},
+	}
+	result, err := service.Deploy(context.Background(), input)
+	if err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	stored := platforms.platforms[result.PlatformID]
+	if stored.Generation != 1 || stored.Spec == nil || stored.Spec.Members[0].ServerID != "c1" || stored.Spec.Settings["k0sVersion"] != input.Spec.K0sVersion {
+		t.Errorf("stored spec = %+v (generation %d)", stored.Spec, stored.Generation)
+	}
+}
+
 // deploymentKeyStub reports whether the installation has a Deployment Key.
 type deploymentKeyStub bool
 

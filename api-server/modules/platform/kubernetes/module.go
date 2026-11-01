@@ -18,5 +18,6 @@ func Module() (moduledomain.Module, error) {
 	return moduledomain.Load(manifest, map[string]any{
 		platformdomain.HookPlatformReader: kubeapi.ReaderBuilder{},
 		platformdomain.HookCredential:     kubeapi.CredentialReader{},
+		platformdomain.HookPlatform:       Platform{},
 	})
 }

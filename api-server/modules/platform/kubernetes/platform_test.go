@@ -1,0 +1,81 @@
+package kubernetes
+
+import (
+	"errors"
+	"reflect"
+	"testing"
+
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+)
+
+func deployBody() map[string]any {
+	return map[string]any{
+		"siteId": "site-1", "name": "lab", "type": "kubernetes",
+		"k0sVersion": "v1.36.3+k0s.2", "podCidr": "10.244.0.0/16", "apiVip": "10.0.0.200", "apiVipPrefix": float64(24),
+		"roleAssignments": []any{
+			map[string]any{"serverId": "s1", "role": "control-plane", "runWorkloads": true},
+			map[string]any{"serverId": "s2", "role": "worker"},
+		},
+	}
+}
+
+// A deploy request becomes a spec whose members carry the roles, and renders back to the same
+// Kubernetes fields; the Platform's identity fields are not settings.
+func TestSpecRoundTripsThroughTheDeployRequest(t *testing.T) {
+	spec, err := Platform{}.SpecFromDeployRequest(deployBody())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(spec.Members, []platformdomain.PlatformMember{
+		{ServerID: "s1", Roles: []string{RoleControlPlane, RoleWorkloads}}, {ServerID: "s2", Roles: []string{RoleWorker}},
+	}) || spec.Settings["name"] != nil || spec.Settings["k0sVersion"] != "v1.36.3+k0s.2" {
+		t.Fatalf("spec = %+v", spec)
+	}
+	body := Platform{}.DeployRequest(spec)
+	assignments := body["roleAssignments"].([]any)
+	if body["apiVip"] != "10.0.0.200" || assignments[0].(map[string]any)["runWorkloads"] != true || assignments[1].(map[string]any)["role"] != RoleWorker {
+		t.Errorf("rendered body = %+v", body)
+	}
+	if _, err := (Platform{}).SpecFromDeployRequest(map[string]any{"roleAssignments": []any{map[string]any{"serverId": "s1", "role": "boss"}}}); !errors.Is(err, platformdomain.ErrInvalidSpec) {
+		t.Errorf("unknown role: err = %v, want ErrInvalidSpec", err)
+	}
+}
+
+// The classification of desired-state-model §5.2: adding a member and enabling the GPU Operator
+// converge directly; removing a member, changing a role, and upgrading are destructive and not yet
+// automated; network identity cannot change.
+func TestChangesFollowTheClassification(t *testing.T) {
+	applied, _ := Platform{}.SpecFromDeployRequest(deployBody())
+	desired := applied.Clone()
+	desired.Members = append(desired.Members, platformdomain.PlatformMember{ServerID: "s3", Roles: []string{RoleWorker}})
+	desired.Settings["gpuOperator"] = map[string]any{"enabled": true}
+	changes, err := Platform{}.Changes(&applied, desired)
+	if err != nil || changes.Destructive() || len(changes.Unsupported) != 0 || len(changes.Actions) != 2 {
+		t.Fatalf("add a member and enable the operator = %+v, %v; want two direct, supported actions", changes, err)
+	}
+
+	desired = applied.Clone()
+	desired.Members = desired.Members[:1]
+	desired.Members[0].Roles = []string{RoleControlPlane}
+	desired.Settings["k0sVersion"] = "v1.37.0+k0s.0"
+	changes, err = Platform{}.Changes(&applied, desired)
+	if err != nil || !changes.Destructive() || !reflect.DeepEqual(changes.Unsupported, []string{"remove-member", "change-node-role", "upgrade"}) {
+		t.Fatalf("remove, re-role, upgrade = %+v, %v", changes, err)
+	}
+
+	desired = applied.Clone()
+	desired.Settings["podCidr"] = "10.250.0.0/16"
+	if _, err := (Platform{}).Changes(&applied, desired); !errors.Is(err, platformdomain.ErrImmutableSpecField) {
+		t.Errorf("a new podCidr: err = %v, want ErrImmutableSpecField", err)
+	}
+
+	created, err := Platform{}.Changes(nil, applied)
+	if err != nil || !created.Destructive() || len(created.Actions) != 3 {
+		t.Errorf("creation = %+v, %v; want install plus a join per member, destructive", created, err)
+	}
+	absent := applied.Clone()
+	absent.Desired = platformdomain.PlatformAbsent
+	if uninstall, _ := (Platform{}).Changes(&applied, absent); !uninstall.Destructive() || uninstall.Actions[0].Action != "uninstall" {
+		t.Errorf("uninstall = %+v", uninstall)
+	}
+}

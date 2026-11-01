@@ -520,6 +520,7 @@ func RunAPI(cfg config.APIConfig) error {
 	platformHandler := platformdelivery.NewPlatformHandler(
 		platformService, membershipSync, deployService, uninstallService, slurmClusterRead,
 		kubernetesExplorer, requirementService)
+	platformHandler.AttachPlatformModules(modules.platforms)
 	// GPU Operator changes after deployment (decision 062) run as their own durable Workflow.
 	gpuOperatorService := platformapp.NewGPUOperatorService(
 		transactor, platformRepo, platformRepo, serverRepo, lifecycleReader,

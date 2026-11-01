@@ -179,7 +179,20 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 | 在 `ready` 的 Server 上部署 OS | 卸載 Managed Software |
 | 安裝 Managed Software | 關閉使用中主機的電源 |
 
-灰色地帶（Platform 與 Managed Software 的版本升級、為 Platform 加入新成員）在對應功能遷移時依 §5.1 定案。
+灰色地帶在對應功能遷移時依 §5.1 定案。Platform 的分類（2026-11-01 定案）：
+
+| 變更 | 分類 | 理由 |
+| --- | --- | --- |
+| 加入新成員（新的 worker 或 compute node；`ready` 的 Server 先部署 OS） | 非破壞性 | 既有成員與 workload 不受影響 |
+| 版本升級（k0s、GPU Operator release） | 破壞性 | 重啟 k0s、kubelet、containerd 或使用 GPU 的 pod；降級不保證可行 |
+| 啟用 GPU Operator | 非破壞性 | 只新增 operator |
+| 停用 GPU Operator、變更它的設定 | 破壞性 | GPU workload 失去 device plugin，或使用 GPU 的 pod 重啟 |
+| 啟用或停用監控功能（Omnistat、Device Metrics Exporter） | 非破壞性 | 只增減 exporter 與監控元件，不中斷 Slurm 工作 |
+| 第一次啟用 workload storage 或 container runtime | 非破壞性 | 加入新的能力，不影響執行中的工作 |
+| 變更或停用 workload storage、container runtime | 破壞性 | 重新掛載或改變工作的執行環境 |
+| 網路身分（`podCidr`、`serviceCidr`、`apiVip`、Slurm `clusterName`） | 不可變更 | 改變等於重建叢集；寫入回 `409`，要改就 uninstall 後重新建立 |
+
+Managed Software 的版本升級仍待該功能遷移時定案。
 
 ### 5.3 非破壞性收斂
 

@@ -75,6 +75,9 @@ api-server/modules/
   與 playbook `deploy-<id>`、`uninstall-<id>`；root package 以 `software` 為名實作 core 的 `Software` port（catalog
   entry、spec 驗證與正規化、trusted vars），composition root 啟動時核對這些名稱並組出 catalog，詳見
   [software-deployment.md](software-deployment.md) §2。
+- Platform 模組以 `platform` 為名實作 platform domain 的 `PlatformModule`：Platform spec 的 `settings` 是該類型部署 request
+  的專屬欄位，`members` 是該類型的 assignment（模組自己的 role 名稱）；hook 在兩者之間轉換，並依
+  [desired-state-model.md](desired-state-model.md) §5.2 的分類列出一次 spec 變更的動作、標出 swallow 還不能執行的動作。
 - Platform 模組以 `platform-reader` 為名實作 platform domain 的 `ReaderBuilder`：core 的 `ReaderFactory` 把 Platform 的
   Integration 解析成 `Connection`（endpoint、token、timeout、CA、設定），再交給 Platform type 對應的 builder。
 - Accelerator 模組的 id 就是它的 accelerator id；root package 以 `accelerator` 為名實作 platform domain 的 `Accelerator`

@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 
@@ -26,6 +27,35 @@ type PlatformHandler struct {
 	kubernetes   *application.KubernetesExplorerUseCase
 	requirements *application.DeploymentRequirementService
 	gpuOperators *application.GPUOperatorService
+	// modules are the Platform modules' platform hooks, by type; see AttachPlatformModules.
+	modules map[platformdomain.PlatformType]platformdomain.PlatformModule
+}
+
+// AttachPlatformModules lets a deploy record its request as the new Platform's spec, through the
+// platform hook of its type. Without it (tests) a deployed Platform has no spec until it is adopted.
+func (h *PlatformHandler) AttachPlatformModules(modules map[platformdomain.PlatformType]platformdomain.PlatformModule) {
+	h.modules = modules
+}
+
+// specFromDeployBody reads a deploy request body as the spec of the Platform it creates, or nil
+// when the request names no type (an older client relying on the default), the type has no
+// platform hook, or the body is not an object; such a Platform is adopted later. The deploy's own
+// validation still decides whether the request is accepted.
+func (h *PlatformHandler) specFromDeployBody(body []byte, platformType string, preparation platformdomain.MachinePreparation) *platformdomain.PlatformSpec {
+	module, ok := h.modules[platformdomain.PlatformType(platformType)]
+	if !ok {
+		return nil
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil
+	}
+	spec, err := module.SpecFromDeployRequest(fields)
+	if err != nil {
+		return nil
+	}
+	spec.MachinePreparation = preparation
+	return &spec
 }
 
 // AttachGPUOperatorService enables PUT /platforms/{id}/gpu-operator. Without it the route
@@ -399,6 +429,7 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 		RequestedBy: requestedBy, RequestCorrelation: c.GetRespHeader(fiber.HeaderXRequestID),
 		MachinePreparation: preparation,
 		TimeSyncCheck:      platformdomain.TimeSyncCheck(req.TimeSyncCheck),
+		PlatformSpec:       h.specFromDeployBody(c.Body(), req.Type, preparation),
 	})
 	if err != nil {
 		return respondError(c, err)

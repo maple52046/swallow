@@ -38,11 +38,15 @@ type platformDoc struct {
 	// GPUGresType is absent when the Slurm GRES type is derived from the GPU architecture.
 	GPUGresType string `bson:"gpuGresType,omitempty"`
 	// OCIContainers and PMIx are absent (false) when the Slurm features are off.
-	OCIContainers bool         `bson:"ociContainers,omitempty"`
-	PMIx          bool         `bson:"pmix,omitempty"`
-	Sync          platformSync `bson:"sync"`
-	CreatedAt     time.Time    `bson:"createdAt"`
-	UpdatedAt     time.Time    `bson:"updatedAt"`
+	OCIContainers bool `bson:"ociContainers,omitempty"`
+	PMIx          bool `bson:"pmix,omitempty"`
+	// Spec, Generation, and Status are absent on a Platform recorded before Platforms had a spec.
+	Spec       *platformSpecDoc   `bson:"spec,omitempty"`
+	Generation int64              `bson:"generation,omitempty"`
+	Status     *platformStatusDoc `bson:"status,omitempty"`
+	Sync       platformSync       `bson:"sync"`
+	CreatedAt  time.Time          `bson:"createdAt"`
+	UpdatedAt  time.Time          `bson:"updatedAt"`
 }
 
 // gpuDriverDoc persists the operator's amdgpu driver intent.
@@ -488,6 +492,9 @@ func toDoc(platform *platformdomain.Platform) *platformDoc {
 		SiteID:                platform.SiteID,
 		Name:                  platform.Name,
 		Type:                  string(platform.Type),
+		Spec:                  toSpecDoc(platform.Spec),
+		Generation:            platform.Generation,
+		Status:                toStatusDoc(platform.Status),
 		IntegrationID:         platform.IntegrationID,
 		OwnedIntegrationID:    platform.OwnedIntegrationID,
 		GPUStackOwner:         string(platform.GPUStackOwner),
@@ -525,6 +532,9 @@ func toPlatform(doc *platformDoc) *platformdomain.Platform {
 		SiteID:                doc.SiteID,
 		Name:                  doc.Name,
 		Type:                  platformdomain.PlatformType(doc.Type),
+		Spec:                  doc.Spec.toDomain(),
+		Generation:            doc.Generation,
+		Status:                doc.Status.toDomain(),
 		IntegrationID:         doc.IntegrationID,
 		OwnedIntegrationID:    doc.OwnedIntegrationID,
 		GPUStackOwner:         platformdomain.GPUStackOwner(doc.GPUStackOwner),

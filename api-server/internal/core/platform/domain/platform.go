@@ -145,9 +145,15 @@ type Platform struct {
 	// OwnedIntegrationID is set only for a credential integration created by Swallow.
 	// It is private persistence metadata and is never exposed by the platform API.
 	OwnedIntegrationID string
-	Sync               SyncState
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	// Spec is what the operator wants the Platform to be; nil for a Platform recorded before
+	// Platforms had a spec and not yet adopted (decision 069). Generation counts its writes.
+	Spec       *PlatformSpec
+	Generation int64
+	// Status is what swallow realized and judged for the spec.
+	Status    PlatformStatus
+	Sync      SyncState
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // SyncState records the freshness of the membership read, so that a stale view is
