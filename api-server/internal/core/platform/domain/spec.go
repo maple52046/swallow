@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/maple52046/swallow/internal/core/convergence"
 )
@@ -79,6 +80,18 @@ type PlatformStatus struct {
 	ObservedGeneration int64
 	Conditions         []convergence.Condition
 	Applied            *PlatformSpec
+	// Realizing is the Workflow carrying out a spec generation, until it succeeds.
+	Realizing *PlatformRealizing
+}
+
+// PlatformRealizing is a Workflow swallow started to realize one spec generation. Spec is that
+// generation's spec, which becomes the applied spec when the Workflow (or a rerun of it) succeeds,
+// even if the spec changed again meanwhile.
+type PlatformRealizing struct {
+	Generation int64
+	WorkflowID string
+	Spec       PlatformSpec
+	StartedAt  time.Time
 }
 
 // ErrGenerationConflict means the Platform's spec changed since the writer read it: the write named
@@ -91,4 +104,19 @@ var ErrGenerationConflict = errors.New("the platform spec changed since it was r
 type PlatformSpecStore interface {
 	WriteSpec(ctx context.Context, platformID string, expectedGeneration int64, spec PlatformSpec) (int64, error)
 	WriteStatus(ctx context.Context, platformID string, status PlatformStatus) error
+}
+
+// DeploymentRecord is the deployment a Platform's latest deploy Workflow carried out, read back from
+// what that Workflow recorded.
+type DeploymentRecord struct {
+	// Request is the deploy request body the deployment stands for.
+	Request map[string]any
+	// MachinePreparation is how the deployment prepared members that were not deployed.
+	MachinePreparation MachinePreparation
+}
+
+// DeploymentRecordReader reads the deployment of a Platform's latest deploy Workflow, from which a
+// Platform deployed before specs existed is adopted; ok is false when the Platform has none.
+type DeploymentRecordReader interface {
+	LatestDeploymentRecord(ctx context.Context, platform *Platform) (record DeploymentRecord, ok bool, err error)
 }

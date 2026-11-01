@@ -9,6 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	"github.com/maple52046/swallow/internal/shared/secret"
 )
 
 type platformDoc struct {
@@ -126,9 +127,13 @@ type platformSync struct {
 
 type MongoPlatformRepo struct {
 	col *mongo.Collection
+	// sealer seals the inline user data a Platform spec may carry; nil refuses to store any.
+	sealer *secret.Sealer
 }
 
-func NewMongoPlatformRepo(db *mongo.Database) (*MongoPlatformRepo, error) {
+// NewMongoPlatformRepo opens the platforms collection. sealer seals the inline cloud-init user data
+// of Platform specs; a process that never writes or reads one may pass nil.
+func NewMongoPlatformRepo(db *mongo.Database, sealer *secret.Sealer) (*MongoPlatformRepo, error) {
 	col := db.Collection("platforms")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -142,11 +147,18 @@ func NewMongoPlatformRepo(db *mongo.Database) (*MongoPlatformRepo, error) {
 		return nil, err
 	}
 
-	return &MongoPlatformRepo{col: col}, nil
+	return &MongoPlatformRepo{col: col, sealer: sealer}, nil
 }
 
 func (r *MongoPlatformRepo) Create(ctx context.Context, platform *platformdomain.Platform) error {
-	_, err := r.col.InsertOne(ctx, toDoc(platform))
+	doc := toDoc(platform)
+	if err := r.seal(doc.Spec); err != nil {
+		return err
+	}
+	if err := r.sealStatus(doc.Status); err != nil {
+		return err
+	}
+	_, err := r.col.InsertOne(ctx, doc)
 	if mongo.IsDuplicateKeyError(err) {
 		return platformdomain.ErrPlatformNameTaken
 	}
@@ -162,7 +174,11 @@ func (r *MongoPlatformRepo) FindByID(ctx context.Context, id string) (*platformd
 	if err != nil {
 		return nil, err
 	}
-	return toPlatform(&doc), nil
+	platform := toPlatform(&doc)
+	if err := r.open(&doc, platform); err != nil {
+		return nil, err
+	}
+	return platform, nil
 }
 
 func (r *MongoPlatformRepo) List(ctx context.Context, siteID string) ([]*platformdomain.Platform, error) {
@@ -185,6 +201,9 @@ func (r *MongoPlatformRepo) List(ctx context.Context, siteID string) ([]*platfor
 	platforms := make([]*platformdomain.Platform, len(docs))
 	for i := range docs {
 		platforms[i] = toPlatform(&docs[i])
+		if err := r.open(&docs[i], platforms[i]); err != nil {
+			return nil, err
+		}
 	}
 	return platforms, nil
 }
@@ -199,6 +218,11 @@ func (r *MongoPlatformRepo) Update(ctx context.Context, platform *platformdomain
 			"gpuStackOwner":      string(platform.GPUStackOwner),
 			"exporterOwner":      string(platform.ExporterOwner),
 			"monitoringLinks":    toMonitoringLinkDocs(platform.MonitoringLinks),
+			"containerRuntime":   string(platform.ContainerRuntime),
+			"gpuDriver":          toGPUDriverDoc(platform.GPUDriver),
+			"gpuGresType":        platform.GPUGresType,
+			"ociContainers":      platform.OCIContainers,
+			"pmix":               platform.PMIx,
 			"updatedAt":          platform.UpdatedAt,
 		}},
 	)

@@ -99,7 +99,7 @@ func RunWorker(cfg config.APIConfig) error {
 	// Hypervisor access (decision 055): libvirt Boot Media ensures and virtual-machine enrollment
 	// log in to a Hypervisor with the Deployment Key on the Site's SSH port.
 	libvirtHosts := libvirt.NewHost(sshaccess.NewSSHHostAccess(deploymentKeySource{keys: sshKeys}, siteSSHPorts{configurations: automationRepo}))
-	platforms, err := platformstore.NewMongoPlatformRepo(db)
+	platforms, err := platformstore.NewMongoPlatformRepo(db, sealer)
 	if err != nil {
 		return err
 	}
@@ -155,11 +155,14 @@ func RunWorker(cfg config.APIConfig) error {
 	}
 	defer temporalClient.Close()
 
-	// Finalizes the release-and-uninstall path's complete-uninstall step. Only CompleteUninstall
-	// is used, so sites and lifecycle are nil; it needs the platform, server, and owned-credential
-	// integration repositories the worker already has.
-	platformFinalizer := platformapp.NewPlatformService(transactor, platforms, nil, servers, nil,
-		managedPlatformIntegrationCleaner{integrations: integrations},
+	// Finalizes the release-and-uninstall path's complete-uninstall step, and builds the Platform
+	// records the platform controller deploys onto.
+	sites, err := sitestore.NewMongoSiteRepo(db)
+	if err != nil {
+		return err
+	}
+	platformFinalizer := platformapp.NewPlatformService(transactor, platforms, sites, servers,
+		platformLifecycleReader{orchestrations: operations}, managedPlatformIntegrationCleaner{integrations: integrations},
 	)
 	platformFinalizer.AttachGPUOperatorRecorder(platforms)
 	platformFinalizer.AttachOmnistatRecorder(platforms)
@@ -255,10 +258,23 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("subnet DNS repo init: %w", err)
 	}
-	changePlans, err := newChangePlanService(ctx, db, transactor, cfg.ChangePlanTTL)
+	platformOps, err := workerPlatformOperations(cfg, db, transactor, modules, workerPlatformDeps{
+		platformService: platformFinalizer, platforms: platforms, servers: servers, operations: operations,
+		secrets: operationSecrets, ownership: ownership, automation: automationConfigurations, providers: providers,
+		deployments: deployments, software: softwareAssignments, bootISOs: bootISOs, keys: sshKeys,
+	})
 	if err != nil {
 		return err
 	}
+	changePlans, err := newChangePlanService(ctx, db, transactor, cfg.ChangePlanTTL, platformOps.planner)
+	if err != nil {
+		return err
+	}
+	// The platform controller converges Platforms to their specs with the same operations the API
+	// accepts deployments through (desired-state-model §5.2).
+	platformController := platformapp.NewPlatformController(platforms, platforms, servers, servers,
+		platformLifecycleReader{orchestrations: operations}, platformDeploymentRecords{orchestrations: operations},
+		workflowPlatforms{orchestrations: operations}, changePlans, platformOps.planner, modules.platforms)
 	runControllers := controllerRuntime(db, convergence.RuntimeOptions{ResyncInterval: cfg.ControllerResyncInterval},
 		workflowapp.NewDispatcher(operations, engine, executor, cfg.WorkflowResyncInterval),
 		provisioningapp.NewServerController(servers, servers, providers, serverWorkflowHolds{leases: ownership},
@@ -270,6 +286,7 @@ func RunWorker(cfg config.APIConfig) error {
 			subnetDNS, convergenceEvents),
 		sshKeyController(sshKeys, convergenceEvents),
 		convergence.NewChangePlanExpiryController(changePlans),
+		platformController,
 	)
 	controllersDone := make(chan struct{})
 	go func() {

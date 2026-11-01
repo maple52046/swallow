@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 
 	"github.com/maple52046/swallow/internal/core/convergence"
@@ -101,7 +102,7 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 		return platformdomain.PlatformChanges{Actions: []convergence.PlannedAction{{
 			Target: platform, Action: "uninstall", From: "installed", To: "uninstalled", Destructive: true,
 			Reason: "the Platform is marked absent",
-		}}}, nil
+		}}, Realization: platformdomain.RealizeUninstall}, nil
 	}
 	if applied == nil {
 		actions := []convergence.PlannedAction{{Target: platform, Action: "install", To: "installed", Destructive: true, Reason: "the Platform is created on its members"}}
@@ -111,7 +112,7 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 				Reason: "the Server becomes a member of the new Platform",
 			})
 		}
-		return platformdomain.PlatformChanges{Actions: actions}, nil
+		return platformdomain.PlatformChanges{Actions: actions, Realization: platformdomain.RealizeDeploy}, nil
 	}
 	for key, fallback := range immutableSettings {
 		if settingOr(*applied, key, fallback) != settingOr(desired, key, fallback) {
@@ -153,7 +154,21 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 			add(convergence.PlannedAction{Target: platform, Action: "change-" + key, Destructive: true, Reason: "the GPU stack on the members changes"}, false)
 		}
 	}
+	switch {
+	case len(added) > 0:
+		changes.Realization = platformdomain.RealizeDeploy
+	case before || after:
+		if platformdomain.SettingChanged(*applied, desired, "gpuOperator") {
+			changes.Realization = platformdomain.RealizeGPUOperator
+		}
+	}
 	return changes, nil
+}
+
+// ReportsMembership: a member that runs workloads is a Kubernetes node; a controller-only member is
+// not.
+func (Platform) ReportsMembership(member platformdomain.PlatformMember) bool {
+	return slices.Contains(member.Roles, RoleWorker) || slices.Contains(member.Roles, RoleWorkloads)
 }
 
 func serverRef(id string) convergence.ResourceRef {

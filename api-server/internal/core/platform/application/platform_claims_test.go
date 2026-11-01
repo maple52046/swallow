@@ -83,50 +83,6 @@ func TestCompleteUninstallReleasesThePlatformsClaims(t *testing.T) {
 	}
 }
 
-// The startup reconciliation claims the targets of every Platform that is not uninstalled and has
-// a deployment (Platforms deployed before claims existed), drops claims of uninstalled or deleted
-// Platforms, keeps a fresh claim whose deployment Operation does not exist yet, and never takes a
-// Server another Platform already claims.
-func TestReconcilePlatformClaims(t *testing.T) {
-	kubernetes := platformdomain.PlatformTypeKubernetes
-	active := &platformdomain.Platform{ID: "active", SiteID: "site-1", Name: "active", Type: kubernetes}
-	uninstalled := &platformdomain.Platform{ID: "uninstalled", SiteID: "site-1", Name: "gone", Type: kubernetes}
-	fresh := &platformdomain.Platform{ID: "fresh", SiteID: "site-1", Name: "fresh", Type: kubernetes}
-	activeLifecycle := deployedLifecycle(platformdomain.PlatformLifecycleDeployFailed)
-	activeLifecycle.Deployment.TargetServerIDs = []string{"server-1", "server-2", "server-contested", "server-deleted"}
-	lifecycle := fakeLifecycleReader{snapshots: map[string]platformdomain.LifecycleSnapshot{
-		active.ID:      activeLifecycle,
-		uninstalled.ID: deployedLifecycle(platformdomain.PlatformLifecycleUninstalled),
-		// fresh was accepted a moment ago: its claims exist but its lifecycle has no deployment yet.
-		fresh.ID: {Origin: platformdomain.PlatformOriginDeployed, State: platformdomain.PlatformLifecycleDeploying},
-	}}
-	service, servers := newClaimPlatformService(lifecycle, []*platformdomain.Platform{active, uninstalled, fresh},
-		claimServer("server-1", ""),
-		claimServer("server-2", active.ID),
-		claimServer("server-contested", fresh.ID),
-		claimServer("server-old", uninstalled.ID),
-		claimServer("server-orphan", "deleted-platform"),
-		claimServer("server-fresh", fresh.ID),
-	)
-
-	if err := service.ReconcilePlatformClaims(context.Background()); err != nil {
-		t.Fatalf("ReconcilePlatformClaims() error = %v", err)
-	}
-	want := map[string]string{
-		"server-1":         active.ID,
-		"server-2":         active.ID,
-		"server-contested": fresh.ID,
-		"server-old":       "",
-		"server-orphan":    "",
-		"server-fresh":     fresh.ID,
-	}
-	for id, platformID := range want {
-		if got := claimOf(servers, id); got != platformID {
-			t.Errorf("%s claim = %q, want %q", id, got, platformID)
-		}
-	}
-}
-
 // recordingExporterAssignments records the Servers whose exporter records were marked removed.
 type recordingExporterAssignments struct{ removed []string }
 

@@ -73,7 +73,6 @@ import (
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	"github.com/maple52046/swallow/internal/shared/version"
-	"github.com/maple52046/swallow/modules/accelerator/amd"
 	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
 	"github.com/maple52046/swallow/modules/software/docker-ce/dockerengine"
 	"github.com/maple52046/swallow/modules/software/docker-ce/explorer"
@@ -248,10 +247,6 @@ func RunAPI(cfg config.APIConfig) error {
 		return err
 	}
 	sshKeyService.AttachRequester(convergencestore.NewMongoRequester(db))
-	changePlans, err := newChangePlanService(ctx, db, transactor, cfg.ChangePlanTTL)
-	if err != nil {
-		return err
-	}
 	sshKeyHandler := sshkeydelivery.NewSSHKeyHandler(sshKeyService)
 	deploymentKeys := deploymentKeySource{keys: sshKeyService}
 	activeWork := activeServerWorkReader{orchestrations: orchestrationRepo}
@@ -315,7 +310,7 @@ func RunAPI(cfg config.APIConfig) error {
 		),
 	)
 
-	platformRepo, err := platformstore.NewMongoPlatformRepo(db)
+	platformRepo, err := platformstore.NewMongoPlatformRepo(db, sealer)
 	if err != nil {
 		return fmt.Errorf("platform repo init: %w", err)
 	}
@@ -359,15 +354,6 @@ func RunAPI(cfg config.APIConfig) error {
 	platformService.AttachOmnistatRecorder(platformRepo)
 	platformService.AttachDeviceMetricsExporterRecorder(platformRepo)
 	platformService.AttachPlatformClaims(serverRepo)
-	// Platforms deployed before Platform Claims existed get theirs now, and claims left by a
-	// Platform that is gone or uninstalled are dropped (decision 067). The pass is idempotent and
-	// small (one lifecycle batch), and it runs before the API serves, so a Release refused or
-	// allowed by a claim never sees the pre-claim data. A failure is logged, not fatal.
-	claimCtx, cancelClaims := context.WithTimeout(ctx, time.Minute)
-	if err := platformService.ReconcilePlatformClaims(claimCtx); err != nil {
-		slog.Error("reconcile platform claims", "error", err)
-	}
-	cancelClaims()
 	automationRepo := workflowstore.NewMongoAutomationConfigurationRepo(db, sealer)
 	// Automation readers get the effective credential (the Deployment Key, decision 041) and the
 	// derived credential source; the configuration service reads the plain repository and derives
@@ -492,42 +478,24 @@ func RunAPI(cfg config.APIConfig) error {
 	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignmentRepo})
 
 	// Platform lifecycle adapters keep durable operations outside the platform context.
-	platformLauncher := platformDeploymentLauncher{
-		operations: operationService, orchestrations: orchestrationService, deployments: deploymentsUC, servers: serverRepo,
-		bootMedia: bootMediaPlan, software: softwareService, ntp: ntpPlan,
+	platformOps := buildPlatformOperations(platformOperationDeps{
+		transactor: transactor, modules: modules, platformService: platformService, platforms: platformRepo,
+		servers: serverRepo, claims: serverRepo, lifecycle: lifecycleReader,
+		operations: operationService, orchestrations: orchestrationService, deployments: deploymentsUC,
+		bootMedia: bootMediaPlan, software: softwareService, ntp: ntpPlan, protection: serverProtection,
+		networks: networkService, requirements: requirementRepo, keys: sshKeyService,
+	})
+	deployService, uninstallService, gpuOperatorService := platformOps.deploy, platformOps.uninstall, platformOps.gpuOperators
+	changePlans, err := newChangePlanService(ctx, db, transactor, cfg.ChangePlanTTL, platformOps.planner)
+	if err != nil {
+		return err
 	}
-	deployService := platformapp.NewDeployService(
-		platformService, platformRepo, serverRepo, platformLauncher,
-		serverProtection,
-	)
-	deployService.AttachPlatformClaims(serverRepo)
-	deployService.AttachMachinePreparationValidator(platformMachinePreparationValidator{deployments: deploymentsUC})
-	deployService.AttachNodeSubnetResolver(platformNodeSubnetResolver{networks: networkService})
-	deployService.AttachDeploymentRequirementReader(requirementRepo)
-	deployService.AttachDeploymentKeyChecker(sshKeyService)
-	deployService.AttachGPUOperatorRecorder(platformRepo)
-	deployService.AttachOmnistatRecorder(platformRepo)
-	deployService.AttachDeviceMetricsExporterRecorder(platformRepo)
-	// The GPU Operator and the Device Metrics Exporter are the AMD Accelerator module's Platform
-	// features, so they serve its GPUs.
-	deployService.AttachAccelerator(modules.accelerators[amd.ID])
-	uninstallService := platformapp.NewUninstallService(
-		platformRepo, serverRepo, lifecycleReader, platformLauncher,
-		serverProtection,
-	)
 	kubernetesExplorer := platformapp.NewKubernetesExplorerUseCase(
 		platformRepo, lifecycleReader, kubernetesClientFactory, serverRepo)
 	platformHandler := platformdelivery.NewPlatformHandler(
 		platformService, membershipSync, deployService, uninstallService, slurmClusterRead,
 		kubernetesExplorer, requirementService)
 	platformHandler.AttachPlatformModules(modules.platforms)
-	// GPU Operator changes after deployment (decision 062) run as their own durable Workflow.
-	gpuOperatorService := platformapp.NewGPUOperatorService(
-		transactor, platformRepo, platformRepo, serverRepo, lifecycleReader,
-		gpuOperatorLauncher{operations: operationService, orchestrations: orchestrationService},
-		sshKeyService,
-	)
-	gpuOperatorService.AttachAccelerator(modules.accelerators[amd.ID])
 	platformHandler.AttachGPUOperatorService(gpuOperatorService)
 
 	softwareHandler := softwaredelivery.NewSoftwareHandler(softwareService)

@@ -3,6 +3,7 @@ package slurm
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 
 	"github.com/maple52046/swallow/internal/core/convergence"
@@ -98,7 +99,7 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 		return platformdomain.PlatformChanges{Actions: []convergence.PlannedAction{{
 			Target: platform, Action: "uninstall", From: "installed", To: "uninstalled", Destructive: true,
 			Reason: "the Platform is marked absent",
-		}}}, nil
+		}}, Realization: platformdomain.RealizeUninstall}, nil
 	}
 	if applied == nil {
 		actions := []convergence.PlannedAction{{Target: platform, Action: "install", To: "installed", Destructive: true, Reason: "the Platform is created on its members"}}
@@ -108,7 +109,7 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 				Reason: "the Server becomes a member of the new Platform",
 			})
 		}
-		return platformdomain.PlatformChanges{Actions: actions}, nil
+		return platformdomain.PlatformChanges{Actions: actions, Realization: platformdomain.RealizeDeploy}, nil
 	}
 	before, after := slurmSettings(*applied), slurmSettings(desired)
 	if fmt.Sprint(before["clusterName"]) != fmt.Sprint(after["clusterName"]) {
@@ -159,10 +160,10 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 		return kind
 	}
 	firstEnable("container-runtime", runtime(*applied) != "", runtime(desired) != "", runtime(*applied), runtime(desired))
+	// A present workloadStorage object is the shared filesystem enabled.
 	storage := func(settings map[string]any) (bool, any) {
 		object, _ := settings["workloadStorage"].(map[string]any)
-		enabled, _ := object["enabled"].(bool)
-		return enabled, object
+		return object != nil, object
 	}
 	storageWas, storageBefore := storage(before)
 	storageIs, storageAfter := storage(after)
@@ -185,6 +186,9 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 			add(convergence.PlannedAction{Target: platform, Action: "change-" + key, Destructive: true, Reason: "the GPU stack on the members changes"}, false)
 		}
 	}
+	if !changes.Empty() {
+		changes.Realization = platformdomain.RealizeDeploy
+	}
 	return changes, nil
 }
 
@@ -194,6 +198,12 @@ func slurmSettings(spec platformdomain.PlatformSpec) map[string]any {
 		return map[string]any{}
 	}
 	return object
+}
+
+// ReportsMembership: slurmrestd reports the compute nodes; controllers and login hosts are not
+// nodes.
+func (Platform) ReportsMembership(member platformdomain.PlatformMember) bool {
+	return slices.Contains(member.Roles, RoleCompute)
 }
 
 func serverRef(id string) convergence.ResourceRef {

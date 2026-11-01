@@ -26,6 +26,37 @@ var (
 type PlatformChanges struct {
 	Actions     []convergence.PlannedAction
 	Unsupported []string
+	// Realization is the Workflow that carries out the supported actions.
+	Realization PlatformRealization
+}
+
+// PlatformRealization names the Workflow that carries out a Platform spec change.
+type PlatformRealization string
+
+const (
+	// RealizeNothing means the change needs no Workflow: the applied spec simply becomes the desired.
+	RealizeNothing PlatformRealization = ""
+	// RealizeDeploy runs the type's deploy Workflow over every member of the desired spec. It is
+	// convergent, so a member already in the Platform is left as it is.
+	RealizeDeploy PlatformRealization = "deploy"
+	// RealizeUninstall runs the type's uninstall Workflow.
+	RealizeUninstall PlatformRealization = "uninstall"
+	// RealizeGPUOperator runs the GPU Operator change Workflow for the desired gpuOperator setting.
+	RealizeGPUOperator PlatformRealization = "gpu-operator"
+)
+
+// UnsupportedDestructive reports whether an action swallow cannot carry out yet is destructive:
+// such an action blocks the Change Plan, while an unsupported non-destructive one refuses the write.
+func (c PlatformChanges) UnsupportedDestructive() (blocking, refusing []string) {
+	for _, name := range c.Unsupported {
+		index := slices.IndexFunc(c.Actions, func(action convergence.PlannedAction) bool { return action.Action == name })
+		if index >= 0 && c.Actions[index].Destructive {
+			blocking = append(blocking, name)
+		} else {
+			refusing = append(refusing, name)
+		}
+	}
+	return blocking, refusing
 }
 
 // Destructive reports whether any action is destructive, which makes the write a Change Plan.
@@ -53,6 +84,9 @@ type PlatformModule interface {
 	// Changes lists what realizing desired over applied does; applied nil is the first deploy and
 	// desired absent an uninstall. A change to an immutable field is ErrImmutableSpecField.
 	Changes(applied *PlatformSpec, desired PlatformSpec) (PlatformChanges, error)
+	// ReportsMembership says whether the platform reports member as one of its nodes, so a member
+	// that does not report membership has drifted.
+	ReportsMembership(member PlatformMember) bool
 }
 
 // MemberChanges compares the members of two specs: the Servers only desired has, the ones only

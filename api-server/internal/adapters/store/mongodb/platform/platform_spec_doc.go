@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,6 +21,11 @@ type platformSpecDoc struct {
 	Members            []platformMemberDoc `bson:"members"`
 	MachinePreparation string              `bson:"machinePreparation,omitempty"`
 	Settings           string              `bson:"settings,omitempty"`
+	// SealedUserData is the machine preparation's inline cloud-init user data, sealed with the
+	// credential key because it may carry secrets; it never appears in MachinePreparation.
+	SealedUserData string `bson:"sealedUserData,omitempty"`
+	// userData is the plain user data between toSpecDoc and the repository sealing it.
+	userData string
 }
 
 type platformMemberDoc struct {
@@ -32,6 +38,14 @@ type platformStatusDoc struct {
 	ObservedGeneration int64                           `bson:"observedGeneration"`
 	Conditions         []convergencestore.ConditionDoc `bson:"conditions,omitempty"`
 	Applied            *platformSpecDoc                `bson:"applied,omitempty"`
+	Realizing          *platformRealizingDoc           `bson:"realizing,omitempty"`
+}
+
+type platformRealizingDoc struct {
+	Generation int64            `bson:"generation"`
+	WorkflowID string           `bson:"workflowId"`
+	Spec       *platformSpecDoc `bson:"spec"`
+	StartedAt  time.Time        `bson:"startedAt"`
 }
 
 // machinePreparationJSON fixes the stored names of the machine preparation independently of the
@@ -71,6 +85,7 @@ func toSpecDoc(spec *platformdomain.PlatformSpec) *platformSpecDoc {
 	}
 	preparation := toMachinePreparationJSON(spec.MachinePreparation)
 	preparation.Assignments = toAssignmentJSON(spec.MachinePreparation.Assignments)
+	doc.userData, preparation.UserData = preparation.UserData, ""
 	if raw, _ := json.Marshal(preparation); string(raw) != "{}" {
 		doc.MachinePreparation = string(raw)
 	}
@@ -129,25 +144,107 @@ func (j machinePreparationJSON) toDomain() platformdomain.MachinePreparation {
 }
 
 func toStatusDoc(status platformdomain.PlatformStatus) *platformStatusDoc {
-	if status.ObservedGeneration == 0 && len(status.Conditions) == 0 && status.Applied == nil {
+	if status.ObservedGeneration == 0 && len(status.Conditions) == 0 && status.Applied == nil && status.Realizing == nil {
 		return nil
 	}
-	return &platformStatusDoc{
+	doc := &platformStatusDoc{
 		ObservedGeneration: status.ObservedGeneration,
 		Conditions:         convergencestore.ConditionDocs(status.Conditions),
 		Applied:            toSpecDoc(status.Applied),
 	}
+	if realizing := status.Realizing; realizing != nil {
+		doc.Realizing = &platformRealizingDoc{
+			Generation: realizing.Generation, WorkflowID: realizing.WorkflowID,
+			Spec: toSpecDoc(&realizing.Spec), StartedAt: realizing.StartedAt,
+		}
+	}
+	return doc
 }
 
 func (d *platformStatusDoc) toDomain() platformdomain.PlatformStatus {
 	if d == nil {
 		return platformdomain.PlatformStatus{}
 	}
-	return platformdomain.PlatformStatus{
+	status := platformdomain.PlatformStatus{
 		ObservedGeneration: d.ObservedGeneration,
 		Conditions:         convergencestore.ToConditions(d.Conditions),
 		Applied:            d.Applied.toDomain(),
 	}
+	if d.Realizing != nil && d.Realizing.Spec != nil {
+		status.Realizing = &platformdomain.PlatformRealizing{
+			Generation: d.Realizing.Generation, WorkflowID: d.Realizing.WorkflowID,
+			Spec: *d.Realizing.Spec.toDomain(), StartedAt: d.Realizing.StartedAt,
+		}
+	}
+	return status
+}
+
+// errUserDataNeedsKey refuses to store inline user data in the clear.
+var errUserDataNeedsKey = errors.New("a platform spec with inline user data needs the credential key")
+
+// seal seals the user data of each spec document before it is written.
+func (r *MongoPlatformRepo) seal(docs ...*platformSpecDoc) error {
+	for _, doc := range docs {
+		if doc == nil || doc.userData == "" {
+			continue
+		}
+		if r.sealer == nil {
+			return errUserDataNeedsKey
+		}
+		sealed, err := r.sealer.Seal(doc.userData)
+		if err != nil {
+			return fmt.Errorf("seal platform spec user data: %w", err)
+		}
+		doc.SealedUserData = sealed
+	}
+	return nil
+}
+
+// sealStatus seals the spec documents inside a status document.
+func (r *MongoPlatformRepo) sealStatus(doc *platformStatusDoc) error {
+	if doc == nil {
+		return nil
+	}
+	if doc.Realizing != nil {
+		if err := r.seal(doc.Realizing.Spec); err != nil {
+			return err
+		}
+	}
+	return r.seal(doc.Applied)
+}
+
+// open restores the user data of a read Platform's specs from their documents.
+func (r *MongoPlatformRepo) open(doc *platformDoc, platform *platformdomain.Platform) error {
+	pairs := []struct {
+		doc  *platformSpecDoc
+		spec *platformdomain.PlatformSpec
+	}{{doc.Spec, platform.Spec}}
+	if doc.Status != nil {
+		pairs = append(pairs, struct {
+			doc  *platformSpecDoc
+			spec *platformdomain.PlatformSpec
+		}{doc.Status.Applied, platform.Status.Applied})
+		if doc.Status.Realizing != nil && platform.Status.Realizing != nil {
+			pairs = append(pairs, struct {
+				doc  *platformSpecDoc
+				spec *platformdomain.PlatformSpec
+			}{doc.Status.Realizing.Spec, &platform.Status.Realizing.Spec})
+		}
+	}
+	for _, pair := range pairs {
+		if pair.doc == nil || pair.spec == nil || pair.doc.SealedUserData == "" {
+			continue
+		}
+		if r.sealer == nil {
+			return errUserDataNeedsKey
+		}
+		plain, err := r.sealer.Open(pair.doc.SealedUserData)
+		if err != nil {
+			return fmt.Errorf("open platform spec user data: %w", err)
+		}
+		pair.spec.MachinePreparation.UserData = plain
+	}
+	return nil
 }
 
 func nonNilStrings(values []string) []string {
@@ -167,8 +264,12 @@ func (r *MongoPlatformRepo) WriteSpec(ctx context.Context, platformID string, ex
 		filter = bson.M{"_id": platformID, "$or": bson.A{bson.M{"generation": 0}, bson.M{"generation": bson.M{"$exists": false}}}}
 	}
 	next := expectedGeneration + 1
+	doc := toSpecDoc(&spec)
+	if err := r.seal(doc); err != nil {
+		return 0, err
+	}
 	result, err := r.col.UpdateOne(ctx, filter, bson.M{"$set": bson.M{
-		"spec": toSpecDoc(&spec), "generation": next, "updatedAt": time.Now().UTC(),
+		"spec": doc, "generation": next, "updatedAt": time.Now().UTC(),
 	}})
 	if err != nil {
 		return 0, err
@@ -184,7 +285,11 @@ func (r *MongoPlatformRepo) WriteSpec(ctx context.Context, platformID string, ex
 
 // WriteStatus implements platformdomain.PlatformSpecStore.
 func (r *MongoPlatformRepo) WriteStatus(ctx context.Context, platformID string, status platformdomain.PlatformStatus) error {
-	result, err := r.col.UpdateOne(ctx, bson.M{"_id": platformID}, bson.M{"$set": bson.M{"status": toStatusDoc(status)}})
+	doc := toStatusDoc(status)
+	if err := r.sealStatus(doc); err != nil {
+		return err
+	}
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": platformID}, bson.M{"$set": bson.M{"status": doc}})
 	if err != nil {
 		return err
 	}

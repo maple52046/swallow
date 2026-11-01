@@ -39,7 +39,7 @@ func platformTestDatabase(t *testing.T) *mongo.Database {
 
 func TestGPUOperatorRecordIsFencedOnItsWorkflow(t *testing.T) {
 	ctx := context.Background()
-	repo, err := NewMongoPlatformRepo(platformTestDatabase(t))
+	repo, err := NewMongoPlatformRepo(platformTestDatabase(t), nil)
 	if err != nil {
 		t.Fatalf("NewMongoPlatformRepo: %v", err)
 	}

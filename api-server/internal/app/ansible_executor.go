@@ -103,7 +103,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	platforms, err := platformstore.NewMongoPlatformRepo(db)
+	platforms, err := platformstore.NewMongoPlatformRepo(db, sealer)
 	if err != nil {
 		return err
 	}

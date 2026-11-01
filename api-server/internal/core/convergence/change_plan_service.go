@@ -76,6 +76,24 @@ func (s *ChangePlanService) Propose(ctx context.Context, resource ResourceRef, d
 	return plan, nil
 }
 
+// Withdraw supersedes the resource's unfinished plan, if any, because a newer spec needs no
+// approval. Like Propose it runs inside the transaction that writes the spec.
+func (s *ChangePlanService) Withdraw(ctx context.Context, resource ResourceRef, reason string) error {
+	plan, err := s.plans.FindUnfinished(ctx, resource)
+	if errors.Is(err, ErrChangePlanNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := s.plans.Transition(ctx, plan.ID, []ChangePlanState{PlanPendingApproval, PlanApproved}, PlanSuperseded,
+		PlanTransition{Reason: reason, At: s.now()}); err != nil {
+		return err
+	}
+	s.record(ctx, plan, EventPlanSuperseded, reason)
+	return nil
+}
+
 // Get returns a plan.
 func (s *ChangePlanService) Get(ctx context.Context, id string) (*ChangePlan, error) {
 	return s.plans.FindByID(ctx, id)

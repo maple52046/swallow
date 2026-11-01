@@ -106,6 +106,15 @@ func membershipResponse(report application.MembershipReport) membershipReportRes
 	}
 }
 
+// DeployRequestError is a deploy request body that cannot be read as a deployment; Message is the
+// validation message for the client.
+type DeployRequestError struct {
+	Message string
+}
+
+// Error returns the message.
+func (e *DeployRequestError) Error() string { return e.Message }
+
 // roleAssignmentRequest keeps workload co-location additive: an omitted JSON boolean maps
 // to false and preserves existing dedicated control-plane requests.
 type roleAssignmentRequest struct {
@@ -352,21 +361,22 @@ type slurmNFSReq struct {
 	MountOptions string `json:"mountOptions"`
 }
 
-// Deploy maps transport data into deployment intent; topology and network rules stay in
-// the application use case so every delivery shares one policy.
-func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
+// DeployInputFromRequest reads a deploy request body (platforms.md, "Deploy A New Platform") into
+// the deploy input; a body that is not the request shape, names no Site, or has an unknown deploy
+// target is a *DeployRequestError. The caller sets who requested it. It is also how a Platform spec
+// becomes a deployment: the type's platform hook renders the spec as this body.
+func DeployInputFromRequest(raw []byte) (application.DeployPlatformInput, error) {
 	var req deployPlatformRequest
-	if err := c.BodyParser(&req); err != nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	if err := json.Unmarshal(raw, &req); err != nil {
+		return application.DeployPlatformInput{}, &DeployRequestError{Message: "Invalid request body."}
 	}
 	if req.SiteID == "" {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "siteId is required."))
+		return application.DeployPlatformInput{}, &DeployRequestError{Message: "siteId is required."}
 	}
 	preparation, ok := machinePreparationFromRequest(req.MachinePreparation)
 	if !ok {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`))
+		return application.DeployPlatformInput{}, &DeployRequestError{Message: `deployTarget must be "disk" or "ram".`}
 	}
-
 	assignments := make([]platformdomain.RoleAssignment, len(req.RoleAssignments))
 	for i, assignment := range req.RoleAssignments {
 		assignments[i] = platformdomain.RoleAssignment{
@@ -375,12 +385,6 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 			RunWorkloads: assignment.RunWorkloads,
 		}
 	}
-
-	requestedBy := ""
-	if principal := middleware.GetPrincipal(c); principal != nil {
-		requestedBy = principal.Username
-	}
-
 	var gpuOperator *platformdomain.GPUOperatorSettings
 	if req.GPUOperator != nil {
 		settings := req.GPUOperator.settings()
@@ -407,7 +411,7 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 	if req.GPUDriver != nil {
 		gpuDriver = &platformdomain.GPUDriverSettings{ModuleOptions: req.GPUDriver.ModuleOptions}
 	}
-	result, err := h.deploy.Deploy(c.Context(), application.DeployPlatformInput{
+	return application.DeployPlatformInput{
 		SiteID:                req.SiteID,
 		Name:                  req.Name,
 		Type:                  platformdomain.PlatformType(req.Type),
@@ -425,12 +429,29 @@ func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
 			APIVIPPrefix:    req.APIVIPPrefix,
 			RoleAssignments: assignments,
 		},
-		SlurmSpec:   slurmSpecFromRequest(req.Slurm),
-		RequestedBy: requestedBy, RequestCorrelation: c.GetRespHeader(fiber.HeaderXRequestID),
+		SlurmSpec:          slurmSpecFromRequest(req.Slurm),
 		MachinePreparation: preparation,
 		TimeSyncCheck:      platformdomain.TimeSyncCheck(req.TimeSyncCheck),
-		PlatformSpec:       h.specFromDeployBody(c.Body(), req.Type, preparation),
-	})
+	}, nil
+}
+
+// Deploy maps transport data into deployment intent; topology and network rules stay in
+// the application use case so every delivery shares one policy.
+func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
+	input, err := DeployInputFromRequest(c.Body())
+	var requestErr *DeployRequestError
+	if errors.As(err, &requestErr) {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, requestErr.Message))
+	}
+	if err != nil {
+		return respondError(c, err)
+	}
+	if principal := middleware.GetPrincipal(c); principal != nil {
+		input.RequestedBy = principal.Username
+	}
+	input.RequestCorrelation = c.GetRespHeader(fiber.HeaderXRequestID)
+	input.PlatformSpec = h.specFromDeployBody(c.Body(), string(input.Type), input.MachinePreparation)
+	result, err := h.deploy.Deploy(c.Context(), input)
 	if err != nil {
 		return respondError(c, err)
 	}

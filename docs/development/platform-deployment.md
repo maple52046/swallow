@@ -396,10 +396,10 @@ Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以�
   `cancelActiveWorkflows` 也繞不過。Recover 處於不可用狀態（`failed`／`broken`／`rescue`／`allocated`）的 claimed Server
   仍允許，因為那是修復失敗部署的方式。代表該 Platform 執行的 Workflow（例如 uninstall 的 `release-os`）不受此規則限制；
   Platform 的 Server 只透過 uninstall 搭配 `releaseServers` 釋放。
-- **API 啟動時 backfill**：依 durable lifecycle 一次性補齊與清理。非 uninstalled Platform 的 target 沒有 claim 就補上
-  （claim 出現前部署的 Platform 由此取得），指向已不存在或已 uninstalled Platform 的 claim 則釋放（受理、Delete 與
-  uninstall 改為 transaction 之前的安裝可能留下這種 claim）。它不是修復迴圈：claim 現在只與它所屬的 Platform 變更一起
-  寫入或釋放。claim 是新的選用欄位，不需 schema migration。
+- **由 spec 推導**：Platform 的 spec 是 claim 的來源。建立 Platform、加入成員的 spec 寫入與 claim 在同一個 transaction；
+  spec 移除的成員保留 claim，直到移除它的變更真的執行。worker 的 platform controller 讓 present spec 的成員都有 claim
+  （spec 出現前部署的 Platform 由它從最近一次部署接管時取得），並釋放指向已不存在 Platform 的 claim。claim 是選用欄位，
+  不需 schema migration。
 - **Delete 與 uninstall 完成**：Delete 先向 Temporal 取消該 Platform 進行中的 Workflow，之後清除 membership、釋放
   claim、刪除 owned Integration 與刪除紀錄是同一個 transaction；`CompleteUninstall` 的整段清理也是一個 transaction。
 - Dashboard 與 CLI 從 Server 投影讀 `platformClaim`：Dashboard 以 Platform 名稱停用 Release 與 Delete，CLI 指向

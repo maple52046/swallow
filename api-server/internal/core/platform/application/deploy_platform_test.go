@@ -236,6 +236,10 @@ type recordingLauncher struct {
 	err error
 	// persistErr refuses it at persist time, modelling a target that became busy.
 	persistErr error
+	// launchIDs returns each launch's preassigned id instead of "operation-1".
+	launchIDs bool
+	// launches counts the persisted launches.
+	launches int
 }
 
 // recordedDeployment is the opaque plan recordingLauncher hands back from PrepareDeployment.
@@ -259,6 +263,10 @@ func (l *recordingLauncher) PersistDeployment(ctx context.Context, prepared plat
 	}
 	launch := prepared.(recordedDeployment).launch
 	l.launched = &launch
+	l.launches++
+	if l.launchIDs {
+		return launch.OperationID, nil
+	}
 	return "operation-1", nil
 }
 

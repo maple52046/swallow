@@ -192,6 +192,16 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 | 變更或停用 workload storage、container runtime | 破壞性 | 重新掛載或改變工作的執行環境 |
 | 網路身分（`podCidr`、`serviceCidr`、`apiVip`、Slurm `clusterName`） | 不可變更 | 改變等於重建叢集；寫入回 `409`，要改就 uninstall 後重新建立 |
 
+swallow 還沒有自動化的破壞性變更（移除成員、改變 Node Role、版本升級等）仍可寫入 spec，它的 Change Plan 帶
+「swallow 還不能執行」的阻擋事項而無法核准；還沒有自動化的非破壞性變更直接拒絕寫入。
+
+Platform 的 controller 在 worker 執行：第一次看到沒有 spec 的 Platform 時，由最近一次部署的紀錄接管（generation 1，
+已 active 的 spec 視為已套用）；讓 present spec 的成員都有 Platform Claim；非破壞性變更以 type 模組指定的 Workflow
+收斂（加入成員是對所有成員重跑可收斂的部署）；核准的 Change Plan 由它 apply；Workflow 成功後把當時那個 generation
+的 spec 記為已套用。同一個 generation 的 Workflow 失敗後不自動重啟，由 operator 重跑或寫入新的 spec。成員的
+observed membership 與已套用的 spec 不同時回報 `drifted`。spec 中內嵌的 cloud-init user data 以 credential key 加密
+保存。
+
 Managed Software 的版本升級仍待該功能遷移時定案。
 
 ### 5.3 非破壞性收斂
