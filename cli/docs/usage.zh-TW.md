@@ -221,6 +221,22 @@ swallow api-keys delete <keyId>                         # alias：revoke
 否則直接印出。`--expires-in` 接受天數（`90d`）或 duration（`12h`）；省略則永不到期。建立 API key
 需要以密碼登入的 session。
 
+### plans
+
+破壞性變更的 Change Plan。破壞性變更以 plan 的形式等待 admin 整份核准；核准後由該資源的 controller
+重新計算並以 Workflow 執行。見
+[change-plans.md](../../api-server/docs/development/api-contracts/api-server/change-plans.md)。
+
+```bash
+swallow plans list [--resource-kind platform] [--resource-id <id>] [--state pending_approval,approved]
+swallow plans get <planId>        # 動作、預期影響、阻擋事項、狀態
+swallow plans approve <planId>
+swallow plans reject <planId>
+```
+
+有阻擋事項的 plan 無法核准；plan 預設在計算後 24 小時到期。plan 在執行前 spec 又改變時，會變成
+`superseded`，需要新的 plan。
+
 ### overview
 
 ```bash

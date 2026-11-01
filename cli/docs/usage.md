@@ -226,6 +226,24 @@ file with mode 0600 (an existing file is never overwritten); without it the secr
 printed. `--expires-in` accepts days (`90d`) or a duration (`12h`); omit it for a key
 that never expires. Creating a key requires a password session.
 
+### plans
+
+Change Plans of destructive changes. A destructive change waits as a plan until an admin
+approves it as a whole; the resource's controller then recomputes and applies it as a
+Workflow. See
+[change-plans.md](../../api-server/docs/development/api-contracts/api-server/change-plans.md).
+
+```bash
+swallow plans list [--resource-kind platform] [--resource-id <id>] [--state pending_approval,approved]
+swallow plans get <planId>        # actions, expected effects, blockers, state
+swallow plans approve <planId>
+swallow plans reject <planId>
+```
+
+A plan with blockers cannot be approved, and a plan expires 24 hours after it was computed
+by default. If the spec changes again before the plan is applied, the plan becomes
+`superseded` and the change needs a new one.
+
 ### overview
 
 ```bash
