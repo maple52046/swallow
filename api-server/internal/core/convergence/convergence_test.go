@@ -242,3 +242,24 @@ func TestConvergeSingleTarget(t *testing.T) {
 		t.Fatalf("a target that still differs: %+v", r)
 	}
 }
+
+// resyncOnlyController watches no collection.
+type resyncOnlyController struct{ recordingController }
+
+func (c *resyncOnlyController) Collections() []string { return nil }
+
+// A controller that watches no collection opens no change feed, which would reject the empty
+// collection filter, and still runs its resyncs.
+func TestRuntimeOpensNoFeedForAResyncOnlyController(t *testing.T) {
+	feed := &storetest.ChangeFeed{}
+	controller := &resyncOnlyController{recordingController{keys: []string{"a"}}}
+	runtime := NewRuntime(feed, &memoryLeases{}, RuntimeOptions{Holder: "p1", ResyncInterval: time.Hour})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go runtime.Run(ctx, controller)
+	waitFor(t, "the startup resync", func() bool { return len(controller.seen()) >= 1 })
+	time.Sleep(50 * time.Millisecond)
+	if got := feed.Watchers(); got != 0 {
+		t.Errorf("watchers = %d, want no change feed", got)
+	}
+}

@@ -198,8 +198,12 @@ func (r *Runtime) runActive(ctx context.Context, c Controller, log *slog.Logger)
 }
 
 // watch feeds change-feed events into the queue, reconnecting with backoff when the feed fails. A
-// reset (changes may have been missed) enqueues a full resync.
+// reset (changes may have been missed) enqueues a full resync. A controller that watches no
+// collection runs on its resyncs alone and opens no feed.
 func (r *Runtime) watch(ctx context.Context, c Controller, q *workQueue, log *slog.Logger) {
+	if len(c.Collections()) == 0 {
+		return
+	}
 	delay := time.Second
 	for ctx.Err() == nil {
 		err := r.feed.Watch(ctx, "controller:"+c.Name(), c.Collections(), func(ctx context.Context, change store.Change) error {
