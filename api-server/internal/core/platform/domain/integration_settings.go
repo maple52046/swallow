@@ -7,6 +7,9 @@ package domain
 const (
 	SettingTimeout            = "timeout"
 	SettingInsecureSkipVerify = "insecureSkipVerify"
+	// SettingCACertificate is the PEM CA the Platform API's certificate is verified against. A
+	// deployment that returns its cluster CA records it instead of insecureSkipVerify (DF-01).
+	SettingCACertificate = "caCertificate"
 	// SettingSlurmAPIVersion selects the slurmrestd endpoint version, which tracks
 	// the Slurm release.
 	SettingSlurmAPIVersion = "slurmApiVersion"

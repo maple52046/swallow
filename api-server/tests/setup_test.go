@@ -31,7 +31,8 @@ import (
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
-	"github.com/maple52046/swallow/modules/platform/platformapi"
+	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
+	"github.com/maple52046/swallow/modules/platform/slurm/slurmapi"
 )
 
 // testHealthResolver stands in for the metrics integration.
@@ -100,7 +101,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		siteapp.NewIntegrationService(integrations, sites, servers, templates, sitedomain.IntegrationProviders{
 			sitedomain.IntegrationKindProvisioner: {maas.ProviderKind},
 			sitedomain.IntegrationKindMetrics:     {promstack.ProviderKind},
-			sitedomain.IntegrationKindPlatform:    {platformapi.ProviderKindKubernetes, platformapi.ProviderKindSlurm},
+			sitedomain.IntegrationKindPlatform:    {kubeapi.ProviderKind, slurmapi.ProviderKind},
 		}),
 	)
 	serverHandler := serverdelivery.NewServerHandler(

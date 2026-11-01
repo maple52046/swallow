@@ -1,4 +1,4 @@
-package platformapi
+package slurmapi
 
 import (
 	"context"
@@ -7,28 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
-)
 
-// A reader is created per read and never cached, so its transport must close connections
-// after each response. Keeping them alive leaked connections into slurmrestd's small
-// concurrent-connection cap (~124) until it refused new ones and membership sync stalled with
-// "Could not reach the Slurm API"; this guards that regression.
-func TestReaderTransportDisablesKeepAlives(t *testing.T) {
-	secure := newReaderTransport(false)
-	if !secure.DisableKeepAlives {
-		t.Error("reader transport must disable keep-alives so connections do not accumulate on slurmrestd")
-	}
-	if secure.TLSClientConfig != nil {
-		t.Error("a verifying reader must not set a TLS client config")
-	}
-	insecure := newReaderTransport(true)
-	if !insecure.DisableKeepAlives {
-		t.Error("insecure reader transport must also disable keep-alives")
-	}
-	if insecure.TLSClientConfig == nil || !insecure.TLSClientConfig.InsecureSkipVerify {
-		t.Error("insecure reader must skip TLS verification")
-	}
-}
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+)
 
 // The bodies mirror slurmrestd responses on a live cluster: /ping lists controllers in
 // SlurmctldHost order with primary/backup and UP/DOWN, /partitions carries the configured node
@@ -79,9 +60,9 @@ func TestSlurmGetClusterState(t *testing.T) {
 	server := newSlurmTestServer(t)
 	defer server.Close()
 
-	reader, err := NewSlurmReader(server.URL, "token", "", time.Second, false)
+	reader, err := NewReader(platformdomain.Connection{Endpoint: server.URL, Token: "token", Timeout: time.Second})
 	if err != nil {
-		t.Fatalf("NewSlurmReader: %v", err)
+		t.Fatalf("NewReader: %v", err)
 	}
 
 	state, err := reader.GetClusterState(context.Background())
@@ -124,9 +105,9 @@ func TestSlurmListMembersUnchanged(t *testing.T) {
 	server := newSlurmTestServer(t)
 	defer server.Close()
 
-	reader, err := NewSlurmReader(server.URL, "token", "", time.Second, false)
+	reader, err := NewReader(platformdomain.Connection{Endpoint: server.URL, Token: "token", Timeout: time.Second})
 	if err != nil {
-		t.Fatalf("NewSlurmReader: %v", err)
+		t.Fatalf("NewReader: %v", err)
 	}
 	members, err := reader.ListMembers(context.Background())
 	if err != nil {

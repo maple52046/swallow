@@ -39,7 +39,6 @@ import (
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
-	"github.com/maple52046/swallow/modules/platform/platformapi"
 )
 
 // RunWorker starts the Temporal workflow/activity worker. It owns orchestration only;
@@ -104,7 +103,11 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, platformapi.NewReaderFactory(integrations))
+	readers, err := platformapp.NewReaderFactory(integrations, modules.platformReaders...)
+	if err != nil {
+		return err
+	}
+	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, readers)
 	templates, err := provisioningstore.NewMongoDeploymentTemplateRepo(db, sealer)
 	if err != nil {
 		return err

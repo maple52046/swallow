@@ -1,4 +1,7 @@
-package platformapi
+// Package slurmapi is the Slurm module's client of slurmrestd: the membership and cluster-state
+// reader of a deployed Slurm Platform, built from the Platform's Connection. It speaks plain REST
+// rather than pulling in a vendored client, since swallow reads a few collections and never writes.
+package slurmapi
 
 import (
 	"context"
@@ -6,41 +9,64 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	"github.com/maple52046/swallow/internal/shared/httpjson"
 )
 
 // DefaultSlurmAPIVersion is slurmrestd's path version. It is configurable because
 // slurmrestd's endpoint version tracks the Slurm release, so a fleet will run several.
 const DefaultSlurmAPIVersion = "v0.0.40"
 
-// SlurmReader reads nodes from slurmrestd.
-type SlurmReader struct {
+// ProviderKind is the provider kind of the Integration swallow records for a deployed Slurm
+// Platform: the Platform type. It is persisted, so it stays stable.
+const ProviderKind = "slurm"
+
+// Reader reads nodes and cluster state from slurmrestd.
+type Reader struct {
 	baseURL    string
 	token      string
 	apiVersion string
 	httpClient *http.Client
 }
 
-func NewSlurmReader(rawURL, token, apiVersion string, timeout time.Duration, insecureSkipVerify bool) (*SlurmReader, error) {
-	baseURL, err := normalizeBaseURL(rawURL)
+// NewReader builds a reader for the Connection's slurmrestd base URL and JWT, querying the
+// slurmApiVersion the Connection pins or DefaultSlurmAPIVersion.
+func NewReader(conn platformdomain.Connection) (*Reader, error) {
+	baseURL, err := httpjson.NormalizeBaseURL(conn.Endpoint)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(token) == "" {
+	if strings.TrimSpace(conn.Token) == "" {
 		return nil, errors.New("Slurm API token is empty")
 	}
-	if apiVersion == "" {
-		apiVersion = DefaultSlurmAPIVersion
+	transport, err := httpjson.Transport(conn.InsecureSkipVerify, conn.CACertificate)
+	if err != nil {
+		return nil, err
 	}
-
-	return &SlurmReader{
+	return &Reader{
 		baseURL:    baseURL,
-		token:      token,
-		apiVersion: apiVersion,
-		httpClient: &http.Client{Timeout: timeout, Transport: newReaderTransport(insecureSkipVerify)},
+		token:      conn.Token,
+		apiVersion: conn.Setting(platformdomain.SettingSlurmAPIVersion, DefaultSlurmAPIVersion),
+		httpClient: &http.Client{Timeout: conn.Timeout, Transport: transport},
 	}, nil
+}
+
+// ReaderBuilder is the Slurm module's platform-reader hook.
+type ReaderBuilder struct{}
+
+// PlatformType is slurm.
+func (ReaderBuilder) PlatformType() platformdomain.PlatformType {
+	return platformdomain.PlatformTypeSlurm
+}
+
+// NewReader builds the Slurm reader of conn.
+func (ReaderBuilder) NewReader(conn platformdomain.Connection) (platformdomain.PlatformReader, error) {
+	reader, err := NewReader(conn)
+	if err != nil {
+		return nil, err
+	}
+	return reader, nil
 }
 
 type slurmNodeListJSON struct {
@@ -52,7 +78,7 @@ type slurmNodeListJSON struct {
 	} `json:"nodes"`
 }
 
-func (r *SlurmReader) ListMembers(ctx context.Context) ([]platformdomain.Member, error) {
+func (r *Reader) ListMembers(ctx context.Context) ([]platformdomain.Member, error) {
 	var out slurmNodeListJSON
 	if err := r.getJSON(ctx, "nodes", &out); err != nil {
 		return nil, err
@@ -73,14 +99,14 @@ func (r *SlurmReader) ListMembers(ctx context.Context) ([]platformdomain.Member,
 	return members, nil
 }
 
-var _ platformdomain.SlurmClusterReader = (*SlurmReader)(nil)
+var _ platformdomain.SlurmClusterReader = (*Reader)(nil)
 
 // getJSON performs an authenticated GET against a slurmrestd sub-path relative to the
 // versioned base (for example "nodes", "partitions", "ping") and decodes the JSON body.
 // slurmrestd authenticates with its own X-SLURM-USER-TOKEN header rather than Authorization.
 // Transport and API failures are translated into a platformdomain.ReaderError so callers map
 // them to a stable status.
-func (r *SlurmReader) getJSON(ctx context.Context, subpath string, out any) error {
+func (r *Reader) getJSON(ctx context.Context, subpath string, out any) error {
 	endpoint := fmt.Sprintf("%s/slurm/%s/%s", r.baseURL, r.apiVersion, subpath)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -88,8 +114,8 @@ func (r *SlurmReader) getJSON(ctx context.Context, subpath string, out any) erro
 	}
 	req.Header.Set("X-SLURM-USER-TOKEN", r.token)
 	req.Header.Set("Accept", "application/json")
-	if err := doJSON(r.httpClient, req, out); err != nil {
-		return translateError(err, "Slurm")
+	if err := httpjson.Do(r.httpClient, req, out); err != nil {
+		return translateError(err)
 	}
 	return nil
 }
@@ -98,7 +124,7 @@ func (r *SlurmReader) getJSON(ctx context.Context, subpath string, out any) erro
 // partitions, and compute node states. It is the read behind the Slurm-specific view and is
 // independent of ListMembers (membership sync). Any endpoint failure aborts with a
 // ReaderError; a healthy cluster with no partitions or nodes yields empty slices, not an error.
-func (r *SlurmReader) GetClusterState(ctx context.Context) (*platformdomain.SlurmClusterState, error) {
+func (r *Reader) GetClusterState(ctx context.Context) (*platformdomain.SlurmClusterState, error) {
 	controllers, err := r.pingControllers(ctx)
 	if err != nil {
 		return nil, err
@@ -130,7 +156,7 @@ type slurmPingJSON struct {
 // pingControllers reports each slurmctld in failover order. slurmrestd reports mode as
 // "primary"/"backup"; when it is absent, the first host in SlurmctldHost order is the primary,
 // matching Slurm's ordered active/standby failover.
-func (r *SlurmReader) pingControllers(ctx context.Context) ([]platformdomain.SlurmController, error) {
+func (r *Reader) pingControllers(ctx context.Context) ([]platformdomain.SlurmController, error) {
 	var out slurmPingJSON
 	if err := r.getJSON(ctx, "ping", &out); err != nil {
 		return nil, err
@@ -176,7 +202,7 @@ type slurmPartitionsJSON struct {
 	} `json:"partitions"`
 }
 
-func (r *SlurmReader) listPartitions(ctx context.Context) ([]platformdomain.SlurmPartition, error) {
+func (r *Reader) listPartitions(ctx context.Context) ([]platformdomain.SlurmPartition, error) {
 	var out slurmPartitionsJSON
 	if err := r.getJSON(ctx, "partitions", &out); err != nil {
 		return nil, err
@@ -207,7 +233,7 @@ type slurmNodesFullJSON struct {
 	} `json:"nodes"`
 }
 
-func (r *SlurmReader) listNodes(ctx context.Context) ([]platformdomain.SlurmNode, error) {
+func (r *Reader) listNodes(ctx context.Context) ([]platformdomain.SlurmNode, error) {
 	var out slurmNodesFullJSON
 	if err := r.getJSON(ctx, "nodes", &out); err != nil {
 		return nil, err

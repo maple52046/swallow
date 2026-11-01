@@ -1,4 +1,4 @@
-package platformapi
+package kubeapi
 
 import (
 	"bytes"
@@ -17,6 +17,7 @@ import (
 	yaml "gopkg.in/yaml.v3"
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	"github.com/maple52046/swallow/internal/shared/httpjson"
 )
 
 // maxLogBytes bounds how much of a pod log snapshot the explorer reads. tailLines already
@@ -24,42 +25,46 @@ import (
 // cannot stream unbounded memory into the response.
 const maxLogBytes = 4 << 20 // 4 MiB
 
-// KubernetesClient is a live read/write client against a deployed Kubernetes Platform's own
+// Client is a live read/write client against a deployed Kubernetes Platform's own
 // API. It implements platformdomain.KubernetesClusterClient by speaking plain REST with the
 // deployment's bearer token; it never persists and never pulls in client-go, matching the
-// read-only KubernetesReader's rationale but adding the write verbs the explorer needs.
+// read-only Reader's rationale but adding the write verbs the explorer needs.
 //
 // It shares the reader's transport (keep-alives disabled, per-client TLS) and the shared
 // error translation, so an unreachable cluster or a rejected credential surfaces as the same
 // *platformdomain.ReaderError the delivery layer already maps.
-type KubernetesClient struct {
+type Client struct {
 	baseURL    string
 	token      string
 	httpClient *http.Client
 }
 
-var _ platformdomain.KubernetesClusterClient = (*KubernetesClient)(nil)
+var _ platformdomain.KubernetesClusterClient = (*Client)(nil)
 
-// NewKubernetesClient builds an explorer client for a cluster API base URL and bearer token.
-func NewKubernetesClient(rawURL, token string, timeout time.Duration, insecureSkipVerify bool) (*KubernetesClient, error) {
-	baseURL, err := normalizeBaseURL(rawURL)
+// NewClient builds an explorer client for the Connection's API base URL and bearer token.
+func NewClient(conn platformdomain.Connection) (*Client, error) {
+	baseURL, err := httpjson.NormalizeBaseURL(conn.Endpoint)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(token) == "" {
+	if strings.TrimSpace(conn.Token) == "" {
 		return nil, errors.New("Kubernetes API token is empty")
 	}
-	return &KubernetesClient{
+	transport, err := httpjson.Transport(conn.InsecureSkipVerify, conn.CACertificate)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{
 		baseURL:    baseURL,
-		token:      token,
-		httpClient: &http.Client{Timeout: timeout, Transport: newReaderTransport(insecureSkipVerify)},
+		token:      conn.Token,
+		httpClient: &http.Client{Timeout: conn.Timeout, Transport: transport},
 	}, nil
 }
 
 // do performs one authenticated request and returns the raw body. A non-2xx status or a
 // transport failure is translated into a *platformdomain.ReaderError. It is the single choke
 // point every verb funnels through so authentication and error mapping stay in one place.
-func (c *KubernetesClient) do(ctx context.Context, method, path, contentType string, body []byte) ([]byte, error) {
+func (c *Client) do(ctx context.Context, method, path, contentType string, body []byte) ([]byte, error) {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -73,22 +78,15 @@ func (c *KubernetesClient) do(ctx context.Context, method, path, contentType str
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-
-	resp, err := c.httpClient.Do(req)
+	raw, err := httpjson.DoRaw(c.httpClient, req, maxLogBytes)
 	if err != nil {
-		return nil, translateError(&transportError{err: err}, "Kubernetes")
+		return nil, translateError(err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-		return nil, translateError(&apiError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(raw))}, "Kubernetes")
-	}
-	return io.ReadAll(io.LimitReader(resp.Body, maxLogBytes))
+	return raw, nil
 }
 
 // getJSON GETs a path and decodes the JSON body.
-func (c *KubernetesClient) getJSON(ctx context.Context, path string, out any) error {
+func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 	raw, err := c.do(ctx, http.MethodGet, path, "", nil)
 	if err != nil {
 		return err
@@ -101,7 +99,7 @@ func (c *KubernetesClient) getJSON(ctx context.Context, path string, out any) er
 
 // exists reports whether an object path resolves, mapping 404 to a clean false so apply can
 // tell "created" from "configured" without treating a normal absence as an error.
-func (c *KubernetesClient) exists(ctx context.Context, path string) (bool, error) {
+func (c *Client) exists(ctx context.Context, path string) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return false, fmt.Errorf("build kubernetes request: %w", err)
@@ -109,15 +107,15 @@ func (c *KubernetesClient) exists(ctx context.Context, path string) (bool, error
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return false, translateError(&transportError{err: err}, "Kubernetes")
+		return false, translateError(&httpjson.TransportError{Err: err})
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBodyBytes))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, httpjson.MaxErrorBodyBytes))
 	if resp.StatusCode == http.StatusNotFound {
 		return false, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return false, translateError(&apiError{StatusCode: resp.StatusCode}, "Kubernetes")
+		return false, translateError(&httpjson.StatusError{StatusCode: resp.StatusCode})
 	}
 	return true, nil
 }
@@ -142,7 +140,7 @@ type versionJSON struct {
 }
 
 // Summary reads the cluster version and node/namespace counts in three light reads.
-func (c *KubernetesClient) Summary(ctx context.Context) (*platformdomain.KubernetesClusterSummary, error) {
+func (c *Client) Summary(ctx context.Context) (*platformdomain.KubernetesClusterSummary, error) {
 	var version versionJSON
 	if err := c.getJSON(ctx, "/version", &version); err != nil {
 		return nil, err
@@ -237,7 +235,7 @@ func (item nodeItemJSON) toNode() platformdomain.KubernetesNode {
 // the application layer. The DRA device counts come from a second, best-effort read: a cluster
 // without resource.k8s.io/v1, or a failed read, leaves every node's GPUDRADevices nil instead of
 // failing the node list.
-func (c *KubernetesClient) ListNodes(ctx context.Context) ([]platformdomain.KubernetesNode, error) {
+func (c *Client) ListNodes(ctx context.Context) ([]platformdomain.KubernetesNode, error) {
 	var out struct {
 		Items []nodeItemJSON `json:"items"`
 	}
@@ -259,7 +257,7 @@ func (c *KubernetesClient) ListNodes(ctx context.Context) ([]platformdomain.Kube
 
 // draGPUDevicesByNode counts the devices in the gpu.amd.com ResourceSlices per node. It reports
 // false when the slices cannot be read, which the caller turns into an unknown count.
-func (c *KubernetesClient) draGPUDevicesByNode(ctx context.Context) (map[string]int, bool) {
+func (c *Client) draGPUDevicesByNode(ctx context.Context) (map[string]int, bool) {
 	var out struct {
 		Items []struct {
 			Spec struct {
@@ -283,7 +281,7 @@ func (c *KubernetesClient) draGPUDevicesByNode(ctx context.Context) (map[string]
 }
 
 // SetNodeSchedulable cordons or uncordons a node with a merge patch on spec.unschedulable.
-func (c *KubernetesClient) SetNodeSchedulable(ctx context.Context, name string, schedulable bool) (*platformdomain.KubernetesNode, error) {
+func (c *Client) SetNodeSchedulable(ctx context.Context, name string, schedulable bool) (*platformdomain.KubernetesNode, error) {
 	patch := fmt.Sprintf(`{"spec":{"unschedulable":%t}}`, !schedulable)
 	raw, err := c.do(ctx, http.MethodPatch, "/api/v1/nodes/"+url.PathEscape(name), "application/merge-patch+json", []byte(patch))
 	if err != nil {
@@ -314,7 +312,7 @@ func (item namespaceItemJSON) toNamespace() platformdomain.KubernetesNamespace {
 	}
 }
 
-func (c *KubernetesClient) ListNamespaces(ctx context.Context) ([]platformdomain.KubernetesNamespace, error) {
+func (c *Client) ListNamespaces(ctx context.Context) ([]platformdomain.KubernetesNamespace, error) {
 	var out struct {
 		Items []namespaceItemJSON `json:"items"`
 	}
@@ -328,7 +326,7 @@ func (c *KubernetesClient) ListNamespaces(ctx context.Context) ([]platformdomain
 	return namespaces, nil
 }
 
-func (c *KubernetesClient) CreateNamespace(ctx context.Context, name string) (*platformdomain.KubernetesNamespace, error) {
+func (c *Client) CreateNamespace(ctx context.Context, name string) (*platformdomain.KubernetesNamespace, error) {
 	body := fmt.Sprintf(`{"apiVersion":"v1","kind":"Namespace","metadata":{"name":%q}}`, name)
 	raw, err := c.do(ctx, http.MethodPost, "/api/v1/namespaces", "application/json", []byte(body))
 	if err != nil {
@@ -342,7 +340,7 @@ func (c *KubernetesClient) CreateNamespace(ctx context.Context, name string) (*p
 	return &ns, nil
 }
 
-func (c *KubernetesClient) DeleteNamespace(ctx context.Context, name string) error {
+func (c *Client) DeleteNamespace(ctx context.Context, name string) error {
 	_, err := c.do(ctx, http.MethodDelete, "/api/v1/namespaces/"+url.PathEscape(name), "", nil)
 	return err
 }
@@ -426,7 +424,7 @@ func workloadPath(kind, namespace, name string) (string, bool) {
 	return path, true
 }
 
-func (c *KubernetesClient) listWorkloads(ctx context.Context, kind, namespace string) ([]platformdomain.KubernetesApplication, error) {
+func (c *Client) listWorkloads(ctx context.Context, kind, namespace string) ([]platformdomain.KubernetesApplication, error) {
 	path, _ := workloadPath(kind, namespace, "")
 	var out struct {
 		Items []workloadItemJSON `json:"items"`
@@ -443,7 +441,7 @@ func (c *KubernetesClient) listWorkloads(ctx context.Context, kind, namespace st
 
 // ListApplications aggregates workloads and owner-less pods (see the Kubernetes Application
 // glossary term). System namespaces are excluded from the all-namespaces case unless asked.
-func (c *KubernetesClient) ListApplications(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesApplication, error) {
+func (c *Client) ListApplications(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesApplication, error) {
 	apps := make([]platformdomain.KubernetesApplication, 0)
 	for _, kind := range []string{
 		platformdomain.KubernetesKindDeployment,
@@ -504,7 +502,7 @@ func sortApplications(apps []platformdomain.KubernetesApplication) {
 
 // GetApplication reads one workload and the pods it owns (matched by its selector labels), or
 // a single bare pod when kind is Pod.
-func (c *KubernetesClient) GetApplication(ctx context.Context, namespace, kind, name string) (*platformdomain.KubernetesApplication, error) {
+func (c *Client) GetApplication(ctx context.Context, namespace, kind, name string) (*platformdomain.KubernetesApplication, error) {
 	if kind == platformdomain.KubernetesKindPod {
 		pod, err := c.getPod(ctx, namespace, name)
 		if err != nil {
@@ -540,7 +538,7 @@ func (c *KubernetesClient) GetApplication(ctx context.Context, namespace, kind, 
 }
 
 // DeleteApplication deletes the workload object (or a bare pod).
-func (c *KubernetesClient) DeleteApplication(ctx context.Context, namespace, kind, name string) error {
+func (c *Client) DeleteApplication(ctx context.Context, namespace, kind, name string) error {
 	if kind == platformdomain.KubernetesKindPod {
 		return c.DeletePod(ctx, namespace, name)
 	}
@@ -554,7 +552,7 @@ func (c *KubernetesClient) DeleteApplication(ctx context.Context, namespace, kin
 
 // ScaleApplication sets replicas via a merge patch; only Deployment and StatefulSet are
 // scalable (a DaemonSet has no replica count, a bare Pod is a single object).
-func (c *KubernetesClient) ScaleApplication(ctx context.Context, namespace, kind, name string, replicas int) (*platformdomain.KubernetesApplication, error) {
+func (c *Client) ScaleApplication(ctx context.Context, namespace, kind, name string, replicas int) (*platformdomain.KubernetesApplication, error) {
 	if kind != platformdomain.KubernetesKindDeployment && kind != platformdomain.KubernetesKindStatefulSet {
 		return nil, fmt.Errorf("%w: only Deployment and StatefulSet can be scaled", platformdomain.ErrInvalidKubernetesRequest)
 	}
@@ -577,7 +575,7 @@ func (c *KubernetesClient) ScaleApplication(ctx context.Context, namespace, kind
 
 // RestartApplication triggers a rolling restart by stamping the pod template with a fresh
 // annotation, the same mechanism kubectl rollout restart uses.
-func (c *KubernetesClient) RestartApplication(ctx context.Context, namespace, kind, name string) error {
+func (c *Client) RestartApplication(ctx context.Context, namespace, kind, name string) error {
 	if _, ok := workloadKindPlural[kind]; !ok {
 		return fmt.Errorf("%w: only Deployment, DaemonSet, and StatefulSet can be restarted", platformdomain.ErrInvalidKubernetesRequest)
 	}
@@ -644,7 +642,7 @@ func podsPath(namespace string) string {
 	return "/api/v1/namespaces/" + url.PathEscape(namespace) + "/pods"
 }
 
-func (c *KubernetesClient) ListPods(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesPod, error) {
+func (c *Client) ListPods(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesPod, error) {
 	var out struct {
 		Items []podItemJSON `json:"items"`
 	}
@@ -661,7 +659,7 @@ func (c *KubernetesClient) ListPods(ctx context.Context, namespace string, inclu
 	return pods, nil
 }
 
-func (c *KubernetesClient) listPodsBySelector(ctx context.Context, namespace string, matchLabels map[string]string) ([]platformdomain.KubernetesPod, error) {
+func (c *Client) listPodsBySelector(ctx context.Context, namespace string, matchLabels map[string]string) ([]platformdomain.KubernetesPod, error) {
 	path := podsPath(namespace)
 	if len(matchLabels) > 0 {
 		selectors := make([]string, 0, len(matchLabels))
@@ -684,7 +682,7 @@ func (c *KubernetesClient) listPodsBySelector(ctx context.Context, namespace str
 	return pods, nil
 }
 
-func (c *KubernetesClient) getPod(ctx context.Context, namespace, name string) (*platformdomain.KubernetesPod, error) {
+func (c *Client) getPod(ctx context.Context, namespace, name string) (*platformdomain.KubernetesPod, error) {
 	var item podItemJSON
 	if err := c.getJSON(ctx, "/api/v1/namespaces/"+url.PathEscape(namespace)+"/pods/"+url.PathEscape(name), &item); err != nil {
 		return nil, err
@@ -695,7 +693,7 @@ func (c *KubernetesClient) getPod(ctx context.Context, namespace, name string) (
 
 // PodLogs returns a bounded log snapshot for one container. When container is empty the API
 // returns the pod's default (first) container's logs.
-func (c *KubernetesClient) PodLogs(ctx context.Context, namespace, name, container string, tailLines int) (string, string, error) {
+func (c *Client) PodLogs(ctx context.Context, namespace, name, container string, tailLines int) (string, string, error) {
 	query := url.Values{}
 	if tailLines > 0 {
 		query.Set("tailLines", fmt.Sprintf("%d", tailLines))
@@ -714,7 +712,7 @@ func (c *KubernetesClient) PodLogs(ctx context.Context, namespace, name, contain
 	return container, string(raw), nil
 }
 
-func (c *KubernetesClient) DeletePod(ctx context.Context, namespace, name string) error {
+func (c *Client) DeletePod(ctx context.Context, namespace, name string) error {
 	_, err := c.do(ctx, http.MethodDelete, "/api/v1/namespaces/"+url.PathEscape(namespace)+"/pods/"+url.PathEscape(name), "", nil)
 	return err
 }
@@ -728,7 +726,7 @@ func collectionPath(apiPath, plural, namespace string) string {
 	return apiPath + "/namespaces/" + url.PathEscape(namespace) + "/" + plural
 }
 
-func (c *KubernetesClient) ListServices(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesService, error) {
+func (c *Client) ListServices(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesService, error) {
 	var out struct {
 		Items []struct {
 			Metadata objectMetaJSON `json:"metadata"`
@@ -768,7 +766,7 @@ func (c *KubernetesClient) ListServices(ctx context.Context, namespace string, i
 	return services, nil
 }
 
-func (c *KubernetesClient) ListIngresses(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesIngress, error) {
+func (c *Client) ListIngresses(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesIngress, error) {
 	var out struct {
 		Items []struct {
 			Metadata objectMetaJSON `json:"metadata"`
@@ -842,15 +840,15 @@ func (item configResourceItemJSON) toConfigResource() platformdomain.KubernetesC
 	}
 }
 
-func (c *KubernetesClient) ListConfigMaps(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesConfigResource, error) {
+func (c *Client) ListConfigMaps(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesConfigResource, error) {
 	return c.listConfigResources(ctx, "configmaps", namespace, includeSystem)
 }
 
-func (c *KubernetesClient) ListSecrets(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesConfigResource, error) {
+func (c *Client) ListSecrets(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesConfigResource, error) {
 	return c.listConfigResources(ctx, "secrets", namespace, includeSystem)
 }
 
-func (c *KubernetesClient) listConfigResources(ctx context.Context, plural, namespace string, includeSystem bool) ([]platformdomain.KubernetesConfigResource, error) {
+func (c *Client) listConfigResources(ctx context.Context, plural, namespace string, includeSystem bool) ([]platformdomain.KubernetesConfigResource, error) {
 	var out struct {
 		Items []configResourceItemJSON `json:"items"`
 	}
@@ -867,7 +865,7 @@ func (c *KubernetesClient) listConfigResources(ctx context.Context, plural, name
 	return resources, nil
 }
 
-func (c *KubernetesClient) ListPersistentVolumeClaims(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesPersistentVolumeClaim, error) {
+func (c *Client) ListPersistentVolumeClaims(ctx context.Context, namespace string, includeSystem bool) ([]platformdomain.KubernetesPersistentVolumeClaim, error) {
 	var out struct {
 		Items []struct {
 			Metadata objectMetaJSON `json:"metadata"`
@@ -946,7 +944,7 @@ var applyKinds = map[string]applyKindMeta{
 // Apply server-side applies each YAML document in a manifest. dryRun validates without
 // persisting. Objects are applied in document order; the first rejected document aborts and
 // nothing after it is applied.
-func (c *KubernetesClient) Apply(ctx context.Context, manifest string, dryRun bool) ([]platformdomain.KubernetesApplyResult, error) {
+func (c *Client) Apply(ctx context.Context, manifest string, dryRun bool) ([]platformdomain.KubernetesApplyResult, error) {
 	decoder := yaml.NewDecoder(strings.NewReader(manifest))
 	results := make([]platformdomain.KubernetesApplyResult, 0)
 	for {
@@ -972,7 +970,7 @@ func (c *KubernetesClient) Apply(ctx context.Context, manifest string, dryRun bo
 	return results, nil
 }
 
-func (c *KubernetesClient) applyDocument(ctx context.Context, doc map[string]any, dryRun bool) (*platformdomain.KubernetesApplyResult, error) {
+func (c *Client) applyDocument(ctx context.Context, doc map[string]any, dryRun bool) (*platformdomain.KubernetesApplyResult, error) {
 	apiVersion, _ := doc["apiVersion"].(string)
 	kind, _ := doc["kind"].(string)
 	meta, _ := doc["metadata"].(map[string]any)

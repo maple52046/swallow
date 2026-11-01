@@ -21,7 +21,12 @@
     "device-metrics-exporter-state",
     "device-metrics-exporter-result"
   ],
-  "hooks": [],
+  "hooks": [
+    {
+      "name": "platform-reader",
+      "reason": "Builds the membership and cluster-state reader of a deployed Slurm Platform from its Connection: plain REST against slurmrestd at the pinned API version."
+    }
+  ],
   "capabilities": [
     "host-automation",
     "os-provisioning"

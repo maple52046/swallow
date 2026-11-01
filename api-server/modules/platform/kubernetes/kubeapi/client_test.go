@@ -1,4 +1,4 @@
-package platformapi
+package kubeapi
 
 import (
 	"context"
@@ -11,9 +11,9 @@ import (
 )
 
 // newTestKubernetesClient builds a client pointed at a test server with a trivial token.
-func newTestKubernetesClient(t *testing.T, url string) *KubernetesClient {
+func newTestKubernetesClient(t *testing.T, url string) *Client {
 	t.Helper()
-	client, err := NewKubernetesClient(url, "test-token", 5*time.Second, false)
+	client, err := NewClient(platformdomain.Connection{Endpoint: url, Token: "test-token", Timeout: 5 * time.Second})
 	if err != nil {
 		t.Fatalf("new client: %v", err)
 	}

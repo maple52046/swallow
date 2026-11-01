@@ -1,4 +1,4 @@
-package platformapi
+package kubeapi
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 )
 
 // nodeListBody and leaseListBody mirror the shapes observed on a live k0s HA platform:
@@ -53,9 +55,9 @@ func TestListMembersNodesOnly(t *testing.T) {
 	server := newTestServer(t, leaseListBody("2000-01-01T00:00:00Z"))
 	defer server.Close()
 
-	reader, err := NewKubernetesReader(server.URL, "token", time.Second, false, false)
+	reader, err := NewReader(platformdomain.Connection{Endpoint: server.URL, Token: "token", Timeout: time.Second})
 	if err != nil {
-		t.Fatalf("NewKubernetesReader: %v", err)
+		t.Fatalf("NewReader: %v", err)
 	}
 
 	members, err := reader.ListMembers(context.Background())
@@ -77,9 +79,10 @@ func TestListMembersWithControllerLeases(t *testing.T) {
 	server := newTestServer(t, leaseListBody(fresh))
 	defer server.Close()
 
-	reader, err := NewKubernetesReader(server.URL, "token", time.Second, false, true)
+	reader, err := NewReader(platformdomain.Connection{Endpoint: server.URL, Token: "token", Timeout: time.Second,
+		Settings: map[string]string{platformdomain.SettingControllerLeaseDiscovery: "true"}})
 	if err != nil {
-		t.Fatalf("NewKubernetesReader: %v", err)
+		t.Fatalf("NewReader: %v", err)
 	}
 
 	members, err := reader.ListMembers(context.Background())

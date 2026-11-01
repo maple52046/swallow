@@ -52,8 +52,13 @@ func TestK0sPlaybookSupportsFlexibleTopologiesAndLegacyRetries(t *testing.T) {
 			required: []string{"--enable-worker --no-taints", "when: k0s_runs_workloads | bool"},
 		},
 		{
-			path:     filepath.Join("roles", "k0s_cluster_credential", "tasks", "main.yml"),
-			required: []string{"swallow_k0s_api_address | default(hostvars[swallow_k0s_initial_controller_id].ansible_host, true)"},
+			path: filepath.Join("roles", "k0s_cluster_credential", "tasks", "main.yml"),
+			required: []string{
+				"swallow_k0s_api_address | default(hostvars[swallow_k0s_initial_controller_id].ansible_host, true)",
+				// The cluster CA comes from the reader token secret and is returned with the token (DF-01).
+				"data['ca.crt']",
+				"'caCertificate': k0s_cluster_ca",
+			},
 		},
 		{
 			path:     filepath.Join("roles", "k0s_verify", "tasks", "main.yml"),

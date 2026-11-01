@@ -1,47 +1,24 @@
-// Package platformapi reads live state from platform APIs.
-//
-// Both readers speak plain REST rather than pulling in a vendored client library: swallow
-// reads one collection from each platform and never writes, so a full client would be a
-// large dependency for a single GET.
-//
-// The package is module code shared by the Kubernetes and Slurm platform modules until each
-// module owns its own client. ReaderFactory and KubernetesClientFactory build clients from a
-// Platform's Integration, reading the setting keys the platform domain defines. Platform
-// lifecycle policy belongs to the core platform context and must not be placed here.
-package platformapi
+// Package kubeapi is the Kubernetes module's client of a deployed cluster's API: the membership
+// reader and the read/write explorer client, both built from the Platform's Connection. They speak
+// plain REST rather than pulling in client-go, which would be a large dependency for a handful of
+// calls.
+package kubeapi
 
 import (
 	"context"
-	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	"github.com/maple52046/swallow/internal/shared/httpjson"
 )
 
-const maxErrorBodyBytes = 512
-
-// newReaderTransport builds the HTTP transport for a platform reader. Keep-alives are disabled
-// on purpose: readers are created per read and are not cached (see ReaderFactory), so there is
-// no connection reuse to protect, while a lingering keep-alive connection would accumulate on
-// the server. slurmrestd in particular caps concurrent connections (around 124) and, once
-// leaked idle connections fill that cap, refuses new ones — stalling membership sync with
-// "Could not reach the Slurm API". Closing each connection after its response keeps the
-// server's connection count flat. A per-reader transport (not http.DefaultTransport) also
-// avoids mutating shared global state when TLS verification is skipped.
-func newReaderTransport(insecureSkipVerify bool) *http.Transport {
-	transport := &http.Transport{DisableKeepAlives: true}
-	if insecureSkipVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	}
-	return transport
-}
+// ProviderKind is the provider kind of the Integration swallow records for a deployed Kubernetes
+// Platform: the Platform type. It is persisted, so it stays stable.
+const ProviderKind = "kubernetes"
 
 // Kubernetes role labels. A node carrying either is a control-plane node; the label was
 // renamed upstream, so both are checked.
@@ -62,32 +39,54 @@ const controllerLeasePrefix = "k0s-ctrl-"
 // slower renewal cadence should not read as stale.
 const controllerLeaseFreshFor = 60 * time.Second
 
-// KubernetesReader reads nodes from the Kubernetes API.
+// Reader reads nodes from the Kubernetes API.
 //
 // When discoverControllerLeases is set it also reports dedicated k0s controllers, which are
 // not registered as Kubernetes nodes and would otherwise be invisible to a membership read.
-type KubernetesReader struct {
+type Reader struct {
 	baseURL                  string
 	token                    string
 	httpClient               *http.Client
 	discoverControllerLeases bool
 }
 
-func NewKubernetesReader(rawURL, token string, timeout time.Duration, insecureSkipVerify, discoverControllerLeases bool) (*KubernetesReader, error) {
-	baseURL, err := normalizeBaseURL(rawURL)
+// NewReader builds a reader for the Connection's API base URL and bearer token. The Connection's
+// controllerLeaseDiscovery setting turns on reporting dedicated k0s controllers.
+func NewReader(conn platformdomain.Connection) (*Reader, error) {
+	baseURL, err := httpjson.NormalizeBaseURL(conn.Endpoint)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(token) == "" {
+	if strings.TrimSpace(conn.Token) == "" {
 		return nil, errors.New("Kubernetes API token is empty")
 	}
-
-	return &KubernetesReader{
+	transport, err := httpjson.Transport(conn.InsecureSkipVerify, conn.CACertificate)
+	if err != nil {
+		return nil, err
+	}
+	return &Reader{
 		baseURL:                  baseURL,
-		token:                    token,
-		httpClient:               &http.Client{Timeout: timeout, Transport: newReaderTransport(insecureSkipVerify)},
-		discoverControllerLeases: discoverControllerLeases,
+		token:                    conn.Token,
+		httpClient:               &http.Client{Timeout: conn.Timeout, Transport: transport},
+		discoverControllerLeases: conn.SettingBool(platformdomain.SettingControllerLeaseDiscovery),
 	}, nil
+}
+
+// ReaderBuilder is the Kubernetes module's platform-reader hook.
+type ReaderBuilder struct{}
+
+// PlatformType is kubernetes.
+func (ReaderBuilder) PlatformType() platformdomain.PlatformType {
+	return platformdomain.PlatformTypeKubernetes
+}
+
+// NewReader builds the Kubernetes reader of conn.
+func (ReaderBuilder) NewReader(conn platformdomain.Connection) (platformdomain.PlatformReader, error) {
+	reader, err := NewReader(conn)
+	if err != nil {
+		return nil, err
+	}
+	return reader, nil
 }
 
 type nodeListJSON struct {
@@ -109,7 +108,7 @@ type nodeListJSON struct {
 	} `json:"items"`
 }
 
-func (r *KubernetesReader) ListMembers(ctx context.Context) ([]platformdomain.Member, error) {
+func (r *Reader) ListMembers(ctx context.Context) ([]platformdomain.Member, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.baseURL+"/api/v1/nodes", nil)
 	if err != nil {
 		return nil, fmt.Errorf("build kubernetes request: %w", err)
@@ -118,8 +117,8 @@ func (r *KubernetesReader) ListMembers(ctx context.Context) ([]platformdomain.Me
 	req.Header.Set("Accept", "application/json")
 
 	var out nodeListJSON
-	if err := doJSON(r.httpClient, req, &out); err != nil {
-		return nil, translateError(err, "Kubernetes")
+	if err := httpjson.Do(r.httpClient, req, &out); err != nil {
+		return nil, translateError(err)
 	}
 
 	members := make([]platformdomain.Member, 0, len(out.Items))
@@ -190,7 +189,7 @@ type leaseListJSON struct {
 // Dedicated controllers are installed without --enable-worker and so never register as
 // Kubernetes nodes; the lease each one renews is the only place the API exposes them.
 // Leases carry no addresses, so a controller can only be matched to a server by name.
-func (r *KubernetesReader) controllerMembers(ctx context.Context) ([]platformdomain.Member, error) {
+func (r *Reader) controllerMembers(ctx context.Context) ([]platformdomain.Member, error) {
 	endpoint := r.baseURL + "/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -200,8 +199,8 @@ func (r *KubernetesReader) controllerMembers(ctx context.Context) ([]platformdom
 	req.Header.Set("Accept", "application/json")
 
 	var out leaseListJSON
-	if err := doJSON(r.httpClient, req, &out); err != nil {
-		return nil, translateError(err, "Kubernetes")
+	if err := httpjson.Do(r.httpClient, req, &out); err != nil {
+		return nil, translateError(err)
 	}
 
 	now := time.Now()
@@ -242,101 +241,4 @@ func leaseState(renewTime string, leaseDurationSeconds *int, now time.Time) stri
 		return "ready"
 	}
 	return "notready"
-}
-
-func normalizeBaseURL(rawURL string) (string, error) {
-	trimmed := strings.TrimRight(strings.TrimSpace(rawURL), "/")
-	if trimmed == "" {
-		return "", errors.New("platform api url is empty")
-	}
-
-	u, err := url.Parse(trimmed)
-	if err != nil {
-		return "", fmt.Errorf("invalid platform api url: %w", err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("invalid platform api url: scheme must be http or https, got %q", u.Scheme)
-	}
-	if u.Host == "" {
-		return "", errors.New("invalid platform api url: missing host")
-	}
-	return trimmed, nil
-}
-
-func doJSON(client *http.Client, req *http.Request, out any) error {
-	resp, err := client.Do(req)
-	if err != nil {
-		return &transportError{err: err}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-		return &apiError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("decode platform api response: %w", err)
-	}
-	return nil
-}
-
-type apiError struct {
-	StatusCode int
-	Body       string
-}
-
-func (e *apiError) Error() string {
-	if e.Body == "" {
-		return fmt.Sprintf("platform api returned HTTP %d", e.StatusCode)
-	}
-	return fmt.Sprintf("platform api returned HTTP %d: %s", e.StatusCode, e.Body)
-}
-
-type transportError struct {
-	err error
-}
-
-func (e *transportError) Error() string { return e.err.Error() }
-func (e *transportError) Unwrap() error { return e.err }
-
-func translateError(err error, system string) error {
-	var transportErr *transportError
-	if errors.As(err, &transportErr) {
-		return &platformdomain.ReaderError{
-			Kind:   platformdomain.ReaderErrorUnavailable,
-			Detail: fmt.Sprintf("Could not reach the %s API.", system),
-			Err:    err,
-		}
-	}
-
-	var apiErr *apiError
-	if !errors.As(err, &apiErr) {
-		return err
-	}
-
-	switch {
-	case apiErr.StatusCode == http.StatusUnauthorized, apiErr.StatusCode == http.StatusForbidden:
-		return &platformdomain.ReaderError{
-			Kind:   platformdomain.ReaderErrorAuth,
-			Detail: fmt.Sprintf("The %s API rejected the credential swallow is configured with.", system),
-			Err:    err,
-		}
-	case apiErr.StatusCode == http.StatusNotFound:
-		return &platformdomain.ReaderError{Kind: platformdomain.ReaderErrorNotFound, Detail: apiErr.Error(), Err: err}
-	case apiErr.StatusCode == http.StatusConflict:
-		return &platformdomain.ReaderError{Kind: platformdomain.ReaderErrorConflict, Detail: apiErr.Error(), Err: err}
-	case apiErr.StatusCode >= http.StatusInternalServerError:
-		return &platformdomain.ReaderError{
-			Kind:   platformdomain.ReaderErrorUnavailable,
-			Detail: fmt.Sprintf("The %s API reported an internal error (HTTP %d).", system, apiErr.StatusCode),
-			Err:    err,
-		}
-	default:
-		return &platformdomain.ReaderError{
-			Kind:   platformdomain.ReaderErrorRejected,
-			Detail: apiErr.Error(),
-			Err:    err,
-		}
-	}
 }

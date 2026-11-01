@@ -18,8 +18,8 @@ import (
 var modulesRoot = filepath.Join("..", "..", "modules")
 
 // nonModuleDirs are directories under modules/<kind>/ that hold Go code shared by modules rather
-// than a module; each is to be split into its modules.
-var nonModuleDirs = map[string]bool{"platform/platformapi": true}
+// than a module; there are none.
+var nonModuleDirs = map[string]bool{}
 
 func testRegistry(t *testing.T) *moduledomain.Registry {
 	t.Helper()

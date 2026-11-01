@@ -6,7 +6,7 @@ import (
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
-	"github.com/maple52046/swallow/modules/platform/platformapi"
+	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
 )
 
 // managedPlatformIntegrationCleaner removes only integrations proven to be Swallow-owned.
@@ -30,7 +30,7 @@ func (c managedPlatformIntegrationCleaner) DeleteForPlatform(
 		}
 		if integration.SiteID != platform.SiteID ||
 			integration.Kind != sitedomain.IntegrationKindPlatform ||
-			integration.ProviderKind != platformapi.ProviderKindKubernetes ||
+			integration.ProviderKind != kubeapi.ProviderKind ||
 			integration.Name != platform.Name+" (deployed)" ||
 			integration.Settings[platformdomain.SettingControllerLeaseDiscovery] != "true" {
 			return nil

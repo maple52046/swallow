@@ -7,14 +7,16 @@ import (
 	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	moduledomain "github.com/maple52046/swallow/internal/core/module/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/modules/accelerator/amd"
 	"github.com/maple52046/swallow/modules/platform/kubernetes"
-	"github.com/maple52046/swallow/modules/platform/platformapi"
+	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
 	"github.com/maple52046/swallow/modules/platform/slurm"
+	"github.com/maple52046/swallow/modules/platform/slurm/slurmapi"
 	devicemetricsexporter "github.com/maple52046/swallow/modules/software/device-metrics-exporter"
 	dockerce "github.com/maple52046/swallow/modules/software/docker-ce"
 	"github.com/maple52046/swallow/modules/software/grafana"
@@ -56,6 +58,8 @@ type composedModules struct {
 	software *softwaredomain.Catalog
 	// workflowKinds are the Workflow kinds the build accepts.
 	workflowKinds workflowdomain.WorkflowKinds
+	// platformReaders are the Platform modules' reader builders, one per Platform type.
+	platformReaders []platformdomain.ReaderBuilder
 }
 
 // composeModules assembles the registry and derives the software catalog and the accepted Workflow
@@ -74,7 +78,27 @@ func composeModules() (composedModules, error) {
 	if err != nil {
 		return composedModules{}, err
 	}
-	return composedModules{registry: registry, software: software, workflowKinds: kinds}, nil
+	readers, err := platformReaders(registry)
+	if err != nil {
+		return composedModules{}, err
+	}
+	return composedModules{registry: registry, software: software, workflowKinds: kinds, platformReaders: readers}, nil
+}
+
+// platformReaders collects the platform-reader hook of every Platform module.
+func platformReaders(registry *moduledomain.Registry) ([]platformdomain.ReaderBuilder, error) {
+	var readers []platformdomain.ReaderBuilder
+	for _, module := range registry.Modules() {
+		if module.Manifest.Kind != moduledomain.KindPlatform {
+			continue
+		}
+		hook, ok := module.Hooks[platformdomain.HookPlatformReader].(platformdomain.ReaderBuilder)
+		if !ok {
+			return nil, fmt.Errorf("platform module %s has no %q hook", module.Manifest.Ref(), platformdomain.HookPlatformReader)
+		}
+		readers = append(readers, hook)
+	}
+	return readers, nil
 }
 
 // softwareCatalog collects the Software hook of every Software module. A module's id is its kind,
@@ -138,7 +162,7 @@ func integrationProviders() sitedomain.IntegrationProviders {
 	return sitedomain.IntegrationProviders{
 		sitedomain.IntegrationKindProvisioner: {maas.ProviderKind},
 		sitedomain.IntegrationKindMetrics:     {promstack.ProviderKind},
-		sitedomain.IntegrationKindPlatform:    {platformapi.ProviderKindKubernetes, platformapi.ProviderKindSlurm},
+		sitedomain.IntegrationKindPlatform:    {kubeapi.ProviderKind, slurmapi.ProviderKind},
 	}
 }
 

@@ -108,8 +108,8 @@ api-server/
 │   └── app/                         # composition root
 └── modules/                         # host automation 的內容根目錄（ansible-runner project dir）
     ├── manifest.json                # release 的 playbook allowlist，路徑相對於 modules/
-    ├── platform/kubernetes/  platform/slurm/
-    ├── platform/platformapi/        # Kubernetes 與 Slurm 模組暫時共用的 API client
+    ├── platform/kubernetes/         # kubeapi/：cluster API 的 reader 與 explorer client
+    ├── platform/slurm/              # slurmapi/：slurmrestd 的 reader
     ├── accelerator/amd/
     ├── software/<kind>/
     └── shared/                      # 跨模組共用的 playbook 與 role
@@ -167,7 +167,9 @@ internal/server/infra/{eventing_server_repo*,
   server_event_broker*}                                  internal/adapters/events/memory/
 internal/provisioning/infra/boot_iso_builder*.go         internal/adapters/bootiso/genfsimg/
 internal/sshkey/infra/keymaterial*.go                    internal/adapters/keys/openssh/
-internal/platform/infra/platformapi/、infra/factory.go    modules/platform/platformapi/
+internal/platform/infra/platformapi/、infra/factory.go    modules/platform/kubernetes/kubeapi/、
+                                                         modules/platform/slurm/slurmapi/、
+                                                         internal/core/platform/application/reader_factory.go
 internal/software/infra/dockerengine/                    modules/software/docker-ce/dockerengine/
 internal/platform/infra 的 Setting* 常數                  internal/core/platform/domain/integration_settings.go
 internal/provisioning/infra/integration_reader.go        internal/core/provisioning/application/

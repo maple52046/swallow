@@ -72,7 +72,7 @@ import (
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	"github.com/maple52046/swallow/internal/shared/version"
-	"github.com/maple52046/swallow/modules/platform/platformapi"
+	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
 	"github.com/maple52046/swallow/modules/software/docker-ce/dockerengine"
 	"github.com/maple52046/swallow/modules/software/docker-ce/explorer"
 	"github.com/maple52046/swallow/modules/software/docker-ce/explorerhttp"
@@ -328,7 +328,10 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 	requirementRepo := platformstore.NewMongoDeploymentRequirementRepo(db)
 	requirementService := platformapp.NewDeploymentRequirementService(requirementRepo)
-	platformReaderFactory := platformapi.NewReaderFactory(integrationRepo)
+	platformReaderFactory, err := platformapp.NewReaderFactory(integrationRepo, modules.platformReaders...)
+	if err != nil {
+		return err
+	}
 	membershipSync := platformapp.NewMembershipSyncUseCase(
 		platformRepo, serverRepo, platformReaderFactory)
 	// On-demand Slurm cluster read: reuses the same reader factory but never writes the
@@ -337,7 +340,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// Live Kubernetes cluster explorer: a read/write client factory for a deployed Kubernetes
 	// Platform's own API. Like the Slurm read it never writes Swallow state; eligibility
 	// (deployed Kubernetes with a recorded credential) is enforced by the use case below.
-	kubernetesClientFactory := platformapi.NewKubernetesClientFactory(integrationRepo)
+	kubernetesClientFactory := kubeapi.NewClientFactory(platformReaderFactory)
 
 	catalog, err := ansible.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
 	if err != nil {

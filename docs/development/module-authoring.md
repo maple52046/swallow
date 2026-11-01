@@ -30,8 +30,9 @@ api-server/modules/
 - 只被一個模組使用的 role 放在該模組的 `roles/`。被兩個以上模組使用，或被 `shared/playbooks/` 的 playbook 使用的
   role 放在 `shared/roles/`。
 - 模組 id 用 kebab-case（例如 `device-metrics-exporter`）。
-- 模組的 Go 程式碼放在同一個目錄，例如 `modules/software/docker-ce/dockerengine`。`modules/platform/platformapi` 是
-  Kubernetes 與 Slurm 暫時共用的過渡位置。image 建置時會去掉 `modules/` 底下的 Go 原始碼
+- 模組的 Go 程式碼放在同一個目錄，例如 `modules/software/docker-ce/dockerengine`、`modules/platform/kubernetes/kubeapi`。
+  兩個模組共用的 Go helper 放 `internal/shared`（例如 `internal/shared/httpjson`），不放在任何一個模組裡。
+  image 建置時會去掉 `modules/` 底下的 Go 原始碼
   （`deploy/production/api-server.Dockerfile`），執行時的內容根目錄只有 manifest、playbook 與 role。
 - `modules/` 就是 ansible-runner 的 project dir，安裝在 `/opt/swallow/automation/modules`；設定是
   `SWALLOW_API_PLAYBOOK_DIR` 與 `SWALLOW_API_PLAYBOOK_MANIFEST`（預設 `modules` 與 `modules/manifest.json`）。

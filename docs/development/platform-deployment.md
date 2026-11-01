@@ -563,11 +563,14 @@ playbook 若需回傳結果（例如叢集 credential），寫入 runner 提供�
 
 - **k0s**（[decision 007](../decisions/007-cluster-deployment-ownership.md)）：`k0s_cluster_credential` 在新叢集建立
   ServiceAccount `swallow-reader`（`kube-system`，綁定 `swallow_k0s_reader_clusterrole`，預設 `cluster-admin`）與它的
-  token Secret，寫入 `{ "apiEndpoint": "https://<API 位址>:6443", "token": "..." }`（API 位址是 HA VIP，或非 HA 的初始
+  token Secret，寫入 `{ "apiEndpoint": "https://<API 位址>:6443", "token": "...", "caCertificate": "<PEM>" }`（CA 取自
+  同一個 token Secret 的 `ca.crt`；API 位址是 HA VIP，或非 HA 的初始
   controller 位址）。成功後 `platformDeploymentObserver` 經 `DeploymentCredentialService.Record` 建立 sealed 的
   `platform` kind Integration（與其他 Integration credential 同一把加密金鑰，所以該金鑰的備份與輪替也涵蓋叢集存取），
   記為該 Platform 擁有的 Integration，並立即讀一次 membership。在此之前 Platform 沒有 Integration（`integrationId` 為
-  `null`）。result 可另帶 `caCertificate`；目前 playbook 不寫，因此 Integration 設定 `insecureSkipVerify`。k0s 的
+  `null`）。Integration 以設定 `caCertificate` 記下這個 CA，Kubernetes reader 與 explorer client 只信任它來驗證 API
+  的憑證（k0s 的憑證 SAN 已包含 API 位址）；在這個 role 之前部署、沒有 CA 的 Platform 仍是 `insecureSkipVerify`，
+  重新部署後才會驗證。k0s 的
   credential 是必要的，Slurm 的是選用（§6.3）。
 - **k0s membership 來源**：worker 與帶 `--enable-worker` 的 controller 從 `/api/v1/nodes` 讀，只回報一次；dedicated
   controller 不是 node，改從 `kube-node-lease` 的 `k0s-ctrl-*` Lease 讀。Lease 讀取是 per-Integration 設定
@@ -787,7 +790,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `swallow_result_path` 寫 `result.json`（`slurmrestdEndpoint`/`token`/`apiVersion`）。`apiVersion` 有 pin
   （`slurm.apiVersion`）就用它，否則由新到舊探測 slurmrestd 回應的版本並記錄，讓跑不同 Slurm release 的 Platform
   各自讀對的 endpoint 版本。後端記為 provider kind `slurm` 的 platform integration（`DeploymentCredentialService.RecordSlurm`，
-  設 `insecureSkipVerify`，因為 slurmrestd 在 site 內常是 plain HTTP），`SlurmReader` 即可讀成員。**`slurmrestd`（`slurm-smd-slurmrestd`）為選用**：它只負責 swallow
+  設 `insecureSkipVerify`，因為 slurmrestd 在 site 內常是 plain HTTP），Slurm 模組的 reader（`slurmapi`）即可讀成員。**`slurmrestd`（`slurm-smd-slurmrestd`）為選用**：它只負責 swallow
   的 membership 讀取，叢集本體（slurmctld + slurmd）不依賴它。若 image 未含此套件，
   `slurm_slurmrestd` 與 `slurm_cluster_credential` 會**優雅跳過**、不寫 credential，deploy 仍
   成功（platform 為 active、無 integration、members=0）；要讓 membership 顯示，image 需納入

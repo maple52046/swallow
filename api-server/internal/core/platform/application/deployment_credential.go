@@ -65,7 +65,9 @@ func (s *DeploymentCredentialService) attach(ctx context.Context, platform *plat
 // The token is stored as a sealed platform-kind integration credential whose provider kind is the
 // Platform type, which selects the Platform module's reader. Control-plane lease
 // discovery is enabled because any supported topology may use dedicated control-plane Servers
-// that do not register as Kubernetes nodes; insecureSkipVerify is set only when the deployment returned no CA certificate. A first
+// that do not register as Kubernetes nodes. The cluster CA the deployment returned is recorded so
+// the API certificate is verified against it (DF-01); only a deployment that returned none (an
+// earlier role) is recorded with insecureSkipVerify. A first
 // membership read is triggered so the platform's members appear without waiting for the
 // background interval; its failure is not fatal because the integration is stored and the
 // background sync retries.
@@ -81,7 +83,9 @@ func (s *DeploymentCredentialService) Record(ctx context.Context, platformID str
 	settings := map[string]string{
 		platformdomain.SettingControllerLeaseDiscovery: "true",
 	}
-	if strings.TrimSpace(credential.CACertificate) == "" {
+	if ca := strings.TrimSpace(credential.CACertificate); ca != "" {
+		settings[platformdomain.SettingCACertificate] = ca + "\n"
+	} else {
 		settings[platformdomain.SettingInsecureSkipVerify] = "true"
 	}
 

@@ -19,7 +19,12 @@
   "completions": [
     "kubernetes-credential"
   ],
-  "hooks": [],
+  "hooks": [
+    {
+      "name": "platform-reader",
+      "reason": "Builds the membership reader of a deployed cluster from its Connection: plain REST against the Kubernetes API, and the k0s controller leases when the Integration enables them."
+    }
+  ],
   "capabilities": [
     "host-automation",
     "os-provisioning"

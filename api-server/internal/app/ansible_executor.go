@@ -30,7 +30,6 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
-	"github.com/maple52046/swallow/modules/platform/platformapi"
 )
 
 // RunAnsibleExecutor owns every ansible-runner process: it is the Temporal worker of the Ansible
@@ -108,7 +107,11 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, platformapi.NewReaderFactory(integrations))
+	readers, err := platformapp.NewReaderFactory(integrations, modules.platformReaders...)
+	if err != nil {
+		return err
+	}
+	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, readers)
 	lifecycles := platformLifecycleReader{orchestrations: orchestrations}
 	platformService := platformapp.NewPlatformService(transactor, platforms, sites, servers, lifecycles, managedPlatformIntegrationCleaner{integrations: integrations})
 	platformService.AttachGPUOperatorRecorder(platforms)
