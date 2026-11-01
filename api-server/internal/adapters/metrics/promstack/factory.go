@@ -12,6 +12,10 @@ import (
 
 const defaultTimeout = 30 * time.Second
 
+// ProviderKind is the provider kind of a Prometheus-compatible metrics Integration (with
+// Alertmanager for alerts). It is persisted, so it stays stable.
+const ProviderKind = "prometheus"
+
 // Setting keys an operator may set on a metrics integration.
 const (
 	SettingTimeout            = "timeout"
@@ -143,7 +147,7 @@ func (f *MonitoringFactory) clientFor(
 	integration *sitedomain.Integration,
 	endpoint string,
 ) (*Client, error) {
-	if integration.ProviderKind != sitedomain.ProviderKindPrometheus {
+	if integration.ProviderKind != ProviderKind {
 		return nil, fmt.Errorf("unsupported metrics backend kind %q", integration.ProviderKind)
 	}
 

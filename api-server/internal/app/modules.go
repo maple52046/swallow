@@ -3,9 +3,13 @@ package app
 import (
 	"fmt"
 
+	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
+	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	moduledomain "github.com/maple52046/swallow/internal/core/module/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	"github.com/maple52046/swallow/modules/accelerator/amd"
 	"github.com/maple52046/swallow/modules/platform/kubernetes"
+	"github.com/maple52046/swallow/modules/platform/platformapi"
 	"github.com/maple52046/swallow/modules/platform/slurm"
 	devicemetricsexporter "github.com/maple52046/swallow/modules/software/device-metrics-exporter"
 	dockerce "github.com/maple52046/swallow/modules/software/docker-ce"
@@ -38,6 +42,16 @@ func moduleRegistry() (*moduledomain.Registry, error) {
 		return nil, fmt.Errorf("assemble modules: %w", err)
 	}
 	return registry, nil
+}
+
+// integrationProviders are the provider kinds the adapters and Platform modules compiled into this
+// build offer for each Integration kind; the core validates Integrations against it.
+func integrationProviders() sitedomain.IntegrationProviders {
+	return sitedomain.IntegrationProviders{
+		sitedomain.IntegrationKindProvisioner: {maas.ProviderKind},
+		sitedomain.IntegrationKindMetrics:     {promstack.ProviderKind},
+		sitedomain.IntegrationKindPlatform:    {platformapi.ProviderKindKubernetes, platformapi.ProviderKindSlurm},
+	}
 }
 
 // coreWorkflowKinds are the Workflow kinds the core plans itself; every other kind belongs to

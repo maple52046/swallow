@@ -11,6 +11,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
+	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
 	discoverydelivery "github.com/maple52046/swallow/internal/core/discovery/delivery"
 	monitoringapp "github.com/maple52046/swallow/internal/core/monitoring/application"
@@ -29,6 +31,7 @@ import (
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
+	"github.com/maple52046/swallow/modules/platform/platformapi"
 )
 
 // testHealthResolver stands in for the metrics integration.
@@ -94,7 +97,11 @@ func setupPlatform(t *testing.T) *platformFixture {
 
 	siteHandler := sitedelivery.NewSiteHandler(
 		siteapp.NewSiteService(sites, integrations),
-		siteapp.NewIntegrationService(integrations, sites, servers, templates),
+		siteapp.NewIntegrationService(integrations, sites, servers, templates, sitedomain.IntegrationProviders{
+			sitedomain.IntegrationKindProvisioner: {maas.ProviderKind},
+			sitedomain.IntegrationKindMetrics:     {promstack.ProviderKind},
+			sitedomain.IntegrationKindPlatform:    {platformapi.ProviderKindKubernetes, platformapi.ProviderKindSlurm},
+		}),
 	)
 	serverHandler := serverdelivery.NewServerHandler(
 		serverapp.NewListServersUseCase(servers, health),
@@ -309,7 +316,7 @@ func seedNonProvisionerIntegration(t *testing.T, f *platformFixture) {
 		ID:           testNonProvisionerIntegrationID,
 		SiteID:       testSiteID,
 		Kind:         sitedomain.IntegrationKindMetrics,
-		ProviderKind: sitedomain.ProviderKindPrometheus,
+		ProviderKind: promstack.ProviderKind,
 		Name:         "prometheus",
 		Endpoint:     "http://prometheus.example.com",
 		Enabled:      true,
@@ -390,7 +397,7 @@ func seedProvisionerIntegration(t *testing.T, f *platformFixture) {
 		ID:           testIntegrationID,
 		SiteID:       testSiteID,
 		Kind:         sitedomain.IntegrationKindProvisioner,
-		ProviderKind: sitedomain.ProviderKindMAAS,
+		ProviderKind: maas.ProviderKind,
 		Name:         "maas-east",
 		Endpoint:     "http://maas:5240/MAAS",
 		Enabled:      true,

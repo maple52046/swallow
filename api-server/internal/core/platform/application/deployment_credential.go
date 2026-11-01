@@ -62,7 +62,8 @@ func (s *DeploymentCredentialService) attach(ctx context.Context, platform *plat
 
 // Record attaches a freshly deployed platform's read credential and syncs its membership.
 //
-// The token is stored as a sealed platform-kind integration credential. Control-plane lease
+// The token is stored as a sealed platform-kind integration credential whose provider kind is the
+// Platform type, which selects the Platform module's reader. Control-plane lease
 // discovery is enabled because any supported topology may use dedicated control-plane Servers
 // that do not register as Kubernetes nodes; insecureSkipVerify is set only when the deployment returned no CA certificate. A first
 // membership read is triggered so the platform's members appear without waiting for the
@@ -89,7 +90,7 @@ func (s *DeploymentCredentialService) Record(ctx context.Context, platformID str
 		ID:           uuid.NewString(),
 		SiteID:       platform.SiteID,
 		Kind:         sitedomain.IntegrationKindPlatform,
-		ProviderKind: sitedomain.ProviderKindKubernetes,
+		ProviderKind: string(platform.Type),
 		Name:         platform.Name + " (deployed)",
 		Endpoint:     credential.APIEndpoint,
 		Enabled:      true,
@@ -114,8 +115,7 @@ type SlurmDeploymentCredential struct {
 }
 
 // RecordSlurm attaches a freshly deployed Slurm platform's read credential and syncs its
-// membership. Unlike the Kubernetes path it registers a ProviderKindSlurm integration whose
-// endpoint is slurmrestd and whose token is a Slurm JWT, and it pins the slurmrestd API
+// membership. Unlike the Kubernetes path its integration's endpoint is slurmrestd and whose token is a Slurm JWT, and it pins the slurmrestd API
 // version when the run reported one so the reader queries the matching endpoint version.
 // insecureSkipVerify is set because slurmrestd is commonly reached over plain HTTP or a
 // self-signed endpoint inside the site, and membership is read-only. A first membership read
@@ -142,7 +142,7 @@ func (s *DeploymentCredentialService) RecordSlurm(ctx context.Context, platformI
 		ID:           uuid.NewString(),
 		SiteID:       platform.SiteID,
 		Kind:         sitedomain.IntegrationKindPlatform,
-		ProviderKind: sitedomain.ProviderKindSlurm,
+		ProviderKind: string(platform.Type),
 		Name:         platform.Name + " (deployed)",
 		Endpoint:     credential.Endpoint,
 		Enabled:      true,

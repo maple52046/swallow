@@ -14,6 +14,10 @@ import (
 // override it.
 const defaultTimeout = 30 * time.Second
 
+// ProviderKind is the provider kind of a MAAS provisioner Integration. It is persisted in
+// Integrations and Server sources, so it stays stable.
+const ProviderKind = "maas"
+
 // Setting keys an operator may set on a provisioner integration.
 const (
 	SettingTimeout            = "timeout"
@@ -76,7 +80,7 @@ func (f *ProviderFactory) For(ctx context.Context, integrationID string) (provis
 
 func (f *ProviderFactory) build(ctx context.Context, integration *sitedomain.Integration) (provisioningdomain.OSProvisioningProvider, error) {
 	switch integration.ProviderKind {
-	case sitedomain.ProviderKindMAAS:
+	case ProviderKind:
 		credential, err := f.integrations.Credential(ctx, integration.ID)
 		if err != nil {
 			return nil, err

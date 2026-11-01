@@ -208,7 +208,7 @@ func RunAPI(cfg config.APIConfig) error {
 	apiKeyHandler := apikeydelivery.NewHandler(apiKeyService)
 	authenticator := middleware.NewAuthenticator(jwtSvc, apiKeyService)
 
-	integrationService := siteapp.NewIntegrationService(integrationRepo, siteRepo, serverRepo, templateRepo)
+	integrationService := siteapp.NewIntegrationService(integrationRepo, siteRepo, serverRepo, templateRepo, integrationProviders())
 	siteHandler := sitedelivery.NewSiteHandler(
 		siteapp.NewSiteService(siteRepo, integrationRepo),
 		integrationService,

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
+	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
@@ -41,7 +43,7 @@ func setupReconcile(t *testing.T) *reconcileFixture {
 		ID:           testIntegrationID,
 		SiteID:       testSiteID,
 		Kind:         sitedomain.IntegrationKindProvisioner,
-		ProviderKind: sitedomain.ProviderKindMAAS,
+		ProviderKind: maas.ProviderKind,
 		Name:         "maas-east",
 		Endpoint:     "http://maas:5240/MAAS",
 		Enabled:      true,
@@ -924,7 +926,7 @@ func TestReconcile_RejectsNonProvisionerIntegration(t *testing.T) {
 		ID:           "integration-metrics",
 		SiteID:       testSiteID,
 		Kind:         sitedomain.IntegrationKindMetrics,
-		ProviderKind: sitedomain.ProviderKindPrometheus,
+		ProviderKind: promstack.ProviderKind,
 		Name:         "prometheus",
 		Enabled:      true,
 		CreatedAt:    now,
@@ -970,7 +972,7 @@ func TestReconcile_ExecuteAllContinuesAfterOneFailure(t *testing.T) {
 		ID:           "integration-2",
 		SiteID:       "site-2",
 		Kind:         sitedomain.IntegrationKindProvisioner,
-		ProviderKind: sitedomain.ProviderKindMAAS,
+		ProviderKind: maas.ProviderKind,
 		Name:         "maas-west",
 		Enabled:      true,
 		CreatedAt:    now,

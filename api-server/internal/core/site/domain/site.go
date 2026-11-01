@@ -56,34 +56,25 @@ func (k IntegrationKind) Valid() bool {
 	return false
 }
 
-// Provider kinds: the specific product implementing an IntegrationKind. These strings
-// select an adapter and are persisted in server sources, so they must stay stable.
-const (
-	ProviderKindMAAS       = "maas"
-	ProviderKindPrometheus = "prometheus"
-	ProviderKindKubernetes = "kubernetes"
-	ProviderKindSlurm      = "slurm"
-)
-
-// providerKindsByIntegrationKind constrains which product may play which role.
+// IntegrationProviders says which provider kinds may play each Integration kind at this
+// installation. A provider kind selects an adapter (or, for a platform Integration, a Platform
+// module) and is persisted in server sources, so its string stays stable; the adapters and modules
+// own those strings and the composition root collects them, so the core lists no product
+// (core-and-extensions.md §3.5).
 //
-// Validating the pair rather than each half independently catches the mistake that
-// actually happens: registering a MAAS endpoint as an automation controller, which
-// would otherwise fail much later with a confusing protocol error.
-var providerKindsByIntegrationKind = map[IntegrationKind][]string{
-	IntegrationKindProvisioner: {ProviderKindMAAS},
-	IntegrationKindMetrics:     {ProviderKindPrometheus},
-	IntegrationKindPlatform:    {ProviderKindKubernetes, ProviderKindSlurm},
+// Validating the pair rather than each half independently catches the mistake that actually
+// happens: registering a provisioner's endpoint as a metrics backend, which would otherwise fail
+// much later with a confusing protocol error.
+type IntegrationProviders map[IntegrationKind][]string
+
+// Kinds returns the provider kinds valid for an integration kind.
+func (p IntegrationProviders) Kinds(kind IntegrationKind) []string {
+	return append([]string(nil), p[kind]...)
 }
 
-// ProviderKindsFor returns the provider kinds valid for an integration kind.
-func ProviderKindsFor(kind IntegrationKind) []string {
-	return providerKindsByIntegrationKind[kind]
-}
-
-// ValidProviderKind reports whether providerKind can implement kind.
-func ValidProviderKind(kind IntegrationKind, providerKind string) bool {
-	for _, valid := range providerKindsByIntegrationKind[kind] {
+// Allows reports whether providerKind can implement kind.
+func (p IntegrationProviders) Allows(kind IntegrationKind, providerKind string) bool {
+	for _, valid := range p[kind] {
 		if providerKind == valid {
 			return true
 		}

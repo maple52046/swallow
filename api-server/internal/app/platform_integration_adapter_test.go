@@ -6,6 +6,7 @@ import (
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
+	"github.com/maple52046/swallow/modules/platform/platformapi"
 )
 
 type integrationCleanerRepo struct {
@@ -83,7 +84,7 @@ func TestManagedPlatformIntegrationCleanerRequiresCompleteLegacySignature(t *tes
 	matching := &sitedomain.Integration{
 		ID: "legacy-owned", SiteID: "site-1",
 		Kind:         sitedomain.IntegrationKindPlatform,
-		ProviderKind: sitedomain.ProviderKindKubernetes,
+		ProviderKind: platformapi.ProviderKindKubernetes,
 		Name:         "lab (deployed)",
 		Settings: map[string]string{
 			platformdomain.SettingControllerLeaseDiscovery: "true",
@@ -92,7 +93,7 @@ func TestManagedPlatformIntegrationCleanerRequiresCompleteLegacySignature(t *tes
 	operatorOwned := &sitedomain.Integration{
 		ID: "operator-owned", SiteID: "site-1",
 		Kind:         sitedomain.IntegrationKindPlatform,
-		ProviderKind: sitedomain.ProviderKindKubernetes,
+		ProviderKind: platformapi.ProviderKindKubernetes,
 		Name:         "operator registration",
 		Settings: map[string]string{
 			platformdomain.SettingControllerLeaseDiscovery: "true",

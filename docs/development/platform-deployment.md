@@ -786,7 +786,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   （TCP + `auth/jwt`），`scontrol token` 為 SlurmUser `slurm` 產生長效 JWT（一年），`slurm_cluster_credential` role 以
   `swallow_result_path` 寫 `result.json`（`slurmrestdEndpoint`/`token`/`apiVersion`）。`apiVersion` 有 pin
   （`slurm.apiVersion`）就用它，否則由新到舊探測 slurmrestd 回應的版本並記錄，讓跑不同 Slurm release 的 Platform
-  各自讀對的 endpoint 版本。後端記為 `ProviderKindSlurm` 的 platform integration（`DeploymentCredentialService.RecordSlurm`，
+  各自讀對的 endpoint 版本。後端記為 provider kind `slurm` 的 platform integration（`DeploymentCredentialService.RecordSlurm`，
   設 `insecureSkipVerify`，因為 slurmrestd 在 site 內常是 plain HTTP），`SlurmReader` 即可讀成員。**`slurmrestd`（`slurm-smd-slurmrestd`）為選用**：它只負責 swallow
   的 membership 讀取，叢集本體（slurmctld + slurmd）不依賴它。若 image 未含此套件，
   `slurm_slurmrestd` 與 `slurm_cluster_credential` 會**優雅跳過**、不寫 credential，deploy 仍

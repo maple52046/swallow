@@ -28,24 +28,30 @@ type DeploymentTemplateCounter interface {
 	CountByIntegration(ctx context.Context, integrationID string) (int, error)
 }
 
+// IntegrationService registers, updates, and removes a Site's Integrations.
 type IntegrationService struct {
 	integrations sitedomain.IntegrationRepository
 	sites        sitedomain.SiteRepository
 	servers      ServerCounter
 	templates    DeploymentTemplateCounter
+	providers    sitedomain.IntegrationProviders
 }
 
+// NewIntegrationService creates the Integration use cases; providers are the provider kinds the
+// installation's adapters and modules offer for each Integration kind.
 func NewIntegrationService(
 	integrations sitedomain.IntegrationRepository,
 	sites sitedomain.SiteRepository,
 	servers ServerCounter,
 	templates DeploymentTemplateCounter,
+	providers sitedomain.IntegrationProviders,
 ) *IntegrationService {
 	return &IntegrationService{
 		integrations: integrations,
 		sites:        sites,
 		servers:      servers,
 		templates:    templates,
+		providers:    providers,
 	}
 }
 
@@ -104,9 +110,9 @@ func (s *IntegrationService) Create(ctx context.Context, input CreateIntegration
 	if kind == sitedomain.IntegrationKindPlatform {
 		return nil, fmt.Errorf("%w: a platform integration is created by deploying a platform, not registered", ErrInvalidIntegration)
 	}
-	if !sitedomain.ValidProviderKind(kind, input.ProviderKind) {
+	if !s.providers.Allows(kind, input.ProviderKind) {
 		return nil, fmt.Errorf("%w: providerKind for kind %q must be one of %v",
-			ErrInvalidIntegration, kind, sitedomain.ProviderKindsFor(kind))
+			ErrInvalidIntegration, kind, s.providers.Kinds(kind))
 	}
 	if strings.TrimSpace(input.Name) == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidIntegration)

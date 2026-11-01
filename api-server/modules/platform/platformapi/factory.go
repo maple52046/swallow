@@ -11,6 +11,13 @@ import (
 
 const defaultTimeout = 30 * time.Second
 
+// The provider kinds of the platform Integrations this package reads: each is the Platform type
+// whose deployment records the Integration. They are persisted, so they stay stable.
+const (
+	ProviderKindKubernetes = "kubernetes"
+	ProviderKindSlurm      = "slurm"
+)
+
 // ReaderFactory builds platform readers from a platform's integration.
 //
 // Not cached, unlike the provisioning and automation factories: membership is read once
@@ -102,7 +109,7 @@ func (f *KubernetesClientFactory) For(ctx context.Context, platform *platformdom
 	if err != nil {
 		return nil, err
 	}
-	if integration.Kind != sitedomain.IntegrationKindPlatform || integration.ProviderKind != sitedomain.ProviderKindKubernetes {
+	if integration.Kind != sitedomain.IntegrationKindPlatform || integration.ProviderKind != ProviderKindKubernetes {
 		return nil, fmt.Errorf("integration %q is not a Kubernetes platform API", integration.Name)
 	}
 
