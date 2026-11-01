@@ -108,8 +108,12 @@ func TestDockerCEPlaybooksConvergeEngineAPIListener(t *testing.T) {
 			required: []string{"docker_ce_state: absent", "swallow_docker_api_port"},
 		},
 		{
-			path:     filepath.Join("roles", "docker_ce", "tasks", "main.yml"),
-			required: []string{"include_tasks: api.yml"},
+			path: filepath.Join("roles", "docker_ce", "tasks", "main.yml"),
+			required: []string{
+				"include_tasks: api.yml",
+				// Replacing docker.io leaves docker.socket without a listener until it restarts.
+				"name: docker.socket", "daemon_reload: true", "docker_ce_apt_install is changed",
+			},
 		},
 		{
 			path: filepath.Join("roles", "docker_ce", "tasks", "api.yml"),

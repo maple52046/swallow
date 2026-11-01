@@ -108,6 +108,32 @@
       retries: 60
       delay: 5
 
+# Replacing another Docker package (the docker.io that the host exporters install) rewrites
+# docker.socket while it is listening. systemd then keeps the unit active without a socket until it
+# is restarted, and dockerd, started with -H fd://, exits with "no sockets found via socket
+# activation". The package's own start already failed against that socket and hit the units' start
+# limit, so the failures are cleared before the socket restarts.
+- name: Clear the Docker units' failures after a package change
+  when: >-
+    docker_ce_state == 'present' and
+    ((docker_ce_apt_install is defined and docker_ce_apt_install is changed) or
+     (docker_ce_dnf_install is defined and docker_ce_dnf_install is changed))
+  become: true
+  ansible.builtin.command: systemctl reset-failed docker.service docker.socket
+  changed_when: false
+  failed_when: false
+
+- name: Restart the Docker socket after a package change
+  when: >-
+    docker_ce_state == 'present' and
+    ((docker_ce_apt_install is defined and docker_ce_apt_install is changed) or
+     (docker_ce_dnf_install is defined and docker_ce_dnf_install is changed))
+  become: true
+  ansible.builtin.systemd_service:
+    name: docker.socket
+    daemon_reload: true
+    state: restarted
+
 - name: Enable and start the Docker service
   when: docker_ce_state == 'present'
   become: true
