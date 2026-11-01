@@ -235,6 +235,9 @@ a:focus-visible {
 /* ---- Tables -------------------------------------------------------------- */
 
 .sw-table-frame {
+  /* Positioned so the frame, not the page, contains absolutely positioned content such as a
+     visually hidden column label; otherwise it escapes the scroll clip and widens the page. */
+  position: relative;
   width: 100%;
   min-width: 0;
   overflow: auto;
