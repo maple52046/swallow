@@ -8,6 +8,7 @@ import (
 
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+	dockerce "github.com/maple52046/swallow/modules/software/docker-ce"
 )
 
 // DockerExplorerUseCase is the Docker Host Explorer: live management of the Docker Engine on a
@@ -354,7 +355,7 @@ func (uc *DockerExplorerUseCase) resolve(ctx context.Context, serverID string) (
 	if assignment.State != softwaredomain.StateInstalled {
 		return nil, fmt.Errorf("%w: %s (assignment is %s)", ErrDockerNotInstalled, server.DisplayName(), assignment.State)
 	}
-	if !softwaredomain.DockerAPIEnabled(assignment.Spec) {
+	if !dockerce.APIEnabled(assignment.Spec) {
 		return nil, fmt.Errorf("%w: %s", ErrDockerAPIDisabled, server.DisplayName())
 	}
 
@@ -362,7 +363,7 @@ func (uc *DockerExplorerUseCase) resolve(ctx context.Context, serverID string) (
 	if address == "" {
 		return nil, fmt.Errorf("%w: %s has no known address", ErrDockerHostUnavailable, server.DisplayName())
 	}
-	return uc.clients.For(address, softwaredomain.DockerEngineAPIPort)
+	return uc.clients.For(address, dockerce.EngineAPIPort)
 }
 
 // requireIdentifier rejects an empty path identifier before any I/O.

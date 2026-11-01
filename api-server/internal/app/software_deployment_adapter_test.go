@@ -13,27 +13,23 @@ import (
 )
 
 // Every catalog kind must install and uninstall through a playbook the shipped manifest registers,
-// under a valid Workflow kind that requires a deployed host: a kind added to the catalog without
-// both mappings would be accepted by the API and then refused at launch.
+// under a Workflow kind the build accepts that requires a deployed host: a kind added to the catalog
+// without both would be accepted by the API and then refused at launch.
 func TestEverySoftwareKindHasRegisteredPlaybooks(t *testing.T) {
-	modules := filepath.Join("..", "..", "modules")
-	catalog, err := ansible.LoadManifestCatalog(filepath.Join(modules, "manifest.json"), modules)
+	modulesDir := filepath.Join("..", "..", "modules")
+	catalog, err := ansible.LoadManifestCatalog(filepath.Join(modulesDir, "manifest.json"), modulesDir)
 	if err != nil {
 		t.Fatalf("load shipped manifest: %v", err)
 	}
-	for _, entry := range softwaredomain.Catalog() {
-		for mode, table := range map[string]map[softwaredomain.Kind]softwarePlaybook{
-			"install": softwareInstallPlaybooks, "uninstall": softwareUninstallPlaybooks,
+	modules := testModules(t)
+	for _, entry := range modules.software.Entries() {
+		for mode, mapping := range map[string]softwarePlaybook{
+			"install": installPlaybook(entry.Kind), "uninstall": uninstallPlaybook(entry.Kind),
 		} {
-			mapping, ok := table[entry.Kind]
-			if !ok {
-				t.Errorf("%s has no %s playbook", entry.Kind, mode)
-				continue
-			}
 			if _, err := catalog.Resolve(mapping.playbook); err != nil {
 				t.Errorf("%s %s playbook %q: %v", entry.Kind, mode, mapping.playbook, err)
 			}
-			if !mapping.workflowKind.Valid() || mapping.workflowKind.RequiredProvisioningState() != "deployed" {
+			if !modules.workflowKinds.Valid(mapping.workflowKind) || modules.workflowKinds.RequiredProvisioningState(mapping.workflowKind) != "deployed" {
 				t.Errorf("%s %s Workflow kind %q must be valid and require deployed", entry.Kind, mode, mapping.workflowKind)
 			}
 		}

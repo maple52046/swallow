@@ -13,7 +13,12 @@
   ],
   "taskKinds": [],
   "completions": [],
-  "hooks": [],
+  "hooks": [
+    {
+      "name": "software",
+      "reason": "Validates the install method, release, datasource URL, and dashboard bundles and records the pinned defaults; the catalog entry travels with it."
+    }
+  ],
   "capabilities": [
     "host-automation"
   ],

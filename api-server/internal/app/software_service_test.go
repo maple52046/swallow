@@ -1,4 +1,4 @@
-package application
+package app
 
 import (
 	"context"
@@ -11,6 +11,9 @@ import (
 	"github.com/maple52046/swallow/internal/core/store"
 	"github.com/maple52046/swallow/internal/core/store/storetest"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
+
+	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
+	dockerce "github.com/maple52046/swallow/modules/software/docker-ce"
 )
 
 // fakeAssignmentRepo is an in-memory Software Assignment store keyed by (serverId, kind).
@@ -98,7 +101,7 @@ func (m fakeMembership) IsKubernetesMember(_ context.Context, serverID string) (
 type fakeLauncher struct {
 	install    bool
 	uninstall  bool
-	lastLaunch SoftwareLaunch
+	lastLaunch softwareapp.SoftwareLaunch
 	// persistedInTransaction reports whether the last PersistWorkflow ran inside a transaction.
 	persistedInTransaction bool
 }
@@ -108,19 +111,19 @@ type fakePreparedSoftware struct{ id string }
 
 func (p fakePreparedSoftware) WorkflowID() string { return p.id }
 
-func (l *fakeLauncher) PrepareInstall(_ context.Context, launch SoftwareLaunch) (PreparedSoftwareWorkflow, error) {
+func (l *fakeLauncher) PrepareInstall(_ context.Context, launch softwareapp.SoftwareLaunch) (softwareapp.PreparedSoftwareWorkflow, error) {
 	l.install = true
 	l.lastLaunch = launch
 	return fakePreparedSoftware{id: "op-install"}, nil
 }
 
-func (l *fakeLauncher) PrepareUninstall(_ context.Context, launch SoftwareLaunch) (PreparedSoftwareWorkflow, error) {
+func (l *fakeLauncher) PrepareUninstall(_ context.Context, launch softwareapp.SoftwareLaunch) (softwareapp.PreparedSoftwareWorkflow, error) {
 	l.uninstall = true
 	l.lastLaunch = launch
 	return fakePreparedSoftware{id: "op-uninstall"}, nil
 }
 
-func (l *fakeLauncher) PersistWorkflow(ctx context.Context, prepared PreparedSoftwareWorkflow) (string, error) {
+func (l *fakeLauncher) PersistWorkflow(ctx context.Context, prepared softwareapp.PreparedSoftwareWorkflow) (string, error) {
 	l.persistedInTransaction = store.InTransaction(ctx)
 	return prepared.WorkflowID(), nil
 }
@@ -133,9 +136,19 @@ func deployedServer(id string) *serverdomain.Server {
 	}
 }
 
-func newTestService(servers map[string]*serverdomain.Server, membership map[string]bool) (*SoftwareService, *fakeAssignmentRepo, *fakeLauncher) {
+// testSoftwareCatalog is the software catalog of the modules compiled into this build, so these
+// tests exercise each kind's Software hook through the service.
+func testSoftwareCatalog() *softwaredomain.Catalog {
+	modules, err := composeModules()
+	if err != nil {
+		panic(err)
+	}
+	return modules.software
+}
+
+func newTestService(servers map[string]*serverdomain.Server, membership map[string]bool) (*softwareapp.SoftwareService, *fakeAssignmentRepo, *fakeLauncher) {
 	repo := newFakeAssignmentRepo()
-	service := NewSoftwareService(&storetest.Transactor{}, repo, &fakeServerRepo{servers: servers}, fakeMembership{kubernetes: membership})
+	service := softwareapp.NewSoftwareService(&storetest.Transactor{}, testSoftwareCatalog(), repo, &fakeServerRepo{servers: servers}, fakeMembership{kubernetes: membership})
 	launcher := &fakeLauncher{}
 	service.AttachLauncher(launcher)
 	return service, repo, launcher
@@ -143,8 +156,8 @@ func newTestService(servers map[string]*serverdomain.Server, membership map[stri
 
 func TestInstallRejectsUnknownKind(t *testing.T) {
 	service, _, _ := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-	_, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.Kind("nope"), Targets: []InstallTarget{{ServerID: "a"}},
+	_, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.Kind("nope"), Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 	})
 	if !errors.Is(err, softwaredomain.ErrUnknownKind) {
 		t.Fatalf("err = %v, want ErrUnknownKind", err)
@@ -153,8 +166,8 @@ func TestInstallRejectsUnknownKind(t *testing.T) {
 
 func TestInstallDockerRejectsRoles(t *testing.T) {
 	service, _, _ := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-	_, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a", Roles: []softwaredomain.Role{softwaredomain.RoleServer}}},
+	_, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindDockerCE, Targets: []softwareapp.InstallTarget{{ServerID: "a", Roles: []softwaredomain.Role{softwaredomain.RoleServer}}},
 	})
 	if !errors.Is(err, softwaredomain.ErrInvalidRole) {
 		t.Fatalf("err = %v, want ErrInvalidRole", err)
@@ -163,8 +176,8 @@ func TestInstallDockerRejectsRoles(t *testing.T) {
 
 func TestInstallNFSRequiresRoles(t *testing.T) {
 	service, _, _ := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-	_, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindNFS, Targets: []InstallTarget{{ServerID: "a"}},
+	_, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindNFS, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 	})
 	if !errors.Is(err, softwaredomain.ErrInvalidRole) {
 		t.Fatalf("err = %v, want ErrInvalidRole", err)
@@ -173,9 +186,9 @@ func TestInstallNFSRequiresRoles(t *testing.T) {
 
 func TestInstallNFSServerRequiresExportPath(t *testing.T) {
 	service, _, _ := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-	_, err := service.Install(context.Background(), InstallInput{
+	_, err := service.Install(context.Background(), softwareapp.InstallInput{
 		Kind:    softwaredomain.KindNFS,
-		Targets: []InstallTarget{{ServerID: "a", Roles: []softwaredomain.Role{softwaredomain.RoleServer}}},
+		Targets: []softwareapp.InstallTarget{{ServerID: "a", Roles: []softwaredomain.Role{softwaredomain.RoleServer}}},
 	})
 	if !errors.Is(err, softwaredomain.ErrSpecInvalid) {
 		t.Fatalf("err = %v, want ErrSpecInvalid", err)
@@ -187,8 +200,8 @@ func TestInstallRefusesKubernetesMemberForDocker(t *testing.T) {
 		map[string]*serverdomain.Server{"a": deployedServer("a")},
 		map[string]bool{"a": true},
 	)
-	_, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}},
+	_, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindDockerCE, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 	})
 	if !errors.Is(err, softwaredomain.ErrKubernetesMember) {
 		t.Fatalf("err = %v, want ErrKubernetesMember", err)
@@ -201,8 +214,8 @@ func TestInstallRefusesMutuallyExclusiveKind(t *testing.T) {
 	_ = repo.Upsert(context.Background(), &softwaredomain.Assignment{
 		ServerID: "a", Kind: softwaredomain.KindPodman, State: softwaredomain.StateInstalled,
 	})
-	_, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}},
+	_, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindDockerCE, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 	})
 	if !errors.Is(err, softwaredomain.ErrMutuallyExclusive) {
 		t.Fatalf("err = %v, want ErrMutuallyExclusive", err)
@@ -213,8 +226,8 @@ func TestInstallRejectsNonDeployedTarget(t *testing.T) {
 	server := deployedServer("a")
 	server.Provisioning.State = "ready"
 	service, _, _ := newTestService(map[string]*serverdomain.Server{"a": server}, nil)
-	_, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}},
+	_, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindDockerCE, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 	})
 	if !errors.Is(err, workflowdomain.ErrTargetStateInvalid) {
 		t.Fatalf("err = %v, want ErrTargetStateInvalid", err)
@@ -227,9 +240,9 @@ func TestInstallNFSMixedRolesBuildsTrustedVarsAndPendingAssignments(t *testing.T
 		"srv-b": deployedServer("srv-b"),
 	}, nil)
 
-	operationID, err := service.Install(context.Background(), InstallInput{
+	operationID, err := service.Install(context.Background(), softwareapp.InstallInput{
 		Kind: softwaredomain.KindNFS,
-		Targets: []InstallTarget{
+		Targets: []softwareapp.InstallTarget{
 			{ServerID: "srv-a", Roles: []softwaredomain.Role{softwaredomain.RoleServer}},
 			{ServerID: "srv-b", Roles: []softwaredomain.Role{softwaredomain.RoleClient}},
 		},
@@ -297,8 +310,8 @@ func TestInstallDockerNormalizesEnableAPIIntoRecordAndTrustedVars(t *testing.T) 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-			if _, err := service.Install(context.Background(), InstallInput{
-				Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}}, Spec: tc.spec,
+			if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+				Kind: softwaredomain.KindDockerCE, Targets: []softwareapp.InstallTarget{{ServerID: "a"}}, Spec: tc.spec,
 			}); err != nil {
 				t.Fatalf("Install(%v) error = %v", tc.spec, err)
 			}
@@ -316,8 +329,8 @@ func TestInstallDockerNormalizesEnableAPIIntoRecordAndTrustedVars(t *testing.T) 
 			if got := vars["swallow_docker_enable_api"]; got != tc.wantEnabled {
 				t.Errorf("swallow_docker_enable_api = %v, want %v", got, tc.wantEnabled)
 			}
-			if got := vars["swallow_docker_api_port"]; got != softwaredomain.DockerEngineAPIPort {
-				t.Errorf("swallow_docker_api_port = %v, want %d", got, softwaredomain.DockerEngineAPIPort)
+			if got := vars["swallow_docker_api_port"]; got != dockerce.EngineAPIPort {
+				t.Errorf("swallow_docker_api_port = %v, want %d", got, dockerce.EngineAPIPort)
 			}
 		})
 	}
@@ -342,8 +355,8 @@ func TestInstallReapplyKeepsLastAppliedAtUnlessAbsent(t *testing.T) {
 			_ = repo.Upsert(context.Background(), &softwaredomain.Assignment{
 				ServerID: "a", Kind: softwaredomain.KindDockerCE, State: tc.state, LastAppliedAt: &applied,
 			})
-			if _, err := service.Install(context.Background(), InstallInput{
-				Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}},
+			if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+				Kind: softwaredomain.KindDockerCE, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 				Spec: map[string]any{"enableApi": true},
 			}); err != nil {
 				t.Fatalf("Install error = %v", err)
@@ -371,8 +384,8 @@ func TestInstallDockerRejectsMistypedSpec(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			service, _, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-			_, err := service.Install(context.Background(), InstallInput{
-				Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}}, Spec: tc.spec,
+			_, err := service.Install(context.Background(), softwareapp.InstallInput{
+				Kind: softwaredomain.KindDockerCE, Targets: []softwareapp.InstallTarget{{ServerID: "a"}}, Spec: tc.spec,
 			})
 			if !errors.Is(err, softwaredomain.ErrSpecInvalid) {
 				t.Fatalf("Install(%v) error = %v, want ErrSpecInvalid", tc.spec, err)
@@ -391,7 +404,7 @@ func TestUninstallLegacyDockerAssignmentSendsAPIDisabled(t *testing.T) {
 	_ = repo.Upsert(context.Background(), &softwaredomain.Assignment{
 		ServerID: "a", Kind: softwaredomain.KindDockerCE, State: softwaredomain.StateInstalled,
 	})
-	if _, err := service.Uninstall(context.Background(), UninstallInput{
+	if _, err := service.Uninstall(context.Background(), softwareapp.UninstallInput{
 		Kind: softwaredomain.KindDockerCE, ServerIDs: []string{"a"},
 	}); err != nil {
 		t.Fatalf("Uninstall error = %v", err)
@@ -408,7 +421,7 @@ func TestUninstallMarksAssignmentsUninstalling(t *testing.T) {
 		Roles: []softwaredomain.Role{softwaredomain.RoleClient},
 		Spec:  map[string]any{"source": "srv:/x", "mountPath": "/shared"},
 	})
-	operationID, err := service.Uninstall(context.Background(), UninstallInput{
+	operationID, err := service.Uninstall(context.Background(), softwareapp.UninstallInput{
 		Kind: softwaredomain.KindNFS, ServerIDs: []string{"a"},
 	})
 	if err != nil {
@@ -425,7 +438,7 @@ func TestUninstallMarksAssignmentsUninstalling(t *testing.T) {
 
 func TestUninstallRejectsMissingAssignment(t *testing.T) {
 	service, _, _ := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-	_, err := service.Uninstall(context.Background(), UninstallInput{
+	_, err := service.Uninstall(context.Background(), softwareapp.UninstallInput{
 		Kind: softwaredomain.KindNFS, ServerIDs: []string{"a"},
 	})
 	if !errors.Is(err, softwaredomain.ErrAssignmentNotFound) {
@@ -436,12 +449,13 @@ func TestUninstallRejectsMissingAssignment(t *testing.T) {
 // Accepting an install writes its Workflow and the pending assignments in one transaction
 // (decision 069), so a refused Workflow leaves no orphaned assignment.
 func TestInstallWritesTheWorkflowAndAssignmentsInOneTransaction(t *testing.T) {
-	service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-	tx := &storetest.Transactor{}
-	service.transactor = tx
+	repo, launcher, tx := newFakeAssignmentRepo(), &fakeLauncher{}, &storetest.Transactor{}
+	service := softwareapp.NewSoftwareService(tx, testSoftwareCatalog(), repo,
+		&fakeServerRepo{servers: map[string]*serverdomain.Server{"a": deployedServer("a")}}, fakeMembership{})
+	service.AttachLauncher(launcher)
 
-	workflowID, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}},
+	workflowID, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindDockerCE, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 	})
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)

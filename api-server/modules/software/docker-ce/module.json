@@ -13,7 +13,12 @@
   ],
   "taskKinds": [],
   "completions": [],
-  "hooks": [],
+  "hooks": [
+    {
+      "name": "software",
+      "reason": "Validates enableApi as a real boolean, records an omitted value as true, and passes the Engine API port the Docker Host Explorer dials; the catalog entry travels with it."
+    }
+  ],
   "capabilities": [
     "host-automation"
   ],

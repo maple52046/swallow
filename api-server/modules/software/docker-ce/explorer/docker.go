@@ -18,7 +18,7 @@ import (
 //
 // Nothing here is persisted. Images, containers, volumes, and networks are Docker Engine facts read
 // from, or written to, the host's Engine API at request time (ADR 001). The only swallow-owned input
-// is the Docker CE Software Assignment, which decides eligibility; see DockerAPIEnabled.
+// is the Docker CE Software Assignment, which decides eligibility; see dockerce.APIEnabled.
 
 // DockerEngineSummary is the small live header of one host's Docker Engine.
 type DockerEngineSummary struct {
@@ -354,7 +354,7 @@ type DockerEngineClient interface {
 }
 
 // DockerEngineClientFactory builds a client for the Engine API at address:port. The address is the
-// Server's observed primary address; the port is DockerEngineAPIPort. It performs no I/O.
+// Server's observed primary address; the port is dockerce.EngineAPIPort. It performs no I/O.
 type DockerEngineClientFactory interface {
 	For(address string, port int) (DockerEngineClient, error)
 }

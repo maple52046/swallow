@@ -7,6 +7,7 @@ import (
 
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+	dockerce "github.com/maple52046/swallow/modules/software/docker-ce"
 )
 
 // fakeDockerClient records the calls that reach the Engine; embedding the interface makes any
@@ -148,8 +149,8 @@ func TestDockerExplorerDialsPrimaryAddressOnDomainPort(t *testing.T) {
 	if len(images) != 1 {
 		t.Errorf("ListImages returned %d images, want 1", len(images))
 	}
-	if f.factory.address != "192.168.100.7" || f.factory.port != softwaredomain.DockerEngineAPIPort {
-		t.Errorf("dialled %s:%d, want 192.168.100.7:%d", f.factory.address, f.factory.port, softwaredomain.DockerEngineAPIPort)
+	if f.factory.address != "192.168.100.7" || f.factory.port != dockerce.EngineAPIPort {
+		t.Errorf("dialled %s:%d, want 192.168.100.7:%d", f.factory.address, f.factory.port, dockerce.EngineAPIPort)
 	}
 	if f.guard.checked != 0 {
 		t.Errorf("a read checked the Server Lock %d times, want 0 (reads stay available on locked Servers)", f.guard.checked)

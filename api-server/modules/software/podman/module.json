@@ -13,7 +13,12 @@
   ],
   "taskKinds": [],
   "completions": [],
-  "hooks": [],
+  "hooks": [
+    {
+      "name": "software",
+      "reason": "Validates the optional package version and turns it into the playbook's trusted variable; the catalog entry travels with it."
+    }
+  ],
   "capabilities": [
     "host-automation"
   ],

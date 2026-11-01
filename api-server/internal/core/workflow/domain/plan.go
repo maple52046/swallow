@@ -110,6 +110,8 @@ type PlanCatalog struct {
 	TaskKinds     map[string]TaskKind
 	Completions   map[string]CompletionClass
 	Compensations map[string]bool
+	// WorkflowKinds are the Workflow kinds a plan may be; the zero value accepts the built-in ones.
+	WorkflowKinds WorkflowKinds
 }
 
 // ErrPlanInvalid reports a plan that declares something the catalog does not register. Delivery

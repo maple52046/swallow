@@ -9,6 +9,8 @@ package domain
 
 import (
 	"errors"
+	"fmt"
+	"sort"
 )
 
 // WorkflowKind is what an operation is for. Each kind maps to a release-manifest playbook,
@@ -73,32 +75,10 @@ const (
 	// about what it does, which is the escape hatch for anything not yet modelled.
 	WorkflowKindCustom WorkflowKind = "custom"
 
-	// Software deployment kinds install or uninstall a single piece of host software (Managed
-	// Software) on already-deployed Servers, distinct from a platform deploy whose target is a
-	// multi-component runtime (decision 038). Each pairs a configure-<kind> deploy with an
-	// uninstall-<kind> removal, both run by the ansible Runner against a hardcoded playbook.
-	WorkflowKindConfigureDockerCE WorkflowKind = "configure-docker-ce"
-	WorkflowKindUninstallDockerCE WorkflowKind = "uninstall-docker-ce"
-	WorkflowKindConfigurePodman   WorkflowKind = "configure-podman"
-	WorkflowKindUninstallPodman   WorkflowKind = "uninstall-podman"
-	WorkflowKindConfigureNFS      WorkflowKind = "configure-nfs"
-	WorkflowKindUninstallNFS      WorkflowKind = "uninstall-nfs"
-	// Prometheus and Grafana are container software that need Docker CE (decision 063). Their
-	// configure kinds also label the ansible Tasks of a Slurm deploy that composes them.
-	WorkflowKindConfigurePrometheus WorkflowKind = "configure-prometheus"
-	WorkflowKindUninstallPrometheus WorkflowKind = "uninstall-prometheus"
-	WorkflowKindConfigureGrafana    WorkflowKind = "configure-grafana"
-	WorkflowKindUninstallGrafana    WorkflowKind = "uninstall-grafana"
 	// WorkflowKindConfigureOmnistat labels the ansible Task of a Slurm deploy that installs the
 	// Omnistat exporter on the Slurm Platform (decision 063). It is never a standalone Workflow
 	// and never resolved through a site playbook mapping.
 	WorkflowKindConfigureOmnistat WorkflowKind = "configure-omnistat"
-	// WorkflowKindConfigureDeviceMetricsExporter and WorkflowKindUninstallDeviceMetricsExporter are
-	// the Managed Software device-metrics-exporter Workflows (decision 068). The configure kind also
-	// labels the ansible Task of a Slurm deploy that composes the exporter onto its GPU nodes
-	// (decision 066). Neither is resolved through a site playbook mapping.
-	WorkflowKindConfigureDeviceMetricsExporter WorkflowKind = "configure-device-metrics-exporter"
-	WorkflowKindUninstallDeviceMetricsExporter WorkflowKind = "uninstall-device-metrics-exporter"
 	// WorkflowKindConfigureNTP labels the ansible Task that points a freshly provisioned Server at
 	// the installation's NTP server after SSH readiness (decision 065): one after every provision-os
 	// Task, in a Deploy OS Workflow and in a Platform deployment's ensure-os Job alike. It is never
@@ -107,78 +87,113 @@ const (
 	WorkflowKindConfigureNTP WorkflowKind = "configure-ntp"
 )
 
-var ValidWorkflowKinds = []WorkflowKind{
-	WorkflowKindDeployOS,
-	WorkflowKindReleaseOS,
-	WorkflowKindRecoverServer,
-	WorkflowKindVerifyOSImage,
-	WorkflowKindInspectHardware,
-	WorkflowKindEnrollVirtualMachines,
-	WorkflowKindInstallGPUDriver,
-	WorkflowKindDeployKubernetes,
-	WorkflowKindUninstallKubernetes,
-	WorkflowKindConfigureGPUOperator,
-	WorkflowKindConfigureSlurm,
-	WorkflowKindUninstallSlurm,
-	WorkflowKindInstallExporters,
-	WorkflowKindUninstallExporters,
-	WorkflowKindDeployK8sExporters,
-	WorkflowKindRemoveK8sExporters,
-	WorkflowKindConfigureDockerCE,
-	WorkflowKindUninstallDockerCE,
-	WorkflowKindConfigurePodman,
-	WorkflowKindUninstallPodman,
-	WorkflowKindConfigureNFS,
-	WorkflowKindUninstallNFS,
-	WorkflowKindConfigurePrometheus,
-	WorkflowKindUninstallPrometheus,
-	WorkflowKindConfigureGrafana,
-	WorkflowKindUninstallGrafana,
-	WorkflowKindConfigureOmnistat,
-	WorkflowKindConfigureDeviceMetricsExporter,
-	WorkflowKindUninstallDeviceMetricsExporter,
-	WorkflowKindConfigureNTP,
-	WorkflowKindCustom,
-}
-
-func (k WorkflowKind) Valid() bool {
-	for _, valid := range ValidWorkflowKinds {
-		if k == valid {
-			return true
-		}
-	}
-	return false
-}
-
-// RequiredProvisioningState is the provisioning state targets must be in, or "" when
-// the kind does not care.
+// builtInWorkflowKinds are the kinds the workflow context accepts without any module, each with
+// the provisioning state it requires of its targets ("" when it does not care). The Platform kinds
+// are listed here until their modules declare them.
 //
-// Running post-install automation against a machine that is mid-deployment fails slowly
-// and confusingly; refusing up front is faster and says why.
-func (k WorkflowKind) RequiredProvisioningState() string {
-	switch k {
-	case WorkflowKindInstallGPUDriver, WorkflowKindDeployKubernetes, WorkflowKindConfigureSlurm,
-		WorkflowKindConfigureGPUOperator,
-		WorkflowKindInstallExporters, WorkflowKindDeployK8sExporters,
-		// Software deployment reaches a host over SSH via Ansible, so both install and uninstall
-		// require a booted, deployed OS. A Server that has left `deployed` has its assignments
-		// swept to `absent`, so uninstall is never the path for a wiped host.
-		WorkflowKindConfigureDockerCE, WorkflowKindUninstallDockerCE,
-		WorkflowKindConfigurePodman, WorkflowKindUninstallPodman,
-		WorkflowKindConfigureNFS, WorkflowKindUninstallNFS,
-		WorkflowKindConfigurePrometheus, WorkflowKindUninstallPrometheus,
-		WorkflowKindConfigureGrafana, WorkflowKindUninstallGrafana,
-		WorkflowKindConfigureOmnistat,
-		WorkflowKindConfigureDeviceMetricsExporter, WorkflowKindUninstallDeviceMetricsExporter,
-		// configure-ntp reaches the host over SSH; the preceding provision-os Task satisfies this
-		// (PrepareAnsibleStep provisionFirst).
-		WorkflowKindConfigureNTP:
-		return "deployed"
-	default:
-		// Uninstalling exporters intentionally has no state requirement: a machine
-		// being retired or handed to a k8s owner must still be cleanable.
-		return ""
+// Running post-install automation against a machine that is mid-deployment fails slowly and
+// confusingly; refusing up front is faster and says why.
+var builtInWorkflowKinds = map[WorkflowKind]string{
+	WorkflowKindDeployOS:              "",
+	WorkflowKindReleaseOS:             "",
+	WorkflowKindRecoverServer:         "",
+	WorkflowKindVerifyOSImage:         "",
+	WorkflowKindInspectHardware:       "",
+	WorkflowKindEnrollVirtualMachines: "",
+	WorkflowKindInstallGPUDriver:      "deployed",
+	WorkflowKindDeployKubernetes:      "deployed",
+	WorkflowKindUninstallKubernetes:   "",
+	WorkflowKindConfigureGPUOperator:  "deployed",
+	WorkflowKindConfigureSlurm:        "deployed",
+	WorkflowKindUninstallSlurm:        "",
+	WorkflowKindInstallExporters:      "deployed",
+	// Uninstalling exporters intentionally has no state requirement: a machine being retired or
+	// handed to a k8s owner must still be cleanable.
+	WorkflowKindUninstallExporters: "",
+	WorkflowKindDeployK8sExporters: "deployed",
+	WorkflowKindRemoveK8sExporters: "",
+	WorkflowKindConfigureOmnistat:  "deployed",
+	// configure-ntp reaches the host over SSH; the preceding provision-os Task satisfies this
+	// (PrepareAnsibleStep provisionFirst).
+	WorkflowKindConfigureNTP: "deployed",
+	WorkflowKindCustom:       "",
+}
+
+// BuiltInWorkflowKinds returns the kinds the workflow context accepts without any module, sorted.
+func BuiltInWorkflowKinds() []WorkflowKind {
+	return sortedKinds(builtInWorkflowKinds)
+}
+
+// ErrWorkflowKindConflict means a module declares a Workflow kind that is already accepted.
+var ErrWorkflowKindConflict = errors.New("workflow kind is already declared")
+
+// WorkflowKinds are the Workflow kinds a build accepts and the provisioning state each requires of
+// its targets. The zero value accepts the built-in kinds; the composition root adds each module's
+// kinds from the module registry (ADR 075), so api and ansible-executor accept the same set.
+type WorkflowKinds struct {
+	modules map[WorkflowKind]string
+}
+
+// With returns a copy that also accepts kinds, each requiring required of its targets ("" when it
+// does not care). A kind that is already accepted is ErrWorkflowKindConflict.
+func (k WorkflowKinds) With(required string, kinds ...WorkflowKind) (WorkflowKinds, error) {
+	out := WorkflowKinds{modules: make(map[WorkflowKind]string, len(k.modules)+len(kinds))}
+	for kind, state := range k.modules {
+		out.modules[kind] = state
 	}
+	for _, kind := range kinds {
+		if out.Valid(kind) {
+			return WorkflowKinds{}, fmt.Errorf("%w: %s", ErrWorkflowKindConflict, kind)
+		}
+		out.modules[kind] = required
+	}
+	return out, nil
+}
+
+// Valid reports whether the build accepts kind.
+func (k WorkflowKinds) Valid(kind WorkflowKind) bool {
+	if _, ok := builtInWorkflowKinds[kind]; ok {
+		return true
+	}
+	_, ok := k.modules[kind]
+	return ok
+}
+
+// RequiredProvisioningState is the provisioning state targets of kind must be in, or "" when the
+// kind does not care or is not accepted.
+func (k WorkflowKinds) RequiredProvisioningState(kind WorkflowKind) string {
+	if state, ok := builtInWorkflowKinds[kind]; ok {
+		return state
+	}
+	return k.modules[kind]
+}
+
+// RefusedWhenLocked reports whether a Workflow of kind changes a target host. Every accepted kind
+// executes automation against the host and is therefore refused while the provider-owned Server
+// lock is active.
+func (k WorkflowKinds) RefusedWhenLocked(kind WorkflowKind) bool {
+	return k.Valid(kind)
+}
+
+// List returns every accepted kind, sorted.
+func (k WorkflowKinds) List() []WorkflowKind {
+	all := make(map[WorkflowKind]string, len(builtInWorkflowKinds)+len(k.modules))
+	for kind, state := range builtInWorkflowKinds {
+		all[kind] = state
+	}
+	for kind, state := range k.modules {
+		all[kind] = state
+	}
+	return sortedKinds(all)
+}
+
+func sortedKinds(kinds map[WorkflowKind]string) []WorkflowKind {
+	out := make([]WorkflowKind, 0, len(kinds))
+	for kind := range kinds {
+		out = append(out, kind)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // Status is the state of an operation's run.
@@ -198,13 +213,6 @@ const (
 	// deliberately not "failed", and it is never retried automatically.
 	StatusIndeterminate Status = "indeterminate"
 )
-
-// RefusedWhenLocked reports whether an Operation changes a target host. Every valid
-// Operation executes automation against the host and is therefore refused while the
-// provider-owned Server lock is active.
-func (k WorkflowKind) RefusedWhenLocked() bool {
-	return k.Valid()
-}
 
 // Terminal reports whether a status will no longer change on its own, which is what stops
 // the dispatcher and any watcher from following an operation forever.

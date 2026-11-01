@@ -182,7 +182,7 @@ func TestAutomationConfigurationService_CredentialSource(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &stubAutomationRepo{configuration: workflowdomain.AutomationConfiguration{HasCredential: true}}
-			service := NewAutomationConfigurationService(repo, nil, nil)
+			service := NewAutomationConfigurationService(repo, nil, nil, workflowdomain.WorkflowKinds{})
 			if tc.keys != nil {
 				service.AttachDeploymentKeys(tc.keys)
 			}
@@ -199,7 +199,7 @@ func TestAutomationConfigurationService_CredentialSource(t *testing.T) {
 
 func TestAutomationConfigurationService_ReplaceCredentialStoresOnlyBecomePassword(t *testing.T) {
 	repo := &stubAutomationRepo{}
-	service := NewAutomationConfigurationService(repo, nil, nil)
+	service := NewAutomationConfigurationService(repo, nil, nil, workflowdomain.WorkflowKinds{})
 	if err := service.ReplaceCredential(context.Background(), "site-1", "pw"); err != nil {
 		t.Fatalf("ReplaceCredential: %v", err)
 	}

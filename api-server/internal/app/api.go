@@ -86,7 +86,8 @@ var httpRequestCount atomic.Uint64
 // RunAPI starts the HTTP API server and the reconciler, and blocks until interrupted.
 func RunAPI(cfg config.APIConfig) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-	if _, err := moduleRegistry(); err != nil {
+	modules, err := composeModules()
+	if err != nil {
 		return err
 	}
 	releaseVersion := cfg.ReleaseVersion
@@ -254,7 +255,7 @@ func RunAPI(cfg config.APIConfig) error {
 	networkService := provisioningapp.NewNetworkConfigurationService(serverRepo, providerFactory)
 	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo, releaseCleanupRetrier{
 		orchestrations: orchestrationRepo,
-		workflows:      workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog()),
+		workflows:      workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog(modules.workflowKinds)),
 	}, serverProtection)
 	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory, osImageVerificationRepo)
 	deploymentsUC.AttachDeploymentKeys(sshKeyService)
@@ -402,15 +403,15 @@ func RunAPI(cfg config.APIConfig) error {
 		return fmt.Errorf("ansible event repo init: %w", err)
 	}
 	operationService := workflowapp.NewExecutionService(
-		serverRepo, effectiveAutomation, catalog, runner, ansibleEventRepo,
+		serverRepo, effectiveAutomation, catalog, modules.workflowKinds, runner, ansibleEventRepo,
 		platformapp.NewPolicyChecker(platformRepo, serverRepo),
 		serverProtection,
 	)
 	automationService := workflowapp.NewAutomationConfigurationService(
-		automationRepo, siteRepo, catalog,
+		automationRepo, siteRepo, catalog, modules.workflowKinds,
 	)
 	automationService.AttachDeploymentKeys(deploymentKeys)
-	orchestrationService := workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog(), operationSecretRepo)
+	orchestrationService := workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog(modules.workflowKinds), operationSecretRepo)
 	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
 	if err != nil {
 		return fmt.Errorf("resource ownership repo init: %w", err)
@@ -471,11 +472,11 @@ func RunAPI(cfg config.APIConfig) error {
 		return fmt.Errorf("software assignment repo init: %w", err)
 	}
 	softwareService := softwareapp.NewSoftwareService(
-		transactor, softwareAssignmentRepo, serverRepo,
+		transactor, modules.software, softwareAssignmentRepo, serverRepo,
 		kubernetesMembershipChecker{servers: serverRepo, platforms: platformRepo},
 	)
 	softwareService.AttachLauncher(softwareDeploymentLauncher{
-		operations: operationService, orchestrations: orchestrationService,
+		operations: operationService, orchestrations: orchestrationService, modules: modules.registry,
 	})
 	softwareService.AttachPlatformNames(platformNames)
 	// A Slurm uninstall completed here retires its Servers' Device Metrics Exporter records (068).

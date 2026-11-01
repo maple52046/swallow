@@ -1,9 +1,9 @@
-package domain
+package dockerce
 
 import "testing"
 
 // Only an explicit true enables the API; a legacy spec without the key must read as disabled.
-func TestDockerAPIEnabled(t *testing.T) {
+func TestAPIEnabled(t *testing.T) {
 	tests := []struct {
 		name string
 		spec map[string]any
@@ -17,9 +17,20 @@ func TestDockerAPIEnabled(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := DockerAPIEnabled(tc.spec); got != tc.want {
-				t.Errorf("DockerAPIEnabled(%v) = %v, want %v", tc.spec, got, tc.want)
+			if got := APIEnabled(tc.spec); got != tc.want {
+				t.Errorf("APIEnabled(%v) = %v, want %v", tc.spec, got, tc.want)
 			}
 		})
+	}
+}
+
+// The module loads with exactly the software hook its manifest declares.
+func TestModuleDeclaresItsSoftwareHook(t *testing.T) {
+	module, err := Module()
+	if err != nil {
+		t.Fatalf("Module: %v", err)
+	}
+	if _, ok := module.Hooks["software"].(Software); !ok {
+		t.Errorf("hooks = %v, want the software hook", module.Hooks)
 	}
 }

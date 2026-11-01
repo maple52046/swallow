@@ -122,7 +122,8 @@ interface，而是 Platform 模組與 Software 模組提供的能力（§4）。
     domain 型別。import 規則守住了 Temporal 與 Mongo 的 SDK，但它們的概念仍在 domain。
 - **Platform 與 AMD**：平台與 AMD 專屬的模型與流程位於 `internal/core/platform` 與 `internal/app`（§4），GPU 分類
   （PCI vendor id）在 server 的 domain。
-- **Managed Software**：產品型錄、各 kind 的分支與 Docker Engine 的 port 在 `internal/core/software`。
+- **Managed Software**：kind 與產品常數（版本、port、Prometheus／Grafana 的驗證規則）仍在 `internal/core/software`；
+  型錄、各 kind 的分支與 Docker Host Explorer 已在各 Software 模組。
 - **BMC 與 hypervisor**：server 的 port 以 Redfish、libvirt 命名，hypervisor 的 `virsh` 指令在 domain。
 - **Metrics**：monitoring 寫死 PromQL 與 GPU exporter 的指標名稱；discovery 直接產生 Prometheus http_sd 與 Ansible
   inventory 的格式。

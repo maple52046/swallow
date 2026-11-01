@@ -13,7 +13,12 @@
   ],
   "taskKinds": [],
   "completions": [],
-  "hooks": [],
+  "hooks": [
+    {
+      "name": "software",
+      "reason": "Requires the export or mount fields by the roles the targets take and splits the targets into server and client lists for the playbook; the catalog entry travels with it."
+    }
+  ],
   "capabilities": [
     "host-automation"
   ],

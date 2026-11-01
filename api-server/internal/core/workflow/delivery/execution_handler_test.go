@@ -59,7 +59,7 @@ func TestPutAutomationCredential(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &recordingAutomationRepo{}
-			handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(repo, nil, nil), nil)
+			handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(repo, nil, nil, workflowdomain.WorkflowKinds{}), nil)
 			app := fiber.New()
 			app.Use(apicontract.ResponseValidator(t))
 			app.Put("/api/v1/sites/:id/automation/credential", handler.PutAutomationCredential)
@@ -333,7 +333,7 @@ func newWorkflowContractHandler() *ExecutionHandler {
 		{Play: "Install k0s", Task: "Start k0s", Host: "server-1", Status: "failed"},
 	}}
 	operations := application.NewExecutionService(
-		contractServers{}, contractAutomation{}, contractCatalog{}, runner, nil, nil,
+		contractServers{}, contractAutomation{}, contractCatalog{}, workflowdomain.WorkflowKinds{}, runner, nil, nil,
 	)
 	operations.AttachWorkflow(orchestrations)
 	return NewExecutionHandler(operations, nil, orchestrations)
@@ -431,7 +431,7 @@ func (noSites) FindByID(context.Context, string) (*sitedomain.Site, error) {
 
 // DF-05: configuring automation for a Site that does not exist is 404, not an internal error.
 func TestPutAutomationOfAnUnknownSiteIsNotFound(t *testing.T) {
-	handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(&recordingAutomationRepo{}, noSites{}, nil), nil)
+	handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(&recordingAutomationRepo{}, noSites{}, nil, workflowdomain.WorkflowKinds{}), nil)
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
 	app.Put("/api/v1/sites/:id/automation", handler.PutAutomation)

@@ -14,7 +14,12 @@
   ],
   "taskKinds": [],
   "completions": [],
-  "hooks": [],
+  "hooks": [
+    {
+      "name": "software",
+      "reason": "Refuses every spec field, records the pinned exporter version, and passes the port and the standalone job attribution; the catalog entry travels with it."
+    }
+  ],
   "capabilities": [
     "host-automation"
   ],

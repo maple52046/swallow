@@ -57,7 +57,7 @@ func (ntpTestCatalog) Resolve(name string) (string, error) {
 
 func newNTPTestPlanner(server string, deployed map[string]bool, automationDisabled bool) ntpStepPlanner {
 	operations := workflowapp.NewExecutionService(
-		ntpTestServers{deployed: deployed}, ntpTestAutomation{disabled: automationDisabled}, ntpTestCatalog{}, nil, nil, nil,
+		ntpTestServers{deployed: deployed}, ntpTestAutomation{disabled: automationDisabled}, ntpTestCatalog{}, workflowdomain.WorkflowKinds{}, nil, nil, nil,
 	)
 	return ntpStepPlanner{server: server, operations: operations}
 }

@@ -52,12 +52,26 @@ All endpoints require the `admin` role (an access token or an API Key) according
 
 ## Software Catalog
 
-`GET /api/v1/software/catalog` returns the fixed set of installable software kinds and their
-rules: an object whose `items` array is small and bounded, so it is not paginated.
+`GET /api/v1/software/catalog` returns the installable software kinds of this release and their
+rules, one kind per Software module the release includes
+([decision 075](../../../../../docs/decisions/075-module-contract-v1.md)), ordered by `kind`: an
+object whose `items` array is small and bounded, so it is not paginated.
 
 ```json
 {
   "items": [
+    {
+      "kind": "device-metrics-exporter",
+      "label": "AMD Device Metrics Exporter",
+      "roles": [],
+      "mutuallyExclusiveWith": [],
+      "refusedForKubernetesMembers": true,
+      "refusedForClaimedServers": true,
+      "requiresAmdComputeGpu": true,
+      "installMethods": [],
+      "containerRuntimes": [],
+      "specFields": []
+    },
     {
       "kind": "docker-ce",
       "label": "Docker CE",
@@ -67,36 +81,6 @@ rules: an object whose `items` array is small and bounded, so it is not paginate
       "installMethods": [],
       "containerRuntimes": [],
       "specFields": ["version", "enableApi"]
-    },
-    {
-      "kind": "podman",
-      "label": "Podman",
-      "roles": [],
-      "mutuallyExclusiveWith": ["docker-ce"],
-      "refusedForKubernetesMembers": true,
-      "installMethods": [],
-      "containerRuntimes": [],
-      "specFields": ["version"]
-    },
-    {
-      "kind": "nfs",
-      "label": "NFS",
-      "roles": ["server", "client"],
-      "mutuallyExclusiveWith": [],
-      "refusedForKubernetesMembers": false,
-      "installMethods": [],
-      "containerRuntimes": [],
-      "specFields": ["exportPath", "exportOptions", "source", "mountPath", "mountOptions"]
-    },
-    {
-      "kind": "prometheus",
-      "label": "Prometheus",
-      "roles": [],
-      "mutuallyExclusiveWith": [],
-      "refusedForKubernetesMembers": false,
-      "installMethods": ["container", "native"],
-      "containerRuntimes": ["docker-ce", "podman"],
-      "specFields": ["installMethod", "containerRuntime", "version", "listen", "retention", "scrapeJob", "scrapeTargets", "scrapeServerIds", "scrapePort"]
     },
     {
       "kind": "grafana",
@@ -109,16 +93,34 @@ rules: an object whose `items` array is small and bounded, so it is not paginate
       "specFields": ["installMethod", "containerRuntime", "version", "prometheusUrl", "dashboards"]
     },
     {
-      "kind": "device-metrics-exporter",
-      "label": "AMD Device Metrics Exporter",
-      "roles": [],
+      "kind": "nfs",
+      "label": "NFS",
+      "roles": ["server", "client"],
       "mutuallyExclusiveWith": [],
-      "refusedForKubernetesMembers": true,
-      "refusedForClaimedServers": true,
-      "requiresAmdComputeGpu": true,
+      "refusedForKubernetesMembers": false,
       "installMethods": [],
       "containerRuntimes": [],
-      "specFields": []
+      "specFields": ["exportPath", "exportOptions", "source", "mountPath", "mountOptions"]
+    },
+    {
+      "kind": "podman",
+      "label": "Podman",
+      "roles": [],
+      "mutuallyExclusiveWith": ["docker-ce"],
+      "refusedForKubernetesMembers": true,
+      "installMethods": [],
+      "containerRuntimes": [],
+      "specFields": ["version"]
+    },
+    {
+      "kind": "prometheus",
+      "label": "Prometheus",
+      "roles": [],
+      "mutuallyExclusiveWith": [],
+      "refusedForKubernetesMembers": false,
+      "installMethods": ["container", "native"],
+      "containerRuntimes": ["docker-ce", "podman"],
+      "specFields": ["installMethod", "containerRuntime", "version", "listen", "retention", "scrapeJob", "scrapeTargets", "scrapeServerIds", "scrapePort"]
     }
   ]
 }
@@ -130,9 +132,10 @@ with a [Platform Claim](../../../../../docs/development/glossaries/terms/platfor
 because that Platform manages the kind on its Servers. `requiresAmdComputeGpu: true` means every
 target must list AMD `compute` GPUs in its GPU Inventory.
 
-`kind`, `roles`, `mutuallyExclusiveWith`, `installMethods`, and `containerRuntimes` values are
-domain language from the
-[Managed Software](../../../../../docs/development/glossaries/terms/managed-software.md)
+A `kind` is the id of the Software module that provides it, so the set of kinds is the release's
+modules: a client reads it from this catalog instead of from a fixed list, and every `kind` the
+other endpoints accept is one listed here. `roles` and `installMethods` values are domain language
+from the [Managed Software](../../../../../docs/development/glossaries/terms/managed-software.md)
 glossary term; adding a value is a model change, not just an API change. `installMethods` lists
 the ways a kind can be installed, the first being the default (always an array, empty for a kind
 with a single built-in way). `containerRuntimes` lists the runtime kinds the `container` method can

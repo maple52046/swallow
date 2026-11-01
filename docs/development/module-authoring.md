@@ -70,6 +70,10 @@ api-server/modules/
 - root package 的 `Module()` 以 `moduledomain.Load` 讀嵌入的 manifest；在 `internal/app/modules.go` 的
   `compiledModules` 加上它，api、worker 與 ansible-executor 就以同一個 registry 載入，manifest 不合契約時拒絕啟動。
 - 模組只 import core、`internal/shared` 與自己的 package；需要另一個模組的能力時，經由 core 的 port 取得。
+- Software 模組的 id 就是它的 Managed Software kind。manifest 宣告 Workflow kind `configure-<id>`、`uninstall-<id>`
+  與 playbook `deploy-<id>`、`uninstall-<id>`；root package 以 `software` 為名實作 core 的 `Software` port（catalog
+  entry、spec 驗證與正規化、trusted vars），composition root 啟動時核對這些名稱並組出 catalog，詳見
+  [software-deployment.md](software-deployment.md) §2。
 - 提供 HTTP 路由的模組把 use case 與 delivery 分成子 package，delivery package 匯出 `RegisterRoutes`，由
   `internal/app/api.go` 掛到對應的 router；掛上的路徑必須落在 `routes` 宣告的前綴內。use case 依賴的 core 資料以
   模組自己定義的小介面表達，只列它實際呼叫的方法。docker-ce 的 Docker Host Explorer 是例子：`explorer/` 是 use case，

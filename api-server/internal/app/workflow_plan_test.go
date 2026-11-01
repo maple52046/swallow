@@ -34,7 +34,7 @@ func projectWith(t *testing.T, handlers map[string]workflowapp.ProjectionHandler
 // The engine acts only on a plan's declarations (decision 072): none of its sources may name a
 // registered Task kind, completion type, or compensation.
 func TestEngineSourcesNameNoKind(t *testing.T) {
-	catalog := workflowPlanCatalog()
+	catalog := workflowPlanCatalog(testModules(t).workflowKinds)
 	names := map[string]bool{}
 	for kind := range catalog.TaskKinds {
 		names[kind] = true
@@ -69,7 +69,7 @@ func TestEngineSourcesNameNoKind(t *testing.T) {
 // Every Task and Completion literal a launcher writes uses a registered kind, its registered
 // Runner, and a registered completion type, so a plan is never refused at acceptance for a typo.
 func TestLauncherPlansMatchTheCatalog(t *testing.T) {
-	catalog := workflowPlanCatalog()
+	catalog := workflowPlanCatalog(testModules(t).workflowKinds)
 	runners := map[string]workflowdomain.RunnerKind{
 		"RunnerKindInternal": workflowdomain.RunnerKindInternal, "RunnerKindHostAutomation": workflowdomain.RunnerKindHostAutomation,
 		"RunnerKindProvisioner": workflowdomain.RunnerKindProvisioner,

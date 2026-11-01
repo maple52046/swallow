@@ -1,4 +1,4 @@
-package application
+package app
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+
+	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 )
 
 // installedDocker records an installed Docker CE on serverID, the container runtime the default
@@ -38,7 +40,7 @@ func TestInstallObservabilityContainerMethodRequiresInstalledRuntime(t *testing.
 						ServerID: "a", Kind: softwaredomain.KindPodman, State: runtimeState,
 					})
 				}
-				_, err := service.Install(context.Background(), InstallInput{Kind: kind, Targets: []InstallTarget{{ServerID: "a"}}})
+				_, err := service.Install(context.Background(), softwareapp.InstallInput{Kind: kind, Targets: []softwareapp.InstallTarget{{ServerID: "a"}}})
 				if !errors.Is(err, softwaredomain.ErrRequiredSoftwareMissing) {
 					t.Fatalf("Install(%s) error = %v, want ErrRequiredSoftwareMissing", kind, err)
 				}
@@ -57,8 +59,8 @@ func TestInstallObservabilityResolvesContainerRuntime(t *testing.T) {
 
 	service, repo, launcher := newTestService(servers, nil)
 	installedRuntime(t, repo, "a", softwaredomain.KindPodman)
-	if _, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindGrafana, Targets: []InstallTarget{{ServerID: "a"}},
+	if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindGrafana, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 	}); err != nil {
 		t.Fatalf("Install(on podman) error = %v", err)
 	}
@@ -73,8 +75,8 @@ func TestInstallObservabilityResolvesContainerRuntime(t *testing.T) {
 
 	service, repo, _ = newTestService(servers, nil)
 	installedRuntime(t, repo, "a", softwaredomain.KindPodman)
-	if _, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindGrafana, Targets: []InstallTarget{{ServerID: "a"}},
+	if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindGrafana, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 		Spec: map[string]any{"containerRuntime": "docker-ce"},
 	}); !errors.Is(err, softwaredomain.ErrRequiredSoftwareMissing) {
 		t.Errorf("Install(docker-ce requested on podman) error = %v, want ErrRequiredSoftwareMissing", err)
@@ -83,8 +85,8 @@ func TestInstallObservabilityResolvesContainerRuntime(t *testing.T) {
 	service, repo, _ = newTestService(servers, nil)
 	installedRuntime(t, repo, "a", softwaredomain.KindPodman)
 	installedRuntime(t, repo, "b", softwaredomain.KindDockerCE)
-	if _, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindPrometheus, Targets: []InstallTarget{{ServerID: "a"}, {ServerID: "b"}},
+	if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindPrometheus, Targets: []softwareapp.InstallTarget{{ServerID: "a"}, {ServerID: "b"}},
 	}); !errors.Is(err, softwaredomain.ErrSpecInvalid) {
 		t.Errorf("Install(mixed runtimes) error = %v, want ErrSpecInvalid", err)
 	}
@@ -94,8 +96,8 @@ func TestInstallObservabilityResolvesContainerRuntime(t *testing.T) {
 // applied values are recorded and reach the playbook.
 func TestInstallPrometheusListenAndRetention(t *testing.T) {
 	service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-	if _, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindPrometheus, Targets: []InstallTarget{{ServerID: "a"}},
+	if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindPrometheus, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 		Spec: map[string]any{"installMethod": "native"},
 	}); err != nil {
 		t.Fatalf("Install(defaults) error = %v", err)
@@ -110,8 +112,8 @@ func TestInstallPrometheusListenAndRetention(t *testing.T) {
 	}
 
 	service, _, launcher = newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-	if _, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindPrometheus, Targets: []InstallTarget{{ServerID: "a"}},
+	if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindPrometheus, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 		Spec: map[string]any{"installMethod": "native", "listen": "management", "retention": "1w2d"},
 	}); err != nil {
 		t.Fatalf("Install(management, 1w2d) error = %v", err)
@@ -127,8 +129,8 @@ func TestInstallPrometheusListenAndRetention(t *testing.T) {
 		"listen not string": {"installMethod": "native", "listen": true},
 	} {
 		service, _, _ := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-		if _, err := service.Install(context.Background(), InstallInput{
-			Kind: softwaredomain.KindPrometheus, Targets: []InstallTarget{{ServerID: "a"}}, Spec: spec,
+		if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+			Kind: softwaredomain.KindPrometheus, Targets: []softwareapp.InstallTarget{{ServerID: "a"}}, Spec: spec,
 		}); !errors.Is(err, softwaredomain.ErrSpecInvalid) {
 			t.Errorf("%s: error = %v, want ErrSpecInvalid", name, err)
 		}
@@ -139,8 +141,8 @@ func TestInstallPrometheusListenAndRetention(t *testing.T) {
 // container runtime; a runtime named alongside it is a spec error.
 func TestInstallObservabilityNativeMethod(t *testing.T) {
 	service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-	if _, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindPrometheus, Targets: []InstallTarget{{ServerID: "a"}},
+	if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindPrometheus, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 		Spec: map[string]any{"installMethod": "native", "version": "v3.14.1"},
 	}); err != nil {
 		t.Fatalf("Install(native) error = %v", err)
@@ -156,8 +158,8 @@ func TestInstallObservabilityNativeMethod(t *testing.T) {
 	}
 
 	service, _, _ = newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
-	if _, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindGrafana, Targets: []InstallTarget{{ServerID: "a"}},
+	if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindGrafana, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 		Spec: map[string]any{"installMethod": "native", "containerRuntime": "podman"},
 	}); !errors.Is(err, softwaredomain.ErrSpecInvalid) {
 		t.Errorf("Install(native with runtime) error = %v, want ErrSpecInvalid", err)
@@ -169,8 +171,8 @@ func TestInstallObservabilityNativeMethod(t *testing.T) {
 func TestInstallPrometheusNormalizesSpecIntoRecordAndTrustedVars(t *testing.T) {
 	service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
 	installedDocker(t, repo, "a")
-	if _, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindPrometheus, Targets: []InstallTarget{{ServerID: "a"}},
+	if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindPrometheus, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 		Spec: map[string]any{"scrapeTargets": []any{" 10.0.0.2:8001 ", "node-b:9100", ""}},
 	}); err != nil {
 		t.Fatalf("Install() error = %v", err)
@@ -206,8 +208,8 @@ func TestInstallPrometheusScrapeServers(t *testing.T) {
 
 	service, repo, launcher := newTestService(servers, nil)
 	installedDocker(t, repo, "a")
-	if _, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindPrometheus, Targets: []InstallTarget{{ServerID: "a"}},
+	if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindPrometheus, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 		Spec: map[string]any{"scrapeServerIds": []any{"c1"}, "scrapePort": float64(8001)},
 	}); err != nil {
 		t.Fatalf("Install() error = %v", err)
@@ -237,7 +239,7 @@ func TestInstallPrometheusScrapeServers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			service, repo, _ := newTestService(servers, nil)
 			installedDocker(t, repo, "a")
-			_, err := service.Install(context.Background(), InstallInput{Kind: softwaredomain.KindPrometheus, Targets: []InstallTarget{{ServerID: "a"}}, Spec: tc.spec})
+			_, err := service.Install(context.Background(), softwareapp.InstallInput{Kind: softwaredomain.KindPrometheus, Targets: []softwareapp.InstallTarget{{ServerID: "a"}}, Spec: tc.spec})
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("Install(%v) error = %v, want %v", tc.spec, err, tc.wantErr)
 			}
@@ -248,8 +250,8 @@ func TestInstallPrometheusScrapeServers(t *testing.T) {
 func TestInstallGrafanaDefaultsToLocalPrometheus(t *testing.T) {
 	service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
 	installedDocker(t, repo, "a")
-	if _, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindGrafana, Targets: []InstallTarget{{ServerID: "a"}},
+	if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindGrafana, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 		Spec: map[string]any{"dashboards": []any{"omnistat"}},
 	}); err != nil {
 		t.Fatalf("Install() error = %v", err)
@@ -289,7 +291,7 @@ func TestInstallObservabilityRejectsInvalidSpec(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			service, repo, _ := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
 			installedDocker(t, repo, "a")
-			_, err := service.Install(context.Background(), InstallInput{Kind: tc.kind, Targets: []InstallTarget{{ServerID: "a"}}, Spec: tc.spec})
+			_, err := service.Install(context.Background(), softwareapp.InstallInput{Kind: tc.kind, Targets: []softwareapp.InstallTarget{{ServerID: "a"}}, Spec: tc.spec})
 			if !errors.Is(err, softwaredomain.ErrSpecInvalid) {
 				t.Fatalf("Install(%v) error = %v, want ErrSpecInvalid", tc.spec, err)
 			}
@@ -305,8 +307,8 @@ func TestPlanComposedInstallSkipsStateAndRequiresButValidates(t *testing.T) {
 	ready.Provisioning.State = "ready"
 	service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": ready}, nil)
 
-	plan, err := service.PlanComposedInstall(context.Background(), InstallInput{
-		Kind: softwaredomain.KindPrometheus, Targets: []InstallTarget{{ServerID: "a"}},
+	plan, err := service.PlanComposedInstall(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindPrometheus, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 		Spec: map[string]any{"scrapeJob": "omnistat", "scrapeTargets": []string{"10.0.0.2:8001"}},
 	})
 	if err != nil {
@@ -322,8 +324,8 @@ func TestPlanComposedInstallSkipsStateAndRequiresButValidates(t *testing.T) {
 		plan.Spec["containerRuntime"] != "docker-ce" {
 		t.Errorf("plan = %+v, want the default version on the default runtime", plan)
 	}
-	podmanPlan, err := service.PlanComposedInstall(context.Background(), InstallInput{
-		Kind: softwaredomain.KindGrafana, Targets: []InstallTarget{{ServerID: "a"}},
+	podmanPlan, err := service.PlanComposedInstall(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindGrafana, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 		Spec: map[string]any{"containerRuntime": "podman"},
 	})
 	if err != nil || podmanPlan.TrustedVars["swallow_grafana_container_runtime"] != "podman" {
@@ -341,15 +343,15 @@ func TestPlanComposedInstallSkipsStateAndRequiresButValidates(t *testing.T) {
 		t.Errorf("assignment = %+v, want pending under slurm-deploy", assignment)
 	}
 
-	if _, err := service.PlanComposedInstall(context.Background(), InstallInput{
-		Kind: softwaredomain.KindGrafana, Targets: []InstallTarget{{ServerID: "a"}},
+	if _, err := service.PlanComposedInstall(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindGrafana, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 		Spec: map[string]any{"dashboards": []string{"nope"}},
 	}); !errors.Is(err, softwaredomain.ErrSpecInvalid) {
 		t.Errorf("PlanComposedInstall(bad spec) error = %v, want ErrSpecInvalid", err)
 	}
 	_ = repo.Upsert(context.Background(), &softwaredomain.Assignment{ServerID: "a", Kind: softwaredomain.KindPodman, State: softwaredomain.StateInstalled})
-	if _, err := service.PlanComposedInstall(context.Background(), InstallInput{
-		Kind: softwaredomain.KindDockerCE, Targets: []InstallTarget{{ServerID: "a"}},
+	if _, err := service.PlanComposedInstall(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindDockerCE, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 	}); !errors.Is(err, softwaredomain.ErrMutuallyExclusive) {
 		t.Errorf("PlanComposedInstall(docker over podman) error = %v, want ErrMutuallyExclusive", err)
 	}

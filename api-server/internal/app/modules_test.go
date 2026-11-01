@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
 	moduledomain "github.com/maple52046/swallow/internal/core/module/domain"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
@@ -26,6 +28,16 @@ func testRegistry(t *testing.T) *moduledomain.Registry {
 		t.Fatalf("moduleRegistry() error = %v", err)
 	}
 	return registry
+}
+
+// testModules composes the compiled modules as a process does.
+func testModules(t *testing.T) composedModules {
+	t.Helper()
+	modules, err := composeModules()
+	if err != nil {
+		t.Fatalf("composeModules() error = %v", err)
+	}
+	return modules
 }
 
 // allowlist reads the release's playbook allowlist as name -> path.
@@ -107,28 +119,55 @@ func TestModulePlaybooksAgreeWithTheAllowlist(t *testing.T) {
 	}
 }
 
-// Every Workflow kind is planned by the core or by exactly one module, and every kind a module
-// claims is one the Workflow model accepts.
+// Every Workflow kind the build accepts is planned by the core or by exactly one module, and every
+// kind a module claims is one the build accepts.
 func TestEveryWorkflowKindHasOneOwner(t *testing.T) {
-	registry := testRegistry(t)
+	modules := testModules(t)
 	core := map[string]bool{}
 	for _, kind := range coreWorkflowKinds {
 		core[kind] = true
 	}
-	valid := map[string]bool{}
-	for _, kind := range workflowdomain.ValidWorkflowKinds {
-		valid[string(kind)] = true
-		_, moduleOwned := registry.ForWorkflowKind(string(kind))
+	for _, kind := range modules.workflowKinds.List() {
+		_, moduleOwned := modules.registry.ForWorkflowKind(string(kind))
 		if core[string(kind)] == moduleOwned {
 			t.Errorf("Workflow kind %q: core-owned %v, module-owned %v; want exactly one owner", kind, core[string(kind)], moduleOwned)
 		}
 	}
-	for _, module := range registry.Modules() {
+	for _, module := range modules.registry.Modules() {
 		for _, kind := range module.Manifest.WorkflowKinds {
-			if !valid[kind] {
-				t.Errorf("module %s claims Workflow kind %q, which the Workflow model does not accept", module.Manifest.Ref(), kind)
+			if !modules.workflowKinds.Valid(workflowdomain.WorkflowKind(kind)) {
+				t.Errorf("module %s claims Workflow kind %q, which the build does not accept", module.Manifest.Ref(), kind)
 			}
 		}
+	}
+}
+
+// Every Software module provides one catalog kind named by its id, whose Workflows require deployed
+// targets, and the core keeps no kind of its own.
+func TestEverySoftwareModuleProvidesItsKind(t *testing.T) {
+	modules := testModules(t)
+	var ids []string
+	for _, module := range modules.registry.Modules() {
+		if module.Manifest.Kind != moduledomain.KindSoftware {
+			continue
+		}
+		ids = append(ids, module.Manifest.ID)
+		kind := softwaredomain.Kind(module.Manifest.ID)
+		if _, ok := modules.software.Lookup(kind); !ok {
+			t.Errorf("software module %s is not in the catalog", module.Manifest.Ref())
+		}
+		for _, workflowKind := range []string{kind.InstallWorkflowKind(), kind.UninstallWorkflowKind()} {
+			if got := modules.workflowKinds.RequiredProvisioningState(workflowdomain.WorkflowKind(workflowKind)); got != "deployed" {
+				t.Errorf("%s requires %q, want deployed", workflowKind, got)
+			}
+		}
+	}
+	var kinds []string
+	for _, entry := range modules.software.Entries() {
+		kinds = append(kinds, string(entry.Kind))
+	}
+	if !slices.Equal(ids, kinds) {
+		t.Errorf("catalog kinds = %v, want the Software modules %v", kinds, ids)
 	}
 }
 

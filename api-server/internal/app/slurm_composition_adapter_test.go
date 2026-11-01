@@ -184,7 +184,7 @@ func TestComposedContainerRuntime(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			launcher := platformDeploymentLauncher{software: softwareapp.NewSoftwareService(&storetest.Transactor{}, tc.assignments, nil, nil)}
+			launcher := platformDeploymentLauncher{software: softwareapp.NewSoftwareService(&storetest.Transactor{}, testModules(t).software, tc.assignments, nil, nil)}
 			kind, servers, err := launcher.composedContainerRuntime(context.Background(), tc.launch)
 			if err != nil {
 				t.Fatalf("composedContainerRuntime() error = %v", err)
@@ -292,7 +292,7 @@ func TestDeviceMetricsExporterSoftwareSpecs(t *testing.T) {
 
 // The exporter's container method composes the observability Server's runtime like Omnistat's.
 func TestComposedContainerRuntimeForTheDeviceMetricsExporter(t *testing.T) {
-	launcher := platformDeploymentLauncher{software: softwareapp.NewSoftwareService(&storetest.Transactor{}, assignmentList{}, nil, nil)}
+	launcher := platformDeploymentLauncher{software: softwareapp.NewSoftwareService(&storetest.Transactor{}, testModules(t).software, assignmentList{}, nil, nil)}
 	launch := platformdomain.DeploymentLaunch{DeviceMetricsExporter: &platformdomain.DeviceMetricsExporterLaunch{
 		ObservabilityServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallContainer,
 	}}
@@ -345,8 +345,8 @@ func (slurmTestCatalog) Resolve(name string) (string, error) { return name + ".y
 func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
 	servers := slurmTestServers{gpus: map[string]bool{"s2": true, "s3": true}}
 	launcher := platformDeploymentLauncher{
-		operations: workflowapp.NewExecutionService(servers, ntpTestAutomation{}, slurmTestCatalog{}, nil, nil, nil),
-		software:   softwareapp.NewSoftwareService(&storetest.Transactor{}, assignmentList{}, servers, nil),
+		operations: workflowapp.NewExecutionService(servers, ntpTestAutomation{}, slurmTestCatalog{}, testModules(t).workflowKinds, nil, nil, nil),
+		software:   softwareapp.NewSoftwareService(&storetest.Transactor{}, testModules(t).software, assignmentList{}, servers, nil),
 	}
 	launch := platformdomain.DeploymentLaunch{
 		Platform:        &platformdomain.Platform{ID: "plat-1", Name: "lab", Type: platformdomain.PlatformTypeSlurm},

@@ -423,8 +423,8 @@ Response `200 OK`: `{ "success": true }`.
 
 ## Implementation Notes
 
-api-server dials `http://{primary address}:2375` (the port is the domain constant the install
-playbook opens) using unversioned Engine API paths, so any Engine version the Docker CE packages
+api-server dials `http://{primary address}:2375` (the port is the Docker CE module's constant the
+install playbook opens) using unversioned Engine API paths, so any Engine version the Docker CE packages
 install is served by its own current API version. Requests are bounded to 60 seconds, and image
 pulls to 55 minutes. A pull is not tied to the caller's connection: if the client goes away, the
 pull still runs to completion or to that bound. When the bound ends a pull, the Engine aborts it;

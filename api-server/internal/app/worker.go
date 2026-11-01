@@ -46,7 +46,8 @@ import (
 // HTTP and periodic inventory reconciliation remain in the API process.
 func RunWorker(cfg config.APIConfig) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-	if _, err := moduleRegistry(); err != nil {
+	modules, err := composeModules()
+	if err != nil {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -198,7 +199,7 @@ func RunWorker(cfg config.APIConfig) error {
 	}
 	// The worker's Runners return no result data, so it registers only projections; the Ansible
 	// executor records results.
-	engine, err := workflowapp.NewEngine(transactor, operations, ownership, workflowPlanCatalog(),
+	engine, err := workflowapp.NewEngine(transactor, operations, ownership, workflowPlanCatalog(modules.workflowKinds),
 		workflowapp.CompletionHandlers{Projections: workflowProjections(servers, softwareAssignments, platforms, platforms, platforms)},
 		cfg.OperationMaxParallelism)
 	if err != nil {

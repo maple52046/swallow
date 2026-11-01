@@ -16,8 +16,8 @@ import (
 // (decision 060). Deploy launchers declare it on provision-os.
 const compensationReturnCanceledDeployment = "return-canceled-deployment"
 
-// workflowPlanCatalog returns the registered plan catalog.
-func workflowPlanCatalog() workflowdomain.PlanCatalog {
+// workflowPlanCatalog returns the registered plan catalog, accepting the Workflow kinds of kinds.
+func workflowPlanCatalog(kinds workflowdomain.WorkflowKinds) workflowdomain.PlanCatalog {
 	provisioner := func(rerun workflowdomain.RerunPolicy) workflowdomain.TaskKind {
 		return workflowdomain.TaskKind{Runner: workflowdomain.RunnerKindProvisioner, Rerun: rerun, Resume: workflowdomain.ResumeObserve}
 	}
@@ -54,6 +54,7 @@ func workflowPlanCatalog() workflowdomain.PlanCatalog {
 		},
 		Completions:   completionClasses(),
 		Compensations: map[string]bool{compensationReturnCanceledDeployment: true},
+		WorkflowKinds: kinds,
 	}
 }
 

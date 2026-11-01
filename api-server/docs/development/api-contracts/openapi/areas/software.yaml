@@ -1013,14 +1013,11 @@ components:
   schemas:
     SoftwareKind:
       type: string
-      description: A Managed Software kind (glossary Managed Software).
-      enum:
-        - docker-ce
-        - podman
-        - nfs
-        - prometheus
-        - grafana
-        - device-metrics-exporter
+      description: >-
+        A Managed Software kind (glossary Managed Software): the id of the Software module that
+        provides it. The release's kinds are the ones GET /software/catalog lists.
+      pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+      example: docker-ce
     SoftwareRole:
       type: string
       description: A variant role of a kind that has roles (NFS).

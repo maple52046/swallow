@@ -6045,10 +6045,10 @@ export interface components {
             serverId: string;
         };
         /**
-         * @description A Managed Software kind (glossary Managed Software).
-         * @enum {string}
+         * @description A Managed Software kind (glossary Managed Software): the id of the Software module that provides it. The release's kinds are the ones GET /software/catalog lists.
+         * @example docker-ce
          */
-        SoftwareKind: "docker-ce" | "podman" | "nfs" | "prometheus" | "grafana" | "device-metrics-exporter";
+        SoftwareKind: string;
         /**
          * @description A variant role of a kind that has roles (NFS).
          * @enum {string}

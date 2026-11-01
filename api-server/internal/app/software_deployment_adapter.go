@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	moduledomain "github.com/maple52046/swallow/internal/core/module/domain"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
@@ -43,34 +44,22 @@ const (
 	softwareStepKindClear  = "clear-software-assignment"
 )
 
-// softwarePlaybook maps a software kind to its deploy/uninstall Workflow kind and hardcoded
-// playbook name. Names are hardcoded on the launcher (like Slurm), so a software install needs no
-// site playbookMappings entry.
+// softwarePlaybook is a software kind's install or uninstall Workflow kind and playbook. Both are
+// derived from the kind, which the Software module's manifest declares, so a software install needs
+// no site playbookMappings entry.
 type softwarePlaybook struct {
 	workflowKind workflowdomain.WorkflowKind
 	playbook     string
 }
 
-var softwareInstallPlaybooks = map[softwaredomain.Kind]softwarePlaybook{
-	softwaredomain.KindDockerCE:   {workflowdomain.WorkflowKindConfigureDockerCE, "deploy-docker-ce"},
-	softwaredomain.KindPodman:     {workflowdomain.WorkflowKindConfigurePodman, "deploy-podman"},
-	softwaredomain.KindNFS:        {workflowdomain.WorkflowKindConfigureNFS, "deploy-nfs"},
-	softwaredomain.KindPrometheus: {workflowdomain.WorkflowKindConfigurePrometheus, "deploy-prometheus"},
-	softwaredomain.KindGrafana:    {workflowdomain.WorkflowKindConfigureGrafana, "deploy-grafana"},
-	softwaredomain.KindDeviceMetricsExporter: {
-		workflowdomain.WorkflowKindConfigureDeviceMetricsExporter, "deploy-device-metrics-exporter",
-	},
+// installPlaybook is the configure-<kind> Workflow kind and deploy-<kind> playbook.
+func installPlaybook(kind softwaredomain.Kind) softwarePlaybook {
+	return softwarePlaybook{workflowdomain.WorkflowKind(kind.InstallWorkflowKind()), kind.InstallPlaybook()}
 }
 
-var softwareUninstallPlaybooks = map[softwaredomain.Kind]softwarePlaybook{
-	softwaredomain.KindDockerCE:   {workflowdomain.WorkflowKindUninstallDockerCE, "uninstall-docker-ce"},
-	softwaredomain.KindPodman:     {workflowdomain.WorkflowKindUninstallPodman, "uninstall-podman"},
-	softwaredomain.KindNFS:        {workflowdomain.WorkflowKindUninstallNFS, "uninstall-nfs"},
-	softwaredomain.KindPrometheus: {workflowdomain.WorkflowKindUninstallPrometheus, "uninstall-prometheus"},
-	softwaredomain.KindGrafana:    {workflowdomain.WorkflowKindUninstallGrafana, "uninstall-grafana"},
-	softwaredomain.KindDeviceMetricsExporter: {
-		workflowdomain.WorkflowKindUninstallDeviceMetricsExporter, "uninstall-device-metrics-exporter",
-	},
+// uninstallPlaybook is the uninstall-<kind> Workflow kind and playbook.
+func uninstallPlaybook(kind softwaredomain.Kind) softwarePlaybook {
+	return softwarePlaybook{workflowdomain.WorkflowKind(kind.UninstallWorkflowKind()), kind.UninstallPlaybook()}
 }
 
 // softwareDeploymentLauncher composes the durable software Workflow. It reuses the operation
@@ -80,6 +69,8 @@ var softwareUninstallPlaybooks = map[softwaredomain.Kind]softwarePlaybook{
 type softwareDeploymentLauncher struct {
 	operations     *workflowapp.ExecutionService
 	orchestrations *workflowapp.WorkflowService
+	// modules gives each software Workflow its module's definition (ADR 075).
+	modules *moduledomain.Registry
 }
 
 // preparedSoftwareWorkflow is the plan the software launcher's prepare steps return
@@ -93,21 +84,13 @@ func (p *preparedSoftwareWorkflow) WorkflowID() string { return p.workflow.ID }
 
 // PrepareInstall plans the install Workflow: prepare-hosts -> configure-<kind> -> record-software.
 func (l softwareDeploymentLauncher) PrepareInstall(ctx context.Context, launch softwareapp.SoftwareLaunch) (softwareapp.PreparedSoftwareWorkflow, error) {
-	mapping, ok := softwareInstallPlaybooks[launch.Kind]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, launch.Kind)
-	}
-	return l.prepare(ctx, launch, mapping, softwareStepKindRecord, "install", "Install "+softwareLabel(launch.Kind))
+	return l.prepare(ctx, launch, installPlaybook(launch.Kind), softwareStepKindRecord, "install", "Install "+launchLabel(launch))
 }
 
 // PrepareUninstall plans the uninstall Workflow: prepare-hosts -> configure-<kind> (uninstall
 // playbook) -> record-software (clear).
 func (l softwareDeploymentLauncher) PrepareUninstall(ctx context.Context, launch softwareapp.SoftwareLaunch) (softwareapp.PreparedSoftwareWorkflow, error) {
-	mapping, ok := softwareUninstallPlaybooks[launch.Kind]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, launch.Kind)
-	}
-	return l.prepare(ctx, launch, mapping, softwareStepKindClear, "uninstall", "Uninstall "+softwareLabel(launch.Kind))
+	return l.prepare(ctx, launch, uninstallPlaybook(launch.Kind), softwareStepKindClear, "uninstall", "Uninstall "+launchLabel(launch))
 }
 
 // PersistWorkflow writes a plan from PrepareInstall or PrepareUninstall. The software service runs
@@ -125,14 +108,13 @@ func (l softwareDeploymentLauncher) PersistWorkflow(ctx context.Context, prepare
 	return created.ID, nil
 }
 
-// softwareLabel is the catalog's operator-facing name for a kind ("Docker CE", "NFS"), so Workflow
-// intents and Step names spell the product as it is written rather than as its slug; an unknown kind
-// falls back to the slug.
-func softwareLabel(kind softwaredomain.Kind) string {
-	if entry, ok := softwaredomain.LookupKind(kind); ok && entry.Label != "" {
-		return entry.Label
+// launchLabel is the kind's operator-facing name ("Docker CE", "NFS"), so Workflow intents and Step
+// names spell the product as it is written rather than as its slug; without one it is the slug.
+func launchLabel(launch softwareapp.SoftwareLaunch) string {
+	if launch.Label != "" {
+		return launch.Label
 	}
-	return string(kind)
+	return string(launch.Kind)
 }
 
 // prepare is the shared install/uninstall composition: the lock check, playbook, and target
@@ -147,6 +129,10 @@ func (l softwareDeploymentLauncher) prepare(
 ) (*preparedSoftwareWorkflow, error) {
 	if l.orchestrations == nil {
 		return nil, fmt.Errorf("durable software deployment is unavailable")
+	}
+	module, ok := l.modules.Module(moduledomain.KindSoftware, string(launch.Kind))
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, launch.Kind)
 	}
 	operationID := uuid.NewString()
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
@@ -192,7 +178,7 @@ func (l softwareDeploymentLauncher) prepare(
 		ID: operationID, Kind: mapping.workflowKind,
 		IntentSummary:  summary,
 		IntentSnapshot: map[string]any{"softwareKind": string(launch.Kind), "mode": mode},
-		Definition:     "software-deployment", DefinitionVersion: 1,
+		Definition:     module.Manifest.Definition(), DefinitionVersion: 1,
 		SiteID:          prepared.SiteID,
 		TargetServerIDs: launch.ServerIDs,
 		Steps:           steps, Jobs: declareJobs(steps, workflowdomain.RetryJob), RequestedBy: launch.RequestedBy,

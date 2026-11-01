@@ -130,7 +130,7 @@ func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput)
 
 // create is Create's unit of work; it must run inside a transaction.
 func (s *WorkflowService) create(ctx context.Context, input CreateWorkflowInput) (*WorkflowItem, error) {
-	if !input.Kind.Valid() {
+	if !s.catalog.WorkflowKinds.Valid(input.Kind) {
 		return nil, fmt.Errorf("%w: invalid kind %q", ErrInvalidOperation, input.Kind)
 	}
 	if strings.TrimSpace(input.Definition) == "" || input.DefinitionVersion <= 0 {

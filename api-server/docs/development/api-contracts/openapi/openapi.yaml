@@ -13205,14 +13205,9 @@ components:
         - serverId
       type: object
     SoftwareKind:
-      description: A Managed Software kind (glossary Managed Software).
-      enum:
-        - docker-ce
-        - podman
-        - nfs
-        - prometheus
-        - grafana
-        - device-metrics-exporter
+      description: 'A Managed Software kind (glossary Managed Software): the id of the Software module that provides it. The release''s kinds are the ones GET /software/catalog lists.'
+      example: docker-ce
+      pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
       type: string
     SoftwareRole:
       description: A variant role of a kind that has roles (NFS).

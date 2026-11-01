@@ -13,7 +13,12 @@
   ],
   "taskKinds": [],
   "completions": [],
-  "hooks": [],
+  "hooks": [
+    {
+      "name": "software",
+      "reason": "Validates the install method, release, listen address, retention, and scrape targets, records the pinned defaults, and names the scraped Servers the core checks against the target's Site; the catalog entry travels with it."
+    }
+  ],
   "capabilities": [
     "host-automation"
   ],

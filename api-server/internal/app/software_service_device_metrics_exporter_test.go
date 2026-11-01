@@ -1,4 +1,4 @@
-package application
+package app
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+
+	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 )
 
 // gpuServer is a deployed Server whose GPU Inventory lists AMD compute GPUs beside a console GPU.
@@ -31,8 +33,8 @@ func (n fakePlatformNames) PlatformName(_ context.Context, platformID string) (s
 
 func TestDeviceMetricsExporterStandaloneInstall(t *testing.T) {
 	service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": gpuServer("a")}, nil)
-	if _, err := service.Install(context.Background(), InstallInput{
-		Kind: softwaredomain.KindDeviceMetricsExporter, Targets: []InstallTarget{{ServerID: "a"}},
+	if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindDeviceMetricsExporter, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 	}); err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
@@ -73,8 +75,8 @@ func TestDeviceMetricsExporterStandaloneRefusals(t *testing.T) {
 				map[string]bool{"member": true},
 			)
 			service.AttachPlatformNames(fakePlatformNames{"platform-a": {"lab-slurm", "slurm"}})
-			_, err := service.Install(context.Background(), InstallInput{
-				Kind: softwaredomain.KindDeviceMetricsExporter, Targets: []InstallTarget{{ServerID: tc.server}}, Spec: tc.spec,
+			_, err := service.Install(context.Background(), softwareapp.InstallInput{
+				Kind: softwaredomain.KindDeviceMetricsExporter, Targets: []softwareapp.InstallTarget{{ServerID: tc.server}}, Spec: tc.spec,
 			})
 			if !errors.Is(err, tc.want) || !strings.Contains(err.Error(), tc.text) {
 				t.Fatalf("Install() error = %v, want %v containing %q", err, tc.want, tc.text)
@@ -92,8 +94,8 @@ func TestDeviceMetricsExporterComposedOntoClaimedServers(t *testing.T) {
 	claimed := gpuServer("a")
 	claimed.PlatformClaim = &serverdomain.PlatformClaim{PlatformID: "platform-a"}
 	service, _, _ := newTestService(map[string]*serverdomain.Server{"a": claimed}, nil)
-	install, err := service.PlanComposedInstall(context.Background(), InstallInput{
-		Kind: softwaredomain.KindDeviceMetricsExporter, Targets: []InstallTarget{{ServerID: "a"}},
+	install, err := service.PlanComposedInstall(context.Background(), softwareapp.InstallInput{
+		Kind: softwaredomain.KindDeviceMetricsExporter, Targets: []softwareapp.InstallTarget{{ServerID: "a"}},
 	})
 	if err != nil {
 		t.Fatalf("PlanComposedInstall() error = %v", err)
@@ -112,7 +114,7 @@ func TestDeviceMetricsExporterUninstallRefusesClaimedServers(t *testing.T) {
 	})
 
 	server.PlatformClaim = &serverdomain.PlatformClaim{PlatformID: "platform-a"}
-	_, err := service.Uninstall(context.Background(), UninstallInput{Kind: softwaredomain.KindDeviceMetricsExporter, ServerIDs: []string{"a"}})
+	_, err := service.Uninstall(context.Background(), softwareapp.UninstallInput{Kind: softwaredomain.KindDeviceMetricsExporter, ServerIDs: []string{"a"}})
 	if !errors.Is(err, softwaredomain.ErrPlatformClaimed) || !strings.Contains(err.Error(), "Platform platform-a") {
 		t.Fatalf("Uninstall() error = %v, want ErrPlatformClaimed naming the Platform by id", err)
 	}
@@ -121,7 +123,7 @@ func TestDeviceMetricsExporterUninstallRefusesClaimedServers(t *testing.T) {
 	}
 
 	server.PlatformClaim = nil
-	if _, err := service.Uninstall(context.Background(), UninstallInput{Kind: softwaredomain.KindDeviceMetricsExporter, ServerIDs: []string{"a"}}); err != nil {
+	if _, err := service.Uninstall(context.Background(), softwareapp.UninstallInput{Kind: softwaredomain.KindDeviceMetricsExporter, ServerIDs: []string{"a"}}); err != nil {
 		t.Fatalf("Uninstall() of an unclaimed Server error = %v", err)
 	}
 	if launcher.lastLaunch.TrustedVars["swallow_device_metrics_exporter_version"] != softwaredomain.DeviceMetricsExporterVersion {

@@ -38,7 +38,8 @@ import (
 // requires_attention instead of guessing an outcome.
 func RunAnsibleExecutor(cfg config.APIConfig) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-	if _, err := moduleRegistry(); err != nil {
+	modules, err := composeModules()
+	if err != nil {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -122,8 +123,8 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	}
 	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignments})
 	credentials := platformapp.NewDeploymentCredentialService(transactor, platforms, integrations, membership)
-	durable := workflowapp.NewWorkflowService(transactor, orchestrations, workflowPlanCatalog(), operationSecrets)
-	operationService := workflowapp.NewExecutionService(servers, configurations, catalog, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
+	durable := workflowapp.NewWorkflowService(transactor, orchestrations, workflowPlanCatalog(modules.workflowKinds), operationSecrets)
+	operationService := workflowapp.NewExecutionService(servers, configurations, catalog, modules.workflowKinds, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
 	operationService.AttachWorkflow(durable)
 	results := workflowResults(platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers})
 	// Ansible Tasks arrive as Temporal activities on the executor's own task queue (decision 072).
@@ -136,7 +137,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("resource ownership repo: %w", err)
 	}
-	engine, err := workflowapp.NewEngine(transactor, orchestrations, ownership, workflowPlanCatalog(), workflowapp.CompletionHandlers{
+	engine, err := workflowapp.NewEngine(transactor, orchestrations, ownership, workflowPlanCatalog(modules.workflowKinds), workflowapp.CompletionHandlers{
 		Projections: workflowProjections(servers, softwareAssignments, platforms, platforms, platforms), Results: results,
 	}, cfg.OperationMaxParallelism)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
+	dockerce "github.com/maple52046/swallow/modules/software/docker-ce"
 )
 
 // Slurm feature composition (decisions 063, 066, and 068). After its install-platform Task a Slurm
@@ -121,16 +122,6 @@ func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring 
 	}
 }
 
-// composedSoftwarePlaybook resolves a composed kind's configure Workflow kind and playbook from the
-// same table the standalone software launcher uses, so a composed install runs the same playbook.
-func composedSoftwarePlaybook(kind softwaredomain.Kind) (softwarePlaybook, error) {
-	mapping, ok := softwareInstallPlaybooks[kind]
-	if !ok {
-		return softwarePlaybook{}, fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, kind)
-	}
-	return mapping, nil
-}
-
 // composedPlan is the composed part of a Slurm deployment: the Tasks to append after
 // install-platform and the software installs whose pending assignments are written once the
 // Workflow exists.
@@ -173,7 +164,7 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	if len(runtimeTargets) > 0 {
 		previous, err = l.appendComposedInstall(ctx, &plan, launch, operationID, provisionFirst, previous,
 			runtime, runtimeTargets, containerRuntimeSpec(runtime),
-			"Install "+softwareLabel(runtime)+" on "+launch.Platform.Name, composedInstallExtras{})
+			"Install "+l.software.Label(runtime)+" on "+launch.Platform.Name, composedInstallExtras{})
 		if err != nil {
 			return plan, err
 		}
@@ -186,7 +177,7 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	for _, kind := range monitoringComposedSoftware {
 		previous, err = l.appendComposedInstall(ctx, &plan, launch, operationID, provisionFirst, previous,
 			kind, observability, monitoringSoftwareSpec(kind, monitoring, runtime),
-			"Install "+softwareLabel(kind)+" for "+monitoring.label+" on "+launch.Platform.Name, composedInstallExtras{})
+			"Install "+l.software.Label(kind)+" for "+monitoring.label+" on "+launch.Platform.Name, composedInstallExtras{})
 		if err != nil {
 			return plan, err
 		}
@@ -205,7 +196,7 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 		// the feature Task it replaced, because the scrape check runs on the observability Server.
 		_, err = l.appendComposedInstall(ctx, &plan, launch, operationID, provisionFirst, previous,
 			monitoring.composedKind, monitoring.composedServerIDs, map[string]any{},
-			"Install "+softwareLabel(monitoring.composedKind)+" on "+launch.Platform.Name,
+			"Install "+l.software.Label(monitoring.composedKind)+" on "+launch.Platform.Name,
 			composedInstallExtras{
 				ansibleTargetIDs: launch.TargetServerIDs, trustedVars: trustedVars,
 				completions: monitoring.completions(launch.Platform.ID, operationID),
@@ -269,12 +260,10 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 		Kind: kind, Targets: targets, Spec: spec, RequestedBy: launch.RequestedBy,
 	})
 	if err != nil {
-		return "", fmt.Errorf("%w: %s: %v", platformdomain.ErrComposedSoftwareConflict, softwareLabel(kind), err)
+		return "", fmt.Errorf("%w: %s: %v", platformdomain.ErrComposedSoftwareConflict, l.software.Label(kind), err)
 	}
-	mapping, err := composedSoftwarePlaybook(kind)
-	if err != nil {
-		return "", err
-	}
+	// The same playbook the standalone software launcher runs for the kind.
+	mapping := installPlaybook(kind)
 	trustedVars := install.TrustedVars
 	if len(extras.trustedVars) > 0 {
 		trustedVars = make(map[string]any, len(install.TrustedVars)+len(extras.trustedVars))
@@ -302,7 +291,7 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 	job := "configure-" + string(kind)
 	plan.steps = append(plan.steps,
 		workflowdomain.Task{
-			ID: installID, Kind: "ansible-playbook", Name: "Install " + softwareLabel(kind),
+			ID: installID, Kind: "ansible-playbook", Name: "Install " + l.software.Label(kind),
 			Job:      job,
 			Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: []string{previous},
 			Targets:    prepared.Targets,
@@ -311,7 +300,7 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 			Completion: append([]workflowdomain.Completion{softwareFailure(kind, install.ServerIDs)}, extras.completions...),
 		},
 		workflowdomain.Task{
-			ID: recordID, Kind: softwareStepKindRecord, Name: "Record " + softwareLabel(kind) + " assignment",
+			ID: recordID, Kind: softwareStepKindRecord, Name: "Record " + l.software.Label(kind) + " assignment",
 			Job:        job,
 			Executor:   workflowdomain.RunnerKindInternal,
 			DependsOn:  []string{installID},
@@ -388,7 +377,7 @@ func (l platformDeploymentLauncher) assignedContainerRuntime(ctx context.Context
 // API off: neither Slurm workloads nor Omnistat need it.
 func containerRuntimeSpec(kind softwaredomain.Kind) map[string]any {
 	if kind == softwaredomain.KindDockerCE {
-		return map[string]any{softwaredomain.SpecEnableAPI: false}
+		return map[string]any{dockerce.SpecEnableAPI: false}
 	}
 	return map[string]any{}
 }

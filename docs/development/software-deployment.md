@@ -9,10 +9,11 @@
 它與 [platform-deployment.md](platform-deployment.md) 平行：platform deployment 佈署由多個
 component 組成的 runtime；software deployment 佈署單一軟體及其變體。
 
-> **目標結構**：依 [decision 070](../decisions/070-core-providers-and-extensions.md)，每個 Managed Software
-> kind 由一個 **Software 模組**提供（見 [core-and-extensions.md](core-and-extensions.md)）；Software Assignment
-> 已有 desired 與 last-applied，是最接近 [desired-state-model.md](desired-state-model.md) 的現有設計。
-> 模組第一階段實作前，本文件描述的現行做法不變。
+> **模組**：每個 Managed Software kind 由一個 **Software 模組**提供（[decision 070](../decisions/070-core-providers-and-extensions.md)、
+> [decision 075](../decisions/075-module-contract-v1.md)，見 [core-and-extensions.md](core-and-extensions.md)）。core 不認得任何
+> kind：catalog 由各模組的 `software` hook 組成（§2）。kind 專屬的產品常數（版本、port）仍在 core，之後隨 Platform
+> 模組一起搬出。Software Assignment 已有 desired 與 last-applied，是最接近
+> [desired-state-model.md](desired-state-model.md) 的現有設計。
 
 ## 0. 權威分界：佈署對象，不是 OS 管線
 
@@ -72,8 +73,16 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
 | `grafana` | 無 role；`installMethod`；`containerRuntime` | `installMethod`、`containerRuntime`、`version`（預設 `12.4.12`）、`prometheusUrl`（省略＝同機 Prometheus）、`dashboards`（bundle：`omnistat`、`device-metrics-exporter`） | container method 需 runtime 已 `installed` |
 | `device-metrics-exporter` | 無 role；只有 native 一種安裝路徑 | 無（版本固定 `1.5.3`，assignment spec 記錄 `version`） | GPU Inventory 須有 AMD compute GPU；拒絕 Kubernetes member 與帶 Platform Claim 的 Server（`refusedForClaimedServers`，install 與 uninstall 皆拒）；OS 限 Ubuntu 24.04（playbook 檢查） |
 
-擴充新 kind（未來 PostgreSQL、LDAP client）就是新增一筆目錄 + 一支 playbook，前提是仍只依賴
-本文件的契約。
+catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴充新 kind（未來 PostgreSQL、LDAP client）
+就是新增一個 Software 模組，前提是仍只依賴本文件的契約：
+
+- `modules/software/<kind>/module.json`：模組 id 就是 kind；宣告 Workflow kind `configure-<kind>`、
+  `uninstall-<kind>`，playbook `deploy-<kind>`、`uninstall-<kind>`，以及 `software` hook 與它的理由。
+- root Go package 實作 `software` hook（core 的 port `Software`）：`Entry` 回傳 catalog entry，`ValidateSpec`、
+  `NormalizeSpec`、`InstallVars` 處理 spec 與 trusted vars，都不做 I/O。spec 指名其他 Server 時另實作
+  `ServerReferences`，core 會檢查它們與 target 在同一個 Site。
+- composition root 啟動時核對上述名稱並組出 catalog，這些 Workflow kind 要求 target 為 `deployed`。
+- 撰寫步驟見[模組撰寫指南](module-authoring.md) §1.1。
 
 **安裝方法**（[decision 063](../decisions/063-omnistat-slurm-observability.md)）：catalog 的
 `installMethods` 列出 kind 可用的安裝方法（第一個是預設），`containerRuntimes` 列出 `container` method
@@ -172,7 +181,7 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
     `swallow_nfs_client_mount_options`
   - Docker/Podman：`swallow_docker_version` / `swallow_podman_version`（選用）
   - Docker CE Engine API：`swallow_docker_enable_api`（boolean，每次 docker-ce run 都帶）、
-    `swallow_docker_api_port`（目前固定 `2375`；由 api-server domain 擁有，explorer 連線用同一值）
+    `swallow_docker_api_port`（目前固定 `2375`；由 docker-ce 模組擁有，explorer 連線用同一值）
   - Prometheus：`swallow_prometheus_install_method`、`swallow_prometheus_container_runtime`
     （native 時為空）、`swallow_prometheus_version`、`swallow_prometheus_listen`（`loopback`／`management`）、
     `swallow_prometheus_retention`、`swallow_prometheus_port`（固定 `9090`，domain 擁有）、
@@ -206,8 +215,8 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
   playbook，供 068 之前受理的 Workflow 重試）。每個 kind 是一個模組，playbook 在
   `api-server/modules/software/<kind>/playbooks/`、專屬 role 在同一模組的 `roles/`；DME 使用 `shared/roles/` 的
   `device_metrics_exporter` 與 `amdgpu_loader`（Slurm 也使用它們）。
-- playbook 名由 launcher **硬編碼**（比照 Slurm / uninstall-kubernetes），**不需**站台
-  `playbookMappings`。
+- playbook 名與 Workflow kind 由 kind 推導（`deploy-<kind>`／`uninstall-<kind>` 與
+  `configure-<kind>`／`uninstall-<kind>`），模組的 manifest 宣告同一組名稱，**不需**站台 `playbookMappings`。
 - Python 依賴 pin 於 `requirements.txt`；image 不安裝任何 collection，所以只用 `ansible.builtin`
   （[模組撰寫指南](module-authoring.md) §4）。
 
@@ -342,15 +351,17 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
 
 | 職責 | 路徑 |
 | --- | --- |
-| Software domain（Assignment、Catalog、repository 介面） | `api-server/internal/core/software/domain/` |
+| Software domain（Assignment、`Catalog` 與 `Software` hook 的 port、spec helper、repository 介面） | `api-server/internal/core/software/domain/` |
+| 各 kind 的 catalog entry、spec 驗證與正規化、trusted vars（`software` hook） | `api-server/modules/software/<kind>/module.go` |
+| 由 registry 組出 catalog 與 Workflow kind | `api-server/internal/app/modules.go`（`composeModules`） |
 | Software use cases（Install / Uninstall / List / Catalog / Sweep） | `api-server/internal/core/software/application/` |
 | Software Mongo repo | `api-server/internal/adapters/store/mongodb/software/` |
 | Software HTTP handler | `api-server/internal/core/software/delivery/` |
-| Software launcher（Job 組裝） | `api-server/internal/app/software_deployment_adapter.go` |
+| Software launcher（Job 組裝；playbook 由 kind 推導，definition 記成模組的 `software/<kind>@<version>`） | `api-server/internal/app/software_deployment_adapter.go` |
 | record/clear internal step | `api-server/internal/app/platform_workflow_step_executor.go` |
 | 失敗標記（`software-assignment-failure` 完成行為） | `api-server/internal/app/workflow_completions.go`、`api-server/internal/app/software_assignment_failure.go` |
 | Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用）與 `amdgpu_loader`；撰寫規則見[模組撰寫指南](module-authoring.md) |
-| Docker Host Explorer（view types、use case、Engine client、handler 與路由） | 全部在 docker-ce 模組：`api-server/modules/software/docker-ce/explorer/`（view types、`DockerExplorerUseCase`）、`explorerhttp/`（handler 與 `RegisterRoutes`）、`dockerengine/`（Engine client）；port 常數 `DockerEngineAPIPort` 與 `DockerAPIEnabled` 仍在 `api-server/internal/core/software/domain/software.go` |
+| Docker Host Explorer（view types、use case、Engine client、handler 與路由） | 全部在 docker-ce 模組：`api-server/modules/software/docker-ce/explorer/`（view types、`DockerExplorerUseCase`）、`explorerhttp/`（handler 與 `RegisterRoutes`）、`dockerengine/`（Engine client）；`EngineAPIPort`、`SpecEnableAPI` 與 `APIEnabled` 在 root package `api-server/modules/software/docker-ce/module.go` |
 | Registry Credential（registry 正規化與解析、service、sealed Mongo repo、handler） | `api-server/internal/core/software/domain/registry.go`、`application/registry_credentials.go`、`delivery/registry_credential_handler.go`、`api-server/internal/adapters/store/mongodb/software/mongo_registry_credential_repo.go` |
 | Device Metrics Exporter（pinned version、port、job attribution） | `api-server/internal/core/software/domain/device_metrics_exporter.go`；Slurm 組入：`api-server/internal/app/slurm_composition_adapter.go` |
 | API 契約 | `api-server/docs/development/api-contracts/api-server/software.md`、`servers-docker.md`、`registry-credentials.md` |

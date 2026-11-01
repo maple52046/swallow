@@ -19,6 +19,7 @@ type ExecutionService struct {
 	servers        serverdomain.ServerRepository
 	configurations workflowdomain.AutomationConfigurationRepository
 	catalog        workflowdomain.PlaybookCatalog
+	kinds          workflowdomain.WorkflowKinds
 	runner         workflowdomain.Runner
 	// events is the durable stream of per-task Ansible events. EventsForRun reads it so a
 	// durable Step's task list is available live during a run, independent of the artifact
@@ -29,11 +30,13 @@ type ExecutionService struct {
 	durable    *WorkflowService
 }
 
-// NewExecutionService constructs the Ansible automation use case.
+// NewExecutionService constructs the Ansible automation use case. kinds are the Workflow kinds the
+// build accepts, the same set the WorkflowService's plan catalog carries.
 func NewExecutionService(
 	servers serverdomain.ServerRepository,
 	configurations workflowdomain.AutomationConfigurationRepository,
 	catalog workflowdomain.PlaybookCatalog,
+	kinds workflowdomain.WorkflowKinds,
 	runner workflowdomain.Runner,
 	events workflowdomain.AnsibleEventRepository,
 	policy PolicyChecker,
@@ -41,7 +44,7 @@ func NewExecutionService(
 ) *ExecutionService {
 	service := &ExecutionService{
 		servers: servers, configurations: configurations,
-		catalog: catalog, runner: runner, events: events, policy: policy,
+		catalog: catalog, kinds: kinds, runner: runner, events: events, policy: policy,
 	}
 	if len(protection) > 0 {
 		service.protection = protection[0]
@@ -88,8 +91,8 @@ type CreateExecutionInput struct {
 // dispatcher starts after the commit. It returns the accepted Workflow.
 func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInput) (*WorkflowItem, error) {
 	kind := workflowdomain.WorkflowKind(strings.TrimSpace(input.Kind))
-	if !kind.Valid() {
-		return nil, fmt.Errorf("%w: kind must be one of %v", ErrInvalidOperation, workflowdomain.ValidWorkflowKinds)
+	if !s.kinds.Valid(kind) {
+		return nil, fmt.Errorf("%w: kind must be one of %v", ErrInvalidOperation, s.kinds.List())
 	}
 	if len(input.TargetServerIDs) == 0 {
 		return nil, fmt.Errorf("%w: targetServerIds is required", ErrInvalidOperation)
@@ -174,7 +177,7 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 }
 
 func (s *ExecutionService) resolveTargets(ctx context.Context, kind workflowdomain.WorkflowKind, ids []string) ([]*serverdomain.Server, string, error) {
-	required := kind.RequiredProvisioningState()
+	required := s.kinds.RequiredProvisioningState(kind)
 	targets := make([]*serverdomain.Server, 0, len(ids))
 	siteID := ""
 	for _, id := range ids {
@@ -193,7 +196,7 @@ func (s *ExecutionService) resolveTargets(ctx context.Context, kind workflowdoma
 				workflowdomain.ErrTargetStateInvalid, server.DisplayName(), required)
 		}
 		// Every Operation mutates its target host, regardless of which playbook carries it.
-		if s.protection == nil && kind.RefusedWhenLocked() && server.Provisioning != nil && server.Provisioning.Locked {
+		if s.protection == nil && s.kinds.RefusedWhenLocked(kind) && server.Provisioning != nil && server.Provisioning.Locked {
 			return nil, "", fmt.Errorf("%w: Server %q is locked. Unlock it before starting this Operation.",
 				workflowdomain.ErrTargetLocked, server.DisplayName())
 		}
@@ -277,12 +280,19 @@ type AutomationConfigurationService struct {
 	configurations workflowdomain.AutomationConfigurationRepository
 	sites          sitedomain.SiteRepository
 	catalog        workflowdomain.PlaybookCatalog
+	kinds          workflowdomain.WorkflowKinds
 	deploymentKeys DeploymentKeySource
 }
 
-// NewAutomationConfigurationService constructs site automation use cases.
-func NewAutomationConfigurationService(configurations workflowdomain.AutomationConfigurationRepository, sites sitedomain.SiteRepository, catalog workflowdomain.PlaybookCatalog) *AutomationConfigurationService {
-	return &AutomationConfigurationService{configurations: configurations, sites: sites, catalog: catalog}
+// NewAutomationConfigurationService constructs site automation use cases. kinds are the Workflow
+// kinds a playbook mapping may name.
+func NewAutomationConfigurationService(
+	configurations workflowdomain.AutomationConfigurationRepository,
+	sites sitedomain.SiteRepository,
+	catalog workflowdomain.PlaybookCatalog,
+	kinds workflowdomain.WorkflowKinds,
+) *AutomationConfigurationService {
+	return &AutomationConfigurationService{configurations: configurations, sites: sites, catalog: catalog, kinds: kinds}
 }
 
 // AttachDeploymentKeys lets reads report CredentialSource deploymentKey once the Deployment Key
@@ -325,7 +335,7 @@ func (s *AutomationConfigurationService) Put(ctx context.Context, configuration 
 		return nil, fmt.Errorf("%w: enabled automation requires knownHosts", ErrInvalidOperation)
 	}
 	for kind, playbook := range configuration.PlaybookMappings {
-		if !kind.Valid() || kind == workflowdomain.WorkflowKindCustom {
+		if !s.kinds.Valid(kind) || kind == workflowdomain.WorkflowKindCustom {
 			return nil, fmt.Errorf("%w: invalid mapped operation kind %q", ErrInvalidOperation, kind)
 		}
 		if _, err := s.catalog.Resolve(playbook); err != nil {
@@ -411,7 +421,7 @@ type PreparedAnsibleStep struct {
 // Create while letting a preceding provision-os Step satisfy the final deployed state.
 func (s *ExecutionService) PrepareAnsibleStep(ctx context.Context, input CreateExecutionInput, operationID string, provisionFirst bool) (*PreparedAnsibleStep, error) {
 	kind := workflowdomain.WorkflowKind(strings.TrimSpace(input.Kind))
-	if !kind.Valid() || len(input.TargetServerIDs) == 0 {
+	if !s.kinds.Valid(kind) || len(input.TargetServerIDs) == 0 {
 		return nil, fmt.Errorf("%w: valid kind and targetServerIds are required", ErrInvalidOperation)
 	}
 	targets := make([]*serverdomain.Server, 0, len(input.TargetServerIDs))
@@ -428,7 +438,7 @@ func (s *ExecutionService) PrepareAnsibleStep(ctx context.Context, input CreateE
 			return nil, fmt.Errorf("%w: %w", ErrInvalidOperation, ErrTargetsSpanSites)
 		}
 		if !provisionFirst {
-			required := kind.RequiredProvisioningState()
+			required := s.kinds.RequiredProvisioningState(kind)
 			if required != "" && (server.Provisioning == nil || server.Provisioning.State != required) {
 				return nil, fmt.Errorf("%w: %s requires %q", workflowdomain.ErrTargetStateInvalid, server.DisplayName(), required)
 			}
