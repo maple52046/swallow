@@ -60,6 +60,8 @@ type composedModules struct {
 	workflowKinds workflowdomain.WorkflowKinds
 	// platformReaders are the Platform modules' reader builders, one per Platform type.
 	platformReaders []platformdomain.ReaderBuilder
+	// accelerators are the Accelerator modules' accelerator hooks, by module id.
+	accelerators platformdomain.Accelerators
 }
 
 // composeModules assembles the registry and derives the software catalog and the accepted Workflow
@@ -82,7 +84,33 @@ func composeModules() (composedModules, error) {
 	if err != nil {
 		return composedModules{}, err
 	}
-	return composedModules{registry: registry, software: software, workflowKinds: kinds, platformReaders: readers}, nil
+	accelerators, err := moduleAccelerators(registry)
+	if err != nil {
+		return composedModules{}, err
+	}
+	return composedModules{
+		registry: registry, software: software, workflowKinds: kinds, platformReaders: readers, accelerators: accelerators,
+	}, nil
+}
+
+// moduleAccelerators collects the accelerator hook of every Accelerator module; a module's id is
+// its accelerator's id.
+func moduleAccelerators(registry *moduledomain.Registry) (platformdomain.Accelerators, error) {
+	accelerators := platformdomain.Accelerators{}
+	for _, module := range registry.Modules() {
+		if module.Manifest.Kind != moduledomain.KindAccelerator {
+			continue
+		}
+		hook, ok := module.Hooks[platformdomain.HookAccelerator].(platformdomain.Accelerator)
+		if !ok {
+			return nil, fmt.Errorf("accelerator module %s has no %q hook", module.Manifest.Ref(), platformdomain.HookAccelerator)
+		}
+		if hook.ID() != module.Manifest.ID {
+			return nil, fmt.Errorf("accelerator module %s provides accelerator %q, want its id", module.Manifest.Ref(), hook.ID())
+		}
+		accelerators[hook.ID()] = hook
+	}
+	return accelerators, nil
 }
 
 // platformReaders collects the platform-reader hook of every Platform module.

@@ -59,12 +59,13 @@ func buildGPUOperatorVars(settings platformdomain.GPUOperatorSettings, controlle
 	return vars
 }
 
-// hasAMDGPUWorkload reports whether any of the workload Servers has an AMD compute GPU in its
-// current provider inventory, which is what makes the GPU Operator worth enabling. It does not
-// choose nodes; the operator's Node Feature Discovery does.
-func hasAMDGPUWorkload(
+// hasComputeGPUWorkload reports whether any of the workload Servers has a compute GPU of the
+// accelerator in its current provider inventory, which is what makes the GPU Operator worth
+// enabling. It does not choose nodes; the operator's Node Feature Discovery does.
+func hasComputeGPUWorkload(
 	ctx context.Context,
 	servers serverdomain.ServerRepository,
+	accelerator platformdomain.Accelerator,
 	workloadIDs []string,
 ) (bool, error) {
 	for _, id := range workloadIDs {
@@ -72,7 +73,7 @@ func hasAMDGPUWorkload(
 		if err != nil {
 			return false, err
 		}
-		if serverdomain.HasAMDComputeGPU(server.Observed.GPUs) {
+		if platformdomain.HasComputeGPU(accelerator, server.Observed.GPUs) {
 			return true, nil
 		}
 	}
@@ -112,6 +113,8 @@ func GPUOperatorReleaseItems() []GPUOperatorReleaseItem {
 // launcher owns Workflow composition and the operation context's busy and lock checks. The
 // deploy-time install is owned by DeployService, which reuses the same normalization and vars.
 type GPUOperatorService struct {
+	// accelerator recognizes the GPUs the operator serves; see AttachAccelerator.
+	accelerator    platformdomain.Accelerator
 	transactor     store.Transactor
 	platforms      platformdomain.PlatformRepository
 	recorder       platformdomain.GPUOperatorRecorder
@@ -119,6 +122,12 @@ type GPUOperatorService struct {
 	lifecycle      platformdomain.LifecycleReader
 	launcher       platformdomain.GPUOperatorLauncher
 	deploymentKeys platformdomain.DeploymentKeyChecker
+}
+
+// AttachAccelerator sets the Accelerator module whose GPUs the GPU Operator serves; without it no
+// workload counts as having GPUs.
+func (s *GPUOperatorService) AttachAccelerator(accelerator platformdomain.Accelerator) {
+	s.accelerator = accelerator
 }
 
 // NewGPUOperatorService wires the change use case. deploymentKeys may be nil (tests); production
@@ -200,7 +209,7 @@ func (s *GPUOperatorService) Configure(ctx context.Context, input ConfigureGPUOp
 		if !ok {
 			return nil, fmt.Errorf("%w: the Platform's Kubernetes version is not recorded", platformdomain.ErrGPUOperatorConflict)
 		}
-		hasGPU, err := hasAMDGPUWorkload(ctx, s.servers, spec.WorkloadServerIDs())
+		hasGPU, err := hasComputeGPUWorkload(ctx, s.servers, s.accelerator, spec.WorkloadServerIDs())
 		if err != nil {
 			return nil, err
 		}

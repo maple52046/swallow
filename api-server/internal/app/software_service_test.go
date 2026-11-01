@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	"github.com/maple52046/swallow/internal/core/store"
@@ -146,9 +147,18 @@ func testSoftwareCatalog() *softwaredomain.Catalog {
 	return modules.software
 }
 
+// testAccelerators are the Accelerator modules compiled into this build.
+func testAccelerators() platformdomain.Accelerators {
+	modules, err := composeModules()
+	if err != nil {
+		panic(err)
+	}
+	return modules.accelerators
+}
+
 func newTestService(servers map[string]*serverdomain.Server, membership map[string]bool) (*softwareapp.SoftwareService, *fakeAssignmentRepo, *fakeLauncher) {
 	repo := newFakeAssignmentRepo()
-	service := softwareapp.NewSoftwareService(&storetest.Transactor{}, testSoftwareCatalog(), repo, &fakeServerRepo{servers: servers}, fakeMembership{kubernetes: membership})
+	service := softwareapp.NewSoftwareService(&storetest.Transactor{}, testSoftwareCatalog(), testAccelerators(), repo, &fakeServerRepo{servers: servers}, fakeMembership{kubernetes: membership})
 	launcher := &fakeLauncher{}
 	service.AttachLauncher(launcher)
 	return service, repo, launcher
@@ -450,7 +460,7 @@ func TestUninstallRejectsMissingAssignment(t *testing.T) {
 // (decision 069), so a refused Workflow leaves no orphaned assignment.
 func TestInstallWritesTheWorkflowAndAssignmentsInOneTransaction(t *testing.T) {
 	repo, launcher, tx := newFakeAssignmentRepo(), &fakeLauncher{}, &storetest.Transactor{}
-	service := softwareapp.NewSoftwareService(tx, testSoftwareCatalog(), repo,
+	service := softwareapp.NewSoftwareService(tx, testSoftwareCatalog(), testAccelerators(), repo,
 		&fakeServerRepo{servers: map[string]*serverdomain.Server{"a": deployedServer("a")}}, fakeMembership{})
 	service.AttachLauncher(launcher)
 

@@ -120,8 +120,9 @@ interface，而是 Platform 模組與 Software 模組提供的能力（§4）。
     application。（`RunnerKind` 已依 port 命名，持久化的值 `ansible`、`maas` 不變；delivery 不再依它分支。）
   - domain 有 Temporal 的執行參照（`TemporalReference`）與 Mongo 的 `bson` struct tag，repository 直接 decode 成
     domain 型別。import 規則守住了 Temporal 與 Mongo 的 SDK，但它們的概念仍在 domain。
-- **Platform 與 AMD**：平台與 AMD 專屬的模型與流程位於 `internal/core/platform` 與 `internal/app`（§4），GPU 分類
-  （PCI vendor id）在 server 的 domain。
+- **Platform 與 AMD**：平台與 AMD 專屬的模型與流程（GPU Operator、GPU driver、Device Metrics Exporter 與 Omnistat 的
+  Platform 功能）位於 `internal/core/platform` 與 `internal/app`（§4）。哪些 GPU 是 AMD 的運算容量已由 AMD 模組的
+  `accelerator` hook 判斷，core 經由 platform domain 的 `Accelerator` port 詢問。
 - **Managed Software**：kind 與產品常數（版本、port、Prometheus／Grafana 的驗證規則）仍在 `internal/core/software`；
   型錄、各 kind 的分支與 Docker Host Explorer 已在各 Software 模組。
 - **BMC 與 hypervisor**：server 的 port 以 Redfish、libvirt 命名，hypervisor 的 `virsh` 指令在 domain。

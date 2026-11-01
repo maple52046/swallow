@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	"github.com/maple52046/swallow/internal/core/store"
@@ -76,28 +77,33 @@ type PlatformNames interface {
 // SoftwareService owns Managed Software policy and drives the launcher. It never talks to Temporal
 // directly; it validates intent, records the swallow-owned assignment, and delegates orchestration.
 type SoftwareService struct {
-	transactor  store.Transactor
-	catalog     *softwaredomain.Catalog
-	assignments softwaredomain.AssignmentRepository
-	servers     serverdomain.ServerRepository
-	membership  MembershipChecker
-	launcher    SoftwareLauncher
+	transactor   store.Transactor
+	catalog      *softwaredomain.Catalog
+	accelerators platformdomain.Accelerators
+	assignments  softwaredomain.AssignmentRepository
+	servers      serverdomain.ServerRepository
+	membership   MembershipChecker
+	launcher     SoftwareLauncher
 	// names is optional; see AttachPlatformNames.
 	names PlatformNames
 }
 
 // NewSoftwareService constructs the Managed Software use cases. transactor is required: an
 // install's or uninstall's Workflow and its assignment changes are written together. catalog is the
-// build's Software modules. The launcher is attached later (like the platform launcher) to keep the
+// build's Software modules and accelerators its Accelerator modules. The launcher is attached later (like the platform launcher) to keep the
 // operation orchestration wiring in the app layer.
 func NewSoftwareService(
 	transactor store.Transactor,
 	catalog *softwaredomain.Catalog,
+	accelerators platformdomain.Accelerators,
 	assignments softwaredomain.AssignmentRepository,
 	servers serverdomain.ServerRepository,
 	membership MembershipChecker,
 ) *SoftwareService {
-	return &SoftwareService{transactor: transactor, catalog: catalog, assignments: assignments, servers: servers, membership: membership}
+	return &SoftwareService{
+		transactor: transactor, catalog: catalog, accelerators: accelerators,
+		assignments: assignments, servers: servers, membership: membership,
+	}
 }
 
 // AttachLauncher wires the Workflow-composing launcher. Install and Uninstall require it.
@@ -284,9 +290,9 @@ func (s *SoftwareService) planInstall(ctx context.Context, input InstallInput, c
 				return installPlan{}, err
 			}
 		}
-		if entry.RequiresAMDComputeGPU && !serverdomain.HasAMDComputeGPU(server.Observed.GPUs) {
-			return installPlan{}, fmt.Errorf("%w: %s lists no AMD compute GPU in its GPU Inventory, which %s needs",
-				softwaredomain.ErrTargetIneligible, server.DisplayName(), entry.Label)
+		if entry.RequiredAccelerator != "" && !s.accelerators.HasComputeGPU(entry.RequiredAccelerator, server.Observed.GPUs) {
+			return installPlan{}, fmt.Errorf("%w: %s lists no %s compute GPU in its GPU Inventory, which %s needs",
+				softwaredomain.ErrTargetIneligible, server.DisplayName(), s.accelerators.Label(entry.RequiredAccelerator), entry.Label)
 		}
 		if entry.RefusedForKubernetesMembers && s.membership != nil {
 			member, err := s.membership.IsKubernetesMember(ctx, serverID)

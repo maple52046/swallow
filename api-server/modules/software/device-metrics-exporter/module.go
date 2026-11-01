@@ -31,8 +31,9 @@ func (Software) Entry() softwaredomain.CatalogEntry {
 		Label:                       "AMD Device Metrics Exporter",
 		RefusedForKubernetesMembers: true,
 		RefusedForClaimedServers:    true,
-		RequiresAMDComputeGPU:       true,
-		SpecFields:                  []string{},
+		// The AMD Accelerator module's id; a Software module names it rather than importing it.
+		RequiredAccelerator: "amd",
+		SpecFields:          []string{},
 	}
 }
 

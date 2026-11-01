@@ -75,6 +75,11 @@ api-server/modules/
   與 playbook `deploy-<id>`、`uninstall-<id>`；root package 以 `software` 為名實作 core 的 `Software` port（catalog
   entry、spec 驗證與正規化、trusted vars），composition root 啟動時核對這些名稱並組出 catalog，詳見
   [software-deployment.md](software-deployment.md) §2。
+- Platform 模組以 `platform-reader` 為名實作 platform domain 的 `ReaderBuilder`：core 的 `ReaderFactory` 把 Platform 的
+  Integration 解析成 `Connection`（endpoint、token、timeout、CA、設定），再交給 Platform type 對應的 builder。
+- Accelerator 模組的 id 就是它的 accelerator id；root package 以 `accelerator` 為名實作 platform domain 的 `Accelerator`
+  port（`ID`、`Label`、`IsCompute`）。需要某家 GPU 的 Software 模組在 catalog entry 以 `RequiredAccelerator` 指名
+  它的 id，不 import 它。
 - 提供 HTTP 路由的模組把 use case 與 delivery 分成子 package，delivery package 匯出 `RegisterRoutes`，由
   `internal/app/api.go` 掛到對應的 router；掛上的路徑必須落在 `routes` 宣告的前綴內。use case 依賴的 core 資料以
   模組自己定義的小介面表達，只列它實際呼叫的方法。docker-ce 的 Docker Host Explorer 是例子：`explorer/` 是 use case，

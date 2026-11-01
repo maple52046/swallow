@@ -84,8 +84,9 @@ type CatalogEntry struct {
 	// with a Platform Claim (decision 067), because that Platform manages the kind on its Servers
 	// (decision 068). A Platform's own composition of the kind is not subject to it.
 	RefusedForClaimedServers bool
-	// RequiresAMDComputeGPU rejects a target whose GPU Inventory lists no AMD compute GPU.
-	RequiresAMDComputeGPU bool
+	// RequiredAccelerator is the id of the Accelerator module whose compute GPUs every target's GPU
+	// Inventory must list, or "" when the kind needs none.
+	RequiredAccelerator string
 	// InstallMethods lists how this kind can be installed (spec installMethod); the first is the
 	// default. Empty for a kind with one fixed install path.
 	InstallMethods []InstallMethod

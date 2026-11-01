@@ -14,7 +14,12 @@
   "completions": [
     "gpu-operator-state"
   ],
-  "hooks": [],
+  "hooks": [
+    {
+      "name": "accelerator",
+      "reason": "Recognizes AMD workload GPUs in a Server's inventory by provider vendor name or by the 1002 PCI vendor id, which a GPU inventory record cannot say by itself."
+    }
+  ],
   "capabilities": [
     "host-automation"
   ],

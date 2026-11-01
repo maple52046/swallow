@@ -72,10 +72,12 @@ func (h *SoftwareHandler) Catalog(c *fiber.Ctx) error {
 			Roles: rolesToStrings(entry.Roles), MutuallyExclusiveWith: kindsToStrings(entry.MutuallyExclusiveWith),
 			RefusedForKubernetesMembers: entry.RefusedForKubernetesMembers,
 			RefusedForClaimedServers:    entry.RefusedForClaimedServers,
-			RequiresAMDComputeGPU:       entry.RequiresAMDComputeGPU,
-			InstallMethods:              methodsToStrings(entry.InstallMethods),
-			ContainerRuntimes:           kindsToStrings(entry.ContainerRuntimes),
-			SpecFields:                  wire.Strings(entry.SpecFields),
+			// The contract field predates any other Accelerator module, so it reads "requires an
+			// accelerator's compute GPU"; the generic Platform API replaces it.
+			RequiresAMDComputeGPU: entry.RequiredAccelerator != "",
+			InstallMethods:        methodsToStrings(entry.InstallMethods),
+			ContainerRuntimes:     kindsToStrings(entry.ContainerRuntimes),
+			SpecFields:            wire.Strings(entry.SpecFields),
 		})
 	}
 	return c.JSON(fiber.Map{"items": items})

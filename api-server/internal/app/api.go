@@ -72,6 +72,7 @@ import (
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	"github.com/maple52046/swallow/internal/shared/version"
+	"github.com/maple52046/swallow/modules/accelerator/amd"
 	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
 	"github.com/maple52046/swallow/modules/software/docker-ce/dockerengine"
 	"github.com/maple52046/swallow/modules/software/docker-ce/explorer"
@@ -475,7 +476,7 @@ func RunAPI(cfg config.APIConfig) error {
 		return fmt.Errorf("software assignment repo init: %w", err)
 	}
 	softwareService := softwareapp.NewSoftwareService(
-		transactor, modules.software, softwareAssignmentRepo, serverRepo,
+		transactor, modules.software, modules.accelerators, softwareAssignmentRepo, serverRepo,
 		kubernetesMembershipChecker{servers: serverRepo, platforms: platformRepo},
 	)
 	softwareService.AttachLauncher(softwareDeploymentLauncher{
@@ -502,6 +503,9 @@ func RunAPI(cfg config.APIConfig) error {
 	deployService.AttachGPUOperatorRecorder(platformRepo)
 	deployService.AttachOmnistatRecorder(platformRepo)
 	deployService.AttachDeviceMetricsExporterRecorder(platformRepo)
+	// The GPU Operator and the Device Metrics Exporter are the AMD Accelerator module's Platform
+	// features, so they serve its GPUs.
+	deployService.AttachAccelerator(modules.accelerators[amd.ID])
 	uninstallService := platformapp.NewUninstallService(
 		platformRepo, serverRepo, lifecycleReader, platformLauncher,
 		serverProtection,
@@ -512,11 +516,13 @@ func RunAPI(cfg config.APIConfig) error {
 		platformService, membershipSync, deployService, uninstallService, slurmClusterRead,
 		kubernetesExplorer, requirementService)
 	// GPU Operator changes after deployment (decision 062) run as their own durable Workflow.
-	platformHandler.AttachGPUOperatorService(platformapp.NewGPUOperatorService(
+	gpuOperatorService := platformapp.NewGPUOperatorService(
 		transactor, platformRepo, platformRepo, serverRepo, lifecycleReader,
 		gpuOperatorLauncher{operations: operationService, orchestrations: orchestrationService},
 		sshKeyService,
-	))
+	)
+	gpuOperatorService.AttachAccelerator(modules.accelerators[amd.ID])
+	platformHandler.AttachGPUOperatorService(gpuOperatorService)
 
 	softwareHandler := softwaredelivery.NewSoftwareHandler(softwareService)
 	softwareSweeper := softwareapp.NewSoftwareAssignmentSweeper(softwareAssignmentRepo, serverRepo)

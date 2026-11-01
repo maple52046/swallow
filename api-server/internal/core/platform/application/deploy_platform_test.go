@@ -20,6 +20,15 @@ import (
 // network mistake produces a platform that cannot form, so it is checked before anything is
 // created. These tests exercise it against in-memory fakes.
 
+// testAccelerator stands in for an Accelerator module: every compute GPU is its workload capacity.
+type testAccelerator struct{}
+
+func (testAccelerator) ID() string    { return "test" }
+func (testAccelerator) Label() string { return "test" }
+func (testAccelerator) IsCompute(gpu serverdomain.GPU) bool {
+	return gpu.ClassifiedKind() == serverdomain.GPUKindCompute
+}
+
 type deployFakePlatformRepo struct {
 	platforms         map[string]*platformdomain.Platform
 	syncPlatformID    string
@@ -283,6 +292,7 @@ func newClaimingDeployHarness(
 	platformService := NewPlatformService(&storetest.Transactor{}, platformRepo, siteRepo, serverRepo, nil, nil)
 	launcher := &recordingLauncher{}
 	service := NewDeployService(platformService, platformRepo, serverRepo, launcher)
+	service.AttachAccelerator(testAccelerator{})
 	service.AttachPlatformClaims(serverRepo)
 	return service, launcher, platformRepo, serverRepo
 }

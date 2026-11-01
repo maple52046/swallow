@@ -142,6 +142,15 @@ type DeployService struct {
 	deviceMetricsExporters platformdomain.DeviceMetricsExporterRecorder
 	// claims writes the accepted deployment's Platform Claims (decision 067); nil in tests.
 	claims serverdomain.PlatformClaimStore
+	// accelerator recognizes the GPUs the GPU Operator and the Device Metrics Exporter serve; nil
+	// (a build without an Accelerator module) finds none.
+	accelerator platformdomain.Accelerator
+}
+
+// AttachAccelerator sets the Accelerator module whose compute GPUs the Platform GPU features
+// (the GPU Operator, the Device Metrics Exporter) serve.
+func (s *DeployService) AttachAccelerator(accelerator platformdomain.Accelerator) {
+	s.accelerator = accelerator
 }
 
 // NewDeployService constructs deployment preflight over Server observations. Which Platform
@@ -475,7 +484,7 @@ func (s *DeployService) validateDeployGPUOperator(
 	}
 	hasGPU := false
 	for _, id := range validated.spec.WorkloadServerIDs() {
-		if server := byID[id]; server != nil && serverdomain.HasAMDComputeGPU(server.Observed.GPUs) {
+		if server := byID[id]; server != nil && platformdomain.HasComputeGPU(s.accelerator, server.Observed.GPUs) {
 			hasGPU = true
 			break
 		}
@@ -534,9 +543,10 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 	if err != nil {
 		return nil, err
 	}
-	gpuComputeIDs := slurmGPUComputeIDs(validated.slurmSpec, validated.targets)
+	gpuComputeIDs := slurmGPUComputeIDs(validated.slurmSpec, validated.targets, s.accelerator)
 	if exporterEnabled && len(gpuComputeIDs) == 0 {
-		return nil, fmt.Errorf("%w: no compute Server has AMD compute GPUs in its GPU Inventory", platformdomain.ErrInvalidDeviceMetricsExporter)
+		return nil, fmt.Errorf("%w: no compute Server has %s compute GPUs in its GPU Inventory",
+			platformdomain.ErrInvalidDeviceMetricsExporter, acceleratorLabel(s.accelerator))
 	}
 
 	gpuStackOwner := strings.TrimSpace(input.GPUStackOwner)
@@ -1241,14 +1251,14 @@ func buildDeviceMetricsExporterVars(
 // check, and the playbook then proves each selected host really exposes GPUs through KFD. A
 // controller-only or login-only Server never gets GRES because it runs no slurmd. The result is
 // never nil so the trusted variable is always a list.
-func slurmGPUComputeIDs(spec platformdomain.SlurmDeploymentSpec, targets []*serverdomain.Server) []string {
+func slurmGPUComputeIDs(spec platformdomain.SlurmDeploymentSpec, targets []*serverdomain.Server, accelerator platformdomain.Accelerator) []string {
 	byID := make(map[string]*serverdomain.Server, len(targets))
 	for _, server := range targets {
 		byID[server.ID] = server
 	}
 	ids := []string{}
 	for _, id := range spec.ComputeServerIDs() {
-		if server := byID[id]; server != nil && serverdomain.HasAMDComputeGPU(server.Observed.GPUs) {
+		if server := byID[id]; server != nil && platformdomain.HasComputeGPU(accelerator, server.Observed.GPUs) {
 			ids = append(ids, id)
 		}
 	}
@@ -1381,4 +1391,12 @@ func deploymentAPIAddressForPreparation(spec platformdomain.DeploymentSpec, targ
 	// Automatic and DHCP addresses are learned after MAAS completes. The playbook resolves the
 	// initial control-plane inventory address at execution time.
 	return "", netip.Addr{}, nil
+}
+
+// acceleratorLabel is the accelerator's vendor name for a message, or "accelerator" without one.
+func acceleratorLabel(accelerator platformdomain.Accelerator) string {
+	if accelerator == nil {
+		return "accelerator"
+	}
+	return accelerator.Label()
 }

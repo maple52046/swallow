@@ -213,6 +213,7 @@ func gpuOperatorHarness(t *testing.T, state platformdomain.PlatformLifecycleStat
 	}}
 	launcher := &recordingGPUOperatorLauncher{}
 	service := NewGPUOperatorService(&storetest.Transactor{}, platforms, &fakeGPUOperatorRecorder{platforms: platforms}, servers, lifecycle, launcher, nil)
+	service.AttachAccelerator(testAccelerator{})
 	return service, launcher, platforms
 }
 
