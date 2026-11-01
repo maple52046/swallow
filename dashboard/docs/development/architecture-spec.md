@@ -139,7 +139,16 @@ dashboard 不自行推導。
 - 使用者概念以 port 呈現（例如「provisioner」），不以 adapter 名稱呈現（例如「MAAS」）；adapter 專屬的設定
   畫面（例如 MAAS Integration 的連線設定）例外。
 
-註冊方式的細節在模組第一階段實作時定案，並更新本節。
+註冊方式（2026-11-02 定案）：
+
+- 模組 UI 放在 `src/modules/<種類>/<id>/`（對應 api-server 的 `modules/<種類>/<id>/`），每個模組匯出一份
+  manifest，型別在 `src/modules/types.ts`：Platform 模組提供 Overview 本體與分頁，Accelerator 模組提供它帶給某個
+  Platform 類型的區塊。
+- `src/modules/registry.ts` 靜態註冊所有 manifest，是 `src/modules/**` 之外唯一可以 import 的模組檔案；外殼
+  （例如 Platform 詳情）依模組 id 查 registry，不 import 模組，也不依類型名稱分支。
+- lint 規則：`src/presentation/**` 只能經 registry 使用模組；domain、application、infrastructure 不使用模組 UI；
+  模組不 import 其他模組（要用別的模組的貢獻就經 registry），也和 presentation 一樣不 import infrastructure。
+- 模組可以使用核心的 presentation 元件、hook 與 port；模組專屬的 API adapter 放在模組資料夾，由 `src/di` 綁定。
 
 ## Experimental features
 

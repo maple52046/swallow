@@ -22,6 +22,31 @@ export default defineConfig([
       'no-restricted-imports': ['error', { patterns: [
         { group: ['@patternfly/*'], message: 'Production UI uses Chakra UI v3; do not reintroduce PatternFly.' },
         { group: ['@/infrastructure/*'], message: 'Presentation must consume application ports through the composition root.' },
+        { group: ['@/modules/*', '!@/modules/registry'], message: 'Shells find module UIs through @/modules/registry, never by importing a module.' },
+      ] }],
+    },
+  },
+  {
+    // Domain, application, and infrastructure never know a module's UI; only the presentation
+    // shells reach modules, and only through the registry.
+    files: ['src/domain/**/*.{ts,tsx}', 'src/application/**/*.{ts,tsx}', 'src/infrastructure/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [
+        { group: ['@patternfly/*'], message: 'Production UI uses Chakra UI v3; do not reintroduce PatternFly.' },
+        { group: ['@/modules/*'], message: 'Only presentation shells use module UIs, through @/modules/registry.' },
+      ] }],
+    },
+  },
+  {
+    // A module uses core and its own folder; it reaches another module's contributions through the
+    // registry, never by importing it, and like presentation it never imports infrastructure.
+    files: ['src/modules/**/*.{ts,tsx}'],
+    ignores: ['src/modules/registry.ts'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [
+        { group: ['@patternfly/*'], message: 'Production UI uses Chakra UI v3; do not reintroduce PatternFly.' },
+        { group: ['@/infrastructure/*'], message: 'Module UIs consume application ports through the composition root.' },
+        { group: ['@/modules/*/*/**'], message: 'A module never imports another module; use @/modules/registry.' },
       ] }],
     },
   },

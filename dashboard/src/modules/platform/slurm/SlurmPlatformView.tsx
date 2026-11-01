@@ -7,7 +7,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { SectionHeader, MetricGrid, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
-import { platformLifecycleKpi, platformSyncKpis, topologyLabel } from './platformDetailShared'
+import { platformLifecycleKpi, platformSyncKpis, topologyLabel } from '@/presentation/pages/platforms/platformDetailShared'
 import { useSlurmCluster } from './useSlurmCluster'
 
 /** Row interaction props applied only when the row maps to a real Server (so it can be opened). */

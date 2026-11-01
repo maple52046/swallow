@@ -8,7 +8,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { SectionHeader, MetricGrid, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
-import { platformLifecycleKpi, platformSyncKpis, topologyLabel } from './platformDetailShared'
+import { platformLifecycleKpi, platformSyncKpis, topologyLabel } from '@/presentation/pages/platforms/platformDetailShared'
 
 /**
  * The Kubernetes-specific body of the platform detail page: a control-plane/worker topology

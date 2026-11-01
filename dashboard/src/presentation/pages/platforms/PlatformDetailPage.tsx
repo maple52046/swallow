@@ -17,23 +17,20 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { platformModuleUI, platformSections } from '@/modules/registry'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
-import { KubernetesPlatformView } from './KubernetesPlatformView'
-import { KubernetesApplicationsTab, KubernetesClusterTab, KubernetesNamespacesTab } from './KubernetesExplorer'
-import { PlatformGPUOperatorSection } from './PlatformGPUOperatorSection'
 import { PlatformLifecycleActions } from './PlatformLifecycleActions'
 import { PlatformLifecycleBadge } from './PlatformLifecycleBadge'
-import { SlurmPlatformView } from './SlurmPlatformView'
 import { usePlatformDetail } from './usePlatformDetail'
 
 /**
  * Platform drill-down shell.
  *
- * Slurm and Kubernetes are structurally different, so this page is a shared shell (header,
- * lifecycle notice, sync, lifecycle actions, related operations) around a per-type body view:
- * KubernetesPlatformView or SlurmPlatformView. Type-specific summaries, member/node tables,
- * and any Slurm-native live reads live in those views, not here, so neither type inherits the
- * other's vocabulary or state model.
+ * Platform types are structurally different, so this page is a shared shell (header, lifecycle
+ * notice, sync, lifecycle actions, related operations) around the Overview body and tabs of the
+ * module that owns the Platform's type, plus the sections other modules contribute to that type
+ * (architecture spec "Module UI"). The shell finds them in the module registry and never branches
+ * on a type name, so no type inherits another's vocabulary or state model.
  */
 export function PlatformDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -88,12 +85,9 @@ export function PlatformDetailPage() {
   }
 
   const { platform, members, loginNodes, operations, reload } = state.data
-  const isKubernetes = platform.type === 'kubernetes'
-  // The live cluster explorer is available only for a Swallow-deployed Kubernetes Platform with
-  // a recorded credential; a legacy registered record or a still-deploying one degrades to just
-  // Overview and Activity. This mirrors the backend eligibility (decision 032) so the explorer
-  // tabs never make a call that can only fail.
-  const explorerEnabled = isKubernetes && platform.origin === 'deployed' && Boolean(platform.integrationId)
+  const module = platformModuleUI(platform.type)
+  const tabs = (module?.tabs ?? []).filter((tab) => tab.available(platform))
+  const sections = platformSections(platform.type)
   const lifecycleOperation =
     operations.find((operation) => operation.id === platform.lifecycleOperationId) ??
     operations.find((operation) => operation.kind === 'deploy-kubernetes' || operation.kind === 'configure-slurm')
@@ -108,7 +102,7 @@ export function PlatformDetailPage() {
         stackActionsOnMobile
         metadata={
           <HStack gap="2" wrap="wrap">
-            <Badge colorPalette={isKubernetes ? 'blue' : 'gray'} variant="subtle">
+            <Badge colorPalette={module?.badgePalette ?? 'gray'} variant="subtle">
               {platform.type}
             </Badge>
             <PlatformLifecycleBadge state={platform.lifecycleState} />
@@ -127,9 +121,7 @@ export function PlatformDetailPage() {
       <Tabs.Root defaultValue="overview" aria-label="Platform details">
         <Tabs.List>
           <Tabs.Trigger value="overview">Overview</Tabs.Trigger>
-          {explorerEnabled && <Tabs.Trigger value="applications">Applications</Tabs.Trigger>}
-          {explorerEnabled && <Tabs.Trigger value="namespaces">Namespaces</Tabs.Trigger>}
-          {explorerEnabled && <Tabs.Trigger value="cluster">Cluster</Tabs.Trigger>}
+          {tabs.map((tab) => <Tabs.Trigger key={tab.value} value={tab.value}>{tab.label}</Tabs.Trigger>)}
           <Tabs.Trigger value="activity">Activity</Tabs.Trigger>
         </Tabs.List>
         <Tabs.Content value="overview">
@@ -144,38 +136,27 @@ export function PlatformDetailPage() {
                 {platform.sync.lastError}. The member list may be stale; last success {formatRelative(platform.sync.lastSucceededAt ?? undefined)}.
               </Alert>
             )}
-            {isKubernetes ? (
-              <>
-                <KubernetesPlatformView platform={platform} members={members} onSelect={(server) => openServer(server.id)} />
-                <PlatformGPUOperatorSection
-                  platform={platform}
-                  members={members}
-                  onChanged={reload}
-                  onOpenWorkflow={(workflowId) => navigate(scopedHref('/workflows/' + workflowId))}
-                />
-              </>
-            ) : (
-              <SlurmPlatformView platform={platform} members={members} loginNodes={loginNodes} onSelect={(server) => openServer(server.id)} />
+            {module && (
+              <module.Overview platform={platform} members={members} loginNodes={loginNodes} onSelectServer={(server) => openServer(server.id)} />
             )}
+            {sections.map(({ Section }, index) => (
+              <Section
+                key={index}
+                platform={platform}
+                members={members}
+                onChanged={reload}
+                onOpenWorkflow={(workflowId) => navigate(scopedHref('/workflows/' + workflowId))}
+              />
+            ))}
             <PlatformMonitoring platform={platform} />
             <PlatformConfiguration platform={platform} />
           </div>
         </Tabs.Content>
-        {explorerEnabled && (
-          <Tabs.Content value="applications">
-            <KubernetesApplicationsTab platform={platform} />
+        {tabs.map(({ value, Content }) => (
+          <Tabs.Content key={value} value={value}>
+            <Content platform={platform} onOpenServer={openServer} />
           </Tabs.Content>
-        )}
-        {explorerEnabled && (
-          <Tabs.Content value="namespaces">
-            <KubernetesNamespacesTab platform={platform} />
-          </Tabs.Content>
-        )}
-        {explorerEnabled && (
-          <Tabs.Content value="cluster">
-            <KubernetesClusterTab platform={platform} onOpenServer={openServer} />
-          </Tabs.Content>
-        )}
+        ))}
         <Tabs.Content value="activity">
           <section className="sw-section">
             <SectionHeader
