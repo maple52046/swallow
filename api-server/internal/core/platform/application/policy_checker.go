@@ -40,8 +40,9 @@ func (c *PolicyChecker) CheckOperation(
 		return fmt.Errorf("%w: %s requires a platformId",
 			workflowdomain.ErrPolicyConflict, kind)
 	}
-	if (kind == workflowdomain.WorkflowKindDeployKubernetes ||
-		kind == workflowdomain.WorkflowKindUninstallKubernetes ||
+	// An uninstall must name a Platform that still exists. A deploy does not: its launcher prepares
+	// the Workflow before the Platform it creates is written, in the same transaction (decision 069).
+	if (kind == workflowdomain.WorkflowKindUninstallKubernetes ||
 		kind == workflowdomain.WorkflowKindUninstallSlurm) && platformID != "" {
 		if _, err := c.platforms.FindByID(ctx, platformID); err != nil {
 			if errors.Is(err, platformdomain.ErrPlatformNotFound) {

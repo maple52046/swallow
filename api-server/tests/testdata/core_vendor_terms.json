@@ -12,7 +12,7 @@
   "internal/core/platform/application/kubernetes_explorer.go": 14,
   "internal/core/platform/application/minimum_resource_validation.go": 1,
   "internal/core/platform/application/platform_service.go": 55,
-  "internal/core/platform/application/policy_checker.go": 6,
+  "internal/core/platform/application/policy_checker.go": 5,
   "internal/core/platform/application/slurm_cluster_read.go": 10,
   "internal/core/platform/application/uninstall_platform.go": 3,
   "internal/core/platform/delivery/deployment_requirement.go": 4,
