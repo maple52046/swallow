@@ -87,6 +87,29 @@ type workflowPlatforms struct {
 	orchestrations workflowdomain.WorkflowRepository
 }
 
+// workflowOutcomeHistory bounds how many of a Platform's newest Workflows WorkflowOutcome searches
+// for reruns; a Platform's realizing Workflow is among its latest.
+const workflowOutcomeHistory = 50
+
+// WorkflowOutcome returns the status of the Platform's Workflow, or of its newest rerun, "" for a
+// Workflow that is gone.
+func (w workflowPlatforms) WorkflowOutcome(ctx context.Context, platformID, workflowID string) (string, error) {
+	workflows, _, err := w.orchestrations.List(ctx, workflowdomain.WorkflowFilter{PlatformID: platformID, Limit: workflowOutcomeHistory})
+	if err != nil {
+		return "", err
+	}
+	outcome, chain := "", map[string]bool{workflowID: true}
+	// Newest first, so walking backwards meets each Workflow before its reruns.
+	for i := len(workflows) - 1; i >= 0; i-- {
+		workflow := workflows[i]
+		if workflow.ID == workflowID || chain[workflow.RetryOfOperationID] {
+			chain[workflow.ID] = true
+			outcome = string(workflow.Status)
+		}
+	}
+	return outcome, nil
+}
+
 // PlatformOfWorkflow returns the Workflow's Platform id, "" for a Workflow that is gone.
 func (w workflowPlatforms) PlatformOfWorkflow(ctx context.Context, workflowID string) (string, error) {
 	workflow, err := w.orchestrations.FindByID(ctx, workflowID)

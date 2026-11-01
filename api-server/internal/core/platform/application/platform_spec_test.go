@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -83,6 +84,10 @@ func (testPlatformModule) Changes(applied *platformdomain.PlatformSpec, desired 
 	if platformdomain.SettingChanged(*applied, desired, "k0sVersion") {
 		changes.Actions = append(changes.Actions, convergence.PlannedAction{Target: platform, Action: "upgrade", Destructive: true})
 		changes.Unsupported = append(changes.Unsupported, "upgrade")
+	}
+	if platformdomain.SettingChanged(*applied, desired, "gpuOperator") {
+		changes.Actions = append(changes.Actions, convergence.PlannedAction{Target: platform, Action: "change-gpu-operator", Destructive: true})
+		changes.Realization = platformdomain.RealizeGPUOperator
 	}
 	if platformdomain.SettingChanged(*applied, desired, "timeSyncCheck") {
 		changes.Actions = append(changes.Actions, convergence.PlannedAction{Target: platform, Action: "change-time-sync"})
@@ -219,10 +224,15 @@ func readTestRequest(raw []byte) (DeployPlatformInput, error) {
 	return input, nil
 }
 
-type noWorkflowPlatforms struct{}
+// recordedWorkflows is the Workflow reader of the harness: a Workflow's outcome is what the test sets.
+type recordedWorkflows struct{ outcomes map[string]string }
 
-func (noWorkflowPlatforms) PlatformOfWorkflow(context.Context, string) (string, error) {
+func (recordedWorkflows) PlatformOfWorkflow(context.Context, string) (string, error) {
 	return "", nil
+}
+
+func (w recordedWorkflows) WorkflowOutcome(_ context.Context, _, workflowID string) (string, error) {
+	return w.outcomes[workflowID], nil
 }
 
 type specHarness struct {
@@ -234,6 +244,7 @@ type specHarness struct {
 	platforms  *deployFakePlatformRepo
 	servers    *deployFakeServerRepo
 	lifecycle  *deployFakeLifecycleReader
+	workflows  recordedWorkflows
 }
 
 func newSpecHarness(record *platformdomain.DeploymentRecord) specHarness {
@@ -249,10 +260,12 @@ func newSpecHarness(record *platformdomain.DeploymentRecord) specHarness {
 	planner := NewPlatformPlanner(platforms, lifecycle, deploy, uninstall, nil, modules)
 	plans := convergence.NewChangePlanService(&storetest.Transactor{}, &memoryPlans{}, nil, nil, 0, planner)
 	specs := &memorySpecs{repo: platforms}
+	workflows := recordedWorkflows{outcomes: map[string]string{}}
 	return specHarness{
 		specs:      NewPlatformSpecService(&storetest.Transactor{}, platforms, specs, serverRepo, deploy, deploy.platformService, plans, nil, modules),
-		controller: NewPlatformController(platforms, specs, serverRepo, serverRepo, lifecycle, fixedRecords{record: record}, noWorkflowPlatforms{}, plans, planner, modules),
+		controller: NewPlatformController(platforms, specs, serverRepo, serverRepo, lifecycle, fixedRecords{record: record}, workflows, plans, planner, modules),
 		plans:      plans, launcher: launcher, uninstalls: uninstalls, platforms: platforms, servers: serverRepo, lifecycle: lifecycle,
+		workflows: workflows,
 	}
 }
 
@@ -305,6 +318,34 @@ func (h specHarness) installed(t *testing.T) *platformdomain.Platform {
 	h.reconcile(t, created.Platform.ID)
 	h.succeed(t, created.Platform.ID)
 	return h.platforms.platforms[created.Platform.ID]
+}
+
+// A change realized by a Workflow that is neither a deploy nor an uninstall (a GPU Operator change) is
+// applied once that Workflow succeeds, though the Platform's lifecycle never sees it.
+func TestAChangeRealizedOutsideTheLifecycleIsAppliedWhenItsWorkflowSucceeds(t *testing.T) {
+	h := newSpecHarness(nil)
+	platform := h.installed(t)
+	changed := platform.Spec.Clone()
+	changed.Settings["gpuOperator"] = map[string]any{"enabled": true}
+	generation, err := (&memorySpecs{repo: h.platforms}).WriteSpec(context.Background(), platform.ID, platform.Generation, changed)
+	if err != nil {
+		t.Fatalf("WriteSpec() error = %v", err)
+	}
+	platform.Status.Realizing = &platformdomain.PlatformRealizing{
+		Generation: generation, WorkflowID: "wf-gpu", Spec: changed.Clone(), StartedAt: time.Now().UTC(),
+	}
+
+	h.reconcile(t, platform.ID)
+	if platform.Status.ObservedGeneration == generation {
+		t.Fatal("the change was applied before its Workflow finished")
+	}
+	h.workflows.outcomes["wf-gpu"] = "succeeded"
+	h.reconcile(t, platform.ID)
+	if platform.Status.ObservedGeneration != generation || platform.Status.Realizing != nil ||
+		!reflect.DeepEqual(platform.Status.Applied.Settings["gpuOperator"], changed.Settings["gpuOperator"]) {
+		t.Errorf("status = observed %d realizing %+v applied %v, want generation %d applied",
+			platform.Status.ObservedGeneration, platform.Status.Realizing, platform.Status.Applied.Settings, generation)
+	}
 }
 
 // Creating a Platform validates it, stores it at generation 1 with its members claimed, and

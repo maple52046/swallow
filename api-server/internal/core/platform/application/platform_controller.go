@@ -29,10 +29,14 @@ const (
 	operationCanceled  = "canceled"
 )
 
-// WorkflowPlatformReader names the Platform a Workflow belongs to ("" for none or an unknown
-// Workflow), so a Workflow's progress wakes that Platform.
-type WorkflowPlatformReader interface {
+// WorkflowReader is what the platform controller reads of a Workflow.
+type WorkflowReader interface {
+	// PlatformOfWorkflow names the Platform a Workflow belongs to ("" for none or an unknown
+	// Workflow), so a Workflow's progress wakes that Platform.
 	PlatformOfWorkflow(ctx context.Context, workflowID string) (string, error)
+	// WorkflowOutcome is the status of the Platform's Workflow, or of its newest rerun when it was
+	// rerun; "" for a Workflow that is gone.
+	WorkflowOutcome(ctx context.Context, platformID, workflowID string) (string, error)
 }
 
 // PlatformController converges Platforms to their specs (desired-state-model §5.2). Reconciling one
@@ -54,7 +58,7 @@ type PlatformController struct {
 	servers   serverdomain.ServerRepository
 	lifecycle platformdomain.LifecycleReader
 	records   platformdomain.DeploymentRecordReader
-	workflows WorkflowPlatformReader
+	workflows WorkflowReader
 	plans     *convergence.ChangePlanService
 	planner   *PlatformPlanner
 	modules   map[platformdomain.PlatformType]platformdomain.PlatformModule
@@ -71,7 +75,7 @@ func NewPlatformController(
 	servers serverdomain.ServerRepository,
 	lifecycle platformdomain.LifecycleReader,
 	records platformdomain.DeploymentRecordReader,
-	workflows WorkflowPlatformReader,
+	workflows WorkflowReader,
 	plans *convergence.ChangePlanService,
 	planner *PlatformPlanner,
 	modules map[platformdomain.PlatformType]platformdomain.PlatformModule,
@@ -176,14 +180,22 @@ func (c *PlatformController) Reconcile(ctx context.Context, request convergence.
 	}
 	failed := false
 	if realizing := status.Realizing; realizing != nil {
+		outcome := ""
 		if latest := latestOperation(snapshot); latest != nil && (latest.ID == realizing.WorkflowID || latest.RequestedAt.After(realizing.StartedAt)) {
-			switch latest.Status {
-			case operationSucceeded:
-				applied := realizing.Spec.Clone()
-				status.Applied, status.ObservedGeneration, status.Realizing = &applied, realizing.Generation, nil
-			case operationFailed, operationCanceled:
-				failed = true
+			outcome = latest.Status
+		} else {
+			// The lifecycle tracks only deploys and uninstalls; any other realizing Workflow (a GPU
+			// Operator change) is read itself.
+			if outcome, err = c.workflows.WorkflowOutcome(ctx, platform.ID, realizing.WorkflowID); err != nil {
+				return err
 			}
+		}
+		switch outcome {
+		case operationSucceeded:
+			applied := realizing.Spec.Clone()
+			status.Applied, status.ObservedGeneration, status.Realizing = &applied, realizing.Generation, nil
+		case operationFailed, operationCanceled:
+			failed = true
 		}
 	}
 
