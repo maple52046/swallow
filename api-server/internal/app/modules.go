@@ -62,6 +62,8 @@ type composedModules struct {
 	platformReaders []platformdomain.ReaderBuilder
 	// accelerators are the Accelerator modules' accelerator hooks, by module id.
 	accelerators platformdomain.Accelerators
+	// credentials are the Platform modules' credential readers.
+	credentials []platformdomain.CredentialReader
 }
 
 // composeModules assembles the registry and derives the software catalog and the accepted Workflow
@@ -88,9 +90,35 @@ func composeModules() (composedModules, error) {
 	if err != nil {
 		return composedModules{}, err
 	}
+	credentials, err := credentialReaders(registry)
+	if err != nil {
+		return composedModules{}, err
+	}
 	return composedModules{
-		registry: registry, software: software, workflowKinds: kinds, platformReaders: readers, accelerators: accelerators,
+		registry: registry, software: software, workflowKinds: kinds, platformReaders: readers,
+		accelerators: accelerators, credentials: credentials,
 	}, nil
+}
+
+// credentialReaders collects the platform-credential hook of every Platform module; the completion
+// type a reader handles must be one its manifest declares.
+func credentialReaders(registry *moduledomain.Registry) ([]platformdomain.CredentialReader, error) {
+	var readers []platformdomain.CredentialReader
+	for _, module := range registry.Modules() {
+		if module.Manifest.Kind != moduledomain.KindPlatform {
+			continue
+		}
+		hook, ok := module.Hooks[platformdomain.HookCredential].(platformdomain.CredentialReader)
+		if !ok {
+			return nil, fmt.Errorf("platform module %s has no %q hook", module.Manifest.Ref(), platformdomain.HookCredential)
+		}
+		if !slices.Contains(module.Manifest.Completions, hook.Completion()) {
+			return nil, fmt.Errorf("platform module %s reads credentials of completion %q, which its manifest does not declare",
+				module.Manifest.Ref(), hook.Completion())
+		}
+		readers = append(readers, hook)
+	}
+	return readers, nil
 }
 
 // moduleAccelerators collects the accelerator hook of every Accelerator module; a module's id is

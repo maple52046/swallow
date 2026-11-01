@@ -25,6 +25,10 @@
     {
       "name": "platform-reader",
       "reason": "Builds the membership and cluster-state reader of a deployed Slurm Platform from its Connection: plain REST against slurmrestd at the pinned API version."
+    },
+    {
+      "name": "platform-credential",
+      "reason": "Turns the Slurm credential role's result into the slurmrestd read Integration, pinning the API version the controller reported; a deployment without slurmrestd records none."
     }
   ],
   "capabilities": [

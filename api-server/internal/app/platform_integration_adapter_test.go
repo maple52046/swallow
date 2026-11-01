@@ -87,7 +87,7 @@ func TestManagedPlatformIntegrationCleanerRequiresCompleteLegacySignature(t *tes
 		ProviderKind: kubeapi.ProviderKind,
 		Name:         "lab (deployed)",
 		Settings: map[string]string{
-			platformdomain.SettingControllerLeaseDiscovery: "true",
+			kubeapi.SettingControllerLeaseDiscovery: "true",
 		},
 	}
 	operatorOwned := &sitedomain.Integration{
@@ -96,7 +96,7 @@ func TestManagedPlatformIntegrationCleanerRequiresCompleteLegacySignature(t *tes
 		ProviderKind: kubeapi.ProviderKind,
 		Name:         "operator registration",
 		Settings: map[string]string{
-			platformdomain.SettingControllerLeaseDiscovery: "true",
+			kubeapi.SettingControllerLeaseDiscovery: "true",
 		},
 	}
 	repo := &integrationCleanerRepo{integrations: map[string]*sitedomain.Integration{

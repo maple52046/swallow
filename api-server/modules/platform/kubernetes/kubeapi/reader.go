@@ -68,7 +68,7 @@ func NewReader(conn platformdomain.Connection) (*Reader, error) {
 		baseURL:                  baseURL,
 		token:                    conn.Token,
 		httpClient:               &http.Client{Timeout: conn.Timeout, Transport: transport},
-		discoverControllerLeases: conn.SettingBool(platformdomain.SettingControllerLeaseDiscovery),
+		discoverControllerLeases: conn.SettingBool(SettingControllerLeaseDiscovery),
 	}, nil
 }
 

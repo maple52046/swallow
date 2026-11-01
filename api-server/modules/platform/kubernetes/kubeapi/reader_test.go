@@ -80,7 +80,7 @@ func TestListMembersWithControllerLeases(t *testing.T) {
 	defer server.Close()
 
 	reader, err := NewReader(platformdomain.Connection{Endpoint: server.URL, Token: "token", Timeout: time.Second,
-		Settings: map[string]string{platformdomain.SettingControllerLeaseDiscovery: "true"}})
+		Settings: map[string]string{SettingControllerLeaseDiscovery: "true"}})
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}

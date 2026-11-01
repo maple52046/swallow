@@ -19,6 +19,8 @@ import (
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/pagination"
+	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
+	"github.com/maple52046/swallow/modules/platform/slurm/slurmapi"
 )
 
 const (
@@ -179,7 +181,7 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 		Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: ensure.installDeps,
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
-		Completion: []workflowdomain.Completion{{Type: completionKubernetesCredential}},
+		Completion: []workflowdomain.Completion{{Type: kubeapi.CredentialCompletion}},
 	})
 	steps = append(steps, workflowdomain.Task{
 		ID: "validate-platform", Kind: "validate-platform-health", Name: "Validate Platform health",
@@ -244,7 +246,7 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 		Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: ensure.installDeps,
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
-		Completion: []workflowdomain.Completion{{Type: completionSlurmCredential}},
+		Completion: []workflowdomain.Completion{{Type: slurmapi.CredentialCompletion}},
 	})
 	composed, err := l.planSlurmComposition(ctx, launch, operationID, provisionFirst)
 	if err != nil {
@@ -795,41 +797,6 @@ func (o platformDeploymentObserver) restoreExporters(ctx context.Context, workfl
 	}); err != nil {
 		slog.Error("queue exporter restoration after platform uninstall",
 			"operationId", workflow.ID, "platformId", workflow.PlatformID, "error", err)
-	}
-}
-
-// platformCredentialFromResult reads the credential written by a deployment playbook.
-func platformCredentialFromResult(result workflowdomain.RunnerResult) *platformapp.DeploymentCredential {
-	if result.Data == nil {
-		return nil
-	}
-	endpoint := stringField(result.Data, "apiEndpoint")
-	token := stringField(result.Data, "token")
-	if endpoint == "" || token == "" {
-		return nil
-	}
-	return &platformapp.DeploymentCredential{
-		APIEndpoint: endpoint, Token: token,
-		CACertificate: stringField(result.Data, "caCertificate"),
-	}
-}
-
-// slurmCredentialFromResult reads the slurmrestd reader credential a Slurm deployment
-// playbook wrote to its result file: the slurmrestd base URL, a Slurm JWT, and the endpoint
-// version the controller exposes. Endpoint and token are required; apiVersion is optional and
-// lets the reader fall back to its default when absent.
-func slurmCredentialFromResult(result workflowdomain.RunnerResult) *platformapp.SlurmDeploymentCredential {
-	if result.Data == nil {
-		return nil
-	}
-	endpoint := stringField(result.Data, "slurmrestdEndpoint")
-	token := stringField(result.Data, "token")
-	if endpoint == "" || token == "" {
-		return nil
-	}
-	return &platformapp.SlurmDeploymentCredential{
-		Endpoint: endpoint, Token: token,
-		APIVersion: stringField(result.Data, "apiVersion"),
 	}
 }
 

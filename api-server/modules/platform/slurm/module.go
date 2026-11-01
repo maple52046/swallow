@@ -15,5 +15,8 @@ var manifest []byte
 
 // Module returns the Slurm Platform module declared by module.json.
 func Module() (moduledomain.Module, error) {
-	return moduledomain.Load(manifest, map[string]any{platformdomain.HookPlatformReader: slurmapi.ReaderBuilder{}})
+	return moduledomain.Load(manifest, map[string]any{
+		platformdomain.HookPlatformReader: slurmapi.ReaderBuilder{},
+		platformdomain.HookCredential:     slurmapi.CredentialReader{},
+	})
 }

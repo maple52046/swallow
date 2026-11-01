@@ -13,14 +13,6 @@ import (
 	"github.com/maple52046/swallow/internal/core/store"
 )
 
-// DeploymentCredential is what a successful platform deployment produced: how to reach the
-// new platform's API and a bearer token to read it with.
-type DeploymentCredential struct {
-	APIEndpoint   string
-	Token         string
-	CACertificate string
-}
-
 // DeploymentCredentialService records the credential a platform deployment produced by
 // creating the platform's read integration and attaching it, then reading membership once.
 //
@@ -60,87 +52,25 @@ func (s *DeploymentCredentialService) attach(ctx context.Context, platform *plat
 	})
 }
 
-// Record attaches a freshly deployed platform's read credential and syncs its membership.
+// Record attaches a freshly deployed Platform's read credential and syncs its membership.
 //
-// The token is stored as a sealed platform-kind integration credential whose provider kind is the
-// Platform type, which selects the Platform module's reader. Control-plane lease
-// discovery is enabled because any supported topology may use dedicated control-plane Servers
-// that do not register as Kubernetes nodes. The cluster CA the deployment returned is recorded so
-// the API certificate is verified against it (DF-01); only a deployment that returned none (an
-// earlier role) is recorded with insecureSkipVerify. A first
-// membership read is triggered so the platform's members appear without waiting for the
-// background interval; its failure is not fatal because the integration is stored and the
-// background sync retries.
-func (s *DeploymentCredentialService) Record(ctx context.Context, platformID string, credential DeploymentCredential) error {
-	if strings.TrimSpace(credential.APIEndpoint) == "" || strings.TrimSpace(credential.Token) == "" {
+// The token is stored as a sealed platform-kind Integration credential whose provider kind is the
+// Platform type, which selects the Platform module's reader, and the Credential's settings are the
+// Integration's: the module that read the credential decided them. A first membership read is
+// triggered so the Platform's members appear without waiting for the background interval; its
+// failure is not fatal because the Integration is stored and the background sync retries.
+func (s *DeploymentCredentialService) Record(ctx context.Context, platformID string, credential platformdomain.Credential) error {
+	if strings.TrimSpace(credential.Endpoint) == "" || strings.TrimSpace(credential.Token) == "" {
 		return fmt.Errorf("platform deployment returned no usable credential")
 	}
 	platform, err := s.platforms.FindByID(ctx, platformID)
 	if err != nil {
 		return err
 	}
-
-	settings := map[string]string{
-		platformdomain.SettingControllerLeaseDiscovery: "true",
+	settings := make(map[string]string, len(credential.Settings))
+	for key, value := range credential.Settings {
+		settings[key] = value
 	}
-	if ca := strings.TrimSpace(credential.CACertificate); ca != "" {
-		settings[platformdomain.SettingCACertificate] = ca + "\n"
-	} else {
-		settings[platformdomain.SettingInsecureSkipVerify] = "true"
-	}
-
-	now := time.Now().UTC()
-	integration := &sitedomain.Integration{
-		ID:           uuid.NewString(),
-		SiteID:       platform.SiteID,
-		Kind:         sitedomain.IntegrationKindPlatform,
-		ProviderKind: string(platform.Type),
-		Name:         platform.Name + " (deployed)",
-		Endpoint:     credential.APIEndpoint,
-		Enabled:      true,
-		Settings:     settings,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-	if err := s.attach(ctx, platform, integration, credential.Token); err != nil {
-		return err
-	}
-	// After the commit: the first membership read calls the Platform's API.
-	_, _ = s.membership.Execute(ctx, platform.ID)
-	return nil
-}
-
-// SlurmDeploymentCredential is what a successful Slurm deployment produced: the slurmrestd
-// base URL, a JWT to read it with, and the slurmrestd API version the controller exposes.
-type SlurmDeploymentCredential struct {
-	Endpoint   string
-	Token      string
-	APIVersion string
-}
-
-// RecordSlurm attaches a freshly deployed Slurm platform's read credential and syncs its
-// membership. Unlike the Kubernetes path its integration's endpoint is slurmrestd and whose token is a Slurm JWT, and it pins the slurmrestd API
-// version when the run reported one so the reader queries the matching endpoint version.
-// insecureSkipVerify is set because slurmrestd is commonly reached over plain HTTP or a
-// self-signed endpoint inside the site, and membership is read-only. A first membership read
-// is triggered so members appear without waiting for the interval; its failure is not fatal
-// because the integration is stored and the background sync retries.
-func (s *DeploymentCredentialService) RecordSlurm(ctx context.Context, platformID string, credential SlurmDeploymentCredential) error {
-	if strings.TrimSpace(credential.Endpoint) == "" || strings.TrimSpace(credential.Token) == "" {
-		return fmt.Errorf("slurm deployment returned no usable credential")
-	}
-	platform, err := s.platforms.FindByID(ctx, platformID)
-	if err != nil {
-		return err
-	}
-
-	settings := map[string]string{
-		platformdomain.SettingInsecureSkipVerify: "true",
-	}
-	if version := strings.TrimSpace(credential.APIVersion); version != "" {
-		settings[platformdomain.SettingSlurmAPIVersion] = version
-	}
-
 	now := time.Now().UTC()
 	integration := &sitedomain.Integration{
 		ID:           uuid.NewString(),
@@ -157,7 +87,7 @@ func (s *DeploymentCredentialService) RecordSlurm(ctx context.Context, platformI
 	if err := s.attach(ctx, platform, integration, credential.Token); err != nil {
 		return err
 	}
-	// After the commit: the first membership read calls slurmrestd.
+	// After the commit: the first membership read calls the Platform's API.
 	_, _ = s.membership.Execute(ctx, platform.ID)
 	return nil
 }

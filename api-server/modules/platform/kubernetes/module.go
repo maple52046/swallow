@@ -15,5 +15,8 @@ var manifest []byte
 
 // Module returns the Kubernetes Platform module declared by module.json.
 func Module() (moduledomain.Module, error) {
-	return moduledomain.Load(manifest, map[string]any{platformdomain.HookPlatformReader: kubeapi.ReaderBuilder{}})
+	return moduledomain.Load(manifest, map[string]any{
+		platformdomain.HookPlatformReader: kubeapi.ReaderBuilder{},
+		platformdomain.HookCredential:     kubeapi.CredentialReader{},
+	})
 }

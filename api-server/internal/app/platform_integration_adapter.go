@@ -32,7 +32,7 @@ func (c managedPlatformIntegrationCleaner) DeleteForPlatform(
 			integration.Kind != sitedomain.IntegrationKindPlatform ||
 			integration.ProviderKind != kubeapi.ProviderKind ||
 			integration.Name != platform.Name+" (deployed)" ||
-			integration.Settings[platformdomain.SettingControllerLeaseDiscovery] != "true" {
+			integration.Settings[kubeapi.SettingControllerLeaseDiscovery] != "true" {
 			return nil
 		}
 		integrationID = integration.ID

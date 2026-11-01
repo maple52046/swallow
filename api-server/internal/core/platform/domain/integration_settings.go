@@ -1,20 +1,14 @@
 package domain
 
-// Setting keys a platform Integration may carry. An operator sets them on an Integration they
-// register, and swallow sets them on the Integration it records for a Platform it deployed; the
-// platform API clients read them when they connect. The keys are stored on Integrations, so
-// renaming one silently drops the setting from every existing Integration.
+// Connection setting keys every platform Integration may carry; a Platform module defines its own
+// keys beside them. An operator sets them on an Integration they register, and swallow sets them on
+// the Integration it records for a Platform it deployed; the platform API clients read them when
+// they connect. The keys are stored on Integrations, so renaming one silently drops the setting
+// from every existing Integration.
 const (
 	SettingTimeout            = "timeout"
 	SettingInsecureSkipVerify = "insecureSkipVerify"
 	// SettingCACertificate is the PEM CA the Platform API's certificate is verified against. A
 	// deployment that returns its cluster CA records it instead of insecureSkipVerify (DF-01).
 	SettingCACertificate = "caCertificate"
-	// SettingSlurmAPIVersion selects the slurmrestd endpoint version, which tracks
-	// the Slurm release.
-	SettingSlurmAPIVersion = "slurmApiVersion"
-	// SettingControllerLeaseDiscovery makes the Kubernetes reader also report dedicated
-	// k0s controllers from their kube-node-lease leases. Off by default because the lease
-	// naming is a k0s implementation detail; a platform swallow itself deploys turns it on.
-	SettingControllerLeaseDiscovery = "controllerLeaseDiscovery"
 )

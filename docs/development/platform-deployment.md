@@ -565,7 +565,7 @@ playbook 若需回傳結果（例如叢集 credential），寫入 runner 提供�
   ServiceAccount `swallow-reader`（`kube-system`，綁定 `swallow_k0s_reader_clusterrole`，預設 `cluster-admin`）與它的
   token Secret，寫入 `{ "apiEndpoint": "https://<API 位址>:6443", "token": "...", "caCertificate": "<PEM>" }`（CA 取自
   同一個 token Secret 的 `ca.crt`；API 位址是 HA VIP，或非 HA 的初始
-  controller 位址）。成功後 `platformDeploymentObserver` 經 `DeploymentCredentialService.Record` 建立 sealed 的
+  controller 位址）。成功後 Kubernetes 模組的 `platform-credential` hook 把 result 讀成 Credential，`DeploymentCredentialService.Record` 建立 sealed 的
   `platform` kind Integration（與其他 Integration credential 同一把加密金鑰，所以該金鑰的備份與輪替也涵蓋叢集存取），
   記為該 Platform 擁有的 Integration，並立即讀一次 membership。在此之前 Platform 沒有 Integration（`integrationId` 為
   `null`）。Integration 以設定 `caCertificate` 記下這個 CA，Kubernetes reader 與 explorer client 只信任它來驗證 API
@@ -789,7 +789,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   （TCP + `auth/jwt`），`scontrol token` 為 SlurmUser `slurm` 產生長效 JWT（一年），`slurm_cluster_credential` role 以
   `swallow_result_path` 寫 `result.json`（`slurmrestdEndpoint`/`token`/`apiVersion`）。`apiVersion` 有 pin
   （`slurm.apiVersion`）就用它，否則由新到舊探測 slurmrestd 回應的版本並記錄，讓跑不同 Slurm release 的 Platform
-  各自讀對的 endpoint 版本。後端記為 provider kind `slurm` 的 platform integration（`DeploymentCredentialService.RecordSlurm`，
+  各自讀對的 endpoint 版本。後端記為 provider kind `slurm` 的 platform integration（Slurm 模組的 `platform-credential` hook 讀出 Credential，再由同一個 `Record` 記下；
   設 `insecureSkipVerify`，因為 slurmrestd 在 site 內常是 plain HTTP），Slurm 模組的 reader（`slurmapi`）即可讀成員。**`slurmrestd`（`slurm-smd-slurmrestd`）為選用**：它只負責 swallow
   的 membership 讀取，叢集本體（slurmctld + slurmd）不依賴它。若 image 未含此套件，
   `slurm_slurmrestd` 與 `slurm_cluster_credential` 會**優雅跳過**、不寫 credential，deploy 仍

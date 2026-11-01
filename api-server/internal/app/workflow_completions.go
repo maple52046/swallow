@@ -12,6 +12,8 @@ import (
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
+	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
+	"github.com/maple52046/swallow/modules/platform/slurm/slurmapi"
 )
 
 // The completion types a Task may declare (decision 072). Projection types write a read model on
@@ -24,8 +26,6 @@ const (
 	completionGPUOperatorState            = "gpu-operator-state"
 	completionOmnistatState               = "omnistat-state"
 	completionDeviceMetricsExporterState  = "device-metrics-exporter-state"
-	completionKubernetesCredential        = "kubernetes-credential"
-	completionSlurmCredential             = "slurm-credential"
 	completionOmnistatResult              = "omnistat-result"
 	completionDeviceMetricsExporterResult = "device-metrics-exporter-result"
 	completionPlatformUninstall           = "platform-uninstall"
@@ -52,7 +52,7 @@ func completionClasses() map[string]workflowdomain.CompletionClass {
 		completionServerDeployment: projection, completionServerDeploymentCleared: projection,
 		completionSoftwareFailure: projection, completionGPUOperatorState: projection,
 		completionOmnistatState: projection, completionDeviceMetricsExporterState: projection,
-		completionKubernetesCredential: result, completionSlurmCredential: result,
+		kubeapi.CredentialCompletion: result, slurmapi.CredentialCompletion: result,
 		completionOmnistatResult: result, completionDeviceMetricsExporterResult: result,
 		completionPlatformUninstall: result,
 	}
@@ -176,27 +176,10 @@ func featureIdentity(t workflowapp.TaskTransition) (string, string) {
 }
 
 // workflowResults returns the result handlers of the process that runs the Ansible Runner: each
-// records what a succeeded playbook returned, before the Task's outcome is recorded.
-func workflowResults(observer platformDeploymentObserver) map[string]workflowapp.ResultHandler {
-	return map[string]workflowapp.ResultHandler{
-		completionKubernetesCredential: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {
-			credential := platformCredentialFromResult(workflowdomain.RunnerResult{Data: r.Data})
-			if credential == nil {
-				return fmt.Errorf("deployment returned no Kubernetes credential")
-			}
-			return observer.credentials.Record(ctx, r.Workflow.PlatformID, *credential)
-		}),
-		completionSlurmCredential: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {
-			credential := slurmCredentialFromResult(workflowdomain.RunnerResult{Data: r.Data})
-			if credential == nil {
-				// slurmctld and slurmd work without slurmrestd, which only powers membership reads, so
-				// its absence is not a deploy failure.
-				slog.Warn("slurm deployment produced no reader credential; membership will not populate until slurmrestd is available",
-					"operationId", r.Workflow.ID, "platformId", r.Workflow.PlatformID)
-				return nil
-			}
-			return observer.credentials.RecordSlurm(ctx, r.Workflow.PlatformID, *credential)
-		}),
+// records what a succeeded playbook returned, before the Task's outcome is recorded. Each Platform
+// module's credential reader handles the credential completion its deploy Task declares.
+func workflowResults(observer platformDeploymentObserver, credentials ...platformdomain.CredentialReader) map[string]workflowapp.ResultHandler {
+	handlers := map[string]workflowapp.ResultHandler{
 		completionOmnistatResult: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {
 			return observer.completeOmnistat(ctx, r.Workflow.PlatformID, workflowdomain.RunnerResult{Data: r.Data})
 		}),
@@ -209,4 +192,26 @@ func workflowResults(observer platformDeploymentObserver) map[string]workflowapp
 			return observer.finishUninstall(ctx, r.Workflow, uninstallChoiceOf(r.Completion))
 		}),
 	}
+	for _, reader := range credentials {
+		handlers[reader.Completion()] = credentialResult(observer, reader)
+	}
+	return handlers
+}
+
+// credentialResult records the read credential a succeeded deploy Task returned. A deployment that
+// returned none fails when the module requires one; otherwise it is logged, because the Platform
+// works without swallow reading it.
+func credentialResult(observer platformDeploymentObserver, reader platformdomain.CredentialReader) workflowapp.ResultHandler {
+	return resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {
+		credential, ok := reader.Credential(r.Data)
+		if ok {
+			return observer.credentials.Record(ctx, r.Workflow.PlatformID, credential)
+		}
+		if reader.Required() {
+			return fmt.Errorf("deployment returned no %s credential", reader.PlatformType())
+		}
+		slog.Warn("platform deployment produced no reader credential; membership will not populate until its API is available",
+			"operationId", r.Workflow.ID, "platformId", r.Workflow.PlatformID, "platformType", reader.PlatformType())
+		return nil
+	})
 }

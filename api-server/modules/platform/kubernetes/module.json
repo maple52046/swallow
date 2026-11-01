@@ -23,6 +23,10 @@
     {
       "name": "platform-reader",
       "reason": "Builds the membership reader of a deployed cluster from its Connection: plain REST against the Kubernetes API, and the k0s controller leases when the Integration enables them."
+    },
+    {
+      "name": "platform-credential",
+      "reason": "Turns the k0s credential role's result into the cluster's read Integration: endpoint, token, and the CA to verify the API with, or insecureSkipVerify for an earlier role that returned none."
     }
   ],
   "capabilities": [

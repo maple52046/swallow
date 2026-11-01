@@ -47,7 +47,7 @@ func NewReader(conn platformdomain.Connection) (*Reader, error) {
 	return &Reader{
 		baseURL:    baseURL,
 		token:      conn.Token,
-		apiVersion: conn.Setting(platformdomain.SettingSlurmAPIVersion, DefaultSlurmAPIVersion),
+		apiVersion: conn.Setting(SettingAPIVersion, DefaultSlurmAPIVersion),
 		httpClient: &http.Client{Timeout: conn.Timeout, Transport: transport},
 	}, nil
 }
