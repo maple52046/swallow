@@ -89,7 +89,8 @@ a route: `system` (`/livez`, `/readyz`, `/healthz`, `/metrics`), `auth`
 of `/api/v1/provisioning/*`, the Boot ISO file, `/downloads/*`), `platforms`
 (`/api/v1/platforms*`, `/api/v1/clusters*`), `workflows` (`/api/v1/workflows*`,
 `/api/v1/operations*`), `software` (`/api/v1/software/*`, `/api/v1/servers/{id}/docker*`),
-and `monitoring` (`/api/v1/overview`, `/api/v1/monitoring/*`, `/api/v1/discovery/*`).
+`monitoring` (`/api/v1/overview`, `/api/v1/monitoring/*`, `/api/v1/discovery/*`), and `modules`
+(`/api/v1/modules`).
 
 ### Authoring rules
 

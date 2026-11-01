@@ -205,6 +205,27 @@ func TestInstallNFSServerRequiresExportPath(t *testing.T) {
 	}
 }
 
+// The NFS module's spec schema is checked before its own rules: an unknown key or a value of the
+// wrong type never reaches the playbook.
+func TestInstallNFSChecksTheModuleSpecSchema(t *testing.T) {
+	for name, spec := range map[string]map[string]any{
+		"unknown key":      {"exportPath": "/export/data", "exportMode": "rw"},
+		"non-string value": {"exportPath": "/export/data", "exportOptions": []any{"rw"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service, _, _ := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
+			_, err := service.Install(context.Background(), softwareapp.InstallInput{
+				Kind:    softwaredomain.KindNFS,
+				Targets: []softwareapp.InstallTarget{{ServerID: "a", Roles: []softwaredomain.Role{softwaredomain.RoleServer}}},
+				Spec:    spec,
+			})
+			if !errors.Is(err, softwaredomain.ErrSpecInvalid) {
+				t.Fatalf("err = %v, want ErrSpecInvalid", err)
+			}
+		})
+	}
+}
+
 func TestInstallRefusesKubernetesMemberForDocker(t *testing.T) {
 	service, _, _ := newTestService(
 		map[string]*serverdomain.Server{"a": deployedServer("a")},

@@ -183,9 +183,9 @@ func platformReaders(registry *moduledomain.Registry) ([]platformdomain.ReaderBu
 	return readers, nil
 }
 
-// softwareCatalog collects the Software hook of every Software module. A module's id is its kind,
-// and its manifest declares the kind's install and uninstall Workflow kinds and playbooks, which the
-// software launcher derives from the kind.
+// softwareCatalog collects the Software hook of every Software module, with the spec schema the
+// module's manifest declares. A module's id is its kind, and its manifest declares the kind's install
+// and uninstall Workflow kinds and playbooks, which the software launcher derives from the kind.
 func softwareCatalog(registry *moduledomain.Registry) (*softwaredomain.Catalog, error) {
 	var software []softwaredomain.Software
 	for _, module := range registry.Modules() {
@@ -214,7 +214,26 @@ func softwareCatalog(registry *moduledomain.Registry) (*softwaredomain.Catalog, 
 		}
 		software = append(software, hook)
 	}
-	return softwaredomain.NewCatalog(software...)
+	catalog, err := softwaredomain.NewCatalog(software...)
+	if err != nil {
+		return nil, err
+	}
+	for _, module := range registry.Modules() {
+		if module.Manifest.Kind != moduledomain.KindSoftware {
+			continue
+		}
+		schema, err := module.Manifest.SpecSchema()
+		if err != nil {
+			return nil, err
+		}
+		if schema == nil {
+			continue
+		}
+		if err := catalog.AttachSpecSchema(softwaredomain.Kind(module.Manifest.ID), schema); err != nil {
+			return nil, err
+		}
+	}
+	return catalog, nil
 }
 
 // workflowKinds adds the Workflow kinds of every Software module to the built-in ones, requiring

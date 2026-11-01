@@ -74,7 +74,8 @@ type Manifest struct {
 	TaskKinds []string `json:"taskKinds"`
 	// Completions are the completion types the module declares on its Tasks.
 	Completions []string `json:"completions"`
-	// Spec is the JSON Schema of the resource spec the module defines, when it defines one.
+	// Spec is the schema of the resource spec the module defines, when it defines one: the JSON
+	// Schema subset SpecSchema reads.
 	Spec json.RawMessage `json:"spec,omitempty"`
 	// Hooks are the module's Go hooks, each with the reason data cannot express it.
 	Hooks []Hook `json:"hooks"`
@@ -125,7 +126,7 @@ func ParseManifest(data []byte) (Manifest, error) {
 
 // Validate checks one manifest on its own: a supported contract version, a known kind, a
 // kebab-case id, a SemVer version, unique names in every list, a reason for every hook, known
-// ports, routes under /api/v1/, and a JSON spec schema when present.
+// ports, routes under /api/v1/, and a well-formed spec schema when present.
 func (m Manifest) Validate() error {
 	if !supported(m.ContractVersion) {
 		return fmt.Errorf("%w: module %s declares contract version %d, this core loads %v",
@@ -168,10 +169,22 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("%w: module %s route %q is not under /api/v1/", ErrInvalidManifest, m.Ref(), route)
 		}
 	}
-	if len(m.Spec) > 0 && !json.Valid(m.Spec) {
-		return fmt.Errorf("%w: module %s spec schema is not JSON", ErrInvalidManifest, m.Ref())
+	if _, err := m.SpecSchema(); err != nil {
+		return err
 	}
 	return nil
+}
+
+// SpecSchema returns the module's spec schema, or nil when the module defines no spec.
+func (m Manifest) SpecSchema() (*SpecSchema, error) {
+	if len(m.Spec) == 0 {
+		return nil, nil
+	}
+	schema, err := ParseSpecSchema(m.Spec)
+	if err != nil {
+		return nil, fmt.Errorf("%w: module %s spec schema: %v", ErrInvalidManifest, m.Ref(), err)
+	}
+	return schema, nil
 }
 
 // Module is a module compiled into the build: its manifest and the implementations of the hooks

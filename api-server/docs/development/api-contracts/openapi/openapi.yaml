@@ -14,6 +14,8 @@ tags:
     name: auth
   - description: Preview, approve, or reject what realizing a destructive spec change will do.
     name: change-plans
+  - description: Read the Extension Modules compiled into the running build, with the spec schema a module declares, so a client can render a generic settings form and details for a module it has no dedicated screens for.
+    name: modules
   - description: The operator overview, alerts read from Alertmanager, named metric queries against the metrics backend, and the Prometheus and Ansible discovery projections of the Server inventory. swallow stores no alerts and no metrics.
     name: monitoring
   - description: Swallow-deployed Kubernetes and Slurm Platforms (platforms.md) and the live Kubernetes cluster explorer of a deployed Kubernetes Platform (platforms-kubernetes.md). Every operation requires the `admin` role.
@@ -1202,6 +1204,26 @@ paths:
       summary: Replace an Integration's write-only credential.
       tags:
         - sites
+  /api/v1/modules:
+    get:
+      description: Requires the `admin` role. The list is fixed for the running build, ordered by kind and then id, and not paginated.
+      operationId: listModules
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModuleList'
+          description: Every module of the build.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: List the modules compiled into the running build.
+      tags:
+        - modules
   /api/v1/monitoring/alerts:
     get:
       description: 'Requires the `admin` role. Returns firing and suppressed (silenced or inhibited) alerts as a plain array, most severe first (`critical`, `warning`, `info`, then any other severity), then newest `startsAt` first. Filters are not validated: a value that matches no alert yields an empty array (monitoring-alerts.md).'
@@ -10049,6 +10071,114 @@ components:
         - cpuCores
         - memoryMiB
         - storageGB
+      type: object
+    Module:
+      properties:
+        id:
+          description: The module's kebab-case id; a Software module's id is its Managed Software kind and a Platform module's id is its Platform type.
+          type: string
+        kind:
+          description: What the module adds to swallow (glossary Extension Module).
+          enum:
+            - accelerator
+            - platform
+            - software
+          type: string
+        spec:
+          allOf:
+            - $ref: '#/components/schemas/ModuleSpecSchema'
+          description: The schema of the resource spec the module defines, as its manifest declares it, or null when it defines none. Properties keep the manifest's order.
+          nullable: true
+        version:
+          description: The module's SemVer version.
+          type: string
+      required:
+        - kind
+        - id
+        - version
+        - spec
+      type: object
+    ModuleList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/Module'
+          type: array
+      required:
+        - items
+      type: object
+    ModuleSpecProperty:
+      properties:
+        description:
+          description: Help text for the setting.
+          type: string
+        enum:
+          description: The values a string setting may take.
+          items:
+            type: string
+          type: array
+        examples:
+          description: Sample values of the setting's type; a form shows the first as a placeholder.
+          items: {}
+          type: array
+        items:
+          description: The item schema of a list setting; its items are strings.
+          properties:
+            type:
+              enum:
+                - string
+              type: string
+          required:
+            - type
+          type: object
+        maximum:
+          description: The largest value of an integer setting.
+          type: integer
+        minimum:
+          description: The smallest value of an integer setting.
+          type: integer
+        pattern:
+          description: A regular expression a non-blank string setting must match, in the syntax Go (RE2) and ECMAScript share.
+          type: string
+        title:
+          description: The setting's label.
+          type: string
+        type:
+          enum:
+            - string
+            - integer
+            - boolean
+            - array
+          type: string
+      required:
+        - type
+        - title
+      type: object
+    ModuleSpecSchema:
+      description: 'The JSON Schema subset a module declares its spec with: one closed object of titled string, integer, boolean, and string-list settings. The server validates a spec against it; a blank string or an empty list counts as unset.'
+      properties:
+        additionalProperties:
+          enum:
+            - false
+          type: boolean
+        properties:
+          additionalProperties:
+            $ref: '#/components/schemas/ModuleSpecProperty'
+          description: The settings, by spec key.
+          type: object
+        required:
+          description: Settings that must be set.
+          items:
+            type: string
+          type: array
+        type:
+          enum:
+            - object
+          type: string
+      required:
+        - type
+        - additionalProperties
+        - properties
       type: object
     MonitoringAlert:
       description: An alert as Alertmanager reports it, with swallow's correlation from its label set. swallow stores no alerts.

@@ -236,8 +236,11 @@ Servers, creating a durable Workflow and a `pending` assignment per Server.
   and may appear only once; `roles` is required for a kind that declares roles (NFS) and must be
   a subset of that kind's roles (duplicates are dropped), and must be empty/omitted for a
   role-less kind (Docker CE, Podman).
-- `spec` is kind-specific and optional per field. For NFS, at least one `server` role in the
-  batch requires `exportPath`, and a `client` role requires `source` and `mountPath`. Docker CE
+- `spec` is kind-specific and optional per field. A kind whose module declares a spec schema
+  (today NFS; see [`modules.md`](modules.md)) has its `spec` checked against it first: a key the
+  schema does not list or a value of the wrong type is `400 validation_error` naming the field.
+  For NFS, at least one `server` role in the batch requires `exportPath`, and a `client` role
+  requires `source` and `mountPath`. Docker CE
   is described in [Docker CE spec](#docker-ce-spec), Prometheus and Grafana in
   [Prometheus and Grafana spec](#prometheus-and-grafana-spec), and the Device Metrics Exporter
   in [Device Metrics Exporter](#device-metrics-exporter).
@@ -434,6 +437,9 @@ On success the response is `202 Accepted`:
 - 2026-10-31 (DF-05), breaking: a not-`deployed` target is `409 conflict` at install, as on a
   race; targets of more than one Site are `400 validation_error` (they were `503`); and a Server
   Lock state that cannot be confirmed is `503 provider_unavailable` (it was `500`).
+- 2026-11-02, stricter: an NFS install whose `spec` has a key outside the catalog's `specFields`
+  or a non-string value is `400 validation_error`; such a key was accepted and ignored, and a
+  non-string value was passed to the playbook as given.
 
 ## Composition Into Platform Deployments
 

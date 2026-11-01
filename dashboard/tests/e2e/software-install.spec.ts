@@ -519,3 +519,46 @@ test('a Platform\'s Servers keep their Device Metrics Exporter under the Platfor
   await expect(dialog.getByRole('checkbox', { name: 'Select gpu-node-01' })).toBeDisabled()
   await expect(dialog.getByText('Its Platform manages this software on the Server.').first()).toBeVisible()
 })
+
+test('NFS settings are generated from its module spec schema and shown as recorded', async ({ page }) => {
+  await installApiFixtures(page, {
+    fleetSize: 5,
+    softwareAssignments: [assignment('srv-5', 'nfs', 'installed', {
+      roles: ['client'],
+      spec: { source: 'storage:/training', mountPath: '/training' },
+    })],
+  })
+  await page.goto('/software/nfs?site=site-a')
+  const row = page.getByRole('table', { name: 'NFS deployments' }).getByRole('row', { name: /compute-node-005/ })
+  await row.getByRole('button', { name: 'More' }).click()
+  await page.getByRole('menuitem', { name: 'View settings' }).click()
+  const settings = page.getByRole('dialog', { name: 'NFS settings' })
+  await expect(settings.getByText('Source (client)')).toBeVisible()
+  await expect(settings.getByText('storage:/training')).toBeVisible()
+  await expect(settings.getByText('/training', { exact: true })).toBeVisible()
+  await expect(settings.getByText('Export path (server)')).toHaveCount(0)
+  await settings.getByText('Close', { exact: true }).click()
+
+  await page.getByRole('button', { name: 'Install software', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Install software' })
+  await dialog.getByRole('textbox', { name: 'Search installation targets' }).fill('gpu-node-01')
+  await dialog.getByText('Select all available results', { exact: true }).click()
+  await dialog.getByRole('button', { name: 'Next', exact: true }).click()
+  const exportPath = dialog.getByRole('textbox', { name: 'Export path (server)' })
+  await expect(exportPath).toHaveAttribute('placeholder', '/export/data')
+  await expect(dialog.getByText('Required when a Server takes the server role.')).toBeVisible()
+})
+
+test('an NFS install cannot be configured until its settings form loads', async ({ page }) => {
+  await installApiFixtures(page, { modulesUnavailable: true })
+  await page.goto('/software/nfs?site=site-a')
+  await page.getByRole('button', { name: 'Install software', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Install software' })
+  await dialog.getByRole('textbox', { name: 'Search installation targets' }).fill('gpu-node-01')
+  await dialog.getByText('Select all available results', { exact: true }).click()
+  await dialog.getByRole('button', { name: 'Next', exact: true }).click()
+  await dialog.getByRole('checkbox', { name: 'client' }).click({ force: true })
+  await expect(dialog.getByText('The settings form could not be loaded')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Retry' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Install', exact: true })).toBeDisabled()
+})

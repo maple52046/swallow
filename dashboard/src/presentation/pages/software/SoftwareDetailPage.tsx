@@ -10,6 +10,7 @@ import { useApp } from '@/di/AppProvider'
 import { serverDisplayName } from '@/domain/server/types'
 import { isSoftwareKind, type SoftwareAssignment } from '@/domain/software/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
+import { ModuleSettingsDetails } from '@/presentation/components/ModuleSettings'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { InventorySurface, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
@@ -17,12 +18,15 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { Pagination } from '@/presentation/components/Pagination'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { Alert } from '@/presentation/components/ui/alert'
+import { Modal } from '@/presentation/components/ui/modal'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useModuleSpecSchema } from '@/presentation/hooks/useModuleSpecSchema'
 import { formatDateTime } from '@/shared/utils/time'
 import { InstallSoftwareDialog } from './InstallSoftwareDialog'
 import { UninstallSoftwareDialog } from './UninstallSoftwareDialog'
+import { hasDedicatedSoftwareSettings } from './softwareInstallForm'
 import {
   filterSoftwareDeployments,
   isSoftwareAssignmentChanging,
@@ -64,6 +68,7 @@ export function SoftwareDetailPage() {
   const [state, setState] = useState<DetailState>({ status: 'loading' })
   const [installTarget, setInstallTarget] = useState<'new' | SoftwareDeploymentRow | null>(null)
   const [uninstalling, setUninstalling] = useState<SoftwareAssignment | null>(null)
+  const [viewingSettings, setViewingSettings] = useState<SoftwareDeploymentRow | null>(null)
   const kind = requestedKind && isSoftwareKind(requestedKind) ? requestedKind : null
 
   const load = useCallback(async (background = false) => {
@@ -122,6 +127,13 @@ export function SoftwareDetailPage() {
     )
   }, [kind, state])
   const hasChanging = scopedRows.some(({ assignment }) => isSoftwareAssignmentChanging(assignment))
+  // A kind configured through its module's spec schema also shows its recorded settings by it.
+  const detailEntry = state.status === 'ready' ? state.data.entry : null
+  const { state: settingsSchemaState } = useModuleSpecSchema(
+    'software',
+    detailEntry && !hasDedicatedSoftwareSettings(detailEntry) ? detailEntry.kind : undefined,
+  )
+  const settingsSchema = settingsSchemaState.status === 'ready' ? settingsSchemaState.schema : null
 
   useEffect(() => {
     if (!hasChanging) return
@@ -315,6 +327,7 @@ export function SoftwareDetailPage() {
                           scopedHref={scopedHref}
                           onReconfigure={() => setInstallTarget(row)}
                           onUninstall={() => setUninstalling(row.assignment)}
+                          onViewSettings={settingsSchema ? () => setViewingSettings(row) : undefined}
                         />
                       ))}
                     </Table.Body>
@@ -333,6 +346,7 @@ export function SoftwareDetailPage() {
                       scopedHref={scopedHref}
                       onReconfigure={() => setInstallTarget(row)}
                       onUninstall={() => setUninstalling(row.assignment)}
+                      onViewSettings={settingsSchema ? () => setViewingSettings(row) : undefined}
                     />
                   ))}
                 </div>
@@ -371,6 +385,17 @@ export function SoftwareDetailPage() {
           onLaunched={(operationId) => handleLaunched(operationId, 'Software uninstall started')}
         />
       )}
+      {viewingSettings && settingsSchema && (
+        <Modal
+          open
+          onClose={() => setViewingSettings(null)}
+          title={`${entry.label} settings`}
+          description={`Recorded on ${serverDisplayName(viewingSettings.server)} by its last install or reconfigure.`}
+          footer={<Button variant="outline" onClick={() => setViewingSettings(null)}>Close</Button>}
+        >
+          <ModuleSettingsDetails schema={settingsSchema} spec={viewingSettings.assignment.spec} />
+        </Modal>
+      )}
     </div>
   )
 }
@@ -392,15 +417,19 @@ interface DeploymentPresentationProps {
   scopedHref: (path: string) => string
   onReconfigure: () => void
   onUninstall: () => void
+  /** Opens the recorded settings; set only for a kind whose module declares a spec schema. */
+  onViewSettings?: () => void
 }
 
 /**
  * Contextual primary and overflow actions shared by desktop rows and mobile cards. A deployment its
- * Platform manages offers a link to that Platform instead of Reconfigure and Uninstall.
+ * Platform manages offers a link to that Platform instead of Reconfigure and Uninstall; viewing the
+ * recorded settings is read-only, so it stays available while a change runs.
  */
-function SoftwareDeploymentActions({ row, managedByPlatformId, scopedHref, onReconfigure, onUninstall }: DeploymentPresentationProps) {
+function SoftwareDeploymentActions({ row, managedByPlatformId, scopedHref, onReconfigure, onUninstall, onViewSettings }: DeploymentPresentationProps) {
   const { assignment, server } = row
   const changing = isSoftwareAssignmentChanging(assignment)
+  const canChange = !changing && !managedByPlatformId
   return (
     <HStack gap="2" justify="flex-end" wrap="wrap">
       {assignment.state === 'installed' ? (
@@ -417,12 +446,13 @@ function SoftwareDeploymentActions({ row, managedByPlatformId, scopedHref, onRec
           </RouterLink>
         </Button>
       )}
-      {!changing && !managedByPlatformId && (
+      {(canChange || onViewSettings) && (
         <Menu.Root positioning={{ placement: 'bottom-end' }}>
           <Menu.Trigger asChild><Button size="sm" variant="ghost">More <ChevronDown size={14} aria-hidden /></Button></Menu.Trigger>
           <Portal><Menu.Positioner><Menu.Content>
-            <Menu.Item value="configure" onSelect={onReconfigure}>{assignment.state === 'failed' ? 'Retry install' : 'Reconfigure'}</Menu.Item>
-            <Menu.Item value="uninstall" color="red.fg" onSelect={onUninstall}>Uninstall</Menu.Item>
+            {onViewSettings && <Menu.Item value="settings" onSelect={onViewSettings}>View settings</Menu.Item>}
+            {canChange && <Menu.Item value="configure" onSelect={onReconfigure}>{assignment.state === 'failed' ? 'Retry install' : 'Reconfigure'}</Menu.Item>}
+            {canChange && <Menu.Item value="uninstall" color="red.fg" onSelect={onUninstall}>Uninstall</Menu.Item>}
           </Menu.Content></Menu.Positioner></Portal>
         </Menu.Root>
       )}

@@ -50,6 +50,7 @@ import (
 	discoverydelivery "github.com/maple52046/swallow/internal/core/discovery/delivery"
 	infrastructureapp "github.com/maple52046/swallow/internal/core/infrastructure/application"
 	infrastructuredelivery "github.com/maple52046/swallow/internal/core/infrastructure/delivery"
+	moduledelivery "github.com/maple52046/swallow/internal/core/module/delivery"
 	monitoringapp "github.com/maple52046/swallow/internal/core/monitoring/application"
 	monitoringdelivery "github.com/maple52046/swallow/internal/core/monitoring/delivery"
 	overviewapp "github.com/maple52046/swallow/internal/core/overview/application"
@@ -598,6 +599,7 @@ func RunAPI(cfg config.APIConfig) error {
 		sshKeys:         sshKeyHandler,
 		apiKeys:         apiKeyHandler,
 		changePlans:     convergencedelivery.NewChangePlanHandler(changePlans),
+		moduleList:      moduledelivery.NewModuleHandler(modules.registry),
 		releaseVersion:  releaseVersion,
 		readiness: func(ctx context.Context) error {
 			if err := client.Ping(ctx, nil); err != nil {
@@ -667,6 +669,8 @@ type routeDeps struct {
 	sshKeys        *sshkeydelivery.SSHKeyHandler
 	apiKeys        *apikeydelivery.Handler
 	changePlans    *convergencedelivery.ChangePlanHandler
+	// moduleList lists the modules of the build and their spec schemas (contract modules.md).
+	moduleList     *moduledelivery.ModuleHandler
 	readiness      func(context.Context) error
 	releaseVersion string
 }
@@ -769,6 +773,9 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 
 	overview := v1.Group("/overview", admin...)
 	overview.Get("/", deps.overview.Get)
+
+	moduleList := v1.Group("/modules", admin...)
+	moduleList.Get("/", deps.moduleList.List)
 
 	sites := v1.Group("/sites", admin...)
 	sites.Post("/", deps.sites.CreateSite)

@@ -9,6 +9,7 @@ import { ApiOverviewRepository } from '@/infrastructure/api/ApiOverviewRepositor
 import { ApiProvisioningRepository } from '@/infrastructure/api/ApiProvisioningRepository'
 import { ApiInfrastructureRepository } from '@/infrastructure/api/ApiInfrastructureRepository'
 import { ApiSoftwareRepository } from '@/infrastructure/api/ApiSoftwareRepository'
+import { ApiModuleRepository } from '@/infrastructure/api/ApiModuleRepository'
 import { ApiDockerHostRepository } from '@/infrastructure/api/ApiDockerHostRepository'
 import { ApiRegistryCredentialRepository } from '@/infrastructure/api/ApiRegistryCredentialRepository'
 import { ApiSSHKeyRepository } from '@/infrastructure/api/ApiSSHKeyRepository'
@@ -29,6 +30,7 @@ import type { OverviewRepository } from '@/application/ports/OverviewRepository'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 import type { InfrastructureRepository } from '@/application/ports/InfrastructureRepository'
 import type { SoftwareRepository } from '@/application/ports/SoftwareRepository'
+import type { ModuleRepository } from '@/application/ports/ModuleRepository'
 import type { DockerHostRepository } from '@/application/ports/DockerHostRepository'
 import type { RegistryCredentialRepository } from '@/application/ports/RegistryCredentialRepository'
 import type { SSHKeyRepository } from '@/application/ports/SSHKeyRepository'
@@ -50,6 +52,8 @@ export interface AppContainer {
   platforms: PlatformRepository
   /** Managed Software install/uninstall and Software Assignment reads (decision 038). */
   software: SoftwareRepository
+  /** The Extension Modules of the build and the spec schemas generic settings forms read. */
+  modules: ModuleRepository
   /**
    * Live Docker Engine management for Servers where swallow installed Docker CE with `enableApi`
    * (decision 043); api-server mediates every call, the browser never reaches a host.
@@ -88,6 +92,7 @@ export function createContainer(): AppContainer {
     infrastructure: new ApiInfrastructureRepository(),
     platforms: new ApiPlatformRepository(),
     software: new ApiSoftwareRepository(),
+    modules: new ApiModuleRepository(),
     dockerHosts: new ApiDockerHostRepository(),
     registryCredentials: new ApiRegistryCredentialRepository(),
     sshKeys: new ApiSSHKeyRepository(),

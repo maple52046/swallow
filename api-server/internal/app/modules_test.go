@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -168,6 +169,26 @@ func TestEverySoftwareModuleProvidesItsKind(t *testing.T) {
 	}
 	if !slices.Equal(ids, kinds) {
 		t.Errorf("catalog kinds = %v, want the Software modules %v", kinds, ids)
+	}
+}
+
+// A Software module's spec schema reaches the catalog, so the core refuses a spec that breaks it
+// before the module's own validation runs.
+func TestSoftwareSpecSchemasAreChecked(t *testing.T) {
+	modules := testModules(t)
+	nfs, ok := modules.registry.Module(moduledomain.KindSoftware, "nfs")
+	if !ok {
+		t.Fatal("no software/nfs module")
+	}
+	if schema, err := nfs.Manifest.SpecSchema(); err != nil || schema == nil {
+		t.Fatalf("software/nfs SpecSchema() = %v, %v; want its schema", schema, err)
+	}
+	err := modules.software.CheckSpec(softwaredomain.KindNFS, map[string]any{"exportPath": 7})
+	if !errors.Is(err, softwaredomain.ErrSpecInvalid) || !strings.Contains(err.Error(), "spec.exportPath must be a string") {
+		t.Errorf("CheckSpec(nfs, numeric exportPath) = %v, want ErrSpecInvalid naming spec.exportPath", err)
+	}
+	if err := modules.software.CheckSpec(softwaredomain.KindNFS, map[string]any{"exportPath": "/export/data"}); err != nil {
+		t.Errorf("CheckSpec(nfs, valid) = %v", err)
 	}
 }
 

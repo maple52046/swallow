@@ -265,6 +265,9 @@ func (s *SoftwareService) planInstall(ctx context.Context, input InstallInput, c
 	}
 	sort.Strings(serverIDs)
 
+	if err := s.catalog.CheckSpec(input.Kind, input.Spec); err != nil {
+		return installPlan{}, err
+	}
 	if err := software.ValidateSpec(rolesByServer, input.Spec); err != nil {
 		return installPlan{}, err
 	}

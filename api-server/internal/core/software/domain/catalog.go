@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 )
 
@@ -59,18 +60,26 @@ func (k Kind) UninstallPlaybook() string { return "uninstall-" + string(k) }
 // ErrInvalidCatalog means the Software modules of a build do not form a consistent catalog.
 var ErrInvalidCatalog = errors.New("invalid software catalog")
 
+// SpecSchema is the schema a Software module's manifest declares for its spec: the names of its
+// settings and a check of a spec against them, whose error names the offending field.
+type SpecSchema interface {
+	Names() []string
+	Validate(spec map[string]any) error
+}
+
 // Catalog is the Managed Software of a build: one Software per kind, from the Software modules the
 // composition root registers. It is the domain source for the /software/catalog contract.
 type Catalog struct {
-	kinds  []Kind
-	byKind map[Kind]Software
+	kinds   []Kind
+	byKind  map[Kind]Software
+	schemas map[Kind]SpecSchema
 }
 
 // NewCatalog validates the kinds together: each appears once with a label, every kind an entry
 // names (mutually exclusive kinds, container runtimes) is in the catalog, and a kind with container
 // runtimes offers the container install method.
 func NewCatalog(software ...Software) (*Catalog, error) {
-	catalog := &Catalog{byKind: make(map[Kind]Software, len(software))}
+	catalog := &Catalog{byKind: make(map[Kind]Software, len(software)), schemas: map[Kind]SpecSchema{}}
 	for _, item := range software {
 		entry := item.Entry()
 		if entry.Kind == "" || entry.Label == "" {
@@ -104,6 +113,34 @@ func (c *Catalog) Entries() []CatalogEntry {
 		out = append(out, c.byKind[kind].Entry())
 	}
 	return out
+}
+
+// AttachSpecSchema records the spec schema kind's module declares. Its settings must be exactly the
+// kind's SpecFields, so the catalog the API publishes and the schema never disagree.
+func (c *Catalog) AttachSpecSchema(kind Kind, schema SpecSchema) error {
+	software, ok := c.byKind[kind]
+	if !ok {
+		return fmt.Errorf("%w: a spec schema names kind %s, which is not in the catalog", ErrInvalidCatalog, kind)
+	}
+	fields := slices.Sorted(slices.Values(software.Entry().SpecFields))
+	if names := schema.Names(); !slices.Equal(names, fields) {
+		return fmt.Errorf("%w: %s spec schema lists %v, its catalog entry %v", ErrInvalidCatalog, kind, names, fields)
+	}
+	c.schemas[kind] = schema
+	return nil
+}
+
+// CheckSpec refuses a spec that breaks the spec schema of kind's module, wrapping ErrSpecInvalid;
+// a kind whose module declares no schema passes, and its Software validates the spec alone.
+func (c *Catalog) CheckSpec(kind Kind, spec map[string]any) error {
+	schema, ok := c.schemas[kind]
+	if !ok {
+		return nil
+	}
+	if err := schema.Validate(spec); err != nil {
+		return fmt.Errorf("%w: %v", ErrSpecInvalid, err)
+	}
+	return nil
 }
 
 // Lookup returns the Software of kind, or false when the kind is not in the catalog.

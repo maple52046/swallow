@@ -17,13 +17,17 @@ import type {
   SoftwareKind,
   SoftwareRole,
 } from '@/domain/software/types'
+import { moduleSettingsValid } from '@/domain/module/settings'
 import { DockerApiRiskNotice } from '@/presentation/components/DockerApiRiskNotice'
+import { LoadingState } from '@/presentation/components/LoadingState'
+import { ModuleSettingsFields } from '@/presentation/components/ModuleSettings'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { Select } from '@/presentation/components/ui/select'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useModuleSpecSchema, type ModuleSpecSchemaState } from '@/presentation/hooks/useModuleSpecSchema'
 import {
   containerRuntimeLabel,
   groupSoftwareCatalog,
@@ -35,6 +39,7 @@ import {
 } from './softwareCatalogPresentation'
 import {
   buildSoftwareInstallInput,
+  hasDedicatedSoftwareSettings,
   isPrometheusRetentionValid,
   isSoftwareInstallConfigurationValid,
   softwareInstallActionLabel,
@@ -103,6 +108,12 @@ export function InstallSoftwareDialog({
     ? assignments.find((item) => item.kind === entry.kind && item.serverId === fixedServer.id)
     : undefined
   const mode = softwareInstallMode(existingAssignment)
+  // A kind without dedicated settings fields is configured through its module's spec schema.
+  const { state: settingsSchemaState, reload: reloadSettingsSchema } = useModuleSpecSchema(
+    'software',
+    entry && !hasDedicatedSoftwareSettings(entry) ? entry.kind : undefined,
+  )
+  const settingsSchema = settingsSchemaState.status === 'ready' ? settingsSchemaState.schema : null
   const hasRoles = (entry?.roles.length ?? 0) > 0
   const specValue = (field: string) => spec[field] ?? ''
   const roleFor = (serverId: string): SoftwareRole[] => selected[serverId] ?? []
@@ -169,7 +180,7 @@ export function InstallSoftwareDialog({
     serverIds: selectedIds,
     roles: selected,
     spec,
-  })
+  }) && settingsSchemaState.status === 'ready' && (!settingsSchema || moduleSettingsValid(settingsSchema, spec))
   // A kind with install methods records the chosen one in `spec.installMethod` (prefilled from the
   // assignment on Retry/Reconfigure); the catalog default applies until the operator picks one.
   const installMethod = entry
@@ -204,6 +215,7 @@ export function InstallSoftwareDialog({
         roles: selected,
         spec: submittedSpec,
         enableApi,
+        schema: settingsSchema,
       }))
       onLaunched(result.operationId)
     } catch (caught) {
@@ -478,6 +490,8 @@ export function InstallSoftwareDialog({
 
             <SoftwareSpecFields
               entry={entry}
+              schemaState={settingsSchemaState}
+              onRetrySchema={reloadSettingsSchema}
               value={specValue}
               onChange={(field, value) => setSpec((current) => ({ ...current, [field]: value }))}
             />
@@ -560,43 +574,39 @@ function SoftwareInstallMethodField({
   )
 }
 
-/** Kind-specific configuration fields shared by new installs, retry, and reconfigure. */
+/**
+ * Configuration fields shared by new installs, retry, and reconfigure: the dedicated fields of a
+ * kind that has them, otherwise the form its module's spec schema generates.
+ */
 function SoftwareSpecFields({
   entry,
+  schemaState,
+  onRetrySchema,
   value,
   onChange,
 }: {
   entry: SoftwareCatalogEntry
+  schemaState: ModuleSpecSchemaState
+  onRetrySchema: () => void
   value: (field: string) => string
   onChange: (field: string, value: string) => void
 }) {
-  if (entry.kind === 'nfs') {
-    return (
-      <Stack gap="4">
-        <Field.Root>
-          <Field.Label>Export path (server)</Field.Label>
-          <Input value={value('exportPath')} onChange={(event) => onChange('exportPath', event.target.value)} placeholder="/export/data" />
-          <Field.HelperText>Required when a Server takes the server role.</Field.HelperText>
-        </Field.Root>
-        <Field.Root>
-          <Field.Label>Export options (server)</Field.Label>
-          <Input value={value('exportOptions')} onChange={(event) => onChange('exportOptions', event.target.value)} placeholder="rw,sync,no_subtree_check,root_squash" />
-        </Field.Root>
-        <Field.Root>
-          <Field.Label>Source (client)</Field.Label>
-          <Input value={value('source')} onChange={(event) => onChange('source', event.target.value)} placeholder="10.0.0.9:/export/data" />
-          <Field.HelperText>Required when a Server takes the client role (host:/path).</Field.HelperText>
-        </Field.Root>
-        <Field.Root>
-          <Field.Label>Mount path (client)</Field.Label>
-          <Input value={value('mountPath')} onChange={(event) => onChange('mountPath', event.target.value)} placeholder="/shared" />
-        </Field.Root>
-        <Field.Root>
-          <Field.Label>Mount options (client)</Field.Label>
-          <Input value={value('mountOptions')} onChange={(event) => onChange('mountOptions', event.target.value)} placeholder="rw,_netdev" />
-        </Field.Root>
-      </Stack>
-    )
+  if (!hasDedicatedSoftwareSettings(entry)) {
+    if (schemaState.status === 'loading') return <LoadingState rows={2} />
+    if (schemaState.status === 'error') {
+      return (
+        <Alert
+          status="error"
+          title="The settings form could not be loaded"
+          actions={<Button size="sm" variant="outline" onClick={onRetrySchema}>Retry</Button>}
+        >
+          {schemaState.message}
+        </Alert>
+      )
+    }
+    return schemaState.schema
+      ? <ModuleSettingsFields schema={schemaState.schema} value={value} onChange={onChange} idPrefix={`software-${entry.kind}`} />
+      : null
   }
   if (entry.kind === 'prometheus') {
     return (

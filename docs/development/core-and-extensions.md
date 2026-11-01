@@ -231,6 +231,7 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 
 - Platform API 是通用的，spec 由模組的 schema 定義。
 - 第一方模組可以提供專屬的 dashboard 畫面；沒有專屬畫面的模組，由 dashboard 依 schema 產生通用的表單與詳情。
+  schema 是 manifest 的 `spec`，由唯讀的 `GET /api/v1/modules` 提供（[module-authoring.md](module-authoring.md) §1.1）。
 - API 與 UI 以 port 的概念呈現，不以 adapter 名稱作為使用者概念，例如呈現「provisioner」而不是「MAAS」。
   adapter 專屬的設定畫面（例如 MAAS Integration 的連線設定）是例外。
 

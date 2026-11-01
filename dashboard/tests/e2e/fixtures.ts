@@ -349,6 +349,8 @@ export interface PowerConfigurationFixture {
 
 /** Controls for large-fleet, concurrency, and failure-path browser fixtures. */
 export interface FixtureOptions {
+  /** Whether GET /api/v1/modules fails, so a generated settings form cannot load. */
+  modulesUnavailable?: boolean
   /**
    * Whether the browser starts with a Session (as if the HttpOnly refresh cookie were present), so
    * the app's startup refresh succeeds. Defaults to true; sign-in specs pass false. Login and logout
@@ -802,6 +804,19 @@ function sshKey(id: string, name: string, purpose: 'deployment' | 'access', publ
  * Approves the install plan a Platform created on this page waits on (platforms.md "Create A
  * Platform"), which starts its deploy in the mock, and opens the Platform.
  */
+/** The NFS module's spec schema, as api-server/modules/software/nfs/module.json declares it. */
+const nfsSpecSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    exportPath: { type: 'string', title: 'Export path (server)', description: 'Required when a Server takes the server role.', examples: ['/export/data'] },
+    exportOptions: { type: 'string', title: 'Export options (server)', examples: ['rw,sync,no_subtree_check,root_squash'] },
+    source: { type: 'string', title: 'Source (client)', description: 'Required when a Server takes the client role (host:/path).', examples: ['10.0.0.9:/export/data'] },
+    mountPath: { type: 'string', title: 'Mount path (client)', examples: ['/shared'] },
+    mountOptions: { type: 'string', title: 'Mount options (client)', examples: ['rw,_netdev'] },
+  },
+}
+
 export async function approvePlatformInstall(page: Page, platformId = 'platform-new') {
   await expect(page).toHaveURL('/change-plans?site=site-a')
   // The newest plan is listed first; a page that created the Platform twice approves the latest.
@@ -1807,6 +1822,18 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         { kind: 'prometheus', label: 'Prometheus', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'scrapeJob', 'scrapeTargets', 'scrapeServerIds', 'scrapePort', 'listen', 'retention'] },
         { kind: 'grafana', label: 'Grafana', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'prometheusUrl', 'dashboards'] },
         { kind: 'device-metrics-exporter', label: 'AMD Device Metrics Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: true, refusedForClaimedServers: true, requiresAmdComputeGpu: true, installMethods: [], containerRuntimes: [], specFields: [] },
+      ] })
+    }
+    // Modules (modules.md): the build's modules; NFS declares the spec schema its install form reads.
+    if (path === '/api/v1/modules') {
+      if (options.modulesUnavailable) return json(route, { error: { code: 'internal', message: 'module list unavailable' } }, 500)
+      return json(route, { items: [
+        { kind: 'accelerator', id: 'amd', version: '0.1.0', spec: null },
+        { kind: 'platform', id: 'kubernetes', version: '0.1.0', spec: null },
+        { kind: 'platform', id: 'slurm', version: '0.1.0', spec: null },
+        ...['device-metrics-exporter', 'docker-ce', 'grafana'].map((id) => ({ kind: 'software', id, version: '0.1.0', spec: null })),
+        { kind: 'software', id: 'nfs', version: '0.1.0', spec: nfsSpecSchema },
+        ...['podman', 'prometheus'].map((id) => ({ kind: 'software', id, version: '0.1.0', spec: null })),
       ] })
     }
     // Registry Credentials (registry-credentials.md): responses never carry a password.

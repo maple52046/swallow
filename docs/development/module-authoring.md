@@ -67,7 +67,15 @@ api-server/modules/
   只有這個模組宣告的 `taskKinds`、`completions`、`routes`（`/api/v1/` 底下的路徑前綴）。兩個模組不得擁有同一個名稱；
   不屬於任何模組的 Workflow kind 與 completion 屬於 core。
 - `hooks` 列出 Go hook 與「資料表達不了」的理由，root package 實作的 hook 必須剛好是這些；`capabilities` 以
-  provider interface 命名（例如 `host-automation`、`os-provisioning`），`spec` 是模組定義資源 spec 時的 JSON Schema。
+  provider interface 命名（例如 `host-automation`、`os-provisioning`）。
+- `spec` 是模組定義資源 spec 時的 schema，屬於 core 與 dashboard 讀法相同的 JSON Schema 子集（定義在
+  `internal/core/module/domain` 的 `ParseSpecSchema`，契約見
+  [`modules.md`](../../api-server/docs/development/api-contracts/api-server/modules.md)）：根是 `"type": "object"`
+  加 `"additionalProperties": false`；每個屬性是 `string`、`integer`、`boolean` 或字串 `array`，必須有 `title`，可以有
+  `description`、`examples`（表單以第一個作為 placeholder）、字串的 `enum` 與 `pattern`、整數的 `minimum` 與 `maximum`；
+  用到其他關鍵字時拒絕啟動。屬性的順序就是通用表單的欄位順序。Software 模組的屬性必須剛好是 catalog entry 的
+  `SpecFields`，core 在 hook 的 `ValidateSpec` 之前以 schema 檢查型別與未知欄位，所以 hook 只需要寫跨欄位或依 role 的規則。
+  dashboard 對有 schema 而沒有專屬畫面的模組產生通用的表單與詳情（目前是 NFS）。
 - root package 的 `Module()` 以 `moduledomain.Load` 讀嵌入的 manifest；在 `internal/app/modules.go` 的
   `compiledModules` 加上它，api、worker 與 ansible-executor 就以同一個 registry 載入，manifest 不合契約時拒絕啟動。
 - 模組只 import core、`internal/shared` 與自己的 package；需要另一個模組的能力時，經由 core 的 port 取得。

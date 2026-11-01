@@ -445,6 +445,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/modules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the modules compiled into the running build.
+         * @description Requires the `admin` role. The list is fixed for the running build, ordered by kind and then id, and not paginated.
+         */
+        get: operations["listModules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/monitoring/alerts": {
         parameters: {
             query?: never;
@@ -4625,6 +4645,58 @@ export interface components {
             memoryMiB: number;
             storageGB: number;
         };
+        Module: {
+            /** @description The module's kebab-case id; a Software module's id is its Managed Software kind and a Platform module's id is its Platform type. */
+            id: string;
+            /**
+             * @description What the module adds to swallow (glossary Extension Module).
+             * @enum {string}
+             */
+            kind: "accelerator" | "platform" | "software";
+            /** @description The schema of the resource spec the module defines, as its manifest declares it, or null when it defines none. Properties keep the manifest's order. */
+            spec: components["schemas"]["ModuleSpecSchema"] | null;
+            /** @description The module's SemVer version. */
+            version: string;
+        };
+        ModuleList: {
+            items: components["schemas"]["Module"][];
+        };
+        ModuleSpecProperty: {
+            /** @description Help text for the setting. */
+            description?: string;
+            /** @description The values a string setting may take. */
+            enum?: string[];
+            /** @description Sample values of the setting's type; a form shows the first as a placeholder. */
+            examples?: unknown[];
+            /** @description The item schema of a list setting; its items are strings. */
+            items?: {
+                /** @enum {string} */
+                type: "string";
+            };
+            /** @description The largest value of an integer setting. */
+            maximum?: number;
+            /** @description The smallest value of an integer setting. */
+            minimum?: number;
+            /** @description A regular expression a non-blank string setting must match, in the syntax Go (RE2) and ECMAScript share. */
+            pattern?: string;
+            /** @description The setting's label. */
+            title: string;
+            /** @enum {string} */
+            type: "string" | "integer" | "boolean" | "array";
+        };
+        /** @description The JSON Schema subset a module declares its spec with: one closed object of titled string, integer, boolean, and string-list settings. The server validates a spec against it; a blank string or an empty list counts as unset. */
+        ModuleSpecSchema: {
+            /** @enum {boolean} */
+            additionalProperties: false;
+            /** @description The settings, by spec key. */
+            properties: {
+                [key: string]: components["schemas"]["ModuleSpecProperty"];
+            };
+            /** @description Settings that must be set. */
+            required?: string[];
+            /** @enum {string} */
+            type: "object";
+        };
         /** @description An alert as Alertmanager reports it, with swallow's correlation from its label set. swallow stores no alerts. */
         MonitoringAlert: {
             /** @description The `description` annotation; empty when absent. */
@@ -7980,6 +8052,29 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            default: components["responses"]["Error"];
+        };
+    };
+    listModules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every module of the build. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModuleList"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

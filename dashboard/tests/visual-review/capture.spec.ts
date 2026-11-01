@@ -774,6 +774,34 @@ test.describe('Software installation flow visual review', () => {
     await capture(page, testInfo, 'software-multi-node-dialog', false)
   })
 
+  // A kind without dedicated settings (NFS) is configured and shown through its module's schema.
+  test('NFS settings generated from its module schema', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { fleetSize: 5, softwareAssignments: visualSoftwareAssignments })
+    await setAppearance(page, appearance)
+    await page.goto('/software/nfs?site=site-a')
+    await page.getByRole('button', { name: 'Install software', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Install software' })
+    await dialog.getByRole('textbox', { name: 'Search installation targets' }).fill('gpu-node-01')
+    await dialog.getByText('Select all available results', { exact: true }).click()
+    await dialog.getByRole('button', { name: 'Next', exact: true }).click()
+    await dialog.getByRole('checkbox', { name: 'server' }).click({ force: true })
+    await dialog.getByRole('textbox', { name: 'Export path (server)' }).fill('/export/data')
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'software-nfs-generated-settings', false)
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+    // The table and the card list share the label; only the one for this viewport is visible.
+    const deployments = page.locator('[aria-label="NFS deployments"]:visible')
+    await deployments.getByRole('button', { name: 'More' }).first().click()
+    await page.getByRole('menuitem', { name: 'View settings' }).click()
+    await expect(page.getByRole('dialog', { name: 'NFS settings' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'software-nfs-recorded-settings', false)
+  })
+
   // The AMD Device Metrics Exporter (decision 068): its catalog card under Observability, a
   // deployment its Platform manages, and the install picker's GPU and Platform blockers.
   test('AMD Device Metrics Exporter', async ({ page }, testInfo) => {

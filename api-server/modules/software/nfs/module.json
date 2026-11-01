@@ -13,6 +13,39 @@
   ],
   "taskKinds": [],
   "completions": [],
+  "spec": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "exportPath": {
+        "type": "string",
+        "title": "Export path (server)",
+        "description": "Required when a Server takes the server role.",
+        "examples": ["/export/data"]
+      },
+      "exportOptions": {
+        "type": "string",
+        "title": "Export options (server)",
+        "examples": ["rw,sync,no_subtree_check,root_squash"]
+      },
+      "source": {
+        "type": "string",
+        "title": "Source (client)",
+        "description": "Required when a Server takes the client role (host:/path).",
+        "examples": ["10.0.0.9:/export/data"]
+      },
+      "mountPath": {
+        "type": "string",
+        "title": "Mount path (client)",
+        "examples": ["/shared"]
+      },
+      "mountOptions": {
+        "type": "string",
+        "title": "Mount options (client)",
+        "examples": ["rw,_netdev"]
+      }
+    }
+  },
   "hooks": [
     {
       "name": "software",

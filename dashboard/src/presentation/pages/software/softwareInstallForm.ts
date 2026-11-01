@@ -1,3 +1,5 @@
+import { moduleSettingsSpec } from '@/domain/module/settings'
+import type { ModuleSpecSchema } from '@/domain/module/types'
 import {
   SOFTWARE_INTEGER_SPEC_FIELDS,
   SOFTWARE_LIST_SPEC_FIELDS,
@@ -20,8 +22,8 @@ export interface SoftwareInstallDefaults {
 /**
  * Converts persisted assignment configuration into editable form values.
  * Unknown keys stay out of the form because the catalog's `specFields` remains authoritative.
- * List-valued fields (`SOFTWARE_LIST_SPEC_FIELDS`) are shown one entry per line so a reconfigure
- * resends the recorded list unchanged.
+ * A list is shown one entry per line so a reconfigure resends the recorded list unchanged, and a
+ * number or boolean as its JSON text; `enableApi` has its own toggle.
  */
 export function softwareInstallDefaults(
   entry: SoftwareCatalogEntry,
@@ -30,17 +32,24 @@ export function softwareInstallDefaults(
   const spec: Record<string, string> = {}
   for (const field of entry.specFields) {
     const value = assignment?.spec?.[field]
-    if (field !== 'enableApi' && typeof value === 'string') spec[field] = value
-    if (SOFTWARE_LIST_SPEC_FIELDS.has(field) && Array.isArray(value)) {
-      spec[field] = value.filter((item): item is string => typeof item === 'string').join('\n')
-    }
-    if (SOFTWARE_INTEGER_SPEC_FIELDS.has(field) && typeof value === 'number') spec[field] = String(value)
+    if (field === 'enableApi') continue
+    if (typeof value === 'string') spec[field] = value
+    else if (Array.isArray(value)) spec[field] = value.filter((item): item is string => typeof item === 'string').join('\n')
+    else if (typeof value === 'number' || typeof value === 'boolean') spec[field] = String(value)
   }
   return {
     roles: assignment?.roles ?? [],
     spec,
     enableApi: assignment?.spec?.enableApi === false ? false : true,
   }
+}
+
+/**
+ * Whether the dashboard has dedicated settings fields for a kind. A kind without them gets the
+ * form its module's spec schema generates (core-and-extensions.md §7), today NFS.
+ */
+export function hasDedicatedSoftwareSettings(entry: SoftwareCatalogEntry): boolean {
+  return entry.kind === 'prometheus' || entry.kind === 'grafana' || entry.specFields.includes('version')
 }
 
 /** Maps an existing assignment to the explicit retry/reconfigure language used by the dialog. */
@@ -62,7 +71,8 @@ export function softwareInstallActionLabel(mode: SoftwareInstallMode): string {
  *
  * The caller supplies the complete spec intended for every target. Reconfigure uses values
  * prefilled from its single assignment, preventing an omitted field from silently replacing the
- * persisted configuration with a default.
+ * persisted configuration with a default. A kind whose settings come from its module's spec schema
+ * converts them by the schema's types.
  */
 export function buildSoftwareInstallInput({
   entry,
@@ -70,15 +80,17 @@ export function buildSoftwareInstallInput({
   roles,
   spec,
   enableApi,
+  schema,
 }: {
   entry: SoftwareCatalogEntry
   serverIds: readonly string[]
   roles: Readonly<Record<string, readonly SoftwareRole[]>>
   spec: Readonly<Record<string, string>>
   enableApi: boolean
+  schema?: ModuleSpecSchema | null
 }): InstallSoftwareInput {
-  const normalizedSpec: Record<string, unknown> = {}
-  for (const field of entry.specFields) {
+  const normalizedSpec: Record<string, unknown> = schema ? moduleSettingsSpec(schema, spec) : {}
+  for (const field of schema ? [] : entry.specFields) {
     if (field === 'enableApi') {
       normalizedSpec.enableApi = enableApi
       continue

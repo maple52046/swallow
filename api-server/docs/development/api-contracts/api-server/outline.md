@@ -27,6 +27,7 @@ conformist HTTP consumers of this surface; neither owns any contract here.
 | [auth-logout.md](auth-logout.md) | Active | `POST /api/v1/auth/logout` | End a Session so its refresh token stops working; idempotent. |
 | [auth-me.md](auth-me.md) | Active | `GET /api/v1/auth/me` | Return the authenticated caller's identity, role, and authentication method. |
 | [api-keys.md](api-keys.md) | Active | `/api/v1/api-keys` | Create, list, and delete the caller's API Keys for non-interactive clients (secret shown once, optional expiry). |
+| [modules.md](modules.md) | Active | `GET /api/v1/modules` | List the Extension Modules compiled into the build with the spec schema each declares, from which a client renders generic settings forms and details; a Software module's install spec is checked against its schema. |
 | [change-plans.md](change-plans.md) | Active | `/api/v1/change-plans` | Read, approve, and reject the Change Plans of destructive changes; the resource's controller applies an approved plan as a Workflow (decision 076). |
 | [overview.md](overview.md) | Active | `GET /api/v1/overview` | Site-scoped inventory, compute-GPU capacity, integration, platform, operation, and monitoring summary. |
 | [sites-integrations.md](sites-integrations.md) | Active | `/api/v1/sites`, `/api/v1/integrations` | Manage Sites and their write-only provider integrations. |
