@@ -269,7 +269,7 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
   `api-server/modules/<種類>/<id>/`，跨模組共用的內容放在 `api-server/modules/shared/`（登錄於
   [codebase-structure.md](codebase-structure.md)）。這個目錄本身就是模組的套件格式，第一階段不另外定義套件。
 - **負責人**：每個模組目錄在 `.github/CODEOWNERS` 登錄負責人，review 依此分派；core、adapter 與共用的 role
-  也各有負責人。
+  也各有負責人。目前全部是同一人，`internal/app` 的測試檢查每個編入的模組都有一行。
 - **模組撰寫指南**：說明一個模組可以做什麼、不可以做什麼、如何測試與提交，見
   [module-authoring.md](module-authoring.md)；涵蓋 Module Manifest、Go hook、HTTP 路由、dashboard 的畫面與 host
   automation 內容。公開的 `CONTRIBUTING.md` 連到它。

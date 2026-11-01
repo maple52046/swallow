@@ -1,0 +1,38 @@
+# Owners review the changes under their paths (docs/development/core-and-extensions.md §10.1).
+# The last matching pattern wins, so specific paths follow general ones. Every area has one owner
+# for now; a module gets its own owner by changing its lines.
+
+*                                                   @maple52046
+
+# The shared model: glossary, contracts between contexts, decisions, development specs.
+/docs/                                              @maple52046
+
+# Components consuming the api-server contract.
+/dashboard/                                         @maple52046
+/cli/                                               @maple52046
+
+# Core, composition root, and shared code of api-server.
+/api-server/internal/core/                          @maple52046
+/api-server/internal/app/                           @maple52046
+/api-server/internal/shared/                        @maple52046
+
+# Provider adapters.
+/api-server/internal/adapters/                      @maple52046
+
+# Host automation shared by modules, and the release's playbook allowlist.
+/api-server/modules/shared/                         @maple52046
+/api-server/modules/manifest.json                   @maple52046
+
+# Modules: each module's api-server directory and its dashboard screens.
+/api-server/modules/platform/kubernetes/            @maple52046
+/dashboard/src/modules/platform/kubernetes/         @maple52046
+/api-server/modules/platform/slurm/                 @maple52046
+/dashboard/src/modules/platform/slurm/              @maple52046
+/api-server/modules/accelerator/amd/                @maple52046
+/dashboard/src/modules/accelerator/amd/             @maple52046
+/api-server/modules/software/device-metrics-exporter/ @maple52046
+/api-server/modules/software/docker-ce/             @maple52046
+/api-server/modules/software/grafana/               @maple52046
+/api-server/modules/software/nfs/                   @maple52046
+/api-server/modules/software/podman/                @maple52046
+/api-server/modules/software/prometheus/            @maple52046

@@ -5,8 +5,7 @@
 模組）或共用 host automation 內容的開發者與 AI agent。
 
 > **範圍**：模組的宣告（`module.json`、root Go package 與它實作的 hook、HTTP 路由，§1.1）、模組在 dashboard 的畫面
-> （§1.2）與 host automation 內容（playbook 與 role）。每個模組的負責人（`.github/CODEOWNERS`）尚未建立，建立時補進
-> 本文件。模組是什麼、可以依賴什麼，見
+> （§1.2）與 host automation 內容（playbook 與 role）。模組是什麼、可以依賴什麼，見
 > [core-and-extensions.md](core-and-extensions.md)；Platform
 > 與 Managed Software 各自的整合契約（inventory、trusted vars、結果）見
 > [platform-deployment.md](platform-deployment.md) 與 [software-deployment.md](software-deployment.md)。
@@ -76,6 +75,8 @@ api-server/modules/
   用到其他關鍵字時拒絕啟動。屬性的順序就是通用表單的欄位順序。Software 模組的屬性必須剛好是 catalog entry 的
   `SpecFields`，core 在 hook 的 `ValidateSpec` 之前以 schema 檢查型別與未知欄位，所以 hook 只需要寫跨欄位或依 role 的規則。
   dashboard 對有 schema 而沒有專屬畫面的模組產生通用的表單與詳情（目前是 NFS）。
+- 每個模組目錄在 `.github/CODEOWNERS` 有一行負責人（目前全部是同一人；後列的規則優先，所以模組的行放在通用的行
+  之後），review 依此分派。
 - root package 的 `Module()` 以 `moduledomain.Load` 讀嵌入的 manifest；在 `internal/app/modules.go` 的
   `compiledModules` 加上它，api、worker 與 ansible-executor 就以同一個 registry 載入，manifest 不合契約時拒絕啟動。
 - 模組只 import core、`internal/shared` 與自己的 package；需要另一個模組的能力時，經由 core 的 port 取得。
@@ -238,6 +239,8 @@ AMD 模組的 chart 路徑，搬移該 role 時要一併修改。
 - [ ] 模組定義 spec 時，`spec` 屬於 schema 子集，Software 模組的屬性等於 catalog 的 `SpecFields`（§1.1）。
 - [ ] 新的 Job 都在 `workflowJobLabels` 有顯示名稱（§1.1）。
 - [ ] dashboard 的畫面已決定：專屬畫面登錄在 `src/modules/registry.ts`，或依 `spec` 產生（§1.2）。
+- [ ] 新模組的 `api-server/modules/<種類>/<id>/` 與 dashboard 的模組目錄已在 `.github/CODEOWNERS` 登錄負責人；
+  `internal/app` 的測試檢查每個編入的模組都有一行。
 - [ ] 新 playbook 已登錄在 `manifest.json`；改名保留了舊名（§2、§7）。
 - [ ] role 只在自己模組或 `shared/` 解析，名稱與檔名唯一（§3）。
 - [ ] 遵守 §4 的規則；改套件的 playbook 取得與釋放 hold，套件 task 會重試（§5）。

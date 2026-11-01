@@ -90,6 +90,26 @@ func TestEveryModuleDirectoryIsACompiledModule(t *testing.T) {
 	}
 }
 
+// Every compiled module's directory has an owner in the repository's CODEOWNERS, so review of a
+// module change is assigned (core-and-extensions.md §10.1).
+func TestEveryModuleHasACodeOwner(t *testing.T) {
+	codeOwners, err := os.ReadFile(filepath.Join("..", "..", "..", ".github", "CODEOWNERS"))
+	if err != nil {
+		t.Fatalf("read CODEOWNERS: %v", err)
+	}
+	owned := map[string]bool{}
+	for _, line := range strings.Split(string(codeOwners), "\n") {
+		if fields := strings.Fields(line); len(fields) >= 2 && !strings.HasPrefix(fields[0], "#") {
+			owned[fields[0]] = true
+		}
+	}
+	for _, module := range testRegistry(t).Modules() {
+		if path := "/api-server/modules/" + module.Manifest.Ref() + "/"; !owned[path] {
+			t.Errorf("CODEOWNERS has no owner for %s", path)
+		}
+	}
+}
+
 // The allowlist and the manifests agree: a module's playbook is registered inside its own
 // directory, and every registered playbook belongs to the module whose directory holds it, or to
 // shared/.
