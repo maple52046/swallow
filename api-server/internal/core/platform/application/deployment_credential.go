@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -52,7 +53,48 @@ func (s *DeploymentCredentialService) attach(ctx context.Context, platform *plat
 	})
 }
 
-// Record attaches a freshly deployed Platform's read credential and syncs its membership.
+// refresh replaces the endpoint, settings, and credential of the Integration the Platform already
+// owns, in one transaction, so a rerun of its deployment records the credential again without a
+// second Integration of the same name. It reports false when the Platform owns none.
+func (s *DeploymentCredentialService) refresh(
+	ctx context.Context,
+	platform *platformdomain.Platform,
+	credential platformdomain.Credential,
+	settings map[string]string,
+	now time.Time,
+) (bool, error) {
+	if platform.OwnedIntegrationID == "" {
+		return false, nil
+	}
+	existing, err := s.integrations.FindByID(ctx, platform.OwnedIntegrationID)
+	if errors.Is(err, sitedomain.ErrIntegrationNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	existing.Endpoint = credential.Endpoint
+	existing.Settings = settings
+	existing.UpdatedAt = now
+	return true, s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		if err := s.integrations.Update(ctx, existing); err != nil {
+			return err
+		}
+		if err := s.integrations.ReplaceCredential(ctx, existing.ID, credential.Token); err != nil {
+			return err
+		}
+		if platform.IntegrationID == existing.ID {
+			return nil
+		}
+		platform.IntegrationID = existing.ID
+		platform.UpdatedAt = now
+		return s.platforms.Update(ctx, platform)
+	})
+}
+
+// Record attaches a freshly deployed Platform's read credential and syncs its membership. A
+// Platform that already owns its read Integration (a rerun of its deployment) gets that
+// Integration refreshed instead.
 //
 // The token is stored as a sealed platform-kind Integration credential whose provider kind is the
 // Platform type, which selects the Platform module's reader, and the Credential's settings are the
@@ -72,6 +114,13 @@ func (s *DeploymentCredentialService) Record(ctx context.Context, platformID str
 		settings[key] = value
 	}
 	now := time.Now().UTC()
+	if refreshed, err := s.refresh(ctx, platform, credential, settings, now); err != nil || refreshed {
+		if err != nil {
+			return err
+		}
+		_, _ = s.membership.Execute(ctx, platform.ID)
+		return nil
+	}
 	integration := &sitedomain.Integration{
 		ID:           uuid.NewString(),
 		SiteID:       platform.SiteID,
