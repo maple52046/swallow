@@ -107,11 +107,15 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
 更新它的規格。
 
 - 執行狀態只在 store（原則 4、5）：已實作（ADR 072）。
-- desired state 與收斂（原則 1、2）：由 provisioner 實現的第一段資源已遷移（[`desired-state-model.md`](desired-state-model.md)
-  §4.4）。Change Plan 尚未實作，目前的破壞性動作由 operator 直接要求，以 Workflow 執行。
-- core 與廠商無關（原則 3）：provider 與 plugin 已依配置分開（`api-server/internal/adapters/`、`api-server/modules/`）；
-  Module Manifest、Go hook 與依設定組裝發行版尚未實作；core 內仍有平台與 AMD 專屬的邏輯，列在
-  [`core-and-extensions.md`](core-and-extensions.md) §3.6，修改時不得擴大。
+- desired state 與收斂（原則 1、2）：由 provisioner 實現的第一段資源與 Platform 已遷移
+  （[`desired-state-model.md`](desired-state-model.md) §4.4、§5.2）。Platform 的破壞性變更產生 Change Plan，核准後才執行
+  （[ADR 076](../decisions/076-change-plans.md)）；Server 的破壞性動作（Release、Recover 等）仍由 operator 直接要求，以
+  Workflow 執行。
+- core 與廠商無關（原則 3）：provider 與 plugin 已依配置分開（`api-server/internal/adapters/`、`api-server/modules/`）。
+  Module Manifest、Go hook 與模組 registry 已實作（[ADR 075](../decisions/075-module-contract-v1.md)）：Software、
+  Kubernetes、Slurm 與 AMD 都是模組，dashboard 依模組 registry 組成畫面，沒有專屬畫面的模組依 manifest 的 spec schema
+  產生表單。依設定組裝發行版尚未實作，每個 build 編入全部模組。core 內仍有平台與 AMD 專屬的邏輯，列在
+  [`core-and-extensions.md`](core-and-extensions.md) §3.6，以廠商詞彙的 ratchet 守住，只能減少。
 
 ## 憲法層級
 

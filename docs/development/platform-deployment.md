@@ -314,7 +314,8 @@ container runtime 與 workload state 全部消失，swallow 不自動復原，op
 ### 2.4 Uninstall 的 Job 分組（對稱於 deploy）
 
 Uninstall 與 deploy 一樣把 Task 以 `Task.Job` 分組，因此 API 的 `steps[].job` 與 dashboard 會用
-同一套 Job 分組（以及 per-Task events）呈現 uninstall，不再是扁平單一 step。分組由
+同一套 Job 分組（以及 per-Task events）呈現 uninstall，不再是扁平單一 step。每個 Job 的顯示名稱（例如
+`Remove Platform Software`）登錄在 plan catalog，由 Workflow 的 `jobs` 提供，dashboard 不自行推導。分組由
 [`platform_deployment_adapter.go`](../../api-server/internal/app/platform_deployment_adapter.go)
 的 `uninstallSteps` 指派：
 
@@ -739,7 +740,12 @@ deploy handler 與憑證記錄，並重用 `ensure-os`。具體對照見 §6.3�
 
 ### 6.2 步驟
 
-1. **設計 Job**：重用 `ensure-os`（OS + SSH 就緒的骨架不必重寫）；新增 `configure-slurm` Job。
+0. **宣告模組**：`api-server/modules/platform/<type>/module.json` 與 root Go package，實作 `platform` hook
+   （`PlatformModule`：spec 與部署 request 的轉換、一次 spec 變更的動作與分類、成員回報）與 `platform-reader`，加入
+   `compiledModules`（[模組撰寫指南](module-authoring.md) §1.1）。dashboard 的畫面（Overview、分頁、部署 wizard 的
+   表單）放在 `dashboard/src/modules/platform/<type>/` 並登錄在模組 registry（模組撰寫指南 §1.2）。
+1. **設計 Job**：重用 `ensure-os`（OS + SSH 就緒的骨架不必重寫）；新增 `configure-slurm` Job，並在 plan catalog 的
+   `workflowJobLabels` 登錄顯示名稱。
 2. **寫 playbook**：於模組目錄 `api-server/modules/platform/slurm/` 的 `playbooks/` 新增 `deploy-slurm.yml`，
    所需 roles 放在同一個模組的 `roles/`（被多個模組使用的 role 放 `api-server/modules/shared/roles/`），
    遵守 §5 與[模組撰寫指南](module-authoring.md)。以 Kubernetes 模組的 `deploy-kubernetes.yml` + `roles/k0s_*` 為範本。
@@ -1005,8 +1011,10 @@ Platform 的**管理/讀取**面不再用 k0s 形狀的統一 UI:平台詳情頁
   `slurm-smd-slurmrestd`,`integrationId` 為 `null`)或不可達時,前端 degrade 回 controller intent + 最後一次同步的
   compute membership,不顯示誤報的 down。
 
-Shell(header、lifecycle 提示、sync、lifecycle 動作、相關 Operation)真正共用,所以是一條 route 加依 type 切換的
-body(`KubernetesPlatformView`／`SlurmPlatformView`);共用行為由共用 helper 組合,兩種 type 不繼承彼此的詞彙或狀態模型。
+Shell(header、lifecycle 提示、sync、lifecycle 動作、相關 Operation)真正共用,所以是一條 route 加依 type 選擇的
+body:Platform 模組在 `dashboard/src/modules/platform/<type>/` 提供 Overview 與分頁(`KubernetesPlatformView`／
+`SlurmPlatformView`),外殼經模組 registry 取得,不依 type 名稱分支;Accelerator 模組帶來的區塊(例如 AMD GPU Operator)
+也經 registry 加入。兩種 type 不繼承彼此的詞彙或狀態模型。
 Slurm view 尚未提供:QOS、reservation、account(依賴 SlurmDBD)、live jobs 列表與 type 專屬的寫入動作(drain、cancel)。
 
 **health(監控)為獨立軸**:節點/成員的 State 欄只呈現 scheduler 狀態(Slurm node state;k8s

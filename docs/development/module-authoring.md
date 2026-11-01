@@ -4,9 +4,9 @@
 命名、每支 playbook 都要遵守的規則，以及要加哪些測試。讀者是新增或修改 plugin（Platform、Accelerator、Software
 模組）或共用 host automation 內容的開發者與 AI agent。
 
-> **範圍**：模組的宣告（`module.json` 與 root Go package，§1.1）與 host automation 內容（playbook 與 role）。
-> 各種 Go hook 的介面隨模組抽出逐一定義（[core-and-extensions.md](core-and-extensions.md) §5.3），每個模組的負責人
-> （`.github/CODEOWNERS`）尚未建立，實作時補進本文件。模組是什麼、可以依賴什麼，見
+> **範圍**：模組的宣告（`module.json`、root Go package 與它實作的 hook、HTTP 路由，§1.1）、模組在 dashboard 的畫面
+> （§1.2）與 host automation 內容（playbook 與 role）。每個模組的負責人（`.github/CODEOWNERS`）尚未建立，建立時補進
+> 本文件。模組是什麼、可以依賴什麼，見
 > [core-and-extensions.md](core-and-extensions.md)；Platform
 > 與 Managed Software 各自的整合契約（inventory、trusted vars、結果）見
 > [platform-deployment.md](platform-deployment.md) 與 [software-deployment.md](software-deployment.md)。
@@ -84,17 +84,42 @@ api-server/modules/
   entry、spec 驗證與正規化、trusted vars），composition root 啟動時核對這些名稱並組出 catalog，詳見
   [software-deployment.md](software-deployment.md) §2。
 - Platform 模組以 `platform` 為名實作 platform domain 的 `PlatformModule`：Platform spec 的 `settings` 是該類型部署 request
-  的專屬欄位，`members` 是該類型的 assignment（模組自己的 role 名稱）；hook 在兩者之間轉換，並依
-  [desired-state-model.md](desired-state-model.md) §5.2 的分類列出一次 spec 變更的動作、標出 swallow 還不能執行的動作。
+  的專屬欄位，`members` 是該類型的 assignment（模組自己的 role 名稱）。
+  - `DeployRequest` 與 `SpecFromDeployRequest` 在 spec 與部署 request 之間轉換；controller 接管既有的 Platform 時，也以
+    後者讀它最近一次部署的 request。
+  - `Changes(applied, desired)` 列出一次 spec 變更的動作，每個依 [desired-state-model.md](desired-state-model.md) §5.2
+    標為破壞性或非破壞性；core 依此決定直接收斂，或產生 Change Plan 等核准。`Realization` 指出由哪一種 Workflow 實現
+    （部署、卸載、GPU Operator）。`Unsupported` 列出 swallow 還不能執行的動作：破壞性的會擋住 Change Plan，非破壞性的
+    讓這次寫入被拒。改不可變欄位是 `ErrImmutableSpecField`。
+  - `ReportsMembership` 說明平台是否會回報某個成員；會回報卻沒有回報的成員算 drift。
 - Platform 模組以 `platform-reader` 為名實作 platform domain 的 `ReaderBuilder`：core 的 `ReaderFactory` 把 Platform 的
   Integration 解析成 `Connection`（endpoint、token、timeout、CA、設定），再交給 Platform type 對應的 builder。
 - Accelerator 模組的 id 就是它的 accelerator id；root package 以 `accelerator` 為名實作 platform domain 的 `Accelerator`
   port（`ID`、`Label`、`IsCompute`）。需要某家 GPU 的 Software 模組在 catalog entry 以 `RequiredAccelerator` 指名
   它的 id，不 import 它。
+- 規劃 Workflow 的 launcher 以 Task 的 `Job` 為 Job 命名，Job 的顯示名稱登錄在 `internal/app/workflow_plan.go` 的
+  `workflowJobLabels`；Software kind 的 `configure-<kind>` 以 catalog 的 label 命名（`Configure Docker CE`）。Workflow
+  服務受理計畫時從 plan catalog 補上 label，launcher 的測試檢查每個常數 Job 都有 label。
 - 提供 HTTP 路由的模組把 use case 與 delivery 分成子 package，delivery package 匯出 `RegisterRoutes`，由
   `internal/app/api.go` 掛到對應的 router；掛上的路徑必須落在 `routes` 宣告的前綴內。use case 依賴的 core 資料以
   模組自己定義的小介面表達，只列它實際呼叫的方法。docker-ce 的 Docker Host Explorer 是例子：`explorer/` 是 use case，
   `explorerhttp/` 是 handler 與路由，`dockerengine/` 是 Engine client。
+
+### 1.2 dashboard 的畫面
+
+模組在 dashboard 的畫面放在 `dashboard/src/modules/<種類>/<id>/`，`index.ts` 匯出一份 manifest，登錄在
+`src/modules/registry.ts`（規則見 dashboard 的 [architecture spec](../../dashboard/docs/development/architecture-spec.md)
+的 Module UI 一節）：
+
+- Platform 模組（`PlatformModuleUI`）提供 Overview 本體、分頁，以及部署 wizard 的 `deploy.useForm`：類型專屬的欄位、
+  角色欄、Features、額外的步驟、review 卡片與部署 request 的欄位。Site、名稱、候選 Server、OS 準備、時鐘檢查與送出
+  屬於 wizard 外殼。
+- Accelerator 模組（`AcceleratorModuleUI`）提供它帶給某個 Platform 類型的區塊（`platformSections`）與部署功能
+  （`deployFeatures`），例如 AMD 模組帶給 Kubernetes 的 GPU Operator。
+- 外殼只經由 registry 使用模組；模組不 import 其他模組與 infrastructure，模組專屬的 API adapter 放在模組資料夾，由
+  `src/di` 綁定。lint 規則守住這些邊界。
+- 沒有專屬畫面的模組不必寫 dashboard 程式碼：manifest 的 `spec`（§1.1）經 `GET /api/v1/modules` 提供，dashboard 以
+  `ModuleSettingsFields` 與 `ModuleSettingsDetails` 產生表單與詳情（目前是 NFS）。
 
 ## 2. 登錄 playbook
 
@@ -210,6 +235,9 @@ AMD 模組的 chart 路徑，搬移該 role 時要一併修改。
 
 - [ ] 內容放在正確的模組目錄；共用的內容放在 `shared/`（§1）。
 - [ ] `module.json` 列出模組擁有的 playbook、Workflow kind、completion 與 route，模組已加入 `compiledModules`（§1.1）。
+- [ ] 模組定義 spec 時，`spec` 屬於 schema 子集，Software 模組的屬性等於 catalog 的 `SpecFields`（§1.1）。
+- [ ] 新的 Job 都在 `workflowJobLabels` 有顯示名稱（§1.1）。
+- [ ] dashboard 的畫面已決定：專屬畫面登錄在 `src/modules/registry.ts`，或依 `spec` 產生（§1.2）。
 - [ ] 新 playbook 已登錄在 `manifest.json`；改名保留了舊名（§2、§7）。
 - [ ] role 只在自己模組或 `shared/` 解析，名稱與檔名唯一（§3）。
 - [ ] 遵守 §4 的規則；改套件的 playbook 取得與釋放 hold，套件 task 會重試（§5）。

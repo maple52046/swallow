@@ -179,8 +179,9 @@ manifest 是資料；core 以讀取 manifest 的方式載入模組，契約版�
 
 契約 v1 的格式是 `modules/<種類>/<id>/module.json`，由模組的 root Go package 嵌入，composition root 為三個 process
 組出同一個 registry（[decision 075](../decisions/075-module-contract-v1.md)；欄位與寫法見
-[module-authoring.md](module-authoring.md) §1.1）。上面的 Job／Task 範本、狀態規則與模組之間的相容宣告尚未進入
-v1：目前由模組的 Go hook 產生執行計畫，宣告式的範本另行定義；相容關係以 core 的 port 表達。
+[module-authoring.md](module-authoring.md) §1.1）。v1 的 spec schema 是 core 與 dashboard 讀法相同的 JSON Schema 子集；
+功能開關、Job／Task 範本、狀態規則與模組之間的相容宣告尚未進入 v1：目前由模組的 Go hook 產生執行計畫，宣告式的範本
+另行定義；相容關係以 core 的 port 表達。
 
 ### 5.2 host automation 內容
 
@@ -224,8 +225,9 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 
 - Platform 是通用資源，它的 spec 由 Platform 模組的 schema 定義。
 - controller 由 core 提供，在需要的地方呼叫模組的 hook，並只經由 provider interface 改變外部世界。
-- 破壞性與非破壞性的分類（[desired-state-model.md](desired-state-model.md) §5）由模組在 manifest 中為自己的
-  spec 欄位宣告，core 以此決定要直接收斂還是產生 Change Plan。
+- 破壞性與非破壞性的分類（[desired-state-model.md](desired-state-model.md) §5）由模組為自己的 spec 變更宣告，core
+  以此決定要直接收斂還是產生 Change Plan。目前由 Platform 模組的 `platform` hook（`Changes`）逐次列出並分類動作；
+  改成 manifest 中的資料宣告，等第二種需要分類的資源出現時再定。
 
 ## 7. API 與 dashboard
 
@@ -269,11 +271,12 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 - **負責人**：每個模組目錄在 `.github/CODEOWNERS` 登錄負責人，review 依此分派；core、adapter 與共用的 role
   也各有負責人。
 - **模組撰寫指南**：說明一個模組可以做什麼、不可以做什麼、如何測試與提交，見
-  [module-authoring.md](module-authoring.md)；目前涵蓋 host automation 內容，Module Manifest 與 Go hook 隨其實作
-  補上。公開的 `CONTRIBUTING.md` 連到它。
+  [module-authoring.md](module-authoring.md)；涵蓋 Module Manifest、Go hook、HTTP 路由、dashboard 的畫面與 host
+  automation 內容。公開的 `CONTRIBUTING.md` 連到它。
 - **守門機制**：§9 的一致性測試與 import 檢查，讓越界在 CI 中失敗，而不是靠 review 才發現。
 - **契約版本**：manifest 從第一天就帶契約版本，core 拒絕載入不支援的版本；相容性檢查等其他機制留給第二階段。
-- **發行版組裝**：release 建置時依一份設定選擇模組，支援矩陣由同一份設定產生（§8）。
+- **發行版組裝**：release 建置時依一份設定選擇模組，支援矩陣由同一份設定產生（§8）。尚未實作：目前每個 build
+  編入全部模組。
 
 加入第三種 Platform 不是進入下一階段的條件，而是重新檢視模組契約是否夠通用的時機。
 
@@ -305,7 +308,8 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 - [ ] 每個 Go hook 都寫出理由（§5.3）。
 - [ ] 對其他模組的依賴只經由契約（§5.4）。
 - [ ] spec 欄位的所有權與破壞性分類已依 [desired-state-model.md](desired-state-model.md) 宣告（§6）。
-- [ ] dashboard 的呈現已決定：專屬畫面或依 schema 產生（§7）。
+- [ ] dashboard 的呈現已決定：專屬畫面登錄在 dashboard 的模組 registry，或依 manifest 的 `spec` 產生（§7、
+  [模組撰寫指南](module-authoring.md) §1.2）。
 - [ ] 模組目錄已在 `.github/CODEOWNERS` 登錄負責人，並依[模組撰寫指南](module-authoring.md)提交（§10.1）。
 - [ ] 支援矩陣已更新（§8）。
 

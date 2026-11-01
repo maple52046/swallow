@@ -81,8 +81,11 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
 - root Go package 實作 `software` hook（core 的 port `Software`）：`Entry` 回傳 catalog entry，`ValidateSpec`、
   `NormalizeSpec`、`InstallVars` 處理 spec 與 trusted vars，都不做 I/O。spec 指名其他 Server 時另實作
   `ServerReferences`，core 會檢查它們與 target 在同一個 Site。
+- 模組可在 manifest 以 `spec` 宣告 spec schema（JSON Schema 子集），屬性必須等於 catalog entry 的 `SpecFields`。
+  core 在 `ValidateSpec` 之前以 schema 拒絕未知欄位與型別錯誤，hook 只寫跨欄位或依 role 的規則；dashboard 對沒有
+  專屬設定畫面的 kind 依 schema 產生安裝表單與「View settings」詳情。目前 NFS 宣告了 schema。
 - composition root 啟動時核對上述名稱並組出 catalog，這些 Workflow kind 要求 target 為 `deployed`。
-- 撰寫步驟見[模組撰寫指南](module-authoring.md) §1.1。
+- 撰寫步驟見[模組撰寫指南](module-authoring.md) §1.1、§1.2。
 
 **安裝方法**（[decision 063](../decisions/063-omnistat-slurm-observability.md)）：catalog 的
 `installMethods` 列出 kind 可用的安裝方法（第一個是預設），`containerRuntimes` 列出 `container` method
