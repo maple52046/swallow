@@ -131,6 +131,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/change-plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Change Plans, newest first.
+         * @description Requires role `admin`. `resourceKind` and `resourceId` narrow the list to one resource; `state` may repeat. The list is small (plans of the resources an operator changed), so it is not paginated.
+         */
+        get: operations["listChangePlans"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/change-plans/{planId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: components["parameters"]["ChangePlanId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read one Change Plan.
+         * @description Requires role `admin`.
+         */
+        get: operations["getChangePlan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/change-plans/{planId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: components["parameters"]["ChangePlanId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a pending plan as a whole; its controller then applies it.
+         * @description Requires role `admin`. Approval freezes the plan. A plan that is not `pending_approval`, has blockers, or is past `expiresAt` (which expires it) is `409 conflict`.
+         */
+        post: operations["approveChangePlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/change-plans/{planId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: components["parameters"]["ChangePlanId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a plan that has not been applied.
+         * @description Requires role `admin`. A plan that is not `pending_approval` or `approved`, or is past `expiresAt`, is `409 conflict`.
+         */
+        post: operations["rejectChangePlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/discovery/ansible": {
         parameters: {
             query?: never;
@@ -3761,6 +3847,48 @@ export interface components {
             lastErrorAt: components["schemas"]["Timestamp"] | null;
             updatedAt: components["schemas"]["Timestamp"];
         };
+        ChangePlan: {
+            actions: components["schemas"]["PlannedAction"][];
+            /** @description Failed preflight checks; a plan with blockers cannot be approved. */
+            blockers: string[];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            decidedAt: string | null;
+            /** @description The operator who approved or rejected it; empty before a decision. */
+            decidedBy: string;
+            /** @description The expected consequences, for people. */
+            effects: string[];
+            /** Format: date-time */
+            expiresAt: string;
+            /**
+             * Format: int64
+             * @description The spec generation the plan realizes.
+             */
+            generation: number;
+            id: string;
+            /**
+             * Format: date-time
+             * @description When the observed state the plan relied on was read.
+             */
+            observedAt: string;
+            resource: components["schemas"]["ResourceRef"];
+            state: components["schemas"]["ChangePlanState"];
+            /** @description Why the plan reached its state, for people; empty while pending. */
+            stateReason: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** @description The Workflow an applied plan produced; empty before it is applied. */
+            workflowId: string;
+        };
+        ChangePlanList: {
+            items: components["schemas"]["ChangePlan"][];
+        };
+        /**
+         * @description Where a plan is in its life (glossary Change Plan).
+         * @enum {string}
+         */
+        ChangePlanState: "pending_approval" | "approved" | "applied" | "rejected" | "superseded" | "expired";
         /** @description One named judgement in a migrated resource's status, written only by its controller (desired-state-model.md §4.2; glossary Condition). The shared types keep the same meaning on every resource; a resource may add its own types and reasons, so consumers ignore values they do not recognise. */
         Condition: {
             lastTransitionTime: components["schemas"]["Timestamp"];
@@ -4952,6 +5080,17 @@ export interface components {
             /** @description Platforms with no runtime Integration to read them through. */
             unreachable: number;
         };
+        PlannedAction: {
+            /** @description The change, for example `uninstall` or `remove-member`. */
+            action: string;
+            destructive: boolean;
+            /** @description The current value, for people; empty when there is none. */
+            from: string;
+            reason: string;
+            target: components["schemas"]["ResourceRef"];
+            /** @description The desired value, for people; empty when there is none. */
+            to: string;
+        };
         /** @description A Swallow-deployed (or legacy registered) Kubernetes or Slurm Platform. */
         Platform: {
             /**
@@ -5479,6 +5618,11 @@ export interface components {
             serverIds: string[];
             /** @description Also remove the static IP bindings captured before the Release. */
             unbindStaticIPs?: boolean;
+        };
+        ResourceRef: {
+            id: string;
+            /** @description The resource kind, for example `platform` or `server`. */
+            kind: string;
         };
         /** @description A Server as a migrated resource (servers-list.md, decision 071): its identity and origin, the spec generation, the spec (the desired provisioner-realized fields), and the status. Secret-free. */
         Server: {
@@ -6552,6 +6696,7 @@ export interface components {
         };
     };
     parameters: {
+        ChangePlanId: string;
         /** @description Keep only Servers in this provisioning state. Defaults to `deployed`; the literal `all` removes the filter. */
         DiscoveryProvisioningState: string;
         /** @description The container `id` from the list (a name is also accepted by the Engine), URL-encoded. */
@@ -6884,6 +7029,114 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            default: components["responses"]["Error"];
+        };
+    };
+    listChangePlans: {
+        parameters: {
+            query?: {
+                resourceKind?: string;
+                resourceId?: string;
+                state?: components["schemas"]["ChangePlanState"][];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The matching plans. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangePlanList"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getChangePlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: components["parameters"]["ChangePlanId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The plan. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangePlan"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    approveChangePlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: components["parameters"]["ChangePlanId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The approved plan. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangePlan"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    rejectChangePlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: components["parameters"]["ChangePlanId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rejected plan. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangePlan"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

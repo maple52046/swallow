@@ -1,0 +1,237 @@
+# Change Plans: the approval step of a destructive change (change-plans.md, decision 076).
+tags:
+  - name: change-plans
+    description: Preview, approve, or reject what realizing a destructive spec change will do.
+paths:
+  /api/v1/change-plans:
+    get:
+      tags: [change-plans]
+      operationId: listChangePlans
+      summary: List Change Plans, newest first.
+      description: >-
+        Requires role `admin`. `resourceKind` and `resourceId` narrow the list to one resource;
+        `state` may repeat. The list is small (plans of the resources an operator changed), so it
+        is not paginated.
+      parameters:
+        - name: resourceKind
+          in: query
+          schema:
+            type: string
+        - name: resourceId
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/ChangePlanState'
+      responses:
+        '200':
+          description: The matching plans.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlanList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/change-plans/{planId}:
+    parameters:
+      - $ref: '#/components/parameters/ChangePlanId'
+    get:
+      tags: [change-plans]
+      operationId: getChangePlan
+      summary: Read one Change Plan.
+      description: Requires role `admin`.
+      responses:
+        '200':
+          description: The plan.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlan'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/change-plans/{planId}/approve:
+    parameters:
+      - $ref: '#/components/parameters/ChangePlanId'
+    post:
+      tags: [change-plans]
+      operationId: approveChangePlan
+      summary: Approve a pending plan as a whole; its controller then applies it.
+      description: >-
+        Requires role `admin`. Approval freezes the plan. A plan that is not `pending_approval`,
+        has blockers, or is past `expiresAt` (which expires it) is `409 conflict`.
+      responses:
+        '200':
+          description: The approved plan.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlan'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/change-plans/{planId}/reject:
+    parameters:
+      - $ref: '#/components/parameters/ChangePlanId'
+    post:
+      tags: [change-plans]
+      operationId: rejectChangePlan
+      summary: Reject a plan that has not been applied.
+      description: >-
+        Requires role `admin`. A plan that is not `pending_approval` or `approved`, or is past
+        `expiresAt`, is `409 conflict`.
+      responses:
+        '200':
+          description: The rejected plan.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlan'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  parameters:
+    ChangePlanId:
+      name: planId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    ChangePlanState:
+      type: string
+      description: Where a plan is in its life (glossary Change Plan).
+      enum:
+        - pending_approval
+        - approved
+        - applied
+        - rejected
+        - superseded
+        - expired
+    ResourceRef:
+      type: object
+      additionalProperties: false
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          description: The resource kind, for example `platform` or `server`.
+        id:
+          type: string
+    PlannedAction:
+      type: object
+      additionalProperties: false
+      required: [target, action, from, to, destructive, reason]
+      properties:
+        target:
+          $ref: '#/components/schemas/ResourceRef'
+        action:
+          type: string
+          description: The change, for example `uninstall` or `remove-member`.
+        from:
+          type: string
+          description: The current value, for people; empty when there is none.
+        to:
+          type: string
+          description: The desired value, for people; empty when there is none.
+        destructive:
+          type: boolean
+        reason:
+          type: string
+    ChangePlan:
+      type: object
+      additionalProperties: false
+      required: [id, resource, generation, observedAt, actions, effects, blockers, state, stateReason,
+        decidedBy, decidedAt, workflowId, expiresAt, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        resource:
+          $ref: '#/components/schemas/ResourceRef'
+        generation:
+          type: integer
+          format: int64
+          description: The spec generation the plan realizes.
+        observedAt:
+          type: string
+          format: date-time
+          description: When the observed state the plan relied on was read.
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlannedAction'
+        effects:
+          type: array
+          description: The expected consequences, for people.
+          items:
+            type: string
+        blockers:
+          type: array
+          description: Failed preflight checks; a plan with blockers cannot be approved.
+          items:
+            type: string
+        state:
+          $ref: '#/components/schemas/ChangePlanState'
+        stateReason:
+          type: string
+          description: Why the plan reached its state, for people; empty while pending.
+        decidedBy:
+          type: string
+          description: The operator who approved or rejected it; empty before a decision.
+        decidedAt:
+          type: string
+          format: date-time
+          nullable: true
+        workflowId:
+          type: string
+          description: The Workflow an applied plan produced; empty before it is applied.
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ChangePlanList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChangePlan'

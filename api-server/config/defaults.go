@@ -22,6 +22,7 @@ func DefaultConfig() Config {
 			ReconcileInterval:        30 * time.Second,
 			InventoryInterval:        15 * time.Minute,
 			ControllerResyncInterval: 10 * time.Minute,
+			ChangePlanTTL:            24 * time.Hour,
 			WorkflowResyncInterval:   30 * time.Second,
 			OperationMaxParallelism:  4,
 			TemporalAddress:          "localhost:7233",

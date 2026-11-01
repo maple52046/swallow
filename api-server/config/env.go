@@ -86,6 +86,11 @@ func applyEnv(cfg *Config) {
 			cfg.API.ControllerResyncInterval = d
 		}
 	}
+	if v := os.Getenv("SWALLOW_API_CHANGE_PLAN_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.ChangePlanTTL = d
+		}
+	}
 	if v := os.Getenv("SWALLOW_API_WORKFLOW_RESYNC_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.API.WorkflowResyncInterval = d

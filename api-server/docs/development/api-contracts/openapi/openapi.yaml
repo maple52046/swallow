@@ -12,6 +12,8 @@ security:
 tags:
   - description: Sessions and the caller's identity, the caller's API Keys for non-interactive clients, and swallow-owned SSH Keys (the Deployment Key and the caller's Access Keys).
     name: auth
+  - description: Preview, approve, or reject what realizing a destructive spec change will do.
+    name: change-plans
   - description: The operator overview, alerts read from Alertmanager, named metric queries against the metrics backend, and the Prometheus and Ansible discovery projections of the Server inventory. swallow stores no alerts and no metrics.
     name: monitoring
   - description: Swallow-deployed Kubernetes and Slurm Platforms (platforms.md) and the live Kubernetes cluster explorer of a deployed Kubernetes Platform (platforms-kubernetes.md). Every operation requires the `admin` role.
@@ -273,6 +275,121 @@ paths:
       summary: Exchange a refresh token for a new access token, rotating the refresh token.
       tags:
         - auth
+  /api/v1/change-plans:
+    get:
+      description: Requires role `admin`. `resourceKind` and `resourceId` narrow the list to one resource; `state` may repeat. The list is small (plans of the resources an operator changed), so it is not paginated.
+      operationId: listChangePlans
+      parameters:
+        - in: query
+          name: resourceKind
+          schema:
+            type: string
+        - in: query
+          name: resourceId
+          schema:
+            type: string
+        - explode: true
+          in: query
+          name: state
+          schema:
+            items:
+              $ref: '#/components/schemas/ChangePlanState'
+            type: array
+          style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlanList'
+          description: The matching plans.
+        "400":
+          $ref: '#/components/responses/Error'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: List Change Plans, newest first.
+      tags:
+        - change-plans
+  /api/v1/change-plans/{planId}:
+    get:
+      description: Requires role `admin`.
+      operationId: getChangePlan
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlan'
+          description: The plan.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Read one Change Plan.
+      tags:
+        - change-plans
+    parameters:
+      - $ref: '#/components/parameters/ChangePlanId'
+  /api/v1/change-plans/{planId}/approve:
+    parameters:
+      - $ref: '#/components/parameters/ChangePlanId'
+    post:
+      description: Requires role `admin`. Approval freezes the plan. A plan that is not `pending_approval`, has blockers, or is past `expiresAt` (which expires it) is `409 conflict`.
+      operationId: approveChangePlan
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlan'
+          description: The approved plan.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        "409":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Approve a pending plan as a whole; its controller then applies it.
+      tags:
+        - change-plans
+  /api/v1/change-plans/{planId}/reject:
+    parameters:
+      - $ref: '#/components/parameters/ChangePlanId'
+    post:
+      description: Requires role `admin`. A plan that is not `pending_approval` or `approved`, or is past `expiresAt`, is `409 conflict`.
+      operationId: rejectChangePlan
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlan'
+          description: The rejected plan.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        "409":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Reject a plan that has not been applied.
+      tags:
+        - change-plans
   /api/v1/discovery/ansible:
     get:
       description: 'Machine authentication: the installation machine token, or an admin access token (API Keys are not accepted). For diagnostics and external tools; the embedded runner calls the same projection directly. Hosts are keyed by Server id and a Server with no known address is omitted. Never paginated (discovery-prometheus.md, Ansible Inventory).'
@@ -7251,6 +7368,12 @@ components:
           - no-store
         type: string
   parameters:
+    ChangePlanId:
+      in: path
+      name: planId
+      required: true
+      schema:
+        type: string
     DiscoveryProvisioningState:
       description: Keep only Servers in this provisioning state. Defaults to `deployed`; the literal `all` removes the filter.
       in: query
@@ -8133,6 +8256,96 @@ components:
         - lastAppliedAt
         - lastErrorAt
       type: object
+    ChangePlan:
+      additionalProperties: false
+      properties:
+        actions:
+          items:
+            $ref: '#/components/schemas/PlannedAction'
+          type: array
+        blockers:
+          description: Failed preflight checks; a plan with blockers cannot be approved.
+          items:
+            type: string
+          type: array
+        createdAt:
+          format: date-time
+          type: string
+        decidedAt:
+          format: date-time
+          nullable: true
+          type: string
+        decidedBy:
+          description: The operator who approved or rejected it; empty before a decision.
+          type: string
+        effects:
+          description: The expected consequences, for people.
+          items:
+            type: string
+          type: array
+        expiresAt:
+          format: date-time
+          type: string
+        generation:
+          description: The spec generation the plan realizes.
+          format: int64
+          type: integer
+        id:
+          type: string
+        observedAt:
+          description: When the observed state the plan relied on was read.
+          format: date-time
+          type: string
+        resource:
+          $ref: '#/components/schemas/ResourceRef'
+        state:
+          $ref: '#/components/schemas/ChangePlanState'
+        stateReason:
+          description: Why the plan reached its state, for people; empty while pending.
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+        workflowId:
+          description: The Workflow an applied plan produced; empty before it is applied.
+          type: string
+      required:
+        - id
+        - resource
+        - generation
+        - observedAt
+        - actions
+        - effects
+        - blockers
+        - state
+        - stateReason
+        - decidedBy
+        - decidedAt
+        - workflowId
+        - expiresAt
+        - createdAt
+        - updatedAt
+      type: object
+    ChangePlanList:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ChangePlan'
+          type: array
+      required:
+        - items
+      type: object
+    ChangePlanState:
+      description: Where a plan is in its life (glossary Change Plan).
+      enum:
+        - pending_approval
+        - approved
+        - applied
+        - rejected
+        - superseded
+        - expired
+      type: string
     Condition:
       description: One named judgement in a migrated resource's status, written only by its controller (desired-state-model.md §4.2; glossary Condition). The shared types keep the same meaning on every resource; a resource may add its own types and reasons, so consumers ignore values they do not recognise.
       properties:
@@ -10817,6 +11030,32 @@ components:
         - unreachable
         - unmatchedMembers
       type: object
+    PlannedAction:
+      additionalProperties: false
+      properties:
+        action:
+          description: The change, for example `uninstall` or `remove-member`.
+          type: string
+        destructive:
+          type: boolean
+        from:
+          description: The current value, for people; empty when there is none.
+          type: string
+        reason:
+          type: string
+        target:
+          $ref: '#/components/schemas/ResourceRef'
+        to:
+          description: The desired value, for people; empty when there is none.
+          type: string
+      required:
+        - target
+        - action
+        - from
+        - to
+        - destructive
+        - reason
+      type: object
     Platform:
       description: A Swallow-deployed (or legacy registered) Kubernetes or Slurm Platform.
       properties:
@@ -12003,6 +12242,18 @@ components:
           type: boolean
       required:
         - serverIds
+      type: object
+    ResourceRef:
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        kind:
+          description: The resource kind, for example `platform` or `server`.
+          type: string
+      required:
+        - kind
+        - id
       type: object
     Server:
       description: 'A Server as a migrated resource (servers-list.md, decision 071): its identity and origin, the spec generation, the spec (the desired provisioner-realized fields), and the status. Secret-free.'

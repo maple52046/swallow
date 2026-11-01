@@ -62,6 +62,9 @@ func Validate(cfg *Config) error {
 	if cfg.API.ControllerResyncInterval <= 0 {
 		return fmt.Errorf("api.controllerResyncInterval must be > 0")
 	}
+	if cfg.API.ChangePlanTTL <= 0 {
+		return fmt.Errorf("api.changePlanTTL must be > 0")
+	}
 	if cfg.API.WorkflowResyncInterval <= 0 {
 		return fmt.Errorf("api.workflowResyncInterval must be > 0")
 	}

@@ -200,6 +200,8 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 - **到期**：plan 有有限的有效期間，因為它依據的 observed 會變舊。
 - **一個資源同時只有一份未完成的 plan**：新的 spec 變更會讓尚未 apply 的 plan 轉為 `superseded`。
 - **apply**：產生一個 Workflow，Workflow 記錄 plan id；plan 記錄 Workflow id。
+- **實作**：[decision 076](../decisions/076-change-plans.md)（plan 存成 convergence 的獨立文件、由資源的 controller
+  重算後 apply、24 小時到期）；API 見 [change-plans.md](../../api-server/docs/development/api-contracts/api-server/change-plans.md)。
 
 ## 6. Drift 政策
 

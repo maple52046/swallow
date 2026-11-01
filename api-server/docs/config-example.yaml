@@ -71,6 +71,10 @@ api:
   # Env: SWALLOW_API_CONTROLLER_RESYNC_INTERVAL.
   controllerResyncInterval: "10m"
 
+  # How long a Change Plan for a destructive change stays valid after it is computed; an
+  # unfinished plan older than this expires (decision 076). Env: SWALLOW_API_CHANGE_PLAN_TTL.
+  changePlanTTL: "24h"
+
   # How often the workflow-dispatch controller (worker process) confirms every unfinished
   # Workflow still has a run and resumes one that lost it (decision 072). Commands and new
   # Workflows are dispatched at once through the change feed; this only bounds recovery.

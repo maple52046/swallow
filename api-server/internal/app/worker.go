@@ -255,6 +255,10 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("subnet DNS repo init: %w", err)
 	}
+	changePlans, err := newChangePlanService(ctx, db, transactor, cfg.ChangePlanTTL)
+	if err != nil {
+		return err
+	}
 	runControllers := controllerRuntime(db, convergence.RuntimeOptions{ResyncInterval: cfg.ControllerResyncInterval},
 		workflowapp.NewDispatcher(operations, engine, executor, cfg.WorkflowResyncInterval),
 		provisioningapp.NewServerController(servers, servers, providers, serverWorkflowHolds{leases: ownership},
@@ -265,6 +269,7 @@ func RunWorker(cfg config.APIConfig) error {
 		provisioningapp.NewSubnetDNSController(provisionerIntegrations{integrations: integrations}, providers,
 			subnetDNS, convergenceEvents),
 		sshKeyController(sshKeys, convergenceEvents),
+		convergence.NewChangePlanExpiryController(changePlans),
 	)
 	controllersDone := make(chan struct{})
 	go func() {

@@ -36,6 +36,15 @@ const (
 	EventDriftResolved EventType = "drift_resolved"
 	// EventConvergenceFailed: the provider rejected a change and the controller stopped trying.
 	EventConvergenceFailed EventType = "convergence_failed"
+	// The Change Plan events (decision 076): a plan was proposed for a destructive spec change, an
+	// operator approved or rejected it, it was superseded by a newer spec or observation, it
+	// expired, or its controller applied it as a Workflow.
+	EventPlanProposed   EventType = "plan_proposed"
+	EventPlanApproved   EventType = "plan_approved"
+	EventPlanRejected   EventType = "plan_rejected"
+	EventPlanSuperseded EventType = "plan_superseded"
+	EventPlanExpired    EventType = "plan_expired"
+	EventPlanApplied    EventType = "plan_applied"
 )
 
 // Event is one entry in a resource's convergence timeline: what the controller observed or did,

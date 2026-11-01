@@ -64,6 +64,10 @@ type APIConfig struct {
 	// how long a change made directly in a provider survives, and how often controllers write to
 	// providers when nothing changed in swallow.
 	ControllerResyncInterval time.Duration `yaml:"controllerResyncInterval"`
+	// ChangePlanTTL is how long a Change Plan stays valid after it is computed (decision 076): an
+	// unfinished plan older than this expires instead of applying intent its observations no
+	// longer support.
+	ChangePlanTTL time.Duration `yaml:"changePlanTTL"`
 	// WorkflowResyncInterval is how often the workflow-dispatch controller resyncs: it confirms
 	// every unfinished Workflow still has a run and resumes one that lost it (decision 072).
 	WorkflowResyncInterval time.Duration `yaml:"workflowResyncInterval"`

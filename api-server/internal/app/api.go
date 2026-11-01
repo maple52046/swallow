@@ -45,6 +45,7 @@ import (
 	apikeydelivery "github.com/maple52046/swallow/internal/core/apikey/delivery"
 	authapp "github.com/maple52046/swallow/internal/core/auth/application"
 	authdelivery "github.com/maple52046/swallow/internal/core/auth/delivery"
+	convergencedelivery "github.com/maple52046/swallow/internal/core/convergence/delivery"
 	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
 	discoverydelivery "github.com/maple52046/swallow/internal/core/discovery/delivery"
 	infrastructureapp "github.com/maple52046/swallow/internal/core/infrastructure/application"
@@ -247,6 +248,10 @@ func RunAPI(cfg config.APIConfig) error {
 		return err
 	}
 	sshKeyService.AttachRequester(convergencestore.NewMongoRequester(db))
+	changePlans, err := newChangePlanService(ctx, db, transactor, cfg.ChangePlanTTL)
+	if err != nil {
+		return err
+	}
 	sshKeyHandler := sshkeydelivery.NewSSHKeyHandler(sshKeyService)
 	deploymentKeys := deploymentKeySource{keys: sshKeyService}
 	activeWork := activeServerWorkReader{orchestrations: orchestrationRepo}
@@ -620,6 +625,7 @@ func RunAPI(cfg config.APIConfig) error {
 		discovery:       discoveryHandler,
 		sshKeys:         sshKeyHandler,
 		apiKeys:         apiKeyHandler,
+		changePlans:     convergencedelivery.NewChangePlanHandler(changePlans),
 		releaseVersion:  releaseVersion,
 		readiness: func(ctx context.Context) error {
 			if err := client.Ping(ctx, nil); err != nil {
@@ -688,6 +694,7 @@ type routeDeps struct {
 	discovery      *discoverydelivery.DiscoveryHandler
 	sshKeys        *sshkeydelivery.SSHKeyHandler
 	apiKeys        *apikeydelivery.Handler
+	changePlans    *convergencedelivery.ChangePlanHandler
 	readiness      func(context.Context) error
 	releaseVersion string
 }
@@ -960,6 +967,10 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 
 	// API Keys (contract api-keys.md, decision 042): the caller's keys for non-interactive
 	// clients. Creating one needs a password Session, so a leaked key cannot mint replacements.
+	// Change Plans (contract change-plans.md, decision 076): the approval step of a destructive
+	// change; the resource's controller applies an approved plan.
+	deps.changePlans.RegisterRoutes(v1.Group("/change-plans", admin...))
+
 	apiKeys := v1.Group("/api-keys", admin...)
 	apiKeys.Get("/", deps.apiKeys.List)
 	apiKeys.Post("/", middleware.SessionOnly(), deps.apiKeys.Create)
