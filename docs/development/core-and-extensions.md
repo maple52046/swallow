@@ -115,10 +115,9 @@ interface，而是 Platform 模組與 Software 模組提供的能力（§4）。
 
 2026-11-01 盤點的結果；`api-server/tests/layout_test.go` 以每個檔案的基準數字守住 core 中的廠商詞彙，只能減少：
 
-- **Boot ISO**：provisioning 的 domain 有 MAAS rack 的預設 port、chain URL 與 iPXE／GRUB 範本。
 - **Workflow**：
   - Ansible 專屬的執行模型（playbook、playbook catalog、Ansible event、`ansible_host`）在 workflow 的 domain 與
-    application；`RunnerKind` 以產品命名（`ansible`、`maas`），delivery 依它分支。
+    application。（`RunnerKind` 已依 port 命名，持久化的值 `ansible`、`maas` 不變；delivery 不再依它分支。）
   - domain 有 Temporal 的執行參照（`TemporalReference`）與 Mongo 的 `bson` struct tag，repository 直接 decode 成
     domain 型別。import 規則守住了 Temporal 與 Mongo 的 SDK，但它們的概念仍在 domain。
 - **Platform 與 AMD**：平台與 AMD 專屬的模型與流程位於 `internal/core/platform` 與 `internal/app`（§4），GPU 分類

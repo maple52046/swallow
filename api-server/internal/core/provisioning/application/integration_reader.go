@@ -30,7 +30,9 @@ func (r *IntegrationReader) Find(ctx context.Context, id string) (*provisioningd
 	if integration.Kind != sitedomain.IntegrationKindProvisioner {
 		return nil, provisioningdomain.ErrIntegrationNotProvisioner
 	}
-	return &provisioningdomain.ProvisionerIntegration{ID: integration.ID, SiteID: integration.SiteID}, nil
+	return &provisioningdomain.ProvisionerIntegration{
+		ID: integration.ID, SiteID: integration.SiteID, ProviderKind: integration.ProviderKind,
+	}, nil
 }
 
 // ListBySite returns provisioner integrations for an existing site.
@@ -48,7 +50,7 @@ func (r *IntegrationReader) ListBySite(ctx context.Context, siteID string) ([]pr
 	items := make([]provisioningdomain.ProvisionerIntegration, 0, len(integrations))
 	for _, integration := range integrations {
 		items = append(items, provisioningdomain.ProvisionerIntegration{
-			ID: integration.ID, SiteID: integration.SiteID,
+			ID: integration.ID, SiteID: integration.SiteID, ProviderKind: integration.ProviderKind,
 		})
 	}
 	return items, nil

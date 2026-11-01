@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -63,9 +64,12 @@ func (r *bootISORepoFake) Delete(_ context.Context, id string) error {
 
 type bootISOIntegrationsFake map[string]string
 
+// testProvisionerKind is the provider kind of every fake provisioner Integration.
+const testProvisionerKind = "test-provisioner"
+
 func (f bootISOIntegrationsFake) Find(_ context.Context, id string) (*provisioningdomain.ProvisionerIntegration, error) {
 	if site, ok := f[id]; ok {
-		return &provisioningdomain.ProvisionerIntegration{ID: id, SiteID: site}, nil
+		return &provisioningdomain.ProvisionerIntegration{ID: id, SiteID: site, ProviderKind: testProvisionerKind}, nil
 	}
 	return nil, provisioningdomain.ErrIntegrationNotProvisioner
 }
@@ -74,10 +78,24 @@ func (f bootISOIntegrationsFake) ListBySite(_ context.Context, siteID string) ([
 	var out []provisioningdomain.ProvisionerIntegration
 	for id, site := range f {
 		if site == siteID {
-			out = append(out, provisioningdomain.ProvisionerIntegration{ID: id, SiteID: site})
+			out = append(out, provisioningdomain.ProvisionerIntegration{ID: id, SiteID: site, ProviderKind: testProvisionerKind})
 		}
 	}
 	return out, nil
+}
+
+// chainRendererFake renders a recognizable chain for an address and refuses one that is a URL.
+type chainRendererFake struct{}
+
+func (chainRendererFake) RenderBootChain(address string) (provisioningdomain.BootChain, error) {
+	address = strings.TrimSpace(address)
+	if address == "" || strings.Contains(address, "://") {
+		return provisioningdomain.BootChain{}, fmt.Errorf("%w: not a boot server address", provisioningdomain.ErrInvalidBootISO)
+	}
+	return provisioningdomain.BootChain{
+		ChainURL: "http://" + address + "/bios", UEFIChainURL: "http://" + address + "/uefi",
+		Content: provisioningdomain.BootISOContent{IPXEScript: "chain " + address + "\n", GRUBConfig: "grub " + address + "\n"},
+	}, nil
 }
 
 type bootISOBuilderFake struct {
@@ -136,7 +154,8 @@ func newBootISOFixture() *bootISOFixture {
 		builder: &bootISOBuilderFake{scripts: map[string]string{}, grubConfigs: map[string]string{}},
 		usage:   bootISOUsageFake{},
 	}
-	f.service = NewBootISOService(f.repo, bootISOIntegrationsFake{"maas-tainan": "site-tainan", "maas-taipei": "site-taipei"}, f.builder, f.usage)
+	f.service = NewBootISOService(f.repo, bootISOIntegrationsFake{"maas-tainan": "site-tainan", "maas-taipei": "site-taipei"}, f.builder, f.usage,
+		provisioningdomain.BootChainRenderers{testProvisionerKind: chainRendererFake{}})
 	ids := []string{"iso-1", "iso-2", "iso-3"}
 	f.service.newID = func() string {
 		id := ids[0]
@@ -146,9 +165,9 @@ func newBootISOFixture() *bootISOFixture {
 	return f
 }
 
-// A build renders the rack template, stores the record only after the file exists, and reports
-// the Integration's Site and the served URL.
-func TestCreateBootISORendersRackTemplate(t *testing.T) {
+// A build renders the provisioner's chain for the address, stores the record only after the file
+// exists, and reports the Integration's Site and the served URL.
+func TestCreateBootISORendersTheProvisionersChain(t *testing.T) {
 	f := newBootISOFixture()
 	item, err := f.service.Create(context.Background(), CreateBootISOInput{
 		Name: " tainan-rack ", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5", CreatedBy: "admin",
@@ -156,19 +175,19 @@ func TestCreateBootISORendersRackTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create error = %v", err)
 	}
-	if item.ID != "iso-1" || item.Name != "tainan-rack" || item.SiteID != "site-tainan" || item.ChainURL != "http://10.1.0.5:5248/ipxe.cfg" {
+	if item.ID != "iso-1" || item.Name != "tainan-rack" || item.SiteID != "site-tainan" || item.ChainURL != "http://10.1.0.5/bios" {
 		t.Errorf("item = %+v", item)
 	}
 	if item.URL != "http://192.0.2.1/boot-media/ipxe/iso-1/swallow-ipxe.iso" || item.IPXEVersion != "v2.0.0" || item.CreatedBy != "admin" {
 		t.Errorf("item = %+v, want the served URL, iPXE version and creator", item)
 	}
-	if script := f.builder.scripts["iso-1"]; !strings.Contains(script, "set maas_rack 10.1.0.5\n") || !strings.Contains(script, ":5248/ipxe.cfg") || script != item.Script {
-		t.Errorf("built script = %q, want the stored iPXE script chaining to the rack", script)
+	if script := f.builder.scripts["iso-1"]; script != "chain 10.1.0.5\n" || script != item.Script {
+		t.Errorf("built script = %q, want the rendered script stored", script)
 	}
-	if config := f.builder.grubConfigs["iso-1"]; !strings.Contains(config, "set maas_rack=10.1.0.5\n") || config != item.GRUBConfig {
-		t.Errorf("built GRUB configuration = %q, want the stored UEFI configuration for the rack", config)
+	if config := f.builder.grubConfigs["iso-1"]; config != "grub 10.1.0.5\n" || config != item.GRUBConfig {
+		t.Errorf("built GRUB configuration = %q, want the rendered UEFI configuration stored", config)
 	}
-	if item.UEFIChainURL != "http://10.1.0.5:5248/grub/grub.cfg-<mac>" || item.RebuiltAt != "" {
+	if item.UEFIChainURL != "http://10.1.0.5/uefi" || item.RebuiltAt != "" {
 		t.Errorf("item = %+v, want the UEFI chain URL and no rebuild", item)
 	}
 	if _, ok := f.repo.isos["iso-1"]; !ok {
@@ -295,13 +314,13 @@ func TestRebuildBootISO(t *testing.T) {
 		t.Fatalf("Rebuild error = %v", err)
 	}
 	script := f.builder.scripts["iso-old"]
-	if !strings.Contains(script, ":8080/ipxe.cfg") || script != item.Script {
-		t.Errorf("rebuilt script = %q, want the current template for the stored rack", script)
+	if script != "chain 10.1.0.5:8080\n" || script != item.Script {
+		t.Errorf("rebuilt script = %q, want the current rendering for the stored address", script)
 	}
-	if config := f.builder.grubConfigs["iso-old"]; !strings.Contains(config, "set maas_port=8080\n") || config != item.GRUBConfig {
-		t.Errorf("rebuilt GRUB configuration = %q, want the current template for the stored rack", config)
+	if config := f.builder.grubConfigs["iso-old"]; config != "grub 10.1.0.5:8080\n" || config != item.GRUBConfig {
+		t.Errorf("rebuilt GRUB configuration = %q, want the current rendering for the stored address", config)
 	}
-	if item.ID != "iso-old" || item.Name != "tainan-rack" || item.UEFIChainURL != "http://10.1.0.5:8080/grub/grub.cfg-<mac>" ||
+	if item.ID != "iso-old" || item.Name != "tainan-rack" || item.UEFIChainURL != "http://10.1.0.5:8080/uefi" ||
 		item.IPXEVersion != "v2.0.0" || item.InUseBy != 2 || item.SiteID != "site-tainan" {
 		t.Errorf("item = %+v, want the same ISO with the new script and artifact", item)
 	}

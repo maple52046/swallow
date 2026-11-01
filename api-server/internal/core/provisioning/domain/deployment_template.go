@@ -51,6 +51,9 @@ type DeploymentTemplateRepository interface {
 type ProvisionerIntegration struct {
 	ID     string
 	SiteID string
+	// ProviderKind selects the provisioner's capabilities that are not reached through its API,
+	// such as the Boot ISO chain renderer.
+	ProviderKind string
 }
 
 // ProvisionerIntegrationReader validates template ownership without importing the

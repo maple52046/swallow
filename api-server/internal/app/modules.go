@@ -6,6 +6,7 @@ import (
 	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	moduledomain "github.com/maple52046/swallow/internal/core/module/domain"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	"github.com/maple52046/swallow/modules/accelerator/amd"
 	"github.com/maple52046/swallow/modules/platform/kubernetes"
@@ -52,6 +53,12 @@ func integrationProviders() sitedomain.IntegrationProviders {
 		sitedomain.IntegrationKindMetrics:     {promstack.ProviderKind},
 		sitedomain.IntegrationKindPlatform:    {platformapi.ProviderKindKubernetes, platformapi.ProviderKindSlurm},
 	}
+}
+
+// bootChainRenderers are the Boot ISO chain renderers of the provisioner adapters compiled into
+// this build, by the provider kind of their Integration.
+func bootChainRenderers() provisioningdomain.BootChainRenderers {
+	return provisioningdomain.BootChainRenderers{maas.ProviderKind: maas.BootChainRenderer{}}
 }
 
 // coreWorkflowKinds are the Workflow kinds the core plans itself; every other kind belongs to

@@ -608,7 +608,8 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 | method 解析、Boot ISO 檔案路由、capability sweep 迴圈 | `internal/app/boot_media_adapter.go` |
 | `ensure-boot-media` Task、OS 佈署的 Task 插入、部署開機監看 | `internal/app/boot_media_steps.go` |
 | Redfish adapter（探索、掛載、開機導向策略） | `internal/adapters/bmc/redfish/controller.go`、`internal/adapters/bmc/redfish/boot.go` |
-| Boot ISO model 與 iPXE／GRUB 範本 | `internal/core/provisioning/domain/boot_iso.go` |
+| Boot ISO model 與 chain renderer port | `internal/core/provisioning/domain/boot_iso.go` |
+| MAAS rack 的 iPXE／GRUB 範本與 rack address 解析 | `internal/adapters/osprovisioning/maas/boot_chain.go` |
 | Boot ISO 建置、rebuild、刪除 | `internal/core/provisioning/application/boot_isos.go` |
 | `genfsimg`／`grub-mkstandalone` 打包與檔案 | `internal/adapters/bootiso/genfsimg/boot_iso_builder.go` |
 | MAAS UEFI layout 偵測（`inspectionRequired`） | `internal/adapters/osprovisioning/maas/mapping.go` |

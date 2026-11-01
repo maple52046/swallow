@@ -287,7 +287,10 @@ func TestGenfsimgBuilderRealBuild(t *testing.T) {
 	if err := builder.Available(); err != nil {
 		t.Skipf("builder unavailable: %v", err)
 	}
-	content := provisioningdomain.RenderBootISOContent("10.1.0.5", provisioningdomain.DefaultMAASRackPort)
+	content := provisioningdomain.BootISOContent{
+		IPXEScript: "#!ipxe\n\nset boot_server 10.1.0.5\nchain http://10.1.0.5/boot.ipxe\n",
+		GRUBConfig: "set boot_server=10.1.0.5\nconfigfile /grub/grub.cfg-$mac\n",
+	}
 	artifact, err := builder.Build(context.Background(), testBootISOID, content)
 	if err != nil {
 		t.Fatalf("Build error = %v", err)
@@ -300,10 +303,10 @@ func TestGenfsimgBuilderRealBuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "set maas_rack 10.1.0.5") {
+	if !strings.Contains(string(raw), "set boot_server 10.1.0.5") {
 		t.Error("the ISO does not carry the rendered iPXE script")
 	}
-	if !strings.Contains(string(raw), "set maas_rack=10.1.0.5") || !strings.Contains(string(raw), "configfile /grub/grub.cfg-$mac") {
+	if !strings.Contains(string(raw), "set boot_server=10.1.0.5") || !strings.Contains(string(raw), "configfile /grub/grub.cfg-$mac") {
 		t.Error("the ISO does not carry a GRUB with the rendered UEFI configuration")
 	}
 }

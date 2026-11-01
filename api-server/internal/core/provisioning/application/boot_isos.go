@@ -59,17 +59,18 @@ type CreateBootISOInput struct {
 
 // BootISOService builds, rebuilds, lists, and deletes Boot ISOs (decisions 049, 057).
 //
-// A build renders the fixed iPXE template for the given MAAS rack, packages it synchronously
-// through BootISOBuilder (seconds), and only then stores the record, so a listed Boot ISO always
-// has a file; a record that cannot be stored removes the file again. A rebuild renders the
-// current template for the ISO's stored rack address and replaces the file under the same id.
-// Deletion is refused while a Server's enabled Boot Media uses the ISO (BootISOUsage).
-// Authorization (admin) is the delivery layer's job.
+// A build renders, through the Integration's provisioner's BootChainRenderer, the content that
+// chains to the given boot server, packages it synchronously through BootISOBuilder (seconds), and
+// only then stores the record, so a listed Boot ISO always has a file; a record that cannot be
+// stored removes the file again. A rebuild renders the current templates for the ISO's stored
+// address and replaces the file under the same id. Deletion is refused while a Server's enabled
+// Boot Media uses the ISO (BootISOUsage). Authorization (admin) is the delivery layer's job.
 type BootISOService struct {
 	isos         provisioningdomain.BootISORepository
 	integrations provisioningdomain.ProvisionerIntegrationReader
 	builder      provisioningdomain.BootISOBuilder
 	usage        provisioningdomain.BootISOUsage
+	renderers    provisioningdomain.BootChainRenderers
 	now          func() time.Time
 	newID        func() string
 	// rebuilds serializes rebuilds: two rebuilds of the same id would race on its one file, and a
@@ -77,30 +78,28 @@ type BootISOService struct {
 	rebuilds sync.Mutex
 }
 
-// NewBootISOService wires the service.
+// NewBootISOService wires the service; renderers are the chain renderers of the provisioners this
+// installation includes, by provider kind.
 func NewBootISOService(
 	isos provisioningdomain.BootISORepository,
 	integrations provisioningdomain.ProvisionerIntegrationReader,
 	builder provisioningdomain.BootISOBuilder,
 	usage provisioningdomain.BootISOUsage,
+	renderers provisioningdomain.BootChainRenderers,
 ) *BootISOService {
 	return &BootISOService{
-		isos: isos, integrations: integrations, builder: builder, usage: usage,
+		isos: isos, integrations: integrations, builder: builder, usage: usage, renderers: renderers,
 		now: func() time.Time { return time.Now().UTC() }, newID: uuid.NewString,
 	}
 }
 
-// Create builds a Boot ISO for a provisioner Integration's MAAS rack and stores it.
+// Create builds a Boot ISO for a provisioner Integration's boot server and stores it.
 //
-// Errors: ErrInvalidBootISO (name or rack address), the integration reader's not-found and
-// ErrIntegrationNotProvisioner, ErrBootISONameTaken, ErrBootISOBuilderUnavailable, and
-// ErrBootISOBuildFailed.
+// Errors: ErrInvalidBootISO (name, boot server address, or a provisioner without Boot ISOs), the
+// integration reader's not-found and ErrIntegrationNotProvisioner, ErrBootISONameTaken,
+// ErrBootISOBuilderUnavailable, and ErrBootISOBuildFailed.
 func (s *BootISOService) Create(ctx context.Context, input CreateBootISOInput) (*BootISOItem, error) {
 	name, err := provisioningdomain.ValidateBootISOName(input.Name)
-	if err != nil {
-		return nil, err
-	}
-	host, port, err := provisioningdomain.ParseMAASRackAddress(input.RackAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -108,6 +107,10 @@ func (s *BootISOService) Create(ctx context.Context, input CreateBootISOInput) (
 		return nil, fmt.Errorf("%w: integrationId is required", provisioningdomain.ErrInvalidBootISO)
 	}
 	integration, err := s.integrations.Find(ctx, strings.TrimSpace(input.IntegrationID))
+	if err != nil {
+		return nil, err
+	}
+	chain, err := s.renderChain(integration, input.RackAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -126,16 +129,15 @@ func (s *BootISOService) Create(ctx context.Context, input CreateBootISOInput) (
 	}
 
 	rack := strings.TrimSpace(input.RackAddress)
-	content := provisioningdomain.RenderBootISOContent(host, port)
 	id := s.newID()
-	artifact, err := s.builder.Build(ctx, id, content)
+	artifact, err := s.builder.Build(ctx, id, chain.Content)
 	if err != nil {
 		return nil, err
 	}
 	iso := &provisioningdomain.BootISO{
 		ID: id, Name: name, IntegrationID: integration.ID, RackAddress: rack,
-		ChainURL: provisioningdomain.MAASChainURL(host, port), UEFIChainURL: provisioningdomain.MAASUEFIChainURL(host, port),
-		Script: content.IPXEScript, GRUBConfig: content.GRUBConfig,
+		ChainURL: chain.ChainURL, UEFIChainURL: chain.UEFIChainURL,
+		Script: chain.Content.IPXEScript, GRUBConfig: chain.Content.GRUBConfig,
 		IPXEVersion: artifact.IPXEVersion, SizeBytes: artifact.SizeBytes, SHA256: artifact.SHA256,
 		CreatedAt: s.now(), CreatedBy: input.CreatedBy,
 	}
@@ -149,15 +151,16 @@ func (s *BootISOService) Create(ctx context.Context, input CreateBootISOInput) (
 	return &item, nil
 }
 
-// Rebuild renders the current template for a Boot ISO's stored rack address, replaces its file
-// in place, and records the rebuild; the id and the URL Boot Media mounts stay the same, so every
+// Rebuild renders the current templates for a Boot ISO's stored address, replaces its file in
+// place, and records the rebuild; the id and the URL Boot Media mounts stay the same, so every
 // Server using the ISO boots the new script from its next boot. rebuiltBy is the authenticated
 // operator's username.
 //
 // The file is replaced before the record. A failed build leaves both as they were; a record that
 // cannot be stored after a successful build leaves the new file served under the old record,
-// which repeating the rebuild converges. Errors: ErrBootISONotFound, ErrInvalidBootISO (a stored
-// rack address the current rules refuse), ErrBootISOBuilderUnavailable, ErrBootISOBuildFailed.
+// which repeating the rebuild converges. Errors: ErrBootISONotFound, the integration reader's
+// errors, ErrInvalidBootISO (a stored address the current rules refuse), ErrBootISOBuilderUnavailable,
+// ErrBootISOBuildFailed.
 func (s *BootISOService) Rebuild(ctx context.Context, id, rebuiltBy string) (*BootISOItem, error) {
 	s.rebuilds.Lock()
 	defer s.rebuilds.Unlock()
@@ -166,22 +169,24 @@ func (s *BootISOService) Rebuild(ctx context.Context, id, rebuiltBy string) (*Bo
 	if err != nil {
 		return nil, err
 	}
-	host, port, err := provisioningdomain.ParseMAASRackAddress(iso.RackAddress)
+	integration, err := s.integrations.Find(ctx, iso.IntegrationID)
+	if err != nil {
+		return nil, err
+	}
+	chain, err := s.renderChain(integration, iso.RackAddress)
 	if err != nil {
 		return nil, err
 	}
 	if err := s.builder.Available(); err != nil {
 		return nil, err
 	}
-	content := provisioningdomain.RenderBootISOContent(host, port)
-	artifact, err := s.builder.Build(ctx, iso.ID, content)
+	artifact, err := s.builder.Build(ctx, iso.ID, chain.Content)
 	if err != nil {
 		return nil, err
 	}
 	rebuilt := *iso
-	rebuilt.ChainURL = provisioningdomain.MAASChainURL(host, port)
-	rebuilt.UEFIChainURL = provisioningdomain.MAASUEFIChainURL(host, port)
-	rebuilt.Script, rebuilt.GRUBConfig = content.IPXEScript, content.GRUBConfig
+	rebuilt.ChainURL, rebuilt.UEFIChainURL = chain.ChainURL, chain.UEFIChainURL
+	rebuilt.Script, rebuilt.GRUBConfig = chain.Content.IPXEScript, chain.Content.GRUBConfig
 	rebuilt.IPXEVersion, rebuilt.SizeBytes, rebuilt.SHA256 = artifact.IPXEVersion, artifact.SizeBytes, artifact.SHA256
 	rebuilt.RebuiltAt, rebuilt.RebuiltBy = s.now(), rebuiltBy
 	if err := s.isos.Update(ctx, &rebuilt); err != nil {
@@ -279,6 +284,18 @@ func (s *BootISOService) Delete(ctx context.Context, id string) error {
 		slog.Warn("remove boot ISO file", "isoId", id, "error", err)
 	}
 	return nil
+}
+
+// renderChain renders what a Boot ISO for integration's provisioner chains to at address.
+func (s *BootISOService) renderChain(
+	integration *provisioningdomain.ProvisionerIntegration,
+	address string,
+) (provisioningdomain.BootChain, error) {
+	renderer, ok := s.renderers[integration.ProviderKind]
+	if !ok {
+		return provisioningdomain.BootChain{}, fmt.Errorf("%w: this provisioner does not support Boot ISOs", provisioningdomain.ErrInvalidBootISO)
+	}
+	return renderer.RenderBootChain(address)
 }
 
 // view resolves the Site and usage count of a stored Boot ISO. siteByIntegration caches Sites

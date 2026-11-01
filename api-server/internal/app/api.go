@@ -383,7 +383,7 @@ func RunAPI(cfg config.APIConfig) error {
 	bootISOFiles := genfsimg.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL)
 	bootISOs := newBootISOCatalog(bootISORepo, bootISOFiles, cfg.BootMedia.BaseURL)
 	bootISOHandler := provisioningdelivery.NewBootISOHandler(provisioningapp.NewBootISOService(
-		bootISORepo, integrationReader, bootISOFiles, bootISOUsage{servers: mongoServerRepo}))
+		bootISORepo, integrationReader, bootISOFiles, bootISOUsage{servers: mongoServerRepo}, bootChainRenderers()))
 	bootMediaUC := serverapp.NewBootMediaUseCase(serverRepo, mongoServerRepo, serverProtection,
 		newBootMediaEndpointSource(providerFactory, serverRepo), redfish.NewController(), libvirtHosts, bootISOs)
 	bootMediaHandler := serverdelivery.NewBootMediaHandler(bootMediaUC)
