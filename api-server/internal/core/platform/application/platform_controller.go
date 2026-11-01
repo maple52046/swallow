@@ -311,6 +311,9 @@ func (c *PlatformController) judge(
 			if listErr == nil && len(plans) > 0 {
 				realized.Reason = convergence.ReasonAwaitingApproval
 				realized.Message = fmt.Sprintf("Change Plan %s waits for approval", plans[0].ID)
+				if blockers := plans[0].Blockers; len(blockers) > 0 {
+					realized.Message = fmt.Sprintf("Change Plan %s is blocked: %s", plans[0].ID, strings.Join(blockers, "; "))
+				}
 			}
 		}
 	}
