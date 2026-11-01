@@ -2,6 +2,7 @@ import { Box, Flex, Link as ChakraLink, Stack, Text } from '@chakra-ui/react'
 import {
   Activity,
   Boxes,
+  ClipboardCheck,
   LayoutDashboard,
   Network,
   Package,
@@ -33,6 +34,7 @@ const NAVIGATION: readonly NavEntry[] = [
   { label: 'Platforms', path: '/platforms', icon: Boxes },
   { label: 'Software', path: '/software', icon: Package },
   { label: 'Workflows', path: '/workflows', icon: Workflow },
+  { label: 'Change Plans', path: '/change-plans', icon: ClipboardCheck },
   { label: 'Monitoring', path: '/monitoring', icon: Activity, feature: 'monitoring' },
   { label: 'Infrastructure', path: '/infrastructure/sites', icon: Network },
 ]

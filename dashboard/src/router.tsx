@@ -1,3 +1,4 @@
+import { ChangePlansPage } from '@/presentation/pages/changePlans/ChangePlansPage'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { OperatorLayout } from './presentation/app/layout/OperatorLayout'
 import { NotFoundPage } from './presentation/pages/NotFoundPage'
@@ -104,6 +105,7 @@ export const router = createBrowserRouter([
       { path: 'clusters/deploy', element: <LegacyPlatformRedirect deploy /> },
       { path: 'clusters/:id', element: <LegacyPlatformRedirect /> },
       { path: 'workflows', element: <OperatorOperationsPage /> },
+      { path: 'change-plans', element: <ChangePlansPage /> },
       { path: 'workflows/:id', element: <OperatorOperationDetailPage /> },
       { path: 'operations', element: <LegacyWorkflowRedirect /> },
       { path: 'operations/:id', element: <LegacyWorkflowRedirect /> },

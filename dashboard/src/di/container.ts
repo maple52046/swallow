@@ -13,6 +13,7 @@ import { ApiDockerHostRepository } from '@/infrastructure/api/ApiDockerHostRepos
 import { ApiRegistryCredentialRepository } from '@/infrastructure/api/ApiRegistryCredentialRepository'
 import { ApiSSHKeyRepository } from '@/infrastructure/api/ApiSSHKeyRepository'
 import { ApiApiKeyRepository } from '@/infrastructure/api/ApiApiKeyRepository'
+import { ApiChangePlanRepository } from '@/infrastructure/api/ApiChangePlanRepository'
 import {
   DisabledExperimentalFeatureSettings,
   LocalExperimentalFeatureSettings,
@@ -32,6 +33,7 @@ import type { DockerHostRepository } from '@/application/ports/DockerHostReposit
 import type { RegistryCredentialRepository } from '@/application/ports/RegistryCredentialRepository'
 import type { SSHKeyRepository } from '@/application/ports/SSHKeyRepository'
 import type { ApiKeyRepository } from '@/application/ports/ApiKeyRepository'
+import type { ChangePlanRepository } from '@/application/ports/ChangePlanRepository'
 import type { ExperimentalFeatureSettings } from '@/application/ports/ExperimentalFeatureSettings'
 
 /** Browser composition contract exposing provider ports to presentation workflows. */
@@ -59,6 +61,8 @@ export interface AppContainer {
   sshKeys: SSHKeyRepository
   /** The signed-in user's API Keys for non-interactive clients (decision 042). */
   apiKeys: ApiKeyRepository
+  /** Change Plans of destructive changes, which an admin approves or rejects as a whole (decision 076). */
+  changePlans: ChangePlanRepository
   operations: OperationRepository
   monitoring: MonitoringRepository
   /** Which in-development dashboard features are shown; adjustable only in development builds. */
@@ -88,6 +92,7 @@ export function createContainer(): AppContainer {
     registryCredentials: new ApiRegistryCredentialRepository(),
     sshKeys: new ApiSSHKeyRepository(),
     apiKeys: new ApiApiKeyRepository(),
+    changePlans: new ApiChangePlanRepository(),
     operations: new ApiOperationRepository(),
     monitoring: new ApiMonitoringRepository(),
     experimentalFeatures: import.meta.env.DEV

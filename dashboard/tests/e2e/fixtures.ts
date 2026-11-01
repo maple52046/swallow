@@ -688,6 +688,17 @@ const defaultVirtualMachines: Record<string, VirtualMachineFixture[]> = {
   ],
 }
 
+/** A fixture Change Plan in the change-plans.md shape; `overrides` set the parts a test cares about. */
+function changePlan(id: string, platformId: string, state: string, overrides: Record<string, unknown>) {
+  return {
+    id, resource: { kind: 'platform', id: platformId }, generation: 3, observedAt: '2026-08-27T02:00:00Z',
+    actions: [] as unknown[], effects: [] as string[], blockers: [] as string[], state, stateReason: '',
+    decidedBy: '', decidedAt: null as string | null, workflowId: '',
+    expiresAt: '2026-08-28T02:00:00Z', createdAt: '2026-08-27T02:00:00Z', updatedAt: '2026-08-27T02:00:00Z',
+    ...overrides,
+  }
+}
+
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 }
@@ -763,6 +774,24 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   let apiKeyItems = [
     { id: 'api-1', name: 'laptop-cli', prefix: 'swk_Lap1op00', createdAt: '2026-08-01T00:00:00Z', expiresAt: null as string | null, lastUsedAt: '2026-08-27T02:00:00Z' as string | null },
     { id: 'api-2', name: 'old-ci', prefix: 'swk_0ldC1000', createdAt: '2026-05-01T00:00:00Z', expiresAt: '2026-08-01T00:00:00Z' as string | null, lastUsedAt: null as string | null },
+  ]
+  // Per-page Change Plan state (change-plans.md): one plan to decide, one blocked, one applied.
+  let changePlanItems = [
+    changePlan('plan-uninstall', 'platform-slurm', 'pending_approval', {
+      actions: [
+        { target: { kind: 'platform', id: 'platform-slurm' }, action: 'uninstall', from: 'active', to: 'uninstalled', destructive: true, reason: 'The Platform was marked for uninstall.' },
+        { target: { kind: 'server', id: 'srv-3' }, action: 'remove-member', from: 'compute', to: '', destructive: true, reason: 'srv-3 leaves the Platform with it.' },
+      ],
+      effects: ['srv-3 stops running Slurm jobs', 'The research-slurm read Integration is removed'],
+    }),
+    changePlan('plan-blocked', 'platform-a', 'pending_approval', {
+      actions: [{ target: { kind: 'server', id: 'srv-1' }, action: 'change-node-role', from: 'worker', to: 'control-plane', destructive: true, reason: 'The spec gives srv-1 a new Node Role.' }],
+      blockers: ['srv-1 is locked in the provisioner'],
+    }),
+    changePlan('plan-applied', 'platform-a', 'applied', {
+      actions: [{ target: { kind: 'server', id: 'srv-2' }, action: 'remove-member', from: 'worker', to: '', destructive: true, reason: 'srv-2 was removed from the spec.' }],
+      decidedBy: 'admin', decidedAt: '2026-08-26T09:00:00Z', workflowId: 'op-remove-member',
+    }),
   ]
   let sshKeyItems = [
     sshKey('deploy-1', 'swallow-deployment', 'deployment', 'ssh-ed25519 AAAADEPLOY swallow-deployment'),
@@ -1675,6 +1704,23 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (apiKeyMatch && request.method() === 'DELETE') {
       apiKeyItems = apiKeyItems.filter((key) => key.id !== decodeURIComponent(apiKeyMatch[1]))
       return route.fulfill({ status: 204 })
+    }
+    if (path === '/api/v1/change-plans' && request.method() === 'GET') {
+      const states = url.searchParams.getAll('state')
+      return json(route, { items: changePlanItems.filter((plan) => states.length === 0 || states.includes(plan.state)) })
+    }
+    const changePlanMatch = path.match(/^\/api\/v1\/change-plans\/([^/]+)(?:\/(approve|reject))?$/)
+    if (changePlanMatch) {
+      const plan = changePlanItems.find((item) => item.id === decodeURIComponent(changePlanMatch[1]))
+      if (!plan) return json(route, { error: { code: 'not_found', message: 'Change Plan not found.', requestId: 'req-plan-missing' } }, 404)
+      const decision = changePlanMatch[2]
+      if (!decision) return json(route, plan)
+      if (decision === 'approve' && (plan.state !== 'pending_approval' || plan.blockers.length > 0)) {
+        return json(route, { error: { code: 'conflict', message: 'change plan has blockers.', requestId: 'req-plan-blocked' } }, 409)
+      }
+      const decided = { ...plan, state: decision === 'approve' ? 'approved' : 'rejected', decidedBy: 'admin', decidedAt: now }
+      changePlanItems = changePlanItems.map((item) => (item.id === plan.id ? decided : item))
+      return json(route, decided)
     }
     if (path === '/api/v1/software/catalog') {
       return json(route, { items: [

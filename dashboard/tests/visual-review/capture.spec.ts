@@ -10,6 +10,7 @@ const visualCases = [
   { name: 'servers', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: true },
   { name: 'platform-list', path: '/platforms?site=site-a', heading: 'Platforms', authenticated: true, representative: false },
   { name: 'workflow-list', path: '/workflows?site=site-a', heading: 'Workflows', authenticated: true, representative: false },
+  { name: 'change-plans', path: '/change-plans?site=site-a', heading: 'Change Plans', authenticated: true, representative: false },
   { name: 'os-image-list', path: '/provisioning/images?site=site-a', heading: 'OS images', authenticated: true, representative: false },
   { name: 'boot-isos', path: '/provisioning/boot-isos?site=site-a', heading: 'Boot ISOs', authenticated: true, representative: false },
   { name: 'boot-isos-needs-rebuild', path: '/provisioning/boot-isos?site=site-a', heading: 'Boot ISOs', authenticated: true, representative: false },

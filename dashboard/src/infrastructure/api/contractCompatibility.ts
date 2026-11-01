@@ -1,3 +1,5 @@
+import type { ChangePlan } from '@/domain/convergence/changePlan'
+import type { ChangePlanList } from './ApiChangePlanRepository'
 import type { Paginated as OperationPage } from '@/application/ports/OperationRepository'
 import type { Paginated as ServerPage } from '@/application/ports/ServerRepository'
 import type { ApiKey, CreatedApiKey, GeneratedAccessKey, SSHKey } from '@/domain/access/types'
@@ -136,6 +138,16 @@ export type ContractCompatibility = [
   // ApiApiKeyRepository
   // listApiKeys: GET /api/v1/api-keys
   Assert<Readable<JsonResponse<operations['listApiKeys'], 200>, ApiKey[]>>,
+
+  // ApiChangePlanRepository
+  // listChangePlans: GET /api/v1/change-plans
+  Assert<Readable<JsonResponse<operations['listChangePlans'], 200>, ChangePlanList>>,
+  // getChangePlan: GET /api/v1/change-plans/{planId}
+  Assert<Readable<JsonResponse<operations['getChangePlan'], 200>, ChangePlan>>,
+  // approveChangePlan: POST /api/v1/change-plans/{planId}/approve
+  Assert<Readable<JsonResponse<operations['approveChangePlan'], 200>, ChangePlan>>,
+  // rejectChangePlan: POST /api/v1/change-plans/{planId}/reject
+  Assert<Readable<JsonResponse<operations['rejectChangePlan'], 200>, ChangePlan>>,
   // createApiKey: POST /api/v1/api-keys
   Assert<Readable<JsonResponse<operations['createApiKey'], 201>, CreatedApiKey>>,
 

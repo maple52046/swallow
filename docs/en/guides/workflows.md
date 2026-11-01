@@ -75,6 +75,19 @@ before the Workflow ends. The Task's timeline says whether the Server was
 returned or why it was left as it is; a Server that could not be returned can be
 recovered with Recover.
 
+## Change Plans
+
+A destructive change, such as uninstalling a Platform, does not start a Workflow
+right away. swallow records the change and shows a Change Plan: every action it
+will take, which actions are destructive, the expected effects, and anything
+blocking it. An admin approves or rejects the plan as a whole on the **Change
+Plans** page or with `swallow plans approve` / `swallow plans reject`. After
+approval, swallow checks the plan again and starts its Workflow; if the change
+was edited again or what the plan would do changed in the meantime, the plan is
+superseded and a new one is needed. A plan nobody decides expires after 24 hours.
+See the
+[Change Plans contract](../../../api-server/docs/development/api-contracts/api-server/change-plans.md).
+
 See the active
 [Workflows contract](../../../api-server/docs/development/api-contracts/api-server/workflows.md)
 for state transitions and supported controls.

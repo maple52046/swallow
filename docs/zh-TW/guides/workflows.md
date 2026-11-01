@@ -64,5 +64,14 @@ Task states。
 static IP 綁定、不清磁碟）。該 Task 的時間軸會說明 Server 是否已收回，或為什麼保持原狀；
 無法收回的 Server 可以用 Recover 處理。
 
+## Change Plan
+
+破壞性變更（例如 uninstall Platform）不會立刻啟動 Workflow。swallow 先記下變更並產生一份 Change
+Plan：列出它要做的每個動作、哪些是破壞性的、預期影響，以及阻擋事項。admin 在 **Change Plans**
+頁面或以 `swallow plans approve`／`swallow plans reject` 整份核准或拒絕。核准後 swallow 會再檢查一次並
+啟動 Workflow；期間若變更又被修改，或 plan 要做的事已經不同，plan 會變成 superseded，需要新的
+plan。沒有人決定的 plan 在 24 小時後到期。詳見
+[Change Plans contract](../../../api-server/docs/development/api-contracts/api-server/change-plans.md)。
+
 State transition 與 supported control 請見 active
 [Workflows contract](../../../api-server/docs/development/api-contracts/api-server/workflows.md)。

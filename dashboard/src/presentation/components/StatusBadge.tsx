@@ -20,6 +20,8 @@ const STATUS_COLORS: Record<string, StatusPalette> = {
   pending: 'blue', queued: 'blue', running: 'blue', changed: 'blue', info: 'blue', firing: 'red',
   acknowledged: 'purple', suppressed: 'purple',
   canceled: 'gray', resolved: 'gray', unknown: 'gray', offline: 'gray', archived: 'gray', draft: 'gray', skipped: 'gray',
+  // Change Plan states (decision 076): one waiting for a decision asks for attention.
+  pending_approval: 'orange', approved: 'blue', applied: 'green', rejected: 'gray', superseded: 'gray', expired: 'gray',
 }
 
 interface StatusBadgeProps {
