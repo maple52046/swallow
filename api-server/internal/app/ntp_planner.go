@@ -137,7 +137,7 @@ func (p ntpStepPlanner) task(
 	return &workflowdomain.Task{
 		ID: input.StepID, Kind: "ansible-playbook", Name: name,
 		Job:        input.Job,
-		Executor:   workflowdomain.RunnerKindAnsible,
+		Executor:   workflowdomain.RunnerKindHostAutomation,
 		DependsOn:  append([]string(nil), input.DependsOn...),
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},

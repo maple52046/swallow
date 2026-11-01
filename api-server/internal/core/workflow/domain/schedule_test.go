@@ -135,14 +135,14 @@ func TestPlan(t *testing.T) {
 
 func TestPlanCatalogValidate(t *testing.T) {
 	catalog := PlanCatalog{
-		TaskKinds:     map[string]TaskKind{"deploy": {Runner: RunnerKindProvisioner}, "run": {Runner: RunnerKindAnsible}},
+		TaskKinds:     map[string]TaskKind{"deploy": {Runner: RunnerKindProvisioner}, "run": {Runner: RunnerKindHostAutomation}},
 		Completions:   map[string]CompletionClass{"project": CompletionProjection},
 		Compensations: map[string]bool{"undo": true},
 	}
 	good := []Task{
 		{ID: "a", Kind: "deploy", Executor: RunnerKindProvisioner, Job: "j",
 			Completion: []Completion{{Type: "project"}}, OnCancel: &CancelBehavior{Compensation: "undo"}},
-		{ID: "b", Kind: "run", Executor: RunnerKindAnsible},
+		{ID: "b", Kind: "run", Executor: RunnerKindHostAutomation},
 	}
 	if err := catalog.Validate(good, []JobDeclaration{{Name: "j", Retry: RetryJob}}); err != nil {
 		t.Fatalf("Validate(good) = %v", err)
@@ -151,11 +151,11 @@ func TestPlanCatalogValidate(t *testing.T) {
 		tasks []Task
 		jobs  []JobDeclaration
 	}{
-		"unregistered kind":       {tasks: []Task{{ID: "a", Kind: "nope", Executor: RunnerKindAnsible}}},
+		"unregistered kind":       {tasks: []Task{{ID: "a", Kind: "nope", Executor: RunnerKindHostAutomation}}},
 		"wrong runner":            {tasks: []Task{{ID: "a", Kind: "run", Executor: RunnerKindInternal}}},
-		"undeclared job":          {tasks: []Task{{ID: "a", Kind: "run", Executor: RunnerKindAnsible, Job: "j"}}},
-		"unregistered completion": {tasks: []Task{{ID: "a", Kind: "run", Executor: RunnerKindAnsible, Completion: []Completion{{Type: "x"}}}}},
-		"unregistered compensation": {tasks: []Task{{ID: "a", Kind: "run", Executor: RunnerKindAnsible,
+		"undeclared job":          {tasks: []Task{{ID: "a", Kind: "run", Executor: RunnerKindHostAutomation, Job: "j"}}},
+		"unregistered completion": {tasks: []Task{{ID: "a", Kind: "run", Executor: RunnerKindHostAutomation, Completion: []Completion{{Type: "x"}}}}},
+		"unregistered compensation": {tasks: []Task{{ID: "a", Kind: "run", Executor: RunnerKindHostAutomation,
 			OnCancel: &CancelBehavior{Compensation: "x"}}}},
 		"invalid granularity": {tasks: good[1:], jobs: []JobDeclaration{{Name: "j", Retry: "sometimes"}}},
 	}

@@ -48,7 +48,7 @@ func workflowPlanCatalog() workflowdomain.PlanCatalog {
 			// A playbook is idempotent, but its outcome cannot be proven after its executor stopped,
 			// and a host a release-os released no longer runs the OS it needs.
 			"ansible-playbook": {
-				Runner: workflowdomain.RunnerKindAnsible, Rerun: workflowdomain.RerunConvergeOnLiveHosts,
+				Runner: workflowdomain.RunnerKindHostAutomation, Rerun: workflowdomain.RerunConvergeOnLiveHosts,
 				Resume: workflowdomain.ResumeAttention,
 			},
 		},

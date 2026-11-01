@@ -71,7 +71,7 @@ func TestEngineSourcesNameNoKind(t *testing.T) {
 func TestLauncherPlansMatchTheCatalog(t *testing.T) {
 	catalog := workflowPlanCatalog()
 	runners := map[string]workflowdomain.RunnerKind{
-		"RunnerKindInternal": workflowdomain.RunnerKindInternal, "RunnerKindAnsible": workflowdomain.RunnerKindAnsible,
+		"RunnerKindInternal": workflowdomain.RunnerKindInternal, "RunnerKindHostAutomation": workflowdomain.RunnerKindHostAutomation,
 		"RunnerKindProvisioner": workflowdomain.RunnerKindProvisioner,
 	}
 	files := parseAppSources(t)

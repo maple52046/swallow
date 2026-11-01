@@ -271,14 +271,15 @@ func (h *ExecutionHandler) orchestrationStep(c *fiber.Ctx) (*application.Workflo
 	return nil, nil, workflowdomain.ErrTaskNotFound
 }
 
-// StepLogs returns retained stdout for one durable Ansible Step. Other executors have no log artifact.
+// StepLogs returns the retained stdout of a Task's external run. A Runner that keeps run artifacts
+// records the run's reference on the Task; a Task without one has no log artifact.
 func (h *ExecutionHandler) StepLogs(c *fiber.Ctx) error {
 	_, step, err := h.orchestrationStep(c)
 	if err != nil {
 		return respondExecutionError(c, err)
 	}
 	logs := ""
-	if step.Executor == workflowdomain.RunnerKindAnsible && step.ExternalExecution != nil {
+	if step.ExternalExecution != nil {
 		logs, err = h.operations.LogsForRun(c.Context(), step.ExternalExecution.ID)
 		if err != nil {
 			return respondExecutionError(c, err)
@@ -289,15 +290,15 @@ func (h *ExecutionHandler) StepLogs(c *fiber.Ctx) error {
 }
 
 // StepStderr returns the error-only report (failed and unreachable tasks with their
-// stderr/stdout) for one durable Ansible Step. Non-Ansible Steps, or Steps that never ran,
-// have no report and return an empty body.
+// stderr/stdout) of a Task's external run. A Task without a recorded run has no report and returns
+// an empty body.
 func (h *ExecutionHandler) StepStderr(c *fiber.Ctx) error {
 	_, step, err := h.orchestrationStep(c)
 	if err != nil {
 		return respondExecutionError(c, err)
 	}
 	report := ""
-	if step.Executor == workflowdomain.RunnerKindAnsible && step.ExternalExecution != nil {
+	if step.ExternalExecution != nil {
 		report, err = h.operations.StderrForRun(c.Context(), step.ExternalExecution.ID)
 		if err != nil {
 			return respondExecutionError(c, err)
@@ -307,13 +308,14 @@ func (h *ExecutionHandler) StepStderr(c *fiber.Ctx) error {
 	return c.SendString(report)
 }
 
-// StepEvents returns secret-safe task events for one durable Ansible Step.
+// StepEvents returns the secret-safe task events of a Task's external run; a Task without a recorded
+// run has none.
 func (h *ExecutionHandler) StepEvents(c *fiber.Ctx) error {
 	_, step, err := h.orchestrationStep(c)
 	if err != nil {
 		return respondExecutionError(c, err)
 	}
-	if step.Executor != workflowdomain.RunnerKindAnsible || step.ExternalExecution == nil {
+	if step.ExternalExecution == nil {
 		return c.JSON(&application.OperationEventsItem{
 			Status: string(step.Status), Events: []application.TaskEventItem{},
 		})

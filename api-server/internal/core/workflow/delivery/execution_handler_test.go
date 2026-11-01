@@ -267,7 +267,7 @@ func newWorkflowContractHandler() *ExecutionHandler {
 			},
 			{
 				ID: "install-platform", Kind: "ansible-playbook", Name: "Install k0s",
-				Executor: workflowdomain.RunnerKindAnsible, DependsOn: []string{"wait-for-ssh"},
+				Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: []string{"wait-for-ssh"},
 				ContinueOn: []workflowdomain.TaskStatus{workflowdomain.TaskSkipped}, Targets: server("server-1"),
 				Parameters: map[string]any{"extraVars": map[string]any{"token": "plaintext"}},
 				SecretRefs: map[string]string{"token": "secret-ref"},

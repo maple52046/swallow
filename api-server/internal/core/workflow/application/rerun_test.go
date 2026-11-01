@@ -103,7 +103,7 @@ func newRerunOldOp(status workflowdomain.WorkflowStatus, installStatus workflowd
 			},
 			{
 				ID: "install-platform", Kind: "ansible-playbook", Name: "Install k0s",
-				Executor: workflowdomain.RunnerKindAnsible, DependsOn: []string{"wait-for-ssh"},
+				Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: []string{"wait-for-ssh"},
 				Status: installStatus, Attempt: 2,
 				SecretRefs: map[string]string{"k0sPass": "old-ref"},
 				Error:      &workflowdomain.NormalizedError{Code: "transient", Message: "boom", Retryable: true},
@@ -169,7 +169,7 @@ func TestRerunClonesFailedOperationConvergingEveryEnsureStep(t *testing.T) {
 // rerunTestCatalog registers the kinds of newRerunOldOp with the policies the app gives them.
 var rerunTestCatalog = workflowdomain.PlanCatalog{TaskKinds: map[string]workflowdomain.TaskKind{
 	"wait-for-ssh":     {Runner: workflowdomain.RunnerKindInternal, Rerun: workflowdomain.RerunConverge},
-	"ansible-playbook": {Runner: workflowdomain.RunnerKindAnsible, Rerun: workflowdomain.RerunConvergeOnLiveHosts},
+	"ansible-playbook": {Runner: workflowdomain.RunnerKindHostAutomation, Rerun: workflowdomain.RerunConvergeOnLiveHosts},
 }}
 
 // rerunPolicyService carries the rerun policies the app registers for these Task kinds.

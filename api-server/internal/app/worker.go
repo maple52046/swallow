@@ -227,7 +227,7 @@ func RunWorker(cfg config.APIConfig) error {
 		string(workflowdomain.RunnerKindInternal):    workerRoute,
 		// Ansible Tasks run in the Ansible executor, once: their outcome cannot be proven after
 		// that process stopped.
-		string(workflowdomain.RunnerKindAnsible): {TaskQueue: cfg.AnsibleTaskQueue, SingleAttempt: true},
+		string(workflowdomain.RunnerKindHostAutomation): {TaskQueue: cfg.AnsibleTaskQueue, SingleAttempt: true},
 	})
 
 	if err := temporalWorker.Start(); err != nil {

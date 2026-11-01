@@ -160,7 +160,7 @@ func (failingResult) Complete(context.Context, TaskResult) error { return errors
 var testCatalog = workflowdomain.PlanCatalog{
 	TaskKinds: map[string]workflowdomain.TaskKind{
 		"deploy":  {Runner: workflowdomain.RunnerKindProvisioner, Resume: workflowdomain.ResumeObserve},
-		"run":     {Runner: workflowdomain.RunnerKindAnsible, Resume: workflowdomain.ResumeAttention},
+		"run":     {Runner: workflowdomain.RunnerKindHostAutomation, Resume: workflowdomain.ResumeAttention},
 		"recover": {Runner: workflowdomain.RunnerKindProvisioner, Resume: workflowdomain.ResumeObserve},
 	},
 	Completions:   map[string]workflowdomain.CompletionClass{"projected": workflowdomain.CompletionProjection, "credential": workflowdomain.CompletionResult},
@@ -375,7 +375,7 @@ func TestEngine_RetryAppliesTheJobsGranularity(t *testing.T) {
 func TestEngine_ResumesTasksAnEarlierDispatchLeftRunning(t *testing.T) {
 	f := newEngineFixture(t, 4, newWorkflow("w",
 		pendingTask("deploy", "deploy", workflowdomain.RunnerKindProvisioner),
-		pendingTask("playbook", "run", workflowdomain.RunnerKindAnsible)))
+		pendingTask("playbook", "run", workflowdomain.RunnerKindHostAutomation)))
 	first := f.dispatch(t, "w")
 	f.advance(t, "w", first)
 	second := f.dispatch(t, "w")
@@ -402,7 +402,7 @@ func TestEngine_ResumesTasksAnEarlierDispatchLeftRunning(t *testing.T) {
 func TestEngine_CancelCompensatesAndCancelsEveryUnfinishedTask(t *testing.T) {
 	deploy := pendingTask("deploy", "deploy", workflowdomain.RunnerKindProvisioner)
 	deploy.OnCancel = &workflowdomain.CancelBehavior{Compensation: "return-deployment"}
-	parked := pendingTask("parked", "run", workflowdomain.RunnerKindAnsible)
+	parked := pendingTask("parked", "run", workflowdomain.RunnerKindHostAutomation)
 	parked.Status = workflowdomain.TaskRequiresAttention
 	parked.Error = &workflowdomain.NormalizedError{Code: "x", Message: "x", Retryable: true}
 	done := pendingTask("done", "deploy", workflowdomain.RunnerKindProvisioner)
@@ -473,7 +473,7 @@ func TestEngine_ProjectionsRunOnEveryTransitionOfADeclaringTask(t *testing.T) {
 }
 
 func TestEngine_AFailingResultCompletionFailsTheTaskRetryably(t *testing.T) {
-	task := pendingTask("a", "run", workflowdomain.RunnerKindAnsible)
+	task := pendingTask("a", "run", workflowdomain.RunnerKindHostAutomation)
 	task.Completion = []workflowdomain.Completion{{Type: "credential"}}
 	f := newEngineFixture(t, 4, newWorkflow("w", task))
 	gen := f.dispatch(t, "w")

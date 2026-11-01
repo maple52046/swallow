@@ -34,7 +34,7 @@ func gpuOperatorTask(
 	return workflowdomain.Task{
 		ID: gpuOperatorStepID, Kind: "ansible-playbook", Name: name,
 		Job:      jobConfigureGPUOperator,
-		Executor: workflowdomain.RunnerKindAnsible, DependsOn: dependsOn,
+		Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: dependsOn,
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 		Completion: []workflowdomain.Completion{{Type: completionGPUOperatorState, Params: map[string]any{

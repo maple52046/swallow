@@ -164,7 +164,7 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 		RequestCorrelation: input.RequestCorrelation, RetryOfOperationID: operation.RetryOfOperationID,
 		IntentSnapshot: map[string]any{"playbook": operation.Execution.Playbook, "extraVars": operation.ExtraVars},
 		Steps: []workflowdomain.Task{{ID: "ansible", Kind: "ansible-playbook", Name: "Run " + operation.Execution.Playbook,
-			Executor: workflowdomain.RunnerKindAnsible, Targets: stepTargets, Parameters: map[string]any{"playbook": operation.Execution.Playbook, "extraVars": operation.ExtraVars}}},
+			Executor: workflowdomain.RunnerKindHostAutomation, Targets: stepTargets, Parameters: map[string]any{"playbook": operation.Execution.Playbook, "extraVars": operation.ExtraVars}}},
 		SecretStepID: "ansible", SecretValues: operation.SecretVars,
 	})
 	if err != nil {

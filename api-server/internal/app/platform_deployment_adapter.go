@@ -176,7 +176,7 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 	steps = append(steps, workflowdomain.Task{
 		ID: installPlatformStepID, Kind: "ansible-playbook", Name: "Install k0s Platform",
 		Job:      jobConfigureK0s,
-		Executor: workflowdomain.RunnerKindAnsible, DependsOn: ensure.installDeps,
+		Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: ensure.installDeps,
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 		Completion: []workflowdomain.Completion{{Type: completionKubernetesCredential}},
@@ -241,7 +241,7 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 	steps = append(steps, workflowdomain.Task{
 		ID: installPlatformStepID, Kind: "ansible-playbook", Name: "Install Slurm Platform",
 		Job:      jobConfigureSlurm,
-		Executor: workflowdomain.RunnerKindAnsible, DependsOn: ensure.installDeps,
+		Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: ensure.installDeps,
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 		Completion: []workflowdomain.Completion{{Type: completionSlurmCredential}},
@@ -690,7 +690,7 @@ func uninstallSteps(
 		return []workflowdomain.Task{{
 			ID: uninstallPlatformStepID, Kind: "ansible-playbook", Name: stepName,
 			Job:      jobUninstallPlatform,
-			Executor: workflowdomain.RunnerKindAnsible, Targets: prepared.Targets,
+			Executor: workflowdomain.RunnerKindHostAutomation, Targets: prepared.Targets,
 			Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 			Completion: []workflowdomain.Completion{{Type: completionPlatformUninstall, Params: map[string]any{
 				completionParamDeleteRecord:     launch.DeleteRecord,

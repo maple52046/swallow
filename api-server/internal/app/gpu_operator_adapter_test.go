@@ -43,7 +43,7 @@ func gpuOperatorTestTask(mode string, status workflowdomain.TaskStatus) workflow
 
 func TestGPUOperatorTaskDeclaresItsStateCompletion(t *testing.T) {
 	task := gpuOperatorTestTask("present", workflowdomain.TaskPending)
-	if task.ID != gpuOperatorStepID || task.Job != jobConfigureGPUOperator || task.Executor != workflowdomain.RunnerKindAnsible {
+	if task.ID != gpuOperatorStepID || task.Job != jobConfigureGPUOperator || task.Executor != workflowdomain.RunnerKindHostAutomation {
 		t.Errorf("gpuOperatorTask = %+v, want the configure-gpu-operator ansible Task", task)
 	}
 	if len(task.DependsOn) != 1 || task.DependsOn[0] != "validate-platform" {

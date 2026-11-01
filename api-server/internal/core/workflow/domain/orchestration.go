@@ -47,13 +47,17 @@ const (
 	TaskRequiresAttention TaskStatus = "requires_attention"
 )
 
-// RunnerKind identifies the typed lifecycle adapter carrying out a Step.
+// RunnerKind identifies, by provider interface, the Runner that carries out a Task. The values are
+// persisted (and on the wire as `executor`) and predate the port names, so they are opaque: the
+// host automation Runner is stored as "ansible" and the OS provisioning Runner as "maas" whatever
+// adapter implements them (core-and-extensions.md §3.4).
 type RunnerKind string
 
+// The Runner kinds.
 const (
-	RunnerKindInternal    RunnerKind = "internal"
-	RunnerKindAnsible     RunnerKind = "ansible"
-	RunnerKindProvisioner RunnerKind = "maas"
+	RunnerKindInternal       RunnerKind = "internal"
+	RunnerKindHostAutomation RunnerKind = "ansible"
+	RunnerKindProvisioner    RunnerKind = "maas"
 )
 
 // ResourceReference identifies a target without embedding another context's model.

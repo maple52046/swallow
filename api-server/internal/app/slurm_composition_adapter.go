@@ -224,7 +224,7 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	plan.steps = append(plan.steps, workflowdomain.Task{
 		ID: monitoring.stepID, Kind: "ansible-playbook", Name: monitoring.stepName,
 		Job:      monitoring.job,
-		Executor: workflowdomain.RunnerKindAnsible, DependsOn: []string{previous},
+		Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: []string{previous},
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 		Completion: monitoring.completions(launch.Platform.ID, operationID),
@@ -304,7 +304,7 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 		workflowdomain.Task{
 			ID: installID, Kind: "ansible-playbook", Name: "Install " + softwareLabel(kind),
 			Job:      job,
-			Executor: workflowdomain.RunnerKindAnsible, DependsOn: []string{previous},
+			Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: []string{previous},
 			Targets:    prepared.Targets,
 			Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 			// The failure marking covers a failed install whose record Task never runs.

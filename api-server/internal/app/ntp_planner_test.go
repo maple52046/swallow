@@ -88,7 +88,7 @@ func TestNTPPlannerConfigureTasks(t *testing.T) {
 	}
 	for index, serverID := range []string{"s1", "s2"} {
 		task := tasks[index]
-		if task.Kind != "ansible-playbook" || task.Job != "" || task.Executor != workflowdomain.RunnerKindAnsible ||
+		if task.Kind != "ansible-playbook" || task.Job != "" || task.Executor != workflowdomain.RunnerKindHostAutomation ||
 			task.Parameters["playbook"] != ntpPlaybook {
 			t.Errorf("task %s = %+v, want the configure-ntp ansible Task with no Job", task.ID, task)
 		}

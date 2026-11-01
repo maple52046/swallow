@@ -106,7 +106,9 @@ interface，而是 Platform 模組與 Software 模組提供的能力（§4）。
 
 - 需要連線設定的 adapter 以 [Integration](glossaries/terms/integration.md) 註冊到某個 Site；Integration 就是
   「某個 adapter 在某個 Site 的一筆註冊」。哪些 provider kind 可以扮演哪一種 Integration，由 adapter 的註冊
-  提供，而不是寫死在 core 的對照表。
+  提供，而不是寫死在 core 的對照表：每個 adapter 與 Platform 模組擁有自己的 provider kind 字串，composition root
+  （`internal/app/modules.go` 的 `integrationProviders`）把它們收集成 Site 驗證 Integration 用的 `IntegrationProviders`。
+  deployment 記錄的 platform Integration 以 Platform type 為 provider kind。
 - store 與 Workflow executor 是安裝層級的 adapter，整個安裝只有一個，由 composition root 選擇。
 
 ### 3.6 現有的越界（遷移時處理）
@@ -119,7 +121,6 @@ interface，而是 Platform 模組與 Software 模組提供的能力（§4）。
     application；`RunnerKind` 以產品命名（`ansible`、`maas`），delivery 依它分支。
   - domain 有 Temporal 的執行參照（`TemporalReference`）與 Mongo 的 `bson` struct tag，repository 直接 decode 成
     domain 型別。import 規則守住了 Temporal 與 Mongo 的 SDK，但它們的概念仍在 domain。
-- **Site**：domain 定義 provider kind 常數與 Integration 種類的對照。
 - **Platform 與 AMD**：平台與 AMD 專屬的模型與流程位於 `internal/core/platform` 與 `internal/app`（§4），GPU 分類
   （PCI vendor id）在 server 的 domain。
 - **Managed Software**：產品型錄、各 kind 的分支與 Docker Engine 的 port 在 `internal/core/software`。

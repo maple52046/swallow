@@ -113,7 +113,7 @@ func TestUninstallStepsKeepServersUsesAnsibleStep(t *testing.T) {
 	}) {
 		t.Errorf("uninstall choice = %+v, want delete, restore, and the Platform's name", choice)
 	}
-	if steps[0].ID != uninstallPlatformStepID || steps[0].Executor != workflowdomain.RunnerKindAnsible {
+	if steps[0].ID != uninstallPlatformStepID || steps[0].Executor != workflowdomain.RunnerKindHostAutomation {
 		t.Fatalf("step = %+v, want the uninstall-platform ansible step", steps[0])
 	}
 	if steps[0].Job != jobUninstallPlatform {

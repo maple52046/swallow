@@ -172,7 +172,7 @@ func (l softwareDeploymentLauncher) prepare(
 			ID: softwareInstallStepID, Kind: "ansible-playbook",
 			Name:       summary,
 			Job:        "configure-" + string(launch.Kind),
-			Executor:   workflowdomain.RunnerKindAnsible,
+			Executor:   workflowdomain.RunnerKindHostAutomation,
 			DependsOn:  []string{softwareWaitStepID},
 			Targets:    prepared.Targets,
 			Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},

@@ -149,7 +149,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		return err
 	}
 	tasks := temporalworkflow.NewTaskActivities(engine, map[workflowdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
-		workflowdomain.RunnerKindAnsible: ansibleTaskExecutor{runner: ansibleTasks},
+		workflowdomain.RunnerKindHostAutomation: ansibleTaskExecutor{runner: ansibleTasks},
 	}, nil)
 	ansibleWorker := worker.New(temporalClient, cfg.AnsibleTaskQueue, worker.Options{
 		MaxConcurrentActivityExecutionSize: cfg.OperationMaxParallelism, WorkerStopTimeout: 10 * time.Second,

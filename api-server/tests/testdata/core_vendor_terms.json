@@ -56,12 +56,11 @@
   "internal/core/workflow/application/auto_exporters.go": 3,
   "internal/core/workflow/application/dispatcher.go": 1,
   "internal/core/workflow/application/engine.go": 3,
-  "internal/core/workflow/application/execution_service.go": 11,
+  "internal/core/workflow/application/execution_service.go": 10,
   "internal/core/workflow/application/orchestration.go": 9,
-  "internal/core/workflow/delivery/execution_handler.go": 3,
   "internal/core/workflow/domain/dispatch.go": 28,
   "internal/core/workflow/domain/execution.go": 1,
   "internal/core/workflow/domain/operation.go": 50,
-  "internal/core/workflow/domain/orchestration.go": 172,
+  "internal/core/workflow/domain/orchestration.go": 171,
   "internal/core/workflow/domain/plan.go": 12
 }
