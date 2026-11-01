@@ -181,8 +181,21 @@ func (l softwareDeploymentLauncher) prepare(
 		Definition:     module.Manifest.Definition(), DefinitionVersion: 1,
 		SiteID:          prepared.SiteID,
 		TargetServerIDs: launch.ServerIDs,
-		Steps:           steps, Jobs: declareJobs(steps, workflowdomain.RetryJob), RequestedBy: launch.RequestedBy,
+		Steps:           steps, Jobs: softwareJobs(steps, launch.Kind, summary), RequestedBy: launch.RequestedBy,
 	}}, nil
+}
+
+// softwareJobs declares the Jobs of a software Workflow. Its configure-<kind> Job runs the install or
+// the uninstall playbook under the same name, so its label is the Workflow's summary ("Install NFS",
+// "Uninstall NFS") rather than the catalog's.
+func softwareJobs(steps []workflowdomain.Task, kind softwaredomain.Kind, summary string) []workflowdomain.JobDeclaration {
+	jobs := declareJobs(steps, workflowdomain.RetryJob)
+	for i := range jobs {
+		if jobs[i].Name == softwareConfigureJob(kind) {
+			jobs[i].Label = summary
+		}
+	}
+	return jobs
 }
 
 // softwareConfigureJob is the Job that runs a Software kind's playbook, "configure-<kind>", in a

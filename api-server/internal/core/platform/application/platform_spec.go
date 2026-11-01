@@ -123,7 +123,7 @@ func (s *PlatformSpecService) Create(ctx context.Context, input CreatePlatformSp
 		if err := s.platforms.Create(ctx, platform); err != nil {
 			return err
 		}
-		plan, err = s.plans.Propose(ctx, platformRef(platform.ID), s.draft(platform.Generation, spec, changes, nil))
+		plan, err = s.plans.Propose(ctx, platformRef(platform.ID), s.draft(platform.ID, platform.Generation, spec, changes, nil))
 		return err
 	})
 	if err != nil {
@@ -240,7 +240,7 @@ func (s *PlatformSpecService) write(
 		if !destructive {
 			return s.withdraw(ctx, platform.ID, fmt.Sprintf("generation %d needs no approval", generation))
 		}
-		plan, err = s.plans.Propose(ctx, platformRef(platform.ID), s.draft(generation, spec, changes, blocking))
+		plan, err = s.plans.Propose(ctx, platformRef(platform.ID), s.draft(platform.ID, generation, spec, changes, blocking))
 		return err
 	})
 	if err != nil {
@@ -302,8 +302,8 @@ func (s *PlatformSpecService) withdraw(ctx context.Context, platformID, reason s
 	return s.plans.Withdraw(ctx, platformRef(platformID), reason)
 }
 
-func (s *PlatformSpecService) draft(generation int64, spec platformdomain.PlatformSpec, changes platformdomain.PlatformChanges, blocking []string) convergence.PlanDraft {
-	return platformDraft(generation, s.now(), spec, changes, blocking)
+func (s *PlatformSpecService) draft(platformID string, generation int64, spec platformdomain.PlatformSpec, changes platformdomain.PlatformChanges, blocking []string) convergence.PlanDraft {
+	return platformDraft(platformID, generation, s.now(), spec, changes, blocking)
 }
 
 func (s *PlatformSpecService) module(platformType platformdomain.PlatformType) (platformdomain.PlatformModule, error) {
@@ -330,9 +330,10 @@ func (s *PlatformSpecService) specified(ctx context.Context, platformID string) 
 	return platform, module, nil
 }
 
-// platformDraft turns classified changes into a plan draft. Each action names the Platform, and the
-// destructive actions swallow cannot carry out yet are blockers.
-func platformDraft(generation int64, observedAt time.Time, spec platformdomain.PlatformSpec, changes platformdomain.PlatformChanges, blocking []string) convergence.PlanDraft {
+// platformDraft turns classified changes into a plan draft, and the destructive actions swallow
+// cannot carry out yet into blockers. A module names a Platform target without its id, which only
+// the core knows, so each such target is given the Platform's id.
+func platformDraft(platformID string, generation int64, observedAt time.Time, spec platformdomain.PlatformSpec, changes platformdomain.PlatformChanges, blocking []string) convergence.PlanDraft {
 	draft := convergence.PlanDraft{Generation: generation, ObservedAt: observedAt}
 	if removal := spec.Removal; spec.Desired == platformdomain.PlatformAbsent && removal != nil && removal.ReleaseServers {
 		effect := "every member is released to the provisioner"
@@ -345,6 +346,9 @@ func platformDraft(generation int64, observedAt time.Time, spec platformdomain.P
 		draft.Effects = append(draft.Effects, "unfinished Workflows holding the members are canceled first")
 	}
 	for _, action := range changes.Actions {
+		if action.Target.Kind == PlatformResourceKind && action.Target.ID == "" {
+			action.Target.ID = platformID
+		}
 		draft.Actions = append(draft.Actions, action)
 	}
 	if blocking == nil {
@@ -430,7 +434,7 @@ func (p *PlatformPlanner) Plan(ctx context.Context, platformID string) (converge
 	if err != nil {
 		return convergence.PlanDraft{}, err
 	}
-	return platformDraft(platform.Generation, time.Now().UTC(), *platform.Spec, changes, nil), nil
+	return platformDraft(platform.ID, platform.Generation, time.Now().UTC(), *platform.Spec, changes, nil), nil
 }
 
 // Held reports whether a deploy or uninstall Workflow of the Platform is still running; a removal

@@ -9,7 +9,11 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/hostautomation/ansible"
+	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+	"github.com/maple52046/swallow/internal/core/store/storetest"
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // Every catalog kind must install and uninstall through a playbook the shipped manifest registers,
@@ -68,5 +72,33 @@ func TestDeviceMetricsExporterAssignmentsMarkLiveRecordsAbsent(t *testing.T) {
 	}
 	if want := []string{"s1/device-metrics-exporter=absent@deploy-1 applied=false"}; !slices.Equal(repo.writes, want) {
 		t.Errorf("writes = %v, want %v", repo.writes, want)
+	}
+}
+
+// A software Workflow's configure Job is labelled with what it does, since install and uninstall
+// share its name.
+func TestSoftwareWorkflowLabelsItsConfigureJobByDirection(t *testing.T) {
+	launcher := softwareDeploymentLauncher{
+		operations:     workflowapp.NewExecutionService(slurmTestServers{}, ntpTestAutomation{}, slurmTestCatalog{}, testModules(t).workflowKinds, nil, nil, nil),
+		orchestrations: workflowapp.NewWorkflowService(&storetest.Transactor{}, nil, workflowdomain.PlanCatalog{}),
+		modules:        testModules(t).registry,
+	}
+	launch := softwareapp.SoftwareLaunch{Kind: softwaredomain.KindNFS, Label: "NFS", ServerIDs: []string{"s1"}, RequestedBy: "admin"}
+	for want, prepare := range map[string]func(context.Context, softwareapp.SoftwareLaunch) (softwareapp.PreparedSoftwareWorkflow, error){
+		"Install NFS": launcher.PrepareInstall, "Uninstall NFS": launcher.PrepareUninstall,
+	} {
+		prepared, err := prepare(context.Background(), launch)
+		if err != nil {
+			t.Fatalf("prepare %s: %v", want, err)
+		}
+		var got string
+		for _, job := range prepared.(*preparedSoftwareWorkflow).workflow.Jobs {
+			if job.Name == "configure-nfs" {
+				got = job.Label
+			}
+		}
+		if got != want {
+			t.Errorf("configure-nfs label = %q, want %q", got, want)
+		}
 	}
 }

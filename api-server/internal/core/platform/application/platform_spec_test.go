@@ -320,6 +320,9 @@ func TestCreateProposesTheInstallAndClaimsTheMembers(t *testing.T) {
 	if result.Plan == nil || result.Plan.State != convergence.PlanPendingApproval || result.Plan.Actions[0].Action != "install" {
 		t.Fatalf("plan = %+v, want a pending install", result.Plan)
 	}
+	if target := result.Plan.Actions[0].Target; target != platformRef(result.Platform.ID) {
+		t.Errorf("install target = %+v, want the created Platform", target)
+	}
 	stored := h.platforms.platforms[result.Platform.ID]
 	if stored.Generation != 1 || stored.Spec == nil || stored.Status.Applied != nil {
 		t.Errorf("stored generation %d spec %v applied %v, want generation 1, a spec, nothing applied", stored.Generation, stored.Spec, stored.Status.Applied)

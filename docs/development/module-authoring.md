@@ -99,8 +99,9 @@ api-server/modules/
   port（`ID`、`Label`、`IsCompute`）。需要某家 GPU 的 Software 模組在 catalog entry 以 `RequiredAccelerator` 指名
   它的 id，不 import 它。
 - 規劃 Workflow 的 launcher 以 Task 的 `Job` 為 Job 命名，Job 的顯示名稱登錄在 `internal/app/workflow_plan.go` 的
-  `workflowJobLabels`；Software kind 的 `configure-<kind>` 以 catalog 的 label 命名（`Configure Docker CE`）。Workflow
-  服務受理計畫時從 plan catalog 補上 label，launcher 的測試檢查每個常數 Job 都有 label。
+  `workflowJobLabels`；Software kind 的 `configure-<kind>` 以 catalog 的 label 命名（`Configure Docker CE`），單獨的
+  software Workflow 則依方向標為 `Install NFS`、`Uninstall NFS`。launcher 自己設定的 label 優先；Workflow 服務受理計畫
+  時只為沒有 label 的 Job 從 plan catalog 補上，launcher 的測試檢查每個常數 Job 都有 label。
 - 提供 HTTP 路由的模組把 use case 與 delivery 分成子 package，delivery package 匯出 `RegisterRoutes`，由
   `internal/app/api.go` 掛到對應的 router；掛上的路徑必須落在 `routes` 宣告的前綴內。use case 依賴的 core 資料以
   模組自己定義的小介面表達，只列它實際呼叫的方法。docker-ce 的 Docker Host Explorer 是例子：`explorer/` 是 use case，
