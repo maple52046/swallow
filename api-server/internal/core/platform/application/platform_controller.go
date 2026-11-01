@@ -86,15 +86,23 @@ func NewPlatformController(
 // Name is "platform".
 func (c *PlatformController) Name() string { return PlatformControllerName }
 
-// Collections are the Platforms, whose membership sync also writes them, and the Workflows that
-// realize them.
-func (c *PlatformController) Collections() []string { return []string{"platforms", "workflows"} }
+// Collections are the Platforms, whose membership sync also writes them, the Workflows that realize
+// them, and the convergence requests an approved Change Plan writes.
+func (c *PlatformController) Collections() []string {
+	return []string{"platforms", "workflows", convergence.RequestCollection}
+}
 
-// KeysForChange maps a Platform change to its id and a Workflow change to its Platform.
+// KeysForChange maps a Platform change to its id, a Workflow change to its Platform, and a request
+// for this controller (a plan approval) to every Platform.
 func (c *PlatformController) KeysForChange(ctx context.Context, change store.Change) ([]string, error) {
 	switch change.Collection {
 	case "platforms":
 		return []string{change.Key}, nil
+	case convergence.RequestCollection:
+		if change.Key != PlatformControllerName {
+			return nil, nil
+		}
+		return c.Keys(ctx)
 	case "workflows":
 		platformID, err := c.workflows.PlatformOfWorkflow(ctx, change.Key)
 		if err != nil || platformID == "" {
@@ -159,10 +167,6 @@ func (c *PlatformController) Reconcile(ctx context.Context, request convergence.
 		return c.adopt(ctx, module, platform, snapshot)
 	}
 	spec := *platform.Spec
-	if spec.Desired == platformdomain.PlatformPresent && snapshot.State != platformdomain.PlatformLifecycleUninstalled {
-		c.claimMembers(ctx, platform.ID, spec)
-	}
-
 	status := platform.Status
 	if status.Realizing == nil && status.Applied == nil && spec.Desired == platformdomain.PlatformPresent && snapshot.Deployment != nil {
 		// A deployment accepted outside the controller (the deploy route) realizes the first spec.
@@ -183,6 +187,13 @@ func (c *PlatformController) Reconcile(ctx context.Context, request convergence.
 		}
 	}
 
+	if failed && status.Realizing.Generation < platform.Generation {
+		// A newer spec supersedes the failed Workflow: it is planned against what was applied.
+		status.Realizing, failed = nil, false
+	}
+	if snapshot.State != platformdomain.PlatformLifecycleUninstalled {
+		c.reconcileClaims(ctx, platform.ID, spec, status)
+	}
 	held, err := c.planner.Held(ctx, platform.ID)
 	if err != nil {
 		return err
@@ -219,9 +230,13 @@ func (c *PlatformController) act(ctx context.Context, module platformdomain.Plat
 		return err
 	}
 	if changes.Empty() {
-		if platform.Spec.Desired == platformdomain.PlatformPresent && status.Applied != nil && !reflect.DeepEqual(*status.Applied, *platform.Spec) {
-			applied := platform.Spec.Clone()
-			status.Applied, status.ObservedGeneration = &applied, platform.Generation
+		if platform.Spec.Desired == platformdomain.PlatformPresent && status.Applied != nil {
+			// The spec needs no Workflow, so it is realized as written.
+			if !reflect.DeepEqual(*status.Applied, *platform.Spec) {
+				applied := platform.Spec.Clone()
+				status.Applied = &applied
+			}
+			status.ObservedGeneration = platform.Generation
 		}
 		return nil
 	}
@@ -380,13 +395,56 @@ func (c *PlatformController) adopt(ctx context.Context, module platformdomain.Pl
 	return c.specs.WriteStatus(ctx, platform.ID, status)
 }
 
-// claimMembers claims each member for the Platform one at a time, so a Server that is gone or
-// claimed by another Platform does not stop the others.
-func (c *PlatformController) claimMembers(ctx context.Context, platformID string, spec platformdomain.PlatformSpec) {
+// reconcileClaims keeps the Platform's claims on exactly the Servers it may have changed or is about
+// to: the members of a present spec, of the applied spec, and of the spec a Workflow is realizing.
+// A Server the Platform claims outside them (a member added and dropped before it was installed) is
+// released.
+func (c *PlatformController) reconcileClaims(ctx context.Context, platformID string, spec platformdomain.PlatformSpec, status platformdomain.PlatformStatus) {
 	if c.claims == nil {
 		return
 	}
-	for _, serverID := range spec.MemberIDs() {
+	keep := map[string]bool{}
+	var members []string
+	add := func(ids []string) {
+		for _, id := range ids {
+			if !keep[id] {
+				keep[id] = true
+				members = append(members, id)
+			}
+		}
+	}
+	if spec.Desired == platformdomain.PlatformPresent {
+		add(spec.MemberIDs())
+	}
+	if status.Applied != nil {
+		add(status.Applied.MemberIDs())
+	}
+	if status.Realizing != nil {
+		add(status.Realizing.Spec.MemberIDs())
+	}
+	c.claimMembers(ctx, platformID, members)
+	claimed, err := c.claims.ClaimedServerIDs(ctx, platformID)
+	if err != nil {
+		slog.Error("read platform claims", "platformId", platformID, "error", err)
+		return
+	}
+	var stale []string
+	for _, id := range claimed {
+		if !keep[id] {
+			stale = append(stale, id)
+		}
+	}
+	if len(stale) > 0 {
+		if err := c.claims.ReleaseServerClaims(ctx, platformID, stale); err != nil {
+			slog.Error("release platform claims", "platformId", platformID, "error", err)
+		}
+	}
+}
+
+// claimMembers claims each Server for the Platform one at a time, so a Server that is gone or
+// claimed by another Platform does not stop the others.
+func (c *PlatformController) claimMembers(ctx context.Context, platformID string, serverIDs []string) {
+	for _, serverID := range serverIDs {
 		err := c.claims.ClaimForPlatform(ctx, platformID, []string{serverID}, c.now())
 		switch {
 		case err == nil, errors.Is(err, serverdomain.ErrServerNotFound):

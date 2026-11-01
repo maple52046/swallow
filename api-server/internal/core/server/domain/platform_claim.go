@@ -54,6 +54,10 @@ type PlatformClaimStore interface {
 	// ReleasePlatformClaims clears the claim of every Server claimed by platformID. It is
 	// idempotent: a Platform that claims nothing is a success.
 	ReleasePlatformClaims(ctx context.Context, platformID string) error
+	// ReleaseServerClaims clears the claim platformID holds on each of serverIDs, for members a
+	// Platform spec dropped before they were ever installed. A Server claimed by another Platform,
+	// or by none, is left as it is.
+	ReleaseServerClaims(ctx context.Context, platformID string, serverIDs []string) error
 	// ClaimingPlatformIDs lists every Platform id that claims at least one Server, so the platform
 	// controller can release the claims of a Platform that no longer exists.
 	ClaimingPlatformIDs(ctx context.Context) ([]string, error)

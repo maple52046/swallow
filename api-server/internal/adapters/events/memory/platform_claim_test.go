@@ -45,6 +45,15 @@ func (r *claimRepo) ReleasePlatformClaims(_ context.Context, platformID string) 
 	return nil
 }
 
+func (r *claimRepo) ReleaseServerClaims(_ context.Context, platformID string, serverIDs []string) error {
+	for _, id := range serverIDs {
+		if r.claims[id] == platformID {
+			delete(r.claims, id)
+		}
+	}
+	return nil
+}
+
 func (r *claimRepo) ClaimingPlatformIDs(context.Context) ([]string, error) {
 	seen := map[string]bool{}
 	ids := []string{}

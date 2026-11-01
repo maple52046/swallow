@@ -233,6 +233,9 @@ func (s *PlatformSpecService) write(
 			if err := s.claim(ctx, platform.ID, spec); err != nil {
 				return err
 			}
+			if err := s.releaseDropped(ctx, platform, spec); err != nil {
+				return err
+			}
 		}
 		if !destructive {
 			return s.withdraw(ctx, platform.ID, fmt.Sprintf("generation %d needs no approval", generation))
@@ -253,8 +256,41 @@ func (s *PlatformSpecService) write(
 	return &SpecWriteResult{Platform: platform, Plan: plan}, nil
 }
 
+// releaseDropped releases the members the previous spec named that neither the new spec nor the
+// applied spec does: they were added and dropped again before any Workflow installed them, so
+// nothing on them belongs to the Platform. An applied member keeps its claim until the change that
+// removes it is carried out.
+func (s *PlatformSpecService) releaseDropped(ctx context.Context, platform *platformdomain.Platform, spec platformdomain.PlatformSpec) error {
+	if s.claims == nil || platform.Spec == nil {
+		return nil
+	}
+	var dropped []string
+	for _, member := range platform.Spec.Members {
+		if _, kept := spec.Member(member.ServerID); kept {
+			continue
+		}
+		if applied := platform.Status.Applied; applied != nil {
+			if _, installed := applied.Member(member.ServerID); installed {
+				continue
+			}
+		}
+		if realizing := platform.Status.Realizing; realizing != nil {
+			// A Workflow may be installing it right now; the controller releases it once it is not.
+			if _, installing := realizing.Spec.Member(member.ServerID); installing {
+				continue
+			}
+		}
+		dropped = append(dropped, member.ServerID)
+	}
+	if len(dropped) == 0 {
+		return nil
+	}
+	return s.claims.ReleaseServerClaims(ctx, platform.ID, dropped)
+}
+
 // claim claims every member of spec for the Platform; a member it already claims is left as it is.
-// Members a spec drops keep their claim until the change that removes them is carried out.
+// Members a spec drops keep their claim until the change that removes them is carried out, unless
+// they were never installed (releaseDropped).
 func (s *PlatformSpecService) claim(ctx context.Context, platformID string, spec platformdomain.PlatformSpec) error {
 	if s.claims == nil || len(spec.Members) == 0 {
 		return nil

@@ -250,6 +250,21 @@ func (r *EventingServerRepository) ReleasePlatformClaims(ctx context.Context, pl
 }
 
 // ClaimingPlatformIDs is a read and is delegated unchanged.
+// ReleaseServerClaims delegates to the inner store and publishes each Server it may have changed.
+func (r *EventingServerRepository) ReleaseServerClaims(ctx context.Context, platformID string, serverIDs []string) error {
+	claims, ok := r.inner.(serverdomain.PlatformClaimStore)
+	if !ok {
+		return errPlatformClaimsUnsupported
+	}
+	if err := claims.ReleaseServerClaims(ctx, platformID, serverIDs); err != nil {
+		return err
+	}
+	for _, id := range serverIDs {
+		r.publishByID(ctx, id)
+	}
+	return nil
+}
+
 func (r *EventingServerRepository) ClaimingPlatformIDs(ctx context.Context) ([]string, error) {
 	claims, ok := r.inner.(serverdomain.PlatformClaimStore)
 	if !ok {

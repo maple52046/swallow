@@ -13,6 +13,7 @@ import (
 	"github.com/maple52046/swallow/internal/core/convergence"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	"github.com/maple52046/swallow/internal/core/store"
 	"github.com/maple52046/swallow/internal/core/store/storetest"
 )
 
@@ -546,6 +547,67 @@ func TestControllerDoesNotRestartAFailedWorkflowAndReportsDrift(t *testing.T) {
 	realized, _ := convergence.FindCondition(platform.Status.Conditions, convergence.ConditionRealized)
 	if realized.Reason != convergence.ReasonFailed {
 		t.Errorf("realized = %+v, want failed", realized)
+	}
+}
+
+// A member whose join failed can be taken back out: the failed generation was never applied, so the
+// spec written back converges at once, the failed Workflow stops counting, and the member's claim is
+// released.
+func TestRevertingAFailedMemberConvergesAndReleasesIt(t *testing.T) {
+	h := newSpecHarness(nil)
+	platform := h.installed(t)
+	original := platform.Spec.Clone()
+	grown := original.Clone()
+	grown.Members = append(grown.Members, platformdomain.PlatformMember{ServerID: "w2", Roles: []string{"worker"}})
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, grown); err != nil {
+		t.Fatalf("UpdateSpec(add) error = %v", err)
+	}
+	h.reconcile(t, platform.ID)
+	realizing := platform.Status.Realizing
+	h.lifecycle.snapshots[platform.ID] = platformdomain.LifecycleSnapshot{
+		Origin: platformdomain.PlatformOriginDeployed, State: platformdomain.PlatformLifecycleDeployFailed,
+		Deployment: &platformdomain.LifecycleOperation{ID: realizing.WorkflowID, Status: operationFailed, RequestedAt: realizing.StartedAt},
+	}
+	h.reconcile(t, platform.ID)
+	if heldBy(h.servers, "w2") != platform.ID {
+		t.Fatalf("w2 lost its claim while the failed Workflow still names it")
+	}
+
+	result, err := h.specs.UpdateSpec(context.Background(), platform.ID, 2, original)
+	if err != nil || result.Plan != nil {
+		t.Fatalf("UpdateSpec(revert) = %+v, %v; want a write without a plan", result, err)
+	}
+	h.reconcile(t, platform.ID)
+	if platform.Status.Realizing != nil || platform.Status.ObservedGeneration != 3 {
+		t.Errorf("status = %+v, want generation 3 applied and nothing realizing", platform.Status)
+	}
+	if realized, _ := convergence.FindCondition(platform.Status.Conditions, convergence.ConditionRealized); realized.Reason != convergence.ReasonConverged {
+		t.Errorf("realized = %+v, want converged", realized)
+	}
+	if got := heldBy(h.servers, "w2"); got != "" {
+		t.Errorf("w2 claim = %q, want it released", got)
+	}
+	if h.launcher.launches != 2 {
+		t.Errorf("launches = %d, want no Workflow for the revert", h.launcher.launches)
+	}
+}
+
+// An approved Change Plan wakes the controller through its convergence request, which maps to every
+// Platform; another controller's request maps to none.
+func TestPlanApprovalWakesThePlatformController(t *testing.T) {
+	h := newSpecHarness(nil)
+	created, err := h.specs.Create(context.Background(), CreatePlatformSpecInput{
+		SiteID: "site-1", Name: "lab-k0s", Type: platformdomain.PlatformTypeKubernetes, Spec: labSpec(),
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	keys, err := h.controller.KeysForChange(context.Background(), store.Change{Collection: convergence.RequestCollection, Key: PlatformControllerName})
+	if err != nil || !slices.Contains(keys, created.Platform.ID) {
+		t.Errorf("keys = %v, %v; want the created Platform", keys, err)
+	}
+	if keys, _ := h.controller.KeysForChange(context.Background(), store.Change{Collection: convergence.RequestCollection, Key: "ssh-keys"}); len(keys) != 0 {
+		t.Errorf("another controller's request mapped to %v", keys)
 	}
 }
 

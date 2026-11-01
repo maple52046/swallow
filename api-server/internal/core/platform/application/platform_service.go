@@ -702,6 +702,11 @@ func toPlatformItem(platform *platformdomain.Platform, lifecycle platformdomain.
 		// Created from a spec, its install waits on the Change Plan.
 		lifecycle.Origin, lifecycle.State = platformdomain.PlatformOriginDeployed, platformdomain.PlatformLifecyclePlanned
 	}
+	if lifecycle.State == platformdomain.PlatformLifecycleDeployFailed && platform.Spec != nil &&
+		platform.Spec.Desired == platformdomain.PlatformPresent && platform.Status.Applied != nil && platform.Status.Realizing == nil {
+		// A convergent redeploy failed for a spec that is no longer wanted; the applied spec runs.
+		lifecycle.State = platformdomain.PlatformLifecycleActive
+	}
 	return PlatformItem{
 		ID: platform.ID, SiteID: platform.SiteID, Name: platform.Name,
 		Type: string(platform.Type), IntegrationID: wire.String(platform.IntegrationID),

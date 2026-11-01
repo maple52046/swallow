@@ -815,6 +815,17 @@ func (r *MongoServerRepo) ReleasePlatformClaims(ctx context.Context, platformID 
 	return err
 }
 
+// ReleaseServerClaims implements serverdomain.PlatformClaimStore with one conditional update.
+func (r *MongoServerRepo) ReleaseServerClaims(ctx context.Context, platformID string, serverIDs []string) error {
+	if len(serverIDs) == 0 {
+		return nil
+	}
+	_, err := r.col.UpdateMany(ctx,
+		bson.M{"_id": bson.M{"$in": serverIDs}, "platformClaim.platformId": platformID},
+		bson.M{"$unset": bson.M{"platformClaim": ""}, "$set": bson.M{"updatedAt": time.Now().UTC()}})
+	return err
+}
+
 // ClaimingPlatformIDs returns the distinct claiming Platform ids, served by the platform_claim index.
 func (r *MongoServerRepo) ClaimingPlatformIDs(ctx context.Context) ([]string, error) {
 	values, err := r.col.Distinct(ctx, "platformClaim.platformId", bson.M{"platformClaim": bson.M{"$exists": true}})

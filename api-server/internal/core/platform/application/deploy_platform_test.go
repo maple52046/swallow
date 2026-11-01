@@ -200,6 +200,15 @@ func (r *deployFakeServerRepo) ClaimedServerIDs(_ context.Context, platformID st
 	return ids, nil
 }
 
+func (r *deployFakeServerRepo) ReleaseServerClaims(_ context.Context, platformID string, serverIDs []string) error {
+	for _, id := range serverIDs {
+		if server, ok := r.servers[id]; ok && server.PlatformClaim != nil && server.PlatformClaim.PlatformID == platformID {
+			server.PlatformClaim = nil
+		}
+	}
+	return nil
+}
+
 func (r *deployFakeServerRepo) ClaimingPlatformIDs(context.Context) ([]string, error) {
 	seen := map[string]bool{}
 	ids := []string{}
