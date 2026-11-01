@@ -9,7 +9,9 @@ ContainerName={{ prometheus_container_name }}
 Image={{ prometheus_image }}
 # The host network keeps the listen address the same as a native install's.
 Network=host
-Volume={{ prometheus_config_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+# The directory, not the file: the config is replaced by a rename, which a file mount would not
+# follow, so a reload would keep reading the old scrape configuration.
+Volume={{ prometheus_config_dir }}:/etc/prometheus:ro,z
 Volume={{ prometheus_data_dir }}:/prometheus:Z
 Exec=--config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time={{ prometheus_retention }} --web.listen-address={{ prometheus_listen_address }}:{{ prometheus_port }} --web.enable-lifecycle
 

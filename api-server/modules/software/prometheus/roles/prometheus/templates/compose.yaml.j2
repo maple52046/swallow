@@ -14,5 +14,7 @@ services:
       - --web.listen-address={{ prometheus_listen_address }}:{{ prometheus_port }}
       - --web.enable-lifecycle
     volumes:
-      - {{ prometheus_config_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # The directory, not the file: the config is replaced by a rename, which a file mount would
+      # not follow, so a reload would keep reading the old scrape configuration.
+      - {{ prometheus_config_dir }}:/etc/prometheus:ro
       - {{ prometheus_data_dir }}:/prometheus
