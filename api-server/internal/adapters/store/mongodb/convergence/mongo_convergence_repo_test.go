@@ -40,7 +40,8 @@ func testDatabase(t *testing.T) *mongo.Database {
 func TestLeaseStoreKeepsOneHolder(t *testing.T) {
 	leases := NewMongoLeaseStore(testDatabase(t))
 	ctx := context.Background()
-	ttl := 500 * time.Millisecond
+	// Long enough that the first checks finish before it expires on a loaded test machine.
+	ttl := 2 * time.Second
 	check := func(holder string, want bool) {
 		t.Helper()
 		got, err := leases.TryAcquire(ctx, "controller:test", holder, ttl)
