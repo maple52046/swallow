@@ -61,28 +61,3 @@ func hintCancelActiveWorkflows(cmd *cobra.Command, err error, held string) error
 	apiErr.Hint = hint
 	return apiErr
 }
-
-// platformHoldingWorkflows lists the Platform's unfinished Workflows as "ID (intent, status)", for
-// the uninstall conflict hint; a failed read yields nothing rather than hiding the conflict.
-func platformHoldingWorkflows(cmd *cobra.Command, platformID string) string {
-	c, err := newClient()
-	if err != nil {
-		return ""
-	}
-	var page struct {
-		Items []struct {
-			ID     string `json:"id"`
-			Intent string `json:"intent"`
-			Status string `json:"status"`
-		} `json:"items"`
-	}
-	q := newQuery().set("platformId", platformID).set("active", "true").build()
-	if err := c.JSON(ctx(cmd), client.Request{Method: "GET", Path: "workflows/", Query: q, Auth: client.AuthBearer}, &page); err != nil {
-		return ""
-	}
-	held := make([]string, 0, len(page.Items))
-	for _, item := range page.Items {
-		held = append(held, fmt.Sprintf("%s (%s, %s)", item.ID, item.Intent, item.Status))
-	}
-	return strings.Join(held, "; ")
-}

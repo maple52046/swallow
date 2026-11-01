@@ -746,7 +746,7 @@ around it, and the message names the Server and the Platform, for example `Serve
 belongs to kubernetes Platform production-k0s; uninstall the Platform (with releaseServers to
 also release its Servers) instead of releasing the Server directly`. A Platform's Servers are
 released through its uninstall with `releaseServers`
-([platforms.md](platforms.md#uninstall-a-deployed-platform)), which is not subject to this rule.
+([platforms.md](platforms.md#delete-a-platform)), which is not subject to this rule.
 
 Release is the primary provider-recovery path and is not restricted to `deployed`. The
 Swallow-owned recovery policy (decision 033, extended by decision 036) allows Release from

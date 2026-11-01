@@ -1,5 +1,5 @@
 import { expect, test, type Page } from 'playwright/test'
-import { installApiFixtures } from './fixtures'
+import { installApiFixtures, approvePlatformInstall } from './fixtures'
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -58,7 +58,7 @@ test('the deploy wizard installs the AMD GPU Operator only when it is chosen', a
   await expect(page.getByText('v1.5.1 · DRA', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Deploy Kubernetes Platform' }).click()
 
-  await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
+  await approvePlatformInstall(page)
   expect(submitted?.gpuStackOwner).toBeUndefined()
   expect(submitted?.gpuOperator).toEqual({
     enabled: true, allocationMode: 'dra', resourceNaming: 'single',
@@ -79,11 +79,11 @@ test('the GPU Operator cannot be chosen without an AMD workload node', async ({ 
   await page.getByRole('button', { name: 'Next' }).click()
   await expect(page.getByText('Not installed', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Deploy Kubernetes Platform' }).click()
-  await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
+  await approvePlatformInstall(page)
   expect(submitted?.gpuOperator).toBeUndefined()
 })
 
-test('a Platform shows its GPU Operator and changes the allocation mode', async ({ page }) => {
+test('a Platform shows its GPU Operator and proposes changing the allocation mode', async ({ page }) => {
   const requests: Array<Record<string, unknown>> = []
   await installApiFixtures(page, { onGPUOperatorRequest: (_, body) => { requests.push(body) } })
   await page.goto('/platforms/platform-a?site=site-a')
@@ -106,9 +106,10 @@ test('a Platform shows its GPU Operator and changes the allocation mode', async 
     enabled: true, version: 'v1.5.1', allocationMode: 'dra', resourceNaming: 'single',
     nodeLabeller: true, metricsExporter: false,
   }])
-  await expect(section.getByText('Installing', { exact: true })).toBeVisible()
-  await expect(section.locator('.sw-progress-spinner')).toBeVisible()
-  await expect(section.getByRole('button', { name: 'Configure' })).toBeDisabled()
+  // Changing a running operator restarts GPU workloads, so it waits on a Change Plan.
+  await expect(page).toHaveURL('/change-plans?site=site-a')
+  await expect(page.getByText('GPU Operator change proposed')).toBeVisible()
+  await expect(page.getByRole('article', { name: 'Change Plan for Platform platform-a' }).first()).toContainText('change-gpu-operator')
 })
 
 test('a refused GPU Operator change stays in the dialog with the reason', async ({ page }) => {
@@ -124,7 +125,7 @@ test('a refused GPU Operator change stays in the dialog with the reason', async 
   await expect(section.getByText('Ready', { exact: true })).toBeVisible()
 })
 
-test('uninstalling the GPU Operator asks first and sends enabled false', async ({ page }) => {
+test('uninstalling the GPU Operator asks first and proposes enabled false', async ({ page }) => {
   const requests: Array<Record<string, unknown>> = []
   await installApiFixtures(page, { onGPUOperatorRequest: (_, body) => { requests.push(body) } })
   await page.goto('/platforms/platform-a?site=site-a')
@@ -133,8 +134,9 @@ test('uninstalling the GPU Operator asks first and sends enabled false', async (
   const confirm = page.getByRole('alertdialog', { name: 'Uninstall AMD GPU Operator' })
   await expect(confirm).toContainText('the Platform itself keeps running')
   await confirm.getByRole('button', { name: 'Uninstall GPU Operator' }).click()
+  await expect(page).toHaveURL('/change-plans?site=site-a')
   expect(requests).toEqual([{ enabled: false }])
-  await expect(section.getByText('Uninstalling', { exact: true })).toBeVisible()
+  await expect(page.getByRole('article', { name: 'Change Plan for Platform platform-a' }).first()).toContainText('disable-gpu-operator')
 })
 
 test('a Platform without a GPU Operator offers to install it', async ({ page }) => {
@@ -148,6 +150,8 @@ test('a Platform without a GPU Operator offers to install it', async ({ page }) 
   await expect(dialog.getByRole('group', { name: 'Managed GPU nodes' })).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Install GPU Operator' }).click()
   await expect(dialog).toBeHidden()
+  // Turning the operator on converges without approval.
+  await expect(section.getByText('Installing', { exact: true })).toBeVisible()
   expect(requests[0]).toMatchObject({ enabled: true, allocationMode: 'device-plugin' })
   expect(requests[0]).not.toHaveProperty('serverIds')
 })

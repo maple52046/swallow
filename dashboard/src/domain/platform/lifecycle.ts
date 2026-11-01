@@ -2,6 +2,7 @@ import type { Platform, PlatformLifecycleState } from './types'
 
 const LABELS: Record<PlatformLifecycleState, string> = {
   registered: 'Registered',
+  planned: 'Awaiting approval',
   deploying: 'Deploying',
   deploy_failed: 'Deployment failed',
   active: 'Active',
@@ -57,6 +58,8 @@ export function platformUninstallDisabledReason(platform: Platform): string | un
       return 'This platform is already uninstalled.'
     case 'registered':
       return 'This platform has no Swallow deployment history.'
+    case 'planned':
+      return 'Nothing is installed yet; delete the platform to withdraw its install.'
     default:
       return undefined
   }
@@ -91,7 +94,8 @@ export interface PlatformUninstallAvailability {
  */
 export function platformPrimaryRemovalAction(platform: Platform): PlatformRemovalAction {
   if (platform.origin !== 'deployed') return 'delete'
-  return platform.lifecycleState === 'uninstalled' || platform.lifecycleState === 'registered' ? 'delete' : 'uninstall'
+  const state = platform.lifecycleState
+  return state === 'uninstalled' || state === 'registered' || state === 'planned' ? 'delete' : 'uninstall'
 }
 
 /**

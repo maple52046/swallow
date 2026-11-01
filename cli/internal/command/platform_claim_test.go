@@ -12,7 +12,7 @@ import (
 // A release or recover refused because a Platform claims a target names that Platform and the
 // uninstall that releases its Servers, whether the targets came from --server or --file; the
 // --cancel-active-workflows hint, which cannot get past a claim, is not offered.
-func TestPlatformClaimConflictHintsTheUninstall(t *testing.T) {
+func TestPlatformClaimConflictHintsTheDelete(t *testing.T) {
 	const message = "Server gpu-node-02 belongs to kubernetes Platform production-k0s; uninstall the Platform " +
 		"(with releaseServers to also release its Servers) instead of releasing the Server directly"
 	useTestServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +48,7 @@ func TestPlatformClaimConflictHintsTheUninstall(t *testing.T) {
 			t.Fatalf("%s: err = nil, want the claim conflict", name)
 		}
 		got := err.Error()
-		for _, want := range []string{message, "srv-2 belongs to Platform production-k0s (platform-a)", "swallow platforms uninstall platform-a", `"releaseServers": true`} {
+		for _, want := range []string{message, "srv-2 belongs to Platform production-k0s (platform-a)", "swallow platforms delete platform-a --release-servers"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("%s: err = %q, want it to contain %q", name, got, want)
 			}
@@ -84,7 +84,7 @@ func TestPlatformClaimConflictHintsBeforeServerDelete(t *testing.T) {
 		t.Fatal("err = nil, want the claim conflict")
 	}
 	for _, want := range []string{message, "srv-2 belongs to Platform production-k0s (platform-a)",
-		"swallow platforms uninstall platform-a", "swallow platforms delete platform-a"} {
+		"swallow platforms delete platform-a, with --release-servers", "swallow platforms delete platform-a --record-only"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %q, want it to contain %q", err.Error(), want)
 		}

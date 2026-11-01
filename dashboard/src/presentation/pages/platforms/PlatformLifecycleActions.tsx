@@ -57,17 +57,16 @@ interface PlatformLifecycleActionsProps {
  * Removal (decision 010, 2026-10-29 amendment): while the Platform can still be uninstalled the
  * control is a split button whose primary part opens the Uninstall dialog and whose chevron menu
  * offers "Delete only…" (record-only Delete), so host cleanup and record removal are never
- * presented as peers. The Uninstall dialog's submit is the same kind of split button: its primary
- * part uninstalls and keeps the record, and "… and delete record" in its menu also sends
- * `deleteRecord`, which the backend honors only after the uninstall succeeds. A running uninstall or
- * a locked target disables only the header's Uninstall part, with its reason; record-only Delete
- * never mutates hosts, so it stays available. Once the Platform is `uninstalled`, or was never
- * deployed by Swallow, the control is a single "Delete platform" button.
+ * presented as peers. Submitting the Uninstall dialog marks the Platform absent and proposes its
+ * uninstall as a Change Plan (decision 076); the record is deleted once the approved uninstall
+ * succeeds. A running uninstall or a locked target disables only the header's Uninstall part, with
+ * its reason; record-only Delete never mutates hosts, so it stays available. Once the Platform is
+ * `uninstalled`, or was never deployed by Swallow, the control is a single "Delete platform" button.
  *
  * The Uninstall dialog lists the unfinished Workflows still holding the deployment targets (a
  * failed deployment parked for attention, or one still running) and requires the operator to
- * confirm that the backend cancels them (`cancelActiveWorkflows`, decision 061); the request
- * returns at once and the uninstall starts by itself after they end, so the dialog never waits.
+ * confirm that the backend cancels them (`cancelActiveWorkflows`, decision 061) before the
+ * uninstall starts.
  */
 export function PlatformLifecycleActions({ platform, operation, targetServerIds, onRepairStarted }: PlatformLifecycleActionsProps) {
   const { platforms, operations } = useApp()
@@ -117,7 +116,9 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
     ? 'installed'
     : platform.lifecycleState === 'uninstalled'
       ? 'uninstalled'
-      : 'external'
+      : platform.lifecycleState === 'planned'
+        ? 'planned'
+        : 'external'
 
   const open = (next: RemovalDialog) => {
     setDialog(next)
@@ -145,25 +146,29 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
   const awaitingCancelConfirmation = blocked && !cancelBlocking
   const canSubmit = dialog !== null && confirmation === platform.name && !submitting && !awaitingCancelConfirmation
 
-  // `deleteRecord` is chosen at submit time: the primary part of the Uninstall submit keeps the
-  // record, and the variant in its menu also deletes it after the uninstall succeeds.
-  const submit = async (deleteRecord = false) => {
+  const submit = async () => {
     if (!canSubmit) return
     setSubmitting(true)
     setError('')
     try {
       if (dialog === 'uninstall') {
-        const accepted = await platforms.uninstallPlatform(platform.id, platformUninstallOptions({
-          releaseServers, releaseOptions, deleteRecord, cancelActiveWorkflows: blocked && cancelBlocking,
+        const proposed = await platforms.deletePlatform(platform.id, platformUninstallOptions({
+          releaseServers, releaseOptions, cancelActiveWorkflows: blocked && cancelBlocking,
         }))
-        const toast = platformUninstallAcceptedToast({ releaseServers, deleteRecord }, targetLabel)
-        const waits = blocked ? ' It starts once the canceled workflows have ended.' : ''
-        showToast({ tone: 'success', title: toast.title, description: toast.description + waits })
-        navigate(scopedHref(`/workflows/${accepted.operationId}`))
+        if (!proposed.planId) {
+          showToast({ tone: 'success', title: 'Platform deleted', description: 'Its install was never approved, so no host was changed.' })
+          navigate(scopedHref('/platforms'), { replace: true })
+          return
+        }
+        const toast = platformUninstallAcceptedToast({ releaseServers }, targetLabel)
+        showToast({ tone: 'success', title: toast.title, description: toast.description })
+        navigate(scopedHref('/change-plans'))
         return
       }
 
-      await platforms.deletePlatform(platform.id)
+      // A planned Platform is deleted through its spec, which also withdraws its install plan.
+      if (recordDeleteContext === 'planned') await platforms.deletePlatform(platform.id)
+      else await platforms.deletePlatformRecord(platform.id)
       showToast({
         tone: 'success',
         title: 'Platform record deleted',
@@ -304,7 +309,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         initialFocusEl={() => confirmationRef.current}
         title={dialog === 'uninstall' ? 'Uninstall platform' : 'Delete platform record'}
         description={dialog === 'uninstall'
-          ? `Remove Swallow-managed platform software from “${platform.name}”. This acts on the original deployment targets; the Swallow record is kept unless you choose to delete it after success.`
+          ? `Propose removing Swallow-managed platform software from “${platform.name}”. Once you approve the Change Plan it acts on the original deployment targets, and the Swallow record is deleted after it succeeds.`
           : `Permanently delete the Swallow record for “${platform.name}”. This never changes hosts.`}
         onSubmit={(event) => {
           event.preventDefault()
@@ -316,16 +321,9 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
               Cancel
             </Button>
             {dialog === 'uninstall' ? (
-              <PlatformRemovalSplitButton
-                primaryType="submit"
-                primaryLabel={platformUninstallConfirmLabel({ releaseServers, deleteRecord: false })}
-                disabled={!canSubmit}
-                loading={submitting}
-                menuItemLabel={platformUninstallConfirmLabel({ releaseServers, deleteRecord: true })}
-                onMenuSelect={() => void submit(true)}
-                menuTriggerLabel="More uninstall options"
-                placement="dialog"
-              />
+              <Button type="submit" colorPalette="red" loading={submitting} disabled={!canSubmit}>
+                {platformUninstallConfirmLabel({ releaseServers })}
+              </Button>
             ) : (
               <Button type="submit" colorPalette="red" loading={submitting} disabled={!canSubmit}>
                 Delete record

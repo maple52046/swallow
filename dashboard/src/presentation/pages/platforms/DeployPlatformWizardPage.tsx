@@ -724,7 +724,7 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
       ? { mode: 'existing_os' }
       : toPlatformMachinePreparation(osConfiguration)
     try {
-      const result = await platforms.deployPlatform(
+      await platforms.createPlatform(
         isSlurm
           ? {
               siteId: effectiveSiteId,
@@ -782,11 +782,11 @@ function DeployPlatformWizardPage({ platformType }: DeployPlatformWizardPageProp
             },
       )
       showToast({
-        title: 'Platform deployment started',
-        description: 'Lifecycle and membership will update on the Platform page. Detailed automation output remains available when troubleshooting.',
+        title: 'Platform install proposed',
+        description: 'Approve its Change Plan to build the platform. Nothing is installed until you do.',
         tone: 'success',
       })
-      navigate(scopedHref(`/platforms/${result.platformId}`))
+      navigate(scopedHref('/change-plans'))
     } catch (error) {
       if (isSlurm) {
         reloadSlurmRequirement()

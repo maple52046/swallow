@@ -485,7 +485,7 @@ func RunAPI(cfg config.APIConfig) error {
 		bootMedia: bootMediaPlan, software: softwareService, ntp: ntpPlan, protection: serverProtection,
 		networks: networkService, requirements: requirementRepo, keys: sshKeyService,
 	})
-	deployService, uninstallService, gpuOperatorService := platformOps.deploy, platformOps.uninstall, platformOps.gpuOperators
+	deployService, gpuOperatorService := platformOps.deploy, platformOps.gpuOperators
 	changePlans, err := newChangePlanService(ctx, db, transactor, cfg.ChangePlanTTL, platformOps.planner)
 	if err != nil {
 		return err
@@ -493,10 +493,13 @@ func RunAPI(cfg config.APIConfig) error {
 	kubernetesExplorer := platformapp.NewKubernetesExplorerUseCase(
 		platformRepo, lifecycleReader, kubernetesClientFactory, serverRepo)
 	platformHandler := platformdelivery.NewPlatformHandler(
-		platformService, membershipSync, deployService, uninstallService, slurmClusterRead,
-		kubernetesExplorer, requirementService)
-	platformHandler.AttachPlatformModules(modules.platforms)
+		platformService, membershipSync, slurmClusterRead, kubernetesExplorer, requirementService)
 	platformHandler.AttachGPUOperatorService(gpuOperatorService)
+	// Platforms are written as specs (desired-state-model §5.2): a destructive change is proposed as
+	// a Change Plan with the spec, and the worker's platform controller converges the rest.
+	platformHandler.AttachSpecService(platformapp.NewPlatformSpecService(
+		transactor, platformRepo, platformRepo, serverRepo, deployService, platformService, changePlans,
+		convergencestore.NewMongoRequester(db), modules.platforms))
 
 	softwareHandler := softwaredelivery.NewSoftwareHandler(softwareService)
 	softwareSweeper := softwareapp.NewSoftwareAssignmentSweeper(softwareAssignmentRepo, serverRepo)
@@ -670,15 +673,15 @@ type routeDeps struct {
 
 // registerPlatformRoutes registers the Platform routes on routes.
 func registerPlatformRoutes(routes fiber.Router, handler *platformdelivery.PlatformHandler) {
-	// There is no POST "/": a Platform is created only by a deployment (decision 032);
-	// registering an existing one was removed.
+	// A Platform is created from its spec, and its install waits on a Change Plan (decision 076);
+	// registering an existing one was removed (decision 032).
 	routes.Get("/", handler.List)
-	routes.Post("/deploy", handler.Deploy)
+	routes.Post("/", handler.Create)
 	routes.Post("/sync", handler.SyncAllMembership)
 	routes.Get("/:id", handler.Get)
 	routes.Patch("/:id", handler.Update)
+	routes.Put("/:id/spec", handler.PutSpec)
 	routes.Delete("/:id", handler.Delete)
-	routes.Post("/:id/uninstall", handler.Uninstall)
 	routes.Post("/:id/sync", handler.SyncMembership)
 	routes.Get("/:id/slurm", handler.GetSlurmCluster)
 	registerKubernetesExplorerRoutes(routes, handler)
@@ -902,7 +905,6 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// The GPU Operator routes (decision 062) exist only on the canonical surface. The static
 	// releases route is registered before the /:id routes so "gpu-operator" is never read as an id.
 	platforms.Get("/gpu-operator/releases", deps.platforms.GPUOperatorReleases)
-	platforms.Put("/:id/gpu-operator", deps.platforms.ConfigureGPUOperator)
 	registerPlatformRoutes(platforms, deps.platforms)
 
 	// Managed Software: install/uninstall a single piece of host software on deployed Servers and

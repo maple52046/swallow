@@ -21,8 +21,6 @@ import type {
   KubernetesService,
 } from '@/domain/platform/kubernetes'
 import type {
-  ConfigureGPUOperatorResult,
-  DeployPlatformResult,
   GPUOperatorRelease,
   MembershipReport,
   Platform,
@@ -71,6 +69,7 @@ import type {
 import type { SoftwareOperationReference } from '@/domain/software/types'
 import type { ItemsEnvelope as DockerItemsEnvelope } from './ApiDockerHostRepository'
 import type { MetricRangeDto } from './ApiMonitoringRepository'
+import type { PlatformSpecWrite } from './ApiPlatformRepository'
 import type { PowerConfigurationDTO } from './ApiServerRepository'
 import type {
   ItemsEnvelope as SoftwareItemsEnvelope,
@@ -271,14 +270,13 @@ export type ContractCompatibility = [
   Assert<Readable<JsonResponse<operations['replaceSlurmDeploymentRequirement'], 200>, SlurmDeploymentRequirement>>,
   // listGPUOperatorReleases: GET /api/v1/platforms/gpu-operator/releases
   Assert<Readable<JsonResponse<operations['listGPUOperatorReleases'], 200>, { items: GPUOperatorRelease[] }>>,
-  // configureGPUOperator: PUT /api/v1/platforms/{id}/gpu-operator
-  Assert<Readable<JsonResponse<operations['configureGPUOperator'], 202>, ConfigureGPUOperatorResult>>,
-  // deployPlatform: POST /api/v1/platforms/deploy
-  Assert<Readable<JsonResponse<operations['deployPlatform'], 202>, DeployPlatformResult>>,
-  // uninstallPlatform: POST /api/v1/platforms/{id}/uninstall
-  Assert<Readable<JsonResponse<operations['uninstallPlatform'], 202>, DeployPlatformResult>>,
-  // deletePlatform: DELETE /api/v1/platforms/{id}
-  Assert<Readable<JsonResponse<operations['deletePlatform'], 200>, { success: boolean }>>,
+  // createPlatform: POST /api/v1/platforms
+  Assert<Readable<JsonResponse<operations['createPlatform'], 202>, PlatformSpecWrite>>,
+  // configureGPUOperator: PUT /api/v1/platforms/{id}/spec
+  Assert<Readable<JsonResponse<operations['replacePlatformSpec'], 200>, PlatformSpecWrite>>,
+  Assert<Readable<JsonResponse<operations['replacePlatformSpec'], 202>, PlatformSpecWrite>>,
+  // deletePlatform: DELETE /api/v1/platforms/{id} (204 when the platform is gone at once)
+  Assert<Readable<JsonResponse<operations['deletePlatform'], 202>, PlatformSpecWrite>>,
   // syncPlatform: POST /api/v1/platforms/{id}/sync
   Assert<Readable<JsonResponse<operations['syncPlatformMembership'], 200>, MembershipReport>>,
   // getSlurmCluster: GET /api/v1/platforms/{id}/slurm

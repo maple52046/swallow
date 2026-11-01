@@ -6,7 +6,6 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { useServerActiveOperations } from '@/presentation/hooks/useServerActiveOperations'
 import { PlatformBulkFailures, PlatformNameList } from './PlatformBulkLists'
-import { PlatformRemovalSplitButton } from './PlatformRemovalSplitButton'
 import { PlatformUninstallChoices } from './PlatformUninstallChoices'
 import {
   platformBulkUninstallConfirmLabel,
@@ -70,13 +69,11 @@ export function PlatformBulkUninstallDialog({ eligibility, onClose, onDone }: Pl
     setCancelBlocking(false)
   }
 
-  // `deleteRecord` is chosen at submit time: the primary part keeps the records, and the variant
-  // in its menu also deletes each one after its own operation succeeds.
-  const submit = async (deleteRecord = false) => {
+  const submit = async () => {
     if (!canSubmit) return
     setFailures([])
     const outcomes = await runUninstall(eligible, platformUninstallOptions({
-      releaseServers, releaseOptions, deleteRecord, cancelActiveWorkflows: blocked && cancelBlocking,
+      releaseServers, releaseOptions, cancelActiveWorkflows: blocked && cancelBlocking,
     }))
     const accepted = outcomes.filter((outcome) => outcome.accepted)
     if (accepted.length === 0) {
@@ -96,7 +93,7 @@ export function PlatformBulkUninstallDialog({ eligibility, onClose, onDone }: Pl
       closeOnInteractOutside={!running}
       dismissDisabled={running}
       title="Uninstall selected platforms"
-      description="Uninstall platform software from selected Platforms that are currently eligible. Ineligible selections will be skipped."
+      description="Propose uninstalling platform software from selected Platforms that are currently eligible; each waits on its own Change Plan. Ineligible selections will be skipped."
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
@@ -106,16 +103,9 @@ export function PlatformBulkUninstallDialog({ eligibility, onClose, onDone }: Pl
           <Button variant="ghost" onClick={close} disabled={running}>
             Cancel
           </Button>
-          <PlatformRemovalSplitButton
-            primaryType="submit"
-            primaryLabel={platformBulkUninstallConfirmLabel({ releaseServers, deleteRecord: false }, count)}
-            disabled={!canSubmit}
-            loading={running}
-            menuItemLabel={platformBulkUninstallConfirmLabel({ releaseServers, deleteRecord: true }, count)}
-            onMenuSelect={() => void submit(true)}
-            menuTriggerLabel="More uninstall options"
-            placement="dialog"
-          />
+          <Button type="submit" colorPalette="red" loading={running} disabled={!canSubmit}>
+            {platformBulkUninstallConfirmLabel({ releaseServers }, count)}
+          </Button>
         </>
       }
     >
@@ -152,7 +142,7 @@ export function PlatformBulkUninstallDialog({ eligibility, onClose, onDone }: Pl
           onCancelBlockingChange={setCancelBlocking}
           disabled={running}
         />
-        <Text fontSize="sm" color="fg.muted">{platformUninstallDeleteHint(releaseServers, 'bulk', count)}</Text>
+        <Text fontSize="sm" color="fg.muted">{platformUninstallDeleteHint(releaseServers, 'bulk')}</Text>
         <Field.Root required>
           <Field.Label>
             Type "{verb}" to confirm <Field.RequiredIndicator />

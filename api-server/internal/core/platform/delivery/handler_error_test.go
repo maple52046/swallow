@@ -16,7 +16,7 @@ import (
 	"github.com/maple52046/swallow/internal/shared/apierror"
 )
 
-// A platform deploy runs the provisioning preflight, so a deployment batch conflict (for example a
+// Creating a Platform runs the deploy preflight, so a deployment batch conflict (for example a
 // custom OS image not verified for the requested deploy target) can reach the platform delivery
 // error mapper. It must surface as an actionable 409, not leak as a generic 500 (which is what the
 // dashboard showed as "Internal error").
@@ -24,7 +24,7 @@ func TestRespondErrorMapsDeploymentBatchConflictToConflict(t *testing.T) {
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
 	app.Use(requestid.New())
-	app.Post("/api/v1/platforms/deploy", func(c *fiber.Ctx) error {
+	app.Post("/api/v1/platforms", func(c *fiber.Ctx) error {
 		// Mirror the exact wrapping the deploy preflight produces.
 		return respondError(c, fmt.Errorf(
 			"%w: this custom image is not verified for disk deployment; verify it on a ready Server first",
@@ -32,7 +32,7 @@ func TestRespondErrorMapsDeploymentBatchConflictToConflict(t *testing.T) {
 		))
 	})
 
-	resp, err := app.Test(httptest.NewRequest(http.MethodPost, "/api/v1/platforms/deploy", nil))
+	resp, err := app.Test(httptest.NewRequest(http.MethodPost, "/api/v1/platforms", nil))
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}

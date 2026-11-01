@@ -2,7 +2,7 @@ import type { KubernetesExplorer, PlatformRepository } from '@/application/ports
 import type {
   Platform,
   DeployPlatformInput,
-  DeployPlatformResult,
+  PlatformChangeResult,
   MembershipReport,
   SlurmCluster,
   UninstallPlatformOptions,
@@ -10,8 +10,8 @@ import type {
   SlurmDeploymentRequirement,
   GPUOperatorRelease,
   GPUOperatorSettings,
-  ConfigureGPUOperatorResult,
 } from '@/domain/platform/types'
+import type { ChangePlan } from '@/domain/convergence/changePlan'
 import type {
   KubernetesApplication,
   KubernetesApplicationKind,
@@ -197,36 +197,42 @@ export class ApiPlatformRepository implements PlatformRepository {
     return body.items ?? []
   }
 
-  async configureGPUOperator(id: string, settings: GPUOperatorSettings): Promise<ConfigureGPUOperatorResult> {
-    return apiRequest<ConfigureGPUOperatorResult>(`/api/v1/platforms/${encodeURIComponent(id)}/gpu-operator`, {
+  async configureGPUOperator(id: string, settings: GPUOperatorSettings): Promise<PlatformChangeResult> {
+    const platform = await apiRequest<Platform>(`/api/v1/platforms/${encodeURIComponent(id)}`)
+    if (!platform.spec) {
+      throw new Error('This platform has no spec yet; Swallow adopts it shortly after the API starts.')
+    }
+    const { members, settings: current, machinePreparation } = platform.spec
+    const spec = {
+      members,
+      settings: { ...current, gpuOperator: settings },
+      ...(machinePreparation ? { machinePreparation } : {}),
+    }
+    return toChangeResult(await apiRequest<PlatformSpecWrite>(`/api/v1/platforms/${encodeURIComponent(id)}/spec`, {
       method: 'PUT',
-      body: JSON.stringify(settings),
-    })
+      body: JSON.stringify({ generation: platform.generation, spec }),
+    }))
   }
 
-  async deployPlatform(input: DeployPlatformInput): Promise<DeployPlatformResult> {
-    return apiRequest<DeployPlatformResult>('/api/v1/platforms/deploy', {
+  async createPlatform(input: DeployPlatformInput): Promise<PlatformChangeResult> {
+    return toChangeResult(await apiRequest<PlatformSpecWrite>('/api/v1/platforms', {
       method: 'POST',
-      body: JSON.stringify(input),
-    })
+      body: JSON.stringify(toPlatformCreate(input)),
+    }))
   }
-  async uninstallPlatform(
-    id: string,
-    options?: UninstallPlatformOptions,
-  ): Promise<DeployPlatformResult> {
-    // An absent body removes platform software; releaseServers selects the direct-release shortcut.
-    return apiRequest<DeployPlatformResult>(
-      `/api/v1/platforms/${encodeURIComponent(id)}/uninstall`,
-      options ? { method: 'POST', body: JSON.stringify(options) } : { method: 'POST' },
+
+  async deletePlatform(id: string, options?: UninstallPlatformOptions): Promise<PlatformChangeResult> {
+    const written = await apiRequest<PlatformSpecWrite | undefined>(
+      `/api/v1/platforms/${encodeURIComponent(id)}`,
+      options ? { method: 'DELETE', body: JSON.stringify(options) } : { method: 'DELETE' },
     )
+    // 204: a platform whose install was never approved is gone at once.
+    return written ? toChangeResult(written) : { platformId: id, planId: null }
   }
 
-  async deletePlatform(id: string): Promise<void> {
-    await apiRequest<{ success: boolean }>(`/api/v1/platforms/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    })
+  async deletePlatformRecord(id: string): Promise<void> {
+    await apiRequest<void>(`/api/v1/platforms/${encodeURIComponent(id)}?recordOnly=true`, { method: 'DELETE' })
   }
-
 
   async syncPlatform(id: string): Promise<MembershipReport> {
     return apiRequest<MembershipReport>(`/api/v1/platforms/${encodeURIComponent(id)}/sync`, {
@@ -259,4 +265,41 @@ export class ApiPlatformRepository implements PlatformRepository {
       throw error
     }
   }
+}
+
+/** The response of a Platform spec write (platforms.md "Spec and status"). */
+export interface PlatformSpecWrite {
+  platform: Platform
+  plan: ChangePlan | null
+}
+
+function toChangeResult(written: PlatformSpecWrite): PlatformChangeResult {
+  return { platformId: written.platform.id, planId: written.plan?.id ?? null }
+}
+
+/**
+ * Writes the deployment the wizard describes as a Platform spec: the role or node assignments
+ * become members with roles, and the remaining type fields become settings.
+ */
+export function toPlatformCreate(input: DeployPlatformInput) {
+  const { siteId, name, type = 'kubernetes', roleAssignments, slurm, machinePreparation, ...settings } = input
+  if (type === 'slurm' && slurm) {
+    const { nodeAssignments, ...slurmSettings } = slurm
+    const members = nodeAssignments.map((assignment) => ({
+      serverId: assignment.serverId,
+      roles: [
+        ...(assignment.controller ? ['controller'] : []),
+        ...(assignment.compute ? ['compute'] : []),
+        ...(assignment.login ? ['login'] : []),
+      ],
+    }))
+    return { siteId, name, type, spec: { members, settings: { ...settings, slurm: slurmSettings }, ...(machinePreparation ? { machinePreparation } : {}) } }
+  }
+  const members = (roleAssignments ?? []).map((assignment) => ({
+    serverId: assignment.serverId,
+    roles: assignment.role === 'control-plane'
+      ? ['control-plane', ...(assignment.runWorkloads ? ['workloads'] : [])]
+      : ['worker'],
+  }))
+  return { siteId, name, type, spec: { members, settings, ...(machinePreparation ? { machinePreparation } : {}) } }
 }

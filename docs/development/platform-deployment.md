@@ -93,7 +93,7 @@ deployment 一律以這四層表達（完整定義見 glossary：
 （[Node Role](glossaries/terms/node-role.md) `control-plane | worker`，control-plane 可選 `runWorkloads`）表達意圖；
 deploy use case 由它推導 [Kubernetes Topology](glossaries/terms/kubernetes-topology.md)（`standalone`、`multi-node`、
 `high-availability`），並在建立任何紀錄前驗證。欄位與錯誤見
-[platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md#deploy-a-new-platform)。
+[platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md#create-a-platform)。
 
 - control-plane 為 1 台或至少 3 台的奇數（2 台與偶數拒絕），且至少一台 Server 跑 workload。`runWorkloads` 只是
   placement，不改 Node Role：observed membership 維持封閉的 `control-plane | worker`。
@@ -231,8 +231,8 @@ cluster 內混合 OS」不在目前範圍。
 
 ### 2.3.1 選用功能：AMD GPU Operator（decision 062）
 
-Kubernetes deploy 可帶 `gpuOperator` 設定，在同一個 Workflow 安裝 AMD GPU Operator；部署後也能以
-`PUT /platforms/{id}/gpu-operator` 另開 Workflow 調整或卸載（契約見
+Kubernetes Platform 的 spec 可帶 `gpuOperator` 設定，在 deploy Workflow 中安裝 AMD GPU Operator；之後改 spec 的
+`gpuOperator` 由另一個 Workflow 調整或卸載：啟用直接收斂，調整或停用要經 Change Plan（契約見
 [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md#manage-the-gpu-operator)）。
 它是 platform 的元件（deploy target 是 Platform），不是 Managed Software。
 
@@ -345,8 +345,8 @@ per-Task，故分組後即與 deploy 一致，無需另外處理。Release 捷�
 ### 2.5 Uninstall 與 Delete：分開的 lifecycle 動作（decision 010）
 
 Platform 的移除分成兩個指令（[decision 010](../decisions/010-cluster-lifecycle-actions.md)）。欄位、eligibility 與錯誤見
-platforms 契約的 [Uninstall A Deployed Platform](../../api-server/docs/development/api-contracts/api-server/platforms.md#uninstall-a-deployed-platform)
-與 [List, Get, Update, And Delete](../../api-server/docs/development/api-contracts/api-server/platforms.md#list-get-update-and-delete)。
+platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-contracts/api-server/platforms.md#delete-a-platform)
+與 [List, Get, Update, And Delete Only The Record](../../api-server/docs/development/api-contracts/api-server/platforms.md#list-get-update-and-delete-only-the-record)。
 
 - **Uninstall** 只適用 swallow 部署的 Platform（`registered` 拒絕）。target set 一律是最新 deploy Operation 的完整
   `targetServerIds` snapshot，不看 membership（membership 可能過期、未比對，或在失敗部署後正好消失）；任一 target 缺少、
@@ -358,10 +358,11 @@ platforms 契約的 [Uninstall A Deployed Platform](../../api-server/docs/develo
   Integration（新部署會記錄自己擁有的 Integration id；legacy 紀錄要 deploy provenance 與完整的自動產生 Integration 簽章
   都相符才刪），並清 integration／sync 投影。Kubernetes 擁有 exporter（`exporterOwner=k8s`）且保留主機時，另排一個
   `install-exporters` Operation 給仍 present、deployed、unlocked 的 target；它有自己的失敗生命週期，不回滾 uninstall。
-- **`deleteRecord`**：受理時記錄在 uninstall Operation 上；只有 uninstall 成功時才在清理的最後刪除紀錄，刪除的紀錄與投影
-  與 Delete 相同，但不取消 Operation，因為正在完成的 uninstall 就是持有 target 的 Workflow。失敗、取消或 indeterminate 時
-  保留紀錄（`uninstall_failed`）。清理把已不存在的紀錄視為成功，所以重試是安全的。
-- **Delete** 只移除紀錄與 swallow 擁有的投影：先對該 Platform 未完成的 durable Operation 寫入取消命令（它們在取消
+- **Delete**（`DELETE /platforms/{id}`）把 spec 標為 absent（帶 release 等選擇），uninstall 經 Change Plan 核准後由
+  platform controller 啟動；uninstall 成功時在清理的最後刪除紀錄，刪除的紀錄與投影與只刪紀錄相同，但不取消 Operation，
+  因為正在完成的 uninstall 就是持有 target 的 Workflow。失敗、取消或 indeterminate 時保留紀錄（`uninstall_failed`）。
+  清理把已不存在的紀錄視為成功，所以重試是安全的。從未核准安裝的 Platform 沒有動過任何機器，直接刪除。
+- **只刪紀錄**（`DELETE /platforms/{id}?recordOnly=true`）只移除紀錄與 swallow 擁有的投影：先對該 Platform 未完成的 durable Operation 寫入取消命令（它們在取消
   路徑結束時釋放所有權；寫不進去就拒絕 Delete、保留紀錄），再清 membership、Platform Claim 與 swallow 擁有的 credential Integration，最後刪紀錄。它永不執行
   automation、不改主機、不等 uninstall、不還原 exporter，target locked 時仍可執行。Platform 刪除後，已結束的
   deploy／uninstall Operation 不能再重試。
@@ -369,9 +370,9 @@ platforms 契約的 [Uninstall A Deployed Platform](../../api-server/docs/develo
   Operation 以一次 batch 推導（[Platform Lifecycle State](glossaries/terms/platform-lifecycle-state.md)）；client 不得從
   membership 或 `integrationId` 推論。
 - **Dashboard**：移除是單一紅色控制項。仍可 uninstall 時是 split button，主要部分開 Uninstall，選單內是「Delete only」；
-  已 `uninstalled` 或永遠不能 uninstall 時只剩 Delete。Uninstall 對話框的送出鈕也是 split button：主要部分保留紀錄，
-  選單內的「Uninstall and delete record」送 `deleteRecord`。讓 runtime 留在主機上的動作永遠不是最顯眼的那個。不要在
-  uninstall 執行中送 Delete 來達到同樣效果：Delete 會先取消那個 uninstall。
+  已 `uninstalled`、`planned` 或永遠不能 uninstall 時只剩 Delete（`planned` 的 Delete 經 spec 刪除，一併撤回安裝的 plan）。
+  Uninstall 對話框送出的是 Change Plan，核准後才執行，成功後刪除紀錄。讓 runtime 留在主機上的動作永遠不是最顯眼的那個。
+  不要在 uninstall 執行中只刪紀錄來達到同樣效果：只刪紀錄會先取消那個 uninstall。
 - 設計理由：Delete 不做 k0s reset、不以 membership 推導 target、不刪所有連結的 Integration、uninstall 後不移除紀錄、
   不加 Force／Forget 指令，以及 dashboard 不在 uninstall 後自行送 Delete，見 decision 010。
 
@@ -381,7 +382,8 @@ Platform 對 target 的佔用存成 Server 上 swallow 擁有的 [Platform Claim
 Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以改）。API 投影為 Server 的 `platformClaim`
 （[servers-list.md](../../api-server/docs/development/api-contracts/api-server/servers-list.md#platform-claim)）。
 
-- **寫入**：deploy 受理分兩段（decision 069）。先在 store transaction 之外完成驗證與 Workflow 規劃（provider 讀取、
+- **寫入**：建立 Platform 與加入成員的 spec 寫入，在同一個 transaction 為每個成員寫 claim；spec 移除的成員保留 claim，
+  直到移除它的變更真的執行。deploy 受理分兩段（decision 069）。先在 store transaction 之外完成驗證與 Workflow 規劃（provider 讀取、
   lock 檢查、網路解析、Task 組合，不寫入任何紀錄）；再以一個 transaction 依序寫入 claim、Platform 紀錄、功能紀錄
   （GPU Operator、Omnistat、Device Metrics Exporter）、Workflow 與它組入的 Software Assignment 和初始 deployment 投影。
   claim 對 `targetServerIds` 的每台以「只符合未被 claim 的 Server」的條件寫入：兩個同時受理的 deploy 在同一台 Server
@@ -389,7 +391,7 @@ Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以�
   衝突、target busy、規劃失敗）都不留下 Platform、claim 或 Workflow。deploy preflight 讀 claim，不重算 lifecycle 歷史；
   帶 claim 或帶任何 observed membership 的 target 都拒絕。
 - **保留與釋放**：Platform 為 `deploying`、`deploy_failed`、`active`、`uninstalling`、`uninstall_failed` 時保留，因為主機
-  可能仍帶 platform 狀態；uninstall 成功（不論有無 `deleteRecord`）與 Delete 時釋放。provider reconcile 保留 claim，
+  可能仍帶 platform 狀態；uninstall 成功與只刪紀錄時釋放。provider reconcile 保留 claim，
   與 Server 的 Deployment result 相同。
 - **保護**：claimed Server 的 Release（Release Operation、deprecated 單台 release、Recover 已 `deployed` 的 Server）與
   Server Delete（在呼叫 provisioner 之前，即使 Machine 已不存在）一律 `409 conflict`，訊息指名 Server 與 Platform，

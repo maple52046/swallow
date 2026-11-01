@@ -15,76 +15,38 @@ import (
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
-	"github.com/maple52046/swallow/internal/shared/middleware"
 )
 
+// PlatformHandler serves the Platform routes (platforms.md).
 type PlatformHandler struct {
 	platforms    *application.PlatformService
-	uninstall    *application.UninstallService
 	membership   *application.MembershipSyncUseCase
-	deploy       *application.DeployService
 	slurmCluster *application.GetSlurmClusterUseCase
 	kubernetes   *application.KubernetesExplorerUseCase
 	requirements *application.DeploymentRequirementService
 	gpuOperators *application.GPUOperatorService
-	// modules are the Platform modules' platform hooks, by type; see AttachPlatformModules.
-	modules map[platformdomain.PlatformType]platformdomain.PlatformModule
+	// specs writes Platform specs; see AttachSpecService.
+	specs *application.PlatformSpecService
 }
 
-// AttachPlatformModules lets a deploy record its request as the new Platform's spec, through the
-// platform hook of its type. Without it (tests) a deployed Platform has no spec until it is adopted.
-func (h *PlatformHandler) AttachPlatformModules(modules map[platformdomain.PlatformType]platformdomain.PlatformModule) {
-	h.modules = modules
-}
-
-// specFromDeployBody reads a deploy request body as the spec of the Platform it creates, or nil
-// when the request names no type (an older client relying on the default), the type has no
-// platform hook, or the body is not an object; such a Platform is adopted later. The deploy's own
-// validation still decides whether the request is accepted.
-func (h *PlatformHandler) specFromDeployBody(body []byte, platformType string, preparation platformdomain.MachinePreparation) *platformdomain.PlatformSpec {
-	module, ok := h.modules[platformdomain.PlatformType(platformType)]
-	if !ok {
-		return nil
-	}
-	var fields map[string]any
-	if err := json.Unmarshal(body, &fields); err != nil {
-		return nil
-	}
-	spec, err := module.SpecFromDeployRequest(fields)
-	if err != nil {
-		return nil
-	}
-	spec.MachinePreparation = preparation
-	return &spec
-}
-
-// AttachGPUOperatorService enables PUT /platforms/{id}/gpu-operator. Without it the route
-// answers 404, so a process wired without durable orchestration does not accept changes it
-// cannot run.
+// AttachGPUOperatorService enables GET /platforms/gpu-operator/releases.
 func (h *PlatformHandler) AttachGPUOperatorService(service *application.GPUOperatorService) {
 	h.gpuOperators = service
 }
 
+// NewPlatformHandler wires the Platform read, membership, and explorer routes; the spec writes are
+// attached with AttachSpecService.
 func NewPlatformHandler(
 	platforms *application.PlatformService,
 	membership *application.MembershipSyncUseCase,
-	deploy *application.DeployService,
-	uninstall *application.UninstallService,
 	slurmCluster *application.GetSlurmClusterUseCase,
 	kubernetes *application.KubernetesExplorerUseCase,
 	requirements *application.DeploymentRequirementService,
 ) *PlatformHandler {
 	return &PlatformHandler{
-		platforms: platforms, membership: membership, deploy: deploy,
-		uninstall: uninstall, slurmCluster: slurmCluster, kubernetes: kubernetes,
+		platforms: platforms, membership: membership, slurmCluster: slurmCluster, kubernetes: kubernetes,
 		requirements: requirements,
 	}
-}
-
-// acceptedOperationResponse names the Platform and the Workflow a lifecycle request started.
-type acceptedOperationResponse struct {
-	PlatformID  string `json:"platformId"`
-	OperationID string `json:"operationId"`
 }
 
 // membershipReportResponse is the HTTP projection of one Platform's membership sync.
@@ -435,32 +397,6 @@ func DeployInputFromRequest(raw []byte) (application.DeployPlatformInput, error)
 	}, nil
 }
 
-// Deploy maps transport data into deployment intent; topology and network rules stay in
-// the application use case so every delivery shares one policy.
-func (h *PlatformHandler) Deploy(c *fiber.Ctx) error {
-	input, err := DeployInputFromRequest(c.Body())
-	var requestErr *DeployRequestError
-	if errors.As(err, &requestErr) {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, requestErr.Message))
-	}
-	if err != nil {
-		return respondError(c, err)
-	}
-	if principal := middleware.GetPrincipal(c); principal != nil {
-		input.RequestedBy = principal.Username
-	}
-	input.RequestCorrelation = c.GetRespHeader(fiber.HeaderXRequestID)
-	input.PlatformSpec = h.specFromDeployBody(c.Body(), string(input.Type), input.MachinePreparation)
-	result, err := h.deploy.Deploy(c.Context(), input)
-	if err != nil {
-		return respondError(c, err)
-	}
-	return c.Status(fiber.StatusAccepted).JSON(acceptedOperationResponse{
-		PlatformID:  result.PlatformID,
-		OperationID: result.OperationID,
-	})
-}
-
 func (h *PlatformHandler) List(c *fiber.Ctx) error {
 	items, err := h.platforms.List(c.Context(), c.Query("siteId"))
 	if err != nil {
@@ -507,99 +443,10 @@ func (h *PlatformHandler) Update(c *fiber.Ctx) error {
 	return c.JSON(item)
 }
 
-// Uninstall starts removal of a Swallow-deployed k0s platform from its original targets.
-// uninstallPlatformRequest is the optional uninstall body. An absent body keeps the
-// default of removing k0s only; releaseServers additionally returns each member server to
-// the provider, with releaseOptions mirroring the standalone Release action;
-// cancelActiveWorkflows supersedes the Workflows holding the targets (decision 061);
-// deleteRecord removes the Platform record once the uninstall succeeds.
-type uninstallPlatformRequest struct {
-	ReleaseServers bool `json:"releaseServers"`
-	ReleaseOptions struct {
-		Erase           bool `json:"erase"`
-		SecureErase     bool `json:"secureErase"`
-		QuickErase      bool `json:"quickErase"`
-		UnbindStaticIPs bool `json:"unbindStaticIps"`
-	} `json:"releaseOptions"`
-	CancelActiveWorkflows bool `json:"cancelActiveWorkflows"`
-	DeleteRecord          bool `json:"deleteRecord"`
-}
-
-// Uninstall handles POST /platforms/{id}/uninstall (platforms.md): it starts the uninstall
-// Operation, optionally releasing the Platform's Servers with the requested erase options, records
-// the authenticated caller as the requester, and answers 202 with the Operation id. Refusals map
-// through respondError onto the contract's error codes.
-func (h *PlatformHandler) Uninstall(c *fiber.Ctx) error {
-	requestedBy := ""
-	if principal := middleware.GetPrincipal(c); principal != nil {
-		requestedBy = principal.Username
-	}
-	var req uninstallPlatformRequest
-	if len(c.Body()) > 0 {
-		if err := c.BodyParser(&req); err != nil {
-			return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
-		}
-	}
-	result, err := h.uninstall.Uninstall(c.Context(), application.UninstallPlatformInput{
-		PlatformID: c.Params("id"), RequestedBy: requestedBy,
-		ReleaseServers: req.ReleaseServers,
-		ReleaseOptions: platformdomain.ServerReleaseOptions{
-			Erase:           req.ReleaseOptions.Erase,
-			SecureErase:     req.ReleaseOptions.SecureErase,
-			QuickErase:      req.ReleaseOptions.QuickErase,
-			UnbindStaticIPs: req.ReleaseOptions.UnbindStaticIPs,
-		},
-		CancelActiveWorkflows: req.CancelActiveWorkflows,
-		DeleteRecord:          req.DeleteRecord,
-	})
-	if err != nil {
-		return respondError(c, err)
-	}
-	return c.Status(fiber.StatusAccepted).JSON(acceptedOperationResponse{
-		PlatformID:  result.PlatformID,
-		OperationID: result.OperationID,
-	})
-}
-
 // GPUOperatorReleases handles GET /platforms/gpu-operator/releases: the release catalog the
 // settings' version and draDriverVersion must come from.
 func (h *PlatformHandler) GPUOperatorReleases(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"items": application.GPUOperatorReleaseItems()})
-}
-
-// ConfigureGPUOperator handles PUT /platforms/{id}/gpu-operator (platforms.md, "Change The GPU
-// Operator"): enabled is required, the rest follows the settings defaults. It answers 202 with
-// the Workflow applying the change; refusals map through respondError.
-func (h *PlatformHandler) ConfigureGPUOperator(c *fiber.Ctx) error {
-	if h.gpuOperators == nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "GPU Operator management is unavailable."))
-	}
-	var req gpuOperatorRequest
-	if err := c.BodyParser(&req); err != nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
-	}
-	if req.Enabled == nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "enabled is required."))
-	}
-	requestedBy := ""
-	if principal := middleware.GetPrincipal(c); principal != nil {
-		requestedBy = principal.Username
-	}
-	result, err := h.gpuOperators.Configure(c.Context(), application.ConfigureGPUOperatorInput{
-		PlatformID: c.Params("id"), Settings: req.settings(),
-		RequestedBy: requestedBy, RequestCorrelation: c.GetRespHeader(fiber.HeaderXRequestID),
-	})
-	if err != nil {
-		return respondError(c, err)
-	}
-	return c.Status(fiber.StatusAccepted).JSON(result)
-}
-
-func (h *PlatformHandler) Delete(c *fiber.Ctx) error {
-	if err := h.platforms.Delete(c.Context(), c.Params("id")); err != nil {
-		return respondError(c, err)
-	}
-	return c.JSON(fiber.Map{"success": true})
 }
 
 // SyncMembership reads the platform's membership now instead of waiting for the interval.
@@ -704,6 +551,9 @@ func (h *PlatformHandler) SyncAllMembership(c *fiber.Ctx) error {
 }
 
 func respondError(c *fiber.Ctx, err error) error {
+	if handled, ok := respondSpecError(c, err); ok {
+		return handled
+	}
 	switch {
 	case errors.Is(err, platformdomain.ErrPlatformNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Platform not found."))

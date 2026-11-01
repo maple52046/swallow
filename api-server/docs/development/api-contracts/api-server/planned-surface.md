@@ -884,7 +884,7 @@ Header: `Authorization: Bearer <accessToken>`
 > **Superseded (2026-09-19) by [decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md).**
 > This `/planes` design registered externally-owned Kubernetes/Slurm management planes via a
 > stored kubeconfig/endpoint reference. Swallow now manages only self-deployed Platforms, so a
-> runtime is a `Platform` produced by `POST /api/v1/platforms/deploy`, never a registered
+> runtime is a `Platform` created from its spec by `POST /api/v1/platforms/`, never a registered
 > plane. In-cluster Kubernetes management is the Active
 > [platforms-kubernetes.md](platforms-kubernetes.md) explorer, not this surface. The section
 > below is retained only as historical design context and must not be implemented.

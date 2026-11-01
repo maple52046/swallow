@@ -47,14 +47,14 @@ func TestMachinePreparationResolvesTheDeployTarget(t *testing.T) {
 	}
 }
 
-func TestDeployRejectsAnUnknownDeployTarget(t *testing.T) {
+func TestCreateRejectsAnUnknownDeployTarget(t *testing.T) {
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
 	app.Use(requestid.New())
-	app.Post("/api/v1/platforms/deploy", (&PlatformHandler{}).Deploy)
+	app.Post("/api/v1/platforms", (&PlatformHandler{}).Create)
 
-	body := `{"siteId":"site-1","machinePreparation":{"mode":"provision_os","settings":{"imageId":"noble","deployTarget":"tape"}}}`
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/platforms/deploy", strings.NewReader(body))
+	body := `{"siteId":"site-1","name":"lab","type":"slurm","spec":{"machinePreparation":{"mode":"provision_os","settings":{"imageId":"noble","deployTarget":"tape"}}}}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/platforms", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	resp, err := app.Test(request)
 	if err != nil {

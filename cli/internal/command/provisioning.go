@@ -432,7 +432,7 @@ func provisioningReleaseCmd() *cobra.Command {
 		Short: "Create a durable release Operation",
 		Long: "Create a durable release Operation. A Server a Platform claims (its platformClaim) is\n" +
 			"refused with a conflict, even with --cancel-active-workflows: release a Platform's Servers\n" +
-			"through `platforms uninstall` with \"releaseServers\": true instead.",
+			"through `platforms delete <platformId> --release-servers` instead.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			extra := map[string]any{}
 			collectEraseFlags(cmd, extra)
@@ -462,7 +462,7 @@ func provisioningRecoverCmd() *cobra.Command {
 		Short: "Create a durable recover (Return to Ready) Operation",
 		Long: "Create a durable recover (Return to Ready) Operation. Recovering a deployed Server a\n" +
 			"Platform claims is refused with a conflict, because it would release the Server; release a\n" +
-			"Platform's Servers through `platforms uninstall` with \"releaseServers\": true instead. A\n" +
+			"Platform's Servers through `platforms delete <platformId> --release-servers` instead. A\n" +
 			"claimed Server that is not deployed (for example a failed one) can still be recovered.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			extra := map[string]any{}

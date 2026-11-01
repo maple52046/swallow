@@ -45,8 +45,8 @@ type WorkflowPlatformReader interface {
 //     the Workflow of a non-destructive change for a generation it has not started yet;
 //   - judges realized, and drifted from the members the platform reports.
 //
-// A Platform whose record is gone has its claims released. A failed Workflow is not started again
-// for the same generation: an operator reruns it or writes a new spec.
+// A Platform whose record is gone has its claims released and its waiting plan withdrawn. A failed
+// Workflow is not started again for the same generation: an operator reruns it or writes a new spec.
 type PlatformController struct {
 	platforms platformdomain.PlatformRepository
 	specs     platformdomain.PlatformSpecStore
@@ -135,6 +135,9 @@ func (c *PlatformController) Keys(ctx context.Context) ([]string, error) {
 func (c *PlatformController) Reconcile(ctx context.Context, request convergence.Request) error {
 	platform, err := c.platforms.FindByID(ctx, request.Key)
 	if errors.Is(err, platformdomain.ErrPlatformNotFound) {
+		if err := c.plans.Withdraw(ctx, platformRef(request.Key), "the Platform no longer exists"); err != nil {
+			return err
+		}
 		if c.claims == nil {
 			return nil
 		}
@@ -180,7 +183,10 @@ func (c *PlatformController) Reconcile(ctx context.Context, request convergence.
 		}
 	}
 
-	held := snapshot.State == platformdomain.PlatformLifecycleDeploying || snapshot.State == platformdomain.PlatformLifecycleUninstalling
+	held, err := c.planner.Held(ctx, platform.ID)
+	if err != nil {
+		return err
+	}
 	var actErr error
 	if !held && !(failed && status.Realizing.Generation == platform.Generation) {
 		before := status.Realizing

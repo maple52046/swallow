@@ -462,11 +462,11 @@ swallow provisioning tasks get task1
 swallow provisioning tasks retry task1
 ```
 
-被 Platform 部署 claim 的 Server（其 `platformClaim`）不能直接 release，已 deployed 的也不能
+被 Platform claim 的 Server（其 `platformClaim`）不能直接 release，已 deployed 的也不能
 recover，加上 `--cancel-active-workflows` 也一樣；`swallow servers delete` 也無法刪除它。CLI 會
-指出所屬的 Platform 與下一步：透過 `swallow platforms uninstall <platformId> -f body.yaml` 並設定
-`releaseServers: true` 來 release 該 Platform 的 Server。uninstall 成功或刪除 Platform 紀錄
-（`swallow platforms delete <platformId>`）之後，才能刪除該 Server。
+指出所屬的 Platform 與下一步：透過 `swallow platforms delete <platformId> --release-servers` 來
+release 該 Platform 的 Server。uninstall 成功或刪除 Platform 紀錄
+（`swallow platforms delete <platformId> --record-only`）之後，才能刪除該 Server。
 
 `metadata.yaml`：
 `{ name: "Golden Ubuntu", osSystem: "Ubuntu LTS", release: "22.04", tags: ["gpu","ml"], defaultUser: "ubuntu" }`
@@ -542,12 +542,14 @@ swallow infrastructure pools create -f pool.yaml
 ```bash
 swallow platforms list --site-id site1
 swallow platforms get plat1
-swallow platforms deploy -f platform-k8s.yaml
+swallow platforms create -f platform-k8s.yaml        # 輸出平台與安裝它的 Change Plan
+swallow plans approve <planId>                        # 核准後 platform controller 開始建置
+swallow platforms set-spec plat1 -f spec-change.yaml  # { generation, spec }；加入成員會直接收斂
 swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, exporterOwner, monitoringLinks
-swallow platforms delete plat1
-swallow platforms uninstall plat1                     # 只移除 software
-swallow platforms uninstall plat1 -f uninstall.yaml   # { releaseServers, releaseOptions }
-swallow platforms uninstall plat1 --cancel-active-workflows   # 一併取消佔著 Server 的失敗或進行中部署
+swallow platforms delete plat1                        # 提出 uninstall（只移除 software）
+swallow platforms delete plat1 --release-servers --erase   # uninstall 時一併 release 成員
+swallow platforms delete plat1 --cancel-active-workflows   # 一併取消佔著 Server 的失敗或進行中部署
+swallow platforms delete plat1 --record-only          # 只刪紀錄，主機保持原樣
 swallow platforms sync plat1
 swallow platforms sync-all
 swallow platforms slurm plat1                         # live Slurm cluster state
@@ -558,18 +560,36 @@ swallow platforms gpu-operator set plat1 -f gpu-operator.yaml  # 安裝或調整
 swallow platforms gpu-operator uninstall plat1                 # 移除 operator，平台照常運作
 ```
 
+平台以 spec 描述：成員與它們的角色、該類型的設定，以及成員如何取得作業系統。建立平台與破壞性變更（調整或移除
+GPU Operator、刪除平台）會回傳 Change Plan，要等 `swallow plans approve` 核准才會動手；加入成員則直接收斂。
 `platform-k8s.yaml`（見 [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md)）：
 
 ```yaml
 siteId: site1
 name: lab-k0s
 type: kubernetes
-roleAssignments:
-  - { serverId: srva, role: control-plane, runWorkloads: true }
-  - { serverId: srvb, role: worker }
+spec:
+  members:
+    - { serverId: srva, roles: [control-plane, workloads] }
+    - { serverId: srvb, roles: [worker] }
+  settings:
+    k0sVersion: v1.36.3+k0s.2
 ```
 
-要在部署平台時一併安裝 AMD GPU Operator，就在部署檔加上 `gpuOperator`，`gpuStackOwner` 會自動推導，可以不寫。
+`spec-change.yaml` 為它加入一個 worker；`generation` 用 `swallow platforms get` 顯示的值：
+
+```yaml
+generation: 1
+spec:
+  members:
+    - { serverId: srva, roles: [control-plane, workloads] }
+    - { serverId: srvb, roles: [worker] }
+    - { serverId: srvc, roles: [worker] }
+  settings:
+    k0sVersion: v1.36.3+k0s.2
+```
+
+要在建立平台時一併安裝 AMD GPU Operator，就在 settings 加上 `gpuOperator`，`gpuStackOwner` 會自動推導，可以不寫。
 下面的 `platform-k8s-gpu.yaml` 是一次實機測試用的檔案：三台 Server 在開機網卡上以 DHCP 重新安裝 OS，三台都是
 control plane 也跑 workload，operator 以 Device Plugin 模式納管 Node Feature Discovery 判定為 AMD GPU 節點的所有節點。`apiVipPrefix`
 可以不寫，會採用 control plane 子網的 prefix（這裡是 `/23`），部署也只接受這個值。
@@ -578,50 +598,47 @@ control plane 也跑 workload，operator 以 Device Plugin 模式納管 Node Fea
 siteId: site1
 name: gpu-run3
 type: kubernetes
-k0sVersion: v1.36.3+k0s.2
-podCidr: 172.21.0.0/20
-serviceCidr: 172.21.22.0/24
-apiVip: 10.170.168.13
-apiVipPrefix: 23
-roleAssignments:
-  - { serverId: srva, role: control-plane, runWorkloads: true }
-  - { serverId: srvb, role: control-plane, runWorkloads: true }
-  - { serverId: srvc, role: control-plane, runWorkloads: true }
-machinePreparation:
-  mode: provision_os
+spec:
+  members:
+    - { serverId: srva, roles: [control-plane, workloads] }
+    - { serverId: srvb, roles: [control-plane, workloads] }
+    - { serverId: srvc, roles: [control-plane, workloads] }
   settings:
-    imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-clock-index-fix-amdgpu31.50-maasga146-20261015
-    deployTarget: disk
-  network:
-    mode: dhcp
-    assignments:   # 每台 Server 的開機網卡與子網，可從 `swallow servers get` 取得
-      - { serverId: srva, interfaceId: "131", subnetId: "1" }
-      - { serverId: srvb, interfaceId: "132", subnetId: "1" }
-      - { serverId: srvc, interfaceId: "133", subnetId: "1" }
-gpuOperator:
-  enabled: true
-  allocationMode: device-plugin   # 或 dra（Kubernetes 1.34 以上）
+    k0sVersion: v1.36.3+k0s.2
+    podCidr: 172.21.0.0/20
+    serviceCidr: 172.21.22.0/24
+    apiVip: 10.170.168.13
+    apiVipPrefix: 23
+    gpuOperator:
+      enabled: true
+      allocationMode: device-plugin   # 或 dra（Kubernetes 1.34 以上）
+  machinePreparation:
+    mode: provision_os
+    settings:
+      imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-clock-index-fix-amdgpu31.50-maasga146-20261015
+      deployTarget: disk
+    network:
+      mode: dhcp
+      assignments:   # 每台 Server 的開機網卡與子網，可從 `swallow servers get` 取得
+        - { serverId: srva, interfaceId: "131", subnetId: "1" }
+        - { serverId: srvb, interfaceId: "132", subnetId: "1" }
+        - { serverId: srvc, interfaceId: "133", subnetId: "1" }
 ```
 
 接著追蹤部署、切換 operator、移除 operator，最後 release Server：
 
 ```bash
 swallow platforms gpu-operator releases
-swallow platforms deploy -f platform-k8s-gpu.yaml             # 輸出 platformId 與 operationId
-swallow workflows get <operationId>
-swallow platforms gpu-operator set <platformId> -f gpu-operator.yaml
+swallow platforms create -f platform-k8s-gpu.yaml             # 輸出平台與它的 plan
+swallow plans approve <planId>
+swallow platforms get <platformId>                            # status.realizingWorkflowId 是建置的 Workflow
+swallow workflows get <workflowId>
+swallow platforms gpu-operator set <platformId> -f gpu-operator.yaml   # 調整會回傳 plan
+swallow plans approve <planId>
 swallow platforms gpu-operator uninstall <platformId>         # 平台仍繼續運作
-swallow platforms uninstall <platformId> -f uninstall.yaml
-swallow platforms delete <platformId>
-```
-
-`uninstall.yaml` 直接 release Server，不先移除平台軟體：
-
-```yaml
-releaseServers: true
-releaseOptions:
-  erase: false
-  unbindStaticIps: false
+swallow plans approve <planId>
+swallow platforms delete <platformId> --release-servers       # 直接 release Server，不先移除平台軟體
+swallow plans approve <planId>                                # uninstall 成功後刪除紀錄
 ```
 
 `gpu-operator.yaml` 用來調整已部署平台的 operator；沒寫的欄位採用契約的預設值（預設版本、`single` 資源命名、
@@ -654,34 +671,37 @@ Docker CE）；`native` 則改由官方 release 與 apt／yum repository 安裝�
 siteId: site1
 name: omnistat-slurm-run1
 type: slurm
-containerRuntime:
-  kind: podman            # 或 docker-ce；省略即不裝 runtime
-omnistat:
-  enabled: true
-  installMethod: container   # 或 native
-gpuDriver:                   # 選用；topology 規則已會在需要時套用 pcie_p2p=0
-  moduleOptions: {}
-slurm:
-  clusterName: omnistat-run1
-  gpuGresType: mi308x_vf     # 選用；省略即用 GPU 架構（gfx942）
-  nodeAssignments:
-    - { serverId: srva, controller: true, compute: false, login: false }
-    - { serverId: srvb, controller: false, compute: true, login: false }
-    - { serverId: srvc, controller: false, compute: true, login: false }
-machinePreparation:
-  mode: provision_os
+spec:
+  members:
+    - { serverId: srva, roles: [controller] }
+    - { serverId: srvb, roles: [compute] }
+    - { serverId: srvc, roles: [compute] }
   settings:
-    imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-amdgpu31.50-slurm-26.05.4-maasga146-20261021
-    deployTarget: disk     # or ram
-  network:
-    mode: automatic
-    defaultGateway: false
-    assignments: []
+    containerRuntime:
+      kind: podman            # 或 docker-ce；省略即不裝 runtime
+    omnistat:
+      enabled: true
+      installMethod: container   # 或 native
+    gpuDriver:                   # 選用；topology 規則已會在需要時套用 pcie_p2p=0
+      moduleOptions: {}
+    slurm:
+      clusterName: omnistat-run1
+      gpuGresType: mi308x_vf     # 選用；省略即用 GPU 架構（gfx942）
+  machinePreparation:
+    mode: provision_os
+    settings:
+      imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-amdgpu31.50-slurm-26.05.4-maasga146-20261021
+      deployTarget: disk     # or ram
+    network:
+      mode: automatic
+      defaultGateway: false
+      assignments: []
 ```
 
 ```bash
-swallow platforms deploy -f platform-slurm-omnistat.yaml
-swallow workflows get <operationId>   # ensure-os、configure-slurm、configure-podman、configure-prometheus/-grafana、configure-omnistat
+swallow platforms create -f platform-slurm-omnistat.yaml
+swallow plans approve <planId>
+swallow workflows get <workflowId>    # ensure-os、configure-slurm、configure-podman、configure-prometheus/-grafana、configure-omnistat
 swallow platforms get <platformId>    # containerRuntime、omnistat.state，以及 monitoringLinks 中的 Omnistat Grafana
 ```
 
@@ -694,20 +714,22 @@ GPU 會帶上 job id 標籤。安裝成功後，`deviceMetricsExporter.gpuIdenti
 `slurm.pmix: true` 安裝 OpenMPI，供 `srun --mpi=pmix_v5` 使用：
 
 ```yaml
-deviceMetricsExporter:
-  enabled: true
-  installMethod: native      # 或 container
-slurm:
-  clusterName: dme-run1
-  ociContainers: true
-  pmix: true
-  nodeAssignments:
-    - { serverId: srva, controller: true, compute: false, login: true }
-    - { serverId: srvb, controller: false, compute: true, login: false }
+spec:
+  members:
+    - { serverId: srva, roles: [controller, login] }
+    - { serverId: srvb, roles: [compute] }
+  settings:
+    deviceMetricsExporter:
+      enabled: true
+      installMethod: native      # 或 container
+    slurm:
+      clusterName: dme-run1
+      ociContainers: true
+      pmix: true
 ```
 
 ```bash
-swallow workflows get <operationId>   # ...、configure-prometheus/-grafana、configure-device-metrics-exporter
+swallow workflows get <workflowId>    # ...、configure-prometheus/-grafana、configure-device-metrics-exporter
 swallow platforms get <platformId>    # deviceMetricsExporter.state 與 .gpuIdentity、ociContainers、pmix
 ```
 

@@ -1,4 +1,4 @@
-import type { Page, Route } from 'playwright/test'
+import { expect, type Page, type Route } from 'playwright/test'
 import type { Server } from '@/domain/server/types'
 import type { SoftwareAssignment } from '@/domain/software/types'
 
@@ -688,6 +688,54 @@ const defaultVirtualMachines: Record<string, VirtualMachineFixture[]> = {
   ],
 }
 
+/**
+ * The spec a fixture Platform reads with (platforms.md "Spec and status"): its role assignments as
+ * members, a k0s version, and its GPU Operator settings.
+ */
+function fixturePlatformSpec(platform: {
+  type: string
+  lifecycleState: string
+  deployment: { roleAssignments: Array<{ serverId: string; role: string; runWorkloads?: boolean }> } | null
+  gpuOperator: Record<string, unknown> | null
+}) {
+  const members = (platform.deployment?.roleAssignments ?? []).map((assignment) => ({
+    serverId: assignment.serverId,
+    roles: assignment.role === 'control-plane' ? ['control-plane', ...(assignment.runWorkloads ? ['workloads'] : [])] : ['worker'],
+  }))
+  const settings: Record<string, unknown> = platform.type === 'kubernetes' ? { k0sVersion: 'v1.36.3+k0s.2' } : { slurm: {} }
+  const operator = platform.gpuOperator
+  if (operator && operator.enabled) {
+    settings.gpuOperator = {
+      enabled: true, version: operator.version, allocationMode: operator.allocationMode, resourceNaming: operator.resourceNaming,
+      nodeLabeller: operator.nodeLabeller, metricsExporter: operator.metricsExporter,
+    }
+  }
+  return { desired: platform.lifecycleState === 'uninstalled' ? 'absent' : 'present', members, settings, machinePreparation: null, removal: null }
+}
+
+/** The legacy deploy-shaped body a spec create stands for, which the mock's creation code reads. */
+function legacyPlatformBody(body: { siteId: string; name: string; type: string; spec: { members: Array<{ serverId: string; roles: string[] }>; settings: Record<string, unknown>; machinePreparation?: unknown } }) {
+  const { members, settings, machinePreparation } = body.spec
+  if (body.type === 'slurm') {
+    const { slurm, ...rest } = settings as { slurm?: Record<string, unknown> }
+    return {
+      siteId: body.siteId, name: body.name, type: 'slurm', ...rest, machinePreparation,
+      slurm: {
+        ...(slurm ?? {}),
+        nodeAssignments: members.map((member) => ({
+          serverId: member.serverId, controller: member.roles.includes('controller'), compute: member.roles.includes('compute'), login: member.roles.includes('login'),
+        })),
+      },
+    }
+  }
+  return {
+    siteId: body.siteId, name: body.name, type: body.type, ...settings, machinePreparation,
+    roleAssignments: members.map((member) => member.roles.includes('control-plane')
+      ? { serverId: member.serverId, role: 'control-plane', runWorkloads: member.roles.includes('workloads') }
+      : { serverId: member.serverId, role: 'worker', runWorkloads: false }),
+  }
+}
+
 /** A fixture Change Plan in the change-plans.md shape; `overrides` set the parts a test cares about. */
 function changePlan(id: string, platformId: string, state: string, overrides: Record<string, unknown>) {
   return {
@@ -750,6 +798,20 @@ function sshKey(id: string, name: string, purpose: 'deployment' | 'access', publ
 }
 
 /** Installs deterministic network fixtures; no backend or provider is contacted. */
+/**
+ * Approves the install plan a Platform created on this page waits on (platforms.md "Create A
+ * Platform"), which starts its deploy in the mock, and opens the Platform.
+ */
+export async function approvePlatformInstall(page: Page, platformId = 'platform-new') {
+  await expect(page).toHaveURL('/change-plans?site=site-a')
+  // The newest plan is listed first; a page that created the Platform twice approves the latest.
+  const plan = page.getByRole('article', { name: `Change Plan for Platform ${platformId}` }).first()
+  await plan.getByRole('button', { name: 'Approve plan' }).click()
+  await page.getByRole('alertdialog', { name: 'Approve Change Plan' }).getByRole('button', { name: 'Approve plan' }).click()
+  await expect(page.getByText('Change Plan approved')).toBeVisible()
+  await page.goto(`/platforms/${platformId}?site=site-a`)
+}
+
 export async function installApiFixtures(page: Page, options: FixtureOptions = {}) {
   const imageCatalog = [
     ...osImages,
@@ -775,6 +837,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     { id: 'api-1', name: 'laptop-cli', prefix: 'swk_Lap1op00', createdAt: '2026-08-01T00:00:00Z', expiresAt: null as string | null, lastUsedAt: '2026-08-27T02:00:00Z' as string | null },
     { id: 'api-2', name: 'old-ci', prefix: 'swk_0ldC1000', createdAt: '2026-05-01T00:00:00Z', expiresAt: '2026-08-01T00:00:00Z' as string | null, lastUsedAt: null as string | null },
   ]
+  // The deploy Workflow of a Platform created on this page, started when its install is approved.
+  const pendingPlatformDeploys = new Map<string, (typeof operations)[number]>()
   // Per-page Change Plan state (change-plans.md): one plan to decide, one blocked, one applied.
   let changePlanItems = [
     changePlan('plan-uninstall', 'platform-slurm', 'pending_approval', {
@@ -1337,7 +1401,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           pmix: true,
         }
       : {}),
-  }))
+  })).map((platform) => {
+    const spec = fixturePlatformSpec(platform)
+    return { ...platform, generation: 1, spec, status: { observedGeneration: 1, conditions: [], applied: spec, realizingWorkflowId: null } }
+  })
   if (options.slurmDeployed) {
     // Controller-only nodes carry no membership (they are not slurmd scheduler nodes); compute
     // nodes do. getServer reads from the fleet, so the controllers must live here for the
@@ -1720,6 +1787,16 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
       const decided = { ...plan, state: decision === 'approve' ? 'approved' : 'rejected', decidedBy: 'admin', decidedAt: now }
       changePlanItems = changePlanItems.map((item) => (item.id === plan.id ? decided : item))
+      // Approving a created Platform's install starts its deploy Workflow, as the controller does.
+      const deploy = decision === 'approve' ? pendingPlatformDeploys.get(plan.resource.id) : undefined
+      const installing = platformItems.find((item) => item.id === plan.resource.id)
+      if (deploy && installing) {
+        pendingPlatformDeploys.delete(plan.resource.id)
+        operationItems.unshift(deploy)
+        installing.lifecycleState = 'deploying'
+        installing.lifecycleOperationId = deploy.id
+        installing.status = { ...installing.status, realizingWorkflowId: deploy.id }
+      }
       return json(route, decided)
     }
     if (path === '/api/v1/software/catalog') {
@@ -2825,37 +2902,66 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       })
     }
 
-    // GPU Operator change (platforms.md "Change The GPU Operator"): records the normalized
-    // settings on the Platform as installing/uninstalling, the way the backend does on accept.
-    const gpuOperatorMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/gpu-operator$/)
-    if (gpuOperatorMatch && request.method() === 'PUT') {
-      const platformId = gpuOperatorMatch[1]
-      const body = request.postDataJSON() as Record<string, unknown>
+    // Spec write (platforms.md "Change A Platform"). The dashboard writes only the GPU Operator
+    // setting: turning it on converges at once and records it as installing, the way the controller
+    // does; changing or turning off a managed operator answers 202 with a Change Plan.
+    const specMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/spec$/)
+    if (specMatch && request.method() === 'PUT') {
+      const platformId = specMatch[1]
+      const written = request.postDataJSON() as { generation: number; spec: { settings: Record<string, unknown> } }
+      const body = (written.spec.settings.gpuOperator ?? { enabled: false }) as Record<string, unknown>
       options.onGPUOperatorRequest?.(platformId, body)
       if (options.gpuOperatorBusy) {
         return json(route, { error: { code: 'conflict', message: 'targets are busy: gpu-node-01 is held by Deploy production k0s platform' } }, 409)
       }
       const platform = platformItems.find((item) => item.id === platformId)
       if (!platform) return json(route, { error: { code: 'not_found', message: 'Platform not found.' } }, 404)
+      if (written.generation !== platform.generation) {
+        return json(route, { error: { code: 'conflict', message: 'The platform spec changed since it was read; read it again and retry.' } }, 409)
+      }
       const previous = (platform.gpuOperator ?? {}) as Record<string, unknown>
+      const managed = previous.enabled === true && previous.state !== 'absent'
       const enabled = body.enabled === true
-      platform.gpuOperator = enabled
-        ? {
-            enabled: true, version: (body.version as string | undefined) ?? 'v1.5.1',
-            allocationMode: body.allocationMode ?? 'device-plugin',
-            draDriverVersion: body.allocationMode === 'dra' ? (body.draDriverVersion as string | undefined) ?? 'v1.0.1' : null,
-            resourceNaming: body.resourceNaming ?? 'single', nodeLabeller: body.nodeLabeller ?? true,
-            metricsExporter: body.metricsExporter ?? false,
-            state: 'installing', lastWorkflowId: 'op-gpu-operator-new', updatedAt: now,
-          }
-        : { ...previous, enabled: false, state: 'uninstalling', lastWorkflowId: 'op-gpu-operator-new', updatedAt: now }
-      if (enabled) platform.gpuStackOwner = 'gpu-operator'
-      return json(route, { platformId, workflowId: 'op-gpu-operator-new' }, 202)
+      platform.generation += 1
+      platform.spec = { ...platform.spec, settings: written.spec.settings }
+      if (managed) {
+        const plan = changePlan(`plan-gpu-operator-${platform.generation}`, platformId, 'pending_approval', {
+          expiresAt: '2099-01-01T00:00:00Z', generation: platform.generation,
+          actions: [{ target: { kind: 'platform', id: '' }, action: enabled ? 'change-gpu-operator' : 'disable-gpu-operator', from: 'enabled', to: enabled ? '' : 'disabled', destructive: true, reason: enabled ? 'pods that use GPUs may restart' : 'GPU workloads lose the device plugin' }],
+        })
+        changePlanItems = [plan, ...changePlanItems.filter((item) => !(item.resource.id === platformId && item.state === 'pending_approval'))]
+        return json(route, { platform, plan }, 202)
+      }
+      platform.gpuOperator = {
+        enabled: true, version: (body.version as string | undefined) ?? 'v1.5.1',
+        allocationMode: body.allocationMode ?? 'device-plugin',
+        draDriverVersion: body.allocationMode === 'dra' ? (body.draDriverVersion as string | undefined) ?? 'v1.0.1' : null,
+        resourceNaming: body.resourceNaming ?? 'single', nodeLabeller: body.nodeLabeller ?? true,
+        metricsExporter: body.metricsExporter ?? false,
+        state: 'installing', lastWorkflowId: 'op-gpu-operator-new', updatedAt: now,
+      }
+      platform.gpuStackOwner = 'gpu-operator'
+      return json(route, { platform, plan: null })
     }
 
-    if (path === '/api/v1/platforms/deploy' && request.method() === 'POST') {
-      const rawBody = request.postDataJSON() as Record<string, unknown>
+    // Create (platforms.md "Create A Platform"): the Platform is stored `planned` with its members
+    // claimed, and its install waits on a pending Change Plan. The mock reads the body in its
+    // deploy shape, which is also what onPlatformDeploymentRequest receives.
+    if (path === '/api/v1/platforms' && request.method() === 'POST') {
+      const created = request.postDataJSON() as Parameters<typeof legacyPlatformBody>[0]
+      const rawBody = legacyPlatformBody(created) as Record<string, unknown>
       options.onPlatformDeploymentRequest?.(rawBody)
+      const installPlan = changePlan('plan-platform-new', 'platform-new', 'pending_approval', {
+        expiresAt: '2099-01-01T00:00:00Z', generation: 1,
+        actions: [
+          { target: { kind: 'platform', id: '' }, action: 'install', from: '', to: 'installed', destructive: true, reason: 'the Platform is created on its members' },
+          ...created.spec.members.map((member) => ({ target: { kind: 'server', id: member.serverId }, action: 'join', from: '', to: member.roles.join(', '), destructive: true, reason: 'the Server becomes a member of the new Platform' })),
+        ],
+      })
+      const planned = (platform: Record<string, unknown>) => {
+        const spec = { desired: 'present', members: created.spec.members, settings: created.spec.settings, machinePreparation: null, removal: null }
+        return { ...platform, lifecycleState: 'planned', lifecycleOperationId: null, generation: 1, spec, status: { observedGeneration: 0, conditions: [], applied: null, realizingWorkflowId: null } }
+      }
       const body = rawBody as {
         name: string
         type?: 'kubernetes' | 'slurm'
@@ -2933,7 +3039,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           updatedAt: now,
         })
         claimPlatformTargets('platform-new', targetServerIds)
-        return json(route, { platformId: 'platform-new', operationId }, 202)
+        pendingPlatformDeploys.set('platform-new', operationItems.shift() as (typeof operationItems)[number])
+        const platform = planned(platformItems.pop() as Record<string, unknown>)
+        platformItems.push(platform as (typeof platformItems)[number])
+        changePlanItems = [installPlan, ...changePlanItems]
+        return json(route, { platform, plan: installPlan }, 202)
       }
       const roleAssignments = body.roleAssignments ?? []
       const controllerCount = roleAssignments.filter(
@@ -2979,7 +3089,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         updatedAt: now,
       })
       claimPlatformTargets('platform-new', roleAssignments.map((assignment) => assignment.serverId))
-      return json(route, { platformId: 'platform-new', operationId }, 202)
+      pendingPlatformDeploys.set('platform-new', operationItems.shift() as (typeof operationItems)[number])
+      const platform = planned(platformItems.pop() as Record<string, unknown>)
+      platformItems.push(platform as (typeof platformItems)[number])
+      changePlanItems = [installPlan, ...changePlanItems]
+      return json(route, { platform, plan: installPlan }, 202)
     }
     if (path === '/api/v1/platforms') {
       const siteId = url.searchParams.get('siteId')
@@ -3085,34 +3199,36 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
       return json(route, { items: [] })
     }
-    const uninstallMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/uninstall$/)
-    if (uninstallMatch && request.method() === 'POST') {
-      const body = (request.postDataJSON() as Record<string, unknown> | null) ?? null
-      options.onPlatformUninstallRequest?.(uninstallMatch[1], body)
-      // Mirrors platforms.md "Uninstall": a Workflow still holding the deployment targets refuses the
-      // uninstall unless cancelActiveWorkflows supersedes it (decision 061).
-      const uninstalling = platformItems.find((item) => item.id === uninstallMatch[1])
-      const targets = operationItems.find((item) => item.id === uninstalling?.lifecycleOperationId)?.targetServerIds ?? []
-      if (body?.cancelActiveWorkflows) {
-        const refused = supersedeActiveOperations(targets)
-        if (refused) return json(route, { error: { code: 'conflict', message: refused, requestId: 'req-uninstall-busy' } }, 409)
-      } else {
-        const terminal = new Set(['succeeded', 'failed', 'partially_succeeded', 'canceled'])
-        const holder = operationItems.find((item) =>
-          item.targetServerIds.some((serverId) => targets.includes(serverId)) && !terminal.has(item.status ?? item.execution.status))
-        if (holder) {
-          return json(route, { error: { code: 'conflict', message: `a target is already in an unfinished operation: Server ${targets[0]} already has active durable work: Workflow ${holder.id} ("${holder.intent}", ${holder.status ?? holder.execution.status}) still holds it; finish or cancel it first`, requestId: 'req-uninstall-busy' } }, 409)
-        }
-      }
-      return json(route, { platformId: uninstallMatch[1], operationId: 'op-uninstall' }, 202)
-    }
     const platformMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)$/)
     if (platformMatch && request.method() === 'DELETE') {
       const index = platformItems.findIndex((platform) => platform.id === platformMatch[1])
       if (index < 0) return json(route, { error: { code: 'not_found', message: 'Platform not found' } }, 404)
-      platformItems.splice(index, 1)
-      releasePlatformClaims(platformMatch[1])
-      return json(route, { success: true })
+      const removed = platformItems[index]
+      // Record-only delete, and a planned Platform whose install was never approved, go at once.
+      if (url.searchParams.get('recordOnly') === 'true' || removed.lifecycleState === 'planned') {
+        platformItems.splice(index, 1)
+        releasePlatformClaims(platformMatch[1])
+        changePlanItems = changePlanItems.filter((item) => !(item.resource.id === platformMatch[1] && item.state === 'pending_approval'))
+        return route.fulfill({ status: 204 })
+      }
+      // Delete (platforms.md "Delete A Platform"): the spec is marked absent and the uninstall waits
+      // on a Change Plan; cancelActiveWorkflows supersedes the Workflows holding the targets (061).
+      const body = (request.postDataJSON() as Record<string, unknown> | null) ?? null
+      options.onPlatformUninstallRequest?.(platformMatch[1], body)
+      const targets = operationItems.find((item) => item.id === removed.lifecycleOperationId)?.targetServerIds ?? []
+      if (body?.cancelActiveWorkflows) {
+        const refused = supersedeActiveOperations(targets)
+        if (refused) return json(route, { error: { code: 'conflict', message: refused, requestId: 'req-uninstall-busy' } }, 409)
+      }
+      removed.generation += 1
+      removed.spec = { ...removed.spec, desired: 'absent' }
+      const plan = changePlan(`plan-uninstall-${removed.id}`, removed.id, 'pending_approval', {
+        expiresAt: '2099-01-01T00:00:00Z', generation: removed.generation,
+        actions: [{ target: { kind: 'platform', id: '' }, action: 'uninstall', from: 'installed', to: 'uninstalled', destructive: true, reason: 'the Platform is marked absent' }],
+        effects: body?.releaseServers ? ['every member is released to the provisioner'] : [],
+      })
+      changePlanItems = [plan, ...changePlanItems.filter((item) => !(item.resource.id === removed.id && item.state === 'pending_approval'))]
+      return json(route, { platform: removed, plan }, 202)
     }
     if (platformMatch) {
       const platform = platformItems.find((item) => item.id === platformMatch[1])

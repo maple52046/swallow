@@ -1,7 +1,7 @@
 import type {
   Platform,
   DeployPlatformInput,
-  DeployPlatformResult,
+  PlatformChangeResult,
   MembershipReport,
   SlurmCluster,
   UninstallPlatformOptions,
@@ -9,7 +9,6 @@ import type {
   SlurmDeploymentRequirement,
   GPUOperatorRelease,
   GPUOperatorSettings,
-  ConfigureGPUOperatorResult,
 } from '@/domain/platform/types'
 import type {
   KubernetesApplication,
@@ -27,7 +26,7 @@ import type {
 } from '@/domain/platform/kubernetes'
 
 /**
- * Reads platforms and deploys new ones. A platform's members are servers carrying the
+ * Reads platforms and writes their specs. A platform's observed members are servers carrying the
  * membership axis, read through the ServerRepository, so there is no member call here.
  * Registration of an existing platform involves a credential and is done through the API by
  * an operator, so it is not exposed to the dashboard.
@@ -37,20 +36,19 @@ export interface PlatformRepository {
   listPlatforms(siteId?: string): Promise<Platform[]>
   getPlatform(id: string): Promise<Platform | null>
   /**
-   * Deploy a new platform (Kubernetes/k0s or Slurm, per `input.type`); resolves once the
-   * platform and its operation are accepted.
+   * Create a platform (Kubernetes/k0s or Slurm, per `input.type`) from the deployment it should
+   * be; resolves with the Change Plan that installs it once approved.
    */
-  deployPlatform(input: DeployPlatformInput): Promise<DeployPlatformResult>
+  createPlatform(input: DeployPlatformInput): Promise<PlatformChangeResult>
   /**
-   * Remove platform software from the original deployment targets and retain the record.
-   * When `options.releaseServers` is set, release each target directly instead; release wipes
-   * the operating system, so the software-uninstall steps are skipped. When
-   * `options.deleteRecord` is set, the backend also deletes the record once the uninstall
-   * succeeds, so a caller must not follow the returned Workflow back to the Platform.
+   * Delete a platform: its spec is marked absent and the uninstall waits on the returned Change
+   * Plan; the record is deleted once the uninstall succeeds. A platform whose install was never
+   * approved is deleted at once (`planId` null). `options` chooses whether the uninstall releases
+   * the members.
    */
-  uninstallPlatform(id: string, options?: UninstallPlatformOptions): Promise<DeployPlatformResult>
+  deletePlatform(id: string, options?: UninstallPlatformOptions): Promise<PlatformChangeResult>
   /** Delete only the Swallow record and owned projections; hosts are untouched. */
-  deletePlatform(id: string): Promise<void>
+  deletePlatformRecord(id: string): Promise<void>
   /** Read the platform's membership now instead of waiting for the background interval. */
   syncPlatform(id: string): Promise<MembershipReport>
   /**
@@ -68,12 +66,12 @@ export interface PlatformRepository {
   /** The AMD GPU Operator releases Swallow ships, newest first; the source of `version` choices. */
   listGPUOperatorReleases(): Promise<GPUOperatorRelease[]>
   /**
-   * Installs, changes, or (with `{ enabled: false }`) uninstalls a deployed Kubernetes
-   * Platform's GPU Operator. Resolves once the change Workflow is accepted; the outcome is the
-   * Platform's `gpuOperator.state`. Rejects with the API error when the Platform is not active,
-   * a target is busy, or the settings are invalid.
+   * Installs, changes, or (with `{ enabled: false }`) uninstalls a Kubernetes Platform's GPU
+   * Operator by writing the spec's `gpuOperator` setting. Turning it on converges without approval
+   * (`planId` null); changing or turning it off resolves with a Change Plan. The outcome is the
+   * Platform's `gpuOperator.state`.
    */
-  configureGPUOperator(id: string, settings: GPUOperatorSettings): Promise<ConfigureGPUOperatorResult>
+  configureGPUOperator(id: string, settings: GPUOperatorSettings): Promise<PlatformChangeResult>
 
   /**
    * The live Kubernetes cluster explorer for a Swallow-deployed Kubernetes Platform. Every call

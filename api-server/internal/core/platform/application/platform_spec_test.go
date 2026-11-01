@@ -392,6 +392,23 @@ func TestAddingAMemberConvergesWithoutAPlan(t *testing.T) {
 	}
 }
 
+// A spec is read without its inline user data, so writing it back with the same mode and no value
+// keeps the stored user data.
+func TestSpecWriteKeepsStoredUserData(t *testing.T) {
+	h := newSpecHarness(nil)
+	platform := h.installed(t)
+	platform.Spec.MachinePreparation = platformdomain.MachinePreparation{UserDataMode: "replace", UserData: "#cloud-config\n"}
+	spec := platform.Spec.Clone()
+	spec.MachinePreparation.UserData = ""
+	spec.Members = append(spec.Members, platformdomain.PlatformMember{ServerID: "w2", Roles: []string{"worker"}})
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, spec); err != nil {
+		t.Fatalf("UpdateSpec() error = %v", err)
+	}
+	if got := h.platforms.platforms[platform.ID].Spec.MachinePreparation.UserData; got != "#cloud-config\n" {
+		t.Errorf("user data = %q, want the stored value kept", got)
+	}
+}
+
 // A destructive change swallow cannot carry out yet is proposed with a blocker, which keeps the plan
 // from being approved; a non-destructive one it cannot carry out is refused; an immutable field and
 // a stale generation are refused.
@@ -442,7 +459,7 @@ func TestDeleteDeclaresThePlatformAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if _, err := h.specs.Delete(context.Background(), created.Platform.ID); err != nil {
+	if _, err := h.specs.Delete(context.Background(), created.Platform.ID, nil); err != nil {
 		t.Fatalf("Delete(never installed) error = %v", err)
 	}
 	if _, ok := h.platforms.platforms[created.Platform.ID]; ok || heldBy(h.servers, "c1") != "" {
@@ -453,7 +470,7 @@ func TestDeleteDeclaresThePlatformAbsent(t *testing.T) {
 	}
 
 	platform := h.installed(t)
-	result, err := h.specs.Delete(context.Background(), platform.ID)
+	result, err := h.specs.Delete(context.Background(), platform.ID, &platformdomain.PlatformRemoval{ReleaseServers: true})
 	if err != nil {
 		t.Fatalf("Delete(installed) error = %v", err)
 	}
@@ -464,8 +481,11 @@ func TestDeleteDeclaresThePlatformAbsent(t *testing.T) {
 		t.Fatalf("Approve() error = %v", err)
 	}
 	h.reconcile(t, platform.ID)
-	if h.uninstalls.launch == nil || !h.uninstalls.launch.DeleteRecord {
-		t.Fatalf("uninstall launch = %+v, want one that deletes the record", h.uninstalls.launch)
+	if h.uninstalls.launch == nil || !h.uninstalls.launch.DeleteRecord || !h.uninstalls.launch.ReleaseServers {
+		t.Fatalf("uninstall launch = %+v, want one that releases the members and deletes the record", h.uninstalls.launch)
+	}
+	if len(result.Plan.Effects) != 1 {
+		t.Errorf("plan effects = %v, want the release named", result.Plan.Effects)
 	}
 }
 

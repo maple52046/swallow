@@ -300,6 +300,47 @@ test.describe('Server and Platform operations visual review', () => {
 })
 
 /**
+ * Captures Platform removal through a Change Plan (decision 076): the Uninstall dialog proposing a
+ * server release with the cancel consent, the Change Plans page it opens with the proposal toast,
+ * and a Platform whose install still awaits approval, with the Delete dialog that withdraws it.
+ */
+test.describe('Platform removal plan visual review', () => {
+  test('platform-removal-plan', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { platformLifecycleStates: { 'platform-b': 'planned' } })
+    await setAppearance(page, appearance)
+
+    await page.goto('/platforms/platform-a?site=site-a')
+    await page.getByRole('button', { name: 'Uninstall platform', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
+    await dialog.getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
+    await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
+    await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
+    await expect(dialog.getByRole('button', { name: 'Propose server release' })).toBeEnabled()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'platform-uninstall-proposal-dialog', false)
+
+    await dialog.getByRole('button', { name: 'Propose server release' }).click()
+    await expect(page.getByText('Server release proposed')).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-uninstall-plan-proposed', false)
+
+    await page.goto('/platforms/platform-b?site=site-a')
+    await expect(page.getByText('Awaiting approval').first()).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-detail-planned', false)
+    await page.getByRole('button', { name: 'Delete platform', exact: true }).click()
+    const deleteDialog = page.getByRole('dialog', { name: 'Delete platform record' })
+    await expect(deleteDialog.getByText('Nothing was installed')).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'platform-planned-delete-dialog', false)
+  })
+})
+
+/**
  * Captures Release and Delete disabled by a Platform Claim: the row Actions menu, the bulk Take
  * action menu with two claimed Servers, and Server Detail for a failed deployment's target, each
  * with the one note naming the Platform above those two actions.

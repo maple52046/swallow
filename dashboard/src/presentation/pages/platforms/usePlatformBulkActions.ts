@@ -16,10 +16,10 @@ export interface PlatformBulkOutcome {
  * Runs a bulk Uninstall or a bulk record-only Delete by fanning out over the per-platform API.
  *
  * Swallow exposes no bulk platform endpoint, so each call is independent: failures are collected
- * per target instead of aborting the remaining platforms. `runUninstall` sends the same request
- * body to every target and creates one durable Operation per platform (with `deleteRecord`, each
- * record is deleted only after its own uninstall succeeds); `runDelete` sends Delete and takes no
- * uninstall options, so a record-only Delete can never carry them. When at least one request was
+ * per target instead of aborting the remaining platforms. `runUninstall` sends the same Delete body
+ * to every target and proposes one Change Plan per platform (each record is deleted only after its
+ * own uninstall succeeds); `runDelete` deletes only the records and takes no uninstall options, so
+ * a record-only Delete can never carry them. When at least one request was
  * accepted a single toast summarises the result; when every request failed no toast is shown,
  * because the dialog stays open and lists each failure. The caller reloads the list rather than
  * following any single Operation.
@@ -74,15 +74,14 @@ export function usePlatformBulkActions() {
   const runUninstall = useCallback(
     (targets: readonly Platform[], options: UninstallPlatformOptions) => fanOut(
       targets,
-      (platform) => platforms.uninstallPlatform(platform.id, options),
-      (accepted) => platformBulkUninstallToast({ releaseServers: options.releaseServers, deleteRecord: Boolean(options.deleteRecord) }, accepted),
-      options.deleteRecord ? ' A record is deleted only after its own uninstall succeeds.' : '',
+      (platform) => platforms.deletePlatform(platform.id, options),
+      (accepted) => platformBulkUninstallToast({ releaseServers: options.releaseServers }, accepted),
     ),
     [fanOut, platforms],
   )
 
   const runDelete = useCallback(
-    (targets: readonly Platform[]) => fanOut(targets, (platform) => platforms.deletePlatform(platform.id), platformBulkDeleteToast),
+    (targets: readonly Platform[]) => fanOut(targets, (platform) => platforms.deletePlatformRecord(platform.id), platformBulkDeleteToast),
     [fanOut, platforms],
   )
 

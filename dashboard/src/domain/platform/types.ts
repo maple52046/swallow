@@ -7,6 +7,7 @@
  * docs/development/glossaries/terms/platform.md and the Node Role glossary.
  */
 
+import type { Condition } from "@/domain/convergence/types";
 import type { DeployTarget, DeploymentNetworkMode } from "@/domain/provisioning/types";
 
 export type PlatformType = "kubernetes" | "slurm";
@@ -26,14 +27,12 @@ export interface SlurmDeploymentRequirement {
 }
 
 /**
- * Options for uninstalling a platform. releaseServers additionally returns each member
- * server to the provider after k0s removal; releaseOptions then mirrors the standalone
- * Release action. cancelActiveWorkflows asks the backend to cancel the Workflows still
- * holding the targets (a failed or running deployment) and start the uninstall once they
- * end (decision 061). deleteRecord asks the backend to also delete the Platform record once
- * the uninstall succeeds; a failed uninstall keeps it. That is the only safe way to combine the
- * two, because a separate Delete sent while the uninstall runs would cancel it. The field names
- * match the api-server uninstall request contract.
+ * How deleting a platform treats its members (platforms.md "Delete A Platform"). releaseServers
+ * releases each member to the provider in the uninstall instead of removing the platform software;
+ * releaseOptions then mirrors the standalone Release action. cancelActiveWorkflows asks the backend
+ * to cancel the Workflows still holding the members (a failed or running deployment) before the
+ * uninstall starts (decision 061). The record is deleted once the uninstall succeeds. The field
+ * names match the api-server Delete body.
  */
 export interface UninstallPlatformOptions {
   releaseServers: boolean;
@@ -44,7 +43,62 @@ export interface UninstallPlatformOptions {
     unbindStaticIps: boolean;
   };
   cancelActiveWorkflows?: boolean;
-  deleteRecord?: boolean;
+}
+
+/** One member of a Platform spec: a Server and its roles in the platform type's vocabulary. */
+export interface PlatformMember {
+  serverId: string;
+  roles: string[];
+}
+
+/** The removal choices an absent Platform's spec carries. */
+export interface PlatformRemoval {
+  releaseServers: boolean;
+  erase: boolean;
+  secureErase: boolean;
+  quickErase: boolean;
+  unbindStaticIps: boolean;
+  cancelActiveWorkflows: boolean;
+}
+
+/**
+ * A Platform's desired state (platforms.md "Spec and status"): its members, the type's own
+ * settings, and how members that are not deployed get their OS. Inline user data is never returned.
+ */
+export interface PlatformSpec {
+  desired: "present" | "absent";
+  members: PlatformMember[];
+  settings: Record<string, unknown>;
+  machinePreparation: PlatformSpecMachinePreparation | null;
+  removal: PlatformRemoval | null;
+}
+
+/**
+ * A spec's machine preparation as it is read back: the request shape, except that user data
+ * carries only its mode. Written back unchanged it keeps the stored user data.
+ */
+export interface PlatformSpecMachinePreparation {
+  mode?: string;
+  templateId?: string;
+  settings?: { imageId?: string; deployTarget?: string };
+  userData?: { mode?: string; value?: string };
+  network?: {
+    mode?: string;
+    subnetId?: string;
+    defaultGateway?: boolean;
+    assignments?: Array<{ serverId: string; interfaceId?: string; subnetId?: string; ipAddress?: string }>;
+  };
+}
+
+/**
+ * What swallow realized and judged for a Platform's spec: the generation the applied spec
+ * realized, the shared Conditions (`realized`, `drifted`), and the Workflow realizing a newer one.
+ */
+export interface PlatformStatus {
+  observedGeneration: number;
+  conditions: Condition[];
+  applied: PlatformSpec | null;
+  realizingWorkflowId: string | null;
 }
 /** Whether Swallow registered the platform or deployed it through a durable operation. */
 export type PlatformOrigin = "registered" | "deployed";
@@ -52,6 +106,7 @@ export type PlatformOrigin = "registered" | "deployed";
 /** Lifecycle derived by the API from durable deploy and uninstall operations. */
 export type PlatformLifecycleState =
   | "registered"
+  | "planned"
   | "deploying"
   | "deploy_failed"
   | "active"
@@ -150,12 +205,6 @@ export interface GPUOperatorRelease {
   draMinKubernetesVersion: string;
   draDriverVersions: string[];
   defaultDraDriverVersion: string;
-}
-
-/** The accepted GPU Operator change and the Workflow applying it. */
-export interface ConfigureGPUOperatorResult {
-  platformId: string;
-  workflowId: string;
 }
 
 /** Which subsystem installs this platform's Prometheus exporters. Defaults to `ansible`. */
@@ -287,6 +336,11 @@ export interface Platform {
   /** Whether the Slurm deploy installed the host MPI stack for `srun --mpi=pmix_v5`; false otherwise. */
   pmix: boolean;
   sync: PlatformSyncState;
+  /** The spec generation; 0 until the platform controller adopts a Platform deployed before specs. */
+  generation: number;
+  /** The desired state; null until the Platform is adopted. */
+  spec: PlatformSpec | null;
+  status: PlatformStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -469,10 +523,13 @@ export interface SlurmCluster {
   nodes: SlurmClusterNode[]
 }
 
-/** The accepted deployment: the created platform and the operation building it. */
-export interface DeployPlatformResult {
+/**
+ * A written Platform spec: the Platform and the Change Plan the change waits on, null when the
+ * platform controller converges it without approval.
+ */
+export interface PlatformChangeResult {
   platformId: string;
-  operationId: string;
+  planId: string | null;
 }
 
 /** The report a membership sync returns; `unmatched` names members with no server. */

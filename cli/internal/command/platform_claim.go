@@ -15,18 +15,17 @@ import (
 // refused command.
 type claimNextStep func(platformID string) string
 
-// releaseThroughUninstall is the next step for a refused release or recover: the Platform's
-// uninstall with releaseServers releases its Servers.
+// releaseThroughUninstall is the next step for a refused release or recover: deleting the Platform
+// with release servers releases its Servers once its uninstall plan is approved.
 func releaseThroughUninstall(platformID string) string {
-	return fmt.Sprintf("release a Platform's Servers through it: swallow platforms uninstall %s -f <body> "+
-		"with \"releaseServers\": true", platformID)
+	return fmt.Sprintf("release a Platform's Servers through it: swallow platforms delete %s --release-servers", platformID)
 }
 
 // deleteAfterPlatform is the next step for a refused Server delete: either removal of the Platform
 // releases the claim, after which the Server can be deleted.
 func deleteAfterPlatform(platformID string) string {
-	return fmt.Sprintf("uninstall it first (swallow platforms uninstall %s, with \"releaseServers\": true to also "+
-		"release its Servers) or delete its record (swallow platforms delete %s), then delete the Server", platformID, platformID)
+	return fmt.Sprintf("delete it first (swallow platforms delete %s, with --release-servers to also release its "+
+		"Servers) or delete only its record (swallow platforms delete %s --record-only), then delete the Server", platformID, platformID)
 }
 
 // hintPlatformClaim adds the next step to a release, recover, or Server delete the api-server

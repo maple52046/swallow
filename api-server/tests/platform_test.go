@@ -38,8 +38,8 @@ func seedPlatform(t *testing.T, f *platformFixture, id, name, gpuStackOwner stri
 }
 
 // Registering an existing platform was removed in decision 032: Swallow manages only
-// self-deployed platforms, so a Platform record is produced only by a deployment. The former
-// POST /api/v1/platforms/ route no longer exists.
+// self-deployed platforms. POST /api/v1/platforms/ creates a Platform from a spec that swallow then
+// installs, so the former register-existing body, which has no spec, is refused.
 func TestRegisterPlatform_RouteRemoved(t *testing.T) {
 	f := setupPlatform(t)
 	siteID := createSite(t, f, "dc-east")
@@ -51,8 +51,8 @@ func TestRegisterPlatform_RouteRemoved(t *testing.T) {
 		"gpuStackOwner": "gpu-operator",
 	}, f.adminAuth(t))
 
-	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("register-existing should be gone, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a register-existing body (no spec) status = %d, want 400", resp.StatusCode)
 	}
 }
 
@@ -223,9 +223,9 @@ func TestDeletePlatform_ClearsMembership(t *testing.T) {
 		}
 	})
 
-	resp := doRequest(t, f.app, "DELETE", "/api/v1/platforms/platform-1", nil, f.adminAuth(t))
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	resp := doRequest(t, f.app, "DELETE", "/api/v1/platforms/platform-1?recordOnly=true", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
 	}
 	if f.servers.servers["srv-1"].Membership != nil {
 		t.Error("membership should have been cleared with the platform")
@@ -374,106 +374,6 @@ func TestListServers_FilterByPlatform(t *testing.T) {
 	item := body["items"].([]any)[0].(map[string]any)
 	if item["id"] != "srv-member" {
 		t.Errorf("wrong server returned: %v", item["id"])
-	}
-}
-
-func TestUninstallPlatform_AcceptsOriginalDeploymentTargets(t *testing.T) {
-	f := setupPlatform(t)
-	platform := seedPlatform(t, f, "platform-1", "prod-k8s", "provisioning")
-	platform.ExporterOwner = platformdomain.ExporterOwnerK8s
-	f.seedServer("srv-1", "node-1", "10.0.1.10", nil)
-	f.seedServer("srv-2", "node-2", "10.0.1.11", nil)
-	now := time.Now().UTC()
-	f.platformLifecycle.snapshots[platform.ID] = platformdomain.LifecycleSnapshot{
-		Origin:      platformdomain.PlatformOriginDeployed,
-		State:       platformdomain.PlatformLifecycleActive,
-		OperationID: "deploy-1",
-		Deployment: &platformdomain.LifecycleOperation{
-			ID: "deploy-1", Status: "succeeded",
-			TargetServerIDs: []string{"srv-1", "srv-2"},
-			RequestedAt:     now,
-		},
-	}
-
-	resp := doRequest(
-		t, f.app, "POST", "/api/v1/platforms/platform-1/uninstall", nil, f.adminAuth(t),
-	)
-	if resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d: %s", resp.StatusCode, rawBody(t, resp))
-	}
-	body := parseBody(t, resp)
-	if body["platformId"] != "platform-1" || body["operationId"] != "operation-uninstall-1" {
-		t.Errorf("response = %v", body)
-	}
-	launch := f.uninstallLauncher.lastLaunch
-	if launch == nil || len(launch.TargetServerIDs) != 2 ||
-		launch.TargetServerIDs[0] != "srv-1" || launch.TargetServerIDs[1] != "srv-2" {
-		t.Fatalf("launch = %+v", launch)
-	}
-	if !launch.RestoreExporters {
-		t.Error("k8s-owned exporters must be restored through a separate operation")
-	}
-}
-
-// The optional uninstall body opts into releasing member servers; the choice and its
-// disk-erase / static-IP options reach the launcher, and exporter restoration is disabled
-// because released hosts are wiped.
-func TestUninstallPlatform_ReleaseServersForwardsOptions(t *testing.T) {
-	f := setupPlatform(t)
-	platform := seedPlatform(t, f, "platform-1", "prod-k8s", "provisioning")
-	platform.ExporterOwner = platformdomain.ExporterOwnerK8s
-	f.seedServer("srv-1", "node-1", "10.0.1.10", nil)
-	f.seedServer("srv-2", "node-2", "10.0.1.11", nil)
-	now := time.Now().UTC()
-	f.platformLifecycle.snapshots[platform.ID] = platformdomain.LifecycleSnapshot{
-		Origin:      platformdomain.PlatformOriginDeployed,
-		State:       platformdomain.PlatformLifecycleActive,
-		OperationID: "deploy-1",
-		Deployment: &platformdomain.LifecycleOperation{
-			ID: "deploy-1", Status: "succeeded",
-			TargetServerIDs: []string{"srv-1", "srv-2"}, RequestedAt: now,
-		},
-	}
-
-	resp := doRequest(t, f.app, "POST", "/api/v1/platforms/platform-1/uninstall", map[string]any{
-		"releaseServers": true,
-		"releaseOptions": map[string]any{"erase": true, "secureErase": true, "unbindStaticIps": true},
-	}, f.adminAuth(t))
-	if resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d: %s", resp.StatusCode, rawBody(t, resp))
-	}
-	launch := f.uninstallLauncher.lastLaunch
-	if launch == nil || !launch.ReleaseServers {
-		t.Fatalf("launch did not carry ReleaseServers: %+v", launch)
-	}
-	if !launch.ReleaseOptions.Erase || !launch.ReleaseOptions.SecureErase || !launch.ReleaseOptions.UnbindStaticIPs {
-		t.Errorf("release options not forwarded: %+v", launch.ReleaseOptions)
-	}
-	if launch.RestoreExporters {
-		t.Error("releasing servers must disable host exporter restoration")
-	}
-}
-
-func TestUninstallPlatform_RejectsRegisteredAndNonAdminRequests(t *testing.T) {
-	f := setupPlatform(t)
-	seedPlatform(t, f, "platform-1", "external-k8s", "provisioning")
-
-	resp := doRequest(
-		t, f.app, "POST", "/api/v1/platforms/platform-1/uninstall", nil,
-		map[string]string{"Authorization": "Bearer " + userToken(t, f.jwtSvc)},
-	)
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("non-admin status = %d, want 403", resp.StatusCode)
-	}
-
-	resp = doRequest(
-		t, f.app, "POST", "/api/v1/platforms/platform-1/uninstall", nil, f.adminAuth(t),
-	)
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("registered platform status = %d, want 409", resp.StatusCode)
-	}
-	if code := errorCode(t, resp); code != "conflict" {
-		t.Errorf("error code = %q", code)
 	}
 }
 

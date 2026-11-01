@@ -578,7 +578,11 @@ export interface paths {
          */
         get: operations["listPlatforms"];
         put?: never;
-        post?: never;
+        /**
+         * Create a Platform from its spec and propose its install as a Change Plan.
+         * @description Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install waits on the returned Change Plan (platforms.md, Create A Platform). Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.
+         */
+        post: operations["createPlatform"];
         delete?: never;
         options?: never;
         head?: never;
@@ -603,8 +607,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove a Platform record without touching its hosts.
-         * @description Requires the `admin` role. Cancels the Platform's in-flight Workflows first, then clears membership, Platform Claims, and a Swallow-owned credential Integration, and removes the record. It never runs Ansible or changes hosts. 404 for an unknown Platform; a failed cancellation refuses the Delete and keeps the record.
+         * Declare a Platform absent, proposing its uninstall as a Change Plan.
+         * @description Requires the `admin` role. Marks the spec absent with the optional removal choices and proposes the uninstall as a Change Plan; the record is deleted once the uninstall succeeds (platforms.md, Delete A Platform). A Platform whose install was never approved is deleted at once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled, then membership, Platform Claims, and a Swallow-owned credential Integration are cleared, and hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no spec yet.
          */
         delete: operations["deletePlatform"];
         options?: never;
@@ -614,29 +618,6 @@ export interface paths {
          * @description Requires the `admin` role. Omitted fields do not change; `monitoringLinks` replaces the whole list. Every field is validated before anything is written. 400 for an invalid value; 404 for an unknown Platform; 409 when the name is taken at the Site, or when `gpuStackOwner` is set to `provisioning` while Swallow manages a GPU Operator on the Platform. The GPU Operator and the credential Integration cannot be changed here.
          */
         patch: operations["updatePlatform"];
-        trace?: never;
-    };
-    "/api/v1/platforms/{id}/gpu-operator": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Install, change, or uninstall the Swallow-managed GPU Operator of a Kubernetes Platform.
-         * @description Requires the `admin` role. Replaces the settings and starts a `configure-gpu-operator` Workflow; `enabled: false` uninstalls and keeps the other recorded settings (platforms.md, Manage The GPU Operator). 400 for invalid settings; 404 for an unknown Platform or when GPU Operator management is not wired; 409 when the Platform is not an active Swallow-deployed Kubernetes Platform, an uninstall finds no managed operator, a target is locked or held by another Workflow, or the installation has no Deployment Key.
-         */
-        put: operations["configureGPUOperator"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/v1/platforms/{id}/kubernetes": {
@@ -1139,6 +1120,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/platforms/{id}/spec": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform's opaque id. */
+                id: components["parameters"]["PlatformId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace a Platform's spec at the generation it was read.
+         * @description Requires the `admin` role. A non-destructive change (for example a new member) is written and converged by the platform controller (200); a destructive one is written with a Change Plan (202), which carries a blocker when swallow cannot carry the change out yet (platforms.md, Change A Platform). An omitted user data value keeps the stored one. 400 for an invalid body or spec; 404 for an unknown Platform; 409 when `generation` is no longer current, an immutable field changes, a non-destructive change cannot be carried out yet, the uninstall has started, the Platform has no spec yet, or a new member is claimed, locked, or busy.
+         */
+        put: operations["replacePlatformSpec"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/platforms/{id}/sync": {
         parameters: {
             query?: never;
@@ -1156,49 +1160,6 @@ export interface paths {
          * @description Requires the `admin` role. A failure to read the Platform's API is reported in the report's `error` with status 200, not as an error status. 404 for an unknown Platform.
          */
         post: operations["syncPlatformMembership"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/platforms/{id}/uninstall": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start the Workflow that uninstalls a Swallow-deployed Platform from its targets.
-         * @description Requires the `admin` role. Starts `uninstall-kubernetes` or `uninstall-slurm` against the complete target snapshot of the latest deployment and keeps the record unless `deleteRecord` is true (platforms.md, Uninstall A Deployed Platform). The body is optional; an empty body removes the platform software only. 400 for an unparsable body; 404 for an unknown Platform; 409 for a registered Platform, a running or already successful uninstall, a deployment still running (without `cancelActiveWorkflows`), or a missing, absent, locked, or busy target; 503 when automation or durable orchestration is unavailable.
-         */
-        post: operations["uninstallPlatform"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/platforms/deploy": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create a Platform and start the Workflow that builds it.
-         * @description Requires the `admin` role. `type` selects the variant: `kubernetes` (the default when omitted) starts a `deploy-kubernetes` Workflow that builds k0s, `slurm` starts a `configure-slurm` Workflow. The Deployment Key check, validation, and the live target lock preflight all finish before the Platform or the Workflow is created (platforms.md, Deploy A New Platform). 400 for an invalid body, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, a target is locked or held by another Workflow, a custom image is not verified for the Deploy Target, a provision_os deploy has no NTP server, or composed Managed Software conflicts; 503 when Site automation is not configured or the release playbook is unavailable.
-         */
-        post: operations["deployPlatform"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4269,29 +4230,6 @@ export interface components {
          * @enum {string}
          */
         GPUAllocationMode: "device-plugin" | "dra";
-        /** @description The GPU Operator settings that replace the recorded ones. `enabled: false` uninstalls and keeps the other recorded settings. */
-        GPUOperatorChange: {
-            /** @default device-plugin */
-            allocationMode: components["schemas"]["GPUAllocationMode"];
-            /** @description Used only for `dra`; one of the release's `draDriverVersions`, defaulting to its `defaultDraDriverVersion`. */
-            draDriverVersion?: string;
-            /** @description True installs or changes the operator; false installs nothing or uninstalls it. */
-            enabled: boolean;
-            /** @default false */
-            metricsExporter: boolean;
-            /** @default true */
-            nodeLabeller: boolean;
-            /** @default single */
-            resourceNaming: components["schemas"]["GPUResourceNaming"];
-            /** @description A `version` from the release catalog; defaults to the release marked `default`. */
-            version?: string;
-        };
-        /** @description An accepted GPU Operator change. */
-        GPUOperatorChangeAcceptance: {
-            platformId: string;
-            /** @description The `configure-gpu-operator` Workflow applying the change. */
-            workflowId: string;
-        };
         /** @description One AMD GPU Operator release Swallow ships and has verified. */
         GPUOperatorRelease: {
             /** @description The release a setting without `version` uses. */
@@ -4308,7 +4246,7 @@ export interface components {
             /** @description Newest first. */
             items: components["schemas"]["GPUOperatorRelease"][];
         };
-        /** @description GPU Operator settings with a Kubernetes deploy; omitted or `enabled: false` installs no operator. */
+        /** @description The GPU Operator settings of a Kubernetes Platform; omitted or `enabled: false` installs no operator, and turning it off uninstalls it. */
         GPUOperatorSettings: {
             /** @default device-plugin */
             allocationMode: components["schemas"]["GPUAllocationMode"];
@@ -4460,35 +4398,6 @@ export interface components {
         KubernetesConfigMapList: {
             items: components["schemas"]["KubernetesConfigMap"][];
         };
-        /** @description Builds k0s on the role assignments. The Slurm-only features are refused: an enabled `omnistat` or `deviceMetricsExporter`, or a `containerRuntime` kind, is 400. */
-        KubernetesDeployRequest: {
-            /** @description The API virtual IP; required only for high availability. */
-            apiVip?: string;
-            /** @description The VIP's prefix length; for high availability it must equal the control-plane subnet's prefix and defaults to it (24 when the provisioner reports no subnet). */
-            apiVipPrefix?: number;
-            gpuDriver?: components["schemas"]["PlatformGPUDriver"];
-            gpuOperator?: components["schemas"]["GPUOperatorSettings"];
-            /** @description Defaults to `gpu-operator` when `gpuOperator.enabled` is true and to `provisioning` otherwise; `provisioning` with an enabled `gpuOperator` is 400. */
-            gpuStackOwner?: components["schemas"]["GPUStackOwner"];
-            /** @description The k0s release to install, for example `v1.36.3+k0s.2`. */
-            k0sVersion: string;
-            machinePreparation?: components["schemas"]["PlatformMachinePreparation"];
-            /** @description Unique within the Site. */
-            name: string;
-            /** @default 10.244.0.0/16 */
-            podCidr: string;
-            roleAssignments: components["schemas"]["KubernetesRoleAssignment"][];
-            /** @default 10.96.0.0/12 */
-            serviceCidr: string;
-            siteId: string;
-            /** @default enforce */
-            timeSyncCheck: components["schemas"]["TimeSyncCheck"];
-            /**
-             * @default kubernetes
-             * @enum {string}
-             */
-            type: "kubernetes";
-        };
         KubernetesIngress: {
             addresses: string[];
             hosts: string[];
@@ -4571,6 +4480,25 @@ export interface components {
         KubernetesPersistentVolumeClaimList: {
             items: components["schemas"]["KubernetesPersistentVolumeClaim"][];
         };
+        /** @description The settings of a Kubernetes Platform. `podCidr`, `serviceCidr`, `apiVip`, and `apiVipPrefix` cannot change after creation; changing `k0sVersion`, `gpuStackOwner`, or `gpuDriver` is not carried out yet. */
+        KubernetesPlatformSettings: {
+            /** @description The API virtual IP; required only for high availability. */
+            apiVip?: string;
+            /** @description The VIP's prefix length; for high availability it must equal the control-plane subnet's prefix and defaults to it (24 when the provisioner reports no subnet). */
+            apiVipPrefix?: number;
+            gpuDriver?: components["schemas"]["PlatformGPUDriver"];
+            gpuOperator?: components["schemas"]["GPUOperatorSettings"];
+            /** @description Defaults to `gpu-operator` when `gpuOperator.enabled` is true and to `provisioning` otherwise; `provisioning` with an enabled `gpuOperator` is 400. */
+            gpuStackOwner?: components["schemas"]["GPUStackOwner"];
+            /** @description The k0s release to install, for example `v1.36.3+k0s.2`. */
+            k0sVersion: string;
+            /** @default 10.244.0.0/16 */
+            podCidr: string;
+            /** @default 10.96.0.0/12 */
+            serviceCidr: string;
+            /** @default enforce */
+            timeSyncCheck: components["schemas"]["TimeSyncCheck"];
+        };
         KubernetesPod: {
             containers: string[];
             name: string;
@@ -4589,15 +4517,6 @@ export interface components {
             /** @description The container the logs were read from. */
             container: string;
             logs: string;
-        };
-        KubernetesRoleAssignment: {
-            role: components["schemas"]["NodeRole"];
-            /**
-             * @description Valid only on a `control-plane` assignment; a worker always runs workloads.
-             * @default false
-             */
-            runWorkloads: boolean;
-            serverId: string;
         };
         /** @description A Secret's metadata; values are never returned. */
         KubernetesSecret: {
@@ -5104,6 +5023,11 @@ export interface components {
             /** @description The Swallow-managed Device Metrics Exporter; null when never installed (always for Kubernetes). */
             deviceMetricsExporter: components["schemas"]["PlatformDeviceMetricsExporter"] | null;
             exporterOwner: components["schemas"]["ExporterOwner"];
+            /**
+             * Format: int64
+             * @description The spec generation; 0 before the Platform has a spec.
+             */
+            generation: number;
             /** @description The operator's amdgpu driver intent; null when the deploy requested none. */
             gpuDriver: components["schemas"]["PlatformGPUDriver"] | null;
             /** @description The GRES type name a Slurm deploy gave every GPU node; null when it is derived per node from the GPU architecture (always for Kubernetes). */
@@ -5132,12 +5056,20 @@ export interface components {
             /** @description Whether a Slurm deploy installed the host MPI stack; false for Kubernetes. */
             pmix: boolean;
             siteId: string;
+            /** @description The desired state; null until the platform controller adopts a Platform deployed before Platforms had specs. */
+            spec: components["schemas"]["PlatformSpec"] | null;
+            status: components["schemas"]["PlatformStatus"];
             sync: components["schemas"]["PlatformMembershipSync"];
             type: components["schemas"]["PlatformType"];
             updatedAt: components["schemas"]["Timestamp"];
         };
-        /** @description A Kubernetes deploy (`type` omitted or `kubernetes`) or a Slurm deploy (`type: slurm`). */
-        PlatformDeployRequest: components["schemas"]["KubernetesDeployRequest"] | components["schemas"]["SlurmDeployRequest"];
+        PlatformCreate: {
+            /** @description Unique within the Site. */
+            name: string;
+            siteId: string;
+            spec: components["schemas"]["PlatformSpecInput"];
+            type: components["schemas"]["PlatformType"];
+        };
         /** @description The non-secret topology intent recovered from the latest deployment Workflow. */
         PlatformDeploymentIntent: {
             /** @description The Slurm login (submission) hosts; present only when the deploy assigned some. */
@@ -5186,10 +5118,10 @@ export interface components {
             version: string;
         };
         /**
-         * @description Platform Lifecycle State, derived by the API from durable Workflow history. `registered` is the one-release compatibility state of records created before registration was removed.
+         * @description Platform Lifecycle State, derived by the API from durable Workflow history. `planned` is a Platform created from its spec whose install waits on its Change Plan. `registered` is the one-release compatibility state of records created before registration was removed.
          * @enum {string}
          */
-        PlatformLifecycleState: "registered" | "deploying" | "deploy_failed" | "active" | "uninstalling" | "uninstall_failed" | "uninstalled";
+        PlatformLifecycleState: "registered" | "planned" | "deploying" | "deploy_failed" | "active" | "uninstalling" | "uninstall_failed" | "uninstalled";
         /** @description Whether the targets must already be deployed (`existing_os`) or the deploy provisions the `ready` ones first (`provision_os`). The provisioning fields follow the OS Deployment intent of provisioning.md and are read only in `provision_os` mode. */
         PlatformMachinePreparation: {
             /**
@@ -5227,6 +5159,11 @@ export interface components {
                 /** @description The user data for `replace`; never echoed. */
                 value?: string;
             };
+        };
+        /** @description One member and its roles in the type's vocabulary: `control-plane`, `worker`, and `workloads` (a control plane that also runs workloads) for Kubernetes; `controller`, `compute`, and `login` for Slurm. */
+        PlatformMember: {
+            roles: string[];
+            serverId: string;
         };
         /** @description The result of one membership read. */
         PlatformMembershipReport: {
@@ -5271,24 +5208,10 @@ export interface components {
             updatedAt: components["schemas"]["Timestamp"];
             version: string;
         };
-        /** @description One deployment target's recorded Node Role and workload placement. */
-        PlatformRoleAssignment: {
-            role: components["schemas"]["NodeRole"];
-            /** @description Whether a control-plane assignment also runs workloads; always false for a worker, which always runs workloads. */
-            runWorkloads: boolean;
-            serverId: string;
-        };
-        /**
-         * @description The kind of Platform.
-         * @enum {string}
-         */
-        PlatformType: "kubernetes" | "slurm";
-        /** @description The optional uninstall choices; every field defaults to false. */
-        PlatformUninstall: {
-            /** @description Cancel every unfinished Workflow holding a target, then accept the uninstall. */
+        /** @description The optional removal choices of a Delete; every field defaults to false. */
+        PlatformRemoval: {
+            /** @description Cancel every unfinished Workflow holding a member before the uninstall starts. */
             cancelActiveWorkflows?: boolean;
-            /** @description Also remove the Platform record once the uninstall succeeds. */
-            deleteRecord?: boolean;
             /** @description Erase and static-IP options of each release; ignored unless `releaseServers`. */
             releaseOptions?: {
                 erase?: boolean;
@@ -5296,9 +5219,72 @@ export interface components {
                 secureErase?: boolean;
                 unbindStaticIps?: boolean;
             };
-            /** @description Release every member Server to the provider in the same Workflow instead of removing the platform software first. */
+            /** @description Release every member Server to the provider in the uninstall Workflow instead of removing the platform software first. */
             releaseServers?: boolean;
         };
+        PlatformRemovalChoice: {
+            cancelActiveWorkflows: boolean;
+            erase: boolean;
+            quickErase: boolean;
+            releaseServers: boolean;
+            secureErase: boolean;
+            unbindStaticIps: boolean;
+        };
+        /** @description One deployment target's recorded Node Role and workload placement. */
+        PlatformRoleAssignment: {
+            role: components["schemas"]["NodeRole"];
+            /** @description Whether a control-plane assignment also runs workloads; always false for a worker, which always runs workloads. */
+            runWorkloads: boolean;
+            serverId: string;
+        };
+        /** @description The type's own fields: KubernetesPlatformSettings for `kubernetes`, SlurmPlatformSettings for `slurm`. */
+        PlatformSettings: {
+            [key: string]: unknown;
+        };
+        /** @description A Platform's desired state (platforms.md, Spec and status). Inline user data is never returned, only its mode. */
+        PlatformSpec: {
+            /** @enum {string} */
+            desired: "present" | "absent";
+            machinePreparation: components["schemas"]["PlatformMachinePreparation"] | null;
+            members: components["schemas"]["PlatformMember"][];
+            /** @description How an absent Platform's uninstall treats its members; null keeps them. */
+            removal: components["schemas"]["PlatformRemovalChoice"] | null;
+            settings: components["schemas"]["PlatformSettings"];
+        };
+        PlatformSpecChange: {
+            /**
+             * Format: int64
+             * @description The generation the spec was read at.
+             */
+            generation: number;
+            spec: components["schemas"]["PlatformSpecInput"];
+        };
+        /** @description A spec as a client writes it; the settings follow the Platform's type. */
+        PlatformSpecInput: {
+            machinePreparation?: components["schemas"]["PlatformMachinePreparation"];
+            members: components["schemas"]["PlatformMember"][];
+            settings: components["schemas"]["PlatformSettings"];
+        };
+        /** @description A written spec and the Change Plan it waits on, null when no approval is needed. */
+        PlatformSpecWrite: {
+            plan: components["schemas"]["ChangePlan"] | null;
+            platform: components["schemas"]["Platform"];
+        };
+        /** @description What swallow realized and judged for the spec: the generation the applied spec realized, the shared Conditions (`realized`, `drifted`), the applied spec, and the Workflow realizing a newer one. */
+        PlatformStatus: {
+            /** @description The spec the last successful Workflow realized; null before the first install. */
+            applied: components["schemas"]["PlatformSpec"] | null;
+            conditions: components["schemas"]["Condition"][];
+            /** Format: int64 */
+            observedGeneration: number;
+            /** @description The Workflow carrying out a newer generation, until it succeeds. */
+            realizingWorkflowId: string | null;
+        };
+        /**
+         * @description The kind of Platform.
+         * @enum {string}
+         */
+        PlatformType: "kubernetes" | "slurm";
         /** @description The mutable Platform fields; omitted (or null) fields do not change. There is no `integrationId`: a Platform's credential Integration is set only by its deployment. */
         PlatformUpdate: {
             exporterOwner?: components["schemas"]["ExporterOwner"];
@@ -5307,12 +5293,6 @@ export interface components {
             monitoringLinks?: components["schemas"]["PlatformMonitoringLink"][];
             /** @description Trimmed; must not be empty. */
             name?: string;
-        };
-        /** @description An accepted deployment or uninstall. `operationId` names the Workflow (the field keeps the deprecated Operation name). */
-        PlatformWorkflowAcceptance: {
-            /** @description The Workflow building or uninstalling the Platform. */
-            operationId: string;
-            platformId: string;
         };
         /** @description A swallow-owned, Site-scoped resource pool (glossary Pool) as a migrated resource, with the same shape and meaning as a Zone. */
         Pool: {
@@ -6010,44 +5990,6 @@ export interface components {
              */
             status: "up" | "down" | "unknown";
         };
-        /** @description Builds Slurm on the node assignments. An enabled `gpuOperator` is 400 (Slurm has no in-platform GPU operator). */
-        SlurmDeployRequest: {
-            containerRuntime?: components["schemas"]["SlurmContainerRuntime"];
-            /** @description Install AMD's Device Metrics Exporter on the GPU compute nodes; mutually exclusive with an enabled `omnistat`. */
-            deviceMetricsExporter?: components["schemas"]["SlurmMonitoringFeature"];
-            gpuDriver?: components["schemas"]["PlatformGPUDriver"];
-            /** @default provisioning */
-            gpuStackOwner: components["schemas"]["GPUStackOwner"];
-            machinePreparation?: components["schemas"]["PlatformMachinePreparation"];
-            /** @description Unique within the Site. */
-            name: string;
-            /** @description Install Omnistat; mutually exclusive with an enabled `deviceMetricsExporter`. */
-            omnistat?: components["schemas"]["SlurmMonitoringFeature"];
-            siteId: string;
-            slurm: components["schemas"]["SlurmDeploymentSpec"];
-            /** @default enforce */
-            timeSyncCheck: components["schemas"]["TimeSyncCheck"];
-            /** @enum {string} */
-            type: "slurm";
-        };
-        /** @description The Slurm topology and options; every field except `nodeAssignments` is optional. */
-        SlurmDeploymentSpec: {
-            /** @description The slurmrestd endpoint version recorded in the credential, for example `v0.0.42`. */
-            apiVersion?: string;
-            /** @description Defaults to a sanitized Platform name. */
-            clusterName?: string;
-            /** @description The GRES type of every GPU node; omitted derives it from the GPU architecture. */
-            gpuGresType?: string;
-            /** @description At least one controller and one compute Server; each Server once and with at least one role. The first controller is the primary. */
-            nodeAssignments: components["schemas"]["SlurmNodeAssignment"][];
-            /** @default false */
-            ociContainers: boolean;
-            /** @default false */
-            pmix: boolean;
-            /** @description Overrides the slurmctld state directory. */
-            stateSaveLocation?: string;
-            workloadStorage?: components["schemas"]["SlurmWorkloadStorage"];
-        };
         /** @description An optional Slurm monitoring feature; omitted or `enabled: false` installs nothing. */
         SlurmMonitoringFeature: {
             /** @default false */
@@ -6067,24 +6009,6 @@ export interface components {
             /** @description The collapsed scheduler state: a down, drain, or fail flag wins, otherwise the first flag (for example `idle`, `allocated`, `mixed`); `unknown` when Slurm reports none. */
             state: string;
         };
-        SlurmNodeAssignment: {
-            /**
-             * @description Runs slurmd.
-             * @default false
-             */
-            compute: boolean;
-            /**
-             * @description Runs slurmctld.
-             * @default false
-             */
-            controller: boolean;
-            /**
-             * @description A submission host that runs no cluster daemon.
-             * @default false
-             */
-            login: boolean;
-            serverId: string;
-        };
         SlurmPartition: {
             name: string;
             /** @description The configured node list, for example `compute[1-4]`. */
@@ -6092,6 +6016,36 @@ export interface components {
             /** @description The partition's state flags, lower-case and comma-separated. */
             state: string;
             totalNodes: number;
+        };
+        /** @description The settings of a Slurm Platform. `slurm.clusterName` cannot change after creation. An enabled `gpuOperator` is 400 (Slurm has no in-platform GPU operator). */
+        SlurmPlatformSettings: {
+            containerRuntime?: components["schemas"]["SlurmContainerRuntime"];
+            /** @description Install AMD's Device Metrics Exporter on the GPU compute nodes; mutually exclusive with an enabled `omnistat`. */
+            deviceMetricsExporter?: components["schemas"]["SlurmMonitoringFeature"];
+            gpuDriver?: components["schemas"]["PlatformGPUDriver"];
+            /** @default provisioning */
+            gpuStackOwner: components["schemas"]["GPUStackOwner"];
+            /** @description Install Omnistat; mutually exclusive with an enabled `deviceMetricsExporter`. */
+            omnistat?: components["schemas"]["SlurmMonitoringFeature"];
+            slurm?: components["schemas"]["SlurmSettings"];
+            /** @default enforce */
+            timeSyncCheck: components["schemas"]["TimeSyncCheck"];
+        };
+        /** @description The Slurm options; every field is optional. The members' roles are the topology: at least one controller and one compute member, and the first controller is the primary. */
+        SlurmSettings: {
+            /** @description The slurmrestd endpoint version recorded in the credential, for example `v0.0.42`. */
+            apiVersion?: string;
+            /** @description Defaults to a sanitized Platform name. */
+            clusterName?: string;
+            /** @description The GRES type of every GPU node; omitted derives it from the GPU architecture. */
+            gpuGresType?: string;
+            /** @default false */
+            ociContainers: boolean;
+            /** @default false */
+            pmix: boolean;
+            /** @description Overrides the slurmctld state directory. */
+            stateSaveLocation?: string;
+            workloadStorage?: components["schemas"]["SlurmWorkloadStorage"];
         };
         /** @description A shared filesystem for user and job data, mounted on every node. */
         SlurmWorkloadStorage: {
@@ -8488,6 +8442,37 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    createPlatform: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformCreate"];
+            };
+        };
+        responses: {
+            /** @description The Platform and the Change Plan that installs it. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSpecWrite"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     getPlatform: {
         parameters: {
             query?: never;
@@ -8517,7 +8502,10 @@ export interface operations {
     };
     deletePlatform: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Remove only the record, leaving the hosts as they are. */
+                recordOnly?: boolean;
+            };
             header?: never;
             path: {
                 /** @description The Platform's opaque id. */
@@ -8525,20 +8513,33 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PlatformRemoval"];
+            };
+        };
         responses: {
-            /** @description Done. */
-            200: {
+            /** @description The Platform marked absent and the Change Plan that uninstalls it. */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SuccessAcknowledgement"];
+                    "application/json": components["schemas"]["PlatformSpecWrite"];
                 };
             };
+            /** @description The Platform record is gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -8572,40 +8573,6 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    configureGPUOperator: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GPUOperatorChange"];
-            };
-        };
-        responses: {
-            /** @description The Workflow applying the change is persisted. */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GPUOperatorChangeAcceptance"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -9358,6 +9325,48 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    replacePlatformSpec: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform's opaque id. */
+                id: components["parameters"]["PlatformId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformSpecChange"];
+            };
+        };
+        responses: {
+            /** @description The Platform with its new spec; the controller converges it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSpecWrite"];
+                };
+            };
+            /** @description The Platform with its new spec and the Change Plan it waits on. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSpecWrite"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     syncPlatformMembership: {
         parameters: {
             query?: never;
@@ -9382,71 +9391,6 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    uninstallPlatform: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The Platform's opaque id. */
-                id: components["parameters"]["PlatformId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["PlatformUninstall"];
-            };
-        };
-        responses: {
-            /** @description The uninstall Workflow is persisted. */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PlatformWorkflowAcceptance"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    deployPlatform: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PlatformDeployRequest"];
-            };
-        };
-        responses: {
-            /** @description The Platform and the Workflow building it are persisted. */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PlatformWorkflowAcceptance"];
-                };
-            };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            503: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

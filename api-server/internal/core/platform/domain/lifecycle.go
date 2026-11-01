@@ -18,7 +18,10 @@ const (
 type PlatformLifecycleState string
 
 const (
-	PlatformLifecycleRegistered      PlatformLifecycleState = "registered"
+	PlatformLifecycleRegistered PlatformLifecycleState = "registered"
+	// PlatformLifecyclePlanned is a Platform created from its spec whose install waits on its
+	// Change Plan: no deploy Workflow exists yet.
+	PlatformLifecyclePlanned         PlatformLifecycleState = "planned"
 	PlatformLifecycleDeploying       PlatformLifecycleState = "deploying"
 	PlatformLifecycleDeployFailed    PlatformLifecycleState = "deploy_failed"
 	PlatformLifecycleActive          PlatformLifecycleState = "active"

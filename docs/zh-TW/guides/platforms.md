@@ -22,6 +22,10 @@ deployment workspace。兩者只共用 Server discovery 與 OS provisioning cont
 validation、features 與 review 仍依 Platform 類型設計。Optional capability 使用 Switch，
 topology 與 implementation mode 使用明確的 radio choice，Slurm node roles 則可各自複選。
 
+送出 wizard 會建立 Platform，並把安裝提成 [Change Plan](workflows.md#change-plans)：要在
+**Change Plans** 核准後才會安裝，在那之前 Platform 顯示 **Awaiting approval**。刪除這個狀態的
+Platform 會撤回 plan，不會動到任何主機。
+
 ## 時鐘檢查
 
 platform 的安裝 step（**Install k0s Platform** 或 **Install Slurm Platform**）在安裝任何東西前，會先
@@ -82,8 +86,9 @@ GPU 之後，佈署才算成功。選取的 workload 節點都沒有 AMD GPU 時
 文字原因。
 
 佈署完成後，Platform Overview 的 **AMD GPU Operator** 區塊會顯示狀態與設定，並提供
-**Install**、**Configure** 與 **Uninstall**。仍有 Pod 使用 AMD GPU 時，切換 Device Plugin 與 DRA
-或卸載都會被拒絕，請先停止那些工作。卸載 operator 不會影響 Platform 本身。swallow 不會
+**Install**、**Configure** 與 **Uninstall**。安裝會直接開始；調整或卸載運作中的 operator 會讓
+GPU workload 重啟，所以會先提成 Change Plan 待核准。仍有 Pod 使用 AMD GPU 時，切換 Device Plugin
+與 DRA 或卸載都會被拒絕，請先停止那些工作。卸載 operator 不會影響 Platform 本身。swallow 不會
 接管手動安裝的 operator。
 
 Device Metrics Exporter 供叢集自己的監控使用；swallow 的 GPU 圖表照舊讀取主機上的 exporter。
@@ -116,13 +121,14 @@ Platform detail 透過 Platform API 讀取 live Slurm state，並把 node 關聯
 ## Lifecycle
 
 - **Sync** refresh observed Platform membership／state。
-- **Uninstall** 從原始 target 移除 swallow-deployed runtime，並保留 Platform
-  record 供診斷。若仍有 workflow 佔著 Platform 的 Server（停在等待處理的失敗部署，或仍在進行的部署），
-  對話框會列出它並請你確認取消；uninstall 會在它結束後自動開始。
-- **Delete** 只移除 swallow record／projection，不等於 host-side uninstall。
+- **Uninstall** 把從原始 target 移除 swallow-deployed runtime 提成 Change Plan。核准後 swallow
+  執行 uninstall，成功後刪除 Platform record；uninstall 失敗時保留 record 供診斷。若仍有 workflow
+  佔著 Platform 的 Server（停在等待處理的失敗部署，或仍在進行的部署），對話框會列出它，並請你確認
+  在 uninstall 開始前由 swallow 取消它。
+- **Delete only** 只移除 swallow record／projection，不等於 host-side uninstall。
 - Bulk action 仍受每個 Platform 的 lifecycle gate 限制。
 
-每次 deployment／uninstall 都會建立 Workflow。失敗時請檢視 Task，在支援的最小
+每次核准的安裝或 uninstall 都會建立 Workflow。失敗時請檢視 Task，在支援的最小
 層級 retry，不要直接重建 Platform。
 
 精確 payload 與 lifecycle state 請見 active

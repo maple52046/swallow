@@ -4,16 +4,14 @@
  * summary (`usePlatformBulkActions`) so they never describe the same choice differently.
  *
  * The wording keeps the glossary distinction visible: Uninstall changes the original deployment
- * targets, Delete removes only the Swallow record, and an uninstall with `deleteRecord` deletes the
- * record only after the uninstall succeeds. "Forget" is a deprecated term and is never used.
+ * targets and waits on a Change Plan, after which the record is deleted, while "Delete only"
+ * removes only the Swallow record. "Forget" is a deprecated term and is never used.
  */
 
-/** The two choices that change what an uninstall request does. */
+/** The choice that changes what an uninstall does. */
 export interface PlatformUninstallChoice {
   /** Release every target to the provider instead of uninstalling the platform software. */
   releaseServers: boolean
-  /** Also delete the record once the uninstall succeeds (`deleteRecord`). */
-  deleteRecord: boolean
 }
 
 /** Tone, headline, and body of a consequence alert. */
@@ -24,9 +22,9 @@ export interface PlatformRemovalConsequence {
 }
 
 /**
- * The consequence of the Uninstall dialog's primary action (the record is kept). `scope` picks
- * singular wording for one Platform or plural wording for a bulk selection. The "… and delete
- * record" variant behind the submit chevron is explained by `platformUninstallDeleteHint`.
+ * The consequence of the Uninstall dialog's action. `scope` picks singular wording for one Platform
+ * or plural wording for a bulk selection. When the uninstall runs, and that the record follows, is
+ * explained by `platformUninstallDeleteHint`.
  */
 export function platformUninstallConsequence(releaseServers: boolean, scope: 'single' | 'bulk'): PlatformRemovalConsequence {
   const bulk = scope === 'bulk'
@@ -46,43 +44,28 @@ export function platformUninstallConsequence(releaseServers: boolean, scope: 'si
 }
 
 /**
- * Explains, next to the typed confirmation, the record choice the Uninstall dialog's submit button
- * offers: the primary part keeps the record, and the variant in its chevron menu deletes it only
- * after the operation succeeds. Without this the variant would be discoverable only by opening
- * the menu.
+ * Explains, next to the typed confirmation, that nothing changes until the Change Plan is
+ * approved and that the record is deleted once the uninstall succeeds.
  */
-export function platformUninstallDeleteHint(releaseServers: boolean, scope: 'single' | 'bulk', count = 1): string {
-  const primary = scope === 'bulk'
-    ? platformBulkUninstallConfirmLabel({ releaseServers, deleteRecord: false }, count)
-    : platformUninstallConfirmLabel({ releaseServers, deleteRecord: false })
-  const variant = scope === 'bulk'
-    ? platformBulkUninstallConfirmLabel({ releaseServers, deleteRecord: true }, count)
-    : platformUninstallConfirmLabel({ releaseServers, deleteRecord: true })
+export function platformUninstallDeleteHint(releaseServers: boolean, scope: 'single' | 'bulk'): string {
+  const step = releaseServers ? 'release' : 'uninstall'
   return scope === 'bulk'
-    ? `“${primary}” keeps the Swallow records. To also delete them, choose “${variant}” from the arrow next to that button: each record is deleted only after that Platform’s operation succeeds, and a failed or canceled operation keeps it.`
-    : `“${primary}” keeps the Swallow record. To also delete it, choose “${variant}” from the arrow next to that button: the record is deleted only after the operation succeeds, and a failed or canceled operation keeps it.`
+    ? `Each platform’s ${step} waits on a Change Plan you approve in Change Plans. Each Swallow record is deleted once that platform’s ${step} succeeds; a failed ${step} keeps it.`
+    : `The ${step} waits on a Change Plan you approve in Change Plans. The Swallow record is deleted once the ${step} succeeds; a failed ${step} keeps it.`
 }
 
 /** Submit label of the single-Platform Uninstall dialog. */
 export function platformUninstallConfirmLabel(choice: PlatformUninstallChoice): string {
-  if (choice.deleteRecord) return choice.releaseServers ? 'Release servers and delete record' : 'Uninstall and delete record'
-  return choice.releaseServers ? 'Release all servers' : 'Uninstall platform'
+  return choice.releaseServers ? 'Propose server release' : 'Propose uninstall'
 }
 
 /** Submit label of the bulk Uninstall dialog for `count` targeted Platforms. */
 export function platformBulkUninstallConfirmLabel(choice: PlatformUninstallChoice, count: number): string {
-  if (choice.deleteRecord) {
-    const records = plural(count, 'record')
-    return choice.releaseServers ? `Release servers, then delete ${count} ${records}` : `Uninstall, then delete ${count} ${records}`
-  }
   const platforms = plural(count, 'platform')
-  return choice.releaseServers ? `Release servers for ${count} ${platforms}` : `Uninstall software from ${count} ${platforms}`
+  return choice.releaseServers ? `Propose server release for ${count} ${platforms}` : `Propose uninstall for ${count} ${platforms}`
 }
 
-/**
- * Accessible name of the checkbox that consents to the backend canceling blocking Workflows. It
- * names only the host-side action, because the record choice is made later, on submit.
- */
+/** Accessible name of the checkbox that consents to the backend canceling blocking Workflows. */
 export function platformBlockingWorkflowsLabel(releaseServers: boolean, scope: 'single' | 'bulk'): string {
   const bulk = scope === 'bulk'
   const action = releaseServers
@@ -92,19 +75,13 @@ export function platformBlockingWorkflowsLabel(releaseServers: boolean, scope: '
 }
 
 /**
- * Success toast after the single-Platform uninstall request was accepted. The record is only
- * deleted later, when the uninstall succeeds, so the copy promises nothing about a failed run.
+ * Success toast after the single-Platform uninstall was proposed. Nothing changes until the plan
+ * is approved, and the record is deleted only when the uninstall succeeds.
  */
 export function platformUninstallAcceptedToast(choice: PlatformUninstallChoice, targets: string): { title: string; description: string } {
-  const released = `${capitalize(targets)} will be released directly to the provider.`
-  if (choice.deleteRecord) {
-    return choice.releaseServers
-      ? { title: 'Release and delete accepted', description: `${released} After every release succeeds, Swallow will delete the record; if the operation fails, the record will remain.` }
-      : { title: 'Uninstall and delete accepted', description: `Platform software will be removed from ${targets}. After the uninstall succeeds, Swallow will delete the record; if it fails, the record will remain.` }
-  }
   return choice.releaseServers
-    ? { title: 'Server release accepted', description: `${released} Platform software uninstall is skipped, and the Swallow record will be retained.` }
-    : { title: 'Platform uninstall accepted', description: `Platform software will be removed from ${targets}. The Swallow record will be retained.` }
+    ? { title: 'Server release proposed', description: `Approve the Change Plan to release ${targets} directly to the provider. The Swallow record is deleted after every release succeeds.` }
+    : { title: 'Uninstall proposed', description: `Approve the Change Plan to remove platform software from ${targets}. The Swallow record is deleted after the uninstall succeeds.` }
 }
 
 /**
@@ -114,11 +91,19 @@ export function platformUninstallAcceptedToast(choice: PlatformUninstallChoice, 
  *   through "Delete only…"; the warning points to Uninstall for host cleanup.
  * - `uninstalled`: the hosts were already cleaned; only the record is left.
  * - `external`: Swallow did not deploy it and cannot uninstall it.
+ * - `planned`: its install still waits on its Change Plan, so nothing was installed.
  */
-export type PlatformRecordDeleteContext = 'installed' | 'uninstalled' | 'external'
+export type PlatformRecordDeleteContext = 'installed' | 'uninstalled' | 'external' | 'planned'
 
 /** Consequence of the single-Platform record-only Delete for `context`. */
 export function platformRecordDeleteConsequence(context: PlatformRecordDeleteContext): PlatformRemovalConsequence {
+  if (context === 'planned') {
+    return {
+      status: 'warning',
+      title: 'Nothing was installed',
+      body: 'This Platform’s install still waits on its Change Plan. Swallow will withdraw that plan, release the Servers it claimed, and delete the record. Hosts were never changed.',
+    }
+  }
   if (context === 'uninstalled') {
     return {
       status: 'error',
@@ -148,31 +133,22 @@ export const PLATFORM_BULK_RECORD_DELETE_CONSEQUENCE: PlatformRemovalConsequence
 }
 
 /**
- * Toast title and description after every bulk uninstall request was accepted, or the
- * partial-failure title when some were refused. Each request is independent, so with
- * `deleteRecord` a record is still deleted only after its own uninstall succeeds.
+ * Toast title and description after every bulk uninstall was proposed, or the partial-failure
+ * title when some were refused. Each platform gets its own Change Plan.
  */
 export function platformBulkUninstallToast(choice: PlatformUninstallChoice, accepted: number): { title: string; partialTitle: string; description: string } {
-  const requests = plural(accepted, 'request')
-  if (!choice.deleteRecord) {
-    return choice.releaseServers
-      ? {
-          title: 'Bulk server release accepted',
-          partialTitle: 'Bulk server release partially accepted',
-          description: `${accepted} release ${requests} accepted. Servers will be released directly; the Swallow records will be retained.`,
-        }
-      : {
-          title: 'Bulk uninstall accepted',
-          partialTitle: 'Bulk uninstall partially accepted',
-          description: `${accepted} uninstall ${requests} accepted. Platform software will be removed; the Swallow records will be retained.`,
-        }
-  }
-  const step = choice.releaseServers ? 'release' : 'uninstall'
-  return {
-    title: choice.releaseServers ? 'Bulk release and delete accepted' : 'Bulk uninstall and delete accepted',
-    partialTitle: choice.releaseServers ? 'Bulk release and delete partially accepted' : 'Bulk uninstall and delete partially accepted',
-    description: `${accepted} ${step} ${requests} accepted. Each record will be deleted only after its ${step} succeeds; a failed ${step} keeps its record.`,
-  }
+  const plans = plural(accepted, 'Change Plan')
+  return choice.releaseServers
+    ? {
+        title: 'Bulk server release proposed',
+        partialTitle: 'Bulk server release partially proposed',
+        description: `${accepted} ${plans} proposed. Approve each in Change Plans to release its servers; each record is deleted after its release succeeds.`,
+      }
+    : {
+        title: 'Bulk uninstall proposed',
+        partialTitle: 'Bulk uninstall partially proposed',
+        description: `${accepted} ${plans} proposed. Approve each in Change Plans to remove its platform software; each record is deleted after its uninstall succeeds.`,
+      }
 }
 
 /** Toast copy after a bulk record-only Delete with `accepted` removed records. */
@@ -187,8 +163,4 @@ export function platformBulkDeleteToast(accepted: number): { title: string; part
 /** `word` pluralised with a trailing "s" for any count other than one. */
 export function plural(count: number, word: string): string {
   return count === 1 ? word : `${word}s`
-}
-
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1)
 }

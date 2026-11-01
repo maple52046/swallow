@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/convergence"
 	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
@@ -1615,4 +1617,89 @@ func serverStatusOf(item map[string]any) map[string]any {
 		panic(fmt.Sprintf("not a Server representation (no status block): %v", item))
 	}
 	return status
+}
+
+// WriteSpec implements platformdomain.PlatformSpecStore as a compare-and-set on the generation.
+func (r *fakePlatformRepo) WriteSpec(_ context.Context, id string, expected int64, spec platformdomain.PlatformSpec) (int64, error) {
+	platform, ok := r.platforms[id]
+	if !ok {
+		return 0, platformdomain.ErrPlatformNotFound
+	}
+	if platform.Generation != expected {
+		return 0, platformdomain.ErrGenerationConflict
+	}
+	stored := spec.Clone()
+	platform.Spec, platform.Generation = &stored, expected+1
+	return platform.Generation, nil
+}
+
+// WriteStatus implements platformdomain.PlatformSpecStore.
+func (r *fakePlatformRepo) WriteStatus(_ context.Context, id string, status platformdomain.PlatformStatus) error {
+	platform, ok := r.platforms[id]
+	if !ok {
+		return platformdomain.ErrPlatformNotFound
+	}
+	platform.Status = status
+	return nil
+}
+
+// fakeChangePlanRepo keeps Change Plans in memory, at most one unfinished per resource.
+type fakeChangePlanRepo struct{ plans []*convergence.ChangePlan }
+
+func (r *fakeChangePlanRepo) Create(_ context.Context, plan *convergence.ChangePlan) error {
+	if _, err := r.FindUnfinished(context.Background(), plan.Resource); err == nil {
+		return convergence.ErrChangePlanConflict
+	}
+	stored := *plan
+	r.plans = append(r.plans, &stored)
+	return nil
+}
+
+func (r *fakeChangePlanRepo) FindByID(_ context.Context, id string) (*convergence.ChangePlan, error) {
+	for _, plan := range r.plans {
+		if plan.ID == id {
+			copied := *plan
+			return &copied, nil
+		}
+	}
+	return nil, convergence.ErrChangePlanNotFound
+}
+
+func (r *fakeChangePlanRepo) FindUnfinished(_ context.Context, resource convergence.ResourceRef) (*convergence.ChangePlan, error) {
+	for _, plan := range r.plans {
+		if plan.Resource == resource && plan.State.Unfinished() {
+			copied := *plan
+			return &copied, nil
+		}
+	}
+	return nil, convergence.ErrChangePlanNotFound
+}
+
+func (r *fakeChangePlanRepo) List(_ context.Context, filter convergence.ChangePlanFilter) ([]*convergence.ChangePlan, error) {
+	var out []*convergence.ChangePlan
+	for _, plan := range r.plans {
+		if (filter.Resource == convergence.ResourceRef{} || plan.Resource == filter.Resource) &&
+			(len(filter.States) == 0 || slices.Contains(filter.States, plan.State)) {
+			copied := *plan
+			out = append(out, &copied)
+		}
+	}
+	return out, nil
+}
+
+func (r *fakeChangePlanRepo) ListExpired(context.Context, time.Time) ([]*convergence.ChangePlan, error) {
+	return nil, nil
+}
+
+func (r *fakeChangePlanRepo) Transition(_ context.Context, id string, from []convergence.ChangePlanState, to convergence.ChangePlanState, transition convergence.PlanTransition) error {
+	for _, plan := range r.plans {
+		if plan.ID == id {
+			if !slices.Contains(from, plan.State) {
+				return convergence.ErrChangePlanState
+			}
+			plan.State, plan.WorkflowID = to, transition.WorkflowID
+			return nil
+		}
+	}
+	return convergence.ErrChangePlanNotFound
 }

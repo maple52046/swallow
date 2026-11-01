@@ -70,8 +70,8 @@ export function PlatformUninstallChoices({
         onCheckedChange={onCancelBlockingChange}
       >
         {bulk
-          ? 'An uninstall is refused while another workflow holds its servers. Check the box to cancel them: each uninstall is accepted now and starts by itself once the canceled workflows have ended. A canceled OS deployment first returns the servers it was installing to Ready, which can take a few minutes; finished deployments are kept.'
-          : 'The uninstall is refused while another workflow holds the servers. Check the box to cancel it: the uninstall is accepted now and starts by itself once the canceled workflow has ended. A canceled OS deployment first returns the servers it was installing to Ready, which can take a few minutes; finished deployments are kept.'}
+          ? 'Another workflow still holds these servers. Check the box to have Swallow cancel those workflows when each approved plan starts its uninstall. A canceled OS deployment first returns the servers it was installing to Ready, which can take a few minutes; finished deployments are kept.'
+          : 'Another workflow still holds the servers. Check the box to have Swallow cancel it when the approved plan starts the uninstall. A canceled OS deployment first returns the servers it was installing to Ready, which can take a few minutes; finished deployments are kept.'}
       </BlockingWorkflowsNotice>
     </>
   )

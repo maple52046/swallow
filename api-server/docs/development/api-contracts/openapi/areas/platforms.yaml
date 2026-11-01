@@ -1,6 +1,6 @@
-# Swallow-deployed Kubernetes and Slurm Platforms: deployment, lifecycle, membership, the Slurm
-# deployment requirement, the GPU Operator, live Slurm state, and the live Kubernetes cluster
-# explorer. Behavior semantics live in platforms.md and platforms-kubernetes.md.
+# Swallow-deployed Kubernetes and Slurm Platforms: spec and status, lifecycle, membership, the
+# Slurm deployment requirement, the GPU Operator releases, live Slurm state, and the live
+# Kubernetes cluster explorer. Behavior semantics live in platforms.md and platforms-kubernetes.md.
 tags:
   - name: platforms
     description: >-
@@ -38,34 +38,32 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
-  /api/v1/platforms/deploy:
     post:
       tags: [platforms]
-      operationId: deployPlatform
-      summary: Create a Platform and start the Workflow that builds it.
+      operationId: createPlatform
+      summary: Create a Platform from its spec and propose its install as a Change Plan.
       description: >-
-        Requires the `admin` role. `type` selects the variant: `kubernetes` (the default when
-        omitted) starts a `deploy-kubernetes` Workflow that builds k0s, `slurm` starts a
-        `configure-slurm` Workflow. The Deployment Key check, validation, and the live target lock
-        preflight all finish before the Platform or the Workflow is created (platforms.md, Deploy A
-        New Platform). 400 for an invalid body, topology, target, network, or feature; 404 for an
-        unknown Site; 409 when the installation has no Deployment Key, a target is locked or held
-        by another Workflow, a custom image is not verified for the Deploy Target, a provision_os
-        deploy has no NTP server, or composed Managed Software conflicts; 503 when Site automation
-        is not configured or the release playbook is unavailable.
+        Requires the `admin` role. The spec is validated as a deployment would be (the Deployment
+        Key, topology, targets, network, and features) before anything is written; then the
+        Platform is stored at generation 1 with its members claimed, and its install waits on the
+        returned Change Plan (platforms.md, Create A Platform). Nothing touches a machine until the
+        plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404
+        for an unknown Site; 409 when the installation has no Deployment Key, the name is taken, or
+        a target is claimed, locked, or held by another Workflow; 503 when Site automation is not
+        configured.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PlatformDeployRequest'
+              $ref: '#/components/schemas/PlatformCreate'
       responses:
         '202':
-          description: The Platform and the Workflow building it are persisted.
+          description: The Platform and the Change Plan that installs it.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PlatformWorkflowAcceptance'
+                $ref: '#/components/schemas/PlatformSpecWrite'
         '400':
           $ref: '#/components/responses/Error'
         '401':
@@ -234,56 +232,37 @@ paths:
     delete:
       tags: [platforms]
       operationId: deletePlatform
-      summary: Remove a Platform record without touching its hosts.
+      summary: Declare a Platform absent, proposing its uninstall as a Change Plan.
       description: >-
-        Requires the `admin` role. Cancels the Platform's in-flight Workflows first, then clears
-        membership, Platform Claims, and a Swallow-owned credential Integration, and removes the
-        record. It never runs Ansible or changes hosts. 404 for an unknown Platform; a failed
-        cancellation refuses the Delete and keeps the record.
-      responses:
-        '200': &successAcknowledgement
-          description: Done.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessAcknowledgement'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-  /api/v1/platforms/{id}/uninstall:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    post:
-      tags: [platforms]
-      operationId: uninstallPlatform
-      summary: Start the Workflow that uninstalls a Swallow-deployed Platform from its targets.
-      description: >-
-        Requires the `admin` role. Starts `uninstall-kubernetes` or `uninstall-slurm` against the
-        complete target snapshot of the latest deployment and keeps the record unless
-        `deleteRecord` is true (platforms.md, Uninstall A Deployed Platform). The body is optional;
-        an empty body removes the platform software only. 400 for an unparsable body; 404 for an
-        unknown Platform; 409 for a registered Platform, a running or already successful
-        uninstall, a deployment still running (without `cancelActiveWorkflows`), or a missing,
-        absent, locked, or busy target; 503 when automation or durable orchestration is
-        unavailable.
+        Requires the `admin` role. Marks the spec absent with the optional removal choices and
+        proposes the uninstall as a Change Plan; the record is deleted once the uninstall succeeds
+        (platforms.md, Delete A Platform). A Platform whose install was never approved is deleted at
+        once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled,
+        then membership, Platform Claims, and a Swallow-owned credential Integration are cleared, and
+        hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no
+        spec yet.
+      parameters:
+        - name: recordOnly
+          in: query
+          required: false
+          description: Remove only the record, leaving the hosts as they are.
+          schema:
+            type: boolean
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PlatformUninstall'
+              $ref: '#/components/schemas/PlatformRemoval'
       responses:
         '202':
-          description: The uninstall Workflow is persisted.
+          description: The Platform marked absent and the Change Plan that uninstalls it.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PlatformWorkflowAcceptance'
+                $ref: '#/components/schemas/PlatformSpecWrite'
+        '204':
+          description: The Platform record is gone.
         '400':
           $ref: '#/components/responses/Error'
         '401':
@@ -294,7 +273,52 @@ paths:
           $ref: '#/components/responses/Error'
         '409':
           $ref: '#/components/responses/Error'
-        '503':
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/spec:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    put:
+      tags: [platforms]
+      operationId: replacePlatformSpec
+      summary: Replace a Platform's spec at the generation it was read.
+      description: >-
+        Requires the `admin` role. A non-destructive change (for example a new member) is written
+        and converged by the platform controller (200); a destructive one is written with a Change
+        Plan (202), which carries a blocker when swallow cannot carry the change out yet
+        (platforms.md, Change A Platform). An omitted user data value keeps the stored one. 400 for
+        an invalid body or spec; 404 for an unknown Platform; 409 when `generation` is no longer
+        current, an immutable field changes, a non-destructive change cannot be carried out yet,
+        the uninstall has started, the Platform has no spec yet, or a new member is claimed,
+        locked, or busy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformSpecChange'
+      responses:
+        '200':
+          description: The Platform with its new spec; the controller converges it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformSpecWrite'
+        '202':
+          description: The Platform with its new spec and the Change Plan it waits on.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformSpecWrite'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -354,48 +378,6 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
-  /api/v1/platforms/{id}/gpu-operator:
-    parameters:
-      - $ref: '#/components/parameters/PlatformId'
-    put:
-      tags: [platforms]
-      operationId: configureGPUOperator
-      summary: Install, change, or uninstall the Swallow-managed GPU Operator of a Kubernetes Platform.
-      description: >-
-        Requires the `admin` role. Replaces the settings and starts a `configure-gpu-operator`
-        Workflow; `enabled: false` uninstalls and keeps the other recorded settings
-        (platforms.md, Manage The GPU Operator). 400 for invalid settings; 404 for an unknown
-        Platform or when GPU Operator management is not wired; 409 when the Platform is not an
-        active Swallow-deployed Kubernetes Platform, an uninstall finds no managed operator, a
-        target is locked or held by another Workflow, or the installation has no Deployment Key.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/GPUOperatorChange'
-      responses:
-        '202':
-          description: The Workflow applying the change is persisted.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GPUOperatorChangeAcceptance'
-        '400':
-          $ref: '#/components/responses/Error'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        '409':
-          $ref: '#/components/responses/Error'
-        '503':
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-
   # Kubernetes cluster explorer (platforms-kubernetes.md). Every route reads or writes the
   # deployed cluster's own API on demand and persists nothing. The eligibility and cluster errors
   # are the same for every route: 404 for an unknown or non-Kubernetes Platform (or when the
@@ -597,7 +579,12 @@ paths:
         Requires the `admin` role. A system namespace (`kube-system`, `kube-public`,
         `kube-node-lease`) is refused with 409 before any cluster call.
       responses:
-        '200': *successAcknowledgement
+        '200': &successAcknowledgement
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessAcknowledgement'
         '400':
           $ref: '#/components/responses/Error'
         '401':
@@ -1139,9 +1126,10 @@ components:
     PlatformLifecycleState:
       type: string
       description: >-
-        Platform Lifecycle State, derived by the API from durable Workflow history. `registered` is
-        the one-release compatibility state of records created before registration was removed.
-      enum: [registered, deploying, deploy_failed, active, uninstalling, uninstall_failed, uninstalled]
+        Platform Lifecycle State, derived by the API from durable Workflow history. `planned` is a
+        Platform created from its spec whose install waits on its Change Plan. `registered` is the
+        one-release compatibility state of records created before registration was removed.
+      enum: [registered, planned, deploying, deploy_failed, active, uninstalling, uninstall_failed, uninstalled]
     NodeRole:
       type: string
       description: The part a Server plays in a Platform.
@@ -1226,6 +1214,9 @@ components:
         - ociContainers
         - pmix
         - sync
+        - generation
+        - spec
+        - status
         - createdAt
         - updatedAt
       properties:
@@ -1312,10 +1303,157 @@ components:
           description: Whether a Slurm deploy installed the host MPI stack; false for Kubernetes.
         sync:
           $ref: '#/components/schemas/PlatformMembershipSync'
+        generation:
+          type: integer
+          format: int64
+          description: The spec generation; 0 before the Platform has a spec.
+        spec:
+          nullable: true
+          description: >-
+            The desired state; null until the platform controller adopts a Platform deployed before
+            Platforms had specs.
+          allOf:
+            - $ref: '#/components/schemas/PlatformSpec'
+        status:
+          $ref: '#/components/schemas/PlatformStatus'
         createdAt:
           $ref: '#/components/schemas/Timestamp'
         updatedAt:
           $ref: '#/components/schemas/Timestamp'
+    PlatformSpec:
+      type: object
+      description: >-
+        A Platform's desired state (platforms.md, Spec and status). Inline user data is never
+        returned, only its mode.
+      required: [desired, members, settings, machinePreparation, removal]
+      properties:
+        desired:
+          type: string
+          enum: [present, absent]
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformMember'
+        settings:
+          $ref: '#/components/schemas/PlatformSettings'
+        machinePreparation:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/PlatformMachinePreparation'
+        removal:
+          nullable: true
+          description: How an absent Platform's uninstall treats its members; null keeps them.
+          allOf:
+            - $ref: '#/components/schemas/PlatformRemovalChoice'
+    PlatformMember:
+      type: object
+      description: >-
+        One member and its roles in the type's vocabulary: `control-plane`, `worker`, and
+        `workloads` (a control plane that also runs workloads) for Kubernetes; `controller`,
+        `compute`, and `login` for Slurm.
+      required: [serverId, roles]
+      properties:
+        serverId:
+          type: string
+        roles:
+          type: array
+          minItems: 1
+          items:
+            type: string
+    PlatformSettings:
+      type: object
+      additionalProperties: true
+      description: >-
+        The type's own fields: KubernetesPlatformSettings for `kubernetes`, SlurmPlatformSettings
+        for `slurm`.
+    PlatformRemovalChoice:
+      type: object
+      required: [releaseServers, erase, secureErase, quickErase, unbindStaticIps, cancelActiveWorkflows]
+      properties:
+        releaseServers:
+          type: boolean
+        erase:
+          type: boolean
+        secureErase:
+          type: boolean
+        quickErase:
+          type: boolean
+        unbindStaticIps:
+          type: boolean
+        cancelActiveWorkflows:
+          type: boolean
+    PlatformStatus:
+      type: object
+      description: >-
+        What swallow realized and judged for the spec: the generation the applied spec realized,
+        the shared Conditions (`realized`, `drifted`), the applied spec, and the Workflow realizing a
+        newer one.
+      required: [observedGeneration, conditions, applied, realizingWorkflowId]
+      properties:
+        observedGeneration:
+          type: integer
+          format: int64
+        conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Condition'
+        applied:
+          nullable: true
+          description: The spec the last successful Workflow realized; null before the first install.
+          allOf:
+            - $ref: '#/components/schemas/PlatformSpec'
+        realizingWorkflowId:
+          type: string
+          nullable: true
+          description: The Workflow carrying out a newer generation, until it succeeds.
+    PlatformSpecInput:
+      type: object
+      description: A spec as a client writes it; the settings follow the Platform's type.
+      required: [members, settings]
+      properties:
+        members:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/PlatformMember'
+        settings:
+          $ref: '#/components/schemas/PlatformSettings'
+        machinePreparation:
+          $ref: '#/components/schemas/PlatformMachinePreparation'
+    PlatformCreate:
+      type: object
+      required: [siteId, name, type, spec]
+      properties:
+        siteId:
+          type: string
+        name:
+          type: string
+          description: Unique within the Site.
+        type:
+          $ref: '#/components/schemas/PlatformType'
+        spec:
+          $ref: '#/components/schemas/PlatformSpecInput'
+    PlatformSpecChange:
+      type: object
+      required: [generation, spec]
+      properties:
+        generation:
+          type: integer
+          format: int64
+          description: The generation the spec was read at.
+        spec:
+          $ref: '#/components/schemas/PlatformSpecInput'
+    PlatformSpecWrite:
+      type: object
+      description: A written spec and the Change Plan it waits on, null when no approval is needed.
+      required: [platform, plan]
+      properties:
+        platform:
+          $ref: '#/components/schemas/Platform'
+        plan:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ChangePlan'
     PlatformDeploymentIntent:
       type: object
       description: The non-secret topology intent recovered from the latest deployment Workflow.
@@ -1504,18 +1642,6 @@ components:
         matchedCount:
           type: integer
           description: How many reported members matched a Server.
-    PlatformWorkflowAcceptance:
-      type: object
-      description: >-
-        An accepted deployment or uninstall. `operationId` names the Workflow (the field keeps the
-        deprecated Operation name).
-      required: [platformId, operationId]
-      properties:
-        platformId:
-          type: string
-        operationId:
-          type: string
-          description: The Workflow building or uninstalling the Platform.
     PlatformMembershipReport:
       type: object
       description: The result of one membership read.
@@ -1563,14 +1689,14 @@ components:
           maxItems: 10
           items:
             $ref: '#/components/schemas/PlatformMonitoringLink'
-    PlatformUninstall:
+    PlatformRemoval:
       type: object
-      description: The optional uninstall choices; every field defaults to false.
+      description: The optional removal choices of a Delete; every field defaults to false.
       properties:
         releaseServers:
           type: boolean
           description: >-
-            Release every member Server to the provider in the same Workflow instead of removing
+            Release every member Server to the provider in the uninstall Workflow instead of removing
             the platform software first.
         releaseOptions:
           type: object
@@ -1586,33 +1712,16 @@ components:
               type: boolean
         cancelActiveWorkflows:
           type: boolean
-          description: Cancel every unfinished Workflow holding a target, then accept the uninstall.
-        deleteRecord:
-          type: boolean
-          description: Also remove the Platform record once the uninstall succeeds.
+          description: Cancel every unfinished Workflow holding a member before the uninstall starts.
 
-    PlatformDeployRequest:
-      description: >-
-        A Kubernetes deploy (`type` omitted or `kubernetes`) or a Slurm deploy (`type: slurm`).
-      oneOf:
-        - $ref: '#/components/schemas/KubernetesDeployRequest'
-        - $ref: '#/components/schemas/SlurmDeployRequest'
-    KubernetesDeployRequest:
+    KubernetesPlatformSettings:
       type: object
       description: >-
-        Builds k0s on the role assignments. The Slurm-only features are refused: an enabled
-        `omnistat` or `deviceMetricsExporter`, or a `containerRuntime` kind, is 400.
-      required: [siteId, name, k0sVersion, roleAssignments]
+        The settings of a Kubernetes Platform. `podCidr`, `serviceCidr`, `apiVip`, and
+        `apiVipPrefix` cannot change after creation; changing `k0sVersion`, `gpuStackOwner`, or
+        `gpuDriver` is not carried out yet.
+      required: [k0sVersion]
       properties:
-        siteId:
-          type: string
-        name:
-          type: string
-          description: Unique within the Site.
-        type:
-          type: string
-          enum: [kubernetes]
-          default: kubernetes
         gpuStackOwner:
           allOf:
             - $ref: '#/components/schemas/GPUStackOwner'
@@ -1642,44 +1751,16 @@ components:
           description: >-
             The VIP's prefix length; for high availability it must equal the control-plane
             subnet's prefix and defaults to it (24 when the provisioner reports no subnet).
-        roleAssignments:
-          type: array
-          minItems: 1
-          items:
-            $ref: '#/components/schemas/KubernetesRoleAssignment'
-        machinePreparation:
-          $ref: '#/components/schemas/PlatformMachinePreparation'
         timeSyncCheck:
           allOf:
             - $ref: '#/components/schemas/TimeSyncCheck'
           default: enforce
-    KubernetesRoleAssignment:
-      type: object
-      required: [serverId, role]
-      properties:
-        serverId:
-          type: string
-        role:
-          $ref: '#/components/schemas/NodeRole'
-        runWorkloads:
-          type: boolean
-          default: false
-          description: Valid only on a `control-plane` assignment; a worker always runs workloads.
-    SlurmDeployRequest:
+    SlurmPlatformSettings:
       type: object
       description: >-
-        Builds Slurm on the node assignments. An enabled `gpuOperator` is 400 (Slurm has no
-        in-platform GPU operator).
-      required: [siteId, name, type, slurm]
+        The settings of a Slurm Platform. `slurm.clusterName` cannot change after creation. An
+        enabled `gpuOperator` is 400 (Slurm has no in-platform GPU operator).
       properties:
-        siteId:
-          type: string
-        name:
-          type: string
-          description: Unique within the Site.
-        type:
-          type: string
-          enum: [slurm]
         gpuStackOwner:
           allOf:
             - $ref: '#/components/schemas/GPUStackOwner'
@@ -1687,7 +1768,7 @@ components:
         gpuDriver:
           $ref: '#/components/schemas/PlatformGPUDriver'
         slurm:
-          $ref: '#/components/schemas/SlurmDeploymentSpec'
+          $ref: '#/components/schemas/SlurmSettings'
         omnistat:
           allOf:
             - $ref: '#/components/schemas/SlurmMonitoringFeature'
@@ -1700,16 +1781,15 @@ components:
             with an enabled `omnistat`.
         containerRuntime:
           $ref: '#/components/schemas/SlurmContainerRuntime'
-        machinePreparation:
-          $ref: '#/components/schemas/PlatformMachinePreparation'
         timeSyncCheck:
           allOf:
             - $ref: '#/components/schemas/TimeSyncCheck'
           default: enforce
-    SlurmDeploymentSpec:
+    SlurmSettings:
       type: object
-      description: The Slurm topology and options; every field except `nodeAssignments` is optional.
-      required: [nodeAssignments]
+      description: >-
+        The Slurm options; every field is optional. The members' roles are the topology: at least
+        one controller and one compute member, and the first controller is the primary.
       properties:
         clusterName:
           type: string
@@ -1720,14 +1800,6 @@ components:
         stateSaveLocation:
           type: string
           description: Overrides the slurmctld state directory.
-        nodeAssignments:
-          type: array
-          minItems: 1
-          description: >-
-            At least one controller and one compute Server; each Server once and with at least one
-            role. The first controller is the primary.
-          items:
-            $ref: '#/components/schemas/SlurmNodeAssignment'
         workloadStorage:
           $ref: '#/components/schemas/SlurmWorkloadStorage'
         gpuGresType:
@@ -1740,24 +1812,6 @@ components:
         pmix:
           type: boolean
           default: false
-    SlurmNodeAssignment:
-      type: object
-      required: [serverId]
-      properties:
-        serverId:
-          type: string
-        controller:
-          type: boolean
-          default: false
-          description: Runs slurmctld.
-        compute:
-          type: boolean
-          default: false
-          description: Runs slurmd.
-        login:
-          type: boolean
-          default: false
-          description: A submission host that runs no cluster daemon.
     SlurmWorkloadStorage:
       type: object
       description: A shared filesystem for user and job data, mounted on every node.
@@ -1868,9 +1922,9 @@ components:
     GPUOperatorSettings:
       type: object
       description: >-
-        GPU Operator settings with a Kubernetes deploy; omitted or `enabled: false` installs no
-        operator.
-      properties: &gpuOperatorSettingsProperties
+        The GPU Operator settings of a Kubernetes Platform; omitted or `enabled: false` installs no
+        operator, and turning it off uninstalls it.
+      properties:
         enabled:
           type: boolean
           description: True installs or changes the operator; false installs nothing or uninstalls it.
@@ -1896,23 +1950,6 @@ components:
         metricsExporter:
           type: boolean
           default: false
-    GPUOperatorChange:
-      type: object
-      description: >-
-        The GPU Operator settings that replace the recorded ones. `enabled: false` uninstalls and
-        keeps the other recorded settings.
-      required: [enabled]
-      properties: *gpuOperatorSettingsProperties
-    GPUOperatorChangeAcceptance:
-      type: object
-      description: An accepted GPU Operator change.
-      required: [platformId, workflowId]
-      properties:
-        platformId:
-          type: string
-        workflowId:
-          type: string
-          description: The `configure-gpu-operator` Workflow applying the change.
     GPUOperatorReleaseCatalog:
       type: object
       required: [items]

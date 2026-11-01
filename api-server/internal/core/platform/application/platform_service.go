@@ -189,8 +189,14 @@ type PlatformItem struct {
 	OCIContainers bool             `json:"ociContainers"`
 	PMIx          bool             `json:"pmix"`
 	Sync          PlatformSyncItem `json:"sync"`
-	CreatedAt     string           `json:"createdAt"`
-	UpdatedAt     string           `json:"updatedAt"`
+	// Generation is the spec generation, 0 before the Platform has a spec; Spec is its desired state
+	// (null until the platform controller adopts a Platform deployed before specs existed) and
+	// Status what swallow realized and judged for it.
+	Generation int64              `json:"generation"`
+	Spec       *PlatformSpecItem  `json:"spec"`
+	Status     PlatformStatusItem `json:"status"`
+	CreatedAt  string             `json:"createdAt"`
+	UpdatedAt  string             `json:"updatedAt"`
 }
 
 // GPUDriverItem is the wire shape of a Platform's amdgpu driver intent (platforms.md, "GPU
@@ -691,6 +697,11 @@ func registeredLifecycle() platformdomain.LifecycleSnapshot {
 }
 
 func toPlatformItem(platform *platformdomain.Platform, lifecycle platformdomain.LifecycleSnapshot) PlatformItem {
+	if lifecycle.Deployment == nil && lifecycle.Uninstall == nil && platform.Spec != nil &&
+		platform.Spec.Desired == platformdomain.PlatformPresent && platform.Status.Applied == nil {
+		// Created from a spec, its install waits on the Change Plan.
+		lifecycle.Origin, lifecycle.State = platformdomain.PlatformOriginDeployed, platformdomain.PlatformLifecyclePlanned
+	}
 	return PlatformItem{
 		ID: platform.ID, SiteID: platform.SiteID, Name: platform.Name,
 		Type: string(platform.Type), IntegrationID: wire.String(platform.IntegrationID),
@@ -712,6 +723,7 @@ func toPlatformItem(platform *platformdomain.Platform, lifecycle platformdomain.
 			LastError:       wire.String(platform.Sync.LastError),
 			MemberCount:     platform.Sync.MemberCount, MatchedCount: platform.Sync.MatchedCount,
 		},
+		Generation: platform.Generation, Spec: ToPlatformSpecItem(platform.Spec), Status: toPlatformStatusItem(platform.Status),
 		CreatedAt: wire.Time(platform.CreatedAt), UpdatedAt: wire.Time(platform.UpdatedAt),
 	}
 }

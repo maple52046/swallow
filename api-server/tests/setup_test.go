@@ -13,12 +13,14 @@ import (
 
 	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
+	"github.com/maple52046/swallow/internal/core/convergence"
 	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
 	discoverydelivery "github.com/maple52046/swallow/internal/core/discovery/delivery"
 	monitoringapp "github.com/maple52046/swallow/internal/core/monitoring/application"
 	monitoringdelivery "github.com/maple52046/swallow/internal/core/monitoring/delivery"
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
 	platformdelivery "github.com/maple52046/swallow/internal/core/platform/delivery"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
 	provisioningdelivery "github.com/maple52046/swallow/internal/core/provisioning/delivery"
 	serverapp "github.com/maple52046/swallow/internal/core/server/application"
@@ -31,7 +33,9 @@ import (
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
+	kubernetesmodule "github.com/maple52046/swallow/modules/platform/kubernetes"
 	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
+	slurmmodule "github.com/maple52046/swallow/modules/platform/slurm"
 	"github.com/maple52046/swallow/modules/platform/slurm/slurmapi"
 )
 
@@ -171,8 +175,15 @@ func setupPlatform(t *testing.T) *platformFixture {
 	kubernetesExplorer := platformapp.NewKubernetesExplorerUseCase(platformRepo, lifecycle, kubernetesFactory, servers)
 	requirementService := platformapp.NewDeploymentRequirementService(requirementRepo)
 	platformHandler := platformdelivery.NewPlatformHandler(
-		platformService, membershipSync, deployService, uninstallService, slurmClusterRead,
-		kubernetesExplorer, requirementService)
+		platformService, membershipSync, slurmClusterRead, kubernetesExplorer, requirementService)
+	deployService.AttachRequestReader(platformdelivery.DeployInputFromRequest)
+	platformModules := map[platformdomain.PlatformType]platformdomain.PlatformModule{
+		platformdomain.PlatformTypeKubernetes: kubernetesmodule.Platform{}, platformdomain.PlatformTypeSlurm: slurmmodule.Platform{},
+	}
+	changePlans := convergence.NewChangePlanService(&storetest.Transactor{}, &fakeChangePlanRepo{}, nil, nil, 0,
+		platformapp.NewPlatformPlanner(platformRepo, lifecycle, deployService, uninstallService, nil, platformModules))
+	platformHandler.AttachSpecService(platformapp.NewPlatformSpecService(&storetest.Transactor{}, platformRepo, platformRepo, nil,
+		deployService, platformService, changePlans, nil, platformModules))
 
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
@@ -240,13 +251,13 @@ func setupPlatform(t *testing.T) *platformFixture {
 	platformGroup.Get("/deployment-requirements/slurm", platformHandler.GetSlurmDeploymentRequirement)
 	platformGroup.Put("/deployment-requirements/slurm", platformHandler.PutSlurmDeploymentRequirement)
 	platformGroup.Get("/", platformHandler.List)
-	platformGroup.Post("/deploy", platformHandler.Deploy)
+	platformGroup.Post("/", platformHandler.Create)
 	platformGroup.Post("/sync", platformHandler.SyncAllMembership)
 	platformGroup.Get("/:id", platformHandler.Get)
 	platformGroup.Patch("/:id", platformHandler.Update)
+	platformGroup.Put("/:id/spec", platformHandler.PutSpec)
 	platformGroup.Delete("/:id", platformHandler.Delete)
 	platformGroup.Post("/:id/sync", platformHandler.SyncMembership)
-	platformGroup.Post("/:id/uninstall", platformHandler.Uninstall)
 	platformGroup.Get("/:id/slurm", platformHandler.GetSlurmCluster)
 	platformGroup.Get("/:id/kubernetes", platformHandler.GetKubernetesCluster)
 	platformGroup.Get("/:id/kubernetes/nodes", platformHandler.ListKubernetesNodes)

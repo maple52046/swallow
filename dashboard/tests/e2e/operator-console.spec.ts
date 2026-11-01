@@ -1,5 +1,5 @@
 import { expect, test } from 'playwright/test'
-import { installApiFixtures } from './fixtures'
+import { installApiFixtures, approvePlatformInstall } from './fixtures'
 
 const visibleAppearance = (page: import('playwright/test').Page) => page.locator('button[aria-label^="Appearance:"]:visible')
 const visibleSiteScope = (page: import('playwright/test').Page) => page.locator('button[aria-label^="Site scope:"]:visible')
@@ -570,7 +570,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByLabel('API virtual IP')).toHaveValue('192.168.40.200')
     await next.click()
     await page.getByRole('button', { name: 'Deploy Kubernetes Platform' }).click()
-    await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
+    await approvePlatformInstall(page)
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
     await expect(page.getByRole('button', { name: 'View automation details' })).toBeVisible()
   })
@@ -643,7 +643,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('Included automatically for AMD GPU compute nodes as type mi308x_vf')).toBeVisible()
     await expect(page.getByText('pcie_p2p=0', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
-    await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
+    await approvePlatformInstall(page)
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
     expect(deployBody?.containerRuntime).toEqual({ kind: 'podman' })
     expect((deployBody?.slurm as { ociContainers?: boolean } | undefined)?.ociContainers).toBeUndefined()
@@ -699,7 +699,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByText('Docker CE on compute and login nodes')).toBeVisible()
     await expect(page.getByText('OpenMPI with srun --mpi=pmix_v5')).toBeVisible()
     await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
-    await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
+    await approvePlatformInstall(page)
     expect(deployBody?.containerRuntime).toEqual({ kind: 'docker-ce' })
     expect(deployBody?.deviceMetricsExporter).toEqual({ enabled: true, installMethod: 'container' })
     expect(deployBody?.omnistat).toBeUndefined()
@@ -1148,11 +1148,10 @@ test.describe('operator interactions', () => {
     await expect(confirmation).toBeFocused()
     await expect(dialog.locator('p').filter({ hasText: 'Targets: 3 original deployment targets' })).toBeVisible()
     await expect(dialog.getByText(/operating system, user data, and other installed packages remain/)).toBeVisible()
-    // The record choice lives on the submit: Uninstall keeps it, the chevron variant deletes it.
-    await expect(dialog.getByText(/“Uninstall platform” keeps the Swallow record\. To also delete it, choose “Uninstall and delete record”/)).toBeVisible()
-    const uninstall = dialog.getByRole('button', { name: 'Uninstall platform' })
+    // The uninstall waits on a Change Plan, after which the record goes too.
+    await expect(dialog.getByText(/The uninstall waits on a Change Plan you approve in Change Plans\. The Swallow record is deleted once the uninstall succeeds/)).toBeVisible()
+    const uninstall = dialog.getByRole('button', { name: 'Propose uninstall' })
     await expect(uninstall).toBeDisabled()
-    await expect(dialog.getByRole('button', { name: 'More uninstall options' })).toBeDisabled()
     await confirmation.fill('wrong-name')
     await expect(uninstall).toBeDisabled()
     await confirmation.fill('production-k0s')
@@ -1162,10 +1161,10 @@ test.describe('operator interactions', () => {
     await expect(uninstall).toBeDisabled()
     await dialog.getByLabel('Cancel these workflows, then uninstall').locator('..').click()
     await uninstall.click()
-    await expect(page).toHaveURL('/workflows/op-uninstall?site=site-a')
-    await expect(page.getByText('Platform uninstall accepted')).toBeVisible()
-    await expect(page.getByText(/The Swallow record will be retained\. It starts once the canceled workflows have ended/)).toBeVisible()
-    // A plain uninstall never asks the backend to delete the record.
+    await expect(page).toHaveURL('/change-plans?site=site-a')
+    await expect(page.getByText('Uninstall proposed')).toBeVisible()
+    await expect(page.getByText(/Approve the Change Plan to remove platform software from 3 original deployment targets\. The Swallow record is deleted after the uninstall succeeds/)).toBeVisible()
+    // The body carries only the removal choices.
     expect(uninstalls.map((request) => request.platformId)).toEqual(['platform-a'])
     expect(uninstalls[0].body).not.toHaveProperty('deleteRecord')
 
@@ -1188,7 +1187,7 @@ test.describe('operator interactions', () => {
     expect(uninstalls).toHaveLength(1)
   })
 
-  test('Uninstall can also delete the record, which the backend does only after success', async ({ page }) => {
+  test('An uninstall proposes a Change Plan that waits for approval', async ({ page }) => {
     const uninstalls: Array<{ platformId: string; body: Record<string, unknown> | null }> = []
     await installApiFixtures(page, {
       onPlatformUninstallRequest: (platformId, body) => uninstalls.push({ platformId, body }),
@@ -1196,18 +1195,18 @@ test.describe('operator interactions', () => {
     await page.goto('/platforms/platform-a?site=site-a')
     await page.getByRole('button', { name: 'Uninstall platform', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
-    await expect(dialog.getByText(/the record is deleted only after the operation succeeds, and a failed or canceled operation keeps it/)).toBeVisible()
     await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
     await dialog.getByLabel('Cancel these workflows, then uninstall').locator('..').click()
-    // The variant sits behind the submit chevron, inside the dialog, and submits directly.
-    await dialog.getByRole('button', { name: 'More uninstall options' }).click()
-    await dialog.getByRole('menuitem', { name: 'Uninstall and delete record' }).click()
+    await dialog.getByRole('button', { name: 'Propose uninstall' }).click()
 
-    await expect(page).toHaveURL('/workflows/op-uninstall?site=site-a')
-    await expect(page.getByText('Uninstall and delete accepted')).toBeVisible()
+    await expect(page).toHaveURL('/change-plans?site=site-a')
+    // The new plan leads the waiting plans; the fixture's applied plan for platform-a is further down.
+    const plan = page.getByRole('article', { name: 'Change Plan for Platform platform-a' }).first()
+    await expect(plan).toContainText('uninstall')
+    await expect(plan.getByRole('button', { name: 'Approve plan' })).toBeEnabled()
     expect(uninstalls).toEqual([{
       platformId: 'platform-a',
-      body: expect.objectContaining({ releaseServers: false, cancelActiveWorkflows: true, deleteRecord: true }),
+      body: expect.objectContaining({ releaseServers: false, cancelActiveWorkflows: true }),
     }])
   })
 
@@ -1265,10 +1264,10 @@ test.describe('operator interactions', () => {
     await dialog.getByLabel('Remove static IP bindings after release').locator('..').click()
     await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
     await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
-    await dialog.getByRole('button', { name: 'Release all servers' }).click()
+    await dialog.getByRole('button', { name: 'Propose server release' }).click()
 
-    await expect(page).toHaveURL('/workflows/op-uninstall?site=site-a')
-    await expect(page.getByText('Server release accepted')).toBeVisible()
+    await expect(page).toHaveURL('/change-plans?site=site-a')
+    await expect(page.getByText('Server release proposed')).toBeVisible()
     await expect.poll(() => uninstalls.length).toBe(1)
     expect(uninstalls[0]).toEqual({
       platformId: 'platform-a',
@@ -1302,13 +1301,13 @@ test.describe('operator interactions', () => {
     await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy edge-staging k0s platform')
     await dialog.getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
     await dialog.getByLabel('Platform name confirmation').fill('edge-staging')
-    const release = dialog.getByRole('button', { name: 'Release all servers' })
+    const release = dialog.getByRole('button', { name: 'Propose server release' })
     await expect(release).toBeDisabled()
     await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
     await release.click()
 
     await expect(dialog).toBeHidden({ timeout: 2_000 })
-    await expect(page).toHaveURL('/workflows/op-uninstall?site=site-a')
+    await expect(page).toHaveURL('/change-plans?site=site-a')
     expect(uninstalls).toEqual([{ platformId: 'platform-b', body: expect.objectContaining({ releaseServers: true, cancelActiveWorkflows: true }) }])
     expect(superseded).toEqual(['op-deploy-failed'])
     expect(browserCancels).toEqual([])
@@ -1321,7 +1320,7 @@ test.describe('operator interactions', () => {
     const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
     await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy production k0s platform')
     await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
-    await expect(dialog.getByRole('button', { name: 'Uninstall platform' })).toBeDisabled()
+    await expect(dialog.getByRole('button', { name: 'Propose uninstall' })).toBeDisabled()
   })
 
   test('Bulk uninstall names the Workflows holding the selected Platforms and sends the cancel', async ({ page }) => {
@@ -1337,14 +1336,14 @@ test.describe('operator interactions', () => {
     await expect(dialog.getByRole('list', { name: 'Platforms to uninstall' })).toHaveText('edge-staging')
     await expect(dialog.getByRole('list', { name: "Workflows holding the selected platforms' servers" })).toContainText('Deploy edge-staging k0s platform')
     await dialog.getByLabel('Type uninstall to confirm').fill('uninstall')
-    const submit = dialog.getByRole('button', { name: 'Uninstall software from 1 platform' })
+    const submit = dialog.getByRole('button', { name: 'Propose uninstall for 1 platform' })
     await expect(submit).toBeDisabled()
     await dialog.getByLabel('Cancel these workflows, then uninstall the selected platforms').locator('..').click()
     await submit.click()
     await expect(dialog).toBeHidden()
     expect(uninstalls).toEqual([{ platformId: 'platform-b', body: expect.objectContaining({ releaseServers: false, cancelActiveWorkflows: true }) }])
     expect(uninstalls[0].body).not.toHaveProperty('deleteRecord')
-    await expect(page.getByText('Bulk uninstall accepted')).toBeVisible()
+    await expect(page.getByText('Bulk uninstall proposed')).toBeVisible()
   })
 
   test('Bulk removal of a mixed selection uninstalls the eligible Platforms and deletes records separately', async ({ page }) => {
@@ -1354,8 +1353,9 @@ test.describe('operator interactions', () => {
       onPlatformUninstallRequest: (platformId, body) => uninstalls.push({ platformId, body }),
     })
     page.on('request', (request) => {
-      const match = new URL(request.url()).pathname.match(/^\/api\/v1\/platforms\/([^/]+)$/)
-      if (match && request.method() === 'DELETE') deletes.push(match[1])
+      const url = new URL(request.url())
+      const match = url.pathname.match(/^\/api\/v1\/platforms\/([^/]+)$/)
+      if (match && request.method() === 'DELETE' && url.searchParams.get('recordOnly') === 'true') deletes.push(match[1])
     })
     await page.goto('/platforms?site=site-a')
     const table = page.getByRole('table', { name: 'Platforms' })
@@ -1377,15 +1377,14 @@ test.describe('operator interactions', () => {
     await expect(dialog.getByRole('list', { name: 'Platforms to uninstall' })).toHaveText('edge-staging')
     await expect(dialog.getByRole('list', { name: 'Platforms skipped by uninstall' }))
       .toHaveText('research-slurm — Externally registered platforms can only be deleted.')
-    await expect(dialog.getByText(/each record is deleted only after that Platform’s operation succeeds/)).toBeVisible()
+    await expect(dialog.getByText(/Each Swallow record is deleted once that platform’s uninstall succeeds/)).toBeVisible()
     await dialog.getByLabel('Type uninstall to confirm').fill('uninstall')
     await dialog.getByLabel('Cancel these workflows, then uninstall the selected platforms').locator('..').click()
-    await dialog.getByRole('button', { name: 'More uninstall options' }).click()
-    await dialog.getByRole('menuitem', { name: 'Uninstall, then delete 1 record' }).click()
+    await dialog.getByRole('button', { name: 'Propose uninstall for 1 platform' }).click()
     await expect(dialog).toBeHidden()
-    expect(uninstalls).toEqual([{ platformId: 'platform-b', body: expect.objectContaining({ deleteRecord: true, cancelActiveWorkflows: true }) }])
+    expect(uninstalls).toEqual([{ platformId: 'platform-b', body: expect.objectContaining({ cancelActiveWorkflows: true }) }])
     expect(deletes).toEqual([])
-    await expect(page.getByText('Bulk uninstall and delete accepted')).toBeVisible()
+    await expect(page.getByText('Bulk uninstall proposed')).toBeVisible()
 
     // The accepted Platform left the selection; the skipped one stays for a follow-up Delete,
     // which is now the only removal left, so it is a single button without a chevron.

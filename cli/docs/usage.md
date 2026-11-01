@@ -474,12 +474,12 @@ swallow provisioning tasks get task1
 swallow provisioning tasks retry task1
 ```
 
-A Server that a Platform's deployment claims (its `platformClaim`) cannot be released directly,
-and a deployed one cannot be recovered, even with `--cancel-active-workflows`; nor can
-`swallow servers delete` delete it. The CLI names the Platform and the next step: release a
-Platform's Servers through `swallow platforms uninstall <platformId> -f body.yaml` with
-`releaseServers: true`. A claimed Server can be deleted once that uninstall succeeds or the
-Platform's record is deleted (`swallow platforms delete <platformId>`).
+A Server that a Platform claims (its `platformClaim`) cannot be released directly, and a deployed
+one cannot be recovered, even with `--cancel-active-workflows`; nor can `swallow servers delete`
+delete it. The CLI names the Platform and the next step: release a Platform's Servers through
+`swallow platforms delete <platformId> --release-servers`. A claimed Server can be deleted once
+that uninstall succeeds or the Platform's record is deleted
+(`swallow platforms delete <platformId> --record-only`).
 
 `metadata.yaml`: `{ name: "Golden Ubuntu", osSystem: "Ubuntu LTS", release: "22.04", tags: ["gpu","ml"], defaultUser: "ubuntu" }`
 
@@ -557,12 +557,14 @@ swallow infrastructure pools create -f pool.yaml
 ```bash
 swallow platforms list --site-id site1
 swallow platforms get plat1
-swallow platforms deploy -f platform-k8s.yaml
+swallow platforms create -f platform-k8s.yaml        # prints the platform and its install Change Plan
+swallow plans approve <planId>                        # the platform controller then builds it
+swallow platforms set-spec plat1 -f spec-change.yaml  # { generation, spec }; a new member converges at once
 swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, exporterOwner, monitoringLinks
-swallow platforms delete plat1
-swallow platforms uninstall plat1                     # software only
-swallow platforms uninstall plat1 -f uninstall.yaml   # { releaseServers, releaseOptions }
-swallow platforms uninstall plat1 --cancel-active-workflows   # also cancel a failed or running deployment holding the servers
+swallow platforms delete plat1                        # proposes the uninstall (software only)
+swallow platforms delete plat1 --release-servers --erase   # the uninstall also releases the members
+swallow platforms delete plat1 --cancel-active-workflows   # also cancel a failed or running deployment holding the servers
+swallow platforms delete plat1 --record-only          # delete only the record; the hosts are left as they are
 swallow platforms sync plat1
 swallow platforms sync-all
 swallow platforms slurm plat1                         # live Slurm cluster state
@@ -573,18 +575,38 @@ swallow platforms gpu-operator set plat1 -f gpu-operator.yaml  # install or chan
 swallow platforms gpu-operator uninstall plat1                 # remove it; the platform keeps running
 ```
 
-`platform-k8s.yaml` (see [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md)):
+A platform is written as a spec: its members with their roles, the type's settings, and how members
+get an operating system. Creating a platform and destructive changes (changing or removing the GPU
+Operator, deleting the platform) answer with a Change Plan; nothing changes until
+`swallow plans approve` approves it. Adding a member converges at once. `platform-k8s.yaml` (see
+[platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md)):
 
 ```yaml
 siteId: site1
 name: lab-k0s
 type: kubernetes
-roleAssignments:
-  - { serverId: srva, role: control-plane, runWorkloads: true }
-  - { serverId: srvb, role: worker }
+spec:
+  members:
+    - { serverId: srva, roles: [control-plane, workloads] }
+    - { serverId: srvb, roles: [worker] }
+  settings:
+    k0sVersion: v1.36.3+k0s.2
 ```
 
-To install the AMD GPU Operator with the platform, add `gpuOperator` to the deploy file.
+`spec-change.yaml` adds a worker to it; `generation` is the one `swallow platforms get` shows:
+
+```yaml
+generation: 1
+spec:
+  members:
+    - { serverId: srva, roles: [control-plane, workloads] }
+    - { serverId: srvb, roles: [worker] }
+    - { serverId: srvc, roles: [worker] }
+  settings:
+    k0sVersion: v1.36.3+k0s.2
+```
+
+To install the AMD GPU Operator with the platform, add `gpuOperator` to the settings.
 `gpuStackOwner` is then derived and can be left out. This `platform-k8s-gpu.yaml` is the file
 of a lab run: three Servers get a fresh OS by DHCP on their boot interface, all are control
 plane and workload nodes, and the operator runs in Device Plugin mode on every node its Node
@@ -595,29 +617,31 @@ prefix of the control plane's subnet (here `/23`), the only prefix the deploy ac
 siteId: site1
 name: gpu-run3
 type: kubernetes
-k0sVersion: v1.36.3+k0s.2
-podCidr: 172.21.0.0/20
-serviceCidr: 172.21.22.0/24
-apiVip: 10.170.168.13
-apiVipPrefix: 23
-roleAssignments:
-  - { serverId: srva, role: control-plane, runWorkloads: true }
-  - { serverId: srvb, role: control-plane, runWorkloads: true }
-  - { serverId: srvc, role: control-plane, runWorkloads: true }
-machinePreparation:
-  mode: provision_os
+spec:
+  members:
+    - { serverId: srva, roles: [control-plane, workloads] }
+    - { serverId: srvb, roles: [control-plane, workloads] }
+    - { serverId: srvc, roles: [control-plane, workloads] }
   settings:
-    imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-clock-index-fix-amdgpu31.50-maasga146-20261015
-    deployTarget: disk
-  network:
-    mode: dhcp
-    assignments:   # each Server's boot interface and subnet, from `swallow servers get`
-      - { serverId: srva, interfaceId: "131", subnetId: "1" }
-      - { serverId: srvb, interfaceId: "132", subnetId: "1" }
-      - { serverId: srvc, interfaceId: "133", subnetId: "1" }
-gpuOperator:
-  enabled: true
-  allocationMode: device-plugin   # or dra (Kubernetes 1.34 or later)
+    k0sVersion: v1.36.3+k0s.2
+    podCidr: 172.21.0.0/20
+    serviceCidr: 172.21.22.0/24
+    apiVip: 10.170.168.13
+    apiVipPrefix: 23
+    gpuOperator:
+      enabled: true
+      allocationMode: device-plugin   # or dra (Kubernetes 1.34 or later)
+  machinePreparation:
+    mode: provision_os
+    settings:
+      imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-clock-index-fix-amdgpu31.50-maasga146-20261015
+      deployTarget: disk
+    network:
+      mode: dhcp
+      assignments:   # each Server's boot interface and subnet, from `swallow servers get`
+        - { serverId: srva, interfaceId: "131", subnetId: "1" }
+        - { serverId: srvb, interfaceId: "132", subnetId: "1" }
+        - { serverId: srvc, interfaceId: "133", subnetId: "1" }
 ```
 
 The run then followed the deployment, switched the operator, removed it, and released the
@@ -625,21 +649,16 @@ Servers:
 
 ```bash
 swallow platforms gpu-operator releases
-swallow platforms deploy -f platform-k8s-gpu.yaml             # prints platformId and operationId
-swallow workflows get <operationId>
-swallow platforms gpu-operator set <platformId> -f gpu-operator.yaml
+swallow platforms create -f platform-k8s-gpu.yaml             # prints the platform and its plan
+swallow plans approve <planId>
+swallow platforms get <platformId>                            # status.realizingWorkflowId names the build
+swallow workflows get <workflowId>
+swallow platforms gpu-operator set <platformId> -f gpu-operator.yaml   # a change answers with a plan
+swallow plans approve <planId>
 swallow platforms gpu-operator uninstall <platformId>         # the platform stays active
-swallow platforms uninstall <platformId> -f uninstall.yaml
-swallow platforms delete <platformId>
-```
-
-`uninstall.yaml` releases the Servers instead of uninstalling the platform software:
-
-```yaml
-releaseServers: true
-releaseOptions:
-  erase: false
-  unbindStaticIps: false
+swallow plans approve <planId>
+swallow platforms delete <platformId> --release-servers       # releases the Servers instead of uninstalling the software
+swallow plans approve <planId>                                # the record is deleted once the uninstall succeeds
 ```
 
 `gpu-operator.yaml` changes the operator of a deployed platform; omitted fields take the
@@ -676,34 +695,37 @@ apt/yum repository instead. This `platform-slurm-omnistat.yaml` is the file of a
 siteId: site1
 name: omnistat-slurm-run1
 type: slurm
-containerRuntime:
-  kind: podman            # or docker-ce; omit for no runtime
-omnistat:
-  enabled: true
-  installMethod: container   # or native
-gpuDriver:                   # optional; topology rules already apply pcie_p2p=0 where needed
-  moduleOptions: {}
-slurm:
-  clusterName: omnistat-run1
-  gpuGresType: mi308x_vf     # optional; omit to use the GPU architecture (gfx942)
-  nodeAssignments:
-    - { serverId: srva, controller: true, compute: false, login: false }
-    - { serverId: srvb, controller: false, compute: true, login: false }
-    - { serverId: srvc, controller: false, compute: true, login: false }
-machinePreparation:
-  mode: provision_os
+spec:
+  members:
+    - { serverId: srva, roles: [controller] }
+    - { serverId: srvb, roles: [compute] }
+    - { serverId: srvc, roles: [compute] }
   settings:
-    imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-amdgpu31.50-slurm-26.05.4-maasga146-20261021
-    deployTarget: disk     # or ram
-  network:
-    mode: automatic
-    defaultGateway: false
-    assignments: []
+    containerRuntime:
+      kind: podman            # or docker-ce; omit for no runtime
+    omnistat:
+      enabled: true
+      installMethod: container   # or native
+    gpuDriver:                   # optional; topology rules already apply pcie_p2p=0 where needed
+      moduleOptions: {}
+    slurm:
+      clusterName: omnistat-run1
+      gpuGresType: mi308x_vf     # optional; omit to use the GPU architecture (gfx942)
+  machinePreparation:
+    mode: provision_os
+    settings:
+      imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-amdgpu31.50-slurm-26.05.4-maasga146-20261021
+      deployTarget: disk     # or ram
+    network:
+      mode: automatic
+      defaultGateway: false
+      assignments: []
 ```
 
 ```bash
-swallow platforms deploy -f platform-slurm-omnistat.yaml
-swallow workflows get <operationId>   # ensure-os, configure-slurm, configure-podman, configure-prometheus/-grafana, configure-omnistat
+swallow platforms create -f platform-slurm-omnistat.yaml
+swallow plans approve <planId>
+swallow workflows get <workflowId>    # ensure-os, configure-slurm, configure-podman, configure-prometheus/-grafana, configure-omnistat
 swallow platforms get <platformId>    # containerRuntime, omnistat.state, then the Omnistat Grafana link in monitoringLinks
 ```
 
@@ -719,20 +741,22 @@ capabilities and leaves how jobs run to the cluster's users) and `slurm.pmix: tr
 installs OpenMPI for `srun --mpi=pmix_v5`:
 
 ```yaml
-deviceMetricsExporter:
-  enabled: true
-  installMethod: native      # or container
-slurm:
-  clusterName: dme-run1
-  ociContainers: true
-  pmix: true
-  nodeAssignments:
-    - { serverId: srva, controller: true, compute: false, login: true }
-    - { serverId: srvb, controller: false, compute: true, login: false }
+spec:
+  members:
+    - { serverId: srva, roles: [controller, login] }
+    - { serverId: srvb, roles: [compute] }
+  settings:
+    deviceMetricsExporter:
+      enabled: true
+      installMethod: native      # or container
+    slurm:
+      clusterName: dme-run1
+      ociContainers: true
+      pmix: true
 ```
 
 ```bash
-swallow workflows get <operationId>   # ..., configure-prometheus/-grafana, configure-device-metrics-exporter
+swallow workflows get <workflowId>    # ..., configure-prometheus/-grafana, configure-device-metrics-exporter
 swallow platforms get <platformId>    # deviceMetricsExporter.state and .gpuIdentity, ociContainers, pmix
 ```
 

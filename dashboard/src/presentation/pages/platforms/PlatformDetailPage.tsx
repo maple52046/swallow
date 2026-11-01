@@ -454,6 +454,12 @@ function LifecycleNotice({
   ) : null
 
   switch (platform.lifecycleState) {
+    case 'planned':
+      return (
+        <Alert status="info" title="Install awaits approval">
+          Nothing is installed yet. Swallow builds {platform.name} once its Change Plan is approved in Change Plans.
+        </Alert>
+      )
     case 'deploying':
       return (
         <Alert status="info" title="Platform deployment is running">

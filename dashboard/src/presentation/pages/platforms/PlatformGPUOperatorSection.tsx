@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Button, HStack, Stack, Text } from '@chakra-ui/react'
+import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import {
   GPU_ALLOCATION_MODE_LABELS,
@@ -19,6 +20,7 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { DescriptionList } from '@/presentation/components/ui/description-list'
 import { Modal } from '@/presentation/components/ui/modal'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { GPUOperatorOptionsFields } from './GPUOperatorOptionsFields'
 import {
   gpuOperatorFormFromPlatform,
@@ -52,6 +54,8 @@ interface PlatformGPUOperatorSectionProps {
 export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpenWorkflow }: PlatformGPUOperatorSectionProps) {
   const { platforms } = useApp()
   const { showToast } = useToast()
+  const navigate = useNavigate()
+  const { scopedHref } = useSiteScope()
   const [dialog, setDialog] = useState<'configure' | 'uninstall' | null>(null)
   const [form, setForm] = useState<GPUOperatorFormValue | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -95,9 +99,15 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
     setSubmitting(true)
     setError('')
     try {
-      await platforms.configureGPUOperator(platform.id, settings)
-      showToast({ tone: 'success', title, description: 'The Platform shows the GPU Operator state while the workflow runs.' })
+      const written = await platforms.configureGPUOperator(platform.id, settings)
       setDialog(null)
+      if (written.planId) {
+        // Changing or removing the operator restarts GPU workloads, so it waits on approval.
+        showToast({ tone: 'success', title: 'GPU Operator change proposed', description: 'Approve its Change Plan in Change Plans to apply it.' })
+        navigate(scopedHref('/change-plans'))
+        return
+      }
+      showToast({ tone: 'success', title, description: 'The Platform shows the GPU Operator state while the workflow runs.' })
       onChanged()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not start the GPU Operator change.')

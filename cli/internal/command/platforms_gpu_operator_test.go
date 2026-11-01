@@ -11,8 +11,8 @@ import (
 )
 
 // TestGPUOperatorCommandsFollowTheContract checks each GPU Operator command against platforms.md
-// "Manage The GPU Operator": releases reads the catalog, set passes the settings file through as
-// the PUT body unchanged, and uninstall sends exactly {"enabled": false}.
+// "Manage The GPU Operator": releases reads the catalog, and set and uninstall read the Platform and
+// write its spec back with settings.gpuOperator replaced, at the generation they read.
 func TestGPUOperatorCommandsFollowTheContract(t *testing.T) {
 	type seen struct {
 		method, path string
@@ -26,7 +26,12 @@ func TestGPUOperatorCommandsFollowTheContract(t *testing.T) {
 		}
 		requests = append(requests, request)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"platformId":"plat-1","workflowId":"wf-1"}`))
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/platforms/plat-1" {
+			_, _ = w.Write([]byte(`{"generation":3,"spec":{"members":[{"serverId":"s1","roles":["control-plane","workloads"]}],` +
+				`"settings":{"k0sVersion":"v1.36.3+k0s.2"},"machinePreparation":null}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"platform":{},"plan":null}`))
 	})
 
 	settings := filepath.Join(t.TempDir(), "gpu-operator.yaml")
@@ -46,12 +51,20 @@ func TestGPUOperatorCommandsFollowTheContract(t *testing.T) {
 	run("set", "plat-1", "-f", settings)
 	run("uninstall", "plat-1")
 
+	members := []any{map[string]any{"serverId": "s1", "roles": []any{"control-plane", "workloads"}}}
+	specWith := func(operator map[string]any) map[string]any {
+		return map[string]any{"generation": float64(3), "spec": map[string]any{
+			"members": members, "settings": map[string]any{"k0sVersion": "v1.36.3+k0s.2", "gpuOperator": operator},
+		}}
+	}
 	want := []seen{
 		{method: "GET", path: "/api/v1/platforms/gpu-operator/releases"},
-		{method: "PUT", path: "/api/v1/platforms/plat-1/gpu-operator", body: map[string]any{
+		{method: "GET", path: "/api/v1/platforms/plat-1"},
+		{method: "PUT", path: "/api/v1/platforms/plat-1/spec", body: specWith(map[string]any{
 			"enabled": true, "allocationMode": "dra", "draDriverVersion": "v1.0.1",
-		}},
-		{method: "PUT", path: "/api/v1/platforms/plat-1/gpu-operator", body: map[string]any{"enabled": false}},
+		})},
+		{method: "GET", path: "/api/v1/platforms/plat-1"},
+		{method: "PUT", path: "/api/v1/platforms/plat-1/spec", body: specWith(map[string]any{"enabled": false})},
 	}
 	if !reflect.DeepEqual(requests, want) {
 		t.Errorf("requests = %+v, want %+v", requests, want)

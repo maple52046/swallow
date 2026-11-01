@@ -23,9 +23,19 @@ type platformSpecDoc struct {
 	Settings           string              `bson:"settings,omitempty"`
 	// SealedUserData is the machine preparation's inline cloud-init user data, sealed with the
 	// credential key because it may carry secrets; it never appears in MachinePreparation.
-	SealedUserData string `bson:"sealedUserData,omitempty"`
+	SealedUserData string              `bson:"sealedUserData,omitempty"`
+	Removal        *platformRemovalDoc `bson:"removal,omitempty"`
 	// userData is the plain user data between toSpecDoc and the repository sealing it.
 	userData string
+}
+
+type platformRemovalDoc struct {
+	ReleaseServers        bool `bson:"releaseServers"`
+	Erase                 bool `bson:"erase,omitempty"`
+	SecureErase           bool `bson:"secureErase,omitempty"`
+	QuickErase            bool `bson:"quickErase,omitempty"`
+	UnbindStaticIPs       bool `bson:"unbindStaticIps,omitempty"`
+	CancelActiveWorkflows bool `bson:"cancelActiveWorkflows,omitempty"`
 }
 
 type platformMemberDoc struct {
@@ -86,6 +96,13 @@ func toSpecDoc(spec *platformdomain.PlatformSpec) *platformSpecDoc {
 	preparation := toMachinePreparationJSON(spec.MachinePreparation)
 	preparation.Assignments = toAssignmentJSON(spec.MachinePreparation.Assignments)
 	doc.userData, preparation.UserData = preparation.UserData, ""
+	if removal := spec.Removal; removal != nil {
+		doc.Removal = &platformRemovalDoc{
+			ReleaseServers: removal.ReleaseServers, Erase: removal.ReleaseOptions.Erase, SecureErase: removal.ReleaseOptions.SecureErase,
+			QuickErase: removal.ReleaseOptions.QuickErase, UnbindStaticIPs: removal.ReleaseOptions.UnbindStaticIPs,
+			CancelActiveWorkflows: removal.CancelActiveWorkflows,
+		}
+	}
 	if raw, _ := json.Marshal(preparation); string(raw) != "{}" {
 		doc.MachinePreparation = string(raw)
 	}
@@ -102,6 +119,14 @@ func (d *platformSpecDoc) toDomain() *platformdomain.PlatformSpec {
 	}
 	if d.Settings != "" {
 		_ = json.Unmarshal([]byte(d.Settings), &spec.Settings)
+	}
+	if removal := d.Removal; removal != nil {
+		spec.Removal = &platformdomain.PlatformRemoval{
+			ReleaseServers: removal.ReleaseServers, CancelActiveWorkflows: removal.CancelActiveWorkflows,
+			ReleaseOptions: platformdomain.ServerReleaseOptions{
+				Erase: removal.Erase, SecureErase: removal.SecureErase, QuickErase: removal.QuickErase, UnbindStaticIPs: removal.UnbindStaticIPs,
+			},
+		}
 	}
 	if d.MachinePreparation != "" {
 		var preparation machinePreparationJSON

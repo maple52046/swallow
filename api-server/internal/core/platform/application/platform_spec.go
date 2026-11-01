@@ -28,7 +28,7 @@ var (
 	// ErrUnsupportedChange means a write asks for a non-destructive change swallow has no automation
 	// for yet (desired-state-model §5.2).
 	ErrUnsupportedChange = errors.New("swallow cannot carry out this platform change yet")
-	// ErrPlatformRemoving means the Platform is marked absent, so its spec no longer changes.
+	// ErrPlatformRemoving means the Platform's uninstall has started, so its spec no longer changes.
 	ErrPlatformRemoving = errors.New("platform is being removed")
 )
 
@@ -123,7 +123,7 @@ func (s *PlatformSpecService) Create(ctx context.Context, input CreatePlatformSp
 		if err := s.platforms.Create(ctx, platform); err != nil {
 			return err
 		}
-		plan, err = s.plans.Propose(ctx, platformRef(platform.ID), s.draft(platform.Generation, changes, nil))
+		plan, err = s.plans.Propose(ctx, platformRef(platform.ID), s.draft(platform.Generation, spec, changes, nil))
 		return err
 	})
 	if err != nil {
@@ -141,7 +141,7 @@ func (s *PlatformSpecService) UpdateSpec(ctx context.Context, platformID string,
 	if err != nil {
 		return nil, err
 	}
-	if platform.Spec.Desired == platformdomain.PlatformAbsent {
+	if realizing := platform.Status.Realizing; realizing != nil && realizing.Spec.Desired == platformdomain.PlatformAbsent {
 		return nil, ErrPlatformRemoving
 	}
 	if platform.Generation != expectedGeneration {
@@ -149,6 +149,11 @@ func (s *PlatformSpecService) UpdateSpec(ctx context.Context, platformID string,
 	}
 	spec := desired.Clone()
 	spec.Desired = platformdomain.PlatformPresent
+	if stored := platform.Spec.MachinePreparation; spec.MachinePreparation.UserData == "" &&
+		spec.MachinePreparation.UserDataMode != "" && spec.MachinePreparation.UserDataMode == stored.UserDataMode {
+		// A spec is read without its user data, so writing it back keeps the stored value.
+		spec.MachinePreparation.UserData = stored.UserData
+	}
 	changes, err := module.Changes(platform.Status.Applied, spec)
 	if err != nil {
 		return nil, err
@@ -168,10 +173,11 @@ func (s *PlatformSpecService) UpdateSpec(ctx context.Context, platformID string,
 	return s.write(ctx, platform, expectedGeneration, spec, changes, blocking)
 }
 
-// Delete declares a Platform absent. A Platform never deployed (its install still waits for
-// approval) is deleted at once, since no machine was touched; otherwise its uninstall is proposed
-// as a Change Plan, and the record is deleted once the uninstall succeeds.
-func (s *PlatformSpecService) Delete(ctx context.Context, platformID string) (*SpecWriteResult, error) {
+// Delete declares a Platform absent, removed as removal says. A Platform never deployed (its install
+// still waits for approval) is deleted at once, since no machine was touched; otherwise its
+// uninstall is proposed as a Change Plan, and the record is deleted once the uninstall succeeds.
+// Deleting a Platform already marked absent returns its waiting plan.
+func (s *PlatformSpecService) Delete(ctx context.Context, platformID string, removal *platformdomain.PlatformRemoval) (*SpecWriteResult, error) {
 	platform, module, err := s.specified(ctx, platformID)
 	if err != nil {
 		return nil, err
@@ -196,7 +202,7 @@ func (s *PlatformSpecService) Delete(ctx context.Context, platformID string) (*S
 		return result, nil
 	}
 	spec := platform.Spec.Clone()
-	spec.Desired = platformdomain.PlatformAbsent
+	spec.Desired, spec.Removal = platformdomain.PlatformAbsent, removal
 	changes, err := module.Changes(platform.Status.Applied, spec)
 	if err != nil {
 		return nil, err
@@ -231,7 +237,7 @@ func (s *PlatformSpecService) write(
 		if !destructive {
 			return s.withdraw(ctx, platform.ID, fmt.Sprintf("generation %d needs no approval", generation))
 		}
-		plan, err = s.plans.Propose(ctx, platformRef(platform.ID), s.draft(generation, changes, blocking))
+		plan, err = s.plans.Propose(ctx, platformRef(platform.ID), s.draft(generation, spec, changes, blocking))
 		return err
 	})
 	if err != nil {
@@ -260,8 +266,8 @@ func (s *PlatformSpecService) withdraw(ctx context.Context, platformID, reason s
 	return s.plans.Withdraw(ctx, platformRef(platformID), reason)
 }
 
-func (s *PlatformSpecService) draft(generation int64, changes platformdomain.PlatformChanges, blocking []string) convergence.PlanDraft {
-	return platformDraft(generation, s.now(), changes, blocking)
+func (s *PlatformSpecService) draft(generation int64, spec platformdomain.PlatformSpec, changes platformdomain.PlatformChanges, blocking []string) convergence.PlanDraft {
+	return platformDraft(generation, s.now(), spec, changes, blocking)
 }
 
 func (s *PlatformSpecService) module(platformType platformdomain.PlatformType) (platformdomain.PlatformModule, error) {
@@ -290,8 +296,18 @@ func (s *PlatformSpecService) specified(ctx context.Context, platformID string) 
 
 // platformDraft turns classified changes into a plan draft. Each action names the Platform, and the
 // destructive actions swallow cannot carry out yet are blockers.
-func platformDraft(generation int64, observedAt time.Time, changes platformdomain.PlatformChanges, blocking []string) convergence.PlanDraft {
+func platformDraft(generation int64, observedAt time.Time, spec platformdomain.PlatformSpec, changes platformdomain.PlatformChanges, blocking []string) convergence.PlanDraft {
 	draft := convergence.PlanDraft{Generation: generation, ObservedAt: observedAt}
+	if removal := spec.Removal; spec.Desired == platformdomain.PlatformAbsent && removal != nil && removal.ReleaseServers {
+		effect := "every member is released to the provisioner"
+		if removal.ReleaseOptions.Erase || removal.ReleaseOptions.SecureErase || removal.ReleaseOptions.QuickErase {
+			effect += " and its disks are erased"
+		}
+		draft.Effects = append(draft.Effects, effect)
+	}
+	if removal := spec.Removal; spec.Desired == platformdomain.PlatformAbsent && removal != nil && removal.CancelActiveWorkflows {
+		draft.Effects = append(draft.Effects, "unfinished Workflows holding the members are canceled first")
+	}
 	for _, action := range changes.Actions {
 		draft.Actions = append(draft.Actions, action)
 	}
@@ -378,11 +394,20 @@ func (p *PlatformPlanner) Plan(ctx context.Context, platformID string) (converge
 	if err != nil {
 		return convergence.PlanDraft{}, err
 	}
-	return platformDraft(platform.Generation, time.Now().UTC(), changes, nil), nil
+	return platformDraft(platform.Generation, time.Now().UTC(), *platform.Spec, changes, nil), nil
 }
 
-// Held reports whether a deploy or uninstall Workflow of the Platform is still running.
+// Held reports whether a deploy or uninstall Workflow of the Platform is still running; a removal
+// that cancels unfinished Workflows does not wait for a deployment.
 func (p *PlatformPlanner) Held(ctx context.Context, platformID string) (bool, error) {
+	if platform, err := p.platforms.FindByID(ctx, platformID); err == nil && platform.Spec != nil &&
+		platform.Spec.Desired == platformdomain.PlatformAbsent && platform.Spec.Removal != nil && platform.Spec.Removal.CancelActiveWorkflows {
+		snapshots, err := p.lifecycle.Read(ctx, []string{platformID})
+		if err != nil {
+			return false, err
+		}
+		return snapshots[platformID].State == platformdomain.PlatformLifecycleUninstalling, nil
+	}
 	snapshots, err := p.lifecycle.Read(ctx, []string{platformID})
 	if err != nil {
 		return false, err
@@ -401,9 +426,11 @@ func (p *PlatformPlanner) PrepareApply(ctx context.Context, plan *convergence.Ch
 	requestedBy := plan.DecidedBy
 	switch changes.Realization {
 	case platformdomain.RealizeUninstall:
-		return &platformApply{uninstall: &UninstallPlatformInput{
-			PlatformID: platform.ID, RequestedBy: requestedBy, DeleteRecord: true,
-		}}, nil
+		input := &UninstallPlatformInput{PlatformID: platform.ID, RequestedBy: requestedBy, DeleteRecord: true}
+		if removal := platform.Spec.Removal; removal != nil {
+			input.ReleaseServers, input.ReleaseOptions, input.CancelActiveWorkflows = removal.ReleaseServers, removal.ReleaseOptions, removal.CancelActiveWorkflows
+		}
+		return &platformApply{uninstall: input}, nil
 	case platformdomain.RealizeDeploy:
 		prepared, err := PrepareSpecDeployment(ctx, p.deploy, p.modules[platform.Type], platform, requestedBy)
 		if err != nil {

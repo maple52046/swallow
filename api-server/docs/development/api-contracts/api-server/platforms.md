@@ -15,9 +15,12 @@ Active
 
 ## Purpose
 
-Deploy Kubernetes (k0s) and Slurm platforms, read observed membership, uninstall
-Swallow-deployed platforms, and delete Swallow records. Swallow owns policy and durable
-lifecycle intent for the platforms it deploys. It does not own platform membership, and — per
+Create Kubernetes (k0s) and Slurm Platforms from a spec, change and delete them through that spec,
+read their status and observed membership, and remove Swallow records. A Platform is a
+desired-state resource ([desired-state-model §5.2](../../../../../docs/development/desired-state-model.md)):
+creating it and every destructive change wait on a [Change Plan](change-plans.md), and the
+worker's platform controller converges the rest. Swallow owns policy and durable lifecycle intent
+for the platforms it deploys. It does not own platform membership, and — per
 [decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) — it
 manages only self-deployed platforms: the public API no longer registers an existing platform.
 
@@ -45,22 +48,21 @@ apply, node cordon) is a separate live surface, [platforms-kubernetes.md](platfo
 
 ```text
 GET    /api/v1/platforms/
+POST   /api/v1/platforms/
 GET    /api/v1/platforms/deployment-requirements/slurm
 PUT    /api/v1/platforms/deployment-requirements/slurm
 GET    /api/v1/platforms/gpu-operator/releases
-POST   /api/v1/platforms/deploy
 GET    /api/v1/platforms/{platformId}
 PATCH  /api/v1/platforms/{platformId}
+PUT    /api/v1/platforms/{platformId}/spec
 DELETE /api/v1/platforms/{platformId}
-POST   /api/v1/platforms/{platformId}/uninstall
-PUT    /api/v1/platforms/{platformId}/gpu-operator
 POST   /api/v1/platforms/{platformId}/sync
 POST   /api/v1/platforms/sync
 GET    /api/v1/platforms/{platformId}/slurm
 ```
 
-There is **no** `POST /api/v1/platforms/`. A Platform is created only by
-`POST /api/v1/platforms/deploy`; registering an existing platform was removed in
+`POST /api/v1/platforms/` creates a Platform from its spec, which swallow then installs;
+registering an existing platform was removed in
 [decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md). The
 Kubernetes cluster explorer routes under `/api/v1/platforms/{platformId}/kubernetes/...` are
 specified in [platforms-kubernetes.md](platforms-kubernetes.md).
@@ -171,8 +173,9 @@ both are `false` when the deploy did not request them (always for Kubernetes).
 `origin` is `registered | deployed`. New Platforms are always `deployed`; `origin=registered`
 is a one-release compatibility value for records created before the register-existing path was
 removed ([decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md)).
-`lifecycleState` is exactly `registered | deploying | deploy_failed | active | uninstalling |
-uninstall_failed | uninstalled`. `lifecycleOperationId` is the newest deployment or uninstall
+`lifecycleState` is exactly `registered | planned | deploying | deploy_failed | active |
+uninstalling | uninstall_failed | uninstalled`; `planned` is a Platform created from its spec whose
+install waits on its Change Plan. `lifecycleOperationId` is the newest deployment or uninstall
 Operation ID, or `null`. These fields are derived by the API in a batch from durable Operation
 history; clients must not infer them from `integrationId`, membership, or sync freshness.
 
@@ -196,11 +199,65 @@ successful uninstall removes the Swallow-owned credential Integration. A legacy 
 platform may also have no Integration. `sync.matchedCount` is how many reported members
 matched a Server.
 
+## Spec And Status
+
+Every Platform response also carries `generation`, `spec`, and `status`:
+
+```json
+{
+  "generation": 2,
+  "spec": {
+    "desired": "present",
+    "members": [
+      { "serverId": "server-a", "roles": ["control-plane", "workloads"] },
+      { "serverId": "server-b", "roles": ["worker"] }
+    ],
+    "settings": { "k0sVersion": "v1.36.3+k0s.2", "podCidr": "10.244.0.0/16" },
+    "machinePreparation": { "mode": "existing_os", "settings": {}, "userData": {} },
+    "removal": null
+  },
+  "status": {
+    "observedGeneration": 1,
+    "conditions": [
+      { "type": "realized", "status": "false", "reason": "converging", "message": "Workflow w-2 carries out generation 2", "lastTransitionTime": "2026-11-01T12:00:00Z", "observedGeneration": 2 },
+      { "type": "drifted", "status": "false", "reason": "in_sync", "message": "", "lastTransitionTime": "2026-11-01T11:00:00Z", "observedGeneration": 2 }
+    ],
+    "applied": { "desired": "present", "members": [ /* generation 1 */ ], "settings": {}, "machinePreparation": null, "removal": null },
+    "realizingWorkflowId": "w-2"
+  }
+}
+```
+
+- `spec.members` are the Servers and their roles in the type's vocabulary: `control-plane`,
+  `worker`, and `workloads` (a control plane that also runs workloads) for Kubernetes;
+  `controller`, `compute`, and `login` for Slurm. They are the Platform's Platform Claims.
+- `spec.settings` are the type's own fields: the Kubernetes or Slurm fields of
+  [Create A Platform](#create-a-platform) other than the members and the machine preparation.
+- `spec.machinePreparation` is how members that are not deployed get their OS. Inline user data
+  is stored sealed and never returned; a spec written back with the same `userData.mode` and no
+  `value` keeps the stored value.
+- `spec.desired` is `absent` once the Platform is deleted; `spec.removal` holds the
+  [Delete](#delete-a-platform) choices.
+- `status.applied` is the spec the last successful Workflow realized, which the next change is
+  planned against; `status.observedGeneration` is its generation. `status.realizingWorkflowId`
+  names the Workflow carrying out a newer generation.
+- `status.conditions` are the shared `realized` and `drifted` Conditions. `realized` is
+  `converging` while a Workflow runs, `awaiting_approval` while a Change Plan waits, `plan_required`
+  when a destructive change has no plan waiting (it was rejected or expired; write the spec again),
+  and `failed` when the Workflow failed (it is not started again for the same generation: rerun it
+  or write a new spec). `drifted` lists members the Platform does not report and Servers that
+  report membership without being members.
+
+A Platform deployed before specs existed is adopted by the platform controller at its first
+observation: its spec is rebuilt from its latest deployment at generation 1, already applied when
+it is active. Until then `spec` is `null` and `generation` is `0`, and spec writes are
+`409 conflict`.
+
 ## Registering An Existing Platform Is Removed
 
 There is no public route to register an existing platform. Swallow manages only self-deployed
-platforms; a Platform record and its credential Integration are produced only by
-`POST /api/v1/platforms/deploy`
+platforms; a Platform record and its credential Integration are produced only by creating a
+Platform from its spec (`POST /api/v1/platforms/`) and installing it
 ([decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md)). A
 `platform`-kind Integration is likewise created only by a successful deployment, so
 `POST /api/v1/integrations` with `kind=platform` is rejected — see
@@ -235,33 +292,47 @@ validation error.
 This policy is a hardware eligibility floor, not a reservation, Slurm scheduler capacity, or image
 size calculation.
 
-## Deploy A New Platform
+## Create A Platform
 
-`POST /api/v1/platforms/deploy` creates a platform and starts the Operation that builds
-it. `type` selects the platform: `kubernetes` (the default when omitted) starts a
-`deploy-kubernetes` Operation that builds k0s; `slurm` starts a `configure-slurm`
-Operation (see [Slurm](#slurm) below).
+`POST /api/v1/platforms/` creates a Platform from its spec. Swallow validates it exactly as a
+deployment (every rule below), stores the Platform at generation 1 with its members claimed, and
+answers `202 Accepted` with the Platform and the [Change Plan](change-plans.md) that installs it.
+Nothing touches a machine until the plan is approved; the platform controller then starts the
+build: `type: "kubernetes"` runs a `deploy-kubernetes` Workflow that builds k0s, `type: "slurm"` a
+`configure-slurm` Workflow (see [Slurm](#slurm) below).
 
 ```json
 {
   "siteId": "site-id",
   "name": "lab-k0s",
-  "gpuStackOwner": "provisioning",
-  "k0sVersion": "v1.36.3+k0s.2",
-  "podCidr": "10.244.0.0/16",
-  "serviceCidr": "10.96.0.0/12",
-  "apiVip": "192.168.100.200",
-  "apiVipPrefix": 24,
-  "roleAssignments": [
-    { "serverId": "server-a", "role": "control-plane", "runWorkloads": false },
-    { "serverId": "server-b", "role": "control-plane" },
-    { "serverId": "server-c", "role": "control-plane" },
-    { "serverId": "server-d", "role": "worker" }
-  ]
+  "type": "kubernetes",
+  "spec": {
+    "members": [
+      { "serverId": "server-a", "roles": ["control-plane"] },
+      { "serverId": "server-b", "roles": ["control-plane"] },
+      { "serverId": "server-c", "roles": ["control-plane"] },
+      { "serverId": "server-d", "roles": ["worker"] }
+    ],
+    "settings": {
+      "gpuStackOwner": "provisioning",
+      "k0sVersion": "v1.36.3+k0s.2",
+      "podCidr": "10.244.0.0/16",
+      "serviceCidr": "10.96.0.0/12",
+      "apiVip": "192.168.100.200",
+      "apiVipPrefix": 24
+    }
+  }
 }
 ```
 
-This body deploys `type: "kubernetes"`. `siteId`, `name`, `k0sVersion`, and `roleAssignments` are
+```json
+{ "platform": { "id": "platform-id", "generation": 1, "...": "..." }, "plan": { "id": "plan-id", "state": "pending_approval", "...": "..." } }
+```
+
+The rules below name the settings and the members. A request without a spec, or whose members or
+settings do not make a valid deployment, is `400 validation_error`.
+
+`siteId`, `name`, `type`, `settings.k0sVersion`, and at least one member are
 required (`400 validation_error` otherwise); `podCidr` and `serviceCidr` default to `10.244.0.0/16`
 and `10.96.0.0/12`. An unknown Site is `404 not_found`. The target Servers must exist (an unknown
 one is `400 validation_error`) and belong to one Site. They must also be unlocked in a live
@@ -277,7 +348,7 @@ Operation is created; the message names the installation command that creates it
 (`swallow-api deployment-key ensure`).
 
 By default the targets must already be `deployed`. To provision the operating system inside
-the same Operation, include an optional `machinePreparation` object (shared by both platform
+the same Operation, include an optional `spec.machinePreparation` object (shared by both platform
 types):
 
 ```json
@@ -344,36 +415,34 @@ separate time-check Step. The optional deploy field `timeSyncCheck` decides what
 
 Any other value is `400 validation_error`. This applies to Kubernetes and Slurm alike.
 
-A role assignment uses `control-plane | worker`. `runWorkloads` is optional,
-defaults to `false`, and is valid only on a `control-plane` assignment; a `worker` always
-runs workloads.
+A Kubernetes member's roles are `control-plane` or `worker`, and a `control-plane` member that also
+runs workloads adds `workloads`; a `worker` always runs workloads. (The read model's
+`deployment.roleAssignments` shows the same as `role` and `runWorkloads`.)
 
 A target is rejected while another Platform claims it: its Server's `platformClaim`
 ([servers-list.md](servers-list.md#platform-claim),
 [decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)) names that
-Platform, and the `400 validation_error` message names it too. When the deployment is accepted,
-Swallow claims every target of its `targetServerIds` for the new Platform with a conditional write
-per Server, so of two deployments accepted at the same time only one can take a Server; the other
-is refused the same way and leaves no Platform record or partial claim behind. A refused launch
-also removes the new Platform and its claims. The claim stays while the Platform is
+Platform, and the `400 validation_error` message names it too. When the Platform is created (or a
+spec adds a member), Swallow claims every member for it with a conditional write per Server in the
+same transaction, so of two Platforms created at the same time only one can take a Server; the
+other is refused the same way and leaves no Platform record or partial claim behind. The claim stays while the Platform is
 `deploying`, `deploy_failed`, `active`, `uninstalling`, or `uninstall_failed`, so a partial
 failed deployment remains protected even before membership can be observed; a successful
-Uninstall (with or without `deleteRecord`) and Delete release it. Platforms deployed before
-claims existed get their claims from the latest deployment Operation's `targetServerIds` when the
-API starts. A claimed Server cannot be released directly
+uninstall and a record-only delete release it. The platform controller keeps the members of a
+present spec claimed, including those of a Platform it adopts. A claimed Server cannot be released directly
 ([provisioning.md](provisioning.md#durable-os-operations)) or deleted
 ([server-detail-actions.md](server-detail-actions.md)). A target carrying any observed
 Platform membership is also rejected. The current Server projection has one membership axis; allowing
 cross-platform co-residency requires a future platform-scoped multi-membership contract
 rather than overwriting the existing observation.
 
-The role assignments infer one of these supported topologies:
+The members infer one of these supported topologies:
 
-- Standalone: one control-plane assignment with `runWorkloads=true` and no worker.
-- Non-HA multi-node: one control-plane assignment and one or more worker assignments; the
-  control-plane may also set `runWorkloads=true`.
-- High availability: an odd number of at least three control-plane assignments and at
-  least one workload-capable assignment.
+- Standalone: one `control-plane` member that also has `workloads`, and no worker.
+- Non-HA multi-node: one `control-plane` member and one or more `worker` members; the
+  control plane may also have `workloads`.
+- High availability: an odd number of at least three `control-plane` members and at
+  least one workload-capable member.
 
 Two control-plane assignments and even control-plane counts are rejected. Every topology
 must supply workload capacity. Pod and service ranges may not cover target addresses.
@@ -430,38 +499,41 @@ reads.
 
 ### Slurm
 
-Set `type: "slurm"` and provide a `slurm` object in place of the Kubernetes fields. Node
-roles are per-daemon flags because a Server may run the controller daemon (`slurmctld`),
-the compute daemon (`slurmd`), or both.
+Set `type: "slurm"` and provide a `slurm` settings object in place of the Kubernetes fields. A
+member's roles are per daemon because a Server may run the controller daemon (`slurmctld`,
+`controller`), the compute daemon (`slurmd`, `compute`), or both, or be a `login` host.
 
 ```json
 {
   "siteId": "site-id",
   "name": "lab-slurm",
   "type": "slurm",
-  "gpuStackOwner": "provisioning",
-  "slurm": {
-    "clusterName": "lab",
-    "apiVersion": "v0.0.42",
-    "stateSaveLocation": "",
-    "nodeAssignments": [
-      { "serverId": "server-a", "controller": true, "compute": false, "login": false },
-      { "serverId": "server-b", "controller": false, "compute": true, "login": false },
-      { "serverId": "server-c", "controller": false, "compute": true, "login": false },
-      { "serverId": "server-d", "controller": false, "compute": false, "login": true }
+  "spec": {
+    "members": [
+      { "serverId": "server-a", "roles": ["controller"] },
+      { "serverId": "server-b", "roles": ["compute"] },
+      { "serverId": "server-c", "roles": ["compute"] },
+      { "serverId": "server-d", "roles": ["login"] }
     ],
-    "workloadStorage": {
-      "mode": "self-hosted",
-      "type": "nfs",
-      "mountPath": "/shared",
-      "nfs": { "url": "10.0.0.9:/export/data", "mountOptions": "" }
+    "settings": {
+      "gpuStackOwner": "provisioning",
+      "slurm": {
+        "clusterName": "lab",
+        "apiVersion": "v0.0.42",
+        "workloadStorage": {
+          "mode": "self-hosted",
+          "type": "nfs",
+          "mountPath": "/shared",
+          "nfs": { "url": "10.0.0.9:/export/data", "mountOptions": "" }
+        },
+        "ociContainers": false,
+        "pmix": false
+      }
     },
-    "ociContainers": false,
-    "pmix": false
-  },
-  "machinePreparation": {
-    "mode": "provision_os",
-    "settings": { "imageId": "slurm-os-image-id" }
+    "machinePreparation": {
+      "mode": "provision_os",
+      "settings": { "imageId": "slurm-os-image-id" }
+    }
   }
 }
 ```
@@ -470,15 +542,15 @@ At least one Server must run `slurmctld` and at least one must run `slurmd`; a S
 role (`controller`, `compute`, or `login`) is rejected, as is a Server assigned more than
 once. A `login` node is a submission/client host that runs no cluster daemon; it may host the
 shared-storage NFS exports and a login-only Server is valid. `gpuStackOwner` defaults to
-`provisioning` when omitted (Slurm has no in-platform GPU operator). In the `slurm` object
-every field except `nodeAssignments` is optional: `clusterName` defaults to a sanitized
+`provisioning` when omitted (Slurm has no in-platform GPU operator). Every field of the `slurm`
+object is optional: `clusterName` defaults to a sanitized
 platform name; `apiVersion` pins the `slurmrestd` endpoint version recorded in the credential;
 `stateSaveLocation` is an optional override of the `slurmctld` state directory. A highly
 available deployment (more than one controller) needs a shared state directory, and Swallow
 provisions it automatically — it selects a state server (the login node when one is assigned,
 otherwise an off-controller node), exports it over NFS, and mounts it on every controller
 before `slurmctld` starts — so `stateSaveLocation` is not required for HA; when supplied it
-overrides the directory path. The first controller in `nodeAssignments` is the primary: it
+overrides the directory path. The first `controller` member is the primary: it
 mints the shared MUNGE key, hosts `slurmrestd`, and produces the reader credential.
 
 `workloadStorage` is optional and configures a shared filesystem for user/job data (distinct
@@ -525,8 +597,8 @@ same `202 Accepted` shape. When the target image includes `slurm-smd-slurmrestd`
 records a `slurm` platform Integration pointing at `slurmrestd` on success and begins
 membership reads; if the image omits it, the cluster still deploys successfully but the
 platform has no integration and no members until the image includes it (unlike Kubernetes,
-whose credential is required). A Slurm platform can be uninstalled like Kubernetes (see
-[Uninstall A Deployed Platform](#uninstall-a-deployed-platform)); it starts an `uninstall-slurm`
+whose credential is required). A Slurm platform is deleted like Kubernetes (see
+[Delete A Platform](#delete-a-platform)); its approved plan starts an `uninstall-slurm`
 Operation that removes the Slurm configuration and daemons while keeping the host OS and
 image-supplied packages, and can optionally release the member servers.
 
@@ -542,7 +614,7 @@ explicit render nodes and `Flags=amd_gpu_env,explicit`. The type is derived per 
 architecture (for example `gpu:gfx942:8`) unless the deploy names one for every GPU node:
 
 ```json
-"slurm": { "gpuGresType": "mi308x_vf", "nodeAssignments": [ /* ... */ ] }
+"slurm": { "gpuGresType": "mi308x_vf" }
 ```
 
 `gpuGresType` starts with a letter and contains only letters, digits, or underscores, at most 64
@@ -642,7 +714,7 @@ AMD's Slurm-aware GPU monitoring, in the same Workflow
   "name": "lab-slurm",
   "type": "slurm",
   "omnistat": { "enabled": true, "installMethod": "container" },
-  "slurm": { "nodeAssignments": [ /* ... */ ] },
+  "slurm": {},
   "machinePreparation": { "mode": "provision_os", "settings": { "imageId": "slurm-os-image-id" } }
 }
 ```
@@ -651,7 +723,7 @@ Omitting `omnistat`, or `enabled: false`, installs nothing. `omnistat` on a Kube
 `validation_error`. `installMethod` is how the Prometheus and Grafana Omnistat uses are installed,
 `container` (default) or `native` (see
 [software](software.md#prometheus-and-grafana-spec)); another value is a `validation_error`. The
-primary controller (the first controller in `nodeAssignments`) becomes the observability Server.
+primary controller (the first `controller` member) becomes the observability Server.
 After the Slurm install the Workflow composes Managed Software Jobs onto it (see
 [software](software.md#composition-into-platform-deployments)): with the `container` method a
 container runtime Job first — the [container runtime](#container-runtime) the deploy chose, or
@@ -710,7 +782,7 @@ with Slurm job attribution, in the same Workflow
   "name": "lab-slurm",
   "type": "slurm",
   "deviceMetricsExporter": { "enabled": true, "installMethod": "container" },
-  "slurm": { "nodeAssignments": [ /* ... */ ] },
+  "slurm": {},
   "machinePreparation": { "mode": "provision_os", "settings": { "imageId": "slurm-os-image-id" } }
 }
 ```
@@ -868,30 +940,19 @@ verified, newest first:
 
 ### Change The GPU Operator
 
-`PUT /api/v1/platforms/{platformId}/gpu-operator` replaces the settings and starts a
-`configure-gpu-operator` Operation that applies them. The body is the settings object above.
-`{ "enabled": false }` uninstalls the operator and keeps the other recorded settings, so a later
-install can start from them.
+The GPU Operator is the Platform's `settings.gpuOperator`, changed with
+[Change A Platform](#change-a-platform). Turning it on is not destructive: the platform controller
+starts a `configure-gpu-operator` Operation that applies the settings. Changing its settings or
+turning it off (`enabled: false`, or omitting it, uninstalls the operator) is destructive and waits
+on a Change Plan, whose approval starts the same Operation.
 
-```json
-{
-  "platformId": "platform-id",
-  "workflowId": "workflow-id"
-}
-```
-
-Success is `202 Accepted` once the Operation is persisted; `gpuOperator.state` becomes
-`installing` (or `uninstalling`) and `gpuOperator.lastWorkflowId` names the Operation. The
-Operation targets the Platform's deployment targets: it verifies SSH readiness, then runs one
-ansible Task (`configure-gpu-operator`). Errors:
-
-- `400 validation_error` for invalid settings, or a body without `enabled`.
-- `404 not_found` when the Platform does not exist, or when the API process runs without GPU
-  Operator management wired (no durable orchestration).
-- `409 conflict` when the Platform is not a Swallow-deployed Kubernetes Platform whose lifecycle
-  is `active`; when `enabled=false` and Swallow manages no operator on it (`gpuOperator` is
-  `null` or `absent`); when a target is locked or held by another unfinished Operation; or when
-  the installation has no Deployment Key.
+Once the Operation is persisted `gpuOperator.state` becomes `installing` (or `uninstalling`) and
+`gpuOperator.lastWorkflowId` names it. The Operation targets the Platform's deployment targets: it
+verifies SSH readiness, then runs one ansible Task (`configure-gpu-operator`). The spec write
+refuses invalid settings with `400 validation_error`; a refusal when the Operation is started (the
+Platform is not `active`, a target is locked or held by another unfinished Operation, or the
+installation has no Deployment Key) is reported by the Platform's `realized` Condition (`failed`)
+and the controller retries it.
 
 ### What The Operation Does
 
@@ -936,13 +997,54 @@ fixed, or cancel the Operation before submitting other settings, which are `409 
 then. While the state is anything other
 than `absent`, `PATCH` cannot set `gpuStackOwner` back to `provisioning` (`409 conflict`).
 
-## Uninstall A Deployed Platform
+## Change A Platform
 
-`POST /api/v1/platforms/{platformId}/uninstall` starts an
-`uninstall-kubernetes` Operation and retains the Platform record.
+`PUT /api/v1/platforms/{platformId}/spec` replaces the spec. The body names the `generation` the
+spec was read at and the new spec in the shape of [Create A Platform](#create-a-platform):
 
-The request body is optional. An absent or empty body removes k0s only. To also return
-the member servers to the provider in the same Operation, send:
+```json
+{
+  "generation": 2,
+  "spec": { "members": [ /* ... */ ], "settings": { /* ... */ }, "machinePreparation": { /* ... */ } }
+}
+```
+
+Swallow classifies the change against `status.applied` as
+[desired-state-model §5.2](../../../../../docs/development/desired-state-model.md) lists it, and
+validates the new spec as a deployment:
+
+- A non-destructive change (adding a member, turning on the GPU Operator, a Slurm monitoring
+  feature, or a first container runtime or workload storage) is written and answered `200 OK` with
+  `plan: null`; the platform controller converges it. Adding a member runs the type's deploy
+  Workflow over every member; members already in the Platform are left as they are.
+- A destructive change (changing or turning off the GPU Operator, and the changes below) is written
+  together with a Change Plan and answered `202 Accepted`. When swallow cannot carry the change out
+  yet — removing a member, changing a member's roles, changing `k0sVersion`, `gpuStackOwner`, or
+  `gpuDriver`, and changing or turning off Slurm workload storage, the container runtime, OCI
+  containers, PMIx, `stateSaveLocation`, or `gpuGresType` — the plan carries the blocker
+  `swallow cannot carry out <action> yet` and cannot be approved.
+- A non-destructive change swallow cannot carry out yet (turning off or changing a Slurm monitoring
+  feature) is `409 conflict` and writes nothing.
+- An immutable field (`podCidr`, `serviceCidr`, `apiVip`, `apiVipPrefix`, Slurm `clusterName`) is
+  `409 conflict`: changing it means deleting the Platform and creating it again.
+
+A stale `generation` is `409 conflict`; read the Platform again. A spec write after the uninstall
+started, or before the controller adopted the Platform, is `409 conflict`. A Platform marked absent
+whose uninstall has not started may be written back to present, which withdraws its plan. Every
+write that adds a member claims it in the same transaction; a member a spec drops keeps its claim
+until the change removing it is carried out.
+
+## Delete A Platform
+
+`DELETE /api/v1/platforms/{platformId}` marks the spec `absent` and proposes the uninstall as a
+Change Plan (`202 Accepted`, with the Platform and the plan). Once the plan is approved the platform
+controller starts an `uninstall-kubernetes` or `uninstall-slurm` Workflow, and the record is deleted
+when the uninstall succeeds. A Platform whose install was never approved touched no machine, so it
+is deleted at once (`204 No Content`). Deleting a Platform already marked absent returns the plan it
+waits on.
+
+The request body is optional. An absent or empty body removes the platform software only. To also
+return the member servers to the provider in the same Workflow, send:
 
 ```json
 {
@@ -953,13 +1055,11 @@ the member servers to the provider in the same Operation, send:
     "quickErase": false,
     "unbindStaticIps": false
   },
-  "cancelActiveWorkflows": false,
-  "deleteRecord": false
+  "cancelActiveWorkflows": false
 }
 ```
 
-`cancelActiveWorkflows` is described below the eligibility rules, and `deleteRecord` after
-the success cleanup.
+The choices are stored as `spec.removal`; the plan's effects name a release and erase.
 
 When `releaseServers` is true, Swallow releases each member server directly instead of
 uninstalling the platform software first: releasing wipes the operating system, so the
@@ -969,17 +1069,9 @@ release succeeds. `releaseOptions` mirrors the standalone Release action (disk e
 static-IP unbinding) and is ignored when `releaseServers` is false. Releasing wipes the
 operating system, so Swallow does not restore host exporters for released servers. This
 shortcut applies only to a whole-platform uninstall. A release requires the durable
-orchestration topology; if it is unavailable the request is rejected. The accepted response is
-unchanged, the same shape as a deploy's:
+orchestration topology.
 
-```json
-{
-  "platformId": "platform-id",
-  "operationId": "operation-id"
-}
-```
-
-Eligibility requires a Platform with durable deployment provenance (`deploy-kubernetes` or
+Eligibility, checked when the approved plan starts the uninstall, requires a Platform with durable deployment provenance (`deploy-kubernetes` or
 `configure-slurm`). The target set is always the complete `targetServerIds` snapshot from its latest
 deployment Operation, never current membership. All targets must still exist, be present,
 be unlocked, and have no overlapping active Operation. Lock is checked live before
@@ -987,23 +1079,23 @@ the uninstall Operation is created. No single provisioning state is
 required because a failed deployment can leave a mixed target set.
 
 A failed deployment waiting for operator attention (`requires_attention`) still holds its
-targets, as does a deployment still running. Send `"cancelActiveWorkflows": true` to have
-Swallow cancel every unfinished Workflow holding a target, with the same semantics as Release and
+targets, as does a deployment still running. A plan waits while a deploy or uninstall of the
+Platform runs. Send `"cancelActiveWorkflows": true` to have Swallow cancel every unfinished Workflow
+holding a target instead, with the same semantics as Release and
 Recover ([decision 061](../../../../../docs/decisions/061-recovery-supersedes-blocking-work.md)):
 after every other check passes, Swallow requests their cancellation and creates the uninstall at
 once, ignoring them in the busy check. The uninstall takes the same resource leases, so it waits in
 `waiting_dependency` and starts by itself once they end; a canceled deployment first returns the
 Servers it was installing to Ready and keeps finished OS deployments
 ([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md)). A cancel refused
-for a Workflow that is still running fails the request as `409 conflict` naming it. With the flag,
-a Platform whose lifecycle is `deploying` may be uninstalled; without it that is a conflict. The
-flag needs the durable orchestration topology, like `releaseServers`.
+for a Workflow that is still running is reported by the `realized` Condition. With the flag, a
+Platform whose lifecycle is `deploying` may be uninstalled. The flag needs the durable
+orchestration topology, like `releaseServers`.
 
-A running uninstall, an already successful uninstall, a missing, absent, locked, or busy target
-(without `cancelActiveWorkflows`), a deployment still running (without the flag), or a registered
-Platform returns `409 conflict`. The busy conflict names the Workflow holding the target, its
-intent, and its status. Failed or canceled uninstalls may be submitted again; the
-new Operation records `retryOfOperationId` pointing to the latest uninstall.
+A missing, absent, locked, or busy target (without `cancelActiveWorkflows`) keeps the plan from
+starting the uninstall; the controller reports it with the `realized` Condition and retries. A
+failed or canceled uninstall is rerun as a Workflow; the Platform stays `uninstall_failed` and its
+record remains until an uninstall succeeds.
 
 When servers are kept, the release-owned playbook stops k0s services, runs `k0s reset`,
 removes Swallow-created k0s state, units, join token, installer, and binary, and the GPU
@@ -1023,34 +1115,20 @@ exporters, Swallow separately queues `install-exporters` for targets that remain
 deployed, and unlocked. That Operation has its own failure lifecycle and does not roll back
 the uninstall.
 
-`deleteRecord: true` asks Swallow to also remove the Platform record once the uninstall
-succeeds, so an operator who wants both host cleanup and record removal does not have to come
-back for a separate Delete. It is recorded on the uninstall Operation when the request is
-accepted and applies to both the kept-servers and the `releaseServers` path. It changes
-nothing until that success cleanup: the Platform stays addressable (`uninstalling`) while the
-Operation runs, and a failed or canceled uninstall keeps the record
-(`uninstall_failed`) for diagnosis and retry. Retrying a Step of, or rerunning, that same
-Workflow keeps the choice it was accepted with; submitting the uninstall again is a new
-request, which deletes the record only if it also sends `deleteRecord: true`. The removal runs
-as the last part of the success cleanup
-and removes the same record and projections as Delete, but it never cancels Operations,
-because the only Operation still holding the targets is the uninstall that is completing.
-Exporter restoration is still queued as described above. A missing or `false` value keeps the
-record, which stays `uninstalled` until Delete. A request whose Operation is refused deletes
-nothing.
+The record is removed as the last part of the success cleanup, with the same projections as a
+record-only delete, but without canceling Operations, because the only Operation still holding the
+targets is the uninstall that is completing. Exporter restoration is still queued as described
+above.
 
-Do not send `DELETE` while an uninstall is running to get the same result: Delete cancels the
-Platform's in-flight Operations first, so the uninstall would stop instead of finishing.
-
-## List, Get, Update, And Delete
+## List, Get, Update, And Delete Only The Record
 
 `GET /api/v1/platforms/` returns a plain array, optionally filtered by `siteId`.
 `GET /api/v1/platforms/{platformId}` returns one. Lifecycle history is fetched in one batch
 for list requests; the API does not fan out one Operation query per Platform.
 
 `PATCH /api/v1/platforms/{platformId}` updates `name`, `gpuStackOwner`, `exporterOwner`, or
-`monitoringLinks`; omitted fields do not change. `PATCH` never changes `gpuOperator`; use
-`PUT .../gpu-operator`.
+`monitoringLinks`; omitted fields do not change. `PATCH` never changes the spec or `gpuOperator`;
+use [Change A Platform](#change-a-platform).
 
 `monitoringLinks` replaces the whole list; `[]` clears it. At most 10 links. Each `name` is
 trimmed, required, at most 64 characters, and unique within the Platform (case-insensitive).
@@ -1066,9 +1144,9 @@ Integration is set only by its deployment, and repointing it at an operator-owne
 would be a register-existing back door, which
 [decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) removes.
 
-`DELETE /api/v1/platforms/{platformId}` removes only the Swallow record; it is not a way to
-finish an uninstall (use the uninstall's `deleteRecord` for that). It returns
-`{"success":true}` on success. It first
+`DELETE /api/v1/platforms/{platformId}?recordOnly=true` removes only the Swallow record; it is not a
+way to uninstall (use [Delete A Platform](#delete-a-platform)). It returns `204 No Content`. It
+first
 cancels the Platform's in-flight durable Operations so their resource leases are released
 and the member servers are freed, then clears membership, the Platform's Platform Claims, and a
 Swallow-owned credential Integration, and finally removes the Platform record. Cancellation only stops durable work
@@ -1170,12 +1248,14 @@ transport/auth failures return `provider_unavailable`; provider rejection return
   which is breaking: the `/api/v1/clusters...` routes (including the Slurm read and the
   [Kubernetes explorer](platforms-kubernetes.md)), and `clusterId` in the deploy and uninstall
   acceptance bodies and the membership reports.
-- Uninstall and lifecycle fields are additive. Existing paths and Delete response remain
-  unchanged.
-- Delete remains non-destructive to hosts.
-- `roleAssignments` continues to use `control-plane | worker`; the k0s `controller` term is
-  an implementation detail. The additive `runWorkloads` field defaults to `false`, so
-  existing HA requests retain dedicated control-plane behavior.
+- Since 2026-11-01 a Platform is written as a spec (breaking, no aliases): `POST /platforms/`
+  with a spec replaces `POST /platforms/deploy`, `DELETE /platforms/{id}` marks the Platform
+  absent and replaces `POST /platforms/{id}/uninstall` (the record-only delete moved to
+  `?recordOnly=true`, which answers `204`), and the GPU Operator is changed through the spec instead
+  of `PUT /platforms/{id}/gpu-operator`. Creating a Platform and destructive changes wait on a
+  Change Plan. `roleAssignments` and `slurm.nodeAssignments` became `spec.members` with roles;
+  the read model's `deployment.roleAssignments` is unchanged.
+- The k0s `controller` term is an implementation detail; members use `control-plane`.
 - `apiVip` remains accepted exactly as before for HA requests and is now optional for a
   one-control-plane deployment.
 - Since 2026-10-21 an HA `apiVipPrefix` defaults to the control-plane subnet's prefix instead

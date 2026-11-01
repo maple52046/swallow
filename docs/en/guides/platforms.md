@@ -26,6 +26,11 @@ and OS-provisioning controls, but keep their own steps, validation, features, an
 review. Optional capabilities use Switches; topology and implementation modes remain
 explicit radio choices, and Slurm node roles remain independently selectable.
 
+Submitting the wizard creates the Platform and proposes its install as a
+[Change Plan](workflows.md#change-plans): nothing is installed until you approve it on
+**Change Plans**, and until then the Platform reads **Awaiting approval**. Deleting a
+Platform in that state withdraws the plan; no host was changed.
+
 ## Clock check
 
 The platform's install step (**Install k0s Platform** or **Install Slurm Platform**)
@@ -101,9 +106,10 @@ when no selected workload node has an AMD GPU.
 
 After deployment, the **AMD GPU Operator** section of the Platform Overview shows
 its state and settings and offers **Install**, **Configure**, and **Uninstall**.
-Switching between Device Plugin and DRA, or uninstalling, is refused while a
-Pod still uses an AMD GPU; stop that work first. Uninstalling
-the operator keeps the Platform running. swallow does not take over an operator
+Installing starts at once. Configuring or uninstalling a running operator restarts GPU
+workloads, so it is proposed as a Change Plan to approve first. Switching between Device
+Plugin and DRA, or uninstalling, is refused while a Pod still uses an AMD GPU; stop that
+work first. Uninstalling the operator keeps the Platform running. swallow does not take over an operator
 that was installed by hand.
 
 The Device Metrics Exporter is for the cluster's own monitoring; swallow's
@@ -147,16 +153,17 @@ nodes back to Server IDs.
 ## Lifecycle
 
 - **Sync** refreshes observed Platform membership/state.
-- **Uninstall** removes the swallow-deployed runtime from its original targets
-  and retains the Platform record for diagnosis. When a workflow still holds the
-  Platform's servers (a failed deployment waiting for attention, or one still
-  running), the dialog lists it and asks you to confirm canceling it; the
-  uninstall then starts by itself once it has ended.
-- **Delete** removes only the swallow record/projections and must not be
+- **Uninstall** proposes removing the swallow-deployed runtime from its original
+  targets as a Change Plan. Once you approve it, swallow runs the uninstall and then
+  deletes the Platform record; a failed uninstall keeps the record for diagnosis.
+  When a workflow still holds the Platform's servers (a failed deployment waiting
+  for attention, or one still running), the dialog lists it and asks you to confirm
+  that swallow cancels it before the uninstall starts.
+- **Delete only** removes only the swallow record/projections and must not be
   confused with host-side uninstall.
 - Bulk actions remain subject to each Platform's lifecycle gate.
 
-Every deployment or uninstall creates a Workflow. Inspect failed Tasks and
+Every approved install or uninstall creates a Workflow. Inspect failed Tasks and
 retry at the narrowest supported level rather than recreating the Platform.
 
 Exact payloads and lifecycle states are in the active

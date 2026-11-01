@@ -38,6 +38,8 @@ type PlatformSpec struct {
 	// MachinePreparation is how a member that is not deployed gets its operating system.
 	MachinePreparation MachinePreparation
 	Settings           map[string]any
+	// Removal is how an absent Platform is removed; nil keeps its members and their OS.
+	Removal *PlatformRemoval
 }
 
 // MemberIDs returns the members' Server ids in spec order.
@@ -69,7 +71,20 @@ func (s PlatformSpec) Clone() PlatformSpec {
 	}
 	out.Settings = maps.Clone(s.Settings)
 	out.MachinePreparation.Assignments = slices.Clone(s.MachinePreparation.Assignments)
+	if s.Removal != nil {
+		removal := *s.Removal
+		out.Removal = &removal
+	}
 	return out
+}
+
+// PlatformRemoval is how an absent Platform's uninstall treats its members: whether it also releases
+// them to the provisioner (with the erase and static-IP options), and whether it first cancels the
+// unfinished Workflows holding them.
+type PlatformRemoval struct {
+	ReleaseServers        bool
+	ReleaseOptions        ServerReleaseOptions
+	CancelActiveWorkflows bool
 }
 
 // PlatformStatus is what swallow observed and realized for a Platform's spec. ObservedGeneration is
