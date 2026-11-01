@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Badge, Box, Button, Flex, Heading, HStack, Table, Text } from '@chakra-ui/react'
 import {
   ArrowUpRight,
@@ -331,19 +331,32 @@ export function PlatformsPage() {
       left.name.localeCompare(right.name)
     ))
 
-  const setQueryParam = (key: 'q' | 'type' | 'status', value: string, replace = false) => {
-    const next = new URLSearchParams(searchParams)
-    if (value) next.set(key, value)
-    else next.delete(key)
+  // Two quick filter changes can land before the page re-renders with the first one's URL, so each
+  // change starts from the parameters last written rather than from this render's copy.
+  const writtenParams = useRef(searchParams)
+  useEffect(() => {
+    writtenParams.current = searchParams
+  }, [searchParams])
+  const writeParams = (edit: (next: URLSearchParams) => void, replace = false) => {
+    const next = new URLSearchParams(writtenParams.current)
+    edit(next)
+    writtenParams.current = next
     setSearchParams(next, { replace })
   }
 
+  const setQueryParam = (key: 'q' | 'type' | 'status', value: string, replace = false) => {
+    writeParams((next) => {
+      if (value) next.set(key, value)
+      else next.delete(key)
+    }, replace)
+  }
+
   const clearFilters = () => {
-    const next = new URLSearchParams(searchParams)
-    next.delete('q')
-    next.delete('type')
-    next.delete('status')
-    setSearchParams(next)
+    writeParams((next) => {
+      next.delete('q')
+      next.delete('type')
+      next.delete('status')
+    })
   }
 
   const updateSelection = (update: (current: ReadonlySet<string>) => ReadonlySet<string>) => {
