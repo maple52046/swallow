@@ -1,4 +1,4 @@
-package delivery
+package explorerhttp
 
 import (
 	"errors"
@@ -10,9 +10,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
-	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
-	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
+	"github.com/maple52046/swallow/internal/shared/wire"
+	"github.com/maple52046/swallow/modules/software/docker-ce/explorer"
 )
 
 // This file is the Docker Host Explorer HTTP surface, contracted in
@@ -28,11 +28,11 @@ const (
 // DockerHandler serves /servers/{id}/docker. Routes are mounted on the admin-only /servers group,
 // so every handler runs after authentication and the admin check.
 type DockerHandler struct {
-	explorer *softwareapp.DockerExplorerUseCase
+	explorer *explorer.DockerExplorerUseCase
 }
 
 // NewDockerHandler wires the Docker Host Explorer use case to HTTP.
-func NewDockerHandler(explorer *softwareapp.DockerExplorerUseCase) *DockerHandler {
+func NewDockerHandler(explorer *explorer.DockerExplorerUseCase) *DockerHandler {
 	return &DockerHandler{explorer: explorer}
 }
 
@@ -40,6 +40,34 @@ func NewDockerHandler(explorer *softwareapp.DockerExplorerUseCase) *DockerHandle
 // clients must encode Engine ids (image ids contain ':'), so decoding here keeps the id the Engine
 // sees identical to the one the list returned. An undecodable value is passed through unchanged
 // and fails at the Engine as not found.
+// RegisterRoutes mounts the Docker Host Explorer under the Server router (contract
+// servers-docker.md, decision 043). Clients address a Server, but the routes belong to the
+// docker-ce module that owns the assignment the explorer is gated on. They call the host's Engine
+// API on demand and persist nothing.
+func RegisterRoutes(servers fiber.Router, handler *DockerHandler) {
+	servers.Get("/:id/docker", handler.Summary)
+
+	servers.Get("/:id/docker/images", handler.ListImages)
+	servers.Post("/:id/docker/images/pull", handler.PullImage)
+	servers.Delete("/:id/docker/images/:imageId", handler.RemoveImage)
+
+	servers.Get("/:id/docker/containers", handler.ListContainers)
+	servers.Post("/:id/docker/containers", handler.CreateContainer)
+	servers.Post("/:id/docker/containers/:containerId/start", handler.StartContainer)
+	servers.Post("/:id/docker/containers/:containerId/stop", handler.StopContainer)
+	servers.Post("/:id/docker/containers/:containerId/restart", handler.RestartContainer)
+	servers.Get("/:id/docker/containers/:containerId/logs", handler.ContainerLogs)
+	servers.Delete("/:id/docker/containers/:containerId", handler.RemoveContainer)
+
+	servers.Get("/:id/docker/volumes", handler.ListVolumes)
+	servers.Post("/:id/docker/volumes", handler.CreateVolume)
+	servers.Delete("/:id/docker/volumes/:volumeName", handler.RemoveVolume)
+
+	servers.Get("/:id/docker/networks", handler.ListNetworks)
+	servers.Post("/:id/docker/networks", handler.CreateNetwork)
+	servers.Delete("/:id/docker/networks/:networkId", handler.RemoveNetwork)
+}
+
 func pathParam(c *fiber.Ctx, name string) string {
 	raw := c.Params(name)
 	if decoded, err := url.PathUnescape(raw); err == nil {
@@ -119,7 +147,7 @@ func (h *DockerHandler) ListImages(c *fiber.Ctx) error {
 	items := make([]dockerImageResponse, 0, len(images))
 	for _, image := range images {
 		items = append(items, dockerImageResponse{
-			ID: image.ID, RepoTags: stringsOrEmpty(image.RepoTags), RepoDigests: stringsOrEmpty(image.RepoDigests),
+			ID: image.ID, RepoTags: wire.Strings(image.RepoTags), RepoDigests: wire.Strings(image.RepoDigests),
 			SizeBytes: image.SizeBytes, CreatedAt: formatTime(image.CreatedAt), Dangling: image.Dangling,
 		})
 	}
@@ -187,7 +215,7 @@ type dockerContainerResponse struct {
 	Mounts    []dockerMountResponse `json:"mounts"`
 }
 
-func containerResponse(container softwaredomain.DockerContainer) dockerContainerResponse {
+func containerResponse(container explorer.DockerContainer) dockerContainerResponse {
 	ports := make([]dockerPortResponse, 0, len(container.Ports))
 	for _, port := range container.Ports {
 		var public *int
@@ -206,7 +234,7 @@ func containerResponse(container softwaredomain.DockerContainer) dockerContainer
 	return dockerContainerResponse{
 		ID: container.ID, Name: container.Name, Image: container.Image, ImageID: container.ImageID,
 		Command: container.Command, State: container.State, Status: container.Status,
-		CreatedAt: formatTime(container.CreatedAt), Ports: ports, Networks: stringsOrEmpty(container.Networks), Mounts: mounts,
+		CreatedAt: formatTime(container.CreatedAt), Ports: ports, Networks: wire.Strings(container.Networks), Mounts: mounts,
 	}
 }
 
@@ -252,17 +280,17 @@ func (h *DockerHandler) CreateContainer(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return invalidBody(c)
 	}
-	spec := softwaredomain.DockerContainerSpec{
+	spec := explorer.DockerContainerSpec{
 		Name: req.Name, Image: req.Image, Command: req.Command, Env: req.Env,
 		Network: req.Network, RestartPolicy: req.RestartPolicy, Start: req.Start == nil || *req.Start,
 	}
 	for _, port := range req.Ports {
-		spec.Ports = append(spec.Ports, softwaredomain.DockerPortBinding{
+		spec.Ports = append(spec.Ports, explorer.DockerPortBinding{
 			HostIP: port.HostIP, HostPort: port.HostPort, ContainerPort: port.ContainerPort, Protocol: port.Protocol,
 		})
 	}
 	for _, volume := range req.Volumes {
-		spec.Volumes = append(spec.Volumes, softwaredomain.DockerVolumeBinding{
+		spec.Volumes = append(spec.Volumes, explorer.DockerVolumeBinding{
 			Source: volume.Source, Target: volume.Target, ReadOnly: volume.ReadOnly,
 		})
 	}
@@ -271,26 +299,26 @@ func (h *DockerHandler) CreateContainer(c *fiber.Ctx) error {
 		return respondDockerError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"id": created.ID, "warnings": stringsOrEmpty(created.Warnings), "started": created.Started,
+		"id": created.ID, "warnings": wire.Strings(created.Warnings), "started": created.Started,
 	})
 }
 
 // StartContainer starts a container; one already running is a success.
 func (h *DockerHandler) StartContainer(c *fiber.Ctx) error {
-	return h.actOnContainer(c, softwareapp.ContainerStart)
+	return h.actOnContainer(c, explorer.ContainerStart)
 }
 
 // StopContainer stops a container after the Engine's grace period.
 func (h *DockerHandler) StopContainer(c *fiber.Ctx) error {
-	return h.actOnContainer(c, softwareapp.ContainerStop)
+	return h.actOnContainer(c, explorer.ContainerStop)
 }
 
 // RestartContainer restarts a container.
 func (h *DockerHandler) RestartContainer(c *fiber.Ctx) error {
-	return h.actOnContainer(c, softwareapp.ContainerRestart)
+	return h.actOnContainer(c, explorer.ContainerRestart)
 }
 
-func (h *DockerHandler) actOnContainer(c *fiber.Ctx, action softwareapp.ContainerAction) error {
+func (h *DockerHandler) actOnContainer(c *fiber.Ctx, action explorer.ContainerAction) error {
 	if err := h.explorer.ActOnContainer(c.Context(), c.Params("id"), pathParam(c, "containerId"), action); err != nil {
 		return respondDockerError(c, err)
 	}
@@ -340,14 +368,14 @@ type dockerVolumeResponse struct {
 	Labels     map[string]string `json:"labels"`
 }
 
-func volumeResponse(volume softwaredomain.DockerVolume) dockerVolumeResponse {
+func volumeResponse(volume explorer.DockerVolume) dockerVolumeResponse {
 	labels := volume.Labels
 	if labels == nil {
 		labels = map[string]string{}
 	}
 	return dockerVolumeResponse{
 		Name: volume.Name, Driver: volume.Driver, Mountpoint: volume.Mountpoint, Scope: volume.Scope,
-		CreatedAt: formatOptionalTime(volume.CreatedAt), Labels: labels,
+		CreatedAt: wire.OptionalTime(volume.CreatedAt), Labels: labels,
 	}
 }
 
@@ -376,7 +404,7 @@ func (h *DockerHandler) CreateVolume(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return invalidBody(c)
 	}
-	volume, err := h.explorer.CreateVolume(c.Context(), c.Params("id"), softwaredomain.DockerVolumeSpec{
+	volume, err := h.explorer.CreateVolume(c.Context(), c.Params("id"), explorer.DockerVolumeSpec{
 		Name: req.Name, Driver: req.Driver, Labels: req.Labels,
 	})
 	if err != nil {
@@ -412,7 +440,7 @@ type dockerNetworkResponse struct {
 	CreatedAt  *string                `json:"createdAt"`
 }
 
-func networkResponse(network softwaredomain.DockerNetwork) dockerNetworkResponse {
+func networkResponse(network explorer.DockerNetwork) dockerNetworkResponse {
 	subnets := make([]dockerSubnetResponse, 0, len(network.Subnets))
 	for _, subnet := range network.Subnets {
 		subnets = append(subnets, dockerSubnetResponse{Subnet: subnet.Subnet, Gateway: subnet.Gateway})
@@ -420,7 +448,7 @@ func networkResponse(network softwaredomain.DockerNetwork) dockerNetworkResponse
 	return dockerNetworkResponse{
 		ID: network.ID, Name: network.Name, Driver: network.Driver, Scope: network.Scope,
 		Internal: network.Internal, Attachable: network.Attachable, Predefined: network.Predefined,
-		Subnets: subnets, CreatedAt: formatOptionalTime(network.CreatedAt),
+		Subnets: subnets, CreatedAt: wire.OptionalTime(network.CreatedAt),
 	}
 }
 
@@ -452,7 +480,7 @@ func (h *DockerHandler) CreateNetwork(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return invalidBody(c)
 	}
-	network, err := h.explorer.CreateNetwork(c.Context(), c.Params("id"), softwaredomain.DockerNetworkSpec{
+	network, err := h.explorer.CreateNetwork(c.Context(), c.Params("id"), explorer.DockerNetworkSpec{
 		Name: req.Name, Driver: req.Driver, Internal: req.Internal, Attachable: req.Attachable,
 		Subnet: req.Subnet, Gateway: req.Gateway,
 	})
@@ -481,19 +509,19 @@ func respondDockerError(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, serverdomain.ErrServerNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Server not found."))
-	case errors.Is(err, softwaredomain.ErrDockerHostUnavailable):
+	case errors.Is(err, explorer.ErrDockerHostUnavailable):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"The Docker explorer needs a deployed Server with a known address."))
-	case errors.Is(err, softwaredomain.ErrDockerNotInstalled):
+	case errors.Is(err, explorer.ErrDockerNotInstalled):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"Docker CE is not installed on this Server by swallow."))
-	case errors.Is(err, softwaredomain.ErrDockerAPIDisabled):
+	case errors.Is(err, explorer.ErrDockerAPIDisabled):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"The Docker Engine API is not enabled for this Server. Enable it on the Docker CE installation first."))
-	case errors.Is(err, softwaredomain.ErrPredefinedDockerNetwork):
+	case errors.Is(err, explorer.ErrPredefinedDockerNetwork):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"A predefined Docker network (bridge, host, none) cannot be removed."))
-	case errors.Is(err, softwaredomain.ErrInvalidDockerRequest):
+	case errors.Is(err, explorer.ErrInvalidDockerRequest):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 	case errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
@@ -501,14 +529,14 @@ func respondDockerError(c *fiber.Ctx, err error) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, err.Error()))
 	}
 
-	var engineErr *softwaredomain.DockerEngineError
+	var engineErr *explorer.DockerEngineError
 	if errors.As(err, &engineErr) {
 		switch engineErr.Kind {
-		case softwaredomain.DockerEngineNotFound:
+		case explorer.DockerEngineNotFound:
 			return apierror.Respond(c, apierror.New(apierror.CodeNotFound, engineErr.Detail))
-		case softwaredomain.DockerEngineConflict:
+		case explorer.DockerEngineConflict:
 			return apierror.Respond(c, apierror.New(apierror.CodeConflict, engineErr.Detail))
-		case softwaredomain.DockerEngineRejected:
+		case explorer.DockerEngineRejected:
 			return apierror.Respond(c, apierror.New(apierror.CodeValidation, engineErr.Detail))
 		default:
 			log.Printf("docker explorer: engine unavailable: %v", engineErr)

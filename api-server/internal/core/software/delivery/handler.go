@@ -17,6 +17,7 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
 	"github.com/maple52046/swallow/internal/shared/middleware"
+	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
 // SoftwareHandler serves the /software surface.
@@ -74,7 +75,7 @@ func (h *SoftwareHandler) Catalog(c *fiber.Ctx) error {
 			RequiresAMDComputeGPU:       entry.RequiresAMDComputeGPU,
 			InstallMethods:              methodsToStrings(entry.InstallMethods),
 			ContainerRuntimes:           kindsToStrings(entry.ContainerRuntimes),
-			SpecFields:                  stringsOrEmpty(entry.SpecFields),
+			SpecFields:                  wire.Strings(entry.SpecFields),
 		})
 	}
 	return c.JSON(fiber.Map{"items": items})
@@ -166,7 +167,7 @@ func toAssignmentResponse(assignment *softwaredomain.Assignment) assignmentRespo
 		ServerID: assignment.ServerID, Kind: string(assignment.Kind),
 		Roles: rolesToStrings(assignment.Roles), Spec: assignment.Spec,
 		State: string(assignment.State), LastWorkflowID: assignment.LastWorkflowID,
-		LastAppliedAt: formatOptionalTime(assignment.LastAppliedAt),
+		LastAppliedAt: wire.OptionalTime(assignment.LastAppliedAt),
 		CreatedAt:     assignment.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:     assignment.UpdatedAt.UTC().Format(time.RFC3339),
 	}
@@ -202,21 +203,6 @@ func methodsToStrings(methods []softwaredomain.InstallMethod) []string {
 		out = append(out, string(method))
 	}
 	return out
-}
-
-func stringsOrEmpty(values []string) []string {
-	if values == nil {
-		return []string{}
-	}
-	return values
-}
-
-func formatOptionalTime(value *time.Time) *string {
-	if value == nil {
-		return nil
-	}
-	formatted := value.UTC().Format(time.RFC3339)
-	return &formatted
 }
 
 // respondError maps software domain and operation errors to the shared envelope (software.md).

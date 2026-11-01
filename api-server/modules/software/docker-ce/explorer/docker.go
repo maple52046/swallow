@@ -1,4 +1,4 @@
-package domain
+package explorer
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 )
 
 // This file defines the Docker Host Explorer: live view types, request specs and their invariants,
@@ -327,7 +329,7 @@ type DockerEngineClient interface {
 	// PullImage pulls name with tagOrDigest (never empty, see ParseImageReference) and returns
 	// the Engine's final status; a failure reported mid-stream is an error, not a success. A
 	// non-nil auth is sent to the Engine for this request only and must never appear in an error.
-	PullImage(ctx context.Context, name, tagOrDigest string, auth *DockerRegistryAuth) (string, error)
+	PullImage(ctx context.Context, name, tagOrDigest string, auth *softwaredomain.DockerRegistryAuth) (string, error)
 	RemoveImage(ctx context.Context, id string, force bool) error
 
 	ListContainers(ctx context.Context) ([]DockerContainer, error)

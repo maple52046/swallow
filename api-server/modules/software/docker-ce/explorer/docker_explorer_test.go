@@ -1,4 +1,4 @@
-package application
+package explorer
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 // fakeDockerClient records the calls that reach the Engine; embedding the interface makes any
 // method a test does not expect panic, so an unexpected Engine call cannot pass silently.
 type fakeDockerClient struct {
-	softwaredomain.DockerEngineClient
+	DockerEngineClient
 	calls      []string
 	pulledName string
 	pulledTag  string
@@ -20,9 +20,9 @@ type fakeDockerClient struct {
 	pullErr    error
 }
 
-func (c *fakeDockerClient) ListImages(context.Context) ([]softwaredomain.DockerImage, error) {
+func (c *fakeDockerClient) ListImages(context.Context) ([]DockerImage, error) {
 	c.calls = append(c.calls, "ListImages")
-	return []softwaredomain.DockerImage{{ID: "sha256:1"}}, nil
+	return []DockerImage{{ID: "sha256:1"}}, nil
 }
 
 func (c *fakeDockerClient) PullImage(_ context.Context, name, tag string, auth *softwaredomain.DockerRegistryAuth) (string, error) {
@@ -52,7 +52,7 @@ type fakeDockerFactory struct {
 	built   int
 }
 
-func (f *fakeDockerFactory) For(address string, port int) (softwaredomain.DockerEngineClient, error) {
+func (f *fakeDockerFactory) For(address string, port int) (DockerEngineClient, error) {
 	f.address, f.port = address, port
 	f.built++
 	return f.client, nil
@@ -67,6 +67,50 @@ type fakeGuard struct {
 func (g *fakeGuard) RequireUnlocked(context.Context, []string) error {
 	g.checked++
 	return g.err
+}
+
+type fakeAssignmentRepo struct {
+	items map[string]*softwaredomain.Assignment
+}
+
+func newFakeAssignmentRepo() *fakeAssignmentRepo {
+	return &fakeAssignmentRepo{items: map[string]*softwaredomain.Assignment{}}
+}
+
+func assignmentKey(serverID string, kind softwaredomain.Kind) string {
+	return serverID + "/" + string(kind)
+}
+
+func (r *fakeAssignmentRepo) Upsert(_ context.Context, assignment *softwaredomain.Assignment) error {
+	clone := *assignment
+	r.items[assignmentKey(assignment.ServerID, assignment.Kind)] = &clone
+	return nil
+}
+
+func (r *fakeAssignmentRepo) FindByServerAndKind(_ context.Context, serverID string, kind softwaredomain.Kind) (*softwaredomain.Assignment, error) {
+	if item, ok := r.items[assignmentKey(serverID, kind)]; ok {
+		return item, nil
+	}
+	return nil, softwaredomain.ErrAssignmentNotFound
+}
+
+type fakeServerRepo struct {
+	servers map[string]*serverdomain.Server
+}
+
+func (r *fakeServerRepo) FindByID(_ context.Context, id string) (*serverdomain.Server, error) {
+	if server, ok := r.servers[id]; ok {
+		return server, nil
+	}
+	return nil, serverdomain.ErrServerNotFound
+}
+
+func deployedServer(id string) *serverdomain.Server {
+	return &serverdomain.Server{
+		ID:           id,
+		Source:       serverdomain.Source{SiteID: "site-1"},
+		Provisioning: &serverdomain.ProvisioningStatus{State: "deployed"},
+	}
 }
 
 type dockerExplorerFixture struct {
@@ -128,45 +172,45 @@ func TestDockerExplorerEligibility(t *testing.T) {
 		{
 			name:    "server not deployed",
 			degrade: func(f *dockerExplorerFixture) { f.server.Provisioning.State = "ready" },
-			want:    softwaredomain.ErrDockerHostUnavailable,
+			want:    ErrDockerHostUnavailable,
 		},
 		{
 			name:    "server absent",
 			degrade: func(f *dockerExplorerFixture) { f.server.Absent = true },
-			want:    softwaredomain.ErrDockerHostUnavailable,
+			want:    ErrDockerHostUnavailable,
 		},
 		{
 			name:    "no known address",
 			degrade: func(f *dockerExplorerFixture) { f.server.Observed.Addresses = nil },
-			want:    softwaredomain.ErrDockerHostUnavailable,
+			want:    ErrDockerHostUnavailable,
 		},
 		{
 			name: "no docker-ce assignment",
 			degrade: func(f *dockerExplorerFixture) {
 				delete(f.repo.items, assignmentKey("srv-a", softwaredomain.KindDockerCE))
 			},
-			want: softwaredomain.ErrDockerNotInstalled,
+			want: ErrDockerNotInstalled,
 		},
 		{
 			name: "assignment still pending",
 			degrade: func(f *dockerExplorerFixture) {
 				f.repo.items[assignmentKey("srv-a", softwaredomain.KindDockerCE)].State = softwaredomain.StatePending
 			},
-			want: softwaredomain.ErrDockerNotInstalled,
+			want: ErrDockerNotInstalled,
 		},
 		{
 			name: "api disabled",
 			degrade: func(f *dockerExplorerFixture) {
 				f.repo.items[assignmentKey("srv-a", softwaredomain.KindDockerCE)].Spec = map[string]any{"enableApi": false}
 			},
-			want: softwaredomain.ErrDockerAPIDisabled,
+			want: ErrDockerAPIDisabled,
 		},
 		{
 			name: "legacy assignment without enableApi",
 			degrade: func(f *dockerExplorerFixture) {
 				f.repo.items[assignmentKey("srv-a", softwaredomain.KindDockerCE)].Spec = nil
 			},
-			want: softwaredomain.ErrDockerAPIDisabled,
+			want: ErrDockerAPIDisabled,
 		},
 	}
 	for _, tc := range tests {
@@ -214,14 +258,14 @@ func TestDockerExplorerValidatesBeforeIO(t *testing.T) {
 		{
 			name: "container without image",
 			call: func(uc *DockerExplorerUseCase) error {
-				_, err := uc.CreateContainer(context.Background(), "srv-a", softwaredomain.DockerContainerSpec{Name: "web"})
+				_, err := uc.CreateContainer(context.Background(), "srv-a", DockerContainerSpec{Name: "web"})
 				return err
 			},
 		},
 		{
 			name: "network gateway without subnet",
 			call: func(uc *DockerExplorerUseCase) error {
-				_, err := uc.CreateNetwork(context.Background(), "srv-a", softwaredomain.DockerNetworkSpec{Name: "app", Gateway: "10.0.0.1"})
+				_, err := uc.CreateNetwork(context.Background(), "srv-a", DockerNetworkSpec{Name: "app", Gateway: "10.0.0.1"})
 				return err
 			},
 		},
@@ -249,7 +293,7 @@ func TestDockerExplorerValidatesBeforeIO(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newDockerExplorerFixture(t)
-			if err := tc.call(f.explorer); !errors.Is(err, softwaredomain.ErrInvalidDockerRequest) {
+			if err := tc.call(f.explorer); !errors.Is(err, ErrInvalidDockerRequest) {
 				t.Fatalf("error = %v, want ErrInvalidDockerRequest", err)
 			}
 			if f.factory.built != 0 || f.guard.checked != 0 {
@@ -262,7 +306,7 @@ func TestDockerExplorerValidatesBeforeIO(t *testing.T) {
 func TestDockerExplorerRefusesPredefinedNetworkBeforeIO(t *testing.T) {
 	f := newDockerExplorerFixture(t)
 	err := f.explorer.RemoveNetwork(context.Background(), "srv-a", "bridge")
-	if !errors.Is(err, softwaredomain.ErrPredefinedDockerNetwork) {
+	if !errors.Is(err, ErrPredefinedDockerNetwork) {
 		t.Fatalf("RemoveNetwork(bridge) error = %v, want ErrPredefinedDockerNetwork", err)
 	}
 	if f.factory.built != 0 {
@@ -354,8 +398,8 @@ func TestDockerExplorerPullFailsWhenCredentialStoreFails(t *testing.T) {
 // A registry denies an anonymous and a wrongly signed-in pull with the same message, so the failure
 // must say which one happened and for which registry.
 func TestDockerExplorerPullFailureNamesTheCredentialUsed(t *testing.T) {
-	denied := &softwaredomain.DockerEngineError{
-		Kind: softwaredomain.DockerEngineNotFound, Detail: "pull access denied for team/private",
+	denied := &DockerEngineError{
+		Kind: DockerEngineNotFound, Detail: "pull access denied for team/private",
 	}
 	tests := []struct {
 		name        string
@@ -377,11 +421,11 @@ func TestDockerExplorerPullFailureNamesTheCredentialUsed(t *testing.T) {
 			f.factory.client.pullErr = denied
 			f.explorer.AttachRegistryCredentials(&fakeCredentialRepo{byRegistry: tc.credentials})
 			_, err := f.explorer.PullImage(context.Background(), "srv-a", "team/private:1.0")
-			var engineErr *softwaredomain.DockerEngineError
+			var engineErr *DockerEngineError
 			if !errors.As(err, &engineErr) {
 				t.Fatalf("PullImage error = %v, want a DockerEngineError", err)
 			}
-			if engineErr.Kind != softwaredomain.DockerEngineNotFound || engineErr.Detail != tc.wantDetail {
+			if engineErr.Kind != DockerEngineNotFound || engineErr.Detail != tc.wantDetail {
 				t.Errorf("PullImage error = %s %q, want not_found %q", engineErr.Kind, engineErr.Detail, tc.wantDetail)
 			}
 		})

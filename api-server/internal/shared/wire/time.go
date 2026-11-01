@@ -18,6 +18,15 @@ func TimePtr(t time.Time) *string {
 	return &formatted
 }
 
+// OptionalTime formats a timestamp that may be absent, returning nil for a nil pointer.
+func OptionalTime(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	formatted := Time(*t)
+	return &formatted
+}
+
 // String returns a pointer to s, or nil when s is empty.
 //
 // The API contract requires an optional-but-unset field to be null rather than an

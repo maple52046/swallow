@@ -1,9 +1,9 @@
 // Package dockerengine is the Docker Engine API adapter of the Docker Host Explorer
 // (docs/decisions/043-docker-host-management.md).
 //
-// It implements softwaredomain.DockerEngineClient over plain HTTP against the listener the Docker
+// It implements explorer.DockerEngineClient over plain HTTP against the listener the Docker
 // CE playbook opens on a Server, mapping the Engine's JSON into domain view types and its errors
-// into *softwaredomain.DockerEngineError. It deliberately depends on no Docker SDK: the explorer
+// into *explorer.DockerEngineError. It deliberately depends on no Docker SDK: the explorer
 // uses a small, stable subset of the Engine API, and unversioned paths let each host's Engine serve
 // its own current API version.
 //
@@ -29,6 +29,7 @@ import (
 	"time"
 
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+	"github.com/maple52046/swallow/modules/software/docker-ce/explorer"
 )
 
 const (
@@ -62,7 +63,7 @@ type Factory struct {
 	httpClient *http.Client
 }
 
-var _ softwaredomain.DockerEngineClientFactory = (*Factory)(nil)
+var _ explorer.DockerEngineClientFactory = (*Factory)(nil)
 
 // NewFactory builds the Engine client factory with its shared transport. Per-call deadlines come
 // from contexts (see requestTimeout and pullTimeout), so the http.Client itself has no Timeout —
@@ -80,7 +81,7 @@ func NewFactory() *Factory {
 
 // For returns a client for the Engine API at address:port. It performs no I/O; an unreachable host
 // surfaces on the first call as a DockerEngineUnavailable error.
-func (f *Factory) For(address string, port int) (softwaredomain.DockerEngineClient, error) {
+func (f *Factory) For(address string, port int) (explorer.DockerEngineClient, error) {
 	if strings.TrimSpace(address) == "" {
 		return nil, errors.New("docker engine address is empty")
 	}
@@ -96,7 +97,7 @@ type Client struct {
 	httpClient *http.Client
 }
 
-var _ softwaredomain.DockerEngineClient = (*Client)(nil)
+var _ explorer.DockerEngineClient = (*Client)(nil)
 
 // ---- transport ----
 
@@ -171,8 +172,8 @@ func (c *Client) call(ctx context.Context, method, path string, query url.Values
 		return nil
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxJSONBodyBytes)).Decode(out); err != nil {
-		return &softwaredomain.DockerEngineError{
-			Kind: softwaredomain.DockerEngineUnavailable, Detail: "The Docker Engine returned an unreadable response", Err: err,
+		return &explorer.DockerEngineError{
+			Kind: explorer.DockerEngineUnavailable, Detail: "The Docker Engine returned an unreadable response", Err: err,
 		}
 	}
 	return nil
@@ -203,8 +204,8 @@ func (c *Client) unreachable(err error) error {
 	if errors.Is(err, context.DeadlineExceeded) {
 		reason = "timed out"
 	}
-	return &softwaredomain.DockerEngineError{
-		Kind:   softwaredomain.DockerEngineUnavailable,
+	return &explorer.DockerEngineError{
+		Kind:   explorer.DockerEngineUnavailable,
 		Detail: fmt.Sprintf("Could not reach the Docker Engine API at %s (%s)", c.endpoint, reason),
 		Err:    err,
 	}
@@ -228,15 +229,15 @@ func engineError(resp *http.Response) error {
 
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
-		return &softwaredomain.DockerEngineError{Kind: softwaredomain.DockerEngineNotFound, Detail: message}
+		return &explorer.DockerEngineError{Kind: explorer.DockerEngineNotFound, Detail: message}
 	case resp.StatusCode == http.StatusConflict, resp.StatusCode == http.StatusForbidden:
-		return &softwaredomain.DockerEngineError{Kind: softwaredomain.DockerEngineConflict, Detail: message}
+		return &explorer.DockerEngineError{Kind: explorer.DockerEngineConflict, Detail: message}
 	case resp.StatusCode >= http.StatusInternalServerError:
-		return &softwaredomain.DockerEngineError{
-			Kind: softwaredomain.DockerEngineUnavailable, Detail: "The Docker Engine reported an error: " + message,
+		return &explorer.DockerEngineError{
+			Kind: explorer.DockerEngineUnavailable, Detail: "The Docker Engine reported an error: " + message,
 		}
 	default:
-		return &softwaredomain.DockerEngineError{Kind: softwaredomain.DockerEngineRejected, Detail: message}
+		return &explorer.DockerEngineError{Kind: explorer.DockerEngineRejected, Detail: message}
 	}
 }
 
@@ -269,7 +270,7 @@ func parseEngineTime(value string) *time.Time {
 // ---- summary ----
 
 // Summary combines /info (counts, host facts) and /version (the negotiated API version).
-func (c *Client) Summary(ctx context.Context) (*softwaredomain.DockerEngineSummary, error) {
+func (c *Client) Summary(ctx context.Context) (*explorer.DockerEngineSummary, error) {
 	var info struct {
 		ServerVersion     string `json:"ServerVersion"`
 		OperatingSystem   string `json:"OperatingSystem"`
@@ -294,7 +295,7 @@ func (c *Client) Summary(ctx context.Context) (*softwaredomain.DockerEngineSumma
 	if err := c.call(ctx, http.MethodGet, "/version", nil, nil, &version); err != nil {
 		return nil, err
 	}
-	return &softwaredomain.DockerEngineSummary{
+	return &explorer.DockerEngineSummary{
 		Endpoint: c.endpoint, ServerVersion: info.ServerVersion, APIVersion: version.APIVersion,
 		OperatingSystem: info.OperatingSystem, OSType: info.OSType, Architecture: info.Architecture,
 		KernelVersion: info.KernelVersion, StorageDriver: info.Driver, CPUs: info.NCPU, MemoryBytes: info.MemTotal,
@@ -307,7 +308,7 @@ func (c *Client) Summary(ctx context.Context) (*softwaredomain.DockerEngineSumma
 
 // ListImages lists local images newest first. Docker's "<none>" placeholders are dropped so an
 // untagged image reads as dangling instead of carrying a fake tag.
-func (c *Client) ListImages(ctx context.Context) ([]softwaredomain.DockerImage, error) {
+func (c *Client) ListImages(ctx context.Context) ([]explorer.DockerImage, error) {
 	var items []struct {
 		ID          string   `json:"Id"`
 		RepoTags    []string `json:"RepoTags"`
@@ -318,10 +319,10 @@ func (c *Client) ListImages(ctx context.Context) ([]softwaredomain.DockerImage, 
 	if err := c.call(ctx, http.MethodGet, "/images/json", nil, nil, &items); err != nil {
 		return nil, err
 	}
-	images := make([]softwaredomain.DockerImage, 0, len(items))
+	images := make([]explorer.DockerImage, 0, len(items))
 	for _, item := range items {
 		tags := withoutPlaceholders(item.RepoTags)
-		images = append(images, softwaredomain.DockerImage{
+		images = append(images, explorer.DockerImage{
 			ID: item.ID, RepoTags: tags, RepoDigests: withoutPlaceholders(item.RepoDigests),
 			SizeBytes: item.Size, CreatedAt: time.Unix(item.Created, 0).UTC(), Dangling: len(tags) == 0,
 		})
@@ -390,19 +391,19 @@ func (c *Client) PullImage(ctx context.Context, name, tagOrDigest string, auth *
 		}
 		if err != nil {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return "", &softwaredomain.DockerEngineError{
-					Kind:   softwaredomain.DockerEngineUnavailable,
+				return "", &explorer.DockerEngineError{
+					Kind:   explorer.DockerEngineUnavailable,
 					Detail: fmt.Sprintf("The image pull did not finish within %s", pullTimeout),
 					Err:    ctx.Err(),
 				}
 			}
-			return "", &softwaredomain.DockerEngineError{
-				Kind: softwaredomain.DockerEngineUnavailable, Detail: "The image pull stream ended unexpectedly", Err: err,
+			return "", &explorer.DockerEngineError{
+				Kind: explorer.DockerEngineUnavailable, Detail: "The image pull stream ended unexpectedly", Err: err,
 			}
 		}
 		if reason := firstNonEmpty(message.ErrorDetail.Message, message.Error); reason != "" {
-			return "", &softwaredomain.DockerEngineError{
-				Kind: softwaredomain.DockerEngineUnavailable, Detail: "The Docker Engine could not pull the image: " + reason,
+			return "", &explorer.DockerEngineError{
+				Kind: explorer.DockerEngineUnavailable, Detail: "The Docker Engine could not pull the image: " + reason,
 			}
 		}
 		if message.Status != "" {
@@ -429,7 +430,7 @@ func (c *Client) RemoveImage(ctx context.Context, id string, force bool) error {
 // ---- containers ----
 
 // ListContainers lists every container (all=1), ordered by name.
-func (c *Client) ListContainers(ctx context.Context) ([]softwaredomain.DockerContainer, error) {
+func (c *Client) ListContainers(ctx context.Context) ([]explorer.DockerContainer, error) {
 	var items []struct {
 		ID      string   `json:"Id"`
 		Names   []string `json:"Names"`
@@ -459,9 +460,9 @@ func (c *Client) ListContainers(ctx context.Context) ([]softwaredomain.DockerCon
 	if err := c.call(ctx, http.MethodGet, "/containers/json", url.Values{"all": {"1"}}, nil, &items); err != nil {
 		return nil, err
 	}
-	containers := make([]softwaredomain.DockerContainer, 0, len(items))
+	containers := make([]explorer.DockerContainer, 0, len(items))
 	for _, item := range items {
-		container := softwaredomain.DockerContainer{
+		container := explorer.DockerContainer{
 			ID: item.ID, Image: item.Image, ImageID: item.ImageID, Command: item.Command,
 			State: item.State, Status: item.Status, CreatedAt: time.Unix(item.Created, 0).UTC(),
 		}
@@ -470,7 +471,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]softwaredomain.DockerCon
 			container.Name = strings.TrimPrefix(item.Names[0], "/")
 		}
 		for _, port := range item.Ports {
-			container.Ports = append(container.Ports, softwaredomain.DockerPort{
+			container.Ports = append(container.Ports, explorer.DockerPort{
 				IP: port.IP, PrivatePort: port.PrivatePort, PublicPort: port.PublicPort, Protocol: port.Type,
 			})
 		}
@@ -483,7 +484,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]softwaredomain.DockerCon
 			if mount.Type == "volume" && mount.Name != "" {
 				source = mount.Name
 			}
-			container.Mounts = append(container.Mounts, softwaredomain.DockerMount{
+			container.Mounts = append(container.Mounts, explorer.DockerMount{
 				Type: mount.Type, Source: source, Destination: mount.Destination, ReadOnly: !mount.RW,
 			})
 		}
@@ -496,7 +497,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]softwaredomain.DockerCon
 // CreateContainer translates the validated spec into the Engine's create body, then starts the
 // container when asked. Binds carry both named volumes and host paths (source:target[:ro]); a
 // HostPort of 0 is sent as "" so the Engine picks a free port.
-func (c *Client) CreateContainer(ctx context.Context, spec softwaredomain.DockerContainerSpec) (*softwaredomain.DockerContainerCreated, error) {
+func (c *Client) CreateContainer(ctx context.Context, spec explorer.DockerContainerSpec) (*explorer.DockerContainerCreated, error) {
 	exposed := map[string]struct{}{}
 	bindings := map[string][]map[string]string{}
 	for _, port := range spec.Ports {
@@ -553,14 +554,14 @@ func (c *Client) CreateContainer(ctx context.Context, spec softwaredomain.Docker
 	if err := c.call(ctx, http.MethodPost, "/containers/create", query, body, &created); err != nil {
 		return nil, err
 	}
-	result := &softwaredomain.DockerContainerCreated{ID: created.ID, Warnings: created.Warnings}
+	result := &explorer.DockerContainerCreated{ID: created.ID, Warnings: created.Warnings}
 	if !spec.Start {
 		return result, nil
 	}
 	if err := c.StartContainer(ctx, created.ID); err != nil {
-		var engineErr *softwaredomain.DockerEngineError
+		var engineErr *explorer.DockerEngineError
 		if errors.As(err, &engineErr) {
-			return result, &softwaredomain.DockerEngineError{
+			return result, &explorer.DockerEngineError{
 				Kind: engineErr.Kind, Detail: "The container was created but could not be started: " + engineErr.Detail, Err: engineErr.Err,
 			}
 		}
@@ -657,22 +658,22 @@ type volumeJSON struct {
 	Labels     map[string]string `json:"Labels"`
 }
 
-func (v volumeJSON) toVolume() softwaredomain.DockerVolume {
-	return softwaredomain.DockerVolume{
+func (v volumeJSON) toVolume() explorer.DockerVolume {
+	return explorer.DockerVolume{
 		Name: v.Name, Driver: v.Driver, Mountpoint: v.Mountpoint, Scope: v.Scope,
 		CreatedAt: parseEngineTime(v.CreatedAt), Labels: v.Labels,
 	}
 }
 
 // ListVolumes lists volumes by name.
-func (c *Client) ListVolumes(ctx context.Context) ([]softwaredomain.DockerVolume, error) {
+func (c *Client) ListVolumes(ctx context.Context) ([]explorer.DockerVolume, error) {
 	var listing struct {
 		Volumes []volumeJSON `json:"Volumes"`
 	}
 	if err := c.call(ctx, http.MethodGet, "/volumes", nil, nil, &listing); err != nil {
 		return nil, err
 	}
-	volumes := make([]softwaredomain.DockerVolume, 0, len(listing.Volumes))
+	volumes := make([]explorer.DockerVolume, 0, len(listing.Volumes))
 	for _, item := range listing.Volumes {
 		volumes = append(volumes, item.toVolume())
 	}
@@ -681,7 +682,7 @@ func (c *Client) ListVolumes(ctx context.Context) ([]softwaredomain.DockerVolume
 }
 
 // CreateVolume creates a volume (driver local by default) and returns the Engine's view of it.
-func (c *Client) CreateVolume(ctx context.Context, spec softwaredomain.DockerVolumeSpec) (*softwaredomain.DockerVolume, error) {
+func (c *Client) CreateVolume(ctx context.Context, spec explorer.DockerVolumeSpec) (*explorer.DockerVolume, error) {
 	driver := spec.Driver
 	if driver == "" {
 		driver = "local"
@@ -719,24 +720,24 @@ type networkJSON struct {
 	} `json:"IPAM"`
 }
 
-func (n networkJSON) toNetwork() softwaredomain.DockerNetwork {
-	network := softwaredomain.DockerNetwork{
+func (n networkJSON) toNetwork() explorer.DockerNetwork {
+	network := explorer.DockerNetwork{
 		ID: n.ID, Name: n.Name, Driver: n.Driver, Scope: n.Scope, Internal: n.Internal, Attachable: n.Attachable,
-		Predefined: softwaredomain.IsPredefinedDockerNetwork(n.Name), CreatedAt: parseEngineTime(n.Created),
+		Predefined: explorer.IsPredefinedDockerNetwork(n.Name), CreatedAt: parseEngineTime(n.Created),
 	}
 	for _, pool := range n.IPAM.Config {
-		network.Subnets = append(network.Subnets, softwaredomain.DockerSubnet{Subnet: pool.Subnet, Gateway: pool.Gateway})
+		network.Subnets = append(network.Subnets, explorer.DockerSubnet{Subnet: pool.Subnet, Gateway: pool.Gateway})
 	}
 	return network
 }
 
 // ListNetworks lists networks by name.
-func (c *Client) ListNetworks(ctx context.Context) ([]softwaredomain.DockerNetwork, error) {
+func (c *Client) ListNetworks(ctx context.Context) ([]explorer.DockerNetwork, error) {
 	var items []networkJSON
 	if err := c.call(ctx, http.MethodGet, "/networks", nil, nil, &items); err != nil {
 		return nil, err
 	}
-	networks := make([]softwaredomain.DockerNetwork, 0, len(items))
+	networks := make([]explorer.DockerNetwork, 0, len(items))
 	for _, item := range items {
 		networks = append(networks, item.toNetwork())
 	}
@@ -746,7 +747,7 @@ func (c *Client) ListNetworks(ctx context.Context) ([]softwaredomain.DockerNetwo
 
 // CreateNetwork creates a network (driver bridge by default) and reads it back, because the
 // Engine's create response carries only the id.
-func (c *Client) CreateNetwork(ctx context.Context, spec softwaredomain.DockerNetworkSpec) (*softwaredomain.DockerNetwork, error) {
+func (c *Client) CreateNetwork(ctx context.Context, spec explorer.DockerNetworkSpec) (*explorer.DockerNetwork, error) {
 	driver := spec.Driver
 	if driver == "" {
 		driver = "bridge"

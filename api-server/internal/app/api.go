@@ -74,6 +74,8 @@ import (
 	"github.com/maple52046/swallow/internal/shared/version"
 	"github.com/maple52046/swallow/modules/platform/platformapi"
 	"github.com/maple52046/swallow/modules/software/docker-ce/dockerengine"
+	"github.com/maple52046/swallow/modules/software/docker-ce/explorer"
+	"github.com/maple52046/swallow/modules/software/docker-ce/explorerhttp"
 )
 
 // shutdownTimeout bounds how long in-flight requests get to finish on shutdown.
@@ -517,7 +519,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// Docker Host Explorer (decision 043): live management of the Docker Engine on a Server where
 	// swallow installed Docker CE with enableApi. Eligibility reads the same assignment repository;
 	// writes go through the provider-backed lock guard; Docker objects are never persisted.
-	dockerExplorer := softwareapp.NewDockerExplorerUseCase(
+	dockerExplorer := explorer.NewDockerExplorerUseCase(
 		softwareAssignmentRepo, serverRepo, dockerengine.NewFactory(), serverProtection,
 	)
 	// Registry Credentials (decision 044): installation-wide, sealed with the credential key, and
@@ -527,7 +529,7 @@ func RunAPI(cfg config.APIConfig) error {
 		return fmt.Errorf("registry credential repo init: %w", err)
 	}
 	dockerExplorer.AttachRegistryCredentials(registryCredentialRepo)
-	dockerHandler := softwaredelivery.NewDockerHandler(dockerExplorer)
+	dockerHandler := explorerhttp.NewDockerHandler(dockerExplorer)
 	registryCredentialHandler := softwaredelivery.NewRegistryCredentialHandler(
 		softwareapp.NewRegistryCredentialService(registryCredentialRepo))
 
@@ -670,7 +672,7 @@ type routeDeps struct {
 	monitoring     *monitoringdelivery.MonitoringHandler
 	platforms      *platformdelivery.PlatformHandler
 	software       *softwaredelivery.SoftwareHandler
-	docker         *softwaredelivery.DockerHandler
+	docker         *explorerhttp.DockerHandler
 	registryCreds  *softwaredelivery.RegistryCredentialHandler
 	infrastructure *infrastructuredelivery.InfrastructureHandler
 	discovery      *discoverydelivery.DiscoveryHandler
@@ -727,34 +729,6 @@ func registerKubernetesExplorerRoutes(routes fiber.Router, handler *platformdeli
 	routes.Get("/:id/kubernetes/persistentvolumeclaims", handler.ListKubernetesPersistentVolumeClaims)
 
 	routes.Post("/:id/kubernetes/apply", handler.ApplyKubernetesManifest)
-}
-
-// registerDockerExplorerRoutes mounts the Docker Host Explorer under a Server (contract
-// servers-docker.md, decision 043). Mounted here because clients address a Server, but handled by
-// the software feature that owns the Docker CE assignment the explorer is gated on. These routes
-// call the host's Engine API on demand and persist nothing.
-func registerDockerExplorerRoutes(servers fiber.Router, handler *softwaredelivery.DockerHandler) {
-	servers.Get("/:id/docker", handler.Summary)
-
-	servers.Get("/:id/docker/images", handler.ListImages)
-	servers.Post("/:id/docker/images/pull", handler.PullImage)
-	servers.Delete("/:id/docker/images/:imageId", handler.RemoveImage)
-
-	servers.Get("/:id/docker/containers", handler.ListContainers)
-	servers.Post("/:id/docker/containers", handler.CreateContainer)
-	servers.Post("/:id/docker/containers/:containerId/start", handler.StartContainer)
-	servers.Post("/:id/docker/containers/:containerId/stop", handler.StopContainer)
-	servers.Post("/:id/docker/containers/:containerId/restart", handler.RestartContainer)
-	servers.Get("/:id/docker/containers/:containerId/logs", handler.ContainerLogs)
-	servers.Delete("/:id/docker/containers/:containerId", handler.RemoveContainer)
-
-	servers.Get("/:id/docker/volumes", handler.ListVolumes)
-	servers.Post("/:id/docker/volumes", handler.CreateVolume)
-	servers.Delete("/:id/docker/volumes/:volumeName", handler.RemoveVolume)
-
-	servers.Get("/:id/docker/networks", handler.ListNetworks)
-	servers.Post("/:id/docker/networks", handler.CreateNetwork)
-	servers.Delete("/:id/docker/networks/:networkId", handler.RemoveNetwork)
 }
 
 func registerRoutes(app *fiber.App, deps routeDeps) {
@@ -879,7 +853,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// provisioner (decision 029). Mounted here because clients address a Server, but handled by
 	// the infrastructure feature that owns the Zone/Pool catalog.
 	servers.Put("/:id/placement", deps.infrastructure.AssignServerPlacement)
-	registerDockerExplorerRoutes(servers, deps.docker)
+	explorerhttp.RegisterRoutes(servers, deps.docker)
 
 	provisioning := v1.Group("/provisioning", admin...)
 	provisioning.Get("/images", deps.provisioning.ListImages)

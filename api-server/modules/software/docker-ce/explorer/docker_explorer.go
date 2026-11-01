@@ -1,4 +1,4 @@
-package application
+package explorer
 
 import (
 	"context"
@@ -27,28 +27,40 @@ import (
 //
 // It performs no writes to swallow state: Docker objects are Engine facts (ADR 001), every call is
 // a synchronous Engine request, and no Workflow is created. Engine failures surface unchanged as
-// *softwaredomain.DockerEngineError for delivery to map.
+// *DockerEngineError for delivery to map.
 type DockerExplorerUseCase struct {
-	assignments softwaredomain.AssignmentRepository
-	servers     serverdomain.ServerRepository
-	clients     softwaredomain.DockerEngineClientFactory
+	assignments AssignmentReader
+	servers     ServerReader
+	clients     DockerEngineClientFactory
 	guard       serverdomain.MutationGuard
 	credentials softwaredomain.RegistryCredentialRepository
 }
 
-// NewDockerExplorerUseCase wires the assignment and server repositories (eligibility), the Engine
+// AssignmentReader reads the Software Assignment that gates the explorer; the core software
+// assignment repository satisfies it.
+type AssignmentReader interface {
+	FindByServerAndKind(ctx context.Context, serverID string, kind softwaredomain.Kind) (*softwaredomain.Assignment, error)
+}
+
+// ServerReader reads the Server whose address the explorer dials; the core server repository
+// satisfies it.
+type ServerReader interface {
+	FindByID(ctx context.Context, id string) (*serverdomain.Server, error)
+}
+
+// NewDockerExplorerUseCase wires the assignment and server readers (eligibility), the Engine
 // client factory, and the provider-backed lock guard (writes).
 func NewDockerExplorerUseCase(
-	assignments softwaredomain.AssignmentRepository,
-	servers serverdomain.ServerRepository,
-	clients softwaredomain.DockerEngineClientFactory,
+	assignments AssignmentReader,
+	servers ServerReader,
+	clients DockerEngineClientFactory,
 	guard serverdomain.MutationGuard,
 ) *DockerExplorerUseCase {
 	return &DockerExplorerUseCase{assignments: assignments, servers: servers, clients: clients, guard: guard}
 }
 
 // Summary reads the Engine header.
-func (uc *DockerExplorerUseCase) Summary(ctx context.Context, serverID string) (*softwaredomain.DockerEngineSummary, error) {
+func (uc *DockerExplorerUseCase) Summary(ctx context.Context, serverID string) (*DockerEngineSummary, error) {
 	client, err := uc.reader(ctx, serverID)
 	if err != nil {
 		return nil, err
@@ -57,7 +69,7 @@ func (uc *DockerExplorerUseCase) Summary(ctx context.Context, serverID string) (
 }
 
 // ListImages lists the host's local images.
-func (uc *DockerExplorerUseCase) ListImages(ctx context.Context, serverID string) ([]softwaredomain.DockerImage, error) {
+func (uc *DockerExplorerUseCase) ListImages(ctx context.Context, serverID string) ([]DockerImage, error) {
 	client, err := uc.reader(ctx, serverID)
 	if err != nil {
 		return nil, err
@@ -76,8 +88,8 @@ func (uc *DockerExplorerUseCase) AttachRegistryCredentials(credentials softwared
 // reference is validated before the eligibility and lock checks reach the provider, so a malformed
 // request costs no I/O. A credential-store failure fails the pull instead of silently falling back
 // to an anonymous pull that would report a misleading "access denied".
-func (uc *DockerExplorerUseCase) PullImage(ctx context.Context, serverID, reference string) (*softwaredomain.DockerImagePullResult, error) {
-	name, tagOrDigest, canonical, err := softwaredomain.ParseImageReference(reference)
+func (uc *DockerExplorerUseCase) PullImage(ctx context.Context, serverID, reference string) (*DockerImagePullResult, error) {
+	name, tagOrDigest, canonical, err := ParseImageReference(reference)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +106,7 @@ func (uc *DockerExplorerUseCase) PullImage(ctx context.Context, serverID, refere
 	if err != nil {
 		return nil, withPullAuthNote(err, registry, auth)
 	}
-	return &softwaredomain.DockerImagePullResult{
+	return &DockerImagePullResult{
 		Reference: canonical, Status: status, Registry: registry, Authenticated: auth != nil,
 	}, nil
 }
@@ -103,7 +115,7 @@ func (uc *DockerExplorerUseCase) PullImage(ctx context.Context, serverID, refere
 // to which registry. A registry's "pull access denied" reads the same either way, and the operator
 // cannot otherwise tell that no saved credential matched the reference.
 func withPullAuthNote(err error, registry string, auth *softwaredomain.DockerRegistryAuth) error {
-	var engineErr *softwaredomain.DockerEngineError
+	var engineErr *DockerEngineError
 	if !errors.As(err, &engineErr) {
 		return err
 	}
@@ -111,7 +123,7 @@ func withPullAuthNote(err error, registry string, auth *softwaredomain.DockerReg
 	if auth != nil {
 		note = fmt.Sprintf(" (signed in to %s as %s)", registry, auth.Username)
 	}
-	return &softwaredomain.DockerEngineError{Kind: engineErr.Kind, Detail: engineErr.Detail + note, Err: engineErr.Err}
+	return &DockerEngineError{Kind: engineErr.Kind, Detail: engineErr.Detail + note, Err: engineErr.Err}
 }
 
 // registryAuth returns the stored credential for a registry, or nil for an anonymous pull.
@@ -144,7 +156,7 @@ func (uc *DockerExplorerUseCase) RemoveImage(ctx context.Context, serverID, imag
 }
 
 // ListContainers lists every container, running or not.
-func (uc *DockerExplorerUseCase) ListContainers(ctx context.Context, serverID string) ([]softwaredomain.DockerContainer, error) {
+func (uc *DockerExplorerUseCase) ListContainers(ctx context.Context, serverID string) ([]DockerContainer, error) {
 	client, err := uc.reader(ctx, serverID)
 	if err != nil {
 		return nil, err
@@ -155,7 +167,7 @@ func (uc *DockerExplorerUseCase) ListContainers(ctx context.Context, serverID st
 // CreateContainer validates the spec and creates (and optionally starts) a container. A start
 // failure after a successful create is returned as the error with the created id still reported,
 // matching DockerEngineClient.CreateContainer.
-func (uc *DockerExplorerUseCase) CreateContainer(ctx context.Context, serverID string, spec softwaredomain.DockerContainerSpec) (*softwaredomain.DockerContainerCreated, error) {
+func (uc *DockerExplorerUseCase) CreateContainer(ctx context.Context, serverID string, spec DockerContainerSpec) (*DockerContainerCreated, error) {
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}
@@ -185,7 +197,7 @@ func (uc *DockerExplorerUseCase) ActOnContainer(ctx context.Context, serverID, c
 		return err
 	}
 	if action != ContainerStart && action != ContainerStop && action != ContainerRestart {
-		return fmt.Errorf("%w: unknown container action %q", softwaredomain.ErrInvalidDockerRequest, action)
+		return fmt.Errorf("%w: unknown container action %q", ErrInvalidDockerRequest, action)
 	}
 	client, err := uc.writer(ctx, serverID)
 	if err != nil {
@@ -221,7 +233,7 @@ func (uc *DockerExplorerUseCase) ContainerLogs(ctx context.Context, serverID, co
 		return "", err
 	}
 	if tailLines <= 0 {
-		return "", fmt.Errorf("%w: tailLines must be positive", softwaredomain.ErrInvalidDockerRequest)
+		return "", fmt.Errorf("%w: tailLines must be positive", ErrInvalidDockerRequest)
 	}
 	client, err := uc.reader(ctx, serverID)
 	if err != nil {
@@ -231,7 +243,7 @@ func (uc *DockerExplorerUseCase) ContainerLogs(ctx context.Context, serverID, co
 }
 
 // ListVolumes lists the host's volumes.
-func (uc *DockerExplorerUseCase) ListVolumes(ctx context.Context, serverID string) ([]softwaredomain.DockerVolume, error) {
+func (uc *DockerExplorerUseCase) ListVolumes(ctx context.Context, serverID string) ([]DockerVolume, error) {
 	client, err := uc.reader(ctx, serverID)
 	if err != nil {
 		return nil, err
@@ -240,7 +252,7 @@ func (uc *DockerExplorerUseCase) ListVolumes(ctx context.Context, serverID strin
 }
 
 // CreateVolume validates the spec and creates a volume.
-func (uc *DockerExplorerUseCase) CreateVolume(ctx context.Context, serverID string, spec softwaredomain.DockerVolumeSpec) (*softwaredomain.DockerVolume, error) {
+func (uc *DockerExplorerUseCase) CreateVolume(ctx context.Context, serverID string, spec DockerVolumeSpec) (*DockerVolume, error) {
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}
@@ -265,7 +277,7 @@ func (uc *DockerExplorerUseCase) RemoveVolume(ctx context.Context, serverID, nam
 }
 
 // ListNetworks lists the host's networks.
-func (uc *DockerExplorerUseCase) ListNetworks(ctx context.Context, serverID string) ([]softwaredomain.DockerNetwork, error) {
+func (uc *DockerExplorerUseCase) ListNetworks(ctx context.Context, serverID string) ([]DockerNetwork, error) {
 	client, err := uc.reader(ctx, serverID)
 	if err != nil {
 		return nil, err
@@ -274,7 +286,7 @@ func (uc *DockerExplorerUseCase) ListNetworks(ctx context.Context, serverID stri
 }
 
 // CreateNetwork validates the spec and creates a network.
-func (uc *DockerExplorerUseCase) CreateNetwork(ctx context.Context, serverID string, spec softwaredomain.DockerNetworkSpec) (*softwaredomain.DockerNetwork, error) {
+func (uc *DockerExplorerUseCase) CreateNetwork(ctx context.Context, serverID string, spec DockerNetworkSpec) (*DockerNetwork, error) {
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}
@@ -291,8 +303,8 @@ func (uc *DockerExplorerUseCase) RemoveNetwork(ctx context.Context, serverID, ne
 	if err := requireIdentifier("network id", networkID); err != nil {
 		return err
 	}
-	if softwaredomain.IsPredefinedDockerNetwork(networkID) {
-		return fmt.Errorf("%w: %s", softwaredomain.ErrPredefinedDockerNetwork, networkID)
+	if IsPredefinedDockerNetwork(networkID) {
+		return fmt.Errorf("%w: %s", ErrPredefinedDockerNetwork, networkID)
 	}
 	client, err := uc.writer(ctx, serverID)
 	if err != nil {
@@ -302,14 +314,14 @@ func (uc *DockerExplorerUseCase) RemoveNetwork(ctx context.Context, serverID, ne
 }
 
 // reader resolves an eligible Engine client for a read.
-func (uc *DockerExplorerUseCase) reader(ctx context.Context, serverID string) (softwaredomain.DockerEngineClient, error) {
+func (uc *DockerExplorerUseCase) reader(ctx context.Context, serverID string) (DockerEngineClient, error) {
 	return uc.resolve(ctx, serverID)
 }
 
 // writer resolves an eligible Engine client and then requires the Server to be unlocked. The lock
 // is checked after eligibility so an ineligible Server reports why it is ineligible rather than
 // costing a live provisioner read.
-func (uc *DockerExplorerUseCase) writer(ctx context.Context, serverID string) (softwaredomain.DockerEngineClient, error) {
+func (uc *DockerExplorerUseCase) writer(ctx context.Context, serverID string) (DockerEngineClient, error) {
 	client, err := uc.resolve(ctx, serverID)
 	if err != nil {
 		return nil, err
@@ -323,32 +335,32 @@ func (uc *DockerExplorerUseCase) writer(ctx context.Context, serverID string) (s
 }
 
 // resolve enforces eligibility and builds the client for the Server's primary address.
-func (uc *DockerExplorerUseCase) resolve(ctx context.Context, serverID string) (softwaredomain.DockerEngineClient, error) {
+func (uc *DockerExplorerUseCase) resolve(ctx context.Context, serverID string) (DockerEngineClient, error) {
 	server, err := uc.servers.FindByID(ctx, serverID)
 	if err != nil {
 		return nil, err
 	}
 	if server.Absent || server.Provisioning == nil || server.Provisioning.State != "deployed" {
-		return nil, fmt.Errorf("%w: %s", softwaredomain.ErrDockerHostUnavailable, server.DisplayName())
+		return nil, fmt.Errorf("%w: %s", ErrDockerHostUnavailable, server.DisplayName())
 	}
 
 	assignment, err := uc.assignments.FindByServerAndKind(ctx, serverID, softwaredomain.KindDockerCE)
 	if errors.Is(err, softwaredomain.ErrAssignmentNotFound) {
-		return nil, fmt.Errorf("%w: %s", softwaredomain.ErrDockerNotInstalled, server.DisplayName())
+		return nil, fmt.Errorf("%w: %s", ErrDockerNotInstalled, server.DisplayName())
 	}
 	if err != nil {
 		return nil, err
 	}
 	if assignment.State != softwaredomain.StateInstalled {
-		return nil, fmt.Errorf("%w: %s (assignment is %s)", softwaredomain.ErrDockerNotInstalled, server.DisplayName(), assignment.State)
+		return nil, fmt.Errorf("%w: %s (assignment is %s)", ErrDockerNotInstalled, server.DisplayName(), assignment.State)
 	}
 	if !softwaredomain.DockerAPIEnabled(assignment.Spec) {
-		return nil, fmt.Errorf("%w: %s", softwaredomain.ErrDockerAPIDisabled, server.DisplayName())
+		return nil, fmt.Errorf("%w: %s", ErrDockerAPIDisabled, server.DisplayName())
 	}
 
 	address := server.PrimaryAddress()
 	if address == "" {
-		return nil, fmt.Errorf("%w: %s has no known address", softwaredomain.ErrDockerHostUnavailable, server.DisplayName())
+		return nil, fmt.Errorf("%w: %s has no known address", ErrDockerHostUnavailable, server.DisplayName())
 	}
 	return uc.clients.For(address, softwaredomain.DockerEngineAPIPort)
 }
@@ -356,7 +368,7 @@ func (uc *DockerExplorerUseCase) resolve(ctx context.Context, serverID string) (
 // requireIdentifier rejects an empty path identifier before any I/O.
 func requireIdentifier(label, value string) error {
 	if strings.TrimSpace(value) == "" {
-		return fmt.Errorf("%w: %s is required", softwaredomain.ErrInvalidDockerRequest, label)
+		return fmt.Errorf("%w: %s is required", ErrInvalidDockerRequest, label)
 	}
 	return nil
 }

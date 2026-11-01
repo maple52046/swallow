@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+	"github.com/maple52046/swallow/modules/software/docker-ce/explorer"
 )
 
 // newTestClient points a Client at an httptest Engine.
@@ -34,9 +35,9 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 	return client.(*Client)
 }
 
-func engineErrorKind(t *testing.T, err error) softwaredomain.DockerEngineErrorKind {
+func engineErrorKind(t *testing.T, err error) explorer.DockerEngineErrorKind {
 	t.Helper()
-	var engineErr *softwaredomain.DockerEngineError
+	var engineErr *explorer.DockerEngineError
 	if !errors.As(err, &engineErr) {
 		t.Fatalf("error = %v (%T), want *DockerEngineError", err, err)
 	}
@@ -46,13 +47,13 @@ func engineErrorKind(t *testing.T, err error) softwaredomain.DockerEngineErrorKi
 func TestEngineStatusesMapToErrorKinds(t *testing.T) {
 	tests := []struct {
 		status int
-		want   softwaredomain.DockerEngineErrorKind
+		want   explorer.DockerEngineErrorKind
 	}{
-		{status: http.StatusNotFound, want: softwaredomain.DockerEngineNotFound},
-		{status: http.StatusConflict, want: softwaredomain.DockerEngineConflict},
-		{status: http.StatusForbidden, want: softwaredomain.DockerEngineConflict},
-		{status: http.StatusBadRequest, want: softwaredomain.DockerEngineRejected},
-		{status: http.StatusInternalServerError, want: softwaredomain.DockerEngineUnavailable},
+		{status: http.StatusNotFound, want: explorer.DockerEngineNotFound},
+		{status: http.StatusConflict, want: explorer.DockerEngineConflict},
+		{status: http.StatusForbidden, want: explorer.DockerEngineConflict},
+		{status: http.StatusBadRequest, want: explorer.DockerEngineRejected},
+		{status: http.StatusInternalServerError, want: explorer.DockerEngineUnavailable},
 	}
 	for _, tc := range tests {
 		t.Run(http.StatusText(tc.status), func(t *testing.T) {
@@ -82,7 +83,7 @@ func TestUnreachableEngineIsUnavailable(t *testing.T) {
 	client, _ := NewFactory().For("127.0.0.1", port)
 
 	_, err = client.ListImages(context.Background())
-	if got := engineErrorKind(t, err); got != softwaredomain.DockerEngineUnavailable {
+	if got := engineErrorKind(t, err); got != explorer.DockerEngineUnavailable {
 		t.Fatalf("ListImages against a closed port kind = %q, want unavailable", got)
 	}
 	if !strings.Contains(err.Error(), "tcp://127.0.0.1:"+strconv.Itoa(port)) {
@@ -117,7 +118,7 @@ func TestPullImageReportsMidStreamFailure(t *testing.T) {
 		_, _ = io.WriteString(w, `{"errorDetail":{"message":"no space left on device"},"error":"no space left on device"}`+"\n")
 	}))
 	_, err := client.PullImage(context.Background(), "nginx", "1.27", nil)
-	if got := engineErrorKind(t, err); got != softwaredomain.DockerEngineUnavailable {
+	if got := engineErrorKind(t, err); got != explorer.DockerEngineUnavailable {
 		t.Fatalf("PullImage with a mid-stream error kind = %q, want unavailable", got)
 	}
 	if !strings.Contains(err.Error(), "no space left on device") {
@@ -262,10 +263,10 @@ func TestCreateContainerMapsSpecAndKeepsIDWhenStartFails(t *testing.T) {
 			t.Errorf("unexpected Engine path %s", r.URL.Path)
 		}
 	}))
-	created, err := client.CreateContainer(context.Background(), softwaredomain.DockerContainerSpec{
+	created, err := client.CreateContainer(context.Background(), explorer.DockerContainerSpec{
 		Name: "web", Image: "nginx:1.27", Env: []string{"A=1"},
-		Ports:   []softwaredomain.DockerPortBinding{{ContainerPort: 80, HostPort: 8080}},
-		Volumes: []softwaredomain.DockerVolumeBinding{{Source: "web-data", Target: "/data", ReadOnly: true}},
+		Ports:   []explorer.DockerPortBinding{{ContainerPort: 80, HostPort: 8080}},
+		Volumes: []explorer.DockerVolumeBinding{{Source: "web-data", Target: "/data", ReadOnly: true}},
 		Network: "app-net", RestartPolicy: "unless-stopped", Start: true,
 	})
 	if created == nil || created.ID != "abc123" || created.Started {
@@ -327,7 +328,7 @@ func TestCreateNetworkReadsBackAndMarksPredefined(t *testing.T) {
 			t.Errorf("unexpected Engine call %s %s", r.Method, r.URL.Path)
 		}
 	}))
-	network, err := client.CreateNetwork(context.Background(), softwaredomain.DockerNetworkSpec{
+	network, err := client.CreateNetwork(context.Background(), explorer.DockerNetworkSpec{
 		Name: "app-net", Subnet: "172.20.0.0/16", Gateway: "172.20.0.1",
 	})
 	if err != nil {
