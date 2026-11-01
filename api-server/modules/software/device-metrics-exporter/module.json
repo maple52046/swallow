@@ -1,0 +1,22 @@
+{
+  "contractVersion": 1,
+  "kind": "software",
+  "id": "device-metrics-exporter",
+  "version": "0.1.0",
+  "playbooks": [
+    "deploy-device-metrics-exporter",
+    "uninstall-device-metrics-exporter",
+    "configure-device-metrics-exporter"
+  ],
+  "workflowKinds": [
+    "configure-device-metrics-exporter",
+    "uninstall-device-metrics-exporter"
+  ],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": []
+}

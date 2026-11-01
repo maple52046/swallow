@@ -4,9 +4,10 @@
 命名、每支 playbook 都要遵守的規則，以及要加哪些測試。讀者是新增或修改 plugin（Platform、Accelerator、Software
 模組）或共用 host automation 內容的開發者與 AI agent。
 
-> **範圍**：目前只涵蓋 host automation 內容（playbook 與 role）。模組契約中的 Module Manifest 與 Go hook
-> （[core-and-extensions.md](core-and-extensions.md) §5.1、§5.3）與每個模組的負責人（`.github/CODEOWNERS`）尚未
-> 實作，實作時補進本文件。模組是什麼、可以依賴什麼，見 [core-and-extensions.md](core-and-extensions.md)；Platform
+> **範圍**：模組的宣告（`module.json` 與 root Go package，§1.1）與 host automation 內容（playbook 與 role）。
+> 各種 Go hook 的介面隨模組抽出逐一定義（[core-and-extensions.md](core-and-extensions.md) §5.3），每個模組的負責人
+> （`.github/CODEOWNERS`）尚未建立，實作時補進本文件。模組是什麼、可以依賴什麼，見
+> [core-and-extensions.md](core-and-extensions.md)；Platform
 > 與 Managed Software 各自的整合契約（inventory、trusted vars、結果）見
 > [platform-deployment.md](platform-deployment.md) 與 [software-deployment.md](software-deployment.md)。
 
@@ -37,6 +38,38 @@ api-server/modules/
 - 2026-10-31 搬移前的路徑（playbook 與 role 原本在 `api-server` 的 automation 目錄）與現在的對照，見
   [`api-server` architecture spec](../../api-server/docs/development/architecture-spec.md) 的「2026-10-31 搬移前的
   路徑」。
+
+### 1.1 模組的宣告
+
+每個模組以 `modules/<種類>/<id>/module.json` 宣告自己（[decision 075](../decisions/075-module-contract-v1.md)），並在
+同一個目錄有一個 root Go package，以 `go:embed` 嵌入它並回傳模組：
+
+```json
+{
+  "contractVersion": 1,
+  "kind": "software",
+  "id": "nfs",
+  "version": "0.1.0",
+  "playbooks": ["deploy-nfs", "uninstall-nfs"],
+  "workflowKinds": ["configure-nfs", "uninstall-nfs"],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [],
+  "capabilities": ["host-automation"],
+  "routes": []
+}
+```
+
+- `contractVersion` 目前只有 `1`；core 拒絕載入不支援的版本。`id` 是目錄名稱（kebab-case），`version` 是 SemVer；
+  模組規劃的 Workflow 以 `<種類>/<id>@<version>` 為 definition。
+- 各清單是模組擁有的名稱：`playbooks`（allowlist 中的名稱，路徑必須在模組的 `playbooks/`）、`workflowKinds`、
+  只有這個模組宣告的 `taskKinds`、`completions`、`routes`（`/api/v1/` 底下的路徑前綴）。兩個模組不得擁有同一個名稱；
+  不屬於任何模組的 Workflow kind 與 completion 屬於 core。
+- `hooks` 列出 Go hook 與「資料表達不了」的理由，root package 實作的 hook 必須剛好是這些；`capabilities` 以
+  provider interface 命名（例如 `host-automation`、`os-provisioning`），`spec` 是模組定義資源 spec 時的 JSON Schema。
+- root package 的 `Module()` 以 `moduledomain.Load` 讀嵌入的 manifest；在 `internal/app/modules.go` 的
+  `compiledModules` 加上它，api、worker 與 ansible-executor 就以同一個 registry 載入，manifest 不合契約時拒絕啟動。
+- 模組只 import core、`internal/shared` 與自己的 package；需要另一個模組的能力時，經由 core 的 port 取得。
 
 ## 2. 登錄 playbook
 
@@ -124,6 +157,7 @@ bash。
 | `package_hold_playbook_test.go` | 改套件的 playbook 取得與釋放 hold；每個套件 task 都重試；hold 只改執行期狀態 |
 | `playbook_catalog_test.go` | manifest 的路徑符合模組佈局；roles path 只含自己模組與 `shared/` |
 | `internal/app/software_deployment_adapter_test.go` 的 `TestEverySoftwareKindHasRegisteredPlaybooks` | 每種 Managed Software 的 install 與 uninstall playbook 都已登錄 |
+| `internal/app/modules_test.go` | 每個模組目錄都是編入的模組；manifest 的 playbook 與 allowlist 一致；每個 Workflow kind 與 completion 型別只屬於 core 或一個模組 |
 
 **helper**（`content_test.go`、`module_roles_test.go`）：`moduleDirs`、`roleDir(name)`（找出擁有該 role 的模組）、
 `shippedFile(rel)`（`deploy-slurm.yml` 或 `roles/<role>/<file>` 對應到實際檔案）、`readShippedManifest`、
@@ -150,6 +184,7 @@ AMD 模組的 chart 路徑，搬移該 role 時要一併修改。
 ## 8. 提交前的檢查清單
 
 - [ ] 內容放在正確的模組目錄；共用的內容放在 `shared/`（§1）。
+- [ ] `module.json` 列出模組擁有的 playbook、Workflow kind、completion 與 route，模組已加入 `compiledModules`（§1.1）。
 - [ ] 新 playbook 已登錄在 `manifest.json`；改名保留了舊名（§2、§7）。
 - [ ] role 只在自己模組或 `shared/` 解析，名稱與檔名唯一（§3）。
 - [ ] 遵守 §4 的規則；改套件的 playbook 取得與釋放 hold，套件 task 會重試（§5）。

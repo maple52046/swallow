@@ -1,0 +1,21 @@
+{
+  "contractVersion": 1,
+  "kind": "software",
+  "id": "grafana",
+  "version": "0.1.0",
+  "playbooks": [
+    "deploy-grafana",
+    "uninstall-grafana"
+  ],
+  "workflowKinds": [
+    "configure-grafana",
+    "uninstall-grafana"
+  ],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": []
+}

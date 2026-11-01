@@ -1,0 +1,21 @@
+{
+  "contractVersion": 1,
+  "kind": "software",
+  "id": "nfs",
+  "version": "0.1.0",
+  "playbooks": [
+    "deploy-nfs",
+    "uninstall-nfs"
+  ],
+  "workflowKinds": [
+    "configure-nfs",
+    "uninstall-nfs"
+  ],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": []
+}

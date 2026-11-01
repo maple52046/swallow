@@ -1,0 +1,21 @@
+{
+  "contractVersion": 1,
+  "kind": "software",
+  "id": "podman",
+  "version": "0.1.0",
+  "playbooks": [
+    "deploy-podman",
+    "uninstall-podman"
+  ],
+  "workflowKinds": [
+    "configure-podman",
+    "uninstall-podman"
+  ],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": []
+}

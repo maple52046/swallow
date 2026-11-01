@@ -46,6 +46,9 @@ import (
 // HTTP and periodic inventory reconciliation remain in the API process.
 func RunWorker(cfg config.APIConfig) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	if _, err := moduleRegistry(); err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	sealer, err := secret.NewSealer(cfg.CredentialKey)

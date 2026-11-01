@@ -175,6 +175,11 @@ core 不 import 任何 adapter 或廠商 SDK，這一點已由 import 檢查守�
 
 manifest 是資料；core 以讀取 manifest 的方式載入模組，契約版本不相容時拒絕載入。
 
+契約 v1 的格式是 `modules/<種類>/<id>/module.json`，由模組的 root Go package 嵌入，composition root 為三個 process
+組出同一個 registry（[decision 075](../decisions/075-module-contract-v1.md)；欄位與寫法見
+[module-authoring.md](module-authoring.md) §1.1）。上面的 Job／Task 範本、狀態規則與模組之間的相容宣告尚未進入
+v1：目前由模組的 Go hook 產生執行計畫，宣告式的範本另行定義；相容關係以 core 的 port 表達。
+
 ### 5.2 host automation 內容
 
 host automation 內容（目前是 playbook）以「內容類型＋參照」宣告，由對應的 host automation adapter 執行。

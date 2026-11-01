@@ -1,0 +1,24 @@
+{
+  "contractVersion": 1,
+  "kind": "software",
+  "id": "docker-ce",
+  "version": "0.1.0",
+  "playbooks": [
+    "deploy-docker-ce",
+    "uninstall-docker-ce"
+  ],
+  "workflowKinds": [
+    "configure-docker-ce",
+    "uninstall-docker-ce"
+  ],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": [
+    "/api/v1/servers/{id}/docker",
+    "/api/v1/software/docker-ce/registry-credentials"
+  ]
+}

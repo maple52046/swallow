@@ -1,0 +1,25 @@
+{
+  "contractVersion": 1,
+  "kind": "accelerator",
+  "id": "amd",
+  "version": "0.1.0",
+  "playbooks": [
+    "configure-amd-gpu-operator"
+  ],
+  "workflowKinds": [
+    "configure-gpu-operator",
+    "install-gpu-driver"
+  ],
+  "taskKinds": [],
+  "completions": [
+    "gpu-operator-state"
+  ],
+  "hooks": [],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": [
+    "/api/v1/platforms/gpu-operator/releases",
+    "/api/v1/platforms/{id}/gpu-operator"
+  ]
+}

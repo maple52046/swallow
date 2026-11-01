@@ -38,6 +38,9 @@ import (
 // requires_attention instead of guessing an outcome.
 func RunAnsibleExecutor(cfg config.APIConfig) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	if _, err := moduleRegistry(); err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	sealer, err := secret.NewSealer(cfg.CredentialKey)

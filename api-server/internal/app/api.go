@@ -84,6 +84,9 @@ var httpRequestCount atomic.Uint64
 // RunAPI starts the HTTP API server and the reconciler, and blocks until interrupted.
 func RunAPI(cfg config.APIConfig) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	if _, err := moduleRegistry(); err != nil {
+		return err
+	}
 	releaseVersion := cfg.ReleaseVersion
 	if releaseVersion == "" {
 		releaseVersion = version.Version

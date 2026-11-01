@@ -1,0 +1,21 @@
+{
+  "contractVersion": 1,
+  "kind": "software",
+  "id": "prometheus",
+  "version": "0.1.0",
+  "playbooks": [
+    "deploy-prometheus",
+    "uninstall-prometheus"
+  ],
+  "workflowKinds": [
+    "configure-prometheus",
+    "uninstall-prometheus"
+  ],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": []
+}

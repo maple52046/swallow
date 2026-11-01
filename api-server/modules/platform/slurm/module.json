@@ -1,0 +1,33 @@
+{
+  "contractVersion": 1,
+  "kind": "platform",
+  "id": "slurm",
+  "version": "0.1.0",
+  "playbooks": [
+    "deploy-slurm",
+    "uninstall-slurm",
+    "configure-omnistat"
+  ],
+  "workflowKinds": [
+    "configure-slurm",
+    "uninstall-slurm",
+    "configure-omnistat"
+  ],
+  "taskKinds": [],
+  "completions": [
+    "slurm-credential",
+    "omnistat-state",
+    "omnistat-result",
+    "device-metrics-exporter-state",
+    "device-metrics-exporter-result"
+  ],
+  "hooks": [],
+  "capabilities": [
+    "host-automation",
+    "os-provisioning"
+  ],
+  "routes": [
+    "/api/v1/platforms/{id}/slurm",
+    "/api/v1/platforms/deployment-requirements/slurm"
+  ]
+}
