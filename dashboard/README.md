@@ -11,14 +11,17 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | --- | --- |
 | `/login` | Authenticate |
 | `/` | Site-scoped overview and attention items |
-| `/servers`, `/servers/:id/*` | Inventory, actions, activity, monitoring, network, storage, PCI |
+| `/servers`, `/servers/:id/*` | Inventory, actions, activity, monitoring, containers, network, storage, PCI |
 | `/provisioning/templates` | Deployment Templates |
 | `/provisioning/images` | OS images, upload, delete, and verification |
+| `/provisioning/boot-isos` | Boot ISOs |
 | `/platforms`, `/platforms/:id` | Kubernetes/Slurm Platform inventory and detail |
 | `/platforms/deploy` | Platform runtime catalog |
 | `/platforms/deploy/kubernetes`, `/platforms/deploy/slurm`, `/platforms/settings` | Runtime-specific Platform deployment and Slurm requirements |
 | `/software`, `/software/:kind` | Managed Software catalog, deployments, and multi-Server installation |
+| `/software/settings`, `/software/:kind/settings` | Software settings such as registry credentials |
 | `/workflows`, `/workflows/:id` | Durable Workflow list, events, logs, and controls |
+| `/change-plans` | Change Plans waiting for approval |
 | `/monitoring` | Alerts, silences, usage charts (selected Servers, Pool, Zone, Platform), current metrics, health, and optional Grafana |
 | `/infrastructure/*` | Sites, Integrations, Zones, and Pools |
 | `/account/ssh-keys`, `/account/api-keys` | Your SSH keys and API keys (account menu) |
@@ -27,7 +30,8 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 compatibility redirects.
 
 Monitoring (`/monitoring`, the Server Monitoring tab, health on shared pages), OS
-image upload, and Deployment Templates are still in development. Release builds
+image upload, Deployment Templates, and libvirt virtual machine enrollment are still
+in development. Release builds
 (`npm run build`) hide them: their routes show Not Found or redirect, and health
 values read "Not available in this release". The dev server shows everything; use
 **Account menu → Experimental features** there to switch each one off and preview

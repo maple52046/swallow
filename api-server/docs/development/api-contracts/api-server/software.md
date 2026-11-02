@@ -422,8 +422,10 @@ On success the response is `202 Accepted`:
 
 ## Compatibility Notes
 
-- Software kinds, roles, and assignment states are glossary-owned enums; adding a value is a
-  model change per [conventions](conventions.md).
+- Software roles and assignment states are glossary-owned enums; adding a value is a model
+  change per [conventions](conventions.md). The kind set is module-owned: each Software module
+  is one kind, and a client reads the set from the catalog, so adding a kind changes no glossary
+  value set.
 - The install/uninstall responses intentionally return only `operationId`; clients read
   progress and the per-Task Job grouping through the [workflows](workflows.md) surface.
 - 2026-10-30: added the `device-metrics-exporter` kind and the catalog fields

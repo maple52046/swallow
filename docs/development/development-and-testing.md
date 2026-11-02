@@ -99,7 +99,8 @@ Go、Node、MongoDB、Temporal 與 Ansible 都在容器內。
 
 ## 6. 完整檢查指令
 
-迭代時只跑相關的部分；宣告完成前跑完該 component 的全部指令。
+迭代時只跑相關的部分；宣告完成前跑完該 component 的全部指令。各 component 的 `AGENTS.md` 與 coding style 提到的檢查都以
+這一節為準。每一段都從 repository root 開始執行。
 
 ```bash
 # api-server
@@ -119,6 +120,7 @@ npm run contract:check
 npm run lint
 npm run build
 npm run test:e2e
+npm run test:e2e:production # 改了開發中功能的開關或 release build 時
 npm run review:visual       # 改了畫面時，打開截圖檢視
 
 # cli

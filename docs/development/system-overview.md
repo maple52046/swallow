@@ -84,13 +84,15 @@ flowchart LR
   | Redfish capability sweep | 探測 Redfish capability 未知或超過 24 小時的 BMC | 10 分鐘 |
   | artifact retention | 刪除超過 30 天的 Ansible 事件與 job artifact | 24 小時 |
 
-  Server 的 SSE 由 process 內的 event broker 發送；Prometheus 與 discovery 只在查詢時讀取，沒有迴圈。
+  Server 的 SSE 由 process 內的 event broker 發送；Prometheus 與 discovery 只在查詢時讀取，沒有迴圈。這些迴圈
+  不需要 lease，因為安裝只執行一個 api process（不支援多節點，見 api-server architecture spec 的部署假設）。
 - **worker**：Temporal worker（task queue `swallow-operations`，driver workflow 與 provisioner、internal Runner 的
   activity），以及 desired-state controller（`internal/app/controllers.go`）。每個 controller 以 `controller_leases`
   的 lease 保證同時只有一個 instance 執行，由 change feed 與定期 resync 觸發：`workflow-dispatch`（派發與取消 Workflow，
   [workflow-execution.md](workflow-execution.md) §10）、`server`（tag 與 Zone／Pool placement）、`zone-pool-catalog`、
   `http-proxy`、`subnet-dns`、`ssh-keys`、`platform`（Platform spec 與 Change Plan 的 apply）、`change-plan-expiry`。
-  規則見 [desired-state-model.md](desired-state-model.md) §7。
+  定期 resync 的間隔：`workflow-dispatch` 30 秒、`change-plan-expiry` 5 分鐘，其他 10 分鐘
+  （`controllerResyncInterval`）。規則見 [desired-state-model.md](desired-state-model.md) §7。
 - **ansible-executor**：task queue `swallow-ansible` 的 activity worker，以 ansible-runner 執行 playbook，把即時事件寫進
   `ansible_task_events`；結果類完成行為（例如記錄 Kubernetes credential）只在這個 process 執行。
 - **migrate**：一次性的 schema migration，在服務啟動前執行。
@@ -98,7 +100,23 @@ flowchart LR
 安裝拓樸（容器、volume、MAAS 與 Temporal 共用的 PostgreSQL）見 [installation.md](installation.md)；開發環境見
 [development-and-testing.md](development-and-testing.md) §1。
 
-## 3. 一次 Platform 部署
+## 3. 從裸機到 Platform
+
+在三台裸機上建立一個 Kubernetes Platform，依序經過：
+
+1. **安裝**：production 安裝會一起裝好 MAAS、Site `default` 與它的 provisioner Integration
+   （[installation.md](installation.md)）。開發環境要自己註冊 MAAS，並設定 Server 的 NTP 位址
+   （[development-and-testing.md](development-and-testing.md) §1）。
+2. **納管**：機器從 PXE（或在 DHCP 不由 MAAS 提供的網路上，從 Boot ISO）開機，MAAS enlist 後，reconcile 讓它以
+   `new` 的 Server 出現；swallow 自動執行 `inspect-hardware`，完成後 Server 為 `ready`
+   （[server-enrollment-and-boot-media.md](server-enrollment-and-boot-media.md)）。
+3. **建立 Platform**：選 Kubernetes、成員與角色（control-plane 為 1 台或 3 台以上的奇數，HA 需要 `apiVip`）、
+   `provision_os`；`ready` 的 Server 會先部署 OS（[platform-deployment.md](platform-deployment.md) §2）。
+4. **核准 Change Plan**，Workflow 依序部署 OS、設定時間同步、等 SSH、安裝與驗證 k0s；成功後 Platform 可用。
+
+下面的循序圖是第 3、4 步在系統內部的樣子。
+
+## 4. 一次 Platform 部署
 
 以 Kubernetes、`provision_os`（先部署 OS）為例。建立 Platform 是一次 spec 寫入：API 不直接開始部署，而是產生 Change
 Plan，核准後由 worker 的 platform controller 建立 Workflow。
@@ -135,9 +153,12 @@ sequenceDiagram
 - Task 的排程、資源所有權、重試與取消見 [workflow-execution.md](workflow-execution.md)。
 - 哪些 spec 變更需要 Change Plan 見 [desired-state-model.md](desired-state-model.md) §5.2。
 
-## 4. 資料：collection 與寫入者
+## 5. 資料：collection 與寫入者
 
-所有狀態都在 MongoDB（single-node replica set；規則見 [desired-state-model.md](desired-state-model.md) §10）。同一個
+資料庫的狀態都在 MongoDB（single-node replica set；規則見 [desired-state-model.md](desired-state-model.md) §10）。另有
+兩類檔案在 volume 上：Ansible run 的 job artifacts（`job-artifacts`，ansible-executor 寫入，api 讀取並依 retention
+刪除）與 Boot ISO 檔案（`boot-media`，api 建置）。backup 涵蓋 MongoDB 與 job artifacts
+（[installation.md](installation.md) §3.6）。同一個
 collection 可能由多個 process 寫入，但每個欄位只有一個寫入者（desired-state-model §7.4）。repository 在
 `api-server/internal/adapters/store/mongodb/<context>/`。
 
@@ -160,7 +181,7 @@ collection 可能由多個 process 寫入，但每個欄位只有一個寫入者
 | convergence | `controller_leases`、`change_feed_checkpoints` | controller 的單一 instance lease；change stream 的 resume token | worker |
 | migration | `schema_metadata` | schema 版本 | migrate |
 
-## 5. 入門名詞
+## 6. 入門名詞
 
 先認識這些詞，其他的在 [glossary 索引](glossaries/outline.md)查：
 
@@ -185,7 +206,7 @@ collection 可能由多個 process 寫入，但每個欄位只有一個寫入者
 - [Deployment Key](glossaries/terms/deployment-key.md)、[Server Default User](glossaries/terms/server-default-user.md)：
   automation 以哪把金鑰、哪個帳號登入 Server。
 
-## 6. 程式地圖
+## 7. 程式地圖
 
 目錄與 component 的對應見 [codebase-structure.md](codebase-structure.md)；api-server 內部的分層見 api-server 的
 architecture spec。找東西時：

@@ -594,7 +594,7 @@ Operation 也不能同時宣告同一台 Server。把 provider 失敗改成不�
 | 部署網路模式 | `internal/core/provisioning/domain/network.go` |
 | Network inspection 與建議 | `internal/core/provisioning/application/network_configuration.go` |
 | Deploy resolve、受理閘門、批次送出 | `internal/core/provisioning/application/deploy_servers.go`、`internal/core/provisioning/application/deployment_targets.go` |
-| OS Image 目錄、metadata、上傳、刪除 | `internal/core/provisioning/application/list_os_images.go`、`internal/core/provisioning/application/set_os_image_metadata.go`、`internal/core/provisioning/application/upload_os_image.go`、`internal/core/provisioning/application/delete_os_image.go` |
+| OS Image 目錄、metadata、上傳、刪除 | `internal/core/provisioning/application/list_os_images.go`、`internal/core/provisioning/application/set_os_image_metadata.go`、`internal/core/provisioning/application/upload_os_image.go`、`internal/core/provisioning/application/delete_os_image.go`；HTTP 在 `internal/core/provisioning/delivery/handler.go`（`UploadImage` 等） |
 | Subnet DNS | `internal/core/provisioning/domain/subnet_dns.go`、`internal/core/provisioning/application/subnet_dns.go`、`internal/core/provisioning/delivery/subnet_dns_handler.go` |
 | Provisioner HTTP Proxy | `internal/core/provisioning/domain/http_proxy.go`、`internal/core/provisioning/application/http_proxy.go` |
 | Operator-state 動作（mark-*、rescue） | `internal/core/provisioning/application/machine_actions.go` |
@@ -615,6 +615,7 @@ Operation 也不能同時宣告同一台 Server。把 provider 失敗改成不�
 | --- | --- |
 | Server 列表的 Deployment 欄（先讀 provider 軸） | `src/presentation/pages/servers/serverListPresentation.ts` |
 | OS Images 的驗證狀態 | `src/presentation/pages/provisioning/osImageListPresentation.ts`、`src/presentation/pages/provisioning/useOSImageVerificationActivity.ts` |
+| OS Image 上傳對話框 | `src/presentation/pages/provisioning/UploadImageDialog.tsx` |
 | Integration 設定頁（HTTP proxy、Subnet DNS 分頁） | `src/presentation/pages/infrastructure/IntegrationSettingsPage.tsx` |
 
 ---

@@ -80,8 +80,11 @@ All bundled passwords, tokens, TLS material, and keys are development-only.
 
 ## Hot reload
 
-- API, worker, and Ansible executor use separate Air processes. Go, manifest,
-  and playbook changes rebuild the owning process.
+- API, worker, and Ansible executor use separate Air processes. Each watches
+  `api-server/` for `.go`, `.yaml`, and `.yml` changes (tests and docs excluded),
+  so such a change rebuilds and restarts all three; restarting the Ansible
+  executor interrupts a running playbook. `modules/manifest.json` is not watched:
+  restart the three services after changing it.
 - Dashboard uses Vite HMR. If `package-lock.json` changes, the entrypoint
   refreshes dependencies.
 - Compiled artifacts and caches remain in container/named-volume paths rather

@@ -324,17 +324,18 @@ mechanism.
 
 ## Tags
 
-Tags can be edited for one Server or as a tri-state bulk change. When MAAS
-supports tags, MAAS is authoritative and reconciliation mirrors the result.
-Otherwise swallow stores a same-shaped fallback. Consumers see one effective
-tag set.
+Tags can be edited for one Server or as a tri-state bulk change. swallow owns a
+Server's manual tags and applies them to MAAS; a tag changed directly in MAAS is
+put back at the next periodic check. Tags MAAS computes itself (tags with a
+definition) are shown but not editable. A provisioner without tag support
+reports it on the Server instead of swallow keeping a separate copy.
 
 ## Zones and Pools
 
 Zones and Pools are swallow-owned grouping resources managed under
 **Infrastructure**. Assign a Server through its placement action. A capable
-provisioner realizes the grouping; otherwise the swallow-owned value remains
-the effective placement.
+provisioner realizes the grouping; a provisioner without grouping support
+reports it on the Server instead of swallow keeping a separate copy.
 
 ## Locks and destructive actions
 

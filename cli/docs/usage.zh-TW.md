@@ -6,10 +6,9 @@
 互動 command，或需要穩定 JSON／YAML output 進行 scripting 的 operator 與 external
 developer。
 
-CLI 是 `api-server` contract 的 conformist HTTP consumer。它涵蓋目前已實作的
-operator surface，並刻意不提供 Managed Software、deprecated aliases
-（`/operations`、`/clusters`、single-Server `deploy`／`release`）與 Planned
-endpoints。Managed Software 請使用 Dashboard 或 HTTP API。本手冊如有語意不清之處，
+CLI 是 `api-server` contract 的 conformist HTTP consumer，涵蓋下列 operator surface。Managed Software
+（含 registry credential 與 Docker explorer）、Server Default User、provisioner HTTP proxy 與 Subnet DNS
+目前還沒有 command，請使用 Dashboard 或 HTTP API。Planned endpoint 刻意不提供。本手冊如有語意不清之處，
 以
 [`../../api-server/docs/development/api-contracts/api-server/`](../../api-server/docs/development/api-contracts/api-server)
 下的 provider contract 為準。

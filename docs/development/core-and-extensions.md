@@ -149,8 +149,9 @@ core 不 import 任何 adapter 或廠商 SDK，這一點已由 import 檢查守�
   上面列出的 `internal/app` 位置。完整的修改清單見 [platform-deployment.md](platform-deployment.md) §6.2。
 - **新的 Managed Software kind**：只在模組內（§4.3），core 不加 kind 常數；dashboard 仍有固定的 kind 清單，見
   [software-deployment.md](software-deployment.md) §2 的修改清單。
-- **新的 GPU 廠商行為**：先經 Accelerator 模組的 hook（§5.4）。hook 還表達不了的 Platform 功能（如 AMD 的
-  GPU Operator），允許比照 AMD 放在 `internal/core/platform` 與 `internal/app`。
+- **新的 GPU 廠商行為**：先經 Accelerator 模組的 hook（§4.2）；hook 表達不了時，先以中性的詞彙擴充 platform domain
+  的 `Accelerator` port。仍需要專屬流程的 Platform 功能（如 AMD 的 GPU Operator），允許比照 AMD 放在 `internal/app`；
+  放在 `internal/core/platform` 的部分以不含廠商名稱的詞彙寫，因為下一段的 ratchet 只允許為新名稱提高基準。
 
 core 檔案的廠商詞彙數仍不得增加。新的平台或廠商名稱要寫進 core 時（例如 `PlatformType` 常數），把名稱加進
 `coreVendorTerms`，並在同一個 commit 以 `UPDATE_VENDOR_BASELINE=1` 重寫基準；commit 說明列出基準因此上升的
@@ -301,7 +302,7 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 - **模組撰寫指南**：說明一個模組可以做什麼、不可以做什麼、如何測試與提交，見
   [module-authoring.md](module-authoring.md)；涵蓋 Module Manifest、Go hook、HTTP 路由、dashboard 的畫面與 host
   automation 內容。公開的 `CONTRIBUTING.md` 連到它。
-- **守門機制**：§9 的一致性測試與 import 檢查，讓越界在 CI 中失敗，而不是靠 review 才發現。
+- **守門機制**：§9 的一致性測試與 import 檢查，讓越界在 `go test ./...` 中失敗，而不是靠 review 才發現（repository 沒有 CI，送出前手動執行）。
 - **契約版本**：manifest 從第一天就帶契約版本，core 拒絕載入不支援的版本；相容性檢查等其他機制留給第二階段。
 - **發行版組裝**：release 建置時依一份設定選擇模組，支援矩陣由同一份設定產生（§8）。尚未實作：目前每個 build
   編入全部模組。
@@ -348,7 +349,7 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 - [ ] host automation 內容以內容類型與參照宣告，並列在 release 的 allowlist（§5.2）。
 - [ ] 每個 Go hook 都寫出理由（§5.3）。
 - [ ] 對其他模組的依賴只經由契約（§5.4）。
-- [ ] spec 欄位的所有權與破壞性分類已依 [desired-state-model.md](desired-state-model.md) 宣告（§6）。
+- [ ] spec 欄位的所有權與破壞性分類已依 [desired-state-model.md](desired-state-model.md) 宣告（§6；Platform 模組以 `platform` hook 宣告，Software 模組在 Managed Software 遷移前不適用）。
 - [ ] dashboard 的呈現已決定：專屬畫面登錄在 dashboard 的模組 registry，或依 manifest 的 `spec` 產生（§7、
   [模組撰寫指南](module-authoring.md) §1.2）。
 - [ ] 模組目錄已在 `.github/CODEOWNERS` 登錄負責人，並依[模組撰寫指南](module-authoring.md)提交（§10.1）。

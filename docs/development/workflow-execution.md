@@ -378,9 +378,10 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
 ### 現行行為
 
 - **適用的請求**：`POST /provisioning/release-operations`、`POST /provisioning/recover-operations`（契約見
-  [provisioning](../../api-server/docs/development/api-contracts/api-server/provisioning.md)）與
-  `POST /platforms/{id}/uninstall`（[platforms](../../api-server/docs/development/api-contracts/api-server/platforms.md)），
-  欄位 `cancelActiveWorkflows`（預設 `false`）。三者共用同一個後端實作。
+  [provisioning](../../api-server/docs/development/api-contracts/api-server/provisioning.md)）與刪除 Platform 的
+  `DELETE /platforms/{id}`（[platforms](../../api-server/docs/development/api-contracts/api-server/platforms.md)），
+  欄位 `cancelActiveWorkflows`（預設 `false`）。三者共用同一個後端實作。刪除 Platform 時旗標存在 `spec.removal`，在
+  核准的 Change Plan 開始 uninstall 時才生效。
 - **時機**：其他所有檢查（存在、Site、狀態、Platform Claim、Server Lock…）都通過後、建立 Workflow 之前，才對每台
   target Server 上所有未結束的 Workflow 寫入取消命令，因為取消送出後無法撤回。這段時間內已結束的 Workflow 略過。
 - **受理**：被取代的 Workflow id 以 `SupersededOperationIDs` 傳給 Create，busy check 不把它們算進去；新 Workflow
@@ -395,11 +396,12 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
 - **不帶旗標**：busy check 照常，`409` 訊息點名佔用的 Workflow（id、intent、status）。
 - **繞不過的檢查**：[Platform Claim](glossaries/terms/platform-claim.md) 在取代之前檢查，旗標無法繞過（被 Platform
   佔用的 Server 不能直接 Release，`deployed` 的也不能 Recover）；所有權也從不被略過。
-- **Platform uninstall**：帶旗標時 lifecycle 為 `deploying` 的 Platform 也可以 uninstall，且需要 durable
-  orchestration。platform 專屬規則見 [platform-deployment.md](platform-deployment.md) §4.8。
+- **Platform 的刪除**：帶旗標時 lifecycle 為 `deploying` 的 Platform 也可以 uninstall；對仍在執行的 Workflow 被拒的
+  取消由 Platform 的 `realized` Condition 回報。platform 專屬規則見 [platform-deployment.md](platform-deployment.md)
+  §4.8 最後一段。
 - **Consumer**：dashboard 的 Release／Recover 對話框只送旗標、在請求內關閉，並提示工作會在被取消的 Workflow 結束後
-  自動開始；uninstall 的單筆與批次對話框列出佔用的 Workflow，要求 operator 確認後才送旗標。CLI 的
-  `platforms uninstall`、`provisioning release`、`provisioning recover` 提供 `--cancel-active-workflows`，未帶旗標
+  自動開始；Platform 的刪除選項列出佔用的 Workflow，要求 operator 確認後才送旗標。CLI 的
+  `platforms delete`、`provisioning release`、`provisioning recover` 提供 `--cancel-active-workflows`，未帶旗標
   遇到這類 `409` 時提示該旗標。
 
 ### 規則與不變式

@@ -109,9 +109,8 @@ Start with:
 2. [Active contract outline](../../../api-server/docs/development/api-contracts/api-server/outline.md)
 3. The specific active contract for the resource being integrated.
 
-Do not implement against entries marked Planned. Deprecated `/operations` and
-`/clusters` aliases are migration surfaces; new clients use `/workflows` and
-`/platforms`.
+Do not implement against entries marked Planned. The old `/operations` and
+`/clusters` aliases were removed; use `/workflows` and `/platforms`.
 
 For shell automation, the [swallow CLI](cli.md) implements broad operator
 coverage and emits lossless JSON or YAML. Managed Software currently requires

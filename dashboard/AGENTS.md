@@ -5,14 +5,15 @@ All paths in this file are relative to the dashboard project root.
 
 ## Required Reading
 
-Before planning, reviewing, or explaining dashboard work, read:
+Before changing dashboard code, or planning or reviewing such a change, read:
 
-1. `docs/development/architecture-spec.md` — understand the dashboard Clean Architecture boundaries.
+1. `docs/development/architecture-spec.md` — the Clean Architecture boundaries: Dependency Rule, Directory
+   responsibilities, Data Crossing Boundaries, Prohibited Designs, Completion Gate, and the sections for what
+   the change touches (React and Presentation, API and Error Boundary, Desired and observed state, Module UI,
+   Experimental features, Shared UI and DRY, Accessibility, Testing).
+2. `docs/development/coding-style.md` — TypeScript, React, accessibility, comments, and testing rules.
 
-Before adding or modifying any code, read:
-
-1. `docs/development/architecture-spec.md` — understand that dashboard uses Clean Architecture as its design principle.
-2. `docs/development/coding-style.md` — follow TypeScript, React, accessibility, comments, and testing rules.
+Explaining dashboard behavior needs neither unless the answer requires following the code.
 
 ## Coding Style Completion Gate
 

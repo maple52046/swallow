@@ -14,8 +14,9 @@ current session in the browser.
 | Servers | Inventory, Add servers (enrollment guidance), shareable filter views, bulk actions, tags, locks, and Server details including Boot Media |
 | Provisioning | OS deployment, templates, images, Boot ISOs, upload, and verification |
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
-| Software | Grouped Docker CE, Podman, and NFS catalog, per-software deployments, and multi-Server installation |
+| Software | Grouped catalog (Docker CE, Podman, NFS, Prometheus, Grafana, AMD Device Metrics Exporter), per-software deployments, and multi-Server installation |
 | Workflows | Durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry |
+| Change Plans | Plans for destructive Platform changes, waiting for approval or rejection |
 | Monitoring | Alerts, silences, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, fleet health, and optional Grafana links |
 | Infrastructure | Sites, Integrations, Zones, Pools, credentials, and automation settings |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
@@ -50,7 +51,7 @@ owning Server, Integration, Platform, Workflow, or alert view.
 
 ## Features in development
 
-Three Dashboard features are still in development. Release builds of the
+Four Dashboard features are still in development. Release builds of the
 Dashboard hide them; the API and the `swallow` CLI are not affected.
 
 - **Monitoring**: the Monitoring page, the Server Monitoring tab with its usage

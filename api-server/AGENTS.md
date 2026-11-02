@@ -6,21 +6,24 @@ root (`api-server/`).
 
 ## Required Reading
 
-Before planning, reviewing, or explaining api-server work, read:
+Before changing api-server Go code, or planning or reviewing such a change, read:
 
-1. `docs/development/architecture-spec.md` — understand the api-server Clean Architecture boundaries.
+1. `docs/development/architecture-spec.md` — the Clean Architecture boundaries: Dependency Rule, Layout,
+   Prohibited Designs, Completion Gate, and the boundary sections for what the change touches (Provider
+   Adapter, Durable Workflow, Store and Transaction, Configuration, Error). Read "2026-10-31 搬移前的路徑"
+   only when you meet a path from before that move.
+2. `docs/development/coding-style.md` — Go naming, comments, errors, concurrency, and testing rules.
 
-Before adding or modifying any code, read:
+Explaining api-server behavior needs neither unless the answer requires following the code.
 
-1. `docs/development/architecture-spec.md` — understand that api-server uses Clean Architecture as its design principle.
-2. `docs/development/coding-style.md` — follow Go naming, comments, errors, concurrency, and testing rules.
+A change confined to host automation content under `modules/` (playbooks, roles, the playbook manifest, a
+module's layout) reads `../docs/development/module-authoring.md` instead; it needs coding-style only for the
+Go content tests it adds (測試規範). A module's Go hooks are Go code and follow the list above.
 
-When the change touches `modules/` (playbooks, roles, the playbook manifest, or a module's layout),
-also read `../docs/development/module-authoring.md`.
-
-When the change adds or changes tests, read `../docs/development/development-and-testing.md` §3 for
-where each kind of test lives, the shared fakes, and the test environment variables; its §6 has the
-complete check commands, including the Mongo integration tests.
+When the change adds or changes Go tests, read `../docs/development/development-and-testing.md` §3 for
+where each kind of test lives, the shared fakes, and the test environment variables (host automation
+content tests are in module-authoring §6); its §6 has the complete check commands, including the Mongo
+integration tests.
 
 ## Coding Style Completion Gate
 

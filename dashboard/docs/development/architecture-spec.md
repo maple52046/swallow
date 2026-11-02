@@ -222,12 +222,14 @@ Domain/use-case logic 應保持可在不 render React、不啟動 browser、不�
 
 任何 source change 必須：
 
-1. 確認 Active provider contract 與 glossary。
+1. 確認所用的 Active provider contract；引入或改變 domain term 時確認 glossary。
 2. 保持 layer direction、real-data behavior 與 accessibility。
-3. 執行 `npm run lint`、`npm run build`、`npm run contract:check` 及相關 functional Playwright tests。
+3. 通過 root `docs/development/development-and-testing.md` §6 的 dashboard 檢查；迭代時可只跑相關的 Playwright
+   tests，宣告完成前跑完整的 `npm run test:e2e`。
 4. User-visible UI 變更使用獨立 visual-review workflow 截取受影響 route 的 dark
    desktop/mobile；theme、color 或 shared-style 變更加驗 light。Agent 必須實際
    開啟 screenshots，修正發現的 layout、responsive 或 contrast 問題後重新檢查。
 5. 手動檢查新增或修改的宣告與 UI 的 JSDoc、cleanup、auth/storage、error/loading/empty
    state、responsive behavior 與 shared-component reuse；同一檔案中沒有改到的既有程式不在範圍內。
-6. 同步更新 tests、architecture 與雙語 public docs（若 user-visible）。
+6. 同步更新受影響的 tests 與 architecture；user-visible 的變更（定義見 root `AGENTS.md` 的 Documentation
+   Audiences）同時更新雙語 public docs。

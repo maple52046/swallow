@@ -77,8 +77,9 @@ cp .env.example .env
 
 ## Hot reload
 
-- API、worker、Ansible executor 使用獨立 Air process。Go、manifest、playbook
-  變更只 rebuild owning process。
+- API、worker、Ansible executor 使用獨立 Air process。每個都監看 `api-server/` 的 `.go`、`.yaml`、`.yml`
+  變更（不含測試與文件），所以這類變更會 rebuild 並重啟三個 process；重啟 Ansible executor 會中斷執行中的
+  playbook。`modules/manifest.json` 不在監看範圍內，修改後要手動重啟這三個 service。
 - Dashboard 使用 Vite HMR；`package-lock.json` 變更時 entrypoint 會 refresh dependencies。
 - Build artifact／cache 留在 container 或 named volume，不污染 tracked source。
 

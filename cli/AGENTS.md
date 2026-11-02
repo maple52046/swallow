@@ -25,13 +25,14 @@ does not share `api-server`'s module.
 
 ## Required Reading
 
-Before planning, reviewing, or explaining CLI work, read:
+Before changing CLI code, or planning or reviewing such a change, read:
 
 1. `../AGENTS.md` — the repository entry guide and its always-read documents.
 2. `docs/development/architecture-spec.md` — the CLI's own Clean Architecture
    layering (command → client/output → config).
 
-Before adding or modifying any code, also read:
+Explaining CLI behavior needs only the usage manual and the command code. Before adding or modifying code,
+also read:
 
 1. `docs/development/coding-style.md` — the CLI-specific additions. The CLI
    follows the Go coding style at `../api-server/docs/development/coding-style.md`
@@ -80,7 +81,16 @@ Run before claiming done: `gofmt -l .` (no output), `go vet ./...`,
 ## Public Documentation
 
 A change that adds or changes a command, flag, or output updates `docs/usage.md`
-and `docs/usage.zh-TW.md` in the same commit.
+and `docs/usage.zh-TW.md` in the same commit; a new command group also updates
+`README.md`, `README.zh-TW.md`, and the public command index
+`../docs/en/reference/cli.md` with its `../docs/zh-TW/reference/cli.md` twin.
+Run `python3 scripts/check-docs.py` from the repository root after changing them.
+
+The CLI does not cover every Active route yet: Managed Software (with registry
+credentials and the Docker explorer), the Server Default User, the provisioner
+HTTP proxy, and Subnet DNS have no commands, and the public pages above say so.
+Adding a command for one of them is an ordinary consumer feature; update those
+statements in the same commit.
 
 ## Plans
 

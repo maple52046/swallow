@@ -9,7 +9,7 @@ Platform 是由 swallow 佈署的 Kubernetes 或 Slurm runtime。swallow 不會�
 
 ## 佈署前
 
-- Target Servers 屬於同一個 Site，且已完成 OS deployment。
+- Target Servers 屬於同一個 Site，且為 `ready` 或 `deployed`；`ready` 的 Server 會先佈署 OS（OS 準備步驟）。
 - Server lock 與 active conflicting Workflow 已清除。
 - Site automation、SSH known hosts、credentials、worker 與 Ansible executor ready。
 - 選擇的 topology 符合 minimum resource requirement。

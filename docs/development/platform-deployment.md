@@ -38,7 +38,8 @@ Workflow / Job / Task / Runner 語言，落成「swallow 如何佈署一個 plat
 - **開發者**：理解 deployment pipeline、擴充或除錯 orchestration、撰寫新的 platform playbook。
 - **AI agent（同等重要）**：本文件是理解 deployment 設計的入口。涉及 platform deployment 的
   orchestration、Runner、inventory/trusted-vars 契約，或「新增一個 platform」的任務時，必須
-  先讀本檔，再進入 `api-server` 依其 `AGENTS.md` 定位實作。
+  先讀本檔，再進入 `api-server` 依其 `AGENTS.md` 定位實作。只改 Platform 模組的 playbook 或 role 時，只需要
+  §2.3（OS 的差異）與 §5，其餘依[模組撰寫指南](module-authoring.md)。本檔很長：先看標題，再讀任務需要的章節。
 
 本文件**不重述** ADR 與 glossary，只做 elaboration；語言以 root glossary 為準，決策理由以
 ADR 為準。實作細節（Clean Architecture 分層、Go coding style）由
@@ -351,10 +352,11 @@ platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-co
 
 - **Uninstall** 只適用 swallow 部署的 Platform（`registered` 拒絕）。target set 一律是最新 deploy Operation 的完整
   `targetServerIds` snapshot，不看 membership（membership 可能過期、未比對，或在失敗部署後正好消失）；任一 target 缺少、
-  absent、locked 或 busy 就在派送前整批拒絕（busy 可用 `cancelActiveWorkflows`，§4.8）。保留主機時跑
+  absent、locked 或 busy 時，核准的 Change Plan 不會開始 uninstall，由 controller 以 `realized` Condition 回報並重試
+  （busy 可用 `cancelActiveWorkflows`，§4.8）。保留主機時跑
   `uninstall-<type>` playbook，移除 swallow 安裝的 runtime 狀態、保留 OS；也可 release 主機（§2.4）。失敗或取消的
-  uninstall 可再送出，新 Operation 以 `retryOfOperationId` 指向前一次，並沿用同一份凍結的 target set
-  （playbook 冪等）。Platform 紀錄與 Operation 歷史保留，供診斷與重試。
+  uninstall 以 rerun 重跑（新 Workflow 以 `retryOfOperationId` 指向前一次，沿用同一份凍結的 target set；playbook
+  冪等），期間 Platform 維持 `uninstall_failed`。Platform 紀錄與 Operation 歷史保留，供診斷與重試。
 - **成功後的清理**（`CompleteUninstall`）：清 membership、釋放 Platform Claim（§2.6）、只刪證明為 swallow 擁有的 credential
   Integration（新部署會記錄自己擁有的 Integration id；legacy 紀錄要 deploy provenance 與完整的自動產生 Integration 簽章
   都相符才刪），並清 integration／sync 投影。Kubernetes 擁有 exporter（`exporterOwner=k8s`）且保留主機時，另排一個
@@ -401,8 +403,10 @@ Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以�
   Platform 的 Server 只透過 uninstall 搭配 `releaseServers` 釋放。
 - **由 spec 推導**：Platform 的 spec 是 claim 的來源。建立 Platform、加入成員的 spec 寫入與 claim 在同一個 transaction；
   spec 移除的成員保留 claim，直到移除它的變更真的執行。worker 的 platform controller 讓 present spec 的成員都有 claim
-  （spec 出現前部署的 Platform 由它從最近一次部署接管時取得），並釋放指向已不存在 Platform 的 claim。claim 是選用欄位，
-  不需 schema migration。
+  （spec 出現前部署的 Platform 由它從最近一次部署接管時取得），並釋放指向已不存在 Platform 的 claim。這是 desired-state
+  controller 依 spec 收斂推導出的欄位（[desired-state-model.md](desired-state-model.md) §4.3），不是修補另一條寫入路徑的
+  修復 sweep：spec 與 claim 的不變式由上面的 transaction 保證，controller 只處理 spec 之外發生的變化（接管、Platform
+  消失）。claim 是選用欄位，不需 schema migration。
 - **只刪紀錄與 uninstall 完成**：只刪紀錄時先對未完成的 Workflow 寫入取消命令（§2.5），之後清除 membership、釋放
   claim、刪除 owned Integration 與刪除紀錄是同一個 transaction；`CompleteUninstall` 的整段清理也是一個 transaction。
 - Dashboard 與 CLI 從 Server 投影讀 `platformClaim`：Dashboard 以 Platform 名稱停用 Release 與 Delete，CLI 指向
@@ -658,7 +662,11 @@ image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線
     節點不重裝）→ §7；
   - execution 遺失時 dispatcher 依 store 接續，Task 重試與取消照常可用 → §10。
 - Platform 特有的部分：Platform lifecycle 以 `requestedAt` 最新的 deploy Workflow 為準，rerun 的新
-  Workflow 自然接管、原 Workflow 留作診斷，全程不需刪 Platform。dashboard 的 Repair 先試單一 Task 重試，
+  Workflow 自然接管、原 Workflow 留作診斷，全程不需刪 Platform。
+- 取消部署：Workflow 取消進行中（`canceling`）Platform 仍是 `deploying`，結束後為 `deploy_failed`。platform
+  controller 把取消當成失敗：同一個 spec generation 不自動重跑，由 operator rerun 或寫入新的 spec。被中斷的
+  playbook 已在主機上做的改變不會回滾（ansible Task 沒有取消補償，workflow-execution.md §8.1），rerun 時由冪等的
+  playbook 從那個狀態收斂；Platform Claim 不因取消而釋放。dashboard 的 Repair 先試單一 Task 重試，
   沒有可重試的 Task 時改走 rerun。
 
 Kubernetes 的 ephemeral（RAM）部署語意見 §2.3.2。

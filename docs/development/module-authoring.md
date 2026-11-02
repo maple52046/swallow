@@ -48,17 +48,24 @@ api-server/modules/
 {
   "contractVersion": 1,
   "kind": "software",
-  "id": "nfs",
+  "id": "podman",
   "version": "0.1.0",
-  "playbooks": ["deploy-nfs", "uninstall-nfs"],
-  "workflowKinds": ["configure-nfs", "uninstall-nfs"],
+  "playbooks": ["deploy-podman", "uninstall-podman"],
+  "workflowKinds": ["configure-podman", "uninstall-podman"],
   "taskKinds": [],
   "completions": [],
-  "hooks": [],
+  "hooks": [
+    {
+      "name": "software",
+      "reason": "Validates the optional package version and turns it into the playbook's trusted variable; the catalog entry travels with it."
+    }
+  ],
   "capabilities": ["host-automation"],
   "routes": []
 }
 ```
+
+（`api-server/modules/software/podman/module.json`；帶 `spec` schema 的例子見同目錄的 `nfs/module.json`。）
 
 - `contractVersion` 目前只有 `1`；core 拒絕載入不支援的版本。`id` 是目錄名稱（kebab-case），`version` 是 SemVer；
   模組規劃的 Workflow 以 `<種類>/<id>@<version>` 為 definition。
@@ -83,7 +90,8 @@ api-server/modules/
 - Software 模組的 id 就是它的 Managed Software kind。manifest 宣告 Workflow kind `configure-<id>`、`uninstall-<id>`
   與 playbook `deploy-<id>`、`uninstall-<id>`；root package 以 `software` 為名實作 core 的 `Software` port（catalog
   entry、spec 驗證與正規化、trusted vars），composition root 啟動時核對這些名稱並組出 catalog，詳見
-  [software-deployment.md](software-deployment.md) §2。
+  [software-deployment.md](software-deployment.md) §2。既有的 kind 以 `internal/core/software/domain` 的常數命名（越界，
+  core-and-extensions §3.6）；新的 kind 在模組內以 `softwaredomain.Kind("<id>")` 定義自己的值，不在 core 加常數。
 - Platform 模組以 `platform` 為名實作 platform domain 的 `PlatformModule`：Platform spec 的 `settings` 是該類型部署 request
   的專屬欄位，`members` 是該類型的 assignment（模組自己的 role 名稱）。
   - `DeployRequest` 與 `SpecFromDeployRequest` 在 spec 與部署 request 之間轉換；controller 接管既有的 Platform 時，也以
@@ -122,9 +130,12 @@ api-server/modules/
   `src/di` 綁定。lint 規則守住這些邊界。
 - 沒有專屬畫面的模組，設定的表單與詳情不必寫程式：manifest 的 `spec`（§1.1）經 `GET /api/v1/modules` 提供，dashboard
   以 `ModuleSettingsFields` 與 `ModuleSettingsDetails` 產生（目前是 NFS）。
-- Software 模組仍要改 dashboard：`SoftwareKind` 是固定清單，dashboard 會濾掉不認得的 kind。新增 kind 時把它加進
-  `src/domain/software/types.ts` 的 `SoftwareKind` 與 `SOFTWARE_KINDS`、`softwareCatalogPresentation.ts` 的
-  `PRESENTATION`（分類、說明、圖示、順序），以及 e2e fixture 的 catalog（`dashboard/tests/e2e/fixtures.ts`）。
+- Software 模組仍要改 dashboard：`SoftwareKind` 是固定清單，dashboard 會濾掉不認得的 kind。新增 kind 時改：
+  - `src/domain/software/types.ts` 的 `SoftwareKind` 與 `SOFTWARE_KINDS`；
+  - `softwareCatalogPresentation.ts` 的 `PRESENTATION`（分類、說明、圖示、順序）；分類只有 `SoftwareCategory` 的
+    三種（container runtimes、storage and file sharing、observability），放不進去時新增一種；
+  - `softwarePresentation.ts` 的 `softwareKindLabel`（catalog 還沒載入時的名稱）；
+  - e2e fixture（`dashboard/tests/e2e/fixtures.ts`）的 software catalog 與 `/api/v1/modules` 回應。
 
 ## 2. 登錄 playbook
 
@@ -165,7 +176,8 @@ playbook 可以執行（[decision 006](../decisions/006-embedded-ansible-executi
 ## 4. 每支 playbook 都要遵守的規則
 
 Platform 與 Software 共用以下規則；各自特有的規則見 [platform-deployment.md](platform-deployment.md) §5 與
-[software-deployment.md](software-deployment.md) §4.5。
+[software-deployment.md](software-deployment.md) §4.5。Kubernetes 在 Ubuntu 與 RHEL 系列上的差異（套件、firewall、
+SELinux、哪些 role 依 OS 分支）見 platform-deployment §2.3。
 
 1. **冪等**：可以安全重跑；已經達成時不產生變更（ensure 語意）。Workflow 的接續、activity 重試與 restore 都靠這一點。
 2. **只依賴契約**：只消費 inventory 與 trusted vars（platform-deployment §4.1、§4.2；software-deployment §4.1、
@@ -195,7 +207,8 @@ Platform 與 Software 共用以下規則；各自特有的規則見 [platform-de
 - 每個套件 task 都要 `register`、`until: ... is succeeded`、`retries` 與 `delay`，涵蓋 mirror 的暫時性錯誤。
 - 「套件 task」包括 `apt`、`dnf`、`yum`、`package`（含 `ansible.builtin.` 前綴）、沒有設 `update_cache: false` 的
   `apt_repository`，以及執行 `apt-get`、`apt`、`dpkg`、`dnf`、`yum` 安裝、移除、升級或更新索引的
-  `command`、`shell`、`raw`。
+  `command`、`shell`、`raw`。`yum_repository` 只寫入 `.repo` 檔、不執行 dnf，不算套件 task；之後從新 repository
+  安裝的 `dnf` task 才是。新增第三方 repository 時鎖定它的 GPG key（比照 Docker CE 模組的 `docker_ce` role）。
 
 ## 6. 測試
 
@@ -243,7 +256,7 @@ AMD 模組的 chart 路徑，搬移該 role 時要一併修改。
 - [ ] 模組定義 spec 時，`spec` 屬於 schema 子集，Software 模組的屬性等於 catalog 的 `SpecFields`（§1.1）。
 - [ ] 新的 Job 都在 `workflowJobLabels` 有顯示名稱（§1.1）。
 - [ ] dashboard 的畫面已決定：專屬畫面登錄在 `src/modules/registry.ts`，或依 `spec` 產生（§1.2）。
-- [ ] 新模組的 `api-server/modules/<種類>/<id>/` 與 dashboard 的模組目錄已在 `.github/CODEOWNERS` 登錄負責人；
+- [ ] 新模組的 `api-server/modules/<種類>/<id>/` 與 dashboard 的模組目錄（有的話；Software 模組沒有）已在 `.github/CODEOWNERS` 登錄負責人；
   `internal/app` 的測試檢查每個編入的模組都有一行。
 - [ ] 新 playbook 已登錄在 `manifest.json`；改名保留了舊名（§2、§7）。
 - [ ] role 只在自己模組或 `shared/` 解析，名稱與檔名唯一（§3）。

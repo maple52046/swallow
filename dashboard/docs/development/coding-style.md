@@ -25,7 +25,7 @@
 - `verbatimModuleSyntax: true`：只作為型別使用的 import **必須**寫成 `import type { … }`，否則產出的模組是錯的。
 - 路徑別名 `@/*` 對應 `src/*`。
 - **本專案沒有 formatter。** 格式以既有檔案為準：兩格縮排、單引號、**語句不加分號**。這是專案慣例，優先於 Google guide 的分號與檔名規則。日後若導入 Prettier，必須以此設定為準，而不是反過來重排 codebase。
-- 提交前必須執行：`npm run lint` 與 `npm run build`（`tsc -b` 型別檢查 + Vite build）。`react-hooks` 與 `react-refresh` 規則屬於必過門檻，不是建議。
+- `npm run lint` 與 `npm run build`（`tsc -b` 型別檢查 + Vite build）必須通過，`react-hooks` 與 `react-refresh` 規則屬於必過門檻，不是建議。完整的檢查指令（含 contract、e2e 與 visual review）見 root `docs/development/development-and-testing.md` §6。
 
 ## 核心原則
 
@@ -273,7 +273,7 @@ const rows = pendingServers ?? previousServers
 ## 測試規範
 
 - 現況：本專案尚未接入 unit test runner；functional browser journeys 由 Playwright E2E scripts 驗證。在補上 unit runner 之前，仍必須以「可測性」為設計前提：值得測的規則要放在 use case、domain 模組或可直接呼叫的 helper，而不是埋在 JSX 裡。
-- 補上測試後：單元測試命名 `*.test.ts` / `*.test.tsx` 放在被測程式碼旁；end-to-end Playwright spec 放在 `tests/`。
+- 補上測試後：單元測試命名 `*.test.ts` / `*.test.tsx` 放在被測程式碼旁；end-to-end Playwright spec 放在 `tests/e2e/`。
 - 測試應驗證使用者可觀察行為與資料契約，不只驗證 implementation detail。
 - Component test 優先從 role、label、文字與互動結果查詢元素，不依賴 class name 或 component 內部結構。
 - 測試名稱必須描述場景與期待結果。

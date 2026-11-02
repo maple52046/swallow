@@ -138,4 +138,4 @@ python3 scripts/check-docs.py
 - [ ] Go comments 或 TypeScript/JSDoc 符合 component completion gate。
 - [ ] User-visible behavior 的公開文件與兩種語言已同步。
 - [ ] Local documentation links 與 directionality checks 通過。
-- [ ] 沒有 commit secret、credential、customer data 或 generated local artifact。
+- [ ] 沒有 commit secret、credential、customer data 或本機產物（build output、測試結果）；產生的契約檔（`openapi.yaml`、dashboard 的 `openapi.ts`）與其來源一起 commit。

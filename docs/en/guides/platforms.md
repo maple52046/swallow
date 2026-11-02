@@ -10,7 +10,8 @@ Platform.
 
 ## Before deployment
 
-- Target Servers belong to one Site and have a deployed operating system.
+- Target Servers belong to one Site and are `ready` or `deployed`; a `ready`
+  Server gets its operating system deployed first (the OS preparation step).
 - Server locks and active conflicting Workflows are cleared.
 - Site automation, SSH known hosts, credentials, worker, and Ansible executor
   are ready.

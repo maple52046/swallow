@@ -4,8 +4,8 @@
 [專案文件](../docs/zh-TW/README.md)
 
 `swallow` 是 swallow 系統的 operator CLI。它與 `api-server` 是不同 Go module，
-消費 published HTTP API，並涵蓋下列 operator surface；Managed Software 目前
-使用 Dashboard 或 HTTP API。
+消費 published HTTP API，並涵蓋下列 operator surface。Managed Software、Server Default User、
+provisioner HTTP proxy 與 Subnet DNS 目前還沒有 command，請使用 Dashboard 或 HTTP API。
 
 ## Build 與驗證
 

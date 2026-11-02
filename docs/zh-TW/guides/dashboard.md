@@ -13,8 +13,9 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | Servers | Inventory、Add servers（納管引導）、可分享的 filter view、bulk action、tag、lock，以及包含 Boot Media 的 Server detail |
 | Provisioning | OS deployment、template、image、Boot ISO、upload 與 verification |
 | Platforms | Kubernetes／Slurm deployment、lifecycle、settings 與 runtime view |
-| Software | 分類呈現 Docker CE、Podman、NFS catalog、各 software deployment 與多 Server 安裝 |
+| Software | 分類呈現 catalog（Docker CE、Podman、NFS、Prometheus、Grafana、AMD Device Metrics Exporter）、各 software deployment 與多 Server 安裝 |
 | Workflows | Durable execution、Job、Task、event、log、cancel、rerun 與 retry |
+| Change Plans | 等待核准或拒絕的 Platform 破壞性變更計畫 |
 | Monitoring | Alert、silence、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、fleet health 與選用的 Grafana link |
 | Infrastructure | Site、Integration、Zone、Pool、credential 與 automation settings |
 | SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
@@ -46,7 +47,7 @@ Integration、Platform、Workflow 或 alert view。
 
 ## 開發中的功能
 
-以下三項 Dashboard 功能仍在開發中，Dashboard 的 release build 會隱藏它們；API 與 `swallow`
+以下四項 Dashboard 功能仍在開發中，Dashboard 的 release build 會隱藏它們；API 與 `swallow`
 CLI 不受影響。
 
 - **Monitoring**：沒有 Monitoring 頁面、含用量圖表的 Server Monitoring tab，以及 Platform 頁面的

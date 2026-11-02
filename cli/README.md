@@ -5,7 +5,8 @@
 
 `swallow` is the operator command-line client for the swallow system. It is a
 separate Go module from `api-server` and consumes the published HTTP API. It
-covers the operator surfaces listed below; Managed Software currently uses the
+covers the operator surfaces listed below. Managed Software, the Server Default
+User, the provisioner HTTP proxy, and Subnet DNS have no commands yet and use the
 Dashboard or HTTP API.
 
 ## Build and verify

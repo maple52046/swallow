@@ -99,8 +99,8 @@ Workflow，不再是單一 provider 呼叫。`202` response 保留 provisioning 
 2. [Active contract outline](../../../api-server/docs/development/api-contracts/api-server/outline.md)
 3. 要整合 resource 的特定 active contract。
 
-不得對 Planned entry 實作。`/operations` 與 `/clusters` 是 deprecated migration
-surface；新 client 使用 `/workflows` 與 `/platforms`。
+不得對 Planned entry 實作。舊的 `/operations` 與 `/clusters` alias 已移除；請使用 `/workflows` 與
+`/platforms`。
 
 Shell automation 可使用具備廣泛 operator coverage、能輸出 lossless
 JSON／YAML 的 [swallow CLI](cli.md)。Managed Software 目前需使用 Dashboard

@@ -65,11 +65,12 @@ var (
 func NewRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "swallow",
-		Short: "Operator CLI for the Swallow GPU datacenter platform",
-		Long: "swallow is the operator command-line client for the Swallow platform. " +
-			"It talks to the api-server HTTP API and covers the full active surface: " +
-			"auth, sites, integrations, servers, provisioning, infrastructure, ssh-keys, platforms, " +
-			"workflows, monitoring, and discovery.",
+		Short: "Operator CLI for swallow, GPU datacenter management",
+		Long: "swallow is the operator command-line client for swallow. " +
+			"It talks to the api-server HTTP API and covers auth, API keys, sites, integrations, servers, " +
+			"provisioning, infrastructure, ssh-keys, platforms, Change Plans, workflows, monitoring, " +
+			"and discovery. Managed Software, the Server Default User, the provisioner HTTP proxy, and " +
+			"Subnet DNS have no commands yet; use the Dashboard or the HTTP API for them.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		// PersistentPreRunE resolves the profile before any handler runs. It is

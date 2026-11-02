@@ -281,15 +281,15 @@ reconcile 仍是 fleet mechanism。
 
 ## Tag
 
-Tag 可編輯單台 Server，也可用 tri-state bulk change。MAAS 支援 tag 時由 MAAS
-authoritative，reconciliation 會 mirror 結果；不支援時由 swallow 儲存同形狀
-fallback。Consumer 只會看到一個 effective tag set。
+Tag 可編輯單台 Server，也可用 tri-state bulk change。Server 的手動 tag 由 swallow 擁有並套用到 MAAS；
+直接在 MAAS 改的 tag 會在下一次定期檢查時改回。MAAS 自己算出的 tag（帶 definition 的 tag）會顯示但不能編輯。
+Provisioner 不支援 tag 時，Server 上會回報這件事，swallow 不另存一份。
 
 ## Zone 與 Pool
 
 Zone／Pool 是在 **Infrastructure** 管理的 swallow-owned grouping resource。
-透過 Server placement action 指派。Provisioner 有能力時會 realize grouping；
-否則 swallow-owned value 仍是 effective placement。
+透過 Server placement action 指派。Provisioner 有能力時會 realize grouping；不支援時 Server 上會回報這件事，
+swallow 不另存一份。
 
 ## Lock 與 destructive action
 

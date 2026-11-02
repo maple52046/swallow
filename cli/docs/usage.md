@@ -4,10 +4,10 @@ This is the usage manual for the `swallow` operator command-line client (the
 `cli` component). It is written for operators and external developers who need interactive commands or stable JSON/YAML output for scripts.
 
 The CLI is a conformist HTTP consumer of the `api-server` contract. It covers
-its implemented operator surfaces and deliberately omits Managed Software,
-deprecated aliases (`/operations`, `/clusters`, single-server
-`deploy`/`release`), and Planned endpoints. Use the Dashboard or HTTP API for
-Managed Software. When a detail here is ambiguous, the source of truth is the
+the operator surfaces listed below. It has no commands yet for Managed Software
+(including registry credentials and the Docker explorer), the Server Default
+User, the provisioner HTTP proxy, or Subnet DNS; use the Dashboard or HTTP API
+for those. Planned endpoints are intentionally absent. When a detail here is ambiguous, the source of truth is the
 provider contract under
 [`../../api-server/docs/development/api-contracts/api-server/`](../../api-server/docs/development/api-contracts/api-server).
 

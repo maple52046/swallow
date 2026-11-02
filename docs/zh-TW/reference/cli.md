@@ -83,9 +83,11 @@ usage manual。
 - [`infrastructure`](../../../cli/docs/usage.zh-TW.md#infrastructurezones-與-pools)：
   `zones` 與 `pools` 都提供 `list`、`get`、`create`、`update`、`delete`。
 - [`platforms`](../../../cli/docs/usage.zh-TW.md#platforms)：提供 `list`、`get`、
-  `deploy`、`update`、`delete`、`uninstall`、`sync`、`sync-all`；讀取 live
-  Slurm、管理 `slurm-requirements` 與 `gpu-operator`，並以 nested `kubernetes`
+  `create`、`set-spec`、`update`、`delete`、`sync`、`sync-all`；讀取 live
+  Slurm（`slurm`）、管理 `slurm-requirements` 與 `gpu-operator`，並以 nested `kubernetes`
   explorer 管理 node、namespace、application、Pod、related resource、log 與 YAML apply。
+- [`plans`](../../../cli/docs/usage.zh-TW.md#plans)：`list`、`get`、`approve`、`reject`
+  Change Plan。
 - [`workflows`](../../../cli/docs/usage.zh-TW.md#workflows)：提供 `list`、`get`、
   `create`、`cancel`、`rerun`、`timeline`；
   `task retry|logs|stderr|events|artifacts` 可診斷與控制 individual Task。
@@ -94,6 +96,6 @@ usage manual。
 - [`discovery`](../../../cli/docs/usage.zh-TW.md#discoverymachine-auth)：
   `prometheus` 回傳使用 machine authentication 的 service-discovery target。
 
-Managed Software 目前使用 Dashboard 或 HTTP API。Deprecated aliases 與 Planned
-endpoint 刻意不提供。Global flags、request file、exit codes 與 recipes 請讀
+Managed Software、Server Default User、provisioner HTTP proxy 與 Subnet DNS 目前還沒有 command，請使用
+Dashboard 或 HTTP API。Planned endpoint 刻意不提供。Global flags、request file、exit codes 與 recipes 請讀
 [完整 CLI usage manual](../../../cli/docs/usage.zh-TW.md)。

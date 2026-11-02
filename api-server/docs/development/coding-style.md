@@ -15,7 +15,7 @@
 
 - Go 1.25，module `github.com/maple52046/swallow`。
 - 主要相依：Fiber v2（HTTP）、MongoDB driver、Temporal Go SDK、Cobra（process commands）、golang-jwt。
-- 提交前必須執行：`gofmt -l .`（必須無輸出）、`go vet ./...`、`go build ./...`、`go test ./...`。若環境有 `golangci-lint`，一併執行並修正回報，不得以 nolint 掩蓋。
+- `gofmt -l .`（必須無輸出）、`go vet ./...`、`go build ./...` 與 `go test ./...` 必須通過；完整的指令（含需要 MongoDB 的整合測試）見 root `docs/development/development-and-testing.md` §6。不得以 nolint 掩蓋 lint 回報。
 
 ## 核心原則
 

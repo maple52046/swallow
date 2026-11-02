@@ -98,7 +98,8 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
 1. 不破壞資料與 workload。
 2. 單一真相與正確性。
 3. core 的通用性。
-4. 相容與便利。API 沒有本 repository 以外的 consumer（dashboard 與 cli 都在這裡），所以不為不存在的 consumer
+4. 相容與便利。API 目前沒有本 repository 以外的已知 consumer（dashboard 與 cli 都在這裡；契約也為外部整合者而寫，
+   但還沒有外部整合依賴它），所以不為不存在的 consumer
    保留 API 的相容層（[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)（retire schema v2 and deprecated aliases））。已安裝的資料不在此列：它受第 1 點保護，升級以 schema migration 保留。
 
 ### 現況與目標
@@ -137,7 +138,7 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
 
 ## Glossary Workflow
 
-建立、改名或改變 domain term、型別、enum 值或 API 欄位的工作，依 [`docs/development/glossaries/README.md`](glossaries/README.md) 處理 glossary；只需要理解既有用語時，依同一份 README 的查詢流程只讀相關的 term。何時讀取見 root [`AGENTS.md`](../../AGENTS.md) 的 Reading by Task。
+建立、改名或改變 domain term、型別或 glossary 擁有的 enum 值的工作，依 [`docs/development/glossaries/README.md`](glossaries/README.md) 處理 glossary；只需要理解既有用語時，依同一份 README 的查詢流程只讀相關的 term。何時讀取見 root [`AGENTS.md`](../../AGENTS.md) 的 Reading by Task。
 
 Root architecture spec 不重複定義 glossary lookup 或 authoring steps；詳細閱讀與修改流程以 glossary README 與 glossary spec 為準。
 
@@ -313,7 +314,7 @@ flowchart TB
 
 - 已讀取 root [`AGENTS.md`](../../AGENTS.md)。
 - 已讀取 [`codebase-structure.md`](codebase-structure.md)，並辨識本次工作所屬的 component。
-- 已讀取本文件的設計主張；跨 component 或跨 bounded context 的工作，已讀取全文。
+- 已讀取本文件的設計主張；改變 component 或 bounded context 之間依賴的工作，已讀取全文。
 - 已辨識本次工作所屬 bounded context。
 - 已依 root `AGENTS.md` 判斷是否需要讀取 glossary、API contract workflow、commit spec 或 component `AGENTS.md`。
 - 工作在 [`desired-state-model.md`](desired-state-model.md) §1 的讀者範圍內時，已讀取它，並為每個新欄位標明 desired、observed 或 derived。

@@ -84,11 +84,13 @@ and follow each link into the complete usage manual.
   installation Deployment Key.
 - [`infrastructure`](../../../cli/docs/usage.md#infrastructure-zones-and-pools)
   — `zones` and `pools` expose `list`, `get`, `create`, `update`, and `delete`.
-- [`platforms`](../../../cli/docs/usage.md#platforms) — `list`, `get`, `deploy`,
-  `update`, `delete`, `uninstall`, `sync`, and `sync-all`; read live Slurm,
-  manage `slurm-requirements` and `gpu-operator`, and use the nested
+- [`platforms`](../../../cli/docs/usage.md#platforms) — `list`, `get`, `create`,
+  `set-spec`, `update`, `delete`, `sync`, and `sync-all`; read live Slurm
+  (`slurm`), manage `slurm-requirements` and `gpu-operator`, and use the nested
   `kubernetes` explorer for nodes, namespaces, applications, Pods, related
   resources, logs, and YAML apply.
+- [`plans`](../../../cli/docs/usage.md#plans) — `list`, `get`, `approve`, and
+  `reject` Change Plans.
 - [`workflows`](../../../cli/docs/usage.md#workflows) — `list`, `get`, `create`,
   `cancel`, `rerun`, and `timeline`; `task retry|logs|stderr|events|artifacts`
   diagnoses and controls individual Tasks.
@@ -97,7 +99,8 @@ and follow each link into the complete usage manual.
 - [`discovery`](../../../cli/docs/usage.md#discovery-machine-auth) —
   `prometheus` returns machine-authenticated service-discovery targets.
 
-Managed Software currently uses the Dashboard or HTTP API. Deprecated aliases
-and Planned endpoints are intentionally absent. The
+Managed Software, the Server Default User, the provisioner HTTP proxy, and
+Subnet DNS have no commands yet; use the Dashboard or HTTP API. Planned
+endpoints are intentionally absent. The
 [complete CLI usage manual](../../../cli/docs/usage.md) also defines global
 flags, request files, exit codes, and recipes.

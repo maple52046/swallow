@@ -128,7 +128,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [051](051-ghcr-holds-only-swallow-images.md) | GHCR 只放 swallow 建置的 image，第三方 runtime image 以上游 digest 原樣使用 | supersede 040（image package） |
 | [052](052-one-command-installation.md) | 每個 release 附 install.sh 一行指令安裝與升級，swallowctl 仍是唯一 lifecycle 工具 | refine 040 |
 | [053](053-server-enrollment-and-automatic-inspection.md) | Server Enrollment 引導 network boot 與 existing OS；硬體檢視改為自動啟動的 durable Workflow | — |
-| [054](054-provisioner-power-configuration.md) | Power Configuration 歸 provisioner、swallow 即時 write-through；以 power adapter 建模並診斷缺少的 driver | refine 053 |
+| [054](054-provisioner-power-configuration.md) | Power Configuration 歸 provisioner、swallow 即時 write-through；以 power adapter 建模並診斷缺少的 driver | refine 053；遷移成 desired state 後的 drift 政策見 071 |
 | [055](055-libvirt-virtual-machine-enrollment.md) | libvirt VM 以 domain 名稱經 Hypervisor enroll；Boot Media 新增 libvirt method | refine 054 |
 | [056](056-provisioner-http-proxy.md) | Provisioner HTTP Proxy 由 provisioner 擁有，swallow 以封閉 mode 值集即時讀寫 | 部分被 071 取代 |
 | [057](057-uefi-boot-iso-hand-off.md) | Boot ISO 的 UEFI 改用內建 GRUB 走 MAAS 原生路徑，可原地 rebuild，並擋下需重新檢視的磁碟部署 | refine 049 |

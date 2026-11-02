@@ -275,7 +275,8 @@ api-server 程式碼要守的邊界：
   概念不得越過 `internal/adapters/executor/temporalworkflow`（見 desired-state-model.md §9）。
 - Application 建立 intent 與 durable Workflow record，不直接長時間 block HTTP request。
 - 執行狀態只有一個寫入者：core 的 Workflow service（workflow-execution.md §2）。activity 回報結果，由 Workflow
-  service 在 transaction 內寫入；activity 與 Runner 不直接寫 Workflow 的 store。
+  service 在 transaction 內寫入；Task 結果需要寫到其他資源時，Task 宣告完成行為，由 core 呼叫已登錄的 handler
+  （workflow-execution.md §12）。activity 與 Runner 不自己寫 store。
 - Temporal Workflow code 必須 deterministic；I/O、clock、randomness 與 provider call 留在 activity。
 - Runner 使用 idempotency key，並安全處理 replay 與 infrastructure retry（workflow-execution.md §5）。
 - 衝突的工作以 per-resource 的所有權序列化（沒有 TTL，Workflow 進入終態時釋放），受理時另以 busy check 拒絕
@@ -304,8 +305,10 @@ api-server 程式碼要守的邊界：
   驗證。
 
 Platform deploy 受理、Platform Delete、CompleteUninstall、Workflow 建立與 rerun、GPU Operator 變更與 Software
-install／uninstall 已是 transaction。其餘仍以補償或修復 sweep 維持一致的流程（Temporal activity 的投影寫入、和
-provider 交錯的流程）是待遷移的現況，不得當成新功能的範例。
+install／uninstall 已是 transaction；Task 宣告的投影類完成行為在 Task 狀態轉換的 transaction 內寫入
+（workflow-execution.md §12）。其餘仍以補償或修復 sweep 維持一致的流程（和 provider 交錯的流程，例如 Server 離開
+`deployed` 時把 Software Assignment 標為 `absent` 的 sweep）是待遷移的現況，不得當成新功能的範例。由 spec 推導並收斂
+的欄位（例如 platform controller 讓成員都有 Platform Claim）是 controller 的收斂，不是修復 sweep。
 
 ## Configuration Boundary
 
@@ -356,9 +359,10 @@ Temporal、artifact path、retention、parallelism 等 security/lifecycle semant
 
 任何 code change 必須：
 
-1. 先確認 glossary 與 Active API contract。
+1. 改到 API 行為時先確認 Active API contract；引入或改變 domain term 時先確認 glossary。
 2. 保持 dependency direction、provider ownership 與 provider adapter boundary。
-3. 執行 `gofmt -l .`、`go vet ./...`、`go test ./...`、`go build ./...`。
+3. 通過 root `docs/development/development-and-testing.md` §6 的 api-server 檢查（含需要 MongoDB 的整合測試）。
 4. 依 coding style 手動檢查新增或修改的宣告的 comments、security、concurrency、
    cleanup 與 compatibility；同一檔案中沒有改到的既有宣告不在範圍內。
-5. 同步更新 contract、glossary、architecture、tests；user-visible 的變更同時更新對應的公開文件（雙語）。
+5. 同步更新受影響的 contract、glossary、architecture 與 tests；user-visible 的變更（定義見 root `AGENTS.md` 的
+   Documentation Audiences）同時更新對應的公開文件（雙語）。

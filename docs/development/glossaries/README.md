@@ -12,7 +12,11 @@ Glossary 是 ubiquitous language 的來源。若詞彙定義不清，程式碼�
 
 ## Read-only Glossary Lookup
 
-若只需要理解既有 terminology，依序讀取：
+若只需要理解既有 terminology：
+
+- 契約、規格或另一個 term 已經連到某個 term 檔（例如契約的 Related Glossary Terms）時，直接讀那個檔，不必經過
+  本檔與 outline。
+- 不知道要找哪個 term 時，依序讀取：
 
 ```text
 README.md
@@ -23,7 +27,8 @@ README.md
 Expected behavior:
 
 1. Read this `README.md`.
-2. Read [`outline.md`](outline.md) to identify the relevant bounded context or term.
+2. Read [`outline.md`](outline.md) to identify the relevant bounded context or term; search it for the word
+   rather than reading it whole.
 3. Read only the required file under [`terms/`](terms).
 
 Do not load unrelated glossary files. This keeps context usage small and preserves bounded-context isolation.

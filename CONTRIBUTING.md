@@ -151,4 +151,4 @@ Before requesting review:
 - [ ] Go comments or TypeScript/JSDoc satisfy the component completion gate.
 - [ ] Public documentation and both languages are updated where behavior is user-visible.
 - [ ] Local documentation links and directionality pass.
-- [ ] No secret, credential, customer data, or generated local artifact is committed.
+- [ ] No secret, credential, customer data, or local artifact (build output, test results) is committed; generated contract files (`openapi.yaml`, the dashboard's `openapi.ts`) are committed with their sources.

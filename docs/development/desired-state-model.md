@@ -173,6 +173,9 @@ User、Boot Media）尚未遷移，維持現行行為。
 
 ### 5.2 初版分類
 
+下表是資源遷移時的分類依據；資源遷移前（不在 §4.4 的資源，例如 Managed Software、Server 的 Release／Recover）
+維持現行行為，不走 Change Plan。
+
 | 非破壞性：controller 自動收斂 | 破壞性：先產生 Change Plan |
 | --- | --- |
 | tag、Zone／Pool placement、名稱與說明 | 在已部署的 Server 上重新部署 OS |
@@ -397,7 +400,8 @@ store 規則與資料庫引擎無關：
 - action endpoint 只保留給沒有自然 desired state 的動作，例如測試連線、取消或重試 Workflow、要求立即觀察。
   為了方便，API 可以提供「寫入 spec 並產生 plan」的單一呼叫，但它的效果必須等同於寫入 spec。
 - 既有資源遷移時，遷移前的欄位在同一個變更中移除（§4.4），不保留相容期間；這是破壞性的契約變更，依
-  api-server 契約 conventions 的 Compatibility Notes 標示（見 [api-contracts.md](api-contracts.md)）。
+  api-server 契約 [conventions](../../api-server/docs/development/api-contracts/api-server/conventions.md) 的
+  Compatibility Notes 標示。
 
 ### 11.2 dashboard 與 CLI
 

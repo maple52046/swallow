@@ -5,15 +5,21 @@ component.
 
 ## When this workflow applies
 
-Follow it whenever a task adds, changes, deprecates, removes, consumes, or validates
-an HTTP route, field, status, or error, or explains how the API behaves. Other
-documents refer to this definition instead of restating it.
+Follow it whenever a task adds, changes, deprecates, removes, or validates an HTTP
+route, field, status, or error. Other documents refer to this definition instead of
+restating it.
+
+A task that only consumes or explains existing API behavior reads the contract
+itself: open it from a spec's link, or find it in the
+[api-server outline](api-server/outline.md), and read the sections for the routes
+involved. The Markdown contract is enough for a consumer; open the OpenAPI fragment
+only for the exact wire shape (the dashboard's types are generated from it).
 
 ## Reading workflow
 
 1. Read this file.
 2. Open the [api-server outline](api-server/outline.md).
-3. Read only the relevant contract.
+3. Read only the relevant contract, and in it the sections for the routes involved.
 4. Use only contracts marked Active as implementation-ready.
 
 Do not infer routes, fields, statuses, errors, authentication, authorization, or
@@ -22,7 +28,8 @@ semantics from private implementation.
 ## Ownership
 
 `api-server` is the only component that provides an API: one HTTP REST surface,
-consumed by `dashboard`, `cli`, and external integrators. This tree contains no
+consumed by `dashboard` and `cli`. Contracts are also written for external
+integrators, though no known integration outside this repository depends on them yet. This tree contains no
 other public protocol, and no consumer keeps a copy of a provider contract.
 
 Contracts live under:
@@ -31,9 +38,12 @@ Contracts live under:
 docs/development/api-contracts/
 ├── README.md
 ├── template.md
-└── api-server/
-    ├── outline.md
-    └── <area>.md
+├── api-server/
+│   ├── outline.md
+│   └── <area>.md
+└── openapi/
+    ├── areas/<area>.yaml
+    └── openapi.yaml       # generated bundle
 ```
 
 ## Status
@@ -51,8 +61,9 @@ Start new contracts from [template.md](template.md). Every contract defines
 owner, consumers, purpose, endpoints, request/response, errors, auth,
 compatibility, glossary terms, and relevant implementation constraints.
 
-Update `api-server/outline.md` whenever a contract is added, changed,
-deprecated, deleted, renamed, or promoted. Its one-line summaries state what a
+Update `api-server/outline.md` whenever a contract is added, deprecated,
+deleted, renamed, or promoted, or a change makes its one-line summary wrong; a
+new consumer changes only the contract's Consumer Components. Its one-line summaries state what a
 contract is for and where it lives; they do not restate ownership or behavior
 (for example whether a setting is stored or written through), which only the
 contract says.

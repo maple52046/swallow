@@ -6,7 +6,9 @@
 directory) 依 component 分門別類，直接放在 repository 內，不再使用 git
 submodule。每個 component 目錄就是該 component 的 code entry point。
 
-本文件是這個 repository 的**結構契約 (structure contract)**。以下情境必須先閱讀本檔：
+本文件是這個 repository 的**結構契約 (structure contract)**。每個任務都先讀 Components、Code Lookup Workflow 與
+「Core、Provider Adapter 與擴充模組的位置」三節（root `AGENTS.md` 的 Always Read）。以下情境要讀全文，並在同一個
+變更中更新本檔：
 
 - 新增、移除或重命名 component。
 - 調整頂層目錄結構。
@@ -21,8 +23,8 @@ Repository 以頂層目錄承載每個 component，目錄名即 component 的角
 
 目前 component 對應如下：
 
-- `api-server` — 目錄 `api-server/`。Data Center API Service：平台後端 HTTP API 與背景
-  reconcile / poll 迴圈，是平台唯一的 API-owning component。以 Go module
+- `api-server` — 目錄 `api-server/`。Data Center API Service：swallow 的後端，HTTP API、背景
+  迴圈與 controller，是唯一的 API-owning component。以 Go module
   `github.com/maple52046/swallow` 建置，binary 為 `swallow-api`。
 - `dashboard` — 目錄 `dashboard/`。前端 dashboard：React + TypeScript + Vite。
 - `cli` — 目錄 `cli/`。Operator CLI：命令列客戶端，是 `api-server` HTTP API 的 consumer
@@ -114,7 +116,7 @@ flowchart LR
   - [`access-and-credentials.md`](access-and-credentials.md) — 憑證（Deployment Key、Access Key、Server Default User、Site automation credential）與認證概要。
   - [`installation.md`](installation.md) — 支援的安裝拓樸、`swallowctl` 生命週期保證、發佈產物與時間同步。
   - [`commit-spec.md`](commit-spec.md) — commit message 規範。
-  - [`glossaries/`](glossaries) — 跨 component 共通的 domain glossary，定義平台的 ubiquitous language。
+  - [`glossaries/`](glossaries) — 跨 component 共通的 domain glossary，定義 swallow 的 ubiquitous language。
   - [`context-maps/`](context-maps) — 跨 context 的 context map：[`automation-execution.md`](context-maps/automation-execution.md)、[`os-provisioning.md`](context-maps/os-provisioning.md)；需要時新增。
 - [`docs/decisions/`](../decisions) — 輕量 ADR，只記錄「為什麼」並在 Accepted 後凍結；現行行為寫在上列規格。
 - `docs/plans/` — 歷史計畫紀錄；`docs/plans/manuscripts/` 為進行中的計畫草稿。
