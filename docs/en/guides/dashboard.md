@@ -19,7 +19,7 @@ current session in the browser.
 | Monitoring | Alerts, silences, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, fleet health, and optional Grafana links |
 | Infrastructure | Sites, Integrations, Zones, Pools, credentials, and automation settings |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
-| API keys (account menu) | Keys that let scripts, CI, and the CLI call Swallow as you without a password — see [API keys](api-keys.md) |
+| API keys (account menu) | Keys that let scripts, CI, and the CLI call swallow as you without a password — see [API keys](api-keys.md) |
 
 Routes under `/clusters` and `/operations` are compatibility redirects.
 Canonical navigation uses Platforms and Workflows.

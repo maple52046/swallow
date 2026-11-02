@@ -503,7 +503,7 @@ func provisionOSInput() DeployPlatformInput {
 	return in
 }
 
-// TestDeployProvisionOSAcceptsMixedReadyAndDeployed is the ADR 017 convergence check: a
+// TestDeployProvisionOSAcceptsMixedReadyAndDeployed is the decision 017 convergence check: a
 // provision_os deploy may mix already-deployed servers with servers that still need an OS,
 // and only the ready ones are preflighted for provisioning.
 func TestDeployProvisionOSAcceptsMixedReadyAndDeployed(t *testing.T) {

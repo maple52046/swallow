@@ -9,7 +9,7 @@ architecture spec、shared glossary 與 provider-owned API contracts 同時適�
 `api-server` 是 swallow 唯一 API provider，負責：
 
 - HTTP REST API、authentication 與 authorization。
-- Swallow-owned desired state、policy、stable identity mapping 與 observed-state projections。
+- swallow-owned desired state、policy、stable identity mapping 與 observed-state projections。
 - Provisioner／Platform／monitoring reconciliation 與 query adapters。
 - Durable Workflow orchestration（Workflow executor port；目前的 adapter 是 Temporal）。
 - Versioned host automation content（目前是 Ansible）與 execution attempts。
@@ -197,7 +197,7 @@ playbook 與 role 屬於哪個模組，以 `modules/` 的目錄為準；在 `mod
 `internal/core/<context>` 的主要 vertical slices 包含：
 
 - `auth` — Session（password login、refresh token 換發與重用偵測、logout）與 current identity；
-  只存 refresh token 的 SHA-256 hash（decision 042）。
+  只存 refresh token 的 SHA-256 hash（[decision 042](../../../docs/decisions/042-authentication-sessions-and-api-keys.md)（authentication sessions and api keys））。
 - `apikey` — User 的 API Key（只存 SHA-256 hash 與顯示前綴）及每個請求的 key 驗證；owner 經
   `OwnerDirectory` port 由 `internal/app` adapter 對接 auth 的 user store（decision 042）。
 - `site`／`infrastructure` — Sites、Integrations、Zones、Pools。
@@ -208,7 +208,7 @@ playbook 與 role 屬於哪個模組，以 `modules/` 的目錄為準；在 `mod
 - `software` — Managed Software catalog、Assignments 與 lifecycle intent。
 - `sshkey` — SSH Keys（Deployment Key 與 Access Keys）、provisioner 同步；Deployment Key 由安裝步驟
   `swallow-api deployment-key ensure` 建立（API 啟動不建立也不檢查），workflow 經 `DeploymentKeySource`
-  port 取得、OS／Platform 佈署受理前檢查其存在（decision 039）。
+  port 取得、OS／Platform 佈署受理前檢查其存在（[decision 039](../../../docs/decisions/039-ssh-key-management-and-default-user.md)（ssh key management and default user））。
 - `workflow` — Workflow/Job/Task domain、execution records 與 artifacts（型別與 collection 沿用先前的 Operation
   名稱；runner 在 `internal/adapters/hostautomation/ansible`）。
 - `monitoring`／`overview`／`discovery` — read models 與 external live queries。
@@ -243,12 +243,12 @@ Interface 不用來包裝每個 concrete type；只有需要保護 boundary、�
 
 所有權以 root 的 [`desired-state-model.md`](../../../docs/development/desired-state-model.md) 為準：
 
-- Swallow 擁有受管資源的 desired state（spec），store 是唯一真相來源；provider adapter 只寫入 observed
+- swallow 擁有受管資源的 desired state（spec），store 是唯一真相來源；provider adapter 只寫入 observed
   state（status），帶來源 Integration 與觀察時間，永遠不寫 desired state。
 - 每個欄位只有一個寫入者：spec 由 API 或擁有它的上層資源寫入，observed 由 adapter 的觀察路徑寫入，
   conditions 由該資源的 controller 寫入。
 - provider 沒有能力實現某個欄位時回報 `realized=false`（reason `capability_missing`），不再建立同形狀的
-  swallow-owned fallback（decision 069 取代 decision 031）。
+  swallow-owned fallback（[decision 069](../../../docs/decisions/069-swallow-owns-desired-state.md)（swallow owns desired state） 取代 [decision 031](../../../docs/decisions/031-provider-capability-first-with-swallow-owned-fallback.md)（provider capability first with swallow owned fallback））。
 - metrics、alert 評估、workload 排程與 Platform 內部的資源仍由各自的系統擁有，只即時讀取。
 
 尚未遷移的功能維持現行行為（包括 capability-first fallback），以各功能規格為準；

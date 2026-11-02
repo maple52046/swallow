@@ -31,7 +31,7 @@ type platformUninstallFinalizer interface {
 	CompleteUninstall(ctx context.Context, platformID string, deleteRecord bool) error
 }
 
-// platformWorkflowStepExecutor implements Swallow-owned readiness and health phases.
+// platformWorkflowStepExecutor implements swallow-owned readiness and health phases.
 // It exposes only normalized outcomes to Temporal; provider and socket details remain in
 // the adapters that own them.
 type platformWorkflowStepExecutor struct {

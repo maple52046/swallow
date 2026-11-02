@@ -34,7 +34,7 @@ func newPlatformsCommand() *cobra.Command {
 	return cmd
 }
 
-// platformsGPUOperatorCmd groups the Swallow-managed AMD GPU Operator of a Kubernetes Platform
+// platformsGPUOperatorCmd groups the swallow-managed AMD GPU Operator of a Kubernetes Platform
 // (platforms.md, "Manage The GPU Operator"; decision 062). The operator is the spec's
 // settings.gpuOperator: `set` and `uninstall` read the Platform and write its spec back with the
 // setting changed, at the generation they read. Turning the operator on converges at once;
@@ -191,7 +191,7 @@ func platformsUpdateCmd() *cobra.Command {
 			return sendJSON(cmd, "PATCH", "platforms/"+args[0], nil, body)
 		},
 	}
-	// gpuStackOwner cannot be set back to provisioning while Swallow manages a GPU Operator; use
+	// gpuStackOwner cannot be set back to provisioning while swallow manages a GPU Operator; use
 	// `platforms gpu-operator uninstall` instead.
 	addFileFlag(cmd, "changed platform fields (name, gpuStackOwner, exporterOwner, monitoringLinks)")
 	return cmd

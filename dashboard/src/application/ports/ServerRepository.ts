@@ -44,7 +44,7 @@ export interface ServerRepository {
    */
   getProvisionerDetail(id: string): Promise<ProvisionerDetail>
 
-  /** Read recent provider-owned machine history; this is not a Swallow audit log. */
+  /** Read recent provider-owned machine history; this is not a swallow audit log. */
   getProviderEvents(id: string, limit?: number): Promise<ProviderEvents>
 
   /** Read and mutate one Server's structured live network configuration. */
@@ -53,7 +53,7 @@ export interface ServerRepository {
   replaceNetworkLink(id: string, interfaceId: string, linkId: string, input: NetworkLinkInput): Promise<NetworkTarget>
   deleteNetworkLink(id: string, interfaceId: string, linkId: string): Promise<NetworkTarget>
 
-  /** Durable Swallow-owned provisioning follow-up shown in Activity. */
+  /** Durable swallow-owned provisioning follow-up shown in Activity. */
   listProvisioningTasks(id: string): Promise<ProvisioningTask[]>
   getProvisioningTask(taskId: string): Promise<ProvisioningTask>
   retryProvisioningTask(taskId: string): Promise<ProvisioningTask>

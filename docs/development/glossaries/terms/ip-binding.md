@@ -13,4 +13,4 @@
   release cleanup removes that unchanged binding after the Server returns Ready.
 - Related terms: Network Configuration, OS Deployment, Provisioning Task.
 - Change note: Added to make static addressing and release-time removal explicit
-  Swallow actions without claiming broader IPAM ownership.
+  swallow actions without claiming broader IPAM ownership.

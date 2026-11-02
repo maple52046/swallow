@@ -24,4 +24,4 @@
 - Related terms: User, API Key.
 - Change note: Added when login moved from one 24-hour token to short access tokens plus a
   rotating refresh token
-  ([decision 042](../../../decisions/042-authentication-sessions-and-api-keys.md)).
+  ([decision 042](../../../decisions/042-authentication-sessions-and-api-keys.md) (authentication sessions and api keys)).

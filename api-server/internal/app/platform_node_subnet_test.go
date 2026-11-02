@@ -18,9 +18,9 @@ func TestNodeSubnetReadsTheAssignedOrBootSubnet(t *testing.T) {
 			ID: "131", Boot: true,
 			Links: []provisioningdomain.NetworkLink{
 				{SubnetID: "6", CIDR: "fd00::/64"},
-				{SubnetID: "1", CIDR: "10.170.169.126/23"},
+				{SubnetID: "1", CIDR: "10.140.169.126/23"},
 			},
-			AvailableSubnets: []provisioningdomain.NetworkSubnet{{ID: "2", CIDR: "10.170.172.0/22"}},
+			AvailableSubnets: []provisioningdomain.NetworkSubnet{{ID: "2", CIDR: "10.140.172.0/22"}},
 		},
 	}
 	tests := []struct {
@@ -28,8 +28,8 @@ func TestNodeSubnetReadsTheAssignedOrBootSubnet(t *testing.T) {
 		assignment platformdomain.MachineNetworkAssignment
 		want       string
 	}{
-		{name: "boot interface link", want: "10.170.168.0/23"},
-		{name: "assigned available subnet", assignment: platformdomain.MachineNetworkAssignment{InterfaceID: "131", SubnetID: "2"}, want: "10.170.172.0/22"},
+		{name: "boot interface link", want: "10.140.168.0/23"},
+		{name: "assigned available subnet", assignment: platformdomain.MachineNetworkAssignment{InterfaceID: "131", SubnetID: "2"}, want: "10.140.172.0/22"},
 		{name: "assigned linked subnet", assignment: platformdomain.MachineNetworkAssignment{InterfaceID: "130", SubnetID: "9"}, want: "10.9.0.0/16"},
 	}
 	for _, tc := range tests {

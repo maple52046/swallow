@@ -25,7 +25,7 @@ type DialogState = { kind: 'create' } | { kind: 'delete'; key: ApiKey } | null
 
 /**
  * The signed-in admin's API Keys (route `/account/api-keys`, decision 042): long-lived secrets
- * that let scripts, CI, and the CLI call Swallow as this user without a password.
+ * that let scripts, CI, and the CLI call swallow as this user without a password.
  *
  * Data comes from the `api-keys.md` contract through the ApiKeyRepository port; the list is read
  * once per visit and after each action. No secret is ever loaded here — the only secret the page

@@ -36,7 +36,7 @@ function attentionMessage(operation: Operation): string | undefined {
  * - A Workflow following the release (info): links to it and to Activity → Related Operations.
  * - A Workflow parked for attention (warning): shows why it stopped and links to it and to
  *   Provider events, where the provider's own progress is.
- * - A Workflow that ended while the provider still releases (warning): says nothing in Swallow
+ * - A Workflow that ended while the provider still releases (warning): says nothing in swallow
  *   follows the release any more and links to it and to Provider events.
  * - No Workflow (info): the release was started in the provisioner or through the deprecated
  *   synchronous endpoint, so only Provider events record it.

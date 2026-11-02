@@ -39,7 +39,7 @@
     - (slurm_oci_userns_restricted.stdout | default('0') | trim) == '1'
 
 - name: Refuse a host that restricts user namespaces without crun's AppArmor profile
-  # Turning the restriction off would open user namespaces to every program, so Swallow never does.
+  # Turning the restriction off would open user namespaces to every program, so swallow never does.
   ansible.builtin.fail:
     msg: >-
       [slurm_oci_failed] {{ inventory_hostname }} restricts unprivileged user namespaces

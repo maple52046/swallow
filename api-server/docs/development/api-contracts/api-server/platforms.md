@@ -16,12 +16,12 @@ Active
 ## Purpose
 
 Create Kubernetes (k0s) and Slurm Platforms from a spec, change and delete them through that spec,
-read their status and observed membership, and remove Swallow records. A Platform is a
+read their status and observed membership, and remove swallow records. A Platform is a
 desired-state resource ([desired-state-model §5.2](../../../../../docs/development/desired-state-model.md)):
 creating it and every destructive change wait on a [Change Plan](change-plans.md), and the
-worker's platform controller converges the rest. Swallow owns policy and durable lifecycle intent
+worker's platform controller converges the rest. swallow owns policy and durable lifecycle intent
 for the platforms it deploys. It does not own platform membership, and — per
-[decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) — it
+[decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) (self deployed platform management) — it
 manages only self-deployed platforms: the public API no longer registers an existing platform.
 
 The in-cluster management of a deployed Kubernetes platform (namespaces, applications, pods,
@@ -129,8 +129,8 @@ behavior.
 `type` is `kubernetes` or `slurm`. `gpuStackOwner` is `provisioning` or
 `gpu-operator`. `exporterOwner` is `ansible` (default) or `k8s`.
 
-`gpuOperator` is the Swallow-managed GPU Operator of a Kubernetes Platform (see
-[Manage The GPU Operator](#manage-the-gpu-operator)). It is `null` when Swallow has never managed
+`gpuOperator` is the swallow-managed GPU Operator of a Kubernetes Platform (see
+[Manage The GPU Operator](#manage-the-gpu-operator)). It is `null` when swallow has never managed
 one on the Platform. `enabled` is the latest requested intent; `state` is exactly
 `installing | ready | failed | uninstalling | absent`; `lastWorkflowId` is the Workflow applying
 or last applying it. `draDriverVersion` is `null` unless `allocationMode` is `dra`.
@@ -142,16 +142,16 @@ brings for a Slurm Platform. It is always an array, empty by default. Each link 
 swallow-owned display data: swallow never connects to, authenticates against, or checks the
 URL, and they are not a metrics Integration — swallow's own usage charts keep reading the Site
 metrics backend (see [server-metrics.md](server-metrics.md)). They are set with `PATCH`.
-Swallow itself replaces (or adds) only the link named `Omnistat Grafana` when it installs
+swallow itself replaces (or adds) only the link named `Omnistat Grafana` when it installs
 Omnistat, or `Device Metrics Exporter Grafana` when it installs the Device Metrics Exporter, and
 removes only that link when the Platform is uninstalled (see [Omnistat](#omnistat) and
 [Device Metrics Exporter](#device-metrics-exporter)).
 
-`omnistat` is the Swallow-managed Omnistat of a Slurm Platform (see [Omnistat](#omnistat)). It is
-`null` when Swallow never installed Omnistat on the Platform (always for Kubernetes).
+`omnistat` is the swallow-managed Omnistat of a Slurm Platform (see [Omnistat](#omnistat)). It is
+`null` when swallow never installed Omnistat on the Platform (always for Kubernetes).
 
-`deviceMetricsExporter` is the Swallow-managed Device Metrics Exporter of a Slurm Platform (see
-[Device Metrics Exporter](#device-metrics-exporter)). It is `null` when Swallow never installed it
+`deviceMetricsExporter` is the swallow-managed Device Metrics Exporter of a Slurm Platform (see
+[Device Metrics Exporter](#device-metrics-exporter)). It is `null` when swallow never installed it
 on the Platform (always for Kubernetes, where the GPU Operator's `metricsExporter` runs it).
 
 `containerRuntime` is the container runtime a Slurm deploy installed on its compute and login
@@ -195,7 +195,7 @@ projected completely. A control-plane assignment with `runWorkloads=true` retain
 number of worker-only assignments as total workload capacity.
 
 `integrationId` is `null` before a deployment produces a credential and again after a
-successful uninstall removes the Swallow-owned credential Integration. A legacy `registered`
+successful uninstall removes the swallow-owned credential Integration. A legacy `registered`
 platform may also have no Integration. `sync.matchedCount` is how many reported members
 matched a Server.
 
@@ -255,7 +255,7 @@ it is active. Until then `spec` is `null` and `generation` is `0`, and spec writ
 
 ## Registering An Existing Platform Is Removed
 
-There is no public route to register an existing platform. Swallow manages only self-deployed
+There is no public route to register an existing platform. swallow manages only self-deployed
 platforms; a Platform record and its credential Integration are produced only by creating a
 Platform from its spec (`POST /api/v1/platforms/`) and installing it
 ([decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md)). A
@@ -294,7 +294,7 @@ size calculation.
 
 ## Create A Platform
 
-`POST /api/v1/platforms/` creates a Platform from its spec. Swallow validates it exactly as a
+`POST /api/v1/platforms/` creates a Platform from its spec. swallow validates it exactly as a
 deployment (every rule below), stores the Platform at generation 1 with its members claimed, and
 answers `202 Accepted` with the Platform and the [Change Plan](change-plans.md) that installs it.
 Nothing touches a machine until the plan is approved; the platform controller then starts the
@@ -337,11 +337,11 @@ required (`400 validation_error` otherwise); `podCidr` and `serviceCidr` default
 and `10.96.0.0/12`. An unknown Site is `404 not_found`. The target Servers must exist (an unknown
 one is `400 validation_error`) and belong to one Site. They must also be unlocked in a live
 provider read. The complete lock preflight
-finishes before Swallow creates either the Platform or Operation; one locked target rejects
+finishes before swallow creates either the Platform or Operation; one locked target rejects
 the batch with `409 conflict`.
 
 Every deploy, with `existing_os` or `provision_os`, first requires the installation's
-Deployment Key, because Swallow logs in to the targets with it (see [ssh-keys.md](ssh-keys.md)).
+Deployment Key, because swallow logs in to the targets with it (see [ssh-keys.md](ssh-keys.md)).
 Without one the request is rejected with `409 conflict` before any validation (other than an
 unparsable body or a missing `siteId`, which are `400 validation_error` first), Platform, or
 Operation is created; the message names the installation command that creates it
@@ -390,7 +390,7 @@ both are volatile and leave physical disks untouched.
 ### Time sync check
 
 A Platform deployment checks time; it does not set it
-([decision 065](../../../../../docs/decisions/065-control-plane-ntp-and-post-provision-time-sync.md)).
+([decision 065](../../../../../docs/decisions/065-control-plane-ntp-and-post-provision-time-sync.md) (control plane ntp and post provision time sync)).
 Time is configured when an OS is provisioned: in `provision_os` mode each Server the Operation
 provisions gets its own `configure-ntp-<serverId>` Step after `provision-<serverId>`, exactly as
 in an OS deployment ([provisioning.md](provisioning.md#durable-os-operations)), so such a deploy
@@ -421,9 +421,9 @@ runs workloads adds `workloads`; a `worker` always runs workloads. (The read mod
 
 A target is rejected while another Platform claims it: its Server's `platformClaim`
 ([servers-list.md](servers-list.md#platform-claim),
-[decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)) names that
+[decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md) (platform claim on server)) names that
 Platform, and the `400 validation_error` message names it too. When the Platform is created (or a
-spec adds a member), Swallow claims every member for it with a conditional write per Server in the
+spec adds a member), swallow claims every member for it with a conditional write per Server in the
 same transaction, so of two Platforms created at the same time only one can take a Server; the
 other is refused the same way and leaves no Platform record or partial claim behind. The claim stays while the Platform is
 `deploying`, `deploy_failed`, `active`, `uninstalling`, or `uninstall_failed`, so a partial
@@ -450,7 +450,7 @@ must supply workload capacity. Pod and service ranges may not cover target addre
 deployments omit `apiVip` and `apiVipPrefix` and use the initial control-plane Server
 address as the API endpoint. An HA virtual IP may not equal a selected Server address.
 
-For HA, Swallow reads from the provisioner the IPv4 subnet of each control-plane Server's
+For HA, swallow reads from the provisioner the IPv4 subnet of each control-plane Server's
 boot interface (or, for a Server the deploy provisions, the subnet its network assignment
 names). The control-plane Servers must share one subnet, `apiVip` must lie inside it, and
 `apiVipPrefix` must equal its prefix; an omitted `apiVipPrefix` takes it. Each violation is a
@@ -479,7 +479,7 @@ Omitting it, or `enabled=false`, installs no operator. `gpuStackOwner` is option
 Kubernetes: it defaults to `gpu-operator` when `gpuOperator.enabled` is true and to
 `provisioning` otherwise; `gpuStackOwner=provisioning` together with an enabled `gpuOperator` is
 a `validation_error`. A client that sends `gpuStackOwner=gpu-operator` without `gpuOperator`
-records an operator managed outside Swallow, and Swallow installs nothing. The `gpuOperator`
+records an operator managed outside swallow, and swallow installs nothing. The `gpuOperator`
 validation runs before any Platform or Operation is created. The Operation adds a
 `configure-gpu-operator` Job after `validate-platform`; the deployment succeeds only when it
 does.
@@ -493,7 +493,7 @@ Success is `202 Accepted` after both records are persisted:
 }
 ```
 
-`operationId` names the Workflow. Progress is read through [workflows](workflows.md). On success Swallow creates and marks
+`operationId` names the Workflow. Progress is read through [workflows](workflows.md). On success swallow creates and marks
 ownership of a credential Integration, attaches it to the Platform, and begins membership
 reads.
 
@@ -546,7 +546,7 @@ shared-storage NFS exports and a login-only Server is valid. `gpuStackOwner` def
 object is optional: `clusterName` defaults to a sanitized
 platform name; `apiVersion` pins the `slurmrestd` endpoint version recorded in the credential;
 `stateSaveLocation` is an optional override of the `slurmctld` state directory. A highly
-available deployment (more than one controller) needs a shared state directory, and Swallow
+available deployment (more than one controller) needs a shared state directory, and swallow
 provisions it automatically — it selects a state server (the login node when one is assigned,
 otherwise an off-controller node), exports it over NFS, and mounts it on every controller
 before `slurmctld` starts — so `stateSaveLocation` is not required for HA; when supplied it
@@ -555,10 +555,10 @@ mints the shared MUNGE key, hosts `slurmrestd`, and produces the reader credenti
 
 `workloadStorage` is optional and configures a shared filesystem for user/job data (distinct
 from controller state), mounted on every node at `mountPath` (a non-overlapping path, never
-`/home`). Omit it for no shared filesystem. `type` is `nfs`. `mode` is `self-hosted` (Swallow
+`/home`). Omit it for no shared filesystem. `type` is `nfs`. `mode` is `self-hosted` (swallow
 exports NFS from the login node, so it requires one) or `external` (mount the operator's
 `nfs.url`, `host:/path`, with optional `nfs.mountOptions`). An omitted `type` is `nfs` and an
-omitted `mountPath` is `/shared`. Swallow provides the mount, not
+omitted `mountPath` is `/shared`. swallow provides the mount, not
 cluster identity: consistent workload-user UID/GID across nodes is the operator's
 responsibility.
 
@@ -577,12 +577,12 @@ proportion to its CPUs instead of the whole node. The deployment proves it: two 
 `--mem` must run on one node at the same time, otherwise the Task fails with
 `slurm_shared_node_failed`.
 
-`slurm.conf` names exactly one Prolog and one Epilog, Swallow's dispatchers
+`slurm.conf` names exactly one Prolog and one Epilog, swallow's dispatchers
 (`/etc/slurm/swallow-prolog`, `/etc/slurm/swallow-epilog`, `PrologFlags=Alloc,Contain`). On each
 compute node they run every executable in `/etc/slurm/prolog.d` and `/etc/slurm/epilog.d` in name
 order with the job's environment and a 30-second limit each; a hook that fails or times out is
 logged (syslog tag `swallow-prolog`/`swallow-epilog`) and never fails the job or drains the node.
-Swallow installs only its own hooks there (`10-omnistat`, `20-device-metrics-exporter`) and removes
+swallow installs only its own hooks there (`10-omnistat`, `20-device-metrics-exporter`) and removes
 the ones a redeploy no longer enables; other executables an operator places there run too. A rerun
 of a converged deployment reports no change.
 
@@ -593,7 +593,7 @@ storage. Equality is eligible; unknown or zero hardware fails an enabled positiv
 shortfall returns the standard validation error naming the Server, actual resources, and minimum,
 with no deployment side effects. Failure to read the requirement fails closed. Kubernetes
 deployments do not apply this policy. Success is the
-same `202 Accepted` shape. When the target image includes `slurm-smd-slurmrestd`, Swallow
+same `202 Accepted` shape. When the target image includes `slurm-smd-slurmrestd`, swallow
 records a `slurm` platform Integration pointing at `slurmrestd` on success and begins
 membership reads; if the image omits it, the cluster still deploys successfully but the
 platform has no integration and no members until the image includes it (unlike Kubernetes,
@@ -605,7 +605,7 @@ image-supplied packages, and can optionally release the member servers.
 ### GPU GRES
 
 Every Slurm deployment schedules AMD GPUs
-([decision 063](../../../../../docs/decisions/063-omnistat-slurm-observability.md)). Swallow selects
+([decision 063](../../../../../docs/decisions/063-omnistat-slurm-observability.md) (omnistat slurm observability)). swallow selects
 the compute Servers whose GPU Inventory lists AMD `compute` GPUs; on each it loads the image's
 `amdgpu` driver after boot (`swallow-amdgpu-load.service` with the
 [GPU driver options](#gpu-driver-options); `slurmd` requires it), maps every GPU from the KFD
@@ -643,7 +643,7 @@ A deploy of either platform type may set amdgpu module options for its GPU nodes
 ```
 
 A name is lower-case letters, digits, and underscores (at most 64 characters); a value is letters,
-digits, and `_.,:-` (at most 128 characters); at most 16 options. Anything else is a `validation_error`. Swallow also derives options from what a
+digits, and `_.,:-` (at most 128 characters); at most 16 options. Anything else is a `validation_error`. swallow also derives options from what a
 node's KFD topology shows, never from a GPU model or a virtualization mode. Today's only rule:
 when a GPU node reaches the same peer through both an XGMI `io_link` and a PCIe `p2p_link`, the
 ROCm thunk overflows its peer array and HIP processes corrupt the heap at exit, so the rule adds
@@ -698,8 +698,8 @@ The runtime is independent of [native OCI containers](#native-oci-containers) (`
 a deploy may request either, both, or neither, and the two do not conflict (Docker CE brings its own
 `runc`; native OCI uses `/usr/bin/crun`). Both only give the cluster a capability; the deployment does
 not decide whether or how jobs use containers, which is up to the cluster's users. For reference,
-the Docker CE Swallow installs is the system (rootful) Docker Engine with its default runtime, and
-Swallow configures no Slurm integration for it (Slurm's rootless Docker with `scrun` is not set
+the Docker CE swallow installs is the system (rootful) Docker Engine with its default runtime, and
+swallow configures no Slurm integration for it (Slurm's rootless Docker with `scrun` is not set
 up), so a container that `docker run` starts is created by that daemon rather than by Slurm.
 
 ## Omnistat
@@ -756,10 +756,10 @@ The Platform then reports:
 acceptance until the Omnistat Task finishes, `ready` when it succeeded (every exporter is scraped
 and the dashboards are provisioned), `failed` when it failed or never ran because an earlier Job
 failed, and `absent` after the Platform was uninstalled. Only `lastWorkflowId` may move it. On
-success Swallow also sets the Monitoring Link `Omnistat Grafana` to the observability Server's
+success swallow also sets the Monitoring Link `Omnistat Grafana` to the observability Server's
 Grafana (`http://<primary address>:3000`, read-only, no login). Omnistat's Prometheus listens only
 on the observability Server's loopback address (`listen: loopback`, see
-[software](software.md#prometheus-and-grafana-spec)), so only that Grafana reads it, and Swallow
+[software](software.md#prometheus-and-grafana-spec)), so only that Grafana reads it, and swallow
 never queries it. `omnistat-query` on a compute node reads it through that Grafana's read-only
 datasource proxy (`http://<primary address>:3000/api/datasources/proxy/uid/prometheus`), which
 serves the same data the anonymous dashboards already show. Omnistat 1.15.0's report needs GPU
@@ -774,7 +774,7 @@ Assignments stay until they are uninstalled through the software API.
 A Slurm deploy may install AMD's
 [Device Metrics Exporter](../../../../../docs/development/glossaries/terms/device-metrics-exporter.md)
 with Slurm job attribution, in the same Workflow
-([decision 066](../../../../../docs/decisions/066-slurm-job-hooks-and-device-metrics-exporter.md)):
+([decision 066](../../../../../docs/decisions/066-slurm-job-hooks-and-device-metrics-exporter.md) (slurm job hooks and device metrics exporter)):
 
 ```json
 {
@@ -796,12 +796,12 @@ runtime (container method), `configure-prometheus` (`listen: loopback`, job
 `device-metrics-exporter`, the GPU compute nodes on port `5001`), and `configure-grafana`
 (dashboards `device-metrics-exporter`), and finally the Managed Software
 [`device-metrics-exporter`](software.md#device-metrics-exporter) on every GPU compute node, as a
-`configure-device-metrics-exporter` Job ([decision 068](../../../../../docs/decisions/068-device-metrics-exporter-managed-software.md)).
+`configure-device-metrics-exporter` Job ([decision 068](../../../../../docs/decisions/068-device-metrics-exporter-managed-software.md) (device metrics exporter managed software)).
 Each GPU compute node gets an ordinary Software Assignment, `installed` by the Job's record Task.
 That Job installs AMD's pinned native package (`amdgpu-exporter 1.5.3~24.04`, SHA-256 verified; Ubuntu
 24.04 only, `device_metrics_exporter_unsupported_os` otherwise) with Slurm job attribution on:
 `gpuagent` starts after the amdgpu loader, and the exporter serves Prometheus metrics on the node's
-address at port `5001` (AMD's default `5000` belongs to the host GPU exporter Swallow scrapes).
+address at port `5001` (AMD's default `5000` belongs to the host GPU exporter swallow scrapes).
 Hardware profiler counters stay off. While the Platform claims its Servers, the standalone software
 install and uninstall refuse them, so the exporter there stays the Platform's. The Slurm side is
 part of the Slurm install: the
@@ -826,7 +826,7 @@ The Platform then reports:
 ```
 
 `state` is the Device Metrics Exporter State, exactly `installing | ready | failed | absent`, with
-the same meaning and fence (`lastWorkflowId`) as the Omnistat State. On success Swallow sets the
+the same meaning and fence (`lastWorkflowId`) as the Omnistat State. On success swallow sets the
 Monitoring Link `Device Metrics Exporter Grafana` (`http://<primary address>:3000`, read-only, no
 login) and records `gpuIdentity`:
 
@@ -836,7 +836,7 @@ login) and records `gpuIdentity`:
 | `collapsed` | on at least one node the exporter reports fewer distinct `gpu_id`s than GPUs (for example MI308X SR-IOV virtual functions, which all report `gpu_id` `0`); the metrics endpoint works, but per-GPU job attribution there is wrong: a job on GPU 0 is attributed to every GPU, a job on another GPU to none |
 
 `gpuIdentity` is `null` until an install succeeded. A collapsed identity does not fail the
-deployment; clients must show it rather than present per-job GPU panels as reliable. Swallow never
+deployment; clients must show it rather than present per-job GPU panels as reliable. swallow never
 queries the exporter's Prometheus. Uninstalling the Platform removes the package, its
 configuration, and the job hook from every target, marks the state `absent`, removes the link, and
 marks the Servers' `device-metrics-exporter` Software Assignments `absent`; the container runtime,
@@ -859,7 +859,7 @@ listens on the loopback address). The host keeps `kernel.apparmor_restrict_unpri
 granted only to `/usr/bin/crun` by the distribution's path-scoped AppArmor profile, and a node that
 restricts them without that profile fails the deployment (`slurm_oci_failed`). The job's device
 cgroup applies inside the container: a container that binds `/dev` still opens only its allocated
-GPUs. Swallow does not build, pull, or distribute OCI bundles: a bundle must exist at the same
+GPUs. swallow does not build, pull, or distribute OCI bundles: a bundle must exist at the same
 absolute path on every node the job runs on. The deployment verifies the path with a bundle built
 from the node's own filesystem (`/var/lib/swallow/oci/probe`): a container step runs as an
 unprivileged user, and on every GPU node a one-GPU container sees exactly one GPU
@@ -882,11 +882,11 @@ removes the probe; the OpenMPI packages stay.
 
 ## Manage The GPU Operator
 
-Swallow installs the AMD GPU Operator into a Swallow-deployed Kubernetes Platform, either during
+swallow installs the AMD GPU Operator into a swallow-deployed Kubernetes Platform, either during
 the deploy or later, and changes or removes it on request
-([decision 062](../../../../../docs/decisions/062-swallow-managed-gpu-operator.md)). The operator
-uses the GPU driver the OS image provides; Swallow does not build or install drivers. An image may
-keep `amdgpu` out of the boot path, so Swallow loads the image's driver on every managed node,
+([decision 062](../../../../../docs/decisions/062-swallow-managed-gpu-operator.md) (swallow managed gpu operator)). The operator
+uses the GPU driver the OS image provides; swallow does not build or install drivers. An image may
+keep `amdgpu` out of the boot path, so swallow loads the image's driver on every managed node,
 now and after each boot.
 
 ### Managed Nodes
@@ -908,7 +908,7 @@ from that result; it never asks a client to enumerate the nodes to manage.
 | `draDriverVersion` | string | the release's `defaultDraDriverVersion` | used only when `allocationMode` is `dra`; must be one of the release's `draDriverVersions` |
 | `resourceNaming` | `single` \| `mixed` | `single` | device plugin resource names: `single` always uses `amd.com/gpu`; `mixed` names partitioned GPUs per partition type |
 | `nodeLabeller` | boolean | `true` | label nodes with `amd.com/gpu.*` GPU properties |
-| `metricsExporter` | boolean | `false` | run AMD's Device Metrics Exporter (pod network only; Swallow does not scrape it) |
+| `metricsExporter` | boolean | `false` | run AMD's Device Metrics Exporter (pod network only; swallow does not scrape it) |
 
 Enabling the operator requires at least one workload-capable target of the Platform's deployment
 whose GPU inventory has an AMD `compute` GPU; otherwise it is a `validation_error`. This only
@@ -920,7 +920,7 @@ version, or enabling the operator on a Slurm Platform is a `validation_error`.
 
 ### List The Supported Releases
 
-`GET /api/v1/platforms/gpu-operator/releases` lists the operator releases Swallow ships and has
+`GET /api/v1/platforms/gpu-operator/releases` lists the operator releases swallow ships and has
 verified, newest first:
 
 ```json
@@ -964,11 +964,11 @@ or upgraded and before the `DeviceConfig` is applied:
 
 | Code | Meaning |
 | --- | --- |
-| `gpu_operator_unmanaged` | the cluster already runs an AMD GPU Operator, a `DeviceConfig`, or a hand-applied AMD device plugin or labeller that Swallow did not install |
+| `gpu_operator_unmanaged` | the cluster already runs an AMD GPU Operator, a `DeviceConfig`, or a hand-applied AMD device plugin or labeller that swallow did not install |
 | `dra_unavailable` | `dra` was requested but the cluster has no `resource.k8s.io/v1` API |
 | `gpu_workloads_present` | the change switches the allocation mode or uninstalls while a Pod requests an AMD GPU resource or a `gpu.amd.com` `ResourceClaim` is allocated |
 | `amd_gpu_not_detected` | Node Feature Discovery marked no node as an AMD GPU node, for example because no node has a GPU the chart supports |
-| `amdgpu_driver_missing` | a managed node's image has no `amdgpu` kernel module, or the driver did not load or exposed no `/dev/kfd` when Swallow loaded it |
+| `amdgpu_driver_missing` | a managed node's image has no `amdgpu` kernel module, or the driver did not load or exposed no `/dev/kfd` when swallow loaded it |
 | `gpu_operator_not_ready` | the operator did not become Ready, or a managed node did not expose its GPUs, within the timeout |
 
 Applying the settings installs or upgrades the pinned chart with KMM and remediation disabled,
@@ -1009,7 +1009,7 @@ spec was read at and the new spec in the shape of [Create A Platform](#create-a-
 }
 ```
 
-Swallow classifies the change against `status.applied` as
+swallow classifies the change against `status.applied` as
 [desired-state-model §5.2](../../../../../docs/development/desired-state-model.md) lists it, and
 validates the new spec as a deployment:
 
@@ -1061,13 +1061,13 @@ return the member servers to the provider in the same Workflow, send:
 
 The choices are stored as `spec.removal`; the plan's effects name a release and erase.
 
-When `releaseServers` is true, Swallow releases each member server directly instead of
+When `releaseServers` is true, swallow releases each member server directly instead of
 uninstalling the platform software first: releasing wipes the operating system, so the
 software removal would be redundant. The Operation runs a `release-os` step per member (in
 parallel) and then an internal finalize step that clears the Platform projections once every
 release succeeds. `releaseOptions` mirrors the standalone Release action (disk erase and
 static-IP unbinding) and is ignored when `releaseServers` is false. Releasing wipes the
-operating system, so Swallow does not restore host exporters for released servers. This
+operating system, so swallow does not restore host exporters for released servers. This
 shortcut applies only to a whole-platform uninstall. A release requires the durable
 orchestration topology.
 
@@ -1080,14 +1080,14 @@ required because a failed deployment can leave a mixed target set.
 
 A failed deployment waiting for operator attention (`requires_attention`) still holds its
 targets, as does a deployment still running. A plan waits while a deploy or uninstall of the
-Platform runs. Send `"cancelActiveWorkflows": true` to have Swallow cancel every unfinished Workflow
+Platform runs. Send `"cancelActiveWorkflows": true` to have swallow cancel every unfinished Workflow
 holding a target instead, with the same semantics as Release and
-Recover ([decision 061](../../../../../docs/decisions/061-recovery-supersedes-blocking-work.md)):
-after every other check passes, Swallow requests their cancellation and creates the uninstall at
+Recover ([decision 061](../../../../../docs/decisions/061-recovery-supersedes-blocking-work.md) (recovery supersedes blocking work)):
+after every other check passes, swallow requests their cancellation and creates the uninstall at
 once, ignoring them in the busy check. The uninstall takes the same resource leases, so it waits in
 `waiting_dependency` and starts by itself once they end; a canceled deployment first returns the
 Servers it was installing to Ready and keeps finished OS deployments
-([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md)). A cancel refused
+([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md) (cancel and rerun converge)). A cancel refused
 for a Workflow that is still running is reported by the `realized` Condition. With the flag, a
 Platform whose lifecycle is `deploying` may be uninstalled. The flag needs the durable
 orchestration topology, like `releaseServers`.
@@ -1098,20 +1098,20 @@ failed or canceled uninstall is rerun as a Workflow; the Platform stays `uninsta
 record remains until an uninstall succeeds.
 
 When servers are kept, the release-owned playbook stops k0s services, runs `k0s reset`,
-removes Swallow-created k0s state, units, join token, installer, and binary, and the GPU
+removes swallow-created k0s state, units, join token, installer, and binary, and the GPU
 Operator's DRA links, DRA common CDI spec, and amdgpu loader (a loaded driver stays loaded until
 the next boot), and reloads systemd. It preserves the OS, user data, `conntrack`, unrelated
 packages, and power state, and does not reboot. When servers are released, this uninstall
 playbook is skipped entirely. Either way a successful uninstall sets `gpuOperator.state` to
-`absent` when Swallow managed one. For Slurm, `uninstall-slurm` also removes the job hook
-dispatchers and Swallow's hooks, Omnistat, the Device Metrics Exporter package, `oci.conf` and the
+`absent` when swallow managed one. For Slurm, `uninstall-slurm` also removes the job hook
+dispatchers and swallow's hooks, Omnistat, the Device Metrics Exporter package, `oci.conf` and the
 OCI probe bundle, and the MPI probe (the `crun` and OpenMPI packages stay), and a successful uninstall sets
-`omnistat.state` and `deviceMetricsExporter.state` to `absent` when Swallow managed them.
+`omnistat.state` and `deviceMetricsExporter.state` to `absent` when swallow managed them.
 
-On success Swallow clears membership, releases the Platform's Platform Claims on its Servers,
-deletes only a credential Integration proven to be Swallow-owned, and clears the Platform
+On success swallow clears membership, releases the Platform's Platform Claims on its Servers,
+deletes only a credential Integration proven to be swallow-owned, and clears the Platform
 integration/sync projection. If Kubernetes owned
-exporters, Swallow separately queues `install-exporters` for targets that remain present,
+exporters, swallow separately queues `install-exporters` for targets that remain present,
 deployed, and unlocked. That Operation has its own failure lifecycle and does not roll back
 the uninstall.
 
@@ -1144,12 +1144,12 @@ Integration is set only by its deployment, and repointing it at an operator-owne
 would be a register-existing back door, which
 [decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) removes.
 
-`DELETE /api/v1/platforms/{platformId}?recordOnly=true` removes only the Swallow record; it is not a
+`DELETE /api/v1/platforms/{platformId}?recordOnly=true` removes only the swallow record; it is not a
 way to uninstall (use [Delete A Platform](#delete-a-platform)). It returns `204 No Content`. It
 first
 cancels the Platform's in-flight durable Operations so their resource leases are released
 and the member servers are freed, then clears membership, the Platform's Platform Claims, and a
-Swallow-owned credential Integration, and finally removes the Platform record. Cancellation only stops durable work
+swallow-owned credential Integration, and finally removes the Platform record. Cancellation only stops durable work
 and frees leases; Delete still never runs Ansible, changes hosts, waits for Uninstall, or
 restores exporters, and it remains available while targets are locked because it does not
 mutate them. If cancellation cannot be performed the Delete is refused and the record is
@@ -1243,8 +1243,8 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 ## Compatibility Notes
 
 - The aggregate was renamed from Cluster to Platform
-  ([ADR-014](../../../../../docs/decisions/014-platform-resource-language.md)). Its one-release
-  aliases were removed on 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md)),
+  ([decision 014](../../../../../docs/decisions/014-platform-resource-language.md) (platform resource language)). Its one-release
+  aliases were removed on 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)),
   which is breaking: the `/api/v1/clusters...` routes (including the Slurm read and the
   [Kubernetes explorer](platforms-kubernetes.md)), and `clusterId` in the deploy and uninstall
   acceptance bodies and the membership reports.
@@ -1264,7 +1264,7 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 - Control-plane lease discovery remains per Integration because its naming is k0s-specific.
 - `monitoringLinks` was added on 2026-10-12. It is additive: a Platform stored before the field
   existed reads as `[]`, and a `PATCH` that omits it leaves the links unchanged.
-- Since 2026-10-31 `machinePreparation.settings.deployTarget` is read (DF-02). Before, a deploy
+- Since 2026-10-31 `machinePreparation.settings.deployTarget` is read. Before, a deploy
   that named only `deployTarget: "ram"` was silently deployed to disk, and an unknown value was
   ignored; it is now a `validation_error`. Since the same day's decision 074 the deprecated
   `settings.ephemeral` alias is no longer read (breaking): send `deployTarget`.

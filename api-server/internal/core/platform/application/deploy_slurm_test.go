@@ -170,7 +170,7 @@ func TestDeploySlurmRejectsNodeWithoutDaemon(t *testing.T) {
 }
 
 // A multi-controller (HA) Slurm deployment needs a shared StateSaveLocation so a backup
-// controller can recover state. Swallow now provisions it: the deploy must succeed without an
+// controller can recover state. swallow now provisions it: the deploy must succeed without an
 // operator-supplied path, mark the controller state shared, and select an off-controller state
 // server (a compute-only node) to export it.
 func TestDeploySlurmHighAvailabilityProvisionsSharedState(t *testing.T) {

@@ -2,7 +2,7 @@
 
 - Bounded context: Tenancy (swallow-owned policy).
 - Definition: The tenancy assignment of a Server, derived from its ownership: whether it is unassigned or allocated to a team or to an individual user.
-- Allowed meaning: A swallow-owned value with the closed set `free | team | user` — `free` (no owner), `team` (allocated to a Team), `user` (allocated to an individual User). This is the domain-authoritative set, matching the platform API contract and [decision 001](../../../decisions/001-system-ownership-boundaries.md) ("Tenancy: teams, users, server allocation"). Allocation is swallow-owned policy, not a fact any provisioner or Platform holds.
+- Allowed meaning: A swallow-owned value with the closed set `free | team | user` — `free` (no owner), `team` (allocated to a Team), `user` (allocated to an individual User). This is the domain-authoritative set, matching the platform API contract and [decision 001](../../../decisions/001-system-ownership-boundaries.md) (system ownership boundaries; "Tenancy: teams, users, server allocation"). Allocation is swallow-owned policy, not a fact any provisioner or Platform holds.
 - Disallowed meaning: Not a provisioning, membership, or health value. The two-value set `free | assigned` used by an earlier dashboard `ServerRepository` port is a superseded implementation variant and must be mapped onto `free | team | user`; do not persist or filter on `assigned` as a domain value.
 - Synonyms: None.
 - Deprecated terms: `assigned` — it collapses the team/user distinction and is superseded by `team` and `user`.

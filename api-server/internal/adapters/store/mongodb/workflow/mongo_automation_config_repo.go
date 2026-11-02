@@ -95,7 +95,7 @@ func (r *MongoAutomationConfigurationRepo) Upsert(ctx context.Context, configura
 // before reaching this port.
 //
 // An empty become password clears the credential: the sealed value is removed rather than
-// sealing an empty one, so hasCredential reads false again (DF-13) and automation runs with the
+// sealing an empty one, so hasCredential reads false again and automation runs with the
 // Deployment Key and no become password.
 func (r *MongoAutomationConfigurationRepo) ReplaceCredential(ctx context.Context, siteID string, credential workflowdomain.AutomationCredential) error {
 	update := bson.M{

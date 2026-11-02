@@ -31,7 +31,7 @@ import { useServerDetailContext } from './useServerDetail'
  *   action that enables it by re-running the install;
  * - installed with `enableApi`: the live Docker Host Explorer.
  *
- * Swallow never probes the host for an API enabled outside swallow, so neither does this tab.
+ * swallow never probes the host for an API enabled outside swallow, so neither does this tab.
  */
 export function ServerContainersTab() {
   const { server, docker } = useServerDetailContext()

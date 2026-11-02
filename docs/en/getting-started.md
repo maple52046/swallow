@@ -76,7 +76,29 @@ Server projections. Operators do not create Servers directly.
 - Use **Workflows** to observe durable work.
 - Use **Monitoring** after registering Prometheus/Alertmanager.
 
-## 6. Choose the next guide
+## 6. Before the first OS deployment
+
+swallow points every Server it provisions at the swallow host's NTP server, and
+refuses every OS deployment until it knows that server's address. The
+development stack cannot work it out, so set it once from `deploy/dev`:
+
+1. Make sure the host serves NTP on UDP 123. With a local MAAS snap, MAAS's own
+   time service already does; otherwise install chrony with
+   `sudo ../production/local-ntp.sh install`.
+2. If the host cannot reach `ntp.ubuntu.com`, point it at a time source it can
+   reach: `sudo SWALLOW_NTP_UPSTREAM=<address> ../production/local-ntp.sh upstream`.
+3. Give swallow the address the Servers reach this host at, and restart the API
+   and worker:
+
+   ```bash
+   echo SWALLOW_API_NTP_SERVER=<host address> >> .env
+   docker compose up -d api-server worker
+   ```
+
+The [development environment reference](../../deploy/dev/README.md#control-plane-ntp)
+explains each step.
+
+## 7. Choose the next guide
 
 - [Servers and infrastructure](guides/servers-and-infrastructure.md)
 - [OS provisioning](guides/os-provisioning.md)

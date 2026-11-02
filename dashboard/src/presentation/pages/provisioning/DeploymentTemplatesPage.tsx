@@ -65,7 +65,7 @@ function templateNetworkLabel(template: DeploymentTemplate, separator: string): 
   return DEPLOYMENT_NETWORK_MODE_LABELS[mode]
 }
 
-/** CRUD workspace for Swallow-owned deployment intent and write-only cloud-init. */
+/** CRUD workspace for swallow-owned deployment intent and write-only cloud-init. */
 export function DeploymentTemplatesPage() {
   const { provisioning, sites: siteRepository } = useApp()
   const { siteId, sites, scopedHref } = useSiteScope()

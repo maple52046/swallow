@@ -12,7 +12,7 @@ Active
 
 - `dashboard`
 - `cli` (the `swallow` operator command-line client)
-- Swallow installation tooling (checks that the Deployment Key exists)
+- swallow installation tooling (checks that the Deployment Key exists)
 
 ## Purpose
 
@@ -20,7 +20,7 @@ Manage swallow-owned SSH Keys: the single system-owned **Deployment Key** that s
 uses for SSH readiness and Ansible execution, and the caller's public-key-only **Access
 Keys**. swallow realizes every key's public key into each provisioner Integration that can
 hold SSH keys (MAAS), so Servers deployed afterwards authorize it. See
-[decision 039](../../../../../docs/decisions/039-ssh-key-management-and-default-user.md).
+[decision 039](../../../../../docs/decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user).
 
 Base path, bearer authentication, error envelope, and timestamps follow
 [conventions.md](conventions.md); only endpoint-specific behavior is described below.
@@ -54,7 +54,7 @@ POST   /api/v1/ssh-keys/sync
 ## SSH Key resource
 
 An SSH Key is a migrated resource
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)): the
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state)): the
 spec is the key swallow registers, and the status its realization in every provisioner.
 
 ```json

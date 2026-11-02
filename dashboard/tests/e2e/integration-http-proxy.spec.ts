@@ -36,26 +36,26 @@ test('an External proxy is saved from the Integration and settles once MAAS hold
 
   // A URL without a scheme is flagged before anything reaches MAAS.
   const urlField = proxy.getByRole('textbox', { name: /^Proxy URL/ })
-  await urlField.fill('10.170.168.20:18080')
+  await urlField.fill('10.140.168.20:18080')
   await expect(proxy.getByText('Use http://host:port or https://host:port.')).toBeVisible()
   await expect(apply).toBeDisabled()
 
   // Enter in the URL saves the proxy; the stored spec drops the trailing slash. The tab shows it
   // being applied, then settles once MAAS holds it.
-  await urlField.fill('http://10.170.168.20:18080/')
+  await urlField.fill('http://10.140.168.20:18080/')
   await expect(proxy.getByRole('status')).toContainText('Not saved yet.')
   await urlField.press('Enter')
   await expect(page.getByText('HTTP proxy saved')).toBeVisible()
   await expect(proxy.getByRole('status')).toContainText('Applying')
-  await expect(urlField).toHaveValue('http://10.170.168.20:18080')
+  await expect(urlField).toHaveValue('http://10.140.168.20:18080')
   await expect(proxy.getByRole('status')).toContainText('In sync', { timeout: 10_000 })
-  await expect(proxy.getByRole('status')).toContainText('MAAS reports: External (http://10.170.168.20:18080).')
-  expect(writes).toEqual([{ integrationId: 'maas-a', body: { mode: 'external', httpProxy: 'http://10.170.168.20:18080/' } }])
+  await expect(proxy.getByRole('status')).toContainText('MAAS reports: External (http://10.140.168.20:18080).')
+  expect(writes).toEqual([{ integrationId: 'maas-a', body: { mode: 'external', httpProxy: 'http://10.140.168.20:18080/' } }])
 
   // Reopening the tab reads the stored setting rather than remembering the form.
   await page.reload()
   await expect(page.getByRole('combobox', { name: 'Proxy mode' })).toHaveText('External')
-  await expect(page.getByRole('textbox', { name: /^Proxy URL/ })).toHaveValue('http://10.170.168.20:18080')
+  await expect(page.getByRole('textbox', { name: /^Proxy URL/ })).toHaveValue('http://10.140.168.20:18080')
 
   // Only MAAS provisioners have the tab; a deep link to it from another Integration lands on General.
   await page.goto('/infrastructure/integrations?site=site-a')

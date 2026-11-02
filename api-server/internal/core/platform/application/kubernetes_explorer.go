@@ -11,11 +11,11 @@ import (
 // and correlates cluster nodes to Server identity.
 //
 // It enforces the explorer eligibility rules once, in one place: the Platform must be a
-// Kubernetes Platform (else ErrPlatformNotKubernetes), must be Swallow-deployed rather than a
+// Kubernetes Platform (else ErrPlatformNotKubernetes), must be swallow-deployed rather than a
 // legacy registered record (else ErrClusterExplorerUnavailable), and must have a recorded
 // credential (the factory reports ErrClusterExplorerUnavailable when it does not). Every
 // explorer request goes through Client so no route can accidentally skip a check. Like the
-// Slurm live read (ADR 021) it performs no writes to Swallow state: it never touches the
+// Slurm live read (decision 021) it performs no writes to swallow state: it never touches the
 // membership axis, the sync counters, or the reconcile interval. See
 // docs/decisions/032-self-deployed-platform-management.md.
 type KubernetesExplorerUseCase struct {
@@ -26,7 +26,7 @@ type KubernetesExplorerUseCase struct {
 }
 
 // NewKubernetesExplorerUseCase wires the platform repository, the operation-derived lifecycle
-// reader (to prove the Platform is Swallow-deployed), the cluster client factory, and the
+// reader (to prove the Platform is swallow-deployed), the cluster client factory, and the
 // server repository (for node-to-Server correlation).
 func NewKubernetesExplorerUseCase(
 	platforms platformdomain.PlatformRepository,
@@ -82,7 +82,7 @@ func (uc *KubernetesExplorerUseCase) resolve(ctx context.Context, platformID str
 		return nil, nil, platformdomain.ErrPlatformNotKubernetes
 	}
 
-	// The explorer is for Swallow-deployed Platforms only. Origin is derived from durable
+	// The explorer is for swallow-deployed Platforms only. Origin is derived from durable
 	// Operation history exactly as the read model derives it: no lifecycle entry means no
 	// deployment provenance, i.e. a legacy registered record, which is not eligible.
 	origin := platformdomain.PlatformOriginRegistered

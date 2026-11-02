@@ -1,6 +1,6 @@
 # Control-Plane NTP Server
 
-- Bounded context: Swallow product delivery and lifecycle management (Installation).
+- Bounded context: swallow product delivery and lifecycle management (Installation).
 - Definition: The one NTP service an Installation provides on the swallow host, answering on UDP 123
   at the installation address (`SWALLOW_ADDRESS`). Every Server swallow provisions is pointed at it
   right after its OS comes up (`SWALLOW_API_NTP_SERVER`), whatever upstream it follows.
@@ -18,9 +18,9 @@
 - Synonyms: control-plane NTP.
 - Deprecated terms: None.
 - Examples: "The production installation's Control-Plane NTP Server is the co-located MAAS
-  chronyd; `swallowctl ntp upstream set 10.170.168.3` set its upstream." / "`swallowctl doctor`
+  chronyd; `swallowctl ntp upstream set 10.140.168.3` set its upstream." / "`swallowctl doctor`
   reports the Control-Plane NTP Server as serving, but still on its local clock."
 - Related terms: Installation, OS Deployment, Time Sync Check.
-- Change note: Added 2026-10-28 with decision 065. Revised the same day when the per-Site NTP
+- Change note: Added 2026-10-28 with [decision 065](../../../decisions/065-control-plane-ntp-and-post-provision-time-sync.md) (control plane ntp and post provision time sync). Revised the same day when the per-Site NTP
   Configuration was removed: Servers always point at this server, and installing it is separated
   from setting its upstream.

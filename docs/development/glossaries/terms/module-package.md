@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "A customer needs an updated Slurm playbook before the next swallow release; stage 2 would let the project ship it as a Module Package." / "A hardware vendor maintaining its own Accelerator Module on its own schedule would need stage 3."
 - Related terms: Extension Module, Module Manifest, Support Matrix.
-- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md); the same day the stages were reallocated so per-installation lifecycle is stage 2 and signing and outside ownership are stage 3.
+- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md) (core providers and extensions); the same day the stages were reallocated so per-installation lifecycle is stage 2 and signing and outside ownership are stage 3.

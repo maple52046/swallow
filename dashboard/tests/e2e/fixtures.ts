@@ -428,12 +428,12 @@ export interface FixtureOptions {
   /** Makes `PUT .../gpu-operator` answer 409 as if a target were held by another Workflow. */
   gpuOperatorBusy?: boolean
   /**
-   * Provider-only running work: sets the OS Provisioning State and leaves the Swallow deployment
-   * record alone, so no Swallow Workflow is running for the Server (unlike `changingServerIds`).
+   * Provider-only running work: sets the OS Provisioning State and leaves the swallow deployment
+   * record alone, so no swallow Workflow is running for the Server (unlike `changingServerIds`).
    */
   providerWorkServerIds?: Record<string, 'releasing' | 'inspecting' | 'testing' | 'deploying'>
   /**
-   * The Swallow work behind a Releasing Server (pair with `providerWorkServerIds`): seeds one
+   * The swallow work behind a Releasing Server (pair with `providerWorkServerIds`): seeds one
    * `release-os` Workflow per listed Server with that status, finished after the seeded
    * `stateSince` when terminal. `null` instead removes the Server from every Workflow, modelling a
    * release started in the provisioner.
@@ -527,7 +527,7 @@ export interface FixtureOptions {
   /** Called with the query string of every usage-history (range) request. */
   onMetricRangeRequest?: (params: URLSearchParams) => void
   /**
-   * Adds a Swallow-deployed HA Slurm platform (`platform-slurm-ha`) with two controller-only
+   * Adds a swallow-deployed HA Slurm platform (`platform-slurm-ha`) with two controller-only
    * nodes and two compute nodes. The controllers report no membership (slurmrestd lists only
    * slurmd scheduler nodes), so this exercises the deployment-intent projection that surfaces
    * managers and the controller merge in the member list. Opt-in so other tests are unaffected.
@@ -637,7 +637,7 @@ export interface FixtureOptions {
    * does: the spec is stored, and the controller then reports requires_attention.
    */
   httpProxyWriteForbidden?: boolean
-  /** Servers whose inspected subnet has no provisioner DHCP, so the API suggests `dhcp` (ADR 058). */
+  /** Servers whose inspected subnet has no provisioner DHCP, so the API suggests `dhcp` (decision 058). */
   siteDhcpNetworkServerIds?: string[]
   /**
    * Provisioner subnets with their Subnet DNS by Integration id (decision 058). Omitted
@@ -667,7 +667,7 @@ export interface ProvisionerSubnetFixture {
 function defaultProvisionerSubnets(): ProvisionerSubnetFixture[] {
   return [
     { id: '1', name: 'lab-network', cidr: '192.168.40.0/24', gatewayAddress: '192.168.40.1', managed: true, provisionerDhcp: true, attached: true, dnsServers: [] },
-    { id: '7', name: 'site-network', cidr: '10.170.168.0/23', gatewayAddress: '10.170.169.254', managed: true, provisionerDhcp: false, attached: true, dnsServers: [] },
+    { id: '7', name: 'site-network', cidr: '10.140.168.0/23', gatewayAddress: '10.140.169.254', managed: true, provisionerDhcp: false, attached: true, dnsServers: [] },
     { id: '12', name: '172.17.0.0/16', cidr: '172.17.0.0/16', gatewayAddress: '', managed: true, provisionerDhcp: false, attached: false, dnsServers: [] },
   ]
 }
@@ -3266,7 +3266,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         ? json(route, platform)
         : json(route, { error: { code: 'not_found', message: 'Platform not found' } }, 404)
     }
-    // The dashboard reads a single Operation as a Workflow (ADR 017 rename). Serve it by id so
+    // The dashboard reads a single Operation as a Workflow (decision 017 rename). Serve it by id so
     // deployment claim resolution can read a Platform's target history.
     // Canonical Workflow listing: filtering and pagination stay server-owned so dashboard
     // behavior tests exercise the same contract as production rather than client-side narrowing.

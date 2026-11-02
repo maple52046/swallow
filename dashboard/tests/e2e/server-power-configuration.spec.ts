@@ -31,16 +31,16 @@ test('a VM without a power driver gets a virsh Power Configuration and no Boot M
   await page.getByRole('option', { name: 'virsh (libvirt) — virtual machine', exact: true }).click()
 
   // A URI with SSH options in a query is refused before anything is sent.
-  await dialog.getByRole('textbox', { name: /^Hypervisor URI/ }).fill('qemu+ssh://maas@tainan-ci/system?keyfile=/k')
+  await dialog.getByRole('textbox', { name: /^Hypervisor URI/ }).fill('qemu+ssh://maas@hv-01/system?keyfile=/k')
   await dialog.getByRole('textbox', { name: /^Domain/ }).fill('simple-pig')
   await dialog.getByRole('button', { name: 'Save' }).click()
   await expect(dialog.getByText('Use qemu+ssh://[user@]host[:port]/system, without a password, query, or fragment.')).toBeVisible()
   expect(writes).toEqual([])
 
-  await dialog.getByRole('textbox', { name: /^Hypervisor URI/ }).fill('qemu+ssh://maas@tainan-ci/system')
+  await dialog.getByRole('textbox', { name: /^Hypervisor URI/ }).fill('qemu+ssh://maas@hv-01/system')
   await dialog.getByRole('button', { name: 'Save' }).click()
   await expect(dialog).toHaveCount(0)
-  expect(writes).toEqual([{ driver: 'virsh', address: 'qemu+ssh://maas@tainan-ci/system', powerId: 'simple-pig' }])
+  expect(writes).toEqual([{ driver: 'virsh', address: 'qemu+ssh://maas@hv-01/system', powerId: 'simple-pig' }])
 
   await expect(card.getByText('virsh (libvirt) — virtual machine')).toBeVisible()
   await expect(card.getByText('Automatic', { exact: true })).toBeVisible()

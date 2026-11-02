@@ -95,7 +95,7 @@ func (Platform) SpecFromDeployRequest(body map[string]any) (platformdomain.Platf
 // Changes classifies a Kubernetes change: creating and uninstalling are destructive; adding a
 // member and enabling the GPU Operator converge directly; removing a member, changing a Node Role,
 // changing the k0s version, the GPU stack owner, or the driver options, and disabling or changing
-// the GPU Operator are destructive. Swallow cannot yet remove members, change roles, or upgrade.
+// the GPU Operator are destructive. swallow cannot yet remove members, change roles, or upgrade.
 func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdomain.PlatformSpec) (platformdomain.PlatformChanges, error) {
 	platform := convergence.ResourceRef{Kind: "platform"}
 	if desired.Desired == platformdomain.PlatformAbsent {

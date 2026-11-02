@@ -2,11 +2,11 @@ import type { Condition } from "@/domain/convergence/types";
 import type { ProvisioningActionResult } from "@/domain/server/types";
 
 /**
- * Swallow-owned writable deployment addressing intent (glossary Network Configuration).
+ * swallow-owned writable deployment addressing intent (glossary Network Configuration).
  * `automatic` asks the provisioner to allocate and record an address (provider auto-assign, a
- * stable recorded IP — ADR 018); `dhcp` leaves the address, gateway, and DNS to the network's
+ * stable recorded IP — decision 018); `dhcp` leaves the address, gateway, and DNS to the network's
  * own DHCP server, the right choice on a subnet whose DHCP the provisioner does not serve
- * (ADR 058); `static` uses a caller-chosen address. `dhcp` is not an alias of `automatic`.
+ * (decision 058); `static` uses a caller-chosen address. `dhcp` is not an alias of `automatic`.
  */
 export type DeploymentNetworkMode = "automatic" | "dhcp" | "static";
 
@@ -258,7 +258,7 @@ export interface NetworkInterface {
   availableSubnets: NetworkSubnet[];
 }
 
-/** Swallow-owned deploy defaults derived from the selected NIC's live state. */
+/** swallow-owned deploy defaults derived from the selected NIC's live state. */
 export interface DeploymentNetworkSuggestion {
   mode: DeploymentNetworkMode;
   interfaceId: string;

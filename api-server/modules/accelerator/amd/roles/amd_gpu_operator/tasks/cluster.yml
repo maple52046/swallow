@@ -1,6 +1,6 @@
 ---
 # Runs on the controller helm uses (swallow_amd_gpu_operator_controller_id), before the hosts are
-# prepared. It refuses what Swallow must not touch, then either brings the release, the managed
+# prepared. It refuses what swallow must not touch, then either brings the release, the managed
 # nodes, and the allocation mode to the point where the new DeviceConfig can be applied (state
 # present), or removes the operator entirely (state absent). The cluster-level checks pass before
 # anything changes. The managed nodes are the ones the chart's Node Feature Discovery marks as AMD
@@ -45,7 +45,7 @@
       - "linux-{{ amd_gpu_operator_arch }}/helm"
     creates: "{{ amd_gpu_operator_helm }}"
 
-# --- Preflight: things Swallow refuses to take over ---------------------------------------------
+# --- Preflight: things swallow refuses to take over ---------------------------------------------
 
 - name: Look for a hand-applied AMD device plugin or node labeller
   ansible.builtin.command:

@@ -19,7 +19,7 @@ func slurmPlaybookFile(t *testing.T, parts ...string) string {
 	return string(content)
 }
 
-// knownJobHookFiles returns the file names of the job hooks Swallow owns, from the role defaults.
+// knownJobHookFiles returns the file names of the job hooks swallow owns, from the role defaults.
 func knownJobHookFiles(t *testing.T) []string {
 	t.Helper()
 	known, _ := readRoleDefaults(t, "slurm_job_hooks")["slurm_job_hooks_known"].([]any)
@@ -38,7 +38,7 @@ func knownJobHookFiles(t *testing.T) []string {
 	return files
 }
 
-// slurm.conf names exactly one Prolog and one Epilog, Swallow's dispatchers, so no integration can
+// slurm.conf names exactly one Prolog and one Epilog, swallow's dispatchers, so no integration can
 // overwrite another's job attribution by claiming Prolog= for itself.
 func TestSlurmConfNamesOnlyTheJobHookDispatchers(t *testing.T) {
 	conf := slurmPlaybookFile(t, "roles", "slurm_config", "templates", "slurm.conf.j2")
@@ -59,7 +59,7 @@ func TestSlurmConfNamesOnlyTheJobHookDispatchers(t *testing.T) {
 	}
 }
 
-// Every hook Swallow owns has a Prolog and an Epilog half, and uninstall removes both.
+// Every hook swallow owns has a Prolog and an Epilog half, and uninstall removes both.
 func TestEveryKnownJobHookHasBothPhasesAndIsUninstalled(t *testing.T) {
 	uninstall := slurmPlaybookFile(t, "uninstall-slurm.yml")
 	for _, file := range knownJobHookFiles(t) {

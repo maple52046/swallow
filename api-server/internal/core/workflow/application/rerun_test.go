@@ -163,7 +163,7 @@ func TestRerunClonesFailedOperationConvergingEveryEnsureStep(t *testing.T) {
 }
 
 // TestCloneStepsForRerunConvergesOnlyEnsureSteps reproduces the test-amd-operator rerun: the
-// succeeded provision-os of lab-afde-mi308-1 and -2 were carried over, never ran, and their Server
+// succeeded provision-os of vm-gpu-01 and -2 were carried over, never ran, and their Server
 // results stayed canceled. Ensure Steps now run again; one-time actions keep the carry-over rule,
 // and a platform uninstall keeps its succeeded playbook once a release-os has taken hosts away.
 // rerunTestCatalog registers the kinds of newRerunOldOp with the policies the app gives them.

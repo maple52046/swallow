@@ -31,9 +31,9 @@
 - Related terms: Deployment Key, User, Integration, OS Provisioning Provider,
   OS Deployment, Automation Configuration, Server, Controller, Condition.
 - Change note: Added for SSH key management
-  ([decision 039](../../../decisions/039-ssh-key-management-and-default-user.md)),
+  ([decision 039](../../../decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user)),
   promoting the pending term `SSH Key`. Ownership is by User so the model survives the
   planned multi-user work; today only the bootstrap admin exists. On 2026-10-31
-  ([decision 071](../../../decisions/071-provisioner-realized-desired-state.md)) the
+  ([decision 071](../../../decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state)) the
   per-Integration sync state became conditions written by the SSH Key Controller in the
   worker, replacing the API process's sync loop.

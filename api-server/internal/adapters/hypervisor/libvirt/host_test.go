@@ -57,8 +57,8 @@ func (f *fakeAccess) AuthorizePublicKey(context.Context, serverdomain.HostLoginT
 	return nil
 }
 
-var login = serverdomain.HypervisorLogin{ServerID: "hv-1", Name: "tainan-ci", Account: "ubuntu",
-	Target: serverdomain.HostLoginTarget{Address: "10.170.168.22", Name: "tainan-ci"}}
+var login = serverdomain.HypervisorLogin{ServerID: "hv-1", Name: "hv-01", Account: "ubuntu",
+	Target: serverdomain.HostLoginTarget{Address: "10.140.168.22", Name: "hv-01"}}
 
 func answer(out string) func(string) (string, error) {
 	return func(string) (string, error) { return out, nil }
@@ -66,12 +66,12 @@ func answer(out string) func(string) (string, error) {
 
 func TestListDomains(t *testing.T) {
 	access := &fakeAccess{rules: []rule{{marker: "list --all --name", answer: answer(
-		domainMarker + "\nshut off\n" + tainanDomain + "\n" + domainMarker + "\nrunning\n" + strings.Replace(tainanDomain, "lab-afde-mi308-1", "lab-afde-mi308-2", 1) + "\n")}}}
+		domainMarker + "\nshut off\n" + labDomain + "\n" + domainMarker + "\nrunning\n" + strings.Replace(labDomain, "vm-gpu-01", "vm-gpu-02", 1) + "\n")}}}
 	machines, err := NewHost(access).ListDomains(context.Background(), login)
 	if err != nil {
 		t.Fatalf("ListDomains error = %v", err)
 	}
-	if len(machines) != 2 || machines[0].Name != "lab-afde-mi308-1" || !machines[0].ShutOff() || machines[1].State != "running" || !machines[0].CDROM {
+	if len(machines) != 2 || machines[0].Name != "vm-gpu-01" || !machines[0].ShutOff() || machines[1].State != "running" || !machines[0].CDROM {
 		t.Errorf("machines = %+v", machines)
 	}
 }
@@ -113,7 +113,7 @@ func TestApplyBootMediaUploadsAndDefines(t *testing.T) {
 	sum := sha256.Sum256(content)
 	digest := hex.EncodeToString(sum[:])
 	volumePath := "/var/lib/libvirt/images/swallow-ipxe-iso-1.iso"
-	current := tainanDomain
+	current := labDomain
 	stored := ""
 	access := &fakeAccess{rules: []rule{
 		{marker: "vol-upload", answer: func(stdin string) (string, error) {
@@ -135,7 +135,7 @@ func TestApplyBootMediaUploadsAndDefines(t *testing.T) {
 	}}
 	host := NewHost(access)
 	iso := serverdomain.BootISOFile{ID: "iso-1", Name: "rack", Path: path, Size: int64(len(content))}
-	state, err := host.ApplyBootMedia(context.Background(), login, "lab-afde-mi308-1", iso)
+	state, err := host.ApplyBootMedia(context.Background(), login, "vm-gpu-01", iso)
 	if err != nil {
 		t.Fatalf("ApplyBootMedia error = %v", err)
 	}
@@ -155,7 +155,7 @@ func TestApplyBootMediaUploadsAndDefines(t *testing.T) {
 			uploads++
 		}
 	}
-	if _, err := host.ApplyBootMedia(context.Background(), login, "lab-afde-mi308-1", iso); err != nil {
+	if _, err := host.ApplyBootMedia(context.Background(), login, "vm-gpu-01", iso); err != nil {
 		t.Fatalf("second ApplyBootMedia error = %v", err)
 	}
 	again := 0

@@ -2,7 +2,7 @@
 
 - Bounded context: Software Deployment (swallow-owned intent and execution).
 - Definition: A single piece of host software, together with its allowed variants, that
-  Swallow can install on and uninstall from one or more already-deployed Servers through the
+  swallow can install on and uninstall from one or more already-deployed Servers through the
   Workflow/Job/Task/Runner model. The deploy target is one software (for example Docker CE,
   Podman, or NFS), not a runtime composed of several components.
 - Allowed meaning: A named software kind such as `docker-ce`, `podman`, or `nfs` (the value set is
@@ -29,7 +29,7 @@
   runtime, and Managed Software has no cluster membership, no platform credential, and no
   whole-batch target claim. Not defined by whether OS provisioning runs, whether a batch of
   Servers is claimed, or whether membership exists; those are consequences, not the
-  definition. Not the Swallow control-plane Installation. NFS `server` and `client` are
+  definition. Not the swallow control-plane Installation. NFS `server` and `client` are
   variants of one software, not two platforms; two software kinds installed on one Server are
   still two Managed Software records, not a platform.
 - Synonyms: Software deployment (the act of installing a Managed Software).
@@ -43,16 +43,16 @@
   from Grafana's apt repository and needs no container runtime."
 - Related terms: Software Assignment, Software Module, Docker Host Explorer, Device Metrics
   Exporter, Platform, Platform Claim, Workflow, Job, Task, Runner, Server.
-- Change note: Added 2026-09-24 ([decision 038](../../../decisions/038-software-deployment.md))
+- Change note: Added 2026-09-24 ([decision 038](../../../decisions/038-software-deployment.md) (software deployment))
   to name single-software deployment as distinct from platform deployment, with the deploy
   target's granularity as the authoritative boundary. 2026-10-02
-  ([decision 043](../../../decisions/043-docker-host-management.md)): Docker CE gained the
-  `enableApi` variant. 2026-10-21 ([decision 063](../../../decisions/063-omnistat-slurm-observability.md)):
+  ([decision 043](../../../decisions/043-docker-host-management.md) (docker host management)): Docker CE gained the
+  `enableApi` variant. 2026-10-21 ([decision 063](../../../decisions/063-omnistat-slurm-observability.md) (omnistat slurm observability)):
   added `prometheus` and `grafana`, and the first composition into a platform deployment.
   2026-10-22 (decision 063): install methods (`container` default, `native`) replaced
   Prometheus's and Grafana's Docker CE requirement, and a Slurm deploy may compose a container
   runtime onto its compute and login nodes. 2026-10-30
-  ([decision 068](../../../decisions/068-device-metrics-exporter-managed-software.md)): added
+  ([decision 068](../../../decisions/068-device-metrics-exporter-managed-software.md) (device metrics exporter managed software)): added
   `device-metrics-exporter`, the first kind that refuses Platform-claimed Servers. 2026-10-30
-  ([decision 070](../../../decisions/070-core-providers-and-extensions.md)): each kind is
+  ([decision 070](../../../decisions/070-core-providers-and-extensions.md) (core providers and extensions)): each kind is
   provided by a Software Module; the meaning of Managed Software is unchanged.

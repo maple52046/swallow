@@ -215,7 +215,7 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, softwaredomain.ErrSpecInvalid),
 		errors.Is(err, softwareapp.ErrInvalidRequest),
 		// Checked before ErrInvalidOperation, which it is wrapped with: targets of several Sites
-		// are a fault of the request, not unavailable automation (DF-05).
+		// are a fault of the request, not unavailable automation.
 		errors.Is(err, workflowapp.ErrTargetsSpanSites):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 

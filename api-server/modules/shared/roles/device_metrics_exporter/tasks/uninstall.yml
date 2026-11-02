@@ -1,5 +1,5 @@
 ---
-# Remove AMD's Device Metrics Exporter and everything Swallow put next to it: the units' drop-ins,
+# Remove AMD's Device Metrics Exporter and everything swallow put next to it: the units' drop-ins,
 # the configuration, the job directory, the identity check, and the cached package. Shared by the
 # software uninstall (uninstall-device-metrics-exporter) and the Slurm uninstall, which removes the
 # exporter from every target. Every task tolerates a host that never ran it, so reruns are safe.

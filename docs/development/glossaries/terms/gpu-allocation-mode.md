@@ -1,7 +1,7 @@
 # GPU Allocation Mode
 
 - Bounded context: Platform Management, owned by `api-server`.
-- Definition: How a Swallow-managed GPU Operator exposes a node's GPUs to Kubernetes workloads.
+- Definition: How a swallow-managed GPU Operator exposes a node's GPUs to Kubernetes workloads.
   Exactly one mode is active at a time; the two are alternatives, not layers.
 - Allowed meaning: The values are:
 
@@ -20,4 +20,4 @@
 - Examples: "The Platform uses `device-plugin`, so the vLLM Pod asks for `amd.com/gpu: 2`." /
   "After switching to `dra`, each GPU node publishes one ResourceSlice with its devices."
 - Related terms: GPU Operator, GPU Operator State.
-- Change note: Added with the Swallow-managed AMD GPU Operator (decision 062).
+- Change note: Added with the swallow-managed AMD GPU Operator ([decision 062](../../../decisions/062-swallow-managed-gpu-operator.md) (swallow managed gpu operator)).

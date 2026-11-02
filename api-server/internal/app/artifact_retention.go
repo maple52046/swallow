@@ -11,7 +11,7 @@ import (
 const artifactPruneInterval = 24 * time.Hour
 
 // runEventPruner removes the streamed Ansible task events of runs whose artifacts are gone, so a
-// run's live task list does not outlive its retained output (DF-10).
+// run's live task list does not outlive its retained output.
 type runEventPruner interface {
 	DeleteRuns(ctx context.Context, runIDs []string) error
 }

@@ -84,7 +84,7 @@ func doSubnetRequest(t *testing.T, app *fiber.App, method, path, body string) (*
 }
 
 func siteHandlerSubnet() provisioningdomain.NetworkSubnet {
-	return provisioningdomain.NetworkSubnet{ID: "1", Name: "site", CIDR: "10.170.168.0/23", GatewayAddress: "10.170.169.254", Managed: true}
+	return provisioningdomain.NetworkSubnet{ID: "1", Name: "site", CIDR: "10.140.168.0/23", GatewayAddress: "10.140.169.254", Managed: true}
 }
 
 // The list is uncached and shaped by provisioner-subnet-dns.md: the subnet's DNS servers are
@@ -102,7 +102,7 @@ func TestListSubnets(t *testing.T) {
 	subnet, _ := subnets[0].(map[string]any)
 	spec, _ := subnet["spec"].(map[string]any)
 	servers, isList := spec["dnsServers"].([]any)
-	if subnet["cidr"] != "10.170.168.0/23" || subnet["provisionerDhcp"] != false || subnet["attached"] != true || subnet["generation"] != float64(1) || !isList || len(servers) != 0 {
+	if subnet["cidr"] != "10.140.168.0/23" || subnet["provisionerDhcp"] != false || subnet["attached"] != true || subnet["generation"] != float64(1) || !isList || len(servers) != 0 {
 		t.Errorf("subnet = %v, want the attached site subnet adopted with spec.dnsServers []", subnet)
 	}
 
@@ -119,10 +119,10 @@ func TestSetSubnetDNSServers(t *testing.T) {
 	app := newSubnetHandlerApp(t, provider)
 	path := "/api/v1/provisioning/integrations/maas-a/subnets/1/dns-servers"
 
-	resp, body := doSubnetRequest(t, app, http.MethodPut, path, `{"dnsServers":["165.204.124.158","165.204.219.249"]}`)
+	resp, body := doSubnetRequest(t, app, http.MethodPut, path, `{"dnsServers":["198.51.100.53","198.51.100.54"]}`)
 	spec, _ := body["spec"].(map[string]any)
 	servers, _ := spec["dnsServers"].([]any)
-	if resp.StatusCode != http.StatusOK || len(servers) != 2 || servers[0] != "165.204.124.158" {
+	if resp.StatusCode != http.StatusOK || len(servers) != 2 || servers[0] != "198.51.100.53" {
 		t.Fatalf("write = %d %v, want 200 with both servers in the spec", resp.StatusCode, body)
 	}
 

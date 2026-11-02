@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// tainanDomain is the shape of the tainan-ci lab domains: UEFI q35, a SATA CD-ROM booting first, a
+// labDomain is the shape of the hv-01 lab domains: UEFI q35, a SATA CD-ROM booting first, a
 // GPU passthrough with a boot order, a bridged NIC after it, and qemu: namespaced elements.
-const tainanDomain = `<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
-  <name>lab-afde-mi308-1</name>
+const labDomain = `<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
+  <name>vm-gpu-01</name>
   <uuid>5d685113-0078-444c-8707-5f9567736758</uuid>
   <os firmware='efi'>
     <type arch='x86_64' machine='pc-q35-noble'>hvm</type>
@@ -49,8 +49,8 @@ func mustParse(t *testing.T, xml string) *domainDefinition {
 }
 
 func TestDomainFacts(t *testing.T) {
-	d := mustParse(t, tainanDomain)
-	if d.name() != "lab-afde-mi308-1" || d.uuid() != "5d685113-0078-444c-8707-5f9567736758" || d.architecture() != "x86_64" {
+	d := mustParse(t, labDomain)
+	if d.name() != "vm-gpu-01" || d.uuid() != "5d685113-0078-444c-8707-5f9567736758" || d.architecture() != "x86_64" {
 		t.Errorf("facts = %q %q %q", d.name(), d.uuid(), d.architecture())
 	}
 	if macs := d.macAddresses(); len(macs) != 1 || macs[0] != "52:54:00:af:de:01" {
@@ -64,7 +64,7 @@ func TestDomainFacts(t *testing.T) {
 // Rewriting keeps prefixed names, and putting a volume on the CD-ROM keeps it first while the
 // other devices keep their order.
 func TestSetBootMediaKeepsOrderAndNamespaces(t *testing.T) {
-	d := mustParse(t, tainanDomain)
+	d := mustParse(t, labDomain)
 	const volume = "/var/lib/libvirt/images/swallow-ipxe-iso-1.iso"
 	if err := d.setBootMedia(volume); err != nil {
 		t.Fatalf("setBootMedia error = %v", err)
@@ -118,7 +118,7 @@ func TestSetBootMediaAddsCDROMAndConvertsOSBoot(t *testing.T) {
 
 // Clearing ejects the CD-ROM and closes the gap in the boot order.
 func TestClearBootMedia(t *testing.T) {
-	d := mustParse(t, tainanDomain)
+	d := mustParse(t, labDomain)
 	d.clearBootMedia()
 	again := mustParse(t, string(d.root.marshal()))
 	if cd := again.cdrom(); cd == nil || cd.child("source") != nil || cd.child("boot") != nil {
@@ -133,7 +133,7 @@ func TestClearBootMedia(t *testing.T) {
 }
 
 func TestBootMediaState(t *testing.T) {
-	d := mustParse(t, tainanDomain)
+	d := mustParse(t, labDomain)
 	state := bootMediaState(d, "swallow-ipxe.iso")
 	if !state.MediaInserted || !state.Ready() || state.OverrideEnabled != "Continuous" || state.MediaImage != "/var/lib/libvirt/boot/swallow-ipxe.iso" {
 		t.Errorf("state = %+v, want the CD-ROM's ISO ready", state)

@@ -2,9 +2,9 @@ package domain
 
 import "errors"
 
-// This file defines the Swallow-owned policy for hardware inspection (decision 053): from which
+// This file defines the swallow-owned policy for hardware inspection (decision 053): from which
 // normalized states an inspection may start, and who asked for it. The durable inspect-hardware
-// Workflow and the automatic sweep both consult it, so an operator meets a Swallow-authored
+// Workflow and the automatic sweep both consult it, so an operator meets a swallow-authored
 // reason before the provisioner's own rejection text.
 
 // ErrInspectionNotAllowed means a hardware inspection was requested for a Server whose
@@ -26,7 +26,7 @@ const (
 )
 
 // InspectionDecision is the outcome of evaluating a state against the inspection policy. Reason
-// is the Swallow-authored explanation when Allowed is false, phrased to follow the Server's name.
+// is the swallow-authored explanation when Allowed is false, phrased to follow the Server's name.
 type InspectionDecision struct {
 	Allowed bool
 	Reason  string

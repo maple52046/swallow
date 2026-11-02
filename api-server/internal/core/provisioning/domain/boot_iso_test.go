@@ -7,7 +7,7 @@ import (
 )
 
 func TestValidateBootISOName(t *testing.T) {
-	if got, err := ValidateBootISOName("  tainan-rack "); err != nil || got != "tainan-rack" {
+	if got, err := ValidateBootISOName("  south-rack "); err != nil || got != "south-rack" {
 		t.Errorf("ValidateBootISOName trims: got %q, %v", got, err)
 	}
 	for _, bad := range []string{"", "   ", strings.Repeat("a", 64), "line\nbreak"} {

@@ -56,11 +56,11 @@ func TestEffectiveDefaultUser(t *testing.T) {
 // Operators read these messages; each must name the Server and keep the sentinel for mapping.
 func TestDefaultUserErrorKeepsSentinelAndContext(t *testing.T) {
 	for _, sentinel := range []error{ErrDefaultUserNotDeployed, ErrHostUnreachable, ErrHostPasswordRejected, ErrDeploymentKeyRejected} {
-		err := &DefaultUserError{Err: sentinel, Server: "tainan-ci", User: "amd"}
+		err := &DefaultUserError{Err: sentinel, Server: "hv-01", User: "amd"}
 		if !errors.Is(err, sentinel) {
 			t.Errorf("errors.Is(%v, %v) = false, want true", err, sentinel)
 		}
-		if !strings.Contains(err.Error(), "tainan-ci") {
+		if !strings.Contains(err.Error(), "hv-01") {
 			t.Errorf("DefaultUserError(%v).Error() = %q, want it to name the Server", sentinel, err.Error())
 		}
 	}

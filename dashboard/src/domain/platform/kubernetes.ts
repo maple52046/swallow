@@ -1,8 +1,8 @@
 /**
  * Live Kubernetes cluster explorer view types.
  *
- * These describe what a Swallow-deployed Kubernetes Platform's own API reports at read time.
- * Nothing here is a Swallow-owned record: the explorer reads and writes the cluster live and
+ * These describe what a swallow-deployed Kubernetes Platform's own API reports at read time.
+ * Nothing here is a swallow-owned record: the explorer reads and writes the cluster live and
  * stores nothing (see docs/decisions/032-self-deployed-platform-management.md). They mirror the
  * `platforms-kubernetes.md` provider contract, not the cluster's raw object shapes.
  */
@@ -24,7 +24,7 @@ export interface KubernetesNode {
   role: 'control-plane' | 'worker'
   ready: boolean
   unschedulable: boolean
-  /** Swallow's matched Server id, or null when no projection matches the node. */
+  /** swallow's matched Server id, or null when no projection matches the node. */
   serverId: string | null
   addresses: string[]
   kubeletVersion: string

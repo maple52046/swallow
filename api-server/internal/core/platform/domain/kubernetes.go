@@ -6,13 +6,13 @@ import (
 )
 
 // This file defines the live Kubernetes cluster explorer: read/write view types and the
-// client port for managing a Swallow-deployed Kubernetes Platform's own resources on demand.
+// client port for managing a swallow-deployed Kubernetes Platform's own resources on demand.
 //
 // Nothing here is persisted. Every value is read from, or written to, the deployed cluster's
-// Kubernetes API at request time (ADR 001: workloads and node state are owned by Kubernetes,
-// not mirrored into Swallow). The explorer is separate from membership sync: it never writes
+// Kubernetes API at request time (decision 001: workloads and node state are owned by Kubernetes,
+// not mirrored into swallow). The explorer is separate from membership sync: it never writes
 // the Server membership axis, never touches the sync counters, and never runs on the reconcile
-// interval (ADR 021 boundary, reused for Kubernetes). See
+// interval (decision 021 boundary, reused for Kubernetes). See
 // docs/decisions/032-self-deployed-platform-management.md.
 
 // Kubernetes Application kinds the explorer aggregates. A workload controller is one
@@ -60,7 +60,7 @@ type KubernetesNode struct {
 	Unschedulable  bool
 	Addresses      []string
 	KubeletVersion string
-	// ServerID is Swallow's matched Server, filled by the application layer through identity
+	// ServerID is swallow's matched Server, filled by the application layer through identity
 	// correlation; empty when no Server projection matches the node. The client never sets it.
 	ServerID string
 	// GPUAllocatable holds the node's allocatable extended resources named amd.com/*, which the
@@ -165,7 +165,7 @@ type KubernetesApplyResult struct {
 //
 // It is read/write on purpose, unlike PlatformReader: the explorer manages in-cluster
 // resources. Every method calls the cluster API at request time and persists nothing in
-// Swallow. Implementations translate transport and API failures into a *ReaderError so the
+// swallow. Implementations translate transport and API failures into a *ReaderError so the
 // delivery layer maps them to a stable status.
 type KubernetesClusterClient interface {
 	Summary(ctx context.Context) (*KubernetesClusterSummary, error)
@@ -206,7 +206,7 @@ type KubernetesClusterClient interface {
 }
 
 // KubernetesClientFactory resolves a deployed Kubernetes Platform into a cluster client using
-// its Swallow-owned credential Integration.
+// its swallow-owned credential Integration.
 type KubernetesClientFactory interface {
 	For(ctx context.Context, platform *Platform) (KubernetesClusterClient, error)
 }

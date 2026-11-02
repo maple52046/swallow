@@ -21,7 +21,7 @@
   probe. Do not persist server type as an authoritative field; recompute it from the tag.
 - Synonyms: "GPU server" refers to `amd-gpu` or `nvidia-gpu`; "CPU server" is `cpu`.
 - Deprecated terms: None.
-- Examples: "tainan-ci.maas carries the `amd-gpu` tag, so it is an AMD GPU server and runs
+- Examples: "gpu-node-07.maas carries the `amd-gpu` tag, so it is an AMD GPU server and runs
   both node-exporter and the RDC exporter." / "A `lab-` VM has no GPU tag, so it is a CPU
   server and runs node-exporter only."
 - Related terms: Server, Tag, Exporter Ownership, Server Status.

@@ -163,13 +163,13 @@ type vmFixture struct {
 
 func newVMFixture() vmFixture {
 	servers := &vmServers{servers: map[string]*serverdomain.Server{"hv-1": {
-		ID: "hv-1", Observed: serverdomain.Observed{Hostname: "tainan-ci", Addresses: []string{"10.170.168.22"}},
+		ID: "hv-1", Observed: serverdomain.Observed{Hostname: "hv-01", Addresses: []string{"10.140.168.22"}},
 		Source:       serverdomain.Source{SiteID: "site-1"},
 		Provisioning: &serverdomain.ProvisioningStatus{State: "deployed", DeployedImageDefaultUser: "ubuntu"},
 	}}}
 	provider := &vmProvider{power: provisioningdomain.PowerStateOff}
 	libvirt := &vmLibvirt{machine: &serverdomain.VirtualMachine{
-		Name: "lab-afde-mi308-1", State: "shut off", Architecture: "x86_64", MACAddresses: []string{"52:54:00:af:de:01"},
+		Name: "vm-gpu-01", State: "shut off", Architecture: "x86_64", MACAddresses: []string{"52:54:00:af:de:01"},
 	}}
 	bootMedia := &vmBootMedia{}
 	integration := &sitedomain.Integration{ID: "integration-1", SiteID: "site-1", Kind: sitedomain.IntegrationKindProvisioner,
@@ -188,13 +188,13 @@ func newVMFixture() vmFixture {
 
 func vmTask(parameters enrollVirtualMachineParameters) temporalworkflow.StepExecutionInput {
 	return temporalworkflow.StepExecutionInput{OperationID: "workflow-id", Step: workflowdomain.Task{
-		ID: "enroll-virtual-machine-lab-afde-mi308-1", Kind: enrollVirtualMachineTaskKind, Attempt: 1,
+		ID: "enroll-virtual-machine-vm-gpu-01", Kind: enrollVirtualMachineTaskKind, Attempt: 1,
 		Parameters: parameters.toMap(), Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "hv-1"}},
 	}}
 }
 
 var vmParameters = enrollVirtualMachineParameters{
-	IntegrationID: "integration-1", HypervisorServerID: "hv-1", Domain: "lab-afde-mi308-1", Account: "ubuntu", BootISOID: "iso-a",
+	IntegrationID: "integration-1", HypervisorServerID: "hv-1", Domain: "vm-gpu-01", Account: "ubuntu", BootISOID: "iso-a",
 }
 
 // The happy path: the shut-off domain gets the provisioner's key and the Boot ISO, is registered
@@ -216,8 +216,8 @@ func TestEnrollVirtualMachineRegistersAndKeepsBootMedia(t *testing.T) {
 		t.Fatalf("registrations = %+v, want one", f.provider.registrations)
 	}
 	got := f.provider.registrations[0]
-	if got.Hostname != "lab-afde-mi308-1" || got.Architecture != "amd64" || len(got.MACAddresses) != 1 ||
-		got.Power.Driver != provisioningdomain.PowerDriverVirsh || got.Power.Address != "qemu+ssh://ubuntu@10.170.168.22/system" || got.Power.PowerID != "lab-afde-mi308-1" {
+	if got.Hostname != "vm-gpu-01" || got.Architecture != "amd64" || len(got.MACAddresses) != 1 ||
+		got.Power.Driver != provisioningdomain.PowerDriverVirsh || got.Power.Address != "qemu+ssh://ubuntu@10.140.168.22/system" || got.Power.PowerID != "vm-gpu-01" {
 		t.Errorf("registration = %+v", got)
 	}
 	if want := []string{"vm-server:iso-a"}; !equalStringSlices(f.bootMedia.enabled, want) {
@@ -269,10 +269,10 @@ func TestEnrollVirtualMachineFailures(t *testing.T) {
 		retryable bool
 	}{
 		{"domain missing", func(f vmFixture) {
-			f.libvirt.domainErr = &serverdomain.HypervisorError{Err: serverdomain.ErrDomainNotFound, Hypervisor: "tainan-ci", Domain: "x"}
+			f.libvirt.domainErr = &serverdomain.HypervisorError{Err: serverdomain.ErrDomainNotFound, Hypervisor: "hv-01", Domain: "x"}
 		}, workflowdomain.TaskFailed, "domain_not_found", false},
 		{"hypervisor unreachable", func(f vmFixture) {
-			f.libvirt.domainErr = &serverdomain.HypervisorError{Err: serverdomain.ErrHostUnreachable, Hypervisor: "tainan-ci"}
+			f.libvirt.domainErr = &serverdomain.HypervisorError{Err: serverdomain.ErrHostUnreachable, Hypervisor: "hv-01"}
 		}, workflowdomain.TaskRequiresAttention, "hypervisor_unreachable", true},
 		{"unsupported architecture", func(f vmFixture) { f.libvirt.machine.Architecture = "ppc64le" },
 			workflowdomain.TaskFailed, "architecture_unsupported", false},
@@ -309,7 +309,7 @@ func TestVirtualMachineEnrollmentLauncher(t *testing.T) {
 		providers: inspectionProviderFactory{provider: f.provider}, servers: f.servers, isos: plannerISOs{},
 	}
 	request := provisioningapp.VirtualMachineEnrollmentRequest{
-		IntegrationID: "integration-1", HypervisorServerID: "hv-1", Domains: []string{"lab-afde-mi308-1", "lab-afde-mi308-2"}, BootISOID: "iso-a",
+		IntegrationID: "integration-1", HypervisorServerID: "hv-1", Domains: []string{"vm-gpu-01", "vm-gpu-02"}, BootISOID: "iso-a",
 	}
 	accepted, err := launcher.LaunchVirtualMachineEnrollment(context.Background(), request)
 	if err != nil {

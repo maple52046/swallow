@@ -1,6 +1,6 @@
 /**
  * GPU node settings an operator may set on a Platform deploy (platforms.md "GPU driver options"
- * and "GPU GRES"; decision 063). Neither names a GPU model or a virtualization mode: Swallow derives
+ * and "GPU GRES"; decision 063). Neither names a GPU model or a virtualization mode: swallow derives
  * the driver options a node's GPU topology needs and the GRES type from the GPU architecture, and
  * these settings only add or override. The grammar mirrors the API's, so the form can explain a
  * mistake before submission; the API re-validates and answers `validation_error` regardless.

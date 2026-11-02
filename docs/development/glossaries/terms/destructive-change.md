@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "Moving a Server to another Pool is non-destructive; releasing it is a Destructive Change." / "Changing a Slurm node's role from compute to controller is destructive."
 - Related terms: Change Plan, Desired State, Convergence, Release, Provider Recovery, Platform.
-- Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md), which decides which changes need operator approval.
+- Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md) (swallow owns desired state), which decides which changes need operator approval.

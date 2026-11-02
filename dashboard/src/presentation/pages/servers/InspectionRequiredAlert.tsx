@@ -10,9 +10,9 @@ import { serverActionAvailability } from './serverActions'
  * Tells the operator on the Server detail page that a disk deployment is refused until the Server is
  * inspected again (`provisioning.inspectionRequired`, servers-list.md), and offers that inspection in
  * place. The typical cause is a UEFI Server whose provisioner storage layout was built while it booted
- * BIOS: every disk deployment would fail while partitioning, so Swallow refuses it up front instead.
+ * BIOS: every disk deployment would fail while partitioning, so swallow refuses it up front instead.
  *
- * The explanation is the Swallow-authored `inspectionRequiredReason`, never provider text. Inspect runs
+ * The explanation is the swallow-authored `inspectionRequiredReason`, never provider text. Inspect runs
  * the same action and lock gate as the Take-action menu; the backend still applies its own inspection
  * policy (for example a deployed Server must be released first) and that refusal is shown as a toast.
  * While an inspection already runs, the action is replaced by a note, because the flag clears only when

@@ -45,7 +45,7 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
    `maasdb`、安裝並初始化 MAAS snap、建立 MAAS `admin`、保存 API key、為 MAAS rack 建立
    `virsh` power 用的 SSH key（第一次連線時接受新的 hypervisor host key）並把公鑰存到
    `secrets/maas-virsh-ssh.pub`，再等到官方 `ubuntu/noble` amd64 image complete；
-6. 執行 [`local-ntp.sh`](local-ntp.sh) 的 `install` 與 `upstream`（decision 065）。provisioner 是
+6. 執行 [`local-ntp.sh`](local-ntp.sh) 的 `install` 與 `upstream`（[decision 065](../../docs/decisions/065-control-plane-ntp-and-post-provision-time-sync.md)（control plane ntp and post provision time sync））。provisioner 是
    共置的 MAAS，所以不需要安裝：MAAS 自己的 chronyd 就是此安裝的 Control-Plane NTP Server
    （`SWALLOW_ADDRESS` 的 UDP 123）。`upstream` 會把 `SWALLOW_NTP_UPSTREAM`（沒有設定時為 default
    `ntp.ubuntu.com`）寫入 MAAS 的 `ntp_servers`，並維持 `ntp_external_only` 關閉。MAAS 的 chrony

@@ -8,7 +8,7 @@
 #   swallow_grafana_port              host port (owned by the api-server domain)
 #   swallow_grafana_prometheus_url    datasource URL; empty reads the Prometheus on this Server
 #   swallow_grafana_prometheus_port   that Prometheus's port, used for the empty-URL default
-#   swallow_grafana_dashboards        Swallow-shipped dashboard bundles to provision
+#   swallow_grafana_dashboards        swallow-shipped dashboard bundles to provision
 # Idempotent: a converged host reruns with no changes.
 
 - name: Hold the OS's automatic package maintenance

@@ -37,7 +37,7 @@
       failed_when: false
 
     - name: Fail with the slurmctld startup diagnostics
-      # This message is captured by Swallow as the Step's normalized error, so it names the
+      # This message is captured by swallow as the Step's normalized error, so it names the
       # daemon and host that failed and quotes the newest journal lines, where slurmctld
       # records the fatal reason. The last lines lead because that is where the fault is.
       ansible.builtin.fail:

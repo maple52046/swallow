@@ -48,7 +48,7 @@ export function platformLifecycleStatus(state: PlatformLifecycleState): string {
  * the backend cancels it first (`cancelActiveWorkflows`, decision 061).
  */
 export function platformUninstallDisabledReason(platform: Platform): string | undefined {
-  // Both Kubernetes and Slurm platforms deployed by Swallow can be uninstalled; only
+  // Both Kubernetes and Slurm platforms deployed by swallow can be uninstalled; only
   // externally registered platforms (no deployment history) are delete-only.
   if (platform.origin !== 'deployed') return 'Externally registered platforms can only be deleted.'
   switch (platform.lifecycleState) {
@@ -87,7 +87,7 @@ export interface PlatformUninstallAvailability {
 }
 
 /**
- * Which action the Platform removal control leads with. A Platform Swallow deployed leads with
+ * Which action the Platform removal control leads with. A Platform swallow deployed leads with
  * Uninstall until its uninstall succeeds (including while one runs, when Uninstall itself is
  * disabled and only the secondary record-only Delete can be used); an `uninstalled` or
  * never-deployed Platform can only lose its record, so it leads with Delete.

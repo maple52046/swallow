@@ -50,15 +50,15 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   const deployAction = ready.getByRole('button', { name: 'Deploy OS for gpu-node-01' })
   const workflowAction = changing.getByRole('link', { name: 'View workflow for gpu-node-02' })
   const reviewAction = issue.getByRole('link', { name: 'View workflow for gpu-node-03' })
-  // Provider inspection is a generic in-progress state and outranks the Swallow deploy result.
+  // Provider inspection is a generic in-progress state and outranks the swallow deploy result.
   await expect(changing.getByText('Inspecting', { exact: true })).toBeVisible()
   await expect(ready.getByText('Ready', { exact: true })).toBeVisible()
-  // Its running time counts from when Swallow first observed it (02:58:30 against a 03:05:00
+  // Its running time counts from when swallow first observed it (02:58:30 against a 03:05:00
   // page clock); an idle state has none.
   await expect(changing.getByText('Running for 6m 30s', { exact: true })).toBeVisible()
   await expect(ready.getByText(/^Running for/)).toHaveCount(0)
   await expect(workflowAction).toHaveAttribute('href', '/workflows/op-running?site=site-a')
-  // A Swallow deployment that needs review opens its Workflow, which holds the failed Step.
+  // A swallow deployment that needs review opens its Workflow, which holds the failed Step.
   await expect(reviewAction).toHaveAttribute('href', '/workflows/op-deploy-failed?site=site-a')
   // The contextual step is a frameless icon-and-text link on Deployment's secondary line.
   const contextActions = [[deployAction, 'Deploy OS'], [workflowAction, 'View workflow'], [reviewAction, 'View workflow']] as const

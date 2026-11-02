@@ -12,11 +12,11 @@ Active
 
 - `dashboard`
 - `cli` (the `swallow` operator command-line client)
-- Swallow installation tooling (reads the OS Image catalog to confirm `ubuntu/noble`)
+- swallow installation tooling (reads the OS Image catalog to confirm `ubuntu/noble`)
 
 ## Purpose
 
-List, upload, and delete provider-owned OS Images, manage Swallow-owned Deployment
+List, upload, and delete provider-owned OS Images, manage swallow-owned Deployment
 Templates, and submit one OS deployment configuration to one or more eligible Servers.
 
 ## Related Glossary Terms
@@ -67,10 +67,10 @@ POST   /api/v1/provisioning/integrations/{id}/reconcile
 ## OS Image Catalog
 
 `GET /images` requires `integrationId` and reads the named provisioner live, then merges
-Swallow's OS Image metadata (see "OS Image Metadata" below) onto it. Each image is the provider's
-artifact with the metadata Swallow owns for it as `spec` and what is effectively shown and used,
-with the provider's own values and Swallow's verification, as `status`
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). The
+swallow's OS Image metadata (see "OS Image Metadata" below) onto it. Each image is the provider's
+artifact with the metadata swallow owns for it as `spec` and what is effectively shown and used,
+with the provider's own values and swallow's verification, as `status`
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state)). The
 metadata needs no provider realization, so an image has no `generation` or conditions. It returns:
 
 ```json
@@ -101,9 +101,9 @@ metadata needs no provider realization, so an image has no `generation` or condi
 ]
 ```
 
-`spec` is Swallow's metadata: `name`, `osSystem`, and `release` are `""` when Swallow keeps no
-value and the provider's applies; `tags` is a Swallow-owned list of labels with no provider
-counterpart, always an array; `defaultUser` is the default login user Swallow sets for the image,
+`spec` is swallow's metadata: `name`, `osSystem`, and `release` are `""` when swallow keeps no
+value and the provider's applies; `tags` is a swallow-owned list of labels with no provider
+counterpart, always an array; `defaultUser` is the default login user swallow sets for the image,
 `""` when none is set. `id` and `architecture` are never overridable — they identify the deployable
 artifact.
 
@@ -111,10 +111,10 @@ artifact.
 the `spec` value when set, otherwise the provider value. The `status.provider*` fields
 (`providerName`, `providerOsSystem`, `providerRelease`) always carry the provider's own values.
 
-`status.defaultUser` is the effective login user Swallow automation uses on Servers deployed with
+`status.defaultUser` is the effective login user swallow automation uses on Servers deployed with
 this image (see the glossary OS Image and
-[decision 039](../../../../../docs/decisions/039-ssh-key-management-and-default-user.md)):
-`spec.defaultUser` when set, otherwise a Swallow built-in derived from `providerOsSystem`
+[decision 039](../../../../../docs/decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user)):
+`spec.defaultUser` when set, otherwise a swallow built-in derived from `providerOsSystem`
 (`ubuntu` → `ubuntu`, `centos` → `centos`, `rhel` → `cloud-user`). It is omitted when no value
 applies, which is the usual case for an uploaded custom image until an operator sets one;
 automation then falls back to the Site SSH user and built-in candidates.
@@ -127,10 +127,10 @@ when the provider does not expose a complete size or its detail is temporarily
 unavailable. Providers may expose multiple kernel or subarchitecture variants that
 collapse into the same `id` + `architecture` row; in that case the catalog returns
 the largest current complete-set size rather than summing mutually exclusive
-variants. Size is provider-owned and cannot be changed by Swallow's metadata.
+variants. Size is provider-owned and cannot be changed by swallow's metadata.
 
-`verifiedDeployTargets` is a Swallow-owned array of the deploy targets (`"disk"`
-and/or `"ram"`) a Swallow verification has proven this image can deploy in. It is
+`verifiedDeployTargets` is a swallow-owned array of the deploy targets (`"disk"`
+and/or `"ram"`) a swallow verification has proven this image can deploy in. It is
 always present, defaulting to an empty array, so a client can render a per-mode
 "verified" indicator without a null check. An empty array means the image has not
 been verified for any target. For a custom image (`providerOsSystem: "custom"`) a
@@ -140,7 +140,7 @@ never gated regardless of this array. It is keyed by the same
 `integrationId` + `imageId` + `architecture` identity as the metadata but stored
 separately, so clearing the metadata never clears verification.
 
-`failedDeployTargets` is the mirror Swallow-owned array of deploy targets whose
+`failedDeployTargets` is the mirror swallow-owned array of deploy targets whose
 most recent verification run failed. It is always present, defaulting to an empty
 array. It lets a client show a failed verification distinctly from a
 never-attempted one — a custom image with `"disk"` in `failedDeployTargets` was
@@ -156,8 +156,8 @@ excludes PXE and bootloader artifacts returned by the same boot-resources API.
 An uploaded image keeps its provider resource name as `id` and is returned with
 `providerOsSystem: "custom"`.
 
-The image artifact is provider-owned and is not persisted by Swallow; only the metadata is
-Swallow-owned. Missing `integrationId` is
+The image artifact is provider-owned and is not persisted by swallow; only the metadata is
+swallow-owned. Missing `integrationId` is
 `400 validation_error`; an unknown integration is `404 not_found`; a provider
 failure is `503 provider_unavailable`.
 
@@ -172,17 +172,17 @@ it — as it refuses an `imageId`/`architecture` that matches no deletable image
 `400 validation_error` carrying the provider's own wording. A provisioner whose adapter
 does not implement image deletion is refused the same way. Any missing query parameter is
 also `400 validation_error`; an unknown integration is `404 not_found`; a provider
-transport failure is `503 provider_unavailable`. Deleting an image also removes Swallow's
+transport failure is `503 provider_unavailable`. Deleting an image also removes swallow's
 metadata for it, so a deleted image leaves no orphan metadata behind.
 
 ## OS Image Upload
 
 `POST /images` uploads a new provider-owned OS Image to one provisioner. It is the only
 endpoint on this surface that uses `multipart/form-data` rather than JSON, because it carries
-a potentially multi-gigabyte image artifact. Swallow drives the provider upload but does not
+a potentially multi-gigabyte image artifact. swallow drives the provider upload but does not
 own, mirror, or keep a durable copy of the artifact: the uploaded image is provider-owned
 exactly like a synced one, and **whether it is classified as a custom image is determined by the
-provisioner, not by the caller** (see ADR 027). Upload is an optional provider capability, so a
+provisioner, not by the caller** (see [decision 027](../../../../../docs/decisions/027-os-image-upload.md) (os image upload)). Upload is an optional provider capability, so a
 provisioner whose adapter does not implement it is refused.
 
 The request is `multipart/form-data` with these parts:
@@ -198,7 +198,7 @@ The request is `multipart/form-data` with these parts:
 - `defaultUser` (optional): the image's default login user, stored as the image's metadata
   `defaultUser` once the provider accepts the upload. It must be a POSIX login name
   (`^[a-z_][a-z0-9_-]{0,31}$`); an invalid value is rejected before anything is uploaded.
-- `content` (required): the image file. It is streamed; Swallow never buffers the whole artifact
+- `content` (required): the image file. It is streamed; swallow never buffers the whole artifact
   in memory and keeps no copy after the provider accepts it.
 
 On success it returns `201` with the created image in the same shape as one `GET /images` row:
@@ -241,7 +241,7 @@ endpoint is not bounded by the short provider read timeout used for catalog read
 ## OS Image Metadata
 
 No supported provider exposes an operation to rename an image or relabel its OS and release, and
-these values have no external owner, so Swallow keeps them as the image's metadata: desired state
+these values have no external owner, so swallow keeps them as the image's metadata: desired state
 that needs no provider realization
 ([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). It never
 changes the provider or the deployable image identity, and it is keyed by the same
@@ -279,7 +279,7 @@ because the requested end state already holds. Any missing query parameter is
 
 Setting or clearing metadata does not validate the image against the live provider catalog:
 metadata for an image that later disappears is simply not merged, so these endpoints stay
-Swallow-local with no provider round trip and do not return `503 provider_unavailable`.
+swallow-local with no provider round trip and do not return `503 provider_unavailable`.
 
 A successful `PUT` or `DELETE` propagates the new effective name to the Server
 projections immediately: the effective display name mirrored onto each deployed Server
@@ -323,9 +323,9 @@ carries the `ephemeral` boolean; `deployTarget` maps onto it (`disk ↔ false`,
 `ram ↔ true`). `network.mode` is `automatic`, `dhcp`, or
 `static` (glossary Network Configuration); missing network intent defaults to Automatic.
 Automatic addressing is realized by provider auto-assign (a stable, provider-recorded
-address; see [ADR 018](../../../../../docs/decisions/018-automatic-addressing-provider-auto-assign.md));
+address; see [decision 018](../../../../../docs/decisions/018-automatic-addressing-provider-auto-assign.md) (automatic addressing provider auto assign));
 DHCP leaves the address, gateway, and DNS to the network's own DHCP server (see
-[ADR 058](../../../../../docs/decisions/058-deployment-dhcp-and-subnet-dns.md)). `dhcp` is no
+[decision 058](../../../../../docs/decisions/058-deployment-dhcp-and-subnet-dns.md) (deployment dhcp and subnet dns)). `dhcp` is no
 longer an alias of `automatic`, and a template stored with `dhcp` reads as DHCP.
 `subnetId` names a live provider subnet and `defaultGateway` defaults to false. A default
 gateway can be requested only for Static intent. It returns `201` and never echoes `userData`.
@@ -420,7 +420,7 @@ must not be sent back as writable intent. The boot interface is suggested by
 default. One explicit Static link on that NIC is preserved as the suggested
 deployment mode, subnet, IP address, and default-gateway intent. Multiple Static
 links remain ambiguous and require operator input. Without an explicit Static
-link, Swallow uses an existing linked subnet when unambiguous, or the sole compatible
+link, swallow uses an existing linked subnet when unambiguous, or the sole compatible
 managed subnet, and suggests DHCP when that subnet has no provisioner DHCP
 (`provisionerDhcp` false), Automatic otherwise. Multiple compatible subnets produce
 `network_selection_required` instead of a silent choice and suggest Automatic.
@@ -471,7 +471,7 @@ Issue codes are `integration_mismatch`, `absent`, `not_ready`, `locked`,
 `provider_machine_missing` (the provisioner no longer has the Server's Machine), or
 `provider_not_ready` (a provider without network configuration refused the target's
 deployment readiness; the message is the provider's). An empty or duplicate target list, or
-a list longer than 100, is `400 validation_error`; a Server unknown to Swallow is
+a list longer than 100, is `400 validation_error`; a Server unknown to swallow is
 `404 not_found`.
 
 The request names no deploy target, so this check does not report `inspection_required`,
@@ -518,7 +518,7 @@ omitted user data defaults to `inherit`.
 OS from memory (what the provider calls ephemeral). An unknown `deployTarget` value is a
 `400`. This applies identically, through the platform contract, to platform deploys.
 
-**Deployment Key gate.** Swallow logs in to deployed Servers with the installation's Deployment
+**Deployment Key gate.** swallow logs in to deployed Servers with the installation's Deployment
 Key (see [ssh-keys.md](ssh-keys.md)), so every OS deployment — `POST /deployment-operations`,
 `POST /image-verifications`, and Platform deploys with `provision_os` — is refused at acceptance
 with `409 conflict` when no Deployment Key exists. The message names the installation command
@@ -526,12 +526,12 @@ that creates it (`swallow-api deployment-key ensure`). Nothing is written to the
 
 **Custom image verification gate.** When the resolved image is a *custom* image
 (`providerOsSystem: "custom"`) that has not been verified for the requested
-Deploy Target, the deploy is refused at acceptance with `409` and a Swallow
+Deploy Target, the deploy is refused at acceptance with `409` and a swallow
 reason ("this custom image is not verified for `<disk|ram>` deployment; verify it
 on a ready Server first"). Synced provider images bypass this gate. A known
 Server/image architecture mismatch is likewise refused with `409`. An image the
 provisioner has not fully staged — for example a custom upload whose boot or kernel
-resources are still missing — is also refused at acceptance with `409` and a Swallow
+resources are still missing — is also refused at acceptance with `409` and a swallow
 reason ("the `<name>` image is not fully staged by the provisioner and cannot be
 deployed"), so an incomplete image is never handed to the provider only to fail
 opaquely mid-install. These gates are applied by the shared deploy resolve, so they
@@ -539,7 +539,7 @@ cover `POST /deployment-operations` and platform deploys. See
 "Image Verification".
 
 
-Missing `network` resolves to Swallow's Automatic default. `network.mode` accepts
+Missing `network` resolves to swallow's Automatic default. `network.mode` accepts
 `automatic`, `dhcp`, or `static`; keep-current is not valid intent. Automatic is realized
 by the provider's auto-assign capability, so the deployed address is stable and always
 provider-recorded; its DNS servers are the subnet's Subnet DNS
@@ -563,7 +563,7 @@ same live read refuses a **disk** deployment (`deployTarget` `disk` or omitted) 
 see [servers-list.md](servers-list.md#provisioning-axis-fields)) with `409 conflict` naming the
 Server and its `inspection_required` reason; a RAM deployment of that Server is allowed. The
 resolved image must exist in the
-current live catalog. Swallow inspects every target's live network capability,
+current live catalog. swallow inspects every target's live network capability,
 NICs, subnets, existing links, and Static address before the first write. A
 preflight failure rejects the entire request without writes.
 
@@ -583,19 +583,19 @@ preflight, and persists one Workflow:
 ```
 
 It creates one `provision-os` MAAS Step per Server, with a maximum of four concurrent
-Steps. HTTP acceptance and the provider's `deployed` state are not Swallow completion.
+Steps. HTTP acceptance and the provider's `deployed` state are not swallow completion.
 Each Step observes the requested image, refreshes the Server address projection, and
 requires the Site's configured SSH port (default 22) to become reachable. A missing
 provider address or unreachable SSH endpoint therefore fails the Step and the Operation;
 MAAS's `deployed` value remains available only as provider-owned lifecycle diagnostics.
-While the provider remains in `deploying`, Swallow checks live BMC power after ten
+While the provider remains in `deploying`, swallow checks live BMC power after ten
 minutes. A machine that is still powered off becomes `requires_attention` with code
-`deployment_power_on_timeout` and stage `deployment_power_on`; Swallow does not abort,
+`deployment_power_on_timeout` and stage `deployment_power_on`; swallow does not abort,
 power on, or resubmit it automatically. Providers without live power inspection retain
 the general two-hour observation timeout.
 
 **Time synchronization.** Every OS provisioning configures time
-([decision 065](../../../../../docs/decisions/065-control-plane-ntp-and-post-provision-time-sync.md)):
+([decision 065](../../../../../docs/decisions/065-control-plane-ntp-and-post-provision-time-sync.md) (control plane ntp and post provision time sync)):
 the Operation also has one `ansible` Step `configure-ntp-<serverId>` per Server, depending only
 on that Server's `provision-<serverId>`. It runs the release playbook `configure-ntp` against
 the installation's NTP server (the api-server setting `SWALLOW_API_NTP_SERVER`, which the
@@ -614,10 +614,10 @@ returns the Server afterwards.
 
 **Boot Media ensure.** For each target Server whose Boot Media is enabled when the Operation is
 accepted (see [server-detail-actions.md](server-detail-actions.md#boot-media) and
-[decision 047](../../../../../docs/decisions/047-redfish-boot-media.md)), the Operation also has
+[decision 047](../../../../../docs/decisions/047-redfish-boot-media.md) (redfish boot media)), the Operation also has
 an `internal` Step `ensure-boot-media-<serverId>` of kind `ensure-boot-media`, and that Server's
 `provision-os` Step depends on it. The Step's parameters carry the URL of that Server's chosen
-Boot ISO ([boot-isos.md](boot-isos.md), [decision 049](../../../../../docs/decisions/049-boot-iso-builder.md))
+Boot ISO ([boot-isos.md](boot-isos.md), [decision 049](../../../../../docs/decisions/049-boot-iso-builder.md) (boot iso builder))
 as accepted (`isoUrl`). When it runs it re-reads the Server's setting — a Server whose Boot
 Media was disabled meanwhile is left alone — then reads the BMC and re-applies the ISO mount and
 boot direction unconditionally, because a BMC can lose either between deployments. A BMC that
@@ -640,9 +640,9 @@ the ISO; the stage-stall rule below then measures from that restart. The host is
 most once per observation; the watch does not change the Step's status, and a failure is only
 logged. A deployment that still makes no progress is reported by the stage-stall rule.
 
-While the provider remains in `deploying`, Swallow also reads the provider's machine event
+While the provider remains in `deploying`, swallow also reads the provider's machine event
 stream on every observation
-([decision 046](../../../../../docs/decisions/046-os-deployment-progress-and-stall.md)).
+([decision 046](../../../../../docs/decisions/046-os-deployment-progress-and-stall.md) (os deployment progress and stall)).
 The newest event recorded since the current attempt started is projected onto the Server
 deployment axis as non-terminal progress — `state` stays `deploying`, `code` stays empty,
 `stage` is the event type in snake_case (for example `configuring_os`), and `statusReason` names
@@ -652,7 +652,7 @@ only when the provider advances. When no newer event arrives for 25 minutes, the
 snake_case type (or `deployment_progress` when no event was recorded since the attempt started),
 and a message naming the stage and since when. Progress is measured from provider event
 timestamps, so a worker restart or activity retry does not grant a fresh window; an explicit Step
-Retry starts a new attempt and therefore a new window. Swallow does not abort the provider
+Retry starts a new attempt and therefore a new window. swallow does not abort the provider
 deployment. A provider without an event stream, or an event read that fails, never produces a
 stall; the power-on check and the two-hour observation timeout stay authoritative.
 
@@ -691,8 +691,8 @@ traceback, else the first failed stage), at most 300 characters, with URL creden
 and any line that mentions a password, token, or secret never used. Each part is omitted when
 unavailable, down to `The provisioner reported that OS deployment failed.`; reading the
 installation log never changes the Step outcome. Lost provider responses enter observation
-first; Swallow does not immediately submit a second deployment. An unknown outcome becomes
-`requires_attention`. A deployment Swallow's own preflight refuses before any provider
+first; swallow does not immediately submit a second deployment. An unknown outcome becomes
+`requires_attention`. A deployment swallow's own preflight refuses before any provider
 write (for example a target that is not ready, an image that is not staged or verified, or
 a network conflict) fails with `deployment_preflight_rejected` (not retryable), so the
 Workflow ends instead of parking on a retry that repeats the refusal. Cloud-init is
@@ -728,18 +728,18 @@ not retryable) and its message says the bindings remain.
 
 `cancelActiveWorkflows` (optional, default `false`) supersedes the unfinished Workflows that
 hold any target instead of refusing the request as busy
-([decision 061](../../../../../docs/decisions/061-recovery-supersedes-blocking-work.md)). After
-every other validation passes, Swallow requests cancellation of each such Workflow (see the
+([decision 061](../../../../../docs/decisions/061-recovery-supersedes-blocking-work.md) (recovery supersedes blocking work)). After
+every other validation passes, swallow requests cancellation of each such Workflow (see the
 Workflows contract's Cancel) and creates the Operation at once, so the response returns
 within the request. The Operation waits in `waiting_dependency` ("Waiting for resource leases.")
 until those Workflows end and release their leases, then runs; a canceled deployment may have
-returned its Server to Ready by then, which the Step accepts as above. A cancel Swallow refuses
+returned its Server to Ready by then, which the Step accepts as above. A cancel swallow refuses
 for a Workflow that is still running fails the request with `409 conflict` naming that Workflow,
 and nothing is created.
 
 A Server a Platform claims (its `platformClaim`, see
 [servers-list.md](servers-list.md#platform-claim) and
-[decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)) is refused:
+[decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md) (platform claim on server)) is refused:
 releasing it would take a node out from under that Platform. The whole batch fails with
 `409 conflict` before anything is created or canceled, so `cancelActiveWorkflows` does not get
 around it, and the message names the Server and the Platform, for example `Server gpu-node-01
@@ -749,12 +749,12 @@ released through its uninstall with `releaseServers`
 ([platforms.md](platforms.md#delete-a-platform)), which is not subject to this rule.
 
 Release is the primary provider-recovery path and is not restricted to `deployed`. The
-Swallow-owned recovery policy (decision 033, extended by decision 036) allows Release from
+swallow-owned recovery policy ([decision 033](../../../../../docs/decisions/033-provider-recovery-policy.md) (provider recovery policy), extended by [decision 036](../../../../../docs/decisions/036-provisioning-lifecycle-integrity.md) (provisioning lifecycle integrity)) allows Release from
 `deployed`, `allocated`, `failed`, `broken`, and `rescue`, always converging the Machine to
 `ready`. `allocated` is included because MAAS parks a machine there when a deployment was
 reserved but never finished, and the provider allows Release from it. A target in any other
 state (for example `releasing`, `deploying`, `new`, or already `ready`) is rejected with a
-Swallow-authored reason rather than the provider's message.
+swallow-authored reason rather than the provider's message.
 
 Both endpoints return `202` with an Operation reference, `{ "operationId": "..." }`, and
 nothing else; the request ID is recorded on the Workflow as its `requestCorrelation`, read
@@ -765,7 +765,7 @@ through the [Workflows](workflows.md) contract.
 Acceptance-time rejection is reported with the shared error envelope, never as an opaque
 `500 internal_error`: malformed input (missing or out-of-range `serverIds`, a target in a
 state Release is not allowed from, a duplicate target, or a cross-Site batch) is
-`400 validation_error`; a Server unknown to Swallow is `404 not_found`; a target already
+`400 validation_error`; a Server unknown to swallow is `404 not_found`; a target already
 inside an unfinished Operation, a locked target, or a target a Platform claims is
 `409 conflict`; and a build without durable provisioning wired up is
 `503 provider_unavailable`.
@@ -787,7 +787,7 @@ validation, then creates one `recover-server` MAAS Step per Server. `cancelActiv
 behaves as it does for Release. Recover is allowed
 from `failed`, `broken`, `rescue`, `deployed`, and `allocated`; a target already `ready` is
 accepted as an immediate success (no-op) and any other state is a `400 validation_error`
-with a Swallow reason. Each Step chooses the provider primitive by observed state — `broken`
+with a swallow reason. Each Step chooses the provider primitive by observed state — `broken`
 is returned with Mark fixed, `rescue` exits rescue and then Releases if it is still not
 `ready`, and `failed` (or `deployed`/`allocated`) is Released — and succeeds only after
 `ready` is observed. A Machine that fails to leave rescue (a settled "failed to exit rescue" state, or
@@ -806,7 +806,7 @@ how a broken deployment is repaired.
 
 `POST /image-verifications` launches a durable `verify-os-image` Operation that
 proves one custom OS Image works for one Deploy Target by running a real deploy on
-an operator-chosen ready Server, recording the Swallow-owned verification on
+an operator-chosen ready Server, recording the swallow-owned verification on
 success, then auto-releasing the Server. It accepts:
 
 ```json
@@ -848,13 +848,13 @@ returned, rather than holding the Server and showing a perpetual "verifying". On
 success the image's `verifiedDeployTargets` gains the target; on failure its
 `failedDeployTargets` gains the target and the provider's reason is on the failed
 `provision-os` Step. See
-[decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md)
+[decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md) (os image verification and deploy target)
 and [decision 036](../../../../../docs/decisions/036-provisioning-lifecycle-integrity.md).
 
 ## Provisioning Tasks
 
 `GET /tasks/{id}` and `GET /servers/{serverId}/provisioning-tasks` expose
-Swallow-owned provider coordination without returning the saved static-link
+swallow-owned provider coordination without returning the saved static-link
 snapshot:
 
 ```json
@@ -940,11 +940,11 @@ with no alias: a catalog image is `{id, architecture, spec, status}` — the `cu
 arrays moved under `status` — and `PATCH /images/overlay` / `DELETE /images/overlay` became
 `PUT /images/metadata` / `DELETE /images/metadata` with the same body and responses.
 
-On 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md),
+On 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases),
 breaking) the deprecated synchronous `POST /provisioning/deployments`, `POST /servers/{id}/deploy`,
 and `POST /servers/{id}/release` were removed; deploy and release through `POST
 /deployment-operations` and `POST /release-operations`. The removed single-Server deploy was the
-only deployment that did not clear the Server Default User (DF-12). The request `ephemeral` alias
+only deployment that did not clear the Server Default User. The request `ephemeral` alias
 of templates and deployment settings is no longer read; send `deployTarget`.
 
 On 2026-10-19 `POST /release-operations` and `POST /recover-operations` gained the optional
@@ -964,7 +964,7 @@ with `409 conflict` (see Durable OS Operations). Before, such a request was acce
 the node out from under its Platform. Release a Platform's Servers through its uninstall
 ([decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)).
 
-On 2026-10-31 (DF-05, breaking) a provisioner without network configuration became
+On 2026-10-31 (breaking) a provisioner without network configuration became
 `400 validation_error` for templates, network inspection, and OS deployments (also inside a
 deployment batch), like every other unsupported capability; it was `409 conflict`. A target not in
 the provisioning state an OS deployment requires became `409 conflict`; it was `400`.

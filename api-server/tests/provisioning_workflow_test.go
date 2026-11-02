@@ -343,7 +343,7 @@ func TestDeployServers_PreflightIsAllOrNothing(t *testing.T) {
 	}
 }
 
-// An image the provisioner has not fully staged cannot be deployed; Swallow refuses it up
+// An image the provisioner has not fully staged cannot be deployed; swallow refuses it up
 // front with a clear reason instead of letting the provider fail mid-install.
 func TestDeployServers_RejectsIncompleteImage(t *testing.T) {
 	f := setupPlatform(t)

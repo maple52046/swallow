@@ -13,7 +13,7 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-// DF-05: a target that is not deployed is a state conflict (409), targets of several Sites are a
+// A target that is not deployed is a state conflict (409), targets of several Sites are a
 // request error (400), and a lock state that cannot be confirmed is unavailable (503), as in the
 // other contexts' handlers.
 func TestRespondErrorFollowsTheConventions(t *testing.T) {

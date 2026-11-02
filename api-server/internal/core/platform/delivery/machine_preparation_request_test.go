@@ -13,7 +13,7 @@ import (
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 )
 
-// A Platform deploy takes the OS deployment contract's deploy-mode vocabulary (DF-02). Before,
+// A Platform deploy takes the OS deployment contract's deploy-mode vocabulary. Before,
 // deployTarget was not read, so a request naming only `ram` was silently deployed to disk; the
 // removed `ephemeral` alias is ignored like any unknown field.
 func TestMachinePreparationResolvesTheDeployTarget(t *testing.T) {

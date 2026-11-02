@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "An operator adds a tag; the controller converges it to MAAS without a Change Plan." / "The Pool controller backs off while MAAS is unreachable and reports `provider_unreachable`."
 - Related terms: Desired State, Observed State, Condition, Drift, Change Plan, Destructive Change, Workflow, Provider Interface.
-- Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md), distinguishing it from the existing provider reconcile.
+- Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md) (swallow owns desired state), distinguishing it from the existing provider reconcile.

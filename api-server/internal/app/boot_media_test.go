@@ -87,7 +87,7 @@ func provisionTask(serverID string) workflowdomain.Task {
 func TestBootMediaPlannerAddsEnsureTasks(t *testing.T) {
 	planner := bootMediaPlanner{
 		servers: bootMediaServers{servers: map[string]*serverdomain.Server{
-			"on":  {ID: "on", Observed: serverdomain.Observed{Hostname: "tainan-ci"}, BootMedia: &serverdomain.BootMediaSetting{Enabled: true, ISOID: "iso-a"}},
+			"on":  {ID: "on", Observed: serverdomain.Observed{Hostname: "hv-01"}, BootMedia: &serverdomain.BootMediaSetting{Enabled: true, ISOID: "iso-a"}},
 			"off": {ID: "off", BootMedia: &serverdomain.BootMediaSetting{Enabled: false, ISOID: "iso-a"}},
 			"new": {ID: "new"},
 		}},
@@ -266,7 +266,7 @@ func TestEnsureBootMediaStep(t *testing.T) {
 		t.Fatalf("result = %+v, ensure(%q, %q); want success for the Task's Server and URL", result, ensurer.serverID, ensurer.isoURL)
 	}
 
-	ensurer.err = &serverdomain.BootMediaError{Err: serverdomain.ErrBMCUnreachable, Server: "tainan-ci"}
+	ensurer.err = &serverdomain.BootMediaError{Err: serverdomain.ErrBMCUnreachable, Server: "hv-01"}
 	result = executor.Execute(context.Background(), ensureInput("http://frozen/x.iso"))
 	if result.Status != workflowdomain.TaskFailed || result.Error == nil || !result.Error.Retryable {
 		t.Errorf("result = %+v, want a retryable failure while the BMC is unreachable", result)
@@ -285,7 +285,7 @@ func TestEnsureBootMediaStep(t *testing.T) {
 	if result := executor.Execute(context.Background(), input); result.Status != workflowdomain.TaskSucceeded || ensurer.isoID != "iso-a" {
 		t.Errorf("result = %+v, ensure id %q; want success with the frozen id", result, ensurer.isoID)
 	}
-	ensurer.err = &serverdomain.BootMediaError{Err: serverdomain.ErrBootMediaNotConfigured, Server: "tainan-ci"}
+	ensurer.err = &serverdomain.BootMediaError{Err: serverdomain.ErrBootMediaNotConfigured, Server: "hv-01"}
 	if result := executor.Execute(context.Background(), input); result.Error == nil || result.Error.Code != "boot_media_not_configured" || result.Error.Retryable {
 		t.Errorf("result = %+v, want a non-retryable boot_media_not_configured", result)
 	}
@@ -320,7 +320,7 @@ func (f fakeBMCProviders) For(context.Context, string) (provisioningdomain.OSPro
 func TestBootMediaEndpointSourceMapsProvisionerAnswers(t *testing.T) {
 	server := &serverdomain.Server{ID: "srv", Hardware: serverdomain.Hardware{SystemUUID: "uuid-1"}, Source: serverdomain.Source{SiteID: "site-1"}}
 	hypervisor := &serverdomain.Server{ID: "hv-1", Source: serverdomain.Source{SiteID: "site-1"},
-		Observed: serverdomain.Observed{Hostname: "tainan-ci", Addresses: []string{"10.170.168.22"}}}
+		Observed: serverdomain.Observed{Hostname: "hv-01", Addresses: []string{"10.140.168.22"}}}
 	servers := bootMediaServers{servers: map[string]*serverdomain.Server{"srv": server, "hv-1": hypervisor}}
 	source := newBootMediaEndpointSource(fakeBMCProviders{provider: fakeBMCProvider{
 		config: &provisioningdomain.PowerConfiguration{Driver: "ipmi", Address: "10.0.0.5", Username: "maas", Password: "pw", NodeID: "Self"},
@@ -334,7 +334,7 @@ func TestBootMediaEndpointSourceMapsProvisionerAnswers(t *testing.T) {
 		t.Errorf("endpoint = %+v", endpoint)
 	}
 
-	for host, want := range map[string]*serverdomain.Server{"10.170.168.22": hypervisor, "TAINAN-CI": hypervisor, "10.9.9.9": nil} {
+	for host, want := range map[string]*serverdomain.Server{"10.140.168.22": hypervisor, "HV-01": hypervisor, "10.9.9.9": nil} {
 		source := newBootMediaEndpointSource(fakeBMCProviders{provider: fakeBMCProvider{
 			config: &provisioningdomain.PowerConfiguration{Driver: "virsh", Address: "qemu+ssh://ubuntu@" + host + "/system", PowerID: "lab-1"},
 		}}, servers)
@@ -436,10 +436,10 @@ func TestServeBootISO(t *testing.T) {
 func TestBootISOCatalog(t *testing.T) {
 	dir := t.TempDir()
 	const id = "6b3f0c1e-4f7a-4f53-9d2a-2a7f1d0c9e11"
-	repo := &catalogRepo{iso: &provisioningdomain.BootISO{ID: id, Name: "tainan-rack", IntegrationID: "integration-1"}}
+	repo := &catalogRepo{iso: &provisioningdomain.BootISO{ID: id, Name: "south-rack", IntegrationID: "integration-1"}}
 	catalog := newBootISOCatalog(repo, genfsimg.NewGenfsimgBuilder(dir, t.TempDir(), "http://192.0.2.1"), "http://192.0.2.1")
 
-	if image, err := catalog.Resolve(context.Background(), id); !errors.Is(err, serverdomain.ErrBootMediaNotConfigured) || image == nil || image.Name != "tainan-rack" {
+	if image, err := catalog.Resolve(context.Background(), id); !errors.Is(err, serverdomain.ErrBootMediaNotConfigured) || image == nil || image.Name != "south-rack" {
 		t.Errorf("Resolve without a file = %+v, %v; want the image and ErrBootMediaNotConfigured", image, err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, id), 0o755); err != nil {

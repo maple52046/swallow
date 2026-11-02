@@ -7,7 +7,7 @@ import (
 )
 
 // A result with the cluster CA is recorded with that CA and without insecureSkipVerify, so the API
-// certificate is verified (DF-01); one without (an earlier role) keeps the unverified Integration;
+// certificate is verified; one without (an earlier role) keeps the unverified Integration;
 // one without a token is no credential.
 func TestCredentialRecordsTheClusterCA(t *testing.T) {
 	const ca = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----"

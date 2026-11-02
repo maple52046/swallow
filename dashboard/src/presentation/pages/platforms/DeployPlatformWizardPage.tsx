@@ -51,7 +51,7 @@ import { AdvancedSettings } from './AdvancedSettings'
 import { TimeSyncCheckToggle } from './TimeSyncCheckToggle'
 import './platformDeployment.css'
 
-// A platform deploy converges over both pool-ready and already-deployed Servers (ADR 017):
+// A platform deploy converges over both pool-ready and already-deployed Servers (decision 017):
 // ready Servers are provisioned to an OS first, deployed Servers are reused as-is. The wizard
 // therefore offers both and derives the machine-preparation mode from the selection instead of
 // asking the operator to pick it up front. Kept module-level so its reference is stable for the
@@ -263,7 +263,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
     return server ? [server] : []
   })
 
-  // Convergent selection (ADR 017): a Server already `deployed` is reused as-is; anything else
+  // Convergent selection (decision 017): a Server already `deployed` is reused as-is; anything else
   // (pool-ready) is provisioned first. The machine-preparation mode is derived from this.
   const deployedSelectedServers = selectedServers.filter((server) => server.status.provisioning?.state === 'deployed')
   const readySelectedServers = selectedServers.filter((server) => server.status.provisioning?.state !== 'deployed')
@@ -395,7 +395,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
   // Review the same resolved mode that deployment submits, including a template-owned setting.
   const osDeploymentModeLabel = effectiveEphemeral ? 'Ephemeral (memory-backed)' : 'Persistent (disk-backed)'
   const effectiveNetworkMode = selectedTemplate?.network.mode ?? networkMode
-  // Explains a DHCP suggestion from the backend (ADR 058) whatever the current choice, so it also
+  // Explains a DHCP suggestion from the backend (decision 058) whatever the current choice, so it also
   // warns an operator who switches a site-DHCP batch back to Automatic.
   const siteDhcpSuggested = networkInspection !== null &&
     suggestedBatchNetworkMode(networkInspection.targets.map((target) => target.suggestion.mode)) === 'dhcp'

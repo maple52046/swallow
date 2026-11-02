@@ -109,7 +109,7 @@ type Operation struct {
 	UpdatedAt          time.Time
 }
 
-// Alert is a secret-free firing alert correlated to optional Swallow resource IDs.
+// Alert is a secret-free firing alert correlated to optional swallow resource IDs.
 type Alert struct {
 	Fingerprint string
 	Name        string
@@ -337,7 +337,7 @@ func summarizePlatforms(platforms []Platform) PlatformSummary {
 }
 
 // terminalOperationStatuses are the Workflow terminal statuses. Every other status is active, as
-// for the Workflow busy check (DF-14): waiting, canceling, and requires_attention work still holds
+// for the Workflow busy check: waiting, canceling, and requires_attention work still holds
 // its Servers.
 var terminalOperationStatuses = map[string]bool{
 	"succeeded": true, "failed": true, "partially_succeeded": true, "canceled": true,

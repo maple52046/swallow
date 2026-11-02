@@ -16,8 +16,8 @@ Active
 ## Purpose
 
 List the tags known for a **Site** and edit the manual tags on one or more **Servers**,
-individually or in batch. Swallow owns every manual tag
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)): an edit
+individually or in batch. swallow owns every manual tag
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state)): an edit
 writes the Servers' `spec.tags`, and the Server controller then makes the provisioner carry exactly
 those tags. A tag the provisioner computes itself (an automatic tag, such as a MAAS tag with a
 definition) is observed only; swallow never assigns or removes it. This surface backs the tag
@@ -151,7 +151,7 @@ conditions instead.
 
 ## Compatibility Notes
 
-New surface introduced with decision 031. Field names and enum-like values follow swallow's glossary
+New surface introduced with [decision 031](../../../../../docs/decisions/031-provider-capability-first-with-swallow-owned-fallback.md) (provider capability first with swallow owned fallback). Field names and enum-like values follow swallow's glossary
 (`Tag`, `Server`, `Site`). Adding an optional field is backward compatible; see
 [conventions.md](conventions.md) for the breaking-change rules.
 

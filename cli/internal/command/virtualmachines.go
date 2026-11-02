@@ -48,7 +48,7 @@ func serversVirtualMachinesCmd() *cobra.Command {
 			"`swallow workflows task retry <workflowId> <taskId>` resumes it.\n\n" +
 			"A running domain asks for attention unless --power-off-running lets swallow stop it (a hard\n" +
 			"power-off).",
-		Example: "  swallow servers virtual-machines enroll srv-hv-1 lab-afde-mi308-1 lab-afde-mi308-2 \\\n" +
+		Example: "  swallow servers virtual-machines enroll srv-hv-1 vm-gpu-01 vm-gpu-02 \\\n" +
 			"    --integration maas-a --boot-iso 6b3f0c1e-4f7a-4f53-9d2a-2a7f1d0c9e11",
 		// The arguments are checked by virtualMachineEnrollmentBody, because --file replaces them.
 		Args: cobra.ArbitraryArgs,

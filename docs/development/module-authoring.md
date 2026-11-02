@@ -41,7 +41,7 @@ api-server/modules/
 
 ### 1.1 模組的宣告
 
-每個模組以 `modules/<種類>/<id>/module.json` 宣告自己（[decision 075](../decisions/075-module-contract-v1.md)），並在
+每個模組以 `modules/<種類>/<id>/module.json` 宣告自己（[decision 075](../decisions/075-module-contract-v1.md)（module contract v1）），並在
 同一個目錄有一個 root Go package，以 `go:embed` 嵌入它並回傳模組：
 
 ```json
@@ -129,7 +129,7 @@ api-server/modules/
 ## 2. 登錄 playbook
 
 [`api-server/modules/manifest.json`](../../api-server/modules/manifest.json) 是 release 的 allowlist：只有登錄的
-playbook 可以執行（[decision 006](../decisions/006-embedded-ansible-execution.md)）。
+playbook 可以執行（[decision 006](../decisions/006-embedded-ansible-execution.md)（embedded ansible execution））。
 
 ```json
 {
@@ -186,7 +186,7 @@ Platform 與 Software 共用以下規則；各自特有的規則見 [platform-de
 
 ## 5. 改套件的內容
 
-會安裝、移除或更新套件，或刷新套件索引的 playbook（decision 073，語意見
+會安裝、移除或更新套件，或刷新套件索引的 playbook（[decision 073](../decisions/073-hold-os-package-maintenance-during-automation.md)（hold os package maintenance during automation），語意見
 [core-and-extensions.md](core-and-extensions.md) §5.2）：
 
 - 第一個 play 是 `hosts: all`、`gather_facts: false`，`roles:` 含 `package_maintenance_hold`。
@@ -224,8 +224,8 @@ bash。
 `shippedFile` 與 `roleDir` 指稱檔案，不要寫死模組路徑。例外：`internal/core/platform/domain/gpu_operator_test.go` 寫死了
 AMD 模組的 chart 路徑，搬移該 role 時要一併修改。
 
-端到端的驗證在 lab 以真機進行（platform-deployment §6.2）：只用 `lab-` 開頭的 Server，不碰 `tainan-` 開頭的機器，
-也不刪 MAAS 的資料。
+端到端的驗證在 lab 以真機進行，規則（可用哪些機器、事先確認什麼）見 skill
+[`skills/lab-verification/SKILL.md`](../../skills/lab-verification/SKILL.md)。
 
 ## 7. 搬移或改名內容
 

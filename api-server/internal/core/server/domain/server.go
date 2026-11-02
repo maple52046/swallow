@@ -350,7 +350,7 @@ func NextStateSince(previous *ProvisioningStatus, state string, now time.Time) t
 	return now
 }
 
-// DeploymentState is Swallow's outcome for the most recent durable OS deployment.
+// DeploymentState is swallow's outcome for the most recent durable OS deployment.
 // It is separate from provider lifecycle: an image can be installed but unusable.
 type DeploymentState string
 
@@ -364,7 +364,7 @@ const (
 )
 
 // DeploymentStatus materializes one durable provision-os Step on its Server.
-// StatusReason is normalized by Swallow and contains no credentials or secrets.
+// StatusReason is normalized by swallow and contains no credentials or secrets.
 type DeploymentStatus struct {
 	State       DeploymentState
 	OperationID string
@@ -426,7 +426,7 @@ type Server struct {
 	Hardware    Hardware
 	Observed    Observed
 
-	// Deployment is Swallow's verified result. Provider reconciliation preserves it.
+	// Deployment is swallow's verified result. Provider reconciliation preserves it.
 	Deployment *DeploymentStatus
 
 	// PlatformClaim is the Platform whose accepted deployment targets this Server, nil when none

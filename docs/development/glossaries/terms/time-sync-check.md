@@ -22,6 +22,6 @@
   sync, so MUNGE would have rejected its credentials." / "The lab deploy used `warn` because the
   nodes had no reachable NTP server yet."
 - Related terms: Platform, Control-Plane NTP Server, OS Deployment, Workflow.
-- Change note: Added 2026-10-28 with decision 065, when Platform deployments stopped configuring
+- Change note: Added 2026-10-28 with [decision 065](../../../decisions/065-control-plane-ntp-and-post-provision-time-sync.md) (control plane ntp and post provision time sync), when Platform deployments stopped configuring
   time and only check it. Revised 2026-10-29: the check moved from a step shared by every Platform
   into each Platform's own installation.

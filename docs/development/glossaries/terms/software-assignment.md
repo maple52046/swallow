@@ -3,7 +3,7 @@
 - Bounded context: Software Deployment (swallow-owned intent and execution).
 - Definition: A swallow-owned durable record of the desired and last-applied state of one
   Managed Software kind on one Server, keyed by `(serverId, kind)`. It is the single source of
-  truth for what software Swallow has installed where, and it drives listing,
+  truth for what software swallow has installed where, and it drives listing,
   duplicate-prevention, and uninstall.
 - Allowed meaning: One record per Server per software kind, carrying the kind, any variant
   roles (NFS `server`/`client`), a kind-specific `spec` (for example an NFS export path and
@@ -29,12 +29,12 @@
   the list never claims software the wiped disk no longer has." / "A second install request for
   an already-`installed`, mutually-exclusive kind is refused before a Workflow is created."
 - Related terms: Managed Software, Docker Host Explorer, Server, Server Status, Workflow, Release.
-- Change note: Added 2026-09-24 ([decision 038](../../../decisions/038-software-deployment.md))
+- Change note: Added 2026-09-24 ([decision 038](../../../decisions/038-software-deployment.md) (software deployment))
   as the swallow-owned record backing single-software deployment, deliberately distinct from
   Platform membership and from the three Server status axes. 2026-10-02
-  ([decision 043](../../../decisions/043-docker-host-management.md)): an installed `docker-ce`
+  ([decision 043](../../../decisions/043-docker-host-management.md) (docker host management)): an installed `docker-ce`
   assignment with `enableApi` is the only eligibility source for the Docker Host Explorer.
-  2026-10-21 ([decision 063](../../../decisions/063-omnistat-slurm-observability.md)): composed
+  2026-10-21 ([decision 063](../../../decisions/063-omnistat-slurm-observability.md) (omnistat slurm observability)): composed
   software Jobs record assignments too. 2026-10-30
-  ([decision 068](../../../decisions/068-device-metrics-exporter-managed-software.md)): the
+  ([decision 068](../../../decisions/068-device-metrics-exporter-managed-software.md) (device metrics exporter managed software)): the
   Device Metrics Exporter of a Slurm Platform has assignments, cleared by the Platform's uninstall.

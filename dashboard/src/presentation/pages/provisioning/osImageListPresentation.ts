@@ -114,7 +114,7 @@ export function osImageVerificationKey(
   return `${integrationId}\u0000${imageId}\u0000${primaryImageArchitecture(architecture)}\u0000${target}`
 }
 
-/** Whether Swallow keeps any presentation or login metadata for the provider artifact. */
+/** Whether swallow keeps any presentation or login metadata for the provider artifact. */
 export function hasOSImageMetadata(image: OSImageCatalogRow): boolean {
   const { name, osSystem, release, defaultUser, tags } = image.spec
   return Boolean(name || osSystem || release || defaultUser || tags.length)

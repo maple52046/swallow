@@ -19,7 +19,7 @@ Install and uninstall a single piece of host software (Managed Software) on one 
 already-deployed Servers, and read the swallow-owned Software Assignment records that track
 what is installed where. This is deliberately distinct from platform deployment: the deploy
 target is one software and its variants, not a multi-component runtime (see
-[decision 038](../../../../../docs/decisions/038-software-deployment.md)).
+[decision 038](../../../../../docs/decisions/038-software-deployment.md) (software deployment)).
 
 Every install/uninstall creates a durable Workflow; the response returns its `operationId`,
 and progress is observed through the [workflows](workflows.md) surface.
@@ -54,7 +54,7 @@ All endpoints require the `admin` role (an access token or an API Key) according
 
 `GET /api/v1/software/catalog` returns the installable software kinds of this release and their
 rules, one kind per Software module the release includes
-([decision 075](../../../../../docs/decisions/075-module-contract-v1.md)), ordered by `kind`: an
+([decision 075](../../../../../docs/decisions/075-module-contract-v1.md) (module contract v1)), ordered by `kind`: an
 object whose `items` array is small and bounded, so it is not paginated.
 
 ```json
@@ -184,7 +184,7 @@ A Docker CE assignment records the normalized spec (see [Docker CE spec](#docker
 `state` is one of `pending | installed | failed | uninstalling | absent`. These are domain
 values from the
 [Software Assignment](../../../../../docs/development/glossaries/terms/software-assignment.md)
-term. `absent` means Swallow no longer considers the software present (for example the Server
+term. `absent` means swallow no longer considers the software present (for example the Server
 left `deployed`).
 
 Every field is always present. `spec` is the normalized spec the last install recorded; it is
@@ -291,7 +291,7 @@ for a container and a native process. Each is installed by one of two methods:
   Quadlet unit on `podman`. The runtime must already be `installed` on every target, and every
   target must run the same one; an omitted `containerRuntime` is the runtime installed there.
 - `native`: Prometheus's official release binary (verified against the release's published
-  checksums) under a Swallow systemd unit, and Grafana's pinned package from Grafana's official
+  checksums) under a swallow systemd unit, and Grafana's pinned package from Grafana's official
   apt or yum repository. No container runtime is needed. The native method owns the Server's
   `grafana` package.
 
@@ -316,7 +316,7 @@ for a container and a native process. Each is installed by one of two methods:
 | `prometheus` | `scrapePort` | integer | — | Port of every `scrapeServerIds` Server (1–65535); required with, and only valid with, `scrapeServerIds`. |
 | `grafana` | `version` | string | `12.4.12` | Release version (`x.y.z`; a leading `v` is accepted and dropped): the image tag or the package version. |
 | `grafana` | `prometheusUrl` | string | Prometheus on the same Server (where it listens) | Absolute `http`/`https` URL of the datasource (UID `prometheus`). |
-| `grafana` | `dashboards` | string[] | `[]` | Swallow-shipped dashboard bundles to provision: `omnistat` (Omnistat's RMS global, node, and job dashboards) and `device-metrics-exporter` (the Device Metrics Exporter's overview, GPU, node, and job dashboards). |
+| `grafana` | `dashboards` | string[] | `[]` | swallow-shipped dashboard bundles to provision: `omnistat` (Omnistat's RMS global, node, and job dashboards) and `device-metrics-exporter` (the Device Metrics Exporter's overview, GPU, node, and job dashboards). |
 
 - Prometheus listens on port `9090` (loopback by default) and Grafana on port `3000` of the
   Server's primary address. Prometheus has no authentication; Grafana is read-only: anonymous
@@ -342,9 +342,9 @@ for a container and a native process. Each is installed by one of two methods:
 `device-metrics-exporter` installs AMD's
 [Device Metrics Exporter](../../../../../docs/development/glossaries/terms/device-metrics-exporter.md)
 on each target: AMD's pinned native package (`amdgpu-exporter 1.5.3~24.04`, SHA-256 verified),
-with `gpuagent` started after Swallow's post-boot amdgpu loader (`swallow-amdgpu-load.service`,
+with `gpuagent` started after swallow's post-boot amdgpu loader (`swallow-amdgpu-load.service`,
 installed when the Server has none). The exporter serves per-GPU Prometheus metrics on the
-Server's primary address at port `5001` (`5000` belongs to the host GPU exporter Swallow scrapes),
+Server's primary address at port `5001` (`5000` belongs to the host GPU exporter swallow scrapes),
 with Slurm job attribution and the hardware profiler off. It installs only the exporter: to graph
 it, install `prometheus` with `scrapeServerIds` naming these Servers and `scrapePort: 5001`, and
 `grafana` with the `device-metrics-exporter` dashboard bundle.
@@ -366,7 +366,7 @@ it, install `prometheus` with `scrapeServerIds` naming these Servers and `scrape
   `device_metrics_exporter_no_metrics` when the exporter serves no GPU health metrics. When a
   node's exporter reports fewer distinct `gpu_id`s than GPUs (for example MI308X SR-IOV virtual
   functions), the install still succeeds and the Task output says so.
-- Uninstall removes the package, its configuration, and Swallow's amdgpu loader unless another
+- Uninstall removes the package, its configuration, and swallow's amdgpu loader unless another
   unit (slurmd or k0s) still depends on the loader. A Server with a Platform Claim is refused with
   `409 conflict`.
 
@@ -428,13 +428,13 @@ On success the response is `202 Accepted`:
   progress and the per-Task Job grouping through the [workflows](workflows.md) surface.
 - 2026-10-30: added the `device-metrics-exporter` kind and the catalog fields
   `refusedForClaimedServers` and `requiresAmdComputeGpu`
-  ([decision 068](../../../../../docs/decisions/068-device-metrics-exporter-managed-software.md)).
+  ([decision 068](../../../../../docs/decisions/068-device-metrics-exporter-managed-software.md) (device metrics exporter managed software)).
   Clients that do not know a field read it as `false`.
 - 2026-10-30: corrected to the implemented behavior when the OpenAPI description was written (no
   wire change): the catalog and assignment lists are `{ "items": [...] }` objects, an
   assignment's `spec` can be `null`, a not-`deployed` target is refused at install with `400`
   (not `409`), and install and uninstall can return `503 provider_unavailable`.
-- 2026-10-31 (DF-05), breaking: a not-`deployed` target is `409 conflict` at install, as on a
+- 2026-10-31, breaking: a not-`deployed` target is `409 conflict` at install, as on a
   race; targets of more than one Site are `400 validation_error` (they were `503`); and a Server
   Lock state that cannot be confirmed is `503 provider_unavailable` (it was `500`).
 - 2026-11-02, stricter: an NFS install whose `spec` has a key outside the catalog's `specFields`

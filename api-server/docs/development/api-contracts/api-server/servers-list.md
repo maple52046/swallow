@@ -171,7 +171,7 @@ state. No BMC, SSH, integration, or automation credential is returned.
 
 ### Spec and status
 
-A Server is a migrated resource ([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)):
+A Server is a migrated resource ([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state)):
 the provisioner-realized fields swallow owns are in `spec`, and everything observed, derived, or
 judged is in `status`. The table below lists the top-level, `spec`, and condition fields; every field described
 in the later sections (GPU inventory onward) is relative to `status`.
@@ -190,14 +190,14 @@ The condition types and reasons a client may branch on:
 | Type | `true` means | Reasons |
 | --- | --- | --- |
 | `realized` | The provisioner matches the spec. | `converged`; when `false`: `converging` (a spec change or drift correction is pending), `capability_missing` (the provisioner cannot set a field; the spec is kept), `provider_unreachable` (retrying), `provider_missing` (the provisioner no longer reports the machine), `failed` (the provisioner rejected the change). |
-| `drifted` | The provisioner departed from a realized spec, for example a tag or the zone changed in the MAAS UI. Swallow corrects it at its next periodic resync (default every 10 minutes), not at once. | `drift_detected`; when `false`: `in_sync`. |
+| `drifted` | The provisioner departed from a realized spec, for example a tag or the zone changed in the MAAS UI. swallow corrects it at its next periodic resync (default every 10 minutes), not at once. | `drift_detected`; when `false`: `in_sync`. |
 | `requires_attention` | Convergence stopped and only a spec change retries it. | `provider_rejected`; when `false`: `none`. |
-| `held` | Swallow is deliberately not changing the machine. A spec change waits. | `server_locked`, `rescue_mode`, `workflow_lease` (a running Workflow holds the Server); when `false`: `not_held`. |
+| `held` | swallow is deliberately not changing the machine. A spec change waits. | `server_locked`, `rescue_mode`, `workflow_lease` (a running Workflow holds the Server); when `false`: `not_held`. |
 
 `message` is display text; never branch on it. A condition's `lastTransitionTime` changes only when
 its `status` changes.
 
-`deployment` is Swallow's own outcome of its latest durable OS deployment on the Server
+`deployment` is swallow's own outcome of its latest durable OS deployment on the Server
 (`deploying | verifying | succeeded | failed | requires_attention | canceled`, with the
 Workflow and Task that ran it, a failed Task's `code`, and a progress `stage`), `null` when
 none is recorded; see [server-detail-actions.md](server-detail-actions.md). `tags` is every tag the
@@ -220,7 +220,7 @@ local-console or BMC graphics controllers. Identical devices are grouped; every 
 | `count` | Positive number of physical devices in this vendor/model/kind group. |
 | `kind` | `compute` for workload accelerator capacity, or `display` for a management/local-console graphics controller. |
 
-MAAS exposes both kinds through its generic GPU device type. Swallow classifies known server
+MAAS exposes both kinds through its generic GPU device type. swallow classifies known server
 display controllers (including ASPEED, Cirrus Logic GD 5446, Matrox G200, and XGI BMC graphics)
 and virtual-machine console adapters (virtio-gpu, QXL, Bochs/QEMU standard VGA, VMware SVGA II,
 and Hyper-V video) as `display`. All other provider-reported GPU devices remain `compute` when
@@ -256,8 +256,8 @@ from MAAS). Clients branch on `state` only.
 `inspecting`, `deploying`, `releasing`, and `testing` are in progress and change without
 operator action.
 
-`stateSince` is when Swallow first observed the current `state`: it stays the same while the
-state is unchanged and moves to the observation time when the state changes. It is Swallow's
+`stateSince` is when swallow first observed the current `state`: it stays the same while the
+state is unchanged and moves to the observation time when the state changes. It is swallow's
 own record, not the provider's transition time, so its precision is the observation cadence
 (the inventory reconcile interval, or a targeted refresh of the Server). Clients use it to show
 how long a Server has been in its state, for example the running time of `releasing`. It is
@@ -266,8 +266,8 @@ state is observed again.
 
 ### Platform Claim
 
-`platformClaim` is the Swallow-owned **Platform Claim**
-([decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)): the Platform
+`platformClaim` is the swallow-owned **Platform Claim**
+([decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md) (platform claim on server)): the Platform
 whose accepted deployment targets this Server. It is `null` when no Platform claims the Server.
 
 | Field | Meaning |
@@ -287,7 +287,7 @@ through the Platform's uninstall with `releaseServers`.
 ### Provisioning axis fields
 
 On the provisioning axis, `deployedImageName` is the effective display name of the
-currently deployed OS image — the provider catalog name overlaid with any Swallow
+currently deployed OS image — the provider catalog name overlaid with any swallow
 custom name. It is mirrored when a deploy completes and refreshed by reconcile (and by
 an image rename), so a freshly deployed Server shows the friendly name promptly rather
 than only after the next reconcile pass. It is display only and is empty when nothing is
@@ -323,14 +323,14 @@ action failed without reading the provider event log.
 
 `inspectionRequired` is `true` when the provisioner's storage layout for the Server cannot
 take a disk deployment until the Server is inspected again, and `inspectionRequiredReason`
-is the Swallow-authored explanation to show with it. Both are **omitted** when the flag is
-false. Swallow refuses a disk deployment of such a Server with the deployment-target issue
+is the swallow-authored explanation to show with it. Both are **omitted** when the flag is
+false. swallow refuses a disk deployment of such a Server with the deployment-target issue
 `inspection_required` ([provisioning.md](provisioning.md#multi-server-deployment)); a RAM
 deployment does not partition the disk and is not affected. A new inspection that rebuilds
 the layout clears it. The flag is set only on proof: for MAAS, a machine that boots UEFI
 (`bios_boot_method=uefi`) while its boot disk has partitions but no EFI system partition
 (FAT mounted at `/boot/efi`) — the layout of a Server inspected while it booted BIOS
-([decision 057](../../../../../docs/decisions/057-uefi-boot-iso-hand-off.md)). A Server without a
+([decision 057](../../../../../docs/decisions/057-uefi-boot-iso-hand-off.md) (uefi boot iso hand off)). A Server without a
 layout, or whose layout MAAS did not report, is never flagged.
 
 ### Error Response
@@ -353,7 +353,7 @@ Adding an optional projection field is backward compatible. Adding a credential
 field is forbidden. The three state axes and `absent` remain independent.
 
 On 2026-10-04 the provisioning state `commissioning` was renamed to `inspecting`
-([decision 048](../../../../../docs/decisions/048-os-provisioning-generic-states.md)). This
+([decision 048](../../../../../docs/decisions/048-os-provisioning-generic-states.md) (os provisioning generic states)). This
 is a breaking change for clients that branch on or filter by `commissioning`. A projection
 stored before the rename is returned as `inspecting`, and `provisioningState=inspecting`
 also matches it until the next reconcile rewrites it.
@@ -387,9 +387,9 @@ spec. `status.tags` is now the provisioner's observation only; a
 tag swallow kept for a provisioner without tag support is in `spec.tags`.
 
 Following the Cluster to Platform rename
-([ADR-014](../../../../../docs/decisions/014-platform-resource-language.md)), the one-release
+([decision 014](../../../../../docs/decisions/014-platform-resource-language.md) (platform resource language)), the one-release
 aliases of `platformId` — the `clusterId` query parameter and the membership `clusterId` field —
-were removed on 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md)),
+were removed on 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)),
 which is breaking.
 
 ## Implementation Notes

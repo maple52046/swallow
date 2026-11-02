@@ -9,7 +9,7 @@ import (
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 )
 
-// seedDeployedKubernetes seeds a Swallow-deployed Kubernetes platform: a platform record with a
+// seedDeployedKubernetes seeds a swallow-deployed Kubernetes platform: a platform record with a
 // credential integration plus a deployed lifecycle snapshot, which is what the explorer requires.
 func seedDeployedKubernetes(t *testing.T, f *platformFixture, id string) *platformdomain.Platform {
 	t.Helper()
@@ -21,7 +21,7 @@ func seedDeployedKubernetes(t *testing.T, f *platformFixture, id string) *platfo
 	return platform
 }
 
-// The explorer is available only for a Swallow-deployed Kubernetes platform. A legacy
+// The explorer is available only for a swallow-deployed Kubernetes platform. A legacy
 // registered record (no deployed provenance) is refused with 409.
 func TestKubernetesExplorer_RegisteredPlatformIsRefused(t *testing.T) {
 	f := setupPlatform(t)

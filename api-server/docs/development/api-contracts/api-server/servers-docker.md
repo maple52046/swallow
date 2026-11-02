@@ -17,7 +17,7 @@ Active
 Manage the Docker Engine of one Server live — images, containers, volumes, and networks — when
 swallow installed Docker CE on that Server with the Docker Engine API enabled
 ([software.md](software.md), `spec.enableApi`). This is the Docker Host Explorer of
-[decision 043](../../../../../docs/decisions/043-docker-host-management.md): api-server calls the
+[decision 043](../../../../../docs/decisions/043-docker-host-management.md) (docker host management): api-server calls the
 host's Engine API on demand; the browser never connects to the host.
 
 Every route reads or writes the host's Docker Engine at request time and stores nothing in
@@ -79,7 +79,7 @@ After request validation (below), every route checks swallow-owned facts, in thi
 | The Server has no `installed` `docker-ce` Software Assignment. | `409 conflict` |
 | That assignment's `spec.enableApi` is not `true` (including a legacy record without the field). | `409 conflict` |
 
-Swallow does not probe for a Docker API enabled outside swallow. A consumer should decide whether
+swallow does not probe for a Docker API enabled outside swallow. A consumer should decide whether
 to offer the explorer from the Software Assignment (`GET /api/v1/software/assignments`) and treat
 a `409` here as "not available" rather than as a failure.
 

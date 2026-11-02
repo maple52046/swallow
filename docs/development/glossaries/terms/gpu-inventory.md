@@ -25,7 +25,7 @@
 - Synonyms: Compute GPU and accelerator are accepted for `compute`; display GPU, graphics
   controller, and management GPU are accepted for `display` when referring to this inventory.
 - Deprecated terms: None.
-- Examples: "tainan-node01 has eight compute GPUs and one ASPEED display GPU; its accelerator
+- Examples: "gpu-node-21 has eight compute GPUs and one ASPEED display GPU; its accelerator
   capacity is eight." / "A Server with only an onboard Matrox G200 still has GPU Inventory, but
   it has no compute GPU capacity." / "A virtual machine with two passed-through accelerators has
   two compute GPUs and one virtio-gpu display GPU."

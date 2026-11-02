@@ -1,5 +1,5 @@
 ---
-# Implementation details of the Swallow-managed AMD GPU Operator (decision 062). The intent
+# Implementation details of the swallow-managed AMD GPU Operator (decision 062). The intent
 # (state, release, allocation mode, managed nodes, pinned images) arrives only as trusted
 # swallow_amd_gpu_operator_* variables; nothing here is an operator choice.
 
@@ -11,7 +11,7 @@ amd_gpu_operator_release: amd-gpu-operator
 amd_gpu_operator_deviceconfig: swallow
 # The chart's Node Feature Discovery marks physical GPUs and SR-IOV virtual functions with
 # different labels, and a DeviceConfig selector can only AND labels. The playbook therefore copies
-# "either label is true" onto Swallow's own label, which the single DeviceConfig selects. NFD
+# "either label is true" onto swallow's own label, which the single DeviceConfig selects. NFD
 # decides the nodes; nobody lists them (decision 062).
 amd_gpu_operator_nfd_gpu_labels:
   - feature.node.kubernetes.io/amd-gpu
@@ -20,13 +20,13 @@ amd_gpu_operator_nfd_gpu_labels:
 amd_gpu_operator_nfd_evaluated_annotation: nfd.node.kubernetes.io/feature-labels
 amd_gpu_operator_node_label: swallow.dev/amd-gpu-operator
 amd_gpu_operator_node_label_value: managed
-# Marks the Helm release, namespace, and DeviceConfig Swallow created, so preflight can tell its
+# Marks the Helm release, namespace, and DeviceConfig swallow created, so preflight can tell its
 # own operator from one installed by hand.
 amd_gpu_operator_owner_label: app.kubernetes.io/managed-by
 amd_gpu_operator_owner_value: swallow
 
 # Pinned Helm v3 used only by this role. It is downloaded once and verified against the official
-# SHA-256; it lives under Swallow's directory so it never replaces an operator's own helm.
+# SHA-256; it lives under swallow's directory so it never replaces an operator's own helm.
 amd_gpu_operator_helm_version: v3.22.1
 amd_gpu_operator_helm_checksums:
   amd64: 896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea

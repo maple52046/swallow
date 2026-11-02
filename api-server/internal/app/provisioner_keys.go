@@ -11,7 +11,7 @@ import (
 
 // ProvisionerKeys implements sshkeydomain.ProvisionerKeys over the site integration repository
 // and the provisioning ProviderFactory, so SSH key realization shares the single provider
-// transport and credential path the rest of swallow uses. Capability is decided exactly as ADR 031
+// transport and credential path the rest of swallow uses. Capability is decided exactly as decision 031
 // requires: the provider must both advertise SSHKeyRegistration and implement SSHKeyRegistrar.
 type ProvisionerKeys struct {
 	integrations sitedomain.IntegrationRepository

@@ -27,7 +27,7 @@ test('a failed Server offers Recover and Release, but Mark fixed is gated to Bro
   // Recover and Release are the primary recovery verbs and are enabled for a failed Server.
   await expect(page.getByRole('menuitem', { name: /^Recover/ })).toBeEnabled()
   await expect(page.getByRole('menuitem', { name: /^Release/ })).toBeEnabled()
-  // Mark fixed lives under State & recovery and is disabled with a Swallow reason.
+  // Mark fixed lives under State & recovery and is disabled with a swallow reason.
   await page.getByRole('menuitem', { name: 'State & recovery', exact: true }).hover()
   await expect(page.getByRole('menuitem', { name: /^Mark fixed/ })).toBeDisabled()
 

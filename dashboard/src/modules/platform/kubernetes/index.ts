@@ -5,7 +5,7 @@ import { KubernetesOverview } from './KubernetesOverview'
 import { useKubernetesDeployForm } from './useKubernetesDeployForm'
 
 /**
- * The live cluster explorer applies only to a Swallow-deployed Kubernetes Platform with a recorded
+ * The live cluster explorer applies only to a swallow-deployed Kubernetes Platform with a recorded
  * credential (decision 032); a legacy registered record or one still deploying shows only Overview
  * and Activity, so its tabs never make a call that can only fail.
  */

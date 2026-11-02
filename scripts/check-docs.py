@@ -81,6 +81,14 @@ RETIRED_TERM_RECORDS = {
     ("docs/zh-TW/reference/compatibility.md", "/api/v1/clusters"),
 }
 
+# Architecture-review tracking codes are defined only in uncommitted plan drafts, so a committed
+# document that cites one points nowhere. Two frozen ADRs kept them as historical markers.
+TRACKING_CODE_RE = re.compile(r"\b(?:AR|DF)-\d{2}\b")
+TRACKING_CODE_RECORDS = {
+    "docs/decisions/072-store-driven-workflow-execution.md",
+    "docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md",
+}
+
 
 def markdown_files() -> list[Path]:
     """Return tracked and not-ignored untracked Markdown files."""
@@ -315,6 +323,20 @@ def check_retired_terms(files: list[Path], errors: list[str]) -> None:
                     )
 
 
+def check_tracking_codes(files: list[Path], errors: list[str]) -> None:
+    """Report architecture-review tracking codes outside the ADRs that kept them."""
+    for source in files:
+        if str(source) in TRACKING_CODE_RECORDS:
+            continue
+        text = (ROOT / source).read_text(encoding="utf-8")
+        for number, line in enumerate(text.splitlines(), start=1):
+            match = TRACKING_CODE_RE.search(line)
+            if match:
+                errors.append(
+                    f"{source}:{number}: tracking code {match.group(0)} (describe the change instead)"
+                )
+
+
 def check_language_mirror(errors: list[str]) -> None:
     english = {
         path.relative_to(ROOT / "docs/en")
@@ -389,6 +411,7 @@ def main() -> int:
     check_links(files, errors)
     check_code_paths(files, errors)
     check_retired_terms(files, errors)
+    check_tracking_codes(files, errors)
     check_language_mirror(errors)
     check_required_counterparts(errors)
     check_documentation_screenshots(errors)

@@ -78,7 +78,7 @@ func extraVars(t *testing.T, task workflowdomain.Task) map[string]any {
 // Every provisioned Server gets its own configure-ntp Task after its provision-os only, with the
 // installation's NTP server frozen as the trusted variable and the caller's Job.
 func TestNTPPlannerConfigureTasks(t *testing.T) {
-	planner := newNTPTestPlanner("10.170.168.20", nil, false)
+	planner := newNTPTestPlanner("10.140.168.20", nil, false)
 	tasks, err := planner.configureTasks(context.Background(), "op-1", "admin", "", []string{"s1", "s2"})
 	if err != nil {
 		t.Fatalf("configureTasks() error = %v", err)
@@ -97,7 +97,7 @@ func TestNTPPlannerConfigureTasks(t *testing.T) {
 			t.Errorf("task %s DependsOn %v Targets %v, want only %s", task.ID, task.DependsOn, task.Targets, serverID)
 		}
 		vars := extraVars(t, task)
-		if !reflect.DeepEqual(vars[ntpServersVar], []string{"10.170.168.20"}) ||
+		if !reflect.DeepEqual(vars[ntpServersVar], []string{"10.140.168.20"}) ||
 			vars["swallow_operation_id"] != "op-1" || vars["swallow_operation_kind"] != "configure-ntp" {
 			t.Errorf("task %s extraVars = %v, want the NTP server under op-1/configure-ntp", task.ID, vars)
 		}
@@ -126,7 +126,7 @@ func TestBuildEnsureOSExistingOSAddsNoTimeTask(t *testing.T) {
 		TargetServerIDs: []string{"s1", "s2"}, RequestedBy: "admin", TimeSyncCheck: platformdomain.TimeSyncCheckWarn,
 	}
 	prepared := &workflowapp.PreparedAnsibleStep{SiteID: "site-1", Targets: serverRefs("s1", "s2")}
-	launcher := platformDeploymentLauncher{ntp: newNTPTestPlanner("10.170.168.20", map[string]bool{"s1": true, "s2": true}, false)}
+	launcher := platformDeploymentLauncher{ntp: newNTPTestPlanner("10.140.168.20", map[string]bool{"s1": true, "s2": true}, false)}
 
 	plan, err := launcher.buildEnsureOS(context.Background(), launch, "op-1", false, prepared)
 	if err != nil {
@@ -144,9 +144,9 @@ func TestBuildEnsureOSExistingOSAddsNoTimeTask(t *testing.T) {
 // mode is enforce, a missing NTP server is an empty list, and the caller's map is not modified.
 func TestNTPPlannerWithCheckVars(t *testing.T) {
 	trusted := map[string]any{"swallow_k0s_version": "v1.36.3+k0s.2"}
-	vars := newNTPTestPlanner("10.170.168.20", nil, false).withCheckVars(trusted, platformdomain.TimeSyncCheckWarn)
+	vars := newNTPTestPlanner("10.140.168.20", nil, false).withCheckVars(trusted, platformdomain.TimeSyncCheckWarn)
 	if vars["swallow_k0s_version"] != "v1.36.3+k0s.2" || vars[timeSyncCheckModeVar] != "warn" ||
-		vars[timeSyncMaxOffsetVar] != timeSyncMaxOffsetSeconds || !reflect.DeepEqual(vars[ntpServersVar], []string{"10.170.168.20"}) {
+		vars[timeSyncMaxOffsetVar] != timeSyncMaxOffsetSeconds || !reflect.DeepEqual(vars[ntpServersVar], []string{"10.140.168.20"}) {
 		t.Errorf("withCheckVars() = %v, want the platform vars plus warn, the bound, and the NTP server", vars)
 	}
 	if len(trusted) != 1 {
@@ -161,7 +161,7 @@ func TestNTPPlannerWithCheckVars(t *testing.T) {
 // configure-ntp Tasks of a deploy-kubernetes or configure-slurm Workflow declare no completion:
 // only the platform's install Task records the credential (decision 072).
 func TestTimeTasksDeclareNoCompletion(t *testing.T) {
-	tasks, err := newNTPTestPlanner("10.170.168.20", nil, false).configureTasks(context.Background(), "op-1", "admin", "", []string{"s1"})
+	tasks, err := newNTPTestPlanner("10.140.168.20", nil, false).configureTasks(context.Background(), "op-1", "admin", "", []string{"s1"})
 	if err != nil {
 		t.Fatalf("configureTasks() error = %v", err)
 	}

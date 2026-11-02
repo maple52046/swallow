@@ -1,10 +1,10 @@
-# Swallow-deployed Kubernetes and Slurm Platforms: spec and status, lifecycle, membership, the
+# swallow-deployed Kubernetes and Slurm Platforms: spec and status, lifecycle, membership, the
 # Slurm deployment requirement, the GPU Operator releases, live Slurm state, and the live
 # Kubernetes cluster explorer. Behavior semantics live in platforms.md and platforms-kubernetes.md.
 tags:
   - name: platforms
     description: >-
-      Swallow-deployed Kubernetes and Slurm Platforms (platforms.md) and the live Kubernetes
+      swallow-deployed Kubernetes and Slurm Platforms (platforms.md) and the live Kubernetes
       cluster explorer of a deployed Kubernetes Platform (platforms-kubernetes.md). Every
       operation requires the `admin` role.
 paths:
@@ -154,7 +154,7 @@ paths:
     get:
       tags: [platforms]
       operationId: listGPUOperatorReleases
-      summary: List the AMD GPU Operator releases Swallow ships, newest first.
+      summary: List the AMD GPU Operator releases swallow ships, newest first.
       description: >-
         Requires the `admin` role. A GPU Operator setting's `version` and `draDriverVersion` must
         come from this catalog.
@@ -202,7 +202,7 @@ paths:
         Requires the `admin` role. Omitted fields do not change; `monitoringLinks` replaces the
         whole list. Every field is validated before anything is written. 400 for an invalid value;
         404 for an unknown Platform; 409 when the name is taken at the Site, or when
-        `gpuStackOwner` is set to `provisioning` while Swallow manages a GPU Operator on the
+        `gpuStackOwner` is set to `provisioning` while swallow manages a GPU Operator on the
         Platform. The GPU Operator and the credential Integration cannot be changed here.
       requestBody:
         required: true
@@ -238,7 +238,7 @@ paths:
         proposes the uninstall as a Change Plan; the record is deleted once the uninstall succeeds
         (platforms.md, Delete A Platform). A Platform whose install was never approved is deleted at
         once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled,
-        then membership, Platform Claims, and a Swallow-owned credential Integration are cleared, and
+        then membership, Platform Claims, and a swallow-owned credential Integration are cleared, and
         hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no
         spec yet.
       parameters:
@@ -1160,7 +1160,7 @@ components:
       enum: [single, mixed]
     GPUOperatorState:
       type: string
-      description: Where the latest Swallow change to the GPU Operator stands.
+      description: Where the latest swallow change to the GPU Operator stands.
       enum: [installing, ready, failed, uninstalling, absent]
     ObservabilityInstallMethod:
       type: string
@@ -1191,7 +1191,7 @@ components:
 
     Platform:
       type: object
-      description: A Swallow-deployed (or legacy registered) Kubernetes or Slurm Platform.
+      description: A swallow-deployed (or legacy registered) Kubernetes or Slurm Platform.
       required:
         - id
         - siteId
@@ -1264,18 +1264,18 @@ components:
             $ref: '#/components/schemas/PlatformMonitoringLink'
         gpuOperator:
           nullable: true
-          description: The Swallow-managed GPU Operator; null when Swallow never managed one here.
+          description: The swallow-managed GPU Operator; null when swallow never managed one here.
           allOf:
             - $ref: '#/components/schemas/PlatformGPUOperator'
         omnistat:
           nullable: true
-          description: The Swallow-managed Omnistat; null when never installed (always for Kubernetes).
+          description: The swallow-managed Omnistat; null when never installed (always for Kubernetes).
           allOf:
             - $ref: '#/components/schemas/PlatformOmnistat'
         deviceMetricsExporter:
           nullable: true
           description: >-
-            The Swallow-managed Device Metrics Exporter; null when never installed (always for
+            The swallow-managed Device Metrics Exporter; null when never installed (always for
             Kubernetes).
           allOf:
             - $ref: '#/components/schemas/PlatformDeviceMetricsExporter'
@@ -1543,7 +1543,7 @@ components:
           $ref: '#/components/schemas/Timestamp'
     PlatformOmnistat:
       type: object
-      description: The Swallow-managed Omnistat of a Slurm Platform.
+      description: The swallow-managed Omnistat of a Slurm Platform.
       required:
         - enabled
         - version
@@ -1572,7 +1572,7 @@ components:
           $ref: '#/components/schemas/Timestamp'
     PlatformDeviceMetricsExporter:
       type: object
-      description: The Swallow-managed Device Metrics Exporter of a Slurm Platform.
+      description: The swallow-managed Device Metrics Exporter of a Slurm Platform.
       required:
         - enabled
         - version
@@ -1961,7 +1961,7 @@ components:
             $ref: '#/components/schemas/GPUOperatorRelease'
     GPUOperatorRelease:
       type: object
-      description: One AMD GPU Operator release Swallow ships and has verified.
+      description: One AMD GPU Operator release swallow ships and has verified.
       required:
         - version
         - default

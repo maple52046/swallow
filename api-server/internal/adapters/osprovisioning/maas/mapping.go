@@ -20,7 +20,7 @@ type machineJSON struct {
 	// ErrorDescription is MAAS's own machine-level failure reason (e.g. "Failed to erase
 	// disks."), populated while the machine is in a failure state. It is the detail an
 	// operator needs to tell why a deploy or release failed and is otherwise buried only in
-	// the provider event log; carried through so Swallow can surface it on the failed state.
+	// the provider event log; carried through so swallow can surface it on the failed state.
 	ErrorDescription string     `json:"error_description"`
 	Architecture     string     `json:"architecture"`
 	CPUCount         int        `json:"cpu_count"`
@@ -148,7 +148,7 @@ func (v *vlanJSON) providerDHCP() bool {
 }
 
 // subnetJSON is the subset of a MAAS subnet swallow reads. DNSServers is the subnet's Subnet DNS
-// (ADR 058); MAAS reports it as a list of address strings, empty when unset.
+// (decision 058); MAAS reports it as a list of address strings, empty when unset.
 type subnetJSON struct {
 	ID         int       `json:"id"`
 	Name       string    `json:"name"`
@@ -419,7 +419,7 @@ func isMAASBootloaderOSSystem(osSystem string) bool {
 	}
 }
 
-// bootResourceImageFields recognizes a MAAS resource that can appear in Swallow's
+// bootResourceImageFields recognizes a MAAS resource that can appear in swallow's
 // OS Image catalog and returns the provider identity fields used by deployment.
 func bootResourceImageFields(r bootResourceJSON) (
 	imageID, osSystem, release string,

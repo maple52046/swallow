@@ -23,6 +23,7 @@ below.
 | Skill | Path | When to Use |
 | --- | --- | --- |
 | Git Commit | `skills/git-commit/SKILL.md` | When the task needs to analyse the repository's changes, draft a Conventional Commits message following `docs/development/commit-spec.md`, and optionally run `git commit` / `git push`. Triggered by `/git-commit`. |
+| Lab Verification | `skills/lab-verification/SKILL.md` | Before verifying a change on the lab's real machines or running anything against the development stack: which machines a drill may use, what to ask first, and how to keep credentials out of output. |
 | Summarize Manuscript Plans | `skills/summarize-manuscript-plans/SKILL.md` | When the task needs to consolidate, summarize, or roll up the AI plan manuscripts under `docs/plans/manuscripts/` into a single long-term plan (following `docs/plans/manuscripts/README.md`) and then delete the original draft manuscripts (never `README.md`). Triggered by `/summarize-manuscript-plans`. |
 
 ## Lookup Workflow

@@ -35,7 +35,7 @@ nothing here depends on it.
 - [Zone](../../../../../docs/development/glossaries/terms/zone.md)
 - [Platform](../../../../../docs/development/glossaries/terms/platform.md)
 
-See [decision 003](../../../../../docs/decisions/003-metrics-label-contract.md) for why the
+See [decision 003](../../../../../docs/decisions/003-metrics-label-contract.md) (metrics label contract) for why the
 query set is fixed rather than a PromQL passthrough.
 
 ## Endpoints

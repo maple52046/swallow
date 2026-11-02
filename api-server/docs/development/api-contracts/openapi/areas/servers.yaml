@@ -1238,7 +1238,7 @@ components:
           $ref: '#/components/schemas/ServerHardware'
         deployment:
           nullable: true
-          description: Swallow's result of its latest durable OS deployment; null when none is recorded.
+          description: swallow's result of its latest durable OS deployment; null when none is recorded.
           allOf:
             - $ref: '#/components/schemas/ServerDeploymentAxis'
         provisioning:
@@ -1317,7 +1317,7 @@ components:
           enum: [compute, display]
     ServerDeploymentAxis:
       type: object
-      description: Swallow's outcome of the most recent durable OS deployment on the Server.
+      description: swallow's outcome of the most recent durable OS deployment on the Server.
       required:
         - state
         - operationId

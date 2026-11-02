@@ -1,12 +1,12 @@
 ---
-# Post-boot amdgpu loader shared by every Swallow feature that schedules AMD GPUs (decision 062
+# Post-boot amdgpu loader shared by every swallow feature that schedules AMD GPUs (decision 062
 # for the GPU Operator, decision 063 for Slurm GPU GRES). An image may keep amdgpu out of the boot
 # path (modprobe.blacklist=amdgpu, AMD's guidance for Instinct hosts and SR-IOV guests); this unit
 # loads it once SSH is up, so a GPU probe that hangs never locks an operator out of the node.
 #
 # Driver module options (decision 063) never name a GPU model or a virtualization mode. They are
 # the operator's swallow_gpu_driver_module_options plus options a topology rule derives from what
-# the node's KFD reports, written to a Swallow-owned modprobe.d file before the driver loads; a
+# the node's KFD reports, written to a swallow-owned modprobe.d file before the driver loads; a
 # name the installed driver does not have is refused before anything loads. A rule is known only
 # once the driver is loaded, so a driver running with other parameters loads again: unloaded and
 # loaded in place when nothing holds it (the usual case, and the only one a RAM-deployed node can

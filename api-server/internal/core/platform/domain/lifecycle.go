@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// PlatformOrigin identifies whether Swallow registered a platform or deployed it.
+// PlatformOrigin identifies whether swallow registered a platform or deployed it.
 type PlatformOrigin string
 
 const (
@@ -71,7 +71,7 @@ type LifecycleReader interface {
 	Read(ctx context.Context, platformIDs []string) (map[string]LifecycleSnapshot, error)
 }
 
-// ManagedIntegrationCleaner deletes only a credential integration Swallow owns.
+// ManagedIntegrationCleaner deletes only a credential integration swallow owns.
 type ManagedIntegrationCleaner interface {
 	DeleteForPlatform(ctx context.Context, platform *Platform, allowLegacySignature bool) error
 }

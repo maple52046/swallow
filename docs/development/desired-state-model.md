@@ -6,8 +6,8 @@
 [software-deployment.md](software-deployment.md) 等）在此模型之下描述各功能的細節。
 
 > **本文件不重述決策**：為什麼由 swallow 擁有 desired state、為什麼採混合收斂，見
-> [decision 069](../decisions/069-swallow-owns-desired-state.md)。core、provider adapter 與擴充模組的邊界見
-> [core-and-extensions.md](core-and-extensions.md)（[decision 070](../decisions/070-core-providers-and-extensions.md)）。
+> [decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state）。core、provider adapter 與擴充模組的邊界見
+> [core-and-extensions.md](core-and-extensions.md)（[decision 070](../decisions/070-core-providers-and-extensions.md)（core providers and extensions））。
 
 > **目標模型與現況**：本文件描述目標模型與規則，不描述遷移路線。尚未遷移的功能維持現行行為，現行行為
 > 仍以各功能規格為準；某個功能遷移到本模型時，在同一個變更中更新它的規格。
@@ -81,7 +81,7 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 ### 3.4 swallow 永不擁有的事實
 
 以下事實由各自的系統擁有，swallow 即時讀取或深度連結，不保存、不收斂，也不產生 drift（與
-[decision 001](../decisions/001-system-ownership-boundaries.md) 相同）：
+[decision 001](../decisions/001-system-ownership-boundaries.md)（system ownership boundaries） 相同）：
 
 - metrics（時間序列）、alert 規則的評估與 firing 狀態、dashboard。
 - workload 的排程與佇列（Slurm、Kubernetes 的工作）。
@@ -131,7 +131,8 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 
 ### 4.4 已遷移的資源
 
-遷移依 [decision 071](../decisions/071-provisioner-realized-desired-state.md) 分段進行。第一段是由 provisioner
+遷移依 [decision 071](../decisions/071-provisioner-realized-desired-state.md)（provisioner realized desired state） 分兩段進行（遷移第一段、遷移第二段；與
+core-and-extensions.md §10 模組演進的「階段」無關）。遷移第一段是由 provisioner
 以短的呼叫實現的欄位。已遷移的資源與其規格列在下面，尚未列出的資源維持現行行為：
 
 | 資源 | spec | controller | 規格與契約 |
@@ -145,7 +146,7 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 | OS Image metadata | 每個 provider image 的名稱、OS、release、tags 與 `defaultUser` | 無：不需要 provider 實現，所以沒有 controller、generation 與 conditions；讀取時合併到 live catalog | glossary [OS Image](glossaries/terms/os-image.md)、[os-provisioning.md](os-provisioning.md) §4.1 |
 | Platform | type、拓樸、各 Server 的 Node Role、功能開關與版本（type 模組定義 schema） | Platform controller：接管最近一次部署的紀錄；非破壞性變更以 Workflow 收斂，破壞性變更產生 Change Plan（§5.2） | glossary [Platform](glossaries/terms/platform.md)、[platform-deployment.md](platform-deployment.md)、[platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md) |
 
-第一段的資源都已遷移；Platform 不屬於這兩段，另依 §5.2 遷移。第二段的資源（Power Configuration、Server Default
+遷移第一段的資源都已遷移；Platform 不屬於這兩段，另依 §5.2 遷移。遷移第二段的資源（Power Configuration、Server Default
 User、Boot Media）尚未遷移，維持現行行為。
 
 遷移後的資源共同遵守：
@@ -225,7 +226,7 @@ Managed Software 的版本升級仍待該功能遷移時定案。
 - **到期**：plan 有有限的有效期間，因為它依據的 observed 會變舊。
 - **一個資源同時只有一份未完成的 plan**：新的 spec 變更會讓尚未 apply 的 plan 轉為 `superseded`。
 - **apply**：產生一個 Workflow，Workflow 記錄 plan id；plan 記錄 Workflow id。
-- **實作**：[decision 076](../decisions/076-change-plans.md)（plan 存成 convergence 的獨立文件、由資源的 controller
+- **實作**：[decision 076](../decisions/076-change-plans.md)（change plans；plan 存成 convergence 的獨立文件、由資源的 controller
   重算後 apply、24 小時到期）；API 見 [change-plans.md](../../api-server/docs/development/api-contracts/api-server/change-plans.md)。
 
 ## 6. Drift 政策
@@ -323,7 +324,7 @@ execution 遺失不會出現在 change feed 上（[workflow-execution.md](workfl
 
 - adapter 宣告自己的 capability。有能力就實現 desired state；沒有能力時，controller 回報 `realized=false`、
   reason `capability_missing`，desired 值照樣保留。swallow 不再為沒有能力的 provider 建立同形狀的 fallback
-  （取代 [decision 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)）。
+  （取代 [decision 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)（provider capability first with swallow owned fallback））。
 - adapter 只回報 observed state，永遠不寫 desired state，也不決定政策。
 - adapter 把錯誤分成暫時性、永久性與缺少能力三類，由 controller 決定退避或放棄。
 - 目前以 write-through 方式設定的 provider 設定（HTTP Proxy、Subnet DNS、Power Configuration）遷移後是 swallow

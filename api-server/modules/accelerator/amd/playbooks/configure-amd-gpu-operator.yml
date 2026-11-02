@@ -1,5 +1,5 @@
 ---
-# Install, change, or remove the Swallow-managed AMD GPU Operator on a Swallow-deployed k0s
+# Install, change, or remove the swallow-managed AMD GPU Operator on a swallow-deployed k0s
 # Platform (decision 062). The intent arrives only through trusted variables
 # (swallow_amd_gpu_operator_*); the inventory is the Platform's deployment targets. No variable
 # names the nodes to manage: the operator's Node Feature Discovery decides, and the cluster play

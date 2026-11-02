@@ -65,7 +65,7 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
     return Object.fromEntries(servers.map((server) => [server.id, evaluateMinimumResourceEligibility(server.status, minimumResources)]))
   }, [servers, requirementState.status, minimumResources])
   const eligible = (serverId: string) => Boolean(eligibilityByServerId[serverId]?.eligible)
-  // More than one controller is HA; Swallow provisions the shared StateSaveLocation automatically.
+  // More than one controller is HA; swallow provisions the shared StateSaveLocation automatically.
   const selectedIds = Object.entries(daemons)
     .filter(([serverId, roles]) => (roles.controller || roles.compute || roles.login) && eligible(serverId))
     .map(([serverId]) => serverId)
@@ -343,7 +343,7 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
         ...(pmix ? { pmix: true } : {}),
         clusterName: clusterName.trim() || undefined,
         apiVersion: apiVersion.trim() || undefined,
-        // stateSaveLocation is intentionally omitted: Swallow provisions the HA shared
+        // stateSaveLocation is intentionally omitted: swallow provisions the HA shared
         // StateSaveLocation itself, so the wizard does not collect a path.
         nodeAssignments: selectedIds.map((serverId) => ({
           serverId,

@@ -309,7 +309,7 @@ func TestUninstallCancelActiveWorkflows(t *testing.T) {
 	}
 }
 
-// A Slurm platform deployed by Swallow can be uninstalled just like a Kubernetes one; the
+// A Slurm platform deployed by swallow can be uninstalled just like a Kubernetes one; the
 // launcher then selects the Slurm uninstall path from the platform type it receives.
 func TestUninstallAcceptsSlurmPlatform(t *testing.T) {
 	service, launcher, _, platform := newUninstallHarness(platformdomain.PlatformLifecycleActive)

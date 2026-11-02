@@ -988,7 +988,7 @@ func normalizedPreparation(preparation platformdomain.MachinePreparation) (platf
 // state the preparation mode converges from, unlocked, and neither claimed by nor a member of
 // another Platform; minimum, when set, is the Platform type's minimum resources. In provision_os
 // mode a batch may mix already-deployed Servers (used as-is) with ready ones (provisioned first,
-// ADR 017); only the ready ones are preflighted.
+// decision 017); only the ready ones are preflighted.
 func (s *DeployService) checkTargets(
 	ctx context.Context,
 	siteID string,
@@ -1298,7 +1298,7 @@ func addSlurmWorkloadVars(vars map[string]any, spec platformdomain.SlurmDeployme
 		// Ephemeral roots need a standalone tmpfs below the OverlayFS root because overlay
 		// itself is not exportable. That export is directly addressable via NFSv3; NFSv4
 		// would need a separately managed pseudo-root namespace. Keep this protocol choice
-		// scoped to the Swallow-managed server—external storage retains NFSv4 below.
+		// scoped to the swallow-managed server—external storage retains NFSv4 below.
 		vars[varSlurmWorkloadFstype] = "nfs"
 		if ws.NFSMountOptions == "" {
 			vars[varSlurmWorkloadMountOpts] = "rw,_netdev,hard,timeo=600,retrans=2,vers=3"
@@ -1358,7 +1358,7 @@ func buildDeviceMetricsExporterVars(
 }
 
 // slurmGPUComputeIDs returns, in request order, the compute Servers whose GPU Inventory has AMD
-// compute GPUs; those become Slurm GPU nodes (decision 063). The selection reads Swallow's
+// compute GPUs; those become Slurm GPU nodes (decision 063). The selection reads swallow's
 // provider-observed inventory rather than probing hosts, like the GPU Operator's eligibility
 // check, and the playbook then proves each selected host really exposes GPUs through KFD. A
 // controller-only or login-only Server never gets GRES because it runs no slurmd. The result is

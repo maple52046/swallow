@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-// lab-afde-mi308-3: a UEFI Server whose layout was built while it booted BIOS failed every disk
+// vm-gpu-03: a UEFI Server whose layout was built while it booted BIOS failed every disk
 // deployment, and retrying redeployed onto the same layout. The detail page now names the cause and
 // offers the inspection that rebuilds the layout, and no longer promises that a retry redeploys it.
 test('a Server whose layout needs a new inspection explains it and offers Inspect', async ({ page }) => {

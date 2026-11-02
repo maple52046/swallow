@@ -12,7 +12,7 @@ Active
 
 - Prometheus (per-site), via `http_sd_config`
 - `cli` (the `swallow` operator command-line client)
-- Swallow installation tooling
+- swallow installation tooling
 - External Ansible diagnostics and tools (the Ansible inventory route)
 
 ## Purpose
@@ -35,7 +35,7 @@ identical inventory through the same use case without calling HTTP.
 - [Server Lock](../../../../../docs/development/glossaries/terms/server-lock.md)
 - [Exporter Ownership](../../../../../docs/development/glossaries/terms/exporter-ownership.md)
 
-See also [decision 003](../../../../../docs/decisions/003-metrics-label-contract.md) for the
+See also [decision 003](../../../../../docs/decisions/003-metrics-label-contract.md) (metrics label contract) for the
 label contract and monitoring topology.
 
 ## Endpoints
@@ -187,7 +187,7 @@ authentication section; `500 internal_error` for an unexpected failure.
 - The label set is a contract: adding a label used to identify a server is a decision
   document ([decision 003](../../../../../docs/decisions/003-metrics-label-contract.md)),
   not a compatible response change.
-- Since 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md),
+- Since 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases),
   breaking) the one-release `cluster` alias of `platform_id` is no longer emitted; scrape configs
   and queries read `platform_id`.
 - The Ansible inventory route predates this section, which documents it as implemented.

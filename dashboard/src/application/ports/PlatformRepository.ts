@@ -47,7 +47,7 @@ export interface PlatformRepository {
    * the members.
    */
   deletePlatform(id: string, options?: UninstallPlatformOptions): Promise<PlatformChangeResult>
-  /** Delete only the Swallow record and owned projections; hosts are untouched. */
+  /** Delete only the swallow record and owned projections; hosts are untouched. */
   deletePlatformRecord(id: string): Promise<void>
   /** Read the platform's membership now instead of waiting for the background interval. */
   syncPlatform(id: string): Promise<MembershipReport>
@@ -63,7 +63,7 @@ export interface PlatformRepository {
   getSlurmDeploymentRequirement(): Promise<SlurmDeploymentRequirement>
   /** Replaces the Slurm eligibility floor, or disables it when minimum is null. */
   putSlurmDeploymentRequirement(minimum: MinimumResources | null): Promise<SlurmDeploymentRequirement>
-  /** The AMD GPU Operator releases Swallow ships, newest first; the source of `version` choices. */
+  /** The AMD GPU Operator releases swallow ships, newest first; the source of `version` choices. */
   listGPUOperatorReleases(): Promise<GPUOperatorRelease[]>
   /**
    * Installs, changes, or (with `{ enabled: false }`) uninstalls a Kubernetes Platform's GPU
@@ -74,7 +74,7 @@ export interface PlatformRepository {
   configureGPUOperator(id: string, settings: GPUOperatorSettings): Promise<PlatformChangeResult>
 
   /**
-   * The live Kubernetes cluster explorer for a Swallow-deployed Kubernetes Platform. Every call
+   * The live Kubernetes cluster explorer for a swallow-deployed Kubernetes Platform. Every call
    * reads or writes the deployed cluster's own API on demand and persists nothing. A Platform
    * that is not an eligible deployed Kubernetes cluster (a legacy registered record, a
    * non-Kubernetes type, or one without a recorded credential) rejects these calls, which the

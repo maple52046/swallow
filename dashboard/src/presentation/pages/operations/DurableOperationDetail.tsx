@@ -696,7 +696,7 @@ function stepServerTarget(step: OperationStep): string | undefined {
 }
 
 /**
- * Explains that a provisioner/internal Step drives the provider (or records a Swallow fact) through
+ * Explains that a provisioner/internal Step drives the provider (or records a swallow fact) through
  * API calls and therefore has no Ansible stdout — so the Stdout tab is not blank by accident. It
  * points to the sibling tabs (Stderr for the outcome, Events for the provider's event timeline) on
  * this same page; it deliberately does not link back to the Server, which would loop the operator
@@ -721,7 +721,7 @@ function ProviderStepNote({ hasServerTarget }: { hasServerTarget: boolean }) {
  * the closest thing to "what happened" for a step that runs no Ansible, and it is shown here — on
  * the Operation the operator is already looking at — rather than linking back to the Server, so
  * there is no Server-to-Operation-to-Server navigation loop. It is provider-retained history, not a
- * complete Swallow audit log.
+ * complete swallow audit log.
  */
 function StepProviderEvents({ serverId }: { serverId: string }) {
   const { servers } = useApp()

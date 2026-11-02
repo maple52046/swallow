@@ -9,7 +9,7 @@
 
   | Value | Meaning |
   | --- | --- |
-  | `ansible` | swallow installs the exporter as a host container via the Swallow-owned Ansible executor |
+  | `ansible` | swallow installs the exporter as a host container via the swallow-owned Ansible executor |
   | `k8s` | a Kubernetes DaemonSet installs the exporter on the node |
   | `unmanaged` | swallow does not manage exporters here: the operator installed something by hand, or the machine is locked |
 
@@ -25,7 +25,7 @@
   `ansible` and then skip it; it is `unmanaged` by definition.
 - Synonyms: None. "Exporter owner" is the same concept.
 - Deprecated terms: None. This supersedes the earlier fixed rule in
-  [decision 003](../../../decisions/003-metrics-label-contract.md) that the host
+  [decision 003](../../../decisions/003-metrics-label-contract.md) (metrics label contract) that the host
   node-exporter always stays and a platform DaemonSet is always disabled.
 - Examples: "A deployed CPU server in no platform has effective owner `ansible`, so
   reaching `deployed` auto-installs node-exporter." / "When a platform's `exporterOwner`

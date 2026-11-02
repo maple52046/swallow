@@ -9,6 +9,6 @@ const (
 	SettingTimeout            = "timeout"
 	SettingInsecureSkipVerify = "insecureSkipVerify"
 	// SettingCACertificate is the PEM CA the Platform API's certificate is verified against. A
-	// deployment that returns its cluster CA records it instead of insecureSkipVerify (DF-01).
+	// deployment that returns its cluster CA records it instead of insecureSkipVerify.
 	SettingCACertificate = "caCertificate"
 )

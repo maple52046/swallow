@@ -65,7 +65,7 @@ function validIPv4(value: string): boolean {
   return octets.length === 4 && octets.every((octet) => /^(0|[1-9]\d{0,2})$/.test(octet) && Number(octet) <= 255)
 }
 
-/** Typed NIC and subnet-link management owned by Swallow's provisioning contract. */
+/** Typed NIC and subnet-link management owned by swallow's provisioning contract. */
 export function ServerNetworkTab() {
   const { server } = useServerDetailContext()
   const { servers } = useApp()

@@ -6,15 +6,15 @@ import (
 	"time"
 )
 
-// Omnistat on a Swallow-deployed Slurm Platform (decision 063, glossary Omnistat). The exporter and
+// Omnistat on a swallow-deployed Slurm Platform (decision 063, glossary Omnistat). The exporter and
 // the Slurm job attribution belong to the Platform; Prometheus and Grafana are Managed Software the
 // same deployment composes onto the observability Server (the primary controller).
 const (
-	// OmnistatVersion is the Omnistat release Swallow installs. The playbook pins its source archive,
+	// OmnistatVersion is the Omnistat release swallow installs. The playbook pins its source archive,
 	// SR-IOV compatibility patch, and Python dependency set per version.
 	OmnistatVersion = "1.15.0"
 	// OmnistatExporterPort is where every compute node's exporter listens. It must not be one of the
-	// host exporter ports Swallow scrapes (9100 node, 5000 RDC), decision 003.
+	// host exporter ports swallow scrapes (9100 node, 5000 RDC), decision 003.
 	OmnistatExporterPort = 8001
 	// OmnistatGrafanaLinkName is the Monitoring Link a successful install registers and an
 	// uninstall removes; other links stay operator-owned.
@@ -25,7 +25,7 @@ const (
 	OmnistatDashboardBundle = "omnistat"
 )
 
-// OmnistatState is where the latest Swallow change to a Platform's Omnistat stands, projected from
+// OmnistatState is where the latest swallow change to a Platform's Omnistat stands, projected from
 // the Workflow Task that installs it. Values are the glossary's Omnistat State.
 type OmnistatState string
 
@@ -53,7 +53,7 @@ func NormalizeOmnistatSettings(settings OmnistatSettings) (OmnistatSettings, err
 	return OmnistatSettings{Enabled: settings.Enabled, InstallMethod: method}, nil
 }
 
-// Omnistat is the Platform's Swallow-managed Omnistat record. ObservabilityServerID names the
+// Omnistat is the Platform's swallow-managed Omnistat record. ObservabilityServerID names the
 // Server running Prometheus and Grafana, installed by InstallMethod. LastWorkflowID is the fence:
 // only that Workflow's Task may move the State. Written only through OmnistatRecorder, never by a
 // Platform Update.
@@ -67,7 +67,7 @@ type Omnistat struct {
 	UpdatedAt             time.Time
 }
 
-// Managed reports whether Swallow currently manages Omnistat on the Platform. A nil record (never
+// Managed reports whether swallow currently manages Omnistat on the Platform. A nil record (never
 // enabled) and an absent one (uninstalled) are both unmanaged.
 func (o *Omnistat) Managed() bool {
 	return o != nil && o.State != OmnistatAbsent

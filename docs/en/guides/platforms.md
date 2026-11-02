@@ -98,7 +98,7 @@ time you change the operator.
 
 The operator uses the GPU driver that the OS image provides, so choose an image
 with the `amdgpu` driver. If the image does not load `amdgpu` at boot (some
-Instinct and SR-IOV images blacklist it on purpose), Swallow loads it on each
+Instinct and SR-IOV images blacklist it on purpose), swallow loads it on each
 managed node and keeps loading it after every reboot, once SSH is up; Kubernetes
 starts after it. The deployment succeeds only when every
 managed node exposes its GPUs. The Switch is unavailable, with a textual reason,

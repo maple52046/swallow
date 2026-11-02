@@ -31,7 +31,7 @@ var compiledModules = []func() (moduledomain.Module, error){
 	dockerce.Module, podman.Module, nfs.Module, prometheus.Module, grafana.Module, devicemetricsexporter.Module,
 }
 
-// moduleRegistry returns the registry of the modules compiled into this build (ADR 075). api,
+// moduleRegistry returns the registry of the modules compiled into this build (decision 075). api,
 // worker, and ansible-executor all build it here, so they agree on which modules, Workflow kinds,
 // and completion types exist; a module that breaks the contract stops the process.
 func moduleRegistry() (*moduledomain.Registry, error) {

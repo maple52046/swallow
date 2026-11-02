@@ -8,7 +8,7 @@ import { formatBytes } from '@/shared/utils/bytes'
 /** Alertmanager state exposed by the active alerts contract. */
 export type MonitoringAlertState = 'firing' | 'suppressed' | 'unknown'
 
-/** One Alertmanager alert with optional Swallow resource correlation. */
+/** One Alertmanager alert with optional swallow resource correlation. */
 export interface MonitoringAlert {
   /** Alertmanager fingerprint. It is opaque and cannot be used as a silence matcher. */
   fingerprint: string

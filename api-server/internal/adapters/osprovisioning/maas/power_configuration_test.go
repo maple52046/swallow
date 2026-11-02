@@ -59,14 +59,14 @@ func newPowerFake(t *testing.T, machine string, paramsStatus int, params string,
 
 func TestPowerConfiguration_ReadsDriverAndParameters(t *testing.T) {
 	fake := newPowerFake(t, `{"system_id":"abc123","power_type":"virsh","pod":null}`, http.StatusOK,
-		`{"power_address":"qemu+ssh://maas@tainan-ci/system","power_id":"simple-pig","power_pass":"pw","k_g":"must-not-load"}`,
+		`{"power_address":"qemu+ssh://maas@hv-01/system","power_id":"simple-pig","power_pass":"pw","k_g":"must-not-load"}`,
 		http.StatusOK, `{}`)
 	got, err := newTestProvider(t, fake.fakeMAAS).PowerConfiguration(context.Background(), "abc123")
 	if err != nil {
 		t.Fatalf("PowerConfiguration error = %v", err)
 	}
 	want := provisioningdomain.PowerConfiguration{
-		Driver: provisioningdomain.PowerDriverVirsh, Address: "qemu+ssh://maas@tainan-ci/system", PowerID: "simple-pig", Password: "pw",
+		Driver: provisioningdomain.PowerDriverVirsh, Address: "qemu+ssh://maas@hv-01/system", PowerID: "simple-pig", Password: "pw",
 	}
 	if *got != want {
 		t.Errorf("PowerConfiguration = %+v, want %+v", *got, want)
@@ -114,10 +114,10 @@ func TestSetPowerConfiguration_MapsFieldsAndPassword(t *testing.T) {
 			name:    "a new virsh driver clears any previous password",
 			current: "",
 			change: provisioningdomain.PowerConfigurationChange{
-				Driver: provisioningdomain.PowerDriverVirsh, Address: "qemu+ssh://maas@tainan-ci/system", PowerID: "simple-pig",
+				Driver: provisioningdomain.PowerDriverVirsh, Address: "qemu+ssh://maas@hv-01/system", PowerID: "simple-pig",
 			},
 			want: map[string]string{
-				"power_type": "virsh", "power_parameters_power_address": "qemu+ssh://maas@tainan-ci/system",
+				"power_type": "virsh", "power_parameters_power_address": "qemu+ssh://maas@hv-01/system",
 				"power_parameters_power_id": "simple-pig", "power_parameters_power_pass": "",
 			},
 		},

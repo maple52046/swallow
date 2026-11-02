@@ -12,7 +12,7 @@ import (
 
 var _ provisioningdomain.InstallationFailureReader = (*Provider)(nil)
 
-// curtinPartitionFailureLog is an excerpt of lab-afde-mi308-3's install.log (MAAS installation
+// curtinPartitionFailureLog is an excerpt of vm-gpu-03's install.log (MAAS installation
 // result 557): curtin could not create partition 2 on a UEFI layout that had no partition 1.
 const curtinPartitionFailureLog = `curtin: Installation started. (23.1.1-1118-g3977ce90-0ubuntu1~ubuntu24.04.1)
 start: cmd-install/stage-partitioning/builtin/cmd-block-meta: curtin command block-meta

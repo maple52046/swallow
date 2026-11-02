@@ -66,7 +66,7 @@ Dependency direction:
   shows as top-level columns and whose `conditions` it shows as `type=status`.
 - **hostenroll** — the one exception to "the CLI only talks to api-server".
   `swallow servers enroll` runs on a host that keeps its OS and registers it with
-  its provisioner (decision 053), because hardware facts can only be read on that
+  its provisioner ([decision 053](../../../docs/decisions/053-server-enrollment-and-automatic-inspection.md) (server enrollment and automatic inspection)), because hardware facts can only be read on that
   host. The package downloads and runs the provisioner's own tooling (MAAS
   `maas-run-scripts`) with the endpoint and credential from api-server's
   enrollment bundle, never calls api-server, and never persists or prints the

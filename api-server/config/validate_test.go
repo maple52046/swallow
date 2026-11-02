@@ -51,7 +51,7 @@ func TestValidate_BootMedia(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "unset", baseURL: ""},
-		{name: "http host", baseURL: "http://10.170.168.20"},
+		{name: "http host", baseURL: "http://10.140.168.20"},
 		{name: "trailing slash", baseURL: "http://swallow.lab/"},
 		{name: "https with port", baseURL: "https://swallow.lab:8443"},
 		{name: "has a path", baseURL: "http://swallow.lab/boot", wantErr: true},
@@ -84,14 +84,14 @@ func TestValidate_NTPServer(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "unset", server: ""},
-		{name: "IPv4", server: " 10.170.168.20 "},
+		{name: "IPv4", server: " 10.140.168.20 "},
 		{name: "IPv6", server: "fd00::20"},
 		{name: "DNS name", server: "swallow.lab.example"},
 		{name: "single label", server: "swallow"},
-		{name: "port", server: "10.170.168.20:123", wantErr: true},
-		{name: "chrony option", server: "10.170.168.20 iburst", wantErr: true},
-		{name: "URL", server: "ntp://10.170.168.20", wantErr: true},
-		{name: "mistyped IPv4", server: "10.170.168.256", wantErr: true},
+		{name: "port", server: "10.140.168.20:123", wantErr: true},
+		{name: "chrony option", server: "10.140.168.20 iburst", wantErr: true},
+		{name: "URL", server: "ntp://10.140.168.20", wantErr: true},
+		{name: "mistyped IPv4", server: "10.140.168.256", wantErr: true},
 		{name: "two servers", server: "10.0.0.1,10.0.0.2", wantErr: true},
 	}
 	for _, tc := range tests {

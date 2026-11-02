@@ -1,7 +1,7 @@
 import { Navigate, useLocation, useParams } from 'react-router-dom'
 
 /**
- * Redirects former Operation URLs to the canonical Workflow routes (ADR 017),
+ * Redirects former Operation URLs to the canonical Workflow routes (decision 017),
  * preserving detail identity, query scope, and hash.
  */
 export function LegacyWorkflowRedirect() {

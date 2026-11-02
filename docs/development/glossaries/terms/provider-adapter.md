@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "The MAAS adapter maps MAAS Commissioning onto `inspecting`." / "The MAAS rack's boot port belongs in the MAAS adapter, not in the Boot ISO domain."
 - Related terms: Provider Interface, OS Provisioning Provider, Integration, Observed State, Extension Module, Support Matrix.
-- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md); MAAS and Temporal are adapters, not part of the core.
+- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md) (core providers and extensions); MAAS and Temporal are adapters, not part of the core.

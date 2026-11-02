@@ -17,7 +17,7 @@ Active
 
 Manage the caller's **API Keys**: named, long-lived secrets that let a non-interactive client
 (the CLI, scripts, CI) call the swallow API as the caller without a password login. See
-[decision 042](../../../../../docs/decisions/042-authentication-sessions-and-api-keys.md).
+[decision 042](../../../../../docs/decisions/042-authentication-sessions-and-api-keys.md) (authentication sessions and api keys).
 
 Base path, bearer authentication, error envelope, and timestamps follow
 [conventions.md](conventions.md); only endpoint-specific behavior is described below.

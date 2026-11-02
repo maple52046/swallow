@@ -1,7 +1,7 @@
 ---
 # Load an already loaded amdgpu driver again so it takes the options file (its parameters are read
 # only at load). A driver nothing holds is unloaded and loaded in place, which keeps a RAM-deployed
-# node's operating system; this is the usual case, since Swallow loaded the driver moments earlier
+# node's operating system; this is the usual case, since swallow loaded the driver moments earlier
 # and nothing has opened a GPU yet. A driver still held is applied by a reboot on a disk root and
 # refused on a memory-backed root, whose operating system a reboot would erase.
 

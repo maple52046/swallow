@@ -12,7 +12,7 @@ import (
 
 const testInspectionReason = "MAAS boots this Server with UEFI, but its storage layout has no EFI system partition."
 
-// TestDiskDeploymentRefusesLayoutThatNeedsInspection guards lab-afde-mi308-3: a layout the
+// TestDiskDeploymentRefusesLayoutThatNeedsInspection guards vm-gpu-03: a layout the
 // provider flags as needing a new inspection failed every disk deployment in curtin after
 // minutes of work. The deployment preflight that acceptance, platform validation, and Step
 // execution share refuses it before any provider write; a memory deployment never partitions

@@ -23,7 +23,7 @@ func (p *Provider) action(ctx context.Context, machineID, operation string) (*pr
 
 // DeleteMachine permanently removes one MAAS Machine without adding force=true.
 //
-// A refusal is returned to the caller so MAAS safeguards remain visible and the Swallow
+// A refusal is returned to the caller so MAAS safeguards remain visible and the swallow
 // projection can be retained. The provider returns no representation after deletion.
 func (p *Provider) DeleteMachine(ctx context.Context, machineID string) error {
 	if err := p.client.delete(ctx, machinePath(machineID)); err != nil {

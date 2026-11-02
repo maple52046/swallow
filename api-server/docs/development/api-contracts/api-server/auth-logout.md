@@ -16,7 +16,7 @@ Active
 ## Purpose
 
 Ends a Session on the server: its refresh token stops working immediately. See
-[decision 042](../../../../../docs/decisions/042-authentication-sessions-and-api-keys.md).
+[decision 042](../../../../../docs/decisions/042-authentication-sessions-and-api-keys.md) (authentication sessions and api keys).
 
 ## Related Glossary Terms
 

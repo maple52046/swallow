@@ -38,7 +38,7 @@ import (
 // `platformId`, and the `cluster` integration kind becomes `platform`. Document IDs
 // are preserved.
 //
-// v4 renames the durable Operation persistence to Workflow (ADR 017): schema-v3 operation
+// v4 renames the durable Operation persistence to Workflow (decision 017): schema-v3 operation
 // documents move from the shared `operations` collection into a dedicated `workflows`
 // collection with `steps`->`tasks` and each task's `executor`->`runner`, and the
 // `operation_events` / `operation_secrets` collections become `workflow_events` /
@@ -541,7 +541,7 @@ func renamePlatformIndexes(ctx context.Context, db *mongo.Database) error {
 	return nil
 }
 
-// migrateV3ToV4 renames the durable Operation persistence to Workflow (ADR 017). It is
+// migrateV3ToV4 renames the durable Operation persistence to Workflow (decision 017). It is
 // idempotent: schema-v3 documents are upserted into `workflows` by _id and only removed
 // from `operations` after they are safely copied, so an interrupted run resumes cleanly.
 // Schema-v2 documents are left in `operations` for read compatibility.

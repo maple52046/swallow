@@ -58,7 +58,7 @@ every response field with its nullability — is the OpenAPI contract
 
 `POST /servers/{id}/lock` and `/unlock` return `202` with the accepted provisioning
 snapshot and immediately update `provisioning.locked`. MAAS remains the source and
-executor of that state; Swallow does not persist a second lock. MAAS only accepts Lock for a deployed Machine, so Swallow exposes Lock only in the `deployed` state and returns a clear `409 conflict` before calling the provider in every other state. The in-progress provisioning states `inspecting`, `deploying`, `releasing`, and `testing`, an Operation, or a Provisioning Task are also explicit conflicts. Unlock is always explicit and never resumes work.
+executor of that state; swallow does not persist a second lock. MAAS only accepts Lock for a deployed Machine, so swallow exposes Lock only in the `deployed` state and returns a clear `409 conflict` before calling the provider in every other state. The in-progress provisioning states `inspecting`, `deploying`, `releasing`, and `testing`, an Operation, or a Provisioning Task are also explicit conflicts. Unlock is always explicit and never resumes work.
 
 Every state-changing action except Unlock performs a live lock check before touching
 the provider. A locked Server returns `409 conflict` naming the Server and directing the
@@ -70,9 +70,9 @@ explicitly reports that its Machine is already absent.
 ## Operator State and Provider Recovery
 
 `mark-broken`, `mark-fixed`, `rescue-mode`, and `exit-rescue-mode` are advanced provider
-primitives. Swallow gates each on the Server's live provisioning state before calling the
-provisioner and returns a Swallow-authored `409 conflict` when the state does not allow it,
-instead of forwarding the provider's own rejection text (decision 033):
+primitives. swallow gates each on the Server's live provisioning state before calling the
+provisioner and returns a swallow-authored `409 conflict` when the state does not allow it,
+instead of forwarding the provider's own rejection text ([decision 033](../../../../../docs/decisions/033-provider-recovery-policy.md) (provider recovery policy)):
 
 - `mark-fixed` is accepted only from `broken`. From `failed` or any other state it is
   refused with a reason directing the operator to Recover or Release.
@@ -140,7 +140,7 @@ The provisioning snapshot that refresh and the accepted lifecycle actions return
 `errorDescription`, `deployedImageName`, `deployedImageDefaultUser`, or `integrationId`.
 
 The live detail describes the Machine's power driver by its driver family
-([decision 054](../../../../../docs/decisions/054-provisioner-power-configuration.md)).
+([decision 054](../../../../../docs/decisions/054-provisioner-power-configuration.md) (provisioner power configuration)).
 A Machine whose driver belongs to the `bmc` family (`ipmi`, `redfish`) and that is not a member
 of a provisioner VM host may include a `BMC` section. MAAS-backed detail reads its connection configuration from the admin-only
 `power_parameters` operation rather than expecting it in the ordinary Machine response. Its
@@ -185,15 +185,15 @@ while `verifying`, the SSH-readiness wait. Clients show these as progress, never
 and must not branch on the human-readable `statusReason`.
 
 `DELETE /servers/{id}` is provider-first and synchronous. It resolves the Server's
-provisioner, deletes the backing Machine, and only then removes the Swallow projection.
-If the provisioner reports that the Machine is already missing, Swallow removes the stale
+provisioner, deletes the backing Machine, and only then removes the swallow projection.
+If the provisioner reports that the Machine is already missing, swallow removes the stale
 projection and still succeeds. Provider refusal, authentication failure, or unavailability
-leaves the projection intact. Swallow never adds a provider-specific force flag implicitly;
+leaves the projection intact. swallow never adds a provider-specific force flag implicitly;
 an operator must resolve any provider safeguard before retrying. Success is `204 No Content`.
 
 A Server a Platform claims (its `platformClaim`, see
 [servers-list.md](servers-list.md#platform-claim) and
-[decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)) is refused with
+[decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md) (platform claim on server)) is refused with
 `409 conflict` before the provisioner is called, whatever its state and even when its Machine is
 already gone: deleting it would take a node out from under that Platform. The message names the
 Server and the Platform, for example `Server gpu-node-01 belongs to kubernetes Platform
@@ -219,12 +219,12 @@ refinement requests a full zero overwrite. `secureErase` requests the device
 hardware erase command; `quickErase` wipes only the beginning and end of each
 disk and is not secure. When both are true, MAAS prefers secure erase and uses
 quick erase when secure erase is unavailable. `secureErase` and `quickErase`
-require `erase=true`. Swallow never accepts or forwards MAAS `force`, so
+require `erase=true`. swallow never accepts or forwards MAAS `force`, so
 provider safeguards remain authoritative. A provider without configurable
 release support can still accept the parameterless form and refuses non-default
 options with `400 validation_error`.
 
-`unbindStaticIPs` defaults to false. When true, Swallow persists a
+`unbindStaticIPs` defaults to false. When true, swallow persists a
 release-network-cleanup Provisioning Task before asking the provider to release
 the Machine. The accepted provisioning response adds optional `taskId`. The task
 waits until the Server is Ready, then removes only unchanged static links from
@@ -330,7 +330,7 @@ Server has beyond switching power:
 
 | Driver | Family | Parameters | Notes |
 | --- | --- | --- | --- |
-| `ipmi` | `bmc` | `address` (required), `username`, `password` | A BMC. Redfish Boot Media is a function of the BMC, probed independently of the driver (decision 047). |
+| `ipmi` | `bmc` | `address` (required), `username`, `password` | A BMC. Redfish Boot Media is a function of the BMC, probed independently of the driver ([decision 047](../../../../../docs/decisions/047-redfish-boot-media.md) (redfish boot media)). |
 | `redfish` | `bmc` | `address` (required), `username`, `password` | The provisioner switches power over Redfish. Not the same as Redfish Boot Media. |
 | `virsh` | `virsh` | `address` (required), `powerId` (required), `password` | A libvirt virtual machine. No BMC; Boot Media uses the `libvirt` method when its hypervisor is a swallow Server. |
 
@@ -350,7 +350,7 @@ reports, such as a VM host's own driver).
   "driver": "virsh",
   "family": "virsh",
   "control": "automatic",
-  "address": "qemu+ssh://maas@tainan-ci.lab/system",
+  "address": "qemu+ssh://maas@hv-01.example/system",
   "powerId": "simple-pig",
   "username": "",
   "passwordSet": false,
@@ -385,7 +385,7 @@ returns `200 OK` with the Read shape, read back from the provisioner after the w
 ```json
 {
   "driver": "virsh",
-  "address": "qemu+ssh://maas@tainan-ci.lab/system",
+  "address": "qemu+ssh://maas@hv-01.example/system",
   "powerId": "simple-pig",
   "password": "optional"
 }
@@ -491,8 +491,8 @@ swallow starts a new OS deployment on the Server and when the Server is observed
 Boot Media is a Server's setting that a Boot ISO is attached to it and booted first, so a Server
 on a network whose DHCP is not the provisioner's still reaches the provisioner
 ([decision 047](../../../../../docs/decisions/047-redfish-boot-media.md),
-[decision 049](../../../../../docs/decisions/049-boot-iso-builder.md),
-[decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md)). Boot ISOs
+[decision 049](../../../../../docs/decisions/049-boot-iso-builder.md) (boot iso builder),
+[decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md) (libvirt virtual machine enrollment)). Boot ISOs
 are built in swallow per provisioner Integration ([boot-isos.md](boot-isos.md)); per Server, swallow
 owns whether Boot Media is enabled, which Boot ISO it uses, and the outcome of the last apply.
 
@@ -540,8 +540,8 @@ installations publish `/boot-media/` there. The former fixed route
   "method": "redfish",
   "image": {
     "id": "6b3f0c1e-…",
-    "name": "tainan-rack",
-    "url": "http://10.170.168.20/boot-media/ipxe/6b3f0c1e-…/swallow-ipxe.iso",
+    "name": "south-rack",
+    "url": "http://10.140.168.20/boot-media/ipxe/6b3f0c1e-…/swallow-ipxe.iso",
     "available": true
   },
   "setting": {
@@ -555,7 +555,7 @@ installations publish `/boot-media/` there. The former fixed route
   },
   "redfish": {
     "support": "supported",
-    "serviceRoot": "https://10.170.168.230/redfish/v1",
+    "serviceRoot": "https://10.140.168.230/redfish/v1",
     "vendor": "AMI",
     "product": "AMI Redfish Server",
     "redfishVersion": "1.15.1",
@@ -568,7 +568,7 @@ installations publish `/boot-media/` there. The former fixed route
   "libvirt": null,
   "live": {
     "mediaInserted": true,
-    "mediaImage": "//10.170.168.20/boot-media/ipxe/6b3f0c1e-…/swallow-ipxe.iso/swallow-ipxe.iso",
+    "mediaImage": "//10.140.168.20/boot-media/ipxe/6b3f0c1e-…/swallow-ipxe.iso/swallow-ipxe.iso",
     "overrideEnabled": "Once",
     "overrideTarget": "UefiBootNext",
     "ready": true
@@ -607,7 +607,7 @@ installations publish `/boot-media/` there. The former fixed route
     "support": "supported",
     "hypervisorServerId": "server-id",
     "account": "ubuntu",
-    "domain": "lab-afde-mi308-1",
+    "domain": "vm-gpu-01",
     "pool": "default",
     "cdrom": true,
     "probedAt": "2026-10-09T03:00:00Z"
@@ -738,19 +738,19 @@ provider's raw value otherwise, so one malformed event does not hide the rest.
 
 An adapter without machine-event support returns `200` with `supported:false` and an
 empty `events` array. A provider read failure uses the common error envelope and does
-not alter the Server projection. These are provider events, not a claim that Swallow
+not alter the Server projection. These are provider events, not a claim that swallow
 owns a complete durable audit trail.
 
 ## Compatibility Notes
 
-On 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md),
+On 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases),
 breaking) the deprecated `POST /servers/{id}/deploy` and `POST /servers/{id}/release` were removed;
 deploy and release through `POST /provisioning/deployment-operations` and `POST
 /provisioning/release-operations`.
 
 On 2026-10-04 `POST /servers/{id}/commission` was renamed to `POST /servers/{id}/inspect`
 with the same behavior, and the provisioning state `commissioning` became `inspecting`
-([decision 048](../../../../../docs/decisions/048-os-provisioning-generic-states.md)). The old
+([decision 048](../../../../../docs/decisions/048-os-provisioning-generic-states.md) (os provisioning generic states)). The old
 route is removed rather than aliased; clients move to `inspect` in the same release.
 
 On 2026-10-05 the Boot Media Read gained `apply` (the running preflight's progress), and a second
@@ -758,7 +758,7 @@ Boot Media write while a preflight runs is refused with `409`. Both are additive
 that ignore unknown fields.
 
 On 2026-10-06 `inspect` became an `inspect-hardware` Workflow
-([decision 053](../../../../../docs/decisions/053-server-enrollment-and-automatic-inspection.md)).
+([decision 053](../../../../../docs/decisions/053-server-enrollment-and-automatic-inspection.md) (server enrollment and automatic inspection)).
 The response keeps the provisioning snapshot and adds `workflowId` and `resumed`; the snapshot
 now shows the state before inspection starts rather than the provider's accepted state. Inspect
 from `deployed`, `allocated`, `rescue`, `retired`, or an in-progress state, and Inspect while
@@ -789,6 +789,6 @@ provisioner without network configuration, the Deploy route's Deployment Key req
 `.000000Z` was never emitted), a `null` Power Configuration `password`, and the empty
 `observedAt`/`powerState` an inspect snapshot can carry are now written down.
 
-On 2026-10-31 (DF-05, breaking) a provisioner without network configuration began answering the
+On 2026-10-31 (breaking) a provisioner without network configuration began answering the
 network routes and a release with `unbindStaticIPs` with `400 validation_error`, like every other
 unsupported capability; it was `409 conflict`.

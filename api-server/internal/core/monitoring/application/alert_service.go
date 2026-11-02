@@ -33,7 +33,7 @@ type AlertItem struct {
 }
 
 // SiteLookup reports whether a Site exists, so an alert read or acknowledgement scoped to a Site
-// that does not exist is not_found rather than "no metrics backend" (DF-05).
+// that does not exist is not_found rather than "no metrics backend".
 type SiteLookup interface {
 	SiteExists(ctx context.Context, siteID string) (bool, error)
 }
@@ -141,7 +141,7 @@ type AcknowledgeInput struct {
 	Comment  string
 }
 
-// Acknowledge silences the alert the fingerprint names (DF-14). The silence matches the
+// Acknowledge silences the alert the fingerprint names. The silence matches the
 // requested matchers, each of which must be a label of that alert so the silence always covers
 // it, or, without matchers, the alert's full label set. ErrAlertNotFound is a fingerprint the
 // Alertmanager does not report; ErrInvalidMatchers is a matcher the alert does not carry.

@@ -37,7 +37,7 @@ func seedPlatform(t *testing.T, f *platformFixture, id, name, gpuStackOwner stri
 	return platform
 }
 
-// Registering an existing platform was removed in decision 032: Swallow manages only
+// Registering an existing platform was removed in decision 032: swallow manages only
 // self-deployed platforms. POST /api/v1/platforms/ creates a Platform from a spec that swallow then
 // installs, so the former register-existing body, which has no spec, is refused.
 func TestRegisterPlatform_RouteRemoved(t *testing.T) {

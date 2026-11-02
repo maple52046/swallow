@@ -96,15 +96,15 @@ func TestBMCPowerAdapterBMCAccess(t *testing.T) {
 
 func TestVirshPowerAdapterNormalize(t *testing.T) {
 	virsh, _ := DefaultPowerAdapters().ForDriver(PowerDriverVirsh)
-	valid := PowerConfigurationChange{Driver: PowerDriverVirsh, Address: " qemu+ssh://maas@tainan-ci.lab/system ", PowerID: " simple-pig "}
+	valid := PowerConfigurationChange{Driver: PowerDriverVirsh, Address: " qemu+ssh://maas@hv-01.example/system ", PowerID: " simple-pig "}
 	got, err := virsh.Normalize(valid)
 	if err != nil {
 		t.Fatalf("Normalize(valid) error = %v", err)
 	}
-	if got.Address != "qemu+ssh://maas@tainan-ci.lab/system" || got.PowerID != "simple-pig" {
+	if got.Address != "qemu+ssh://maas@hv-01.example/system" || got.PowerID != "simple-pig" {
 		t.Errorf("Normalize(valid) = %+v, want trimmed address and power ID", got)
 	}
-	for _, address := range []string{"qemu+ssh://tainan-ci:2222/system", "qemu+ssh://[fd00::1]/system"} {
+	for _, address := range []string{"qemu+ssh://hv-01:2222/system", "qemu+ssh://[fd00::1]/system"} {
 		if _, err := virsh.Normalize(PowerConfigurationChange{Driver: PowerDriverVirsh, Address: address, PowerID: "vm"}); err != nil {
 			t.Errorf("Normalize(%q) error = %v, want accepted", address, err)
 		}
@@ -155,8 +155,8 @@ func TestBMCPowerAdapterNormalize(t *testing.T) {
 
 func TestRedactPowerAddress(t *testing.T) {
 	cases := map[string]string{
-		"qemu+ssh://maas@tainan-ci/system":                       "qemu+ssh://maas@tainan-ci/system",
-		"qemu+ssh://maas:secret@tainan-ci/system?keyfile=/k#x":   "qemu+ssh://maas@tainan-ci/system",
+		"qemu+ssh://maas@hv-01/system":                           "qemu+ssh://maas@hv-01/system",
+		"qemu+ssh://maas:secret@hv-01/system?keyfile=/k#x":       "qemu+ssh://maas@hv-01/system",
 		"https://admin:pw@192.0.2.20/redfish/v1?token=t#session": "https://admin@192.0.2.20/redfish/v1",
 		"10.0.0.5":                  "10.0.0.5",
 		"admin:pw@10.0.0.5?x=1":     "10.0.0.5",

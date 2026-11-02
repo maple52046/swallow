@@ -1,6 +1,6 @@
 ---
 # Remove the Grafana Managed Software whichever install method placed it: the container, Quadlet
-# unit, or Swallow-installed package and drop-in, plus its configuration and data, leaving the
+# unit, or swallow-installed package and drop-in, plus its configuration and data, leaving the
 # container runtime and the host OS. Idempotent: a host without it reruns with no changes.
 
 - name: Hold the OS's automatic package maintenance

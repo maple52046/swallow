@@ -48,7 +48,7 @@ func TestOmnistatQueryReadsPrometheusThroughGrafana(t *testing.T) {
 	}
 }
 
-// Decision 064: every patch Swallow applies to Omnistat exists, explains itself in a header, and is
+// Decision 064: every patch swallow applies to Omnistat exists, explains itself in a header, and is
 // listed in the development documentation with how to tell whether a newer version still needs
 // it, so whoever bumps the version can decide what to carry over.
 func TestOmnistatPatchesAreDocumented(t *testing.T) {

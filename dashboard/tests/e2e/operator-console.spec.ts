@@ -457,9 +457,9 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('button', { name: 'View operation' })).toBeVisible()
   })
 
-  // lab-afde-mi308-1 lost its Deployed OS link when a canceled platform deployment rewrote its
-  // result, and Servers installed outside Swallow never had one. The link follows the installed
-  // catalog image, not Swallow's deployment result or who deployed the OS.
+  // vm-gpu-01 lost its Deployed OS link when a canceled platform deployment rewrote its
+  // result, and Servers installed outside swallow never had one. The link follows the installed
+  // catalog image, not swallow's deployment result or who deployed the OS.
   test('Deployed OS links to the catalog image whatever the deployment result', async ({ page }) => {
     await page.unroute('**/api/v1/**')
     await installApiFixtures(page, { existingServerIds: ['srv-2'] })
@@ -928,7 +928,7 @@ test.describe('operator interactions', () => {
   test('deployed Kubernetes platform exposes the live cluster explorer (applications, namespaces, cluster)', async ({ page }) => {
     await page.goto('/platforms/platform-a?site=site-a')
 
-    // The explorer tabs appear only for a Swallow-deployed Kubernetes platform with a credential.
+    // The explorer tabs appear only for a swallow-deployed Kubernetes platform with a credential.
     await expect(page.getByRole('tab', { name: 'Applications' })).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Namespaces' })).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Cluster' })).toBeVisible()
@@ -1042,8 +1042,8 @@ test.describe('operator interactions', () => {
     await expect(page.locator('.sw-platform-runtime-card').first().getByRole('link', { name: 'Review platform' })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
-    // research-slurm is externally registered (not Swallow-deployed), so its only removal is the
-    // record-only Delete. Slurm platforms Swallow deploys are uninstallable; the block is the
+    // research-slurm is externally registered (not swallow-deployed), so its only removal is the
+    // record-only Delete. Slurm platforms swallow deploys are uninstallable; the block is the
     // origin, not the type.
     await page.goto('/platforms/platform-slurm?site=site-a')
     await expect(page.getByRole('button', { name: 'Uninstall platform' })).toHaveCount(0)
@@ -1917,7 +1917,7 @@ test.describe('operator interactions', () => {
     await expect(page.getByRole('table', { name: 'Servers' })).toBeVisible()
   })
 
-  // ADR 058: on a subnet whose DHCP the provisioner does not serve, network inspection suggests
+  // decision 058: on a subnet whose DHCP the provisioner does not serve, network inspection suggests
   // DHCP; the dialog starts there, says why, keeps the warning if the operator picks Automatic, and
   // sends `dhcp` without addresses.
   test('a site-DHCP subnet starts the deployment on DHCP and explains the suggestion', async ({ page }) => {

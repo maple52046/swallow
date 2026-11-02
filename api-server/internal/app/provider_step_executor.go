@@ -16,7 +16,7 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-// deploymentSubmitter submits one frozen OS deployment intent after Swallow's preflight. The
+// deploymentSubmitter submits one frozen OS deployment intent after swallow's preflight. The
 // worker binds DeployServersUseCase; tests substitute a fake that moves a fake provider's state.
 type deploymentSubmitter interface {
 	Execute(ctx context.Context, input provisioningapp.DeployServersInput) (*provisioningapp.DeployServersResult, error)
@@ -28,7 +28,7 @@ type releaseSubmitter interface {
 	ExecuteWithOptions(ctx context.Context, input provisioningapp.ReleaseServerInput) (*provisioningapp.ProvisioningStateItem, error)
 }
 
-// providerStepExecutor translates durable Step intent into Swallow provisioning use
+// providerStepExecutor translates durable Step intent into swallow provisioning use
 // cases, then observes provider state until the requested end state is proven.
 type providerStepExecutor struct {
 	deployments deploymentSubmitter
@@ -250,7 +250,7 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 				return providerSucceeded()
 			}
 			// Releasing the installation to replay the intent is an operator's retry to make; a
-			// resumed or retried activity of the same attempt only observes (DF-03).
+			// resumed or retried activity of the same attempt only observes.
 			if len(readiness.addresses) == 0 && step.Step.Attempt > 1 {
 				return e.recoverDeploymentWithoutAddress(ctx, step, serverID, input)
 			}
@@ -379,7 +379,7 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 				if imageMatches(state, input) {
 					if readinessDeadline.IsZero() {
 						// Record why the deployment sits in "verifying": the provider installed the
-						// OS but Swallow has not yet confirmed the host is reachable over SSH. Carrying
+						// OS but swallow has not yet confirmed the host is reachable over SSH. Carrying
 						// this as a non-terminal reason (empty code, so it is not a failure) gives the
 						// UI something better than a silent, frozen "verifying" during the readiness
 						// wait — which can be minutes for an image that boots from RAM but not disk.
@@ -441,7 +441,7 @@ type deploymentReadiness struct {
 }
 
 // inspectDeploymentReadiness checks the latest provider projection without treating
-// MAAS's narrower deployed state as a completed Swallow deployment.
+// MAAS's narrower deployed state as a completed swallow deployment.
 func (e providerStepExecutor) inspectDeploymentReadiness(ctx context.Context, serverID, siteID string) (deploymentReadiness, error) {
 	server, err := e.servers.FindByID(ctx, serverID)
 	if err != nil {
@@ -523,7 +523,7 @@ func resumedStep(step temporalworkflow.StepExecutionInput) bool {
 }
 
 // recoverDeploymentWithoutAddress is entered only by an explicit failed-Step retry.
-// MAAS exposes complete interface mutation only while Ready or Broken, so Swallow
+// MAAS exposes complete interface mutation only while Ready or Broken, so swallow
 // releases the unusable installation before replaying the frozen deployment intent.
 func (e providerStepExecutor) recoverDeploymentWithoutAddress(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string, input provisioningapp.DeployServersInput) temporalworkflow.StepExecutionResult {
 	if e.release == nil || e.deployments == nil {
@@ -1391,7 +1391,7 @@ func normalizeProviderError(err error, stage string) temporalworkflow.StepExecut
 	if errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing) {
 		return providerAttention("deployment_key_missing", err.Error(), stage)
 	}
-	// Swallow's own deployment preflight refused the request before any provider write (a target
+	// swallow's own deployment preflight refused the request before any provider write (a target
 	// that is not ready, an image that is not staged or verified, a network conflict), so the
 	// outcome is known. Reporting it as an unknown outcome invited the operator to retry the same
 	// refusal forever; ending the Step lets the Operation finish and free its Servers so the cause

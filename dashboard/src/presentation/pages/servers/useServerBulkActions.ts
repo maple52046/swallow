@@ -16,7 +16,7 @@ import {
  * Runs a provisioner action across many Servers by fanning out over the per-Server API; Release
  * and Recover are one durable Operation for the whole batch instead.
  *
- * Swallow exposes no bulk action endpoint, so failures are collected per target instead
+ * swallow exposes no bulk action endpoint, so failures are collected per target instead
  * of aborting the remaining independent calls. The complete result is returned for the
  * persistent details UI; the toast is only a concise immediate summary.
  */

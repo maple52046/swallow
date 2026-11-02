@@ -18,7 +18,7 @@ import (
 // Each use-case error maps onto the status and code server-detail-actions.md publishes.
 func TestRespondDefaultUserError(t *testing.T) {
 	wrap := func(sentinel error) error {
-		return &serverdomain.DefaultUserError{Err: sentinel, Server: "tainan-ci", User: "amd"}
+		return &serverdomain.DefaultUserError{Err: sentinel, Server: "hv-01", User: "amd"}
 	}
 	tests := []struct {
 		name       string
@@ -32,9 +32,9 @@ func TestRespondDefaultUserError(t *testing.T) {
 		{"not deployed", wrap(serverdomain.ErrDefaultUserNotDeployed), http.StatusConflict, apierror.CodeConflict},
 		{"key rejected", wrap(serverdomain.ErrDeploymentKeyRejected), http.StatusConflict, apierror.CodeConflict},
 		{"no deployment key", wrap(serverdomain.ErrDeploymentKeyMissing), http.StatusConflict, apierror.CodeConflict},
-		{"locked", &serverdomain.ServerLockedError{Name: "tainan-ci"}, http.StatusConflict, apierror.CodeConflict},
+		{"locked", &serverdomain.ServerLockedError{Name: "hv-01"}, http.StatusConflict, apierror.CodeConflict},
 		{"unreachable", wrap(serverdomain.ErrHostUnreachable), http.StatusServiceUnavailable, apierror.CodeProviderUnavailable},
-		{"lock unknown", &serverdomain.ServerLockUnavailableError{Name: "tainan-ci"}, http.StatusServiceUnavailable, apierror.CodeProviderUnavailable},
+		{"lock unknown", &serverdomain.ServerLockUnavailableError{Name: "hv-01"}, http.StatusServiceUnavailable, apierror.CodeProviderUnavailable},
 		{"unexpected", fmt.Errorf("boom"), http.StatusInternalServerError, apierror.CodeInternal},
 	}
 	for _, tc := range tests {

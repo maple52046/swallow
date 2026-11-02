@@ -18,8 +18,8 @@ Active
 Accept durable operator intent and expose swallow's owned multi-Task Workflow state:
 normalized timeline, runner events, logs, and artifact metadata. A Workflow is a DAG of
 Tasks executed by Runners (`internal`, `ansible`, `provisioner`) and orchestrated by
-Temporal ([ADR 016](../../../../../docs/decisions/016-temporal-operation-orchestration.md),
-[ADR 017](../../../../../docs/decisions/017-workflow-job-task-runner-model.md)).
+Temporal ([decision 016](../../../../../docs/decisions/016-temporal-operation-orchestration.md) (temporal operation orchestration),
+[decision 017](../../../../../docs/decisions/017-workflow-job-task-runner-model.md) (workflow job task runner model)).
 
 ## Related Glossary Terms
 
@@ -89,10 +89,10 @@ for example `verify-os-image` is created by `POST /provisioning/image-verificati
 appears here in listings and timelines. A `verify-os-image` Workflow runs
 `provision-os` (the real proving deploy) → one of two mutually exclusive internal finalize
 Tasks (`record-image-verification` on success, `record-image-verification-failure` on
-failure, recording the Swallow-owned per-Deploy-Target outcome) → `recover-server` (return
+failure, recording the swallow-owned per-Deploy-Target outcome) → `recover-server` (return
 the borrowed Server to `ready`, run whether the proving deploy succeeded or failed), per
-[decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md)
-and [decision 036](../../../../../docs/decisions/036-provisioning-lifecycle-integrity.md).
+[decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md) (os image verification and deploy target)
+and [decision 036](../../../../../docs/decisions/036-provisioning-lifecycle-integrity.md) (provisioning lifecycle integrity).
 `inspect-hardware` is created by `POST /servers/{id}/inspect` and by the automatic inspection
 sweep; its `ensure-inspected` Job (`wait-enrollment-settled` → `ensure-boot-media` → `inspect`)
 and retry semantics are defined in [server-enrollment.md](server-enrollment.md). Because it runs
@@ -283,8 +283,8 @@ retried it. The provider-owned `provisioning.state` is not rewritten by the canc
 following the provider.
 
 A cancel also returns the Servers whose `provision-os` it interrupted to Ready
-([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md)). Before the
-Workflow becomes `canceled`, and while it still owns its resources, Swallow aborts a deployment the
+([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md) (cancel and rerun converge)). Before the
+Workflow becomes `canceled`, and while it still owns its resources, swallow aborts a deployment the
 provider still reports as Deploying, waits up to 10 minutes for the provider to leave it, and
 returns an Allocated Machine (where MAAS parks an aborted deployment) to Ready with the Recover
 plan: a plain Release that keeps static IP bindings and erases no disk. A Machine the provider
@@ -379,7 +379,7 @@ Site with no Automation Configuration are `conflict` and `not_found` (not `valid
 `provider_unavailable`); Task events never carry a `changed` status; the legacy logs and events
 of a schema-v3 Workflow are `not_found`; and the cancel and Task-retry bodies are documented.
 
-On 2026-10-31 ([decision 072](../../../../../docs/decisions/072-store-driven-workflow-execution.md))
+On 2026-10-31 ([decision 072](../../../../../docs/decisions/072-store-driven-workflow-execution.md) (store driven workflow execution))
 execution state moved to the store alone. Breaking: a lease is ownership with no `expiresAt`, its
 `owner` is the Workflow id instead of the Temporal Workflow ID, and `fencingToken` is the dispatch
 generation. Task retry and cancel no longer return `conflict` when the execution is gone; the
@@ -389,13 +389,13 @@ more. Cancel now also cancels a parked Workflow's `requires_attention` Tasks, an
 keeps retrying as a whole, and Tasks now start in a sliding window of `OperationMaxParallelism`
 instead of batches; neither changes a route or a status.
 
-On 2026-10-31 (DF-05) error codes were aligned with conventions.md. Breaking: a target not in the
+On 2026-10-31 error codes were aligned with conventions.md. Breaking: a target not in the
 required provisioning state is `conflict` (it was `validation_error`), and the legacy logs and
 events of a schema-v3 Workflow are `conflict` (they were `not_found`, because the conflict was
 overwritten). Targets of more than one Site stay `validation_error` here and are now that in
 every context.
 
-On 2026-10-31 (AR-10, [decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md))
+On 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases))
 the schema-v2 Operation records were retired. Breaking: create answers with the Workflow projection
 (it was the compatibility `LegacyOperation` shape); the list and get serve Workflows only, so a
 schema-v2 ID is `not_found`; and `GET /operations/{id}/logs`, `GET /operations/{id}/events`, and

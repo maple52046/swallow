@@ -1,9 +1,9 @@
 # Installation
 
-- Bounded context: Swallow product delivery and lifecycle management.
-- Definition: Installing, starting, upgrading, restoring, or uninstalling the Swallow
+- Bounded context: swallow product delivery and lifecycle management.
+- Definition: Installing, starting, upgrading, restoring, or uninstalling the swallow
   control plane and its bundled runtime dependencies on a supported host.
-- Allowed meaning: Swallow development, testing, and production environments; the
+- Allowed meaning: swallow development, testing, and production environments; the
   container installation (native installation methods are not published yet); installation
   configuration, media, prerequisites, and
   lifecycle tooling. The production installation is one host (single VM): besides the
@@ -16,15 +16,15 @@
   during installation is not a deployment either: no managed server changes.
 - Synonyms: None.
 - Deprecated terms: `Swallow deployment`, `production deployment`, and `deployment`
-  when they describe installing or running Swallow itself.
+  when they describe installing or running swallow itself.
 - Examples: "The production installation uses exact OCI digests." / "Testing runs the
-  same Swallow installation artifacts with isolated data." / "MAAS performs a server
-  deployment; it does not install Swallow." / "The installation finished once the
+  same swallow installation artifacts with isolated data." / "MAAS performs a server
+  deployment; it does not install swallow." / "The installation finished once the
   co-located MAAS reported `ubuntu/noble` complete; no Server was deployed."
 - Related terms: Deployment, Environment, Integration, OS Image. A swallow release (the
   published version and its artifacts) is not the provisioner [Release](release.md) action.
-- Change note: Added to distinguish the Swallow product lifecycle from the OS deployment
-  action that Swallow delegates to a provisioner. Updated 2026-10-01 for the single-VM
-  production installation that co-locates and bootstraps MAAS, per decision 040. Corrected
+- Change note: Added to distinguish the swallow product lifecycle from the OS deployment
+  action that swallow delegates to a provisioner. Updated 2026-10-01 for the single-VM
+  production installation that co-locates and bootstraps MAAS, per [decision 040](../../../decisions/040-single-vm-production-installation.md) (single vm production installation). Corrected
   2026-10-31: native installation methods are not published, and a swallow release is not the
   provider Release.

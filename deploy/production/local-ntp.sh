@@ -172,7 +172,7 @@ apply_maas_upstream() {
 # more than a second off it, has chronyd step the clock once. MAAS's chrony configuration has no
 # makestep, so chronyd would otherwise slew at its maximum rate (+8.3%) for minutes. An upstream
 # whose served time is derived from this host's own clock (a `chronyd -x` gateway running on this
-# host, as root123-intel's first chronos gateway did) cannot follow a slew that fast, and the two
+# host) cannot follow a slew that fast, and the two
 # then run away from real time together; one step keeps every later correction at the ppm level.
 #
 # MAAS applies a changed ntp_servers asynchronously (it rewrites maas.conf and restarts chronyd

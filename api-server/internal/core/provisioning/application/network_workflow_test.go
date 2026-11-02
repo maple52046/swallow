@@ -409,13 +409,13 @@ func siteDHCPNetwork(linked bool) *provisioningdomain.MachineNetwork {
 	iface := provisioningdomain.NetworkInterface{
 		ID: "nic-site", Name: "enp1s0", Boot: true,
 		AvailableSubnets: []provisioningdomain.NetworkSubnet{{
-			ID: "subnet-site", Name: "site", CIDR: "10.170.168.0/23", Managed: true,
+			ID: "subnet-site", Name: "site", CIDR: "10.140.168.0/23", Managed: true,
 		}},
 	}
 	if linked {
 		iface.Links = []provisioningdomain.NetworkLink{{
 			ID: "link-site", State: provisioningdomain.NetworkStateProviderManaged,
-			ProviderMode: "AUTO", SubnetID: "subnet-site", CIDR: "10.170.168.0/23",
+			ProviderMode: "AUTO", SubnetID: "subnet-site", CIDR: "10.140.168.0/23",
 		}}
 	}
 	return &provisioningdomain.MachineNetwork{MachineID: "machine-site", Interfaces: []provisioningdomain.NetworkInterface{iface}}
@@ -536,7 +536,7 @@ func TestDeployServersDefaultsToAutomaticAndReportsFailureStage(t *testing.T) {
 	}
 }
 
-// DHCP intent (ADR 058) replaces the NIC's existing link with a DHCP link on the same subnet,
+// DHCP intent (decision 058) replaces the NIC's existing link with a DHCP link on the same subnet,
 // with no address and no gateway, instead of collapsing into provider auto-assign.
 func TestDeployServersWithDHCPConfiguresDHCPLink(t *testing.T) {
 	uc, provider := setupNetworkWorkflow(1)

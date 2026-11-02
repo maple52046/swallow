@@ -2,8 +2,8 @@
 # Keep the image's amdgpu driver loaded on every managed node (decision 062). An image may keep
 # amdgpu out of the boot path (modprobe.blacklist=amdgpu, AMD's guidance for Instinct hosts and
 # SR-IOV guests) and expect it to be loaded afterwards. A managed node therefore gets the shared
-# Swallow loader unit (role amdgpu_loader, also used by Slurm GPU GRES), and k0s is ordered after
-# it so the operator's device plugin or DRA driver finds the GPUs when it starts. A node Swallow
+# swallow loader unit (role amdgpu_loader, also used by Slurm GPU GRES), and k0s is ordered after
+# it so the operator's device plugin or DRA driver finds the GPUs when it starts. A node swallow
 # does not manage loses the unit and the ordering, and its loaded driver stays loaded.
 
 - name: Converge the shared amdgpu loader and the k0s ordering

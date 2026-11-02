@@ -1,5 +1,5 @@
 ---
-# Install Omnistat on a Swallow-deployed Slurm Platform (decision 063). It runs as the last Job of
+# Install Omnistat on a swallow-deployed Slurm Platform (decision 063). It runs as the last Job of
 # a configure-slurm Workflow, after deploy-slurm (which renders the Slurm side: Prolog/Epilog,
 # PrologFlags=Alloc, exclusive partition) and after Docker CE, Prometheus, and Grafana were
 # composed onto the observability Server. Topology arrives only through trusted variables:
@@ -10,7 +10,7 @@
 #   swallow_omnistat_prometheus_port / swallow_omnistat_grafana_port   their ports
 #   swallow_omnistat_system_name      label for omnistat-query reports
 #   swallow_slurm_gpu_compute_ids     compute nodes with AMD GPUs (AMD SMI collection)
-# On success it writes {grafanaUrl} to the run's result file; Swallow records it as the Platform's
+# On success it writes {grafanaUrl} to the run's result file; swallow records it as the Platform's
 # "Omnistat Grafana" Monitoring Link. Prometheus listens only on the observability Server's loopback
 # address, so the check runs there. Idempotent.
 

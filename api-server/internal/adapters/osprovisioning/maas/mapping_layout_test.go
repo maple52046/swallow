@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestUEFILayoutWithoutESPRequiresInspection reproduces lab-afde-mi308-3: MAAS boots it with UEFI,
+// TestUEFILayoutWithoutESPRequiresInspection reproduces vm-gpu-03: MAAS boots it with UEFI,
 // but its layout was built while it booted BIOS (root on partition 2, no EFI system partition), so
 // every disk deployment failed in curtin partitioning. Only a layout that proves the mismatch is
 // flagged; missing data never is.

@@ -139,13 +139,13 @@ simply has no Alertmanager, which is the intended behavior. `available` keeps it
 (alerts were read).
 
 Following the Cluster to Platform rename
-([ADR-014](../../../../../docs/decisions/014-platform-resource-language.md)), the one-release
+([decision 014](../../../../../docs/decisions/014-platform-resource-language.md) (platform resource language)), the one-release
 aliases `inventory.clustered`, the `clusters` section, and `clusterId` on recent operations and
 firing alert items were removed on 2026-10-31
-([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md)),
+([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)),
 which is breaking; read `inventory.platformed`, `platforms`, and `platformId`. The schema-v2
 Operation records no longer appear among recent operations, and no status is `indeterminate`.
 
-On 2026-10-31 (DF-14) `operations.active` began counting every unfinished operation. It counted
+On 2026-10-31 `operations.active` began counting every unfinished operation. It counted
 only `pending` and `running`, so waiting, canceling, and `requires_attention` work, which still
 holds Servers, was missing. This is a semantic change; the field and its type are unchanged.

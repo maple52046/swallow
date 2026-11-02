@@ -19,7 +19,7 @@ Active
 ## Purpose
 
 Bring machines into a provisioner's inventory and inspect them to a usable state
-([decision 053](../../../../../docs/decisions/053-server-enrollment-and-automatic-inspection.md)).
+([decision 053](../../../../../docs/decisions/053-server-enrollment-and-automatic-inspection.md) (server enrollment and automatic inspection)).
 A Server still comes into being only through reconciliation; nothing here creates one.
 
 - **Network boot**: the operator power-cycles the machine into the provisioner's enrollment
@@ -31,7 +31,7 @@ A Server still comes into being only through reconciliation; nothing here create
 - **Virtual machine**: the operator names libvirt domains on a hypervisor that swallow manages;
   swallow registers each with the provisioner together with its `virsh` Power Configuration and,
   when asked, its Boot Media, and automatic inspection takes it to `ready`
-  ([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md)).
+  ([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md) (libvirt virtual machine enrollment)).
 
 ## Related Glossary Terms
 
@@ -96,7 +96,7 @@ own enrollment has finished and the Machine's Power Configuration ([server-detai
 has no automatic driver (`control` is `none` or `manual`) and is not recorded powered off, the
 Task stops after two consecutive such readings — not after twenty minutes — in
 `requires_attention` with code `power_configuration_required`, naming the Power Configuration as
-the fix ([decision 054](../../../../../docs/decisions/054-provisioner-power-configuration.md)).
+the fix ([decision 054](../../../../../docs/decisions/054-provisioner-power-configuration.md) (provisioner power configuration)).
 For MAAS, enrollment has finished once the Machine's enlistment script set is no longer pending,
 installing, or running: MAAS sets a physical Machine's BMC driver from within that script set,
 so a Machine still running it is waiting for its driver, not missing one. Nothing was
@@ -179,7 +179,7 @@ optional `account` query parameter overrides the login account.
   "account": "ubuntu",
   "items": [
     {
-      "name": "lab-afde-mi308-1",
+      "name": "vm-gpu-01",
       "uuid": "2f1f2a6e-…",
       "state": "shut off",
       "architecture": "x86_64",
@@ -211,7 +211,7 @@ optional `account` query parameter overrides the login account.
 {
   "integrationId": "maas-a",
   "hypervisorServerId": "server-id",
-  "domains": ["lab-afde-mi308-1", "lab-afde-mi308-2"],
+  "domains": ["vm-gpu-01", "vm-gpu-02"],
   "bootIsoId": "6b3f0c1e-…",
   "account": "ubuntu",
   "powerOffRunning": false

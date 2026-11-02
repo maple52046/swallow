@@ -68,7 +68,7 @@ func supersedeLauncher() (durableProvisioningLauncher, *supersedeWorkflowRepo, *
 		Status: workflowdomain.WorkflowRequiresAttention, TargetServerIDs: []string{"server-id"},
 	}}
 	server := &serverdomain.Server{
-		ID: "server-id", Observed: serverdomain.Observed{Hostname: "lab-afde-mi308-3"},
+		ID: "server-id", Observed: serverdomain.Observed{Hostname: "vm-gpu-03"},
 		Source:       serverdomain.Source{SiteID: "site-id", IntegrationID: "integration-id", ProviderMachineID: "machine-id"},
 		Provisioning: &serverdomain.ProvisioningStatus{State: "failed"},
 	}

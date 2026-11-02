@@ -5,7 +5,7 @@ import { formatDateTime } from '@/shared/utils/time'
 export type AxisColor = 'green' | 'red' | 'orange' | 'blue' | 'gray' | 'purple'
 
 /**
- * What a Server's Deployment cell presents, resolved from two independent facts: Swallow's own
+ * What a Server's Deployment cell presents, resolved from two independent facts: swallow's own
  * result of its latest OS deployment (`deployment`) and the swallow-defined OS Provisioning State
  * (`provisioning.state`, decision 048).
  *
@@ -24,15 +24,15 @@ export interface DeploymentPhase {
    */
   inProgress: boolean
   /**
-   * Start of an in-progress state's running time, absent when unknown. A Swallow deployment
+   * Start of an in-progress state's running time, absent when unknown. A swallow deployment
    * counts from `deployment.startedAt`, one clock across Deploying and Verifying; provider work
-   * counts from `provisioning.stateSince`, when Swallow first observed that state. `description`
+   * counts from `provisioning.stateSince`, when swallow first observed that state. `description`
    * says which, for the hover text.
    */
   since?: { at: string; description: string }
   /**
    * Set only when the provider reports an installed OS. `imageName` is the effective image or
-   * OS/release text ('' when none can be derived); `verified` means Swallow deployed and
+   * OS/release text ('' when none can be derived); `verified` means swallow deployed and
    * verified it. The list cell shows the image as plain text instead of a lifecycle badge.
    */
   installed?: { imageName: string; verified: boolean }
@@ -56,7 +56,7 @@ function reasonSuffix(errorDescription?: string): string {
   return reason ? ` Reason: ${reason}.` : ''
 }
 
-/** Running-time start for provider work: when Swallow first observed `label`'s state. */
+/** Running-time start for provider work: when swallow first observed `label`'s state. */
 function observedSince(provider: ProvisioningAxis | null, label: string): DeploymentPhase['since'] {
   if (!provider?.stateSince) return undefined
   return {
@@ -70,15 +70,15 @@ function observedSince(provider: ProvisioningAxis | null, label: string): Deploy
  *
  * Precedence, highest first:
  * 1. Provider work that is running but is not an OS installation (Releasing, Inspecting, Testing).
- *    It outranks any leftover Swallow result, because that result describes an installation the
+ *    It outranks any leftover swallow result, because that result describes an installation the
  *    running work is replacing or erasing.
- * 2. A Swallow deployment that is still running or did not succeed (Deploying, Verifying, Failed,
- *    Attention, Canceled), so the operator sees Swallow's own reason.
+ * 2. A swallow deployment that is still running or did not succeed (Deploying, Verifying, Failed,
+ *    Attention, Canceled), so the operator sees swallow's own reason.
  * 3. The installed OS when the provider reports `deployed`.
  * 4. Every other OS Provisioning State by its own name (Deploying, Broken, Failed, Rescue, Ready,
- *    Allocated, New, Retired, Unknown). A live provider state outranks a stale Swallow success:
+ *    Allocated, New, Retired, Unknown). A live provider state outranks a stale swallow success:
  *    an `allocated` Machine must never read as a stale "Deployed" (decision 036).
- * 5. A Swallow success with no provider observation at all, then Unknown.
+ * 5. A swallow success with no provider observation at all, then Unknown.
  *
  * Callers decide which inputs are current: the Server list passes no provider axis for an absent
  * Server and drops a `succeeded` result once the OS is no longer installed.

@@ -154,7 +154,7 @@ func newBootISOFixture() *bootISOFixture {
 		builder: &bootISOBuilderFake{scripts: map[string]string{}, grubConfigs: map[string]string{}},
 		usage:   bootISOUsageFake{},
 	}
-	f.service = NewBootISOService(f.repo, bootISOIntegrationsFake{"maas-tainan": "site-tainan", "maas-taipei": "site-taipei"}, f.builder, f.usage,
+	f.service = NewBootISOService(f.repo, bootISOIntegrationsFake{"maas-south": "site-south", "maas-taipei": "site-taipei"}, f.builder, f.usage,
 		provisioningdomain.BootChainRenderers{testProvisionerKind: chainRendererFake{}})
 	ids := []string{"iso-1", "iso-2", "iso-3"}
 	f.service.newID = func() string {
@@ -170,12 +170,12 @@ func newBootISOFixture() *bootISOFixture {
 func TestCreateBootISORendersTheProvisionersChain(t *testing.T) {
 	f := newBootISOFixture()
 	item, err := f.service.Create(context.Background(), CreateBootISOInput{
-		Name: " tainan-rack ", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5", CreatedBy: "admin",
+		Name: " south-rack ", IntegrationID: "maas-south", RackAddress: "10.1.0.5", CreatedBy: "admin",
 	})
 	if err != nil {
 		t.Fatalf("Create error = %v", err)
 	}
-	if item.ID != "iso-1" || item.Name != "tainan-rack" || item.SiteID != "site-tainan" || item.ChainURL != "http://10.1.0.5/bios" {
+	if item.ID != "iso-1" || item.Name != "south-rack" || item.SiteID != "site-south" || item.ChainURL != "http://10.1.0.5/bios" {
 		t.Errorf("item = %+v", item)
 	}
 	if item.URL != "http://192.0.2.1/boot-media/ipxe/iso-1/swallow-ipxe.iso" || item.IPXEVersion != "v2.0.0" || item.CreatedBy != "admin" {
@@ -204,24 +204,24 @@ func TestCreateBootISORejections(t *testing.T) {
 		setup func(*bootISOFixture)
 		want  error
 	}{
-		{name: "blank name", input: CreateBootISOInput{Name: " ", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5"}, want: provisioningdomain.ErrInvalidBootISO},
-		{name: "rack URL instead of address", input: CreateBootISOInput{Name: "a", IntegrationID: "maas-tainan", RackAddress: "http://10.1.0.5:5240/MAAS"}, want: provisioningdomain.ErrInvalidBootISO},
+		{name: "blank name", input: CreateBootISOInput{Name: " ", IntegrationID: "maas-south", RackAddress: "10.1.0.5"}, want: provisioningdomain.ErrInvalidBootISO},
+		{name: "rack URL instead of address", input: CreateBootISOInput{Name: "a", IntegrationID: "maas-south", RackAddress: "http://10.1.0.5:5240/MAAS"}, want: provisioningdomain.ErrInvalidBootISO},
 		{name: "no provisioner", input: CreateBootISOInput{Name: "a", RackAddress: "10.1.0.5"}, want: provisioningdomain.ErrInvalidBootISO},
 		{name: "not a provisioner", input: CreateBootISOInput{Name: "a", IntegrationID: "netbox", RackAddress: "10.1.0.5"}, want: provisioningdomain.ErrIntegrationNotProvisioner},
 		{
-			name: "builder unavailable", input: CreateBootISOInput{Name: "a", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5"},
+			name: "builder unavailable", input: CreateBootISOInput{Name: "a", IntegrationID: "maas-south", RackAddress: "10.1.0.5"},
 			setup: func(f *bootISOFixture) { f.builder.unavailable = provisioningdomain.ErrBootISOBuilderUnavailable },
 			want:  provisioningdomain.ErrBootISOBuilderUnavailable,
 		},
 		{
-			name: "name taken in the provisioner", input: CreateBootISOInput{Name: "Tainan-Rack", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5"},
+			name: "name taken in the provisioner", input: CreateBootISOInput{Name: "South-Rack", IntegrationID: "maas-south", RackAddress: "10.1.0.5"},
 			setup: func(f *bootISOFixture) {
-				f.repo.isos["old"] = &provisioningdomain.BootISO{ID: "old", Name: "tainan-rack", IntegrationID: "maas-tainan"}
+				f.repo.isos["old"] = &provisioningdomain.BootISO{ID: "old", Name: "south-rack", IntegrationID: "maas-south"}
 			},
 			want: provisioningdomain.ErrBootISONameTaken,
 		},
 		{
-			name: "build failed", input: CreateBootISOInput{Name: "a", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5"},
+			name: "build failed", input: CreateBootISOInput{Name: "a", IntegrationID: "maas-south", RackAddress: "10.1.0.5"},
 			setup: func(f *bootISOFixture) { f.builder.buildErr = provisioningdomain.ErrBootISOBuildFailed },
 			want:  provisioningdomain.ErrBootISOBuildFailed,
 		},
@@ -248,12 +248,12 @@ func TestCreateBootISORejections(t *testing.T) {
 func TestCreateBootISONameScopeAndStoreFailure(t *testing.T) {
 	f := newBootISOFixture()
 	f.repo.isos["old"] = &provisioningdomain.BootISO{ID: "old", Name: "rack", IntegrationID: "maas-taipei"}
-	if _, err := f.service.Create(context.Background(), CreateBootISOInput{Name: "rack", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5"}); err != nil {
+	if _, err := f.service.Create(context.Background(), CreateBootISOInput{Name: "rack", IntegrationID: "maas-south", RackAddress: "10.1.0.5"}); err != nil {
 		t.Fatalf("Create in another provisioner error = %v", err)
 	}
 
 	f.repo.createErr = provisioningdomain.ErrBootISONameTaken
-	if _, err := f.service.Create(context.Background(), CreateBootISOInput{Name: "racer", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5"}); !errors.Is(err, provisioningdomain.ErrBootISONameTaken) {
+	if _, err := f.service.Create(context.Background(), CreateBootISOInput{Name: "racer", IntegrationID: "maas-south", RackAddress: "10.1.0.5"}); !errors.Is(err, provisioningdomain.ErrBootISONameTaken) {
 		t.Fatalf("Create error = %v, want ErrBootISONameTaken", err)
 	}
 	if want := []string{"iso-2"}; !equalStringList(f.builder.removed, want) {
@@ -265,25 +265,25 @@ func TestCreateBootISONameScopeAndStoreFailure(t *testing.T) {
 // provisioner, and counts the Servers using each ISO.
 func TestListBootISOs(t *testing.T) {
 	f := newBootISOFixture()
-	f.repo.isos["a"] = &provisioningdomain.BootISO{ID: "a", Name: "a", IntegrationID: "maas-tainan"}
+	f.repo.isos["a"] = &provisioningdomain.BootISO{ID: "a", Name: "a", IntegrationID: "maas-south"}
 	f.repo.isos["b"] = &provisioningdomain.BootISO{ID: "b", Name: "b", IntegrationID: "maas-taipei"}
 	f.usage["a"] = 2
 	f.builder.unavailable = errors.New("boot ISO builder unavailable: xorriso is not installed")
 
-	list, err := f.service.List(context.Background(), "site-tainan", "")
+	list, err := f.service.List(context.Background(), "site-south", "")
 	if err != nil {
 		t.Fatalf("List error = %v", err)
 	}
 	if list.Builder.Available || !strings.Contains(list.Builder.Reason, "xorriso") {
 		t.Errorf("builder = %+v, want unavailable with the reason", list.Builder)
 	}
-	if len(list.Items) != 1 || list.Items[0].ID != "a" || list.Items[0].SiteID != "site-tainan" || list.Items[0].InUseBy != 2 {
-		t.Errorf("items = %+v, want only a, in the Tainan Site, used by 2", list.Items)
+	if len(list.Items) != 1 || list.Items[0].ID != "a" || list.Items[0].SiteID != "site-south" || list.Items[0].InUseBy != 2 {
+		t.Errorf("items = %+v, want only a, in the South Site, used by 2", list.Items)
 	}
 
-	list, err = f.service.List(context.Background(), "site-tainan", "maas-taipei")
+	list, err = f.service.List(context.Background(), "site-south", "maas-taipei")
 	if err != nil || len(list.Items) != 0 {
-		t.Errorf("List(Tainan Site, Taipei provisioner) = %+v, %v; want none", list, err)
+		t.Errorf("List(South Site, Taipei provisioner) = %+v, %v; want none", list, err)
 	}
 	list, err = f.service.List(context.Background(), "", "")
 	if err != nil || len(list.Items) != 2 {
@@ -298,7 +298,7 @@ func TestRebuildBootISO(t *testing.T) {
 	f := newBootISOFixture()
 	created := time.Date(2026, 10, 5, 1, 20, 0, 0, time.UTC)
 	f.repo.isos["iso-old"] = &provisioningdomain.BootISO{
-		ID: "iso-old", Name: "tainan-rack", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5:8080",
+		ID: "iso-old", Name: "south-rack", IntegrationID: "maas-south", RackAddress: "10.1.0.5:8080",
 		ChainURL: "http://10.1.0.5:8080/ipxe.cfg", UEFIChainURL: "http://10.1.0.5:8080/grubx64.efi",
 		Script: "#!ipxe\nchain old\n", IPXEVersion: "v1.21.1", CreatedAt: created, CreatedBy: "admin",
 	}
@@ -320,8 +320,8 @@ func TestRebuildBootISO(t *testing.T) {
 	if config := f.builder.grubConfigs["iso-old"]; config != "grub 10.1.0.5:8080\n" || config != item.GRUBConfig {
 		t.Errorf("rebuilt GRUB configuration = %q, want the current rendering for the stored address", config)
 	}
-	if item.ID != "iso-old" || item.Name != "tainan-rack" || item.UEFIChainURL != "http://10.1.0.5:8080/uefi" ||
-		item.IPXEVersion != "v2.0.0" || item.InUseBy != 2 || item.SiteID != "site-tainan" {
+	if item.ID != "iso-old" || item.Name != "south-rack" || item.UEFIChainURL != "http://10.1.0.5:8080/uefi" ||
+		item.IPXEVersion != "v2.0.0" || item.InUseBy != 2 || item.SiteID != "site-south" {
 		t.Errorf("item = %+v, want the same ISO with the new script and artifact", item)
 	}
 	if item.RebuiltBy != "operator" || item.RebuiltAt != "2026-10-13T01:40:00Z" || item.CreatedBy != "admin" || item.CreatedAt != "2026-10-05T01:20:00Z" {
@@ -346,7 +346,7 @@ func TestRebuildBootISORefusals(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newBootISOFixture()
-			f.repo.isos["iso-old"] = &provisioningdomain.BootISO{ID: "iso-old", Name: "a", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5", Script: "old"}
+			f.repo.isos["iso-old"] = &provisioningdomain.BootISO{ID: "iso-old", Name: "a", IntegrationID: "maas-south", RackAddress: "10.1.0.5", Script: "old"}
 			setup(f)
 			if _, err := f.service.Rebuild(context.Background(), "iso-old", "operator"); err == nil {
 				t.Fatal("Rebuild succeeded, want an error")
@@ -361,7 +361,7 @@ func TestRebuildBootISORefusals(t *testing.T) {
 // Deleting an ISO that enabled Boot Media uses is refused and keeps the file.
 func TestDeleteBootISO(t *testing.T) {
 	f := newBootISOFixture()
-	f.repo.isos["a"] = &provisioningdomain.BootISO{ID: "a", Name: "a", IntegrationID: "maas-tainan"}
+	f.repo.isos["a"] = &provisioningdomain.BootISO{ID: "a", Name: "a", IntegrationID: "maas-south"}
 	f.usage["a"] = 1
 	if err := f.service.Delete(context.Background(), "a"); !errors.Is(err, provisioningdomain.ErrBootISOInUse) {
 		t.Fatalf("Delete in use error = %v, want ErrBootISOInUse", err)

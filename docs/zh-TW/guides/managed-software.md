@@ -42,7 +42,7 @@ package fact 都即時；結果不清楚時請看 associated Workflow 與 host d
 
 ## Install 與 uninstall
 
-**Software** 是 Swallow 可管理 software 的 catalog。開啟 software card 後可查看能力與目前
+**Software** 是 swallow 可管理 software 的 catalog。開啟 software card 後可查看能力與目前
 deployment，再使用 **Install software** 選擇一台或多台 eligible Servers，接著設定該
 software。已經存在 assignment 的 Server 則從同一個 detail 頁進行 **Reconfigure**、
 **Retry install** 或 **Uninstall**。

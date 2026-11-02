@@ -1,6 +1,6 @@
 ---
 # native method: the pinned official release binary, verified against the release's published
-# checksums, under a Swallow-owned systemd unit and an unprivileged system user.
+# checksums, under a swallow-owned systemd unit and an unprivileged system user.
 
 - name: Create the Prometheus system user
   ansible.builtin.user:

@@ -2,7 +2,7 @@
 
 - Bounded context: Platform Management.
 - Definition: The placement and availability shape of the control plane and workload
-  capacity in a Swallow-deployed Kubernetes Platform.
+  capacity in a swallow-deployed Kubernetes Platform.
 - Allowed meaning: One of the supported shapes below, inferred from Node Role assignments
   and whether a control-plane Server also runs workloads.
 - Disallowed meaning: Not a count of all observed members, a network topology, a Server

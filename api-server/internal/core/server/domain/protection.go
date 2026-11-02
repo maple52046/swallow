@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// MutationGuard verifies provider-owned protection immediately before Swallow accepts
+// MutationGuard verifies provider-owned protection immediately before swallow accepts
 // or starts work that can change one or more Servers.
 type MutationGuard interface {
 	RequireUnlocked(ctx context.Context, serverIDs []string) error
@@ -15,7 +15,7 @@ type MutationGuard interface {
 var (
 	// ErrServerLocked means the provisioner confirms that a Server is protected.
 	ErrServerLocked = errors.New("server is locked")
-	// ErrServerLockUnavailable means Swallow cannot safely establish the live lock state.
+	// ErrServerLockUnavailable means swallow cannot safely establish the live lock state.
 	ErrServerLockUnavailable = errors.New("server lock state is unavailable")
 )
 

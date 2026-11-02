@@ -334,7 +334,7 @@ func TestReconcile_ClearsServerDefaultUserOnlyWithoutOS(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := setupReconcile(t)
-			machine := testMachine("abc123", "tainan-ci")
+			machine := testMachine("abc123", "hv-01")
 			machine.Status = tc.status
 			f.provider.withMachine(machine)
 			f.servers.servers["srv-1"] = &serverdomain.Server{

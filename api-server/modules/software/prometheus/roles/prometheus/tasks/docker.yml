@@ -1,5 +1,5 @@
 ---
-# container method on Docker CE: one pinned container under a Swallow-owned Compose project.
+# container method on Docker CE: one pinned container under a swallow-owned Compose project.
 
 - name: Refuse a host without Docker Compose
   ansible.builtin.command:

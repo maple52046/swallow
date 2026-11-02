@@ -285,7 +285,7 @@
       when: slurm_verify_mpi_failures | length > 0
 
 # GPU GRES must be usable, not merely configured (decision 063): every GPU node reports the GRES
-# Swallow mapped, and the HIP probe (role gpu_probe, installed on every GPU node) runs in three jobs
+# swallow mapped, and the HIP probe (role gpu_probe, installed on every GPU node) runs in three jobs
 # per node: one without a GPU request sees no GPU, one that requests a GPU sees exactly one as
 # device 0, and one that requests every GPU of the node exercises all of them three times. Unlike
 # the smoke test this is fatal and drains the failed nodes, because a GPU cluster that cannot hand

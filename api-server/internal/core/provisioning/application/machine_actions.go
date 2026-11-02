@@ -268,10 +268,10 @@ func (uc *MachineActionsUseCase) ExitRescueMode(ctx context.Context, serverID st
 }
 
 // operatorState dispatches one operator-state primitive after gating it on the Server's
-// live provisioning state through the Swallow-owned recovery policy. resolveMutable has
+// live provisioning state through the swallow-owned recovery policy. resolveMutable has
 // already refreshed the projection from a live provider read (its lock check reads the
 // Machine), so gating on server.Provisioning.State reflects the current provider state and
-// lets Swallow refuse with its own reason before the provisioner would reject the call.
+// lets swallow refuse with its own reason before the provisioner would reject the call.
 func (uc *MachineActionsUseCase) operatorState(
 	ctx context.Context, serverID string, intent provisioningdomain.RecoveryIntent,
 	call func(provisioningdomain.OperatorStateController, string) (*provisioningdomain.Machine, error),

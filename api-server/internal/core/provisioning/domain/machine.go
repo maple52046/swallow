@@ -139,7 +139,7 @@ type Machine struct {
 	// UEFI machine whose layout was created while the provider believed it booted BIOS, so
 	// it has no EFI system partition. The adapter sets it only when the provider's data
 	// proves the mismatch; missing data never sets it. A memory (ephemeral) deployment does
-	// not use the layout and is unaffected. InspectionRequiredReason is the Swallow-authored
+	// not use the layout and is unaffected. InspectionRequiredReason is the swallow-authored
 	// explanation shown to operators.
 	InspectionRequired       bool
 	InspectionRequiredReason string

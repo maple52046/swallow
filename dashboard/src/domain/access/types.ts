@@ -73,7 +73,7 @@ export interface GeneratedAccessKey {
 
 /**
  * An API Key of the signed-in user as the `api-keys.md` contract returns it (glossary API Key,
- * decision 042): a long-lived secret that lets scripts and the CLI call Swallow as this user. The
+ * decision 042): a long-lived secret that lets scripts and the CLI call swallow as this user. The
  * secret itself is never part of it — swallow keeps only a hash — so `prefix` is what identifies a
  * key to a person.
  */

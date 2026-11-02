@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// PlatformClaim is the Swallow-owned record that a Platform deployment Swallow accepted targets
+// PlatformClaim is the swallow-owned record that a Platform deployment swallow accepted targets
 // this Server (glossary Platform Claim, decision 067). It is written when the deployment is
 // accepted and cleared when that Platform's uninstall succeeds or its record is deleted, so it
 // survives a failed deployment or a failed uninstall: the hosts may still carry platform state.

@@ -429,7 +429,7 @@ func (noSites) FindByID(context.Context, string) (*sitedomain.Site, error) {
 	return nil, sitedomain.ErrSiteNotFound
 }
 
-// DF-05: configuring automation for a Site that does not exist is 404, not an internal error.
+// Configuring automation for a Site that does not exist is 404, not an internal error.
 func TestPutAutomationOfAnUnknownSiteIsNotFound(t *testing.T) {
 	handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(&recordingAutomationRepo{}, noSites{}, nil, workflowdomain.WorkflowKinds{}), nil)
 	app := fiber.New()

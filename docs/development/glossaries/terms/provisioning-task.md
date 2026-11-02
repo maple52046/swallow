@@ -1,7 +1,7 @@
 # Provisioning Task
 
 - Bounded context: OS Provisioning.
-- Definition: Durable Swallow-owned coordination state for provider-backed work
+- Definition: Durable swallow-owned coordination state for provider-backed work
   that must continue across asynchronous Server provisioning transitions.
 - Allowed meaning: Tracking release network cleanup phases, attempts, error
   detail, and retry. The `release-os` Workflow Task that released the Server
@@ -20,4 +20,4 @@
   does not execute a playbook and therefore cannot be represented as Operation.
   2026-11-01: the background queue that advanced it (its own Mongo lease, in the
   api and worker processes) was removed; the release Task runs it, so every
-  Server mutation goes through a Workflow (AR-23).
+  Server mutation goes through a Workflow.

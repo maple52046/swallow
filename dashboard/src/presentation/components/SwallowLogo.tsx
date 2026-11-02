@@ -9,7 +9,7 @@ interface SwallowLogoProps {
 const LOGO_BLUE = '#0066cc'
 
 /**
- * Three-quarter flying product mark shown beside the visible "Swallow" wordmark.
+ * Three-quarter flying product mark shown beside the visible "swallow" wordmark.
  *
  * The mark keeps its original fixed colours and does not follow the theme accent:
  * a brand-blue body, a solid white belly, a warm beak, and an eye highlight that

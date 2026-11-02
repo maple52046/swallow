@@ -9,7 +9,7 @@ interface ResourceDeleteDialogProps {
   warning: string
   /**
    * Optional lead sentence describing the scope of the deletion. Defaults to the Site/Integration
-   * wording (only the Swallow registration is removed). Zone/Pool override it because their delete
+   * wording (only the swallow registration is removed). Zone/Pool override it because their delete
    * also updates a grouping-capable provisioner, so the default sentence would be inaccurate.
    */
   intro?: string

@@ -26,11 +26,11 @@ type platformDoc struct {
 	// MonitoringLinks is omitempty so documents written before the field existed — and
 	// platforms that never had links — decode as nil, which toPlatform turns into [].
 	MonitoringLinks []monitoringLinkDoc `bson:"monitoringLinks,omitempty"`
-	// GPUOperator is absent on every Platform Swallow never managed an operator on.
+	// GPUOperator is absent on every Platform swallow never managed an operator on.
 	GPUOperator *gpuOperatorDoc `bson:"gpuOperator,omitempty"`
-	// Omnistat is absent on every Platform Swallow never installed Omnistat on.
+	// Omnistat is absent on every Platform swallow never installed Omnistat on.
 	Omnistat *omnistatDoc `bson:"omnistat,omitempty"`
-	// DeviceMetricsExporter is absent on every Platform Swallow never installed the exporter on.
+	// DeviceMetricsExporter is absent on every Platform swallow never installed the exporter on.
 	DeviceMetricsExporter *deviceMetricsExporterDoc `bson:"deviceMetricsExporter,omitempty"`
 	// ContainerRuntime is absent when the Slurm container runtime feature is off.
 	ContainerRuntime string `bson:"containerRuntime,omitempty"`
@@ -69,7 +69,7 @@ func toGPUDriver(doc *gpuDriverDoc) platformdomain.GPUDriverSettings {
 	return platformdomain.GPUDriverSettings{ModuleOptions: doc.ModuleOptions}
 }
 
-// omnistatDoc persists the Swallow-managed Omnistat record. lastWorkflowId is the fence
+// omnistatDoc persists the swallow-managed Omnistat record. lastWorkflowId is the fence
 // UpdateOmnistatState matches on. installMethod is empty on records written before the native
 // method existed, which all used the container method.
 type omnistatDoc struct {
@@ -82,7 +82,7 @@ type omnistatDoc struct {
 	UpdatedAt             time.Time `bson:"updatedAt"`
 }
 
-// deviceMetricsExporterDoc persists the Swallow-managed Device Metrics Exporter record.
+// deviceMetricsExporterDoc persists the swallow-managed Device Metrics Exporter record.
 // lastWorkflowId is the fence UpdateDeviceMetricsExporterState and
 // UpdateDeviceMetricsExporterGPUIdentity match on; gpuIdentity is empty until an install reported it.
 type deviceMetricsExporterDoc struct {
@@ -96,7 +96,7 @@ type deviceMetricsExporterDoc struct {
 	UpdatedAt             time.Time `bson:"updatedAt"`
 }
 
-// gpuOperatorDoc persists the Swallow-managed GPU Operator record. lastWorkflowId is the fence
+// gpuOperatorDoc persists the swallow-managed GPU Operator record. lastWorkflowId is the fence
 // UpdateGPUOperatorState matches on.
 type gpuOperatorDoc struct {
 	Enabled          bool      `bson:"enabled"`

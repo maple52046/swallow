@@ -92,7 +92,7 @@ func (Platform) SpecFromDeployRequest(body map[string]any) (platformdomain.Platf
 // native OCI containers, or PMIx converge directly by rerunning the convergent deploy; removing a
 // member, changing roles, changing or disabling the storage or a runtime, and changing the state
 // save location, the GRES type, the GPU stack owner, or the driver options are destructive.
-// Swallow cannot yet remove members, change roles, disable features, or reconfigure them.
+// swallow cannot yet remove members, change roles, disable features, or reconfigure them.
 func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdomain.PlatformSpec) (platformdomain.PlatformChanges, error) {
 	platform := convergence.ResourceRef{Kind: "platform"}
 	if desired.Desired == platformdomain.PlatformAbsent {

@@ -59,24 +59,24 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
    最擅長產生的事實，swallow 讀回成 observed state，帶來源與觀察時間，永遠不拿它當寫入的依據。每個欄位都是 desired、
    observed 或 derived 其中之一，而且只有一個寫入者；provider 永遠不寫 desired state。metrics、alert 的評估、workload
    的排程與 Platform 內部的資源由各自的系統擁有，swallow 不保存。
-   （[`desired-state-model.md`](desired-state-model.md) §3；[ADR 001](../decisions/001-system-ownership-boundaries.md)、
-   [ADR 069](../decisions/069-swallow-owns-desired-state.md)）
+   （[`desired-state-model.md`](desired-state-model.md) §3；[decision 001](../decisions/001-system-ownership-boundaries.md)（system ownership boundaries）、
+   [decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state））
 2. **收斂，而不是下命令。** controller 依目前的 desired 與 observed 決定動作，事件只負責喚醒它，漏掉事件不會遺失工作。
    非破壞性的差異自動收斂；破壞性的變更先產生 Change Plan，經 operator 核准後以 Workflow 執行；drift 預設只回報，
    不自動修正。（[`desired-state-model.md`](desired-state-model.md) §5–§7；
-   [ADR 069](../decisions/069-swallow-owns-desired-state.md)、[ADR 071](../decisions/071-provisioner-realized-desired-state.md)）
+   [decision 069](../decisions/069-swallow-owns-desired-state.md)、[decision 071](../decisions/071-provisioner-realized-desired-state.md)（provisioner realized desired state））
 3. **core 與廠商無關。** core 只有領域模型、Workflow 的模型與語意、controller，以及各類 provider interface 與模組
    契約；不含廠商、產品、平台或 GPU 廠商的名稱、型別、常數與知識，也不依 adapter 識別碼分支。每個 provider 都可以
    抽換，廠商的詞彙只存在 provider 內；平台與 GPU 廠商專屬的邏輯只存在 plugin。（[`core-and-extensions.md`](core-and-extensions.md) §2–§5；
-   [ADR 070](../decisions/070-core-providers-and-extensions.md)）
+   [decision 070](../decisions/070-core-providers-and-extensions.md)（core providers and extensions））
 4. **執行狀態只在 store。** Workflow 與 Task 的狀態、attempt、結果與資源所有權只記錄在 store，core 的 Workflow
    service 是唯一的寫入者；Workflow executor（目前是 Temporal）只負責執行。每次派發的世代擋掉舊的 execution；
    Workflow 在生命週期內擁有它的資源，沒有 TTL。（[`workflow-execution.md`](workflow-execution.md) §2、§4；
-   [ADR 072](../decisions/072-store-driven-workflow-execution.md)）
+   [decision 072](../decisions/072-store-driven-workflow-execution.md)（store driven workflow execution））
 5. **deployment 是宣告式的執行計畫。** 一個 Workflow 宣告它的 Job、Task、依賴、重試粒度、完成行為與取消補償；engine
    只依宣告執行，不認得任何 Workflow kind 或 Task kind。新增一種 deployment 是產生這份計畫與它需要的 handler，不修改
    engine。（[`workflow-execution.md`](workflow-execution.md) §12、[`core-and-extensions.md`](core-and-extensions.md) §2；
-   [ADR 072](../decisions/072-store-driven-workflow-execution.md)）
+   [decision 072](../decisions/072-store-driven-workflow-execution.md)）
 6. **不變式靠 transaction。** 跨文件的不變式在同一個 transaction 內完成，不以補償或修復 sweep 代替；store 的規則以
    port 表達，資料庫特有的型別與語意不越過 adapter。（[`desired-state-model.md`](desired-state-model.md) §10）
 7. **一切自動化都是 ensure。** playbook、Task 與 controller 都是 idempotent 的：可以安全重跑，已經達成時不產生變更。
@@ -85,7 +85,7 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
    [`platform-deployment.md`](platform-deployment.md) §4.7）
 8. **不確定時不猜。** 無法證明的事不當成已知：provider 無法連線時，資料只是變舊（[Staleness](glossaries/terms/staleness.md)），
    不是壞掉；provider 沒有能力時回報 `capability_missing`，不建立同形狀的替代品（取代
-   [ADR 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md) 的 fallback）；結果無法證明的
+   [decision 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)（provider capability first with swallow owned fallback） 的 fallback）；結果無法證明的
    Ansible Task 交給 operator（`executor_outcome_unknown`）；無法確定一個變更是否破壞性時，歸為破壞性。
    （[`desired-state-model.md`](desired-state-model.md) §5.1、§8；[`workflow-execution.md`](workflow-execution.md) §10）
 9. **語言與契約先於程式。** 新概念先進 glossary，API 行為先寫進 provider-owned 契約，同一個行為只有一份 canonical
@@ -99,21 +99,20 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
 2. 單一真相與正確性。
 3. core 的通用性。
 4. 相容與便利。API 沒有本 repository 以外的 consumer（dashboard 與 cli 都在這裡），所以不為不存在的 consumer
-   保留 API 的相容層（[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)（retire schema v2 and
-   deprecated aliases））。已安裝的資料不在此列：它受第 1 點保護，升級以 schema migration 保留。
+   保留 API 的相容層（[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)（retire schema v2 and deprecated aliases））。已安裝的資料不在此列：它受第 1 點保護，升級以 schema migration 保留。
 
 ### 現況與目標
 
 設計主張描述目標；遷移逐步進行，尚未遷移的功能維持現行行為，以各功能規格為準。某個功能遷移時，在同一個變更中
 更新它的規格。
 
-- 執行狀態只在 store（原則 4、5）：已實作（ADR 072）。
-- desired state 與收斂（原則 1、2）：由 provisioner 實現的第一段資源與 Platform 已遷移
+- 執行狀態只在 store（原則 4、5）：已實作（decision 072）。
+- desired state 與收斂（原則 1、2）：由 provisioner 實現的資源（遷移第一段）與 Platform 已遷移
   （[`desired-state-model.md`](desired-state-model.md) §4.4、§5.2）。Platform 的破壞性變更產生 Change Plan，核准後才執行
-  （[ADR 076](../decisions/076-change-plans.md)）；Server 的破壞性動作（Release、Recover 等）仍由 operator 直接要求，以
+  （[decision 076](../decisions/076-change-plans.md)（change plans））；Server 的破壞性動作（Release、Recover 等）仍由 operator 直接要求，以
   Workflow 執行。
 - core 與廠商無關（原則 3）：provider 與 plugin 已依配置分開（`api-server/internal/adapters/`、`api-server/modules/`）。
-  Module Manifest、Go hook 與模組 registry 已實作（[ADR 075](../decisions/075-module-contract-v1.md)）：Software、
+  Module Manifest、Go hook 與模組 registry 已實作（[decision 075](../decisions/075-module-contract-v1.md)（module contract v1））：Software、
   Kubernetes、Slurm 與 AMD 都是模組，dashboard 依模組 registry 組成畫面，沒有專屬畫面的模組依 manifest 的 spec schema
   產生表單（Software 的 kind 清單在 dashboard 仍是固定的）。依設定組裝發行版尚未實作，每個 build 編入全部模組。core 內仍有平台與 AMD 專屬的邏輯，列在
   [`core-and-extensions.md`](core-and-extensions.md) §3.6，以廠商詞彙的 ratchet 守住，只能減少。

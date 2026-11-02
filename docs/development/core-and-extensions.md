@@ -4,8 +4,8 @@
 東西如何以擴充模組加入，以及這三者之間的契約。所有新的外部系統、新平台、新 GPU 廠商與新軟體都必須遵守。
 
 > **本文件不重述決策**：為什麼採 ports and adapters、為什麼把 Accelerator 獨立成一個維度、為什麼模組分三階段，
-> 見 [decision 070](../decisions/070-core-providers-and-extensions.md)。資源的所有權與收斂規則見
-> [desired-state-model.md](desired-state-model.md)（[decision 069](../decisions/069-swallow-owns-desired-state.md)）。
+> 見 [decision 070](../decisions/070-core-providers-and-extensions.md)（core providers and extensions）。資源的所有權與收斂規則見
+> [desired-state-model.md](desired-state-model.md)（[decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state））。
 
 > **目標結構與現況**：本文件描述目標結構。現有程式碼仍有越過邊界的地方（§3.6），遷移在各自的計畫中進行；
 > 新的程式碼必須依本文件放置，修改既有程式碼時不得讓越界的情況擴大。遷移完成前新增 Platform、Managed Software
@@ -202,7 +202,7 @@ core 檔案的廠商詞彙數仍不得增加。新的平台或廠商名稱要寫
 manifest 是資料；core 以讀取 manifest 的方式載入模組，契約版本不相容時拒絕載入。
 
 契約 v1 的格式是 `modules/<種類>/<id>/module.json`，由模組的 root Go package 嵌入，composition root 為三個 process
-組出同一個 registry（[decision 075](../decisions/075-module-contract-v1.md)；欄位與寫法見
+組出同一個 registry（[decision 075](../decisions/075-module-contract-v1.md)（module contract v1）；欄位與寫法見
 [module-authoring.md](module-authoring.md) §1.1）。v1 的 spec schema 是 core 與 dashboard 讀法相同的 JSON Schema 子集；
 功能開關、Job／Task 範本、狀態規則與模組之間的相容宣告尚未進入 v1：目前由模組的 Go hook 產生執行計畫，宣告式的範本
 另行定義；相容關係以 core 的 port 表達。
@@ -213,7 +213,7 @@ host automation 內容（目前是 playbook）以「內容類型＋參照」宣�
 manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allowlist 管控（目前是
 `api-server/modules/manifest.json`），不得來自可變的資料庫內容。
 
-**改套件的內容必須暫緩 OS 的自動套件維護**（[decision 073](../decisions/073-hold-os-package-maintenance-during-automation.md)）：
+**改套件的內容必須暫緩 OS 的自動套件維護**（[decision 073](../decisions/073-hold-os-package-maintenance-during-automation.md)（hold os package maintenance during automation））：
 
 - 任何會安裝、移除或更新套件、或刷新套件索引的 playbook，第一個 play 以共用 role
   `package_maintenance_hold` 在所有目標上取得 hold（`hosts: all`、`gather_facts: false`），最後一個 play
@@ -274,7 +274,7 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 
 ## 9. 一致性測試
 
-第一階段不偏離「可抽換、可外掛」形狀的守門機制：
+模組演進第一階段（§10.1）不偏離「可抽換、可外掛」形狀的守門機制：
 
 - 每個 port 一組 adapter 一致性測試（§3.7）。
 - 每個 repository 內的模組必須能只靠 manifest 與 host automation 內容載入；Go hook 以清單管理，清單之外的
@@ -284,6 +284,9 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
   Architecture 分層檢查是同一個測試）。
 
 ## 10. 演進階段與共同開發
+
+本節的「第一階段」到「第三階段」是模組演進的階段，與 [desired-state-model.md](desired-state-model.md) §4.4
+資源遷移的「遷移第一段」「遷移第二段」無關。
 
 ### 10.1 第一階段：在本 repository 共同開發
 

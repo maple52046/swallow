@@ -5,7 +5,7 @@ import type { DeploymentNetworkMode } from '@/domain/provisioning/types'
 /**
  * The three deployment addressing intents in the order an operator weighs them (glossary Network
  * Configuration). Descriptions state who assigns the address and where DNS comes from, because
- * that is what tells Automatic and DHCP apart on a site-DHCP network (ADR 058).
+ * that is what tells Automatic and DHCP apart on a site-DHCP network (decision 058).
  */
 const ADDRESSING_MODE_OPTIONS: ReadonlyArray<{
   value: DeploymentNetworkMode

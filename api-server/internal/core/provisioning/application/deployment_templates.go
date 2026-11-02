@@ -34,7 +34,7 @@ type DeploymentNetworkSettingsItem struct {
 	DefaultGateway bool   `json:"defaultGateway"`
 }
 
-// DeploymentNetworkSettingsInput accepts Swallow DHCP/static template intent.
+// DeploymentNetworkSettingsInput accepts swallow DHCP/static template intent.
 // A nil input applies the backward-compatible DHCP default.
 type DeploymentNetworkSettingsInput struct {
 	Mode           string

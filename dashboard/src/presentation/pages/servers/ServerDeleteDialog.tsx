@@ -40,7 +40,7 @@ function namesSentence(servers: readonly Server[]): string {
  * Confirms the provider-backed deletion shared by Server list rows, the list's bulk selection,
  * and the detail page.
  *
- * Deleting removes the provisioner's Machine and then the Swallow record, one Server at a time
+ * Deleting removes the provisioner's Machine and then the swallow record, one Server at a time
  * through the per-Server API with at most four in flight; provider safeguards can refuse any of
  * them. A single Server is confirmed by typing its displayed name, and a refusal stays inline. A
  * bulk selection lists its targets and is confirmed by typing how many Servers will be deleted;

@@ -7,7 +7,7 @@
 export interface CredentialGuidance {
   /** Short, provider-specific name of the secret, e.g. "MAAS API key". */
   term: string
-  /** One line: what Swallow does with it. */
+  /** One line: what swallow does with it. */
   purpose: string
   /** What the value actually is and where an operator gets it. */
   whatItIs: string

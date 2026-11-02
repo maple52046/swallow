@@ -17,9 +17,9 @@ Active
 
 Read and write the Provisioner HTTP Proxy of one provisioner Integration: the proxy its provider
 hands to the machines it deploys for package and HTTP/HTTPS traffic, and itself uses to download
-boot images ([decision 056](../../../../../docs/decisions/056-provisioner-http-proxy.md)). swallow
+boot images ([decision 056](../../../../../docs/decisions/056-provisioner-http-proxy.md) (provisioner http proxy)). swallow
 owns the setting as desired state
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)): a write
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state)): a write
 stores the spec, and the HTTP Proxy controller writes it to the provisioner (for MAAS, the region
 configuration `enable_http_proxy`, `use_peer_proxy`, and `http_proxy`) and reads it back. A change
 made in the provisioner is drift, put back at swallow's periodic resync (every 10 minutes by
@@ -90,7 +90,7 @@ therefore observed by their effect, and `httpProxy` is `""` unless the mode is `
 {
   "integrationId": "c3d4…",
   "generation": 2,
-  "spec": { "mode": "external", "httpProxy": "http://10.170.168.20:18080" },
+  "spec": { "mode": "external", "httpProxy": "http://10.140.168.20:18080" },
   "status": {
     "observedGeneration": 2,
     "conditions": [
@@ -98,7 +98,7 @@ therefore observed by their effect, and `httpProxy` is `""` unless the mode is `
       { "type": "drifted", "status": "false", "reason": "in_sync", "message": "", "lastTransitionTime": "2026-10-31T04:00:00Z", "observedGeneration": 2 },
       { "type": "requires_attention", "status": "false", "reason": "none", "message": "", "lastTransitionTime": "2026-10-31T04:00:00Z", "observedGeneration": 2 }
     ],
-    "observed": { "mode": "external", "httpProxy": "http://10.170.168.20:18080" },
+    "observed": { "mode": "external", "httpProxy": "http://10.140.168.20:18080" },
     "observedAt": "2026-10-31T04:10:00Z"
   }
 }
@@ -126,7 +126,7 @@ written yet).
 ```json
 {
   "mode": "external",
-  "httpProxy": "http://10.170.168.20:18080"
+  "httpProxy": "http://10.140.168.20:18080"
 }
 ```
 

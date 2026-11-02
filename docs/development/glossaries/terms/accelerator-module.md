@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "Adding NVIDIA means adding an Accelerator Module, not changing the Kubernetes and Slurm modules."
 - Related terms: Extension Module, Platform Module, GPU Inventory, Server Type, GPU Operator, Device Metrics Exporter.
-- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md), which makes the GPU vendor a separate axis.
+- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md) (core providers and extensions), which makes the GPU vendor a separate axis.

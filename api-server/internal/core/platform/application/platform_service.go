@@ -76,20 +76,20 @@ func (s *PlatformService) AttachOperationCanceler(canceler platformdomain.Platfo
 }
 
 // AttachGPUOperatorRecorder lets CompleteUninstall record that a Platform uninstall also removed
-// its Swallow-managed GPU Operator. Every process that completes uninstalls must wire it, or the
+// its swallow-managed GPU Operator. Every process that completes uninstalls must wire it, or the
 // Platform keeps reporting an operator that no longer exists.
 func (s *PlatformService) AttachGPUOperatorRecorder(recorder platformdomain.GPUOperatorRecorder) {
 	s.gpuOperators = recorder
 }
 
 // AttachOmnistatRecorder lets CompleteUninstall record that a Slurm uninstall also removed the
-// Platform's Swallow-managed Omnistat. Every process that completes uninstalls must wire it.
+// Platform's swallow-managed Omnistat. Every process that completes uninstalls must wire it.
 func (s *PlatformService) AttachOmnistatRecorder(recorder platformdomain.OmnistatRecorder) {
 	s.omnistats = recorder
 }
 
 // AttachDeviceMetricsExporterRecorder lets CompleteUninstall record that a Slurm uninstall also
-// removed the Platform's Swallow-managed Device Metrics Exporter, and lets an install's completion
+// removed the Platform's swallow-managed Device Metrics Exporter, and lets an install's completion
 // record its GPU identity. Every process that completes uninstalls or installs must wire it.
 func (s *PlatformService) AttachDeviceMetricsExporterRecorder(recorder platformdomain.DeviceMetricsExporterRecorder) {
 	s.deviceMetricsExporters = recorder
@@ -161,7 +161,7 @@ type PlatformItem struct {
 	// Deployment is the non-secret topology intent recovered from durable Operation
 	// provenance. It is null for registered platforms and incomplete legacy history.
 	Deployment *PlatformDeploymentItem `json:"deployment"`
-	// GPUStackOwner decides which subsystem installs GPU drivers. Swallow refuses
+	// GPUStackOwner decides which subsystem installs GPU drivers. swallow refuses
 	// operations that contradict it.
 	GPUStackOwner string `json:"gpuStackOwner"`
 	// ExporterOwner decides which subsystem installs this platform's Prometheus
@@ -170,11 +170,11 @@ type PlatformItem struct {
 	// MonitoringLinks are the operator-registered links to the runtime's own monitoring UI.
 	// Always an array (empty when none), so clients never branch on null.
 	MonitoringLinks []MonitoringLinkItem `json:"monitoringLinks"`
-	// GPUOperator is the Swallow-managed GPU Operator, null when Swallow never managed one here.
+	// GPUOperator is the swallow-managed GPU Operator, null when swallow never managed one here.
 	GPUOperator *GPUOperatorItem `json:"gpuOperator"`
-	// Omnistat is the Swallow-managed Omnistat of a Slurm Platform, null when never installed.
+	// Omnistat is the swallow-managed Omnistat of a Slurm Platform, null when never installed.
 	Omnistat *OmnistatItem `json:"omnistat"`
-	// DeviceMetricsExporter is the Swallow-managed Device Metrics Exporter of a Slurm Platform,
+	// DeviceMetricsExporter is the swallow-managed Device Metrics Exporter of a Slurm Platform,
 	// null when never installed.
 	DeviceMetricsExporter *DeviceMetricsExporterItem `json:"deviceMetricsExporter"`
 	// ContainerRuntime is the Slurm container runtime feature (docker-ce or podman), null when off.
@@ -213,7 +213,7 @@ func toGPUDriverItem(settings platformdomain.GPUDriverSettings) *GPUDriverItem {
 	return &GPUDriverItem{ModuleOptions: settings.ModuleOptions}
 }
 
-// OmnistatItem is the wire shape of a Slurm Platform's Swallow-managed Omnistat (platforms.md,
+// OmnistatItem is the wire shape of a Slurm Platform's swallow-managed Omnistat (platforms.md,
 // "Omnistat"): the pinned version, how Prometheus and Grafana were installed and on which Server,
 // and the Omnistat State of the Workflow installing it.
 type OmnistatItem struct {
@@ -226,7 +226,7 @@ type OmnistatItem struct {
 	UpdatedAt             string  `json:"updatedAt"`
 }
 
-// DeviceMetricsExporterItem is the wire shape of a Slurm Platform's Swallow-managed Device Metrics
+// DeviceMetricsExporterItem is the wire shape of a Slurm Platform's swallow-managed Device Metrics
 // Exporter (platforms.md, "Device Metrics Exporter"): the pinned version, how Prometheus and
 // Grafana were installed and on which Server, the Device Metrics Exporter State of the Workflow
 // installing it, and the GPU identity a successful install found (null before one).
@@ -241,7 +241,7 @@ type DeviceMetricsExporterItem struct {
 	UpdatedAt             string  `json:"updatedAt"`
 }
 
-// GPUOperatorItem is the wire shape of a Platform's Swallow-managed GPU Operator (platforms.md,
+// GPUOperatorItem is the wire shape of a Platform's swallow-managed GPU Operator (platforms.md,
 // "Manage The GPU Operator"): the latest requested settings plus the GPU Operator State of the
 // Workflow applying them. DRADriverVersion is null outside DRA mode.
 type GPUOperatorItem struct {
@@ -287,7 +287,7 @@ type PlatformSyncItem struct {
 	LastSucceededAt *string `json:"lastSucceededAt"`
 	LastError       *string `json:"lastError"`
 	MemberCount     int     `json:"memberCount"`
-	// MatchedCount is how many members Swallow could match to a server.
+	// MatchedCount is how many members swallow could match to a server.
 	MatchedCount int `json:"matchedCount"`
 }
 

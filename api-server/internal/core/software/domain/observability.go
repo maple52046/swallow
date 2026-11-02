@@ -81,7 +81,7 @@ const (
 	SpecScrapeJob = "scrapeJob"
 	// SpecScrapeTargets lists host:port endpoints Prometheus scrapes.
 	SpecScrapeTargets = "scrapeTargets"
-	// SpecScrapeServerIDs lists Swallow Servers Prometheus scrapes on SpecScrapePort. Their
+	// SpecScrapeServerIDs lists swallow Servers Prometheus scrapes on SpecScrapePort. Their
 	// addresses are resolved at every run from the Server's current primary address, so a
 	// redeploy that changes an address converges on the next run instead of scraping a stale IP.
 	SpecScrapeServerIDs = "scrapeServerIds"
@@ -94,16 +94,16 @@ const (
 	// SpecPrometheusURL is the Prometheus Grafana's datasource reads; empty means the Prometheus
 	// on the same Server.
 	SpecPrometheusURL = "prometheusUrl"
-	// SpecDashboards names the Swallow-shipped dashboard bundles Grafana provisions.
+	// SpecDashboards names the swallow-shipped dashboard bundles Grafana provisions.
 	SpecDashboards = "dashboards"
 )
 
 // GrafanaDashboardOmnistat is the bundle of Omnistat's RMS dashboards (global, node, job) pinned
-// to the Omnistat release Swallow installs.
+// to the Omnistat release swallow installs.
 const GrafanaDashboardOmnistat = "omnistat"
 
 // GrafanaDashboardDeviceMetricsExporter is the bundle of the Device Metrics Exporter's Slurm
-// dashboards (overview, GPU, node, job) pinned to the exporter release Swallow installs.
+// dashboards (overview, GPU, node, job) pinned to the exporter release swallow installs.
 const GrafanaDashboardDeviceMetricsExporter = "device-metrics-exporter"
 
 // grafanaDashboardBundles lists the dashboard bundles a release ships.
@@ -114,7 +114,7 @@ var grafanaDashboardBundles = []string{GrafanaDashboardOmnistat, GrafanaDashboar
 // a registry, path, or digest.
 var releaseVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
-// jobNamePattern is Prometheus's label-value-safe job name subset Swallow accepts.
+// jobNamePattern is Prometheus's label-value-safe job name subset swallow accepts.
 var jobNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]{0,63}$`)
 
 // NormalizeReleaseVersion trims a version and drops one leading "v", so "v3.15.0" and "3.15.0"

@@ -3,11 +3,11 @@
 本文件是 swallow [Installation](glossaries/terms/installation.md) 的權威設計文件：單一 VM 的
 production installation 拓樸、`swallowctl` lifecycle 的保證、release 發佈物與 image 來源、一行指令
 安裝與升級，以及 [Control-Plane NTP Server](glossaries/terms/control-plane-ntp-server.md) 與 OS 佈署後
-的時間同步。它收斂 [decision 040](../decisions/040-single-vm-production-installation.md)、
-[decision 050](../decisions/050-compose-only-release-artifacts.md)、
-[decision 051](../decisions/051-ghcr-holds-only-swallow-images.md)、
-[decision 052](../decisions/052-one-command-installation.md)、
-[decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md) 的現行規則。
+的時間同步。它收斂 [decision 040](../decisions/040-single-vm-production-installation.md)（single vm production installation）、
+[decision 050](../decisions/050-compose-only-release-artifacts.md) (compose only release artifacts)、
+[decision 051](../decisions/051-ghcr-holds-only-swallow-images.md) (ghcr holds only swallow images)、
+[decision 052](../decisions/052-one-command-installation.md) (one command installation)、
+[decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)（control plane ntp and post provision time sync） 的現行規則。
 決策理由與否決方案以 ADR 為準，本文只寫目前有效的行為與不變式。
 
 > **Source of truth**：現行行為以 `deploy/`（`deploy/production` 的 Compose 檔與腳本、
@@ -89,7 +89,7 @@ production installation 拓樸、`swallowctl` lifecycle 的保證、release 發�
 
 ### 2.3a MongoDB：single-node replica set
 
-swallow 需要 store 支援多文件 transaction 與 change stream（decision 069、
+swallow 需要 store 支援多文件 transaction 與 change stream（[decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state）、
 [desired-state-model.md](desired-state-model.md) §10），所以 MongoDB 在每個環境都是 single-node replica set
 `rs0`，每個 swallow process 啟動時檢查，不是 replica set 就拒絕啟動。
 
@@ -120,7 +120,7 @@ swallow 需要 store 支援多文件 transaction 與 change stream（decision 06
   第三方或 custom image、離線 image media 不屬於 installation。同步 image 不是
   [OS Deployment](glossaries/terms/os-deployment.md)：沒有任何 Server 改變。
 - 安裝也為 MAAS rack 建立 virsh power driver 用的 SSH identity，公鑰存為 `secrets/maas-virsh-ssh.pub`，
-  由 bootstrap 記到 Integration（用途見 [decision 055](../decisions/055-libvirt-virtual-machine-enrollment.md)）。
+  由 bootstrap 記到 Integration（用途見 [decision 055](../decisions/055-libvirt-virtual-machine-enrollment.md)（libvirt virtual machine enrollment））。
 - MAAS 的 chronyd 就是 production 主機的 Control-Plane NTP Server（§6.1）。
 
 ### 2.5 Installation records 經由已發佈的 API 建立
@@ -143,7 +143,7 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 
 - 不建立任何 SSH Access Key：由 operator 自己上傳。
 - `bootstrap.sh verify` 是對應的唯讀檢查，供 `doctor` 使用（§3.4）。
-- Ownership 不變（[decision 001](../decisions/001-system-ownership-boundaries.md)）：MAAS 仍是擁有
+- Ownership 不變（[decision 001](../decisions/001-system-ownership-boundaries.md)（system ownership boundaries））：MAAS 仍是擁有
   machine 與 image 事實的 provisioner；共置只改變拓樸。
 
 ### 2.6 Plain HTTP
@@ -310,7 +310,7 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
   - 資源所有權與 Workflow 可能對不上（collection 不是同一瞬間取得）：新世代的第一輪重新取得 Workflow 的資源
     （被另一個 Workflow 擁有時等待），resync 釋放 owner 已結束或不存在的所有權（workflow-execution.md §4）。
   - 被終止的 run 若正在 Server 上執行 playbook，沒有跑到釋放 OS 套件維護 hold 的最後一個 play；那些 Server 的
-    hold 在 TTL（預設 3 小時）到期時自行解除（[decision 073](../decisions/073-hold-os-package-maintenance-during-automation.md)）。
+    hold 在 TTL（預設 3 小時）到期時自行解除（[decision 073](../decisions/073-hold-os-package-maintenance-during-automation.md)（hold os package maintenance during automation））。
 
 ### 3.7 `uninstall`
 
@@ -330,11 +330,11 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 - `swallowctl` 是唯一的 lifecycle 工具、installed marker 只在 `doctor` 通過後寫入：見
   [decision 052](../decisions/052-one-command-installation.md)。
 - upgrade 在 operation 進行中拒絕、除非 operator 明確強制：沿用
-  [decision 006](../decisions/006-embedded-ansible-execution.md) 的 Consequences。
+  [decision 006](../decisions/006-embedded-ansible-execution.md)（embedded ansible execution） 的 Consequences。
 - backup／restore 包含 `maasdb`，因為 MAAS 依賴 Compose 的 PostgreSQL：見
   [decision 040](../decisions/040-single-vm-production-installation.md)。
 - 還原以 store 為準、不備份 Temporal：store 是唯一的真相，execution 遺失時由 store 重新派發，見
-  [decision 072](../decisions/072-store-driven-workflow-execution.md)。
+  [decision 072](../decisions/072-store-driven-workflow-execution.md) (store driven workflow execution)。
 
 ---
 
@@ -416,7 +416,7 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 - release 只發佈 Compose installation、延後 native bundle 與離線 archive、Temporal UI 交給 operator、發佈機
   必須自備 crane：見 [decision 050](../decisions/050-compose-only-release-artifacts.md)。這延後而非放棄
   [decision 006](../decisions/006-embedded-ansible-execution.md) 與
-  [decision 016](../decisions/016-temporal-operation-orchestration.md) 的 air-gap 目標。
+  [decision 016](../decisions/016-temporal-operation-orchestration.md)（temporal operation orchestration） 的 air-gap 目標。
 - GHCR 只放 swallow 建置的 image、官方 image 以上游 digest 原樣使用、共用 PostgreSQL 的中性命名：見
   [decision 051](../decisions/051-ghcr-holds-only-swallow-images.md)。
 
@@ -588,7 +588,7 @@ targets，量測與 Control-Plane NTP Server 的 offset（上限 1 秒），由 
 client、Platform 只檢查不設定、cloud-init 合成列為備選：見
 [decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)（含兩次修訂移除的 Site NTP
 Configuration、共用的 `check-time-sync` Task 與一律安裝 chrony，以及促成「上游不得從本主機取得時間」的
-`root123-intel` 事故）。
+lab 事故）。
 
 ---
 
@@ -640,7 +640,7 @@ Configuration、共用的 `check-time-sync` Task 與一律安裝 chrony，以及
   [decision 001](../decisions/001-system-ownership-boundaries.md)、
   [decision 006](../decisions/006-embedded-ansible-execution.md)、
   [decision 016](../decisions/016-temporal-operation-orchestration.md)、
-  [decision 058](../decisions/058-deployment-dhcp-and-subnet-dns.md)（swallow 不合成 cloud-init）。
+  [decision 058](../decisions/058-deployment-dhcp-and-subnet-dns.md)（deployment dhcp and subnet dns；swallow 不合成 cloud-init）。
 - 語言：glossary [Installation](glossaries/terms/installation.md)、
   [Control-Plane NTP Server](glossaries/terms/control-plane-ntp-server.md)、
   [Time Sync Check](glossaries/terms/time-sync-check.md)、[Site](glossaries/terms/site.md)、

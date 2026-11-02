@@ -70,7 +70,7 @@ export interface OSImageMetadata {
   name: string
   osSystem: string
   release: string
-  /** Swallow-owned labels for organizing and searching images; no provider counterpart. */
+  /** swallow-owned labels for organizing and searching images; no provider counterpart. */
   tags: string[]
   defaultUser: string
 }
@@ -95,14 +95,14 @@ export interface OSImageStatus {
   /** Provider-reported bytes for the current complete artifact; absent when unavailable. */
   sizeBytes?: number
   /**
-   * Deploy targets ("disk"/"ram") a Swallow verification has proven this image can deploy in.
+   * Deploy targets ("disk"/"ram") a swallow verification has proven this image can deploy in.
    * Always present (possibly empty). Empty means the image has not been verified for any target;
    * custom (uploaded) images must be verified for a target before a normal deploy in that target
    * is allowed, while synced provider images are trusted and never require verification.
    */
   verifiedDeployTargets: string[]
   /**
-   * Deploy targets whose most recent Swallow verification run failed. Always present (possibly
+   * Deploy targets whose most recent swallow verification run failed. Always present (possibly
    * empty). A target here was proven not to deploy in that mode, as opposed to never attempted — it
    * lets the UI show a failed verification distinctly from an unverified one. A target is in
    * verifiedDeployTargets or failedDeployTargets but never both (recording one outcome clears the

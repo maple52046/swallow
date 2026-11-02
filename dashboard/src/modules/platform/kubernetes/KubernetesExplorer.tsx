@@ -21,7 +21,7 @@ import { AsyncSection as SharedAsyncSection } from '@/presentation/components/As
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 
 /**
- * The live Kubernetes cluster explorer, rendered as Platform-detail tabs for a Swallow-deployed
+ * The live Kubernetes cluster explorer, rendered as Platform-detail tabs for a swallow-deployed
  * Kubernetes Platform. Every read and write goes to the deployed cluster's own API on demand
  * and persists nothing (decision 032). The tabs are shown only when the Platform is eligible
  * (see `explorerEnabled` in PlatformDetailPage), so these components assume eligibility and

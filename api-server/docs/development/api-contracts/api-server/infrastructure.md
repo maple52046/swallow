@@ -17,7 +17,7 @@ Active
 
 Manage swallow-owned **Zone** and **Pool** (resource pool) records and place a **Server** in a
 Zone and/or Pool. Zones and Pools are Site-scoped groupings that swallow owns as desired state
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)): an
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state)): an
 API write stores the spec and answers at once, and swallow's controllers make every
 grouping-capable provisioner of the Site (MAAS) match it, including a provisioner added later.
 This surface backs the dashboard *Infrastructure* area and the Server placement action.
@@ -216,7 +216,7 @@ Beyond the shared codes in [conventions.md](conventions.md):
 
 ## Compatibility Notes
 
-New surface introduced with decision 029. Field names and enum-like values follow swallow's
+New surface introduced with [decision 029](../../../../../docs/decisions/029-infrastructure-zone-pool-ownership.md) (infrastructure zone pool ownership). Field names and enum-like values follow swallow's
 glossary (`Zone`, `Pool`, `Site`, `Server`). Adding an optional field is backward compatible;
 see [conventions.md](conventions.md) for the breaking-change rules.
 

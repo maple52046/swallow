@@ -1,5 +1,5 @@
 // Package domain defines the Operation kernel: operator intent, durable workflow state,
-// executor progress, and the invariants Swallow enforces before accepting mutating work.
+// executor progress, and the invariants swallow enforces before accepting mutating work.
 // The context is named workflow, but its types keep their Operation names, and its records keep
 // the collection and field names they were first stored under (renaming those is a data
 // migration).
@@ -42,7 +42,7 @@ const (
 	// deploy-kubernetes operation while preserving the host operating system.
 	WorkflowKindUninstallKubernetes WorkflowKind = "uninstall-kubernetes"
 
-	// WorkflowKindConfigureGPUOperator installs, changes, or uninstalls the Swallow-managed AMD
+	// WorkflowKindConfigureGPUOperator installs, changes, or uninstalls the swallow-managed AMD
 	// GPU Operator of a Kubernetes Platform (decision 062). It is both the kind of the ansible
 	// Task inside a deploy-kubernetes Workflow that installs the operator and the kind of the
 	// standalone Workflow that changes it later; launched by the platform context, never by a
@@ -50,7 +50,7 @@ const (
 	WorkflowKindConfigureGPUOperator WorkflowKind = "configure-gpu-operator"
 
 	WorkflowKindConfigureSlurm WorkflowKind = "configure-slurm"
-	// WorkflowKindUninstallSlurm removes the Slurm configuration and daemons Swallow
+	// WorkflowKindUninstallSlurm removes the Slurm configuration and daemons swallow
 	// deployed while preserving the host operating system and the image-supplied packages.
 	WorkflowKindUninstallSlurm WorkflowKind = "uninstall-slurm"
 	// WorkflowKindInstallExporters installs a host's Prometheus exporters as
@@ -129,7 +129,7 @@ var ErrWorkflowKindConflict = errors.New("workflow kind is already declared")
 
 // WorkflowKinds are the Workflow kinds a build accepts and the provisioning state each requires of
 // its targets. The zero value accepts the built-in kinds; the composition root adds each module's
-// kinds from the module registry (ADR 075), so api and ansible-executor accept the same set.
+// kinds from the module registry (decision 075), so api and ansible-executor accept the same set.
 type WorkflowKinds struct {
 	modules map[WorkflowKind]string
 }

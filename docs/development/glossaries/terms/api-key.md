@@ -23,5 +23,5 @@
   Key; that needs a password login."
 - Related terms: User, Session, SSH Key.
 - Change note: Added for CLI authentication by API key
-  ([decision 042](../../../decisions/042-authentication-sessions-and-api-keys.md)). Ownership is
+  ([decision 042](../../../decisions/042-authentication-sessions-and-api-keys.md) (authentication sessions and api keys)). Ownership is
   by User so keys survive the planned multi-user work; today only the bootstrap admin exists.

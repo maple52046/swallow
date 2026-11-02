@@ -44,7 +44,7 @@ func TestSetSubnetDNSServersSendsOnlyDNSServers(t *testing.T) {
 	recorder := newSubnetUpdateRecorder(t, fake, http.StatusOK)
 	provider := newTestProvider(t, fake)
 
-	if err := provider.SetSubnetDNSServers(context.Background(), "1", []string{"165.204.124.158", "165.204.219.249"}); err != nil {
+	if err := provider.SetSubnetDNSServers(context.Background(), "1", []string{"198.51.100.53", "198.51.100.54"}); err != nil {
 		t.Fatalf("SetSubnetDNSServers(set): %v", err)
 	}
 	if err := provider.SetSubnetDNSServers(context.Background(), "1", nil); err != nil {
@@ -53,7 +53,7 @@ func TestSetSubnetDNSServersSendsOnlyDNSServers(t *testing.T) {
 	if len(recorder.forms) != 2 || recorder.paths[0] != "1" {
 		t.Fatalf("subnet updates = %v on %v, want two on subnet 1", recorder.forms, recorder.paths)
 	}
-	for index, want := range []string{"165.204.124.158 165.204.219.249", ""} {
+	for index, want := range []string{"198.51.100.53 198.51.100.54", ""} {
 		form := recorder.forms[index]
 		if len(form) != 1 || len(form["dns_servers"]) != 1 || form["dns_servers"][0] != want {
 			t.Errorf("update %d form = %v, want only dns_servers=%q", index, form, want)
@@ -68,7 +68,7 @@ func TestSetSubnetDNSServersSendsOnlyDNSServers(t *testing.T) {
 func TestAttachedSubnetIDsUsesMAASNetworkMarkers(t *testing.T) {
 	fake := newFakeMAAS(t)
 	fake.respond("GET "+apiPrefix+"/subnets/{$}", http.StatusOK, `[
-	  {"id": 1, "cidr": "10.170.168.0/23", "vlan": {"id": 1, "dhcp_on": false}},
+	  {"id": 1, "cidr": "10.140.168.0/23", "vlan": {"id": 1, "dhcp_on": false}},
 	  {"id": 2, "cidr": "192.168.100.0/24", "vlan": {"id": 2, "dhcp_on": true}},
 	  {"id": 6, "cidr": "192.168.110.0/24", "vlan": {"id": 6, "dhcp_on": false}},
 	  {"id": 9, "cidr": "172.19.0.0/16", "vlan": {"id": 9, "dhcp_on": false}},

@@ -16,7 +16,7 @@ func TestNormalizeSubnetDNSServers(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "empty clears", raw: nil, want: ""},
-		{name: "addresses keep order and are trimmed", raw: []string{" 165.204.124.158", "165.204.219.249 "}, want: "165.204.124.158,165.204.219.249"},
+		{name: "addresses keep order and are trimmed", raw: []string{" 198.51.100.53", "198.51.100.54 "}, want: "198.51.100.53,198.51.100.54"},
 		{name: "IPv6 is canonicalized", raw: []string{"2001:DB8:0:0::53"}, want: "2001:db8::53"},
 		{name: "blank entry is refused", raw: []string{"10.0.0.1", " "}, wantErr: true},
 		{name: "hostname is refused", raw: []string{"dns.example.com"}, wantErr: true},

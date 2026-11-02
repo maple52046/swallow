@@ -37,7 +37,7 @@ func siteTestDatabase(t *testing.T) *mongo.Database {
 	return db
 }
 
-// DF-05: the unique (siteId, name) index reports a duplicate as ErrIntegrationNameTaken, on create
+// The unique (siteId, name) index reports a duplicate as ErrIntegrationNameTaken, on create
 // and on rename, so the API answers 409 instead of an internal error.
 func TestMongoIntegrationRepo_DuplicateNameIsTaken(t *testing.T) {
 	db := siteTestDatabase(t)

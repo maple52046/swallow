@@ -3,7 +3,7 @@ package domain
 import "testing"
 
 // NormalizeDeploymentNetworkMode is the single place that resolves the wire value into one of
-// the three deployment addressing intents, so every caller stays consistent. Since ADR 058
+// the three deployment addressing intents, so every caller stays consistent. Since decision 058
 // "dhcp" is its own mode rather than an alias of Automatic.
 func TestNormalizeDeploymentNetworkMode(t *testing.T) {
 	tests := []struct {

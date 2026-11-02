@@ -7,7 +7,7 @@ import { formatDuration } from '@/shared/utils/time'
 /**
  * A running time that ticks every second from `since` (an ISO timestamp from the API), shown
  * under or beside an in-progress Deployment state. `description` explains what the start time
- * means, because a Swallow deployment's start and a provider state's first observation differ
+ * means, because a swallow deployment's start and a provider state's first observation differ
  * in precision; it is the hover text. Renders nothing for an unparsable time.
  *
  * The visible value is not a live region: announcing it every second would drown out the page.

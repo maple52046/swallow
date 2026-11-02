@@ -475,7 +475,7 @@ const uploadFieldMaxLen = 200
 // multi-gigabyte artifact. fasthttp spools the file part to a temporary file, so the file handle
 // is seekable and the handler streams from disk rather than holding the artifact in memory: the
 // size comes from the multipart header and the sha256 is computed once over the spooled file,
-// both of which the provider (MAAS) requires before it will accept the bytes. Swallow keeps no
+// both of which the provider (MAAS) requires before it will accept the bytes. swallow keeps no
 // copy once the provider accepts it. Whether the uploaded image is a custom image is decided by
 // the provider, not by this request. Errors follow the shared provisioning mapper: an unsupported
 // provisioner or a provider refusal is a 400, an unknown integration is a 404, and a provider
@@ -715,7 +715,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 			"A deployment template with this name already exists for the integration."))
 
 	// A capability the provisioner does not have is a 400 like every other unsupported
-	// capability, including inside a deployment batch, which wraps it (DF-05).
+	// capability, including inside a deployment batch, which wraps it.
 	case errors.Is(err, provisioningdomain.ErrNetworkConfigurationUnsupported):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 

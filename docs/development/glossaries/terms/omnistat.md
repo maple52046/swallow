@@ -1,8 +1,8 @@
 # Omnistat
 
-- Bounded context: Platform Management, owned by `api-server` as a feature of a Swallow-deployed
+- Bounded context: Platform Management, owned by `api-server` as a feature of a swallow-deployed
   Slurm Platform; displayed by `dashboard` and `cli`.
-- Definition: AMD's Slurm-aware GPU monitoring stack, installed by Swallow as an optional part of
+- Definition: AMD's Slurm-aware GPU monitoring stack, installed by swallow as an optional part of
   deploying a Slurm Platform. Omnistat itself is the per-compute-node exporter plus the Slurm job
   attribution (the `10-omnistat` job hook of the Platform's Prolog/Epilog dispatcher); its Prometheus and Grafana are Managed Software that the same
   deployment composes onto the primary controller by Omnistat's install method: `container` (the
@@ -16,13 +16,13 @@
   | `installing` | the deployment that carries Omnistat is accepted or running (including while it is still provisioning or building Slurm) |
   | `ready` | the install succeeded: every compute node serves Omnistat metrics, Prometheus scrapes them, and Grafana has the Omnistat dashboards |
   | `failed` | the install failed, was canceled, or never ran because an earlier Task failed |
-  | `absent` | the Platform was uninstalled; Swallow manages no Omnistat on it |
+  | `absent` | the Platform was uninstalled; swallow manages no Omnistat on it |
 
   Only the Workflow recorded as the latest change may move the state. A successful install also
   registers the Monitoring Link `Omnistat Grafana`; uninstall removes that link.
 - Disallowed meaning: Not Managed Software (the target is the Slurm Platform and its job
-  attribution, not one host's software) and not a metrics Integration — Swallow never queries
-  Omnistat's Prometheus. Not the GPU GRES of the Slurm Platform, which Swallow configures whether
+  attribution, not one host's software) and not a metrics Integration — swallow never queries
+  Omnistat's Prometheus. Not the GPU GRES of the Slurm Platform, which swallow configures whether
   or not Omnistat is enabled. Not the Device Metrics Exporter, which a Platform has instead of
   Omnistat, never together. Not Platform Lifecycle State.
 - Synonyms: Omnistat system mode (AMD's name for this deployment shape).
@@ -36,8 +36,8 @@
   Grafana Software Assignment stays until it is uninstalled."
 - Related terms: Platform, Managed Software, Software Assignment, Monitoring Link, Workflow, Job,
   Task, GPU Inventory.
-- Change note: Added 2026-10-21 (decision 063) when Swallow started installing Omnistat with a
+- Change note: Added 2026-10-21 ([decision 063](../../../decisions/063-omnistat-slurm-observability.md) (omnistat slurm observability)) when swallow started installing Omnistat with a
   Slurm deployment instead of operators overlaying it by hand. 2026-10-22: added the install
-  method (`container` default, `native`). 2026-10-29 (decision 066): its job attribution became a
+  method (`container` default, `native`). 2026-10-29 ([decision 066](../../../decisions/066-slurm-job-hooks-and-device-metrics-exporter.md) (slurm job hooks and device metrics exporter)): its job attribution became a
   hook of the Prolog/Epilog dispatcher, and it is mutually exclusive with the Device Metrics
   Exporter.

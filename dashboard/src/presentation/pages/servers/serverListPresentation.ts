@@ -250,7 +250,7 @@ export function normalizeServerInventoryParams(
 
 /**
  * True while OS provisioning work is running on the Server: an in-progress OS Provisioning State
- * (Releasing, Inspecting, Testing, Deploying) or a Swallow deployment that is deploying or
+ * (Releasing, Inspecting, Testing, Deploying) or a swallow deployment that is deploying or
  * verifying. This is what the Deployment cell marks with a spinner, so the Active deployments
  * view, the Active count, the default order, the row tone, and the refresh poll all use it.
  */
@@ -259,7 +259,7 @@ export function isServerChanging(server: Server): boolean {
 }
 
 /**
- * True only while a Swallow-owned OS deployment is changing. Narrower than
+ * True only while a swallow-owned OS deployment is changing. Narrower than
  * {@link isServerChanging} on purpose: it gates links to the deployment's Workflow, which would
  * point at an unrelated, finished Operation while the provider is, say, releasing.
  */
@@ -269,7 +269,7 @@ export function isServerDeploymentChanging(server: Server): boolean {
 
 /**
  * Provisioning or deployment conditions that need operator review, without reading Health: a
- * failed, broken, or rescue OS Provisioning State, or a failed or attention-needing Swallow
+ * failed, broken, or rescue OS Provisioning State, or a failed or attention-needing swallow
  * deployment. These are the states the Deployment cell shows as a problem, so the Needs attention
  * view, the Attention count, the default order, and the row tone use it.
  */
@@ -280,14 +280,14 @@ export function hasServerProvisioningIssue(server: Server): boolean {
   )
 }
 
-/** True only when the latest Swallow-owned deployment requires review; gates its Workflow link. */
+/** True only when the latest swallow-owned deployment requires review; gates its Workflow link. */
 export function hasServerDeploymentIssue(server: Server): boolean {
   return server.status.deployment?.state === 'failed' || server.status.deployment?.state === 'requires_attention'
 }
 
 /**
  * The facts the list's Deployment cell is resolved from. An absent Server's provisioning axis is
- * a stale observation, so it is not passed. A `succeeded` Swallow result is current only while the
+ * a stale observation, so it is not passed. A `succeeded` swallow result is current only while the
  * provider still reports the OS installed; afterwards it is history, and passing it would paint a
  * stale "Deployed" over the Server's real state (for example Releasing, then Ready).
  */
@@ -483,15 +483,15 @@ export function serverFleetFacts(servers: readonly Server[]): ServerFleetFacts {
  * 1. Review activity (Provider events) for an absent Server. Its provisioning axis is a stale
  *    observation, which is also why the Deployment cell ignores it.
  * 2. Deploy OS for an unlocked `ready` Server.
- * 3. While work runs: the deployment's Workflow when Swallow is deploying or verifying, otherwise
+ * 3. While work runs: the deployment's Workflow when swallow is deploying or verifying, otherwise
  *    View activity on the section that records the provider work (see
  *    {@link inProgressActivitySection}).
- * 4. A Swallow deployment that needs review opens its Workflow, which holds the failed Step.
+ * 4. A swallow deployment that needs review opens its Workflow, which holds the failed Step.
  * 5. Review activity (Provider events) for a failed, broken, or rescue Server.
  *
  * Returns `null` when nothing needs the operator, for example an idle deployed or locked Server;
  * its host name already links to the Summary, so the row gets no icon rather than a redundant
- * "open" link. Workflow links are gated on Swallow's own deployment state so they never point at
+ * "open" link. Workflow links are gated on swallow's own deployment state so they never point at
  * an unrelated, finished Operation while the provider is, say, releasing.
  */
 export function serverContextAction(server: Server): ServerContextAction | null {
@@ -518,10 +518,10 @@ export function serverContextAction(server: Server): ServerContextAction | null 
 }
 
 /**
- * The Activity section that records running work Swallow has no Workflow link for. The Server
+ * The Activity section that records running work swallow has no Workflow link for. The Server
  * list carries no Provisioning Task or Operation id, so this targets a section, not one record:
  *
- * - Releasing, Inspecting, or a Swallow deployment without an Operation id: Related Operations,
+ * - Releasing, Inspecting, or a swallow deployment without an Operation id: Related Operations,
  *   which lists the release-os, inspect-hardware, or deployment Workflow. Releasing must not
  *   target Provisioning tasks: those exist only for an opt-in static IP cleanup, so a default
  *   Release would land on an empty section.

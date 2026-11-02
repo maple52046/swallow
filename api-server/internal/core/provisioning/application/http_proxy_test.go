@@ -44,7 +44,7 @@ func externalProxy(url string) provisioningdomain.HTTPProxyConfiguration {
 // The first read adopts the provisioner's configuration as the spec without writing to it; later
 // reads return the stored setting.
 func TestHTTPProxyGetAdoptsTheFirstObservation(t *testing.T) {
-	provider := &proxyProvider{capable: true, config: externalProxy("http://10.170.168.20:18080")}
+	provider := &proxyProvider{capable: true, config: externalProxy("http://10.140.168.20:18080")}
 	settings := settingstest.NewHTTPProxyStore()
 	uc := NewHTTPProxyUseCase(fixedProviders{provider: provider}, settings)
 
@@ -52,7 +52,7 @@ func TestHTTPProxyGetAdoptsTheFirstObservation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get error = %v", err)
 	}
-	if item.Generation != 1 || item.Spec != (HTTPProxyConfigItem{Mode: "external", HTTPProxy: "http://10.170.168.20:18080"}) {
+	if item.Generation != 1 || item.Spec != (HTTPProxyConfigItem{Mode: "external", HTTPProxy: "http://10.140.168.20:18080"}) {
 		t.Errorf("Get = %+v, want the observed proxy adopted at generation 1", item)
 	}
 	if item.Status.Observed == nil || item.Status.ObservedGeneration != 1 || len(provider.writes) != 0 {
@@ -84,11 +84,11 @@ func TestHTTPProxySetStoresTheSpec(t *testing.T) {
 	provider := &proxyProvider{capable: true}
 	uc := NewHTTPProxyUseCase(fixedProviders{provider: provider}, settingstest.NewHTTPProxyStore())
 
-	item, err := uc.Set(context.Background(), "maas-a", SetHTTPProxyInput{Mode: "external", HTTPProxy: "http://10.170.168.20:18080/"})
+	item, err := uc.Set(context.Background(), "maas-a", SetHTTPProxyInput{Mode: "external", HTTPProxy: "http://10.140.168.20:18080/"})
 	if err != nil {
 		t.Fatalf("Set error = %v", err)
 	}
-	if item.Generation != 1 || item.Spec.HTTPProxy != "http://10.170.168.20:18080" || item.Status.Observed != nil {
+	if item.Generation != 1 || item.Spec.HTTPProxy != "http://10.140.168.20:18080" || item.Status.Observed != nil {
 		t.Errorf("Set = %+v, want the normalized spec at generation 1, not yet observed", item)
 	}
 	if len(provider.writes) != 0 {

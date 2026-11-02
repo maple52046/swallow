@@ -30,7 +30,7 @@ interface PlatformBulkUninstallDialogProps {
 
 /**
  * Confirms and fans out Uninstall across the eligible Platforms of a bulk selection, listing the
- * skipped ones with their reason (not deployed by Swallow, already uninstalling or uninstalled, a
+ * skipped ones with their reason (not deployed by swallow, already uninstalling or uninstalled, a
  * locked or unreadable target). It offers the same choices as the single dialog: release the
  * servers instead, and, through the variant behind the submit chevron, delete each record after its
  * own operation succeeds (`deleteRecord`).

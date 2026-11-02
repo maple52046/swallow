@@ -1,7 +1,7 @@
 # Automation Configuration
 
 An **Automation Configuration** is the single site-scoped configuration that enables
-Swallow's embedded Ansible executor. It owns the SSH user and port, verified known-hosts,
+swallow's embedded Ansible executor. It owns the SSH user and port, verified known-hosts,
 and the mapping from each operation kind to a playbook name registered in the release
 manifest.
 
@@ -18,7 +18,7 @@ Image's default user), that user is used exclusively; otherwise the site SSH use
 first, then swallow's built-in candidates (`cloud-user`, `ubuntu`). The site SSH user is
 therefore a fallback, not a requirement.
 
-Automation is not an external integration: Swallow owns the dispatcher, execution state,
+Automation is not an external integration: swallow owns the dispatcher, execution state,
 logs, artifacts, and retention policy. Automation still respects provider-owned Server
 Lock: target protection is checked at acceptance and immediately before runner startup,
 because embedded Ansible can mutate a host without going through its provisioner.
@@ -28,9 +28,9 @@ See also: [Operation](operation.md), [Server Lock](server-lock.md),
 
 Change note: Updated 2026-10-01 so the site private key is an optional override of the
 Deployment Key and the login user prefers the OS Image default user, per
-[decision 039](../../../decisions/039-ssh-key-management-and-default-user.md). Updated
+[decision 039](../../../decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user). Updated
 2026-10-02 to remove the site private-key override: automation uses only the Deployment
 Key and a Site stores only its become password, per
-[decision 041](../../../decisions/041-deployment-key-only-automation.md). Corrected
+[decision 041](../../../decisions/041-deployment-key-only-automation.md) (deployment key only automation). Corrected
 2026-10-31: the Server Default User precedes the OS Image default user, per
-[decision 045](../../../decisions/045-server-default-user.md).
+[decision 045](../../../decisions/045-server-default-user.md) (server default user).

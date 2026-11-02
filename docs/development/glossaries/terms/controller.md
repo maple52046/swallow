@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "The Server tag Controller adds the missing manual tag in MAAS when the spec changes, and corrects a tag removed in the MAAS UI at its next resync."
 - Related terms: Convergence, Desired State, Observed State, Condition, Drift, Hold.
-- Change note: Added 2026-10-31 for [decision 071](../../../decisions/071-provisioner-realized-desired-state.md), when the first Controllers were built.
+- Change note: Added 2026-10-31 for [decision 071](../../../decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state), when the first Controllers were built.

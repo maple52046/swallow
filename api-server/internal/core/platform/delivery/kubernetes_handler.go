@@ -11,7 +11,7 @@ import (
 )
 
 // This file holds the Kubernetes cluster explorer HTTP handlers: the live read/write surface
-// for a Swallow-deployed Kubernetes Platform, contracted in
+// for a swallow-deployed Kubernetes Platform, contracted in
 // docs/development/api-contracts/api-server/platforms-kubernetes.md. Each handler resolves the
 // explorer client through the use case (which enforces eligibility) and maps the cluster's
 // live response into the contract's wire shapes. Nothing here is persisted.

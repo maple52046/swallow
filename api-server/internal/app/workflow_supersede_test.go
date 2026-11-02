@@ -18,7 +18,7 @@ func uninstallLikeInput(superseded []string) workflowapp.CreateWorkflowInput {
 		Definition: "platform-uninstall", DefinitionVersion: 1, SiteID: "site-id", PlatformID: "platform-id",
 		TargetServerIDs: []string{"server-id"},
 		Steps: []workflowdomain.Task{{
-			ID: "release-server-id", Kind: "release-os", Name: "Release lab-afde-mi308-3",
+			ID: "release-server-id", Kind: "release-os", Name: "Release vm-gpu-03",
 			Executor: workflowdomain.RunnerKindProvisioner,
 			Targets:  []workflowdomain.ResourceReference{{Kind: "server", ID: "server-id"}},
 		}},

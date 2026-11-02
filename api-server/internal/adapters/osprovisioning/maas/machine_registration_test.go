@@ -24,16 +24,16 @@ func TestRegisterMachine_CreatesWithoutCommissioning(t *testing.T) {
 		_, _ = w.Write([]byte(`{"system_id":"new123"}`))
 	})
 	id, err := newTestProvider(t, fake).RegisterMachine(context.Background(), provisioningdomain.MachineRegistration{
-		Hostname: "lab-afde-mi308-1", Architecture: "amd64", MACAddresses: []string{"52:54:00:af:de:01", "52:54:00:af:de:02"},
+		Hostname: "vm-gpu-01", Architecture: "amd64", MACAddresses: []string{"52:54:00:af:de:01", "52:54:00:af:de:02"},
 		Power: provisioningdomain.PowerConfigurationChange{Driver: provisioningdomain.PowerDriverVirsh,
-			Address: "qemu+ssh://ubuntu@10.170.168.22/system", PowerID: "lab-afde-mi308-1"},
+			Address: "qemu+ssh://ubuntu@10.140.168.22/system", PowerID: "vm-gpu-01"},
 	})
 	if err != nil || id != "new123" {
 		t.Fatalf("RegisterMachine = %q, %v; want new123", id, err)
 	}
 	want := map[string]string{
-		"hostname": "lab-afde-mi308-1", "architecture": "amd64/generic", "commission": "false", "power_type": "virsh",
-		"power_parameters_power_address": "qemu+ssh://ubuntu@10.170.168.22/system", "power_parameters_power_id": "lab-afde-mi308-1",
+		"hostname": "vm-gpu-01", "architecture": "amd64/generic", "commission": "false", "power_type": "virsh",
+		"power_parameters_power_address": "qemu+ssh://ubuntu@10.140.168.22/system", "power_parameters_power_id": "vm-gpu-01",
 	}
 	for name, value := range want {
 		if got := fields[name]; len(got) != 1 || got[0] != value {

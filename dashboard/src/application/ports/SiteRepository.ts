@@ -1,6 +1,6 @@
 import type { Integration, IntegrationKind, OSImage, Site } from '@/domain/site/types'
 
-/** Values accepted when registering a Swallow-owned Site boundary. */
+/** Values accepted when registering a swallow-owned Site boundary. */
 export interface CreateSiteInput {
   name: string
   description: string

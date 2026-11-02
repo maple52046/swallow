@@ -1,5 +1,5 @@
 ---
-# Remove the k0s installation created by Swallow while preserving the host OS,
+# Remove the k0s installation created by swallow while preserving the host OS,
 # operator data, conntrack, and unrelated packages. Every task tolerates a node that
 # was only partly installed or was already cleaned by an earlier attempt.
 
@@ -78,7 +78,7 @@
 
     - name: Read the GPU Operator's DRA link paths
       # k0s reset removed the operator with the cluster, but the DRA links live outside k0s
-      # state (decision 062). Only the exact links Swallow creates are removed.
+      # state (decision 062). Only the exact links swallow creates are removed.
       ansible.builtin.stat:
         path: "{{ item.link }}"
         follow: false

@@ -15,7 +15,7 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
-// fakeAMI emulates the AMI MegaRAC / Aptio behaviour recorded on tainan-ci (decision 047): a GPU
+// fakeAMI emulates the AMI MegaRAC / Aptio behaviour recorded on hv-01 (decision 047): a GPU
 // baseboard System beside the host, remote media disabled until an OEM action enables it, an
 // asynchronous InsertMedia that rewrites the image URL, ETag-guarded System PATCHes, and a BIOS
 // fixed boot order whose USB group (the virtual CD) sorts after the hard disk.
@@ -605,7 +605,7 @@ func TestImageMatching(t *testing.T) {
 
 func TestServiceBase(t *testing.T) {
 	cases := map[string]string{
-		"10.170.168.230": "https://10.170.168.230",
+		"10.140.168.230": "https://10.140.168.230",
 		"https://bmc-admin:pw@192.0.2.21/redfish/v1?x": "https://192.0.2.21",
 		"192.0.2.5:8443": "https://192.0.2.5:8443",
 	}

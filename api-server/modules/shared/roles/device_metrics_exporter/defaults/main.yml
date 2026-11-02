@@ -12,7 +12,7 @@ device_metrics_exporter_job_attribution: >-
 device_metrics_exporter_slurm: "{{ device_metrics_exporter_job_attribution == 'slurm' }}"
 # AMD's native Ubuntu package per version: gpuagent and amd-metrics-exporter under systemd, with
 # their runtime libraries embedded, so no privileged container and no apt repository is needed.
-# config is the package's own /etc/metrics/config.json, kept unchanged as the base Swallow overrides.
+# config is the package's own /etc/metrics/config.json, kept unchanged as the base swallow overrides.
 device_metrics_exporter_packages:
   "1.5.3":
     url: https://repo.radeon.com/device-metrics-exporter/apt/1.5.3/pool/main/a/amdgpu-exporter/amdgpu-exporter_1.5.3~24.04_amd64.deb
@@ -22,7 +22,7 @@ device_metrics_exporter_packages:
     config: config-1.5.3.json
 device_metrics_exporter_package: "{{ device_metrics_exporter_packages[device_metrics_exporter_version] }}"
 device_metrics_exporter_cache_dir: /var/cache/swallow
-# Swallow's own GPU exporter (RDC) owns port 5000 on a host (decision 003), AMD's default here.
+# swallow's own GPU exporter (RDC) owns port 5000 on a host (decision 003), AMD's default here.
 device_metrics_exporter_port: "{{ swallow_device_metrics_exporter_port | default(5001) | int }}"
 # The exporter answers on the address Prometheus scrapes, never on every interface.
 device_metrics_exporter_bind: "{{ ansible_host }}"

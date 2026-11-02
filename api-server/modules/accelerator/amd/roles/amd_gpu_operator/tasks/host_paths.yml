@@ -1,7 +1,7 @@
 ---
 # Converge the k0s DRA compatibility links on every target. They exist only on a managed node
 # while DRA is wanted; anywhere else they are removed, but only when they are exactly the links
-# Swallow creates. This runs after the cluster play turned DRA off or moved it away from a node,
+# swallow creates. This runs after the cluster play turned DRA off or moved it away from a node,
 # so no DRA driver still uses a link that is removed.
 
 - name: Decide whether this node needs the DRA links

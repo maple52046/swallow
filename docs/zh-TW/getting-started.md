@@ -71,7 +71,25 @@ Operator 不會直接建立 Server。
 - 使用 **Workflows** 觀察 durable work。
 - 註冊 Prometheus／Alertmanager 後使用 **Monitoring**。
 
-## 6. 選擇下一份指南
+## 6. 第一次部署 OS 之前
+
+swallow 會把每台它佈署的 Server 指到 swallow 主機的 NTP server，在知道這個 server 的位址之前，
+所有 OS 佈署都會被拒絕。development 環境無法自動推得，所以在 `deploy/dev` 設定一次：
+
+1. 確認主機在 UDP 123 提供 NTP。有本機 MAAS snap 時，MAAS 自己的時間服務已經提供；否則以
+   `sudo ../production/local-ntp.sh install` 安裝 chrony。
+2. 主機連不到 `ntp.ubuntu.com` 時，把它指到連得到的時間來源：
+   `sudo SWALLOW_NTP_UPSTREAM=<address> ../production/local-ntp.sh upstream`。
+3. 把 Server 連到這台主機的位址交給 swallow，並重啟 API 與 worker：
+
+   ```bash
+   echo SWALLOW_API_NTP_SERVER=<host address> >> .env
+   docker compose up -d api-server worker
+   ```
+
+各步驟的說明見 [development environment reference](../../deploy/dev/README.zh-TW.md#control-plane-ntp)。
+
+## 7. 選擇下一份指南
 
 - [Server 與 infrastructure](guides/servers-and-infrastructure.md)
 - [OS provisioning](guides/os-provisioning.md)

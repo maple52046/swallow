@@ -349,7 +349,7 @@ func newBootMediaFixture(servers ...*serverdomain.Server) bootMediaFixture {
 // hypervisorServer is a deployed Server that can act as a Hypervisor.
 func hypervisorServer(id string) *serverdomain.Server {
 	return &serverdomain.Server{
-		ID: id, Observed: serverdomain.Observed{Hostname: "tainan-ci", Addresses: []string{"10.170.168.22"}},
+		ID: id, Observed: serverdomain.Observed{Hostname: "hv-01", Addresses: []string{"10.140.168.22"}},
 		Source:       serverdomain.Source{SiteID: "site-1", IntegrationID: "integration-1"},
 		Provisioning: &serverdomain.ProvisioningStatus{State: "deployed", DeployedImageDefaultUser: "ubuntu"},
 	}
@@ -362,7 +362,7 @@ func newLibvirtFixture() bootMediaFixture {
 	vm.Observed.Hostname = "lab-vm-1"
 	f := newBootMediaFixture(hypervisor, vm)
 	f.endpoints.libvirt = map[string]*serverdomain.LibvirtEndpoint{
-		"vm-1": {Hypervisor: hypervisor, Host: "10.170.168.22", Account: "ubuntu", Domain: "lab-vm-1"},
+		"vm-1": {Hypervisor: hypervisor, Host: "10.140.168.22", Account: "ubuntu", Domain: "lab-vm-1"},
 	}
 	f.uc.isos = fakeISOs{noURL: true}
 	return f
@@ -370,7 +370,7 @@ func newLibvirtFixture() bootMediaFixture {
 
 func physicalServer(id string) *serverdomain.Server {
 	return &serverdomain.Server{
-		ID: id, Observed: serverdomain.Observed{Hostname: "tainan-ci"},
+		ID: id, Observed: serverdomain.Observed{Hostname: "hv-01"},
 		Source:       serverdomain.Source{IntegrationID: "integration-1"},
 		Provisioning: &serverdomain.ProvisioningStatus{State: "ready"},
 	}
@@ -542,7 +542,7 @@ func TestBootMediaEnableRecordsProgress(t *testing.T) {
 		t.Errorf("apply after the preflight = %+v (ended %d), want removed once", f.repo.servers["srv-1"].BootMediaApply, f.repo.ended)
 	}
 
-	f.redfish.applyErr = &serverdomain.BootMediaError{Err: serverdomain.ErrBootMediaRejected, Server: "tainan-ci"}
+	f.redfish.applyErr = &serverdomain.BootMediaError{Err: serverdomain.ErrBootMediaRejected, Server: "hv-01"}
 	if _, err := f.uc.SetEnabled(context.Background(), "srv-1", true, "iso-b"); err == nil {
 		t.Fatal("SetEnabled succeeded with a refusing BMC")
 	}
@@ -836,8 +836,8 @@ func TestBootMediaEnableLibvirt(t *testing.T) {
 	if len(f.redfish.calls) != 0 {
 		t.Errorf("drove Redfish on a virtual machine: %v", f.redfish.calls)
 	}
-	if login := f.libvirt.logins[0]; login.ServerID != "hv-1" || login.Account != "ubuntu" || login.Target.Address != "10.170.168.22" {
-		t.Errorf("hypervisor login = %+v, want ubuntu@10.170.168.22 of hv-1", login)
+	if login := f.libvirt.logins[0]; login.ServerID != "hv-1" || login.Account != "ubuntu" || login.Target.Address != "10.140.168.22" {
+		t.Errorf("hypervisor login = %+v, want ubuntu@10.140.168.22 of hv-1", login)
 	}
 	if file := f.libvirt.files[0]; file.ID != "iso-a" || file.Path == "" {
 		t.Errorf("uploaded = %+v, want iso-a's file", file)

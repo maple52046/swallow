@@ -4,7 +4,7 @@ import type { ServerTagOption } from "@/domain/provisioning/types";
  * Pure, framework-free helpers for the tri-state tag editor.
  *
  * They are separated from the React component so the diff logic — which is what actually decides
- * the add/remove sent to the backend — can be reasoned about and reused without a DOM. Swallow owns
+ * the add/remove sent to the backend — can be reasoned about and reused without a DOM. swallow owns
  * every manual tag and the backend writes the edit into each Server's spec (decision 071); this
  * module only computes the operator's intent from the checkbox states.
  */

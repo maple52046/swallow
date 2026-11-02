@@ -6,6 +6,6 @@
 - Disallowed meaning: Not a provisioner VM host (a MAAS pod, which manages its virtual machines itself and is outside swallow). Not a Platform. Not a host swallow keeps a separate credential for: only the Deployment Key is used. Not a host that is not a swallow Server.
 - Synonyms: libvirt host, KVM host (operator wording).
 - Deprecated terms: None.
-- Examples: "`tainan-ci` is a deployed Server whose `ubuntu` account is in the `libvirt` group, so it is the Hypervisor of `lab-afde-mi308-1..3`; an operator enrolls them by name." / "A VM whose address names `192.168.100.1`, which is not a swallow Server, has no Hypervisor in swallow, so it has no Boot Media method."
+- Examples: "`hv-01` is a deployed Server whose `ubuntu` account is in the `libvirt` group, so it is the Hypervisor of `vm-gpu-01..03`; an operator enrolls them by name." / "A VM whose address names `192.168.100.1`, which is not a swallow Server, has no Hypervisor in swallow, so it has no Boot Media method."
 - Related terms: Server, Server Enrollment, Power Configuration, Boot Media, Deployment Key, Server Default User, Server Lock.
-- Change note: Added 2026-10-09 ([decision 055](../../../decisions/055-libvirt-virtual-machine-enrollment.md)) so libvirt virtual machines can be enrolled by name and booted from a Boot ISO without anyone logging in to the host.
+- Change note: Added 2026-10-09 ([decision 055](../../../decisions/055-libvirt-virtual-machine-enrollment.md) (libvirt virtual machine enrollment)) so libvirt virtual machines can be enrolled by name and booted from a Boot ISO without anyone logging in to the host.

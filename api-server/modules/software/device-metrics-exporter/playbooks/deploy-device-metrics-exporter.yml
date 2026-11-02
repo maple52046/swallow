@@ -2,7 +2,7 @@
 # Install AMD's Device Metrics Exporter, the Managed Software kind device-metrics-exporter
 # (decision 068). One playbook serves both callers:
 #   - a standalone software install on its targets, with no job attribution; and
-#   - a Swallow-deployed Slurm Platform, as the last Job of its configure-slurm Workflow, after
+#   - a swallow-deployed Slurm Platform, as the last Job of its configure-slurm Workflow, after
 #     deploy-slurm (which installs the job hook that records each job on its GPUs) and after
 #     Prometheus and Grafana were composed onto the observability Server.
 # Intent arrives only through trusted variables:
@@ -17,7 +17,7 @@
 # Without compute ids every target runs the exporter. A run accepted before decision 068 carries
 # compute ids but no job attribution, which the role reads as slurm.
 #
-# A standalone run also installs Swallow's post-boot amdgpu loader, which gpuagent needs; inside a
+# A standalone run also installs swallow's post-boot amdgpu loader, which gpuagent needs; inside a
 # Slurm deployment the Slurm GPU role owns it. A Slurm run writes {grafanaUrl, gpuIdentity, nodes}
 # to the run's result file once Prometheus scrapes every exporter. gpuIdentity is "distinct" only
 # when every node's exporter tells its GPUs apart (see dme-identity-check); "collapsed" still

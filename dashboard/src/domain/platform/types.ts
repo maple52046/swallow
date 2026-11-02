@@ -100,7 +100,7 @@ export interface PlatformStatus {
   applied: PlatformSpec | null;
   realizingWorkflowId: string | null;
 }
-/** Whether Swallow registered the platform or deployed it through a durable operation. */
+/** Whether swallow registered the platform or deployed it through a durable operation. */
 export type PlatformOrigin = "registered" | "deployed";
 
 /** Lifecycle derived by the API from durable deploy and uninstall operations. */
@@ -134,7 +134,7 @@ export interface PlatformDeployment {
 /**
  * Which subsystem owns the GPU stack. A Kubernetes deploy derives it from the GPU Operator
  * feature (`gpu-operator` when enabled, `provisioning` otherwise), so the dashboard never asks
- * for it directly; `gpu-operator` without a Swallow-managed operator means one managed elsewhere.
+ * for it directly; `gpu-operator` without a swallow-managed operator means one managed elsewhere.
  */
 export type GPUStackOwner = "provisioning" | "gpu-operator";
 
@@ -152,9 +152,9 @@ export type GPUAllocationMode = "device-plugin" | "dra";
 export type GPUResourceNaming = "single" | "mixed";
 
 /**
- * The GPU Operator State (glossary): where the latest Swallow change to a Platform's GPU
+ * The GPU Operator State (glossary): where the latest swallow change to a Platform's GPU
  * Operator stands, projected from the Task applying it. `failed` means the cluster may still run
- * the previous settings; `absent` means Swallow manages no operator there any more.
+ * the previous settings; `absent` means swallow manages no operator there any more.
  */
 export type GPUOperatorState = "installing" | "ready" | "failed" | "uninstalling" | "absent";
 
@@ -176,7 +176,7 @@ export interface GPUOperatorSettings {
 }
 
 /**
- * A Platform's Swallow-managed GPU Operator as the API records it: the latest requested settings
+ * A Platform's swallow-managed GPU Operator as the API records it: the latest requested settings
  * (normalized, so every field is present) and the state of the Workflow applying them.
  * `draDriverVersion` is null outside DRA mode; `lastWorkflowId` links to that Workflow.
  */
@@ -194,7 +194,7 @@ export interface PlatformGPUOperator {
 }
 
 /**
- * One AMD GPU Operator release Swallow ships and verified (`GET .../gpu-operator/releases`).
+ * One AMD GPU Operator release swallow ships and verified (`GET .../gpu-operator/releases`).
  * Kubernetes versions are `major.minor`; a Platform's k0s version must be at least
  * `minKubernetesVersion`, and `draMinKubernetesVersion` for DRA.
  */
@@ -221,7 +221,7 @@ export interface MonitoringLink {
 }
 
 /**
- * Where the latest Swallow change to a Slurm Platform's Omnistat stands (glossary Omnistat State,
+ * Where the latest swallow change to a Slurm Platform's Omnistat stands (glossary Omnistat State,
  * platforms.md "Omnistat"): projected from the Workflow Task installing it, never a live probe.
  */
 export type OmnistatState = "installing" | "ready" | "failed" | "absent";
@@ -234,7 +234,7 @@ export type OmnistatState = "installing" | "ready" | "failed" | "absent";
 export type ObservabilityInstallMethod = "container" | "native";
 
 /**
- * Where the latest Swallow change to a Slurm Platform's Device Metrics Exporter stands (glossary
+ * Where the latest swallow change to a Slurm Platform's Device Metrics Exporter stands (glossary
  * Device Metrics Exporter, platforms.md "Device Metrics Exporter"): projected from the Workflow Task
  * installing it, never a live probe. Same values and meaning as the Omnistat State.
  */
@@ -256,10 +256,10 @@ export type GPUIdentity = "distinct" | "collapsed";
 export type SlurmContainerRuntime = "docker-ce" | "podman";
 
 /**
- * The Swallow-managed Omnistat of a Slurm Platform: AMD's Slurm-aware GPU monitoring, with its
+ * The swallow-managed Omnistat of a Slurm Platform: AMD's Slurm-aware GPU monitoring, with its
  * exporter on every compute node and Prometheus and Grafana on `observabilityServerId` (the
  * primary controller), installed by `installMethod`. The Grafana itself is reached through the
- * `Omnistat Grafana` Monitoring Link Swallow registers on success; swallow never queries Omnistat.
+ * `Omnistat Grafana` Monitoring Link swallow registers on success; swallow never queries Omnistat.
  */
 export interface PlatformOmnistat {
   enabled: boolean;
@@ -272,10 +272,10 @@ export interface PlatformOmnistat {
 }
 
 /**
- * The Swallow-managed Device Metrics Exporter of a Slurm Platform: AMD's per-GPU exporter on every
+ * The swallow-managed Device Metrics Exporter of a Slurm Platform: AMD's per-GPU exporter on every
  * GPU compute node with Slurm job attribution, and Prometheus and Grafana on
  * `observabilityServerId` (the primary controller), installed by `installMethod`. The Grafana is
- * reached through the `Device Metrics Exporter Grafana` Monitoring Link Swallow registers on
+ * reached through the `Device Metrics Exporter Grafana` Monitoring Link swallow registers on
  * success. `gpuIdentity` is null until an install succeeded.
  */
 export interface PlatformDeviceMetricsExporter {
@@ -315,15 +315,15 @@ export interface Platform {
   /** Null while a platform is registered or declared but not yet reachable. */
   integrationId: string | null;
   gpuStackOwner: GPUStackOwner;
-  /** The Swallow-managed GPU Operator; null when Swallow never managed one on this Platform. */
+  /** The swallow-managed GPU Operator; null when swallow never managed one on this Platform. */
   gpuOperator: PlatformGPUOperator | null;
   /** Which subsystem installs this platform's exporters; `ansible` unless set to `k8s`. */
   exporterOwner: ExporterOwner;
   /** Operator-registered links to the runtime's own monitoring UI; always an array. */
   monitoringLinks: MonitoringLink[];
-  /** The Swallow-managed Omnistat of a Slurm Platform; null when Swallow never installed it. */
+  /** The swallow-managed Omnistat of a Slurm Platform; null when swallow never installed it. */
   omnistat: PlatformOmnistat | null;
-  /** The Swallow-managed Device Metrics Exporter of a Slurm Platform; null when never installed. */
+  /** The swallow-managed Device Metrics Exporter of a Slurm Platform; null when never installed. */
   deviceMetricsExporter: PlatformDeviceMetricsExporter | null;
   /** The container runtime a Slurm deploy installed on compute and login nodes; null when off. */
   containerRuntime: SlurmContainerRuntime | null;

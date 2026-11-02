@@ -1483,7 +1483,7 @@ components:
           type: string
         spec:
           type: object
-          description: Swallow's metadata; `""` means "use the provider's value".
+          description: swallow's metadata; `""` means "use the provider's value".
           required: [name, osSystem, release, tags, defaultUser]
           properties:
             name:
@@ -1494,7 +1494,7 @@ components:
               type: string
             tags:
               type: array
-              description: Swallow-owned labels; empty when the image has none.
+              description: swallow-owned labels; empty when the image has none.
               items:
                 type: string
             defaultUser:
@@ -1604,7 +1604,7 @@ components:
           description: A POSIX login name (`^[a-z_][a-z0-9_-]{0,31}$`), or empty to clear.
     DeploymentTemplate:
       type: object
-      description: Swallow-owned, Integration-scoped deployment intent. User data is write-only and never returned.
+      description: swallow-owned, Integration-scoped deployment intent. User data is write-only and never returned.
       required:
         - id
         - siteId
@@ -2137,7 +2137,7 @@ components:
           description: True when the provisioner itself serves DHCP on the subnet; false means any DHCP there is the site's.
     ProvisioningTask:
       type: object
-      description: Swallow-owned durable coordination of provider-backed cleanup, without its saved static-link snapshot.
+      description: swallow-owned durable coordination of provider-backed cleanup, without its saved static-link snapshot.
       required:
         - id
         - kind

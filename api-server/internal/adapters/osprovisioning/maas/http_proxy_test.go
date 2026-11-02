@@ -90,8 +90,8 @@ func TestHTTPProxy_DerivesModeFromSettings(t *testing.T) {
 			provisioningdomain.HTTPProxyConfiguration{Mode: provisioningdomain.HTTPProxyModeBuiltin}},
 		{"peer without URL is built-in", map[string]string{"enable_http_proxy": "true", "http_proxy": `""`, "use_peer_proxy": "true"},
 			provisioningdomain.HTTPProxyConfiguration{Mode: provisioningdomain.HTTPProxyModeBuiltin}},
-		{"URL is external", map[string]string{"enable_http_proxy": "true", "http_proxy": `"http://10.170.168.20:18080"`, "use_peer_proxy": "false"},
-			provisioningdomain.HTTPProxyConfiguration{Mode: provisioningdomain.HTTPProxyModeExternal, URL: "http://10.170.168.20:18080"}},
+		{"URL is external", map[string]string{"enable_http_proxy": "true", "http_proxy": `"http://10.140.168.20:18080"`, "use_peer_proxy": "false"},
+			provisioningdomain.HTTPProxyConfiguration{Mode: provisioningdomain.HTTPProxyModeExternal, URL: "http://10.140.168.20:18080"}},
 		{"URL with peer is peer", map[string]string{"enable_http_proxy": "true", "http_proxy": `"http://squid:3128/"`, "use_peer_proxy": "true"},
 			provisioningdomain.HTTPProxyConfiguration{Mode: provisioningdomain.HTTPProxyModePeer, URL: "http://squid:3128/"}},
 		{"unset settings read as disabled", map[string]string{},
@@ -118,8 +118,8 @@ func TestSetHTTPProxy_WritesAllSettings(t *testing.T) {
 		config provisioningdomain.HTTPProxyConfiguration
 		want   [][2]string
 	}{
-		{provisioningdomain.HTTPProxyConfiguration{Mode: provisioningdomain.HTTPProxyModeExternal, URL: "http://10.170.168.20:18080"},
-			[][2]string{{"enable_http_proxy", "true"}, {"http_proxy", "http://10.170.168.20:18080"}, {"use_peer_proxy", "false"}}},
+		{provisioningdomain.HTTPProxyConfiguration{Mode: provisioningdomain.HTTPProxyModeExternal, URL: "http://10.140.168.20:18080"},
+			[][2]string{{"enable_http_proxy", "true"}, {"http_proxy", "http://10.140.168.20:18080"}, {"use_peer_proxy", "false"}}},
 		{provisioningdomain.HTTPProxyConfiguration{Mode: provisioningdomain.HTTPProxyModePeer, URL: "http://squid:3128"},
 			[][2]string{{"enable_http_proxy", "true"}, {"http_proxy", "http://squid:3128"}, {"use_peer_proxy", "true"}}},
 		{provisioningdomain.HTTPProxyConfiguration{Mode: provisioningdomain.HTTPProxyModeBuiltin},

@@ -107,13 +107,13 @@ func TestBootISOCommandsFollowTheContract(t *testing.T) {
 		}
 	}
 	run("list", "--site-id", "site-a", "--integration", "maas-a")
-	run("create", "--name", "tainan-rack", "--integration", "maas-a", "--rack", " 10.0.0.2:5248 ")
+	run("create", "--name", "south-rack", "--integration", "maas-a", "--rack", " 10.0.0.2:5248 ")
 	run("get", "iso-1")
 	run("delete", "iso-1")
 
 	want := []seen{
 		{method: "GET", path: "/api/v1/provisioning/boot-isos", query: "integrationId=maas-a&siteId=site-a"},
-		{method: "POST", path: "/api/v1/provisioning/boot-isos", body: map[string]any{"name": "tainan-rack", "integrationId": "maas-a", "rackAddress": "10.0.0.2:5248"}},
+		{method: "POST", path: "/api/v1/provisioning/boot-isos", body: map[string]any{"name": "south-rack", "integrationId": "maas-a", "rackAddress": "10.0.0.2:5248"}},
 		{method: "GET", path: "/api/v1/provisioning/boot-isos/iso-1"},
 		{method: "DELETE", path: "/api/v1/provisioning/boot-isos/iso-1"},
 	}

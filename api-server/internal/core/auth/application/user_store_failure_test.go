@@ -23,7 +23,7 @@ func (*failingUsers) FindByID(context.Context, string) (*authdomain.User, error)
 	return nil, errStoreDown
 }
 
-// DF-04: an unavailable user store is an internal failure, not a deleted user (on which the
+// An unavailable user store is an internal failure, not a deleted user (on which the
 // dashboard ends the Session) or wrong credentials. Only a real not-found is a miss.
 func TestUserStoreFailureIsNotAMissingUser(t *testing.T) {
 	users := &failingUsers{}

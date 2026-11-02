@@ -1,5 +1,5 @@
 ---
-# container method on Podman: one pinned container under a Swallow-owned Quadlet unit, so systemd
+# container method on Podman: one pinned container under a swallow-owned Quadlet unit, so systemd
 # owns its lifecycle and starts it at boot. Quadlet needs Podman 4.4 or later.
 
 - name: Refuse a host without Podman Quadlet

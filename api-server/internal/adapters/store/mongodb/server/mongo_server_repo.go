@@ -546,7 +546,7 @@ func (r *MongoServerRepo) SetGPUs(ctx context.Context, id string, gpus []serverd
 	return nil
 }
 
-// SetDeployment writes the Swallow-owned result independently from provider inventory.
+// SetDeployment writes the swallow-owned result independently from provider inventory.
 func (r *MongoServerRepo) SetDeployment(ctx context.Context, id string, deployment *serverdomain.DeploymentStatus) error {
 	update := bson.M{"$set": bson.M{"updatedAt": time.Now().UTC()}}
 	if deployment == nil {

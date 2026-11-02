@@ -77,7 +77,7 @@ func newPowerUseCase(provider *powerProvider) *PowerConfigurationUseCase {
 // password — only whether one is set.
 func TestPowerConfigurationGet(t *testing.T) {
 	provider := &powerProvider{capable: true, config: provisioningdomain.PowerConfiguration{
-		Driver: "virsh", Address: "qemu+ssh://maas:pw@tainan-ci/system", PowerID: "simple-pig", Password: "secret",
+		Driver: "virsh", Address: "qemu+ssh://maas:pw@hv-01/system", PowerID: "simple-pig", Password: "secret",
 	}}
 	item, err := newPowerUseCase(provider).Get(context.Background(), "srv-1")
 	if err != nil {
@@ -86,7 +86,7 @@ func TestPowerConfigurationGet(t *testing.T) {
 	if item.Driver != "virsh" || item.Family != "virsh" || item.Control != "automatic" || item.PowerID != "simple-pig" {
 		t.Errorf("Get = %+v", item)
 	}
-	if item.Address != "qemu+ssh://maas@tainan-ci/system" || !item.PasswordSet || !item.Editable {
+	if item.Address != "qemu+ssh://maas@hv-01/system" || !item.PasswordSet || !item.Editable {
 		t.Errorf("Get address %q, passwordSet %v, editable %v; want a redacted address, a set password, editable",
 			item.Address, item.PasswordSet, item.Editable)
 	}
@@ -111,12 +111,12 @@ func TestPowerConfigurationSet(t *testing.T) {
 	t.Run("writes the normalized change and returns it read back", func(t *testing.T) {
 		provider := &powerProvider{capable: true}
 		item, err := newPowerUseCase(provider).Set(context.Background(), "srv-1", SetPowerConfigurationInput{
-			Driver: " Virsh ", Address: " qemu+ssh://maas@tainan-ci/system ", PowerID: "simple-pig",
+			Driver: " Virsh ", Address: " qemu+ssh://maas@hv-01/system ", PowerID: "simple-pig",
 		})
 		if err != nil {
 			t.Fatalf("Set error = %v", err)
 		}
-		if len(provider.writes) != 1 || provider.writes[0].Driver != "virsh" || provider.writes[0].Address != "qemu+ssh://maas@tainan-ci/system" {
+		if len(provider.writes) != 1 || provider.writes[0].Driver != "virsh" || provider.writes[0].Address != "qemu+ssh://maas@hv-01/system" {
 			t.Errorf("writes = %+v, want one normalized virsh change", provider.writes)
 		}
 		if item.Driver != "virsh" || item.Family != "virsh" || item.PasswordSet {

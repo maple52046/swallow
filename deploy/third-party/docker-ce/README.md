@@ -3,7 +3,7 @@
 [繁體中文](README.zh-TW.md) · [Third-party overview](../README.md)
 
 Docker CE is a host prerequisite for the Compose installation, never a service in the
-Swallow project. On a connected Ubuntu 24.04 host, `swallowctl install` installs Docker
+swallow project. On a connected Ubuntu 24.04 host, `swallowctl install` installs Docker
 Engine and the Compose plugin from Docker's signed apt repository when they are missing; it
 never uses the convenience script. A host that already runs Docker keeps its installation.
 

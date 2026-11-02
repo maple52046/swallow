@@ -84,7 +84,7 @@ func (r *retryRelease) ExecuteWithOptions(context.Context, provisioningapp.Relea
 	return &provisioningapp.ProvisioningStateItem{State: string(provisioningdomain.MachineStatusReady)}, nil
 }
 
-// retryDeployments installs the requested image with a reachable address. Like Swallow's real
+// retryDeployments installs the requested image with a reachable address. Like swallow's real
 // preflight it refuses a Machine that is not ready before any provider write, and err forces that
 // refusal regardless of state. ephemeral installs the image as a memory deployment, and fails
 // leaves the Machine failed the way a provider-side installation failure does.
@@ -154,7 +154,7 @@ func provisionStep(attempt, activityAttempt int) temporalworkflow.StepExecutionI
 	}
 }
 
-// TestRetriedDeploymentRecoversUnusableServerBeforeRedeploying reproduces lab-afde-mi308-3: a
+// TestRetriedDeploymentRecoversUnusableServerBeforeRedeploying reproduces vm-gpu-03: a
 // retried provision-os whose Machine the provider left failed was refused by the ready-only
 // preflight on every retry and parked again forever. An explicit retry now returns the Machine to
 // ready with the Recover plan for its state and then redeploys the frozen intent.
@@ -241,7 +241,7 @@ func TestDeploymentRetryLeavesOtherStatesToTheirOwnRules(t *testing.T) {
 	}
 }
 
-// DF-03: a first attempt that may already have started its deployment (a later dispatch resumed
+// A first attempt that may already have started its deployment (a later dispatch resumed
 // it, or the activity retried) observes the provider and reports what it sees. Only an operator's
 // retry may release the Server and redeploy; before, a resumed attempt submitted a second
 // deployment, and an activity retry of a deployed Server without an address released it.
@@ -280,7 +280,7 @@ func TestResumedFirstAttemptOnlyObserves(t *testing.T) {
 	}
 }
 
-// TestDeploymentRetryRefusesLayoutThatNeedsInspection reproduces the second lab-afde-mi308-3
+// TestDeploymentRetryRefusesLayoutThatNeedsInspection reproduces the second vm-gpu-03
 // failure: each retry released the Machine and redeployed onto a storage layout that cannot boot
 // UEFI, failing in curtin the same way. A disk retry now ends before Recover with a non-retryable
 // inspection_required, so the Operation frees the Server for Inspect; a memory retry never
@@ -331,7 +331,7 @@ func TestDeploymentRetryRefusesLayoutThatNeedsInspection(t *testing.T) {
 }
 
 // TestDeploymentFailureNamesTheProvisionerCause guards the diagnosis gap behind the repeated
-// lab-afde-mi308-3 retries: the Step said only that deployment failed, while MAAS knew why. The
+// vm-gpu-03 retries: the Step said only that deployment failed, while MAAS knew why. The
 // message now carries the provider's error description and this attempt's installation error
 // line, falling back step by step; the code and retryability do not change.
 func TestDeploymentFailureNamesTheProvisionerCause(t *testing.T) {
@@ -398,7 +398,7 @@ func TestDeploymentFailureNamesTheProvisionerCause(t *testing.T) {
 	}
 }
 
-// TestPreflightRejectionIsAKnownOutcome verifies a deployment Swallow refused before writing to
+// TestPreflightRejectionIsAKnownOutcome verifies a deployment swallow refused before writing to
 // the provider ends the Step with a non-retryable deployment_preflight_rejected, instead of the
 // retryable provider_outcome_unknown that invited the operator to repeat a refusal forever.
 func TestPreflightRejectionIsAKnownOutcome(t *testing.T) {

@@ -12,7 +12,7 @@ export interface OverviewIntegration {
   lastError: string | null
 }
 
-/** One firing alert correlated to Swallow resources where possible. */
+/** One firing alert correlated to swallow resources where possible. */
 export interface OverviewAlert {
   fingerprint: string
   name: string

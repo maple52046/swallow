@@ -15,8 +15,8 @@ Active.
 ## Purpose
 
 A destructive change waits for an operator's approval before swallow carries it out
-([decision 069](../../../../../docs/decisions/069-swallow-owns-desired-state.md),
-[decision 076](../../../../../docs/decisions/076-change-plans.md)). A resource API that accepts a
+([decision 069](../../../../../docs/decisions/069-swallow-owns-desired-state.md) (swallow owns desired state),
+[decision 076](../../../../../docs/decisions/076-change-plans.md) (change plans)). A resource API that accepts a
 destructive spec write commits the spec and answers `202 Accepted` with the
 [Change Plan](../../../../../docs/development/glossaries/terms/change-plan.md) it proposed; this
 contract reads, approves, and rejects plans. The resource's controller applies an approved plan as

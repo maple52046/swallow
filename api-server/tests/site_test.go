@@ -45,7 +45,7 @@ func TestCreateSite_RequiresName(t *testing.T) {
 	}
 }
 
-// DF-13: a PATCH cannot blank a Site's name; the name is trimmed before it is checked.
+// A PATCH cannot blank a Site's name; the name is trimmed before it is checked.
 func TestUpdateSite_RequiresANonEmptyName(t *testing.T) {
 	f := setupPlatform(t)
 	siteID := createSite(t, f, "dc-west")
@@ -166,7 +166,7 @@ func TestCreateIntegration_RejectsUnknownSite(t *testing.T) {
 	}
 }
 
-// DF-05: a second Integration with the same name in one Site is a conflict, not an internal error.
+// A second Integration with the same name in one Site is a conflict, not an internal error.
 func TestCreateIntegration_DuplicateNameConflicts(t *testing.T) {
 	f := setupPlatform(t)
 	siteID := createSite(t, f, "dc-east")

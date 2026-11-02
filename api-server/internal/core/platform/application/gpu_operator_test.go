@@ -184,7 +184,7 @@ func (l *recordingGPUOperatorLauncher) PersistGPUOperator(_ context.Context, pre
 	return prepared.OperationID(), nil
 }
 
-// gpuOperatorHarness is an active Swallow-deployed HA Platform "p1" whose c1 controller also
+// gpuOperatorHarness is an active swallow-deployed HA Platform "p1" whose c1 controller also
 // runs workloads, with AMD GPUs on c1 and w1.
 func gpuOperatorHarness(t *testing.T, state platformdomain.PlatformLifecycleState) (*GPUOperatorService, *recordingGPUOperatorLauncher, *deployFakePlatformRepo) {
 	t.Helper()

@@ -48,7 +48,7 @@ type CreateSiteInput struct {
 var ErrInvalidSite = errors.New("invalid site")
 
 // siteName trims a requested Site name and refuses one that is empty after trimming, so a
-// whitespace-only name is never stored as "" (DF-13).
+// whitespace-only name is never stored as "".
 func siteName(name string) (string, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {

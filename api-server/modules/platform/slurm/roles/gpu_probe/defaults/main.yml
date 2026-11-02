@@ -1,5 +1,5 @@
 ---
-# HIP probe shared by every Swallow feature that hands out AMD GPUs (decision 063). It proves the
+# HIP probe shared by every swallow feature that hands out AMD GPUs (decision 063). It proves the
 # GPUs work through the HIP runtime (allocate, fill, and free memory on every device, three times,
 # each in its own process) rather than trusting an inventory listing. It never names a GPU model.
 

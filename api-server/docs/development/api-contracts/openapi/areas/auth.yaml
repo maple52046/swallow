@@ -637,7 +637,7 @@ components:
       properties:
         id:
           type: string
-          description: Swallow-issued identifier used in the path.
+          description: swallow-issued identifier used in the path.
         name:
           type: string
           description: Unique (case-insensitively) among the caller's keys.

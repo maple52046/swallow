@@ -46,7 +46,7 @@ type StaticNetworkLinkSnapshot struct {
 	IPAddress   string
 }
 
-// ProvisioningTask stores only the coordination data Swallow owns. Provider
+// ProvisioningTask stores only the coordination data swallow owns. Provider
 // credentials and request bodies must never be added to this aggregate.
 type ProvisioningTask struct {
 	ID                string

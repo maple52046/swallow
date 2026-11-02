@@ -108,7 +108,7 @@ func GPUOperatorReleaseItems() []GPUOperatorReleaseItem {
 	return items
 }
 
-// GPUOperatorService changes the Swallow-managed GPU Operator of a deployed Kubernetes Platform
+// GPUOperatorService changes the swallow-managed GPU Operator of a deployed Kubernetes Platform
 // (PUT /platforms/{id}/gpu-operator). It owns the preconditions and the settings record; the
 // launcher owns Workflow composition and the operation context's busy and lock checks. The
 // deploy-time install is owned by DeployService, which reuses the same normalization and vars.
@@ -131,7 +131,7 @@ func (s *GPUOperatorService) AttachAccelerator(accelerator platformdomain.Accele
 }
 
 // NewGPUOperatorService wires the change use case. deploymentKeys may be nil (tests); production
-// wiring supplies it so a change is refused before anything is written when Swallow cannot log in.
+// wiring supplies it so a change is refused before anything is written when swallow cannot log in.
 func NewGPUOperatorService(
 	transactor store.Transactor,
 	platforms platformdomain.PlatformRepository,
@@ -165,7 +165,7 @@ type ConfigureGPUOperatorResult struct {
 // Configure validates a change, records it, and launches the Workflow that applies it.
 //
 // It returns ErrPlatformNotFound for a missing Platform; ErrGPUOperatorConflict when the Platform
-// is not an active Swallow-deployed Kubernetes Platform, its Kubernetes version is unknown, or an
+// is not an active swallow-deployed Kubernetes Platform, its Kubernetes version is unknown, or an
 // uninstall finds no managed operator; ErrInvalidGPUOperator for invalid settings; and
 // ErrDeploymentKeyMissing without a Deployment Key. The Workflow is planned first (the lock check
 // and target resolution read outside the store); then the record and the Workflow are written in

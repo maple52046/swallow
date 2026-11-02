@@ -1,12 +1,12 @@
 ---
-# Mint the Slurm JWT that Swallow reads membership with, detect the slurmrestd endpoint
+# Mint the Slurm JWT that swallow reads membership with, detect the slurmrestd endpoint
 # version, and return both through the run's private result file. Every task touching the token
 # is no_log. The token is minted for the SlurmUser (slurm) so the reader can list nodes; it is
 # long-lived because it is stored as the platform integration credential.
 
 - name: Skip credential when slurmrestd is unavailable
   # No slurmrestd means no reader endpoint, so there is nothing to record. The deploy still
-  # succeeds; Swallow simply records no integration and membership stays empty until the image
+  # succeeds; swallow simply records no integration and membership stays empty until the image
   # includes slurm-smd-slurmrestd.
   ansible.builtin.debug:
     msg: "slurmrestd is not available; skipping Slurm reader credential. Membership will not populate until slurm-smd-slurmrestd is installed."
@@ -60,7 +60,7 @@
 
 - name: Write the deployment result for Swallow
   # Written to the run's private result path (localhost), mirroring the k0s credential role.
-  # Swallow records this as the platform's slurmrestd reader integration. Skipped when slurmrestd
+  # swallow records this as the platform's slurmrestd reader integration. Skipped when slurmrestd
   # is absent, so the deploy succeeds without a reader credential.
   ansible.builtin.copy:
     dest: "{{ swallow_result_path }}"
@@ -70,7 +70,7 @@
           'apiVersion': slurm_api_version} | to_json }}
     mode: "0600"
   delegate_to: localhost
-  # The hand-off to Swallow (a fresh token every run), not a change to any cluster host.
+  # The hand-off to swallow (a fresh token every run), not a change to any cluster host.
   changed_when: false
   no_log: true
   when:

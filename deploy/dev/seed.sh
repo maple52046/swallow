@@ -155,7 +155,7 @@ printf 'automation logs in with the Deployment Key\n'
 cat <<EOF
 
 Done. Next:
-  - Tag the AMD GPU server in MAAS with 'amd-gpu' (currently: tainan-ci.maas).
+  - Tag each AMD GPU server in MAAS with 'amd-gpu'.
   - Deploy an OS to a lab machine; swallow auto-creates an install-exporters operation.
   - Prometheus UI: http://127.0.0.1:${PROMETHEUS_PORT:-9090}
 EOF

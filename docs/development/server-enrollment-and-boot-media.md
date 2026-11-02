@@ -28,14 +28,14 @@ provisioner」目前生效的規則。
 
 1. **Enrollment**（[Server Enrollment](glossaries/terms/server-enrollment.md)）只把機器放進
    provisioner 的 inventory。Server 與它的 `serverId` 永遠由 reconcile 從 provisioner 的 Machine
-   投影而來（[decision 002](../decisions/002-server-identity.md)），enrollment 從不建立 Server 紀錄。
+   投影而來（[decision 002](../decisions/002-server-identity.md)（server identity）），enrollment 從不建立 Server 紀錄。
 2. **Hardware inspection** 是 durable 的 `inspect-hardware` Workflow，把 `new` 的 Server 帶到 `ready`
    （MAAS 的 commission）。
 
 provisioner 不提供 DHCP 的網路上，機器要靠 **Boot Media** 開機到 provisioner：Server 的 Boot Media
 setting 選一個 **Boot ISO**，swallow 把它掛到 BMC 的 virtual media 或 VM 的 CD-ROM 並讓它先開機。
 
-事實的所有權（[decision 001](../decisions/001-system-ownership-boundaries.md)）：
+事實的所有權（[decision 001](../decisions/001-system-ownership-boundaries.md)（system ownership boundaries））：
 
 | 事實 | 擁有者 | swallow 的做法 |
 | --- | --- | --- |
@@ -122,12 +122,12 @@ provisioner。
 
 - 由 reconciler 直接 commission 會在讀取路徑寫入、與 enlistment 開機競速，也沒有 durable 的 retry 與
   attention；從 api-server 註冊既有主機則不可能，硬體事實必須在主機上讀
-  （[decision 053](../decisions/053-server-enrollment-and-automatic-inspection.md)）。
+  （[decision 053](../decisions/053-server-enrollment-and-automatic-inspection.md)（server enrollment and automatic inspection））。
 - 主機很少裝有 CLI、常常不能上網，而 installation 本來就附帶 CLI，所以由 installation 提供下載
   （decision 053）。
 - VM 以名稱 enroll，而不是 MAAS `add-chassis` 或 VM host：前者以名稱前綴選 VM、把 domain 改成先網路後磁碟
   開機（破壞 external DHCP 的 iPXE ISO）且非同步；後者把 VM 的生命週期與開機順序交給 MAAS
-  （[decision 055](../decisions/055-libvirt-virtual-machine-enrollment.md)）。
+  （[decision 055](../decisions/055-libvirt-virtual-machine-enrollment.md)（libvirt virtual machine enrollment））。
 
 ---
 
@@ -144,8 +144,8 @@ kind `inspect-hardware`、definition `hardware-inspection` v1，一個 target Se
 | `ensure-boot-media-<serverId>` | `ensure-boot-media` | `internal` | Server 的 Boot Media（若啟用）已套用，執行時即時解析（§4.7） |
 | `inspect-<serverId>` | `inspect` | `provisioner` | provider 已檢視硬體，Server 為 `ready` |
 
-Workflow 的 intent snapshot 記錄 `origin`：`automatic`（自動 sweep）或 `requested`（operator 的 Inspect）。
-origin 決定 enrollment wait 的行為（§2.2）與已經 `ready` 時是否重檢（§2.3）。這些 kind 與 Task ID 前綴是
+Workflow 的 intent snapshot 記錄檢視的 origin（欄位名 `origin`，與 Server 的 [Server Origin](glossaries/terms/server-origin.md)
+無關）：`automatic`（自動 sweep）或 `requested`（operator 的 Inspect）。它決定 enrollment wait 的行為（§2.2）與已經 `ready` 時是否重檢（§2.3）。這些 kind 與 Task ID 前綴是
 published vocabulary，改名會破壞已持久化的 Workflow。
 
 **不變式**：swallow 從不自行設定 Server 的 provisioning state，也不把 Server 標成 failed；attention 留在
@@ -234,7 +234,7 @@ Server、existing-OS enrollment 的 `deployed` Server，以及自動檢視失敗
 - enrollment wait 以 enlistment script set 的狀態而不是固定時間判斷「缺 power driver」：實體機的 IPMI driver
   在 enlistment 後段才設定；縮短 timeout 只會讓同樣無法診斷的 attention 提早出現；VM 跳過 wait 仍會找不到
   driver 並與 enlistment 競速；把每次 retry 都當成略過 wait 會 commission 仍在 enlist 的 Machine
-  （[decision 054](../decisions/054-provisioner-power-configuration.md)）。
+  （[decision 054](../decisions/054-provisioner-power-configuration.md)（provisioner power configuration））。
 
 ---
 
@@ -298,7 +298,7 @@ enrollment wait 與 inspection 只需要知道 control（§2.2）。
 ### 設計理由
 
 - Redfish 不設為第三種 power type：參考 BMC 以 IPMI 驅動但仍提供 Redfish
-  （[decision 047](../decisions/047-redfish-boot-media.md) 已否決以 `power_type == redfish` 為閘門）。
+  （[decision 047](../decisions/047-redfish-boot-media.md)（redfish boot media） 已否決以 `power_type == redfish` 為閘門）。
 - swallow 不經 SSH 驅動 libvirt 電源、不儲存 power credential：前者重複 provisioner 的 power driver 並把
   hypervisor SSH key 帶進 swallow，後者違反 provisioner 擁有 credential 的規則
   （[decision 054](../decisions/054-provisioner-power-configuration.md)）。VM enrollment 只碰 provisioner
@@ -544,11 +544,11 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 - 不為每個 ISO 以 `EMBED=` 編譯 iPXE：那需要 runtime image 有 C toolchain、每次要數分鐘，而 `genfsimg -s` 以預先
   編譯的 binary 數秒就得到相同結果；不提供 free-form script：已驗證的範本涵蓋 external DHCP，打錯字只會表現為
   一台永遠開不起來的主機；不保留 installation ISO 作為預設：同一件事兩個來源會讓手工路徑繼續存在
-  （[decision 049](../decisions/049-boot-iso-builder.md)）。
+  （[decision 049](../decisions/049-boot-iso-builder.md)（boot iso builder））。
 - UEFI 不用 iPXE chain MAAS 的 `grubx64.efi`：實作並在 lab 測試後否決，GRUB 拿不到 iPXE 的網路狀態而停在
   prompt；讓 MAAS 記成 `uefi` 是因為 MAAS 依最後記錄的 boot method 決定 layout，經 `ipxe.cfg` 時記成 `ipxe`
   並視同 BIOS，UEFI 部署就會在 curtin 的 bootloader 步驟失敗
-  （[decision 057](../decisions/057-uefi-boot-iso-hand-off.md)）。
+  （[decision 057](../decisions/057-uefi-boot-iso-hand-off.md)（uefi boot iso hand off））。
 - 原地 rebuild 而不是建新 ISO 再逐台切換：後者讓舊 ISO 對仍使用它的人保持錯誤，且每台 Server 都要改一次 Boot
   Media（decision 057）。
 

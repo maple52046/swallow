@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "OS provisioning is a Provider Interface; MAAS is its current adapter." / "The Workflow executor interface is implemented by Temporal today and could be implemented by another engine without changing the core."
 - Related terms: Provider Adapter, OS Provisioning Provider, Integration, Convergence, Extension Module.
-- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md), which makes the core ports and adapters.
+- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md) (core providers and extensions), which makes the core ports and adapters.

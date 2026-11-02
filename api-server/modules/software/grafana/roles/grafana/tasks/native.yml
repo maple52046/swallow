@@ -1,7 +1,7 @@
 ---
 # native method: the pinned grafana package from Grafana's official apt or yum repository. The
-# package's own grafana-server unit runs it; a Swallow drop-in points it at the management address
-# and the Swallow-owned provisioning and data directories, so the package's /etc/grafana is never
+# package's own grafana-server unit runs it; a swallow drop-in points it at the management address
+# and the swallow-owned provisioning and data directories, so the package's /etc/grafana is never
 # edited.
 
 - name: Refuse an OS family without an official Grafana repository

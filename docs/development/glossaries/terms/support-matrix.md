@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "Kubernetes with an NVIDIA Accelerator Module is not in this release's Support Matrix, so it is not supported."
 - Related terms: Extension Module, Provider Adapter, Installation, Module Package.
-- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md): the product is a distribution of the generic core.
+- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md) (core providers and extensions): the product is a distribution of the generic core.

@@ -21,12 +21,12 @@ import (
 //     assignment (else ErrDockerNotInstalled) whose spec records enableApi=true (else
 //     ErrDockerAPIDisabled). Hosts are never probed for an API enabled outside swallow.
 //   - Request validation (domain spec rules, ErrInvalidDockerRequest) before any I/O.
-//   - The Server Lock for every write (ADR 013): reads stay available on a locked Server, writes
+//   - The Server Lock for every write (decision 013): reads stay available on a locked Server, writes
 //     fail with the guard's ServerLockedError / ServerLockUnavailableError.
 //   - Registry Credentials for pulls (decision 044): the stored credential matching the reference's
 //     registry is sent with that one pull, never persisted on the host.
 //
-// It performs no writes to swallow state: Docker objects are Engine facts (ADR 001), every call is
+// It performs no writes to swallow state: Docker objects are Engine facts (decision 001), every call is
 // a synchronous Engine request, and no Workflow is created. Engine failures surface unchanged as
 // *DockerEngineError for delivery to map.
 type DockerExplorerUseCase struct {

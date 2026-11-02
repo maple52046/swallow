@@ -329,7 +329,7 @@ type UploadOSImageRequest struct {
 // as a MAAS uploaded custom image.
 //
 // It is the creation counterpart to OSImageRemover: swallow drives the provider to store the
-// artifact but does not own, mirror, or keep a copy of it (see ADR 027). An adapter that sets
+// artifact but does not own, mirror, or keep a copy of it (see decision 027). An adapter that sets
 // ProviderCapabilities.ImageUpload must implement this. Implementations map a provider refusal
 // (a duplicate name, an unsupported file type) onto *ProviderError{Kind: ProviderErrorRejected}
 // and transport or 5xx failures onto ProviderErrorUnavailable, and return the created image as

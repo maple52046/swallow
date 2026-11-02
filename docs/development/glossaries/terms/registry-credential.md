@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "Pulling `harbor.lab.local/team/app:1.4` signs in with the `harbor.lab.local` Registry Credential." / "`nginx:1.27` resolves to `docker.io`; without a Docker Hub credential the pull is anonymous." / "Replacing a credential changes its username and password; its registry is fixed."
 - Related terms: Docker Host Explorer, Managed Software, Server.
-- Change note: Added 2026-10-02 ([decision 044](../../../decisions/044-docker-registry-credentials.md)) so the Docker Host Explorer can pull private images; stored rather than typed per pull by user decision.
+- Change note: Added 2026-10-02 ([decision 044](../../../decisions/044-docker-registry-credentials.md) (docker registry credentials)) so the Docker Host Explorer can pull private images; stored rather than typed per pull by user decision.

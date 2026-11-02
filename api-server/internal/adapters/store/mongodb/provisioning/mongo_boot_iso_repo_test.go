@@ -11,14 +11,14 @@ import (
 // Integration, and the record round-trips unchanged.
 func TestBootISODocRoundTrip(t *testing.T) {
 	iso := &provisioningdomain.BootISO{
-		ID: "iso-1", Name: "Tainan-Rack", IntegrationID: "maas-tainan", RackAddress: "10.1.0.5",
+		ID: "iso-1", Name: "South-Rack", IntegrationID: "maas-south", RackAddress: "10.1.0.5",
 		ChainURL: "http://10.1.0.5:5248/ipxe.cfg", UEFIChainURL: "http://10.1.0.5:5248/grub/grub.cfg-<mac>",
 		Script: "#!ipxe\n", GRUBConfig: "net_bootp\n", IPXEVersion: "v2.0.0",
 		SizeBytes: 1024, SHA256: "abc", CreatedAt: time.Date(2026, 10, 4, 8, 0, 0, 0, time.UTC), CreatedBy: "admin",
 		RebuiltAt: time.Date(2026, 10, 13, 1, 0, 0, 0, time.UTC), RebuiltBy: "operator",
 	}
 	doc := newBootISODoc(iso)
-	if doc.NormalizedName != "tainan-rack" || doc.Name != "Tainan-Rack" {
+	if doc.NormalizedName != "south-rack" || doc.Name != "South-Rack" {
 		t.Errorf("doc names = %q / %q, want the folded key and the name as given", doc.NormalizedName, doc.Name)
 	}
 	if got := toBootISO(&doc); *got != *iso {

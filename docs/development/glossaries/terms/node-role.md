@@ -30,7 +30,7 @@
 - Change note: Added for platform deployment. Clarified on 2026-08-30 that workload
   co-location is a deployment placement choice rather than a third Node Role, enabling
   standalone and non-HA multi-node topology without changing observed role vocabulary.
-  Clarified on 2026-09-07 (see [decision 019](../../../decisions/019-slurm-platform-deployment.md))
+  Clarified on 2026-09-07 (see [decision 019](../../../decisions/019-slurm-platform-deployment.md) (slurm platform deployment))
   that Node Role is the Kubernetes-shaped **observed** membership axis; a Slurm **deployment**
   instead assigns Slurm daemons per node (a server may run the controller daemon `slurmctld`,
   the compute daemon `slurmd`, or both). Those per-daemon deployment assignments are not Node

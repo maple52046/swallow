@@ -1,7 +1,7 @@
 import { createSystem, defaultConfig, defineConfig } from '@chakra-ui/react'
 
 /**
- * Chakra styling engine for the Swallow operator console.
+ * Chakra styling engine for the swallow operator console.
  *
  * This module is the single source of truth for the dashboard's visual language.
  * It layers a bespoke operator-console theme on top of Chakra's

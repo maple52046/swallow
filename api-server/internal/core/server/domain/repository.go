@@ -111,7 +111,7 @@ type ServerRepository interface {
 	// projection in hand.
 	SetGPUs(ctx context.Context, id string, gpus []GPU) error
 
-	// SetDeployment replaces the Swallow-owned deployment result, or clears it after
+	// SetDeployment replaces the swallow-owned deployment result, or clears it after
 	// release. Provider inventory Upsert must preserve this field.
 	SetDeployment(ctx context.Context, id string, deployment *DeploymentStatus) error
 

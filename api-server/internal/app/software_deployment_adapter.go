@@ -16,7 +16,7 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-// Software deployment Jobs (ADR 017 / decision 038). A standalone software install composes three
+// Software deployment Jobs (decision 017 / decision 038). A standalone software install composes three
 // convergent Jobs on one parent Workflow: prepare-hosts brings each already-deployed target to SSH
 // readiness, configure-<kind> runs the one idempotent software playbook, and record-software writes
 // the swallow-owned Software Assignment. A platform deploy that pulls in a software component
@@ -69,7 +69,7 @@ func uninstallPlaybook(kind softwaredomain.Kind) softwarePlaybook {
 type softwareDeploymentLauncher struct {
 	operations     *workflowapp.ExecutionService
 	orchestrations *workflowapp.WorkflowService
-	// modules gives each software Workflow its module's definition (ADR 075).
+	// modules gives each software Workflow its module's definition (decision 075).
 	modules *moduledomain.Registry
 }
 

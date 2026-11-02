@@ -1,7 +1,7 @@
 # Software Deployment 設計、開發與規範
 
 本文件是 swallow **software deployment**（Managed Software）的權威設計文件、開發指引與整合
-規範。它把 [decision 038](../decisions/038-software-deployment.md) 的決策，以及 root glossary
+規範。它把 [decision 038](../decisions/038-software-deployment.md)（software deployment） 的決策，以及 root glossary
 的 [Managed Software](glossaries/terms/managed-software.md) /
 [Software Assignment](glossaries/terms/software-assignment.md) 語言，落成「swallow 如何安裝一個
 單一軟體」與「platform 如何組入一個軟體」的具體設計與規範。
@@ -9,8 +9,8 @@
 它與 [platform-deployment.md](platform-deployment.md) 平行：platform deployment 佈署由多個
 component 組成的 runtime；software deployment 佈署單一軟體及其變體。
 
-> **模組**：每個 Managed Software kind 由一個 **Software 模組**提供（[decision 070](../decisions/070-core-providers-and-extensions.md)、
-> [decision 075](../decisions/075-module-contract-v1.md)，見 [core-and-extensions.md](core-and-extensions.md)）。core 不認得任何
+> **模組**：每個 Managed Software kind 由一個 **Software 模組**提供（[decision 070](../decisions/070-core-providers-and-extensions.md)（core providers and extensions）、
+> [decision 075](../decisions/075-module-contract-v1.md)（module contract v1），見 [core-and-extensions.md](core-and-extensions.md)）。core 不認得任何
 > kind：catalog 由各模組的 `software` hook 組成（§2）。kind 專屬的產品常數（版本、port）仍在 core，之後隨 Platform
 > 模組一起搬出。Software Assignment 已有 desired 與 last-applied，是最接近
 > [desired-state-model.md](desired-state-model.md) 的現有設計。
@@ -37,7 +37,7 @@ component 組成的 runtime；software deployment 佈署單一軟體及其變體
 ## 1. 心智模型：沿用 Workflow → Job → Task → Runner
 
 software deployment 不新增編排引擎，直接沿用
-[decision 017](../decisions/017-workflow-job-task-runner-model.md) 的模型；資源所有權、重試、`requires_attention`
+[decision 017](../decisions/017-workflow-job-task-runner-model.md)（workflow job task runner model） 的模型；資源所有權、重試、`requires_attention`
 與完成行為照 [workflow-execution.md](workflow-execution.md)。
 
 一次獨立 software 安裝的 Job 組成：
@@ -55,7 +55,7 @@ uninstall 對稱：`prepare-hosts` → `configure-<kind>`（跑 `uninstall-<kind
 它攜帶的 assignment 身分把 Software Assignment 標為 `failed`（見 §4.3）。
 
 **SSH 就緒是驗證式、帳號 per-host 解析**：`prepare-hosts` 的 `wait-for-ssh` 會以 Deployment Key
-（唯一的 automation 金鑰，decision 041）對每台目標**實際完成 SSH 認證**，不是只探 22 埠；且 SSH 登入帳號為
+（唯一的 automation 金鑰，[decision 041](../decisions/041-deployment-key-only-automation.md)（deployment key only automation））對每台目標**實際完成 SSH 認證**，不是只探 22 埠；且 SSH 登入帳號為
 **per-host 解析**：所佈署 OS Image 有 default user 時只用它，否則以候選清單
 （`[站台 sshUser, cloud-user, ubuntu]`，站台值優先）探測，因此可在同一 site 混用 ubuntu（`ubuntu`）與自訂
 image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如被以未授權 automation 公鑰的 image 重裝過）
@@ -100,7 +100,7 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
   的 OpenAPI 一節）。`SoftwareKind` 在契約中是 pattern，不必改。
 - dashboard 的 kind 清單與呈現（[模組撰寫指南](module-authoring.md) §1.2）。
 
-**安裝方法**（[decision 063](../decisions/063-omnistat-slurm-observability.md)）：catalog 的
+**安裝方法**（[decision 063](../decisions/063-omnistat-slurm-observability.md)（omnistat slurm observability））：catalog 的
 `installMethods` 列出 kind 可用的安裝方法（第一個是預設），`containerRuntimes` 列出 `container` method
 可用的 runtime kind。Prometheus／Grafana：
 
@@ -113,9 +113,9 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
 - `native`：Prometheus 為官方 release tarball（以 release 的 `sha256sums.txt` 驗證），放在
   `/opt/swallow/prometheus/<version>`，由 `swallow-prometheus.service`（系統使用者
   `swallow-prometheus`）執行；Grafana 為 Grafana 官方 apt／yum repository 的 pinned `grafana` 套件，
-  由套件自己的 `grafana-server.service` 執行，Swallow 只加 drop-in
-  （`grafana-server.service.d/10-swallow.conf`，`GF_*` 指向 management address 與 Swallow 擁有的
-  provisioning／data 目錄），不改 `/etc/grafana`。uninstall 只移除帶 Swallow drop-in 的套件。
+  由套件自己的 `grafana-server.service` 執行，swallow 只加 drop-in
+  （`grafana-server.service.d/10-swallow.conf`，`GF_*` 指向 management address 與 swallow 擁有的
+  provisioning／data 目錄），不改 `/etc/grafana`。uninstall 只移除帶 swallow drop-in 的套件。
 
 切換方法或 runtime 會先移除前一種的 artifacts（data 目錄保留並改 owner）。三種方法都用 host network，
 位址語意一致：Grafana 綁 management address（`ansible_host`）；Prometheus 的 API 沒有驗證，預設只綁
@@ -125,9 +125,9 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
 
 **AMD Device Metrics Exporter**（[Device Metrics Exporter](glossaries/terms/device-metrics-exporter.md)）：
 standalone 安裝與 Slurm 功能（§5）是同一個 kind、同一支 playbook 與 role（`roles/device_metrics_exporter`），
-因此每個 Swallow 管理的 exporter 都有 Software Assignment。它只有一種安裝路徑：AMD 的 pinned native 套件
+因此每個 swallow 管理的 exporter 都有 Software Assignment。它只有一種安裝路徑：AMD 的 pinned native 套件
 （`amdgpu-exporter`，SHA-256 驗證；沒有 `container` method）。exporter 綁 management address 的 port `5001`
-（`5000` 是 Swallow 抓取的 RDC exporter）、profiler 關閉。請求不接受任何 spec 欄位（帶了即
+（`5000` 是 swallow 抓取的 RDC exporter）、profiler 關閉。請求不接受任何 spec 欄位（帶了即
 `validation_error`），assignment 的 spec 記錄 `{ "version": "1.5.3" }`。job attribution 由 trusted var 決定：
 standalone 為 `none`（`-enable-slurm-scl=false`），Slurm 組入時為 `slurm`。
 
@@ -148,11 +148,11 @@ standalone 為 `none`（`-enable-slurm-scl=false`），Slurm 組入時為 `slurm
 
 設計理由（為何是 Managed Software 而不只共用 role、為何沒有 container method、為何 standalone 不一併裝
 Prometheus／Grafana、為何不從 projection 判斷 OS）見
-[decision 068](../decisions/068-device-metrics-exporter-managed-software.md)。
+[decision 068](../decisions/068-device-metrics-exporter-managed-software.md) (device metrics exporter managed software)。
 
 ## 3. Software Assignment（durable record）
 
-Swallow-owned collection `software_assignments`，鍵 `(serverId, kind)`：
+swallow-owned collection `software_assignments`，鍵 `(serverId, kind)`：
 
 | 欄位 | 意義 |
 | --- | --- |
@@ -166,7 +166,7 @@ Swallow-owned collection `software_assignments`，鍵 `(serverId, kind)`：
 **收斂**：已 `installed` 且 spec 等價仍可再跑（playbook ensure 為 no-op）；spec 不同則再 ensure；
 互斥 kind 已 `installed` → 4xx（在建立 Workflow 前擋下）。
 
-**與 Workflow 一起寫入**（decision 069）：install 先在 store transaction 之外規劃 Workflow（lock 檢查與 target
+**與 Workflow 一起寫入**（[decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state））：install 先在 store transaction 之外規劃 Workflow（lock 檢查與 target
 解析），再在一個 transaction 內寫入 Workflow 與每台 target 的 `pending` assignment；uninstall 同樣把 Workflow 與
 `uninstalling` 一起寫入。被拒的請求（target busy 或 locked）不留下 Workflow，也不留下 assignment 的變更。
 
@@ -250,7 +250,7 @@ playbook、依賴鎖定、不逃出內容根目錄、結果與 secret 走契約�
 Docker CE 的 `enableApi` 變體讓 api-server 能即時管理主機上的 Docker Engine
 （[Docker Host Explorer](glossaries/terms/docker-host-explorer.md)）。設計理由（為何由 api-server 代呼而非瀏覽器直連
 或透明 proxy、為何不逐次跑 Workflow、為何不把 Docker 物件鏡射進 Mongo）見
-[decision 043](../decisions/043-docker-host-management.md)。
+[decision 043](../decisions/043-docker-host-management.md) (docker host management)。
 
 - **Spec 正規化**：install 時 `enableApi` 省略即寫成 `true`，非 boolean 為 `validation_error`；
   因此新紀錄的 assignment `spec` 一定帶明確值。043 之前寫入、沒有此鍵的紀錄視為**未啟用**
@@ -282,7 +282,7 @@ Docker CE 的 `enableApi` 變體讓 api-server 能即時管理主機上的 Docke
   保持關閉。TLS／mTLS 為後續 hardening（見 §6）。
 - **Dashboard**：Server detail 的 "Containers" tab 只在 swallow 裝了 Docker CE 的 Server 上列出；該 tab 也能開關
   API，作法是送出只改了 `enableApi` 的完整 recorded spec 重跑 install。
-- **`docker` group**（[decision 045](../decisions/045-server-default-user.md)）：`roles/docker_ce` 把
+- **`docker` group**（[decision 045](../decisions/045-server-default-user.md)（server default user））：`roles/docker_ce` 把
   `ansible_user`——也就是該 Server 的 effective Server Default User（Server 上設定的值，否則 OS Image 的
   default user）——加入 `docker` group（`root` 除外），讓該帳號不需 sudo 就能用 Docker；新的 group 在該帳號
   下次登入後生效。不另帶 trusted var；043 之前或本變更之前安裝的主機重跑 install 即補上。卸載不移除該帳號
@@ -292,7 +292,7 @@ Docker CE 的 `enableApi` 變體讓 api-server 能即時管理主機上的 Docke
 
 Docker Host Explorer 拉 private image 時使用 swallow 保存的
 [Registry Credential](glossaries/terms/registry-credential.md)。設計理由（為何存在 swallow 而不是每次輸入、為何不在
-主機上 `docker login`、為何是 installation 範圍）見 [decision 044](../decisions/044-docker-registry-credentials.md)。
+主機上 `docker login`、為何是 installation 範圍）見 [decision 044](../decisions/044-docker-registry-credentials.md)（docker registry credentials）。
 
 - **擁有者與範圍**：swallow-owned、installation 級的資料（不分 Site、Server 或 User），存於 collection
   `software_registry_credentials`，以正規化的 registry（host 或 `host:port`）為唯一鍵（unique index），每個

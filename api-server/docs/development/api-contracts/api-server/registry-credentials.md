@@ -15,7 +15,7 @@ Active
 ## Purpose
 
 Manage the swallow-owned Registry Credentials the Docker Host Explorer uses to pull private images
-([servers-docker.md](servers-docker.md), [decision 044](../../../../../docs/decisions/044-docker-registry-credentials.md)).
+([servers-docker.md](servers-docker.md), [decision 044](../../../../../docs/decisions/044-docker-registry-credentials.md) (docker registry credentials)).
 A credential belongs to the installation, is keyed by one registry host, and is attached to a pull
 whose image reference resolves to that registry. Passwords are sealed at rest and are never
 returned. Managing credentials never contacts a registry or a host.
@@ -132,4 +132,4 @@ In addition to the shared codes in [conventions](conventions.md):
 - Credentials are sealed with the installation credential key; rotating that key makes them
   unreadable and they must be re-entered, as with other sealed credentials.
 - A pull sends the credential to the host's Docker Engine over the plain-HTTP API listener of
-  decision 043; it is never written to the host.
+  [decision 043](../../../../../docs/decisions/043-docker-host-management.md) (docker host management); it is never written to the host.

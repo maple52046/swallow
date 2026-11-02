@@ -7,10 +7,10 @@ import (
 
 func TestMachineHostnameOf(t *testing.T) {
 	cases := map[string]string{
-		"lab-afde-mi308-1": "lab-afde-mi308-1",
-		"Lab_VM.01":        "lab-vm-01",
-		"-edge-":           "edge",
-		"___":              "",
+		"vm-gpu-01": "vm-gpu-01",
+		"Lab_VM.01": "lab-vm-01",
+		"-edge-":    "edge",
+		"___":       "",
 		"a234567890123456789012345678901234567890123456789012345678901234567890": "a23456789012345678901234567890123456789012345678901234567890123",
 	}
 	for domain, want := range cases {
@@ -30,12 +30,12 @@ func TestMachineArchitectureOf(t *testing.T) {
 }
 
 func TestVirshAddressRoundTrip(t *testing.T) {
-	address := VirshAddress("ubuntu", "10.170.168.22")
-	if address != "qemu+ssh://ubuntu@10.170.168.22/system" {
+	address := VirshAddress("ubuntu", "10.140.168.22")
+	if address != "qemu+ssh://ubuntu@10.140.168.22/system" {
 		t.Fatalf("VirshAddress = %q", address)
 	}
 	account, host, err := VirshHostOf(address)
-	if err != nil || account != "ubuntu" || host != "10.170.168.22" {
+	if err != nil || account != "ubuntu" || host != "10.140.168.22" {
 		t.Errorf("VirshHostOf = %q, %q, %v", account, host, err)
 	}
 	if _, host, err := VirshHostOf(VirshAddress("ubuntu", "fd00::22")); err != nil || host != "fd00::22" {

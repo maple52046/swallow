@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// GPUAllocationMode is how a Swallow-managed GPU Operator exposes a node's GPUs to workloads.
+// GPUAllocationMode is how a swallow-managed GPU Operator exposes a node's GPUs to workloads.
 // Exactly one mode is active at a time; the two are alternatives, not layers.
 type GPUAllocationMode string
 
@@ -41,7 +41,7 @@ func (n GPUResourceNaming) Valid() bool {
 	return n == GPUResourceNamingSingle || n == GPUResourceNamingMixed
 }
 
-// GPUOperatorState is where the latest Swallow change to a Platform's GPU Operator stands. It is
+// GPUOperatorState is where the latest swallow change to a Platform's GPU Operator stands. It is
 // projected from the ansible Task that applies the change, never from a live cluster read.
 type GPUOperatorState string
 
@@ -53,7 +53,7 @@ const (
 	GPUOperatorAbsent       GPUOperatorState = "absent"
 )
 
-// GPUOperatorSettings is the desired configuration of a Swallow-managed GPU Operator. Enabled
+// GPUOperatorSettings is the desired configuration of a swallow-managed GPU Operator. Enabled
 // false is the uninstall intent; the other fields are then kept as the last requested settings
 // so a later install can start from them. DRADriverVersion is empty unless AllocationMode is dra.
 type GPUOperatorSettings struct {
@@ -66,8 +66,8 @@ type GPUOperatorSettings struct {
 	MetricsExporter  bool
 }
 
-// GPUOperator is the Swallow-managed GPU Operator recorded on a Kubernetes Platform: the settings
-// Swallow was last asked to apply and the state of the Workflow applying them. LastWorkflowID
+// GPUOperator is the swallow-managed GPU Operator recorded on a Kubernetes Platform: the settings
+// swallow was last asked to apply and the state of the Workflow applying them. LastWorkflowID
 // fences state writes: only that Workflow may move State, so an older run finishing late cannot
 // overwrite a newer request.
 type GPUOperator struct {
@@ -77,7 +77,7 @@ type GPUOperator struct {
 	UpdatedAt      time.Time
 }
 
-// Managed reports whether Swallow currently manages an operator on the Platform, which is every
+// Managed reports whether swallow currently manages an operator on the Platform, which is every
 // recorded state except a completed uninstall. A nil record is never managed.
 func (g *GPUOperator) Managed() bool {
 	return g != nil && g.State != GPUOperatorAbsent
@@ -130,7 +130,7 @@ func ParseKubernetesMinorVersion(k0sVersion string) (KubernetesMinorVersion, boo
 	return KubernetesMinorVersion{Major: major, Minor: minor}, true
 }
 
-// GPUOperatorRelease is one AMD GPU Operator release Swallow ships and has verified: the chart
+// GPUOperatorRelease is one AMD GPU Operator release swallow ships and has verified: the chart
 // version (which names the chart archive bundled with the playbook), its Kubernetes support
 // floor, the DRA driver releases verified with it, and the operand images it pins.
 type GPUOperatorRelease struct {
@@ -217,7 +217,7 @@ var (
 	// maps it to 400 validation_error.
 	ErrInvalidGPUOperator = errors.New("invalid GPU operator settings")
 	// ErrGPUOperatorConflict means the request is valid but the Platform's current state does not
-	// allow it (not an active Swallow-deployed Kubernetes Platform, nothing to uninstall, or a
+	// allow it (not an active swallow-deployed Kubernetes Platform, nothing to uninstall, or a
 	// policy change that would contradict a managed operator); it maps to 409 conflict.
 	ErrGPUOperatorConflict = errors.New("GPU operator change conflicts with the platform state")
 )

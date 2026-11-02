@@ -1,6 +1,6 @@
 ---
 # Uninstall the Managed Software kind device-metrics-exporter from its targets (decision 068): the
-# exporter, its configuration, and Swallow's amdgpu loader when nothing else still needs it. The
+# exporter, its configuration, and swallow's amdgpu loader when nothing else still needs it. The
 # loader is shared with the Slurm GPU role and the GPU Operator, which order their own units
 # (slurmd, k0s) after it with an amdgpu_loader drop-in; while any such drop-in exists, the loader
 # stays. Idempotent.

@@ -66,7 +66,7 @@ func deployedServer(id string) *serverdomain.Server {
 	return &serverdomain.Server{
 		ID:           id,
 		Source:       serverdomain.Source{SiteID: "site-a"},
-		Observed:     serverdomain.Observed{Hostname: "tainan-ci", Addresses: []string{"10.0.0.9", "10.0.1.9"}},
+		Observed:     serverdomain.Observed{Hostname: "hv-01", Addresses: []string{"10.0.0.9", "10.0.1.9"}},
 		Provisioning: &serverdomain.ProvisioningStatus{State: "deployed", DeployedImageDefaultUser: "ubuntu"},
 	}
 }
@@ -90,7 +90,7 @@ func TestSetDefaultUserInstallsKeyThenVerifies(t *testing.T) {
 	if hosts.passwords[0] != " p@ss " {
 		t.Errorf("password passed = %q, want it verbatim", hosts.passwords[0])
 	}
-	if target := hosts.targets[0]; target.Address != "10.0.0.9" || target.SiteID != "site-a" || target.Name != "tainan-ci" {
+	if target := hosts.targets[0]; target.Address != "10.0.0.9" || target.SiteID != "site-a" || target.Name != "hv-01" {
 		t.Errorf("login target = %+v, want the primary address on the Server's Site", target)
 	}
 	if !result.KeyInstalled || result.Sudo != serverdomain.SudoPasswordless {
@@ -138,7 +138,7 @@ func TestSetDefaultUserRejections(t *testing.T) {
 		{name: "unknown server", server: deployedServer("srv-1"), input: SetDefaultUserInput{ServerID: "srv-x", User: "amd"}, want: serverdomain.ErrServerNotFound},
 		{name: "not deployed", server: notDeployed, input: SetDefaultUserInput{ServerID: "srv-1", User: "amd"}, want: serverdomain.ErrDefaultUserNotDeployed},
 		{name: "no address", server: noAddress, input: SetDefaultUserInput{ServerID: "srv-1", User: "amd"}, want: serverdomain.ErrDefaultUserNotDeployed},
-		{name: "locked", server: deployedServer("srv-1"), input: SetDefaultUserInput{ServerID: "srv-1", User: "amd"}, guardErr: &serverdomain.ServerLockedError{Name: "tainan-ci"}, want: serverdomain.ErrServerLocked},
+		{name: "locked", server: deployedServer("srv-1"), input: SetDefaultUserInput{ServerID: "srv-1", User: "amd"}, guardErr: &serverdomain.ServerLockedError{Name: "hv-01"}, want: serverdomain.ErrServerLocked},
 		{name: "password rejected", server: deployedServer("srv-1"), input: SetDefaultUserInput{ServerID: "srv-1", User: "amd", Password: "x"}, hosts: fakeHostAccess{authorizeErr: serverdomain.ErrHostPasswordRejected}, want: serverdomain.ErrHostPasswordRejected},
 		{name: "unreachable", server: deployedServer("srv-1"), input: SetDefaultUserInput{ServerID: "srv-1", User: "amd"}, hosts: fakeHostAccess{checkErr: serverdomain.ErrHostUnreachable}, want: serverdomain.ErrHostUnreachable},
 		{name: "no deployment key", server: deployedServer("srv-1"), input: SetDefaultUserInput{ServerID: "srv-1", User: "amd"}, hosts: fakeHostAccess{checkErr: serverdomain.ErrDeploymentKeyMissing}, want: serverdomain.ErrDeploymentKeyMissing},
@@ -169,7 +169,7 @@ func TestClearDefaultUser(t *testing.T) {
 		t.Errorf("Clear saved %v and logged in %v, want [\"\"] and no host contact", repo.saved, hosts.calls)
 	}
 
-	locked := NewDefaultUserUseCase(repo, defaultUserGuard{err: &serverdomain.ServerLockedError{Name: "tainan-ci"}}, hosts)
+	locked := NewDefaultUserUseCase(repo, defaultUserGuard{err: &serverdomain.ServerLockedError{Name: "hv-01"}}, hosts)
 	if err := locked.Clear(context.Background(), "srv-1"); !errors.Is(err, serverdomain.ErrServerLocked) {
 		t.Errorf("Clear on a locked Server error = %v, want ErrServerLocked", err)
 	}

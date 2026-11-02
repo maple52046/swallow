@@ -35,7 +35,7 @@ func TestTransportDisablesKeepAlivesAndChoosesVerification(t *testing.T) {
 }
 
 // With the Platform's CA a client verifies the API's certificate even when the Integration also says
-// insecureSkipVerify, and a server whose certificate that CA did not sign is refused (DF-01).
+// insecureSkipVerify, and a server whose certificate that CA did not sign is refused.
 func TestTransportTrustsOnlyTheGivenCA(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))

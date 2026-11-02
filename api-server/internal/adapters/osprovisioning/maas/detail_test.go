@@ -346,7 +346,7 @@ func TestBuildMachineDetail_OmitsBMCForVirtualMachine(t *testing.T) {
 func TestBuildMachineDetail_VirshDriverGetsPowerSection(t *testing.T) {
 	detail := buildMachineDetail(
 		&detailMachineJSON{PowerType: "virsh"},
-		powerParametersJSON{PowerAddress: "qemu+ssh://maas@tainan-ci/system", PowerID: "simple-pig", PowerPass: "must-not-show"},
+		powerParametersJSON{PowerAddress: "qemu+ssh://maas@hv-01/system", PowerID: "simple-pig", PowerPass: "must-not-show"},
 		"",
 		nil,
 	)
@@ -356,7 +356,7 @@ func TestBuildMachineDetail_VirshDriverGetsPowerSection(t *testing.T) {
 		t.Fatal("a virsh driver must not be presented as a BMC")
 	}
 	power := sections["Power"]
-	if fieldValue(power, "Driver") != "virsh" || fieldValue(power, "Address") != "qemu+ssh://maas@tainan-ci/system" ||
+	if fieldValue(power, "Driver") != "virsh" || fieldValue(power, "Address") != "qemu+ssh://maas@hv-01/system" ||
 		fieldValue(power, "Power ID") != "simple-pig" {
 		t.Errorf("Power section = %+v", power.Fields)
 	}

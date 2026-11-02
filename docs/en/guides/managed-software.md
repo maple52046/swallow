@@ -46,7 +46,7 @@ and host diagnostics when the result is unclear.
 
 ## Install and uninstall
 
-Use **Software** as the catalog of software Swallow can manage. Open a software
+Use **Software** as the catalog of software swallow can manage. Open a software
 card to see its capabilities and current deployments, then choose **Install
 software** to select one or more eligible Servers before configuring that
 software. Servers that already have the software are managed from the same

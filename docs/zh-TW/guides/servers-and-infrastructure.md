@@ -148,7 +148,7 @@ Server detail header 不顯示 image 名稱，而是顯示結果：swallow 佈�
 停在 state 上，可查看 provider failure reason 等細節。
 
 起始時間已知時，list row 與 mobile card 會在 state 下方顯示 timer icon 與持續
-更新的執行時間；Server detail header 則顯示在 state 旁。Swallow OS deployment
+更新的執行時間；Server detail header 則顯示在 state 旁。swallow OS deployment
 從 deployment 開始時起算，從 **Deploying** 進入 **Verifying** 時不會重設。
 Provider 工作（**Releasing**、**Inspecting**、**Testing**，或不是由 swallow
 發起的 **Deploying**）則從 swallow 第一次觀察到該 state 時起算。將滑鼠停在
@@ -185,7 +185,7 @@ Server **Activity** 分頁的哪個區塊。由上往下第一個符合的條件
 | --- | --- | --- |
 | 警示 — **Review activity** | Server 已不在 provider inventory 中（absent）。 | **Activity → Provider events** |
 | 火箭 — **Deploy OS** | Server 未 lock 且為 **Ready**。 | 不離頁的 Deploy OS dialog；固定該 Server，並在 OS image、Installation 與 Networking steps 前檢查 live readiness 與 networking |
-| 箭頭 — **View workflow** | Swallow deployment 正在執行。 | 該 deployment 的 Workflow |
+| 箭頭 — **View workflow** | swallow deployment 正在執行。 | 該 deployment 的 Workflow |
 | 眼睛 — **View activity** | 只有 provider 工作正在執行。 | Releasing 與 Inspecting 開啟 **Activity → Related Operations**，其他開啟 **Provider events** |
 | 箭頭 — **View workflow** | 上一次 swallow deployment 失敗或需要處理。 | 該 deployment 的 Workflow |
 | 警示 — **Review activity** | Provider 回報 **Failed**、**Broken** 或 **Rescue**。 | **Activity → Provider events** |

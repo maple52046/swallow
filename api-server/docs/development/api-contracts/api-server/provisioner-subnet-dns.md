@@ -17,10 +17,10 @@ Active
 
 List the subnets of one provisioner Integration and read and write each subnet's Subnet DNS: the
 DNS servers the provisioner hands to machines it deploys with an `automatic` or `static` address
-on that subnet ([decision 058](../../../../../docs/decisions/058-deployment-dhcp-and-subnet-dns.md)).
+on that subnet ([decision 058](../../../../../docs/decisions/058-deployment-dhcp-and-subnet-dns.md) (deployment dhcp and subnet dns)).
 The provisioner owns its subnets, which swallow reads live on every request. swallow owns each
 subnet's DNS servers as desired state
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)): a write
+([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state)): a write
 stores the spec, and the Subnet DNS controller writes it to the provisioner (for MAAS, the subnet's
 `dns_servers`) and reads it back. A change made in the provisioner is drift, put back at swallow's
 periodic resync (every 10 minutes by default). A subnet swallow holds no setting for yet is adopted
@@ -89,20 +89,20 @@ The subnet's own fields above `generation` are the provisioner's and are not wri
   "subnets": [
     {
       "id": "1",
-      "name": "10.170.168.0/23",
-      "cidr": "10.170.168.0/23",
-      "gatewayAddress": "10.170.169.254",
+      "name": "10.140.168.0/23",
+      "cidr": "10.140.168.0/23",
+      "gatewayAddress": "10.140.169.254",
       "managed": true,
       "provisionerDhcp": false,
       "attached": true,
       "generation": 2,
-      "spec": { "dnsServers": ["165.204.124.158", "165.204.219.249"] },
+      "spec": { "dnsServers": ["198.51.100.53", "198.51.100.54"] },
       "status": {
         "observedGeneration": 2,
         "conditions": [
           { "type": "realized", "status": "true", "reason": "converged", "message": "", "lastTransitionTime": "2026-10-31T04:00:00Z", "observedGeneration": 2 }
         ],
-        "dnsServers": ["165.204.124.158", "165.204.219.249"]
+        "dnsServers": ["198.51.100.53", "198.51.100.54"]
       }
     }
   ]
@@ -119,7 +119,7 @@ still what the provisioner holds, since the controller writes it shortly after.
 
 ```json
 {
-  "dnsServers": ["165.204.124.158", "165.204.219.249"]
+  "dnsServers": ["198.51.100.53", "198.51.100.54"]
 }
 ```
 

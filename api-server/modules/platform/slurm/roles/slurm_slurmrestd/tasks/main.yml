@@ -1,5 +1,5 @@
 ---
-# Expose slurmrestd on the primary controller so Swallow can read membership remotely. The
+# Expose slurmrestd on the primary controller so swallow can read membership remotely. The
 # packaged unit typically serves a local UNIX socket; a systemd drop-in overrides it to listen
 # on a TCP port with JWT authentication.
 #
@@ -9,7 +9,7 @@
 
 - name: Detect the slurmrestd binary
   # slurmrestd ships in slurm-smd-slurmrestd, which an operator image may omit. It only powers
-  # Swallow's membership reads, so its absence must not fail the deploy; the cluster is still
+  # swallow's membership reads, so its absence must not fail the deploy; the cluster is still
   # fully functional. When absent, this role and the credential role are skipped and the platform
   # deploys without a reader integration (membership will not populate until slurmrestd exists).
   ansible.builtin.stat:

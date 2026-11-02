@@ -36,7 +36,7 @@ function actionLabel(action: OSImageBulkAction): string {
 /**
  * Fans a catalog action out across many images and reports per-image outcomes.
  *
- * Swallow exposes no bulk image endpoint, so each target is called independently and failures
+ * swallow exposes no bulk image endpoint, so each target is called independently and failures
  * are collected rather than aborting the rest — one provider refusal must not hide the images
  * that succeeded. The toast is a concise summary; the returned outcomes let the caller decide
  * whether to keep its dialog open (every target failed) or hand control back to the page.

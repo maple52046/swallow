@@ -78,7 +78,7 @@ export type DeploymentState =
   | 'requires_attention'
   | 'canceled'
 
-/** Swallow-owned result of the latest durable operating system deployment. */
+/** swallow-owned result of the latest durable operating system deployment. */
 export interface DeploymentAxis {
   state: DeploymentState
   operationId: string
@@ -100,8 +100,8 @@ export interface DeploymentAxis {
 export interface ProvisioningAxis {
   state: ProvisioningState
   /**
-   * When Swallow first observed `state` (servers-list.md): kept while the state is unchanged,
-   * moved when it changes, and as precise as Swallow's observation cadence rather than the
+   * When swallow first observed `state` (servers-list.md): kept while the state is unchanged,
+   * moved when it changes, and as precise as swallow's observation cadence rather than the
    * provider's own transition time. Absent when unknown, for example a projection stored before
    * the field existed. The running time of an in-progress provider state counts from it.
    */
@@ -126,7 +126,7 @@ export interface ProvisioningAxis {
   deployedImageName: string
   /**
    * Effective default login user of the deployed OS image (decision 039), mirrored like
-   * `deployedImageName`. Swallow automation logs in to the Server as this user, and it is the
+   * `deployedImageName`. swallow automation logs in to the Server as this user, and it is the
    * account an operator's Access Key authorizes on Servers the provisioner deployed. Absent when
    * nothing is deployed or no default user is known (automation then falls back to the Site SSH
    * user).
@@ -148,11 +148,11 @@ export interface ProvisioningAxis {
   /**
    * The provisioner's storage layout cannot take a disk deployment until the Server is inspected
    * again (servers-list.md), for example a UEFI Server whose layout was built while it booted
-   * BIOS. Swallow refuses disk deployments while it is set; a RAM deployment is unaffected. A new
+   * BIOS. swallow refuses disk deployments while it is set; a RAM deployment is unaffected. A new
    * inspection that rebuilds the layout clears it. Absent means false.
    */
   inspectionRequired?: boolean
-  /** Swallow-authored explanation shown with `inspectionRequired`; absent when it is false. */
+  /** swallow-authored explanation shown with `inspectionRequired`; absent when it is false. */
   inspectionRequiredReason?: string
   /**
    * The provisioner's labels for the last inspection and test run. Display only. The field
@@ -482,7 +482,7 @@ export interface ServerStatus {
   systemProduct: string
   /**
    * The provisioner's observed grouping labels for this machine — the effect of a Zone/Pool
-   * placement, not the swallow-owned catalog. Swallow's managed Zones and Pools live under
+   * placement, not the swallow-owned catalog. swallow's managed Zones and Pools live under
    * Infrastructure and are assigned through Set zone/pool. See docs/decisions/029.
    */
   providerZone: string
@@ -497,7 +497,7 @@ export interface ServerStatus {
   hardware: ServerHardware
 
   /**
-   * Independent projections with different owners. Deployment is Swallow's durable
+   * Independent projections with different owners. Deployment is swallow's durable
    * workflow result; provisioning, membership, and health remain external observations.
    *
    * They remain separate because an OS can be installed while deployment verification
@@ -724,7 +724,7 @@ export interface SetServerPowerConfigurationInput {
   password?: string
 }
 
-/** One machine event retained by the provisioner and proxied live by Swallow. */
+/** One machine event retained by the provisioner and proxied live by swallow. */
 export interface ProviderEvent {
   id: string
   level: string

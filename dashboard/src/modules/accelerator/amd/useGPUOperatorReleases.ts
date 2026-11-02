@@ -12,7 +12,7 @@ export type GPUOperatorReleasesState =
   | { status: 'ready'; releases: GPUOperatorRelease[] }
 
 /**
- * Loads the AMD GPU Operator releases Swallow ships (`GET /platforms/gpu-operator/releases`) for
+ * Loads the AMD GPU Operator releases swallow ships (`GET /platforms/gpu-operator/releases`) for
  * the deploy wizard and the Platform's GPU Operator dialog. `enabled` defers the request until the
  * operator actually opens the options; `reload` retries after an error. A stale response from an
  * earlier mount is ignored on cleanup.

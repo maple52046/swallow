@@ -162,7 +162,7 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("os image metadata repo init: %w", err)
 	}
-	// Swallow-owned OS Image verification attestations: which deploy targets (disk/ram) a real
+	// swallow-owned OS Image verification attestations: which deploy targets (disk/ram) a real
 	// verification deploy has proven for an image. Owned data keyed by the provider image identity,
 	// kept separate from the display metadata so pruning one never erases the other.
 	osImageVerificationRepo, err := provisioningstore.NewMongoOSImageVerificationRepo(db)
@@ -340,7 +340,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// membership axis or sync counters. It powers the Slurm-specific management view.
 	slurmClusterRead := platformapp.NewGetSlurmClusterUseCase(platformRepo, platformReaderFactory)
 	// Live Kubernetes cluster explorer: a read/write client factory for a deployed Kubernetes
-	// Platform's own API. Like the Slurm read it never writes Swallow state; eligibility
+	// Platform's own API. Like the Slurm read it never writes swallow state; eligibility
 	// (deployed Kubernetes with a recorded credential) is enforced by the use case below.
 	kubernetesClientFactory := kubeapi.NewClientFactory(platformReaderFactory)
 
@@ -904,7 +904,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 		provisioning.Delete("/boot-isos/:id", deps.bootISOs.Delete)
 	}
 
-	// Swallow owns Platform registration and policy; membership is observed from the
+	// swallow owns Platform registration and policy; membership is observed from the
 	// runtime API.
 	platforms := v1.Group("/platforms", admin...)
 	platforms.Get("/deployment-requirements/slurm", deps.platforms.GetSlurmDeploymentRequirement)
@@ -929,7 +929,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	software.Put("/docker-ce/registry-credentials/:credentialId", deps.registryCreds.Replace)
 	software.Delete("/docker-ce/registry-credentials/:credentialId", deps.registryCreds.Delete)
 
-	// Swallow-owned Zones and Pools (the dashboard's Infrastructure area). Each write is also
+	// swallow-owned Zones and Pools (the dashboard's Infrastructure area). Each write is also
 	// realized in the Site's provisioner when it is grouping-capable (decision 029).
 	infrastructure := v1.Group("/infrastructure", admin...)
 	infrastructure.Get("/zones", deps.infrastructure.ListZones)
@@ -975,7 +975,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	monitoring.Get("/metrics/range", deps.monitoring.MetricRange)
 	monitoring.Get("/metrics/names", deps.monitoring.MetricNames)
 
-	// Canonical Workflow surface (ADR 017). A Workflow is a DAG of Tasks.
+	// Canonical Workflow surface (decision 017). A Workflow is a DAG of Tasks.
 	workflows := v1.Group("/workflows", admin...)
 	workflows.Post("/", deps.operations.Create)
 	workflows.Get("/", deps.operations.List)

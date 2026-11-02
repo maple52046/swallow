@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "Someone moved the Machine to another Pool in the MAAS UI; the Server reports drift instead of silently taking the new Pool." / "The operator adopts the drifted tags, which updates the spec."
 - Related terms: Desired State, Observed State, Condition, Convergence, Change Plan.
-- Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md), which makes drift reported rather than corrected by default.
+- Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md) (swallow owns desired state), which makes drift reported rather than corrected by default.

@@ -82,10 +82,10 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [003](003-metrics-label-contract.md) | monitoring 拓撲與把 metrics 接回 Server 的標籤契約；swallow 只提供有上限的基本用量圖表 | — |
 | [005](005-monorepo-consolidation.md) | 由 submodule superproject 收斂為單一 swallow monorepo | — |
 | [006](006-embedded-ansible-execution.md) | swallow 以 pinned ansible-runner 自行執行 Ansible，不使用 AWX | 執行引擎部分被 016 取代 |
-| [007](007-cluster-deployment-ownership.md) | Swallow 擁有建立 Kubernetes Platform 的意圖，角色由伺服器端指派，HA 採 k0s 內建負載平衡 | — |
+| [007](007-cluster-deployment-ownership.md) | swallow 擁有建立 Kubernetes Platform 的意圖，角色由伺服器端指派，HA 採 k0s 內建負載平衡 | — |
 | [008](008-operator-overview-read-model.md) | operator overview 是跨 context 的唯讀聚合視圖 | — |
 | [009](009-deployment-template-ownership.md) | Deployment Template 只擁有可重用的 OS 部署意圖，不擁有 image、automation 或執行生命週期 | — |
-| [010](010-cluster-lifecycle-actions.md) | Uninstall 改變原部署主機，Delete 只移除 Swallow 紀錄與自有投影 | — |
+| [010](010-cluster-lifecycle-actions.md) | Uninstall 改變原部署主機，Delete 只移除 swallow 紀錄與自有投影 | — |
 | [011](011-flexible-k0s-topologies.md) | k0s 支援單機、非 HA 多節點與 HA 三種拓樸，不新增 Node Role | — |
 | [012](012-provider-network-configuration.md) | swallow 擁有部署網路意圖，provider adapter 負責翻譯並驗證 NIC 設定 | — |
 | [013](013-server-lock-protection.md) | provider 擁有的 Server Lock 是所有 provider 與主機變更的共同防護 | — |
@@ -98,7 +98,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [020](020-durable-operation-recovery.md) | 失敗或 execution 遺失的 Workflow 以帶 lineage 的新 Workflow 重跑回復、不刪 Platform；遺失只標記不自動重跑 | — |
 | [021](021-platform-type-specific-management.md) | Platform 詳情為共用外殼加各 type 專屬視圖，Slurm 另有唯讀即時叢集讀取 | — |
 | [022](022-uninstall-release-shortcut.md) | Uninstall 同時 release 主機時直接 release，略過 platform 軟體的 uninstall | — |
-| [023](023-slurm-ha-shared-state-provisioning.md) | Slurm HA 的共享 StateSaveLocation 由 Swallow 自動佈署，不由 operator 提供 | — |
+| [023](023-slurm-ha-shared-state-provisioning.md) | Slurm HA 的共享 StateSaveLocation 由 swallow 自動佈署，不由 operator 提供 | — |
 | [024](024-slurm-login-and-workload-storage.md) | Slurm 新增 login 角色與選用的 workload 共享檔案系統，與 controller state 分離 | — |
 | [025](025-provider-data-overlay.md) | provider 擁有的事實可疊加 swallow-owned overlay，讀取時合併、永不回寫 provider | refine 001、009；被 071 取代 |
 | [026](026-slurm-minimum-resource-policy.md) | Slurm 部署採單一選用的全系統 CPU／記憶體／儲存資格門檻，前後端都檢查 | — |
@@ -136,7 +136,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [059](059-retry-recovers-failed-deployment.md) | 明確重試失敗的 `provision-os` 會先回復 Server 再重新部署 | refine 033 |
 | [060](060-cancel-and-rerun-converge.md) | 取消不改寫已完成的結果並把被中斷的部署帶回 Ready；Rerun 依現況收斂而非沿用歷史結果 | refine 017、020、059 |
 | [061](061-recovery-supersedes-blocking-work.md) | Release、Recover 與 Platform uninstall 由後端取消佔用其 Server 的 Workflow，等它們結束後自動執行 | refine 060 |
-| [062](062-swallow-managed-gpu-operator.md) | Swallow 以 Platform Job 安裝 AMD GPU Operator，只用 image driver，由 NFD 決定納管節點 | refine 003 |
+| [062](062-swallow-managed-gpu-operator.md) | swallow 以 Platform Job 安裝 AMD GPU Operator，只用 image driver，由 NFD 決定納管節點 | refine 003 |
 | [063](063-omnistat-slurm-observability.md) | Slurm 部署一律設定 AMD GPU GRES，Omnistat 為選用功能並組入 Prometheus／Grafana | refine 019、038、062 |
 | [064](064-upstream-patches-are-the-exception.md) | 優先選擇可用的上游版本，自行維護 patch 是例外 | refine 063 |
 | [065](065-control-plane-ntp-and-post-provision-time-sync.md) | Installation 在主機提供 NTP server，每台 provision 的 Server 都指向它，Platform 只檢查時間 | — |

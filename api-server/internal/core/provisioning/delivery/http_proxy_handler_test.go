@@ -107,9 +107,9 @@ func TestSetHTTPProxy(t *testing.T) {
 	provider := &proxyHandlerProvider{}
 	app := newProxyHandlerApp(t, provider)
 
-	resp, body := doProxyRequest(t, app, http.MethodPut, "maas-a", `{"mode":"external","httpProxy":"http://10.170.168.20:18080"}`)
+	resp, body := doProxyRequest(t, app, http.MethodPut, "maas-a", `{"mode":"external","httpProxy":"http://10.140.168.20:18080"}`)
 	spec, _ := body["spec"].(map[string]any)
-	if resp.StatusCode != http.StatusOK || spec["mode"] != "external" || spec["httpProxy"] != "http://10.170.168.20:18080" || body["generation"] != float64(1) {
+	if resp.StatusCode != http.StatusOK || spec["mode"] != "external" || spec["httpProxy"] != "http://10.140.168.20:18080" || body["generation"] != float64(1) {
 		t.Fatalf("PUT status %d body %v, want 200 with the external proxy as the spec", resp.StatusCode, body)
 	}
 	if resp.Header.Get(fiber.HeaderCacheControl) != "no-store" {

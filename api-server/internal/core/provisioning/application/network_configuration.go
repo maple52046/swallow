@@ -14,7 +14,7 @@ import (
 
 const networkInspectionWorkers = 4
 
-// NetworkSuggestion is Swallow's non-authoritative deployment default derived
+// NetworkSuggestion is swallow's non-authoritative deployment default derived
 // from live provider state. Empty identifiers mean operator input is required.
 type NetworkSuggestion struct {
 	Mode           provisioningdomain.DeploymentNetworkMode
@@ -326,7 +326,7 @@ func networkDisabledReason(server *serverdomain.Server) string {
 // network (provisioning.md, Network Inspection). The boot NIC is preferred; one explicit Static
 // link is preserved as Static intent. Otherwise the subnet is the NIC's one linked subnet or its
 // sole managed one, and the mode is DHCP when the provisioner serves no DHCP on that subnet —
-// auto-assign there would allocate without knowing the site's DHCP pool (ADR 058) — and
+// auto-assign there would allocate without knowing the site's DHCP pool (decision 058) — and
 // Automatic everywhere else, including when no subnet could be chosen.
 func suggestNetwork(network *provisioningdomain.MachineNetwork) NetworkSuggestion {
 	suggestion := NetworkSuggestion{Mode: provisioningdomain.DeploymentNetworkAutomatic}

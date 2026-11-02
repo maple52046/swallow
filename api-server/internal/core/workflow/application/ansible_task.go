@@ -63,7 +63,7 @@ type AnsibleTaskRunner struct {
 
 // NewAnsibleTaskRunner builds the runner. Every dependency is required: a missing Server Lock
 // check, secret resolver, or event store would silently weaken a run, so construction fails
-// instead (AR-07).
+// instead.
 func NewAnsibleTaskRunner(
 	configurations workflowdomain.AutomationConfigurationRepository,
 	catalog workflowdomain.PlaybookCatalog,

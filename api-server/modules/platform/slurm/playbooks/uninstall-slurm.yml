@@ -1,5 +1,5 @@
 ---
-# Remove the Slurm configuration and daemons Swallow deployed while preserving the host OS and
+# Remove the Slurm configuration and daemons swallow deployed while preserving the host OS and
 # the image-supplied slurm-smd packages. Every task tolerates a node that was only partly
 # configured or already cleaned by an earlier attempt, so the playbook is safe to rerun and
 # runs uniformly on every target regardless of the daemon roles it had.
@@ -39,8 +39,8 @@
         daemon_reload: true
 
     - name: Remove Swallow-managed Slurm configuration, keys, and state
-      # slurm.conf/cgroup.conf and the JWT key are Swallow-rendered; the default controller
-      # StateSaveLocation and slurmd spool are Swallow-created runtime state. The MUNGE key is
+      # slurm.conf/cgroup.conf and the JWT key are swallow-rendered; the default controller
+      # StateSaveLocation and slurmd spool are swallow-created runtime state. The MUNGE key is
       # removed so a later redeploy mints a fresh shared key. Image-supplied packages are left
       # installed. A non-default (HA) StateSaveLocation on shared storage is intentionally not
       # touched here.

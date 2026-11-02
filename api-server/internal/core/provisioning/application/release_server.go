@@ -14,7 +14,7 @@ import (
 )
 
 // ReleaseServerInput carries provider-neutral release controls. Static cleanup is
-// Swallow-owned follow-up and is not forwarded as a provider Release option.
+// swallow-owned follow-up and is not forwarded as a provider Release option.
 type ReleaseServerInput struct {
 	ServerID        string
 	Erase           bool

@@ -13,4 +13,4 @@
 - Deprecated terms: None.
 - Examples: "The Server's `realized` Condition is `false` with reason `capability_missing`, because its provisioner cannot set a Pool." / "`held` is `true` with reason `rescue_mode` while the Server is in Rescue Mode; drift is still reported."
 - Related terms: Desired State, Observed State, Drift, Convergence, Change Plan.
-- Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md) as the closed set of shared condition types in the desired-state model. 2026-10-31 ([decision 071](../../../decisions/071-provisioner-realized-desired-state.md)): added the `provider_missing` reason and the `held` reason codes.
+- Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md) (swallow owns desired state) as the closed set of shared condition types in the desired-state model. 2026-10-31 ([decision 071](../../../decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state)): added the `provider_missing` reason and the `held` reason codes.

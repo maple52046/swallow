@@ -1,6 +1,6 @@
 ---
 # Install or remove Grafana by its install method (defaults/main.yml) with a provisioned Prometheus
-# datasource and the requested Swallow-shipped dashboard bundles. Idempotent: a converged host
+# datasource and the requested swallow-shipped dashboard bundles. Idempotent: a converged host
 # reruns with no changes; a changed datasource or provider list restarts Grafana (they are read
 # only at start), while dashboard files are picked up by the provider's polling. Switching the
 # method or the container runtime removes the previous one's artifacts first.

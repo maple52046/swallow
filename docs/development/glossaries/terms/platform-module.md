@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "The Slurm Platform Module asks the AMD Accelerator Module for the GRES configuration instead of knowing AMD itself."
 - Related terms: Extension Module, Platform, Accelerator Module, Managed Software, Module Manifest, Node Role.
-- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md).
+- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md) (core providers and extensions).

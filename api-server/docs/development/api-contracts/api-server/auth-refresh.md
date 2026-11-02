@@ -18,7 +18,7 @@ Active
 Exchanges a Session's refresh token for a new access token, so a client renews its
 credential without asking the user for a password again. Every successful refresh also
 replaces the refresh token (rotation). See
-[decision 042](../../../../../docs/decisions/042-authentication-sessions-and-api-keys.md).
+[decision 042](../../../../../docs/decisions/042-authentication-sessions-and-api-keys.md) (authentication sessions and api keys).
 
 ## Related Glossary Terms
 

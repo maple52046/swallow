@@ -110,7 +110,7 @@ function exposesLifecycleWorkflow(platform: Platform): boolean {
  *
  * The canonical Platform name remains the navigation target while type provides the PaaS context.
  * Only a legacy external record gets an origin suffix; deployed is the normal and only creatable
- * origin, so labelling every managed Platform as Swallow-deployed would add no information.
+ * origin, so labelling every managed Platform as swallow-deployed would add no information.
  */
 function PlatformIdentity({ platform, href }: { platform: Platform; href: string }) {
   const TypeIcon = platform.type === 'kubernetes' ? Boxes : Network
@@ -161,7 +161,7 @@ function PlatformConnectivity({ platform }: { platform: Platform }) {
   return <StatusBadge status="connected" label="Connected" />
 }
 
-/** Membership exposes both the observed total and any members Swallow cannot match. */
+/** Membership exposes both the observed total and any members swallow cannot match. */
 function PlatformMembership({ platform }: { platform: Platform }) {
   if (!platform.integrationId) return <Text as="span" color="fg.muted">Not available</Text>
   const unmatched = unmatchedMembers(platform)

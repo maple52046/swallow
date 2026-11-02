@@ -78,7 +78,7 @@ export interface ProvisioningRepository {
   listOSImages(integrationId: string): Promise<OSImage[]>;
   /**
    * Uploads a new provider-owned OS image to one provisioner and returns the created catalog
-   * row. Swallow streams the file to the provider and keeps no copy; whether the result is a
+   * row. swallow streams the file to the provider and keeps no copy; whether the result is a
    * custom image is decided by the provisioner, not by this call. `onProgress` reports upload
    * bytes for the (potentially multi-gigabyte) artifact. Rejects with the shared error envelope
    * when the provisioner does not support upload or the provider refuses the artifact.

@@ -221,7 +221,7 @@ func TestAnsibleInventory_KeysHostsByServerID(t *testing.T) {
 // emitted when unknown so the runner falls back to probing.
 func TestAnsibleInventory_EmitsEffectiveDefaultUser(t *testing.T) {
 	f := setupPlatform(t)
-	f.seedServer("srv-set", "tainan-ci", "10.0.1.11", func(s *serverdomain.Server) {
+	f.seedServer("srv-set", "hv-01", "10.0.1.11", func(s *serverdomain.Server) {
 		s.DefaultUser = "amd"
 		s.Provisioning.DeployedImageDefaultUser = "ubuntu"
 	})

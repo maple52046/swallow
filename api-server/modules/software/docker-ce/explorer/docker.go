@@ -17,7 +17,7 @@ import (
 // with the Engine API enabled (docs/decisions/043-docker-host-management.md).
 //
 // Nothing here is persisted. Images, containers, volumes, and networks are Docker Engine facts read
-// from, or written to, the host's Engine API at request time (ADR 001). The only swallow-owned input
+// from, or written to, the host's Engine API at request time (decision 001). The only swallow-owned input
 // is the Docker CE Software Assignment, which decides eligibility; see dockerce.APIEnabled.
 
 // DockerEngineSummary is the small live header of one host's Docker Engine.

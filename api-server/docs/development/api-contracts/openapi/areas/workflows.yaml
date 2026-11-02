@@ -1,4 +1,4 @@
-# Swallow-owned durable Workflows (decision 017): accept operator intent, observe a Workflow's
+# swallow-owned durable Workflows (decision 017): accept operator intent, observe a Workflow's
 # Tasks, timeline, and Runner diagnostics, and control it (cancel, rerun, Task retry). Behavior
 # semantics live in api-server/workflows.md.
 #

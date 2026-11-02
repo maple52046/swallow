@@ -126,7 +126,7 @@ test.describe('dashboard visual review', () => {
         ...(visualCase.name === 'overview-alerts-not-configured' ? { overviewAlertSource: 'not-configured' as const } : {}),
         ...(visualCase.name === 'overview-alerts-unavailable' ? { overviewAlertSource: 'unavailable' as const } : {}),
         // A release whose Workflow stopped waiting for Ready (its longest banner, with two links), and
-        // one no Swallow Workflow covers (the Activity empty states that explain where it is recorded).
+        // one no swallow Workflow covers (the Activity empty states that explain where it is recorded).
         ...(visualCase.name === 'server-detail-releasing'
           ? { providerWorkServerIds: { 'srv-1': 'releasing' as const }, releaseWorkflows: { 'srv-1': 'requires_attention' as const } }
           : {}),
@@ -136,7 +136,7 @@ test.describe('dashboard visual review', () => {
         // A failed Server still held by the unfinished platform deployment: the provider-failure
         // banner lists the blocking Workflow as a link and explains retrying it there.
         ...(visualCase.name === 'server-detail-failed' ? { failedServerIds: ['srv-1'] } : {}),
-        // lab-afde-mi308-3: a failed disk deployment onto a layout that needs a new inspection.
+        // vm-gpu-03: a failed disk deployment onto a layout that needs a new inspection.
         ...(visualCase.name === 'server-detail-inspection-required'
           ? { failedServerIds: ['srv-1'], inspectionRequiredServerIds: ['srv-1'] }
           : {}),
@@ -603,11 +603,11 @@ test.describe('Integration settings visual review', () => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
     const mobile = testInfo.project.name.startsWith('mobile-')
     await installApiFixtures(page, {
-      httpProxies: { 'maas-a': { mode: 'external', httpProxy: 'http://10.170.168.20:18080' } },
+      httpProxies: { 'maas-a': { mode: 'external', httpProxy: 'http://10.140.168.20:18080' } },
       provisionerSubnets: {
         'maas-a': [
           { id: '1', name: 'lab-network', cidr: '192.168.40.0/24', gatewayAddress: '192.168.40.1', managed: true, provisionerDhcp: true, attached: true, dnsServers: [] },
-          { id: '7', name: '10.170.168.0/23', cidr: '10.170.168.0/23', gatewayAddress: '10.170.169.254', managed: true, provisionerDhcp: false, attached: true, dnsServers: ['165.204.124.158', '165.204.219.249'] },
+          { id: '7', name: '10.140.168.0/23', cidr: '10.140.168.0/23', gatewayAddress: '10.140.169.254', managed: true, provisionerDhcp: false, attached: true, dnsServers: ['198.51.100.53', '198.51.100.54'] },
           { id: '12', name: '172.17.0.0/16', cidr: '172.17.0.0/16', gatewayAddress: '', managed: true, provisionerDhcp: false, attached: false, dnsServers: [] },
           { id: '14', name: '192.168.68.0/24', cidr: '192.168.68.0/24', gatewayAddress: '', managed: true, provisionerDhcp: false, attached: false, dnsServers: [] },
         ],
@@ -625,7 +625,7 @@ test.describe('Integration settings visual review', () => {
 
     await page.goto('/infrastructure/integrations/maas-a/http-proxy?site=site-a')
     const proxy = page.getByRole('region', { name: 'HTTP proxy' })
-    await expect(proxy.getByRole('status')).toContainText('MAAS reports: External (http://10.170.168.20:18080).')
+    await expect(proxy.getByRole('status')).toContainText('MAAS reports: External (http://10.140.168.20:18080).')
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'integration-settings-http-proxy', false)

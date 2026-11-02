@@ -89,7 +89,7 @@ export function suggestedBatchNetworkMode(
 
 /**
  * Helper text under the addressing mode when the batch suggestion is DHCP, so the operator sees
- * why it was chosen and what Automatic would do instead on that network (ADR 058).
+ * why it was chosen and what Automatic would do instead on that network (decision 058).
  */
 export const SITE_DHCP_SUGGESTION_TEXT =
   'DHCP is suggested because the provisioner runs no DHCP on these Servers\u2019 subnet: the site DHCP server assigns their address, gateway, and DNS. Automatic would assign an address the site DHCP server does not know about.'

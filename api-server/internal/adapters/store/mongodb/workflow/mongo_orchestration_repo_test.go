@@ -161,7 +161,7 @@ func TestJobLabelsRoundTrip(t *testing.T) {
 	}
 }
 
-// DeleteRuns removes only the streamed events of the named runs (DF-10).
+// DeleteRuns removes only the streamed events of the named runs.
 func TestDeleteRunsRemovesOnlyTheNamedRunsEvents(t *testing.T) {
 	db := workflowTestDatabase(t)
 	ctx := context.Background()

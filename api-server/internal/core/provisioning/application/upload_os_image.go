@@ -34,7 +34,7 @@ type UploadOSImageInput struct {
 //
 // Symmetric to DeleteOSImageUseCase and scoped to an integration: an image only exists within the
 // provisioner that stores it. Upload is an optional provider capability, so a provisioner without
-// it is refused rather than silently accepting bytes it cannot keep (see ADR 027). A freshly
+// it is refused rather than silently accepting bytes it cannot keep (see decision 027). A freshly
 // uploaded image carries no display override; whether the provider classifies it as a custom
 // image is provider-determined. The only metadata value an upload may set is the default user,
 // because an operator uploading a custom image is the one who knows its login account.

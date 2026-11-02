@@ -12,11 +12,11 @@ Active
 
 - `dashboard`
 - `cli` (the `swallow` operator command-line client)
-- Swallow installation tooling
+- swallow installation tooling
 
 ## Purpose
 
-Manage the Swallow-owned Ansible configuration for a site without modelling Ansible as
+Manage the swallow-owned Ansible configuration for a site without modelling Ansible as
 an external integration. Secret material is write-only.
 
 ## Related Glossary Terms
@@ -100,7 +100,7 @@ valid.
 ```
 
 `credentialSource` is the key automation uses for this Site. Every Site uses the
-installation's Deployment Key ([decision 041](../../../../../docs/decisions/041-deployment-key-only-automation.md)):
+installation's Deployment Key ([decision 041](../../../../../docs/decisions/041-deployment-key-only-automation.md) (deployment key only automation)):
 
 - `deploymentKey` — the Deployment Key exists and is used.
 - `none` — no Deployment Key exists (the installation step that creates it has not run).
@@ -147,7 +147,7 @@ no longer reports `site`, and a key stored by an earlier release is ignored. Wor
 this configuration through the standalone Ansible executor.
 
 Since 2026-10-31 clearing the become password with `{}` removes the stored credential, so
-`hasCredential` reads `false` (DF-13); it stayed `true` before.
+`hasCredential` reads `false`; it stayed `true` before.
 
-Since 2026-10-31 `PUT .../automation` for a Site that does not exist is `404 not_found` (DF-05);
+Since 2026-10-31 `PUT .../automation` for a Site that does not exist is `404 not_found`;
 it was `500 internal_error`.

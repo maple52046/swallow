@@ -9,7 +9,7 @@ import (
 	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
 )
 
-// managedPlatformIntegrationCleaner removes only integrations proven to be Swallow-owned.
+// managedPlatformIntegrationCleaner removes only integrations proven to be swallow-owned.
 type managedPlatformIntegrationCleaner struct {
 	integrations sitedomain.IntegrationRepository
 }

@@ -1,7 +1,7 @@
 # Automation execution context map
 
 The `workflow` context owns intent, execution status, resource ownership, logs, and the site Automation
-Configuration; its store is the only record of execution state (decision 072). It consumes server identity and policy through application ports.
+Configuration; its store is the only record of execution state ([decision 072](../../decisions/072-store-driven-workflow-execution.md) (store driven workflow execution)). It consumes server identity and policy through application ports.
 
 ```text
 site identity ──> workflow automation configuration
@@ -11,11 +11,11 @@ Platform policy ──> workflow guard
 worker workflow-dispatch ──> executor (Temporal) ──> ansible executor activity ──> ansible-runner ──> managed hosts
 ```
 
-The `sshkey` feature (Access context, decision 039) is upstream of automation for key
+The `sshkey` feature (Access context, [decision 039](../../decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user)) is upstream of automation for key
 material only: `workflow` reads the Deployment Key's private key through its own
 `DeploymentKeySource` port (an `internal/app` adapter) and uses it for every Site; the site
-credential carries only the become password (decision 041). `workflow` never sees SSH Key
-records. The login user is the Server's effective Server Default User (decision 045): the
+credential carries only the become password ([decision 041](../../decisions/041-deployment-key-only-automation.md) (deployment key only automation)). `workflow` never sees SSH Key
+records. The login user is the Server's effective Server Default User ([decision 045](../../decisions/045-server-default-user.md) (server default user)): the
 value an operator set on the Server, else the projection's mirrored OS Image default user
 (provisioning). It reaches the runner as the `default_user` inventory hostvar (the image value
 stays available as `image_default_user`); the site `sshUser` and built-in candidates are the

@@ -353,7 +353,7 @@ swallow servers exit-rescue-mode srv1
 # 密碼只寫不讀；未帶密碼 flag 時，driver 不變就保留原密碼。
 swallow servers power-configuration get srv1
 swallow servers power-configuration set srv1 --driver virsh \
-  --address qemu+ssh://maas@tainan-ci.lab/system --power-id simple-pig   # libvirt VM
+  --address qemu+ssh://maas@hv-01.example/system --power-id simple-pig   # libvirt VM
 printf '%s' "$BMC_PASSWORD" | swallow servers power-configuration set srv2 \
   --driver ipmi --address 10.0.0.5 --username maas --password-stdin      # BMC
 swallow servers power-configuration set srv2 --driver ipmi --address 10.0.0.5 --clear-password
@@ -437,7 +437,7 @@ swallow provisioning templates user-data clear tmpl1
 # （BIOS 以 iPXE 到 ipxe.cfg、UEFI 以 GRUB 到 grub/grub.cfg-<mac>，預設 port 5248）的 ISO；建置只需數秒。
 # 原地 rebuild 目前只能在 Dashboard／API 進行（CLI 尚無對應指令）。
 swallow provisioning boot-isos list --site-id site1            # 也會說明此安裝能否建置
-swallow provisioning boot-isos create --integration int1 --name tainan-rack --rack 10.0.0.2
+swallow provisioning boot-isos create --integration int1 --name south-rack --rack 10.0.0.2
 swallow provisioning boot-isos get iso1                        # 含產生的 iPXE script
 swallow provisioning boot-isos delete iso1                     # 仍有 Server 的 Boot Media 使用時會被拒絕
 
@@ -607,7 +607,7 @@ spec:
     k0sVersion: v1.36.3+k0s.2
     podCidr: 172.21.0.0/20
     serviceCidr: 172.21.22.0/24
-    apiVip: 10.170.168.13
+    apiVip: 10.140.168.13
     apiVipPrefix: 23
     gpuOperator:
       enabled: true

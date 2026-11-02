@@ -72,7 +72,7 @@ func TestMongoAutomationConfigurationRepo_IgnoresLegacySiteKey(t *testing.T) {
 	}
 }
 
-// DF-13: clearing the become password (`{}`) removes the stored credential, so the Site reads as
+// Clearing the become password (`{}`) removes the stored credential, so the Site reads as
 // having none; before, an empty password was sealed and hasCredential stayed true.
 func TestMongoAutomationConfigurationRepo_EmptyBecomePasswordClearsTheCredential(t *testing.T) {
 	db := workflowTestDatabase(t)

@@ -12,7 +12,7 @@ Active
 
 - `dashboard`
 - `cli` (the `swallow` operator command-line client)
-- Swallow installation tooling (post-install bootstrap and `swallowctl doctor`)
+- swallow installation tooling (post-install bootstrap and `swallowctl doctor`)
 
 ## Purpose
 
@@ -20,7 +20,7 @@ Exchanges a username and password for a new **Session**: a short-lived access to
 refresh token that obtains new access tokens through [auth-refresh.md](auth-refresh.md).
 This is the only endpoint that creates a Session; [API Keys](api-keys.md) are the
 non-interactive alternative. See
-[decision 042](../../../../../docs/decisions/042-authentication-sessions-and-api-keys.md).
+[decision 042](../../../../../docs/decisions/042-authentication-sessions-and-api-keys.md) (authentication sessions and api keys).
 
 ## Related Glossary Terms
 
@@ -125,7 +125,7 @@ Wrong credentials and unknown username MUST stay indistinguishable. Splitting
 them into different codes or messages would be a security regression, not an
 improvement in error reporting.
 
-Since 2026-10-31 a failing user store is `500 internal_error` (DF-04); it was reported as
+Since 2026-10-31 a failing user store is `500 internal_error`; it was reported as
 `401` wrong credentials.
 
 `accessToken` keeps its name and meaning, so a client that reads only it (installation

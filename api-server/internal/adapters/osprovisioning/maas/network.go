@@ -12,7 +12,7 @@ import (
 )
 
 // InspectNetwork reads live machine interfaces and the provider subnets compatible
-// with their VLANs. Nothing from this view is persisted by Swallow.
+// with their VLANs. Nothing from this view is persisted by swallow.
 func (p *Provider) InspectNetwork(ctx context.Context, machineID string) (*provisioningdomain.MachineNetwork, error) {
 	var machine machineJSON
 	if err := p.client.get(ctx, machinePath(machineID), nil, &machine); err != nil {
@@ -26,7 +26,7 @@ func (p *Provider) InspectNetwork(ctx context.Context, machineID string) (*provi
 	return toDomainNetwork(&machine, subnets), nil
 }
 
-// ListNetworkSubnets returns the live provider subnet catalog in Swallow language.
+// ListNetworkSubnets returns the live provider subnet catalog in swallow language.
 func (p *Provider) ListNetworkSubnets(ctx context.Context) ([]provisioningdomain.NetworkSubnet, error) {
 	subnets, err := p.listNetworkSubnets(ctx)
 	if err != nil {

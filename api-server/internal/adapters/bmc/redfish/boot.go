@@ -80,7 +80,7 @@ func (o *aptioBootOrder) withUSBFirst() map[string]any {
 //
 // Only a missing Bios resource (404/405) means "no fixed boot order". Any other failure is
 // retried briefly and then returned: silently falling back would pick the Cd override, which hangs
-// an Aptio host, or report a ready BMC as not ready (observed on tainan-ci while the host was off).
+// an Aptio host, or report a ready BMC as not ready (observed on hv-01 while the host was off).
 func (s *session) readAptioBootOrder(ctx context.Context, system computerSystem) (*aptioBootOrder, error) {
 	if system.Bios == nil || system.Bios.ID == "" {
 		return nil, nil

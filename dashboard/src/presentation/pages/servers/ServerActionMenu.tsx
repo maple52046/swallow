@@ -31,7 +31,7 @@ import {
 /**
  * Capability-gated command surface for one Server on the detail page.
  *
- * Swallow-owned placement and tags live in a separate Edit menu. Provider operations reuse
+ * swallow-owned placement and tags live in a separate Edit menu. Provider operations reuse
  * the shared nested Take-action menu so list and detail never drift. Destructive lifecycle
  * commands keep their existing confirmation, diagnostics, and refresh contracts. Install
  * software opens the shared install dialog with this Server as the fixed target, gated by the
@@ -114,7 +114,7 @@ export function ServerActionMenu({
         return
       }
       if (action === 'recover') {
-        // Recover is a Swallow-owned durable Operation, not a single provider action: it
+        // Recover is a swallow-owned durable Operation, not a single provider action: it
         // chooses the primitive by state (Mark fixed / exit rescue / Release) and converges to
         // Ready. It reuses the same accepted-and-followed contract as Release.
         await provisioning.createRecoverOperation({ serverIds: [serverId] })

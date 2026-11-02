@@ -580,7 +580,7 @@ func respondError(c *fiber.Ctx, err error) error {
 			"A platform with this name already exists at this site."))
 
 	// Request faults the deploy preflight reports, checked before the conflicts and the
-	// unavailable-automation group that also wrap them (DF-05): a provisioner without network
+	// unavailable-automation group that also wrap them: a provisioner without network
 	// configuration is an unsupported capability, and targets of several Sites are a bad request.
 	case errors.Is(err, provisioningdomain.ErrNetworkConfigurationUnsupported),
 		errors.Is(err, workflowapp.ErrTargetsSpanSites):

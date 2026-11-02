@@ -33,7 +33,7 @@ func (CredentialReader) Required() bool { return true }
 
 // Credential reads apiEndpoint, token, and caCertificate. Controller lease discovery is on because
 // any supported topology may use dedicated control-plane Servers that do not register as nodes. The
-// CA is recorded so the API certificate is verified against it (DF-01); only a result without one
+// CA is recorded so the API certificate is verified against it; only a result without one
 // (an earlier role) is recorded with insecureSkipVerify.
 func (CredentialReader) Credential(data map[string]any) (platformdomain.Credential, bool) {
 	endpoint, token := stringField(data, "apiEndpoint"), stringField(data, "token")

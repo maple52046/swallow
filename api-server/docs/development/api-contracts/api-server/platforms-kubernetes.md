@@ -15,18 +15,18 @@ Active
 
 ## Purpose
 
-Manage the in-cluster resources of a Swallow-deployed Kubernetes Platform live, through the
+Manage the in-cluster resources of a swallow-deployed Kubernetes Platform live, through the
 Platform's own Kubernetes API. This is the *explorer plane* described in
-[decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md): a
+[decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) (self deployed platform management): a
 read/write surface for namespaces, applications (aggregated workloads), pods and pod logs,
 subsidiary resources (Services, Ingresses, ConfigMaps, Secrets, PVCs), YAML apply, and node
 cordon. It is separate from the *lifecycle plane* (deploy/uninstall/repair, in
 [platforms.md](platforms.md) and [workflows.md](workflows.md)).
 
 Every route here reads or writes the deployed cluster's Kubernetes API on demand and stores
-nothing in Swallow (ADR 001). Writes are synchronous against the cluster API and do not create
+nothing in swallow ([decision 001](../../../../../docs/decisions/001-system-ownership-boundaries.md) (system ownership boundaries)). Writes are synchronous against the cluster API and do not create
 Workflows. This surface never writes the Server membership axis or the sync counters, and
-never runs on the reconcile interval (ADR 021).
+never runs on the reconcile interval ([decision 021](../../../../../docs/decisions/021-platform-type-specific-management.md) (platform type specific management)).
 
 ## Related Glossary Terms
 
@@ -75,7 +75,7 @@ behavior.
 
 ## Eligibility
 
-The explorer is available only for a Swallow-deployed Kubernetes Platform with a recorded
+The explorer is available only for a swallow-deployed Kubernetes Platform with a recorded
 credential:
 
 - A Platform whose `type` is not `kubernetes` returns `404 not_found`.
@@ -130,7 +130,7 @@ report one). Counts are observed at read time.
 }
 ```
 
-`role` is `control-plane` or `worker`. `serverId` is Swallow's matched Server, or `null` when
+`role` is `control-plane` or `worker`. `serverId` is swallow's matched Server, or `null` when
 no Server projection matches the node's name or addresses. This read is separate from
 membership sync and does not write the membership axis.
 
@@ -357,6 +357,6 @@ Beyond the [shared envelope](conventions.md) and the eligibility rules above:
 ## Compatibility Notes
 
 - Since 2026-10-31 an object the cluster API reports missing is `404 not_found` and one it
-  reports already existing is `409 conflict` (DF-05); both were `400 validation_error`. The
+  reports already existing is `409 conflict`; both were `400 validation_error`. The
   eligibility answers keep their codes, so a client that degrades the whole explorer on 404 or
   409 should do so only for the explorer's own reads, as the dashboard does.

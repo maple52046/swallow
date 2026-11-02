@@ -1,5 +1,5 @@
 ---
-# Mint the bearer token Swallow reads the cluster with, then return it and the cluster CA the API
+# Mint the bearer token swallow reads the cluster with, then return it and the cluster CA the API
 # certificate is verified against only through the run's private result file. Every task touching
 # the token remains no_log.
 

@@ -15,7 +15,7 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-// DF-05: the platform error mapper follows conventions.md. A cluster's own not-found and conflict
+// The platform error mapper follows conventions.md. A cluster's own not-found and conflict
 // pass through as 404 and 409, a target in the wrong state is a conflict, and an unsupported
 // capability or targets of several Sites are request errors.
 func TestRespondErrorFollowsTheConventions(t *testing.T) {

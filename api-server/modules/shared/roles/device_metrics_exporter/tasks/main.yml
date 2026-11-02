@@ -85,7 +85,7 @@
     dest: "/etc/systemd/system/gpuagent.service.d/{{ device_metrics_exporter_dropin_name }}"
     content: |
       # Managed by Swallow (device-metrics-exporter). gpuagent reads the GPUs through the amdgpu
-      # driver that Swallow's post-boot loader loads, and stops with it.
+      # driver that swallow's post-boot loader loads, and stops with it.
       [Unit]
       Requires={{ device_metrics_exporter_amdgpu_unit }}
       After={{ device_metrics_exporter_amdgpu_unit }}

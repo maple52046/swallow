@@ -37,13 +37,13 @@ func TestPowerConfigurationCommandsFollowTheContract(t *testing.T) {
 		}
 	}
 	run("get", "srv-1")
-	run("set", "srv-1", "--driver", "virsh", "--address", "qemu+ssh://maas@tainan-ci/system", "--power-id", "simple-pig")
+	run("set", "srv-1", "--driver", "virsh", "--address", "qemu+ssh://maas@hv-01/system", "--power-id", "simple-pig")
 	run("set", "srv-2", "--driver", "ipmi", "--address", "10.0.0.5", "--username", "maas", "--clear-password")
 
 	want := []seen{
 		{method: "GET", path: "/api/v1/servers/srv-1/power-configuration"},
 		{method: "PUT", path: "/api/v1/servers/srv-1/power-configuration", body: map[string]any{
-			"driver": "virsh", "address": "qemu+ssh://maas@tainan-ci/system", "powerId": "simple-pig",
+			"driver": "virsh", "address": "qemu+ssh://maas@hv-01/system", "powerId": "simple-pig",
 		}},
 		{method: "PUT", path: "/api/v1/servers/srv-2/power-configuration", body: map[string]any{
 			"driver": "ipmi", "address": "10.0.0.5", "username": "maas", "password": "",

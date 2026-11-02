@@ -24,7 +24,7 @@ type Controller struct {
 	settleWait time.Duration
 	// mountSettle is how long a freshly mounted ISO must stay inserted before the host may be
 	// powered on. AMI reports the InsertMedia Task complete before the virtual CD is ready for
-	// the host: on tainan-ci a power-on 18 or 67 seconds after an eject-and-mount left the CD
+	// the host: on hv-01 a power-on 18 or 67 seconds after an eject-and-mount left the CD
 	// detached (Inserted false) and the host booted its disk, while three minutes held through
 	// the power-on and the host booted the ISO. The wait applies only when this call mounted.
 	mountSettle time.Duration

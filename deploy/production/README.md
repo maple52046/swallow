@@ -47,7 +47,7 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
    hypervisor host key on first connection) and stores its public key in
    `secrets/maas-virsh-ssh.pub`, and waits until the official `ubuntu/noble` amd64 image is
    complete;
-6. runs [`local-ntp.sh`](local-ntp.sh) `install` and `upstream` (decision 065). The provisioner
+6. runs [`local-ntp.sh`](local-ntp.sh) `install` and `upstream` ([decision 065](../../docs/decisions/065-control-plane-ntp-and-post-provision-time-sync.md) (control plane ntp and post provision time sync)). The provisioner
    is the co-located MAAS, so there is nothing to install: MAAS's own chronyd is the
    installation's Control-Plane NTP Server on UDP 123 of `SWALLOW_ADDRESS`. `upstream` writes
    `SWALLOW_NTP_UPSTREAM`, or the default `ntp.ubuntu.com` when it is unset, into MAAS's

@@ -91,7 +91,7 @@ eligibility、working-set refresh 或 presentation-independent rule 才建立 us
 ## Session and credentials
 
 - Access token 只存在 `src/infrastructure/api/session.ts` 的記憶體中，不寫入 `localStorage`；refresh token
-  是網頁讀不到的 HttpOnly cookie（decision 042）。Presentation 永遠拿不到任何 token，只透過
+  是網頁讀不到的 HttpOnly cookie（[decision 042](../../../docs/decisions/042-authentication-sessions-and-api-keys.md)（authentication sessions and api keys））。Presentation 永遠拿不到任何 token，只透過
   `AuthRepository` 取得 domain User。
 - `apiRequest`／`apiRequestText`／`apiUpload` 在 token 即將到期時先換發，收到 `401` 時換發一次並重送；
   換發本身是同分頁 single-flight、跨分頁以 Web Locks 排隊。換發失敗時 adapter 發出 session-ended

@@ -75,7 +75,7 @@ export interface OperationStep {
   kind: string;
   name: string;
   /**
-   * The Job this Step belongs to (ADR 017), e.g. "ensure-os" or "configure-k0s"; its label is in
+   * The Job this Step belongs to (decision 017), e.g. "ensure-os" or "configure-k0s"; its label is in
    * the Operation's `jobs`. Empty for a Step outside any Job. The detail view groups Steps by it.
    */
   job?: string;
@@ -249,9 +249,9 @@ export interface ServerReleaseWorkflow {
   operation: Operation;
   /**
    * - `in-flight`: still following the provider (including `canceling`).
-   * - `attention`: parked in `requires_attention`, typically after Swallow stopped waiting for
+   * - `attention`: parked in `requires_attention`, typically after swallow stopped waiting for
    *   Ready; it still holds the Server.
-   * - `ended`: finished after the Server entered `releasing`, so nothing in Swallow follows the
+   * - `ended`: finished after the Server entered `releasing`, so nothing in swallow follows the
    *   release any more.
    */
   phase: ServerReleaseWorkflowPhase;
@@ -273,12 +273,12 @@ function releasesServer(operation: Operation, serverId: string): boolean {
 /**
  * Picks the Workflow that explains why a Server shows `releasing`, from that Server's Workflows in
  * any order. The Server projection carries no release Operation id, so this is how Server detail
- * links the provider state to Swallow's durable work.
+ * links the provider state to swallow's durable work.
  *
  * Precedence: the newest in-flight Workflow, then the newest one in `requires_attention`, then the
- * newest one that finished at or after `stateSince` (when Swallow first observed `releasing`). A
+ * newest one that finished at or after `stateSince` (when swallow first observed `releasing`). A
  * Workflow that finished before that belongs to an earlier release and is never returned, and
- * without a known `stateSince` no finished Workflow is returned. `undefined` means no Swallow
+ * without a known `stateSince` no finished Workflow is returned. `undefined` means no swallow
  * Workflow covers this release: it was started in the provisioner or through the deprecated
  * synchronous Release endpoint.
  */

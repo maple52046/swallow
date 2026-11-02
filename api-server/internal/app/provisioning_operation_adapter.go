@@ -229,7 +229,7 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 			return nil, fmt.Errorf("%w: all Servers must belong to one Site", provisioningdomain.ErrInvalidReleaseRequest)
 		}
 		// Release is the primary provider-recovery path, so its allowed source states come from the
-		// Swallow-owned recovery policy (deployed, allocated, failed, broken, rescue) rather than a
+		// swallow-owned recovery policy (deployed, allocated, failed, broken, rescue) rather than a
 		// hardcoded deployed-only rule. An absent Server has no live state to act on.
 		if server.Absent || server.Provisioning == nil {
 			return nil, fmt.Errorf("%w: Server %s has no observed provisioning state to release", provisioningdomain.ErrInvalidReleaseRequest, server.DisplayName())

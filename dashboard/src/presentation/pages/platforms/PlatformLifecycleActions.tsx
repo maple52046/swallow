@@ -61,7 +61,7 @@ interface PlatformLifecycleActionsProps {
  * uninstall as a Change Plan (decision 076); the record is deleted once the approved uninstall
  * succeeds. A running uninstall or a locked target disables only the header's Uninstall part, with
  * its reason; record-only Delete never mutates hosts, so it stays available. Once the Platform is
- * `uninstalled`, or was never deployed by Swallow, the control is a single "Delete platform" button.
+ * `uninstalled`, or was never deployed by swallow, the control is a single "Delete platform" button.
  *
  * The Uninstall dialog lists the unfinished Workflows still holding the deployment targets (a
  * failed deployment parked for attention, or one still running) and requires the operator to

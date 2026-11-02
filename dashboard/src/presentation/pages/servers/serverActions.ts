@@ -109,9 +109,9 @@ export function isRamDeploy(server: Server): boolean {
   return server.status.provisioning?.ephemeral === true
 }
 
-// State gates mirroring the Swallow-owned recovery policy (docs/decisions/033). The dashboard
+// State gates mirroring the swallow-owned recovery policy (docs/decisions/033). The dashboard
 // gates on the same normalized `provisioning.state` the backend does, so an operator sees a
-// disabled control with a Swallow reason instead of a provider rejection after the fact.
+// disabled control with a swallow reason instead of a provider rejection after the fact.
 // `allocated` is included because MAAS parks a machine there when a deployment was reserved
 // but never finished (a failed/canceled deploy, or a verification borrow that ended early);
 // the provider allows Release from it, so it is a real "return it to the pool" source, not a

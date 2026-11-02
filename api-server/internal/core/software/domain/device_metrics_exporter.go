@@ -6,12 +6,12 @@ package domain
 // values below are the published language the playbook, the composing platform, and the
 // assignment record share.
 const (
-	// DeviceMetricsExporterVersion is the exporter release Swallow installs. The role pins that
+	// DeviceMetricsExporterVersion is the exporter release swallow installs. The role pins that
 	// release's native package and its SHA-256, so a new version is a role and catalog change, and
 	// the recorded assignment spec carries it.
 	DeviceMetricsExporterVersion = "1.5.3"
 	// DeviceMetricsExporterPort is where the exporter listens on the Server's primary address. AMD's
-	// default, 5000, is the RDC exporter port Swallow scrapes on a host (decision 003), so it must
+	// default, 5000, is the RDC exporter port swallow scrapes on a host (decision 003), so it must
 	// never be used here. A Slurm Platform scrapes the same port.
 	DeviceMetricsExporterPort = 5001
 )

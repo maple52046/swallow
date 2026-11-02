@@ -5,14 +5,14 @@ import (
 	"errors"
 )
 
-// DeploymentNetworkMode is Swallow's writable OS deployment addressing intent (glossary
+// DeploymentNetworkMode is swallow's writable OS deployment addressing intent (glossary
 // Network Configuration), a closed set of three values.
 //
 // The intent is provider-neutral: "let the provisioner assign and record an address", "let
 // the network's own DHCP server assign it", or "use a caller-chosen address". How the
 // provider realizes each is an adapter concern — the MAAS adapter fulfils Automatic with
-// MAAS "auto-assign" (a provider-managed static IP recorded by MAAS, ADR 018) and DHCP with
-// a MAAS DHCP link (ADR 058). The two differ on a subnet whose DHCP the provisioner does not
+// MAAS "auto-assign" (a provider-managed static IP recorded by MAAS, decision 018) and DHCP with
+// a MAAS DHCP link (decision 058). The two differ on a subnet whose DHCP the provisioner does not
 // serve: auto-assign allocates without knowing the site DHCP pool, while DHCP takes the
 // site's address, gateway, and DNS.
 type DeploymentNetworkMode string
@@ -23,7 +23,7 @@ const (
 	DeploymentNetworkAutomatic DeploymentNetworkMode = "automatic"
 	// DeploymentNetworkDHCP asks the network's own DHCP server to assign the address, gateway,
 	// and DNS. The provider records only the address it observes, so on a site DHCP network
-	// the address Swallow reports may be the one last seen rather than the current lease.
+	// the address swallow reports may be the one last seen rather than the current lease.
 	DeploymentNetworkDHCP DeploymentNetworkMode = "dhcp"
 	// DeploymentNetworkStatic requires a target-specific IP address.
 	DeploymentNetworkStatic DeploymentNetworkMode = "static"
@@ -32,7 +32,7 @@ const (
 // NormalizeDeploymentNetworkMode resolves a raw, possibly-empty mode string to a canonical
 // DeploymentNetworkMode. Empty becomes Automatic, the default; "automatic", "dhcp", and
 // "static" are kept; anything else returns ok=false so the caller can reject it with its own
-// bounded error. "dhcp" was an alias of Automatic between ADR 018 and ADR 058 and is now its
+// bounded error. "dhcp" was an alias of Automatic between decision 018 and decision 058 and is now its
 // own mode, so a stored "dhcp" now means DHCP.
 func NormalizeDeploymentNetworkMode(raw string) (DeploymentNetworkMode, bool) {
 	switch DeploymentNetworkMode(raw) {
@@ -66,7 +66,7 @@ func (m DeploymentNetworkMode) LinkMode() (NetworkLinkMode, bool) {
 
 // NetworkConfigurationState describes an observed NIC subnet-link configuration.
 // ProviderManaged is intentionally read-only: it represents a legacy provider mode
-// that is not part of Swallow's deployment language.
+// that is not part of swallow's deployment language.
 type NetworkConfigurationState string
 
 const (
@@ -89,7 +89,7 @@ const (
 )
 
 // NetworkSubnet is a live provider-owned subnet reference available to one NIC, or one entry
-// of a provisioner's subnet catalog. Swallow never stores it.
+// of a provisioner's subnet catalog. swallow never stores it.
 type NetworkSubnet struct {
 	ID             string
 	Name           string
@@ -100,7 +100,7 @@ type NetworkSubnet struct {
 	// means any DHCP there is the site's, which is when deployment suggests the DHCP mode.
 	ProvisionerDHCP bool
 	// DNSServers is the subnet's Subnet DNS in the provider's order, canonical IP strings;
-	// empty when the subnet has none and the provisioner's own DNS applies (ADR 058).
+	// empty when the subnet has none and the provisioner's own DNS applies (decision 058).
 	DNSServers []string
 }
 
@@ -137,7 +137,7 @@ type MachineNetwork struct {
 
 // NetworkLinkMode describes an explicit NIC-level link mutation the adapter must perform.
 // LinkOnly is available for manual configuration but never as an OS deployment mode; Auto is
-// how Swallow's Automatic deployment intent is realized (provider auto-assign) and is not
+// how swallow's Automatic deployment intent is realized (provider auto-assign) and is not
 // currently offered as a manual NIC mode; DHCP realizes the DHCP deployment intent and is
 // also a manual NIC mode.
 type NetworkLinkMode string
@@ -175,7 +175,7 @@ type NetworkConfigurationProvider interface {
 
 var (
 	// ErrNetworkConfigurationUnsupported means the selected adapter cannot honour
-	// Swallow's network intent and therefore cannot safely dispatch deployment.
+	// swallow's network intent and therefore cannot safely dispatch deployment.
 	ErrNetworkConfigurationUnsupported = errors.New("provider does not support network configuration")
 	// ErrInvalidNetworkConfiguration marks malformed mode, subnet, interface, or IP intent.
 	ErrInvalidNetworkConfiguration = errors.New("invalid network configuration")

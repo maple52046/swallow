@@ -15,7 +15,7 @@ export interface PlatformBulkOutcome {
 /**
  * Runs a bulk Uninstall or a bulk record-only Delete by fanning out over the per-platform API.
  *
- * Swallow exposes no bulk platform endpoint, so each call is independent: failures are collected
+ * swallow exposes no bulk platform endpoint, so each call is independent: failures are collected
  * per target instead of aborting the remaining platforms. `runUninstall` sends the same Delete body
  * to every target and proposes one Change Plan per platform (each record is deleted only after its
  * own uninstall succeeds); `runDelete` deletes only the records and takes no uninstall options, so

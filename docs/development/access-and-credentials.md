@@ -3,10 +3,10 @@
 本文件是 swallow **存取與憑證（access and credentials）** 的權威現行規格：swallow 自有的 SSH key
 （Deployment Key 與 Access Key）、它們如何由 SSH Key controller 落到 provisioner、automation 以哪把金鑰與
 哪個帳號登入受管 Server（含 Server Default User）、Site automation credential，以及 API 認證（Session 與
-API Key）的概覽。它把 [decision 039](../decisions/039-ssh-key-management-and-default-user.md)、
-[decision 041](../decisions/041-deployment-key-only-automation.md)、
-[decision 045](../decisions/045-server-default-user.md) 的現行結果寫成一份規格；API 認證的決策見
-[decision 042](../decisions/042-authentication-sessions-and-api-keys.md)。
+API Key）的概覽。它把 [decision 039](../decisions/039-ssh-key-management-and-default-user.md)（ssh key management and default user）、
+[decision 041](../decisions/041-deployment-key-only-automation.md) (deployment key only automation)、
+[decision 045](../decisions/045-server-default-user.md)（server default user） 的現行結果寫成一份規格；API 認證的決策見
+[decision 042](../decisions/042-authentication-sessions-and-api-keys.md) (authentication sessions and api keys)。
 
 > **本文件的定位**：ADR 只記錄「為什麼」；本檔記錄目前有效的行為與規則。行為改變時更新本檔，決策本身被推翻時
 > 才新增 ADR。路由、欄位、狀態碼與錯誤格式以 `api-server` 擁有的 API 契約為準，本檔只連結、不複製欄位表；
@@ -28,7 +28,7 @@ API Key）的概覽。它把 [decision 039](../decisions/039-ssh-key-management-
   - provisioner Integration 自己的 API credential（見
     [sites-integrations](../../api-server/docs/development/api-contracts/api-server/sites-integrations.md) 契約）、
     Platform credential（[platform-deployment.md](platform-deployment.md) §4.4）、
-    [Registry Credential](glossaries/terms/registry-credential.md)（[decision 044](../decisions/044-docker-registry-credentials.md)）。
+    [Registry Credential](glossaries/terms/registry-credential.md)（[decision 044](../decisions/044-docker-registry-credentials.md)（docker registry credentials））。
   - Session 與 API Key 的時效、cookie 與 token 細節：只在 §9 概述並連結 decision 042 與 auth 契約。
 
 ---
@@ -98,8 +98,8 @@ API Key）的概覽。它把 [decision 039](../decisions/039-ssh-key-management-
 | --- | --- |
 | OS 佈署：Deploy OS（durable 與直接的單台、批次）、OS Image 驗證、Platform 的 `provision_os` | `409 conflict`，訊息指出 `swallow-api deployment-key ensure` |
 | Platform deploy（任何 `machinePreparation.mode`） | `409 conflict` |
-| GPU Operator 的部署後調整（[decision 062](../decisions/062-swallow-managed-gpu-operator.md)） | `409 conflict` |
-| libvirt 虛擬機 enrollment 與以 Deployment Key 存取 [Hypervisor](glossaries/terms/hypervisor.md)（[decision 055](../decisions/055-libvirt-virtual-machine-enrollment.md)） | `409 conflict` |
+| GPU Operator 的部署後調整（[decision 062](../decisions/062-swallow-managed-gpu-operator.md)（swallow managed gpu operator）） | `409 conflict` |
+| libvirt 虛擬機 enrollment 與以 Deployment Key 存取 [Hypervisor](glossaries/terms/hypervisor.md)（[decision 055](../decisions/055-libvirt-virtual-machine-enrollment.md)（libvirt virtual machine enrollment）） | `409 conflict` |
 | 設定 Server Default User（§8） | `409 conflict` |
 | 任何 Ansible 執行（software deployment、platform playbook 等，§6.3） | 受理時 `503 provider_unavailable`；執行中的 Task 以 retryable 的 `automation_configuration_unavailable` 停下 |
 
@@ -136,7 +136,7 @@ API Key）的概覽。它把 [decision 039](../decisions/039-ssh-key-management-
 
 ## 5. Provisioner realization
 
-依 [desired-state-model.md](desired-state-model.md) §4.4（decision 069、071），SSH Key 是 swallow 的 desired
+依 [desired-state-model.md](desired-state-model.md) §4.4（[decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state）、071），SSH Key 是 swallow 的 desired
 state；provider 有能力持有 SSH key 時，SSH Key controller 把每把金鑰的公鑰落到它那裡。
 
 ### 5.1 能力判斷
@@ -228,7 +228,7 @@ swallow 擁有金鑰紀錄、provisioner 只是落地目標，所以 swallow 會
 
 ### 6.4 設計理由
 
-Site 私鑰 override 只保護兩種主機：ADR 039 之前佈署的 Server（可重新佈署取得 Deployment Key），以及 swallow
+Site 私鑰 override 只保護兩種主機：decision 039 之前佈署的 Server（可重新佈署取得 Deployment Key），以及 swallow
 管理但未佈署的主機（不在範圍內）。它沒有保護任何人，卻讓 domain 保留第二個金鑰來源，還留下「只靠 Deployment Key
 的 Site 仍被要求存有 credential 紀錄」的缺陷。拒絕而非忽略 `sshPrivateKey`，是因為看似成功卻沒有效果的請求會誤導
 呼叫端。見 [decision 041](../decisions/041-deployment-key-only-automation.md)。
@@ -239,7 +239,7 @@ Site 私鑰 override 只保護兩種主機：ADR 039 之前佈署的 Server（�
 
 ### 7.1 OS Image default user
 
-- [OS Image](glossaries/terms/os-image.md) 的 metadata 是 swallow 的 desired state（decision 071），帶有 `defaultUser`，
+- [OS Image](glossaries/terms/os-image.md) 的 metadata 是 swallow 的 desired state（[decision 071](../decisions/071-provisioner-realized-desired-state.md)（provisioner realized desired state）），帶有 `defaultUser`，
   可在上傳時或之後設定（見
   [provisioning](../../api-server/docs/development/api-contracts/api-server/provisioning.md) 契約）。
 - effective 值：metadata 的值；否則依 provider OS family 的內建值（`ubuntu`→`ubuntu`、`centos`→`centos`、
@@ -330,7 +330,7 @@ automation 登入；任何 deployed Server 都可以設定，覆寫 image 的值
 - **手動**：delete 移除 Server 上的值，image 的值重新適用。不接觸主機（金鑰仍授權）；沒有值時也成功。
 - **自動**：Server 上的值只屬於一次 OS 安裝。
   - swallow 真正送出新的 OS 佈署之前清除：Workflow 的 `provision-os` 在寫入 provider 前清除；只觀察到已收斂 OS 的
-    rerun 或 retry 不清除（[decision 060](../decisions/060-cancel-and-rerun-converge.md)）。
+    rerun 或 retry 不清除（[decision 060](../decisions/060-cancel-and-rerun-converge.md)（cancel and rerun converge））。
   - reconcile 觀察到 Machine 為 `ready` 或 `allocated`（沒有 OS）時清除，不論是經 swallow 或直接在 provisioner
     release；其他狀態（含 `deployed`、`rescue`）保留，因為 OS 仍在主機上。
 - reconcile 不以 provider 資料覆寫此值，只在上述情況清除。
@@ -345,7 +345,7 @@ automation 登入；任何 deployed Server 都可以設定，覆寫 image 的值
 
 ### 8.5 尚未實作
 
-- 在 existing-OS enrollment（`swallow servers enroll`，[decision 053](../decisions/053-server-enrollment-and-automatic-inspection.md)）
+- 在 existing-OS enrollment（`swallow servers enroll`，[decision 053](../decisions/053-server-enrollment-and-automatic-inspection.md)（server enrollment and automatic inspection））
   時自動帶入 Server Default User 並匯入 Deployment Key，不需在 swallow 輸入密碼：仍延後。實作時應設定同一個 Server
   Default User。
 - 把 Access Key 推送到已佈署主機。

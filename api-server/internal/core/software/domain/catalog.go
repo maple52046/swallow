@@ -10,7 +10,7 @@ import (
 // HookSoftware is the hook name a Software module lists in its module.json for its Software.
 const HookSoftware = "software"
 
-// Software is the hook a Software module implements (ADR 075): its kind's catalog entry and the
+// Software is the hook a Software module implements (decision 075): its kind's catalog entry and the
 // logic data cannot express, which is validating and normalizing an install spec and turning it
 // into the trusted variables the kind's playbook reads. No method performs I/O.
 type Software interface {

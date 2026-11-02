@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "The Slurm Module Manifest references its playbook as host automation content, which the Ansible adapter runs; the manifest itself does not assume Ansible."
 - Related terms: Extension Module, Module Package, Platform Module, Accelerator Module, Software Module.
-- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md); the contract version exists from stage 1.
+- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md) (core providers and extensions); the contract version exists from stage 1.

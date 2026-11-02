@@ -50,7 +50,7 @@
              if (swallow_slurm_state_server_id | default('')) | length > 0 else '' }}
         # A standalone tmpfs export on an ephemeral state server is directly addressable via
         # NFSv3. NFSv4 would require a separate pseudo-root namespace and cannot resolve this
-        # absolute export path, so the Swallow-managed state share pins the proven protocol.
+        # absolute export path, so the swallow-managed state share pins the proven protocol.
         slurm_state_fstype: nfs
         slurm_state_mount_options: rw,_netdev,hard,timeo=600,retrans=2,vers=3
         # Login (submission/client) capability. A pure login host uses configless + sackd by
@@ -89,7 +89,7 @@
         # PrologFlags=Alloc, exclusive partition) so a redeploy re-applies it; configure-omnistat
         # installs the exporter the hook hands the job to.
         slurm_omnistat_enabled: "{{ swallow_slurm_omnistat_enabled | default(false) | bool }}"
-        # The job hooks Swallow's Prolog/Epilog dispatchers run (role slurm_job_hooks). Every
+        # The job hooks swallow's Prolog/Epilog dispatchers run (role slurm_job_hooks). Every
         # integration that attributes jobs adds its hook here rather than its own Prolog=.
         slurm_job_hooks_enabled: >-
           {{ (['omnistat'] if (swallow_slurm_omnistat_enabled | default(false) | bool) else [])

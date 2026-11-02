@@ -124,7 +124,7 @@ func TestServerDeploymentObserverCancelsInFlightDeploy(t *testing.T) {
 	}
 }
 
-// TestServerDeploymentObserverIgnoresStaleCancelOfLaterOutcome reproduces lab-afde-mi308-1: its
+// TestServerDeploymentObserverIgnoresStaleCancelOfLaterOutcome reproduces vm-gpu-01: its
 // provision-os succeeded at attempt 6 after Job retries, and canceling the platform Workflow
 // re-emitted the Task as canceled from the parent's start snapshot at attempt 1. The older
 // attempt's cancel must not regress the recorded outcome.

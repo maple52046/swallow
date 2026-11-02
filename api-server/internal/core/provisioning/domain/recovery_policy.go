@@ -1,13 +1,13 @@
 package domain
 
-// This file defines the Swallow-owned provider recovery policy: the single source of
+// This file defines the swallow-owned provider recovery policy: the single source of
 // truth for which recovery intent is allowed from each normalized MachineStatus and which
 // provider primitive sequence a Recover Operation uses to reach ready. It exists so the
 // durable Release, the Recover Operation, and the single-action operator-state use cases
-// share one matrix and never drift, and so an operator meets a Swallow-authored reason
+// share one matrix and never drift, and so an operator meets a swallow-authored reason
 // before the provisioner's own rejection text. See docs/decisions/033.
 
-// RecoveryIntent is one Swallow-owned command that can be directed at a Server whose
+// RecoveryIntent is one swallow-owned command that can be directed at a Server whose
 // provisioning axis is not usable, or at an advanced operator-state primitive.
 type RecoveryIntent string
 
@@ -46,8 +46,8 @@ const (
 )
 
 // RecoveryDecision is the outcome of evaluating an intent against a live MachineStatus.
-// Allowed reports whether Swallow will call the provider; Reason carries the
-// Swallow-authored explanation when Allowed is false; Noop reports that the requested end
+// Allowed reports whether swallow will call the provider; Reason carries the
+// swallow-authored explanation when Allowed is false; Noop reports that the requested end
 // state already holds, so the caller may report success without touching the provider.
 type RecoveryDecision struct {
 	Allowed bool
@@ -70,7 +70,7 @@ func activeLifecycle(state MachineStatus) bool {
 }
 
 // EvaluateRecovery decides whether an intent may run against a Server currently in state,
-// returning a Swallow-authored reason when it may not. It is the one place the recovery
+// returning a swallow-authored reason when it may not. It is the one place the recovery
 // matrix is expressed; callers translate a refusal into an ErrServerMutationConflict that
 // names the Server.
 func EvaluateRecovery(intent RecoveryIntent, state MachineStatus) RecoveryDecision {

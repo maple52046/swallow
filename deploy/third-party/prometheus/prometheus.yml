@@ -29,4 +29,4 @@ scrape_configs:
         authorization:
           credentials_file: /run/secrets/swallow-machine-token
 
-# An installation may add remote_write here without changing Swallow's label contract.
+# An installation may add remote_write here without changing swallow's label contract.

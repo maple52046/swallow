@@ -136,7 +136,7 @@ function EphemeralIndicator() {
 }
 
 /**
- * The Server's OS deployment state: Swallow's own deployment outcome combined with the
+ * The Server's OS deployment state: swallow's own deployment outcome combined with the
  * swallow-defined OS Provisioning State, resolved by `resolveDeploymentPhase` (decision 048).
  * Generic states such as Releasing, Inspecting, Failed, and Ready are shown by name; none of
  * them is hidden as a provider detail. In-progress states carry a spinner after the label.
@@ -167,11 +167,11 @@ export function DeploymentBadge({
   const phase = resolveDeploymentPhase(axis, provider)
   let state: ReactNode
   if (phase.installed && stateOnly && !phase.installed.verified) {
-    // State-only mode reports the deployment outcome; an OS Swallow did not deploy has none.
+    // State-only mode reports the deployment outcome; an OS swallow did not deploy has none.
     state = <AxisLabel color="gray" tooltip="The OS is installed, but no Swallow deployment result exists. See the Deployed OS field for the installed image.">Unknown</AxisLabel>
   } else if (phase.installed && !stateOnly && phase.installed.imageName) {
     // Merged mode presents the effective OS image name (provider catalog title overlaid with any
-    // Swallow custom name) as neutral inventory text; its tooltip carries verification provenance.
+    // swallow custom name) as neutral inventory text; its tooltip carries verification provenance.
     // Without a derivable name the lifecycle badge below keeps the cell from going blank.
     state = <DeploymentImageValue tooltip={phase.tooltip}>{phase.installed.imageName}</DeploymentImageValue>
   } else {
@@ -222,7 +222,7 @@ export function OperatingSystemBadge({ axis }: { axis: ProvisioningAxis | null }
   return <UnknownBadge tooltip={`Provider lifecycle: ${axis.providerState}`} />
 }
 
-/** Reachability proven by the latest Swallow OS deployment, not physical NIC link state. */
+/** Reachability proven by the latest swallow OS deployment, not physical NIC link state. */
 export function DeploymentNetworkBadge({ axis }: { axis: DeploymentAxis | null }) {
   if (!axis) return <UnknownBadge tooltip="No Swallow deployment has recorded a network reachability result." />
   if (axis.state === 'succeeded') {

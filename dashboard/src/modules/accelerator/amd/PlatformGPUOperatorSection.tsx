@@ -40,11 +40,11 @@ interface PlatformGPUOperatorSectionProps {
 }
 
 /**
- * The Swallow-managed AMD GPU Operator of a Kubernetes Platform (decision 062), on the Platform
+ * The swallow-managed AMD GPU Operator of a Kubernetes Platform (decision 062), on the Platform
  * Overview: its GPU Operator State, recorded settings, and the Install, Configure, and Uninstall
  * actions.
  *
- * Changes are allowed only on an active Swallow-deployed Platform with no change running, which
+ * Changes are allowed only on an active swallow-deployed Platform with no change running, which
  * mirrors the backend preconditions; the reason is shown as text when they are not. A change opens
  * the shared GPUOperatorOptionsFields in a dialog, and the request's API error (for example a busy
  * target) stays in the dialog. Uninstall asks for confirmation and names the consequence. A failed

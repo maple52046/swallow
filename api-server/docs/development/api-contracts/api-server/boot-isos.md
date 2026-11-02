@@ -18,8 +18,8 @@ Active
 Build, rebuild, list, and delete Boot ISOs: swallow-built boot ISOs, one provisioner Integration
 each, that take an address from the site's own DHCP and hand off to that provisioner's MAAS rack
 (iPXE chaining `ipxe.cfg` on BIOS firmware; the ISO's own GRUB loading MAAS's per-MAC GRUB
-configuration on UEFI) ([decision 049](../../../../../docs/decisions/049-boot-iso-builder.md),
-[decision 057](../../../../../docs/decisions/057-uefi-boot-iso-hand-off.md)). A Server's Boot
+configuration on UEFI) ([decision 049](../../../../../docs/decisions/049-boot-iso-builder.md) (boot iso builder),
+[decision 057](../../../../../docs/decisions/057-uefi-boot-iso-hand-off.md) (uefi boot iso hand off)). A Server's Boot
 Media mounts one of them through its BMC or its hypervisor
 ([server-detail-actions.md](server-detail-actions.md#boot-media)).
 
@@ -54,18 +54,18 @@ mounts the URL with no way to send a token; it is described in
 ```json
 {
   "id": "6b3f0c1e-4f7a-4f53-9d2a-2a7f1d0c9e11",
-  "name": "tainan-rack",
-  "siteId": "site-tainan",
-  "integrationId": "maas-tainan",
-  "rackAddress": "10.170.168.20",
-  "chainUrl": "http://10.170.168.20:5248/ipxe.cfg",
-  "uefiChainUrl": "http://10.170.168.20:5248/grub/grub.cfg-<mac>",
-  "script": "#!ipxe\n\nset maas_rack 10.170.168.20\n…",
+  "name": "south-rack",
+  "siteId": "site-south",
+  "integrationId": "maas-south",
+  "rackAddress": "10.140.168.20",
+  "chainUrl": "http://10.140.168.20:5248/ipxe.cfg",
+  "uefiChainUrl": "http://10.140.168.20:5248/grub/grub.cfg-<mac>",
+  "script": "#!ipxe\n\nset maas_rack 10.140.168.20\n…",
   "grubConfig": "set timeout=0\ninsmod efinet\n…",
   "ipxeVersion": "v2.0.0",
   "sizeBytes": 2402304,
   "sha256": "9f2c…",
-  "url": "http://10.170.168.20/boot-media/ipxe/6b3f0c1e-4f7a-4f53-9d2a-2a7f1d0c9e11/swallow-ipxe.iso",
+  "url": "http://10.140.168.20/boot-media/ipxe/6b3f0c1e-4f7a-4f53-9d2a-2a7f1d0c9e11/swallow-ipxe.iso",
   "inUseBy": 1,
   "createdAt": "2026-10-05T01:20:00Z",
   "createdBy": "admin",
@@ -121,7 +121,7 @@ the iPXE assets, GRUB, or packaging tools are missing from the image. Items are 
 `POST /api/v1/provisioning/boot-isos`
 
 ```json
-{ "name": "tainan-rack", "integrationId": "maas-tainan", "rackAddress": "10.170.168.20" }
+{ "name": "south-rack", "integrationId": "maas-south", "rackAddress": "10.140.168.20" }
 ```
 
 Builds the ISO synchronously (seconds) and returns `201 Created` with the Boot ISO. The rack

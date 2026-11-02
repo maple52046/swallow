@@ -628,14 +628,14 @@ export interface paths {
         post?: never;
         /**
          * Declare a Platform absent, proposing its uninstall as a Change Plan.
-         * @description Requires the `admin` role. Marks the spec absent with the optional removal choices and proposes the uninstall as a Change Plan; the record is deleted once the uninstall succeeds (platforms.md, Delete A Platform). A Platform whose install was never approved is deleted at once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled, then membership, Platform Claims, and a Swallow-owned credential Integration are cleared, and hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no spec yet.
+         * @description Requires the `admin` role. Marks the spec absent with the optional removal choices and proposes the uninstall as a Change Plan; the record is deleted once the uninstall succeeds (platforms.md, Delete A Platform). A Platform whose install was never approved is deleted at once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled, then membership, Platform Claims, and a swallow-owned credential Integration are cleared, and hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no spec yet.
          */
         delete: operations["deletePlatform"];
         options?: never;
         head?: never;
         /**
          * Change a Platform's name, ownership policies, or Monitoring Links.
-         * @description Requires the `admin` role. Omitted fields do not change; `monitoringLinks` replaces the whole list. Every field is validated before anything is written. 400 for an invalid value; 404 for an unknown Platform; 409 when the name is taken at the Site, or when `gpuStackOwner` is set to `provisioning` while Swallow manages a GPU Operator on the Platform. The GPU Operator and the credential Integration cannot be changed here.
+         * @description Requires the `admin` role. Omitted fields do not change; `monitoringLinks` replaces the whole list. Every field is validated before anything is written. 400 for an invalid value; 404 for an unknown Platform; 409 when the name is taken at the Site, or when `gpuStackOwner` is set to `provisioning` while swallow manages a GPU Operator on the Platform. The GPU Operator and the credential Integration cannot be changed here.
          */
         patch: operations["updatePlatform"];
         trace?: never;
@@ -1218,7 +1218,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the AMD GPU Operator releases Swallow ships, newest first.
+         * List the AMD GPU Operator releases swallow ships, newest first.
          * @description Requires the `admin` role. A GPU Operator setting's `version` and `draDriverVersion` must come from this catalog.
          */
         get: operations["listGPUOperatorReleases"];
@@ -3662,7 +3662,7 @@ export interface components {
             createdAt: components["schemas"]["Timestamp"];
             /** @description `null` for a key that never expires. */
             expiresAt: components["schemas"]["Timestamp"] | null;
-            /** @description Swallow-issued identifier used in the path. */
+            /** @description swallow-issued identifier used in the path. */
             id: string;
             /** @description `null` until first use; updated at most once per minute. */
             lastUsedAt: components["schemas"]["Timestamp"] | null;
@@ -3952,7 +3952,7 @@ export interface components {
         DeploymentTargetPreflightRequest: {
             serverIds: string[];
         };
-        /** @description Swallow-owned, Integration-scoped deployment intent. User data is write-only and never returned. */
+        /** @description swallow-owned, Integration-scoped deployment intent. User data is write-only and never returned. */
         DeploymentTemplate: {
             createdAt: components["schemas"]["Timestamp"];
             description: string;
@@ -4250,7 +4250,7 @@ export interface components {
          * @enum {string}
          */
         GPUAllocationMode: "device-plugin" | "dra";
-        /** @description One AMD GPU Operator release Swallow ships and has verified. */
+        /** @description One AMD GPU Operator release swallow ships and has verified. */
         GPUOperatorRelease: {
             /** @description The release a setting without `version` uses. */
             default: boolean;
@@ -4284,7 +4284,7 @@ export interface components {
             version?: string;
         };
         /**
-         * @description Where the latest Swallow change to the GPU Operator stands.
+         * @description Where the latest swallow change to the GPU Operator stands.
          * @enum {string}
          */
         GPUOperatorState: "installing" | "ready" | "failed" | "uninstalling" | "absent";
@@ -4884,14 +4884,14 @@ export interface components {
             architecture: string;
             /** @description The provider's image id; with `architecture` it identifies the deployable artifact and is never overridable. */
             id: string;
-            /** @description Swallow's metadata; `""` means "use the provider's value". */
+            /** @description swallow's metadata; `""` means "use the provider's value". */
             spec: {
                 /** @description The default login user swallow sets for the image; `""` when none is set. */
                 defaultUser: string;
                 name: string;
                 osSystem: string;
                 release: string;
-                /** @description Swallow-owned labels; empty when the image has none. */
+                /** @description swallow-owned labels; empty when the image has none. */
                 tags: string[];
             };
             status: {
@@ -5082,7 +5082,7 @@ export interface components {
             /** @description The desired value, for people; empty when there is none. */
             to: string;
         };
-        /** @description A Swallow-deployed (or legacy registered) Kubernetes or Slurm Platform. */
+        /** @description A swallow-deployed (or legacy registered) Kubernetes or Slurm Platform. */
         Platform: {
             /**
              * @description The Slurm container runtime feature; null when off (always for Kubernetes).
@@ -5092,7 +5092,7 @@ export interface components {
             createdAt: components["schemas"]["Timestamp"];
             /** @description The non-secret topology intent of the latest deployment Workflow; null for registered Platforms and legacy history that cannot be projected completely. */
             deployment: components["schemas"]["PlatformDeploymentIntent"] | null;
-            /** @description The Swallow-managed Device Metrics Exporter; null when never installed (always for Kubernetes). */
+            /** @description The swallow-managed Device Metrics Exporter; null when never installed (always for Kubernetes). */
             deviceMetricsExporter: components["schemas"]["PlatformDeviceMetricsExporter"] | null;
             exporterOwner: components["schemas"]["ExporterOwner"];
             /**
@@ -5104,7 +5104,7 @@ export interface components {
             gpuDriver: components["schemas"]["PlatformGPUDriver"] | null;
             /** @description The GRES type name a Slurm deploy gave every GPU node; null when it is derived per node from the GPU architecture (always for Kubernetes). */
             gpuGresType: string | null;
-            /** @description The Swallow-managed GPU Operator; null when Swallow never managed one here. */
+            /** @description The swallow-managed GPU Operator; null when swallow never managed one here. */
             gpuOperator: components["schemas"]["PlatformGPUOperator"] | null;
             gpuStackOwner: components["schemas"]["GPUStackOwner"];
             id: string;
@@ -5118,7 +5118,7 @@ export interface components {
             name: string;
             /** @description Whether a Slurm deploy set up native OCI containers; false for Kubernetes. */
             ociContainers: boolean;
-            /** @description The Swallow-managed Omnistat; null when never installed (always for Kubernetes). */
+            /** @description The swallow-managed Omnistat; null when never installed (always for Kubernetes). */
             omnistat: components["schemas"]["PlatformOmnistat"] | null;
             /**
              * @description `deployed` for every new Platform; `registered` only for records created before the register-existing path was removed (decision 032).
@@ -5150,7 +5150,7 @@ export interface components {
             roleAssignments: components["schemas"]["PlatformRoleAssignment"][];
             topology: components["schemas"]["KubernetesTopology"];
         };
-        /** @description The Swallow-managed Device Metrics Exporter of a Slurm Platform. */
+        /** @description The swallow-managed Device Metrics Exporter of a Slurm Platform. */
         PlatformDeviceMetricsExporter: {
             enabled: boolean;
             /**
@@ -5268,7 +5268,7 @@ export interface components {
             /** @description An absolute `http` or `https` URL with a host. */
             url: string;
         };
-        /** @description The Swallow-managed Omnistat of a Slurm Platform. */
+        /** @description The swallow-managed Omnistat of a Slurm Platform. */
         PlatformOmnistat: {
             enabled: boolean;
             installMethod: components["schemas"]["ObservabilityInstallMethod"];
@@ -5422,7 +5422,7 @@ export interface components {
         };
         /** @description One Prometheus http_sd entry. */
         PrometheusTarget: {
-            /** @description The metrics label contract (ADR-003); no other identity label may be added. */
+            /** @description The metrics label contract (decision 003); no other identity label may be added. */
             labels: {
                 /** @description The Platform id; present only when the Server is a known Platform member. */
                 platform_id?: string;
@@ -5577,7 +5577,7 @@ export interface components {
             /** @description `[]` when the provisioner has none. */
             subnets: components["schemas"]["ProvisionerSubnet"][];
         };
-        /** @description Swallow-owned durable coordination of provider-backed cleanup, without its saved static-link snapshot. */
+        /** @description swallow-owned durable coordination of provider-backed cleanup, without its saved static-link snapshot. */
         ProvisioningTask: {
             attempt: number;
             createdAt: components["schemas"]["Timestamp"];
@@ -5714,7 +5714,7 @@ export interface components {
             /** @enum {string} */
             sudo: "passwordless" | "password_required" | "unavailable";
         };
-        /** @description Swallow's outcome of the most recent durable OS deployment on the Server. */
+        /** @description swallow's outcome of the most recent durable OS deployment on the Server. */
         ServerDeploymentAxis: {
             attempt: number;
             /** @description The failed Task's stable error code; empty for a non-failed deployment. */
@@ -5952,7 +5952,7 @@ export interface components {
             cpuModel: string;
             createdAt: components["schemas"]["Timestamp"];
             defaultUser?: components["schemas"]["ServerDefaultUser"];
-            /** @description Swallow's result of its latest durable OS deployment; null when none is recorded. */
+            /** @description swallow's result of its latest durable OS deployment; null when none is recorded. */
             deployment: components["schemas"]["ServerDeploymentAxis"] | null;
             fqdn: string | null;
             /** @description The complete GPU Inventory, grouped by vendor, model, and kind. */

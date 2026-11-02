@@ -2,18 +2,18 @@
 
 本文件是 swallow **OS provisioning** 的現行規格：swallow 如何透過 provisioner（目前是 MAAS）替
 Server 部署作業系統，以及在這件事上哪些事實由 provisioner 擁有、哪些由 swallow 擁有。它收斂了
-[decision 009](../decisions/009-deployment-template-ownership.md)、
-[012](../decisions/012-provider-network-configuration.md)、
-[018](../decisions/018-automatic-addressing-provider-auto-assign.md)、
-[027](../decisions/027-os-image-upload.md)、
-[029](../decisions/029-infrastructure-zone-pool-ownership.md)、
-[033](../decisions/033-provider-recovery-policy.md)、
-[035](../decisions/035-os-image-verification-and-deploy-target.md)、
-[036](../decisions/036-provisioning-lifecycle-integrity.md)、
-[046](../decisions/046-os-deployment-progress-and-stall.md)、
-[056](../decisions/056-provisioner-http-proxy.md)、
-[058](../decisions/058-deployment-dhcp-and-subnet-dns.md) 與
-[059](../decisions/059-retry-recovers-failed-deployment.md) 的結果。ADR 只保留當時的脈絡與否決方案；
+[decision 009](../decisions/009-deployment-template-ownership.md) (deployment template ownership)、
+[decision 012](../decisions/012-provider-network-configuration.md) (provider network configuration)、
+[decision 018](../decisions/018-automatic-addressing-provider-auto-assign.md) (automatic addressing provider auto assign)、
+[decision 027](../decisions/027-os-image-upload.md) (os image upload)、
+[decision 029](../decisions/029-infrastructure-zone-pool-ownership.md) (infrastructure zone pool ownership)、
+[decision 033](../decisions/033-provider-recovery-policy.md) (provider recovery policy)、
+[decision 035](../decisions/035-os-image-verification-and-deploy-target.md) (os image verification and deploy target)、
+[decision 036](../decisions/036-provisioning-lifecycle-integrity.md) (provisioning lifecycle integrity)、
+[decision 046](../decisions/046-os-deployment-progress-and-stall.md) (os deployment progress and stall)、
+[decision 056](../decisions/056-provisioner-http-proxy.md) (provisioner http proxy)、
+[decision 058](../decisions/058-deployment-dhcp-and-subnet-dns.md)（deployment dhcp and subnet dns） 與
+[decision 059](../decisions/059-retry-recovers-failed-deployment.md)（retry recovers failed deployment） 的結果。ADR 只保留當時的脈絡與否決方案；
 行為改變時更新本文件，決策本身被推翻時才新增 ADR。
 
 > **本文件的定位**：術語以 root glossary 為準，路由、欄位、status code 與錯誤格式以 `api-server`
@@ -48,7 +48,7 @@ Server 部署作業系統，以及在這件事上哪些事實由 provisioner 擁
   [platform-deployment.md](platform-deployment.md)。
 - [Deployment Key](glossaries/terms/deployment-key.md)、[SSH Key](glossaries/terms/ssh-key.md) 註冊與
   [Server Default User](glossaries/terms/server-default-user.md) 的規則，以及部署後的時間同步
-  （[decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)）。
+  （[decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)（control plane ntp and post provision time sync））。
 
 ---
 
@@ -57,16 +57,16 @@ Server 部署作業系統，以及在這件事上哪些事實由 provisioner 擁
 OS Provisioning bounded context 的參與者、上下游關係與翻譯方式見
 [OS provisioning context map](context-maps/os-provisioning.md)。決定 ownership 的上位規則不在此重述：
 
-- 哪些事實由誰擁有、owned data 與 mirrored fact 的區分：[ADR 001](../decisions/001-system-ownership-boundaries.md)。
-- swallow 擁有 desired state、provider 去實現：[ADR 069](../decisions/069-swallow-owns-desired-state.md) 與
-  [ADR 071](../decisions/071-provisioner-realized-desired-state.md)（規則在
+- 哪些事實由誰擁有、owned data 與 mirrored fact 的區分：[decision 001](../decisions/001-system-ownership-boundaries.md)（system ownership boundaries）。
+- swallow 擁有 desired state、provider 去實現：[decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state） 與
+  [decision 071](../decisions/071-provisioner-realized-desired-state.md)（provisioner realized desired state；規則在
   [desired-state-model.md](desired-state-model.md)）；它取代了 provider-owned fact 上的 swallow overlay
-  （ADR 025）與 capability-first with a swallow-owned fallback（ADR 031）。
-- Server 身分與三個狀態軸：[ADR 002](../decisions/002-server-identity.md)、glossary
+  （[decision 025](../decisions/025-provider-data-overlay.md)（provider data overlay））與 capability-first with a swallow-owned fallback（[decision 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)（provider capability first with swallow owned fallback））。
+- Server 身分與三個狀態軸：[decision 002](../decisions/002-server-identity.md)（server identity）、glossary
   [Server Status](glossaries/terms/server-status.md)；`provisioning.state` 的值集由 swallow 擁有、adapter 只做
-  對應：[ADR 048](../decisions/048-os-provisioning-generic-states.md)、glossary
+  對應：[decision 048](../decisions/048-os-provisioning-generic-states.md)（os provisioning generic states）、glossary
   [OS Provisioning State](glossaries/terms/os-provisioning-state.md)。
-- provider-owned 的 Server Lock 是所有 mutation 的共同閘門：[ADR 013](../decisions/013-server-lock-protection.md)、
+- provider-owned 的 Server Lock 是所有 mutation 的共同閘門：[decision 013](../decisions/013-server-lock-protection.md)（server lock protection）、
   glossary [Server Lock](glossaries/terms/server-lock.md)。
 
 套用到本文件的主題：
@@ -170,7 +170,7 @@ OS Image Catalog、OS Image Upload、OS Image Metadata。
 - 刪除成功後一併刪除該 image 的 metadata 與驗證紀錄。刪除 Integration 時不清理驗證紀錄；孤兒紀錄不會再被合併，
   不影響使用者。
 
-**設計理由**：swallow 可以**驅動** provider 擁有的動作，但不因此擁有 artifact（ADR 001）；custom 與否是
+**設計理由**：swallow 可以**驅動** provider 擁有的動作，但不因此擁有 artifact（decision 001）；custom 與否是
 provisioner 的性質，所以由後端決定；在 api-server spool 讓 hash 由 swallow 自己計算並可決定性地分段送出，
 不依賴瀏覽器計算多 GB 的 hash。見 [decision 027](../decisions/027-os-image-upload.md)。
 
@@ -304,7 +304,7 @@ Network Inspection 與 Multi-Server Deployment。
 - 清單最多 8 個不重複的 IP（不得帶 zone），`[]` 代表清除。它只影響之後由 provisioner 開始的 `automatic` 與 `static`
   部署；`dhcp` 部署從 DHCP server 取得 DNS；已部署的主機不變。
 - 套用需要 Integration 背後的 MAAS 帳號是 administrator，否則 controller 回報 `requires_attention`。
-- swallow 仍不建模 DNS zone、record、resolver 或自己的 subnet（ADR 001）；它只擁有 provisioner subnet 上的這一個
+- swallow 仍不建模 DNS zone、record、resolver 或自己的 subnet（decision 001）；它只擁有 provisioner subnet 上的這一個
   屬性。目前 CLI 沒有對應指令。
 
 **設計理由**：「自動給位址」是 swallow 的意圖，不是協定；MAAS 只在觀察到 live lease 時才知道 DHCP 介面的位址，
@@ -388,7 +388,7 @@ provisioner 的 group 被接管而不是被刪除，因為它可能仍有 machin
 
 - `POST /provisioning/deployment-operations`：建立 `deploy-os` Workflow，是唯一的 OS 部署路徑。同步的
   `POST /provisioning/deployments` 與單台 `POST /servers/{id}/deploy` 已移除
-  （[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)）。
+  （[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)（retire schema v2 and deprecated aliases））。
 - Platform 部署的 `provision_os`：在 `ensure-os` Job 中使用同一個 `provision-os` Task，見
   [platform-deployment.md](platform-deployment.md)。
 - `POST /provisioning/deployments/preflight`：唯讀的 target 檢查（不檢查 image 與網路）。
@@ -439,7 +439,7 @@ snapshot 移除，改存為加密的 opaque secret reference。
 
 | Code | 情況 | 可重試 | 明確 Retry 的行為 |
 | --- | --- | --- | --- |
-| `deployment_failed` | provider 回報 `failed`／`broken`；訊息帶 provider 原因與安裝 log 的錯誤行（[decision 057](../decisions/057-uefi-boot-iso-hand-off.md) 的修訂） | 是 | 先 Recover 再重新部署（§11.3） |
+| `deployment_failed` | provider 回報 `failed`／`broken`；訊息帶 provider 原因與安裝 log 的錯誤行（[decision 057](../decisions/057-uefi-boot-iso-hand-off.md)（uefi boot iso hand off） 的修訂） | 是 | 先 Recover 再重新部署（§11.3） |
 | `deployment_address_unavailable` | 已安裝凍結的 image，但 provider 沒有位址 | 是 | Release、等 Ready、以同一份凍結意圖重新部署 |
 | `deployment_ssh_unreachable` | 有位址但 SSH 不通 | 是 | 只觀察，不丟棄已安裝的 OS |
 | `deployment_preflight_rejected` | swallow 自己的 preflight 在任何 provider 寫入前拒絕（target 不是 ready、image 未 staged 或未驗證、網路衝突） | 否 | —（Workflow 結束並釋放 Server） |
@@ -511,7 +511,7 @@ Operator State and Provider Recovery。
   （包含失敗的變體）都正規化為 `rescue`，讓政策與 UI 把它們當成同一個 rescue 問題。
 - Release／Recover Workflow 的受理：1–100 台、單一 Site、不重複；決策前先從 provider live refresh；live lock 檢查；
   [Platform Claim](glossaries/terms/platform-claim.md) 的 Server 一律不能 Release，Recover 只在它 `deployed` 時被拒
-  （[decision 067](../decisions/067-platform-claim-on-server.md)）；仍被未完成 Workflow 佔用時回 busy，或以
+  （[decision 067](../decisions/067-platform-claim-on-server.md)（platform claim on server））；仍被未完成 Workflow 佔用時回 busy，或以
   `cancelActiveWorkflows` supersede（[workflow-execution.md](workflow-execution.md)）。
 - Release 的磁碟清除選項（`erase`、`secureErase`、`quickErase`）與 `unbindStaticIPs`（§6.3）由 API 傳入；swallow 永不
   轉送 MAAS 的 `force`。`release-os` 每次 attempt 都先觀察（已 Ready 即成功、Releasing 則跟到 Ready），見
@@ -569,7 +569,7 @@ Operation 也不能同時宣告同一台 Server。把 provider 失敗改成不�
 - **投影誠實化**：
   - reconcile 在 provider 回報 `ready` 或 `allocated` 時，清除已結束（`succeeded`／`failed`／`canceled`）的 deployment
     紀錄；進行中（`deploying`／`verifying`）或等待 operator（`requires_attention`）的紀錄不動。同樣的兩個狀態也清除
-    Server Default User（[decision 045](../decisions/045-server-default-user.md)）。
+    Server Default User（[decision 045](../decisions/045-server-default-user.md)（server default user））。
   - `release-os` 與 `recover-server` 成功時清除 Server 的 deployment 投影。
   - client 的 Deployment 欄先讀 provider 軸：`succeeded` 只在 provider 仍回報 `deployed` 時有效，否則依 OS Provisioning
     State 顯示（Releasing、Ready、Allocated…），不讓過期的成功蓋住 provider 的實況。
@@ -621,24 +621,24 @@ Operation 也不能同時宣告同一台 Server。把 provider 失敗改成不�
 
 ## 13. 相關文件
 
-- 決策（本文件收斂的 ADR）：[009](../decisions/009-deployment-template-ownership.md)、
-  [012](../decisions/012-provider-network-configuration.md)、
-  [018](../decisions/018-automatic-addressing-provider-auto-assign.md)、
-  [027](../decisions/027-os-image-upload.md)、
-  [029](../decisions/029-infrastructure-zone-pool-ownership.md)、
-  [033](../decisions/033-provider-recovery-policy.md)、
-  [035](../decisions/035-os-image-verification-and-deploy-target.md)、
-  [036](../decisions/036-provisioning-lifecycle-integrity.md)、
-  [046](../decisions/046-os-deployment-progress-and-stall.md)、
-  [056](../decisions/056-provisioner-http-proxy.md)、
-  [058](../decisions/058-deployment-dhcp-and-subnet-dns.md)、
-  [059](../decisions/059-retry-recovers-failed-deployment.md)。
-- 上位架構決策：[001](../decisions/001-system-ownership-boundaries.md)、
-  [002](../decisions/002-server-identity.md)、
-  [013](../decisions/013-server-lock-protection.md)、
-  [025](../decisions/025-provider-data-overlay.md)、
-  [031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)、
-  [048](../decisions/048-os-provisioning-generic-states.md)。
+- 決策（本文件收斂的 ADR）：[decision 009](../decisions/009-deployment-template-ownership.md)、
+  [decision 012](../decisions/012-provider-network-configuration.md)、
+  [decision 018](../decisions/018-automatic-addressing-provider-auto-assign.md)、
+  [decision 027](../decisions/027-os-image-upload.md)、
+  [decision 029](../decisions/029-infrastructure-zone-pool-ownership.md)、
+  [decision 033](../decisions/033-provider-recovery-policy.md)、
+  [decision 035](../decisions/035-os-image-verification-and-deploy-target.md)、
+  [decision 036](../decisions/036-provisioning-lifecycle-integrity.md)、
+  [decision 046](../decisions/046-os-deployment-progress-and-stall.md)、
+  [decision 056](../decisions/056-provisioner-http-proxy.md)、
+  [decision 058](../decisions/058-deployment-dhcp-and-subnet-dns.md)、
+  [decision 059](../decisions/059-retry-recovers-failed-deployment.md)。
+- 上位架構決策：[decision 001](../decisions/001-system-ownership-boundaries.md)、
+  [decision 002](../decisions/002-server-identity.md)、
+  [decision 013](../decisions/013-server-lock-protection.md)、
+  [decision 025](../decisions/025-provider-data-overlay.md)、
+  [decision 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)、
+  [decision 048](../decisions/048-os-provisioning-generic-states.md)。
 - 語言：glossary [OS Provisioning Provider](glossaries/terms/os-provisioning-provider.md)、
   [Machine](glossaries/terms/machine.md)、[OS Provisioning State](glossaries/terms/os-provisioning-state.md)、
   [OS Image](glossaries/terms/os-image.md)、[Provider Data Overlay](glossaries/terms/provider-data-overlay.md)、

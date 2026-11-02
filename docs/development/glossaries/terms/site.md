@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "A Server belongs to a Site through its source." / "A MAAS spanning two locations is modelled as two Integrations, one per Site."
 - Related terms: Integration, Server, Staleness, Workflow.
-- Change note: Migrated 2026-09-05 from the narrative `docs/glossaries/site.md` into the canonical structured tree (reorg D2). Bounded context relabelled from "Platform-wide" to "swallow-wide" per [decision 015](../../../decisions/015-platform-term-disambiguation.md).
+- Change note: Migrated 2026-09-05 from the narrative `docs/glossaries/site.md` into the canonical structured tree (reorg D2). Bounded context relabelled from "Platform-wide" to "swallow-wide" per [decision 015](../../../decisions/015-platform-term-disambiguation.md) (platform term disambiguation).

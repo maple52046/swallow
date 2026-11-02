@@ -1,6 +1,6 @@
 ---
 # Install the Omnistat system-mode exporter on a compute node: a dedicated user, a versioned
-# virtual environment built from the pinned upstream tag with Swallow's patches and pinned
+# virtual environment built from the pinned upstream tag with swallow's patches and pinned
 # Python dependencies, the configuration, and a systemd service. Idempotent: a converged node
 # reruns with no changes; a changed configuration or build restarts the exporter.
 

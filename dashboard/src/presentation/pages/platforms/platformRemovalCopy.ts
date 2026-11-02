@@ -5,7 +5,7 @@
  *
  * The wording keeps the glossary distinction visible: Uninstall changes the original deployment
  * targets and waits on a Change Plan, after which the record is deleted, while "Delete only"
- * removes only the Swallow record. "Forget" is a deprecated term and is never used.
+ * removes only the swallow record. "Forget" is a deprecated term and is never used.
  */
 
 /** The choice that changes what an uninstall does. */
@@ -87,10 +87,10 @@ export function platformUninstallAcceptedToast(choice: PlatformUninstallChoice, 
 /**
  * Why a record-only Delete is being confirmed, which decides its warning:
  *
- * - `installed`: a Swallow-deployed Platform whose software may still run on the hosts, reached
+ * - `installed`: a swallow-deployed Platform whose software may still run on the hosts, reached
  *   through "Delete only…"; the warning points to Uninstall for host cleanup.
  * - `uninstalled`: the hosts were already cleaned; only the record is left.
- * - `external`: Swallow did not deploy it and cannot uninstall it.
+ * - `external`: swallow did not deploy it and cannot uninstall it.
  * - `planned`: its install still waits on its Change Plan, so nothing was installed.
  */
 export type PlatformRecordDeleteContext = 'installed' | 'uninstalled' | 'external' | 'planned'

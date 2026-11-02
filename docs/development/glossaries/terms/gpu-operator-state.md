@@ -2,7 +2,7 @@
 
 - Bounded context: Platform Management, owned by `api-server`; displayed by `dashboard` and
   `cli`.
-- Definition: Where the latest Swallow change to a Platform's GPU Operator stands, projected from
+- Definition: Where the latest swallow change to a Platform's GPU Operator stands, projected from
   the Workflow Task that applies it.
 - Allowed meaning: The values are:
 
@@ -12,7 +12,7 @@
   | `ready` | the last install or change succeeded: the operator reports Ready and every managed node exposes its GPUs |
   | `failed` | the last install, change, or uninstall failed or was canceled; the cluster may still run the previous settings |
   | `uninstalling` | an uninstall is accepted or running |
-  | `absent` | the last uninstall succeeded; Swallow manages no GPU Operator on the Platform |
+  | `absent` | the last uninstall succeeded; swallow manages no GPU Operator on the Platform |
 
   Only the Workflow recorded as the latest change may move the state, so an older Workflow
   finishing late never overwrites a newer one.
@@ -24,4 +24,4 @@
   `installing`." / "The switch to DRA was refused because a Pod still used a GPU, so the state is
   `failed` and the cluster still runs the Device Plugin."
 - Related terms: GPU Operator, GPU Allocation Mode, Platform Lifecycle State, Workflow, Task.
-- Change note: Added with the Swallow-managed AMD GPU Operator (decision 062).
+- Change note: Added with the swallow-managed AMD GPU Operator ([decision 062](../../../decisions/062-swallow-managed-gpu-operator.md) (swallow managed gpu operator)).

@@ -2,7 +2,7 @@
  * Copy `value` to the clipboard, resolving to whether it succeeded.
  *
  * The async Clipboard API (`navigator.clipboard`) only exists in a secure context — HTTPS or
- * localhost. Swallow's dashboard is frequently served over plain HTTP on a LAN, where
+ * localhost. swallow's dashboard is frequently served over plain HTTP on a LAN, where
  * `window.isSecureContext` is false and `navigator.clipboard` is undefined, so a direct
  * `writeText` throws and copy silently does nothing. This helper falls back to a temporary
  * `<textarea>` plus the legacy `document.execCommand('copy')`, which works on insecure origins,

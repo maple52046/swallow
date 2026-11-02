@@ -1069,7 +1069,7 @@ components:
         labels:
           type: object
           description: >-
-            The metrics label contract (ADR-003); no other identity label may be added.
+            The metrics label contract (decision 003); no other identity label may be added.
           required: [server_id, site]
           properties:
             server_id:

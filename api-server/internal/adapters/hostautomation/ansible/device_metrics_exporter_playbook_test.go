@@ -28,7 +28,7 @@ func TestShippedManifestResolvesDeviceMetricsExporterPlaybooks(t *testing.T) {
 }
 
 // A standalone install has no compute ids, no observability Server, and no Slurm attribution, so
-// every target runs the exporter, gets Swallow's amdgpu loader, and skips the Slurm scrape check;
+// every target runs the exporter, gets swallow's amdgpu loader, and skips the Slurm scrape check;
 // a run with compute ids but no attribution (accepted before decision 068) stays a Slurm run.
 func TestDeviceMetricsExporterPlaybookServesStandaloneAndSlurm(t *testing.T) {
 	for _, tc := range []struct {
@@ -73,7 +73,7 @@ func TestDeviceMetricsExporterPlaybookServesStandaloneAndSlurm(t *testing.T) {
 	}
 }
 
-// Swallow's amdgpu loader is shared with the Slurm GPU role and the GPU Operator. A software
+// swallow's amdgpu loader is shared with the Slurm GPU role and the GPU Operator. A software
 // uninstall removes it only when no unit still orders itself after it, and the Slurm uninstall
 // removes the exporter through the same shared tasks.
 func TestDeviceMetricsExporterUninstallKeepsASharedLoader(t *testing.T) {

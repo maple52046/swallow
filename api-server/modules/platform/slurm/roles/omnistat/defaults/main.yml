@@ -3,7 +3,7 @@
 # swallow_omnistat_* vars from the Slurm deployment; nothing here is an operator choice.
 omnistat_version: "{{ swallow_omnistat_version | default('1.15.0', true) }}"
 # Pinned upstream source per version: the GitHub tag archive and its SHA-256, and the patches
-# Swallow maintains for it (decision 064: each is checked and applied on its own, so a patch added
+# swallow maintains for it (decision 064: each is checked and applied on its own, so a patch added
 # later reaches a node that already carries the earlier ones).
 omnistat_sources:
   "1.15.0":

@@ -20,7 +20,7 @@ listed) and create label-matched silences.
 
 swallow stores no alerts: they are read from Alertmanager on demand and correlated to swallow
 resources from their label set, and acknowledging an alert creates an Alertmanager silence
-([decision 003](../../../../../docs/decisions/003-metrics-label-contract.md), "alerts are read,
+([decision 003](../../../../../docs/decisions/003-metrics-label-contract.md) (metrics label contract), "alerts are read,
 not received").
 
 ## Endpoints
@@ -96,14 +96,14 @@ The common error envelope applies.
 
 ## Compatibility Notes
 
-- Since 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md),
+- Since 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases),
   breaking) alert items no longer carry the `clusterId` alias of `platformId`, and a `cluster`
   label no longer identifies a Platform.
 - Severity and state values are Alertmanager's and the alert rules'; the glossary has not yet
   defined an Alert value set (Pending Terms), so a consumer must tolerate any severity string.
-- Since 2026-10-31 (DF-05) a `siteId` that names no Site is `404 not_found` on both routes; it was
+- Since 2026-10-31 a `siteId` that names no Site is `404 not_found` on both routes; it was
   `503 provider_unavailable`, as if the Site had no metrics Integration.
-- Since 2026-10-31 (DF-14) the acknowledge fingerprint names a reported alert (`404` otherwise),
+- Since 2026-10-31 the acknowledge fingerprint names a reported alert (`404` otherwise),
   and `matchers` is optional and must be labels of that alert. Before, the fingerprint was not
   read and `matchers` was required, so a request could silence labels that did not cover the
   alert it named. A client that sends the alert's labels as `matchers`, as the dashboard does,

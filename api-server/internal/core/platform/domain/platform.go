@@ -116,15 +116,15 @@ type Platform struct {
 	// MonitoringLinks are operator-registered links to the runtime's own monitoring UI.
 	// Display data only; written through NormalizeMonitoringLinks and never nil once read.
 	MonitoringLinks []MonitoringLink
-	// GPUOperator is the Swallow-managed GPU Operator, nil when Swallow has never managed one on
+	// GPUOperator is the swallow-managed GPU Operator, nil when swallow has never managed one on
 	// this Platform. It is written only through GPUOperatorRecorder, never by Update, so a policy
 	// PATCH holding an older copy cannot roll back a state the Workflow observer recorded.
 	GPUOperator *GPUOperator
-	// Omnistat is the Swallow-managed Omnistat of a Slurm Platform, nil when Swallow never installed
+	// Omnistat is the swallow-managed Omnistat of a Slurm Platform, nil when swallow never installed
 	// it here. Like GPUOperator it is written only through its recorder, never by Update.
 	Omnistat *Omnistat
-	// DeviceMetricsExporter is the Swallow-managed Device Metrics Exporter of a Slurm Platform, nil
-	// when Swallow never installed it here. Written only through its recorder, never by Update.
+	// DeviceMetricsExporter is the swallow-managed Device Metrics Exporter of a Slurm Platform, nil
+	// when swallow never installed it here. Written only through its recorder, never by Update.
 	DeviceMetricsExporter *DeviceMetricsExporter
 	// ContainerRuntime is the container runtime feature a Slurm deploy chose, empty when off. Set
 	// at creation; each Server's runtime install state is its Software Assignment.
@@ -142,7 +142,7 @@ type Platform struct {
 	// srun --mpi=pmix_v5 launches. Set at creation; false for Kubernetes.
 	PMIx bool
 
-	// OwnedIntegrationID is set only for a credential integration created by Swallow.
+	// OwnedIntegrationID is set only for a credential integration created by swallow.
 	// It is private persistence metadata and is never exposed by the platform API.
 	OwnedIntegrationID string
 	// Spec is what the operator wants the Platform to be; nil for a Platform recorded before
@@ -306,7 +306,7 @@ type PlatformRepository interface {
 	Delete(ctx context.Context, id string) error
 }
 
-// GPUOperatorRecorder persists a Platform's Swallow-managed GPU Operator record. It is separate
+// GPUOperatorRecorder persists a Platform's swallow-managed GPU Operator record. It is separate
 // from PlatformRepository so the record has exactly two writers: the use case accepting a change
 // and the observer of the Task applying it.
 type GPUOperatorRecorder interface {

@@ -6,10 +6,10 @@
 platform deployment、OS provisioning、software deployment 都建立在它之上。
 
 > **本文件不重述決策**：store 擁有執行狀態、Temporal 只執行見
-> [decision 072](../decisions/072-store-driven-workflow-execution.md)（建立在
-> [decision 069](../decisions/069-swallow-owns-desired-state.md) 之上），Workflow / Job / Task / Runner 與收斂式
-> （ensure）執行見 [decision 017](../decisions/017-workflow-job-task-runner-model.md)，swallow 自己擁有 Ansible
-> 執行見 [decision 006](../decisions/006-embedded-ansible-execution.md)。本文件描述這些決策之下**目前實作的行為**；
+> [decision 072](../decisions/072-store-driven-workflow-execution.md)（store driven workflow execution；建立在
+> [decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state） 之上），Workflow / Job / Task / Runner 與收斂式
+> （ensure）執行見 [decision 017](../decisions/017-workflow-job-task-runner-model.md)（workflow job task runner model），swallow 自己擁有 Ansible
+> 執行見 [decision 006](../decisions/006-embedded-ansible-execution.md)（embedded ansible execution）。本文件描述這些決策之下**目前實作的行為**；
 > 各節的「設計理由」只連到對應 ADR。
 
 > **範圍分界**：各功能自己的 Task 組成與 Runner 行為不在本文件——platform 見
@@ -28,7 +28,7 @@ platform deployment、OS provisioning、software deployment 都建立在它之�
   「這個 Workflow 卡住時該 retry、rerun 還是 cancel」的開發者與 AI agent。
 - **範圍內**：所有 Workflow 共用的執行語意（§3–§12）。
 - **範圍外**：個別 kind 的 Task 組成、Runner 內部的 provider／playbook 行為。schema-v2 的 Operation 紀錄已退役：
-  沒有任何 API 讀取，schema v10 刪除它們（[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)）。
+  沒有任何 API 讀取，schema v10 刪除它們（[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)（retire schema v2 and deprecated aliases））。
 
 語言以 glossary 為準：[Workflow](glossaries/terms/workflow.md)、[Job](glossaries/terms/job.md)、
 [Task](glossaries/terms/task.md)、[Runner](glossaries/terms/runner.md)。程式與 wire 仍有舊名（`Operation`、
@@ -165,7 +165,7 @@ glossary [Task](glossaries/terms/task.md)。終態是 `succeeded`、`failed`、`
 ### 設計理由
 
 [decision 072](../decisions/072-store-driven-workflow-execution.md)；per-resource 序列化取代單站 site lease 見
-[decision 016](../decisions/016-temporal-operation-orchestration.md)。
+[decision 016](../decisions/016-temporal-operation-orchestration.md) (temporal operation orchestration)。
 
 ---
 
@@ -249,7 +249,7 @@ Job 與 ensure Task 見 [decision 017](../decisions/017-workflow-job-task-runner
 ### 設計理由
 
 [decision 072](../decisions/072-store-driven-workflow-execution.md)（取代
-[decision 020](../decisions/020-durable-operation-recovery.md) 的停等續租）。
+[decision 020](../decisions/020-durable-operation-recovery.md)（durable operation recovery） 的停等續租）。
 
 ---
 
@@ -257,7 +257,7 @@ Job 與 ensure Task 見 [decision 017](../decisions/017-workflow-job-task-runner
 
 Rerun 建立一個新的 Workflow，依現況收斂同一個 intent。execution 遺失時 Task 重試與取消仍可用（§10），所以 rerun
 用於已結束的 Workflow，以及 operator 想從頭收斂、而不是重試單一 Task 的情況。rerun 的 Task 複製規則已凍結，日後由
-AR-15 的 reapply（依 spec 重新收斂）取代，不再新增例外。
+desired-state 模型的 reapply（依 spec 重新收斂，[desired-state-model.md](desired-state-model.md) §6.3）取代，不再新增例外。
 
 ### 現行行為
 
@@ -303,7 +303,7 @@ AR-15 的 reapply（依 spec 重新收斂）取代，不再新增例外。
 ### 設計理由
 
 新 Workflow 加 lineage 見 [decision 020](../decisions/020-durable-operation-recovery.md)；依現況收斂、不信任
-歷史，見 [decision 060](../decisions/060-cancel-and-rerun-converge.md)；ensure 語意見
+歷史，見 [decision 060](../decisions/060-cancel-and-rerun-converge.md)（cancel and rerun converge）；ensure 語意見
 [decision 017](../decisions/017-workflow-job-task-runner-model.md)。
 
 ---
@@ -409,7 +409,7 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
 
 ### 設計理由
 
-[decision 061](../decisions/061-recovery-supersedes-blocking-work.md)。
+[decision 061](../decisions/061-recovery-supersedes-blocking-work.md) (recovery supersedes blocking work)。
 
 ---
 
@@ -417,7 +417,7 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
 
 ### 現行行為
 
-- **執行位置**：worker process 中的 convergence controller `workflow-dispatch`，以 AR-15 的 controller runtime 執行
+- **執行位置**：worker process 中的 convergence controller `workflow-dispatch`，以 desired-state controller 的 runtime（`internal/core/convergence`）執行
   （[desired-state-model.md](desired-state-model.md) §7.6）：store 中的 singleton lease 保證同時只有一個 active
   instance，API process 不執行它。
 - **觸發**：`workflows` 的 change feed（key 是 Workflow id），以及每 `workflowResyncInterval`（預設 30 秒，
@@ -504,7 +504,7 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
 
 ### 設計理由
 
-[decision 030](../decisions/030-live-ansible-task-streaming.md)；executor 成為 Temporal worker 見
+[decision 030](../decisions/030-live-ansible-task-streaming.md)（live ansible task streaming）；executor 成為 Temporal worker 見
 [decision 072](../decisions/072-store-driven-workflow-execution.md)。
 
 ---
@@ -585,9 +585,9 @@ deployment 只需要產生這份計畫。
   [decision 060](../decisions/060-cancel-and-rerun-converge.md)、
   [decision 061](../decisions/061-recovery-supersedes-blocking-work.md)、
   [decision 072](../decisions/072-store-driven-workflow-execution.md)；相關的 OS 層回復：
-  [decision 033](../decisions/033-provider-recovery-policy.md)、
-  [decision 059](../decisions/059-retry-recovers-failed-deployment.md)、
-  [decision 067](../decisions/067-platform-claim-on-server.md)。
+  [decision 033](../decisions/033-provider-recovery-policy.md) (provider recovery policy)、
+  [decision 059](../decisions/059-retry-recovers-failed-deployment.md) (retry recovers failed deployment)、
+  [decision 067](../decisions/067-platform-claim-on-server.md) (platform claim on server)。
 - 語言：glossary [Workflow](glossaries/terms/workflow.md)、[Job](glossaries/terms/job.md)、
   [Task](glossaries/terms/task.md)、[Runner](glossaries/terms/runner.md)、[Server](glossaries/terms/server.md)、
   [Platform Lifecycle State](glossaries/terms/platform-lifecycle-state.md)、

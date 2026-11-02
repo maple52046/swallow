@@ -24,7 +24,7 @@ func (p *recordingEventPruner) DeleteRuns(_ context.Context, runIDs []string) er
 	return nil
 }
 
-// DF-10: retention removes a run's streamed task events with its artifacts, and keeps the
+// Retention removes a run's streamed task events with its artifacts, and keeps the
 // artifacts when the events could not be removed, so the next pass finds the run again.
 func TestArtifactRetentionRemovesTheEventsOfPrunedRuns(t *testing.T) {
 	seed := func(t *testing.T) string {

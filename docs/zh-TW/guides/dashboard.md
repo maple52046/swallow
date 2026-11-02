@@ -18,7 +18,7 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | Monitoring | Alert、silence、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、fleet health 與選用的 Grafana link |
 | Infrastructure | Site、Integration、Zone、Pool、credential 與 automation settings |
 | SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
-| API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 Swallow 的 key，見 [API key](api-keys.md) |
+| API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 swallow 的 key，見 [API key](api-keys.md) |
 
 `/clusters` 與 `/operations` 下的 route 是 compatibility redirect；canonical
 navigation 使用 Platforms 與 Workflows。

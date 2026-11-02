@@ -142,7 +142,7 @@
 
 - name: Read the subnet of the address Swallow reaches this control-plane host on
   # The deploy request was checked against the provisioner's subnet; this re-checks the HA API VIP
-  # against the host itself, for a provisioner whose subnets Swallow cannot read.
+  # against the host itself, for a provisioner whose subnets swallow cannot read.
   ansible.builtin.set_fact:
     k0s_pf_host_ipv4: >-
       {%- set found = namespace(value={}) -%}

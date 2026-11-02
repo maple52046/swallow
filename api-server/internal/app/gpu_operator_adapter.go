@@ -10,7 +10,7 @@ import (
 )
 
 // GPU Operator composition (decision 062). The same ansible Task installs, changes, or removes the
-// Swallow-managed AMD GPU Operator, either as the last Job of a deploy-kubernetes Workflow or as
+// swallow-managed AMD GPU Operator, either as the last Job of a deploy-kubernetes Workflow or as
 // the configure-gpu-operator Workflow that changes it later. The playbook name is hardcoded (like
 // Slurm and software), so no site playbookMappings entry is needed.
 const (

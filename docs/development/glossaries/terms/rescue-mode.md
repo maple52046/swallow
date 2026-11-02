@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "Enter Rescue Mode on a `failed` Server to SSH in and read the installer logs; exiting returns it to `failed`, so use Recover to make it `ready` again." / "Rescue Mode boots Ubuntu in memory; nothing written during rescue survives a normal reboot."
 - Related terms: Provider Recovery, Release, Server Status, OS Provisioning Provider, Machine.
-- Change note: Added 2026-09-20 with decision 033 to state that Rescue Mode is a diagnostic environment whose exit restores the prior state, separating it from the Recover and Release paths that converge a Server to `ready`.
+- Change note: Added 2026-09-20 with [decision 033](../../../decisions/033-provider-recovery-policy.md) (provider recovery policy) to state that Rescue Mode is a diagnostic environment whose exit restores the prior state, separating it from the Recover and Release paths that converge a Server to `ready`.

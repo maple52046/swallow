@@ -9,7 +9,7 @@ import { AuthProvider } from './presentation/contexts/AuthContext'
 import { ExperimentalFeaturesProvider } from './presentation/contexts/ExperimentalFeaturesContext'
 
 /**
- * Browser composition root for the Swallow operator console.
+ * Browser composition root for the swallow operator console.
  *
  * `Provider` owns styling (Chakra system + color mode); the DI container and auth
  * providers sit inside it so screens resolve use cases and the current user, and

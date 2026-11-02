@@ -15,4 +15,4 @@
 - Deprecated terms: None.
 - Examples: "Changing a deployed Server's desired OS Image produces a Change Plan that says the disk will be erased." / "The operator edited the spec again before approving, so the plan became `superseded`."
 - Related terms: Destructive Change, Desired State, Convergence, Workflow, Condition.
-- Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md), which adds a plan and approval step for destructive changes only.
+- Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md) (swallow owns desired state), which adds a plan and approval step for destructive changes only.

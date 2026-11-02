@@ -334,7 +334,7 @@ func (p *Provider) Deploy(
 
 // ValidateDeploymentTarget checks the provider-owned network prerequisite without
 // mutating the machine. MAAS refuses deployment when no interface is linked to a
-// subnet; Swallow surfaces that before dispatch but never guesses which subnet to use.
+// subnet; swallow surfaces that before dispatch but never guesses which subnet to use.
 func (p *Provider) ValidateDeploymentTarget(ctx context.Context, machineID string) error {
 	var machine machineJSON
 	if err := p.client.get(ctx, machinePath(machineID), nil, &machine); err != nil {

@@ -34,7 +34,7 @@ const (
 	jobConfigureOmnistat = "configure-omnistat"
 	omnistatStepID       = "install-omnistat"
 	omnistatPlaybook     = "configure-omnistat"
-	// omnistatResultGrafanaURL is the configure-omnistat result field Swallow records as the
+	// omnistatResultGrafanaURL is the configure-omnistat result field swallow records as the
 	// Platform's Omnistat Grafana Monitoring Link.
 	omnistatResultGrafanaURL = "grafanaUrl"
 
@@ -42,7 +42,7 @@ const (
 	// appendComposedInstall names it install-<kind>, as the feature's Task was named before the
 	// exporter was Managed Software (decision 068).
 	deviceMetricsExporterStepID = "install-" + string(softwaredomain.KindDeviceMetricsExporter)
-	// The Slurm run's deploy-device-metrics-exporter result: the Grafana URL Swallow records as the
+	// The Slurm run's deploy-device-metrics-exporter result: the Grafana URL swallow records as the
 	// Platform's Device Metrics Exporter Grafana Monitoring Link, and the GPU identity it found.
 	deviceMetricsExporterResultGrafanaURL  = "grafanaUrl"
 	deviceMetricsExporterResultGPUIdentity = "gpuIdentity"

@@ -51,7 +51,7 @@ func TestNewDeploymentTemplateDocSealsUserData(t *testing.T) {
 }
 
 // A stored network mode reads back as the deployment intent it names: a template without one is
-// Automatic, and "dhcp" is DHCP rather than the Automatic alias it was before ADR 058.
+// Automatic, and "dhcp" is DHCP rather than the Automatic alias it was before decision 058.
 func TestToDeploymentTemplateReadsNetworkMode(t *testing.T) {
 	tests := map[string]provisioningdomain.DeploymentNetworkMode{
 		"":          provisioningdomain.DeploymentNetworkAutomatic,

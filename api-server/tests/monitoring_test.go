@@ -201,7 +201,7 @@ func TestAcknowledgeAlert_CreatesSilence(t *testing.T) {
 	}
 }
 
-// DF-14: the path fingerprint names the alert being acknowledged. An unknown one is 404; without
+// The path fingerprint names the alert being acknowledged. An unknown one is 404; without
 // matchers the silence matches the alert's full label set; a matcher the alert does not carry is
 // 400, because the silence would not cover the alert.
 func TestAcknowledgeAlert_ResolvesTheFingerprint(t *testing.T) {
@@ -615,7 +615,7 @@ func TestMetricNames_IsDiscoverable(t *testing.T) {
 	}
 }
 
-// DF-05: a siteId that names no Site is 404, not "no metrics backend" (503).
+// A siteId that names no Site is 404, not "no metrics backend" (503).
 func TestAlerts_UnknownSiteIsNotFound(t *testing.T) {
 	f := setupPlatform(t)
 

@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "The `podman` Software Module conflicts with `docker-ce`; a Slurm deploy composes it as a Job."
 - Related terms: Extension Module, Managed Software, Software Assignment, Platform Module, Module Manifest.
-- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md); the Managed Software catalog becomes Software Modules. 2026-11-01 ([decision 075](../../../decisions/075-module-contract-v1.md)): the catalog is assembled from the Software Modules' `software` hooks; the core keeps no list of kinds.
+- Change note: Added 2026-10-30 for [decision 070](../../../decisions/070-core-providers-and-extensions.md) (core providers and extensions); the Managed Software catalog becomes Software Modules. 2026-11-01 ([decision 075](../../../decisions/075-module-contract-v1.md) (module contract v1)): the catalog is assembled from the Software Modules' `software` hooks; the core keeps no list of kinds.

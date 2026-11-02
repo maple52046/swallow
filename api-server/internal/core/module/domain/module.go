@@ -1,4 +1,4 @@
-// Package domain is the module contract (ADR 075, core-and-extensions.md §5): the manifest a
+// Package domain is the module contract (decision 075, core-and-extensions.md §5): the manifest a
 // module declares itself with, and the registry the composition root assembles from the modules
 // compiled into a build.
 package domain

@@ -396,7 +396,7 @@ func TestDeleteImage_RequiresImageIdentity(t *testing.T) {
 	}
 }
 
-// Swallow's metadata is merged into the provider catalog at read: after an edit the catalog shows
+// swallow's metadata is merged into the provider catalog at read: after an edit the catalog shows
 // the metadata as the spec and the swallow values (name, OS, release) as effective while keeping
 // the provider values, and clearing it reverts to the provider values. The provider is never asked
 // to change.

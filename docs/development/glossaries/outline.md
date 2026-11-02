@@ -16,7 +16,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Site](terms/site.md): A location with its own infrastructure that frames every other managed fact.
 - [Integration](terms/integration.md): One registration of a Provider Adapter at one Site (`provisioner` / `metrics` / `platform`).
 - [Staleness](terms/staleness.md): The freshness of a mirrored fact (Observed State) — its source and last-observed time — surfaced as part of the API.
-- [Provider Data Overlay](terms/provider-data-overlay.md): Retired: fields once merged onto a provider fact at read time (the OS Image overlay, the Server tag fallback); both became Desired State (decision 071).
+- [Provider Data Overlay](terms/provider-data-overlay.md): Retired: fields once merged onto a provider fact at read time (the OS Image overlay, the Server tag fallback); both became Desired State ([decision 071](../../decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state)).
 
 ### Resource Ownership and Convergence
 
@@ -164,7 +164,33 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Runner](terms/runner.md): The mechanism that executes a Task — `provisioner` / `ansible` (host automation) / `internal` (named by the Provider Interface it drives; code still says "executor", and `maas` → `provisioner`).
 - [Automation Configuration](terms/automation-configuration.md): Site-scoped settings for swallow's Ansible execution.
 
-> Retired names that survive only in code types and unrenamed wire fields ([decision 017](../../decisions/017-workflow-job-task-runner-model.md), [decision 074](../../decisions/074-retire-schema-v2-and-deprecated-aliases.md)): [Operation](terms/operation.md) → Workflow, [Operation Step](terms/operation-step.md) → Task.
+> Retired names that survive only in code types and unrenamed wire fields ([decision 017](../../decisions/017-workflow-job-task-runner-model.md) (workflow job task runner model), [decision 074](../../decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)): [Operation](terms/operation.md) → Workflow, [Operation Step](terms/operation-step.md) → Task.
+
+## Old Names
+
+Names a reader still meets in older documents, code, or payloads, and the term to use instead. The
+term file of the current term has the details.
+
+| Old name | Use | Where the old name survives |
+| --- | --- | --- |
+| Cluster | [Platform](terms/platform.md) | Kubernetes vocabulary inside the Kubernetes context only; the public aliases were removed |
+| Operation | [Workflow](terms/workflow.md) | Code types; payload fields `operationId`, `retryOfOperationId`, `lifecycleOperationId`; the Temporal workflow ID `swallow-operation/<id>` |
+| Operation Step, Step | [Task](terms/task.md) | Code types; the `stepId` payload field |
+| `executor` | [Runner](terms/runner.md) | The Task's `executor` payload field |
+| `maas` (as a Runner) | The provisioner [Runner](terms/runner.md) | The persisted Runner value `maas` |
+| Provisioning Job | [Provisioning Task](terms/provisioning-task.md), [OS Deployment](terms/os-deployment.md) | — |
+| Provisioning Profile | [Deployment Template](terms/deployment-template.md) | — |
+| Provisioning Image | [OS Image](terms/os-image.md) | — |
+| Provider Data Overlay | OS Image metadata and the Server's manual tags, both [Desired State](terms/desired-state.md) | Migration code only |
+| Host | [Server](terms/server.md) | Parts of the dashboard |
+| Ephemeral | [Deploy Target](terms/deploy-target.md) `ram` | The `ephemeral` field in responses, the store, and the MAAS adapter |
+| `commissioning` | `inspecting` ([OS Provisioning State](terms/os-provisioning-state.md)) | The MAAS adapter |
+| Automation key, Site private key | [Deployment Key](terms/deployment-key.md) | — |
+| `master` | The control-plane [Node Role](terms/node-role.md) | — |
+| Server import | [Server Enrollment](terms/server-enrollment.md); a Server registered with its OS kept has the `imported` [Server Origin](terms/server-origin.md) | — |
+
+Two names that look related are not: the schema-v2 Operation records were retired and dropped
+(decision 074), while `swallow.workflow.v2` is the name of the current Temporal driver workflow.
 
 ## Pending Terms
 
@@ -193,7 +219,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Provisioning and Management Planes
 
-- ~~`Plane`（Kubernetes / Slurm 管理平面）~~：已由 [decision 032](../../decisions/032-self-deployed-platform-management.md) supersede。管理平面不再是可註冊的外部物件；受管 runtime 一律是 swallow 自部的 `Platform`，Kubernetes 的叢集內管理走 Platform explorer，不需要獨立的 `Plane` term。
+- ~~`Plane`（Kubernetes / Slurm 管理平面）~~：已由 [decision 032](../../decisions/032-self-deployed-platform-management.md)（self deployed platform management） supersede。管理平面不再是可註冊的外部物件；受管 runtime 一律是 swallow 自部的 `Platform`，Kubernetes 的叢集內管理走 Platform explorer，不需要獨立的 `Plane` term。
 
 > `Agent`（節點端 runtime）與其 `Node ID` / `Inventory` / `Agent Info` 概念已依
-> [decision 001](../../decisions/001-system-ownership-boundaries.md) 退場，不再是 pending term。
+> [decision 001](../../decisions/001-system-ownership-boundaries.md)（system ownership boundaries） 退場，不再是 pending term。

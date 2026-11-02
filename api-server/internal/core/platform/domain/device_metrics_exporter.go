@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// The Device Metrics Exporter feature of a Swallow-deployed Slurm Platform (decisions 066 and 068,
+// The Device Metrics Exporter feature of a swallow-deployed Slurm Platform (decisions 066 and 068,
 // glossary Device Metrics Exporter): AMD's per-GPU-node exporter plus the Slurm job attribution (a
 // job hook of the Prolog/Epilog dispatcher). The exporter itself is the Managed Software kind
 // device-metrics-exporter, which the deployment composes onto its GPU compute nodes together with
@@ -14,11 +14,11 @@ import (
 // GPU identity, and Monitoring Link belong to the Platform. Omnistat and this feature are mutually
 // exclusive on a Platform.
 const (
-	// DeviceMetricsExporterVersion is the exporter release Swallow installs. The playbook pins its
+	// DeviceMetricsExporterVersion is the exporter release swallow installs. The playbook pins its
 	// native package and that package's SHA-256 per version.
 	DeviceMetricsExporterVersion = "1.5.3"
 	// DeviceMetricsExporterPort is where every GPU node's exporter listens. AMD's default, 5000, is
-	// the RDC exporter port Swallow scrapes on a host (decision 003), so it must never be used here.
+	// the RDC exporter port swallow scrapes on a host (decision 003), so it must never be used here.
 	DeviceMetricsExporterPort = 5001
 	// DeviceMetricsExporterGrafanaLinkName is the Monitoring Link a successful install registers and
 	// an uninstall removes; other links stay operator-owned.
@@ -30,7 +30,7 @@ const (
 	DeviceMetricsExporterDashboardBundle = "device-metrics-exporter"
 )
 
-// DeviceMetricsExporterState is where the latest Swallow change to a Platform's Device Metrics
+// DeviceMetricsExporterState is where the latest swallow change to a Platform's Device Metrics
 // Exporter stands, projected from the Workflow Task that installs it. Values are the glossary's
 // Device Metrics Exporter State.
 type DeviceMetricsExporterState string
@@ -60,7 +60,7 @@ const (
 )
 
 // ParseGPUIdentity reads an identity a Slurm run of deploy-device-metrics-exporter reported. Anything
-// but distinct is collapsed: an identity Swallow cannot confirm is never reported as reliable.
+// but distinct is collapsed: an identity swallow cannot confirm is never reported as reliable.
 func ParseGPUIdentity(value string) GPUIdentity {
 	if GPUIdentity(value) == GPUIdentityDistinct {
 		return GPUIdentityDistinct
@@ -84,7 +84,7 @@ func NormalizeDeviceMetricsExporterSettings(settings DeviceMetricsExporterSettin
 	return DeviceMetricsExporterSettings{Enabled: settings.Enabled, InstallMethod: method}, nil
 }
 
-// DeviceMetricsExporter is the Platform's Swallow-managed Device Metrics Exporter record.
+// DeviceMetricsExporter is the Platform's swallow-managed Device Metrics Exporter record.
 // ObservabilityServerID names the Server running Prometheus and Grafana, installed by InstallMethod.
 // GPUIdentity is what the latest successful install found. LastWorkflowID is the fence: only that
 // Workflow's Task may move the State. Written only through DeviceMetricsExporterRecorder, never by a
@@ -100,7 +100,7 @@ type DeviceMetricsExporter struct {
 	UpdatedAt             time.Time
 }
 
-// Managed reports whether Swallow currently manages the exporter on the Platform. A nil record
+// Managed reports whether swallow currently manages the exporter on the Platform. A nil record
 // (never enabled) and an absent one (uninstalled) are both unmanaged.
 func (e *DeviceMetricsExporter) Managed() bool {
 	return e != nil && e.State != DeviceMetricsExporterAbsent

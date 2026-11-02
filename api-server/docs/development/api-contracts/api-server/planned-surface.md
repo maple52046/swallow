@@ -881,9 +881,9 @@ Header: `Authorization: Bearer <accessToken>`
 
 ### 7.8 Management Planes
 
-> **Superseded (2026-09-19) by [decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md).**
+> **Superseded (2026-09-19) by [decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) (self deployed platform management).**
 > This `/planes` design registered externally-owned Kubernetes/Slurm management planes via a
-> stored kubeconfig/endpoint reference. Swallow now manages only self-deployed Platforms, so a
+> stored kubeconfig/endpoint reference. swallow now manages only self-deployed Platforms, so a
 > runtime is a `Platform` created from its spec by `POST /api/v1/platforms/`, never a registered
 > plane. In-cluster Kubernetes management is the Active
 > [platforms-kubernetes.md](platforms-kubernetes.md) explorer, not this surface. The section
@@ -1114,7 +1114,7 @@ Containers are accessed as a sub-resource of Server.
 
 ### 7.11 SSH Keys
 
-> Superseded by the Active [ssh-keys.md](ssh-keys.md) contract (decision 039). The design
+> Superseded by the Active [ssh-keys.md](ssh-keys.md) contract ([decision 039](../../../../../docs/decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user)). The design
 > below is kept for history only; do not implement against it.
 
 SSH Keys are user-scoped and managed via account settings.

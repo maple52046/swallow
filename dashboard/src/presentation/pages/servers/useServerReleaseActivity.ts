@@ -12,7 +12,7 @@ const RELEASE_ACTIVITY_POLL_MS = 10_000
 const RELEASE_ACTIVITY_PAGE_SIZE = 50
 
 /**
- * What Server detail knows about the Swallow work behind a `releasing` Server:
+ * What Server detail knows about the swallow work behind a `releasing` Server:
  *
  * - `idle`: the Server is not releasing, so nothing was read.
  * - `loading`: the first read for this release is in flight.
@@ -29,7 +29,7 @@ interface ServerReleaseActivityScope {
   serverId: string
   /** Reads only while true, that is while the Server's OS Provisioning State is `releasing`. */
   releasing: boolean
-  /** When Swallow first observed `releasing`; it separates this release from earlier ones. */
+  /** When swallow first observed `releasing`; it separates this release from earlier ones. */
   stateSince?: string
 }
 

@@ -361,7 +361,7 @@ swallow servers exit-rescue-mode srv1
 # The password is write-only; without a password flag it is kept for an unchanged driver.
 swallow servers power-configuration get srv1
 swallow servers power-configuration set srv1 --driver virsh \
-  --address qemu+ssh://maas@tainan-ci.lab/system --power-id simple-pig   # libvirt VM
+  --address qemu+ssh://maas@hv-01.example/system --power-id simple-pig   # libvirt VM
 printf '%s' "$BMC_PASSWORD" | swallow servers power-configuration set srv2 \
   --driver ipmi --address 10.0.0.5 --username maas --password-stdin      # BMC
 swallow servers power-configuration set srv2 --driver ipmi --address 10.0.0.5 --clear-password
@@ -448,7 +448,7 @@ swallow provisioning templates user-data clear tmpl1
 # provisioner's MAAS rack (iPXE to ipxe.cfg on BIOS, GRUB to grub/grub.cfg-<mac> on UEFI, port 5248 by default);
 # built in seconds. Rebuilding one in place is a Dashboard/API action (no CLI command yet).
 swallow provisioning boot-isos list --site-id site1            # also says whether this install can build
-swallow provisioning boot-isos create --integration int1 --name tainan-rack --rack 10.0.0.2
+swallow provisioning boot-isos create --integration int1 --name south-rack --rack 10.0.0.2
 swallow provisioning boot-isos get iso1                        # includes the rendered iPXE script
 swallow provisioning boot-isos delete iso1                     # refused while a Server's Boot Media uses it
 
@@ -626,7 +626,7 @@ spec:
     k0sVersion: v1.36.3+k0s.2
     podCidr: 172.21.0.0/20
     serviceCidr: 172.21.22.0/24
-    apiVip: 10.170.168.13
+    apiVip: 10.140.168.13
     apiVipPrefix: 23
     gpuOperator:
       enabled: true

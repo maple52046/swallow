@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "The Server's desired Zone is `rack-a`; MAAS still reports `default`, so the Server is not yet realized." / "Changing a deployed Server's desired OS Image is a Destructive Change and produces a Change Plan."
 - Related terms: Observed State, Condition, Drift, Convergence, Change Plan, Destructive Change, Provider Adapter.
-- Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md), which makes swallow the owner of desired state for every managed resource.
+- Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md) (swallow owns desired state), which makes swallow the owner of desired state for every managed resource.

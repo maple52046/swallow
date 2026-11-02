@@ -194,7 +194,7 @@ the Workflow following the release (a Release, a Recover, or a Platform
 uninstall that releases its Servers). If that Workflow needs attention or has
 ended while the provider is still releasing, the banner says so and also links
 to **Provider events**. If no Workflow covers the release—it was started in the
-provisioner—the banner links to **Provider events** only. Swallow cannot change
+provisioner—the banner links to **Provider events** only. swallow cannot change
 the state of a Server the provider is releasing: Release, Recover, Lock, and
 Deploy OS stay unavailable until the provider returns it to **Ready** or reports
 a failure.

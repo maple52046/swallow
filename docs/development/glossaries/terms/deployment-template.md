@@ -1,7 +1,7 @@
 # Deployment Template
 
 - Bounded context: OS Provisioning.
-- Definition: Swallow-owned, reusable OS Deployment intent scoped to exactly one
+- Definition: swallow-owned, reusable OS Deployment intent scoped to exactly one
   OS Provisioning Provider Integration.
 - Allowed meaning: A name, description, OS Image reference, [Deploy Target](deploy-target.md)
   (`disk` | `ram`; stored as the `ephemeral` flag), DHCP-or-static network intent,
@@ -22,4 +22,4 @@
   carry provider-neutral network intent without target-specific IP assignments.
   Updated 2026-09-21: the deployment mode is stated as a [Deploy Target](deploy-target.md)
   (the stored `ephemeral` flag is its boundary form) per
-  [decision 035](../../../decisions/035-os-image-verification-and-deploy-target.md).
+  [decision 035](../../../decisions/035-os-image-verification-and-deploy-target.md) (os image verification and deploy target).

@@ -25,8 +25,8 @@
   `deployTarget`.
 - Related terms: OS Deployment, OS Image, Deployment Template, Rescue Mode.
 - Change note: Added 2026-09-21 with the OS image verification mechanism per
-  [decision 035](../../../decisions/035-os-image-verification-and-deploy-target.md),
+  [decision 035](../../../decisions/035-os-image-verification-and-deploy-target.md) (os image verification and deploy target),
   introducing `disk | ram` as the canonical deploy-mode vocabulary layered over
   the existing `ephemeral` boundary fields. On 2026-10-31 the request `ephemeral`
   alias was removed; requests name the mode only as `deployTarget`
-  ([decision 074](../../../decisions/074-retire-schema-v2-and-deprecated-aliases.md)).
+  ([decision 074](../../../decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)).

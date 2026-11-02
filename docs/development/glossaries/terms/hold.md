@@ -8,4 +8,4 @@
 - Deprecated terms: None.
 - Examples: "While the Server is locked, its tag Controller reports that a tag was removed in MAAS but does not add it back; `held` is `true` with reason `server_locked`."
 - Related terms: Controller, Condition, Server Lock, Rescue Mode, Drift.
-- Change note: Added 2026-10-31 for [decision 071](../../../decisions/071-provisioner-realized-desired-state.md), when the first Controllers began honoring holds.
+- Change note: Added 2026-10-31 for [decision 071](../../../decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state), when the first Controllers began honoring holds.

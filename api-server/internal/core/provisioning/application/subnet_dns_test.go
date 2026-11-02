@@ -62,7 +62,7 @@ func (p *subnetProvider) SetSubnetDNSServers(_ context.Context, subnetID string,
 
 func siteSubnets() []provisioningdomain.NetworkSubnet {
 	return []provisioningdomain.NetworkSubnet{
-		{ID: "1", Name: "site", CIDR: "10.170.168.0/23", GatewayAddress: "10.170.169.254", Managed: true},
+		{ID: "1", Name: "site", CIDR: "10.140.168.0/23", GatewayAddress: "10.140.169.254", Managed: true},
 		{ID: "2", Name: "maas", CIDR: "192.168.100.0/24", Managed: true, ProvisionerDHCP: true, DNSServers: []string{"192.168.100.1"}},
 	}
 }
@@ -97,14 +97,14 @@ func TestSubnetDNSList(t *testing.T) {
 func TestSubnetDNSSetDNSServers(t *testing.T) {
 	provider := &subnetProvider{capable: true, subnets: siteSubnets(), attached: map[string]bool{"1": true}}
 	uc := NewSubnetDNSUseCase(fixedProviders{provider: provider}, settingstest.NewSubnetDNSStore())
-	item, err := uc.SetDNSServers(context.Background(), "maas-a", "1", []string{" 165.204.124.158", "165.204.219.249"})
+	item, err := uc.SetDNSServers(context.Background(), "maas-a", "1", []string{" 198.51.100.53", "198.51.100.54"})
 	if err != nil {
 		t.Fatalf("SetDNSServers error = %v", err)
 	}
 	if len(provider.writes) != 0 {
 		t.Errorf("writes = %v, want none: the controller writes the provisioner", provider.writes)
 	}
-	if item.ID != "1" || !item.Attached || item.Generation != 1 || strings.Join(item.Spec.DNSServers, ",") != "165.204.124.158,165.204.219.249" || len(item.Status.DNSServers) != 0 {
+	if item.ID != "1" || !item.Attached || item.Generation != 1 || strings.Join(item.Spec.DNSServers, ",") != "198.51.100.53,198.51.100.54" || len(item.Status.DNSServers) != 0 {
 		t.Errorf("SetDNSServers = %+v, want the normalized spec and the provisioner's current (empty) list", item)
 	}
 }

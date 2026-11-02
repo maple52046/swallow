@@ -38,7 +38,7 @@ type DeploymentNetworkAssignmentInput struct {
 	IPAddress   string
 }
 
-// DeploymentNetworkInput is Swallow's common DHCP/static deployment intent.
+// DeploymentNetworkInput is swallow's common DHCP/static deployment intent.
 type DeploymentNetworkInput struct {
 	Mode           string
 	SubnetID       string
@@ -695,8 +695,8 @@ func deploymentFailure(err error) (string, string) {
 }
 
 // requireCustomImageVerified blocks deploying an unverified custom image for the requested deploy
-// target. Verification is a Swallow-owned attestation that a real deploy in that target succeeded;
-// a custom (uploaded) image that has not been proven is refused with a Swallow reason that names
+// target. Verification is a swallow-owned attestation that a real deploy in that target succeeded;
+// a custom (uploaded) image that has not been proven is refused with a swallow reason that names
 // the target and points the operator at verification. Synced provider images are trusted and are
 // never gated. A nil repository disables the gate for tests that do not exercise verification.
 func (uc *DeployServersUseCase) requireCustomImageVerified(

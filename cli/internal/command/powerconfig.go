@@ -45,7 +45,7 @@ func serversPowerConfigurationCmd() *cobra.Command {
 			"Setting the configuration does not switch power or resume an inspection waiting for attention:\n" +
 			"check `swallow servers power-state`, then retry with `swallow servers inspect`.",
 		Example: "  swallow servers power-configuration set srv-1 --driver virsh \\\n" +
-			"    --address qemu+ssh://maas@tainan-ci.lab/system --power-id simple-pig\n" +
+			"    --address qemu+ssh://maas@hv-01.example/system --power-id simple-pig\n" +
 			"  printf '%s' \"$BMC_PASSWORD\" | swallow servers power-configuration set srv-2 --driver ipmi \\\n" +
 			"    --address 10.0.0.5 --username maas --password-stdin",
 		Args: cobra.ExactArgs(1),

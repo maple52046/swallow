@@ -109,7 +109,7 @@ func TestConfigureNetworkLinkReplacesOnlySelectedLinkWithoutForce(t *testing.T) 
 	}
 }
 
-// Swallow's Automatic addressing intent (NetworkLinkAuto) must be translated to MAAS "AUTO"
+// swallow's Automatic addressing intent (NetworkLinkAuto) must be translated to MAAS "AUTO"
 // (provider auto-assign), not raw DHCP, and must send neither an IP address nor a force flag.
 func TestConfigureNetworkLinkAutoTranslatesToMaasAuto(t *testing.T) {
 	fake := newFakeMAAS(t)
@@ -234,12 +234,12 @@ func TestConfigureNetworkLinkRejectsDefaultGatewayForDHCPBeforeProviderRead(t *t
 }
 
 // The subnet catalog reports whether MAAS serves a subnet's DHCP — on its VLAN or relayed to it —
-// and the subnet's DNS servers, which drive the DHCP suggestion and Subnet DNS (ADR 058).
+// and the subnet's DNS servers, which drive the DHCP suggestion and Subnet DNS (decision 058).
 func TestListNetworkSubnetsReportsProvisionerDHCPAndDNS(t *testing.T) {
 	fake := newFakeMAAS(t)
 	fake.respond("GET "+apiPrefix+"/subnets/{$}", http.StatusOK, `[
-	  {"id": 1, "name": "site", "cidr": "10.170.168.0/23", "gateway_ip": "10.170.169.254", "managed": true,
-	   "dns_servers": ["165.204.124.158", " 165.204.219.249 "], "vlan": {"id": 5001, "dhcp_on": false, "relay_vlan": null}},
+	  {"id": 1, "name": "site", "cidr": "10.140.168.0/23", "gateway_ip": "10.140.169.254", "managed": true,
+	   "dns_servers": ["198.51.100.53", " 198.51.100.54 "], "vlan": {"id": 5001, "dhcp_on": false, "relay_vlan": null}},
 	  {"id": 2, "name": "maas", "cidr": "192.168.100.0/24", "gateway_ip": "192.168.100.1", "managed": true,
 	   "dns_servers": [], "vlan": {"id": 5002, "dhcp_on": true}},
 	  {"id": 3, "name": "relayed", "cidr": "192.168.110.0/24", "gateway_ip": null, "managed": false,
@@ -254,7 +254,7 @@ func TestListNetworkSubnetsReportsProvisionerDHCPAndDNS(t *testing.T) {
 		t.Fatalf("subnets = %d, want 3", len(subnets))
 	}
 	site, maasDHCP, relayed := subnets[0], subnets[1], subnets[2]
-	if site.ID != "1" || site.ProvisionerDHCP || strings.Join(site.DNSServers, ",") != "165.204.124.158,165.204.219.249" {
+	if site.ID != "1" || site.ProvisionerDHCP || strings.Join(site.DNSServers, ",") != "198.51.100.53,198.51.100.54" {
 		t.Errorf("site subnet = %+v, want no provisioner DHCP and its two DNS servers trimmed", site)
 	}
 	if !maasDHCP.ProvisionerDHCP || len(maasDHCP.DNSServers) != 0 {

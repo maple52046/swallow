@@ -17,7 +17,7 @@ interface PlatformBulkDeleteDialogProps {
 
 /**
  * Confirms the bulk record-only Delete, reached from "Delete only…" or from "Delete
- * selected" when no selected Platform leads with Uninstall. It removes each Swallow record and its
+ * selected" when no selected Platform leads with Uninstall. It removes each swallow record and its
  * owned projections after the backend cancels that Platform's in-flight workflows, and never
  * changes hosts, so it applies to every selected Platform, including locked or uninstalling ones.
  * The gate is typing `delete`. It stays open with each failure listed when every request failed.

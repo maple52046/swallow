@@ -13,11 +13,11 @@ MAAS machine/link state --translation--> Network Configuration observation
 ```
 
 The adapter is not a conformist boundary. Provider terms such as MAAS `AUTO`,
-`LINK_UP`, `link_subnet`, and `unlink_subnet` do not enter the Swallow deployment
+`LINK_UP`, `link_subnet`, and `unlink_subnet` do not enter the swallow deployment
 model. `AUTO` is translated to the read-only `provider_managed` observation;
 `LINK_UP` is translated to the NIC configuration state `link_only`.
 
-Swallow applies `automatic`, `dhcp`, or `static` intent when the operator deploys
+swallow applies `automatic`, `dhcp`, or `static` intent when the operator deploys
 an OS or changes a Ready Server's Network. `automatic` asks the provider to
 allocate and record an address; `dhcp` leaves address, gateway, and DNS to the
 network's DHCP server; `static` carries the operator-selected address. Release
@@ -41,7 +41,7 @@ path intentionally calls the provisioner from the host and keeps its OS, while
 network-boot and virtual-machine paths end in provider inventory and use the
 same automatic hardware-inspection flow.
 
-Swallow owns each per-provisioner Boot ISO and a Server's Boot Media intent.
+swallow owns each per-provisioner Boot ISO and a Server's Boot Media intent.
 The BMC or hypervisor owns the media attachment and firmware boot, while MAAS
 owns the downstream PXE/GRUB boot resources and resulting machine inventory.
 The Boot ISO translates the site's DHCP boot into the MAAS rack's BIOS iPXE or
@@ -114,7 +114,7 @@ adopts a newly seen subnet's current list, and removes the setting of a subnet t
 provisioner no longer has. `automatic` and `static` deployment intent consume this observation
 (falling back to the provisioner's DNS when the list is empty), while `dhcp`
 intentionally takes DNS from the network DHCP server. Provider subnet ids and
-MAAS `dns_servers` remain outside the Swallow deployment model.
+MAAS `dns_servers` remain outside the swallow deployment model.
 
 ## Power Configuration written through (decision 054)
 
@@ -145,4 +145,4 @@ Site record. Platform deployments do not set time: their install playbooks only 
 The co-located MAAS's chronyd is the installation's Control-Plane NTP Server, so the
 installation installs none of its own; the installation tooling (not the API) sets its upstream
 through MAAS's `ntp_servers`, which MAAS also uses to hand its rack to the machines it deploys
-through cloud-init. swallow composes no cloud-init for time (ADR 058 still holds).
+through cloud-init. swallow composes no cloud-init for time ([decision 058](../../decisions/058-deployment-dhcp-and-subnet-dns.md) (deployment dhcp and subnet dns) still holds).

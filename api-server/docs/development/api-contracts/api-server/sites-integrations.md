@@ -12,7 +12,7 @@ Active
 
 - `dashboard`
 - `cli` (the `swallow` operator command-line client)
-- Swallow installation tooling (registers the co-located MAAS and waits for its sync)
+- swallow installation tooling (registers the co-located MAAS and waits for its sync)
 
 ## Purpose
 
@@ -96,9 +96,9 @@ reference it (`409 conflict`).
 
 `POST /api/v1/integrations` accepts `kind` of `provisioner` or `metrics` only. `kind=platform`
 is rejected with `400 validation_error`: a `platform`
-Integration reads a Kubernetes/Slurm runtime's live state, and Swallow creates it only from a
+Integration reads a Kubernetes/Slurm runtime's live state, and swallow creates it only from a
 successful deployment because it manages only self-deployed platforms
-([decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md)).
+([decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) (self deployed platform management)).
 Existing `platform` Integrations remain readable, updatable, and deletable; only creating a new
 one through this route is refused.
 
@@ -118,15 +118,15 @@ Integration created before the key existed has it absent, which means on.
 
 | Key | Value | Meaning |
 | --- | --- | --- |
-| `virshSshPublicKey` | An OpenSSH public key line, or absent | The public key the provisioner's rack controller uses for `virsh` power over `qemu+ssh` ([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md)). Virtual-machine enrollment authorizes it for the login account on the hypervisor ([server-enrollment.md](server-enrollment.md#virtual-machines-libvirt)). The installation sets it for a co-located MAAS. It is a public key, not a secret. |
+| `virshSshPublicKey` | An OpenSSH public key line, or absent | The public key the provisioner's rack controller uses for `virsh` power over `qemu+ssh` ([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md) (libvirt virtual machine enrollment)). Virtual-machine enrollment authorizes it for the login account on the hypervisor ([server-enrollment.md](server-enrollment.md#virtual-machines-libvirt)). The installation sets it for a co-located MAAS. It is a public key, not a secret. |
 
 ## Compatibility Notes
 
-- Since 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md),
+- Since 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases),
   breaking) `kind=cluster` is no longer read as `platform`: a list filter returns what any other
   unknown kind returns, and a create is refused as an unknown kind.
 
-- Since 2026-10-31 a Site name that is empty after trimming is refused on create and on `PATCH`
-  (DF-13). Before, a whitespace-only name was stored as `""` and `PATCH` accepted an empty name.
+- Since 2026-10-31 a Site name that is empty after trimming is refused on create and on `PATCH`.
+  Before, a whitespace-only name was stored as `""` and `PATCH` accepted an empty name.
 - Since 2026-10-31 a duplicate Integration name in one Site is `409 conflict` on create and on
-  rename (DF-05); it was `500 internal_error`.
+  rename; it was `500 internal_error`.

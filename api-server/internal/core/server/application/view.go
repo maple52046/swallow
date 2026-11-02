@@ -66,7 +66,7 @@ type ServerStatusItem struct {
 	Health       *HealthAxisItem       `json:"health"`
 
 	// PlatformClaim is the Platform whose accepted deployment targets this Server (decision 067),
-	// null when none does. It is Swallow-owned intent, unlike the observed membership axis, and it
+	// null when none does. It is swallow-owned intent, unlike the observed membership axis, and it
 	// is why a claimed Server cannot be released directly.
 	PlatformClaim *PlatformClaimItem `json:"platformClaim"`
 

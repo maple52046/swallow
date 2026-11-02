@@ -122,7 +122,7 @@ func TestRespondErrorTranslatesDelegatedOperationErrors(t *testing.T) {
 			wantMessageContains: "at least one Step is required",
 		},
 		{
-			// DF-05: a target in the wrong provisioning state is a state conflict.
+			// A target in the wrong provisioning state is a state conflict.
 			name:                "a target in the wrong state is a conflict",
 			err:                 fmt.Errorf("%w: srv-a requires \"deployed\"", workflowdomain.ErrTargetStateInvalid),
 			wantStatus:          http.StatusConflict,
@@ -130,7 +130,7 @@ func TestRespondErrorTranslatesDelegatedOperationErrors(t *testing.T) {
 			wantMessageContains: "requires",
 		},
 		{
-			// DF-05: a missing capability is a 400 like every other one, also inside a deploy batch.
+			// A missing capability is a 400 like every other one, also inside a deploy batch.
 			name: "a provisioner without network configuration is a validation error in a batch",
 			err: fmt.Errorf("%w: %w", provisioningdomain.ErrDeploymentBatchConflict,
 				provisioningdomain.ErrNetworkConfigurationUnsupported),

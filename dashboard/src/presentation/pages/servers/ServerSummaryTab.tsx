@@ -34,10 +34,10 @@ import { useServerDetailContext } from './useServerDetail'
 
 /**
  * Builds a catalog deep link for the OS the provisioner reports installed, whoever deployed it
- * and whatever Swallow's last deployment result says: `deployedImageName` is present only when
+ * and whatever swallow's last deployment result says: `deployedImageName` is present only when
  * the installed image resolved from the provisioner's catalog (servers-list.md), so a deployed
- * Server with that name always has an image to open. A canceled or failed Swallow deployment, or
- * an OS installed outside Swallow, therefore keeps the link. The effective image name is paired
+ * Server with that name always has an image to open. A canceled or failed swallow deployment, or
+ * an OS installed outside swallow, therefore keeps the link. The effective image name is paired
  * with its integration and primary architecture; OS Images applies those identities before
  * falling back to the observed OS/release tuple.
  */
