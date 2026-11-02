@@ -15,18 +15,19 @@ import (
 // resync, which is cheaper than backpressure on the persistence hot path.
 const serverEventBufferSize = 256
 
-// ServerEventBroker is an in-memory fan-out of Server projection changes. It is both the
-// write side (ServerEventPublisher, called by the persistence boundary) and the read side
+// ServerEventBroker is an in-memory fan-out of Server projection changes inside one API
+// process. It is both the write side (ServerEventPublisher, fed by the Server event relay from the
+// store's change feed, so it carries every process's writes) and the read side
 // (ServerEventSubscriber, used by the SSE delivery handler).
 //
 // Ownership/lifecycle: one broker instance lives for the process, created at the
-// composition root and shared by the eventing repository and the stream handler. All state
-// is guarded by mu; publishing never blocks because delivery to a full subscriber is a
-// non-blocking send that instead drops the subscriber.
+// composition root and shared by the relay and the stream handler. All state is guarded by mu;
+// publishing never blocks because delivery to a full subscriber is a non-blocking send that
+// instead drops the subscriber.
 //
-// Deduplication: reconcile re-Upserts every Server every pass, so the broker keeps the last
-// delivered fingerprint per Server and suppresses an upsert whose UI-relevant fields are
-// unchanged. This turns the periodic reconcile into a change pump without flooding clients.
+// Deduplication: the broker keeps the last delivered fingerprint per Server and suppresses an
+// upsert whose UI-relevant fields are unchanged, so a write that changed only what the list does
+// not show reaches no client.
 type ServerEventBroker struct {
 	mu           sync.Mutex
 	nextID       uint64
@@ -101,6 +102,21 @@ func (b *ServerEventBroker) Subscribe(ctx context.Context, siteID string) server
 		sub.Close()
 	}()
 	return sub
+}
+
+// ResetSubscribers closes every subscription and forgets the delivered fingerprints. The relay
+// calls it when changes may have been missed (its change feed reopened), so every consumer
+// reconnects and reloads its list instead of keeping a view that silently diverged. Safe for
+// concurrent use.
+func (b *ServerEventBroker) ResetSubscribers() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for id, sub := range b.subs {
+		sub.closed = true
+		close(sub.ch)
+		delete(b.subs, id)
+	}
+	b.fingerprints = make(map[string]string)
 }
 
 // remove unregisters and closes a subscription exactly once. It is idempotent so both an

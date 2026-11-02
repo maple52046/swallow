@@ -145,12 +145,10 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("server repo init: %w", err)
 	}
-	// One in-process broker fans Server changes out to SSE subscribers. Wrapping the sole
-	// persistence adapter here makes every write in this process (reconcile, refresh,
-	// delete) publish; cross-process writes from the worker (deployment/membership) surface
-	// through the reconcile pump within its interval, deduplicated by the broker.
+	// One in-process broker fans Server changes out to SSE subscribers. The relay started below
+	// feeds it from the store's change feed, so it carries every process's Server writes.
 	serverEventBroker := memory.NewServerEventBroker()
-	serverRepo := memory.NewEventingServerRepository(mongoServerRepo, serverEventBroker)
+	serverRepo := mongoServerRepo
 	templateRepo, err := provisioningstore.NewMongoDeploymentTemplateRepo(db, sealer)
 	if err != nil {
 		return fmt.Errorf("deployment template repo init: %w", err)
@@ -607,6 +605,8 @@ func RunAPI(cfg config.APIConfig) error {
 		},
 	})
 
+	// Each API process relays the Server changes of every process to its own stream subscribers.
+	go serverapp.NewServerEventRelay(storemongo.NewChangeFeed(db), mongoServerRepo, serverEventBroker).Run(ctx)
 	go runReconciler(ctx, reconcileUC, cfg.ReconcileInterval)
 	go runInventorySweep(ctx, inventorySweepUC, cfg.InventoryInterval)
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)

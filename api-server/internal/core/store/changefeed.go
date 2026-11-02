@@ -38,3 +38,18 @@ type Change struct {
 type ChangeFeed interface {
 	Watch(ctx context.Context, subscriber string, collections []string, handle func(context.Context, Change) error) error
 }
+
+// LiveChangeFeed delivers committed changes of the named collections from the moment a watch
+// opens, to a subscriber that keeps no position: a fan-out inside one process (the API's Server
+// event stream), where every process watches for itself and a restarted process need not replay
+// what it missed. Each watch therefore first delivers a ChangeReset, meaning changes before it
+// opened are not delivered and the subscriber re-reads what it serves.
+//
+// ignoredFields are field paths (for example "lastSeenAt" or "provisioning.observedAt") whose
+// change alone does not matter to the subscriber: an update that sets or removes only those
+// fields, or fields below them, is not delivered. WatchLive blocks until ctx ends, returning
+// ctx.Err(), or until the feed fails or handle returns an error, returning that error; the caller
+// decides when to watch again. Any number of live watchers may run at once.
+type LiveChangeFeed interface {
+	WatchLive(ctx context.Context, collections, ignoredFields []string, handle func(context.Context, Change) error) error
+}

@@ -91,3 +91,64 @@ func TestChangeFeedDeliversAndResumes(t *testing.T) {
 	defer func() { cancel(); <-errc }()
 	expect("s1", store.ChangeDelete)
 }
+
+// A live watch starts with a ChangeReset, then reports changes from the present without saving a
+// position, and skips an update that touched only ignored fields.
+func TestChangeFeedWatchLiveSkipsIgnoredFields(t *testing.T) {
+	_, db := testDatabase(t)
+	feed := NewChangeFeed(db)
+	servers := db.Collection("servers")
+	ctx := context.Background()
+	if _, err := servers.InsertOne(ctx, bson.M{"_id": "s1", "lastSeenAt": time.Now(), "provisioning": bson.M{"state": "ready"}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	received := make(chan store.Change, 16)
+	watchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- feed.WatchLive(watchCtx, []string{"servers"}, []string{"lastSeenAt", "provisioning.observedAt"},
+			func(_ context.Context, c store.Change) error {
+				received <- c
+				return nil
+			})
+	}()
+	select {
+	case got := <-received:
+		if got.Operation != store.ChangeReset {
+			t.Fatalf("first change = %+v, want a reset", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no reset from the live watch")
+	}
+
+	if _, err := servers.UpdateOne(ctx, bson.M{"_id": "s1"}, bson.M{"$set": bson.M{
+		"lastSeenAt": time.Now().Add(time.Minute), "provisioning.observedAt": time.Now(),
+	}}); err != nil {
+		t.Fatalf("touch timestamps: %v", err)
+	}
+	if _, err := servers.UpdateOne(ctx, bson.M{"_id": "s1"}, bson.M{"$set": bson.M{"provisioning.state": "deployed"}}); err != nil {
+		t.Fatalf("change state: %v", err)
+	}
+	select {
+	case got := <-received:
+		if got.Collection != "servers" || got.Key != "s1" || got.Operation != store.ChangeUpdate {
+			t.Fatalf("change = %+v, want the state update of s1", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no change for the state update")
+	}
+	select {
+	case got := <-received:
+		t.Fatalf("unexpected change %+v: the timestamp-only update must be skipped", got)
+	case <-time.After(500 * time.Millisecond):
+	}
+	cancel()
+	if err := <-errc; err != context.Canceled {
+		t.Errorf("WatchLive() = %v, want context.Canceled", err)
+	}
+	if n, _ := db.Collection("change_feed_checkpoints").CountDocuments(ctx, bson.M{}); n != 0 {
+		t.Errorf("live watch saved %d checkpoints, want none", n)
+	}
+}

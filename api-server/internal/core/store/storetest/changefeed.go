@@ -17,7 +17,10 @@ type ChangeFeed struct {
 	watchers map[*feedWatcher]struct{}
 }
 
-var _ store.ChangeFeed = (*ChangeFeed)(nil)
+var (
+	_ store.ChangeFeed     = (*ChangeFeed)(nil)
+	_ store.LiveChangeFeed = (*ChangeFeed)(nil)
+)
 
 type feedWatcher struct {
 	collections []string
@@ -49,6 +52,15 @@ func (f *ChangeFeed) Watch(ctx context.Context, _ string, collections []string, 
 			}
 		}
 	}
+}
+
+// WatchLive implements store.LiveChangeFeed: it delivers a ChangeReset first, then what Publish
+// sends to its collections. The fake carries no field detail, so ignoredFields has no effect.
+func (f *ChangeFeed) WatchLive(ctx context.Context, collections, _ []string, handle func(context.Context, store.Change) error) error {
+	if err := handle(ctx, store.Change{Operation: store.ChangeReset}); err != nil {
+		return err
+	}
+	return f.Watch(ctx, "", collections, handle)
 }
 
 // Publish delivers change to the watchers of its collection; a ChangeReset reaches every watcher.

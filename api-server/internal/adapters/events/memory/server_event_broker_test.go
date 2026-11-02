@@ -163,3 +163,32 @@ func TestServerEventBrokerCloseIsIdempotent(t *testing.T) {
 		t.Fatal("expected a closed subscription channel after Close")
 	}
 }
+
+// ResetSubscribers closes every subscription, so each consumer reconnects and reloads, and forgets
+// the fingerprints, so the next upsert of an unchanged Server is delivered again.
+func TestServerEventBrokerResetSubscribers(t *testing.T) {
+	broker := NewServerEventBroker()
+	ctx := context.Background()
+	server := &serverdomain.Server{ID: "srv-1", Source: serverdomain.Source{SiteID: "site-1"}}
+	first := broker.Subscribe(ctx, "")
+	broker.PublishServerEvent(serverdomain.ServerEvent{Kind: serverdomain.ServerUpserted, ServerID: "srv-1", SiteID: "site-1", Server: server})
+	<-first.Events()
+
+	broker.ResetSubscribers()
+	if _, open := <-first.Events(); open {
+		t.Fatal("subscription still open after reset")
+	}
+	first.Close()
+
+	second := broker.Subscribe(ctx, "")
+	defer second.Close()
+	broker.PublishServerEvent(serverdomain.ServerEvent{Kind: serverdomain.ServerUpserted, ServerID: "srv-1", SiteID: "site-1", Server: server})
+	select {
+	case event := <-second.Events():
+		if event.ServerID != "srv-1" {
+			t.Errorf("event = %+v, want srv-1", event)
+		}
+	default:
+		t.Error("an unchanged Server was suppressed after reset; want it delivered again")
+	}
+}

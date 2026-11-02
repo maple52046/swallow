@@ -127,6 +127,10 @@ On 2026-10-31 the `server` object took the spec/status shape of the list item
 ([servers-list.md](servers-list.md#spec-and-status)), a breaking change made in both contracts
 together.
 
+On 2026-11-03 delivery moved to the store's change feed: another process's write no longer waits
+for a reconcile pass, and the server may also end a stream when its change feed reopens. The
+wire shape did not change.
+
 A dropped or reconnecting client MUST treat the stream as best-effort delivery: on reconnect
 it re-reads [`servers-list.md`](servers-list.md) once to resync any changes missed while
 disconnected. The server may drop a subscriber that cannot keep up; the client simply
@@ -134,8 +138,11 @@ reconnects.
 
 ## Implementation Notes
 
-Changes are published from the single Server persistence boundary and fanned out by an
-in-process broker with per-subscriber buffering; a subscriber that overflows is dropped
-rather than allowed to stall writers. Cross-process writes (durable Operations and the Server
-controller's conditions, both in the worker) surface through the reconcile pass within
-`reconcileInterval`, deduplicated by the broker.
+Changes come from the store's change feed: each API process watches the Server records from
+the moment it starts and re-reads every changed Server, so the writes of every process (the
+reconcile pass, the worker's controllers and Workflow Tasks, the Ansible executor) reach the
+stream as they commit. A write that changes only observation timestamps is not delivered. An
+in-process broker fans the events out with per-subscriber buffering; a subscriber that
+overflows is dropped rather than allowed to stall the relay. When the API process's watch opens
+again (after a store interruption), it ends every open stream, because changes made meanwhile
+were not delivered; clients reconnect and resync from the list.

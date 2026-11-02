@@ -105,7 +105,7 @@ api-server/
 │   │   ├── hostaccess/sshaccess/    # Ansible 之外直接 SSH 到 host（Server Default User、Hypervisor）
 │   │   ├── bootiso/genfsimg/
 │   │   ├── keys/openssh/
-│   │   └── events/memory/           # process 內的 Server 事件
+│   │   └── events/memory/           # process 內的 Server 事件 broker（由 change feed 的 relay 餵入）
 │   ├── shared/                      # 無業務規則的共用 helper
 │   └── app/                         # composition root
 └── modules/                         # host automation 的內容根目錄（ansible-runner project dir）

@@ -81,8 +81,11 @@ flowchart LR
   | Redfish capability sweep | 探測 Redfish capability 未知或超過 24 小時的 BMC | 10 分鐘 |
   | artifact retention | 刪除超過 30 天的 Ansible 事件與 job artifact | 24 小時 |
 
-  Server 的 SSE 由 process 內的 event broker 發送；Prometheus 與 discovery 只在查詢時讀取，沒有迴圈。這些迴圈
-  不需要 lease，因為安裝只執行一個 api process（不支援多節點，見 api-server architecture spec 的部署假設）。
+  Server 的 SSE：每個 api process 以 store 的 change feed 監看 Server 紀錄（從啟動的當下開始，不存位置），讀出變更後的
+  Server 交給 process 內的 event broker 發送，所以 worker 與 executor 的寫入也會即時出現（relay 在
+  `internal/core/server/application/event_relay.go`）；只改觀察時間戳的寫入不送出。Prometheus 與 discovery 只在
+  查詢時讀取，沒有迴圈。這些迴圈不需要 lease，因為安裝只執行一個 api process（不支援多節點，見 api-server
+  architecture spec 的部署假設）。
 - **worker**：Temporal worker（task queue `swallow-operations`，driver workflow 與 provisioner、internal Runner 的
   activity），以及 desired-state controller（`internal/app/controllers.go`）。每個 controller 以 `controller_leases`
   的 lease 保證同時只有一個 instance 執行，由 change feed 與定期 resync 觸發：`workflow-dispatch`（派發與取消 Workflow，
