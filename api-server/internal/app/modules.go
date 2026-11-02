@@ -21,6 +21,7 @@ import (
 	dockerce "github.com/maple52046/swallow/modules/software/docker-ce"
 	"github.com/maple52046/swallow/modules/software/grafana"
 	"github.com/maple52046/swallow/modules/software/nfs"
+	nodeexporter "github.com/maple52046/swallow/modules/software/node-exporter"
 	"github.com/maple52046/swallow/modules/software/podman"
 	"github.com/maple52046/swallow/modules/software/prometheus"
 )
@@ -29,6 +30,7 @@ import (
 var compiledModules = []func() (moduledomain.Module, error){
 	kubernetes.Module, slurm.Module, amd.Module,
 	dockerce.Module, podman.Module, nfs.Module, prometheus.Module, grafana.Module, devicemetricsexporter.Module,
+	nodeexporter.Module,
 }
 
 // moduleRegistry returns the registry of the modules compiled into this build (decision 075). api,
@@ -277,7 +279,7 @@ func bootChainRenderers() provisioningdomain.BootChainRenderers {
 // exactly one module.
 var coreWorkflowKinds = []string{
 	"deploy-os", "release-os", "recover-server", "verify-os-image", "inspect-hardware",
-	"enroll-virtual-machines", "install-exporters", "uninstall-exporters", "configure-ntp", "custom",
+	"enroll-virtual-machines", "configure-ntp", "custom",
 }
 
 // coreCompletions are the completion types the core declares itself; every other type belongs to

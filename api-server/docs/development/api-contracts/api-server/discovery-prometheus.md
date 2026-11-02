@@ -68,7 +68,7 @@ configures no machine token, only an admin access token works.
 
 | Param | Type | Required | Default | Meaning |
 | --- | --- | ---: | --- | --- |
-| `port` | integer (1–65535) | No | `9100` | Exporter port to place in each target. `9100` is node-exporter; `5000` is the RDC exporter. |
+| `port` | integer (1–65535) | No | `9100` | Exporter port to place in each target. `9100` is node-exporter; `5000` is the RDC exporter, which swallow does not install on hosts, so that job returns series only from hosts that run one. |
 | `tag` | string | No | — | Restrict targets to servers carrying this provisioner tag. The RDC exporter job passes `tag=amd-gpu` so it only targets AMD GPU servers. |
 | `siteId` | string | No | — | Restrict to one site. |
 | `provisioningState` | string | No | `deployed` | Provisioning state filter. The literal `all` removes the filter. |

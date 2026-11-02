@@ -7,9 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/convergence"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
+	"github.com/maple52046/swallow/internal/core/store"
 )
 
 // autoInspectIntegrations lists fixed provisioner Integrations.
@@ -24,6 +26,15 @@ func (r *autoInspectIntegrations) List(_ context.Context, filter sitedomain.Inte
 	return r.integrations, nil
 }
 
+func (r *autoInspectIntegrations) FindByID(_ context.Context, id string) (*sitedomain.Integration, error) {
+	for _, integration := range r.integrations {
+		if integration.ID == id {
+			return integration, nil
+		}
+	}
+	return nil, sitedomain.ErrIntegrationNotFound
+}
+
 // autoInspectServers answers List per Integration and records the filter it was given.
 type autoInspectServers struct {
 	serverdomain.ServerRepository
@@ -33,8 +44,24 @@ type autoInspectServers struct {
 
 func (r *autoInspectServers) List(_ context.Context, filter serverdomain.ListFilter) (serverdomain.ListResult, error) {
 	r.filters = append(r.filters, filter)
-	servers := r.byIntegration[filter.IntegrationID]
+	var servers []*serverdomain.Server
+	for _, server := range r.byIntegration[filter.IntegrationID] {
+		if filter.ProvisioningState == "" || (server.Provisioning != nil && server.Provisioning.State == filter.ProvisioningState) {
+			servers = append(servers, server)
+		}
+	}
 	return serverdomain.ListResult{Servers: servers, Total: len(servers)}, nil
+}
+
+func (r *autoInspectServers) FindByID(_ context.Context, id string) (*serverdomain.Server, error) {
+	for _, servers := range r.byIntegration {
+		for _, server := range servers {
+			if server.ID == id {
+				return server, nil
+			}
+		}
+	}
+	return nil, serverdomain.ErrServerNotFound
 }
 
 // recordingInspections records launches; inspected Servers already had a Workflow and busy
@@ -61,7 +88,9 @@ func newServer(id, state string, createdAt time.Time) *serverdomain.Server {
 	return &serverdomain.Server{ID: id, CreatedAt: createdAt, Provisioning: &serverdomain.ProvisioningStatus{State: state}}
 }
 
-func TestAutoInspectUseCaseStartsFreshNewServersOnce(t *testing.T) {
+// The controller inspects only a fresh, present, unlocked new Server of an enabled provisioner
+// whose autoInspect is on, once, and leaves a busy one for a later pass.
+func TestAutoInspectControllerStartsFreshNewServersOnce(t *testing.T) {
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	fresh := now.Add(-time.Hour)
 	locked := newServer("locked", "new", fresh)
@@ -69,10 +98,11 @@ func TestAutoInspectUseCaseStartsFreshNewServersOnce(t *testing.T) {
 	absent := newServer("absent", "new", fresh)
 	absent.Absent = true
 	integrations := &autoInspectIntegrations{integrations: []*sitedomain.Integration{
-		{ID: "maas-on"},
-		{ID: "maas-off", Settings: map[string]string{SettingAutoInspect: "false"}},
+		{ID: "maas-on", Kind: sitedomain.IntegrationKindProvisioner, Enabled: true},
+		{ID: "maas-off", Kind: sitedomain.IntegrationKindProvisioner, Enabled: true, Settings: map[string]string{SettingAutoInspect: "false"}},
+		{ID: "maas-paused", Kind: sitedomain.IntegrationKindProvisioner},
 	}}
-	servers := &autoInspectServers{byIntegration: map[string][]*serverdomain.Server{
+	byIntegration := map[string][]*serverdomain.Server{
 		"maas-on": {
 			newServer("fresh", "new", fresh),
 			newServer("old", "new", now.Add(-AutoInspectWindow-time.Minute)),
@@ -81,27 +111,61 @@ func TestAutoInspectUseCaseStartsFreshNewServersOnce(t *testing.T) {
 			newServer("ready", "ready", fresh),
 			locked, absent,
 		},
-		"maas-off": {newServer("ignored", "new", fresh)},
-	}}
+		"maas-off":    {newServer("ignored", "new", fresh)},
+		"maas-paused": {newServer("paused", "new", fresh)},
+	}
+	for integrationID, servers := range byIntegration {
+		for _, server := range servers {
+			server.Source.IntegrationID = integrationID
+		}
+	}
+	servers := &autoInspectServers{byIntegration: byIntegration}
 	inspections := &recordingInspections{inspected: map[string]bool{"inspected": true}, busy: map[string]bool{"busy": true}}
-	uc := NewAutoInspectUseCase(integrations, servers, inspections)
-	uc.now = func() time.Time { return now }
+	controller := NewAutoInspectController(integrations, servers, inspections)
+	controller.now = func() time.Time { return now }
 
-	started, err := uc.Run(context.Background())
+	keys, err := controller.Keys(context.Background())
 	if err != nil {
-		t.Fatalf("Run error = %v", err)
-	}
-	if started != 1 || len(inspections.launched) != 1 || inspections.launched[0].ServerID != "fresh" {
-		t.Fatalf("started %d, launched %+v; want only the fresh new Server", started, inspections.launched)
-	}
-	if got := inspections.launched[0]; got.Origin != provisioningdomain.InspectionOriginAutomatic || got.RequestedBy != "system" {
-		t.Errorf("launch = %+v, want an automatic request by system", got)
+		t.Fatalf("Keys error = %v", err)
 	}
 	if !integrations.filter.EnabledOnly || integrations.filter.Kind != sitedomain.IntegrationKindProvisioner {
 		t.Errorf("integration filter = %+v, want enabled provisioners", integrations.filter)
 	}
-	if len(servers.filters) != 1 || servers.filters[0].ProvisioningState != "new" || servers.filters[0].IntegrationID != "maas-on" {
-		t.Errorf("server filters = %+v, want one new-state listing of maas-on", servers.filters)
+	for _, id := range []string{"fresh", "old", "inspected", "busy", "locked", "absent", "ignored", "paused", "ready", "missing"} {
+		if err := controller.Reconcile(context.Background(), convergence.Request{Key: id}); err != nil {
+			t.Errorf("Reconcile(%s) error = %v", id, err)
+		}
+	}
+	if len(inspections.launched) != 1 || inspections.launched[0].ServerID != "fresh" {
+		t.Fatalf("launched %+v; want only the fresh new Server", inspections.launched)
+	}
+	if got := inspections.launched[0]; got.Origin != provisioningdomain.InspectionOriginAutomatic || got.RequestedBy != "system" {
+		t.Errorf("launch = %+v, want an automatic request by system", got)
+	}
+	if strings.Contains(strings.Join(keys, ","), "ignored") || strings.Contains(strings.Join(keys, ","), "ready") {
+		t.Errorf("Keys() = %v, want only the new Servers of maas-on", keys)
+	}
+}
+
+// A changed Integration re-examines every candidate; a deleted Server needs nothing.
+func TestAutoInspectControllerKeysForChange(t *testing.T) {
+	integrations := &autoInspectIntegrations{integrations: []*sitedomain.Integration{
+		{ID: "maas-on", Kind: sitedomain.IntegrationKindProvisioner, Enabled: true},
+	}}
+	servers := &autoInspectServers{byIntegration: map[string][]*serverdomain.Server{"maas-on": {newServer("fresh", "new", time.Now())}}}
+	controller := NewAutoInspectController(integrations, servers, &recordingInspections{})
+
+	keys, err := controller.KeysForChange(context.Background(), store.Change{Collection: "integrations", Key: "maas-on", Operation: store.ChangeUpdate})
+	if err != nil || len(keys) != 1 || keys[0] != "fresh" {
+		t.Errorf("KeysForChange(integration) = %v, %v; want [fresh]", keys, err)
+	}
+	keys, _ = controller.KeysForChange(context.Background(), store.Change{Collection: "servers", Key: "s1", Operation: store.ChangeDelete})
+	if len(keys) != 0 {
+		t.Errorf("KeysForChange(deleted server) = %v, want none", keys)
+	}
+	keys, _ = controller.KeysForChange(context.Background(), store.Change{Collection: "servers", Key: "s1", Operation: store.ChangeUpdate})
+	if len(keys) != 1 || keys[0] != "s1" {
+		t.Errorf("KeysForChange(server) = %v, want [s1]", keys)
 	}
 }
 

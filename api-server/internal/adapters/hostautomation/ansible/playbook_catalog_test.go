@@ -110,6 +110,30 @@ func TestShippedManifestResolvesExporterPlaybooks(t *testing.T) {
 	}
 }
 
+// install-exporters and uninstall-exporters remain as aliases of the Node Exporter's software
+// playbooks, so a Task accepted under the old names still runs when it is retried.
+func TestRetiredExporterPlaybooksAliasTheNodeExporter(t *testing.T) {
+	catalog, err := LoadManifestCatalog(shippedManifest, modulesRoot)
+	if err != nil {
+		t.Fatalf("load shipped manifest: %v", err)
+	}
+	for alias, name := range map[string]string{
+		"install-exporters": "deploy-node-exporter", "uninstall-exporters": "uninstall-node-exporter",
+	} {
+		got, err := catalog.Resolve(alias)
+		if err != nil {
+			t.Fatalf("Resolve(%q) error = %v", alias, err)
+		}
+		want, err := catalog.Resolve(name)
+		if err != nil {
+			t.Fatalf("Resolve(%q) error = %v", name, err)
+		}
+		if got != want {
+			t.Errorf("Resolve(%q) = %q, want the %s playbook %q", alias, got, name, want)
+		}
+	}
+}
+
 func TestLocalRunnerDeletesEphemeralCredentials(t *testing.T) {
 	root := t.TempDir()
 	command := filepath.Join(root, "runner")

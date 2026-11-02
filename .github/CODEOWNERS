@@ -34,5 +34,6 @@
 /api-server/modules/software/docker-ce/             @maple52046
 /api-server/modules/software/grafana/               @maple52046
 /api-server/modules/software/nfs/                   @maple52046
+/api-server/modules/software/node-exporter/         @maple52046
 /api-server/modules/software/podman/                @maple52046
 /api-server/modules/software/prometheus/            @maple52046

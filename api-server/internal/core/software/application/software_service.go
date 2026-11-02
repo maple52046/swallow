@@ -1,6 +1,5 @@
 // Package application holds the Managed Software use cases: install, uninstall, list assignments,
-// read the catalog, and the OS-lifecycle sweep that marks assignments absent when a Server leaves
-// `deployed`. It composes the existing Workflow engine through a launcher port rather than owning
+// and read the catalog. It composes the existing Workflow engine through a launcher port rather than owning
 // any orchestration, keeping software deployment aligned with platform deployment
 // (docs/development/software-deployment.md, decision 038).
 package application
@@ -67,6 +66,14 @@ type MembershipChecker interface {
 	IsKubernetesMember(ctx context.Context, serverID string) (bool, error)
 }
 
+// ExporterOwnership reports whether swallow's host automation owns a Server's Prometheus exporters
+// (its Exporter Ownership), which gates a standalone install of the host-exporter kinds. It is a
+// port so the software context never reads the Server's Platform policy; the app layer resolves it
+// from the Server's lock and its Platform's exporter owner.
+type ExporterOwnership interface {
+	HostAutomationOwnsExporters(ctx context.Context, server *serverdomain.Server) (bool, error)
+}
+
 // PlatformNames resolves a claiming Platform's display name and type, so a refusal for a
 // Platform-claimed Server names the Platform. It is a port so the software context never reads the
 // platform context's model; an error leaves the refusal naming the Platform by id.
@@ -83,6 +90,7 @@ type SoftwareService struct {
 	assignments  softwaredomain.AssignmentRepository
 	servers      serverdomain.ServerRepository
 	membership   MembershipChecker
+	exporters    ExporterOwnership
 	launcher     SoftwareLauncher
 	// names is optional; see AttachPlatformNames.
 	names PlatformNames
@@ -90,7 +98,8 @@ type SoftwareService struct {
 
 // NewSoftwareService constructs the Managed Software use cases. transactor is required: an
 // install's or uninstall's Workflow and its assignment changes are written together. catalog is the
-// build's Software modules and accelerators its Accelerator modules. The launcher is attached later (like the platform launcher) to keep the
+// build's Software modules and accelerators its Accelerator modules. exporters is required by the
+// host-exporter kinds' install check. The launcher is attached later (like the platform launcher) to keep the
 // operation orchestration wiring in the app layer.
 func NewSoftwareService(
 	transactor store.Transactor,
@@ -99,10 +108,11 @@ func NewSoftwareService(
 	assignments softwaredomain.AssignmentRepository,
 	servers serverdomain.ServerRepository,
 	membership MembershipChecker,
+	exporters ExporterOwnership,
 ) *SoftwareService {
 	return &SoftwareService{
 		transactor: transactor, catalog: catalog, accelerators: accelerators,
-		assignments: assignments, servers: servers, membership: membership,
+		assignments: assignments, servers: servers, membership: membership, exporters: exporters,
 	}
 }
 
@@ -171,7 +181,7 @@ type installPlan struct {
 }
 
 // Install validates the request against the catalog, the target Servers' state, mutual exclusion,
-// required kinds, Kubernetes membership, Platform Claims, and GPU inventory, plans the install
+// required kinds, Kubernetes membership, Platform Claims, Exporter Ownership, and GPU inventory, plans the install
 // Workflow, and then writes the Workflow and a pending assignment per target in one transaction,
 // so a refused request (a busy or locked target) leaves neither. It returns the Workflow
 // (operation) id.
@@ -211,9 +221,10 @@ func (s *SoftwareService) Install(ctx context.Context, input InstallInput) (stri
 
 // PlanComposedInstall validates a software install that a platform deployment composes into its
 // own Workflow, without writing anything. It applies the same catalog, role, spec, mutual
-// exclusion, Kubernetes-member, and GPU rules as Install, but not the deployed-state, Requires, or
-// Platform Claim checks: the composing Workflow provisions its targets and installs the required
-// kinds in earlier Jobs, it is the Platform that claims them, and its ansible Tasks are still
+// exclusion, Kubernetes-member, and GPU rules as Install, but not the deployed-state, Requires,
+// Platform Claim, or Exporter Ownership checks: the composing Workflow provisions its targets and
+// installs the required kinds in earlier Jobs, it is the Platform that claims them, it decides who
+// owns the exporters of the Servers it deploys or uninstalls, and its ansible Tasks are still
 // accepted only through the operation layer's own checks.
 func (s *SoftwareService) PlanComposedInstall(ctx context.Context, input InstallInput) (ComposedInstall, error) {
 	plan, err := s.planInstall(ctx, input, true)
@@ -235,7 +246,8 @@ func (s *SoftwareService) RecordComposedInstall(ctx context.Context, install Com
 
 // planInstall validates and normalizes an install. composed skips the checks that a composing
 // Workflow satisfies by its own Job order (targets deployed, required kinds installed) and the
-// Platform Claim refusal, which exists to leave a Platform's Servers to that Platform.
+// Platform Claim and Exporter Ownership refusals, which exist to leave a Platform's Servers to that
+// Platform.
 func (s *SoftwareService) planInstall(ctx context.Context, input InstallInput, composed bool) (installPlan, error) {
 	software, ok := s.catalog.Lookup(input.Kind)
 	if !ok {
@@ -290,6 +302,9 @@ func (s *SoftwareService) planInstall(ctx context.Context, input InstallInput, c
 		}
 		if !composed {
 			if err := s.refuseClaimed(ctx, entry, server, "install"); err != nil {
+				return installPlan{}, err
+			}
+			if err := s.refuseForeignExporters(ctx, entry, server); err != nil {
 				return installPlan{}, err
 			}
 		}
@@ -382,6 +397,24 @@ func (s *SoftwareService) refuseClaimed(ctx context.Context, entry softwaredomai
 	}
 	return fmt.Errorf("%w: %s belongs to %s, which manages %s on its Servers; cannot %s it directly",
 		softwaredomain.ErrPlatformClaimed, server.DisplayName(), platform, entry.Label, verb)
+}
+
+// refuseForeignExporters returns ErrTargetIneligible when entry is a host exporter and swallow's
+// host automation does not own the Server's exporters: a Kubernetes Platform's exporters hold the
+// same port, and a locked Server is left alone.
+func (s *SoftwareService) refuseForeignExporters(ctx context.Context, entry softwaredomain.CatalogEntry, server *serverdomain.Server) error {
+	if !entry.HostExporter {
+		return nil
+	}
+	owned, err := s.exporters.HostAutomationOwnsExporters(ctx, server)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return fmt.Errorf("%w: %s's exporters are not installed by swallow's host automation (its Platform owns them, or the Server is locked)",
+			softwaredomain.ErrTargetIneligible, server.DisplayName())
+	}
+	return nil
 }
 
 // installedRuntime returns the entry's container runtime that is `installed` on the Server, or ""

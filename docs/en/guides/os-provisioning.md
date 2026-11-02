@@ -128,6 +128,18 @@ it checks every node's clock; see
 [Clock check](platforms.md#clock-check). A Server deployed before this step
 existed keeps its image's time setup until it is deployed again.
 
+## Node Exporter
+
+Each OS deployment also installs the [Node Exporter](managed-software.md#node-exporter)
+on every Server it deploys, after time synchronization, so the Server's usage charts
+work once it is up ([Monitoring](monitoring.md)); so does each Server a Platform
+deployment provisions, unless Kubernetes owns that Platform's exporters. The Server's
+Software list shows it as installed Managed Software. A failed install does not affect
+the OS: the Server is deployed, but the Workflow needs attention until you retry the
+**Install Node Exporter** step, for example after enabling EPEL on a RHEL-family image.
+Releasing or recovering a Server clears its Software Assignments, because the software
+went with the OS.
+
 ## Boot Media for networks without provisioner DHCP
 
 Some Servers sit on a network whose DHCP is run by the site, not by the

@@ -127,7 +127,12 @@ behavior.
 ```
 
 `type` is `kubernetes` or `slurm`. `gpuStackOwner` is `provisioning` or
-`gpu-operator`. `exporterOwner` is `ansible` (default) or `k8s`.
+`gpu-operator`. `exporterOwner` is `ansible` (default) or `k8s`: the Platform's
+[Exporter Ownership](../../../../../docs/development/glossaries/terms/exporter-ownership.md) policy.
+With `ansible` the deployment installs the Node Exporter on the Servers it provisions; with `k8s`
+the Kubernetes exporter DaemonSets own its members' exporters, so the deployment does not install
+it and a standalone Node Exporter install on a member is refused. Changing `exporterOwner` only
+records the policy; it installs and removes nothing.
 
 `gpuOperator` is the swallow-managed GPU Operator of a Kubernetes Platform (see
 [Manage The GPU Operator](#manage-the-gpu-operator)). It is `null` when swallow has never managed
@@ -414,6 +419,15 @@ separate time-check Task. The optional deploy field `timeSyncCheck` decides what
 | `warn` | is reported with `[time_sync_warning]` in the run output, and the installation continues |
 
 Any other value is `400 validation_error`. This applies to Kubernetes and Slurm alike.
+
+**Node Exporter.** As in an OS deployment, each Server a `provision_os` deploy provisions also
+gets the Node Exporter as Managed Software ([software.md](software.md#node-exporter)): a
+`configure-node-exporter` Job with `install-node-exporter-<serverId>` after that Server's
+`configure-ntp-<serverId>`, then `record-node-exporter-<serverId>`, which marks its
+`node-exporter` Software Assignment `installed`. `install-platform` does not wait for the Job and
+no Task depends on it, so a failed exporter install does not hold back the Platform; the Workflow
+ends `requires_attention` until the user retries it. A Platform whose `exporterOwner` is `k8s`
+gets no such Job, and reused or `existing_os` Servers are not reconfigured.
 
 A Kubernetes member's roles are `control-plane` or `worker`, and a `control-plane` member that also
 runs workloads adds `workloads`; a `worker` always runs workloads. (The read model's
@@ -1110,14 +1124,16 @@ OCI probe bundle, and the MPI probe (the `crun` and OpenMPI packages stay), and 
 
 On success swallow clears membership, releases the Platform's Platform Claims on its Servers,
 deletes only a credential Integration proven to be swallow-owned, and clears the Platform
-integration/sync projection. If Kubernetes owned
-exporters, swallow separately queues `install-exporters` for targets that remain present,
-deployed, and unlocked. That Workflow has its own failure lifecycle and does not roll back
-the uninstall.
+integration/sync projection. If Kubernetes owned the exporters (`exporterOwner` is `k8s`) and
+the servers are kept, the uninstall Workflow also has a `configure-node-exporter` Job after
+`uninstall-platform` that installs the Node Exporter as Managed Software
+([software.md](software.md#node-exporter)) on the targets that were present, deployed, and
+unlocked when the uninstall was accepted. The cleanup is done once `uninstall-platform`
+succeeds, so a failure of that Job does not roll back the uninstall.
 
 The record is removed as the last part of the success cleanup, with the same projections as a
 record-only delete, but without canceling Workflows, because the only Workflow still holding the
-targets is the uninstall that is completing. Exporter restoration is still queued as described
+targets is the uninstall that is completing. The Node Exporter Job still runs as described
 above.
 
 ## List, Get, Update, And Delete Only The Record
@@ -1128,7 +1144,8 @@ for list requests; the API does not fan out one Workflow query per Platform.
 
 `PATCH /api/v1/platforms/{platformId}` updates `name`, `gpuStackOwner`, `exporterOwner`, or
 `monitoringLinks`; omitted fields do not change. `PATCH` never changes the spec or `gpuOperator`;
-use [Change A Platform](#change-a-platform).
+use [Change A Platform](#change-a-platform). A changed `exporterOwner` is recorded only: no
+exporter is installed or removed.
 
 `monitoringLinks` replaces the whole list; `[]` clears it. At most 10 links. Each `name` is
 trimmed, required, at most 64 characters, and unique within the Platform (case-insensitive).
@@ -1242,6 +1259,10 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-03 a `provision_os` deploy installs the Node Exporter on the Servers it provisions
+  (a `configure-node-exporter` Job) unless `exporterOwner` is `k8s`, and a kept-servers uninstall
+  of a `k8s` Platform installs it in the same Workflow instead of queueing a separate
+  `install-exporters` Workflow afterwards. The request and response shapes are unchanged.
 - The aggregate was renamed from Cluster to Platform
   ([decision 015](../../../../../docs/decisions/015-platform-term-disambiguation.md) (platform term disambiguation)). Its one-release
   aliases were removed on 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)),

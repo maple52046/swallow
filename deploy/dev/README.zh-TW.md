@@ -148,7 +148,7 @@ gateway）不能跑在這台主機上：MAAS 的 chronyd 會追一個用它自�
 ## Seed demonstration Site
 
 Idempotent seed script 會建立 deployment key（`swallow-api deployment-key ensure`，即安裝步驟；API 啟動時不會建立）、login、建立 Site、註冊 in-Compose Prometheus Integration、
-設定 automation/playbook mapping，並在有提供資料時註冊 MAAS：
+設定 site automation，並在有提供資料時註冊 MAAS：
 
 ```bash
 cp .env.example .env
@@ -156,8 +156,8 @@ docker compose up -d
 bash seed.sh
 ```
 
-未提供 MAAS／SSH input 時會略過並顯示提示。觀察到 deployed Server 後，可依
-ownership policy 自動安裝 exporter；locked Server 保持 unmanaged。
+未提供 MAAS／SSH input 時會略過並顯示提示。每次 OS 佈署都會在佈署的 Server 上安裝
+Node Exporter；不是由 swallow 佈署的 Server 請以 Managed Software 安裝。locked Server 保持 unmanaged。
 
 若要以本機 MAAS snap 納管 libvirt 虛擬機，先給它的 rack 與 production 安裝相同的 SSH
 身分（已安裝的主機上 `local-maas.sh ensure-virsh-identity` 做的就是這件事），再 seed 它的公鑰：

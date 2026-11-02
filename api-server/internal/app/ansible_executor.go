@@ -126,10 +126,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	}
 	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignments})
 	credentials := platformapp.NewDeploymentCredentialService(transactor, platforms, integrations, membership)
-	durable := workflowapp.NewWorkflowService(transactor, orchestrations, workflowPlanCatalog(modules.workflowKinds, modules.software), operationSecrets)
-	operationService := workflowapp.NewExecutionService(servers, configurations, catalog, modules.workflowKinds, runner, ansibleEvents, platformapp.NewPolicyChecker(platforms, servers), protection)
-	operationService.AttachWorkflow(durable)
-	results := workflowResults(platformDeploymentObserver{credentials: credentials, platforms: platformService, operations: operationService, servers: servers},
+	results := workflowResults(platformDeploymentObserver{credentials: credentials, platforms: platformService},
 		modules.credentials...)
 	// Ansible Tasks arrive as Temporal activities on the executor's own task queue (decision 072).
 	temporalClient, err := dialTemporal(ctx, client.Options{HostPort: cfg.TemporalAddress, Namespace: cfg.TemporalNamespace}, temporalDialTimeout)

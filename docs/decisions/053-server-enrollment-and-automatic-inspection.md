@@ -36,7 +36,9 @@ in Commissioning until a timeout, while the user's fix is Boot Media
   meantime is applied before the next commission.
 - **Inspection starts automatically** for fresh enrollments only — a `new`, unlocked Server first
   observed recently, on an enabled Integration that has not turned it off, that never had an
-  inspection Workflow. The reconciler stays a read-only projection; a separate sweep starts it.
+  inspection Workflow. The reconciler stays a read-only projection: the Integration's
+  `autoInspect` setting is the user's declared policy, and the worker's `auto-inspect` controller
+  realizes it by starting the Workflow.
 - **Manual Inspect uses the same Workflow**, without the enrollment wait, or retries the one
   waiting for attention.
 - **Existing-OS enrollment is one command on the host**: it downloads an enrollment script and the
@@ -85,3 +87,4 @@ made a retried run wait again instead of succeeding at once
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-03: automatic inspection is started by the worker's `auto-inspect` controller instead of a separate sweep in the API process.

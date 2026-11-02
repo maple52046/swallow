@@ -73,7 +73,11 @@ import (
 //
 // v10 retires the schema-v2 Operation records (decision 074): the `operations` collection, which
 // held only them since v4, is dropped. Like v3 it destroys data, so it needs backup confirmation.
-const CurrentSchemaVersion = 10
+//
+// v11 removes the retired install-exporters and uninstall-exporters kinds from the Sites'
+// playbookMappings: the host exporters are the Node Exporter's Managed Software, and a mapping of
+// a kind the release no longer accepts would refuse every later save of the configuration.
+const CurrentSchemaVersion = 11
 
 // OldestUpgradableSchemaVersion is the oldest schema Migrate upgrades from; an older database
 // has no supported upgrade path. A release's manifest lists every schema from this one up to
@@ -214,6 +218,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v9 to v10: %w", err)
 			}
 			state.Version = 10
+		case 10:
+			if err := migrateV10ToV11(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v10 to v11: %w", err)
+			}
+			state.Version = 11
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}

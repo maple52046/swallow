@@ -6402,10 +6402,10 @@ export interface components {
             retry: "task" | "job";
         };
         /**
-         * @description What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings.
+         * @description What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings. `install-exporters` and `uninstall-exporters` are no longer accepted; they appear only on Workflows created by an earlier release (the Node Exporter is Managed Software, `configure-node-exporter` and `uninstall-node-exporter`).
          * @enum {string}
          */
-        WorkflowKind: "deploy-os" | "release-os" | "recover-server" | "verify-os-image" | "inspect-hardware" | "enroll-virtual-machines" | "install-gpu-driver" | "deploy-kubernetes" | "uninstall-kubernetes" | "configure-gpu-operator" | "configure-slurm" | "uninstall-slurm" | "install-exporters" | "uninstall-exporters" | "deploy-k8s-exporters" | "remove-k8s-exporters" | "configure-docker-ce" | "uninstall-docker-ce" | "configure-podman" | "uninstall-podman" | "configure-nfs" | "uninstall-nfs" | "configure-prometheus" | "uninstall-prometheus" | "configure-grafana" | "uninstall-grafana" | "configure-omnistat" | "configure-device-metrics-exporter" | "uninstall-device-metrics-exporter" | "configure-ntp" | "custom";
+        WorkflowKind: "deploy-os" | "release-os" | "recover-server" | "verify-os-image" | "inspect-hardware" | "enroll-virtual-machines" | "install-gpu-driver" | "deploy-kubernetes" | "uninstall-kubernetes" | "configure-gpu-operator" | "configure-slurm" | "uninstall-slurm" | "install-exporters" | "uninstall-exporters" | "deploy-k8s-exporters" | "remove-k8s-exporters" | "configure-docker-ce" | "uninstall-docker-ce" | "configure-podman" | "uninstall-podman" | "configure-nfs" | "uninstall-nfs" | "configure-prometheus" | "uninstall-prometheus" | "configure-grafana" | "uninstall-grafana" | "configure-omnistat" | "configure-device-metrics-exporter" | "uninstall-device-metrics-exporter" | "configure-node-exporter" | "uninstall-node-exporter" | "configure-ntp" | "custom";
         /** @description The pagination envelope (conventions.md, Pagination) over Workflows. */
         WorkflowPage: {
             items: components["schemas"]["Workflow"][];

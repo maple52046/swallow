@@ -91,7 +91,8 @@ GPU workload 重啟，所以會先提成 Change Plan 待核准。仍有 Pod 使�
 與 DRA 或卸載都會被拒絕，請先停止那些工作。卸載 operator 不會影響 Platform 本身。swallow 不會
 接管手動安裝的 operator。
 
-Device Metrics Exporter 供叢集自己的監控使用；swallow 的 GPU 圖表照舊讀取主機上的 exporter。
+Device Metrics Exporter 供叢集自己的監控使用；swallow 的 GPU 圖表讀取主機上執行中的 RDC exporter，
+swallow 不會安裝它。
 
 ## Slurm
 

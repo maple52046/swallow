@@ -30,9 +30,9 @@ component 組成的 runtime；software deployment 佈署單一軟體及其變體
   （k0s：binary + containerd + CNI + 角色；Slurm：slurmctld + slurmd + munge + 選用 login/NFS）。
 
 兩者都是 convergent Workflow、都用 Ansible、都可能碰到 Server provisioning。**與 provisioning
-的關係只是能力與預設編排的差異**：software 獨立入口預期目標已 `deployed`（與 `install-exporters`
-相同），platform 常組 `ensure-os`。software Workflow **可以**以後組 `ensure-os`，platform **也
-可以**只跑 existing OS；因此不能用「有沒有 provision OS」「有沒有 claim」「有沒有 membership」來
+的關係只是能力與預設編排的差異**：software 獨立入口預期目標已 `deployed`，platform 常組
+`ensure-os`，OS deployment 則在部署好的 OS 上組入 Node Exporter（§5）。software Workflow
+**可以**以後組 `ensure-os`，platform **也可以**只跑 existing OS；因此不能用「有沒有 provision OS」「有沒有 claim」「有沒有 membership」來
 判斷這是 software 還是 platform——那些是後果，不是本質。
 
 連動時最清楚：Slurm（platform）**組入** NFS（software）；未來 k8s **組入** Docker CE。Platform 是
@@ -76,6 +76,7 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
 | `prometheus` | 無 role；`installMethod`；`containerRuntime` | `installMethod`（`container` 預設／`native`）、`containerRuntime`（container method：`docker-ce`／`podman`）、`version`（release 版本 `x.y.z`，預設 `3.15.0`）、`listen`（`loopback` 預設／`management`）、`retention`（Prometheus duration，預設 `15d`）、`scrapeJob`、`scrapeTargets`（`host:port`）、`scrapeServerIds` + `scrapePort`（同 Site 的 Server，每次執行時以 inventory 解析成當下的 primary address） | container method 需 runtime 已 `installed` |
 | `grafana` | 無 role；`installMethod`；`containerRuntime` | `installMethod`、`containerRuntime`、`version`（預設 `12.4.12`）、`prometheusUrl`（省略＝同機 Prometheus）、`dashboards`（bundle：`omnistat`、`device-metrics-exporter`） | container method 需 runtime 已 `installed` |
 | `device-metrics-exporter` | 無 role；只有 native 一種安裝路徑 | 無（版本固定 `1.5.3`，assignment spec 記錄 `version`） | GPU Inventory 須有 AMD compute GPU；拒絕 Kubernetes member 與帶 Platform Claim 的 Server（`refusedForClaimedServers`，install 與 uninstall 皆拒）；OS 限 Ubuntu 24.04（playbook 檢查） |
+| `node-exporter` | 無 role；只有 OS 套件一種安裝路徑 | 無（版本由 OS 套件決定） | standalone install 拒絕 Exporter Ownership 不是 `ansible` 的 Server；OS 限 Debian／Ubuntu 與 RHEL 家族（playbook 檢查） |
 
 catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴充新 kind（未來 PostgreSQL、LDAP client）
 就是新增一個 Software 模組，前提是仍只依賴本文件的契約：
@@ -134,7 +135,7 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
 standalone 安裝與 Slurm 功能（§5）是同一個 kind、同一支 playbook 與 role（`roles/device_metrics_exporter`），
 因此每個 swallow 管理的 exporter 都有 Software Assignment。它只有一種安裝路徑：AMD 的 pinned native 套件
 （`amdgpu-exporter`，SHA-256 驗證；沒有 `container` method）。exporter 綁 management address 的 port `5001`
-（`5000` 是 swallow 抓取的 RDC exporter）、profiler 關閉。請求不接受任何 spec 欄位（帶了即
+（`5000` 是 RDC exporter 的 port，仍保留）、profiler 關閉。請求不接受任何 spec 欄位（帶了即
 `validation_error`），assignment 的 spec 記錄 `{ "version": "1.5.3" }`。job attribution 由 trusted var 決定：
 standalone 為 `none`（`-enable-slurm-scl=false`），Slurm 組入時為 `slurm`。
 
@@ -157,6 +158,23 @@ standalone 為 `none`（`-enable-slurm-scl=false`），Slurm 組入時為 `slurm
 Prometheus／Grafana、為何不從 projection 判斷 OS）見
 [decision 068](../decisions/068-device-metrics-exporter-managed-software.md) (device metrics exporter managed software)。
 
+**Node Exporter**：Prometheus 的 host exporter，安裝 OS 發行版的套件（Debian／Ubuntu 以 apt 安裝
+`prometheus-node-exporter`；RHEL 家族以 dnf 安裝 `node_exporter`，來自 EPEL），由套件自己的 systemd service 執行，
+port `9100`。主機不安裝也不需要 Docker 或任何 container。
+
+- **組入 OS 部署**：每個 OS 部署都在它 provision 的每台 Server 上安裝 Node Exporter（§5），因此 swallow 部署的
+  Server 都有它的 Software Assignment。swallow 沒有部署的 Server（existing-OS enrollment 或匯入、直接在 MAAS 部署、
+  OS image verification 留下的 Server）不會自動安裝，由 user 以 Managed Software 安裝。
+- **目標資格**（建立 Workflow 前檢查，不符為 `409 conflict`）：standalone install 只接受
+  [Exporter Ownership](glossaries/terms/exporter-ownership.md) 為 `ansible` 的 Server；Kubernetes Platform 的
+  `exporterOwner` 為 `k8s`（它的 DaemonSet 使用同一個 port）或 Server locked 時拒絕。組入的安裝由編排它的
+  Workflow 決定 exporter 的擁有者，不做這項檢查。請求不接受任何 spec 欄位。
+- **OS**：playbook 依 OS 家族選套件；其他 OS 家族以 `node_exporter_unsupported_os` 失敗，repository 沒有該套件
+  （例如 RHEL 家族未啟用 EPEL）以 `node_exporter_package_unavailable` 失敗。
+- **舊的 container unit**：安裝前先停止並移除 swallow 舊的 containerised node-exporter（systemd unit
+  `swallow-node-exporter.service` 與它的 container，佔用 port 9100）；Docker 本身與主機上已有的 RDC container 不動。
+- uninstall 停止 service 並移除套件。
+
 ## 3. Software Assignment（durable record）
 
 swallow-owned collection `software_assignments`，鍵 `(serverId, kind)`：
@@ -177,8 +195,13 @@ swallow-owned collection `software_assignments`，鍵 `(serverId, kind)`：
 解析），再在一個 transaction 內寫入 Workflow 與每台 target 的 `pending` assignment；uninstall 同樣把 Workflow 與
 `uninstalling` 一起寫入。被拒的請求（target busy 或 locked）不留下 Workflow，也不留下 assignment 的變更。
 
-**OS 生命週期**：Server 離開 `deployed`（release / recover 回 `ready` / 重裝）時，其所有 assignment
-標為 `absent`（背景 sweep，週期與 membership sync 相同），避免「記錄說有 Docker、磁碟已無」。
+**OS 生命週期**：拿走 Server OS 的 Workflow——release-os（包括 Platform uninstall 的 `release-servers` Job）、
+recover-server，以及 OS image verification 歸還 Server 的 recover Task——成功時，該 Task 的
+`server-deployment-cleared` 完成行為在 Task 的 transaction 內清除 deployment 記錄，並把該 Server 所有尚未
+`absent` 的 assignment 標為 `absent`（保留各記錄的 `lastWorkflowId`）。OS 在 swallow 之外被移除時由 reconcile
+處理：它觀察到機器為 `ready` 或 `allocated`（沒有 OS）時，把該 Server 的 assignment 標為 `absent`，與清除過時的
+deployment 記錄、Server Default User 一起。`rescue` 或 `broken` 的 Server 保留 assignment（OS 仍在磁碟上）。
+這避免「記錄說有 Docker、磁碟已無」。
 Assignment 是 swallow-owned intent + last-applied，**不是**第四條 Server status 軸
 （三軸 `provisioning`/`membership`/`health` 不變）。
 
@@ -233,7 +256,9 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 
 - 每個 kind 的 `deploy-<kind>` 與 `uninstall-<kind>` 註冊於
   [`api-server/modules/manifest.json`](../../api-server/modules/manifest.json)（舊名
-  `configure-device-metrics-exporter` 仍指向 DME 同一支 playbook，供 decision 068 之前受理的 Workflow 重試）。
+  `configure-device-metrics-exporter` 仍指向 DME 同一支 playbook，供 decision 068 之前受理的 Workflow 重試；
+  `install-exporters`、`uninstall-exporters` 指向 Node Exporter 的 `deploy-node-exporter`、`uninstall-node-exporter`，
+  供以舊名受理的 Task 重試）。
   每個 kind 是一個模組，playbook 在
   `api-server/modules/software/<kind>/playbooks/`、專屬 role 在同一模組的 `roles/`；DME 使用 `shared/roles/` 的
   `device_metrics_exporter` 與 `amdgpu_loader`（Slurm 也使用它們）。
@@ -348,6 +373,15 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
   catalog／role／spec／互斥／k8s 規則，但不檢查 deployed 與 runtime 狀態，因為由 Job 順序保證）；
   launcher 在寫入 Workflow 的同一個 transaction 中呼叫 `RecordComposedInstall` 寫入 pending assignment
   （decision 069），寫入失敗會讓整個 deploy 受理失敗；安裝失敗由 install Task 宣告的 `software-assignment-failure` 標 `failed`。
+- **OS 部署組入 Node Exporter**：deploy-os Workflow 在每台 provision 的 Server 的 `configure-ntp-<serverId>` 之後
+  加上 `install-node-exporter-<serverId>`（ansible，跑 `deploy-node-exporter`）與 `record-node-exporter-<serverId>`
+  （internal `record-software-assignment`）；Workflow 受理時寫入 pending assignment，安裝失敗由
+  `software-assignment-failure` 標 `failed`。這兩個 Task 是葉節點，沒有 Task 依賴它們，因此 exporter 失敗不會擋住
+  OS，但 Workflow 會停在 `requires_attention` 直到 user 重試。Platform 部署的 `ensure-os` 對它 provision 的 Server
+  做同樣的事（獨立的 `configure-node-exporter` Job，`install-platform` 不等它），Platform 的 `exporterOwner` 為
+  `k8s` 時不組入；保留主機且 `exporterOwner` 為 `k8s` 的 Platform uninstall 在 `uninstall-platform` 之後為保留的
+  Server 組入同一個 Job（[platform-deployment.md](platform-deployment.md) §2.1、§2.4）。組入的安裝不檢查
+  Exporter Ownership；`ensure-os` 重用或已有 OS 的 Server 不重新安裝。
 - **禁止** `ExecuteChildWorkflow` 一個完整的獨立 software Workflow（會重複 `wait-for-ssh`、搶同一
   Server 的資源所有權、retry/cancel 歸屬混亂、出現兩個 user-visible Workflow）。
 - **禁止**只用 ansible `include_role` 當唯一連動（會抹掉 Job 邊界與 dashboard 分組）。playbook 內部
@@ -377,13 +411,15 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
 | Software domain（Assignment、`Catalog` 與 `Software` hook 的 port、spec helper、repository 介面） | `api-server/internal/core/software/domain/` |
 | 各 kind 的 catalog entry、spec 驗證與正規化、trusted vars（`software` hook） | `api-server/modules/software/<kind>/module.go` |
 | 由 registry 組出 catalog 與 Workflow kind | `api-server/internal/app/modules.go`（`composeModules`） |
-| Software use cases（Install / Uninstall / List / Catalog / Sweep） | `api-server/internal/core/software/application/` |
+| Software use cases（Install / Uninstall / List / Catalog） | `api-server/internal/core/software/application/` |
 | Software Mongo repo | `api-server/internal/adapters/store/mongodb/software/` |
 | Software HTTP handler | `api-server/internal/core/software/delivery/` |
 | Software launcher（Job 組裝；playbook 由 kind 推導，definition 記成模組的 `software/<kind>@<version>`） | `api-server/internal/app/software_deployment_adapter.go` |
 | record/clear internal step | `api-server/internal/app/platform_workflow_step_executor.go` |
 | 失敗標記（`software-assignment-failure` 完成行為） | `api-server/internal/app/workflow_completions.go`、`api-server/internal/app/software_assignment_failure.go` |
-| Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用）與 `amdgpu_loader`；撰寫規則見[模組撰寫指南](module-authoring.md) |
+| OS 被拿走時標 `absent`（`server-deployment-cleared` 完成行為；reconcile） | `api-server/internal/app/workflow_completions.go`（`clearSoftwareAssignments`）；`api-server/internal/core/provisioning/application/reconcile.go`（`clearStaleOSState`） |
+| Node Exporter（catalog entry、組入 OS 部署） | `api-server/modules/software/node-exporter/module.go`；組入：`api-server/internal/app/node_exporter_planner.go` |
+| Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`、`node_exporter`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用）與 `amdgpu_loader`；撰寫規則見[模組撰寫指南](module-authoring.md) |
 | Docker Host Explorer（view types、use case、Engine client、handler 與路由） | 全部在 docker-ce 模組：`api-server/modules/software/docker-ce/explorer/`（view types、`DockerExplorerUseCase`）、`explorerhttp/`（handler 與 `RegisterRoutes`）、`dockerengine/`（Engine client）；`EngineAPIPort`、`SpecEnableAPI` 與 `APIEnabled` 在 root package `api-server/modules/software/docker-ce/module.go` |
 | Registry Credential（registry 正規化與解析、service、sealed Mongo repo、handler） | `api-server/internal/core/software/domain/registry.go`、`application/registry_credentials.go`、`delivery/registry_credential_handler.go`、`api-server/internal/adapters/store/mongodb/software/mongo_registry_credential_repo.go` |
 | Device Metrics Exporter（pinned version、port、job attribution） | `api-server/internal/core/software/domain/device_metrics_exporter.go`；Slurm 組入：`api-server/internal/app/slurm_composition_adapter.go` |

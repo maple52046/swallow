@@ -145,7 +145,7 @@ kind `inspect-hardware`、definition `hardware-inspection` v1，一個 target Se
 | `inspect-<serverId>` | `inspect` | `provisioner` | provider 已檢視硬體，Server 為 `ready` |
 
 Workflow 的 intent snapshot 記錄檢視的 origin（欄位名 `origin`，與 Server 的 [Server Origin](glossaries/terms/server-origin.md)
-無關）：`automatic`（自動 sweep）或 `requested`（user 的 Inspect）。它決定 enrollment wait 的行為（§2.2）與已經 `ready` 時是否重檢（§2.3）。這些 kind 與 Task ID 前綴是
+無關）：`automatic`（自動檢視，§2.4）或 `requested`（user 的 Inspect）。它決定 enrollment wait 的行為（§2.2）與已經 `ready` 時是否重檢（§2.3）。這些 kind 與 Task ID 前綴是
 published vocabulary，改名會破壞已持久化的 Workflow。
 
 **不變式**：swallow 從不自行設定 Server 的 provisioning state，也不把 Server 標成 failed；attention 留在
@@ -199,17 +199,20 @@ commission 會與 enlistment 開機競速。
 
 ### 2.4 自動檢視
 
-API process 內、與 reconciler 分開的 sweep（reconcile interval）在以下條件全部成立時啟動
-`inspect-hardware` Workflow（requested by `system`，origin `automatic`）：
+已啟用的 provisioner Integration 的 `settings.autoInspect` 是 user 宣告的政策，由 worker 的 `auto-inspect`
+controller 實現：它與其他 controller 一樣以 lease 保證單一 instance、以 Server 為 key，由 `servers` 與
+`integrations` 的變更喚醒，另有定期 resync（預設 10 分鐘）。以下條件全部成立時，它啟動 `inspect-hardware`
+Workflow（requested by `system`，origin `automatic`）：
 
-- provisioner Integration 已啟用，且 `settings.autoInspect` 不是 `"false"`（每次 sweep 都重讀；未設定即開啟，
-  見 [sites-integrations.md](../../api-server/docs/development/api-contracts/api-server/sites-integrations.md)）；
+- provisioner Integration 已啟用，且 `settings.autoInspect` 不是 `"false"`（未設定即開啟，見
+  [sites-integrations.md](../../api-server/docs/development/api-contracts/api-server/sites-integrations.md)）。controller
+  每次檢查都讀取它，Integration 的任何變更都會重新檢查它的候選 Server，所以改設定不需要重啟任何服務；
 - Server present、未被 lock、provisioning state 為 `new`；
 - swallow 在 24 小時內首次觀察到該 Server；
 - 該 Server 從未有過任何狀態的 `inspect-hardware` Workflow（一次性，失敗或取消的自動檢視不會被迴圈重試）；
 - 沒有其他 Workflow 佔用該 Server。
 
-reconciler 維持唯讀投影；被拒、busy、locked 的 Server 只記 debug log、下次再看。超過 24 小時的 `new`
+reconciler 維持唯讀投影；被拒、busy、locked 的 Server 只記 debug log，由下一次變更或 resync 再看。超過 24 小時的 `new`
 Server、existing-OS enrollment 的 `deployed` Server，以及自動檢視失敗或取消的 Server，只能手動 Inspect。
 
 ### 2.5 手動 Inspect 與 retry
@@ -592,7 +595,7 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 | --- | --- |
 | `inspect-hardware` Workflow 組裝、手動 Inspect 的 gate 與 resume | `internal/app/hardware_inspection_adapter.go` |
 | `wait-enrollment-settled` 與 `inspect` Task | `internal/app/inspection_steps.go` |
-| 自動檢視 sweep、`autoInspect` setting、24 小時視窗 | `internal/core/provisioning/application/hardware_inspection.go` |
+| 自動檢視 controller（`AutoInspectController`）、`autoInspect` setting、24 小時視窗 | `internal/core/provisioning/application/hardware_inspection.go`；接線在 `internal/app/worker.go` |
 | 可檢視的 state（inspection policy） | `internal/core/provisioning/domain/inspection_policy.go` |
 | MAAS enrollment observation 與 existing-host enrollment | `internal/adapters/osprovisioning/maas/enrollment.go` |
 | enroll-bundle 與 enrollment script | `internal/core/provisioning/application/host_enrollment.go` |

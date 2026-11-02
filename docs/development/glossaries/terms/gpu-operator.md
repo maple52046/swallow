@@ -20,7 +20,8 @@
 - Disallowed meaning: Not Managed Software — the deploy target is the Platform, not one Server,
   so it is a Platform deployment Job rather than a software kind. Not a GPU driver installation.
   Not a metrics Integration: the operator's Device Metrics Exporter is never scraped by swallow,
-  whose charts keep reading the host RDC exporter.
+  whose GPU charts read the RDC exporter's scrape job (swallow does not install the RDC exporter
+  on hosts).
 - Synonyms: "AMD GPU Operator" when the vendor matters.
 - Deprecated terms: None.
 - Examples: "Deploy the Platform with the AMD GPU Operator in Device Plugin mode on its three GPU
@@ -30,3 +31,4 @@
   Ownership, Workflow.
 - Change note: Added when swallow started installing the AMD GPU Operator ([decision 062](../../../decisions/062-swallow-managed-gpu-operator.md) (swallow managed gpu operator)). Before
   it, `gpuStackOwner=gpu-operator` was only a policy flag and swallow installed no operator.
+  2026-11-03: the GPU charts no longer rely on a host RDC exporter that swallow installs.

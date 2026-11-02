@@ -26,12 +26,20 @@
       "path": "platform/slurm/playbooks/uninstall-slurm.yml"
     },
     {
+      "name": "deploy-node-exporter",
+      "path": "software/node-exporter/playbooks/deploy-node-exporter.yml"
+    },
+    {
+      "name": "uninstall-node-exporter",
+      "path": "software/node-exporter/playbooks/uninstall-node-exporter.yml"
+    },
+    {
       "name": "install-exporters",
-      "path": "shared/playbooks/install-exporters.yml"
+      "path": "software/node-exporter/playbooks/deploy-node-exporter.yml"
     },
     {
       "name": "uninstall-exporters",
-      "path": "shared/playbooks/uninstall-exporters.yml"
+      "path": "software/node-exporter/playbooks/uninstall-node-exporter.yml"
     },
     {
       "name": "deploy-k8s-exporters",

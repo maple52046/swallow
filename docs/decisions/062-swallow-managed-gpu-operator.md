@@ -45,8 +45,8 @@ with a choice between the device plugin and DRA, and want to change those settin
   Swallow manages one, the policy cannot be set back to `provisioning`. A `gpu-operator` Platform
   without a Swallow-managed operator still means an operator managed outside Swallow.
 - **Monitoring is unchanged.** The operator's Device Metrics Exporter is optional, never uses host
-  networking, and is not scraped by Swallow; the host RDC exporter keeps the fixed port 5000
-  (decision 003, 2026-10-12 amendment).
+  networking, and is not scraped by Swallow; host port 5000 stays reserved for the RDC exporter
+  (decision 003, 2026-10-12 amendment), which Swallow does not install on hosts.
 
 ## Alternatives considered
 
@@ -83,3 +83,4 @@ with a choice between the device plugin and DRA, and want to change those settin
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-03: stated that port 5000 stays reserved for the RDC exporter, which Swallow no longer installs on hosts; the decision is unchanged.

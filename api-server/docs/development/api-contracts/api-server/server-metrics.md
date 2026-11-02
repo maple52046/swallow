@@ -79,8 +79,10 @@ container is not counted twice. A bonded interface and its members are both phys
 and are both counted.
 
 The GPU metrics are vendor-neutral: each evaluates the NVIDIA DCGM series or the AMD RDC
-series, so one metric name serves both stacks. A server that runs no GPU exporter simply
-returns no value for these.
+series, so one metric name serves both stacks. GPU series exist only where a GPU exporter runs:
+swallow does not install the RDC exporter on hosts, so an AMD server returns values only when
+an RDC exporter already runs on it (or the Kubernetes exporter DaemonSet does). A server that
+runs no GPU exporter simply returns no value for these.
 
 **Scope aggregate** is how a metric combines several Servers into one series in the range
 query's `aggregate` mode (below): utilisation and fill levels average, throughput and power

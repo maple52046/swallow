@@ -22,9 +22,11 @@ Grafana is optional: connect one when you want exploration beyond the basic char
 2. **Register it as the Site's metrics Integration** (below). Until a metrics
    Integration exists, the charts say that no metrics backend is configured —
    they do not report your Servers as down.
-3. **Deploy Servers as usual.** When a Server reaches `deployed`, swallow installs
-   its exporters automatically (see [Exporters](#exporters)); a few minutes later
-   the Server's **Monitoring** tab shows its usage history.
+3. **Deploy Servers as usual.** Every OS deployment installs the Node Exporter on the
+   Servers it deploys (see [Exporters](#exporters)); a few minutes later the Server's
+   **Monitoring** tab shows its usage history. A Server swallow did not deploy (for
+   example one enrolled with its OS kept) gets it when you install the **Node Exporter**
+   as Managed Software.
 
 ## Configure the integration
 
@@ -56,15 +58,17 @@ installed its exporters:
 
 | Exporter | Port | Installed on |
 | --- | --- | --- |
-| node-exporter | 9100 | every managed Server (CPU, memory, disk, network) |
-| [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | AMD GPU Servers, identified by the tag `amd-gpu` |
+| node-exporter | 9100 | every Server swallow deploys (CPU, memory, disk, network), from the OS package: `prometheus-node-exporter` on Debian and Ubuntu, `node_exporter` on the RHEL family (from EPEL) |
+| [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | swallow does not install it on hosts; Prometheus scrapes it on AMD GPU Servers (tag `amd-gpu`) that already run one |
 
 Exactly one owner installs each Server's exporters:
 
-- a Server in no Platform is owned by swallow, which installs the exporters after OS
-  deployment;
+- a Server in no Platform is owned by swallow: each OS deployment installs the Node
+  Exporter, and you can install it as Managed Software on a Server swallow did not deploy;
 - a member of a Kubernetes Platform follows the Platform's `exporterOwner`
-  (`ansible` — swallow installs them — or `k8s` — a DaemonSet on the same ports);
+  (`ansible` — swallow installs the Node Exporter — or `k8s` — a DaemonSet on the same
+  ports). Changing `exporterOwner` only records the choice; it does not install or remove
+  exporters;
 - a locked Server is unmanaged: swallow neither installs nor removes anything.
 
 ## Usage charts

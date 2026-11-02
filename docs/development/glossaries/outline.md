@@ -60,7 +60,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Server Lock](terms/server-lock.md): A provider-side protection that blocks Server, provisioner, and host mutations without hiding the Server or stopping monitoring.
 - [Server Origin](terms/server-origin.md): How a Server arrived — `discovered`, `enrolled`, or `imported`; display only.
 - [Server Default User](terms/server-default-user.md): The OS account automation logs in as with the Deployment Key — set on the Server (verified, optionally installing the key with a one-time password) or else the deployed OS Image's default user; Docker CE adds it to `docker`.
-- [Server Type](terms/server-type.md): A derived classification by GPU capability — `cpu`, `amd-gpu`, or (reserved) `nvidia-gpu` — that decides which exporters a host runs; AMD is identified by the MAAS tag `amd-gpu`.
+- [Server Type](terms/server-type.md): A derived classification by GPU capability — `cpu`, `amd-gpu`, or (reserved) `nvidia-gpu` — that decides which scrape jobs target a host; AMD is identified by the MAAS tag `amd-gpu`.
 - [GPU Inventory](terms/gpu-inventory.md): Provider-observed GPU groups classified as workload `compute` accelerators or non-capacity `display` controllers.
 - [Tag](terms/tag.md): A user-facing label on a Server — manual tags set in the Server spec, automatic tags computed by the provisioner; observed tags drive Server Type and discovery filters.
 - [BMC](terms/bmc.md): A physical Server's out-of-band management controller: its connection facts from the provisioner and swallow's probe of its Redfish capability (virtual media, boot override); independent of the provisioner's power driver.

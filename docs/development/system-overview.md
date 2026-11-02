@@ -78,9 +78,6 @@ flowchart LR
   | reconciler | 從每個 provisioner 投影 Server，記錄 Integration 的同步狀態 | 30 秒 |
   | inventory sweep | 更新 GPU 與附屬硬體的 inventory | 15 分鐘 |
   | membership sync | 讀 Platform 的 runtime API（Kubernetes、slurmrestd），寫入 membership | 30 秒 |
-  | auto exporter deploy | 為新部署、exporter 由 swallow 管理的 Server 建立 `install-exporters` Workflow | 30 秒 |
-  | auto inspect | 為新 enroll 的 Server 建立 `inspect-hardware` Workflow | 30 秒 |
-  | software assignment sweep | Server 離開 `deployed` 時把它的 Software Assignment 標為 `absent` | 30 秒 |
   | Redfish capability sweep | 探測 Redfish capability 未知或超過 24 小時的 BMC | 10 分鐘 |
   | artifact retention | 刪除超過 30 天的 Ansible 事件與 job artifact | 24 小時 |
 
@@ -90,7 +87,8 @@ flowchart LR
   activity），以及 desired-state controller（`internal/app/controllers.go`）。每個 controller 以 `controller_leases`
   的 lease 保證同時只有一個 instance 執行，由 change feed 與定期 resync 觸發：`workflow-dispatch`（派發與取消 Workflow，
   [workflow-execution.md](workflow-execution.md) §10）、`server`（tag 與 Zone／Pool placement）、`zone-pool-catalog`、
-  `http-proxy`、`subnet-dns`、`ssh-keys`、`platform`（Platform spec 與 Change Plan 的 apply）、`change-plan-expiry`。
+  `http-proxy`、`subnet-dns`、`ssh-keys`、`auto-inspect`（為新 enroll 的 Server 建立 `inspect-hardware` Workflow）、
+  `platform`（Platform spec 與 Change Plan 的 apply）、`change-plan-expiry`。
   定期 resync 的間隔：`workflow-dispatch` 30 秒、`change-plan-expiry` 5 分鐘，其他 10 分鐘
   （`controllerResyncInterval`）。規則見 [desired-state-model.md](desired-state-model.md) §7。
 - **ansible-executor**：task queue `swallow-ansible` 的 activity worker，以 ansible-runner 執行 playbook，把即時事件寫進
@@ -141,7 +139,7 @@ sequenceDiagram
     W->>T: workflow-dispatch starts the driver run
     T->>W: provision-<server> (provisioner Runner)
     W->>MAAS: deploy OS
-    T->>X: configure-ntp-<server>, install-platform (deploy-kubernetes.yml)
+    T->>X: configure-ntp-<server>, install-node-exporter-<server>, install-platform (deploy-kubernetes.yml)
     X->>Hosts: ansible-runner over SSH
     X->>DB: record the Kubernetes credential (platform Integration)
     T->>W: validate-platform (internal Runner reads membership)
@@ -172,7 +170,7 @@ collection 可能由多個 process 寫入，但每個欄位只有一個寫入者
 | provisioning | `provisioner_http_proxies`、`provisioner_subnet_dns` | HTTP Proxy 與 Subnet DNS 的 spec 與 status | api（spec）；worker（controller） |
 | infrastructure | `zones`、`pools` | Zone、Pool 的 spec 與 status | api（spec）；worker（catalog controller） |
 | platform | `platforms`、`platform_deployment_requirements` | Platform 的 spec、status 與功能狀態；Slurm 部署需求 | api（spec、同步狀態）；worker（controller、投影）；ansible-executor（credential 與功能結果） |
-| software | `software_assignments`、`software_registry_credentials` | 哪台 Server 裝了什麼；registry 的封存密碼 | api；worker 與 ansible-executor（Task 的記錄與失敗標記） |
+| software | `software_assignments`、`software_registry_credentials` | 哪台 Server 裝了什麼；registry 的封存密碼 | api（含 reconcile 觀察到機器沒有 OS 時標 `absent`）；worker 與 ansible-executor（Task 的記錄與失敗標記、拿走 OS 的 Task 標 `absent`） |
 | sshkey | `ssh_keys`、`ssh_key_provider_syncs` | Deployment Key 與 Access Key；各 provisioner 的同步紀錄 | api（金鑰）；worker（同步） |
 | workflow | `workflows`、`workflow_events`、`workflow_secrets` | Workflow 的計畫與執行狀態、timeline、封存的 secret | api（受理、命令）；worker 與 ansible-executor（經 Workflow service 的狀態轉換） |
 | workflow | `resource_leases` | Workflow 擁有的資源（沒有 TTL） | worker |

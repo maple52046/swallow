@@ -6,6 +6,7 @@ import (
 	"time"
 
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
@@ -53,7 +54,15 @@ func TestServerDeploymentClearedCompletionClearsResultAfterSuccessfulRelease(t *
 		ID:         "server-id",
 		Deployment: &serverdomain.DeploymentStatus{State: serverdomain.DeploymentSucceeded},
 	}
-	cleared := workflowProjections(&deploymentProjectionTestRepo{server: server}, nil, nil, nil, nil)[completionServerDeploymentCleared]
+	assignments := newFakeAssignmentRepo()
+	for _, assignment := range []*softwaredomain.Assignment{
+		{ServerID: server.ID, Kind: softwaredomain.KindDockerCE, State: softwaredomain.StateInstalled, LastWorkflowID: "install-1"},
+		{ServerID: server.ID, Kind: softwaredomain.KindNFS, State: softwaredomain.StateFailed},
+		{ServerID: "other", Kind: softwaredomain.KindDockerCE, State: softwaredomain.StateInstalled},
+	} {
+		_ = assignments.Upsert(context.Background(), assignment)
+	}
+	cleared := workflowProjections(&deploymentProjectionTestRepo{server: server}, assignments, nil, nil, nil)[completionServerDeploymentCleared]
 	release := workflowdomain.Task{
 		ID: "release-server", Kind: "release-os", Status: workflowdomain.TaskRunning,
 		Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}},
@@ -68,6 +77,20 @@ func TestServerDeploymentClearedCompletionClearsResultAfterSuccessfulRelease(t *
 	}
 	if server.Deployment != nil {
 		t.Fatalf("deployment = %+v, want cleared after release", server.Deployment)
+	}
+	// The software went with the OS: the Server's live assignments are absent, keeping their last
+	// Workflow, and another Server's are untouched.
+	for _, kind := range []softwaredomain.Kind{softwaredomain.KindDockerCE, softwaredomain.KindNFS} {
+		got, _ := assignments.FindByServerAndKind(context.Background(), server.ID, kind)
+		if got.State != softwaredomain.StateAbsent {
+			t.Errorf("%s assignment = %s, want absent after release", kind, got.State)
+		}
+	}
+	if got, _ := assignments.FindByServerAndKind(context.Background(), server.ID, softwaredomain.KindDockerCE); got.LastWorkflowID != "install-1" {
+		t.Errorf("docker-ce last Workflow = %q, want it kept", got.LastWorkflowID)
+	}
+	if got, _ := assignments.FindByServerAndKind(context.Background(), "other", softwaredomain.KindDockerCE); got.State != softwaredomain.StateInstalled {
+		t.Errorf("another Server's assignment = %s, want installed", got.State)
 	}
 }
 

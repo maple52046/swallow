@@ -27,6 +27,18 @@ type reconcileFixture struct {
 	provider        *fakeProvider
 	factory         *fakeProviderFactory
 	metadataRecords *fakeOSImageMetadataRepo
+	software        *recordingInstalledSoftware
+}
+
+// recordingInstalledSoftware records the Servers whose installed-software records reconcile
+// cleared.
+type recordingInstalledSoftware struct {
+	cleared []string
+}
+
+func (r *recordingInstalledSoftware) ClearForServer(_ context.Context, serverID string) error {
+	r.cleared = append(r.cleared, serverID)
+	return nil
 }
 
 func setupReconcile(t *testing.T) *reconcileFixture {
@@ -52,13 +64,15 @@ func setupReconcile(t *testing.T) *reconcileFixture {
 	}, "ck:tk:ts")
 
 	metadataRecords := newFakeOSImageMetadataRepo()
+	software := &recordingInstalledSoftware{}
 	return &reconcileFixture{
-		uc:              provisioningapp.NewReconcileUseCase(integrations, servers, factory, metadataRecords),
+		uc:              provisioningapp.NewReconcileUseCase(integrations, servers, factory, metadataRecords, software),
 		servers:         servers,
 		integrations:    integrations,
 		provider:        provider,
 		factory:         factory,
 		metadataRecords: metadataRecords,
+		software:        software,
 	}
 }
 
@@ -348,6 +362,41 @@ func TestReconcile_ClearsServerDefaultUserOnlyWithoutOS(t *testing.T) {
 			}
 			if got := f.servers.servers["srv-1"].DefaultUser; got != tc.want {
 				t.Errorf("DefaultUser after reconcile of a %s machine = %q, want %q", tc.status, got, tc.want)
+			}
+		})
+	}
+}
+
+// The Software Assignments of a Server belong to its OS installation (decision 038): reconcile clears
+// them once the machine is seen without an OS, whoever removed it, and keeps them while the OS is
+// still on disk (deployed, rescue, broken).
+func TestReconcile_ClearsInstalledSoftwareOnlyWithoutOS(t *testing.T) {
+	tests := []struct {
+		status provisioningdomain.MachineStatus
+		want   bool
+	}{
+		{status: provisioningdomain.MachineStatusDeployed, want: false},
+		{status: provisioningdomain.MachineStatusRescue, want: false},
+		{status: provisioningdomain.MachineStatusBroken, want: false},
+		{status: provisioningdomain.MachineStatusReady, want: true},
+		{status: provisioningdomain.MachineStatusAllocated, want: true},
+	}
+	for _, tc := range tests {
+		t.Run(string(tc.status), func(t *testing.T) {
+			f := setupReconcile(t)
+			machine := testMachine("abc123", "hv-01")
+			machine.Status = tc.status
+			f.provider.withMachine(machine)
+			f.servers.servers["srv-1"] = &serverdomain.Server{
+				ID:     "srv-1",
+				Source: serverdomain.Source{SiteID: testSiteID, IntegrationID: testIntegrationID, ProviderMachineID: "abc123"},
+			}
+
+			if _, err := f.uc.Execute(context.Background(), testIntegrationID); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if got := len(f.software.cleared) == 1 && f.software.cleared[0] == "srv-1"; got != tc.want {
+				t.Errorf("cleared after reconcile of a %s machine = %v, want %v", tc.status, f.software.cleared, tc.want)
 			}
 		})
 	}

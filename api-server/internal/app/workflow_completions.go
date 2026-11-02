@@ -38,11 +38,9 @@ const (
 	completionParamMode     = "mode"
 	completionParamKind     = "softwareKind"
 	completionParamServers  = "serverIds"
-	// The platform-uninstall completion's params: the user's choices for a kept-servers
-	// uninstall and the name the exporter restoration labels its Workflow with.
-	completionParamDeleteRecord     = "deleteRecord"
-	completionParamRestoreExporters = "restoreExporters"
-	completionParamPlatformName     = "platformName"
+	// completionParamDeleteRecord is the platform-uninstall completion's param: whether the user
+	// asked a kept-servers uninstall to remove the Platform record.
+	completionParamDeleteRecord = "deleteRecord"
 )
 
 // completionClasses registers each completion type's class in the plan catalog.
@@ -98,12 +96,17 @@ func workflowProjections(
 		completionServerDeployment: projectionFunc(func(ctx context.Context, t workflowapp.TaskTransition) error {
 			return deployments.projectDeployment(ctx, t.Workflow.ID, t.Task)
 		}),
+		// A succeeded Task that declares it (release-os, recover-server) took the Server's OS away:
+		// its deployment record and the Managed Software that lived on that OS are cleared.
 		completionServerDeploymentCleared: projectionFunc(func(ctx context.Context, t workflowapp.TaskTransition) error {
 			serverID := firstTargetServer(t.Task)
 			if serverID == "" || t.Task.Status != workflowdomain.TaskSucceeded {
 				return nil
 			}
-			return servers.SetDeployment(ctx, serverID, nil)
+			if err := servers.SetDeployment(ctx, serverID, nil); err != nil {
+				return err
+			}
+			return clearSoftwareAssignments(ctx, assignments, serverID)
 		}),
 		completionSoftwareFailure: projectionFunc(func(ctx context.Context, t workflowapp.TaskTransition) error {
 			kind, _ := t.Completion.Params[completionParamKind].(string)
@@ -162,6 +165,36 @@ func workflowProjections(
 			return err
 		}),
 	}
+}
+
+// clearSoftwareAssignments marks every live Software Assignment of a Server whose OS is gone
+// absent, keeping each record's last Workflow: the software went with the OS, and an assignment
+// must not outlive it (decision 038).
+func clearSoftwareAssignments(ctx context.Context, assignments softwaredomain.AssignmentRepository, serverID string) error {
+	records, err := assignments.List(ctx, softwaredomain.AssignmentFilter{ServerID: serverID})
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		if record.State == softwaredomain.StateAbsent {
+			continue
+		}
+		err := assignments.SetState(ctx, serverID, record.Kind, softwaredomain.StateAbsent, "", nil)
+		if err != nil && !errors.Is(err, softwaredomain.ErrAssignmentNotFound) {
+			return err
+		}
+	}
+	return nil
+}
+
+// installedSoftwareRecords implements provisioningapp.InstalledSoftware over the Software
+// Assignment repository, so reconcile clears the records of software whose OS is gone.
+type installedSoftwareRecords struct {
+	assignments softwaredomain.AssignmentRepository
+}
+
+func (r installedSoftwareRecords) ClearForServer(ctx context.Context, serverID string) error {
+	return clearSoftwareAssignments(ctx, r.assignments, serverID)
 }
 
 // featureIdentity reads the Platform and fence record of a feature-state projection; the record

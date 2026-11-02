@@ -45,9 +45,9 @@ PUT /api/v1/sites/{id}/automation/credential
   "sshPort": 22,
   "knownHosts": "host ssh-ed25519 AAAA...",
   "playbookMappings": {
-    "install-gpu-driver": "install-gpu-driver",
-    "install-exporters": "install-exporters",
-    "uninstall-exporters": "uninstall-exporters"
+    "deploy-kubernetes": "deploy-kubernetes",
+    "deploy-k8s-exporters": "deploy-k8s-exporters",
+    "remove-k8s-exporters": "remove-k8s-exporters"
   }
 }
 ```
@@ -67,16 +67,15 @@ the effective default user of the OS Image the Server is deployed with
 it exclusively. Only a Server without one tries `sshUser` (when set) and then the built-in
 candidates `cloud-user` and `ubuntu`, using the first that authenticates.
 
-The `install-exporters` / `uninstall-exporters` mappings are what let swallow install the
-Prometheus exporter containers (node-exporter on every host, the RDC exporter on
-`amd-gpu` hosts) and remove them again when a host is handed to a Kubernetes exporter
-owner. `install-exporters` is also the playbook swallow auto-runs when a server
-reaches the `deployed` provisioning state.
+`install-exporters` and `uninstall-exporters` are not accepted as mapped kinds
+(`400 validation_error`). The host exporter is the Node Exporter, installed as Managed Software
+([software.md](software.md#node-exporter)), and like every software kind its playbooks are named by
+the release, not by a Site mapping.
 
 The `deploy-k8s-exporters` / `remove-k8s-exporters` mappings are the Kubernetes side of
 exporter ownership: they apply or delete the exporter DaemonSets on a platform (run on a
-control-plane target). Switching a platform's `exporterOwner` to `k8s` uninstalls the
-members' Ansible exporters and deploys the DaemonSets; switching back removes them.
+control-plane target). Switching a platform's `exporterOwner` only records the policy
+([platforms.md](platforms.md)); it runs neither Workflow.
 
 `uninstall-kubernetes` is selected explicitly by the Platform uninstall use case from the
 release manifest. It needs no Site mapping, so existing automation configurations remain
@@ -134,7 +133,7 @@ Success is `204 No Content`. No API returns the secret.
 The common error envelope applies. `GET .../automation` and `PUT .../automation/credential`
 answer `not_found` for a Site without a configuration, which includes a Site that does not
 exist, and `PUT .../automation` answers `not_found` for a Site that does not exist. Invalid ports, `enabled`
-without `knownHosts`, unknown or `custom` mapped kinds, unregistered playbooks, and a
+without `knownHosts`, unknown, retired, or `custom` mapped kinds, unregistered playbooks, and a
 credential request carrying a non-null `sshPrivateKey` return `validation_error`.
 
 ## Compatibility Notes
@@ -151,3 +150,8 @@ Since 2026-10-31 clearing the become password with `{}` removes the stored crede
 
 Since 2026-10-31 `PUT .../automation` for a Site that does not exist is `404 not_found`;
 it was `500 internal_error`.
+
+Since 2026-11-03 (breaking) the `install-exporters` and `uninstall-exporters` mappings are refused
+with `400 validation_error`: the host exporter is the Node Exporter's Managed Software. The
+schema v11 migration removes both keys from every stored configuration, so a configuration that
+had them reads and saves without them.

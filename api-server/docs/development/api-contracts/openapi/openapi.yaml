@@ -14003,7 +14003,7 @@ components:
         - retry
       type: object
     WorkflowKind:
-      description: What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings.
+      description: What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings. `install-exporters` and `uninstall-exporters` are no longer accepted; they appear only on Workflows created by an earlier release (the Node Exporter is Managed Software, `configure-node-exporter` and `uninstall-node-exporter`).
       enum:
         - deploy-os
         - release-os
@@ -14034,6 +14034,8 @@ components:
         - configure-omnistat
         - configure-device-metrics-exporter
         - uninstall-device-metrics-exporter
+        - configure-node-exporter
+        - uninstall-node-exporter
         - configure-ntp
         - custom
       type: string

@@ -7,8 +7,6 @@ import (
 
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
-	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
-	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 )
 
 // runReconciler polls every enabled provisioner on an interval until ctx is cancelled.
@@ -132,82 +130,6 @@ func runMembershipSync(ctx context.Context, membership *platformapp.MembershipSy
 			return
 		case <-ticker.C:
 			syncMembershipOnce(ctx, membership)
-		}
-	}
-}
-
-// runSoftwareAssignmentSweep enforces the OS-lifecycle invariant that a Software Assignment must
-// not outlive the software on disk (decision 038): when a Server leaves `deployed`, its assignments
-// are marked absent. It shares the reconcile cadence because an assignment only needs revisiting
-// after a reconcile pass changed a Server's provisioning state.
-func runSoftwareAssignmentSweep(ctx context.Context, sweeper *softwareapp.SoftwareAssignmentSweeper, interval time.Duration) {
-	sweepOnce := func() {
-		if err := sweeper.Execute(ctx); err != nil {
-			log.Printf("software assignments: sweep failed: %v", err)
-		}
-	}
-
-	sweepOnce()
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("software assignment sweep stopped")
-			return
-		case <-ticker.C:
-			sweepOnce()
-		}
-	}
-}
-
-// runAutoExporterDeploy installs the Ansible exporters on newly deployed, ansible-owned
-// servers on an interval. It shares the reconcile cadence: a server only becomes eligible
-// after a reconcile pass has projected it as deployed, so there is nothing to do more
-// often than that. Creation is deduplicated per server, so a rerun is cheap.
-func runAutoExporterDeploy(ctx context.Context, autoDeploy *workflowapp.AutoExporterDeployUseCase, interval time.Duration) {
-	deployOnce := func() {
-		if err := autoDeploy.Run(ctx); err != nil {
-			log.Printf("auto-exporters: sweep failed: %v", err)
-		}
-	}
-
-	deployOnce()
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("auto-exporter deploy stopped")
-			return
-		case <-ticker.C:
-			deployOnce()
-		}
-	}
-}
-
-// runAutoInspect starts hardware inspection for newly enrolled Servers on an interval, until ctx
-// is cancelled (decision 053). It shares the reconcile cadence: a Server becomes eligible only
-// after a reconcile pass has projected it as new. Each Server gets at most one automatic
-// inspect-hardware Workflow, so a rerun is cheap; the Workflow itself waits for the provider's
-// enrollment to finish, so the sweep never needs to.
-func runAutoInspect(ctx context.Context, autoInspect *provisioningapp.AutoInspectUseCase, interval time.Duration) {
-	inspectOnce := func() {
-		if _, err := autoInspect.Run(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("auto-inspect: sweep failed: %v", err)
-		}
-	}
-
-	inspectOnce()
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("auto-inspect stopped")
-			return
-		case <-ticker.C:
-			inspectOnce()
 		}
 	}
 }

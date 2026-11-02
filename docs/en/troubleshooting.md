@@ -190,12 +190,15 @@ swallow servers inspect server1
   Integration is registered (or it cannot be reached); register one for the Site.
 - Verify Prometheus can call service discovery with the machine token (and trusts the
   CA of any TLS terminator in front of swallow).
-- Confirm exporters are installed and reachable at the discovered targets: the
-  `install-exporters` Workflow runs when a Server reaches `deployed`, and a locked
-  Server gets none.
+- Confirm exporters are installed and reachable at the discovered targets: an OS
+  deployment installs the Node Exporter in its `install-node-exporter-<serverId>` Task (a
+  failed install leaves the deployment Workflow needing attention; retry that Task). A
+  Server swallow did not deploy, or a locked one, gets none; install the **Node Exporter**
+  as Managed Software on an unlocked Server.
 - A chart that reads "No data" for one metric only — for example the GPU charts —
-  usually means that exporter is not running on the Server (a GPU Server without the
-  `amd-gpu` tag gets no RDC exporter).
+  usually means that exporter is not running on the Server. swallow does not install the
+  RDC exporter on hosts, so an AMD GPU Server shows GPU charts only when one already runs
+  there and the Server carries the `amd-gpu` tag.
 - Missing metric data is unknown, not proof of failure.
 
 ## Keep the request ID

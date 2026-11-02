@@ -35,6 +35,9 @@ type durableProvisioningLauncher struct {
 	// ntp adds a configure-ntp-<serverId> Task after each provision-os Task (decision 065). Its zero
 	// value adds nothing.
 	ntp ntpStepPlanner
+	// nodeExporter installs the Node Exporter on each provisioned Server after its time Task. Its
+	// zero value adds nothing.
+	nodeExporter nodeExporterPlanner
 	// platformNames names the Platform that claims a refused Release or Recover target (decision
 	// 067). Optional: without it the refusal names the Platform by id.
 	platformNames provisioningdomain.PlatformNames
@@ -126,6 +129,13 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 		return nil, err
 	}
 	steps = append(steps, ntpTasks...)
+	// Then the Node Exporter, as Managed Software. A Server deploy-os accepts is `ready`, so it is no
+	// Platform's member and swallow's host automation owns its exporters.
+	exporters, err := l.nodeExporter.installTasks(ctx, operationID, requestedBy, "", input.ServerIDs, afterTimeSync(input.ServerIDs, ntpTasks))
+	if err != nil {
+		return nil, err
+	}
+	steps = append(steps, exporters.tasks...)
 	secretValues := map[string]any{}
 	if input.UserData.Mode == "replace" && secretValue != "" {
 		secretValues["userData"] = secretValue
@@ -144,8 +154,24 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 	if err != nil {
 		return nil, err
 	}
+	l.nodeExporter.record(ctx, exporters, created.ID)
 	materializeInitialDeployments(ctx, l.servers, created.ID, steps)
 	return &provisioningapp.OperationReference{OperationID: created.ID}, nil
+}
+
+// afterTimeSync maps each provisioned Server to the Task the steps after its OS wait for: its
+// configure-ntp Task, or its provision-os Task when the launcher adds no time Task.
+func afterTimeSync(serverIDs []string, ntpTasks []workflowdomain.Task) map[string]string {
+	after := make(map[string]string, len(serverIDs))
+	for _, serverID := range serverIDs {
+		after[serverID] = "provision-" + serverID
+	}
+	for _, task := range ntpTasks {
+		if serverID := firstTargetServer(task); serverID != "" {
+			after[serverID] = task.ID
+		}
+	}
+	return after
 }
 
 // materializeInitialDeployments closes the API-to-worker visibility gap so returning
@@ -333,6 +359,8 @@ func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs [
 			Executor:   workflowdomain.RunnerKindProvisioner,
 			Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: input.ServerID}},
 			Parameters: map[string]any{"request": structToMap(input)},
+			// Recover returns the Server to Ready, so its OS and the software on it are gone.
+			Completion: []workflowdomain.Completion{{Type: completionServerDeploymentCleared}},
 		}
 	}
 	if l.protection != nil {
@@ -474,7 +502,8 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 			ContinueOn: []workflowdomain.TaskStatus{workflowdomain.TaskSucceeded, workflowdomain.TaskSkipped},
 			Parameters: map[string]any{"request": structToMap(provisioningapp.RecoverServerInput{ServerID: input.ServerID})},
 			// A canceled verification still gives the borrowed Server back.
-			OnCancel: &workflowdomain.CancelBehavior{Run: true},
+			OnCancel:   &workflowdomain.CancelBehavior{Run: true},
+			Completion: []workflowdomain.Completion{{Type: completionServerDeploymentCleared}},
 		})
 	}
 	if steps, err = l.bootMedia.withEnsureTasks(ctx, steps); err != nil {

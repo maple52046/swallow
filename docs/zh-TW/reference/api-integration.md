@@ -91,6 +91,13 @@ Workflow，不再是單一 provider 呼叫。`202` response 保留 provisioning 
 [Server Enrollment contract](../../../api-server/docs/development/api-contracts/api-server/server-enrollment.md)，
 其中也定義了 existing OS 的 enrollment bundle。
 
+自 2026-11-03 起，`deploy-os` Workflow 也會安裝 Node Exporter，每台 Server 有一個
+`install-node-exporter-<serverId>` 與一個 `record-node-exporter-<serverId>` Task；`install-exporters`
+與 `uninstall-exporters` 兩個 Workflow kind 已退役，`POST /api/v1/workflows` 與 Site 的
+`playbookMappings` 會以 `400 validation_error` 拒絕它們。其他 Server 請透過
+[Managed Software contract](../../../api-server/docs/development/api-contracts/api-server/software.md)
+安裝 Node Exporter（kind `node-exporter`）。
+
 ## Contract directory
 
 依序閱讀：

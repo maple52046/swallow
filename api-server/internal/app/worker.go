@@ -258,9 +258,13 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("subnet DNS repo init: %w", err)
 	}
+	// One WorkflowService accepts the Workflows this process plans: the platform controller's
+	// realizations and the automatic hardware inspections.
+	workflows := workflowapp.NewWorkflowService(transactor, operations, workflowPlanCatalog(modules.workflowKinds, modules.software), operationSecrets)
+	workflows.AttachOwnershipReader(ownership)
 	platformOps, err := workerPlatformOperations(cfg, db, transactor, modules, workerPlatformDeps{
 		platformService: platformFinalizer, platforms: platforms, servers: servers, operations: operations,
-		secrets: operationSecrets, ownership: ownership, automation: automationConfigurations, providers: providers,
+		workflows: workflows, automation: automationConfigurations, providers: providers,
 		deployments: deployments, software: softwareAssignments, bootISOs: bootISOs, keys: sshKeys,
 	})
 	if err != nil {
@@ -285,6 +289,11 @@ func RunWorker(cfg config.APIConfig) error {
 		provisioningapp.NewSubnetDNSController(provisionerIntegrations{integrations: integrations}, providers,
 			subnetDNS, convergenceEvents),
 		sshKeyController(sshKeys, convergenceEvents),
+		// An enabled provisioner's autoInspect policy, realized by inspect-hardware Workflows.
+		provisioningapp.NewAutoInspectController(integrations, servers, hardwareInspectionLauncher{
+			workflows: workflows, history: operations, servers: servers,
+			protection: providerServerMutationGuard{servers: servers, providers: providers},
+		}),
 		convergence.NewChangePlanExpiryController(changePlans),
 		platformController,
 	)

@@ -186,7 +186,8 @@ core 檔案的廠商詞彙數仍不得增加。新的平台或廠商名稱要寫
 ### 4.3 Software 模組
 
 單一軟體及其 variant 的安裝與卸載，也就是 [Managed Software](glossaries/terms/managed-software.md)。可以單獨
-安裝在 Server 上，也可以由 Platform 模組以 Job 組入（見 [software-deployment.md](software-deployment.md)）。
+安裝在 Server 上，也可以由 Platform 模組以 Job 組入，或由 OS 部署組入（Node Exporter）（見
+[software-deployment.md](software-deployment.md)）。
 
 ## 5. 模組契約
 

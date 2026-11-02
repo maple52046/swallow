@@ -224,7 +224,10 @@ Server 存在、`ready`、未鎖定、屬於 image 的 Integration、架構相�
   失敗的 `provision-os` Task 上。
 - 取消 `verify-os-image` 時，Workflow 以 best-effort 執行自己的 `recover-server` Task（上限 30 分鐘、忽略錯誤），
   而不是一般部署的 `return-canceled-deployment`。
-- 驗證不設定時間（不加 `configure-ntp-<serverId>`），因為 Server 隨即歸還。
+- 驗證不設定時間、也不安裝 Node Exporter（不加 `configure-ntp-<serverId>` 與 Node Exporter 的 Task），因為 Server
+  隨即歸還；`keepServer: true` 留下的 Server 因此沒有 Node Exporter，需要時由 user 以 Managed Software 安裝。
+- `return-<serverId>` 成功時以 `server-deployment-cleared` 完成行為清除 deployment 投影，並把該 Server 的 Software
+  Assignment 標為 `absent`（§11.4）。
 - OS Images 列表只把仍在進行（pending／running／waiting）的 verify Workflow 顯示為 verifying；
   `requires_attention` 另外顯示為需要處理，`failed`／`canceled` 不算 verifying。
 
@@ -405,7 +408,8 @@ decision 071。
 5. §6 的網路檢查與解析。
 
 durable 路徑另外要求 installation 已設定 NTP server（否則 `409`），且 Site 的 automation 可執行（否則 `503`），因為
-每台都會加上 `configure-ntp-<serverId>`（[decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)）。
+每台都會加上 `configure-ntp-<serverId>`（[decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)）
+與 Node Exporter 的安裝（§9.2）。
 `provision-os` 執行時以凍結的意圖重跑這組檢查：swallow 自己的拒絕（例如 target 不是 ready、image 未 staged 或未驗證、
 網路衝突）成為 §9.3 的 `deployment_preflight_rejected`，受理後 Deployment Key 消失則是可重試的 `deployment_key_missing`。
 通過檢查後、第一次網路或部署寫入前，swallow 確保 provisioner 持有 swallow 的 SSH Key；失敗時 `provision-os` 以可重試的
@@ -418,9 +422,17 @@ durable 路徑另外要求 installation 已設定 NTP server（否則 `409`）�
 | `deploy-os` | `ensure-boot-media-<serverId>`（僅 Boot Media 啟用的 Server） | `ensure-boot-media` | `internal` | — |
 | `deploy-os` | `provision-<serverId>` | `provision-os` | `provisioner` | 該台的 `ensure-boot-media-<serverId>`（若有） |
 | `deploy-os` | `configure-ntp-<serverId>` | `ansible-playbook` | `ansible` | `provision-<serverId>` |
+| `deploy-os` | `install-node-exporter-<serverId>`（跑 `deploy-node-exporter`） | `ansible-playbook` | `ansible` | `configure-ntp-<serverId>` |
+| `deploy-os` | `record-node-exporter-<serverId>` | `record-software-assignment` | `internal` | `install-node-exporter-<serverId>` |
 | `release-os` | `release-<serverId>` | `release-os` | `provisioner` | — |
 | `recover-server` | `recover-<serverId>` | `recover-server` | `provisioner` | — |
 | `verify-os-image` | 見 §5.4 | | | |
+
+每台 provision 的 Server 都以 Managed Software 安裝 Node Exporter
+（[software-deployment.md](software-deployment.md) §2、§5）：Workflow 受理時寫入該 Server 的 `node-exporter`
+pending Software Assignment，`record-node-exporter-<serverId>` 把它標為 `installed`，安裝失敗由
+`software-assignment-failure` 標為 `failed`。這兩個 Task 是葉節點，沒有 Task 依賴它們，因此 exporter 失敗不會擋住
+OS，但 Workflow 會停在 `requires_attention` 直到 user 重試。RAM（`ram` Deploy Target）部署的組成相同。
 
 Task 的 retry、cancel、rerun 與 lease 語意見 [workflow-execution.md](workflow-execution.md) 與
 [workflows.md](../../api-server/docs/development/api-contracts/api-server/workflows.md)。cloud-init 從 intent
@@ -567,8 +579,10 @@ decision 033。
 - **投影誠實化**：
   - reconcile 在 provider 回報 `ready` 或 `allocated` 時，清除已結束（`succeeded`／`failed`／`canceled`）的 deployment
     紀錄；進行中（`deploying`／`verifying`）或等待 user（`requires_attention`）的紀錄不動。同樣的兩個狀態也清除
-    Server Default User（[decision 039](../decisions/039-ssh-key-management-and-default-user.md)（ssh key management and default user））。
-  - `release-os` 與 `recover-server` 成功時清除 Server 的 deployment 投影。
+    Server Default User（[decision 039](../decisions/039-ssh-key-management-and-default-user.md)（ssh key management and default user）），
+    並把 Server 的 Software Assignment 標為 `absent`；`rescue` 與 `broken` 的 OS 仍在磁碟上，assignment 保留。
+  - `release-os` 與 `recover-server` 成功時（`server-deployment-cleared` 完成行為）清除 Server 的 deployment 投影，並把它的
+    Software Assignment 標為 `absent`。
   - client 的 Deployment 欄先讀 provider 軸：`succeeded` 只在 provider 仍回報 `deployed` 時有效，否則依 OS Provisioning
     State 顯示（Releasing、Ready、Allocated…），不讓過期的成功蓋住 provider 的實況。
   - OS Images 只把進行中的 verify Workflow 當作 verifying（§5.4）。
@@ -597,8 +611,8 @@ decision 033。
 | Provisioner HTTP Proxy | `internal/core/provisioning/domain/http_proxy.go`、`internal/core/provisioning/application/http_proxy.go` |
 | Operator-state 動作（mark-*、rescue） | `internal/core/provisioning/application/machine_actions.go` |
 | Release 與 Provisioning Task | `internal/core/provisioning/application/release_server.go`、`internal/core/provisioning/application/provisioning_tasks.go`、`internal/core/provisioning/domain/provisioning_task.go` |
-| Reconcile（stale deployment 清除、deployed image 名稱鏡射） | `internal/core/provisioning/application/reconcile.go` |
-| `deploy-os`／`release-os`／`recover-server`／`verify-os-image` 的組裝 | `internal/app/provisioning_operation_adapter.go` |
+| Reconcile（stale deployment 清除、沒有 OS 時清除 Software Assignment、deployed image 名稱鏡射） | `internal/core/provisioning/application/reconcile.go` |
+| `deploy-os`／`release-os`／`recover-server`／`verify-os-image` 的組裝 | `internal/app/provisioning_operation_adapter.go`；Node Exporter 的 Task：`internal/app/node_exporter_planner.go` |
 | `provisioner` Runner（`provision-os`、`release-os`、`recover-server`、Retry 回復） | `internal/app/provider_step_executor.go` |
 | 部署進度與 stage stall | `internal/app/deployment_progress.go` |
 | 驗證紀錄 Task（`record-image-verification*`） | `internal/app/platform_workflow_step_executor.go` |

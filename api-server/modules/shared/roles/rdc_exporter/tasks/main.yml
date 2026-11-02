@@ -1,7 +1,8 @@
 ---
 # Install or remove the AMD RDC exporter as a systemd-managed container.
 #
-# Only runs on AMD GPU hosts (the tag_amd_gpu group). The metrics list is written to the
+# No shipped playbook applies this role at present: swallow does not install the RDC exporter on
+# hosts. It is meant for AMD GPU hosts (the tag_amd_gpu group). The metrics list is written to the
 # host and bind-mounted read-only into the container, so changing the collected fields is
 # a config change picked up on the next unit restart rather than an image change.
 

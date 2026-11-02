@@ -39,8 +39,8 @@
   Platform, marks their Software Assignments `absent`, and removes the link.
 - Disallowed meaning: Not the Device Metrics Exporter the GPU Operator runs on a Kubernetes
   Platform (that is the GPU Operator's `metricsExporter` setting, which swallow never scrapes). Not
-  a metrics Integration — swallow never queries the Prometheus that scrapes it — and not the host
-  GPU exporter (RDC, port `5000`) swallow scrapes. Not Omnistat: the two are mutually exclusive on
+  a metrics Integration — swallow never queries the Prometheus that scrapes it — and not the RDC
+  exporter (port `5000`), which swallow's RDC scrape job reads on hosts that run one. Not Omnistat: the two are mutually exclusive on
   a Platform, and the exporter keeps jobs sharing nodes while Omnistat needs whole nodes. Not GPU
   GRES, which swallow configures either way.
 - Synonyms: DME; AMD Device Metrics Exporter.
@@ -60,4 +60,5 @@
   dispatcher, and recording whether the exporters tell GPUs apart. Updated 2026-10-30
   ([decision 068](../../../decisions/068-device-metrics-exporter-managed-software.md) (device metrics exporter managed software)): it is now
   the Managed Software kind `device-metrics-exporter`, installable on a single Server, and the
-  Slurm feature composes that kind instead of carrying its own install.
+  Slurm feature composes that kind instead of carrying its own install. 2026-11-03: swallow does
+  not install the RDC exporter on hosts; port `5000` stays reserved for it.

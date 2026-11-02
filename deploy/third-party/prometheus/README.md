@@ -16,7 +16,8 @@ The template scrapes swallow over plain HTTP, matching the production installati
 TLS terminator fronts swallow, switch the URLs to `https` and add a `tls_config` with its CA.
 
 The default retention is 30 days, which bounds the longest usage history swallow can
-chart (its largest window is 7 days). `node_exporter` (port 9100) and, on `amd-gpu`
-Servers, the RDC exporter (port 5000) are installed by versioned swallow playbooks under
-the exporter-owner policy; the two scrape jobs in the template match those ports. A later
+chart (its largest window is 7 days). Every swallow OS deployment installs `node_exporter`
+(port 9100) from the OS package, under the exporter-owner policy. swallow does not install
+the RDC exporter (port 5000) on hosts; the template's `site-rdc-exporter` job, which targets
+`amd-gpu` Servers, stays for hosts that run one. The two scrape jobs match those ports. A later
 central TSDB can be added through `remote_write` without changing discovery labels.

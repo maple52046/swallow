@@ -71,9 +71,9 @@ func (o GPUStackOwner) Valid() bool {
 type ExporterOwner string
 
 const (
-	// ExporterOwnerAnsible means swallow installs the exporters as host containers via
-	// embedded Ansible. This is the default, and the effective owner for any host that
-	// is in no platform.
+	// ExporterOwnerAnsible means swallow's host automation installs the host exporters (the
+	// Node Exporter, as Managed Software). This is the default, and the effective owner for
+	// any host that is in no platform.
 	ExporterOwnerAnsible ExporterOwner = "ansible"
 	// ExporterOwnerK8s means a Kubernetes DaemonSet installs the exporters on the node.
 	// The DaemonSet uses hostNetwork on the same fixed ports, so swallow's scrape and

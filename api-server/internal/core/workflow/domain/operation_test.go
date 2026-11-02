@@ -19,22 +19,12 @@ func TestWorkflowKindRefusedWhenLocked(t *testing.T) {
 	}
 }
 
-// install-exporters must only run on a deployed host; uninstall must have no state
-// requirement so a machine being retired or handed to k8s can still be cleaned.
-func TestExporterKindProvisioningStateRequirement(t *testing.T) {
-	kinds := WorkflowKinds{}
-	if got := kinds.RequiredProvisioningState(WorkflowKindInstallExporters); got != "deployed" {
-		t.Errorf("install-exporters required state = %q, want deployed", got)
-	}
-	if got := kinds.RequiredProvisioningState(WorkflowKindUninstallExporters); got != "" {
-		t.Errorf("uninstall-exporters must have no required state, got %q", got)
-	}
-}
-
-func TestExporterKindsAreValid(t *testing.T) {
-	for _, kind := range []WorkflowKind{WorkflowKindInstallExporters, WorkflowKindUninstallExporters} {
-		if !(WorkflowKinds{}).Valid(kind) {
-			t.Errorf("%s should be a valid operation kind", kind)
+// The host exporters are Managed Software (the Node Exporter module), so the core no longer accepts
+// the kinds that installed them as plain playbooks.
+func TestRetiredExporterKindsAreNotAccepted(t *testing.T) {
+	for _, kind := range []WorkflowKind{"install-exporters", "uninstall-exporters"} {
+		if (WorkflowKinds{}).Valid(kind) {
+			t.Errorf("%s is a retired kind and must not be accepted", kind)
 		}
 	}
 }

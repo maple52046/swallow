@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "commit": "COMMIT_SHA",
   "platforms": ["linux-amd64", "ubuntu-24.04-amd64"],
-  "schemaVersions": {"mongo": 10, "playbookManifest": 1},
+  "schemaVersions": {"mongo": 11, "playbookManifest": 1},
   "images": {
     "api": "ghcr.io/maple52046/swallow@sha256:REPLACE",
     "dashboard": "ghcr.io/maple52046/swallow@sha256:REPLACE",

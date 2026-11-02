@@ -19,8 +19,10 @@ query。Grafana 是選用的：需要基本圖表以外的探索時再接上。
    的 per-Site 範本。它從 swallow 自動發現 target，不需要手動列出主機。
 2. **把它註冊為該 Site 的 metrics Integration**（見下方）。在 metrics Integration 存在之前，
    圖表會說明尚未設定 metrics backend——不會把你的 Server 回報成 down。
-3. **照常佈署 Server。** Server 進入 `deployed` 後，swallow 會自動安裝 exporters（見
-   [Exporters](#exporters)）；幾分鐘後，Server 的 **Monitoring** 分頁就會顯示用量歷史。
+3. **照常佈署 Server。** 每次 OS 佈署都會在佈署的 Server 上安裝 Node Exporter（見
+   [Exporters](#exporters)）；幾分鐘後，Server 的 **Monitoring** 分頁就會顯示用量歷史。不是由
+   swallow 佈署的 Server（例如保留原有 OS 納管的 Server），請以 Managed Software 安裝
+   **Node Exporter**。
 
 ## 設定 integration
 
@@ -49,14 +51,16 @@ swallow 使用固定 port，因此 Server 的 scrape target 不會因為由誰�
 
 | Exporter | Port | 安裝對象 |
 | --- | --- | --- |
-| node-exporter | 9100 | 每台受管 Server（CPU、memory、disk、network） |
-| [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | AMD GPU Server，以 tag `amd-gpu` 辨識 |
+| node-exporter | 9100 | 每台由 swallow 佈署的 Server（CPU、memory、disk、network），安裝 OS 套件：Debian 與 Ubuntu 為 `prometheus-node-exporter`，RHEL 家族為 `node_exporter`（來自 EPEL） |
+| [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | swallow 不在主機上安裝；Prometheus 會 scrape 已經執行它的 AMD GPU Server（tag `amd-gpu`） |
 
 每台 Server 的 exporters 只會有一個 owner 負責安裝：
 
-- 不屬於任何 Platform 的 Server 由 swallow 負責，在 OS 佈署後安裝 exporters；
+- 不屬於任何 Platform 的 Server 由 swallow 負責：每次 OS 佈署都會安裝 Node Exporter；不是由
+  swallow 佈署的 Server 可以用 Managed Software 安裝；
 - Kubernetes Platform 的成員依該 Platform 的 `exporterOwner`（`ansible`——由 swallow
-  安裝——或 `k8s`——在相同 port 上以 DaemonSet 執行）；
+  安裝 Node Exporter——或 `k8s`——在相同 port 上以 DaemonSet 執行）。修改 `exporterOwner`
+  只記錄這個選擇，不會安裝或移除 exporters；
 - locked Server 為 unmanaged：swallow 不安裝也不移除任何東西。
 
 ## 用量圖表

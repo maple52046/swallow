@@ -2,12 +2,15 @@ package application
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
+	"github.com/maple52046/swallow/internal/core/convergence"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
+	"github.com/maple52046/swallow/internal/core/store"
 )
 
 // SettingAutoInspect is the provisioner Integration setting that turns automatic hardware
@@ -31,7 +34,7 @@ func AutoInspectEnabled(integration *sitedomain.Integration) bool {
 type InspectionRequest struct {
 	ServerID string
 	Origin   provisioningdomain.InspectionOrigin
-	// RequestedBy is the user, or "system" for the automatic sweep.
+	// RequestedBy is the user, or "system" for the automatic inspection.
 	RequestedBy string
 	RequestID   string
 }
@@ -76,83 +79,121 @@ func ProvisioningStateItemOf(server *serverdomain.Server) ProvisioningStateItem 
 	return item
 }
 
-// AutoInspectUseCase starts hardware inspection for Servers that network-boot enrollment just
-// brought into a provisioner (decision 053), so a user no longer presses Commission in the
-// provisioner's UI.
+// AutoInspectController converges a provisioner Integration's autoInspect policy (decision 053):
+// a Server that network-boot enrollment just brought into an enabled provisioner whose autoInspect
+// is not off is inspected once, by an inspect-hardware Workflow, so a user no longer presses
+// Commission in the provisioner's UI. The setting is the user's declared intent; the controller
+// starts the Workflow that realizes it.
 //
-// It is a policy sweep beside the reconciler, which stays a read-only projection. It is
-// deliberately conservative: only enabled provisioners whose autoInspect setting is not off, only
-// present, unlocked Servers in `new` first observed within AutoInspectWindow, and at most one
-// inspect-hardware Workflow per Server ever, so a failed or canceled inspection is left for an
-// user instead of being retried in a loop. A Server enrolled with its OS kept is `deployed` and
-// never matches.
-type AutoInspectUseCase struct {
+// It is deliberately conservative: only present, unlocked Servers in `new` first observed within
+// AutoInspectWindow, and at most one inspect-hardware Workflow per Server ever, so a failed or
+// canceled inspection is left for a user instead of being retried. A Server enrolled with its OS
+// kept is `deployed` and never matches. It is keyed by Server: a Server's change wakes it, an
+// Integration's change re-examines every candidate, and the periodic resync covers a Server that
+// was busy or locked when it last looked.
+type AutoInspectController struct {
 	integrations sitedomain.IntegrationRepository
 	servers      serverdomain.ServerRepository
 	inspections  HardwareInspectionLauncher
 	now          func() time.Time
 }
 
-// NewAutoInspectUseCase wires the automatic inspection sweep.
-func NewAutoInspectUseCase(
+// NewAutoInspectController wires the automatic inspection controller. Every dependency is required.
+func NewAutoInspectController(
 	integrations sitedomain.IntegrationRepository,
 	servers serverdomain.ServerRepository,
 	inspections HardwareInspectionLauncher,
-) *AutoInspectUseCase {
-	return &AutoInspectUseCase{integrations: integrations, servers: servers, inspections: inspections, now: time.Now}
+) *AutoInspectController {
+	return &AutoInspectController{integrations: integrations, servers: servers, inspections: inspections, now: time.Now}
 }
 
-// Run makes one sweep and returns how many inspections it started. It is safe on an interval:
-// creation is one-shot per Server, and a busy, locked, or refused Server is skipped and logged
-// at debug level rather than failing the sweep. Only failing to list Integrations is an error.
-func (uc *AutoInspectUseCase) Run(ctx context.Context) (int, error) {
-	integrations, err := uc.integrations.List(ctx, sitedomain.IntegrationFilter{
+// Name implements convergence.Controller.
+func (c *AutoInspectController) Name() string { return "auto-inspect" }
+
+// Collections implements convergence.Controller: a Server appears or changes state in `servers`,
+// and an Integration turns autoInspect on or is enabled in `integrations`.
+func (c *AutoInspectController) Collections() []string { return []string{"servers", "integrations"} }
+
+// KeysForChange implements convergence.Controller: a changed Server is its own key, a deleted one
+// needs nothing, and a changed Integration re-examines every candidate.
+func (c *AutoInspectController) KeysForChange(ctx context.Context, change store.Change) ([]string, error) {
+	if change.Collection == "integrations" {
+		return c.Keys(ctx)
+	}
+	if change.Operation == store.ChangeDelete {
+		return nil, nil
+	}
+	return []string{change.Key}, nil
+}
+
+// Keys implements convergence.Controller with the `new` Servers of every enabled provisioner whose
+// autoInspect is on.
+func (c *AutoInspectController) Keys(ctx context.Context) ([]string, error) {
+	integrations, err := c.integrations.List(ctx, sitedomain.IntegrationFilter{
 		Kind:        sitedomain.IntegrationKindProvisioner,
 		EnabledOnly: true,
 	})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	started := 0
-	cutoff := uc.now().Add(-AutoInspectWindow)
+	var keys []string
 	for _, integration := range integrations {
 		if !AutoInspectEnabled(integration) {
 			continue
 		}
-		// Unpaginated: a complete sweep of one provisioner's New Servers, which is small.
-		result, err := uc.servers.List(ctx, serverdomain.ListFilter{
+		// Unpaginated: one provisioner's New Servers, which are few.
+		result, err := c.servers.List(ctx, serverdomain.ListFilter{
 			IntegrationID:     integration.ID,
 			ProvisioningState: string(provisioningdomain.MachineStatusNew),
 		})
 		if err != nil {
-			slog.Warn("auto-inspect: list servers", "integrationId", integration.ID, "error", err)
-			continue
+			return nil, err
 		}
 		for _, server := range result.Servers {
-			if !autoInspectCandidate(server, cutoff) {
-				continue
-			}
-			inspected, err := uc.inspections.HasInspection(ctx, server.ID)
-			if err != nil {
-				slog.Warn("auto-inspect: inspection history", "serverId", server.ID, "error", err)
-				continue
-			}
-			if inspected {
-				continue
-			}
-			accepted, err := uc.inspections.LaunchInspection(ctx, InspectionRequest{
-				ServerID: server.ID, Origin: provisioningdomain.InspectionOriginAutomatic, RequestedBy: "system",
-			})
-			if err != nil {
-				// A busy, locked, or since-changed Server is an expected reason not to act now.
-				slog.Debug("auto-inspect: skipped server", "serverId", server.ID, "reason", err)
-				continue
-			}
-			started++
-			slog.Info("auto-inspect: started hardware inspection", "serverId", server.ID, "workflowId", accepted.WorkflowID)
+			keys = append(keys, server.ID)
 		}
 	}
-	return started, nil
+	return keys, nil
+}
+
+// Reconcile implements convergence.Controller: it starts the automatic inspection of one Server
+// when the policy applies and the Server never had an inspection. A busy, locked, or since-changed
+// Server is an expected reason not to act now and is logged at debug level; only failing to read
+// the Server, its Integration, or its inspection history is an error, which the runtime retries.
+func (c *AutoInspectController) Reconcile(ctx context.Context, request convergence.Request) error {
+	server, err := c.servers.FindByID(ctx, request.Key)
+	if errors.Is(err, serverdomain.ErrServerNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !autoInspectCandidate(server, c.now().Add(-AutoInspectWindow)) {
+		return nil
+	}
+	integration, err := c.integrations.FindByID(ctx, server.Source.IntegrationID)
+	if errors.Is(err, sitedomain.ErrIntegrationNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if integration.Kind != sitedomain.IntegrationKindProvisioner || !integration.Enabled || !AutoInspectEnabled(integration) {
+		return nil
+	}
+	inspected, err := c.inspections.HasInspection(ctx, server.ID)
+	if err != nil || inspected {
+		return err
+	}
+	accepted, err := c.inspections.LaunchInspection(ctx, InspectionRequest{
+		ServerID: server.ID, Origin: provisioningdomain.InspectionOriginAutomatic, RequestedBy: "system",
+	})
+	if err != nil {
+		slog.Debug("auto-inspect: skipped server", "serverId", server.ID, "reason", err)
+		return nil
+	}
+	slog.Info("auto-inspect: started hardware inspection", "serverId", server.ID, "workflowId", accepted.WorkflowID)
+	return nil
 }
 
 // autoInspectCandidate applies the projection-only part of the automatic policy; the launcher

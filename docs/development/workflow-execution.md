@@ -524,7 +524,8 @@ deployment 只需要產生這份計畫。
   - 接續時的處理：先觀察再接續，或轉為 `requires_attention`（§10）。
 - **完成行為**：Task 宣告零到多個，每個由型別與參數組成，core 依型別呼叫已登錄的 handler：
   - **投影類**：只寫 store，在 Task 每次轉換的 transaction 內執行（開始、結果、略過、重試、取消）。目前有
-    Server deployment 結果、Software Assignment 失敗標記、GPU Operator、Omnistat 與 DME 的狀態。
+    Server deployment 結果、拿走 OS 的 Task 成功時清除 deployment 投影並把 Server 的 Software Assignment 標為
+    `absent`（`server-deployment-cleared`）、Software Assignment 失敗標記、GPU Operator、Omnistat 與 DME 的狀態。
   - **結果類**：需要 Runner 回傳的資料，在執行該 Task 的 activity 內、記錄結果之前執行。目前有 Kubernetes 與
     slurmrestd credential、Omnistat 與 DME 的結果、platform uninstall 收尾。
 - **取消補償**：Task 宣告 `return-canceled-deployment`（被中斷時回收部署），或「取消時執行」（§8.1）。

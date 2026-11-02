@@ -306,9 +306,10 @@ api-server 程式碼要守的邊界：
 
 Platform deploy 受理、Platform Delete、CompleteUninstall、Workflow 建立與 rerun、GPU Operator 變更與 Software
 install／uninstall 已是 transaction；Task 宣告的投影類完成行為在 Task 狀態轉換的 transaction 內寫入
-（workflow-execution.md §12）。其餘仍以補償或修復 sweep 維持一致的流程（和 provider 交錯的流程，例如 Server 離開
-`deployed` 時把 Software Assignment 標為 `absent` 的 sweep）是待遷移的現況，不得當成新功能的範例。由 spec 推導並收斂
-的欄位（例如 platform controller 讓成員都有 Platform Claim）是 controller 的收斂，不是修復 sweep。
+（workflow-execution.md §12），例如拿走 Server OS 的 Task 在同一個 transaction 內把它的 Software Assignment 標為
+`absent`；OS 在 swallow 之外被移除時，由 reconcile 依它對 provider 的觀察做同樣的清除。其餘仍以補償或修復 sweep 維持
+一致的流程（和 provider 交錯的流程）是待遷移的現況，不得當成新功能的範例。由 spec 推導並收斂的欄位（例如 platform
+controller 讓成員都有 Platform Claim）是 controller 的收斂，不是修復 sweep。
 
 ## Configuration Boundary
 

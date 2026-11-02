@@ -36,6 +36,7 @@ behavior semantics.
 - [Server Status](../../../../../docs/development/glossaries/terms/server-status.md)
 - [Docker Host Explorer](../../../../../docs/development/glossaries/terms/docker-host-explorer.md)
 - [Device Metrics Exporter](../../../../../docs/development/glossaries/terms/device-metrics-exporter.md)
+- [Exporter Ownership](../../../../../docs/development/glossaries/terms/exporter-ownership.md)
 - [Platform Claim](../../../../../docs/development/glossaries/terms/platform-claim.md)
 
 ## Endpoints
@@ -101,6 +102,16 @@ object whose `items` array is small and bounded, so it is not paginated.
       "installMethods": [],
       "containerRuntimes": [],
       "specFields": ["exportPath", "exportOptions", "source", "mountPath", "mountOptions"]
+    },
+    {
+      "kind": "node-exporter",
+      "label": "Node Exporter",
+      "roles": [],
+      "mutuallyExclusiveWith": [],
+      "refusedForKubernetesMembers": false,
+      "installMethods": [],
+      "containerRuntimes": [],
+      "specFields": []
     },
     {
       "kind": "podman",
@@ -184,8 +195,10 @@ A Docker CE assignment records the normalized spec (see [Docker CE spec](#docker
 `state` is one of `pending | installed | failed | uninstalling | absent`. These are domain
 values from the
 [Software Assignment](../../../../../docs/development/glossaries/terms/software-assignment.md)
-term. `absent` means swallow no longer considers the software present (for example the Server
-left `deployed`).
+term. `absent` means swallow no longer considers the software present: it was uninstalled, or the
+Server's OS was removed — by a Workflow that released or recovered the Server, or outside swallow,
+which reconciliation notices once the machine is `ready` or `allocated`. A Server in `rescue` or
+`broken` keeps its assignments, because its OS is still on disk.
 
 Every field is always present. `spec` is the normalized spec the last install recorded; it is
 `null` when an install of a kind that adds no defaults (NFS, Podman) sent no `spec`.
@@ -242,8 +255,9 @@ Servers, creating a durable Workflow and a `pending` assignment per Server.
   For NFS, at least one `server` role in the batch requires `exportPath`, and a `client` role
   requires `source` and `mountPath`. Docker CE
   is described in [Docker CE spec](#docker-ce-spec), Prometheus and Grafana in
-  [Prometheus and Grafana spec](#prometheus-and-grafana-spec), and the Device Metrics Exporter
-  in [Device Metrics Exporter](#device-metrics-exporter).
+  [Prometheus and Grafana spec](#prometheus-and-grafana-spec), the Device Metrics Exporter
+  in [Device Metrics Exporter](#device-metrics-exporter), and the Node Exporter in
+  [Node Exporter](#node-exporter).
 - Every target Server must be present and in provisioning state `deployed`; the request checks
   this first and refuses it as `409 conflict`. A kind installed by its
   `container` method also needs one of the entry's `containerRuntimes` in state `installed` on
@@ -344,7 +358,7 @@ for a container and a native process. Each is installed by one of two methods:
 on each target: AMD's pinned native package (`amdgpu-exporter 1.5.3~24.04`, SHA-256 verified),
 with `gpuagent` started after swallow's post-boot amdgpu loader (`swallow-amdgpu-load.service`,
 installed when the Server has none). The exporter serves per-GPU Prometheus metrics on the
-Server's primary address at port `5001` (`5000` belongs to the host GPU exporter swallow scrapes),
+Server's primary address at port `5001` (`5000` stays reserved for the RDC exporter),
 with Slurm job attribution and the hardware profiler off. It installs only the exporter: to graph
 it, install `prometheus` with `scrapeServerIds` naming these Servers and `scrapePort: 5001`, and
 `grafana` with the `device-metrics-exporter` dashboard bundle.
@@ -370,6 +384,36 @@ it, install `prometheus` with `scrapeServerIds` naming these Servers and `scrape
   unit (slurmd or k0s) still depends on the loader. A Server with a Platform Claim is refused with
   `409 conflict`.
 
+### Node Exporter
+
+`node-exporter` installs the Prometheus Node Exporter from the OS distribution's package on each
+target: `prometheus-node-exporter` (apt) on Debian and Ubuntu, `node_exporter` (dnf, from EPEL)
+on the RHEL family. The package's own systemd service runs it on port `9100`, where swallow's
+Prometheus discovery scrapes every Server ([discovery-prometheus.md](discovery-prometheus.md)); no
+container runtime is installed or needed. Before installing, the playbook removes swallow's
+earlier containerised node-exporter (the systemd unit `swallow-node-exporter.service` and its
+container), which held the same port; Docker itself and any RDC exporter container are left
+alone. Every OS deployment installs this kind on the Servers it provisions
+([provisioning.md](provisioning.md#durable-os-workflows)), so a client installs it directly only
+on Servers swallow did not deploy.
+
+```json
+{
+  "kind": "node-exporter",
+  "assignments": [{ "serverId": "srv-abc" }]
+}
+```
+
+- The request takes no `spec` fields; any field is `400 validation_error`.
+- A target whose [Exporter Ownership](../../../../../docs/development/glossaries/terms/exporter-ownership.md)
+  is not `ansible` is `409 conflict`: a member of a Kubernetes Platform whose `exporterOwner` is
+  `k8s` (its DaemonSet serves the same port), or a locked Server. An install that an OS or
+  Platform deployment composes is not subject to this check.
+- The install Task fails with `node_exporter_unsupported_os` on an OS family other than Debian or
+  the RHEL family, and with `node_exporter_package_unavailable` when the host's repositories lack
+  the package (on the RHEL family, when EPEL is not enabled).
+- Uninstall stops the service and removes the package.
+
 On success the response is `202 Accepted`:
 
 ```json
@@ -384,7 +428,7 @@ In addition to the shared codes in [conventions](conventions.md):
 | --- | ---: | --- |
 | `validation_error` | 400 | The body is not valid JSON; unknown kind; no target, a target without `serverId`, or a duplicate target; missing/invalid roles for the kind; a missing, malformed, or wrong-typed spec field, or one the kind does not accept; or the targets belong to more than one Site. |
 | `not_found` | 404 | A target Server, or a Prometheus `scrapeServerIds` entry, does not exist. |
-| `conflict` | 409 | A mutually exclusive software kind is already installed on a target, the `container` method's runtime is not `installed` on a target, a target is already a Kubernetes Platform member for a kind that refuses members, a target has a Platform Claim for a kind that refuses claimed Servers, or a target lacks the AMD compute GPUs the Device Metrics Exporter needs. |
+| `conflict` | 409 | A mutually exclusive software kind is already installed on a target, the `container` method's runtime is not `installed` on a target, a target is already a Kubernetes Platform member for a kind that refuses members, a target has a Platform Claim for a kind that refuses claimed Servers, a target lacks the AMD compute GPUs the Device Metrics Exporter needs, or a Node Exporter target's Exporter Ownership is not `ansible`. |
 | `conflict` | 409 | A target Server is absent or not in provisioning state `deployed`, checked first and re-checked when the Workflow is created; or, when the Workflow is created, a target already has an active durable Workflow or is locked. |
 | `provider_unavailable` | 503 | The targets' Site cannot run the Workflow's Ansible automation (no automation configuration, automation disabled, automation not logging in with the Deployment Key, or a playbook outside the release manifest), or the Server Lock state of a target cannot be confirmed. |
 
@@ -442,6 +486,9 @@ On success the response is `202 Accepted`:
 - 2026-11-02, stricter: an NFS install whose `spec` has a key outside the catalog's `specFields`
   or a non-string value is `400 validation_error`; such a key was accepted and ignored, and a
   non-string value was passed to the playbook as given.
+- 2026-11-03: added the `node-exporter` kind, which every OS deployment composes. A Server's
+  assignments are marked `absent` by the Workflow Task that removed its OS or by reconciliation,
+  no longer whenever the Server leaves `deployed`, so a Server in `rescue` or `broken` keeps them.
 
 ## Composition Into Platform Deployments
 
@@ -461,6 +508,11 @@ composes:
   `device-metrics-exporter`, `scrapeServerIds` = the GPU compute nodes, `scrapePort` = `5001`, and
   dashboards `device-metrics-exporter`, and then `device-metrics-exporter` itself onto the GPU
   compute nodes with Slurm job attribution on (see [platforms](platforms.md#device-metrics-exporter)).
+
+OS deployments compose `node-exporter` the same way onto every Server they provision (see
+[provisioning](provisioning.md#durable-os-workflows)), and so does a Platform deployment's
+`ensure-os` unless the Platform's `exporterOwner` is `k8s`; a kept-servers uninstall of a `k8s`
+Platform composes it onto the kept Servers (see [platforms](platforms.md)).
 
 A composed runtime skips a Server where it is already `installed`, so a user's own runtime
 spec is never reverted. Composition adds no endpoint. A Slurm Platform's uninstall removes the

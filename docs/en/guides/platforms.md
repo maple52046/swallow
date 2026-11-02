@@ -114,7 +114,7 @@ work first. Uninstalling the operator keeps the Platform running. swallow does n
 that was installed by hand.
 
 The Device Metrics Exporter is for the cluster's own monitoring; swallow's
-GPU charts keep using the host exporter.
+GPU charts read an RDC exporter running on the host, which swallow does not install.
 
 ## Slurm
 

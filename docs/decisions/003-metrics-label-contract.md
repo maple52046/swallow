@@ -186,15 +186,19 @@ Two refinements, both driven by implementing monitoring for CPU and AMD GPU serv
 **Exporter ownership is a single, switchable owner per host.** This decision originally
 said the host `node_exporter` always stays and a cluster's `node-exporter` DaemonSet is
 always disabled. Implementation replaced that with a generalisation of `gpuStackOwner`: a
-per-host **exporter owner** with exactly three values — `ansible` (swallow installs an
-exporter container on the host), `k8s` (a cluster DaemonSet installs it), and `unmanaged`
-(the user installed something by hand, or the machine is locked; swallow keeps out).
+per-host **exporter owner** with exactly three values — `ansible` (swallow's host automation
+installs the host exporter: the Node Exporter from the OS distribution's package, as Managed
+Software), `k8s` (a cluster DaemonSet installs it), and `unmanaged` (the user installed something
+by hand, or the machine is locked; swallow keeps out).
 
 The owner is decided as a per-cluster policy (`exporterOwner`): a member of a Kubernetes
 cluster follows that cluster's policy, a host in no cluster is `ansible`, and a locked
 machine (`provisioning.locked`) is always `unmanaged`. At most one owner installs the
 exporter, so the two-exporters-fighting-for-a-port problem the original text avoided by
-"host always wins" is instead avoided by "one owner at a time".
+"host always wins" is instead avoided by "one owner at a time". The policy is read when swallow
+installs the exporter — an OS deployment composes the Node Exporter onto the Servers it provisions
+where the owner is `ansible`, and a standalone install is refused where it is not — so changing it
+records the policy and installs or removes nothing on the hosts.
 
 Crucially this does **not** change the label contract or the join. The k8s DaemonSet
 exposes the exporter on the node with `hostNetwork` on the same fixed ports (9100 for
@@ -203,14 +207,17 @@ node, 5000 for the GPU exporter), so swallow's per-site Prometheus keeps scrapin
 in-cluster `(cluster, node)` join path stays reserved for metrics swallow does not own a
 scrape target for; it is not needed for these exporters.
 
-**AMD servers use an RDC exporter, the AMD analogue of the DCGM exporter.** The AMD GPU
-host exporter is [`maple52046/rdc-exporter`](https://github.com/maple52046/rdc-exporter),
+**AMD servers' GPU metrics come from an RDC exporter, the AMD analogue of the DCGM exporter.**
+The AMD GPU exporter is [`maple52046/rdc-exporter`](https://github.com/maple52046/rdc-exporter),
 which exports `gpu_util`, `gpu_temp`, `power_usage`, `gpu_memory_usage`, and
-`gpu_memory_total` (labelled by `gpu_index`) on port 5000. swallow classifies a machine as
-an AMD GPU server by the MAAS tag `amd-gpu` (mirrored into `observed.tags`), and its
-`http_sd` endpoint takes a `tag` filter so the RDC scrape job targets only those machines.
-Named GPU queries are vendor-neutral: each evaluates the DCGM series or the RDC series, so
-one metric name serves both stacks without the caller knowing which is present.
+`gpu_memory_total` (labelled by `gpu_index`) on port 5000, which stays reserved for it. swallow
+does not install the RDC exporter on hosts; the Kubernetes exporter DaemonSet runs it on a
+cluster whose exporters Kubernetes owns, and an RDC exporter already running on a host is
+scraped. swallow classifies a machine as an AMD GPU server by the MAAS tag `amd-gpu` (mirrored
+into `observed.tags`), and its `http_sd` endpoint takes a `tag` filter so the RDC scrape job
+targets only those machines. Named GPU queries are vendor-neutral: each evaluates the DCGM series
+or the RDC series, so one metric name serves both stacks without the caller knowing which is
+present; a host that runs no GPU exporter returns no GPU values.
 
 ## Built-in usage charts, Monitoring Links, and runtimes with their own monitoring
 
@@ -323,3 +330,4 @@ responsible for, and it exports the two-join-path complexity to every caller.
 - 2026-08-27: added switchable exporter ownership and the AMD RDC exporter.
 - 2026-10-12: added built-in usage charts, Monitoring Links, and runtimes that bring their own monitoring.
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-03: the `ansible` owner's host exporter became the Node Exporter package installed as Managed Software, changing the owner policy installs or removes nothing, and swallow stopped installing the RDC exporter on hosts.

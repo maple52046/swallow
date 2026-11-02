@@ -8,8 +8,8 @@
 #   - (optional) a MAAS provisioner integration, so lab machines reconcile into servers, with
 #     the rack's virsh SSH public key as its virshSshPublicKey setting when one is given,
 #   - site automation settings (automation always logs in with the Deployment Key) and an
-#     optional become password, so exporter playbooks can run,
-#   - the install/uninstall-exporters playbook mappings,
+#     optional become password, so host automation such as the Node Exporter install that each
+#     OS deployment runs can work,
 #   - a metrics integration pointing at the in-compose Prometheus, so the dashboard can
 #     read metrics.
 #
@@ -125,7 +125,7 @@ else
   printf 'skipping MAAS: set SWALLOW_MAAS_URL and SWALLOW_MAAS_CREDENTIAL to register it\n'
 fi
 
-# --- site automation: settings + exporter playbook mappings ---
+# --- site automation settings ---
 automation_enabled=false
 if [[ -n "${ssh_known_hosts}" ]]; then
   automation_enabled=true
@@ -135,10 +135,9 @@ curl "${curl_flags[@]}" "${auth[@]}" -X PUT "${base_url}/sites/${site_id}/automa
   --data-binary "$(jq -nc \
     --argjson enabled "${automation_enabled}" \
     --arg user "${ssh_user}" --argjson port "${ssh_port}" --arg kh "${ssh_known_hosts}" \
-    '{enabled:$enabled,sshUser:$user,sshPort:$port,knownHosts:$kh,
-      playbookMappings:{"install-exporters":"install-exporters","uninstall-exporters":"uninstall-exporters"}}')" \
+    '{enabled:$enabled,sshUser:$user,sshPort:$port,knownHosts:$kh,playbookMappings:{}}')" \
   >/dev/null
-printf 'automation configured (enabled=%s), exporter playbooks mapped\n' "${automation_enabled}"
+printf 'automation configured (enabled=%s)\n' "${automation_enabled}"
 
 # --- site become password (optional) ---
 # Automation always logs in with the Deployment Key created above, which the API registers in
@@ -156,6 +155,6 @@ cat <<EOF
 
 Done. Next:
   - Tag each AMD GPU server in MAAS with 'amd-gpu'.
-  - Deploy an OS to a lab machine; swallow auto-creates an install-exporters operation.
+  - Deploy an OS to a lab machine; the OS deployment installs the Node Exporter.
   - Prometheus UI: http://127.0.0.1:${PROMETHEUS_PORT:-9090}
 EOF

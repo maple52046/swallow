@@ -113,6 +113,15 @@ Platform 佈署不會更改時間設定。它在安裝 platform 前會檢查每�
 [時鐘檢查](platforms.md#時鐘檢查)。在這個 step 出現前就已佈署的 Server，在重新佈署前保留其 image
 自己的時間設定。
 
+## Node Exporter
+
+每次 OS 佈署也會在時間同步之後，於每台佈署的 Server 上安裝 [Node Exporter](managed-software.md#node-exporter)，
+讓 Server 上線後就有用量圖表（[Monitoring](monitoring.md)）；Platform 佈署所 provision 的每台 Server
+也一樣，除非該 Platform 的 exporters 由 Kubernetes 擁有。Server 的 Software 清單會把它列為已安裝的
+Managed Software。安裝失敗不影響 OS：Server 仍是 deployed，但 Workflow 會等待處理，直到你 retry
+**Install Node Exporter** step（例如在 RHEL 家族的 image 啟用 EPEL 之後）。Release 或 Recover
+Server 會清除它的 Software Assignment，因為軟體隨 OS 一起消失。
+
 ## 沒有 provisioner DHCP 的網路：Boot Media
 
 有些 Server 所在網路的 DHCP 由現場提供、而不是 provisioner，因此無法 PXE 開機進入 provisioner。

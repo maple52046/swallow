@@ -1825,6 +1825,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         { kind: 'prometheus', label: 'Prometheus', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'scrapeJob', 'scrapeTargets', 'scrapeServerIds', 'scrapePort', 'listen', 'retention'] },
         { kind: 'grafana', label: 'Grafana', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'prometheusUrl', 'dashboards'] },
         { kind: 'device-metrics-exporter', label: 'AMD Device Metrics Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: true, refusedForClaimedServers: true, requiresAmdComputeGpu: true, installMethods: [], containerRuntimes: [], specFields: [] },
+        { kind: 'node-exporter', label: 'Node Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: [] },
       ] })
     }
     // Modules (modules.md): the build's modules; NFS declares the spec schema its install form reads.
@@ -1836,7 +1837,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         { kind: 'platform', id: 'slurm', version: '0.1.0', spec: null },
         ...['device-metrics-exporter', 'docker-ce', 'grafana'].map((id) => ({ kind: 'software', id, version: '0.1.0', spec: null })),
         { kind: 'software', id: 'nfs', version: '0.1.0', spec: nfsSpecSchema },
-        ...['podman', 'prometheus'].map((id) => ({ kind: 'software', id, version: '0.1.0', spec: null })),
+        ...['node-exporter', 'podman', 'prometheus'].map((id) => ({ kind: 'software', id, version: '0.1.0', spec: null })),
       ] })
     }
     // Registry Credentials (registry-credentials.md): responses never carry a password.

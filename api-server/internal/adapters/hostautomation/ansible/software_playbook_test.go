@@ -23,6 +23,7 @@ func TestShippedManifestResolvesSoftwarePlaybooks(t *testing.T) {
 		"deploy-prometheus", "uninstall-prometheus",
 		"deploy-grafana", "uninstall-grafana",
 		"deploy-device-metrics-exporter", "uninstall-device-metrics-exporter",
+		"deploy-node-exporter", "uninstall-node-exporter",
 	} {
 		if _, err := catalog.Resolve(name); err != nil {
 			t.Errorf("shipped manifest must register %q: %v", name, err)

@@ -110,8 +110,9 @@ observed, mutable attributes and must not be used as keys.
 swallow manages only Platforms it deploys itself. It does not register arbitrary
 existing Kubernetes or Slurm environments. Teams, user administration, and physical
 rack topology are planned design areas and are not active features. GPU monitoring
-covers the RDC exporter's charts on AMD GPU Servers and, on a Slurm Platform, the
-optional Omnistat ([Monitoring](guides/monitoring.md)).
+charts AMD GPU Servers that already run an RDC exporter (swallow does not install the
+RDC exporter on hosts) and, on a Slurm Platform, covers the optional Omnistat
+([Monitoring](guides/monitoring.md)).
 
 The project is in active development and has no stable SemVer release. The
 Compose topology is the complete runnable topology. Native packaging is a

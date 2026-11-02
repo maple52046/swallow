@@ -15,9 +15,10 @@ non-root container read，directory traversal 保持 root-only。
 TLS terminator，請把 URL 改為 `https`，並加上帶 CA 的 `tls_config`。
 
 `PROMETHEUS_IMAGE` 使用 exact OCI digest。Default retention 是 30 days，這也限制了 swallow
-能繪製的最長用量歷史（最大 window 為 7 天）。`node_exporter`（port 9100）以及 `amd-gpu`
-Server 上的 RDC exporter（port 5000）由 versioned swallow playbook 依 exporter-owner policy
-安裝；範本中的兩個 scrape job 對應這兩個 port。未來 central TSDB 可使用 `remote_write`，
+能繪製的最長用量歷史（最大 window 為 7 天）。swallow 的每次 OS 佈署都會依 exporter-owner policy
+從 OS 套件安裝 `node_exporter`（port 9100）。swallow 不在主機上安裝 RDC exporter（port 5000）；
+範本中鎖定 `amd-gpu` Server 的 `site-rdc-exporter` job 保留給已經執行它的主機。兩個 scrape job 對應這兩個 port。
+未來 central TSDB 可使用 `remote_write`，
 不更改 discovery labels。
 
 Prometheus 應使用 swallow HTTP service discovery，以穩定 `server_id`、`site`

@@ -14,7 +14,7 @@ current session in the browser.
 | Servers | Inventory, Add servers (enrollment guidance), shareable filter views, bulk actions, tags, locks, and Server details including Boot Media |
 | Provisioning | OS deployment, templates, images, Boot ISOs, upload, and verification |
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
-| Software | Grouped catalog (Docker CE, Podman, NFS, Prometheus, Grafana, AMD Device Metrics Exporter), per-software deployments, and multi-Server installation |
+| Software | Grouped catalog (Docker CE, Podman, NFS, Prometheus, Grafana, AMD Device Metrics Exporter, Node Exporter), per-software deployments, and multi-Server installation |
 | Workflows | Durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry |
 | Change Plans | Plans for destructive Platform changes, waiting for approval or rejection |
 | Monitoring | Alerts, silences, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, fleet health, and optional Grafana links |

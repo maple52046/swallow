@@ -52,6 +52,8 @@ export function softwareKindLabel(kind: SoftwareKind, catalogLabel?: string): st
       return 'Grafana'
     case 'device-metrics-exporter':
       return 'AMD Device Metrics Exporter'
+    case 'node-exporter':
+      return 'Node Exporter'
     default:
       return kind
   }

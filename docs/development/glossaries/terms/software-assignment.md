@@ -13,15 +13,19 @@
   wrote it, and the last successful apply time. It is swallow-owned intent plus a last-applied
   fact, updated by the install/uninstall Workflow's internal record step — including the record
   step of a software Job composed into a platform deployment (Prometheus and Grafana of a Slurm
-  deploy with Omnistat, or the Device Metrics Exporter on its GPU compute nodes). A Slurm
+  deploy with Omnistat, or the Device Metrics Exporter on its GPU compute nodes) and of the Node
+  Exporter that every OS deployment installs on the Servers it provisions. A Slurm
   Platform's successful uninstall marks its Servers' `device-metrics-exporter` assignments
   `absent`, because the uninstall removes that exporter from the hosts.
 - Disallowed meaning: Not a fourth Server status axis — the three axes
   (`provisioning`/`membership`/`health`) are unchanged, and a Software Assignment is neither
   provisioning state nor membership nor health. Not a live probe of the host's packages: it is
   the last-applied intent, not a continuous package scan. Not a Platform membership record. It
-  must not outlive the software on disk: when a Server leaves `deployed` (release, recover,
-  reinstall) its assignments become `absent`.
+  must not outlive the software on disk: a Workflow Task that takes a Server's OS away (release,
+  recover, or returning a Server borrowed by OS image verification) marks its assignments
+  `absent` when it succeeds, and reconcile does the same when it observes the machine without an
+  OS (`ready` or `allocated`) after a removal outside swallow. A Server in `rescue` or `broken`
+  keeps its assignments, because its OS is still on disk.
 - Synonyms: None.
 - Deprecated terms: None.
 - Examples: "The Server detail lists two Software Assignments: `docker-ce` installed and `nfs`
@@ -38,3 +42,6 @@
   software Jobs record assignments too. 2026-10-30
   ([decision 068](../../../decisions/068-device-metrics-exporter-managed-software.md) (device metrics exporter managed software)): the
   Device Metrics Exporter of a Slurm Platform has assignments, cleared by the Platform's uninstall.
+  2026-11-03: every OS deployment records a `node-exporter` assignment, and a Server's
+  assignments are cleared by the Task that removed its OS or by reconcile rather than by a
+  periodic pass over Servers that left `deployed`, so a Server in `rescue` or `broken` keeps them.

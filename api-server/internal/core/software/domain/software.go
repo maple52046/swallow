@@ -84,6 +84,11 @@ type CatalogEntry struct {
 	// with a Platform Claim (decision 067), because that Platform manages the kind on its Servers
 	// (decision 068). A Platform's own composition of the kind is not subject to it.
 	RefusedForClaimedServers bool
+	// HostExporter marks one of a host's Prometheus exporters. A standalone install accepts only a
+	// Server whose exporters swallow's host automation owns (Exporter Ownership): a Kubernetes
+	// Platform that owns them runs its own exporter on the same port, and a locked Server is left
+	// alone. A composing Workflow decides ownership itself and is not subject to it.
+	HostExporter bool
 	// RequiredAccelerator is the id of the Accelerator module whose compute GPUs every target's GPU
 	// Inventory must list, or "" when the kind needs none.
 	RequiredAccelerator string
@@ -166,9 +171,6 @@ type AssignmentRepository interface {
 	// the last-applied field only when non-nil (a successful install/uninstall). A missing
 	// record is ErrAssignmentNotFound.
 	SetState(ctx context.Context, serverID string, kind Kind, state AssignmentState, workflowID string, appliedAt *time.Time) error
-	// ListAll returns every non-absent assignment so the OS-lifecycle sweep can reconcile them
-	// against current Server provisioning state.
-	ListAll(ctx context.Context) ([]*Assignment, error)
 }
 
 var (

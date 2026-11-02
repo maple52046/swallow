@@ -115,7 +115,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	// The reconcile use case is also the DeployedImageNameRefresher, so the metadata edit and the
 	// handler share one instance and a rename propagates to server projections through the same
 	// server repo the reconcile pass uses.
-	reconcileUC := provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageMetadata)
+	reconcileUC := provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageMetadata, &recordingInstalledSoftware{})
 	deployments := provisioningapp.NewDeployServersUseCase(servers, templates, factory, osImageVerifications)
 	launcher := &executingLauncher{
 		deployments: deployments,

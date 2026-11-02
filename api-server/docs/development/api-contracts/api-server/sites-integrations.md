@@ -113,8 +113,10 @@ recognises:
 | `insecureSkipVerify` | `"true"` or absent | Skip TLS verification of the provider endpoint. |
 | `autoInspect` | `"false"` or absent | Absent (or any value other than `"false"`) starts hardware inspection automatically for newly enrolled Servers ([server-enrollment.md](server-enrollment.md)). `"false"` turns it off; Inspect stays available on request. |
 
-`autoInspect` is read on every sweep, so an update takes effect without restarting anything. An
-Integration created before the key existed has it absent, which means on.
+`autoInspect` is read each time the worker's `auto-inspect` controller looks at a candidate
+Server, and any change of the Integration makes it look at the Integration's candidates again, so
+an update takes effect without restarting anything. An Integration created before the key existed
+has it absent, which means on.
 
 | Key | Value | Meaning |
 | --- | --- | --- |

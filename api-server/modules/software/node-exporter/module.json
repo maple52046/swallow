@@ -1,0 +1,28 @@
+{
+  "contractVersion": 1,
+  "kind": "software",
+  "id": "node-exporter",
+  "version": "0.1.0",
+  "playbooks": [
+    "deploy-node-exporter",
+    "uninstall-node-exporter",
+    "install-exporters",
+    "uninstall-exporters"
+  ],
+  "workflowKinds": [
+    "configure-node-exporter",
+    "uninstall-node-exporter"
+  ],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [
+    {
+      "name": "software",
+      "reason": "Refuses every spec field and marks the kind as a host exporter, which installs only where swallow's host automation owns the host's exporters; the catalog entry travels with it."
+    }
+  ],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": []
+}

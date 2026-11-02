@@ -41,18 +41,23 @@ Platform deployment targets *one platform: a runtime composed of multiple compon
 
 The relationship to Server provisioning is real but is **not** the boundary. It is a
 difference in default capability/orchestration: the standalone software entry expects
-targets already `deployed` (like `install-exporters`), while a platform deploy commonly
-composes `ensure-os`. Software Workflows may compose `ensure-os` later, and a platform may
-run against existing OS; neither fact reclassifies the deployment.
+targets already `deployed`, while a platform deploy commonly composes `ensure-os`, and an OS
+deployment composes software onto the OS it provisions (the Node Exporter on every Server it
+deploys). Software Workflows may compose `ensure-os` later, and a platform may run against
+existing OS; neither fact reclassifies the deployment.
 
 **Software is not a Platform aggregate.** There is no cluster membership, no platform
 credential, and no whole-batch `targetServerIds` claim. Instead a swallow-owned durable
 **Software Assignment** keyed by `(serverId, kind)` records desired intent and last-applied
 state so the fleet can be listed, duplicates prevented, and uninstall driven from a single
 source of truth. It is swallow-owned intent, not a fourth Server status axis; the three
-axes (`provisioning`/`membership`/`health`) are unchanged. When a Server leaves `deployed`
-(release, recover, reinstall) its assignments are marked `absent`, mirroring the lifecycle
-honesty of [ADR 036](036-provisioning-lifecycle-integrity.md).
+axes (`provisioning`/`membership`/`health`) are unchanged. An assignment must not outlive
+the software on disk, mirroring the lifecycle honesty of
+[ADR 036](036-provisioning-lifecycle-integrity.md): the Workflow Task that takes a Server's OS
+away (release, recover) marks its assignments `absent` in the same transaction as its own
+result, and reconcile does the same when it observes a machine without an OS whose OS was
+removed outside swallow. A Server in `rescue` or `broken` keeps its assignments, because its OS
+is still on disk.
 
 **Platform ↔ software linkage composes the same Job, never nests a Workflow.** A platform
 Workflow that needs a software component inserts the software's Job (for example
@@ -126,3 +131,4 @@ Slurm-managed state NFS.
 - 2026-09-24: decided that a single Managed Software install is a deploy target distinct from Platforms and is composed into other Workflows as a Job.
 - 2026-10-30: decision 070 moved each software kind into a Software module.
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-03: assignments of a Server whose OS is gone are cleared by the Task that removed the OS or by reconcile instead of a periodic pass, and OS deployment composes the Node Exporter.

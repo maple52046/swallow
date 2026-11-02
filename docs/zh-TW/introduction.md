@@ -95,8 +95,8 @@ observed attributes，不能當作 key。
 
 swallow 只管理自己佈署的 Platform，不註冊任意既有 Kubernetes／Slurm 環境。
 Teams、user administration 與實體 rack topology 仍是 planned design area，不是 active
-feature。GPU 監控涵蓋 AMD GPU Server 上 RDC exporter 的圖表，以及 Slurm Platform 上選用的
-Omnistat（[Monitoring](guides/monitoring.md)）。
+feature。GPU 監控會為已經執行 RDC exporter 的 AMD GPU Server 繪製圖表（swallow 不在主機上
+安裝 RDC exporter），並涵蓋 Slurm Platform 上選用的 Omnistat（[Monitoring](guides/monitoring.md)）。
 
 專案正在積極開發，尚無穩定 SemVer release。Compose topology 是功能完整的執行
 topology；在 Temporal 與 PostgreSQL native service packaging 完成前，native

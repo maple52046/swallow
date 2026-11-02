@@ -101,6 +101,14 @@ enrolled Servers off. See the
 [Server Enrollment contract](../../../api-server/docs/development/api-contracts/api-server/server-enrollment.md),
 which also defines the existing-OS enrollment bundle.
 
+Since 2026-11-03 a `deploy-os` Workflow also installs the Node Exporter, with an
+`install-node-exporter-<serverId>` and a `record-node-exporter-<serverId>` Task per
+Server, and the `install-exporters` and `uninstall-exporters` Workflow kinds are
+retired: `POST /api/v1/workflows` and a Site's `playbookMappings` refuse them with
+`400 validation_error`. Install the Node Exporter on other Servers through the
+[Managed Software contract](../../../api-server/docs/development/api-contracts/api-server/software.md)
+(kind `node-exporter`).
+
 ## Contract directory
 
 Start with:

@@ -32,8 +32,7 @@ type workerPlatformDeps struct {
 	platforms       *platformstore.MongoPlatformRepo
 	servers         *serverstore.MongoServerRepo
 	operations      *workflowstore.MongoWorkflowRepo
-	secrets         *workflowstore.MongoOperationSecretRepo
-	ownership       *workflowstore.MongoOwnershipRepo
+	workflows       *workflowapp.WorkflowService
 	automation      *workflowapp.EffectiveAutomationConfigurations
 	providers       *maas.ProviderFactory
 	deployments     *provisioningapp.DeployServersUseCase
@@ -64,11 +63,10 @@ func workerPlatformOperations(
 	protection := providerServerMutationGuard{servers: deps.servers, providers: deps.providers}
 	operations := workflowapp.NewExecutionService(deps.servers, deps.automation, catalog, modules.workflowKinds, runner, events,
 		platformapp.NewPolicyChecker(deps.platforms, deps.servers), protection)
-	orchestrations := workflowapp.NewWorkflowService(transactor, deps.operations, workflowPlanCatalog(modules.workflowKinds, modules.software), deps.secrets)
-	orchestrations.AttachOwnershipReader(deps.ownership)
+	orchestrations := deps.workflows
 	operations.AttachWorkflow(orchestrations)
 	software := softwareapp.NewSoftwareService(transactor, modules.software, modules.accelerators, deps.software, deps.servers,
-		kubernetesMembershipChecker{servers: deps.servers, platforms: deps.platforms})
+		kubernetesMembershipChecker{servers: deps.servers, platforms: deps.platforms}, exporterOwnerResolver{platforms: deps.platforms})
 	software.AttachLauncher(softwareDeploymentLauncher{operations: operations, orchestrations: orchestrations, modules: modules.registry})
 	software.AttachPlatformNames(platformNameReader{platforms: deps.platforms})
 	return buildPlatformOperations(platformOperationDeps{
@@ -77,6 +75,7 @@ func workerPlatformOperations(
 		operations: operations, orchestrations: orchestrations, deployments: deps.deployments,
 		bootMedia: bootMediaPlanner{servers: deps.servers, isos: deps.bootISOs}, software: software,
 		ntp: ntpStepPlanner{server: cfg.NTPServer, operations: operations}, protection: protection,
+		nodeExporter: nodeExporterPlanner{software: software, operations: operations},
 		networks:     provisioningapp.NewNetworkConfigurationService(deps.servers, deps.providers),
 		requirements: platformstore.NewMongoDeploymentRequirementRepo(db), keys: deps.keys,
 	}), nil

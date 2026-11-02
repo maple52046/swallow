@@ -88,8 +88,8 @@ deployment 一律以這四層表達（完整定義見 glossary：
 - Workflow `kind` = `deploy-kubernetes`；definition = `platform-deployment`（version 1）。
 - 由 launcher [`platformDeploymentLauncher`](../../api-server/internal/app/platform_deployment_adapter.go)
   組裝，經 `WorkflowService.Create` 受理，由 `workflow-dispatch` 派發給 driver。
-- 分成兩個 Job，依 **cross-Job 依賴序**執行：先 `ensure-os`，後 `configure-k0s`。兩者都宣告重試粒度
-  `job`：重試會讓整個 Job 的 Task 以下一個 attempt 重跑。
+- 分成兩個 Job，依 **cross-Job 依賴序**執行：先 `ensure-os`，後 `configure-k0s`；本次 provision 了 Server 時另有
+  `configure-node-exporter`（§2.2）。每個 Job 都宣告重試粒度 `job`：重試會讓整個 Job 的 Task 以下一個 attempt 重跑。
 
 **拓樸與角色**（[decision 007](../decisions/007-cluster-deployment-ownership.md)（cluster deployment ownership）、
 [decision 011](../decisions/011-flexible-k0s-topologies.md)（flexible k0s topologies））：deploy 請求以 `roleAssignments[]`
@@ -124,6 +124,8 @@ deploy use case 由它推導 [Kubernetes Topology](glossaries/terms/kubernetes-t
 | `ensure-os` | `provision-<serverId>`（每台需裝 OS 者一個） | `provision-os` | `provisioner` | 單一 Server | —（Job 內並行；啟用 Boot Media 者依賴其 `ensure-boot-media-<serverId>`） | `request`（凍結的 per-Server 佈署輸入）；啟用 Boot Media 者另有 `bootMediaIsoUrl` |
 | `ensure-os` | `wait-for-ssh` | `wait-for-ssh` | `internal` | 已 `deployed` 的 targets | — | — |
 | `ensure-os` | `configure-ntp-<serverId>`（每台本次 provision 的 Server 一個，[decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)（control plane ntp and post provision time sync）） | `ansible-playbook` | `ansible` | 單一 Server | `provision-<serverId>` | `playbook`（`configure-ntp`）、`extraVars`（含 `swallow_ntp_servers`） |
+| `configure-node-exporter` | `install-node-exporter-<serverId>`（每台本次 provision 的 Server 一個；`exporterOwner` 為 `k8s` 時不加） | `ansible-playbook` | `ansible` | 單一 Server | `configure-ntp-<serverId>` | `playbook`（`deploy-node-exporter`）、`extraVars` |
+| `configure-node-exporter` | `record-node-exporter-<serverId>` | `record-software-assignment` | `internal` | 單一 Server | `install-node-exporter-<serverId>` | `softwareKind`（`node-exporter`）、`serverIds` |
 | `configure-k0s` | `install-platform` | `ansible-playbook` | `ansible` | 全部 targets | 所有 `provision-*` + `wait-for-ssh` + `configure-ntp-*` | `playbook`、`extraVars`（含時鐘檢查的 `swallow_time_sync_check`） |
 | `configure-k0s` | `validate-platform` | `validate-platform-health` | `internal` | 全部 targets | `install-platform` | — |
 
@@ -140,8 +142,14 @@ flowchart TB
         inst["install-platform (ansible)"]
         val["validate-platform (internal)"]
     end
+    subgraph exporter["Job: configure-node-exporter"]
+        e1["install-node-exporter-&lt;id&gt; (ansible)"]
+        r1["record-node-exporter-&lt;id&gt; (internal)"]
+    end
     p1 --> n1
     p2 --> n2
+    n1 --> e1
+    e1 --> r1
     p1 --> inst
     p2 --> inst
     n1 --> inst
@@ -180,6 +188,12 @@ flowchart TB
   clocks"）決定結果：`enforce`（預設）時以 `any_errors_fatal` 在任何節點安裝前讓 `install-platform`
   失敗，並以 `[time_not_synchronized]` 指出節點；`warn` 時只輸出 `[time_sync_warning]` 並繼續。
   沒有獨立的時間檢查 Task。
+
+Node Exporter 同樣在 OS 佈署時安裝（[software-deployment.md](software-deployment.md) §5）：`provision_os` 模式中，
+每台本次 provision 的 Server 在 `configure-ntp-<serverId>` 之後由 `configure-node-exporter` Job 以 Managed Software
+安裝它，與 Deploy OS 相同；Platform 的 `exporterOwner` 為 `k8s` 時不加（它的 DaemonSet 擁有 exporter）。沒有 Task
+依賴這個 Job，`install-platform` 不等它，因此安裝失敗不會擋住 Platform，但 Workflow 會停在 `requires_attention`
+直到 user 重試。沿用的 `deployed` Server 與 `existing_os` 的 targets 不安裝。
 
 > **設計理念**：對「佈署 k0s」而言，`provision_os` 與 `existing_os` 之後的行為必須**完全一致**
 > ——差別只在 OS 是本次 workflow 裝的、還是先前就有的，而不是佈署機制本身。`configure-k0s`
@@ -292,8 +306,8 @@ Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。
   於執行時下載。
 - `gpuStackOwner` 隨功能推導：啟用 operator 即為 `gpu-operator`；swallow 管理 operator 期間（state 不是 `absent`）不能
   改回 `provisioning`。`gpu-operator` 卻沒有 swallow 管理的 operator，表示 operator 由 swallow 以外管理。
-- 監控不變：operator 的 Device Metrics Exporter 為選用、不用 host network，swallow 不 scrape 它；host 的 RDC exporter
-  維持固定 port 5000（[decision 003](../decisions/003-metrics-label-contract.md)（metrics label contract））。
+- 監控不變：operator 的 Device Metrics Exporter 為選用、不用 host network，swallow 不 scrape 它，也不佔用保留給
+  RDC exporter 的 host port 5000（[decision 003](../decisions/003-metrics-label-contract.md)（metrics label contract））。
 - GPU Operator 的安裝是部署成功的一部分：GPU Task 失敗讓部署停在 `requires_attention`，該 Task 可重試。
 - 設計理由：選 Platform Job 而非 Managed Software、否決 k0s Chart CR、直接以 NFD label 選節點、讓使用者勾選 Server
   與第一版採 KMM，見 [decision 062](../decisions/062-swallow-managed-gpu-operator.md)（swallow managed gpu operator）。
@@ -326,6 +340,7 @@ Uninstall 與 deploy 一樣把 Task 以 `Task.Job` 分組，因此 API 的 `step
 | 情境 | Job | Task | Runner |
 | --- | --- | --- | --- |
 | 保留主機 | `uninstall-platform` | `uninstall-platform`（跑 `uninstall-<type>` playbook） | `ansible` |
+| 保留主機且 `exporterOwner=k8s` | `configure-node-exporter` | 每台可安裝的 target 一組 `install-node-exporter-<serverId>`（`DependsOn` `uninstall-platform`）與 `record-node-exporter-<serverId>`（§2.5） | `ansible`、`internal` |
 | Release 主機 | `release-servers` | 每台 `release-<serverId>`（Job 內並行） | `provisioner` |
 | Release 主機 | `finalize-uninstall` | `complete-uninstall`（`DependsOn` 全部 `release-*`） | `internal` |
 
@@ -360,8 +375,9 @@ platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-co
   冪等），期間 Platform 維持 `uninstall_failed`。Platform 紀錄與 Workflow 歷史保留，供診斷與重試。
 - **成功後的清理**（`CompleteUninstall`）：清 membership、釋放 Platform Claim（§2.6）、只刪證明為 swallow 擁有的 credential
   Integration（新部署會記錄自己擁有的 Integration id；legacy 紀錄要 deploy provenance 與完整的自動產生 Integration 簽章
-  都相符才刪），並清 integration／sync 投影。Kubernetes 擁有 exporter（`exporterOwner=k8s`）且保留主機時，另排一個
-  `install-exporters` Workflow 給仍 present、deployed、unlocked 的 target；它有自己的失敗生命週期，不回滾 uninstall。
+  都相符才刪），並清 integration／sync 投影。Kubernetes 擁有 exporter（`exporterOwner=k8s`）且保留主機時，同一個
+  uninstall Workflow 在 `uninstall-platform` 之後另有 `configure-node-exporter` Job（§2.4），為受理時 present、deployed、
+  unlocked 的 target 安裝 Node Exporter；清理在 `uninstall-platform` 成功時就已完成，這個 Job 失敗不回滾 uninstall。
 - **Delete**（`DELETE /platforms/{id}`）把 spec 標為 absent（帶 release 等選擇），uninstall 經 Change Plan 核准後由
   platform controller 啟動；uninstall 成功時在清理的最後刪除紀錄，刪除的紀錄與投影與只刪紀錄相同，但不取消 Workflow，
   因為正在完成的 uninstall 就是持有 target 的 Workflow。失敗或取消時保留紀錄（`uninstall_failed`）。
@@ -740,7 +756,7 @@ playbook + trusted-vars 契約 + manifest」。目前**骨架與契約已具備*
 trusted vars 與 deploy 定義仍由 Go 組裝**（k0s 即如此）。因此依需求分兩種情況：
 
 - **(A) 能沿用既有 generic 介面**：playbook 只需 §4.1 的 inventory + §4.2 的 standard vars +
-  user 提供的非 `swallow_` 變數。此類可用 custom-kind workflow / exporter 式路徑（site
+  user 提供的非 `swallow_` 變數。此類可用 custom-kind workflow（site
   `playbookMappings` + user extraVars）整合，**幾乎不需改 Go**。
 - **(B) 需要 platform 專屬 trusted vars 或專屬 orchestration**（像 k0s 的角色/VIP/初始 controller）：
   目前**需要少量 Go**——新增 `WorkflowKind`、一支 launcher（組 Job/Task 與 `buildXxxVars`）、與
@@ -1071,6 +1087,7 @@ API 契約的 "Read Slurm Cluster State"。
 | Platform 模組的 hook（spec 轉換、變更分類、reader、credential） | `modules/platform/<type>/`（`platform.go` 等） |
 | Workflow 組裝（Job/Task） | `internal/app/platform_deployment_adapter.go` |
 | `configure-ntp-<serverId>` Task 組裝（platform `ensure-os` 與 Deploy OS 共用）、`install-platform` 的時鐘檢查 vars | `internal/app/ntp_planner.go` |
+| Node Exporter 的 Task 組裝（platform `ensure-os`、保留主機的 uninstall 與 Deploy OS 共用） | `internal/app/node_exporter_planner.go` |
 | Installation 的 NTP server 設定（`SWALLOW_API_NTP_SERVER`，validation） | `config/config.go`、`config/env.go`、`config/validate.go` |
 | `TimeSyncCheck`（`enforce` / `warn`） | `internal/core/platform/domain/time_sync.go` |
 | Workflow/Task/Runner domain model | `internal/core/workflow/domain/orchestration.go` |
@@ -1100,8 +1117,9 @@ playbook 使用的內容放在 `shared/`。
 | AMD 模組（GPU Operator） | `accelerator/amd/`：`configure-amd-gpu-operator.yml`；role `amd_gpu_operator`（chart 在 `files/`、helm 版本與 checksum 在 `defaults/`） |
 | DME（Managed Software） | `software/device-metrics-exporter/`：`deploy-device-metrics-exporter.yml`、`uninstall-device-metrics-exporter.yml`；role 是共用的 `device_metrics_exporter` |
 | Prometheus／Grafana（Managed Software） | `software/prometheus/`、`software/grafana/`（Omnistat dashboards 在 grafana role 的 `files/dashboards/omnistat`） |
-| 共用 playbook | `shared/playbooks/`：`diagnostic-ping.yml`、`configure-ntp.yml`、`install-exporters.yml`、`uninstall-exporters.yml` |
-| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`device_metrics_exporter`（Slurm 與 DME）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`package_maintenance_hold`（decision 073；改套件的 playbook 第一個 play 取得、最後一個 play 釋放）、`docker_runtime`、`node_exporter`、`rdc_exporter` |
+| Node Exporter（Managed Software，OS 部署組入） | `software/node-exporter/`：`deploy-node-exporter.yml`、`uninstall-node-exporter.yml`；role `node_exporter` |
+| 共用 playbook | `shared/playbooks/`：`diagnostic-ping.yml`、`configure-ntp.yml` |
+| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`device_metrics_exporter`（Slurm 與 DME）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`package_maintenance_hold`（decision 073；改套件的 playbook 第一個 play 取得、最後一個 play 釋放）；`docker_runtime` 與 `rdc_exporter` 仍在，但沒有 playbook 使用 |
 
 映像：production 於 build 時把 `api-server/modules`（去掉 Go 原始碼）複製到 `/opt/swallow/automation/modules`；`ansible`
 與 API/worker 共用同一映像，以不同 command 啟動。

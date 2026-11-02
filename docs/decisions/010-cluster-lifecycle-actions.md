@@ -48,8 +48,10 @@ A Platform is a desired-state resource, and uninstalling it is a destructive cha
 - **Only proven swallow-owned Integrations are deleted.** New deployments record the Integration they
   own; a legacy one is deleted only when deployment provenance and the complete auto-generated
   Integration signature both match.
-- **Exporter restoration is separate.** When the hosts are kept and Kubernetes owned the exporters, a
-  successful uninstall queues its own exporter Workflow, whose failure does not change the uninstall.
+- **Exporter restoration is its own Job.** When the hosts are kept and Kubernetes owned the exporters,
+  the uninstall Workflow installs the Node Exporter on the kept Servers in a Job after the
+  platform-software uninstall. The cleanup is done when that uninstall succeeds, so the Job's failure
+  does not change the uninstall.
 - **Lifecycle is a backend read model.** The API derives `origin`, `lifecycleState`, and
   `lifecycleOperationId` from the durable deployment and uninstall Workflows; clients do not infer
   lifecycle from membership or `integrationId`.
@@ -93,3 +95,4 @@ A Platform is a desired-state resource, and uninstalling it is a destructive cha
 - 2026-09-09: decision 010 made an uninstall that also releases the Servers release them directly, skipping the platform-software uninstall.
 - 2026-11-01: decision 076 made Platform removal a spec change: deleting a Platform marks it absent and its approved Change Plan runs the uninstall, and record-only removal became the `recordOnly` option.
 - 2026-11-02: merged decision 010 into this ADR; the body states the current decision.
+- 2026-11-03: exporter restoration became a Node Exporter Job in the uninstall Workflow instead of a separate exporter Workflow queued after it.

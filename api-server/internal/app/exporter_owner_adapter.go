@@ -8,8 +8,10 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
-// exporterOwnerResolver resolves a server's effective exporter owner from its lock state
-// and platform policy, satisfying the operation context's ExporterOwnerResolver port.
+// exporterOwnerResolver resolves a server's effective exporter owner (Exporter Ownership) from its
+// lock state and platform policy. The software context asks it through the ExporterOwnership port
+// before a standalone host-exporter install, and the OS deployment launchers before composing the
+// Node Exporter.
 //
 // It lives in the app wiring layer because it bridges two contexts — the server's
 // provisioning lock and a platform's exporterOwner policy — without either context
@@ -38,4 +40,14 @@ func (r exporterOwnerResolver) EffectiveExporterOwner(ctx context.Context, serve
 		return string(platform.ExporterOwner), nil
 	}
 	return string(platformdomain.ExporterOwnerAnsible), nil
+}
+
+// HostAutomationOwnsExporters implements softwareapp.ExporterOwnership: swallow's host automation
+// owns the exporters of a Server whose effective owner is ansible.
+func (r exporterOwnerResolver) HostAutomationOwnsExporters(ctx context.Context, server *serverdomain.Server) (bool, error) {
+	owner, err := r.EffectiveExporterOwner(ctx, server)
+	if err != nil {
+		return false, err
+	}
+	return owner == string(platformdomain.ExporterOwnerAnsible), nil
 }

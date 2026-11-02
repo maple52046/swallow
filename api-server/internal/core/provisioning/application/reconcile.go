@@ -52,19 +52,32 @@ type ReconcileUseCase struct {
 	// metadata records supplies swallow-owned OS image display names so the mirrored deployed-image
 	// name reflects a user's custom rename, not just the provider catalog title.
 	metadataRecords provisioningdomain.OSImageMetadataRepository
+	// software clears the records of software installed on an OS the machine no longer has.
+	software InstalledSoftware
 }
 
+// InstalledSoftware clears the swallow-owned records of the software installed on a Server's OS
+// (its Software Assignments) once reconcile observes the machine without an OS, whoever removed it.
+// It is a port so the provisioning context never reads the software model; clearing records that
+// are already cleared is a no-op.
+type InstalledSoftware interface {
+	ClearForServer(ctx context.Context, serverID string) error
+}
+
+// NewReconcileUseCase wires the provisioner projection. Every dependency is required.
 func NewReconcileUseCase(
 	integrations sitedomain.IntegrationRepository,
 	servers serverdomain.ServerRepository,
 	providers provisioningdomain.ProviderFactory,
 	metadataRecords provisioningdomain.OSImageMetadataRepository,
+	software InstalledSoftware,
 ) *ReconcileUseCase {
 	return &ReconcileUseCase{
 		integrations:    integrations,
 		servers:         servers,
 		providers:       providers,
 		metadataRecords: metadataRecords,
+		software:        software,
 	}
 }
 
@@ -573,7 +586,8 @@ func primaryArch(architecture string) string {
 }
 
 // clearStaleOSState drops the swallow-owned facts that describe an OS installation the machine no
-// longer has: a finished deployment record and a user-set Server Default User.
+// longer has: a finished deployment record, a user-set Server Default User, and the Software
+// Assignments of the software installed on it.
 func (uc *ReconcileUseCase) clearStaleOSState(
 	ctx context.Context,
 	server *serverdomain.Server,
@@ -582,7 +596,28 @@ func (uc *ReconcileUseCase) clearStaleOSState(
 	if err := uc.clearStaleDeployment(ctx, server, machine); err != nil {
 		return err
 	}
-	return uc.clearDefaultUserWithoutOS(ctx, server, machine)
+	if err := uc.clearDefaultUserWithoutOS(ctx, server, machine); err != nil {
+		return err
+	}
+	if !withoutOS(machine) {
+		return nil
+	}
+	return uc.software.ClearForServer(ctx, server.ID)
+}
+
+// withoutOS reports whether the machine is observed with no OS: `ready` (released) or `allocated`
+// (reserved, nothing running). Every other state, including `deployed`, `rescue`, and `broken`,
+// keeps the installed OS on the machine.
+func withoutOS(machine *provisioningdomain.Machine) bool {
+	if machine == nil {
+		return false
+	}
+	switch machine.Status {
+	case provisioningdomain.MachineStatusReady, provisioningdomain.MachineStatusAllocated:
+		return true
+	default:
+		return false
+	}
 }
 
 // clearDefaultUserWithoutOS clears a user-set Server Default User (decision 039) once the
@@ -596,12 +631,7 @@ func (uc *ReconcileUseCase) clearDefaultUserWithoutOS(
 	server *serverdomain.Server,
 	machine *provisioningdomain.Machine,
 ) error {
-	if server.DefaultUser == "" || machine == nil {
-		return nil
-	}
-	switch machine.Status {
-	case provisioningdomain.MachineStatusReady, provisioningdomain.MachineStatusAllocated:
-	default:
+	if server.DefaultUser == "" || !withoutOS(machine) {
 		return nil
 	}
 	if err := uc.servers.SetDefaultUser(ctx, server.ID, ""); err != nil {

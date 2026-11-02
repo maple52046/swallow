@@ -21,6 +21,7 @@ import (
 	"github.com/maple52046/swallow/internal/shared/pagination"
 	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
 	"github.com/maple52046/swallow/modules/platform/slurm/slurmapi"
+	nodeexporter "github.com/maple52046/swallow/modules/software/node-exporter"
 )
 
 const (
@@ -89,6 +90,9 @@ type platformDeploymentLauncher struct {
 	// ntp adds configure-ntp after each provision-os Task of the ensure-os Job and the clock-check
 	// variables to the install step (decision 065). Its zero value adds no Task.
 	ntp ntpStepPlanner
+	// nodeExporter installs the Node Exporter on each Server the deployment provisions, after its
+	// time Task, unless the Platform's exporters are owned by Kubernetes. Its zero value adds no Task.
+	nodeExporter nodeExporterPlanner
 }
 
 // preparedPlatformDeployment is the plan the platform launchers' prepare steps return
@@ -97,6 +101,9 @@ type platformDeploymentLauncher struct {
 type preparedPlatformDeployment struct {
 	workflow workflowapp.CreateWorkflowInput
 	composed composedPlan
+	// exporters is the Node Exporter install the ensure-os Job composes; its pending assignments
+	// are written with the Workflow.
+	exporters nodeExporterInstall
 }
 
 // OperationID is the preassigned Workflow id.
@@ -131,6 +138,11 @@ func (l platformDeploymentLauncher) PersistDeployment(ctx context.Context, prepa
 	if len(plan.composed.installs) > 0 {
 		if err := l.recordComposedInstalls(ctx, plan.composed, created.ID); err != nil {
 			return "", fmt.Errorf("record composed software assignments: %w", err)
+		}
+	}
+	if install := plan.exporters.install; install != nil {
+		if err := l.software.RecordComposedInstall(ctx, *install, created.ID); err != nil {
+			return "", fmt.Errorf("record the Node Exporter's software assignments: %w", err)
 		}
 	}
 	if err := persistInitialDeployments(ctx, l.servers, created.ID, plan.workflow.Steps); err != nil {
@@ -202,7 +214,7 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 	if err != nil {
 		return nil, err
 	}
-	return &preparedPlatformDeployment{workflow: workflow}, nil
+	return &preparedPlatformDeployment{workflow: workflow, exporters: ensure.exporters}, nil
 }
 
 // prepareSlurm plans the durable Slurm deployment Operation. It reuses the ensure-os Job to
@@ -260,7 +272,7 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 	if err != nil {
 		return nil, err
 	}
-	return &preparedPlatformDeployment{workflow: workflow, composed: composed}, nil
+	return &preparedPlatformDeployment{workflow: workflow, composed: composed, exporters: ensure.exporters}, nil
 }
 
 // ensureOSPlan is the ensure-os Job's Tasks plus what the caller needs to finish the
@@ -272,6 +284,9 @@ type ensureOSPlan struct {
 	secretStepIDs []string
 	frozen        *provisioningapp.DeployServersInput
 	userData      string
+	// exporters is the Node Exporter install composed after the provisioned Servers' time Tasks;
+	// its Tasks are already in steps.
+	exporters nodeExporterInstall
 }
 
 // buildEnsureOS constructs the ensure-os Job shared by every platform deployment. In
@@ -284,7 +299,8 @@ type ensureOSPlan struct {
 // Time (decision 065) is part of an OS being ready, so each Server this Job provisions is followed
 // by its own configure-ntp-<serverId>, exactly as in a Deploy OS Workflow, and the install step
 // depends on it; reused and existing_os Servers are not reconfigured. The clock check belongs to
-// each platform's install playbook, not to this Job.
+// each platform's install playbook, not to this Job. The same provisioned Servers then get the Node
+// Exporter (nodeExporterPlanner) unless Kubernetes owns the Platform's exporters.
 func (l platformDeploymentLauncher) buildEnsureOS(
 	ctx context.Context,
 	launch platformdomain.DeploymentLaunch,
@@ -309,6 +325,16 @@ func (l platformDeploymentLauncher) buildEnsureOS(
 	for _, task := range ntpTasks {
 		plan.steps = append(plan.steps, task)
 		plan.installDeps = append(plan.installDeps, task.ID)
+	}
+	// The Node Exporter follows each provisioned Server's time Task in its own Job, which nothing
+	// depends on, so the install step never waits for it.
+	if launch.Platform == nil || launch.Platform.ExporterOwner != platformdomain.ExporterOwnerK8s {
+		plan.exporters, err = l.nodeExporter.installTasks(ctx, operationID, launch.RequestedBy,
+			softwareConfigureJob(nodeexporter.Kind), provisioned, afterTimeSync(provisioned, ntpTasks))
+		if err != nil {
+			return ensureOSPlan{}, err
+		}
+		plan.steps = append(plan.steps, plan.exporters.tasks...)
 	}
 	return plan, nil
 }
@@ -650,6 +676,21 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	}
 
 	steps := uninstallSteps(launch, prepared, operationID, stepName)
+	// Kept Servers whose exporters Kubernetes owned get the Node Exporter back, after the
+	// uninstall step, in a Job of its own: its failure leaves the uninstall done.
+	var exporters nodeExporterInstall
+	if launch.RestoreExporters {
+		after := make(map[string]string, len(launch.TargetServerIDs))
+		for _, serverID := range launch.TargetServerIDs {
+			after[serverID] = uninstallPlatformStepID
+		}
+		exporters, err = l.nodeExporter.installTasks(ctx, operationID, launch.RequestedBy,
+			softwareConfigureJob(nodeexporter.Kind), l.restorableServers(ctx, launch.TargetServerIDs), after)
+		if err != nil {
+			return "", err
+		}
+		steps = append(steps, exporters.tasks...)
+	}
 
 	var superseded []string
 	if launch.CancelActiveWorkflows {
@@ -672,13 +713,34 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	if err != nil {
 		return "", err
 	}
+	l.nodeExporter.record(ctx, exporters, created.ID)
 	return created.ID, nil
+}
+
+// restorableServers returns the targets the Node Exporter can be installed on once the Platform is
+// gone: present, deployed, and unlocked. The others are left alone; a lookup failure only skips the
+// Server.
+func (l platformDeploymentLauncher) restorableServers(ctx context.Context, serverIDs []string) []string {
+	restorable := make([]string, 0, len(serverIDs))
+	for _, serverID := range serverIDs {
+		server, err := l.servers.FindByID(ctx, serverID)
+		if err != nil {
+			slog.Warn("skip the Node Exporter on an uninstalled Platform's Server", "serverId", serverID, "error", err)
+			continue
+		}
+		if server.Absent || server.Provisioning == nil ||
+			server.Provisioning.State != "deployed" || server.Provisioning.Locked {
+			continue
+		}
+		restorable = append(restorable, serverID)
+	}
+	return restorable
 }
 
 // uninstallSteps composes the durable uninstall Tasks.
 //
 // When the servers are kept, it is the single ansible uninstall step (whose platform-uninstall
-// completion clears projections and restores exporters). When the servers are released, it skips that
+// completion clears projections). When the servers are released, it skips that
 // step entirely - releasing wipes the OS, so removing the platform software first is redundant
 // and can fail on a half-gone node - and instead releases every member in parallel, then runs an
 // internal complete-uninstall finalize step that depends on all releases and performs the
@@ -696,9 +758,7 @@ func uninstallSteps(
 			Executor: workflowdomain.RunnerKindHostAutomation, Targets: prepared.Targets,
 			Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 			Completion: []workflowdomain.Completion{{Type: completionPlatformUninstall, Params: map[string]any{
-				completionParamDeleteRecord:     launch.DeleteRecord,
-				completionParamRestoreExporters: launch.RestoreExporters,
-				completionParamPlatformName:     launch.Platform.Name,
+				completionParamDeleteRecord: launch.DeleteRecord,
 			}}},
 		}}
 	}
@@ -745,60 +805,18 @@ func uninstallSteps(
 type platformDeploymentObserver struct {
 	credentials *platformapp.DeploymentCredentialService
 	platforms   *platformapp.PlatformService
-	operations  *workflowapp.ExecutionService
-	servers     serverdomain.ServerRepository
 }
 
 // uninstallChoice is what the user chose for a kept-servers uninstall, declared on the
 // platform-uninstall completion that carries it out.
 type uninstallChoice struct {
-	deleteRecord, restoreExporters bool
-	platformName                   string
+	deleteRecord bool
 }
 
 // uninstallChoiceOf reads the choice from a platform-uninstall completion's params.
 func uninstallChoiceOf(completion workflowdomain.Completion) uninstallChoice {
 	deleteRecord, _ := completion.Params[completionParamDeleteRecord].(bool)
-	restore, _ := completion.Params[completionParamRestoreExporters].(bool)
-	name, _ := completion.Params[completionParamPlatformName].(string)
-	return uninstallChoice{deleteRecord: deleteRecord, restoreExporters: restore, platformName: name}
-}
-
-// restoreExporters queues an install-exporters Workflow for the uninstalled Platform's Servers
-// that are still deployed and unlocked, when the user asked for it.
-func (o platformDeploymentObserver) restoreExporters(ctx context.Context, workflow *workflowdomain.Workflow, choice uninstallChoice) {
-	if !choice.restoreExporters {
-		return
-	}
-
-	targetIDs := make([]string, 0, len(workflow.TargetServerIDs))
-	for _, serverID := range workflow.TargetServerIDs {
-		server, err := o.servers.FindByID(ctx, serverID)
-		if err != nil {
-			slog.Warn("skip exporter restoration target",
-				"operationId", workflow.ID, "serverId", serverID, "error", err)
-			continue
-		}
-		if server.Absent || server.Provisioning == nil ||
-			server.Provisioning.State != "deployed" || server.Provisioning.Locked {
-			continue
-		}
-		targetIDs = append(targetIDs, serverID)
-	}
-	if len(targetIDs) == 0 {
-		return
-	}
-
-	if _, err := o.operations.Create(ctx, workflowapp.CreateExecutionInput{
-		Kind:            string(workflowdomain.WorkflowKindInstallExporters),
-		Intent:          "Restore host exporters after uninstalling platform " + choice.platformName,
-		TargetServerIDs: targetIDs,
-		PlatformID:      workflow.PlatformID,
-		RequestedBy:     "system",
-	}); err != nil {
-		slog.Error("queue exporter restoration after platform uninstall",
-			"operationId", workflow.ID, "platformId", workflow.PlatformID, "error", err)
-	}
+	return uninstallChoice{deleteRecord: deleteRecord}
 }
 
 // completeOmnistat records the Grafana URL a successful configure-omnistat run wrote to its result
@@ -861,6 +879,5 @@ func (o platformDeploymentObserver) finishUninstall(ctx context.Context, workflo
 	if err := o.platforms.CompleteUninstall(ctx, workflow.PlatformID, choice.deleteRecord); err != nil {
 		return err
 	}
-	o.restoreExporters(ctx, workflow, choice)
 	return nil
 }

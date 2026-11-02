@@ -261,7 +261,14 @@ func RunAPI(cfg config.APIConfig) error {
 	}, serverProtection)
 	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory, osImageVerificationRepo)
 	deploymentsUC.AttachDeploymentKeys(sshKeyService)
-	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageMetadataRepo)
+	softwareAssignmentRepo, err := softwarestore.NewMongoAssignmentRepo(db)
+	if err != nil {
+		return fmt.Errorf("software assignment repo init: %w", err)
+	}
+	// Reconcile clears the Software Assignments of a machine it observes without an OS, whoever
+	// removed the OS (decision 038).
+	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageMetadataRepo,
+		installedSoftwareRecords{assignments: softwareAssignmentRepo})
 	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
 	// One RefreshServer use case is shared by the HTTP handler and the durable launcher so the
 	// Release/Recover acceptance gate can live-sync a target's provisioning state before deciding.
@@ -421,10 +428,29 @@ func RunAPI(cfg config.APIConfig) error {
 	// after SSH readiness, and Platform deployments check time sync (decision 065); the Tasks are
 	// prepared through the same ansible acceptance checks as any other.
 	ntpPlan := ntpStepPlanner{server: cfg.NTPServer, operations: operationService}
+	// Software deployment (Managed Software, decision 038): install/uninstall a single piece of
+	// host software on deployed Servers, tracked by a swallow-owned Software Assignment. It reuses
+	// the operation orchestration (PrepareAnsibleStep + WorkflowService) through a launcher, so it
+	// shares the platform deployment engine rather than owning a second one. It is built before the
+	// deployment launchers because they compose software: the Node Exporter after every OS they
+	// provision, and a Slurm deployment's features (decision 063).
+	softwareService := softwareapp.NewSoftwareService(
+		transactor, modules.software, modules.accelerators, softwareAssignmentRepo, serverRepo,
+		kubernetesMembershipChecker{servers: serverRepo, platforms: platformRepo},
+		exporterOwnerResolver{platforms: platformRepo},
+	)
+	softwareService.AttachLauncher(softwareDeploymentLauncher{
+		operations: operationService, orchestrations: orchestrationService, modules: modules.registry,
+	})
+	softwareService.AttachPlatformNames(platformNames)
+	// A Slurm uninstall completed here retires its Servers' Device Metrics Exporter records (068).
+	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignmentRepo})
+
+	nodeExporterPlan := nodeExporterPlanner{software: softwareService, operations: operationService}
 	provisioningHandler.AttachDurableOperations(durableProvisioningLauncher{
 		deployments: deploymentsUC, operations: orchestrationService, servers: serverRepo,
 		protection: serverProtection, refresh: refreshServerUC, bootMedia: bootMediaPlan, ntp: ntpPlan,
-		platformNames: platformNames,
+		nodeExporter: nodeExporterPlan, platformNames: platformNames,
 	})
 	// Server Enrollment (decision 053): Inspect and the automatic sweep both run hardware
 	// inspection as an inspect-hardware Workflow; existing-OS hosts get their bundle and script
@@ -449,7 +475,6 @@ func RunAPI(cfg config.APIConfig) error {
 		workflows: orchestrationService, integrations: integrationRepo, providers: providerFactory,
 		servers: serverRepo, protection: serverProtection, isos: bootISOs, keys: sshKeyService,
 	})
-	autoInspect := provisioningapp.NewAutoInspectUseCase(integrationRepo, serverRepo, inspectionLauncher)
 	operationHandler := workflowdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
 
 	overviewReader := NewOverviewReader(
@@ -458,33 +483,14 @@ func RunAPI(cfg config.APIConfig) error {
 	overviewHandler := overviewdelivery.NewHandler(
 		overviewapp.NewService(overviewReader, overviewapp.SystemClock{}))
 
-	// Software deployment (Managed Software, decision 038): install/uninstall a single piece of
-	// host software on deployed Servers, tracked by a swallow-owned Software Assignment. It reuses
-	// the operation orchestration (PrepareAnsibleStep + WorkflowService) through a launcher, so it
-	// shares the platform deployment engine rather than owning a second one. It is built before the
-	// platform launcher because a Slurm deployment with Omnistat composes software (decision 063).
-	softwareAssignmentRepo, err := softwarestore.NewMongoAssignmentRepo(db)
-	if err != nil {
-		return fmt.Errorf("software assignment repo init: %w", err)
-	}
-	softwareService := softwareapp.NewSoftwareService(
-		transactor, modules.software, modules.accelerators, softwareAssignmentRepo, serverRepo,
-		kubernetesMembershipChecker{servers: serverRepo, platforms: platformRepo},
-	)
-	softwareService.AttachLauncher(softwareDeploymentLauncher{
-		operations: operationService, orchestrations: orchestrationService, modules: modules.registry,
-	})
-	softwareService.AttachPlatformNames(platformNames)
-	// A Slurm uninstall completed here retires its Servers' Device Metrics Exporter records (068).
-	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignmentRepo})
-
 	// Platform lifecycle adapters keep durable operations outside the platform context.
 	platformOps := buildPlatformOperations(platformOperationDeps{
 		transactor: transactor, modules: modules, platformService: platformService, platforms: platformRepo,
 		servers: serverRepo, claims: serverRepo, lifecycle: lifecycleReader,
 		operations: operationService, orchestrations: orchestrationService, deployments: deploymentsUC,
-		bootMedia: bootMediaPlan, software: softwareService, ntp: ntpPlan, protection: serverProtection,
-		networks: networkService, requirements: requirementRepo, keys: sshKeyService,
+		bootMedia: bootMediaPlan, software: softwareService, ntp: ntpPlan, nodeExporter: nodeExporterPlan,
+		protection: serverProtection,
+		networks:   networkService, requirements: requirementRepo, keys: sshKeyService,
 	})
 	deployService, gpuOperatorService := platformOps.deploy, platformOps.gpuOperators
 	changePlans, err := newChangePlanService(ctx, db, transactor, cfg.ChangePlanTTL, platformOps.planner)
@@ -503,7 +509,6 @@ func RunAPI(cfg config.APIConfig) error {
 		convergencestore.NewMongoRequester(db), modules.platforms))
 
 	softwareHandler := softwaredelivery.NewSoftwareHandler(softwareService)
-	softwareSweeper := softwareapp.NewSoftwareAssignmentSweeper(softwareAssignmentRepo, serverRepo)
 	// Docker Host Explorer (decision 043): live management of the Docker Engine on a Server where
 	// swallow installed Docker CE with enableApi. Eligibility reads the same assignment repository;
 	// writes go through the provider-backed lock guard; Docker objects are never persisted.
@@ -520,13 +525,6 @@ func RunAPI(cfg config.APIConfig) error {
 	dockerHandler := explorerhttp.NewDockerHandler(dockerExplorer)
 	registryCredentialHandler := softwaredelivery.NewRegistryCredentialHandler(
 		softwareapp.NewRegistryCredentialService(registryCredentialRepo))
-
-	// Auto-install exporters when a server reaches the deployed state and its effective
-	// exporter owner is ansible. The resolver bridges the provisioning lock and platform
-	// policy so the operation context stays free of platform types.
-	autoExporterDeploy := workflowapp.NewAutoExporterDeployUseCase(
-		serverRepo, operationService, exporterOwnerResolver{platforms: platformRepo}, orchestrationRepo,
-	)
 
 	discoveryUseCase := discoveryapp.NewDiscoveryUseCase(serverRepo)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(discoveryUseCase)
@@ -612,9 +610,6 @@ func RunAPI(cfg config.APIConfig) error {
 	go runReconciler(ctx, reconcileUC, cfg.ReconcileInterval)
 	go runInventorySweep(ctx, inventorySweepUC, cfg.InventoryInterval)
 	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
-	go runAutoExporterDeploy(ctx, autoExporterDeploy, cfg.ReconcileInterval)
-	go runAutoInspect(ctx, autoInspect, cfg.ReconcileInterval)
-	go runSoftwareAssignmentSweep(ctx, softwareSweeper, cfg.ReconcileInterval)
 	go runRedfishCapabilitySweep(ctx, bootMediaUC, cfg.RedfishProbeInterval, cfg.RedfishProbeMaxAge)
 	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention, ansibleEventRepo)
 

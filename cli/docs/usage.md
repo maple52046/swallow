@@ -274,7 +274,7 @@ sshUser: ubuntu
 sshPort: 22
 knownHosts: "host ssh-ed25519 AAAA..."
 playbookMappings:
-  install-exporters: install-exporters
+  deploy-kubernetes: deploy-kubernetes
 ```
 
 `sshUser` is optional: automation first logs in as each Server's OS Image default user

@@ -1,0 +1,29 @@
+---
+# Install the Prometheus Node Exporter on already-provisioned Servers as Managed Software
+# (docs/development/software-deployment.md), from the OS distribution's package. An OS deployment
+# composes it after each provisioned Server's time synchronization. Idempotent: a converged host
+# reruns with no changes. The port swallow's Prometheus discovery scrapes arrives as
+# swallow_node_exporter_port.
+
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
+- name: Install the Node Exporter
+  hosts: all
+  gather_facts: true
+  vars:
+    node_exporter_port: "{{ swallow_node_exporter_port | default(9100, true) }}"
+  roles:
+    - role: node_exporter
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

@@ -15,6 +15,7 @@ import (
 
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 	dockerce "github.com/maple52046/swallow/modules/software/docker-ce"
+	nodeexporter "github.com/maple52046/swallow/modules/software/node-exporter"
 )
 
 // fakeAssignmentRepo is an in-memory Software Assignment store keyed by (serverId, kind).
@@ -73,10 +74,6 @@ func (r *fakeAssignmentRepo) SetState(_ context.Context, serverID string, kind s
 		item.LastAppliedAt = appliedAt
 	}
 	return nil
-}
-
-func (r *fakeAssignmentRepo) ListAll(ctx context.Context) ([]*softwaredomain.Assignment, error) {
-	return r.List(ctx, softwaredomain.AssignmentFilter{})
 }
 
 // fakeServerRepo implements only FindByID; the rest of the interface is embedded so unused methods
@@ -156,9 +153,17 @@ func testAccelerators() platformdomain.Accelerators {
 	return modules.accelerators
 }
 
+// ownedExporters answers every Server's Exporter Ownership with one value: true when swallow's host
+// automation owns its exporters.
+type ownedExporters bool
+
+func (o ownedExporters) HostAutomationOwnsExporters(context.Context, *serverdomain.Server) (bool, error) {
+	return bool(o), nil
+}
+
 func newTestService(servers map[string]*serverdomain.Server, membership map[string]bool) (*softwareapp.SoftwareService, *fakeAssignmentRepo, *fakeLauncher) {
 	repo := newFakeAssignmentRepo()
-	service := softwareapp.NewSoftwareService(&storetest.Transactor{}, testSoftwareCatalog(), testAccelerators(), repo, &fakeServerRepo{servers: servers}, fakeMembership{kubernetes: membership})
+	service := softwareapp.NewSoftwareService(&storetest.Transactor{}, testSoftwareCatalog(), testAccelerators(), repo, &fakeServerRepo{servers: servers}, fakeMembership{kubernetes: membership}, ownedExporters(true))
 	launcher := &fakeLauncher{}
 	service.AttachLauncher(launcher)
 	return service, repo, launcher
@@ -236,6 +241,29 @@ func TestInstallRefusesKubernetesMemberForDocker(t *testing.T) {
 	})
 	if !errors.Is(err, softwaredomain.ErrKubernetesMember) {
 		t.Fatalf("err = %v, want ErrKubernetesMember", err)
+	}
+}
+
+// The Node Exporter is a host exporter: a standalone install refuses a Server whose exporters
+// swallow's host automation does not own, while a composing Workflow, which decides ownership
+// itself, is not refused.
+func TestNodeExporterInstallRequiresHostAutomationOwnership(t *testing.T) {
+	servers := &fakeServerRepo{servers: map[string]*serverdomain.Server{"a": deployedServer("a")}}
+	for _, owned := range []bool{true, false} {
+		service := softwareapp.NewSoftwareService(&storetest.Transactor{}, testSoftwareCatalog(), testAccelerators(),
+			newFakeAssignmentRepo(), servers, fakeMembership{}, ownedExporters(owned))
+		service.AttachLauncher(&fakeLauncher{})
+		input := softwareapp.InstallInput{Kind: nodeexporter.Kind, Targets: []softwareapp.InstallTarget{{ServerID: "a"}}}
+		_, err := service.Install(context.Background(), input)
+		if owned && err != nil {
+			t.Errorf("Install() on an owned Server = %v, want accepted", err)
+		}
+		if !owned && !errors.Is(err, softwaredomain.ErrTargetIneligible) {
+			t.Errorf("Install() on a Server whose exporters Kubernetes owns = %v, want ErrTargetIneligible", err)
+		}
+		if _, err := service.PlanComposedInstall(context.Background(), input); err != nil {
+			t.Errorf("PlanComposedInstall(owned=%v) = %v, want accepted", owned, err)
+		}
 	}
 }
 
@@ -482,7 +510,7 @@ func TestUninstallRejectsMissingAssignment(t *testing.T) {
 func TestInstallWritesTheWorkflowAndAssignmentsInOneTransaction(t *testing.T) {
 	repo, launcher, tx := newFakeAssignmentRepo(), &fakeLauncher{}, &storetest.Transactor{}
 	service := softwareapp.NewSoftwareService(tx, testSoftwareCatalog(), testAccelerators(), repo,
-		&fakeServerRepo{servers: map[string]*serverdomain.Server{"a": deployedServer("a")}}, fakeMembership{})
+		&fakeServerRepo{servers: map[string]*serverdomain.Server{"a": deployedServer("a")}}, fakeMembership{}, ownedExporters(true))
 	service.AttachLauncher(launcher)
 
 	workflowID, err := service.Install(context.Background(), softwareapp.InstallInput{

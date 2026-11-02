@@ -12,7 +12,7 @@ Three earlier decisions left compatibility surfaces behind:
 - [ADR 072](072-store-driven-workflow-execution.md) kept the schema-v2 single-run Operations
   readable through a *permanent* compatibility projection. They lived on in the `operations`
   collection, read by every Workflow list, get, and history projection (overview, Platform
-  lifecycle, the auto-exporter dedup, the Server lock's active-work check), plus three v2-only
+  lifecycle, the Server lock's active-work check), plus three v2-only
   routes (`/operations/{id}/logs`, `/events`, `/retry`). No release has created or run one since the
   v2 dispatcher was removed; the records only age.
 - [ADR 072](072-store-driven-workflow-execution.md) kept the `/operations` HTTP alias "for one
@@ -60,6 +60,7 @@ repository (the dashboard, the CLI, tests) and moves in the same change.
 - One read model for Workflows, and one name per concept on the wire for everything listed above.
 - Breaking for any client of the removed routes and fields; the contracts carry compatibility notes.
 - A database upgraded to v10 loses the v2 records; the pre-upgrade backup keeps them.
-- Auto-exporter deduplication no longer sees a v2 `install-exporters` record, so a deployed Server
-  whose only exporter install was a v2 one gets one new install Workflow (the playbook is
-  idempotent).
+
+## Revision history
+
+- 2026-11-03: dropped the automatic exporter installation from the readers and consequences, because that mechanism was retired when OS deployment began composing the Node Exporter.

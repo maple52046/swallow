@@ -93,8 +93,8 @@ failure, recording the swallow-owned per-Deploy-Target outcome) → `recover-ser
 the borrowed Server to `ready`, run whether the proving deploy succeeded or failed), per
 [decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md) (os image verification and deploy target)
 and [decision 036](../../../../../docs/decisions/036-provisioning-lifecycle-integrity.md) (provisioning lifecycle integrity).
-`inspect-hardware` is created by `POST /servers/{id}/inspect` and by the automatic inspection
-sweep; its `ensure-inspected` Job (`wait-enrollment-settled` → `ensure-boot-media` → `inspect`)
+`inspect-hardware` is created by `POST /servers/{id}/inspect` and by the worker's automatic
+inspection (the `auto-inspect` controller); its `ensure-inspected` Job (`wait-enrollment-settled` → `ensure-boot-media` → `inspect`)
 and retry semantics are defined in [server-enrollment.md](server-enrollment.md). Because it runs
 as a Job, a Task retry re-runs the whole Job rather than only the failed Task.
 `enroll-virtual-machines` is created by `POST /provisioning/virtual-machine-enrollments`; it targets
@@ -104,6 +104,13 @@ must belong to one Site, and must pass current provisioning, Platform policy, ac
 and live Server Lock checks. Success is `202 Accepted` after intent is persisted; the worker's
 dispatcher starts the Workflow's first run after the response
 ([workflow-execution.md](../../../../../docs/development/workflow-execution.md) §3).
+
+`install-exporters` and `uninstall-exporters` are retired kinds: create refuses them with
+`400 validation_error`. They appear only on Workflows an earlier release created, which is why the
+kind enum still lists them. The Node Exporter is Managed Software, installed and removed by
+`configure-node-exporter` and `uninstall-node-exporter` Workflows ([software.md](software.md#node-exporter)).
+A Task accepted under the old playbook names can still be retried: the release manifest keeps
+`install-exporters` and `uninstall-exporters` as names of the Node Exporter's playbooks.
 
 The `202` body of create is the accepted Workflow, the projection below with `status` `pending`,
 `startState` `pending`, and `leases` `null` (it owns nothing until it starts).
@@ -409,3 +416,7 @@ repeats the Workflow and Task as `operationId` and `stepId`.
 
 On 2026-11-02 each Workflow gained `jobs`, the Job names with their label and retry granularity, so
 a client no longer derives Job titles or groups from Task ids. Additive: no field changed.
+
+On 2026-11-03 the kinds `configure-node-exporter` and `uninstall-node-exporter` were added, and
+create began refusing `install-exporters` and `uninstall-exporters` with `400 validation_error`
+(breaking); Workflows of those kinds that an earlier release created are still listed and read.

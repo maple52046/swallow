@@ -68,6 +68,10 @@ RETIRED_TERMS = {
     "/api/v1/operations": "the alias was removed; the route is /api/v1/workflows",
     "/api/v1/clusters": "the alias was removed; the route is /api/v1/platforms",
     "IronicProvider": "there is no Ironic adapter",
+    "auto-exporter": "the Node Exporter is composed into OS deployment Workflows",
+    "software assignment sweep": (
+        "a Workflow that removes a Server's OS, or reconcile, marks its Software Assignments absent"
+    ),
 }
 # Documents whose purpose is to record the retirement itself: a contract change note or the
 # public compatibility page.

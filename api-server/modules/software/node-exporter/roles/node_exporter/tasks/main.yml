@@ -1,0 +1,131 @@
+---
+# Install or remove the Prometheus Node Exporter from the OS distribution's package, run by the
+# package's own systemd service: `prometheus-node-exporter` on Debian and Ubuntu, `node_exporter`
+# on the RHEL family (where it ships in EPEL). Nothing runs in a container, so the host needs no
+# container runtime.
+
+- name: Select the node-exporter package for this OS family
+  ansible.builtin.set_fact:
+    node_exporter_package: "{{ {'Debian': 'prometheus-node-exporter', 'RedHat': 'node_exporter'}[ansible_facts['os_family']] | default('') }}"
+    node_exporter_service: "{{ {'Debian': 'prometheus-node-exporter', 'RedHat': 'node_exporter'}[ansible_facts['os_family']] | default('') }}"
+
+- name: Refuse an OS family without a node-exporter package
+  ansible.builtin.fail:
+    msg: >-
+      node_exporter_unsupported_os: swallow installs the Node Exporter from the OS package on the
+      Debian and RHEL families; this host reports {{ ansible_facts['os_family'] }}.
+  when: node_exporter_package == ''
+
+- name: Remove the containerised node-exporter unit that holds the exporter port
+  become: true
+  block:
+    - name: Stop and disable the containerised node-exporter
+      ansible.builtin.systemd:
+        name: "{{ node_exporter_legacy_unit }}"
+        state: stopped
+        enabled: false
+      # The unit is absent on every host swallow did not set up with it.
+      failed_when: false
+
+    - name: Remove the containerised node-exporter unit
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ node_exporter_legacy_unit }}"
+        state: absent
+      register: node_exporter_legacy_removed
+
+    - name: Reload systemd after removing the unit
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: node_exporter_legacy_removed.changed
+
+    - name: Remove any leftover node-exporter container
+      ansible.builtin.command: "docker rm -f {{ node_exporter_legacy_container }}"
+      register: node_exporter_legacy_rm
+      changed_when: node_exporter_legacy_rm.rc == 0
+      # A host without Docker, or without the container, has nothing to remove.
+      failed_when: false
+      when: node_exporter_legacy_removed.changed
+
+- name: Install node-exporter
+  when: node_exporter_state == 'present'
+  become: true
+  block:
+    - name: Install the node-exporter package (Debian family)
+      ansible.builtin.apt:
+        name: "{{ node_exporter_package }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+        install_recommends: false
+      when: ansible_facts['os_family'] == 'Debian'
+      register: node_exporter_apt
+      until: node_exporter_apt is succeeded
+      retries: 5
+      delay: 10
+
+    - name: Install the node-exporter package (RHEL family)
+      ansible.builtin.dnf:
+        name: "{{ node_exporter_package }}"
+        state: present
+      when: ansible_facts['os_family'] == 'RedHat'
+      register: node_exporter_dnf
+      until: node_exporter_dnf is succeeded
+      retries: 3
+      delay: 10
+      # A repository without the package is reported by the next task with a clear reason.
+      ignore_errors: true
+
+    - name: Report a RHEL-family host whose repositories lack the package
+      ansible.builtin.fail:
+        msg: >-
+          node_exporter_package_unavailable: the {{ node_exporter_package }} package could not be
+          installed from this host's repositories (on the RHEL family it ships in EPEL):
+          {{ node_exporter_dnf.msg | default('') }}
+      when: ansible_facts['os_family'] == 'RedHat' and node_exporter_dnf is failed
+
+    - name: Enable and start node-exporter
+      ansible.builtin.systemd:
+        name: "{{ node_exporter_service }}"
+        state: started
+        enabled: true
+
+    - name: Wait for node-exporter to answer on its port
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ node_exporter_port }}/metrics"
+        return_content: false
+      register: node_exporter_metrics
+      until: node_exporter_metrics.status == 200
+      retries: 10
+      delay: 3
+
+- name: Remove node-exporter
+  when: node_exporter_state == 'absent'
+  become: true
+  block:
+    - name: Stop and disable node-exporter
+      ansible.builtin.systemd:
+        name: "{{ node_exporter_service }}"
+        state: stopped
+        enabled: false
+      # A host without the package has no such service.
+      failed_when: false
+
+    - name: Remove the node-exporter package (Debian family)
+      ansible.builtin.apt:
+        name: "{{ node_exporter_package }}"
+        state: absent
+      when: ansible_facts['os_family'] == 'Debian'
+      register: node_exporter_apt_removed
+      until: node_exporter_apt_removed is succeeded
+      retries: 5
+      delay: 10
+
+    - name: Remove the node-exporter package (RHEL family)
+      ansible.builtin.dnf:
+        name: "{{ node_exporter_package }}"
+        state: absent
+      when: ansible_facts['os_family'] == 'RedHat'
+      register: node_exporter_dnf_removed
+      until: node_exporter_dnf_removed is succeeded
+      retries: 3
+      delay: 10

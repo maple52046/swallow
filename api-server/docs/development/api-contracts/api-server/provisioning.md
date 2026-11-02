@@ -613,6 +613,18 @@ MAAS rack, which is the swallow host too. The Server's `deployment` result still
 [site-automation.md](site-automation.md)). OS image verification does not configure time: it
 returns the Server afterwards.
 
+**Node Exporter.** Every OS deployment also installs the Node Exporter as Managed Software
+(kind `node-exporter`, see [software.md](software.md#node-exporter)): after each Server's
+`configure-ntp-<serverId>`, the Workflow has an `ansible` Task `install-node-exporter-<serverId>`
+that runs the release playbook `deploy-node-exporter`, and an `internal` Task
+`record-node-exporter-<serverId>` (kind `record-software-assignment`) that marks the Server's
+`node-exporter` Software Assignment `installed`. The assignment is written as `pending` when the
+Workflow is accepted, and a failed install marks it `failed`. No Task depends on these two, so a
+failed exporter install never holds back the OS, and the Server's `deployment` result still
+reflects only `provision-os`; the Workflow ends `requires_attention` until the user retries the
+failed Task. A `ram` deployment has the same Tasks. OS image verification does not install the
+Node Exporter.
+
 **Boot Media ensure.** For each target Server whose Boot Media is enabled when the Workflow is
 accepted (see [server-detail-actions.md](server-detail-actions.md#boot-media) and
 [decision 047](../../../../../docs/decisions/047-redfish-boot-media.md) (redfish boot media)), the Workflow also has
@@ -803,6 +815,12 @@ with `409 conflict` exactly like a Release of it. A Platform's Server in a not-u
 (`failed`, `broken`, `rescue`, `allocated`) can still be recovered: returning it to `ready` is
 how a broken deployment is repaired.
 
+When a `release-os` or `recover-server` Task succeeds, it clears the Server's `deployment`
+result and marks every Software Assignment of the Server `absent` (see [software.md](software.md)),
+because the software went with the OS. A machine whose OS is removed outside swallow gets the same
+treatment from reconciliation once it is observed `ready` or `allocated`; a Server in `rescue` or
+`broken` keeps its assignments, because its OS is still on disk.
+
 ## Image Verification
 
 `POST /image-verifications` launches a durable `verify-os-image` Workflow that
@@ -843,7 +861,8 @@ and, unless `keepServer` is `true`, `recover-server` (return the borrowed Server
 `ready`). Verification is a borrow-and-return contract: by default the return Task
 runs whether the proving deploy succeeded or failed, so the borrowed Server is
 always given back; with `keepServer: true` the return Task is omitted and the Server
-is left deployed. Exactly one record Task runs; the other is skipped. A failed proving deploy is terminal (not a
+is left deployed, without the Node Exporter an OS deployment installs. A succeeded return Task
+marks the Server's Software Assignments `absent`, like Recover. Exactly one record Task runs; the other is skipped. A failed proving deploy is terminal (not a
 retry-park), so the Workflow reaches `partially_succeeded` after the Server is
 returned, rather than holding the Server and showing a perpetual "verifying". On
 success the image's `verifiedDeployTargets` gains the target; on failure its
@@ -933,6 +952,12 @@ answers `200`, and the same message is recorded as the Integration's last sync e
 unknown Integration is `404 not_found` and a non-provisioner Integration `400 validation_error`.
 
 ## Compatibility Notes
+
+On 2026-11-03 a `deploy-os` Workflow gained the `install-node-exporter-<serverId>` and
+`record-node-exporter-<serverId>` Tasks after each Server's `configure-ntp-<serverId>`, replacing
+the separate exporter Workflow that used to follow a deployment, and a succeeded `release-os` or
+`recover-server` Task began marking the Server's Software Assignments `absent` itself. A Server
+in `rescue` or `broken` now keeps its assignments. The request and response shapes are unchanged.
 
 On 2026-10-31 the OS Image overlay became OS Image metadata
 (decision 071). Breaking,

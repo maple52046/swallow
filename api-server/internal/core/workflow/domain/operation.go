@@ -52,16 +52,6 @@ const (
 	// WorkflowKindUninstallSlurm removes the Slurm configuration and daemons swallow
 	// deployed while preserving the host operating system and the image-supplied packages.
 	WorkflowKindUninstallSlurm WorkflowKind = "uninstall-slurm"
-	// WorkflowKindInstallExporters installs a host's Prometheus exporters as
-	// containers: node-exporter on every target and the RDC exporter on AMD GPU
-	// targets. It is the Ansible half of exporter ownership and is what OS deployment
-	// auto-triggers.
-	WorkflowKindInstallExporters WorkflowKind = "install-exporters"
-	// WorkflowKindUninstallExporters removes the Ansible-installed exporters, so a
-	// host can be handed over to a Kubernetes DaemonSet owner or cleaned up on retire.
-	// It requires no particular provisioning state so a machine leaving service can
-	// still be cleaned.
-	WorkflowKindUninstallExporters WorkflowKind = "uninstall-exporters"
 	// WorkflowKindDeployK8sExporters applies the exporter DaemonSets (node-exporter and
 	// the RDC exporter) plus the AMD GPU device-plugin to a Kubernetes platform, run on a
 	// control-plane target. The DaemonSets use hostNetwork on the same fixed ports, so
@@ -105,13 +95,9 @@ var builtInWorkflowKinds = map[WorkflowKind]string{
 	WorkflowKindConfigureGPUOperator:  "deployed",
 	WorkflowKindConfigureSlurm:        "deployed",
 	WorkflowKindUninstallSlurm:        "",
-	WorkflowKindInstallExporters:      "deployed",
-	// Uninstalling exporters intentionally has no state requirement: a machine being retired or
-	// handed to a k8s owner must still be cleanable.
-	WorkflowKindUninstallExporters: "",
-	WorkflowKindDeployK8sExporters: "deployed",
-	WorkflowKindRemoveK8sExporters: "",
-	WorkflowKindConfigureOmnistat:  "deployed",
+	WorkflowKindDeployK8sExporters:    "deployed",
+	WorkflowKindRemoveK8sExporters:    "",
+	WorkflowKindConfigureOmnistat:     "deployed",
 	// configure-ntp reaches the host over SSH; the preceding provision-os Task satisfies this
 	// (PrepareAnsibleStep provisionFirst).
 	WorkflowKindConfigureNTP: "deployed",

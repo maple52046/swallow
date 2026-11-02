@@ -168,10 +168,13 @@ swallow servers inspect server1
   連線）；請為該 Site 註冊一個。
 - 驗證 Prometheus 可使用 machine token 呼叫 service discovery（若 swallow 前面有 TLS
   terminator，也要信任它的 CA）。
-- 確認 exporter 已安裝，且 discovered target 可連線：Server 進入 `deployed` 時會執行
-  `install-exporters` Workflow，locked Server 則不會安裝。
-- 只有某個 metric 顯示「No data」——例如 GPU 圖表——通常代表該 exporter 沒有在 Server 上執行
-  （沒有 `amd-gpu` tag 的 GPU Server 不會安裝 RDC exporter）。
+- 確認 exporter 已安裝，且 discovered target 可連線：OS 佈署會在
+  `install-node-exporter-<serverId>` Task 安裝 Node Exporter（安裝失敗時佈署 Workflow 會停下等待
+  處理，請重試該 Task）。不是由 swallow 佈署的 Server 與 locked Server 不會安裝；請在未 locked 的
+  Server 上以 Managed Software 安裝 **Node Exporter**。
+- 只有某個 metric 顯示「No data」——例如 GPU 圖表——通常代表該 exporter 沒有在 Server 上執行。
+  swallow 不在主機上安裝 RDC exporter，因此 AMD GPU Server 只有在主機上已經執行 RDC exporter、
+  且 Server 帶有 `amd-gpu` tag 時才會顯示 GPU 圖表。
 - Missing metric data 是 unknown，不是 failure 證據。
 
 ## 保留 request ID

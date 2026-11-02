@@ -163,7 +163,7 @@ script rather than in MAAS by hand.
 
 The idempotent seed script creates the deployment key (`swallow-api deployment-key
 ensure`, the installation step; the API does not create it on start), logs in, creates a Site, registers the in-Compose
-Prometheus Integration, configures automation/playbook mappings, and optionally
+Prometheus Integration, configures site automation, and optionally
 registers MAAS when values are present:
 
 ```bash
@@ -172,9 +172,9 @@ docker compose up -d
 bash seed.sh
 ```
 
-Without MAAS or SSH inputs, those steps are skipped with guidance. After a
-provisioned Server is observed, exporter installation can run automatically
-according to ownership policy; locked Servers remain unmanaged.
+Without MAAS or SSH inputs, those steps are skipped with guidance. Each OS
+deployment installs the Node Exporter on the Servers it deploys; install it as
+Managed Software on a Server swallow did not deploy. Locked Servers remain unmanaged.
 
 To enroll libvirt virtual machines with a local MAAS snap, give its rack the SSH
 identity the production installation creates (`local-maas.sh ensure-virsh-identity`

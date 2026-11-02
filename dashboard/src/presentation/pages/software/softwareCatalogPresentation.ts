@@ -111,6 +111,14 @@ const PRESENTATION: Record<SoftwareKind, SoftwareCatalogPresentation> = {
     capabilities: ['Per-GPU metrics', 'Native AMD package', 'AMD compute GPUs only'],
     hasSettings: false,
   },
+  'node-exporter': {
+    category: 'observability',
+    description: 'Serve host metrics from the OS package on port 9100, where swallow\'s Prometheus scrapes every Server. OS deployments install it automatically.',
+    icon: Activity,
+    order: 5,
+    capabilities: ['Host metrics', 'OS package', 'Installed with each OS deployment'],
+    hasSettings: false,
+  },
 }
 
 const CATEGORIES: ReadonlyArray<Omit<SoftwareCatalogGroup, 'entries'>> = [
@@ -331,5 +339,6 @@ export function softwareAssignmentSummary(assignment: SoftwareAssignment): strin
     parts.push(`Dashboards: ${spec.dashboards.join(', ')}`)
   }
   if (assignment.kind === 'device-metrics-exporter') parts.push('Port 5001')
+  if (assignment.kind === 'node-exporter') parts.push('Port 9100')
   return parts.join(' · ') || 'Default configuration'
 }

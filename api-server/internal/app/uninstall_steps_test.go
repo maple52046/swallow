@@ -108,10 +108,8 @@ func TestUninstallStepsKeepServersUsesAnsibleStep(t *testing.T) {
 	if len(steps[0].Completion) != 1 {
 		t.Fatalf("completion = %v, want the platform-uninstall completion", steps[0].Completion)
 	}
-	if choice := uninstallChoiceOf(steps[0].Completion[0]); choice != (uninstallChoice{
-		deleteRecord: true, restoreExporters: true, platformName: "lab",
-	}) {
-		t.Errorf("uninstall choice = %+v, want delete, restore, and the Platform's name", choice)
+	if choice := uninstallChoiceOf(steps[0].Completion[0]); choice != (uninstallChoice{deleteRecord: true}) {
+		t.Errorf("uninstall choice = %+v, want delete", choice)
 	}
 	if steps[0].ID != uninstallPlatformStepID || steps[0].Executor != workflowdomain.RunnerKindHostAutomation {
 		t.Fatalf("step = %+v, want the uninstall-platform ansible step", steps[0])

@@ -17,6 +17,8 @@ deployed Servers. It is intentionally separate from Platform deployment.
   official release or package.
 - **AMD Device Metrics Exporter:** installs AMD's per-GPU metrics exporter
   natively on AMD GPU Servers; see below.
+- **Node Exporter:** installs the Prometheus host exporter from the OS package.
+  Every OS deployment installs it automatically; see below.
 
 The shipped automation manifest is the allowlist. If a software kind or variant
 does not appear in the active API contract and manifest, it is not supported.
@@ -81,6 +83,22 @@ Server, the exporter there is managed through the Platform: the Software page
 does not install or uninstall it on that Server, and uninstalling the Platform
 removes it. A Kubernetes Platform's GPU Operator runs its own exporter, so this
 software is not offered on Kubernetes nodes.
+
+## Node Exporter
+
+The Node Exporter serves host metrics (CPU, memory, disk, network) on port 9100,
+where swallow's Prometheus discovery scrapes every Server. It installs the OS
+distribution's package — `prometheus-node-exporter` on Debian and Ubuntu,
+`node_exporter` on the RHEL family, where it comes from EPEL — and needs no
+container runtime. It has no settings.
+
+Every OS deployment installs it on the Servers it deploys, so you install it here
+only on Servers swallow did not deploy, for example one enrolled with its OS kept.
+It is refused on a member of a Kubernetes Platform whose exporters Kubernetes owns
+(`exporterOwner: k8s`), because that Platform's DaemonSet uses the same port.
+Installing it first removes swallow's older containerised node-exporter
+(`swallow-node-exporter.service`) if the host still runs it; Docker and any RDC
+exporter container are left alone.
 
 ## The docker group
 

@@ -21,7 +21,9 @@ scrape_configs:
           credentials_file: /run/secrets/swallow-machine-token
 
   # AMD GPU servers only: the tag filter selects machines tagged amd-gpu, so this job
-  # never produces a failing target on a CPU-only host. The RDC exporter listens on 5000.
+  # never produces a failing target on a CPU-only host. The RDC exporter listens on 5000;
+  # swallow does not install it on hosts, so an amd-gpu Server that does not run one shows
+  # here as a down target.
   - job_name: site-rdc-exporter
     http_sd_configs:
       - url: http://swallow.example.internal/api/v1/discovery/prometheus?port=5000&tag=amd-gpu

@@ -134,11 +134,6 @@ func (r *MongoAssignmentRepo) SetState(ctx context.Context, serverID string, kin
 	return nil
 }
 
-// ListAll returns every non-absent assignment for the OS-lifecycle sweep.
-func (r *MongoAssignmentRepo) ListAll(ctx context.Context) ([]*softwaredomain.Assignment, error) {
-	return r.List(ctx, softwaredomain.AssignmentFilter{IncludeAbsent: false})
-}
-
 func toDoc(assignment *softwaredomain.Assignment) *assignmentDoc {
 	roles := make([]string, 0, len(assignment.Roles))
 	for _, role := range assignment.Roles {

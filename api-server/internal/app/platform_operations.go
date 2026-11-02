@@ -37,6 +37,7 @@ type platformOperationDeps struct {
 	bootMedia       bootMediaPlanner
 	software        *softwareapp.SoftwareService
 	ntp             ntpStepPlanner
+	nodeExporter    nodeExporterPlanner
 	protection      serverdomain.MutationGuard
 	networks        *provisioningapp.NetworkConfigurationService
 	requirements    platformdomain.DeploymentRequirementReader
@@ -55,7 +56,7 @@ type platformRecords interface {
 func buildPlatformOperations(deps platformOperationDeps) platformOperations {
 	launcher := platformDeploymentLauncher{
 		operations: deps.operations, orchestrations: deps.orchestrations, deployments: deps.deployments, servers: deps.servers,
-		bootMedia: deps.bootMedia, software: deps.software, ntp: deps.ntp,
+		bootMedia: deps.bootMedia, software: deps.software, ntp: deps.ntp, nodeExporter: deps.nodeExporter,
 	}
 	deploy := platformapp.NewDeployService(deps.platformService, deps.platforms, deps.servers, launcher, deps.protection)
 	deploy.AttachPlatformClaims(deps.claims)

@@ -1,5 +1,6 @@
 ---
-# Ensure a container runtime is present so the exporter containers can run.
+# Ensure a container runtime is present so the exporter containers can run. No shipped playbook
+# applies it at present; the rdc_exporter role needs it.
 #
 # Docker CE is the platform's documented host prerequisite; this role only fills the gap
 # on hosts that do not have it yet (e.g. a freshly deployed lab VM) and is otherwise a

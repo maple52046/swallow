@@ -58,11 +58,14 @@ The `/api/v1` routes require an admin bearer token; see [Downloads](#downloads) 
 
 ## Automatic hardware inspection
 
-A background sweep runs at the reconcile interval. It starts an `inspect-hardware` Workflow
-for a Server when all of these hold:
+An enabled provisioner Integration's `settings.autoInspect` is a policy the user declares; the
+worker's `auto-inspect` controller realizes it. The controller looks at a Server whenever the
+Server or its Integration changes, and again at its periodic resync (every 10 minutes by default).
+It starts an `inspect-hardware` Workflow for a Server when all of these hold:
 
 - its provisioner Integration is enabled and `settings.autoInspect` is not `"false"`
-  ([sites-integrations.md](sites-integrations.md));
+  ([sites-integrations.md](sites-integrations.md)); the setting is read each time the controller
+  looks, so changing it takes effect without restarting anything;
 - the Server is present (not absent), not locked, and in provisioning state `new`;
 - swallow first observed the Server within the last 24 hours;
 - the Server never had an `inspect-hardware` Workflow, in any status;
@@ -368,3 +371,8 @@ Added 2026-10-09
 ([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md)): the
 virtual-machine routes, Workflow kind `enroll-virtual-machines`, Task kind
 `enroll-virtual-machine`, and its attention codes are new published vocabulary.
+
+Changed 2026-11-03: automatic hardware inspection is started by the worker's `auto-inspect`
+controller instead of a periodic pass in the API process, so a change of a Server or its
+Integration is acted on without waiting for the next pass. Its conditions and the Workflow are
+unchanged.

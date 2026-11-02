@@ -1,0 +1,12 @@
+---
+# node_exporter role defaults.
+#
+# node_exporter_state toggles install vs removal so one role serves both the deploy-node-exporter
+# and uninstall-node-exporter playbooks. The port is the package's default; swallow's Prometheus
+# discovery scrapes it on every Server, so the playbooks only check that the exporter answers there.
+node_exporter_state: present
+node_exporter_port: 9100
+# A host can still carry swallow's containerised node-exporter (this systemd unit and container),
+# which holds the same port, so both are removed before the package's service starts.
+node_exporter_legacy_unit: swallow-node-exporter.service
+node_exporter_legacy_container: swallow-node-exporter

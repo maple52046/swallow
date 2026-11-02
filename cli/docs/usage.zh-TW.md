@@ -266,7 +266,7 @@ sshUser: ubuntu
 sshPort: 22
 knownHosts: "host ssh-ed25519 AAAA..."
 playbookMappings:
-  install-exporters: install-exporters
+  deploy-kubernetes: deploy-kubernetes
 ```
 
 `sshUser` 為選填：automation 會先以每台 Server 所佈署 OS Image 的 default user 登入，

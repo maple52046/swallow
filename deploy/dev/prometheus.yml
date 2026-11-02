@@ -21,7 +21,8 @@ scrape_configs:
         authorization:
           credentials: dev-machine-token
 
-  # RDC exporter on AMD GPU servers only (port 5000, tag=amd-gpu).
+  # RDC exporter on AMD GPU servers only (port 5000, tag=amd-gpu). swallow does not install
+  # it on hosts, so an amd-gpu Server that does not run one is a down target here.
   - job_name: dev-rdc-exporter
     http_sd_configs:
       - url: http://api-server:30051/api/v1/discovery/prometheus?port=5000&tag=amd-gpu
