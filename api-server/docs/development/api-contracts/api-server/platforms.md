@@ -31,7 +31,7 @@ apply, node cordon) is a separate live surface, [platforms-kubernetes.md](platfo
 
 - [Platform](../../../../../docs/development/glossaries/terms/platform.md)
 - [Platform Lifecycle State](../../../../../docs/development/glossaries/terms/platform-lifecycle-state.md)
-- [Operation](../../../../../docs/development/glossaries/terms/operation.md)
+- [Workflow](../../../../../docs/development/glossaries/terms/workflow.md)
 - [Node Role](../../../../../docs/development/glossaries/terms/node-role.md)
 - [Kubernetes Topology](../../../../../docs/development/glossaries/terms/kubernetes-topology.md)
 - [Minimum Resource Requirement](../../../../../docs/development/glossaries/terms/minimum-resource-requirement.md)
@@ -176,11 +176,11 @@ removed ([decision 032](../../../../../docs/decisions/032-self-deployed-platform
 `lifecycleState` is exactly `registered | planned | deploying | deploy_failed | active |
 uninstalling | uninstall_failed | uninstalled`; `planned` is a Platform created from its spec whose
 install waits on its Change Plan. `lifecycleOperationId` is the newest deployment or uninstall
-Operation ID, or `null`. These fields are derived by the API in a batch from durable Operation
+Workflow ID, or `null`. These fields are derived by the API in a batch from durable Workflow
 history; clients must not infer them from `integrationId`, membership, or sync freshness.
 
 `deployment` is the non-secret topology intent recovered from the latest durable
-`deploy-kubernetes` or `configure-slurm` Operation. It contains `topology` as `standalone`,
+`deploy-kubernetes` or `configure-slurm` Workflow. It contains `topology` as `standalone`,
 `multi-node`, or `high-availability` and the original `roleAssignments`, including
 `runWorkloads`. For a Slurm platform the projection is derived from the recorded daemons:
 `topology` is `standalone` with one controller and `high-availability` with more, a controller is a
@@ -337,18 +337,18 @@ required (`400 validation_error` otherwise); `podCidr` and `serviceCidr` default
 and `10.96.0.0/12`. An unknown Site is `404 not_found`. The target Servers must exist (an unknown
 one is `400 validation_error`) and belong to one Site. They must also be unlocked in a live
 provider read. The complete lock preflight
-finishes before swallow creates either the Platform or Operation; one locked target rejects
+finishes before swallow creates either the Platform or Workflow; one locked target rejects
 the batch with `409 conflict`.
 
 Every deploy, with `existing_os` or `provision_os`, first requires the installation's
 Deployment Key, because swallow logs in to the targets with it (see [ssh-keys.md](ssh-keys.md)).
 Without one the request is rejected with `409 conflict` before any validation (other than an
 unparsable body or a missing `siteId`, which are `400 validation_error` first), Platform, or
-Operation is created; the message names the installation command that creates it
+Workflow is created; the message names the installation command that creates it
 (`swallow-api deployment-key ensure`).
 
 By default the targets must already be `deployed`. To provision the operating system inside
-the same Operation, include an optional `spec.machinePreparation` object (shared by both platform
+the same Workflow, include an optional `spec.machinePreparation` object (shared by both platform
 types):
 
 ```json
@@ -391,9 +391,9 @@ both are volatile and leave physical disks untouched.
 
 A Platform deployment checks time; it does not set it
 ([decision 065](../../../../../docs/decisions/065-control-plane-ntp-and-post-provision-time-sync.md) (control plane ntp and post provision time sync)).
-Time is configured when an OS is provisioned: in `provision_os` mode each Server the Operation
-provisions gets its own `configure-ntp-<serverId>` Step after `provision-<serverId>`, exactly as
-in an OS deployment ([provisioning.md](provisioning.md#durable-os-operations)), so such a deploy
+Time is configured when an OS is provisioned: in `provision_os` mode each Server the Workflow
+provisions gets its own `configure-ntp-<serverId>` Task after `provision-<serverId>`, exactly as
+in an OS deployment ([provisioning.md](provisioning.md#durable-os-workflows)), so such a deploy
 is refused with `409 conflict` when the installation has no NTP server. Servers that are reused
 as already deployed, and every target in `existing_os` mode, are not reconfigured.
 
@@ -402,7 +402,7 @@ both modes, by examining every target before it installs anything (before k0s is
 before Slurm's preflight and MUNGE). The check changes nothing on the hosts: on each node it reads
 whether the clock is synchronized (`timedatectl` `NTPSynchronized`) and, when the installation has
 an NTP server, measures the node's offset from it with an SNTP query (limit 1 second). There is no
-separate time-check Step. The optional deploy field `timeSyncCheck` decides what a problem does:
+separate time-check Task. The optional deploy field `timeSyncCheck` decides what a problem does:
 
 ```json
 { "timeSyncCheck": "enforce" }
@@ -430,7 +430,7 @@ other is refused the same way and leaves no Platform record or partial claim beh
 failed deployment remains protected even before membership can be observed; a successful
 uninstall and a record-only delete release it. The platform controller keeps the members of a
 present spec claimed, including those of a Platform it adopts. A claimed Server cannot be released directly
-([provisioning.md](provisioning.md#durable-os-operations)) or deleted
+([provisioning.md](provisioning.md#durable-os-workflows)) or deleted
 ([server-detail-actions.md](server-detail-actions.md)). A target carrying any observed
 Platform membership is also rejected. The current Server projection has one membership axis; allowing
 cross-platform co-residency requires a future platform-scoped multi-membership contract
@@ -459,7 +459,7 @@ one makes the VIP holder reach part of the subnet from the VIP, which etcd rejec
 When the provisioner reports no subnet, `apiVipPrefix` is used as given (default `24`) and the
 deploy fails early on a control-plane host whose own subnet it does not match.
 
-A Kubernetes deploy may install the AMD GPU Operator as part of the same Operation with an
+A Kubernetes deploy may install the AMD GPU Operator as part of the same Workflow with an
 optional `gpuOperator` object (the settings of [Manage The GPU Operator](#manage-the-gpu-operator)):
 
 ```json
@@ -480,7 +480,7 @@ Kubernetes: it defaults to `gpu-operator` when `gpuOperator.enabled` is true and
 `provisioning` otherwise; `gpuStackOwner=provisioning` together with an enabled `gpuOperator` is
 a `validation_error`. A client that sends `gpuStackOwner=gpu-operator` without `gpuOperator`
 records an operator managed outside swallow, and swallow installs nothing. The `gpuOperator`
-validation runs before any Platform or Operation is created. The Operation adds a
+validation runs before any Platform or Workflow is created. The Workflow adds a
 `configure-gpu-operator` Job after `validate-platform`; the deployment succeeds only when it
 does.
 
@@ -599,7 +599,7 @@ membership reads; if the image omits it, the cluster still deploys successfully 
 platform has no integration and no members until the image includes it (unlike Kubernetes,
 whose credential is required). A Slurm platform is deleted like Kubernetes (see
 [Delete A Platform](#delete-a-platform)); its approved plan starts an `uninstall-slurm`
-Operation that removes the Slurm configuration and daemons while keeping the host OS and
+Workflow that removes the Slurm configuration and daemons while keeping the host OS and
 image-supplied packages, and can optionally release the member servers.
 
 ### GPU GRES
@@ -894,7 +894,7 @@ now and after each boot.
 No request names nodes or Servers. The operator manages every node of the Platform that its own
 Node Feature Discovery marks as an AMD GPU node: `feature.node.kubernetes.io/amd-gpu=true` for a
 physical GPU or `feature.node.kubernetes.io/amd-vgpu=true` for an SR-IOV virtual function, by the
-chart's PCI device rules. Each Operation re-reads that result, so a node that joins the cluster is
+chart's PCI device rules. Each Workflow re-reads that result, so a node that joins the cluster is
 managed after the next change. A per-node control, if one is ever added, excludes named Servers
 from that result; it never asks a client to enumerate the nodes to manage.
 
@@ -942,19 +942,19 @@ verified, newest first:
 
 The GPU Operator is the Platform's `settings.gpuOperator`, changed with
 [Change A Platform](#change-a-platform). Turning it on is not destructive: the platform controller
-starts a `configure-gpu-operator` Operation that applies the settings. Changing its settings or
+starts a `configure-gpu-operator` Workflow that applies the settings. Changing its settings or
 turning it off (`enabled: false`, or omitting it, uninstalls the operator) is destructive and waits
-on a Change Plan, whose approval starts the same Operation.
+on a Change Plan, whose approval starts the same Workflow.
 
-Once the Operation is persisted `gpuOperator.state` becomes `installing` (or `uninstalling`) and
-`gpuOperator.lastWorkflowId` names it. The Operation targets the Platform's deployment targets: it
+Once the Workflow is persisted `gpuOperator.state` becomes `installing` (or `uninstalling`) and
+`gpuOperator.lastWorkflowId` names it. The Workflow targets the Platform's deployment targets: it
 verifies SSH readiness, then runs one ansible Task (`configure-gpu-operator`). The spec write
-refuses invalid settings with `400 validation_error`; a refusal when the Operation is started (the
-Platform is not `active`, a target is locked or held by another unfinished Operation, or the
+refuses invalid settings with `400 validation_error`; a refusal when the Workflow is started (the
+Platform is not `active`, a target is locked or held by another unfinished Workflow, or the
 installation has no Deployment Key) is reported by the Platform's `realized` Condition (`failed`)
 and the controller retries it.
 
-### What The Operation Does
+### What The Workflow Does
 
 The Task fails (`ansible_failed`, retryable) with a message that starts with a bracketed code when
 a precondition does not hold. The cluster-level refusals (`gpu_operator_unmanaged`,
@@ -991,9 +991,9 @@ the node labels, the DRA links, and the amdgpu loader; the Platform stays `activ
 
 `gpuOperator.state` follows the Task: `installing` / `uninstalling` while it waits or runs,
 `ready` / `absent` when it succeeds, and `failed` when it fails, needs attention, or is canceled.
-Only the Operation named by `lastWorkflowId` moves the state. A refused or failed Task leaves its
-Operation in `requires_attention`, still holding the targets: retry the Task once the cause is
-fixed, or cancel the Operation before submitting other settings, which are `409 conflict` until
+Only the Workflow named by `lastWorkflowId` moves the state. A refused or failed Task leaves its
+Workflow in `requires_attention`, still holding the targets: retry the Task once the cause is
+fixed, or cancel the Workflow before submitting other settings, which are `409 conflict` until
 then. While the state is anything other
 than `absent`, `PATCH` cannot set `gpuStackOwner` back to `provisioning` (`409 conflict`).
 
@@ -1063,7 +1063,7 @@ The choices are stored as `spec.removal`; the plan's effects name a release and 
 
 When `releaseServers` is true, swallow releases each member server directly instead of
 uninstalling the platform software first: releasing wipes the operating system, so the
-software removal would be redundant. The Operation runs a `release-os` step per member (in
+software removal would be redundant. The Workflow runs a `release-os` step per member (in
 parallel) and then an internal finalize step that clears the Platform projections once every
 release succeeds. `releaseOptions` mirrors the standalone Release action (disk erase and
 static-IP unbinding) and is ignored when `releaseServers` is false. Releasing wipes the
@@ -1073,9 +1073,9 @@ orchestration topology.
 
 Eligibility, checked when the approved plan starts the uninstall, requires a Platform with durable deployment provenance (`deploy-kubernetes` or
 `configure-slurm`). The target set is always the complete `targetServerIds` snapshot from its latest
-deployment Operation, never current membership. All targets must still exist, be present,
-be unlocked, and have no overlapping active Operation. Lock is checked live before
-the uninstall Operation is created. No single provisioning state is
+deployment Workflow, never current membership. All targets must still exist, be present,
+be unlocked, and have no overlapping active Workflow. Lock is checked live before
+the uninstall Workflow is created. No single provisioning state is
 required because a failed deployment can leave a mixed target set.
 
 A failed deployment waiting for operator attention (`requires_attention`) still holds its
@@ -1112,11 +1112,11 @@ On success swallow clears membership, releases the Platform's Platform Claims on
 deletes only a credential Integration proven to be swallow-owned, and clears the Platform
 integration/sync projection. If Kubernetes owned
 exporters, swallow separately queues `install-exporters` for targets that remain present,
-deployed, and unlocked. That Operation has its own failure lifecycle and does not roll back
+deployed, and unlocked. That Workflow has its own failure lifecycle and does not roll back
 the uninstall.
 
 The record is removed as the last part of the success cleanup, with the same projections as a
-record-only delete, but without canceling Operations, because the only Operation still holding the
+record-only delete, but without canceling Workflows, because the only Workflow still holding the
 targets is the uninstall that is completing. Exporter restoration is still queued as described
 above.
 
@@ -1124,7 +1124,7 @@ above.
 
 `GET /api/v1/platforms/` returns a plain array, optionally filtered by `siteId`.
 `GET /api/v1/platforms/{platformId}` returns one. Lifecycle history is fetched in one batch
-for list requests; the API does not fan out one Operation query per Platform.
+for list requests; the API does not fan out one Workflow query per Platform.
 
 `PATCH /api/v1/platforms/{platformId}` updates `name`, `gpuStackOwner`, `exporterOwner`, or
 `monitoringLinks`; omitted fields do not change. `PATCH` never changes the spec or `gpuOperator`;
@@ -1147,15 +1147,15 @@ would be a register-existing back door, which
 `DELETE /api/v1/platforms/{platformId}?recordOnly=true` removes only the swallow record; it is not a
 way to uninstall (use [Delete A Platform](#delete-a-platform)). It returns `204 No Content`. It
 first
-cancels the Platform's in-flight durable Operations so their resource leases are released
+cancels the Platform's in-flight durable Workflows so their resource leases are released
 and the member servers are freed, then clears membership, the Platform's Platform Claims, and a
 swallow-owned credential Integration, and finally removes the Platform record. Cancellation only stops durable work
 and frees leases; Delete still never runs Ansible, changes hosts, waits for Uninstall, or
 restores exporters, and it remains available while targets are locked because it does not
 mutate them. If cancellation cannot be performed the Delete is refused and the record is
-kept, so a Platform is never removed while its Operations keep holding its servers. A
-finished Operation observed after cancellation is left as-is; retrying a finished
-deploy/uninstall Operation whose Platform no longer exists is refused.
+kept, so a Platform is never removed while its Workflows keep holding its servers. A
+finished Workflow observed after cancellation is left as-is; retrying a finished
+deploy/uninstall Workflow whose Platform no longer exists is refused.
 
 Legacy records delete their linked Integration only when deployment provenance and the
 complete auto-generated Kubernetes Integration signature both match. Operator-owned

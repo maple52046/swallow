@@ -487,7 +487,7 @@ stall 可能是環境問題、可就地修復，abort 會毀掉 operator 需要�
 swallow 擁有單一的 [Provider Recovery](glossaries/terms/provider-recovery.md) policy：由政策（而不是 provisioner 的拒絕
 訊息）決定每個正規化的 `provisioning.state` 允許哪個 recovery 意圖、以哪個 provider primitive 實現；provisioner 只執行
 選中的 primitive。API 見 [provisioning.md](../../api-server/docs/development/api-contracts/api-server/provisioning.md)
-的 Durable OS Operations 與
+的 Durable OS Workflows 與
 [server-detail-actions.md](../../api-server/docs/development/api-contracts/api-server/server-detail-actions.md) 的
 Operator State and Provider Recovery。
 
@@ -554,8 +554,8 @@ provider 狀態行動：
 - 這條規則對單台部署與 Platform 部署相同；Platform 部署中其他 Server 與已完成的 Task 保留進度。
 - 放棄整個部署（cancel）、rerun，以及取消時被中斷部署的回收，見 [workflow-execution.md](workflow-execution.md)。
 
-**設計理由**：部署停在 `requires_attention` 時仍持有 Server 的 lease，另開的 Recover Operation 會被拒為 busy；兩個
-Operation 也不能同時宣告同一台 Server。把 provider 失敗改成不可重試只會讓 operator 多走「Recover、再 repair／rerun」
+**設計理由**：部署停在 `requires_attention` 時仍持有 Server 的 lease，另開的 Recover Workflow 會被拒為 busy；兩個
+Workflow 也不能同時宣告同一台 Server。把 provider 失敗改成不可重試只會讓 operator 多走「Recover、再 repair／rerun」
 幾步。preflight 拒絕則是已知結果，重試只會重複同一個拒絕，所以改為不可重試讓 Workflow 結束。見
 [decision 033](../decisions/033-provider-recovery-policy.md) 與
 [decision 059](../decisions/059-retry-recovers-failed-deployment.md)。

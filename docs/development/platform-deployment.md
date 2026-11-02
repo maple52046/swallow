@@ -281,11 +281,11 @@ Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。
   symlink；playbook 只建立目的地不存在的 link，關閉 DRA 或卸載時以 `readlink` 確認後才移除。
   `uninstall-kubernetes` 保留主機時也移除它們，以及 DRA driver 寫在 k0s 狀態之外的
   `/var/run/cdi/k8s.gpu.amd.com-gpu_common.yaml`。
-- 每次 Operation 都重讀 NFD 的結果，所以新加入叢集的節點在下一次變更時納管。
+- 每次 Workflow 都重讀 NFD 的結果，所以新加入叢集的節點在下一次變更時納管。
 - 一次只有一種 [GPU Allocation Mode](glossaries/terms/gpu-allocation-mode.md)：切換時先關閉舊模式、等它消失再啟用新模式；
   有 Pod 佔用 AMD GPU 或有已配置的 `gpu.amd.com` `ResourceClaim` 時，拒絕切換與卸載（`[gpu_workloads_present]`）。
 - 不接管 swallow 沒有安裝的 operator：叢集已有 AMD GPU Operator、`DeviceConfig` 或手動套用的 AMD device plugin／labeller
-  時以 `[gpu_operator_unmanaged]` 拒絕。其他失敗碼見 platforms 契約的 "What The Operation Does"。
+  時以 `[gpu_operator_unmanaged]` 拒絕。其他失敗碼見 platforms 契約的 "What The Workflow Does"。
 - 支援的版本是 swallow 的 release catalog（chart、DRA driver 版本、固定的 operand image），以
   `GET /platforms/gpu-operator/releases` 讀取。新增版本＝新增 catalog 項目、隨發行包附帶的 chart archive，以及一次 lab
   驗證。chart 與 helm checksum 隨發行包；operand image 依固定 tag 從 Docker Hub（`docker.io/rocm/...`）拉取，helm binary
@@ -341,7 +341,7 @@ per-Task，故分組後即與 deploy 一致，無需另外處理。Release 捷�
 
 - 只用於整個 Platform 的 uninstall。未來的 scale-in 必須先把節點從叢集移除（drain／remove）再 release，不沿用此捷徑。
 - Workflow kind 仍是 `uninstall-kubernetes`／`uninstall-slurm`（definition `platform-uninstall` v1），lifecycle 照舊由
-  Operation 狀態推導（`uninstalling` → `uninstalled`），`retryOfOperationId` 的重試規則相同。
+  Workflow 狀態推導（`uninstalling` → `uninstalled`），`retryOfOperationId` 的重試規則相同。
 - 設計理由：否決「保留 uninstall step 但當 no-op」、「改接通用的 operation-success hook」與「受理時就清理投影」，
   見 decision 022。
 
@@ -357,21 +357,21 @@ platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-co
   （busy 可用 `cancelActiveWorkflows`，§4.8）。保留主機時跑
   `uninstall-<type>` playbook，移除 swallow 安裝的 runtime 狀態、保留 OS；也可 release 主機（§2.4）。失敗或取消的
   uninstall 以 rerun 重跑（新 Workflow 以 `retryOfOperationId` 指向前一次，沿用同一份凍結的 target set；playbook
-  冪等），期間 Platform 維持 `uninstall_failed`。Platform 紀錄與 Operation 歷史保留，供診斷與重試。
+  冪等），期間 Platform 維持 `uninstall_failed`。Platform 紀錄與 Workflow 歷史保留，供診斷與重試。
 - **成功後的清理**（`CompleteUninstall`）：清 membership、釋放 Platform Claim（§2.6）、只刪證明為 swallow 擁有的 credential
   Integration（新部署會記錄自己擁有的 Integration id；legacy 紀錄要 deploy provenance 與完整的自動產生 Integration 簽章
   都相符才刪），並清 integration／sync 投影。Kubernetes 擁有 exporter（`exporterOwner=k8s`）且保留主機時，另排一個
-  `install-exporters` Operation 給仍 present、deployed、unlocked 的 target；它有自己的失敗生命週期，不回滾 uninstall。
+  `install-exporters` Workflow 給仍 present、deployed、unlocked 的 target；它有自己的失敗生命週期，不回滾 uninstall。
 - **Delete**（`DELETE /platforms/{id}`）把 spec 標為 absent（帶 release 等選擇），uninstall 經 Change Plan 核准後由
-  platform controller 啟動；uninstall 成功時在清理的最後刪除紀錄，刪除的紀錄與投影與只刪紀錄相同，但不取消 Operation，
+  platform controller 啟動；uninstall 成功時在清理的最後刪除紀錄，刪除的紀錄與投影與只刪紀錄相同，但不取消 Workflow，
   因為正在完成的 uninstall 就是持有 target 的 Workflow。失敗或取消時保留紀錄（`uninstall_failed`）。
   清理把已不存在的紀錄視為成功，所以重試是安全的。從未核准安裝的 Platform 沒有動過任何機器，直接刪除。
 - **只刪紀錄**（`DELETE /platforms/{id}?recordOnly=true`）只移除紀錄與 swallow 擁有的投影：先對該 Platform 未完成的 Workflow 寫入取消命令（它們在取消
   路徑結束時釋放所有權；寫不進去就拒絕 Delete、保留紀錄），再清 membership、Platform Claim 與 swallow 擁有的 credential Integration，最後刪紀錄。它永不執行
   automation、不改主機、不等 uninstall、不還原 exporter，target locked 時仍可執行。Platform 刪除後，已結束的
-  deploy／uninstall Operation 不能再重試。
+  deploy／uninstall Workflow 不能再重試。
 - **Lifecycle read model**：`origin`、`lifecycleState`、`lifecycleOperationId` 由 API 從 durable deploy 與 uninstall
-  Operation 以一次 batch 推導（[Platform Lifecycle State](glossaries/terms/platform-lifecycle-state.md)）；client 不得從
+  Workflow 以一次 batch 推導（[Platform Lifecycle State](glossaries/terms/platform-lifecycle-state.md)）；client 不得從
   membership 或 `integrationId` 推論。
 - **Dashboard**：移除是單一紅色控制項。仍可 uninstall 時是 split button，主要部分開 Uninstall，選單內是「Delete only」；
   已 `uninstalled`、`planned` 或永遠不能 uninstall 時只剩 Delete（`planned` 的 Delete 經 spec 刪除，一併撤回安裝的 plan）。
@@ -397,7 +397,7 @@ Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以�
 - **保留與釋放**：Platform 為 `deploying`、`deploy_failed`、`active`、`uninstalling`、`uninstall_failed` 時保留，因為主機
   可能仍帶 platform 狀態；uninstall 成功與只刪紀錄時釋放。provider reconcile 保留 claim，
   與 Server 的 Deployment result 相同。
-- **保護**：claimed Server 的 Release（Release Operation、Recover 已 `deployed` 的 Server）與
+- **保護**：claimed Server 的 Release（Release Workflow、Recover 已 `deployed` 的 Server）與
   Server Delete（在呼叫 provisioner 之前，即使 Machine 已不存在）一律 `409 conflict`，訊息指名 Server 與 Platform，
   `cancelActiveWorkflows` 也繞不過。Recover 處於不可用狀態（`failed`／`broken`／`rescue`／`allocated`）的 claimed Server
   仍允許，因為那是修復失敗部署的方式。代表該 Platform 執行的 Workflow（例如 uninstall 的 `release-os`）不受此規則限制；
@@ -660,7 +660,7 @@ image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線
   - worker turnover 的 infrastructure retry 接續同一個 Task attempt、不取消外部工作 → §5.3；
   - 可重試的失敗停在 `requires_attention`，由 operator 觸發 Task／Job 重試 → §5.4；
   - 停等不依賴計時器或續租，暫時性中斷不會結束 Workflow → §6；
-  - 已結束的 Workflow 以 rerun 收斂（新 Workflow、`RetryOfOperationId`、ensure 類 Task 一律重跑、已部署的
+  - 已結束的 Workflow 以 rerun 收斂（新 Workflow、`retryOfOperationId`、ensure 類 Task 一律重跑、已部署的
     節點不重裝）→ §7；
   - execution 遺失時 dispatcher 依 store 接續，Task 重試與取消照常可用 → §10。
 - Platform 特有的部分：Platform lifecycle 以 `requestedAt` 最新的 deploy Workflow 為準，rerun 的新
@@ -688,7 +688,7 @@ Platform deploy 失敗**不會**自動 release、mark-broken 或清 claim；它�
 
 - **provider 層失敗（Server 的 `provisioning` 軸不是 `ready`）**：`ensure-os`／`provision-os`
   失敗會讓該 Server 落在 `failed`（或 `allocated`／`broken`／`rescue`）。Workflow 停在
-  `requires_attention` 時仍佔著該 Server，另開的 Recover Operation 會被拒為 busy，所以收斂方式是
+  `requires_attention` 時仍佔著該 Server，另開的 Recover Workflow 會被拒為 busy，所以收斂方式是
   **直接重試該 `provision-os` Task**：明確 Retry 會先在同一個 Workflow 內、在它擁有 Server 時執行與
   **Recover**（Return to Ready）相同的 provider recovery（[decision 033](../decisions/033-provider-recovery-policy.md)（provider recovery policy））把 Server 收回 `ready`
   （不解除 static IP），再重送凍結的部署內容；同批其他 Server 與已完成的 Task 保留（[decision 059](../decisions/059-retry-recovers-failed-deployment.md)（retry recovers failed deployment））。
@@ -1041,7 +1041,7 @@ Platform 的**管理/讀取**面不再用 k0s 形狀的統一 UI:平台詳情頁
   `slurm-smd-slurmrestd`,`integrationId` 為 `null`)或不可達時,前端 degrade 回 controller intent + 最後一次同步的
   compute membership,不顯示誤報的 down。
 
-Shell(header、lifecycle 提示、sync、lifecycle 動作、相關 Operation)真正共用,所以是一條 route 加依 type 選擇的
+Shell(header、lifecycle 提示、sync、lifecycle 動作、相關 Workflow)真正共用,所以是一條 route 加依 type 選擇的
 body:Platform 模組在 `dashboard/src/modules/platform/<type>/` 提供 Overview 與分頁(`KubernetesPlatformView`／
 `SlurmPlatformView`),外殼經模組 registry 取得,不依 type 名稱分支;Accelerator 模組帶來的區塊(例如 AMD GPU Operator)
 也經 registry 加入。兩種 type 不繼承彼此的詞彙或狀態模型。

@@ -58,7 +58,7 @@ every response field with its nullability — is the OpenAPI contract
 
 `POST /servers/{id}/lock` and `/unlock` return `202` with the accepted provisioning
 snapshot and immediately update `provisioning.locked`. MAAS remains the source and
-executor of that state; swallow does not persist a second lock. MAAS only accepts Lock for a deployed Machine, so swallow exposes Lock only in the `deployed` state and returns a clear `409 conflict` before calling the provider in every other state. The in-progress provisioning states `inspecting`, `deploying`, `releasing`, and `testing`, an Operation, or a Provisioning Task are also explicit conflicts. Unlock is always explicit and never resumes work.
+executor of that state; swallow does not persist a second lock. MAAS only accepts Lock for a deployed Machine, so swallow exposes Lock only in the `deployed` state and returns a clear `409 conflict` before calling the provider in every other state. The in-progress provisioning states `inspecting`, `deploying`, `releasing`, and `testing`, a Workflow, or a Provisioning Task are also explicit conflicts. Unlock is always explicit and never resumes work.
 
 Every state-changing action except Unlock performs a live lock check before touching
 the provider. A locked Server returns `409 conflict` naming the Server and directing the
@@ -84,7 +84,7 @@ instead of forwarding the provider's own rejection text ([decision 033](../../..
   had before entering rescue (commonly still `deployed`, `broken`, or `failed`); it is not
   a path to `ready`.
 
-The two operator-facing recovery verbs are the durable Operations documented in
+The two operator-facing recovery verbs are the durable Workflows documented in
 [provisioning.md](provisioning.md): `release-operations` (allowed from `deployed`,
 `allocated`, `failed`, `broken`, `rescue`) and `recover-operations` ("Return to Ready"). A
 client should present Recover and Release as the primary way to make an `allocated`,
@@ -175,7 +175,7 @@ or abandoned run. An active (`deploying`/`verifying`) or operator-pending
 already ended is settled separately from that Workflow's Task outcome (see the Cancel section
 of `workflows.md`), after which this clearing applies to it like any other terminal outcome.
 
-A failed or attention-needing deployment axis carries the failed Step's stable error
+A failed or attention-needing deployment axis carries the failed Task's stable error
 `code` (for example `deployment_address_unavailable`) alongside the verbose `statusReason`,
 so a client can render a concise root cause without parsing the message. `code` is empty
 for a non-failed deployment. An active deployment may still carry a non-terminal `stage` and

@@ -280,7 +280,7 @@ succeeds or its record is deleted ([platforms.md](platforms.md)); a failed deplo
 uninstall keeps it. It is intent, not observation: `membership` is the platform runtime's own
 answer and can be missing exactly when the claim matters (a deployment that never joined, a
 failing sync). A claimed Server cannot be released directly, and a deployed one cannot be
-recovered, through [provisioning.md](provisioning.md#durable-os-operations), nor can it be
+recovered, through [provisioning.md](provisioning.md#durable-os-workflows), nor can it be
 deleted ([server-detail-actions.md](server-detail-actions.md)); its Servers are released
 through the Platform's uninstall with `releaseServers`.
 

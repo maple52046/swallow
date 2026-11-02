@@ -390,7 +390,7 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
   取消的 Workflow 跑完取消路徑——包括 §8.3 的回收，最長約 30 分鐘——並釋放所有權後才開始。
 - **第一個 attempt 就先觀察**：取代者開始時，Server 可能已被取消路徑帶回 Ready，所以 `release-os` **每個** attempt
   （不只重試）都先讀 Server：已 Ready 直接成功、Releasing 則跟到 Ready，不再送出另一個 Release。要求清除 static IP、
-  但這個 Step 沒有送出 Release 時，沒有任何東西記下要移除的 binding，Step 以 `release_cleanup_not_applied`（stage
+  但這個 Task 沒有送出 Release 時，沒有任何東西記下要移除的 binding，Task 以 `release_cleanup_not_applied`（stage
   `network_cleanup`，不可重試）失敗並說明 binding 仍在，而不是宣稱做了沒做的清理。`recover-server` 對已 Ready 的
   Server 同樣直接成功。
 - **不帶旗標**：busy check 照常，`409` 訊息點名佔用的 Workflow（id、intent、status）。

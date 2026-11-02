@@ -482,7 +482,7 @@ acceptance report it once the target is resolved (see
 
 ## Multi-Server Deployment
 
-`POST /deployment-operations` ([Durable OS Operations](#durable-os-operations)) accepts:
+`POST /deployment-operations` ([Durable OS Workflows](#durable-os-workflows)) accepts:
 
 ```json
 {
@@ -574,7 +574,7 @@ image missing from the live catalog), `404 not_found` for an unknown Server or t
 Integration mismatch, and `503 provider_unavailable` when the provider cannot
 be reached. Secret values never appear in responses or errors.
 
-## Durable OS Operations
+## Durable OS Workflows
 
 `POST /deployment-operations` accepts the request above, runs the complete side-effect-free
 preflight, and persists one Workflow:
@@ -583,11 +583,11 @@ preflight, and persists one Workflow:
 { "operationId": "operation-id" }
 ```
 
-It creates one `provision-os` MAAS Step per Server, with a maximum of four concurrent
-Steps. HTTP acceptance and the provider's `deployed` state are not swallow completion.
-Each Step observes the requested image, refreshes the Server address projection, and
+It creates one `provision-os` MAAS Task per Server, with a maximum of four concurrent
+Tasks. HTTP acceptance and the provider's `deployed` state are not swallow completion.
+Each Task observes the requested image, refreshes the Server address projection, and
 requires the Site's configured SSH port (default 22) to become reachable. A missing
-provider address or unreachable SSH endpoint therefore fails the Step and the Operation;
+provider address or unreachable SSH endpoint therefore fails the Task and the Workflow;
 MAAS's `deployed` value remains available only as provider-owned lifecycle diagnostics.
 While the provider remains in `deploying`, swallow checks live BMC power after ten
 minutes. A machine that is still powered off becomes `requires_attention` with code
@@ -597,48 +597,48 @@ the general two-hour observation timeout.
 
 **Time synchronization.** Every OS provisioning configures time
 ([decision 065](../../../../../docs/decisions/065-control-plane-ntp-and-post-provision-time-sync.md) (control plane ntp and post provision time sync)):
-the Operation also has one `ansible` Step `configure-ntp-<serverId>` per Server, depending only
+the Workflow also has one `ansible` Task `configure-ntp-<serverId>` per Server, depending only
 on that Server's `provision-<serverId>`. It runs the release playbook `configure-ntp` against
 the installation's NTP server (the api-server setting `SWALLOW_API_NTP_SERVER`, which the
 production installation sets to `SWALLOW_ADDRESS`), frozen at acceptance as the trusted variable
 `swallow_ntp_servers`. The playbook configures the time client the OS already has, in the order
 `systemd-timesyncd`, `chrony`, `ntpd`, installs chrony only when there is none, and stops every
-other client; the run output names the client used. The Step fails with `ansible_failed` whose run
+other client; the run output names the client used. The Task fails with `ansible_failed` whose run
 output carries `[ntp_not_synchronized]` when the client gets no reply within two minutes.
 `systemd-timesyncd` still prefers a server a DHCP lease offers; on a subnet MAAS serves that is the
 MAAS rack, which is the swallow host too. The Server's `deployment` result still reflects only its
-`provision-os` Step. Acceptance fails with `409 conflict` when the installation has no NTP server
-(the message names `SWALLOW_API_NTP_SERVER`), and, because these Steps are Ansible, with
+`provision-os` Task. Acceptance fails with `409 conflict` when the installation has no NTP server
+(the message names `SWALLOW_API_NTP_SERVER`), and, because these Tasks are Ansible, with
 `503 provider_unavailable` while the Site's automation is not runnable (see
 [site-automation.md](site-automation.md)). OS image verification does not configure time: it
 returns the Server afterwards.
 
-**Boot Media ensure.** For each target Server whose Boot Media is enabled when the Operation is
+**Boot Media ensure.** For each target Server whose Boot Media is enabled when the Workflow is
 accepted (see [server-detail-actions.md](server-detail-actions.md#boot-media) and
-[decision 047](../../../../../docs/decisions/047-redfish-boot-media.md) (redfish boot media)), the Operation also has
-an `internal` Step `ensure-boot-media-<serverId>` of kind `ensure-boot-media`, and that Server's
-`provision-os` Step depends on it. The Step's parameters carry the URL of that Server's chosen
+[decision 047](../../../../../docs/decisions/047-redfish-boot-media.md) (redfish boot media)), the Workflow also has
+an `internal` Task `ensure-boot-media-<serverId>` of kind `ensure-boot-media`, and that Server's
+`provision-os` Task depends on it. The Task's parameters carry the URL of that Server's chosen
 Boot ISO ([boot-isos.md](boot-isos.md), [decision 049](../../../../../docs/decisions/049-boot-iso-builder.md) (boot iso builder))
 as accepted (`isoUrl`). When it runs it re-reads the Server's setting — a Server whose Boot
 Media was disabled meanwhile is left alone — then reads the BMC and re-applies the ISO mount and
 boot direction unconditionally, because a BMC can lose either between deployments. A BMC that
-cannot be reached or refuses fails the Step as retryable (`boot_media_ensure_failed`), and the
-dependent `provision-os` Step does not run; an Operation accepted while the Server's Boot Media
+cannot be reached or refuses fails the Task as retryable (`boot_media_ensure_failed`), and the
+dependent `provision-os` Task does not run; a Workflow accepted while the Server's Boot Media
 named no served Boot ISO (none chosen, the Boot ISO's file missing, or no Boot Media base URL)
 fails it as not retryable (`boot_media_not_configured`). Servers without Boot Media get
-exactly the Steps described above. The same Step is added in front of `provision-os` in OS image
-verification and in a Platform's `ensure-os` Job. Hardware inspection always has the Step and
+exactly the Tasks described above. The same Task is added in front of `provision-os` in OS image
+verification and in a Platform's `ensure-os` Job. Hardware inspection always has the Task and
 resolves the Boot ISO when it runs instead (`resolveLive`, no `isoUrl`); see
 [server-enrollment.md](server-enrollment.md).
 
-Such a Server's `provision-os` Step carries the same URL as `bootMediaIsoUrl`, next to its
+Such a Server's `provision-os` Task carries the same URL as `bootMediaIsoUrl`, next to its
 `request`, and watches the deployment boot, timed from its first `deploying` reading. Two minutes
 in, if the BMC no longer holds the ISO (some BMCs drop a fresh mount at the provider's power-on),
-the Step mounts it again. Ten minutes in, if the provider's newest event is still the deployment
+the Task mounts it again. Ten minutes in, if the provider's newest event is still the deployment
 start (the host never network-booted, for example because its BIOS booted the disk), it
 re-applies Boot Media and restarts the host through Redfish so the deployment boot starts from
 the ISO; the stage-stall rule below then measures from that restart. The host is restarted at
-most once per observation; the watch does not change the Step's status, and a failure is only
+most once per observation; the watch does not change the Task's status, and a failure is only
 logged. A deployment that still makes no progress is reported by the stage-stall rule.
 
 While the provider remains in `deploying`, swallow also reads the provider's machine event
@@ -648,22 +648,22 @@ The newest event recorded since the current attempt started is projected onto th
 deployment axis as non-terminal progress — `state` stays `deploying`, `code` stays empty,
 `stage` is the event type in snake_case (for example `configuring_os`), and `statusReason` names
 it, for example `Provider stage: Configuring OS (since 2026-10-02T16:48:45Z).` — and is rewritten
-only when the provider advances. When no newer event arrives for 25 minutes, the Step becomes
+only when the provider advances. When no newer event arrives for 25 minutes, the Task becomes
 `requires_attention` with code `deployment_provider_stage_stall`, stage set to the stuck event's
 snake_case type (or `deployment_progress` when no event was recorded since the attempt started),
 and a message naming the stage and since when. Progress is measured from provider event
-timestamps, so a worker restart or activity retry does not grant a fresh window; an explicit Step
+timestamps, so a worker restart or activity retry does not grant a fresh window; an explicit Task
 Retry starts a new attempt and therefore a new window. swallow does not abort the provider
 deployment. A provider without an event stream, or an event read that fails, never produces a
 stall; the power-on check and the two-hour observation timeout stay authoritative.
 
 A Machine that the provider reserved (`allocated`) after the deployment was accepted but that
-never starts installing within the power-on window (10 minutes) makes the Step
+never starts installing within the power-on window (10 minutes) makes the Task
 `requires_attention` with code `deployment_reserved_not_started` (stage `deployment`). The Machine
 is left `allocated`, which Recover and Release accept, so the operator can return it to Ready
 before retrying.
 
-Retry observes before writing. If the expected image is now SSH-reachable, the Step
+Retry observes before writing. If the expected image is now SSH-reachable, the Task
 succeeds without repeating provider work. If MAAS installed the image but reports no
 address, explicit Retry releases that unusable installation, waits for Ready, reapplies
 the frozen automatic/static intent, and redeploys the same image and cloud-init. If MAAS
@@ -671,10 +671,10 @@ reports the Machine `failed`, `allocated`, `broken`, or `rescue`, explicit Retry
 returns it to Ready with the same state-driven plan as Recover (static IP bindings are
 kept), and then redeploys the same frozen intent; failures on that path carry a stage
 prefixed `deployment_recovery_`. When the frozen intent is a disk deployment and the
-Server's layout needs a new inspection, Retry does neither: the Step fails before Recover
+Server's layout needs a new inspection, Retry does neither: the Task fails before Recover
 with code `inspection_required` (stage `deployment_preflight`, not retryable, message is the
 Server's `inspectionRequiredReason`), so the Workflow ends and the Server can be inspected. A Machine already deployed with a different image is not
-replaced: the Step fails with `deployment_image_mismatch` (not retryable) so the Workflow
+replaced: the Task fails with `deployment_image_mismatch` (not retryable) so the Workflow
 ends and the Server can be released explicitly. This destructive recovery is never
 automatic: a first attempt, or a Temporal activity retry of it after worker turnover,
 reports a provider failure as `deployment_failed` instead. If an address exists but SSH
@@ -682,22 +682,22 @@ remains unreachable, Retry only observes so routing, firewall, image, or service
 remediation does not discard an installed OS.
 
 A provider-reported deployment failure (`failed` or `broken` while observing) fails the
-Step with `deployment_failed` (stage `deployment`, retryable). Its message names the cause
+Task with `deployment_failed` (stage `deployment`, retryable). Its message names the cause
 when the provisioner can explain it:
 `The provisioner reported that OS deployment failed: <provider error description>. Installation error: <line>`.
 The description is the Server's `provisioning.errorDescription`; the installation error is the
 most specific line of the provider's newest failed installation log that started after the
-Step attempt started (for MAAS: the curtin handler error, else the exception that ended its
+Task attempt started (for MAAS: the curtin handler error, else the exception that ended its
 traceback, else the first failed stage), at most 300 characters, with URL credentials removed
 and any line that mentions a password, token, or secret never used. Each part is omitted when
 unavailable, down to `The provisioner reported that OS deployment failed.`; reading the
-installation log never changes the Step outcome. Lost provider responses enter observation
+installation log never changes the Task outcome. Lost provider responses enter observation
 first; swallow does not immediately submit a second deployment. An unknown outcome becomes
 `requires_attention`. A deployment swallow's own preflight refuses before any provider
 write (for example a target that is not ready, an image that is not staged or verified, or
 a network conflict) fails with `deployment_preflight_rejected` (not retryable), so the
 Workflow ends instead of parking on a retry that repeats the refusal. Cloud-init is
-removed from the intent snapshot and stored as an encrypted opaque Step reference.
+removed from the intent snapshot and stored as an encrypted opaque Task reference.
 
 `POST /release-operations` accepts 1-100 Servers:
 
@@ -714,27 +714,27 @@ removed from the intent snapshot and stored as an encrypted opaque Step referenc
 ```
 
 It performs complete presence, recoverable-state, Site, duplicate-target, active-work, and
-live lock validation before persistence, then creates one `release-os` MAAS Step per
-Server. A Step succeeds only after Ready is observed. When static cleanup is requested,
-the same Step then runs its durable Provisioning Task to completion under the Workflow's
-resource lease; Step Retry after a cleanup failure retries cleanup only and never sends
+live lock validation before persistence, then creates one `release-os` MAAS Task per
+Server. A Task succeeds only after Ready is observed. When static cleanup is requested,
+the same Task then runs its durable Provisioning Task to completion under the Workflow's
+resource lease; Task Retry after a cleanup failure retries cleanup only and never sends
 Release again. Provider cancellation is
 best-effort and confirmed prior effects are preserved.
 
-Every attempt of a `release-os` Step reads the Server first. A Server already `releasing` is
-followed to Ready, and one already `ready` meets the Step's goal without a provider Release.
-When static cleanup was requested and this Step did not send the Release, nothing captured the
-bindings to remove: the Step fails with `release_cleanup_not_applied` (stage `network_cleanup`,
+Every attempt of a `release-os` Task reads the Server first. A Server already `releasing` is
+followed to Ready, and one already `ready` meets the Task's goal without a provider Release.
+When static cleanup was requested and this Task did not send the Release, nothing captured the
+bindings to remove: the Task fails with `release_cleanup_not_applied` (stage `network_cleanup`,
 not retryable) and its message says the bindings remain.
 
 `cancelActiveWorkflows` (optional, default `false`) supersedes the unfinished Workflows that
 hold any target instead of refusing the request as busy
 ([decision 061](../../../../../docs/decisions/061-recovery-supersedes-blocking-work.md) (recovery supersedes blocking work)). After
 every other validation passes, swallow requests cancellation of each such Workflow (see the
-Workflows contract's Cancel) and creates the Operation at once, so the response returns
-within the request. The Operation waits in `waiting_dependency` ("Waiting for resource leases.")
+Workflows contract's Cancel) and creates the Workflow at once, so the response returns
+within the request. The Workflow waits in `waiting_dependency` ("Waiting for resource leases.")
 until those Workflows end and release their leases, then runs; a canceled deployment may have
-returned its Server to Ready by then, which the Step accepts as above. A cancel swallow refuses
+returned its Server to Ready by then, which the Task accepts as above. A cancel swallow refuses
 for a Workflow that is still running fails the request with `409 conflict` naming that Workflow,
 and nothing is created.
 
@@ -757,7 +757,7 @@ reserved but never finished, and the provider allows Release from it. A target i
 state (for example `releasing`, `deploying`, `new`, or already `ready`) is rejected with a
 swallow-authored reason rather than the provider's message.
 
-Both endpoints return `202` with an Operation reference, `{ "operationId": "..." }`, and
+Both endpoints return `202` with a Workflow reference, `{ "operationId": "..." }`, and
 nothing else; the request ID is recorded on the Workflow as its `requestCorrelation`, read
 through the Workflow, not returned here.
 Progress, target-specific normalized errors, Cancel, and safe Retry are read and controlled
@@ -767,7 +767,7 @@ Acceptance-time rejection is reported with the shared error envelope, never as a
 `500 internal_error`: malformed input (missing or out-of-range `serverIds`, a target in a
 state Release is not allowed from, a duplicate target, or a cross-Site batch) is
 `400 validation_error`; a Server unknown to swallow is `404 not_found`; a target already
-inside an unfinished Operation, a locked target, or a target a Platform claims is
+inside an unfinished Workflow, a locked target, or a target a Platform claims is
 `409 conflict`; and a build without durable provisioning wired up is
 `503 provider_unavailable`.
 
@@ -784,11 +784,11 @@ the same bounded batch shape as Release, without the disk-erase controls:
 ```
 
 It performs the same presence, Site, duplicate-target, active-work, and live lock
-validation, then creates one `recover-server` MAAS Step per Server. `cancelActiveWorkflows`
+validation, then creates one `recover-server` MAAS Task per Server. `cancelActiveWorkflows`
 behaves as it does for Release. Recover is allowed
 from `failed`, `broken`, `rescue`, `deployed`, and `allocated`; a target already `ready` is
 accepted as an immediate success (no-op) and any other state is a `400 validation_error`
-with a swallow reason. Each Step chooses the provider primitive by observed state — `broken`
+with a swallow reason. Each Task chooses the provider primitive by observed state — `broken`
 is returned with Mark fixed, `rescue` exits rescue and then Releases if it is still not
 `ready`, and `failed` (or `deployed`/`allocated`) is Released — and succeeds only after
 `ready` is observed. A Machine that fails to leave rescue (a settled "failed to exit rescue" state, or
@@ -805,7 +805,7 @@ how a broken deployment is repaired.
 
 ## Image Verification
 
-`POST /image-verifications` launches a durable `verify-os-image` Operation that
+`POST /image-verifications` launches a durable `verify-os-image` Workflow that
 proves one custom OS Image works for one Deploy Target by running a real deploy on
 an operator-chosen ready Server, recording the swallow-owned verification on
 success, then auto-releasing the Server. It accepts:
@@ -824,8 +824,8 @@ success, then auto-releasing the Server. It accepts:
 `integrationId`, `imageId`, `architecture`, and `serverId` are required;
 `deployTarget` is `"disk"` or `"ram"` (an unknown value is a `400`). `keepServer`
 is optional and defaults to `false`: when `false` the borrowed Server is returned
-to the ready pool after the verification (see the return Step below); when `true`
-the return Step is omitted, leaving the Server deployed on success (for an operator
+to the ready pool after the verification (see the return Task below); when `true`
+the return Task is omitted, leaving the Server deployed on success (for an operator
 who wants to keep the verified deployment) and in its failed state on failure.
 Acceptance preflight requires the Server to exist, be `ready`, be unlocked, belong
 to the image's Integration, and match the image architecture. It responds `202`
@@ -835,20 +835,20 @@ in the provisioner's live catalog are `400 validation_error`; an unknown Server 
 is `404 not_found`; a locked or busy Server, an image the provisioner has not fully staged, or a
 missing Deployment Key is `409 conflict`.
 
-The Operation runs Steps: `provision-os` (the real deploy in the target mode; this
+The Workflow runs Tasks: `provision-os` (the real deploy in the target mode; this
 proving deploy is exempt from the custom-image verification gate), one of two
-mutually exclusive internal finalize Steps — `record-image-verification` when the
+mutually exclusive internal finalize Tasks — `record-image-verification` when the
 proving deploy succeeded, or `record-image-verification-failure` when it failed —
 and, unless `keepServer` is `true`, `recover-server` (return the borrowed Server to
-`ready`). Verification is a borrow-and-return contract: by default the return Step
+`ready`). Verification is a borrow-and-return contract: by default the return Task
 runs whether the proving deploy succeeded or failed, so the borrowed Server is
-always given back; with `keepServer: true` the return Step is omitted and the Server
-is left deployed. Exactly one record Step runs; the other is skipped. A failed proving deploy is terminal (not a
-retry-park), so the Operation reaches `partially_succeeded` after the Server is
+always given back; with `keepServer: true` the return Task is omitted and the Server
+is left deployed. Exactly one record Task runs; the other is skipped. A failed proving deploy is terminal (not a
+retry-park), so the Workflow reaches `partially_succeeded` after the Server is
 returned, rather than holding the Server and showing a perpetual "verifying". On
 success the image's `verifiedDeployTargets` gains the target; on failure its
 `failedDeployTargets` gains the target and the provider's reason is on the failed
-`provision-os` Step. See
+`provision-os` Task. See
 [decision 035](../../../../../docs/decisions/035-os-image-verification-and-deploy-target.md) (os image verification and deploy target)
 and [decision 036](../../../../../docs/decisions/036-provisioning-lifecycle-integrity.md).
 
@@ -961,7 +961,7 @@ codes and error codes; clients that branch on codes are unaffected
 
 On 2026-10-29 `POST /release-operations`, the deprecated `POST /servers/{id}/release`, and
 `POST /recover-operations` for a `deployed` target began refusing a Server a Platform claims
-with `409 conflict` (see Durable OS Operations). Before, such a request was accepted and took
+with `409 conflict` (see Durable OS Workflows). Before, such a request was accepted and took
 the node out from under its Platform. Release a Platform's Servers through its uninstall
 ([decision 067](../../../../../docs/decisions/067-platform-claim-on-server.md)).
 

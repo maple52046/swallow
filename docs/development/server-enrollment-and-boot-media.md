@@ -565,15 +565,15 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
   結果投影為 `provisioning.inspectionRequired`／`inspectionRequiredReason`（見
   [servers-list.md](../../api-server/docs/development/api-contracts/api-server/servers-list.md)），重新 inspection
   重建 layout 後清除。
-- **磁碟部署在開始前被拒**：受理、platform validation 與 Step 執行共用的部署 preflight，在 lock 檢查的同一次即時
+- **磁碟部署在開始前被拒**：受理、platform validation 與 Task 執行共用的部署 preflight，在 lock 檢查的同一次即時
   讀取中讀這個旗標，以 target issue `inspection_required`（`409`）拒絕 disk 部署；RAM 部署不分割磁碟，不受影響
   （[Deploy Target](glossaries/terms/deploy-target.md)）。明確 Retry 失敗的磁碟部署時，在 Recover 之前先檢查，以
   不可 retry 的 `inspection_required` 結束 Task，讓 Workflow 釋放 Server 去 Inspect，而不是先清空 Machine 再被拒
   （Retry 與 Recover 的完整規則見 [os-provisioning.md](os-provisioning.md)）。
 - **失敗的部署指出原因**：`deployment_failed` 的訊息帶 provisioner 的錯誤描述，以及該次 attempt 安裝 log 中最
-  具體的一行（optional capability `InstallationFailureReader`；MAAS 讀 Step attempt 開始後最新的失敗安裝結果，只
+  具體的一行（optional capability `InstallationFailureReader`；MAAS 讀 Task attempt 開始後最新的失敗安裝結果，只
   下載它的 `install.log`，該行最多 300 字元、移除 URL 帳密，提到 password、token 或 secret 的行一律不用）。讀不到
-  時省略，且讀 log 從不改變 Step 結果。訊息格式見
+  時省略，且讀 log 從不改變 Task 結果。訊息格式見
   [provisioning.md](../../api-server/docs/development/api-contracts/api-server/provisioning.md)。
 
 ### 設計理由

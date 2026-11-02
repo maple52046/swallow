@@ -24,7 +24,7 @@ response derives facts from their owning contexts and stores no overview state.
 - `Site`
 - `Integration`
 - `Platform`
-- [Operation](../../../../../docs/development/glossaries/terms/operation.md)
+- [Workflow](../../../../../docs/development/glossaries/terms/workflow.md)
 
 ## Endpoint
 
