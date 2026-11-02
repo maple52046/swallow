@@ -1,10 +1,9 @@
 # CLI Coding Style
 
 The `cli` component follows the swallow Go coding style defined at
-`../../../api-server/docs/development/coding-style.md`. That document is
-authoritative for formatting, naming, comments, error handling, concurrency, and
-the documentation completion gate. This file records only the additions specific
-to the CLI.
+`../../../api-server/docs/development/coding-style.md`, in the sections that
+`../../AGENTS.md` (Required Reading) lists. This file records only the additions
+specific to the CLI.
 
 ## Baseline
 

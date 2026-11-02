@@ -55,14 +55,16 @@ reviewing a task reads what doing it would, except a component's coding style, w
 written or a code diff reviewed; reviewing a change described without a diff is a design review.
 
 Domain specs and contracts are long. Read a spec's reader section (its §1, or the unnumbered reader
-section before it) and its headings, then only the sections the task needs; in a contract, read the
-sections for the routes, parameters, and fields involved, even when the contract describes one route. A link or guide that names a section (§4.6) needs only that section,
-not the spec's reader section.
+section before it) and its headings, then only the sections the task needs. In a contract, read its
+opening sections (status, consumers, permissions, the endpoint list) and the sections for the routes,
+parameters, and fields involved, even when the contract describes one route; read a response example
+only when the task reads or changes that response. A link or guide that names a section (§4.6) needs
+only that section, not the spec's reader section.
 
 | Task | Also read |
 | --- | --- |
 | Design new behavior or choose between approaches; review a change; add a managed resource, module, or provider adapter, or change what one owns or declares; decide where code belongs | The "swallow 的設計主張" section at the top of `docs/development/architecture-spec.md`: the core idea, the current composition, the principles, and how to trade them off. Only that section; the rest of the spec is the last row's. |
-| Fix a defect, wording, or behavior without changing who owns a fact, an API contract, or the data model | The domain spec of the area (an area without one uses its API contract) and the `AGENTS.md` of the component that owns the behavior. For a defect seen on a screen or in a command, find that component first: compare what the API returns (or the code behind it) with the contract; if the API breaks the contract the defect is in `api-server`, otherwise in the consumer. |
+| Fix a defect, wording, or behavior without changing who owns a fact, an API contract, or the data model | The domain spec of the area (an area without one uses its API contract) and the `AGENTS.md` of the component that owns the behavior. For a defect seen on a screen or in a command, find that component first: compare what the API returns (or the code behind it) with the contract; if the API breaks the contract the defect is in `api-server`, otherwise in the consumer. Find the code with the code map in `docs/development/system-overview.md` §7 or a search. |
 | Explain how something works or why | The domain spec of each area involved; a glossary term only when the spec does not define it well enough (open a linked term directly; otherwise `docs/development/glossaries/README.md`); for the whole system (features, processes and their background work, collections and their writers), `docs/development/system-overview.md`. Reading code to confirm a detail needs no component guide: find it with the code map in `system-overview.md` or the spec's code table. |
 | Add or change a consumer feature (dashboard, cli) over existing API behavior | The API contract; the domain spec when the feature shows domain behavior. |
 | Add or change API behavior (a route, query parameter, field, status, or error) | The contract workflow (`api-server/docs/development/api-contracts/README.md`) and the contract. Regenerating the dashboard's types (`dashboard/src/infrastructure/api/generated/openapi.ts`, then `npm run contract:check`) is part of this and needs no dashboard guide; add the consumer row only for a consumer whose own code the change also changes. |

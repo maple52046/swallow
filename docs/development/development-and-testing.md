@@ -54,7 +54,7 @@ Go、Node、MongoDB、Temporal 與 Ansible 都在容器內。
 | 單一 handler | 同 package 的 delivery 測試：自己建 Fiber app，第一個 middleware 掛 `apicontract.ResponseValidator(t)`，例如 `internal/core/provisioning/delivery/http_proxy_handler_test.go` |
 | 回應符合契約 | `apicontract.ResponseValidator(t)` 依 OpenAPI 檢查每個回應的 status、Content-Type 與 body（不允許多出的欄位）；`setupPlatform` 已掛上 |
 | 路由與契約一致 | `internal/app/routes_contract_test.go` 檢查註冊的路由與契約列出的路由雙向一致 |
-| Mongo repository 與 transaction | `internal/adapters/store/mongodb/<context>/`；需要 `SWALLOW_TEST_MONGO_URI`（§3.2），每個測試建立自己的 database 並在結束時刪除 |
+| Mongo repository 與 transaction | `internal/adapters/store/mongodb/<context>/`；需要 `SWALLOW_TEST_MONGO_URI`（§3.2），每個測試建立自己的 database 並在結束時刪除（沒有共用 helper；可照著寫的範例：`server/platform_claim_transaction_test.go` 的 `claimTestDatabase`） |
 | MAAS adapter | `internal/adapters/osprovisioning/maas/provider_test.go` 的 `fakeMAAS`（httptest server）與 `newTestProvider` |
 | 其他 provider 的 fake | `tests/fakes_test.go`：`fakeProvider`（預設有 MAAS 的全部 capability，可注入錯誤並記錄呼叫）、`minimalProvider`（沒有任何 capability）、`fakeProviderFactory`、`executingLauncher`（在 request 內同步執行部署，取代 Temporal）。沒有共用的 fake provider package，其他 package 各自定義小型 fake |
 | Temporal driver | `internal/adapters/executor/temporalworkflow/driver_test.go`，用 Temporal SDK 的 testsuite，不需要 Temporal server |

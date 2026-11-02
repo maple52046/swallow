@@ -10,10 +10,10 @@ Before changing api-server Go code (or reviewing a code diff), read both; planni
 design without code, reads only the first:
 
 1. `docs/development/architecture-spec.md` — the Clean Architecture boundaries: Dependency Rule, Prohibited
-   Designs, Completion Gate; Layout when the change adds a file or package; and the sections for what the
+   Designs, Completion Gate; Layout when the change adds a package or a non-test file; and the sections for what the
    change touches (Provider Ownership, Provider Adapter Boundary, Durable Workflow Boundary, Store and
    Transaction Boundary, Configuration Boundary, Error Boundary; a repository query reads Data Crossing
-   Boundaries and Store and Transaction Boundary). Read "2026-10-31 搬移前的路徑" only when you meet a path
+   Boundaries, and Store and Transaction Boundary when it writes). Read "2026-10-31 搬移前的路徑" only when you meet a path
    from before that move.
 2. `docs/development/coding-style.md` — Go rules. Every change reads 核心原則, 格式與命名, 註解與文件, and Agent
    執行規則; add 錯誤處理, API 與語言使用, Imports 與 Package 組織, or 測試規範 when the change touches that.

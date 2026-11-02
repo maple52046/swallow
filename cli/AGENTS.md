@@ -88,8 +88,10 @@ and `docs/usage.zh-TW.md` in the same commit; a new command group also updates
 `../docs/en/reference/cli.md` with its `../docs/zh-TW/reference/cli.md` twin, and
 any public guide that says the CLI lacks the area. Today those are the Managed Software
 guide ("does not yet expose a `software` command group"), the API integration reference
-("Managed Software currently requires the Dashboard or HTTP API"), and the command index
-itself, each with its `docs/zh-TW/` twin; search for the group name to find others. When
+("Managed Software currently requires the Dashboard or HTTP API"), the introduction
+("Managed Software currently uses the Dashboard or HTTP API"), and the command index
+itself, each with its `docs/zh-TW/` twin; search `../docs/` for "Dashboard or HTTP API"
+and the area's name to find others. When
 the new commands cover only part of the area, rewrite those statements to say what is
 still missing rather than deleting them. Run
 `python3 scripts/check-docs.py` from the repository root after changing them.
