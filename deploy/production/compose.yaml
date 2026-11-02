@@ -134,7 +134,6 @@ services:
       SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_admin_password
       SWALLOW_API_CREDENTIAL_KEY_FILE: /run/secrets/credential_key
       SWALLOW_API_MACHINE_TOKEN_FILE: /run/secrets/machine_token
-      SWALLOW_API_JOB_ARTIFACT_RETENTION: 720h
       # Boot Media (decision 047), optional: Boot ISOs built on the Provisioning page are
       # kept in the boot-media volume and served at
       # <SWALLOW_BOOT_MEDIA_BASE_URL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso through the

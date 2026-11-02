@@ -322,6 +322,10 @@ controller 不在 API process 執行，目前在 worker process。同一種 cont
 Workflow 的 `workflow-dispatch` 也是一個 controller，resync 間隔為 `workflowResyncInterval`（預設 30 秒），因為
 execution 遺失不會出現在 change feed 上（[workflow-execution.md](workflow-execution.md) §10）。
 
+把外部系統讀成 observed state 的工作（provisioner 的 machine、GPU inventory、Platform 成員、BMC 能力）不是 controller：
+它沒有 key、不收斂 desired state，而是 worker 的 periodic pass，以同一種 lease（`periodic:<name>`）保證同一時間只有
+一個 active instance，取得 lease 時跑一次、之後依各自的間隔執行。它只寫 observed 欄位（§7.4）。
+
 ## 8. Provider 在收斂中的角色
 
 介面與 adapter 的一般規則見 [core-and-extensions.md](core-and-extensions.md) §3。在收斂中：

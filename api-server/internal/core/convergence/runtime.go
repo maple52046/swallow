@@ -68,7 +68,8 @@ type RuntimeOptions struct {
 // Runtime runs Controllers: for each one it competes for the singleton lease "controller:<name>",
 // and while it holds the lease it watches the change feed, runs the periodic resync, and drives a
 // work queue that reconciles one key at a time. Losing the lease (or ctx ending) stops that
-// controller's work until the lease is won again. A Runtime is used by one Run call.
+// controller's work until the lease is won again. RunPeriodic runs periodic passes under the same
+// kind of lease. A Runtime is used by one Run call and one RunPeriodic call.
 type Runtime struct {
 	feed   store.ChangeFeed
 	leases LeaseStore
@@ -108,36 +109,89 @@ func (r *Runtime) Run(ctx context.Context, controllers ...Controller) {
 }
 
 func (r *Runtime) runController(ctx context.Context, c Controller) {
-	name := "controller:" + c.Name()
 	log := r.opts.Logger.With("controller", c.Name())
+	r.holdLease(ctx, "controller:"+c.Name(), log, func(ctx context.Context) { r.runActive(ctx, c, log) })
+}
+
+// Periodic is background work that must run in one process at a time but converges no resource: a
+// pass that reads an external system (a provisioner's machines, GPU inventory, Platform
+// membership, BMC capabilities) into swallow's observed state. Unlike a Controller it has no keys
+// and no change feed; it runs once when its lease is won and then every Interval while held.
+type Periodic struct {
+	// Name identifies the pass; its singleton lease is "periodic:<Name>".
+	Name string
+	// Interval is the time between the starts of two passes; it must be positive.
+	Interval time.Duration
+	// Run makes one pass. Its error is logged, and the next pass runs at the next interval; a
+	// pass that needs retries inside one interval does them itself.
+	Run func(ctx context.Context) error
+}
+
+// RunPeriodic runs every pass until ctx ends, each under its own singleton lease, so several
+// processes keep one active instance per pass, exactly like controllers. It returns after all of
+// them stopped and their leases were released. It needs no change feed, so a process can run its
+// passes while systems that controllers depend on (the Workflow executor) are unavailable.
+func (r *Runtime) RunPeriodic(ctx context.Context, passes ...Periodic) {
+	var wg sync.WaitGroup
+	for _, pass := range passes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log := r.opts.Logger.With("periodic", pass.Name)
+			r.holdLease(ctx, "periodic:"+pass.Name, log, func(ctx context.Context) { runPasses(ctx, pass, log) })
+		}()
+	}
+	wg.Wait()
+}
+
+// runPasses runs pass at once and then on every tick until ctx ends.
+func runPasses(ctx context.Context, pass Periodic, log *slog.Logger) {
+	ticker := time.NewTicker(pass.Interval)
+	defer ticker.Stop()
+	for {
+		if err := pass.Run(ctx); err != nil && ctx.Err() == nil {
+			log.Warn("periodic pass failed", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// holdLease competes for the singleton lease name until ctx ends; while it holds the lease it runs
+// work with a context that ends when the lease is lost, and it releases the lease once work
+// returned. A process that cannot prove it holds the lease never runs work.
+func (r *Runtime) holdLease(ctx context.Context, name string, log *slog.Logger, work func(context.Context)) {
 	retry := r.opts.LeaseTTL / 3
 	for ctx.Err() == nil {
 		held, err := r.leases.TryAcquire(ctx, name, r.opts.Holder, r.opts.LeaseTTL)
 		if err != nil && ctx.Err() == nil {
-			log.Warn("controller lease unavailable", "error", err)
+			log.Warn("lease unavailable", "lease", name, "error", err)
 		}
 		if !held {
 			sleep(ctx, retry)
 			continue
 		}
-		log.Info("controller active")
+		log.Info("active", "lease", name)
 		activeCtx, cancel := context.WithCancel(ctx)
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			r.runActive(activeCtx, c, log)
+			work(activeCtx)
 		}()
 		r.renew(activeCtx, name, log)
 		cancel()
 		<-done
-		// The lease is released on a detached context so a shutting-down process hands the
-		// controller over immediately; failing to release only delays takeover by one TTL.
+		// The lease is released on a detached context so a shutting-down process hands the work
+		// over immediately; failing to release only delays takeover by one TTL.
 		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := r.leases.Release(releaseCtx, name, r.opts.Holder); err != nil {
-			log.Warn("controller lease release failed", "error", err)
+			log.Warn("lease release failed", "lease", name, "error", err)
 		}
 		releaseCancel()
-		log.Info("controller inactive")
+		log.Info("inactive", "lease", name)
 	}
 }
 
@@ -154,7 +208,7 @@ func (r *Runtime) renew(ctx context.Context, name string, log *slog.Logger) {
 			held, err := r.leases.TryAcquire(ctx, name, r.opts.Holder, r.opts.LeaseTTL)
 			if err != nil || !held {
 				if ctx.Err() == nil {
-					log.Warn("controller lease lost", "error", err)
+					log.Warn("lease lost", "lease", name, "error", err)
 				}
 				return
 			}

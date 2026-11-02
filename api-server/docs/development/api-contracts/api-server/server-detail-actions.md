@@ -594,7 +594,7 @@ installations publish `/boot-media/` there. The former fixed route
   address, or it rejected the provisioner's BMC account), or `no_bmc` (a virtual machine, a
   driver outside the `bmc` family, or the provisioner holds no BMC address). `reason` explains any
   value but `supported`. The probe is made against the BMC address whatever `bmc`-family driver
-  the provisioner uses (an IPMI-driven BMC may offer Redfish). The API process probes every present Server whose capability is missing — a
+  the provisioner uses (an IPMI-driven BMC may offer Redfish). swallow's worker probes every present Server whose capability is missing — a
   newly enrolled Server — or older than a day, every ten minutes by default.
 - `method` is `redfish`, `libvirt`, or `null` (no method, or not probed yet), derived from the
   stored probes: `libvirt` when the libvirt probe found a hypervisor, else `redfish` when the

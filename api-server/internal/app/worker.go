@@ -41,8 +41,9 @@ import (
 	"github.com/maple52046/swallow/internal/shared/secret"
 )
 
-// RunWorker starts the Temporal workflow/activity worker. It owns orchestration only;
-// HTTP and periodic inventory reconciliation remain in the API process.
+// RunWorker starts the worker process: the Temporal workflow/activity worker, the desired-state
+// controllers, and the periodic observation passes (reconcile, inventory sweep, membership sync,
+// Redfish capability sweep). The API process runs none of them.
 func RunWorker(cfg config.APIConfig) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	modules, err := composeModules()
@@ -147,6 +148,42 @@ func RunWorker(cfg config.APIConfig) error {
 		protection: providerServerMutationGuard{servers: servers, providers: providers},
 	}
 
+	// Boot Media's ensure-boot-media Task (decision 047) drives the BMC over Redfish with
+	// the connection read live from the provisioner. An OS deployment's Task carries the Boot ISO
+	// URL frozen at acceptance; an inspect-hardware Task resolves the Server's Boot ISO when it
+	// runs (decision 053), so the worker's catalog needs the Boot Media directory and base URL like
+	// the API's. The Redfish capability pass probes BMCs through it too. The enable and view paths of
+	// the use case are never called here, and the guard is unused.
+	bootISORepo, err := provisioningstore.NewMongoBootISORepo(db)
+	if err != nil {
+		return fmt.Errorf("boot ISO repo init: %w", err)
+	}
+	bootISOs := newBootISOCatalog(bootISORepo,
+		genfsimg.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL),
+		cfg.BootMedia.BaseURL)
+	bootMedia := serverapp.NewBootMediaUseCase(servers, servers, nil,
+		newBootMediaEndpointSource(providers, servers), redfish.NewController(), libvirtHosts, bootISOs)
+	providerExecutor.bootMedia = bootMedia
+	// The observation passes read external systems into swallow's observed state and need no
+	// Workflow executor, so they start before the worker waits for Temporal and keep running if
+	// Temporal is unavailable.
+	runtime := workerRuntime(db, convergence.RuntimeOptions{ResyncInterval: cfg.ControllerResyncInterval})
+	reconcile := provisioningapp.NewReconcileUseCase(integrations, servers, providers, osImageMetadata,
+		installedSoftwareRecords{assignments: softwareAssignments})
+	inventory := provisioningapp.NewInventorySweepUseCase(integrations, servers, providers)
+	// The passes stop when the worker returns, also when it gives up on Temporal, and their leases
+	// are released before it does.
+	passCtx, stopPasses := context.WithCancel(ctx)
+	passesDone := make(chan struct{})
+	go func() {
+		defer close(passesDone)
+		runtime.RunPeriodic(passCtx, observationPasses(cfg, reconcile, inventory, membership, bootMedia)...)
+	}()
+	defer func() {
+		stopPasses()
+		<-passesDone
+	}()
+
 	temporalClient, err := dialTemporal(ctx, client.Options{
 		HostPort: cfg.TemporalAddress, Namespace: cfg.TemporalNamespace,
 	}, temporalDialTimeout)
@@ -171,22 +208,6 @@ func RunWorker(cfg config.APIConfig) error {
 	// Metrics Exporter records (decision 068).
 	platformFinalizer.AttachPlatformClaims(servers)
 	platformFinalizer.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignments})
-	// Boot Media's ensure-boot-media Task (decision 047) drives the BMC over Redfish with
-	// the connection read live from the provisioner. An OS deployment's Task carries the Boot ISO
-	// URL frozen at acceptance; an inspect-hardware Task resolves the Server's Boot ISO when it
-	// runs (decision 053), so the worker's catalog needs the Boot Media directory and base URL like
-	// the API's. The enable and view paths of the use case are never called here, and the guard is
-	// unused.
-	bootISORepo, err := provisioningstore.NewMongoBootISORepo(db)
-	if err != nil {
-		return fmt.Errorf("boot ISO repo init: %w", err)
-	}
-	bootISOs := newBootISOCatalog(bootISORepo,
-		genfsimg.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL),
-		cfg.BootMedia.BaseURL)
-	bootMedia := serverapp.NewBootMediaUseCase(servers, servers, nil,
-		newBootMediaEndpointSource(providers, servers), redfish.NewController(), libvirtHosts, bootISOs)
-	providerExecutor.bootMedia = bootMedia
 	providerExecutor.virtualMachines = &virtualMachineEnroller{
 		libvirt: libvirtHosts, isos: bootISOs, bootMedia: bootMedia, integrations: integrations,
 	}
@@ -279,7 +300,7 @@ func RunWorker(cfg config.APIConfig) error {
 	platformController := platformapp.NewPlatformController(platforms, platforms, servers, servers,
 		platformLifecycleReader{orchestrations: operations}, platformDeploymentRecords{orchestrations: operations},
 		workflowPlatforms{orchestrations: operations}, changePlans, platformOps.planner, modules.platforms)
-	runControllers := controllerRuntime(db, convergence.RuntimeOptions{ResyncInterval: cfg.ControllerResyncInterval},
+	controllers := []convergence.Controller{
 		workflowapp.NewDispatcher(operations, engine, executor, cfg.WorkflowResyncInterval),
 		provisioningapp.NewServerController(servers, servers, providers, serverWorkflowHolds{leases: ownership},
 			serverGroupCatalog{zones: zones, pools: pools}, convergenceEvents),
@@ -296,11 +317,11 @@ func RunWorker(cfg config.APIConfig) error {
 		}),
 		convergence.NewChangePlanExpiryController(changePlans),
 		platformController,
-	)
+	}
 	controllersDone := make(chan struct{})
 	go func() {
 		defer close(controllersDone)
-		runControllers(ctx)
+		runtime.Run(ctx, controllers...)
 	}()
 	<-ctx.Done()
 	temporalWorker.Stop()

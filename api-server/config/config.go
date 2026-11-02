@@ -50,8 +50,8 @@ type APIConfig struct {
 	// it, and starting without it would defer that failure to the first user
 	// who tries. Never log this value.
 	CredentialKey string `yaml:"credentialKey"`
-	// ReconcileInterval is how often each enabled provisioner integration is
-	// polled to refresh its server projections.
+	// ReconcileInterval is how often the worker polls each enabled provisioner integration to
+	// refresh its server projections, and reads every Platform's membership.
 	ReconcileInterval time.Duration `yaml:"reconcileInterval"`
 	// InventoryInterval is how often the attached-hardware inventory (GPUs) is
 	// refreshed. Much longer than ReconcileInterval because attached hardware costs a
@@ -120,7 +120,7 @@ type APIConfig struct {
 	// ships it at bin/swallow. Optional: empty or missing makes the download, and so enrollment from
 	// the generated command, fail with 404 and a reason. The file is public; it holds no secret.
 	CLIBinary string `yaml:"cliBinary"`
-	// RedfishProbeInterval is how often the API process looks for Servers whose Redfish capability
+	// RedfishProbeInterval is how often the worker looks for Servers whose Redfish capability
 	// is missing (a newly enrolled Server) or older than RedfishProbeMaxAge, and probes them.
 	RedfishProbeInterval time.Duration `yaml:"redfishProbeInterval"`
 	// RedfishProbeMaxAge is how long a Redfish capability probe stays current before the sweep

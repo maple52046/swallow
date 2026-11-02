@@ -70,22 +70,11 @@ flowchart LR
     worker --> hosts
 ```
 
-- **api**：HTTP API；Workflow 只寫入 intent 與命令，不連 Temporal。下列迴圈啟動時跑一次、之後依間隔執行，都不取得
-  lease（程式在 `internal/app/reconciler.go`，啟動於 `internal/app/api.go`）：
-
-  | 迴圈 | 做什麼 | 間隔 |
-  | --- | --- | --- |
-  | reconciler | 從每個 provisioner 投影 Server，記錄 Integration 的同步狀態 | 30 秒 |
-  | inventory sweep | 更新 GPU 與附屬硬體的 inventory | 15 分鐘 |
-  | membership sync | 讀 Platform 的 runtime API（Kubernetes、slurmrestd），寫入 membership | 30 秒 |
-  | Redfish capability sweep | 探測 Redfish capability 未知或超過 24 小時的 BMC | 10 分鐘 |
-  | artifact retention | 刪除超過 30 天的 Ansible 事件與 job artifact | 24 小時 |
-
-  Server 的 SSE：每個 api process 以 store 的 change feed 監看 Server 紀錄（從啟動的當下開始，不存位置），讀出變更後的
-  Server 交給 process 內的 event broker 發送，所以 worker 與 executor 的寫入也會即時出現（relay 在
-  `internal/core/server/application/event_relay.go`）；只改觀察時間戳的寫入不送出。Prometheus 與 discovery 只在
-  查詢時讀取，沒有迴圈。這些迴圈不需要 lease，因為安裝只執行一個 api process（不支援多節點，見 api-server
-  architecture spec 的部署假設）。
+- **api**：HTTP API；Workflow 只寫入 intent 與命令，不連 Temporal。不執行任何背景迴圈；按需的即時讀取（例如 refresh
+  一台 Server）在 request 內完成。Server 的 SSE：每個 api process 以 store 的 change feed 監看 Server 紀錄（從啟動的
+  當下開始，不存位置），讀出變更後的 Server 交給 process 內的 event broker 發送，所以 worker 與 executor 的寫入也會
+  即時出現（relay 在 `internal/core/server/application/event_relay.go`）；只改觀察時間戳的寫入不送出。Prometheus 與
+  discovery 只在查詢時讀取。
 - **worker**：Temporal worker（task queue `swallow-operations`，driver workflow 與 provisioner、internal Runner 的
   activity），以及 desired-state controller（`internal/app/controllers.go`）。每個 controller 以 `controller_leases`
   的 lease 保證同時只有一個 instance 執行，由 change feed 與定期 resync 觸發：`workflow-dispatch`（派發與取消 Workflow，
@@ -94,8 +83,21 @@ flowchart LR
   `platform`（Platform spec 與 Change Plan 的 apply）、`change-plan-expiry`。
   定期 resync 的間隔：`workflow-dispatch` 30 秒、`change-plan-expiry` 5 分鐘，其他 10 分鐘
   （`controllerResyncInterval`）。規則見 [desired-state-model.md](desired-state-model.md) §7。
+
+  worker 也執行觀察外部系統的 periodic pass（`internal/app/observation_passes.go`，`convergence.Periodic`）：每個 pass
+  以 `controller_leases` 中的 `periodic:<name>` lease 保證同時只有一個 instance，取得 lease 時先跑一次、之後依間隔
+  執行；它們不需要 Temporal，所以在 worker 等待 Temporal 之前就啟動。
+
+  | pass | 做什麼 | 間隔 |
+  | --- | --- | --- |
+  | `reconcile` | 從每個 provisioner 投影 Server，記錄 Integration 的同步狀態 | 30 秒（`reconcileInterval`） |
+  | `inventory-sweep` | 更新 GPU 與附屬硬體的 inventory | 15 分鐘（`inventoryInterval`） |
+  | `membership-sync` | 讀 Platform 的 runtime API（Kubernetes、slurmrestd），寫入 membership | 30 秒（`reconcileInterval`） |
+  | `redfish-capability-sweep` | 探測 Redfish capability 未知或超過 24 小時的 BMC | 10 分鐘（`redfishProbeInterval`） |
 - **ansible-executor**：task queue `swallow-ansible` 的 activity worker，以 ansible-runner 執行 playbook，把即時事件寫進
-  `ansible_task_events`；結果類完成行為（例如記錄 Kubernetes credential）只在這個 process 執行。
+  `ansible_task_events`；結果類完成行為（例如記錄 Kubernetes credential）只在這個 process 執行。它也每 24 小時刪除
+  超過 retention（預設 30 天，`jobArtifactRetention`）的 job artifact 與它們的即時事件；不取 lease，因為每台主機清的是
+  自己寫入的目錄。
 - **migrate**：一次性的 schema migration，在服務啟動前執行。
 
 安裝拓樸（容器、volume、MAAS 與 Temporal 共用的 PostgreSQL）見 [installation.md](installation.md)；開發環境見
@@ -157,8 +159,8 @@ sequenceDiagram
 ## 5. 資料：collection 與寫入者
 
 資料庫的狀態都在 MongoDB（single-node replica set；規則見 [desired-state-model.md](desired-state-model.md) §10）。另有
-兩類檔案在 volume 上：Ansible run 的 job artifacts（`job-artifacts`，ansible-executor 寫入，api 讀取並依 retention
-刪除）與 Boot ISO 檔案（`boot-media`，api 建置）。backup 涵蓋 MongoDB 與 job artifacts
+兩類檔案在 volume 上：Ansible run 的 job artifacts（`job-artifacts`，ansible-executor 寫入並依 retention 刪除，api
+讀取）與 Boot ISO 檔案（`boot-media`，api 建置）。backup 涵蓋 MongoDB 與 job artifacts
 （[installation.md](installation.md) §3.6）。同一個
 collection 可能由多個 process 寫入，但每個欄位只有一個寫入者（desired-state-model §7.4）。repository 在
 `api-server/internal/adapters/store/mongodb/<context>/`。
@@ -166,20 +168,20 @@ collection 可能由多個 process 寫入，但每個欄位只有一個寫入者
 | context | collection | 內容 | 寫入者 |
 | --- | --- | --- | --- |
 | auth、apikey | `users`、`auth_sessions`、`api_keys` | 使用者、session、API Key | api |
-| site | `sites`、`integrations` | Site；provider 的 Integration 與封存的 credential | api；ansible-executor 在部署完成時建立 Platform 的 Integration |
-| server | `servers` | Server 的投影、spec 與 conditions、Platform Claim、deployment 結果、membership | api（reconcile、inventory、membership、spec 寫入）；worker（Server controller、deployment 投影）；ansible-executor（membership） |
+| site | `sites`、`integrations` | Site；provider 的 Integration 與封存的 credential | api；worker（reconcile 記錄同步狀態）；ansible-executor 在部署完成時建立 Platform 的 Integration |
+| server | `servers` | Server 的投影、spec 與 conditions、Platform Claim、deployment 結果、membership | api（spec 寫入、按需 refresh）；worker（reconcile、inventory、membership 的 pass，Server controller、deployment 投影）；ansible-executor（membership） |
 | provisioning | `deployment_templates`、`os_image_metadata`、`boot_isos` | Deployment Template、OS Image metadata、Boot ISO | api |
 | provisioning | `os_image_verifications`、`provisioning_tasks` | OS Image 的驗證證據、release 後的網路清理 | worker；api（刪除、重試） |
 | provisioning | `provisioner_http_proxies`、`provisioner_subnet_dns` | HTTP Proxy 與 Subnet DNS 的 spec 與 status | api（spec）；worker（controller） |
 | infrastructure | `zones`、`pools` | Zone、Pool 的 spec 與 status | api（spec）；worker（catalog controller） |
-| platform | `platforms`、`platform_deployment_requirements` | Platform 的 spec、status 與功能狀態；Slurm 部署需求 | api（spec、同步狀態）；worker（controller、投影）；ansible-executor（credential 與功能結果） |
-| software | `software_assignments`、`software_registry_credentials` | 哪台 Server 裝了什麼；registry 的封存密碼 | api（含 reconcile 觀察到機器沒有 OS 時標 `absent`）；worker 與 ansible-executor（Task 的記錄與失敗標記、拿走 OS 的 Task 標 `absent`） |
+| platform | `platforms`、`platform_deployment_requirements` | Platform 的 spec、status 與功能狀態；Slurm 部署需求 | api（spec、按需同步）；worker（membership 的同步狀態、controller、投影）；ansible-executor（credential 與功能結果） |
+| software | `software_assignments`、`software_registry_credentials` | 哪台 Server 裝了什麼；registry 的封存密碼 | api（受理時的 `pending`、`uninstalling`）；worker（reconcile 觀察到機器沒有 OS 時標 `absent`）；worker 與 ansible-executor（Task 的記錄與失敗標記、拿走 OS 的 Task 標 `absent`） |
 | sshkey | `ssh_keys`、`ssh_key_provider_syncs` | Deployment Key 與 Access Key；各 provisioner 的同步紀錄 | api（金鑰）；worker（同步） |
 | workflow | `workflows`、`workflow_events`、`workflow_secrets` | Workflow 的計畫與執行狀態、timeline、封存的 secret | api（受理、命令）；worker 與 ansible-executor（經 Workflow service 的狀態轉換） |
 | workflow | `resource_leases` | Workflow 擁有的資源（沒有 TTL） | worker |
-| workflow | `ansible_task_events`、`automation_configurations` | Ansible 的即時事件；Site automation 設定 | ansible-executor（事件）；api（設定、事件的 retention） |
+| workflow | `ansible_task_events`、`automation_configurations` | Ansible 的即時事件；Site automation 設定 | ansible-executor（事件與它們的 retention）；api（設定） |
 | convergence | `change_plans`、`convergence_requests`、`convergence_events` | Change Plan；要求 controller 立即收斂；controller 的 timeline | api（提出、核准、要求）；worker（apply、過期、事件） |
-| convergence | `controller_leases`、`change_feed_checkpoints` | controller 的單一 instance lease；change stream 的 resume token | worker |
+| convergence | `controller_leases`、`change_feed_checkpoints` | controller 與 periodic pass 的單一 instance lease；change stream 的 resume token | worker |
 | migration | `schema_metadata` | schema 版本 | migrate |
 
 ## 6. 入門名詞

@@ -56,7 +56,7 @@ api:
   # Accepted only on those endpoints. Never log or commit this value.
   machineToken: ""
 
-  # How often each enabled provisioner is polled to refresh server projections, and
+  # How often the worker polls each enabled provisioner to refresh server projections, and
   # each registered platform to refresh membership.
   reconcileInterval: "30s"
 
@@ -95,8 +95,8 @@ api:
   # Server Enrollment script downloads on a host that keeps its OS. Optional; the production
   # bundle ships it at bin/swallow. Env: SWALLOW_API_CLI_BINARY.
   cliBinary: ""
-  # How often Servers without a current Redfish capability probe (newly enrolled ones) are
-  # probed, and how long a probe stays current.
+  # How often the worker probes Servers without a current Redfish capability probe (newly
+  # enrolled ones), and how long a probe stays current.
   # Env: SWALLOW_API_REDFISH_PROBE_INTERVAL, SWALLOW_API_REDFISH_PROBE_MAX_AGE.
   redfishProbeInterval: "10m"
   redfishProbeMaxAge: "24h"

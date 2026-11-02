@@ -120,12 +120,8 @@ services:
       SWALLOW_API_CREDENTIAL_KEY: "${SWALLOW_API_CREDENTIAL_KEY:-K7i9npJw/Fx/XbU31LyNx4vOFKFFV7PmJT0XW8eH8/s=}"
       # Static bearer token for machine-to-machine discovery.
       SWALLOW_API_MACHINE_TOKEN: "${SWALLOW_API_MACHINE_TOKEN:-dev-machine-token}"
-      # Reconciliation and hardware inventory cadence.
-      SWALLOW_API_RECONCILE_INTERVAL: "${SWALLOW_API_RECONCILE_INTERVAL:-30s}"
-      SWALLOW_API_INVENTORY_INTERVAL: "${SWALLOW_API_INVENTORY_INTERVAL:-15m}"
       SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
-      SWALLOW_API_JOB_ARTIFACT_RETENTION: "${SWALLOW_API_JOB_ARTIFACT_RETENTION:-720h}"
       # Boot Media (decision 047): Boot ISOs built on the Provisioning page are written
       # to ./boot-media/<isoId>/ and mounted by BMCs at
       # <base URL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso. Empty base URL leaves Boot Media off.
@@ -134,7 +130,6 @@ services:
       # The NTP server every provisioned Server is pointed at (decision 065): the address machines
       # reach this host by. Empty refuses OS deployments until it is set in .env.
       SWALLOW_API_NTP_SERVER: "${SWALLOW_API_NTP_SERVER:-}"
-      SWALLOW_API_REDFISH_PROBE_INTERVAL: "${SWALLOW_API_REDFISH_PROBE_INTERVAL:-10m}"
       # Server Enrollment (decision 053) serves the CLI at /downloads/swallow. Build it into
       # ./bin first: `cd cli && CGO_ENABLED=0 go build -o ../deploy/dev/bin/swallow ./cmd/swallow`.
       SWALLOW_API_CLI_BINARY: "/usr/local/share/swallow/bin/swallow"
@@ -186,6 +181,11 @@ services:
       SWALLOW_API_TEMPORAL_NAMESPACE: "default"
       SWALLOW_API_TEMPORAL_TASK_QUEUE: "swallow-operations"
       SWALLOW_API_ANSIBLE_TASK_QUEUE: "swallow-ansible"
+      # The worker's observation passes: provisioner reconcile (also Platform membership),
+      # attached-hardware inventory, and the Redfish capability probe.
+      SWALLOW_API_RECONCILE_INTERVAL: "${SWALLOW_API_RECONCILE_INTERVAL:-30s}"
+      SWALLOW_API_INVENTORY_INTERVAL: "${SWALLOW_API_INVENTORY_INTERVAL:-15m}"
+      SWALLOW_API_REDFISH_PROBE_INTERVAL: "${SWALLOW_API_REDFISH_PROBE_INTERVAL:-10m}"
       # Hardware inspection resolves a Server's Boot ISO when its ensure-boot-media Task runs
       # (decision 053), so the worker sees the Boot ISO files and their URL like the API does.
       SWALLOW_API_BOOT_MEDIA_DIR: "/var/lib/swallow/boot-media"
@@ -233,6 +233,8 @@ services:
       SWALLOW_API_ANSIBLE_TASK_QUEUE: "swallow-ansible"
       SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
+      # The executor prunes the job artifacts it writes, and their streamed task events.
+      SWALLOW_API_JOB_ARTIFACT_RETENTION: "${SWALLOW_API_JOB_ARTIFACT_RETENTION:-720h}"
     volumes:
       - ../../api-server:/app
       - ./air-ansible-executor.toml:/etc/swallow/air.toml:ro

@@ -4,18 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
 
 	"github.com/maple52046/swallow/internal/adapters/bootiso/genfsimg"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
-	serverapp "github.com/maple52046/swallow/internal/core/server/application"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
@@ -218,23 +215,4 @@ func (s bootMediaEndpointSource) hypervisor(ctx context.Context, server *serverd
 		}
 	}
 	return nil, nil
-}
-
-// runRedfishCapabilitySweep probes Servers whose Redfish capability is missing or older than
-// window, every interval, until ctx is cancelled — the enrollment-time Redfish detection
-// (decision 047): a Server the reconciler just projected is probed on the next pass. It runs in
-// the API process only; one pass at a time, a few BMCs in parallel, failures logged per Server.
-func runRedfishCapabilitySweep(ctx context.Context, bootMedia *serverapp.BootMediaUseCase, interval, window time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if _, err := bootMedia.ProbeStale(ctx, window, 4); err != nil && ctx.Err() == nil {
-			slog.Warn("redfish capability sweep", "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
 }

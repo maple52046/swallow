@@ -343,7 +343,7 @@ Read 回應的 `method` 由已儲存的 probe 推導：libvirt probe 找到 Hype
 
 ### 4.3 Capability probe
 
-- API process 的 sweep 每 `api.redfishProbeInterval`（預設 10 分鐘，`SWALLOW_API_REDFISH_PROBE_INTERVAL`）
+- worker 的 periodic pass 每 `api.redfishProbeInterval`（預設 10 分鐘，`SWALLOW_API_REDFISH_PROBE_INTERVAL`）
   執行一次，probe 所有 present、已有 provisioning 投影，且 Redfish capability 不存在（新 enroll 的 Server）或
   超過 `api.redfishProbeMaxAge`（預設 24 小時，`SWALLOW_API_REDFISH_PROBE_MAX_AGE`；BMC 韌體更新可能改變它
   支援的功能）的 Server，同時最多四台。也可按需 `POST /servers/{id}/redfish/probe`。

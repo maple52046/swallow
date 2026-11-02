@@ -570,7 +570,7 @@ decision 072；deployment 以宣告式定義開發的方向見
 | `ansible_task_events` store | `internal/adapters/store/mongodb/workflow/mongo_ansible_event_repo.go` |
 | 讀取 run 的增量 events | `internal/adapters/hostautomation/ansible/local_runner.go` |
 | Task events 的 API 讀取 | `internal/core/workflow/application/execution_service.go` |
-| artifact 與 events retention | `internal/app/artifact_retention.go`、`internal/adapters/hostautomation/ansible/artifact_retention.go` |
+| artifact 與 events retention（ansible-executor 執行） | `internal/app/artifact_retention.go`、`internal/adapters/hostautomation/ansible/artifact_retention.go` |
 | 設定預設值（parallelism、resync interval、Ansible task queue） | `config/defaults.go`、`config/env.go`、`config/validate.go` |
 | 舊 Workflow 的計畫宣告與舊 lease 轉換（schema v9） | `internal/adapters/store/mongodb/migration/v9.go` |
 

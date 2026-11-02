@@ -263,3 +263,36 @@ func TestRuntimeOpensNoFeedForAResyncOnlyController(t *testing.T) {
 		t.Errorf("watchers = %d, want no change feed", got)
 	}
 }
+
+// A periodic pass runs at once and then every interval, in one process at a time: a second
+// runtime competing for the same lease never runs it while the first holds the lease, and a pass
+// error does not stop the next pass.
+func TestRuntimeRunsAPeriodicPassUnderItsLease(t *testing.T) {
+	leases := &memoryLeases{}
+	var mu sync.Mutex
+	runs := map[string]int{}
+	pass := func(holder string) Periodic {
+		return Periodic{Name: "observe", Interval: 20 * time.Millisecond, Run: func(context.Context) error {
+			mu.Lock()
+			defer mu.Unlock()
+			runs[holder]++
+			return errors.New("the provider is unreachable")
+		}}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	first := NewRuntime(&storetest.ChangeFeed{}, leases, RuntimeOptions{Holder: "p1", LeaseTTL: time.Hour})
+	second := NewRuntime(&storetest.ChangeFeed{}, leases, RuntimeOptions{Holder: "p2", LeaseTTL: time.Hour})
+	done := make(chan struct{}, 2)
+	go func() { first.RunPeriodic(ctx, pass("p1")); done <- struct{}{} }()
+	waitFor(t, "the first pass", func() bool { mu.Lock(); defer mu.Unlock(); return runs["p1"] >= 1 })
+	go func() { second.RunPeriodic(ctx, pass("p2")); done <- struct{}{} }()
+	waitFor(t, "repeated passes", func() bool { mu.Lock(); defer mu.Unlock(); return runs["p1"] >= 3 })
+	cancel()
+	<-done
+	<-done
+	mu.Lock()
+	defer mu.Unlock()
+	if runs["p2"] != 0 {
+		t.Errorf("the second runtime ran the pass %d times while the first held the lease", runs["p2"])
+	}
+}

@@ -27,8 +27,8 @@ const (
 	enrollVirtualMachineTaskKind       = "enroll-virtual-machine"
 )
 
-// Timings of the enroll-virtual-machine Task. Projection is the API process's provisioner
-// reconciliation, every 30 seconds by default.
+// Timings of the enroll-virtual-machine Task. Projection is the worker's provisioner reconcile
+// pass, every 30 seconds by default.
 const (
 	virtualMachineProjectionWait = 5 * time.Minute
 	virtualMachineProjectionPoll = 5 * time.Second

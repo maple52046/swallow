@@ -72,6 +72,9 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
+	// The executor writes the job artifacts, so it also prunes them: on its own disk, with no lease,
+	// because each executor host keeps the artifacts of the runs it executed.
+	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention, ansibleEvents)
 	orchestrations, err := workflowstore.NewMongoWorkflowRepo(db)
 	if err != nil {
 		return err

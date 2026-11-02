@@ -85,7 +85,8 @@ const shutdownTimeout = 10 * time.Second
 
 var httpRequestCount atomic.Uint64
 
-// RunAPI starts the HTTP API server and the reconciler, and blocks until interrupted.
+// RunAPI starts the HTTP API server and blocks until interrupted. It runs no background loop:
+// the worker observes external systems, and only the Server event relay runs beside the HTTP server.
 func RunAPI(cfg config.APIConfig) error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	modules, err := composeModules()
@@ -100,7 +101,7 @@ func RunAPI(cfg config.APIConfig) error {
 		"version", releaseVersion, "commit", version.Commit, "builtAt", version.BuiltAt,
 		"addr", cfg.Addr, "mongoDatabase", cfg.MongoDB,
 		"playbookManifest", cfg.PlaybookManifest, "jobArtifactDir", cfg.JobArtifactDir)
-	// Cancelled on SIGINT or SIGTERM, which stops the reconciler and triggers a
+	// Cancelled on SIGINT or SIGTERM, which stops the event relay and triggers a
 	// graceful HTTP shutdown instead of dropping in-flight requests.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -267,7 +268,6 @@ func RunAPI(cfg config.APIConfig) error {
 	// removed the OS (decision 038).
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrationRepo, serverRepo, providerFactory, osImageMetadataRepo,
 		installedSoftwareRecords{assignments: softwareAssignmentRepo})
-	inventorySweepUC := provisioningapp.NewInventorySweepUseCase(integrationRepo, serverRepo, providerFactory)
 	// One RefreshServer use case is shared by the HTTP handler and the durable launcher so the
 	// Release/Recover acceptance gate can live-sync a target's provisioning state before deciding.
 	refreshServerUC := provisioningapp.NewRefreshServerUseCase(serverRepo, providerFactory, osImageMetadataRepo)
@@ -607,11 +607,6 @@ func RunAPI(cfg config.APIConfig) error {
 
 	// Each API process relays the Server changes of every process to its own stream subscribers.
 	go serverapp.NewServerEventRelay(storemongo.NewChangeFeed(db), mongoServerRepo, serverEventBroker).Run(ctx)
-	go runReconciler(ctx, reconcileUC, cfg.ReconcileInterval)
-	go runInventorySweep(ctx, inventorySweepUC, cfg.InventoryInterval)
-	go runMembershipSync(ctx, membershipSync, cfg.ReconcileInterval)
-	go runRedfishCapabilitySweep(ctx, bootMediaUC, cfg.RedfishProbeInterval, cfg.RedfishProbeMaxAge)
-	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention, ansibleEventRepo)
 
 	serverErr := make(chan error, 1)
 	go func() {
