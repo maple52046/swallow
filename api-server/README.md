@@ -56,13 +56,8 @@ drops its own database. With the dev stack running:
 SWALLOW_TEST_MONGO_URI='mongodb://localhost:27017/?directConnection=true' go test ./...
 ```
 
-Tests that need a real MongoDB (the store adapter's transaction tests, migrations, and several
-repositories) are skipped unless `SWALLOW_TEST_MONGO_URI` names a replica set. Each creates and
-drops its own database. With the dev stack running:
-
-```bash
-SWALLOW_TEST_MONGO_URI='mongodb://localhost:27017/?directConnection=true' go test ./...
-```
+Where each kind of test lives and the other test environment variables are in the
+[development and testing guide](../docs/development/development-and-testing.md).
 
 For the complete runnable development topology, use
 [deploy/dev](../deploy/dev/README.md) rather than starting only the API.

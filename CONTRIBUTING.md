@@ -16,23 +16,37 @@ follows.
 
 ## Before you start
 
-1. Read the root [codebase structure](docs/development/codebase-structure.md).
-2. Read the design principles at the top of the root
+1. Read the [system overview](docs/development/system-overview.md): what swallow
+   does, which processes run and what they do in the background, how a Platform
+   deployment flows, where data lives and who writes it, and where the code is.
+2. Read the root [codebase structure](docs/development/codebase-structure.md) and
+   the design principles at the top of the root
    [architecture specification](docs/development/architecture-spec.md).
-3. Identify the owning component: `api-server`, `dashboard`, or `cli`.
-4. Read that component's `AGENTS.md` and architecture specification.
-5. For domain behavior, data models, core flows, or cross-component work, read
-   the rest of the root architecture specification, follow the
-   [glossary workflow](docs/development/glossaries/README.md), and read the
-   [desired-state model](docs/development/desired-state-model.md) and the
-   [core and extensions design](docs/development/core-and-extensions.md).
-6. For API work, locate and update the provider-owned
-   [API contract](api-server/docs/development/api-contracts/README.md) before or with the code.
-7. For playbooks, roles, or a plugin's content under `api-server/modules/`,
-   follow the [module authoring guide](docs/development/module-authoring.md).
+3. Identify the owning component: `api-server`, `dashboard`, or `cli`, and read
+   that component's `AGENTS.md` and architecture specification.
+4. Read the specification for the area you change:
+   - HTTP API behavior: the provider-owned
+     [API contract](api-server/docs/development/api-contracts/README.md), updated
+     before or with the code.
+   - OS deployment, OS Images, Deployment Templates, Zones and Pools:
+     [OS provisioning](docs/development/os-provisioning.md).
+   - Enrollment, hardware inspection, Power Configuration, Boot Media:
+     [Server enrollment and boot media](docs/development/server-enrollment-and-boot-media.md).
+   - Platforms (Kubernetes, Slurm): [platform deployment](docs/development/platform-deployment.md).
+   - Managed Software: [software deployment](docs/development/software-deployment.md).
+   - How Workflows run, retry, and cancel: [Workflow execution](docs/development/workflow-execution.md).
+   - SSH keys, login users, API keys: [access and credentials](docs/development/access-and-credentials.md).
+   - Playbooks, roles, or a plugin under `api-server/modules/`: the
+     [module authoring guide](docs/development/module-authoring.md).
+5. When the change adds a managed resource or field, changes who owns a fact,
+   or adds a provider or plugin, also read the
+   [desired-state model](docs/development/desired-state-model.md), the
+   [core and extensions design](docs/development/core-and-extensions.md), and
+   the [glossary workflow](docs/development/glossaries/README.md).
 
-Plans for implementation work belong under the repository root
-`docs/plans/manuscripts/`; do not create component-local plan trees.
+Not every change needs a written plan. If you write one, keep it under the
+repository root `docs/plans/manuscripts/`, not in a component or only in your
+tool's own directory.
 
 ## Development environment
 
@@ -45,17 +59,22 @@ docker compose ps
 ```
 
 See the [development environment guide](deploy/dev/README.md) for hot reload,
-configuration, seeding, remote access, and troubleshooting.
+configuration, seeding, remote access, and troubleshooting. The
+[development and testing guide](docs/development/development-and-testing.md)
+explains where each kind of test lives, the shared fakes and fixtures, and the
+test environment variables.
 
-Component checks:
+Component checks (run on the host; they need Go, Node 24, and Python 3):
 
 ```bash
 # API
 cd api-server
 gofmt -l .
 go vet ./...
-go test ./...
+SWALLOW_TEST_MONGO_URI='mongodb://localhost:27017/?directConnection=true' go test ./...
 go build ./...
+# after changing an OpenAPI fragment
+UPDATE_OPENAPI=1 go test ./internal/shared/apicontract
 
 # CLI
 cd ../cli
@@ -67,13 +86,16 @@ go build ./...
 # Dashboard
 cd ../dashboard
 npm ci
+npx playwright install chromium   # once, for the e2e browsers
+npm run contract:check            # after an OpenAPI change, run contract:generate first
 npm run lint
 npm run build
 npm run test:e2e
 ```
 
-Run only the checks relevant while iterating, then run the complete required set
-before submitting.
+The Mongo integration tests need the development stack's replica set and skip
+when `SWALLOW_TEST_MONGO_URI` is unset. Run only the checks relevant while
+iterating, then run the complete required set before submitting.
 
 ## Component boundaries
 

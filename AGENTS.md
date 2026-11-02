@@ -54,11 +54,12 @@ planning or reviewing a task reads what doing it would.
 | Task | Also read |
 | --- | --- |
 | Fix a defect, wording, or behavior without changing who owns a fact, an API contract, or the data model | The domain spec of the area and the component `AGENTS.md`. |
-| Explain how something works or why | The domain spec of the area and the glossary terms it uses (lookup: `docs/development/glossaries/README.md`). |
+| Explain how something works or why | The domain spec of the area and the glossary terms it uses (lookup: `docs/development/glossaries/README.md`); for the whole system (features, processes and their background work, collections and their writers), `docs/development/system-overview.md`. |
 | Add or change a consumer feature (dashboard, cli) over existing API behavior | The API contract; the domain spec when the feature shows domain behavior. |
 | Add or change a managed resource, a field, an action that changes the outside world, or who owns a fact | `docs/development/desired-state-model.md` (readers: its §1), the API contract, and the glossary authoring workflow (`docs/development/glossaries/README.md`). |
 | Add an external system, provider adapter, Platform, GPU vendor, Managed Software kind, or module, or decide where code belongs | `docs/development/core-and-extensions.md` (readers: its §1) and `docs/development/module-authoring.md`. |
 | Introduce or rename a domain term, type, enum value, or API field | The glossary authoring workflow (`docs/development/glossaries/README.md`). |
+| Write or run tests, run the full checks, or start the development environment | `docs/development/development-and-testing.md`. |
 | Work across components or bounded contexts | The rest of `docs/development/architecture-spec.md` (bounded contexts, context maps) and the maps in `docs/development/context-maps/`. |
 
 ## Domain Specs

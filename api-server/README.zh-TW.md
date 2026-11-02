@@ -46,13 +46,24 @@ go vet ./...
 go test ./...
 ```
 
+需要真實 MongoDB 的測試（store adapter 的 transaction 測試、migration 與部分 repository）
+只在 `SWALLOW_TEST_MONGO_URI` 指向 replica set 時執行，否則 skip；每個測試建立並刪除自己的
+database。dev stack 執行中時：
+
+```bash
+SWALLOW_TEST_MONGO_URI='mongodb://localhost:27017/?directConnection=true' go test ./...
+```
+
+各種測試放在哪裡與其他測試用的環境變數，見[開發與測試指南](../docs/development/development-and-testing.md)。
+
 完整 development topology 請使用 [deploy/dev](../deploy/dev/README.zh-TW.md)，
 不要只啟動 API。
 
 ## 使用明確 dependencies 執行
 
 ```bash
-export SWALLOW_API_MONGO_URI=mongodb://localhost:27017
+# MongoDB 必須是 replica set；這個值從 host 連到 dev stack 的 single-node rs0。
+export SWALLOW_API_MONGO_URI='mongodb://localhost:27017/?directConnection=true'
 export SWALLOW_API_JWT_SECRET='replace-me'
 export SWALLOW_API_CREDENTIAL_KEY="$(openssl rand -base64 32)"
 export SWALLOW_API_TEMPORAL_ADDRESS=localhost:7233

@@ -14,23 +14,33 @@ swallow 的 core 是通用的：組合負責和外部系統溝通的 provider，
 
 ## 開始前
 
-1. 閱讀 root [codebase structure](docs/development/codebase-structure.md)。
-2. 閱讀 root [architecture specification](docs/development/architecture-spec.md)
-   開頭的設計主張。
-3. 判斷 owning component：`api-server`、`dashboard` 或 `cli`。
-4. 閱讀該 component 的 `AGENTS.md` 與 architecture specification。
-5. Domain behavior、data model、core flow 或 cross-component work 需閱讀 root
-   architecture specification 的其餘部分、遵循
-   [glossary workflow](docs/development/glossaries/README.md)，並閱讀
-   [desired-state model](docs/development/desired-state-model.md) 與
-   [core and extensions](docs/development/core-and-extensions.md)。
-6. API work 需先找到並更新 provider-owned
-   [API contract](api-server/docs/development/api-contracts/README.md)，再實作或同步實作。
-7. `api-server/modules/` 底下的 playbook、role 或 plugin 內容，依
-   [模組撰寫指南](docs/development/module-authoring.md)撰寫。
+1. 閱讀[系統總覽](docs/development/system-overview.md)：swallow 做什麼、有哪些
+   process 與它們在背景做什麼、一次 Platform 部署怎麼走、資料存在哪裡由誰寫入，
+   以及程式在哪裡。
+2. 閱讀 root [codebase structure](docs/development/codebase-structure.md) 與 root
+   [architecture specification](docs/development/architecture-spec.md) 開頭的設計主張。
+3. 判斷 owning component：`api-server`、`dashboard` 或 `cli`，並閱讀該 component 的
+   `AGENTS.md` 與 architecture specification。
+4. 閱讀你要修改的領域的規格：
+   - HTTP API 行為：provider-owned
+     [API contract](api-server/docs/development/api-contracts/README.md)，先於或與程式同步更新。
+   - OS 部署、OS Image、Deployment Template、Zone 與 Pool：
+     [OS provisioning](docs/development/os-provisioning.md)。
+   - Enrollment、硬體檢視、Power Configuration、Boot Media：
+     [Server enrollment and boot media](docs/development/server-enrollment-and-boot-media.md)。
+   - Platform（Kubernetes、Slurm）：[platform deployment](docs/development/platform-deployment.md)。
+   - Managed Software：[software deployment](docs/development/software-deployment.md)。
+   - Workflow 怎麼執行、重試與取消：[Workflow execution](docs/development/workflow-execution.md)。
+   - SSH key、登入帳號、API key：[access and credentials](docs/development/access-and-credentials.md)。
+   - `api-server/modules/` 底下的 playbook、role 或 plugin：
+     [模組撰寫指南](docs/development/module-authoring.md)。
+5. 新增受管理的資源或欄位、改變事實的擁有者，或新增 provider 或 plugin 時，另外閱讀
+   [desired-state model](docs/development/desired-state-model.md)、
+   [core and extensions](docs/development/core-and-extensions.md) 與
+   [glossary workflow](docs/development/glossaries/README.md)。
 
-Implementation plan 一律放在 repository root `docs/plans/manuscripts/`，
-不要建立 component-local plan tree。
+不是每個變更都需要書面計畫。寫了計畫時，放在 repository root 的
+`docs/plans/manuscripts/`，不要放在 component 內，也不要只留在工具自己的目錄。
 
 ## Development environment
 
@@ -44,16 +54,20 @@ docker compose ps
 
 Hot reload、configuration、seeding、remote access 與 troubleshooting 請見
 [development environment guide](deploy/dev/README.zh-TW.md)。
+[開發與測試指南](docs/development/development-and-testing.md)說明各種測試放在哪裡、
+共用的 fake 與 fixture，以及測試用的環境變數。
 
-Component checks：
+Component checks（在 host 執行，需要 Go、Node 24 與 Python 3）：
 
 ```bash
 # API
 cd api-server
 gofmt -l .
 go vet ./...
-go test ./...
+SWALLOW_TEST_MONGO_URI='mongodb://localhost:27017/?directConnection=true' go test ./...
 go build ./...
+# 改了 OpenAPI fragment 之後
+UPDATE_OPENAPI=1 go test ./internal/shared/apicontract
 
 # CLI
 cd ../cli
@@ -65,12 +79,15 @@ go build ./...
 # Dashboard
 cd ../dashboard
 npm ci
+npx playwright install chromium   # 第一次執行 e2e 前安裝瀏覽器
+npm run contract:check            # 改了 OpenAPI 時先執行 contract:generate
 npm run lint
 npm run build
 npm run test:e2e
 ```
 
-迭代時可只跑相關 checks；送出前必須完成全部 required set。
+Mongo 整合測試需要開發環境的 replica set，沒有設定 `SWALLOW_TEST_MONGO_URI` 時會
+skip。迭代時可只跑相關 checks；送出前必須完成全部 required set。
 
 ## Component boundaries
 

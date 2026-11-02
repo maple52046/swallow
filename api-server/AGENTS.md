@@ -18,6 +18,10 @@ Before adding or modifying any code, read:
 When the change touches `modules/` (playbooks, roles, the playbook manifest, or a module's layout),
 also read `../docs/development/module-authoring.md`.
 
+When the change adds or changes tests, read `../docs/development/development-and-testing.md` §3 for
+where each kind of test lives, the shared fakes, and the test environment variables; its §6 has the
+complete check commands, including the Mongo integration tests.
+
 ## Coding Style Completion Gate
 
 For any Go code addition or modification, `docs/development/coding-style.md` is

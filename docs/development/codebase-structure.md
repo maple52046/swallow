@@ -100,6 +100,8 @@ flowchart LR
 - [`docs/development/`](.) — swallow 層級的開發規範：
   - [`architecture-spec.md`](architecture-spec.md) — swallow 的設計主張（通用的 core 組合 provider 與 plugin、原則與取捨順序）與 Strategic DDD architecture constitution。
   - [`codebase-structure.md`](codebase-structure.md) — 本檔，結構契約。
+  - [`system-overview.md`](system-overview.md) — 系統總覽：功能地圖、process 與背景工作、一次 Platform 部署的流程、collection 與寫入者、入門名詞與程式地圖。
+  - [`development-and-testing.md`](development-and-testing.md) — 開發環境、測試的位置與寫法、測試用的環境變數與各 component 的完整檢查指令。
   - [`api-contracts.md`](api-contracts.md) — API contract 的所有權規則；契約本身在 provider component（目前是 `api-server`）。
   - [`desired-state-model.md`](desired-state-model.md) — 所有功能都必須遵守的上位模型：swallow 擁有 desired state、provider 回報 observed state、收斂與 drift、Change Plan，以及 store 與 Workflow 執行的規則（decision 069）。
   - [`core-and-extensions.md`](core-and-extensions.md) — 大尺度結構：core 的內容、provider interface 與可抽換的 adapter、三種擴充模組與其契約、支援矩陣（decision 070）。

@@ -74,7 +74,8 @@ comments that merely restate an identifier. Passing `go build`/`go vet`/`gofmt`
 is necessary but not sufficient.
 
 Run before claiming done: `gofmt -l .` (no output), `go vet ./...`,
-`go build ./...`, `go test ./...`.
+`go build ./...`, `go test ./...`. How CLI tests stand in for the api-server is in
+`../docs/development/development-and-testing.md` §5.
 
 ## Public Documentation
 

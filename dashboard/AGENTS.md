@@ -28,6 +28,9 @@ The gate covers the declarations and UI a change adds or modifies. Existing code
 the same file that the change does not touch is out of scope; fill its gaps in a
 separate commit rather than mixing them into this one.
 
+How e2e tests mock the API, how to extend the fixtures, and the complete check
+commands are in `../docs/development/development-and-testing.md` §4 and §6.
+
 The review must specifically verify high-maintenance documentation, UI, and
 accessibility quality:
 
