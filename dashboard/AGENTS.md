@@ -5,7 +5,8 @@ All paths in this file are relative to the dashboard project root.
 
 ## Required Reading
 
-Before changing dashboard code, or planning or reviewing such a change, read:
+Before changing dashboard code (or reviewing a code diff), read both; planning or reviewing a design
+without code reads only the first:
 
 1. `docs/development/architecture-spec.md` — the Clean Architecture boundaries: Dependency Rule, Directory
    responsibilities, Data Crossing Boundaries, Prohibited Designs, Completion Gate, and the sections for what
@@ -15,9 +16,7 @@ Before changing dashboard code, or planning or reviewing such a change, read:
    add TypeScript 規範, React 與 JSX, 元件共用與組合（DRY）, 可存取性, 狀態、資料與副作用, 錯誤處理, or 測試規範
    (with Visual review) when the change touches that.
 
-Planning or reviewing a design (no code yet) needs only the architecture spec; coding-style applies when
-code is written or a code diff is reviewed. Explaining dashboard behavior needs neither, even when you
-read code to confirm a detail. Regenerating `src/infrastructure/api/generated/openapi.ts` for an API change is part of
+Explaining dashboard behavior needs neither, even when you read code to confirm a detail. Regenerating `src/infrastructure/api/generated/openapi.ts` for an API change is part of
 that API change and needs neither either.
 
 ## Coding Style Completion Gate

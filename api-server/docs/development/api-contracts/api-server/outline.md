@@ -1,7 +1,8 @@
 # API Server Contract Outline
 
-This file indexes the API contracts owned by the `api-server` component. Read it
-after [../README.md](../README.md), then open only the contract you need.
+This file indexes the API contracts owned by the `api-server` component. Find the
+contract you need here and open only that one. A task that changes a contract reads
+[../README.md](../README.md) first; consuming or explaining a contract does not.
 
 Only **Active** contracts are implementation-ready. A **Planned** entry means the
 API area is expected but has no authoritative contract yet: create or promote the

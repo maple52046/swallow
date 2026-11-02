@@ -38,7 +38,7 @@ Workflow / Job / Task / Runner 語言，落成「swallow 如何佈署一個 plat
 - **開發者**：理解 deployment pipeline、擴充或除錯 orchestration、撰寫新的 platform playbook。
 - **AI agent（同等重要）**：本文件是理解 deployment 設計的入口。涉及 platform deployment 的
   orchestration、Runner、inventory/trusted-vars 契約，或「新增一個 platform」的任務時，必須
-  先讀本檔，再進入 `api-server` 依其 `AGENTS.md` 定位實作。只改 Platform 模組的 playbook 或 role 時，只需要
+  先讀本檔；要改程式時再依 `api-server/AGENTS.md` 定位實作（只讀程式確認細節不需要）。只改 Platform 模組的 playbook 或 role 時，只需要
   §2.3（OS 的差異）與 §5，其餘依[模組撰寫指南](module-authoring.md)。本檔很長：先看標題，再讀任務需要的章節。
 
 本文件**不重述** ADR 與 glossary，只做 elaboration；語言以 root glossary 為準，決策理由以

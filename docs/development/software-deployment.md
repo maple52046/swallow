@@ -9,6 +9,10 @@
 它與 [platform-deployment.md](platform-deployment.md) 平行：platform deployment 佈署由多個
 component 組成的 runtime；software deployment 佈署單一軟體及其變體。
 
+> **讀者**：新增 Managed Software kind（§2）、修改 install／uninstall 的 Workflow 與 Software Assignment 的狀態
+> （§1、§4）、或把 kind 組入 platform 部署（§5）的開發者與 agent。只透過 API 列出或顯示 Software Assignment
+> 時不需要本檔，讀 software 契約即可。本檔很長：先看標題，再讀任務需要的章節。
+
 > **模組**：每個 Managed Software kind 由一個 **Software 模組**提供（[decision 070](../decisions/070-core-providers-and-extensions.md)（core providers and extensions）、
 > [decision 075](../decisions/075-module-contract-v1.md)（module contract v1），見 [core-and-extensions.md](core-and-extensions.md)）。core 不認得任何
 > kind：catalog 由各模組的 `software` hook 組成（§2）。kind 專屬的產品常數（版本、port）仍在 core，之後隨 Platform
@@ -100,6 +104,8 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
   的 OpenAPI 一節）。`SoftwareKind` 在契約中是 pattern，不必改。
 - dashboard 的 kind 清單與呈現（[模組撰寫指南](module-authoring.md) §1.2）。
 - 本文件 §2 的 kind 表與 §7 的位置表加上新 kind。
+- software 契約：新 kind 有專屬的欄位或規則時補一節（比照 Device Metrics Exporter）。
+- 列出 kind 的公開頁面：Managed Software 指南、concepts、dashboard 指南，以及它們的 zh-TW 對應頁。
 
 **安裝方法**（[decision 063](../decisions/063-omnistat-slurm-observability.md)（omnistat slurm observability））：catalog 的
 `installMethods` 列出 kind 可用的安裝方法（第一個是預設），`containerRuntimes` 列出 `container` method

@@ -34,16 +34,16 @@ context unnecessarily. Public documentation may link inward to these
 authoritative development sources. Read public guides only when the task itself
 creates, reviews, or explains public documentation, or when a change is
 user-visible: a screen, a command, or API behavior an operator or integrator
-relies on (making code do what a contract already documents is not). When no public page covers
-the behavior, add none. Find that page through the public index, `docs/en/README.md`, and
-update its `docs/zh-TW/` twin too; a component's own public references (for example
-`cli/docs/usage.md`) have a `.zh-TW.md` companion.
+relies on (making code do what a contract already documents is not). Find the page that covers it
+through the public index, `docs/en/README.md`, or by searching `docs/en/` for the feature's name,
+and update its `docs/zh-TW/` twin too; when no page covers the behavior, add none. A component's
+own public references (for example `cli/docs/usage.md`) have a `.zh-TW.md` companion.
 
 ## Always Read
 
 Before planning, editing, reviewing, or explaining repository work, read:
 
-1. `docs/development/codebase-structure.md` — its Components and Code Lookup Workflow sections: the components and how each maps to its top-level directory. Add its core, provider adapter, and module location section for work in `api-server`, and read the rest only when the task changes that structure.
+1. `docs/development/codebase-structure.md` — its Components and Code Lookup Workflow sections: the components and how each maps to its top-level directory. Add its core, provider adapter, and module location section when deciding where new code goes in `api-server`, and read the rest only when the task changes that structure.
 
 ## Reading by Task
 
@@ -51,23 +51,24 @@ Beyond Always Read, read only what the task needs: find its row, read those docu
 domain specs below for the areas it touches. The upper-level specs state their own readers in their §1,
 and a row points to that scope rather than restating it: read the §1 to decide whether the spec applies, and
 when it does, read the sections the task needs. A task that fits several rows reads them all; planning or
-reviewing a task reads what doing it would.
+reviewing a task reads what doing it would; reviewing a change described without a diff is a design review.
 
 Domain specs and contracts are long. Read a spec's reader section (its §1, or the unnumbered reader
 section before it) and its headings, then only the sections the task needs; in a contract, read the
-sections for the routes involved. A link that names a section (§4.6) needs only that section.
+sections for the routes involved. A link or guide that names a section (§4.6) needs only that section,
+not the spec's reader section.
 
 | Task | Also read |
 | --- | --- |
 | Design new behavior or choose between approaches; review a change; add a managed resource, module, or provider adapter, or change what one owns or declares; decide where code belongs | The "swallow 的設計主張" section at the top of `docs/development/architecture-spec.md`: the core idea, the current composition, the principles, and how to trade them off. Only that section; the rest of the spec is the last row's. |
 | Fix a defect, wording, or behavior without changing who owns a fact, an API contract, or the data model | The domain spec of the area (an area without one uses its API contract) and the `AGENTS.md` of the component that owns the behavior. For a defect seen on a screen or in a command, find that component first: compare what the API returns (or the code behind it) with the contract; if the API breaks the contract the defect is in `api-server`, otherwise in the consumer. |
-| Explain how something works or why | The domain spec of the area; a glossary term only when the spec does not define it well enough (open a linked term directly; otherwise `docs/development/glossaries/README.md`); for the whole system (features, processes and their background work, collections and their writers), `docs/development/system-overview.md`. Reading code to confirm a detail needs no component guide: find it with the code map in `system-overview.md` or the spec's code table. |
+| Explain how something works or why | The domain spec of each area involved; a glossary term only when the spec does not define it well enough (open a linked term directly; otherwise `docs/development/glossaries/README.md`); for the whole system (features, processes and their background work, collections and their writers), `docs/development/system-overview.md`. Reading code to confirm a detail needs no component guide: find it with the code map in `system-overview.md` or the spec's code table. |
 | Add or change a consumer feature (dashboard, cli) over existing API behavior | The API contract; the domain spec when the feature shows domain behavior. |
-| Add or change API behavior (a route, query parameter, field, status, or error) | The contract workflow (`api-server/docs/development/api-contracts/README.md`) and the contract. Regenerating the dashboard's types is part of this; add the consumer row only for a consumer whose own code the change also changes. |
-| Add or change a managed resource, a field of its spec or status, an action that changes the outside world, or who owns a fact | `docs/development/desired-state-model.md` (readers: its §1); the API contract when the change reaches the API; the glossary authoring workflow when it introduces or changes a term. |
-| Add an external system, provider adapter, Platform, GPU vendor, Managed Software kind, or module | `docs/development/core-and-extensions.md` (readers: its §1) and `docs/development/module-authoring.md`. |
-| Decide where new code belongs (core, provider adapter, or module) | `docs/development/core-and-extensions.md` §1. |
-| Introduce or rename a domain term, a type, or an enum value the glossary owns | The glossary authoring workflow (`docs/development/glossaries/README.md`). A query parameter or response field that uses existing terms is an API change, not a glossary change. |
+| Add or change API behavior (a route, query parameter, field, status, or error) | The contract workflow (`api-server/docs/development/api-contracts/README.md`) and the contract. Regenerating the dashboard's types (`dashboard/src/infrastructure/api/generated/openapi.ts`, then `npm run contract:check`) is part of this and needs no dashboard guide; add the consumer row only for a consumer whose own code the change also changes. |
+| Add or change a managed resource, a field of its spec or status, a kind of action that changes the outside world, or who owns a fact (a new Managed Software kind reuses install and uninstall and is not this row) | `docs/development/desired-state-model.md` (readers: its §1); the API contract when the change reaches the API; the glossary authoring workflow when it introduces or changes a term. |
+| Add an external system, provider adapter, Platform, Managed Software kind, or module, or GPU-vendor-specific behavior (a new vendor or a new feature of an existing one) | `docs/development/core-and-extensions.md` (readers: its §1) and `docs/development/module-authoring.md`. |
+| Decide where new code belongs (core, provider adapter, or module) | `docs/development/core-and-extensions.md` §1, and §3.6 while its transitional rule applies. |
+| Introduce or rename a domain term, a type, or an enum value the glossary owns | The glossary authoring workflow (`docs/development/glossaries/README.md`). A query parameter or response field that uses existing terms is an API change, not a glossary change; Managed Software kinds and the Workflow kinds a module declares are module-owned, not glossary values. |
 | Write or run tests, run the full checks, or start the development environment | `docs/development/development-and-testing.md`; content tests of playbooks and roles are in `docs/development/module-authoring.md` §6 instead. |
 | Change how components or bounded contexts depend on each other (a new cross-context dependency, a context map, a component boundary) | The rest of `docs/development/architecture-spec.md` (bounded contexts, context maps) and the map in `docs/development/context-maps/` for the contexts involved. An ordinary contract change with its provider and consumer is not this row. |
 
@@ -104,8 +105,8 @@ Add the spec of each area the task touches:
   post-provision time synchronization: `docs/development/installation.md`.
 
 Areas without a domain spec use their contract as the spec: the Server inventory (listing,
-searching, the Server projection) uses `servers-list.md`, and monitoring and alerts use
-`monitoring-alerts.md` and `server-metrics.md`, all under
+searching, the Server projection) uses `servers-list.md`; alerts use `monitoring-alerts.md` and
+metrics use `server-metrics.md`, all under
 `api-server/docs/development/api-contracts/api-server/`.
 
 ## Component Work
@@ -175,7 +176,8 @@ submodule-pointer dance.
 ## Skills
 
 Task-specific operating guides live under `skills/`. When the task acts on real
-machines or the development stack, writes a commit, or consolidates plans, read
+machines or drives the running development stack (automated tests against its
+MongoDB do not count), writes a commit, or consolidates plans, read
 `skills/README.md` and follow its lookup workflow before acting.
 Skills never replace this file or the documents it requires; satisfy those
 reading requirements first, then consult the relevant skill.

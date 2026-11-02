@@ -86,7 +86,9 @@ and `docs/usage.zh-TW.md` in the same commit; a new command group also updates
 `README.md`, `README.zh-TW.md`, and the public command index
 `../docs/en/reference/cli.md` with its `../docs/zh-TW/reference/cli.md` twin, and
 any public guide that says the area has no command (search `../docs/en/` and
-`../docs/zh-TW/` for the group name; the Managed Software guide is one). Run
+`../docs/zh-TW/` for the group name and for "no command"; the Managed Software and
+API integration guides say so today). When the new commands cover only part of the
+area, rewrite those statements to say what is still missing rather than deleting them. Run
 `python3 scripts/check-docs.py` from the repository root after changing them.
 Adding `cli` to the contract's Consumer Components belongs to the same change
 (the contract README's rule for consumers).

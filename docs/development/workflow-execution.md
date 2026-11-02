@@ -25,7 +25,7 @@ platform deployment、OS provisioning、software deployment 都建立在它之�
 ## 1. 目的與範圍
 
 - **讀者**：修改或除錯 orchestration（`internal/core/workflow`）、新增 Workflow kind 或 Task kind、或需要判斷
-  「這個 Workflow 卡住時該 retry、rerun 還是 cancel」的開發者與 AI agent。
+  「這個 Workflow 卡住時該 retry、rerun 還是 cancel」，或要解釋取消、重試與 rerun 會發生什麼的開發者與 AI agent。
 - **範圍內**：所有 Workflow 共用的執行語意（§3–§12）。
 - **範圍外**：個別 kind 的 Task 組成、Runner 內部的 provider／playbook 行為。schema-v2 的 Operation 紀錄已退役：
   沒有任何 API 讀取，schema v10 刪除它們（[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)（retire schema v2 and deprecated aliases））。
@@ -322,6 +322,7 @@ desired-state 模型的 reapply（依 spec 重新收斂，[desired-state-model.m
      - 取消抵達時正在執行、且宣告 `return-canceled-deployment` 的 `provision-os`：回收被中斷的部署（§8.3）。
      - 宣告「取消時執行」的 Task（`verify-os-image` 的 `recover-server`），除非已成功：以它自己的 Runner 執行一次，
        歸還借用的 Server（見 [os-provisioning.md](os-provisioning.md)）；結果不寫回 Task。
+     - 其他 Task（包括 `ansible-playbook`）不宣告取消補償：已在外部做的改變留在原處。
   3. 一個 transaction：所有未結束的 Task（含 `running` 與 `requires_attention`）寫成 `canceled` 並觸發它們宣告的
      投影，Workflow 寫成 `canceled`（reason 為命令的原因，預設 `Canceled by operator.`），釋放所有權。
 - **已有結果的 Task 保留結果**；取消不回退已完成的成果（§8.2）。
@@ -360,7 +361,7 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
 
 ### 規則與不變式
 
-- 取消只停止尚未完成的工作，並把它打斷的部署帶回 Ready；它不清除已完成的成果，也不 release 整個 Workflow 的
+- 取消只停止尚未完成的工作，並把它打斷的 OS 佈署（`provision-os`）帶回 Ready，playbook 已做的改變不會復原；它不清除已完成的成果，也不 release 整個 Workflow 的
   Server。
 - 補償在釋放所有權之前完成，所以別的 Workflow 不會在回收途中動到這些 Server。
 - 取消一定能完成：不依賴原本的 execution 仍存在。

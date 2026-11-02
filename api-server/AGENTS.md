@@ -6,22 +6,23 @@ root (`api-server/`).
 
 ## Required Reading
 
-Before changing api-server Go code, or planning or reviewing such a change, read:
+Before changing api-server Go code (or reviewing a code diff), read both; planning or reviewing a design
+without code reads only the first:
 
 1. `docs/development/architecture-spec.md` — the Clean Architecture boundaries: Dependency Rule, Layout,
    Prohibited Designs, Completion Gate, and the boundary sections for what the change touches (Provider
-   Ownership, Provider Adapter, Durable Workflow, Store and Transaction, Configuration, Error). Read "2026-10-31 搬移前的路徑"
+   Ownership, Provider Adapter, Durable Workflow, Store and Transaction, Configuration, Error; a repository
+   query reads Data Crossing Boundaries and Store and Transaction). Read "2026-10-31 搬移前的路徑"
    only when you meet a path from before that move.
 2. `docs/development/coding-style.md` — Go rules. Every change reads 核心原則, 格式與命名, 註解與文件, and Agent
    執行規則; add 錯誤處理, API 與語言使用, Imports 與 Package 組織, or 測試規範 when the change touches that.
 
-Planning or reviewing a design (no code yet) needs only the architecture spec; coding-style applies when
-code is written or a code diff is reviewed. Explaining api-server behavior needs neither, even when you
-read code to confirm a detail.
+Explaining api-server behavior needs neither, even when you read code to confirm a detail.
 
 A change confined to host automation content under `modules/` (playbooks, roles, the playbook manifest, a
-module's layout) reads `../docs/development/module-authoring.md` instead; it needs coding-style only for the
-Go content tests it adds (測試規範). A module's Go hooks are Go code and follow the list above.
+module's layout) reads `../docs/development/module-authoring.md` instead; for the Go content tests it adds,
+coding-style's 測試規範 and 註解與文件 are the completion gate. A module's Go hooks are Go code and follow the
+list above.
 
 When the change adds or changes Go tests other than host automation content tests, read
 `../docs/development/development-and-testing.md` §3 for

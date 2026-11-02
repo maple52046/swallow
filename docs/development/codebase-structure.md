@@ -7,7 +7,7 @@ directory) 依 component 分門別類，直接放在 repository 內，不再使�
 submodule。每個 component 目錄就是該 component 的 code entry point。
 
 本文件是這個 repository 的**結構契約 (structure contract)**。每個任務都先讀 Components 與 Code Lookup Workflow 兩節
-（root `AGENTS.md` 的 Always Read），`api-server` 的工作另讀「Core、Provider Adapter 與擴充模組的位置」。以下情境要讀全文，並在同一個
+（root `AGENTS.md` 的 Always Read），在 `api-server` 決定新程式的位置時另讀「Core、Provider Adapter 與擴充模組的位置」。以下情境要讀全文，並在同一個
 變更中更新本檔：
 
 - 新增、移除或重命名 component。

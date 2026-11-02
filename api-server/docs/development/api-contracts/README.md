@@ -146,7 +146,8 @@ of `/api/v1/provisioning/*`, the Boot ISO file, `/downloads/*`), `platforms`
   reference too (for example `software,workflows`, because `software` returns the
   `workflows` area's `WorkflowAccepted`). The suite must pass with it unset.
 
-The dashboard generates its types from `openapi.yaml`
-(`npm run contract:generate`, checked by `npm run contract:check`). A wire-shape
+The dashboard generates its types from `openapi.yaml` into
+`dashboard/src/infrastructure/api/generated/openapi.ts` (`npm run contract:generate` in `dashboard/`,
+checked by `npm run contract:check`). A wire-shape
 change therefore updates the fragment, regenerates `openapi.yaml`, regenerates the
 dashboard types, and updates the Markdown contract when behavior changes.

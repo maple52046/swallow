@@ -94,7 +94,8 @@ Go、Node、MongoDB、Temporal 與 Ansible 都在容器內。
 ## 5. cli 的測試
 
 - 測試以 httptest server 代替 api-server：`cli/internal/command/sshkeys_test.go` 的 `useTestServer`，以
-  `cli/internal/command/supersede_test.go` 的 `runCommand` 執行指令（範例：`cli/internal/command/plans_test.go`）。
+  `cli/internal/command/supersede_test.go` 的 `runCommand` 執行指令（範例：`cli/internal/command/platform_claim_test.go`；
+  `cli/internal/command/plans_test.go` 直接呼叫 `cmd.Execute()`，兩種都可以）。
 - `useTestServer` 替換 process 全域的狀態，所以這些測試不能平行執行。
 
 ## 6. 完整檢查指令

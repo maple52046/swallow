@@ -19,7 +19,7 @@ release build 中隱藏。
 | --- | --- | --- | --- | --- |
 | Site 與 Integration | 有 | `sites.go`、`integrations.go` | `sites-integrations.md` | — |
 | Site automation 設定 | 無 | `sites.go` | `site-automation.md` | [access-and-credentials.md](access-and-credentials.md) |
-| Server 清單、詳情、即時更新 | 有 | `servers.go` | `servers-list.md`、`servers-stream.md`、`server-detail-actions.md` | [os-provisioning.md](os-provisioning.md) |
+| Server 清單、詳情、即時更新 | 有 | `servers.go` | `servers-list.md`、`servers-stream.md`、`server-detail-actions.md` | 沒有領域規格，以 `servers-list.md` 為準；provisioning 軸見 [os-provisioning.md](os-provisioning.md) |
 | Server Enrollment 與硬體檢視 | 有 | `servers.go`、`integrations.go` | `server-enrollment.md` | [server-enrollment-and-boot-media.md](server-enrollment-and-boot-media.md) |
 | Boot ISO、Boot Media、Power Configuration | 有 | `bootisos.go`、`bootmedia.go`、`powerconfig.go` | `boot-isos.md`、`server-detail-actions.md` | 同上 |
 | 虛擬機器的 enrollment | 實驗 | `virtualmachines.go` | `server-enrollment.md` | 同上 |
