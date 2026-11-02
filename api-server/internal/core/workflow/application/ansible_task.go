@@ -37,7 +37,7 @@ type AnsibleTask struct {
 	Generation int64
 	Task       workflowdomain.Task
 	// Resumed is true when a later dispatch continues the attempt; an Ansible outcome cannot be
-	// proven after its process stopped, so a resumed attempt is handed to the operator.
+	// proven after its process stopped, so a resumed attempt is handed to the user.
 	Resumed bool
 }
 

@@ -8,7 +8,7 @@ interface ResourceTagProps {
 }
 
 /**
- * Presents an operator-authored resource Tag consistently across inventory,
+ * Presents a user-authored resource Tag consistently across inventory,
  * detail, and editing surfaces.
  *
  * The blue treatment identifies user organization metadata, not lifecycle or

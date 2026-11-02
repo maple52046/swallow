@@ -13,7 +13,7 @@ interface IntegrationConnectionFieldsProps {
 }
 
 /**
- * The Integration `settings` an operator edits (contract sites-integrations.md): how swallow
+ * The Integration `settings` a user edits (contract sites-integrations.md): how swallow
  * reaches the provider (timeout, TLS) and swallow's own policy for it (automatic inspection), plus
  * the provider-specific keys. Shared by the Create integration dialog and the Connection tab of the
  * Integration settings page, so both offer the same keys with the same defaults.

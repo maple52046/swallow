@@ -3,7 +3,7 @@ import { installApiFixtures } from './fixtures'
 
 // Session behavior (decision 042): the access token lives in memory, the refresh token in an
 // HttpOnly cookie (modelled by the fixtures' signed-in flag), the app refreshes silently on a 401,
-// and an ended Session returns the operator to sign-in with their place remembered.
+// and an ended Session returns the user to sign-in with their place remembered.
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {

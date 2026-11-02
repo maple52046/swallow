@@ -1,6 +1,6 @@
 // Package delivery exposes Change Plans over HTTP (Fiber), implementing the change-plans.md
 // contract: list, read, approve, and reject (decision 076). The routes run behind authentication
-// and AdminOnly; this package parses requests, names the deciding operator from the Principal, and
+// and AdminOnly; this package parses requests, names the deciding user from the Principal, and
 // maps the convergence errors onto the shared envelope.
 package delivery
 

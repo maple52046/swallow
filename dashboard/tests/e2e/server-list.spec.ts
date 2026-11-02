@@ -177,7 +177,7 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
 // `fill` types the whole query at once, so it never sees a commit land mid-typing. Typing key by key
 // with pauses longer than the 300ms debounce commits the draft to the URL between keystrokes; the
 // field must keep focus and every keystroke across those commits instead of being rebuilt.
-test('discovery search keeps focus and every keystroke while the operator types slowly', async ({ page }) => {
+test('discovery search keeps focus and every keystroke while the user types slowly', async ({ page }) => {
   await installApiFixtures(page, { readyServerCount: 1, extraTags: { 'srv-1': ['east', 'training'] } })
   await page.goto('/servers?site=site-a')
   const table = page.getByRole('table', { name: 'Servers' })
@@ -192,7 +192,7 @@ test('discovery search keeps focus and every keystroke while the operator types 
   await expect(table.getByText('gpu-node-01', { exact: true })).toBeVisible()
   await expect(table.getByText('gpu-node-02', { exact: true })).toHaveCount(0)
 
-  // The URL holds the trimmed query, but the trailing space is part of what the operator is still
+  // The URL holds the trimmed query, but the trailing space is part of what the user is still
   // typing, so committing `gpu` must not strip it from the field.
   await search.fill('')
   await expect(page).not.toHaveURL(/q=/)

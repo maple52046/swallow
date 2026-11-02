@@ -382,7 +382,7 @@ test('Prometheus runs as a container on the targets\' installed runtime', async 
   await expect(dialog.getByRole('combobox', { name: 'Install method', exact: true })).toContainText('Container')
   await expect(dialog.getByText('Runs on Podman, the runtime installed on the selected Servers.')).toBeVisible()
   await dialog.getByRole('textbox', { name: 'Scrape targets' }).fill('10.0.0.21:9100')
-  // Prometheus has no login, so it answers on loopback unless the operator opens it up.
+  // Prometheus has no login, so it answers on loopback unless the user opens it up.
   await expect(dialog.getByRole('combobox', { name: 'Answers on', exact: true })).toContainText('This Server only (127.0.0.1)')
   await chooseSingleSelectOption(page, 'Answers on', 'Management address')
   await dialog.getByRole('textbox', { name: 'Retention' }).fill('7 days')

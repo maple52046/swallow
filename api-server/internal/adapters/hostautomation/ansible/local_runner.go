@@ -185,7 +185,7 @@ func (r *LocalRunner) Run(ctx context.Context, input workflowdomain.RunnerInput)
 		if ctx.Err() != nil {
 			return result, ctx.Err()
 		}
-		// The raw exit error ("exit status 2") names nothing an operator can act on. Prefer a
+		// The raw exit error ("exit status 2") names nothing a user can act on. Prefer a
 		// concise cause read from the run's own events (the failing task, host, and a bounded
 		// tail of its output); this becomes the execution's statusReason and the Step's
 		// normalized error message, which the dashboard shows as the Step reason. The full,
@@ -361,7 +361,7 @@ func parseActivityEvent(raw []byte) (play, task string, ok bool) {
 // Stderr builds an error-only report of a run from its retained job events: one block per
 // failed or unreachable task with the task, host (a serverId), module message, return code,
 // and the task's captured stderr and stdout. It is the focused counterpart to Logs (the full
-// runner output) that powers the dashboard's Stderr tab, so an operator reads the failure
+// runner output) that powers the dashboard's Stderr tab, so a user reads the failure
 // without scrolling the whole play. It returns "" when the run recorded no failure or its
 // events are absent (an early runner error, or events not yet flushed).
 func (r *LocalRunner) Stderr(_ context.Context, runID string) (string, error) {
@@ -509,7 +509,7 @@ const (
 // runnerFailureEvent is the subset of a failed or unreachable ansible job event used to
 // explain why a run failed. Unlike the public TaskEvent projection (which is deliberately
 // output-free because it is a public projection), this stays inside the runner and is folded
-// into the run's error message. That message is an operator diagnostic with the same
+// into the run's error message. That message is a user diagnostic with the same
 // sensitivity as the retained stdout artifact, so it may carry bounded task output.
 type runnerFailureEvent struct {
 	Event     string `json:"event"`

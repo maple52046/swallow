@@ -9,7 +9,7 @@ import (
 // whose resource has no hold and no fields of its own to iterate (a provisioner setting, for
 // example). Drift is how the observed state departs from the spec, "" when it matches. Realize
 // changes the target to the spec and returns how the target still departs after reading it back.
-// Rejected reports whether a Realize error is a permanent refusal, and its operator-facing detail.
+// Rejected reports whether a Realize error is a permanent refusal, and its user-facing detail.
 type SingleTarget struct {
 	Now                time.Time
 	Trigger            Trigger

@@ -6,7 +6,7 @@ export const SETTLE_REFRESH_MS = 5000
 /**
  * Re-reads a migrated resource every few seconds while `settling` is true — its saved change is
  * still being applied by the backend (see `isSettling`) — so its status settles in place without
- * the operator reloading. Polling stops as soon as the view stops settling or unmounts.
+ * the user reloading. Polling stops as soon as the view stops settling or unmounts.
  *
  * `refresh` must be stable across renders (wrap it in `useCallback`) and should update the view's
  * own state. A failed re-read is ignored: the view keeps what it last showed, and the next tick

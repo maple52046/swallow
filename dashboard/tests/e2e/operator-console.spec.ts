@@ -59,7 +59,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   }, { appearance, authenticated })
 })
 
-test.describe('operator interactions', () => {
+test.describe('user interactions', () => {
   test('login layout stays aligned on desktop and mobile', async ({ page }) => {
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(viewport)
@@ -1155,7 +1155,7 @@ test.describe('operator interactions', () => {
     await confirmation.fill('wrong-name')
     await expect(uninstall).toBeDisabled()
     await confirmation.fill('production-k0s')
-    // The deployment still running on these targets must be canceled first, and the operator says so.
+    // The deployment still running on these targets must be canceled first, and the user says so.
     await expect(dialog.getByText('An unfinished workflow still holds these servers')).toBeVisible()
     await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy production k0s platform')
     await expect(uninstall).toBeDisabled()
@@ -1280,8 +1280,8 @@ test.describe('operator interactions', () => {
   })
 
   // A failed deployment parked for attention still holds its Servers, so an uninstall used to fail
-  // with "already has active durable work" until the operator found and canceled that Workflow. The
-  // dialog now names it, the operator confirms, and the backend cancels it; the browser never
+  // with "already has active durable work" until the user found and canceled that Workflow. The
+  // dialog now names it, the user confirms, and the backend cancels it; the browser never
   // cancels or waits, so the dialog closes with the request.
   test('Uninstall of a failed deployment cancels the Workflow holding its Servers in the backend', async ({ page }) => {
     const uninstalls: Array<{ platformId: string; body: Record<string, unknown> | null }> = []
@@ -1313,7 +1313,7 @@ test.describe('operator interactions', () => {
     expect(browserCancels).toEqual([])
   })
 
-  test('A deploying Platform can be uninstalled once the operator confirms canceling the deployment', async ({ page }) => {
+  test('A deploying Platform can be uninstalled once the user confirms canceling the deployment', async ({ page }) => {
     await installApiFixtures(page, { platformLifecycleStates: { 'platform-a': 'deploying' } })
     await page.goto('/platforms/platform-a?site=site-a')
     await page.getByRole('button', { name: 'Uninstall platform', exact: true }).click()
@@ -1918,7 +1918,7 @@ test.describe('operator interactions', () => {
   })
 
   // decision 058: on a subnet whose DHCP the provisioner does not serve, network inspection suggests
-  // DHCP; the dialog starts there, says why, keeps the warning if the operator picks Automatic, and
+  // DHCP; the dialog starts there, says why, keeps the warning if the user picks Automatic, and
   // sends `dhcp` without addresses.
   test('a site-DHCP subnet starts the deployment on DHCP and explains the suggestion', async ({ page }) => {
     let deploymentRequest: Record<string, unknown> | undefined

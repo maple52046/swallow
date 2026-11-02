@@ -188,7 +188,7 @@ func LookupGPUOperatorRelease(version string) (GPUOperatorRelease, bool) {
 // GPU Operator after deployment. WorkflowID is preassigned by the use case, which records it on
 // the Platform before launching so the Task observer's fence matches from the first Task.
 // TargetServerIDs are the Platform's deployment targets; TrustedVars are the playbook's
-// swallow_amd_gpu_operator_* variables. Uninstall only changes the Workflow's operator-facing
+// swallow_amd_gpu_operator_* variables. Uninstall only changes the Workflow's user-facing
 // summary; the playbook reads the intent from the trusted vars.
 type GPUOperatorLaunch struct {
 	WorkflowID         string

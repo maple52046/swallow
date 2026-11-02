@@ -54,7 +54,7 @@ func NewClient(rawURL, rawKey string, timeout time.Duration, insecureSkipVerify 
 	}, nil
 }
 
-// normalizeAPIRoot turns the URL an operator copies out of MAAS into the API root
+// normalizeAPIRoot turns the URL a user copies out of MAAS into the API root
 // to build request paths from.
 //
 // It accepts the address with or without a trailing slash and with or without the

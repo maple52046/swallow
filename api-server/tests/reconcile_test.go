@@ -214,7 +214,7 @@ func TestReconcile_RefreshDeployedImageNamesAfterRename(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	// The operator renames the image via the metadata; the provider catalog title is
+	// The user renames the image via the metadata; the provider catalog title is
 	// "Ubuntu 22.04 LTS", and the metadata's architecture matches the catalog's primary arch.
 	if err := f.metadataRecords.Upsert(context.Background(), &provisioningdomain.OSImageMetadata{
 		IntegrationID: testIntegrationID,

@@ -7,7 +7,7 @@ import (
 	"unicode"
 )
 
-// maxPowerParameterLength bounds an operator-supplied power parameter. Real BMC addresses, libvirt
+// maxPowerParameterLength bounds a user-supplied power parameter. Real BMC addresses, libvirt
 // URIs, and domain names are far shorter; the bound only keeps a malformed request from carrying an
 // unbounded string to the provisioner.
 const maxPowerParameterLength = 255
@@ -146,7 +146,7 @@ func requireToken(name, value string) error {
 
 // optionalToken refuses whitespace, control characters, and overlong values in a single-token
 // parameter. None of the provisioner's power parameters may contain them, and refusing them here
-// gives the operator a clear reason instead of a provisioner validation dump.
+// gives the user a clear reason instead of a provisioner validation dump.
 func optionalToken(name, value string) error {
 	if len(value) > maxPowerParameterLength {
 		return fmt.Errorf("%w: %s is longer than %d characters", ErrInvalidPowerConfiguration, name, maxPowerParameterLength)

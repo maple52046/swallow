@@ -422,7 +422,7 @@ func TestDeleteAbortsWhenOperationCancellationFails(t *testing.T) {
 	if err := service.Delete(context.Background(), platform.ID); err == nil {
 		t.Fatal("expected delete to abort when operation cancellation fails")
 	}
-	// The record must survive so the operator can retry once cancellation is possible; a
+	// The record must survive so the user can retry once cancellation is possible; a
 	// deleted platform with still-running operations is exactly the orphaned state to avoid.
 	if _, ok := platforms.platforms[platform.ID]; !ok {
 		t.Error("platform record deleted despite cancellation failure")

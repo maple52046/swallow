@@ -128,7 +128,7 @@ func TestCreateIntegration_RejectsUnknownKind(t *testing.T) {
 	}
 }
 
-// A platform integration is created only by deploying a platform (decision 032), so operators
+// A platform integration is created only by deploying a platform (decision 032), so users
 // cannot register one through the public integrations route. This closes the register-existing
 // back door while leaving the deployment completion hook (which writes through the repository)
 // unaffected.

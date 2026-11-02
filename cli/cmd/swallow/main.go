@@ -1,4 +1,4 @@
-// Command swallow is the operator command-line client for the swallow platform.
+// Command swallow is the command-line client for the swallow platform.
 //
 // It is the entry point of the `cli` component: a thin main that wires OS signal
 // handling to context cancellation and delegates the entire command tree to the

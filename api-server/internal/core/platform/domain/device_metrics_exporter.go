@@ -21,7 +21,7 @@ const (
 	// the RDC exporter port swallow scrapes on a host (decision 003), so it must never be used here.
 	DeviceMetricsExporterPort = 5001
 	// DeviceMetricsExporterGrafanaLinkName is the Monitoring Link a successful install registers and
-	// an uninstall removes; other links stay operator-owned.
+	// an uninstall removes; other links stay user-owned.
 	DeviceMetricsExporterGrafanaLinkName = "Device Metrics Exporter Grafana"
 	// DeviceMetricsExporterScrapeJob is the Prometheus job name of the exporters.
 	DeviceMetricsExporterScrapeJob = "device-metrics-exporter"
@@ -68,7 +68,7 @@ func ParseGPUIdentity(value string) GPUIdentity {
 	return GPUIdentityCollapsed
 }
 
-// DeviceMetricsExporterSettings is the operator's Device Metrics Exporter intent in a Slurm deploy
+// DeviceMetricsExporterSettings is the user's Device Metrics Exporter intent in a Slurm deploy
 // request. An empty InstallMethod is the container method.
 type DeviceMetricsExporterSettings struct {
 	Enabled       bool

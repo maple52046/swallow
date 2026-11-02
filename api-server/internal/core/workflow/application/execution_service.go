@@ -76,7 +76,7 @@ type CreateExecutionInput struct {
 	PlaybookName    string
 	ExtraVars       map[string]any
 	// TrustedVars are extra vars the caller is a trusted server-side use case, so they
-	// bypass the swallow_ prefix filter that operator-supplied ExtraVars are subject to.
+	// bypass the swallow_ prefix filter that user-supplied ExtraVars are subject to.
 	// A platform deployment uses this to assign node roles the client cannot forge.
 	TrustedVars map[string]any
 	// SecretVars are sealed at rest and materialised only for the run, for values such as
@@ -218,7 +218,7 @@ var standardExtraVarKeys = map[string]bool{
 }
 
 // buildExecutionExtraVars assembles a run's extra vars from three sources: the standard
-// swallow_ identifiers, operator-supplied vars (which may not use the swallow_ prefix, so
+// swallow_ identifiers, user-supplied vars (which may not use the swallow_ prefix, so
 // a client cannot forge a trusted variable), and trusted server-side vars (which may, and
 // are used for things like node-role assignment the client must not control).
 func buildExecutionExtraVars(operation *workflowdomain.ExecutionOperation, targets []*serverdomain.Server, operator, trusted map[string]any) map[string]any {

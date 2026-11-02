@@ -8,7 +8,7 @@
 // vocabulary.
 //
 // This is not a Clean Architecture infrastructure layer. "Infrastructure" here is the
-// operator-facing area (the dashboard's Infrastructure section) whose domain is Zones and Pools;
+// user-facing area (the dashboard's Infrastructure section) whose domain is Zones and Pools;
 // the provisioner realizes them through the composition adapters in internal/app.
 package domain
 

@@ -12,7 +12,7 @@ import type { SoftwareAssignment, SoftwareCatalogEntry, SoftwareKind } from './t
  */
 export type SoftwareInstallMethod = 'container' | 'native'
 
-/** The method a new install uses when the operator picks none: the catalog's first, if any. */
+/** The method a new install uses when the user picks none: the catalog's first, if any. */
 export function defaultInstallMethod(entry: SoftwareCatalogEntry): SoftwareInstallMethod | null {
   return entry.installMethods[0] ?? null
 }

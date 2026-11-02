@@ -237,7 +237,7 @@ func TestEnrollVirtualMachineReusesMachine(t *testing.T) {
 	}
 }
 
-// A running domain waits for the operator unless powerOffRunning lets swallow stop it.
+// A running domain waits for the user unless powerOffRunning lets swallow stop it.
 func TestEnrollVirtualMachineRunningDomain(t *testing.T) {
 	f := newVMFixture()
 	f.libvirt.machine.State = "running"

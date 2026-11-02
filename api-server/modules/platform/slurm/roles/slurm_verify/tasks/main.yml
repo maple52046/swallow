@@ -107,7 +107,7 @@
 # Native OCI containers must run, not merely be configured (decision 066): a container step runs as
 # an unprivileged user (rootless crun; its user namespace maps that user, never root), and on every
 # GPU node a one-GPU container step sees exactly one GPU, because the job's device cgroup still
-# applies inside the container. Fatal: an operator who asked for containers gets working ones.
+# applies inside the container. Fatal: a user who asked for containers gets working ones.
 - name: Verify native OCI containers
   when: slurm_oci_containers | bool
   vars:

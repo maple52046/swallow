@@ -123,7 +123,7 @@ func (r *MongoDeploymentTemplateRepo) FindByID(
 	return toDeploymentTemplate(&doc), nil
 }
 
-// List returns template metadata sorted for operator scanning.
+// List returns template metadata sorted for user scanning.
 func (r *MongoDeploymentTemplateRepo) List(
 	ctx context.Context,
 	filter provisioningdomain.DeploymentTemplateFilter,

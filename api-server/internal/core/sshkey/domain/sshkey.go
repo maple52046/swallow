@@ -69,7 +69,7 @@ type PublicKeyMaterial struct {
 }
 
 // GeneratedKeyPair is a freshly generated key pair. PrivateKeyPEM is an unencrypted OpenSSH
-// private key; callers either seal it (Deployment Key) or hand it to the operator once and drop
+// private key; callers either seal it (Deployment Key) or hand it to the user once and drop
 // it (Access Key). It must never be logged.
 type GeneratedKeyPair struct {
 	Public        PublicKeyMaterial

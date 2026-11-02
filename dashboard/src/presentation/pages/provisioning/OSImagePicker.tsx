@@ -64,7 +64,7 @@ function imageFamilyKey(value: string): string {
   return value.trim().toLocaleLowerCase() || '__unknown__'
 }
 
-/** Turns a provider family identifier into a compact operator-facing group label. */
+/** Turns a provider family identifier into a compact user-facing group label. */
 function imageFamilyLabel(value: string): string {
   const normalized = value.trim()
   if (!normalized) return 'Unknown OS'

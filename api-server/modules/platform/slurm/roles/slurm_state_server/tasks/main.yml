@@ -2,7 +2,7 @@
 # Provision a managed single-server NFS export used as the shared slurmctld
 # StateSaveLocation for an HA (multi-controller) cluster. This is the lab-grade shared-state
 # provider: all SchedMD HA docs require every SlurmctldHost to read/write one StateSaveLocation,
-# and swallow supplies it here instead of asking the operator to build storage by hand. The
+# and swallow supplies it here instead of asking the user to build storage by hand. The
 # export host is a single failure domain (documented lab limitation, not storage HA); it is
 # selected off-controller when possible so a controller-host failure does not also lose state.
 #

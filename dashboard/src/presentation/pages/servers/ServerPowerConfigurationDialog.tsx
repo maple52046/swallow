@@ -30,7 +30,7 @@ interface ServerPowerConfigurationDialogProps {
  * Replaces one Server's Power Configuration (decision 054) from the Server Summary.
  *
  * The form starts from the provisioner's current driver and parameters. Without a driver, nothing is
- * pre-selected: the operator must choose, because the dashboard cannot tell a BMC from a virtual
+ * pre-selected: the user must choose, because the dashboard cannot tell a BMC from a virtual
  * machine. The chosen driver's family decides the fields (a BMC address and account, or a libvirt
  * hypervisor URI and domain). The password is write-only: it lives only in this dialog's state, is
  * never shown back, and is dropped when the dialog unmounts; leaving it empty keeps the stored one for
@@ -192,7 +192,7 @@ export function ServerPowerConfigurationDialog({ server, configuration, onClose,
             )}
             <Field.Root>
               <Field.Label>Password</Field.Label>
-              {/* new-password keeps browsers from offering the operator's own swallow password here. */}
+              {/* new-password keeps browsers from offering the user's own swallow password here. */}
               <Input
                 type="password"
                 value={draft.password}

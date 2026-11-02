@@ -1,6 +1,6 @@
 ---
-# Verify the SchedMD Slurm packages are already present from the operator's image. Slurm is
-# not installed here: SchedMD recommends operator-built deb/rpm and swallow has no local repo
+# Verify the SchedMD Slurm packages are already present from the user's image. Slurm is
+# not installed here: SchedMD recommends user-built deb/rpm and swallow has no local repo
 # yet, so the packages are baked into the MAAS image. Other supporting software (for example
 # MUNGE, or MariaDB for future accounting) may still be apt-installed by later roles; only
 # the slurm-smd packages are required to pre-exist.

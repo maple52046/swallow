@@ -139,7 +139,7 @@ function alertsMetric(alerts: Overview['monitoring'], icon: ReactNode): MetricIt
 }
 
 /**
- * Operator landing page backed by the provider-owned overview aggregate.
+ * User landing page backed by the provider-owned overview aggregate.
  *
  * The page groups existing facts into four scan targets and derives only an
  * action queue; it never treats missing metrics as failure or invents trends.

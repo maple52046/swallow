@@ -61,7 +61,7 @@ func TestParsePrivateKey_RejectsEncryptedAndGarbage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rsa.GenerateKey: %v", err)
 	}
-	// Legacy (deprecated) PEM encryption is exactly what an operator may paste; it must be refused.
+	// Legacy (deprecated) PEM encryption is exactly what a user may paste; it must be refused.
 	encrypted, err := x509.EncryptPEMBlock(rand.Reader, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(rsaKey), []byte("secret"), x509.PEMCipherAES256)
 	if err != nil {
 		t.Fatalf("EncryptPEMBlock: %v", err)

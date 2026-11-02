@@ -250,7 +250,7 @@ func (f *serverControllerFixture) assertCondition(t *testing.T, conditionType co
 }
 
 // The first observation becomes the spec without touching the provisioner: adoption must never
-// rewrite a machine an operator already configured (desired-state-model.md §6.5).
+// rewrite a machine a user already configured (desired-state-model.md §6.5).
 func TestServerController_AdoptsFirstObservationWithoutProviderWrites(t *testing.T) {
 	f := setupServerController(t, "gpu", "amd-gpu")
 	f.server().Observed.AutomaticTags = []string{"amd-gpu"}

@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// bootMediaPreflightTimeout is the client-side deadline for enabling Boot Media when the operator
+// bootMediaPreflightTimeout is the client-side deadline for enabling Boot Media when the user
 // did not set --request-timeout. The preflight drives a real BMC (mounting an HTTP ISO and letting
 // it settle takes several minutes; the API allows six), so the global 60-second default would
 // abandon a request the server is still completing.

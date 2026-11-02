@@ -230,7 +230,7 @@ export function osImageDeployModeStatus(
     return {
       kind: 'requires_attention',
       label: 'Needs attention',
-      detail: activity.statusReason || `The ${mode} deployment test Workflow needs operator attention. Previous result: ${outcomeLabel(outcome)}.`,
+      detail: activity.statusReason || `The ${mode} deployment test Workflow needs attention. Previous result: ${outcomeLabel(outcome)}.`,
       operationId: activity.operationId,
       previousOutcome: outcome,
     }

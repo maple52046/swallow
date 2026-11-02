@@ -33,7 +33,7 @@ type DeployRequest struct {
 	//
 	// An adapter that does not support this must return a *ProviderError of kind
 	// ProviderErrorRejected rather than deploying normally. Dropping the flag would
-	// invert the operator's instruction: they asked for a machine that keeps nothing,
+	// invert the user's instruction: they asked for a machine that keeps nothing,
 	// and a disk installation keeps everything.
 	Ephemeral bool
 }
@@ -124,7 +124,7 @@ type ProviderCapabilities struct {
 // DeploymentTargetValidator checks provider-owned prerequisites before dispatch.
 //
 // It is deliberately read-only. A MAAS adapter can require a subnet link, but it
-// must not choose or create that link on the operator's behalf.
+// must not choose or create that link on the user's behalf.
 type DeploymentTargetValidator interface {
 	// ValidateDeploymentTarget returns nil only when provider-owned prerequisites
 	// currently pass. Implementations map remediable state to ProviderErrorRejected,
@@ -154,11 +154,11 @@ type HardwareValidator interface {
 	// Abort stops an in-progress inspection, testing, or deployment.
 	Abort(ctx context.Context, machineID string) (*Machine, error)
 	// OverrideFailedTesting accepts a machine whose tests failed, moving it back to a
-	// usable state on an operator's judgement.
+	// usable state on a user's judgement.
 	OverrideFailedTesting(ctx context.Context, machineID string) (*Machine, error)
 }
 
-// OperatorStateController makes the operator-driven state changes that are neither a
+// OperatorStateController makes the user-driven state changes that are neither a
 // deployment nor a release: taking a machine out of automation, flagging it, or putting
 // it into a recovery environment.
 type OperatorStateController interface {
@@ -285,7 +285,7 @@ type ConfigurableMachineReleaser interface {
 // OSImageRemover permanently deletes a provider-owned OS image, such as a MAAS
 // uploaded custom image.
 //
-// This is deliberately narrow: only operator-managed custom images are removable this
+// This is deliberately narrow: only user-managed custom images are removable this
 // way. An image the provider mirrors from an upstream stream (a synced OS release) is not
 // swallow's to delete — the provider would re-sync it — so adapters map such a request,
 // and an image that does not exist, onto *ProviderError{Kind: ProviderErrorRejected}
@@ -297,15 +297,15 @@ type OSImageRemover interface {
 }
 
 // UploadOSImageRequest describes a new provider-owned OS image to create from
-// operator-supplied content.
+// user-supplied content.
 //
-// Name and Architecture are the operator's intent in swallow-neutral form; the adapter maps
+// Name and Architecture are the user's intent in swallow-neutral form; the adapter maps
 // them into the provider's own vocabulary (for MAAS, the custom-image namespace and a
 // "<arch>/generic" architecture). The uploaded artifact is provider-owned exactly like a
 // synced one, and whether it is classified as a custom image is provider-determined, never
 // chosen here.
 type UploadOSImageRequest struct {
-	// Name is the operator-chosen image name, before any provider namespacing.
+	// Name is the user-chosen image name, before any provider namespacing.
 	Name string
 	// Architecture is the CPU architecture, e.g. "amd64".
 	Architecture string
@@ -325,7 +325,7 @@ type UploadOSImageRequest struct {
 	Content io.Reader
 }
 
-// OSImageUploader creates a new provider-owned OS image from operator-supplied content, such
+// OSImageUploader creates a new provider-owned OS image from user-supplied content, such
 // as a MAAS uploaded custom image.
 //
 // It is the creation counterpart to OSImageRemover: swallow drives the provider to store the
@@ -442,7 +442,7 @@ type ProviderSSHKey struct {
 // An adapter that sets ProviderCapabilities.SSHKeyRegistration must implement this.
 type SSHKeyRegistrar interface {
 	// ListSSHKeys returns every SSH key the provider holds for swallow's account, including keys
-	// an operator added outside swallow.
+	// a user added outside swallow.
 	ListSSHKeys(ctx context.Context) ([]ProviderSSHKey, error)
 	// AddSSHKey registers one authorized_keys line and returns the provider's record of it.
 	AddSSHKey(ctx context.Context, publicKey string) (ProviderSSHKey, error)

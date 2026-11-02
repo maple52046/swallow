@@ -8,7 +8,7 @@
 # in its environment activates JWT as the primary authentication mechanism (SchedMD REST guide).
 
 - name: Detect the slurmrestd binary
-  # slurmrestd ships in slurm-smd-slurmrestd, which an operator image may omit. It only powers
+  # slurmrestd ships in slurm-smd-slurmrestd, which a user image may omit. It only powers
   # swallow's membership reads, so its absence must not fail the deploy; the cluster is still
   # fully functional. When absent, this role and the credential role are skipped and the platform
   # deploys without a reader integration (membership will not populate until slurmrestd exists).

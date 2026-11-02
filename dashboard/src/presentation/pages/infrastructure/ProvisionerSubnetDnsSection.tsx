@@ -54,7 +54,7 @@ export function ProvisionerSubnetDnsSection({ integration }: ProvisionerSubnetDn
  * Attached subnets, and any subnet that already has DNS servers (so a configured setting is never
  * tucked away), are listed first; the rest — host-internal networks MAAS recorded from enrolled
  * hosts, which can be one per host on a container or Kubernetes fleet — sit in a collapsed
- * disclosure that still lets an operator edit them.
+ * disclosure that still lets a user edit them.
  */
 function LiveSubnets({ integrationId }: { integrationId: string }) {
   const { provisioning } = useApp()
@@ -110,7 +110,7 @@ function LiveSubnets({ integrationId }: { integrationId: string }) {
 
 /**
  * One subnet's editable DNS servers. `saved` is the subnet as last read or saved, so "Not saved yet"
- * compares the operator's text with the spec rather than with the opening state; text that reads as
+ * compares the user's text with the spec rather than with the opening state; text that reads as
  * the same list (other separators or spacing) is not a change. The status line says whether MAAS
  * holds the spec and what MAAS reports; while a saved change is still being applied, the subnet list
  * is re-read quietly and this row takes its subnet from it until it settles.
@@ -134,7 +134,7 @@ function SubnetDnsRow({ integrationId, subnet }: { integrationId: string; subnet
   const dirty = parsed.servers === null || formatDnsServerList(parsed.servers) !== formatDnsServerList(saved.spec.dnsServers)
   const canApply = parsed.servers !== null && dirty && !applying
   const inputId = `subnet-dns-${subnet.id}`
-  // MAAS names a subnet after its CIDR unless an operator renamed it; only a real name adds a line.
+  // MAAS names a subnet after its CIDR unless a user renamed it; only a real name adds a line.
   const name = subnet.name && subnet.name !== subnet.cidr ? subnet.name : ''
 
   const apply = async () => {
@@ -193,7 +193,7 @@ function SubnetDnsRow({ integrationId, subnet }: { integrationId: string; subnet
             spellCheck={false}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
-              // Enter saves this subnet's DNS, which is what an operator typing an address means;
+              // Enter saves this subnet's DNS, which is what a user typing an address means;
               // the default is suppressed so no enclosing form ever submits instead.
               if (event.key !== 'Enter') return
               event.preventDefault()

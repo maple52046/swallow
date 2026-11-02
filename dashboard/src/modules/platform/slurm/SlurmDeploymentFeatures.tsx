@@ -13,7 +13,7 @@ const CONTAINER_ENGINES: ReadonlyArray<{ value: SlurmContainerRuntime; label: st
   { value: 'podman', label: 'Podman', description: 'Install the daemonless Podman runtime on compute and login nodes.' },
 ]
 
-/** Whether the GPU GRES type is derived from the GPU architecture or named by the operator. */
+/** Whether the GPU GRES type is derived from the GPU architecture or named by the user. */
 export type GPUGresTypeMode = 'automatic' | 'custom'
 
 /**
@@ -130,7 +130,7 @@ function ChoiceCards<T extends string>({ label, value, onChange, options, column
 
 /**
  * Slurm-only deployment features. Each optional capability is independently enabled, while
- * mode-specific settings expand inside the same card so the operator sees consequences before
+ * mode-specific settings expand inside the same card so the user sees consequences before
  * choosing implementation details. GPU monitoring is one switch with a stack choice because the API
  * refuses the Device Metrics Exporter and Omnistat together; the exporter's card warns, without
  * blocking here (the page blocks the step), when no selected compute node has AMD GPUs. The
@@ -197,7 +197,7 @@ export function SlurmDeploymentFeatures({
             onChange={onWorkloadModeChange}
             options={[
               { value: 'self-hosted', label: 'Self-hosted', description: 'Export NFS from a selected login node.' },
-              { value: 'external', label: 'External NFS', description: 'Mount an operator-provided host:/path export.' },
+              { value: 'external', label: 'External NFS', description: 'Mount a user-provided host:/path export.' },
             ]}
           />
           {workloadMode === 'self-hosted' && loginNodeCount === 0 && (

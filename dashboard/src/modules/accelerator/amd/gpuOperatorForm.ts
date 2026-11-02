@@ -87,7 +87,7 @@ export function gpuOperatorFormProblem(
 }
 
 /**
- * The request body the form produces (platforms.md "Settings"). Options the operator left at the
+ * The request body the form produces (platforms.md "Settings"). Options the user left at the
  * catalog default are omitted so the backend applies the default it documents; the DRA driver
  * version is sent only in DRA mode.
  */

@@ -55,7 +55,7 @@ func (Software) Entry() softwaredomain.CatalogEntry {
 }
 
 // ValidateSpec requires a string version and a real boolean enableApi: accepting a string such as
-// "false" and reading it as enabled would open the unauthenticated listener the operator declined.
+// "false" and reading it as enabled would open the unauthenticated listener the user declined.
 func (Software) ValidateSpec(_ map[string][]softwaredomain.Role, spec map[string]any) error {
 	if err := softwaredomain.ValidateOptionalString(spec, softwaredomain.SpecVersion); err != nil {
 		return err

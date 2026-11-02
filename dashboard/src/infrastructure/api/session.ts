@@ -72,7 +72,7 @@ export function accessTokenExpiresSoon(): boolean {
  * Exchanges the refresh cookie for a new access token. Concurrent callers in this tab share one
  * request; other tabs wait on the Web Lock. Resolves `'ended'` on `401` (expired, logged out, or
  * revoked) after clearing the token, and rejects on network failure — a dropped connection is not
- * a reason to sign the operator out.
+ * a reason to sign the user out.
  */
 export function refreshSession(): Promise<RefreshOutcome> {
   if (inflight) return inflight
@@ -104,7 +104,7 @@ async function requestRefresh(): Promise<RefreshOutcome> {
 }
 
 /**
- * Reports that the Session ended while the operator was working, so the presentation can return
+ * Reports that the Session ended while the user was working, so the presentation can return
  * to sign-in. Called by adapters when a refresh after a `401` ends the Session.
  */
 export function notifySessionEnded(): void {

@@ -316,7 +316,7 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 // that still need it. The containerRuntime feature names the runtime and puts it on the compute
 // and login nodes; a monitoring feature's container method adds the observability Server and,
 // without the feature, runs on the runtime already assigned there (Docker CE when none is). A Server whose
-// runtime is already installed is left alone, so an operator's own runtime settings (an enabled
+// runtime is already installed is left alone, so a user's own runtime settings (an enabled
 // Docker Engine API, for example) are never reverted. The kind is "" when no runtime is needed.
 func (l platformDeploymentLauncher) composedContainerRuntime(
 	ctx context.Context,

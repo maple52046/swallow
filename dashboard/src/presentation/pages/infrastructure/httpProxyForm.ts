@@ -1,8 +1,8 @@
 import type { ProvisionerHttpProxyMode } from '@/domain/provisioning/types'
 
 /**
- * Operator labels and one-line explanations of the Provisioner HTTP Proxy modes, worded after the
- * MAAS UI choices an operator already knows. The domain value (`none`, `builtin`, …) is what flows
+ * User labels and one-line explanations of the Provisioner HTTP Proxy modes, worded after the
+ * MAAS UI choices a user already knows. The domain value (`none`, `builtin`, …) is what flows
  * to the API; these strings are display only.
  */
 export const HTTP_PROXY_MODE_TEXT: Record<ProvisionerHttpProxyMode, { label: string; help: string }> = {

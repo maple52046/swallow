@@ -19,7 +19,7 @@ type machineJSON struct {
 	StatusName string `json:"status_name"`
 	// ErrorDescription is MAAS's own machine-level failure reason (e.g. "Failed to erase
 	// disks."), populated while the machine is in a failure state. It is the detail an
-	// operator needs to tell why a deploy or release failed and is otherwise buried only in
+	// user needs to tell why a deploy or release failed and is otherwise buried only in
 	// the provider event log; carried through so swallow can surface it on the failed state.
 	ErrorDescription string     `json:"error_description"`
 	Architecture     string     `json:"architecture"`
@@ -246,7 +246,7 @@ var maasStatusToDomain = map[int]provisioningdomain.MachineStatus{
 	// Release from this state ("cannot be released ... 'Failed to exit rescue mode'") and the
 	// resolution is to (re)issue exit rescue. Normalizing to `rescue` (not `failed`) makes the
 	// recovery policy and UI treat it as the rescue problem it is, so Recover exits rescue and
-	// then releases, and the operator's Exit rescue action is available. The provider label is
+	// then releases, and the user's Exit rescue action is available. The provider label is
 	// preserved in ProviderStatus for diagnostics. See docs/decisions/033.
 	18: provisioningdomain.MachineStatusRescue,  // FAILED_ENTERING_RESCUE_MODE
 	19: provisioningdomain.MachineStatusRescue,  // EXITING_RESCUE_MODE

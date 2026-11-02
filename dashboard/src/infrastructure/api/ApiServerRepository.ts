@@ -156,7 +156,7 @@ export class ApiServerRepository implements ServerRepository {
   }
 
   async getPowerConfiguration(id: string): Promise<ServerPowerConfiguration> {
-    // Never cached: it is the provisioner's live state an operator is about to edit.
+    // Never cached: it is the provisioner's live state a user is about to edit.
     const dto = await apiRequest<PowerConfigurationDTO>(
       `/api/v1/servers/${encodeURIComponent(id)}/power-configuration`,
       { cache: 'no-store' },

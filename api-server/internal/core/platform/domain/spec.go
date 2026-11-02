@@ -10,7 +10,7 @@ import (
 	"github.com/maple52046/swallow/internal/core/convergence"
 )
 
-// PlatformDesired is whether an operator wants a Platform to exist.
+// PlatformDesired is whether a user wants a Platform to exist.
 type PlatformDesired string
 
 // The desired presences. Absent asks for the Platform to be uninstalled; its record stays until the
@@ -28,7 +28,7 @@ type PlatformMember struct {
 	Roles    []string
 }
 
-// PlatformSpec is what an operator wants a Platform to be (desired-state-model §3). Members and
+// PlatformSpec is what a user wants a Platform to be (desired-state-model §3). Members and
 // Desired are the core's: the Platform Claims follow the members, and an absent Platform is
 // uninstalled. Settings are the Platform module's, described by its spec JSON Schema and validated
 // by its hook; the core does not read them.

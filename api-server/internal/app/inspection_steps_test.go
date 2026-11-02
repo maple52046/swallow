@@ -352,7 +352,7 @@ func TestInspectServer(t *testing.T) {
 // The inspect-hardware ensure-boot-media Task reads Boot Media when it runs: disabled Boot Media
 // succeeds without the BMC, enabled Boot Media is ensured with its Boot ISO's id and URL, and an
 // enabled setting whose Boot ISO has no URL is passed by id to the use case, whose refusal (the
-// method needs a URL or the file) fails retryably so the operator can fix it and retry.
+// method needs a URL or the file) fails retryably so the user can fix it and retry.
 func TestEnsureBootMediaResolvesLive(t *testing.T) {
 	live := temporalworkflow.StepExecutionInput{Step: workflowdomain.Task{
 		ID: "ensure-boot-media-srv", Kind: ensureBootMediaTaskKind,

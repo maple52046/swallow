@@ -11,7 +11,7 @@ interface ProvisionerLiveSettingSectionProps {
   title: string
   /** What the setting does for deployed machines, and that swallow applies it to MAAS. */
   description: ReactNode
-  /** What the operator cannot do until the Integration has a credential, ending the shared notice. */
+  /** What the user cannot do until the Integration has a credential, ending the shared notice. */
   credentialNeededFor: string
   /** The live editor, rendered only when the Integration has a credential to reach MAAS with. */
   children: ReactNode

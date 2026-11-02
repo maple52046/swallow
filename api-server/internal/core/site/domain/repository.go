@@ -14,7 +14,7 @@ type SiteRepository interface {
 type IntegrationFilter struct {
 	SiteID string
 	Kind   IntegrationKind
-	// EnabledOnly restricts results to integrations an operator has not paused.
+	// EnabledOnly restricts results to integrations a user has not paused.
 	EnabledOnly bool
 }
 
@@ -30,7 +30,7 @@ type IntegrationRepository interface {
 	FindByID(ctx context.Context, id string) (*Integration, error)
 	List(ctx context.Context, filter IntegrationFilter) ([]*Integration, error)
 	// Update replaces the mutable fields. It never touches the credential or the
-	// sync state, so that an operator editing a name cannot clear either.
+	// sync state, so that a user editing a name cannot clear either.
 	Update(ctx context.Context, integration *Integration) error
 	// ReplaceCredential seals and stores a new credential.
 	ReplaceCredential(ctx context.Context, id, credential string) error

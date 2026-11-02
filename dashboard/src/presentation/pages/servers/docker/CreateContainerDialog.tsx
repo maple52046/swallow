@@ -36,7 +36,7 @@ interface CreateContainerDialogProps {
 /**
  * Create-container form for the Docker Host Explorer.
  *
- * The fields follow `docker run` so operators can reuse what they know: ports as
+ * The fields follow `docker run` so users can reuse what they know: ports as
  * `[hostIp:][hostPort:]containerPort[/protocol]` and mounts as `source:/target[:ro]`, one per line;
  * the command is split into arguments honouring quotes. Each multi-line field is parsed as it is
  * typed and an offending line is reported under the field, so submission is blocked until the

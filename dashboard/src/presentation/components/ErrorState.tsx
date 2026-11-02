@@ -2,7 +2,7 @@ import { Alert, Button } from '@chakra-ui/react'
 
 interface ErrorStateProps {
   message?: string
-  /** The request ID of the failed API call, shown so an operator can quote it. */
+  /** The request ID of the failed API call, shown so a user can quote it. */
   requestId?: string
   onRetry?: () => void
 }
@@ -11,7 +11,7 @@ interface ErrorStateProps {
  * Shared actionable failure state for remote data.
  *
  * The concise message names what failed and the request ID, when the API returned one, lets an
- * operator quote the failure; when retry is safe, the inline button keeps recovery beside the
+ * user quote the failure; when retry is safe, the inline button keeps recovery beside the
  * error without exposing transport implementation.
  */
 export function ErrorState({ message, requestId, onRetry }: ErrorStateProps) {

@@ -83,7 +83,7 @@ func (p *Provider) RemoveTag(ctx context.Context, name string, machineIDs []stri
 // with the system ids repeated under add or remove. An empty machine list is a no-op so a diff that
 // changed nothing for this group makes no request. An automatic tag rejects update_nodes; MAAS
 // answers with a validation error that translateError maps to ProviderErrorRejected, so the refusal
-// reaches the operator rather than being dropped.
+// reaches the user rather than being dropped.
 func (p *Provider) updateTagNodes(ctx context.Context, name, field string, machineIDs []string) error {
 	if len(machineIDs) == 0 {
 		return nil

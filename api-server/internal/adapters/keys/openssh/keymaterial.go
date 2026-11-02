@@ -74,7 +74,7 @@ func (KeyMaterial) ParsePublicKey(line string) (sshkeydomain.PublicKeyMaterial, 
 
 // ParsePrivateKey validates a PEM private key (OpenSSH, PKCS#1, PKCS#8, or SEC1) and derives its
 // public key with comment. An encrypted key is ErrPassphraseProtected rather than ErrInvalidKey so
-// the operator learns the key is fine but must be decrypted first.
+// the user learns the key is fine but must be decrypted first.
 func (KeyMaterial) ParsePrivateKey(privateKeyPEM, comment string) (sshkeydomain.PublicKeyMaterial, error) {
 	signer, err := ssh.ParsePrivateKey([]byte(privateKeyPEM))
 	if err != nil {

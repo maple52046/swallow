@@ -29,7 +29,7 @@ type namedQuery struct {
 const networkDeviceExclusion = `lo|veth.*|docker.*|br-.*|virbr.*|cali.*|flannel.*|cni.*|vxlan.*|tun.*|tap.*|kube-.*`
 
 // namedQueries is the complete, ordered set of expressions swallow will evaluate. The order is
-// the operator scan order and is what MetricNames reports.
+// the user scan order and is what MetricNames reports.
 //
 // A fixed set rather than a PromQL passthrough: an arbitrary expression through an
 // authenticated API makes swallow responsible for query cost it cannot predict, and lets
@@ -104,7 +104,7 @@ var namedQueries = []namedQuery{
 	},
 }
 
-// MetricNames lists the queries a client may ask for, in operator scan order.
+// MetricNames lists the queries a client may ask for, in user scan order.
 func MetricNames() []string {
 	names := make([]string, 0, len(namedQueries))
 	for _, query := range namedQueries {

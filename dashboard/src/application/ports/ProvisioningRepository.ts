@@ -211,7 +211,7 @@ export interface ProvisioningRepository {
 }
 
 /**
- * Operator intent for uploading a new OS image to a provisioner. `name` and `architecture` are
+ * User intent for uploading a new OS image to a provisioner. `name` and `architecture` are
  * swallow-neutral; the backend maps them into the provider's own vocabulary. `filetype` is
  * provider-validated and, when omitted, uses the provider default. `file` is the artifact to
  * stream. The image's custom classification is provider-determined, never set here.

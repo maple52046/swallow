@@ -3,7 +3,7 @@
 # variables (see docs/development/platform-deployment.md): per-daemon controller/compute id
 # lists, an ordered controller list whose first entry is the primary, plus optional HA state
 # directory and slurmrestd API version. The Slurm packages are expected to be present from the
-# operator's image (SchedMD slurm-smd), so this playbook only configures and starts the
+# user's image (SchedMD slurm-smd), so this playbook only configures and starts the
 # cluster and returns a slurmrestd reader credential. It is idempotent: a converged cluster
 # reruns with no changes.
 #
@@ -37,7 +37,7 @@
         slurm_node_name: "{{ ansible_hostname }}"
         # HA controllers share one StateSaveLocation over NFS (mode shared); a single
         # controller keeps it local (mode local). The default path differs accordingly, and an
-        # operator-supplied swallow_slurm_state_save_location overrides either.
+        # user-supplied swallow_slurm_state_save_location overrides either.
         slurm_controller_state_mode: "{{ 'shared' if (swallow_slurm_high_availability | default(false) | bool) else 'local' }}"
         slurm_state_save_location: >-
           {{ swallow_slurm_state_save_location
@@ -59,8 +59,8 @@
         slurm_login_config_mode: "{{ swallow_slurm_login_config_mode | default('configless', true) }}"
         slurm_login_use_sackd: "{{ swallow_slurm_login_use_sackd | default(true) }}"
         # Shared workload filesystem (user/job data), distinct from controller state. Enabled
-        # only when the operator configured it; self-hosted exports from the login node, while
-        # external uses an operator-supplied NFS source. Mounted on every node at the mount path.
+        # only when the user configured it; self-hosted exports from the login node, while
+        # external uses a user-supplied NFS source. Mounted on every node at the mount path.
         slurm_workload_enabled: "{{ swallow_slurm_workload_enabled | default(false) | bool }}"
         slurm_is_workload_server: "{{ inventory_hostname == (swallow_slurm_workload_server_id | default('')) }}"
         slurm_workload_export: "{{ swallow_slurm_workload_export | default('/srv/slurm-workspace', true) }}"

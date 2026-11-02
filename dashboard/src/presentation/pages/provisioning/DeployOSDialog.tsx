@@ -390,7 +390,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
     ? inspectionState.inspection
     : null
   // The DHCP explanation follows the backend's suggestion rather than the current choice, so it
-  // stays visible as a warning when the operator switches a site-DHCP batch to Automatic.
+  // stays visible as a warning when the user switches a site-DHCP batch to Automatic.
   const siteDhcpSuggested = networkInspection !== null &&
     suggestedBatchNetworkMode(networkInspection.targets.map((target) => target.suggestion.mode)) === 'dhcp'
   const assignedStaticIPs = selectedServers

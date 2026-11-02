@@ -477,7 +477,7 @@ func TestImageMetadata_RequiresImageIdentity(t *testing.T) {
 }
 
 // The reconcile endpoint returns the report rather than a bare acknowledgement,
-// because conflicts need an operator and would otherwise go unnoticed.
+// because conflicts need a user and would otherwise go unnoticed.
 func TestReconcileEndpoint_ReturnsReportWithConflicts(t *testing.T) {
 	f := setupPlatform(t)
 	seedProvisionerIntegration(t, f)

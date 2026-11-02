@@ -6,7 +6,7 @@ import { INSPECT_HARDWARE_WORKFLOW_KIND, type Operation } from '@/domain/operati
 const INSPECTION_ATTENTION_POLL_MS = 30_000
 
 interface InspectionAttentionScope {
-  /** Narrows to one Site; undefined means every Site the operator sees. */
+  /** Narrows to one Site; undefined means every Site the user sees. */
   siteId?: string
   /** Narrows to one Server, for its detail page. */
   serverId?: string

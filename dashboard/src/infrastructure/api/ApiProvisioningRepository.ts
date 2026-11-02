@@ -318,7 +318,7 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
   }
 
   async getProvisionerHttpProxy(integrationId: string): Promise<ProvisionerHttpProxy> {
-    // Live provisioner state an operator is about to edit (contract provisioner-http-proxy.md), so
+    // Live provisioner state a user is about to edit (contract provisioner-http-proxy.md), so
     // a cached copy must never stand in for it.
     return apiRequest<ProvisionerHttpProxy>(
       `/api/v1/provisioning/integrations/${encodeURIComponent(integrationId)}/http-proxy`,

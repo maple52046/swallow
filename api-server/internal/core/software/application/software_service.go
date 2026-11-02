@@ -30,7 +30,7 @@ var ErrInvalidRequest = errors.New("invalid software request")
 // the client cannot forge.
 type SoftwareLaunch struct {
 	Kind softwaredomain.Kind
-	// Label is the kind's operator-facing name, for the Workflow's intent and Task names.
+	// Label is the kind's user-facing name, for the Workflow's intent and Task names.
 	Label         string
 	ServerIDs     []string
 	RolesByServer map[string][]softwaredomain.Role
@@ -118,7 +118,7 @@ func (s *SoftwareService) Catalog() []softwaredomain.CatalogEntry {
 	return s.catalog.Entries()
 }
 
-// Label is a kind's operator-facing name ("Docker CE"), or the kind itself when it is unknown.
+// Label is a kind's user-facing name ("Docker CE"), or the kind itself when it is unknown.
 func (s *SoftwareService) Label(kind softwaredomain.Kind) string {
 	return s.catalog.Label(kind)
 }

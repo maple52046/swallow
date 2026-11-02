@@ -123,7 +123,7 @@ func hasHardwareIdentity(iface interfaceJSON, byName map[string]interfaceJSON, s
 
 // translateSubnetWriteError keeps two refusals of a subnet update explicit: 404 is a subnet MAAS
 // no longer has, and 401/403 is an Integration account that is not a MAAS administrator, which the
-// operator must fix in the Integration rather than in the value.
+// user must fix in the Integration rather than in the value.
 func translateSubnetWriteError(err error) error {
 	var apiErr *apiError
 	if errors.As(err, &apiErr) {

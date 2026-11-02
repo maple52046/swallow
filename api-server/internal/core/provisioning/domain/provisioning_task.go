@@ -26,7 +26,7 @@ const (
 	ProvisioningTaskFailed    ProvisioningTaskStatus = "failed"
 )
 
-// ProvisioningTaskPhase gives an operator useful progress without exposing the
+// ProvisioningTaskPhase gives a user useful progress without exposing the
 // provider request or persisted cleanup snapshot.
 type ProvisioningTaskPhase string
 
@@ -38,7 +38,7 @@ const (
 )
 
 // StaticNetworkLinkSnapshot is the exact pre-release binding a cleanup task may
-// remove. Any live mismatch means the operator changed it and cleanup preserves it.
+// remove. Any live mismatch means the user changed it and cleanup preserves it.
 type StaticNetworkLinkSnapshot struct {
 	InterfaceID string
 	LinkID      string

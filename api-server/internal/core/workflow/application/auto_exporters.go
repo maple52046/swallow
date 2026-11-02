@@ -22,7 +22,7 @@ type ExporterOwnerResolver interface {
 }
 
 // AutoExporterDeployUseCase installs the Ansible exporters on a server once it reaches the
-// deployed state, so an operator does not have to trigger monitoring by hand.
+// deployed state, so a user does not have to trigger monitoring by hand.
 //
 // It is deliberately conservative: it only acts on servers whose effective exporter owner
 // is ansible (so a locked or k8s-owned host is left alone), and it creates at most one
@@ -101,7 +101,7 @@ func (uc *AutoExporterDeployUseCase) Run(ctx context.Context) error {
 
 // hasInstallOperation reports whether an install-exporters operation already exists for
 // the server in any state, so a one-shot auto-install is not repeated on every sweep. A
-// failed attempt is left for an operator to retry rather than being recreated in a loop.
+// failed attempt is left for a user to retry rather than being recreated in a loop.
 func (uc *AutoExporterDeployUseCase) hasInstallOperation(ctx context.Context, serverID string) (bool, error) {
 	_, total, err := uc.orchestrations.List(ctx, workflowdomain.WorkflowFilter{
 		ServerID: serverID, Kind: workflowdomain.WorkflowKindInstallExporters, Limit: 1,

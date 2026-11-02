@@ -661,7 +661,7 @@ function StepArtifacts({ operationId, step }: { operationId: string; step: Opera
 
 /**
  * The failure report for a provisioner or internal Step, which produces no Ansible stdout/stderr:
- * its outcome is the normalized error (code, stage, retryable, and the full operator-facing
+ * its outcome is the normalized error (code, stage, retryable, and the full user-facing
  * message). Shown on the Stderr tab in place of the Ansible log workspace so a failed provider Step
  * reads its cause here instead of the misleading "No errors" empty state. A Step with no error
  * completed its provider work; its timing is on the Details tab and the provider's own event log is
@@ -701,7 +701,7 @@ function stepServerTarget(step: OperationStep): string | undefined {
  * Explains that a provisioner/internal Step drives the provider (or records a swallow fact) through
  * API calls and therefore has no Ansible stdout — so the Stdout tab is not blank by accident. It
  * points to the sibling tabs (Stderr for the outcome, Events for the provider's event timeline) on
- * this same page; it deliberately does not link back to the Server, which would loop the operator
+ * this same page; it deliberately does not link back to the Server, which would loop the user
  * between the Server and the Operation they navigated in from.
  */
 function ProviderStepNote({ hasServerTarget }: { hasServerTarget: boolean }) {
@@ -721,7 +721,7 @@ function ProviderStepNote({ hasServerTarget }: { hasServerTarget: boolean }) {
  * The target Server's provider event log, rendered inline on the Operation step for a provisioner
  * Step (for example the MAAS PXE-boot / deploying / disk-erasing / marking-failed timeline). This is
  * the closest thing to "what happened" for a step that runs no Ansible, and it is shown here — on
- * the Operation the operator is already looking at — rather than linking back to the Server, so
+ * the Operation the user is already looking at — rather than linking back to the Server, so
  * there is no Server-to-Operation-to-Server navigation loop. It is provider-retained history, not a
  * complete swallow audit log.
  */

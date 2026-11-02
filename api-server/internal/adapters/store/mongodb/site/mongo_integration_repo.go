@@ -143,7 +143,7 @@ func (r *MongoIntegrationRepo) List(ctx context.Context, filter sitedomain.Integ
 }
 
 // Update replaces the mutable fields only. The credential and sync state are
-// untouched, so an operator renaming an integration cannot clear either.
+// untouched, so a user renaming an integration cannot clear either.
 func (r *MongoIntegrationRepo) Update(ctx context.Context, integration *sitedomain.Integration) error {
 	result, err := r.col.UpdateOne(ctx,
 		bson.M{"_id": integration.ID},

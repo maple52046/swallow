@@ -128,7 +128,7 @@ function DockerApiDisabledPanel({ server, assignment, onStarted }: { server: Ser
 
 /**
  * The last Docker CE apply failed. Docker may still be installed, but swallow cannot confirm its
- * configuration, so the explorer is not offered; the operator can inspect the Workflow or retry the
+ * configuration, so the explorer is not offered; the user can inspect the Workflow or retry the
  * recorded spec.
  */
 function DockerApplyFailed({

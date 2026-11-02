@@ -92,7 +92,7 @@ export function ServerBootMediaDialog({ server, bootMedia, mode, onClose, onChan
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<DisplayedFailure | null>(null)
   const [requestedAt, setRequestedAt] = useState<number | undefined>(undefined)
-  // Set when the operator closes the dialog while a preflight runs, so its outcome becomes a toast.
+  // Set when the user closes the dialog while a preflight runs, so its outcome becomes a toast.
   const closedWhileBusy = useRef(false)
   const name = serverDisplayName(server)
   const locked = server.status.provisioning?.locked ?? false

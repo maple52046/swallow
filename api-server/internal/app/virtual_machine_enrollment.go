@@ -366,7 +366,7 @@ func (e providerStepExecutor) awaitVirtualMachineServer(ctx context.Context, enr
 }
 
 // hypervisorFailure maps a libvirt or SSH failure: a missing domain is final, anything else waits
-// for the operator.
+// for the user.
 func hypervisorFailure(err error, stage string) temporalworkflow.StepExecutionResult {
 	if errors.Is(err, serverdomain.ErrDomainNotFound) {
 		return providerFailed("domain_not_found", err.Error(), false).withStage(stage)

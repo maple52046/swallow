@@ -54,7 +54,7 @@ export type ProvisioningState =
 
 /**
  * The OS Provisioning States in which provider work is running, so the state changes without
- * operator action. One set shared by the Deployment cell's progress cue, the list's
+ * user action. One set shared by the Deployment cell's progress cue, the list's
  * changing/polling logic, the detail page's follow poll, and the action gates that refuse to
  * race in-flight work, so the four never disagree.
  */
@@ -127,7 +127,7 @@ export interface ProvisioningAxis {
   /**
    * Effective default login user of the deployed OS image (decision 039), mirrored like
    * `deployedImageName`. swallow automation logs in to the Server as this user, and it is the
-   * account an operator's Access Key authorizes on Servers the provisioner deployed. Absent when
+   * account a user's Access Key authorizes on Servers the provisioner deployed. Absent when
    * nothing is deployed or no default user is known (automation then falls back to the Site SSH
    * user).
    */
@@ -195,7 +195,7 @@ export interface HealthAxis {
 
 /**
  * Where a Server's effective Server Default User comes from (glossary Server Default User,
- * decision 039): `server` was set by an operator on this Server and verified by a Deployment Key
+ * decision 039): `server` was set by a user on this Server and verified by a Deployment Key
  * login; `os_image` is the deployed OS Image's default user.
  */
 export type ServerDefaultUserSource = 'server' | 'os_image'
@@ -331,11 +331,11 @@ export interface HypervisorVirtualMachines {
   items: VirtualMachine[]
 }
 
-/** What last applied Boot Media to the BMC: the operator's enable (`preflight`) or an OS deployment's `ensure` Task. */
+/** What last applied Boot Media to the BMC: the user's enable (`preflight`) or an OS deployment's `ensure` Task. */
 export type BootMediaApplier = 'preflight' | 'ensure'
 
 /**
- * A Server's Boot Media setting (glossary Boot Media): the operator's intent that the Server boot
+ * A Server's Boot Media setting (glossary Boot Media): the user's intent that the Server boot
  * a chosen Boot ISO first, plus the outcome of the last apply. It is intent and history, not the
  * BMC's live state. `bootOverride` is how persistently the BMC took it: `Continuous` (survives
  * reboots) or `Once` (the next boot only — every OS deployment re-applies it anyway).
@@ -371,7 +371,7 @@ export interface BootMediaLiveState {
  * The Boot ISO a Boot Media setting names, as the Server's Boot Media read resolves it. It stays
  * reported when it can no longer be mounted — the ISO was deleted (`name` is then empty), its file
  * is missing, or the installation has no Boot Media base URL — with `available: false` and the
- * API's `reason`, so the operator sees what the setting points at and why it will not boot.
+ * API's `reason`, so the user sees what the setting points at and why it will not boot.
  */
 export interface BootMediaImage {
   id: string

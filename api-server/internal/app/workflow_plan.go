@@ -17,7 +17,7 @@ import (
 // (decision 061). Deploy launchers declare it on provision-os.
 const compensationReturnCanceledDeployment = "return-canceled-deployment"
 
-// workflowJobLabels are the operator-facing names of the Jobs this package's launchers declare,
+// workflowJobLabels are the user-facing names of the Jobs this package's launchers declare,
 // including each Software kind's configure Job, which is named after the kind's catalog label.
 func workflowJobLabels(software *softwaredomain.Catalog) map[string]string {
 	labels := map[string]string{

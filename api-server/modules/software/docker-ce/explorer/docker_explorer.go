@@ -113,7 +113,7 @@ func (uc *DockerExplorerUseCase) PullImage(ctx context.Context, serverID, refere
 }
 
 // withPullAuthNote appends to an Engine pull failure whether the pull was anonymous or signed in, and
-// to which registry. A registry's "pull access denied" reads the same either way, and the operator
+// to which registry. A registry's "pull access denied" reads the same either way, and the user
 // cannot otherwise tell that no saved credential matched the reference.
 func withPullAuthNote(err error, registry string, auth *softwaredomain.DockerRegistryAuth) error {
 	var engineErr *DockerEngineError

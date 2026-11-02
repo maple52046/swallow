@@ -1,7 +1,7 @@
 import type { DeploymentAxis } from '@/domain/server/types'
 
 /**
- * Concise, operator-facing root cause for each stable deployment failure code.
+ * Concise, user-facing root cause for each stable deployment failure code.
  *
  * The executor's `statusReason` is a verbose recovery instruction meant for the Operation
  * troubleshooting view; on the Server detail page we want a single plain sentence. Keying

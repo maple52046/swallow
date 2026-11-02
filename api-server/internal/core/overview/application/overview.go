@@ -1,4 +1,4 @@
-// Package application builds the operator overview without owning any of the facts it summarizes.
+// Package application builds the overview without owning any of the facts it summarizes.
 package application
 
 import (

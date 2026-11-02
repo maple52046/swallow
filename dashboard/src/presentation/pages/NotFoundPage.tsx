@@ -3,7 +3,7 @@ import { Home } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { RouteErrorTemplate } from '@/presentation/components/RouteErrorTemplate'
 
-/** Catch-all 404 state that returns authenticated operators to Overview. */
+/** Catch-all 404 state that returns authenticated users to Overview. */
 export function NotFoundPage() {
   const navigate = useNavigate()
   return (

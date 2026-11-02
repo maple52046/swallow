@@ -74,7 +74,7 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
       })
       .catch((caught: unknown) => {
         // A failed suggestion list must not block editing: fall back to only the tags already on the
-        // selected Servers and warn, rather than trapping the operator in an error dialog.
+        // selected Servers and warn, rather than trapping the user in an error dialog.
         if (cancelled) return
         setKnown([])
         setKnownWarning(failureText(failureOf(caught, 'Existing tags could not be loaded.')))
@@ -85,7 +85,7 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
   }, [provisioning, siteId])
 
   // Rows are the union of known tags, freshly typed tags, and tags already on the selection. Extra
-  // tags are offered as editable because the operator just created them.
+  // tags are offered as editable because the user just created them.
   const rows = useMemo(() => {
     const options: ServerTagOption[] = [...(known ?? []), ...extraTags.map((name) => ({ name, editable: true }))]
     const tagged = servers.map((server) => ({

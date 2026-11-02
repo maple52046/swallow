@@ -23,7 +23,7 @@ interface ResourceDeleteDialogProps {
 /**
  * Typed confirmation shared by Site, Integration, Zone, and Pool deletion.
  *
- * The destructive action stays disabled until the operator retypes the exact
+ * The destructive action stays disabled until the user retypes the exact
  * resource name, and provider dependency conflicts surface inline so the resource
  * context is never lost. Dismissal is blocked while the delete is in flight.
  */

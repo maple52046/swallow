@@ -6,7 +6,7 @@ import type { PlatformBulkOutcome } from './usePlatformBulkActions'
 /**
  * The Platforms a bulk removal dialog will act on, under a visible label that doubles as the list's
  * accessible name. Every name is listed in a bounded, scrollable area (`sw-dialog-name-list`) rather
- * than collapsed into a count, because the operator is confirming exactly these records.
+ * than collapsed into a count, because the user is confirming exactly these records.
  */
 export function PlatformNameList({ label, platforms }: { label: string; platforms: readonly Platform[] }) {
   return (

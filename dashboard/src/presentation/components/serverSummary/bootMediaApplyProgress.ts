@@ -23,7 +23,7 @@ export interface BootMediaApplyProgressModel {
   summary: string
 }
 
-// The steps as the operator reads them, with each one's typical duration on hv-01 (AMI
+// The steps as the user reads them, with each one's typical duration on hv-01 (AMI
 // MegaRAC), which weights the bar. `ejecting` shares the first step: it only happens on a switch
 // and takes seconds, and listing a step that is usually skipped would read as a skipped failure.
 // The settle wait is fixed by the API (three minutes) and fills by its real end time.

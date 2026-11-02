@@ -33,7 +33,7 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-/** Translates canonical image-verification payloads into the concrete action operators recognize. */
+/** Translates canonical image-verification payloads into the concrete action users recognize. */
 export function workflowDisplayIntent(operation: Operation): string {
   if (operation.kind !== 'verify-os-image') {
     return operation.intent || operation.execution.playbook || 'Workflow'
@@ -46,7 +46,7 @@ export function workflowDisplayIntent(operation: Operation): string {
 
 /**
  * Gives resource-changing Workflows a concrete active verb without changing their canonical
- * execution status. A Platform deployment still filters and polls as `running`, while operators
+ * execution status. A Platform deployment still filters and polls as `running`, while users
  * see `Deploying` instead of the ambiguous generic label on list and detail surfaces.
  */
 export function workflowDisplayStatus(operation: Operation): string {
@@ -69,7 +69,7 @@ export function workflowDisplayTaskName(operation: Operation, task: OperationSte
   return task.name
 }
 
-/** Presentation states that can advance without a new operator repair command. */
+/** Presentation states that can advance without a new user repair command. */
 export function isWorkflowChangingStatus(status: OperationStatus): boolean {
   return CHANGING_STATUSES.has(status)
 }
@@ -79,7 +79,7 @@ export function isWorkflowReviewStatus(status: OperationStatus): boolean {
   return REVIEW_STATUSES.has(status)
 }
 
-/** Native-link label that reflects why an operator would open a Workflow. */
+/** Native-link label that reflects why a user would open a Workflow. */
 export function workflowActionLabel(status: OperationStatus): string {
   if (isWorkflowChangingStatus(status)) return 'View workflow'
   if (isWorkflowReviewStatus(status)) return 'Review workflow'

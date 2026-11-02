@@ -167,7 +167,7 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 		Membership   *membership
 		Deployment   *deployment
 		Health       string
-		// DefaultUser is the operator-set Server Default User: setting or clearing it changes only
+		// DefaultUser is the user-set Server Default User: setting or clearing it changes only
 		// this field, so without it that write's live event would be suppressed.
 		DefaultUser string
 		// PlatformClaim is the claiming Platform's id: claiming or releasing changes only this

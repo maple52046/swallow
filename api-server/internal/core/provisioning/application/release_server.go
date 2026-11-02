@@ -30,7 +30,7 @@ type ReleaseServerInput struct {
 //
 // ExecuteWithOptions is the release primitive Workflow Steps use (release-os, including a Platform
 // uninstall's release and an image verification's return), so it does not check Platform Claims:
-// the Workflow that runs it is the authority, and the operator's Release Workflow refuses a claimed
+// the Workflow that runs it is the authority, and the user's Release Workflow refuses a claimed
 // Server when it is accepted.
 type ReleaseServerUseCase struct {
 	servers   serverdomain.ServerRepository

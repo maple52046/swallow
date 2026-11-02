@@ -1,5 +1,5 @@
 /**
- * Builds the Redfish commands an operator runs from a workstation to mount a Boot ISO on a
+ * Builds the Redfish commands a user runs from a workstation to mount a Boot ISO on a
  * Server's BMC and boot it once (Add servers, external-DHCP path; decision 053). swallow cannot do
  * this itself yet: the machine is not in the provisioner, so swallow knows neither its BMC nor
  * its credentials.

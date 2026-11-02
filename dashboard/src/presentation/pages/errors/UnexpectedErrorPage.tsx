@@ -4,7 +4,7 @@ import { isRouteErrorResponse, useNavigate, useRouteError } from 'react-router-d
 import { RouteErrorTemplate } from '@/presentation/components/RouteErrorTemplate'
 
 /**
- * Last-resort route boundary for render and loader failures. It keeps operators inside a
+ * Last-resort route boundary for render and loader failures. It keeps users inside a
  * branded recovery surface instead of exposing React Router's development exception page;
  * ordinary API failures should still use their page-level error states.
  */
@@ -34,7 +34,7 @@ export function UnexpectedErrorPage() {
   )
 }
 
-/** Maps router and render failures to operator-safe text while retaining useful local
+/** Maps router and render failures to user-safe text while retaining useful local
  * diagnostics; it never serializes arbitrary thrown objects into the page. */
 function routeErrorMessage(error: unknown): string {
   if (isRouteErrorResponse(error)) {

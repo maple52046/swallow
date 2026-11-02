@@ -45,9 +45,9 @@ function writeUsersToStorage(users: AuthUser[]): void {
  *
  * On mount it resumes the browser's Session through the port (the refresh cookie), keeping
  * `initializing` true until it knows, so route guards never flash the login page for a signed-in
- * operator. It subscribes to the port's ended-Session signal for its whole lifetime: when a refresh
+ * user. It subscribes to the port's ended-Session signal for its whole lifetime: when a refresh
  * is rejected mid-work, the user is cleared, `sessionEnded` is raised, and ProtectedRoute sends the
- * operator to sign-in with the current location as the return path.
+ * user to sign-in with the current location as the return path.
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { auth } = useApp()
@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const restoreSession = useCallback(async () => {
     setUsers(readUsersFromStorage())
-    // An unreachable server cannot confirm the Session, so the operator signs in again.
+    // An unreachable server cannot confirm the Session, so the user signs in again.
     try { setCurrentUser(await auth.restoreSession()) }
     catch { setCurrentUser(null) }
   }, [auth])
@@ -85,7 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return user
   }
   // Signing out is immediate in the UI; the server-side revocation is best effort and its failure
-  // does not keep the operator signed in (the port always forgets the local token).
+  // does not keep the user signed in (the port always forgets the local token).
   const logout = () => {
     void auth.logout().catch(() => {})
     setSessionEnded(false)

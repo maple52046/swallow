@@ -1,4 +1,4 @@
-// Package client is the swallow operator CLI's HTTP adapter for the api-server
+// Package client is the swallow CLI's HTTP adapter for the api-server
 // contract. It is the single place that knows how to reach the api-server: base
 // path, bearer authentication, the shared JSON error envelope, and the
 // Server-Sent Events framing. Command code depends on this package and never
@@ -106,7 +106,7 @@ func New(opts Options) (*Client, error) {
 	if opts.InsecureTLS {
 		// Opt-in only: this disables certificate verification for lab endpoints
 		// with self-signed certificates and must never be the default.
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // operator opt-in via --insecure
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // user opt-in via --insecure
 	}
 
 	c := &Client{
@@ -224,7 +224,7 @@ func (c *Client) bearer() string {
 // For a Session credential Do refreshes the access token first when it expires
 // within a minute, and on a 401 refreshes once and retries the request once —
 // unless the body is a RawBody stream, which cannot be replayed. A 401 that
-// cannot be recovered carries a hint telling the operator what to do.
+// cannot be recovered carries a hint telling the user what to do.
 func (c *Client) Do(ctx context.Context, r Request) (*http.Response, error) {
 	if c.sessionRenewable(r.Auth) && c.expiresSoon() {
 		if err := c.refresh(ctx); err != nil {
@@ -323,7 +323,7 @@ func (c *Client) Discard(ctx context.Context, r Request) error {
 // newAPIError converts a non-2xx response into an *APIError. It decodes the
 // shared envelope when present; when the body is not the expected envelope (an
 // unexpected proxy error page, say) it preserves the status and raw body so the
-// operator still sees something actionable rather than an empty error.
+// user still sees something actionable rather than an empty error.
 func newAPIError(resp *http.Response) *APIError {
 	apiErr := &APIError{Status: resp.StatusCode, Code: "http_error"}
 	data, _ := io.ReadAll(resp.Body)

@@ -1,7 +1,7 @@
 ---
 # Implementation details of the swallow-managed AMD GPU Operator (decision 062). The intent
 # (state, release, allocation mode, managed nodes, pinned images) arrives only as trusted
-# swallow_amd_gpu_operator_* variables; nothing here is an operator choice.
+# swallow_amd_gpu_operator_* variables; nothing here is a user choice.
 
 amd_gpu_operator_kubectl: /usr/local/bin/k0s kubectl
 # k0s writes the cluster-admin kubeconfig here on every controller; helm reads it.
@@ -26,7 +26,7 @@ amd_gpu_operator_owner_label: app.kubernetes.io/managed-by
 amd_gpu_operator_owner_value: swallow
 
 # Pinned Helm v3 used only by this role. It is downloaded once and verified against the official
-# SHA-256; it lives under swallow's directory so it never replaces an operator's own helm.
+# SHA-256; it lives under swallow's directory so it never replaces a user's own helm.
 amd_gpu_operator_helm_version: v3.22.1
 amd_gpu_operator_helm_checksums:
   amd64: 896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea

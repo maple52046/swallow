@@ -837,7 +837,7 @@ export function ServersPage() {
 
       {(state.status === 'loading' || (state.status === 'ready' && workingSet.length === 0 && !provisionersLoaded)) && <LoadingState rows={8} />}
       {/* The empty inventory explains how to add Servers. Only a scope without any provisioner
-          sends the operator to connect one, because Servers can only come from a provisioner. */}
+          sends the user to connect one, because Servers can only come from a provisioner. */}
       {state.status === 'ready' && workingSet.length === 0 && provisionersLoaded && (
         provisioners.length > 0 ? (
           <EmptyState

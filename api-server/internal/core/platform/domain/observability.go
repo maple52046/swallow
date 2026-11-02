@@ -21,7 +21,7 @@ const (
 
 // normalizeObservabilityInstallMethod defaults an empty method to the container method and refuses
 // an unknown one with invalid, the requesting feature's sentinel, so the delivery layer reports the
-// feature the operator asked for.
+// feature the user asked for.
 func normalizeObservabilityInstallMethod(method ObservabilityInstallMethod, invalid error) (ObservabilityInstallMethod, error) {
 	normalized := ObservabilityInstallMethod(strings.TrimSpace(string(method)))
 	switch normalized {

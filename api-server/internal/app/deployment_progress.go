@@ -77,7 +77,7 @@ func (e providerStepExecutor) newDeploymentProgress(ctx context.Context, step te
 // stream, or a failed event read, yields nil without evaluating a stall: missing data is not
 // evidence of a stall, and the power-on diagnosis and the outer two-hour observation timeout stay
 // authoritative. A powered-off Machine is diagnosed earlier by the power-on check, whose window is
-// shorter than the stall window. The stall does not abort the provider deployment; the operator
+// shorter than the stall window. The stall does not abort the provider deployment; the user
 // decides whether to retry, release, or let it finish.
 func (e providerStepExecutor) observeInstallProgress(
 	ctx context.Context,

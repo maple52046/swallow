@@ -17,7 +17,7 @@ const (
 	// host exporter ports swallow scrapes (9100 node, 5000 RDC), decision 003.
 	OmnistatExporterPort = 8001
 	// OmnistatGrafanaLinkName is the Monitoring Link a successful install registers and an
-	// uninstall removes; other links stay operator-owned.
+	// uninstall removes; other links stay user-owned.
 	OmnistatGrafanaLinkName = "Omnistat Grafana"
 	// OmnistatScrapeJob is the Prometheus job name of the exporters.
 	OmnistatScrapeJob = "omnistat"
@@ -37,7 +37,7 @@ const (
 	OmnistatAbsent OmnistatState = "absent"
 )
 
-// OmnistatSettings is the operator's Omnistat intent in a Slurm deploy request. An empty
+// OmnistatSettings is the user's Omnistat intent in a Slurm deploy request. An empty
 // InstallMethod is the container method.
 type OmnistatSettings struct {
 	Enabled       bool

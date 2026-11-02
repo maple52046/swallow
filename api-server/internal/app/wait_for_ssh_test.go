@@ -153,7 +153,7 @@ func TestWaitForSSHFailsFastOnAuthenticationRejection(t *testing.T) {
 	if !result.Error.Retryable {
 		t.Errorf("retryable = false, want true so the operator can fix the key and retry")
 	}
-	// The message must name the rejecting host and the SSH user so the operator fixes the credential.
+	// The message must name the rejecting host and the SSH user so the user fixes the credential.
 	if !strings.Contains(result.Error.Message, "lab-b") || !strings.Contains(result.Error.Message, "cloud-user") {
 		t.Errorf("message = %q, want it to name lab-b and cloud-user", result.Error.Message)
 	}

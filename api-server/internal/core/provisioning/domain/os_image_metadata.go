@@ -74,7 +74,7 @@ func ValidDefaultUser(user string) bool {
 
 // builtinDefaultUsers maps a provider OS family to the default user its official cloud images
 // create. It is swallow's convention for synced images; a custom image (OS family "custom") has
-// no reliable default, so an operator sets one on the metadata.
+// no reliable default, so a user sets one on the metadata.
 var builtinDefaultUsers = map[string]string{
 	"ubuntu": "ubuntu",
 	"centos": "centos",

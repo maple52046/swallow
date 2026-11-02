@@ -69,7 +69,7 @@ export function PowerConfigurationPanel({ state, compact = false, actions }: Pow
   )
 }
 
-/** A monospace value with a copy control, for identities an operator pastes elsewhere. */
+/** A monospace value with a copy control, for identities a user pastes elsewhere. */
 function CopyableValue({ value, label }: { value: string; label: string }) {
   return (
     <HStack gap="1" minW="0">

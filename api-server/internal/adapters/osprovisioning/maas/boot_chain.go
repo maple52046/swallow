@@ -13,7 +13,7 @@ import (
 // configurations (grub/grub.cfg-<mac>).
 const DefaultRackPort = 5248
 
-// BootChainRenderer renders a Boot ISO that chains to a MAAS rack (decision 047): the operator
+// BootChainRenderer renders a Boot ISO that chains to a MAAS rack (decision 047): the user
 // gives the rack as an IPv4 address or hostname with an optional ":port".
 type BootChainRenderer struct{}
 
@@ -33,7 +33,7 @@ func (BootChainRenderer) RenderBootChain(address string) (provisioningdomain.Boo
 	}, nil
 }
 
-// parseRackAddress validates a rack address as an operator types it — an IPv4 address or a
+// parseRackAddress validates a rack address as a user types it — an IPv4 address or a
 // hostname, optionally followed by ":port" — and returns the host and port (DefaultRackPort
 // when none is given). The result is safe to place into an iPXE script and a URL: only
 // letters, digits, '-', '.', and a numeric port pass. It neither resolves nor contacts the host.

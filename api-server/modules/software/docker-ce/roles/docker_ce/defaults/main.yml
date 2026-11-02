@@ -15,7 +15,7 @@ docker_ce_apt_arch: >-
 # docker_ce_api_enabled makes dockerd also listen on tcp://0.0.0.0:<docker_ce_api_port>, the
 # unauthenticated plain-HTTP Docker Engine API the Docker Host Explorer dials (decision 043). The
 # deploy playbook always sets both from swallow trusted vars; the defaults keep the role closed when
-# it is reused without them. The listener is a systemd drop-in so daemon.json stays operator-owned.
+# it is reused without them. The listener is a systemd drop-in so daemon.json stays user-owned.
 docker_ce_api_enabled: false
 docker_ce_api_port: 2375
 docker_ce_api_dropin: /etc/systemd/system/docker.service.d/swallow-api.conf

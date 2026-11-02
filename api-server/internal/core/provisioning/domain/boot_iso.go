@@ -13,7 +13,7 @@ import (
 // provisioner's boot server. A Server's Boot Media mounts one through its BMC.
 //
 // Script (the script BIOS firmware runs) and GRUBConfig (the GRUB configuration UEFI firmware runs)
-// are rendered by the provisioner's BootChainRenderer from its fixed templates; operators never
+// are rendered by the provisioner's BootChainRenderer from its fixed templates; users never
 // write them. The file lives outside this record, in the Boot Media directory, under the ISO's ID.
 // A rebuild re-renders both with the current templates and replaces the file in place, so the ID
 // and the URL Boot Media mounts never change (decision 047).
@@ -21,7 +21,7 @@ type BootISO struct {
 	ID            string
 	Name          string
 	IntegrationID string
-	// RackAddress is the provisioner's boot server as the operator gave it; its format is the
+	// RackAddress is the provisioner's boot server as the user gave it; its format is the
 	// provisioner's (BootChainRenderer).
 	RackAddress string
 	// ChainURL is where the script chains after DHCP on BIOS firmware, derived from RackAddress.
@@ -110,7 +110,7 @@ var (
 )
 
 // BootISOBuilderUnavailableError says why this installation cannot build Boot ISOs. Its message
-// is only Reason — one operator-facing sentence such as "the Boot Media directory … is not
+// is only Reason — one user-facing sentence such as "the Boot Media directory … is not
 // writable" — because clients show it verbatim under their own "cannot build" heading. It
 // matches ErrBootISOBuilderUnavailable with errors.Is.
 type BootISOBuilderUnavailableError struct {
@@ -161,7 +161,7 @@ type BootChain struct {
 }
 
 // BootChainRenderer is the provisioner capability Boot ISOs are built from: it validates the
-// operator's boot server address in the provisioner's own format and renders the content that
+// user's boot server address in the provisioner's own format and renders the content that
 // chains to it. A failure wraps ErrInvalidBootISO.
 type BootChainRenderer interface {
 	RenderBootChain(address string) (BootChain, error)

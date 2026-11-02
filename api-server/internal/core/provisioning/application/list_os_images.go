@@ -51,7 +51,7 @@ type OSImageStatusItem struct {
 // swallow-owned metadata onto them.
 //
 // Scoped to an integration rather than fleet-wide: two sites can have different images synced,
-// so a merged list would offer an operator images their target site cannot actually deploy —
+// so a merged list would offer a user images their target site cannot actually deploy —
 // and the metadata is likewise integration-scoped. The provider stays authoritative for the
 // catalog; the metadata only supplies swallow-chosen values where they exist (decision 071).
 type ListOSImagesUseCase struct {
@@ -76,7 +76,7 @@ func NewListOSImagesUseCase(
 // metadata whose image is no longer in the catalog is simply not emitted, so a stale override
 // never invents an image. A failure reading the provider is returned as-is; a failure reading
 // metadata records is also returned rather than silently dropping overrides, because a partial merge
-// would misrepresent what the operator configured.
+// would misrepresent what the user configured.
 func (uc *ListOSImagesUseCase) Execute(ctx context.Context, integrationID string) ([]OSImageItem, error) {
 	provider, err := uc.providers.For(ctx, integrationID)
 	if err != nil {

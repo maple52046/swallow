@@ -1,6 +1,6 @@
 // Package libvirt implements serverdomain.LibvirtHost (decision 055): swallow's access to a
 // Hypervisor's system libvirt daemon, by running virsh over an SSH login made with the Deployment
-// Key. It reads domains, stops one the operator allowed to stop, and gives a domain libvirt Boot
+// Key. It reads domains, stops one the user allowed to stop, and gives a domain libvirt Boot
 // Media by uploading the Boot ISO as a storage volume and rewriting the domain's persistent
 // definition. It never switches power for the provisioner and holds no hypervisor credential.
 package libvirt
@@ -31,7 +31,7 @@ const (
 	poolTarget = "/var/lib/libvirt/images"
 	// uploadTimeout bounds one login that streams a Boot ISO, a few MiB on an internal network.
 	uploadTimeout = 5 * time.Minute
-	// maxDetail bounds libvirt's own explanation carried into an operator message.
+	// maxDetail bounds libvirt's own explanation carried into a user message.
 	maxDetail = 400
 )
 
@@ -287,7 +287,7 @@ func (h *Host) explain(err error, hypervisor serverdomain.HypervisorLogin, domai
 	return failure
 }
 
-// detail is libvirt's explanation for an operator: its error lines, without virsh's prefix,
+// detail is libvirt's explanation for a user: its error lines, without virsh's prefix,
 // bounded in length.
 func detail(output string) string {
 	var lines []string

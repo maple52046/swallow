@@ -30,7 +30,7 @@ interface PlatformUninstallChoicesProps {
  * not chosen here but on submit, through the variant behind the submit button's chevron.
  *
  * The caller owns the state and resets the typed confirmation and cancel consent when the release
- * choice changes, because it changes what the operator is agreeing to.
+ * choice changes, because it changes what the user is agreeing to.
  */
 export function PlatformUninstallChoices({
   scope,

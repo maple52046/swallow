@@ -20,7 +20,7 @@ function primaryArchitecture(architecture: string): string {
 }
 
 /**
- * Starts a target-specific image deployment test on an operator-selected ready Server. The durable
+ * Starts a target-specific image deployment test on a user-selected ready Server. The durable
  * backend still records canonical verification evidence; this presentation describes the concrete
  * user-visible behavior: deploy in Disk or RAM mode, confirm SSH access, then return the Server.
  */
@@ -50,7 +50,7 @@ export function TestImageDeploymentDialog({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<DisplayedFailure | null>(null)
   // Default false: a verification borrows the Server and returns it to the ready pool when done.
-  // When kept, the Server is left deployed (on success) for the operator to use or inspect.
+  // When kept, the Server is left deployed (on success) for the user to use or inspect.
   const [keepServer, setKeepServer] = useState(false)
 
   useEffect(() => {

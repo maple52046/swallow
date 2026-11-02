@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 )
 
-// MonitoringLink is an operator-registered link from a Platform to the runtime's own
+// MonitoringLink is a user-registered link from a Platform to the runtime's own
 // monitoring user interface — for example the Grafana that Omnistat brings for a Slurm
 // Platform (glossary: Monitoring Link).
 //
@@ -16,7 +16,7 @@ import (
 // against, or health-checks the URL, and a link is not a metrics Integration. swallow's usage
 // charts keep reading the Site metrics backend whether or not a Platform has links.
 type MonitoringLink struct {
-	// Name is the label an operator clicks; unique within the Platform, case-insensitively.
+	// Name is the label a user clicks; unique within the Platform, case-insensitively.
 	Name string
 	// URL is an absolute http or https address with a host.
 	URL string
@@ -31,7 +31,7 @@ const (
 )
 
 // ErrInvalidMonitoringLink marks a Monitoring Link list that breaks one of the invariants
-// below. The wrapped message names the offending link so an operator can fix it.
+// below. The wrapped message names the offending link so a user can fix it.
 var ErrInvalidMonitoringLink = errors.New("invalid monitoring link")
 
 // NormalizeMonitoringLinks validates a replacement list and returns it trimmed.

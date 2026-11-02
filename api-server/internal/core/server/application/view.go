@@ -147,7 +147,7 @@ type ProvisioningAxisItem struct {
 	Locked    bool   `json:"locked"`
 	// InspectionRequired means the provisioner's storage layout cannot take a disk deployment
 	// until the Server is inspected again (servers-list.md); disk deployments are refused while
-	// it is set. InspectionRequiredReason is the operator-facing explanation. Both are omitted
+	// it is set. InspectionRequiredReason is the user-facing explanation. Both are omitted
 	// when not required.
 	InspectionRequired       bool   `json:"inspectionRequired,omitempty"`
 	InspectionRequiredReason string `json:"inspectionRequiredReason,omitempty"`

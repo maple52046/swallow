@@ -63,7 +63,7 @@ export interface SSHKey {
 
 /**
  * The one-time result of generating an Access Key pair. `privateKey` exists only in this response:
- * swallow keeps no copy, so the UI must let the operator save it before discarding it, and must
+ * swallow keeps no copy, so the UI must let the user save it before discarding it, and must
  * never persist or log it.
  */
 export interface GeneratedAccessKey {
@@ -92,7 +92,7 @@ export interface ApiKey {
 
 /**
  * The one-time result of creating an API Key. `secret` exists only in this response: the UI must
- * let the operator copy it before discarding it, and must never persist or log it.
+ * let the user copy it before discarding it, and must never persist or log it.
  */
 export interface CreatedApiKey {
   key: ApiKey

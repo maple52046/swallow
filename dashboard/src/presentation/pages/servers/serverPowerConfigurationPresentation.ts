@@ -7,7 +7,7 @@ import type { PowerDriverOption, PowerFamily, SetServerPowerConfigurationInput }
  */
 export const VIRSH_ADDRESS_PATTERN = /^qemu\+ssh:\/\/(?:[^:@/?#\s]+@)?[^@/?#\s]+\/system$/
 
-/** The edit form's fields, as typed; `driver` is '' until the operator chooses one. */
+/** The edit form's fields, as typed; `driver` is '' until the user chooses one. */
 export interface PowerConfigurationDraft {
   driver: string
   address: string

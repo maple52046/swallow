@@ -493,7 +493,7 @@ func TestBootMediaEnableGates(t *testing.T) {
 	})
 }
 
-// Disabling always saves the operator's intent; resetting the BMC is best effort.
+// Disabling always saves the user's intent; resetting the BMC is best effort.
 func TestBootMediaDisableSavesEvenWhenBMCFails(t *testing.T) {
 	server := physicalServer("srv-1")
 	server.BootMedia = &serverdomain.BootMediaSetting{Enabled: true, BootOverride: "Once"}
@@ -654,7 +654,7 @@ func TestBootMediaLegacySettingWithoutBootISO(t *testing.T) {
 	}
 }
 
-// A setting whose Boot ISO was deleted is still reported, unavailable, so the operator sees it.
+// A setting whose Boot ISO was deleted is still reported, unavailable, so the user sees it.
 func TestBootMediaViewReportsMissingBootISO(t *testing.T) {
 	server := physicalServer("srv-1")
 	server.BootMedia = &serverdomain.BootMediaSetting{Enabled: true, ISOID: "iso-gone"}

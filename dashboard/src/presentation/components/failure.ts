@@ -1,6 +1,6 @@
 import type { RequestFailure } from '@/application/ports/RequestFailure'
 
-/** What the UI shows for a failure: the operator-facing message and, when known, the request ID. */
+/** What the UI shows for a failure: the user-facing message and, when known, the request ID. */
 export interface DisplayedFailure {
   message: string
   requestId?: string

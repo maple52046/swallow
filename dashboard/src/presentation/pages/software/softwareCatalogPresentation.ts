@@ -202,7 +202,7 @@ export function softwareFootprints(
   return result
 }
 
-/** Maps assignment lifecycle to the coarser detail filter chosen by the operator. */
+/** Maps assignment lifecycle to the coarser detail filter chosen by the user. */
 export function assignmentMatchesLens(state: SoftwareAssignmentState, lens: SoftwareDeploymentLens): boolean {
   if (lens === 'all') return true
   if (lens === 'changing') return state === 'pending' || state === 'uninstalling'
@@ -261,7 +261,7 @@ export function softwareManagedByPlatform(server: Server, entry: SoftwareCatalog
   return Boolean(entry.refusedForClaimedServers && server.status.platformClaim)
 }
 
-/** Operator-facing reason rendered beside a disabled target or software choice. */
+/** User-facing reason rendered beside a disabled target or software choice. */
 export function softwareTargetBlockerLabel(blocker: SoftwareTargetBlocker): string {
   switch (blocker) {
     case 'existing_assignment':

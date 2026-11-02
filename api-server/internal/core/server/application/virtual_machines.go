@@ -9,7 +9,7 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
-// VirtualMachineUseCase lists the libvirt domains of a Hypervisor (decision 055), so an operator
+// VirtualMachineUseCase lists the libvirt domains of a Hypervisor (decision 055), so a user
 // can choose virtual machines to enroll by name. It only reads: libvirt over the Deployment Key
 // login, and the Server projection to tell which domains are already Servers.
 type VirtualMachineUseCase struct {

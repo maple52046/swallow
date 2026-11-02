@@ -136,7 +136,7 @@ func TestDo_EndedSessionAsksToLogInAgain(t *testing.T) {
 	err := c.JSON(context.Background(), Request{Method: "GET", Path: "servers/", Auth: AuthBearer}, nil)
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized || !strings.Contains(err.Error(), "swallow login") {
-		t.Fatalf("error = %v, want a 401 telling the operator to run swallow login", err)
+		t.Fatalf("error = %v, want a 401 telling the user to run swallow login", err)
 	}
 	if len(saved) != 0 {
 		t.Errorf("persisted %+v after a failed refresh, want nothing", saved)

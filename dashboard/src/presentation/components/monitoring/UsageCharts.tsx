@@ -24,9 +24,9 @@ interface UsageChartsProps {
   descriptors: readonly MetricDescriptor[]
   window: MetricRangeWindow
   onWindowChange: (window: MetricRangeWindow) => void
-  /** Copy for the `idle` state, telling the operator how to choose a scope. */
+  /** Copy for the `idle` state, telling the user how to choose a scope. */
   idleMessage?: string
-  /** Where an operator registers a metrics Integration; shown when the backend is unavailable. */
+  /** Where a user registers a metrics Integration; shown when the backend is unavailable. */
   integrationsHref?: string
   /** Extra header controls, e.g. the optional Grafana link. */
   actions?: ReactNode

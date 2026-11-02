@@ -5,7 +5,7 @@ import (
 	"errors"
 )
 
-// ErrActivityWorkerStopping distinguishes local worker drain from an operator-requested
+// ErrActivityWorkerStopping distinguishes local worker drain from a user-requested
 // Workflow cancellation. Executors must leave external work running for this cause so the
 // next activity attempt can resume it by idempotency key.
 var ErrActivityWorkerStopping = errors.New("activity worker is stopping")

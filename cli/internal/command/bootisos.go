@@ -9,7 +9,7 @@ import (
 	"github.com/maple52046/swallow/cli/internal/client"
 )
 
-// bootISOBuildTimeout is the client-side deadline for building a Boot ISO when the operator did
+// bootISOBuildTimeout is the client-side deadline for building a Boot ISO when the user did
 // not set --request-timeout. The API packages the ISO synchronously and bounds that at two
 // minutes; a build normally takes seconds, but the global 60-second default must not abandon one
 // the server is still finishing.
@@ -89,7 +89,7 @@ func provisioningBootISOsCmd() *cobra.Command {
 }
 
 // sendJSONWithin sends a JSON request whose server-side work can outlast the global default
-// timeout, and prints the response. When the operator left --request-timeout at its default, the
+// timeout, and prints the response. When the user left --request-timeout at its default, the
 // client deadline is raised to atLeast; an explicit --request-timeout is always honoured.
 func sendJSONWithin(cmd *cobra.Command, method, path string, body any, atLeast time.Duration) error {
 	timeout := gf.timeout

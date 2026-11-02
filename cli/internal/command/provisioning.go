@@ -128,7 +128,7 @@ func provisioningImageUploadCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("integration", "", "target provisioner integration id")
-	cmd.Flags().String("name", "", "operator-chosen image name")
+	cmd.Flags().String("name", "", "user-chosen image name")
 	cmd.Flags().String("architecture", "", "CPU architecture, e.g. amd64")
 	cmd.Flags().String("title", "", "optional human-readable label")
 	cmd.Flags().String("filetype", "", "optional artifact format (provider default when omitted)")
@@ -451,7 +451,7 @@ func provisioningReleaseCmd() *cobra.Command {
 	cmd.Flags().StringSlice("server", nil, "target Server id (repeatable)")
 	addCancelActiveWorkflowsFlag(cmd)
 	addEraseFlags(cmd)
-	cmd.Flags().String("comment", "", "optional operator comment")
+	cmd.Flags().String("comment", "", "optional comment")
 	cmd.Flags().Bool("unbind-static-ips", false, "unbind captured static IPs after release")
 	return cmd
 }
@@ -488,7 +488,7 @@ func provisioningRecoverCmd() *cobra.Command {
 	addFileFlag(cmd, "recover body ({serverIds, ...}); omit to use the flags below")
 	cmd.Flags().StringSlice("server", nil, "target Server id (repeatable)")
 	addCancelActiveWorkflowsFlag(cmd)
-	cmd.Flags().String("comment", "", "optional operator comment")
+	cmd.Flags().String("comment", "", "optional comment")
 	cmd.Flags().Bool("unbind-static-ips", false, "unbind captured static IPs during recovery")
 	return cmd
 }

@@ -3,7 +3,7 @@ import { toaster } from '@/presentation/components/ui/toaster'
 /** Semantic notification tone; each tone pairs a Chakra indicator with text. */
 export type ToastTone = 'info' | 'success' | 'warning' | 'error'
 
-/** A transient operator message. Duration is milliseconds and may override tone defaults. */
+/** A transient user message. Duration is milliseconds and may override tone defaults. */
 export interface ToastOptions {
   title: string
   description?: string
@@ -30,7 +30,7 @@ const TONE_TO_TYPE: Record<ToastTone, 'info' | 'success' | 'warning' | 'error'> 
   error: 'error',
 }
 
-// Per-tone dwell time: failures linger longest so operators can read the cause,
+// Per-tone dwell time: failures linger longest so users can read the cause,
 // routine confirmations clear quickly. Overridable per call via `duration`.
 const DURATION: Record<ToastTone, number> = {
   info: 4000,

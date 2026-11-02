@@ -62,7 +62,7 @@ func TestUninstallStepsReleaseSkipsUninstall(t *testing.T) {
 	if finalize.Job != jobFinalizeUninstall {
 		t.Errorf("finalize step Job = %q, want %q", finalize.Job, jobFinalizeUninstall)
 	}
-	// The release path has no extra vars, so the operator's deleteRecord choice must ride on the
+	// The release path has no extra vars, so the user's deleteRecord choice must ride on the
 	// finalize Task that performs the cleanup.
 	if got, _ := finalize.Parameters[deleteRecordParameter].(bool); !got {
 		t.Errorf("finalize step parameters = %v, want %s=true", finalize.Parameters, deleteRecordParameter)
@@ -103,7 +103,7 @@ func TestUninstallStepsKeepServersUsesAnsibleStep(t *testing.T) {
 	if len(steps) != 1 {
 		t.Fatalf("keep-servers uninstall = %d steps, want 1", len(steps))
 	}
-	// The operator's choices ride on the completion that carries them out, not on the playbook's
+	// The user's choices ride on the completion that carries them out, not on the playbook's
 	// variables (decision 072: a handler never reads the Runner's parameters).
 	if len(steps[0].Completion) != 1 {
 		t.Fatalf("completion = %v, want the platform-uninstall completion", steps[0].Completion)

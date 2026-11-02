@@ -27,7 +27,7 @@ export const EXPERIMENTAL_FEATURES: readonly ExperimentalFeature[] = [
  * The composition root binds exactly one implementation per build: development
  * builds persist an adjustable per-browser choice; release builds bind a fixed
  * implementation where every feature is off and nothing can turn it on, so an
- * unfinished surface never reaches operators through a stored preference.
+ * unfinished surface never reaches users through a stored preference.
  */
 export interface ExperimentalFeatureSettings {
   /** False in release builds: `setEnabled` and `reset` must be no-ops there. */

@@ -10,7 +10,7 @@ import (
 // TestStaleFinishedDeployment pins the recovery rule: a finished deployment outcome on a
 // machine that is back in a not-deployed provider state — `ready` (released) or `allocated`
 // (reserved but not running an OS) — is stale and should be cleared, while an active or
-// operator-pending deployment (or a machine still deployed) must be left alone so reconcile
+// user-pending deployment (or a machine still deployed) must be left alone so reconcile
 // never races an in-flight Operation.
 func TestStaleFinishedDeployment(t *testing.T) {
 	ready := &provisioningdomain.Machine{Status: provisioningdomain.MachineStatusReady}

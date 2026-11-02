@@ -14,7 +14,7 @@ export interface ApiKeyRepository {
   listApiKeys(): Promise<ApiKey[]>
   /**
    * Creates a key. `expiresAt` (ISO 8601, in the future) is omitted for a key that never expires.
-   * The returned secret is shown exactly once; callers must hand it to the operator and drop it.
+   * The returned secret is shown exactly once; callers must hand it to the user and drop it.
    */
   createApiKey(input: { name: string; expiresAt?: string }): Promise<CreatedApiKey>
   /** Deletes one of the caller's keys; it stops authenticating immediately. */

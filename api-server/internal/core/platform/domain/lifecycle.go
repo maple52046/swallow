@@ -45,7 +45,7 @@ type LifecycleOperation struct {
 // LoginServerIDs names the Slurm login (submission) hosts in request order. They are not
 // controllers or compute members and so appear in neither RoleAssignments (the k0s-shaped
 // controller/worker projection) nor the membership axis; they are surfaced here so a read model
-// can tell an operator which host to use to operate the cluster. Empty for Kubernetes and for
+// can tell a user which host to use to operate the cluster. Empty for Kubernetes and for
 // a Slurm cluster deployed without a login node.
 //
 // K0sVersion is the k0s version a Kubernetes deployment installed, empty for Slurm and for
@@ -78,7 +78,7 @@ type ManagedIntegrationCleaner interface {
 
 // ServerReleaseOptions carries the provider-neutral release choices applied to each
 // member server when an uninstall also releases them. They mirror the standalone Release
-// action so an operator gets the same disk-erase and static-IP handling.
+// action so a user gets the same disk-erase and static-IP handling.
 type ServerReleaseOptions struct {
 	Erase           bool
 	SecureErase     bool

@@ -34,7 +34,7 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
   // Node roles are per-daemon (a Server may run slurmctld, slurmd, or both).
   const [daemons, setDaemons] = useState<Record<string, { controller: boolean; compute: boolean; login: boolean }>>({})
   // Shared workload filesystem (user/job data), distinct from controller state. "none" = no
-  // shared storage; self-hosted exports from the login node; external mounts an operator NFS.
+  // shared storage; self-hosted exports from the login node; external mounts a user NFS.
   const [workloadMode, setWorkloadMode] = useState<'none' | 'self-hosted' | 'external'>('none')
   const [workloadMountPath, setWorkloadMountPath] = useState('/shared')
   const [workloadNfsUrl, setWorkloadNfsUrl] = useState('')

@@ -45,7 +45,7 @@ interface AddServersDialogProps {
 }
 
 /**
- * Guides an operator through adding Servers (Server Enrollment, decision 053), from the Server
+ * Guides a user through adding Servers (Server Enrollment, decision 053), from the Server
  * list's header and empty state.
  *
  * It asks one question per step and shows only the next action: keep the OS, or PXE boot; for
@@ -53,9 +53,9 @@ interface AddServersDialogProps {
  * boots through the iPXE Boot ISO, mounted from the BMC console or with Redfish). While the
  * experimental `virtualMachines` switch is on, a third answer enrolls libvirt virtual machines by
  * name from a hypervisor (decision 055). Each path ends on a waiting panel that lists Servers
- * appearing in the live working set since the guide opened, with their state, so the operator sees
+ * appearing in the live working set since the guide opened, with their state, so the user sees
  * New → Inspecting → Ready (or Deployed) without leaving. Whether the server is restarted is the
- * operator's call; the guide only says how it must boot. Servers are never created here; they come
+ * user's call; the guide only says how it must boot. Servers are never created here; they come
  * from reconciliation.
  *
  * The existing-OS command embeds the provisioner's credential. It is read only on that step,
@@ -163,7 +163,7 @@ function Choice({ icon, title, hint, onSelect }: { icon: ReactNode; title: strin
   )
 }
 
-/** The one thing the operator does on an action step. */
+/** The one thing the user does on an action step. */
 function Action({ children }: { children: ReactNode }) {
   return <Text fontWeight="medium">{children}</Text>
 }
@@ -171,7 +171,7 @@ function Action({ children }: { children: ReactNode }) {
 /**
  * The external-DHCP step: pick (or build) the provisioner's Boot ISO, then mount it on the
  * server's BMC — from the BMC web console, or with the Redfish commands shown for the BMC address
- * and user the operator types (curl prompts for the password; it is never entered here). Boot
+ * and user the user types (curl prompts for the password; it is never entered here). Boot
  * ISOs are read for the current Site when the step opens; a failed read is shown inline.
  */
 function BootISOAction({ provisioners }: { provisioners: readonly Integration[] }) {
@@ -293,7 +293,7 @@ type BundleState =
  * The existing-OS step: one line to run as root on the host. It downloads the enrollment script
  * from this console's own origin, and the script downloads the swallow CLI from there too, so the
  * host needs nothing installed beforehand. The bundle is read as soon as a provisioner is known
- * (immediately with one provisioner), because choosing this path is the operator's request for it.
+ * (immediately with one provisioner), because choosing this path is the user's request for it.
  */
 function ExistingOSAction({ provisioners }: { provisioners: readonly Integration[] }) {
   const { provisioning } = useApp()

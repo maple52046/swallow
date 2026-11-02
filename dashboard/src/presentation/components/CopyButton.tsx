@@ -18,7 +18,7 @@ interface CopyButtonProps {
  * Inline, icon-only button that copies a single field value to the clipboard.
  *
  * Rendered next to a displayed identifier (hostname, MAC, IP) in dense tables and
- * detail views so an operator can grab the value without selecting text. This is
+ * detail views so a user can grab the value without selecting text. This is
  * the shared source for inline value copying — compose it rather than
  * re-implementing `navigator.clipboard`.
  *

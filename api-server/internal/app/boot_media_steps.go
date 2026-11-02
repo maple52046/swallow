@@ -129,13 +129,13 @@ func awaitingNetworkBoot(progress deploymentProgress) bool {
 }
 
 // ensureBootMedia runs one ensure-boot-media Task. A BMC failure is retryable: the BMC may be
-// busy or briefly unreachable, and the operator can retry the Task once it answers; the dependent
+// busy or briefly unreachable, and the user can retry the Task once it answers; the dependent
 // provision-os Task does not run until this succeeds, because deploying a Server whose BMC will
 // not boot the ISO cannot reach the provisioner.
 //
 // An OS deployment's Task carries the Boot ISO URL frozen at acceptance. An inspect-hardware
 // Task instead resolves the Server's Boot Media when it runs (resolveBootMediaLiveParameter), so
-// an operator who enables Boot Media after an inspection stopped for attention gets it applied by
+// a user who enables Boot Media after an inspection stopped for attention gets it applied by
 // the retry; with Boot Media disabled that Task succeeds without touching the BMC.
 func (e platformWorkflowStepExecutor) ensureBootMedia(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
 	if e.bootMedia == nil {
@@ -174,7 +174,7 @@ func (e platformWorkflowStepExecutor) ensureBootMedia(ctx context.Context, input
 }
 
 // liveBootMediaISO reads the Server's Boot Media now and resolves its Boot ISO. enabled is false
-// when Boot Media is off. A Boot ISO that no longer exists fails retryably, because the operator
+// when Boot Media is off. A Boot ISO that no longer exists fails retryably, because the user
 // can choose or rebuild one and retry; a failure to read the Server is retryable for the same
 // reason as a BMC failure. Whether the method can use the ISO (redfish needs its URL, libvirt its
 // file) is the ensure's question.

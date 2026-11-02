@@ -10,7 +10,7 @@ import type { ProvisioningActionResult } from "@/domain/server/types";
  */
 export type DeploymentNetworkMode = "automatic" | "dhcp" | "static";
 
-/** Operator-facing labels of the deployment addressing modes; the key is the domain value sent. */
+/** User-facing labels of the deployment addressing modes; the key is the domain value sent. */
 export const DEPLOYMENT_NETWORK_MODE_LABELS: Record<DeploymentNetworkMode, string> = {
   automatic: "Automatic",
   dhcp: "DHCP",
@@ -19,14 +19,14 @@ export const DEPLOYMENT_NETWORK_MODE_LABELS: Record<DeploymentNetworkMode, strin
 
 /**
  * Where an OS deployment runs. `disk` installs to the machine's disk; `ram` runs from memory
- * (the fact the backend still calls "ephemeral"). This is the canonical operator-facing
+ * (the fact the backend still calls "ephemeral"). This is the canonical user-facing
  * vocabulary; the dashboard sends `deployTarget` and labels `ram` as "RAM deploy". A `ram`
  * target maps to `ephemeral=true` at the API boundary.
  */
 export type DeployTarget = "disk" | "ram";
 
 /**
- * Operator-facing labels for deploy targets. The RAM choice stays concise here; its card
+ * User-facing labels for deploy targets. The RAM choice stays concise here; its card
  * description still explains that it runs from memory and leaves Server disks unchanged.
  */
 export const DEPLOY_TARGET_LABELS: Record<DeployTarget, string> = {
@@ -151,7 +151,7 @@ export interface ProvisioningOperationReference {
 }
 
 /**
- * Operator intent to prove one custom OS Image works for one deploy target by deploying it on a
+ * User intent to prove one custom OS Image works for one deploy target by deploying it on a
  * chosen ready Server. On success the image is marked verified for the target and the Server is
  * auto-released back to ready. Only custom (uploaded) images need verification.
  */
@@ -358,7 +358,7 @@ export interface ProvisioningTask {
  *   `uefiChainUrl` marks an ISO built before decision 047 that sends UEFI firmware through iPXE and
  *   needs a rebuild (see `bootISONeedsRebuild`).
  * - `script` and `grubConfig` are what swallow rendered from its fixed templates; display-only.
- * - `url` is where BMCs mount the ISO without credentials (and where an operator can download it);
+ * - `url` is where BMCs mount the ISO without credentials (and where a user can download it);
  *   it is empty when the installation has no Boot Media base URL. A rebuild keeps it.
  * - `inUseBy` counts Servers whose enabled Boot Media uses it; while non-zero it cannot be deleted.
  */
@@ -367,7 +367,7 @@ export interface BootISO {
   name: string;
   siteId: string;
   integrationId: string;
-  /** The MAAS rack as the operator gave it: an IPv4 address or hostname, optionally `:port`. */
+  /** The MAAS rack as the user gave it: an IPv4 address or hostname, optionally `:port`. */
   rackAddress: string;
   chainUrl: string;
   uefiChainUrl: string;
@@ -398,7 +398,7 @@ export function bootISONeedsRebuild(iso: Pick<BootISO, "uefiChainUrl">): boolean
 
 /**
  * Whether this installation can build Boot ISOs. `reason` (present when `available` is false) is
- * the API's operator-facing explanation — a missing Boot Media base URL, an unwritable directory,
+ * the API's user-facing explanation — a missing Boot Media base URL, an unwritable directory,
  * or iPXE assets or packaging tools missing from the image — shown verbatim.
  */
 export interface BootISOBuilderStatus {
@@ -413,7 +413,7 @@ export interface BootISOCatalog {
 }
 
 /**
- * A build request. The operator chooses the provisioner and names the MAAS rack; the script is
+ * A build request. The user chooses the provisioner and names the MAAS rack; the script is
  * always swallow's template, so there is no script input.
  */
 export interface CreateBootISOInput {
@@ -424,7 +424,7 @@ export interface CreateBootISOInput {
 
 /**
  * What a host that keeps its operating system needs to enroll itself into one provisioner
- * (Server Enrollment, contract server-enrollment.md). `command` is one line the operator runs on
+ * (Server Enrollment, contract server-enrollment.md). `command` is one line the user runs on
  * the host: it downloads the enrollment script from swallow and runs it as root, which downloads
  * the swallow CLI and enrolls the host. The host then appears as a `deployed` Server after the
  * next inventory sync.
@@ -475,7 +475,7 @@ export interface VirtualMachineEnrollmentAccepted {
  */
 export type ProvisionerHttpProxyMode = "none" | "builtin" | "external" | "peer";
 
-/** Every Provisioner HTTP Proxy mode, in the order the operator chooses between them. */
+/** Every Provisioner HTTP Proxy mode, in the order the user chooses between them. */
 export const PROVISIONER_HTTP_PROXY_MODES: readonly ProvisionerHttpProxyMode[] = ["none", "builtin", "external", "peer"];
 
 /**
@@ -514,7 +514,7 @@ export interface SetProvisionerHttpProxyInput {
   httpProxy: string;
 }
 
-/** Whether `mode` routes deployed machines through an operator-given proxy URL. */
+/** Whether `mode` routes deployed machines through a user-given proxy URL. */
 export function httpProxyModeNeedsUrl(mode: ProvisionerHttpProxyMode): boolean {
   return mode === "external" || mode === "peer";
 }

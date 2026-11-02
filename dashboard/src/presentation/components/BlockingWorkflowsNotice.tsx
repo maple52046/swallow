@@ -22,7 +22,7 @@ interface BlockingWorkflowsNoticeProps {
 /**
  * The confirmation every Server-holding action shares before it asks the backend to cancel the
  * Workflows in its way (`cancelActiveWorkflows`, decision 061): it names each Workflow and its
- * status as text, and the operator opts in with a checkbox. The dialog sends the flag and closes;
+ * status as text, and the user opts in with a checkbox. The dialog sends the flag and closes;
  * the backend does the canceling and starts the action once those Workflows end.
  */
 export function BlockingWorkflowsNotice({

@@ -4,7 +4,7 @@ package domain
 // truth for which recovery intent is allowed from each normalized MachineStatus and which
 // provider primitive sequence a Recover Operation uses to reach ready. It exists so the
 // durable Release, the Recover Operation, and the single-action operator-state use cases
-// share one matrix and never drift, and so an operator meets a swallow-authored reason
+// share one matrix and never drift, and so a user meets a swallow-authored reason
 // before the provisioner's own rejection text. See docs/decisions/033.
 
 // RecoveryIntent is one swallow-owned command that can be directed at a Server whose

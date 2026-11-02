@@ -8,7 +8,7 @@ import { useToast } from '@/presentation/components/toast/toastContext'
 import { serverActionAvailability } from './serverActions'
 
 /**
- * Tells the operator on the Server detail page that a disk deployment is refused until the Server is
+ * Tells the user on the Server detail page that a disk deployment is refused until the Server is
  * inspected again (`provisioning.inspectionRequired`, servers-list.md), and offers that inspection in
  * place. The typical cause is a UEFI Server whose provisioner storage layout was built while it booted
  * BIOS: every disk deployment would fail while partitioning, so swallow refuses it up front instead.

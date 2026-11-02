@@ -34,7 +34,7 @@ type platformDoc struct {
 	DeviceMetricsExporter *deviceMetricsExporterDoc `bson:"deviceMetricsExporter,omitempty"`
 	// ContainerRuntime is absent when the Slurm container runtime feature is off.
 	ContainerRuntime string `bson:"containerRuntime,omitempty"`
-	// GPUDriver is absent when the operator requested no driver options.
+	// GPUDriver is absent when the user requested no driver options.
 	GPUDriver *gpuDriverDoc `bson:"gpuDriver,omitempty"`
 	// GPUGresType is absent when the Slurm GRES type is derived from the GPU architecture.
 	GPUGresType string `bson:"gpuGresType,omitempty"`
@@ -50,7 +50,7 @@ type platformDoc struct {
 	UpdatedAt  time.Time          `bson:"updatedAt"`
 }
 
-// gpuDriverDoc persists the operator's amdgpu driver intent.
+// gpuDriverDoc persists the user's amdgpu driver intent.
 type gpuDriverDoc struct {
 	ModuleOptions map[string]string `bson:"moduleOptions,omitempty"`
 }
@@ -111,7 +111,7 @@ type gpuOperatorDoc struct {
 	UpdatedAt        time.Time `bson:"updatedAt"`
 }
 
-// monitoringLinkDoc persists one operator-registered Monitoring Link.
+// monitoringLinkDoc persists one user-registered Monitoring Link.
 type monitoringLinkDoc struct {
 	Name string `bson:"name"`
 	URL  string `bson:"url"`

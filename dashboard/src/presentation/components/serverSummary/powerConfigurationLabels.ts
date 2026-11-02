@@ -1,7 +1,7 @@
 import type { PowerControl, PowerFamily } from '@/domain/server/types'
 
 /**
- * Operator wording for a provisioner power driver (glossary Power Configuration). The domain value
+ * User wording for a provisioner power driver (glossary Power Configuration). The domain value
  * stays the provisioner's driver name, which is what the API reads and writes; an unknown driver is
  * shown verbatim because it is still the provisioner's own driver.
  */

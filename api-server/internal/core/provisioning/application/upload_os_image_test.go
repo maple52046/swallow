@@ -11,7 +11,7 @@ import (
 )
 
 // osImageUploadableProvider adds the optional OSImageUploader capability and records the request,
-// so a test can confirm the use case forwards the operator intent unchanged and returns the
+// so a test can confirm the use case forwards the user intent unchanged and returns the
 // provider's created image.
 type osImageUploadableProvider struct {
 	osImageBaseProvider

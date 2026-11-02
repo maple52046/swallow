@@ -98,7 +98,7 @@ type PowerConfiguration struct {
 
 // RedactPowerAddress returns a Power Configuration address safe to display: a password in the URL,
 // the query, and the fragment are removed because they can carry credentials or tokens. A user name
-// is kept — for a libvirt URI it is the SSH account the provisioner connects as, which the operator
+// is kept — for a libvirt URI it is the SSH account the provisioner connects as, which the user
 // needs to see and is not a secret. A value that is not a URL is cut at its first '?' or '#', and
 // anything up to its last '@' is dropped, because a bare "user:password@host" cannot be told apart
 // from a user name alone.
@@ -122,7 +122,7 @@ func RedactPowerAddress(address string) string {
 	return address
 }
 
-// PowerConfigurationChange is an operator's replacement of one machine's Power Configuration.
+// PowerConfigurationChange is a user's replacement of one machine's Power Configuration.
 //
 // Every non-secret parameter of Driver is replaced as given, so an empty Username removes the
 // account. Password is write-only and three-valued: nil keeps the password the provisioner holds
@@ -139,7 +139,7 @@ type PowerConfigurationChange struct {
 var (
 	// ErrInvalidPowerConfiguration marks a Power Configuration change that swallow refuses before
 	// calling the provisioner: an unsupported driver, or a parameter missing, malformed, or not
-	// applicable to the driver. Errors wrapping it carry the operator-facing reason.
+	// applicable to the driver. Errors wrapping it carry the user-facing reason.
 	ErrInvalidPowerConfiguration = errors.New("invalid power configuration")
 	// ErrPowerConfigurationManaged marks a write to a machine whose power the provisioner takes
 	// from another object (a MAAS VM host); that object's configuration must change instead.
@@ -147,7 +147,7 @@ var (
 )
 
 // PowerAdapter is the code model of one power driver family (decision 054). It knows the drivers
-// of its family and validates an operator's configuration for them; it never switches power, which
+// of its family and validates a user's configuration for them; it never switches power, which
 // the provisioner does through its own driver.
 //
 // Functions only some families have are optional extensions reached by a type assertion, such as
@@ -184,7 +184,7 @@ type BMCPowerAdapter interface {
 	BMCAccess(config PowerConfiguration) (BMCAccess, bool)
 }
 
-// PowerDriverOption is one driver an operator may choose when writing a Power Configuration.
+// PowerDriverOption is one driver a user may choose when writing a Power Configuration.
 type PowerDriverOption struct {
 	Driver PowerDriver
 	Family PowerFamily
@@ -266,7 +266,7 @@ type PowerConfigurationReader interface {
 	PowerConfiguration(ctx context.Context, machineID string) (*PowerConfiguration, error)
 }
 
-// PowerConfigurationWriter writes an operator's Power Configuration through to the provisioner. An
+// PowerConfigurationWriter writes a user's Power Configuration through to the provisioner. An
 // adapter that sets ProviderCapabilities.PowerConfiguration must implement it.
 //
 // change has already been normalized by its family's adapter. Implementations apply the Password

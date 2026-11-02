@@ -153,7 +153,7 @@ function distinctValues(params: URLSearchParams, key: string): string[] {
 /**
  * Discovery filters that depend on an in-development feature. A filter that is not
  * offered is ignored when parsing and removed when canonicalizing, so a bookmarked
- * `?health=down` can never narrow the list through a control the operator cannot see.
+ * `?health=down` can never narrow the list through a control the user cannot see.
  */
 export interface ServerInventoryFilterAvailability {
   /** False while monitoring is in development (always, in release builds). */
@@ -268,7 +268,7 @@ export function isServerDeploymentChanging(server: Server): boolean {
 }
 
 /**
- * Provisioning or deployment conditions that need operator review, without reading Health: a
+ * Provisioning or deployment conditions that need user review, without reading Health: a
  * failed, broken, or rescue OS Provisioning State, or a failed or attention-needing swallow
  * deployment. These are the states the Deployment cell shows as a problem, so the Needs attention
  * view, the Attention count, the default order, and the row tone use it.
@@ -334,7 +334,7 @@ export function serverGpuProfile(server: Server): string {
  * Compute inventory outranks display inventory. Within that selected kind, the profile with the
  * largest count is shown using its full vendor/model name. Callers retain `serverGpuProfile` for
  * exact tooltip/detail text and grouping, where hiding the remaining profiles would lose
- * operator-visible inventory meaning.
+ * user-visible inventory meaning.
  */
 export function serverGpuCompactSummary(server: Server): string {
   return gpuInventoryCompactSummary(preferredServerGPUs(server))
@@ -489,7 +489,7 @@ export function serverFleetFacts(servers: readonly Server[]): ServerFleetFacts {
  * 4. A swallow deployment that needs review opens its Workflow, which holds the failed Step.
  * 5. Review activity (Provider events) for a failed, broken, or rescue Server.
  *
- * Returns `null` when nothing needs the operator, for example an idle deployed or locked Server;
+ * Returns `null` when nothing needs the user, for example an idle deployed or locked Server;
  * its host name already links to the Summary, so the row gets no icon rather than a redundant
  * "open" link. Workflow links are gated on swallow's own deployment state so they never point at
  * an unrelated, finished Operation while the provider is, say, releasing.

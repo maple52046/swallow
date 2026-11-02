@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Sourced (never executed) by swallowctl, local-maas.sh, and bootstrap.sh so each reads the
-# installation's .env the same way whether swallowctl runs it or an operator reruns it. install.sh
+# installation's .env the same way whether swallowctl runs it or a user reruns it. install.sh
 # sources the copy in the bundle it downloaded, before extracting it, to compare release versions.
 
 # load_installation_env exports the .env values that the caller's environment does not

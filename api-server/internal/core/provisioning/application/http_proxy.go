@@ -36,7 +36,7 @@ type HTTPProxyStatusItem struct {
 	ObservedAt         *string                     `json:"observedAt"`
 }
 
-// SetHTTPProxyInput is an operator's replacement Provisioner HTTP Proxy, still unvalidated.
+// SetHTTPProxyInput is a user's replacement Provisioner HTTP Proxy, still unvalidated.
 type SetHTTPProxyInput struct {
 	Mode      string
 	HTTPProxy string

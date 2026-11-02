@@ -13,7 +13,7 @@ interface DockerApiRiskNoticeProps {
 /**
  * The single statement of what the Docker CE `enableApi` variant exposes (decision 043).
  *
- * Shown wherever an operator can turn the Docker Engine API on — the Install software dialog and the
+ * Shown wherever a user can turn the Docker Engine API on — the Install software dialog and the
  * Server Containers tab — so the warning cannot drift between the two. The listener is
  * unauthenticated plain HTTP on every interface, which is root-equivalent host access for anyone who
  * can reach the port; the copy therefore says so and recommends disabling it on Internet-reachable

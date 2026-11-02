@@ -62,7 +62,7 @@ export function osImageSupportsDeployTarget(image: OSImage, target: DeployTarget
  * Chooses a deploy target for a newly selected image.
  *
  * A single available mode wins. Both available and both unavailable deliberately fall back to RAM,
- * which is the neutral Dashboard default until the operator makes an explicit choice.
+ * which is the neutral Dashboard default until the user makes an explicit choice.
  */
 export function defaultDeployTargetForImage(image: OSImage | undefined): DeployTarget {
   if (!image) return 'ram'
@@ -74,7 +74,7 @@ export function defaultDeployTargetForImage(image: OSImage | undefined): DeployT
 
 /**
  * The addressing mode a deployment batch starts from, derived from the backend's per-target
- * suggestions (contract provisioning.md, Network Inspection); the operator can change it. One
+ * suggestions (contract provisioning.md, Network Inspection); the user can change it. One
  * mode applies to the whole batch, so Static wins when any target has an explicit static binding
  * (its address must be kept), DHCP only when every target suggests it (all sit on a subnet whose
  * DHCP the provisioner does not serve), and Automatic otherwise, including for no targets.
@@ -88,7 +88,7 @@ export function suggestedBatchNetworkMode(
 }
 
 /**
- * Helper text under the addressing mode when the batch suggestion is DHCP, so the operator sees
+ * Helper text under the addressing mode when the batch suggestion is DHCP, so the user sees
  * why it was chosen and what Automatic would do instead on that network (decision 058).
  */
 export const SITE_DHCP_SUGGESTION_TEXT =

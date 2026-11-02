@@ -2,7 +2,7 @@ import { Alert as ChakraAlert } from '@chakra-ui/react'
 import type { ReactNode } from 'react'
 
 export interface AlertProps extends Omit<ChakraAlert.RootProps, 'title'> {
-  /** Short headline; the primary message an operator scans first. */
+  /** Short headline; the primary message a user scans first. */
   title?: ReactNode
   /** Supporting detail rendered as the alert description. */
   children?: ReactNode

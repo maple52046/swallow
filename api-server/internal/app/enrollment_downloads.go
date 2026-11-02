@@ -28,7 +28,7 @@ func serveEnrollmentScript() fiber.Handler {
 
 // serveCLIBinary returns the GET/HEAD handler for the swallow CLI at binaryPath (config
 // api.cliBinary). An unset path or a missing file answers 404 with a plain-text reason, which the
-// enrollment script's curl shows the operator. The file is checked per request, so a bundle
+// enrollment script's curl shows the user. The file is checked per request, so a bundle
 // upgrade that replaces it is served without a restart, and it is streamed rather than buffered.
 func serveCLIBinary(binaryPath string) fiber.Handler {
 	path := strings.TrimSpace(binaryPath)

@@ -422,7 +422,7 @@ func (e *Engine) applyRetries(ctx context.Context, w *workflowdomain.Workflow) e
 
 // resume hands back the Tasks this run must execute without beginning them again: running Tasks
 // of this generation the run is not executing (a retried Advance), and running Tasks an earlier
-// generation left, which are resumed or handed to the operator by their kind's ResumePolicy.
+// generation left, which are resumed or handed to the user by their kind's ResumePolicy.
 func (e *Engine) resume(ctx context.Context, w *workflowdomain.Workflow, request AdvanceRequest) ([]TaskStart, error) {
 	executing := map[string]bool{}
 	for _, id := range request.Running {

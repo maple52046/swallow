@@ -1,6 +1,6 @@
 ---
 # Remove the native install. The swallow drop-in marks a package swallow installed, so a Grafana the
-# operator installed outside swallow is never removed.
+# user installed outside swallow is never removed.
 
 - name: Read the Grafana drop-in
   ansible.builtin.stat:

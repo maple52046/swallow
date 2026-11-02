@@ -89,7 +89,7 @@ func (c *Controller) Probe(ctx context.Context, endpoint serverdomain.BMCEndpoin
 	return capability, nil
 }
 
-// probeFailure turns a discovery error into a support value and an operator reason.
+// probeFailure turns a discovery error into a support value and a user reason.
 func probeFailure(err error) (serverdomain.RedfishSupport, string) {
 	var unsupported *unsupportedError
 	if errors.As(err, &unsupported) {

@@ -21,7 +21,7 @@ const (
 	inspectionJob          = "ensure-inspected"
 	waitEnrollmentTaskKind = "wait-enrollment-settled"
 	inspectTaskKind        = "inspect"
-	// skipEnrollmentWaitParameter marks a requested inspection, whose operator asserts the Server
+	// skipEnrollmentWaitParameter marks a requested inspection, whose user asserts the Server
 	// may boot now, so wait-enrollment-settled succeeds at once.
 	skipEnrollmentWaitParameter = "skipEnrollmentWait"
 	// resolveBootMediaLiveParameter makes ensure-boot-media read the Server's Boot Media when it

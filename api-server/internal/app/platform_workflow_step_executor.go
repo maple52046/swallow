@@ -115,8 +115,8 @@ func (e platformWorkflowStepExecutor) recordImageVerification(ctx context.Contex
 // it runs when the proving deploy failed and records the swallow-owned fact that the image did not
 // deploy for the target, so the catalog can show a failed verification distinctly from a
 // never-attempted one. The provider's reason lives on the failed provision Task; this records the
-// Operation and Server for the operator to open, plus an optional short reason. A write failure is
-// retryable: the failure fact is worth persisting so the operator is not misled into thinking the
+// Operation and Server for the user to open, plus an optional short reason. A write failure is
+// retryable: the failure fact is worth persisting so the user is not misled into thinking the
 // run never happened. This step succeeding does not mean the image is usable — it means the failure
 // was recorded — so it returns TaskSucceeded and lets the return-to-ready step run next.
 func (e platformWorkflowStepExecutor) recordImageVerificationFailure(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
@@ -147,7 +147,7 @@ func (e platformWorkflowStepExecutor) recordImageVerificationFailure(ctx context
 
 // completeUninstall finalizes a release-and-uninstall Operation by clearing the Platform's
 // projections (membership, owned credential Integration, sync), and removing the record when the
-// Task's deleteRecord parameter says the operator asked for it. It runs after every release
+// Task's deleteRecord parameter says the user asked for it. It runs after every release
 // step succeeds, replacing the ansible step's AnsibleStepSucceeded cleanup that this path
 // omits. A missing finalizer or platform id is a non-retryable failure; the cleanup itself is
 // idempotent, so a retried step is safe.
@@ -410,7 +410,7 @@ func (e platformWorkflowStepExecutor) probeReadiness(
 	return observation, nil
 }
 
-// sshAuthFailedMessage explains a fail-fast authentication rejection so the operator fixes the
+// sshAuthFailedMessage explains a fail-fast authentication rejection so the user fixes the
 // credential or the image's default user rather than the network: the host is reachable but does
 // not authorize the automation key for the login users tried on it.
 func sshAuthFailedMessage(authFailed []string) string {
@@ -422,7 +422,7 @@ func sshAuthFailedMessage(authFailed []string) string {
 }
 
 // sshReadinessTimeoutMessage separates missing provider observations from a host that never became
-// reachable so operators know whether to inspect DHCP/addressing or the host itself. Any host still
+// reachable so users know whether to inspect DHCP/addressing or the host itself. Any host still
 // failing authentication at the deadline is reported as a credential problem.
 func sshReadinessTimeoutMessage(observation readinessObservation, port int) string {
 	parts := make([]string, 0, 3)

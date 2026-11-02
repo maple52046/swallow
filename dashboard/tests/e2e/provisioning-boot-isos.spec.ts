@@ -230,7 +230,7 @@ test('switching provisioners updates untouched suggestions and preserves edited 
   await expect(name).toHaveValue('external-dhcp')
 })
 
-test('an invalid Integration endpoint leaves the rack address for the operator', async ({ page }) => {
+test('an invalid Integration endpoint leaves the rack address for the user', async ({ page }) => {
   await installApiFixtures(page, {
     bootISOs: [],
     provisionerEndpoints: { 'maas-a': 'not a valid endpoint' },

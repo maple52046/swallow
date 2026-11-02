@@ -115,7 +115,7 @@ services:
       SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD: "${SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD:-admin}"
       # Seals integration credentials at rest. Required: without it an integration
       # cannot be registered, and starting anyway would defer that failure to the
-      # first operator who tries. The dev default is a fixed key on purpose — it is
+      # first user who tries. The dev default is a fixed key on purpose — it is
       # not a secret, and a real installation must supply its own.
       SWALLOW_API_CREDENTIAL_KEY: "${SWALLOW_API_CREDENTIAL_KEY:-K7i9npJw/Fx/XbU31LyNx4vOFKFFV7PmJT0XW8eH8/s=}"
       # Static bearer token for machine-to-machine discovery.

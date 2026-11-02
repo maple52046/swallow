@@ -23,7 +23,7 @@ type DeploymentTargetIssue struct {
 }
 
 // PreflightDeploymentTargetsResult is a completed, side-effect-free inspection.
-// Valid false is not an execution error: Issues contains the operator-remediable
+// Valid false is not an execution error: Issues contains the user-remediable
 // conflicts in that case.
 type PreflightDeploymentTargetsResult struct {
 	Valid         bool
@@ -50,7 +50,7 @@ type targetReadinessOutcome struct {
 	err       error
 }
 
-// InspectionRequiredMessage returns the operator explanation for a machine whose layout
+// InspectionRequiredMessage returns the user explanation for a machine whose layout
 // needs a new inspection before a disk deployment, falling back to a generic one when the
 // provider flagged it without a reason.
 func InspectionRequiredMessage(reason string) string {

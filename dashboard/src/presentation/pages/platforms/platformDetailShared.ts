@@ -4,7 +4,7 @@ import type { MetricItem } from '@/presentation/components/OperatorPrimitives'
 import { formatRelative } from '@/shared/utils/time'
 
 /**
- * Operator label for a deployment topology value. Slurm reuses the same standalone/HA
+ * User label for a deployment topology value. Slurm reuses the same standalone/HA
  * vocabulary (its intent projects to these values), so this stays shared between both views.
  */
 export function topologyLabel(topology: KubernetesTopology): string {

@@ -375,7 +375,7 @@ const (
 )
 
 // DockerEngineError is a failure reported by, or while reaching, a host's Docker Engine API. Detail
-// is a human-readable message that includes the Engine's own reason and is safe to show operators
+// is a human-readable message that includes the Engine's own reason and is safe to show users
 // (the Engine API carries no credential in this version).
 type DockerEngineError struct {
 	Kind   DockerEngineErrorKind
@@ -384,7 +384,7 @@ type DockerEngineError struct {
 }
 
 // Error returns Detail with the underlying cause appended for logs. Delivery shows only Detail to
-// operators, because the cause may carry transport internals (dial addresses, timeouts).
+// users, because the cause may carry transport internals (dial addresses, timeouts).
 func (e *DockerEngineError) Error() string {
 	if e.Err == nil {
 		return e.Detail
@@ -401,7 +401,7 @@ var (
 	// so there is no host to dial regardless of what software it carries.
 	ErrDockerHostUnavailable = errors.New("server is not a deployed host with a known address")
 	// ErrDockerNotInstalled means swallow has no installed Docker CE Software Assignment for the
-	// Server; an operator-installed Docker is deliberately not used.
+	// Server; a user-installed Docker is deliberately not used.
 	ErrDockerNotInstalled = errors.New("docker ce is not installed on this server by swallow")
 	// ErrDockerAPIDisabled means the Docker CE assignment does not record enableApi=true, including
 	// legacy records that predate the variant.

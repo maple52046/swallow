@@ -3,7 +3,7 @@
 //
 // The binary refuses to serve any database whose recorded schema version differs
 // from CurrentSchemaVersion (see Check). Upgrades are applied only by the explicit
-// `swallow-api migrate` command, never implicitly at startup, so an operator always
+// `swallow-api migrate` command, never implicitly at startup, so a user always
 // decides when a destructive schema change runs.
 //
 // Note on naming: the command is invoked as `swallow-api migrate`; the service
@@ -15,7 +15,7 @@
 // interrupted migration can be rerun and will resume from the last completed version.
 // The v2 -> v3 rename and the v10 removal of the schema-v2 Operation records are gated
 // behind an explicit backup confirmation because there is no automatic rollback: if a
-// step fails partway, or the removed records are needed again, the operator restores the
+// step fails partway, or the removed records are needed again, the user restores the
 // verified backup and reruns, rather than the migration attempting to reverse
 // partially applied writes.
 package migration

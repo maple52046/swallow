@@ -1,6 +1,6 @@
 ---
 # Converge the post-boot amdgpu loader, its module options, and the ordering of the units that need
-# GPUs. present installs and starts the loader with the operator's options plus the options a
+# GPUs. present installs and starts the loader with the user's options plus the options a
 # topology rule derives, loading the driver again when it runs with other parameters (apply.yml,
 # reload.yml), and fails the node when an option name is unknown, the driver does not load, or it
 # ignores an option; absent disables and removes it together with the drop-ins and the options,
@@ -71,7 +71,7 @@
              if amdgpu_loader_saved.content is defined else {} }}
 
     - name: Decide the amdgpu module options
-      # Rule options persist until the operator names the same option; the operator always wins.
+      # Rule options persist until the user names the same option; the user always wins.
       ansible.builtin.set_fact:
         amdgpu_loader_desired: >-
           {%- set options = {} -%}

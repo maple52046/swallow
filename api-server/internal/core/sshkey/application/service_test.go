@@ -533,7 +533,7 @@ func TestSync_AddsAdoptsAndNeverRemovesOperatorKeys(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	deployment := f.deployment(t)
-	// The operator already added a personal key in MAAS, and happens to have added the same
+	// The user already added a personal key in MAAS, and happens to have added the same
 	// material swallow later imports as an Access Key.
 	f.maas.keys = []sshkeydomain.RegisteredKey{
 		{ProviderKeyID: "op-1", PublicKey: "ssh-rsa OPERATOR bob"},
@@ -556,7 +556,7 @@ func TestSync_AddsAdoptsAndNeverRemovesOperatorKeys(t *testing.T) {
 	}
 
 	// Deleting the adopted Access Key removes the provider key swallow adopted, but the
-	// operator's unrelated key stays.
+	// user's unrelated key stays.
 	if err := f.service.DeleteAccessKey(ctx, "admin", access.ID); err != nil {
 		t.Fatalf("DeleteAccessKey: %v", err)
 	}

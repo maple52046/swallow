@@ -1,4 +1,4 @@
-// Package config owns how the swallow operator CLI resolves and persists its
+// Package config owns how the swallow CLI resolves and persists its
 // connection profile: the API endpoint, the credential (a Session's access and
 // refresh tokens from `swallow login`, or an API Key), an optional default Site
 // scope, an optional machine token for discovery endpoints, and TLS
@@ -6,13 +6,13 @@
 //
 // Component boundary: this package is part of the `cli` component, an HTTP
 // consumer of the api-server contract. It stores only client-side session
-// material chosen by the operator; it never encodes api-server internals or
+// material chosen by the user; it never encodes api-server internals or
 // domain models. The only durable state the CLI keeps is this profile file.
 //
 // Precedence: values are resolved lowest-to-highest as file, then process
 // environment (SWALLOW_*), then explicit command-line flags. Load applies the
 // file and environment layers; the command layer overlays flag values on top so
-// an operator can override a saved profile for a single invocation without
+// a user can override a saved profile for a single invocation without
 // rewriting the file.
 package config
 
@@ -42,8 +42,8 @@ const (
 	envInsecure     = "SWALLOW_INSECURE"
 )
 
-// Config is the operator's persisted connection profile. Fields are serialized
-// to YAML so an operator can inspect and hand-edit the file. Token,
+// Config is the user's persisted connection profile. Fields are serialized
+// to YAML so a user can inspect and hand-edit the file. Token,
 // RefreshToken, APIKey, and MachineToken are credential material: callers must
 // not log them, and the file is written with owner-only permissions (see Save).
 //
@@ -71,7 +71,7 @@ type Config struct {
 	// refreshed.
 	APIKey string `yaml:"apiKey,omitempty"`
 	// Site is an optional default Site scope applied by commands that accept a
-	// siteId query parameter when the operator does not pass --site explicitly.
+	// siteId query parameter when the user does not pass --site explicitly.
 	Site string `yaml:"site,omitempty"`
 	// MachineToken is the static bearer token used only by machine-authenticated
 	// endpoints (for example discovery). It is distinct from Token because those
@@ -100,7 +100,7 @@ func DefaultPath() (string, error) {
 // layer. A missing file is not an error: it yields an empty Config so the
 // command layer can still apply flags (for example on first `swallow login`).
 // A malformed file is an error, because silently ignoring it would hide a
-// misconfigured profile from the operator.
+// misconfigured profile from the user.
 func Load(path string) (*Config, error) {
 	cfg, err := LoadFile(path)
 	if err != nil {

@@ -14,7 +14,7 @@ type stubMutationGuard struct{ err error }
 func (g stubMutationGuard) RequireUnlocked(context.Context, []string) error { return g.err }
 
 // The provider executor must re-check the Server Lock before a host mutation and pause the
-// Step for operator attention (retryable) when the target is locked, rather than mutating
+// Step for user attention (retryable) when the target is locked, rather than mutating
 // it. A nil guard (unwired) must not block.
 func TestProviderExecutorRequireUnlockedFailsClosed(t *testing.T) {
 	locked := providerStepExecutor{protection: stubMutationGuard{err: &serverdomain.ServerLockedError{Name: "node-1"}}}
@@ -32,7 +32,7 @@ func TestProviderExecutorRequireUnlockedFailsClosed(t *testing.T) {
 }
 
 // An unclassified error from a mutating provider call is an unknown outcome: the request
-// may have taken effect before the transport failed, so it must reconcile under operator
+// may have taken effect before the transport failed, so it must reconcile under user
 // attention rather than auto-retry into a possible duplicate side effect.
 func TestNormalizeProviderErrorTreatsUnclassifiedAsUnknownOutcome(t *testing.T) {
 	result := normalizeProviderError(errors.New("connection reset by peer"), "deployment_preflight")

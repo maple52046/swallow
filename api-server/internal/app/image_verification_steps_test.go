@@ -147,7 +147,7 @@ func TestRecordImageVerificationFailureStepWritesFailure(t *testing.T) {
 	}
 }
 
-// A failure-record write error is retryable: the failure fact is worth persisting so the operator
+// A failure-record write error is retryable: the failure fact is worth persisting so the user
 // is not misled into thinking the verification never ran.
 func TestRecordImageVerificationFailureStepRetriesOnWriteFailure(t *testing.T) {
 	repo := &recordingImageVerificationRepo{err: errors.New("mongo down")}

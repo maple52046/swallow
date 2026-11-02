@@ -5,7 +5,7 @@
 # combination (disabled, or the role running with state=absent) removes swallow's configuration.
 # It is a systemd drop-in that keeps the stock `-H fd://` socket and adds `-H tcp://...` — Docker's
 # documented remote-access method — instead of a daemon.json "hosts" key, which would collide with
-# the unit's -H flag and with any daemon.json the operator owns. A listener change restarts dockerd,
+# the unit's -H flag and with any daemon.json the user owns. A listener change restarts dockerd,
 # which stops containers without a restart policy; the dashboard warns before toggling.
 
 - name: Resolve whether the Docker Engine API should listen

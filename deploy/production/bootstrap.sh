@@ -11,7 +11,7 @@
 #           amd64 OS Image to appear complete in the catalog
 #   verify  read-only checks for `swallowctl doctor`
 #
-# Access Keys are deliberately not created: the operator uploads their own.
+# Access Keys are deliberately not created: the user uploads their own.
 # Environment overrides: SWALLOW_HTTP_PORT, SWALLOW_SITE_NAME (default "default"),
 # SWALLOW_MAAS_ENDPOINT (default SWALLOW_MAAS_URL, the address machines use to reach the
 # co-located MAAS, which the API containers reach too; the Dashboard pre-fills a Boot ISO's rack
@@ -132,12 +132,12 @@ virsh_key_recorded() {
   api GET "/integrations/$1" | jq -e --arg key "${key}" '.settings.virshSshPublicKey == $key' >/dev/null
 }
 
-# ensure_automation writes defaults only for a Site with no configuration, so an operator's
+# ensure_automation writes defaults only for a Site with no configuration, so a user's
 # later edits survive every rerun. Automation is enabled (Ansible Tasks refuse to run
-# otherwise) with no playbook mappings. Without operator-supplied known_hosts the static block
+# otherwise) with no playbook mappings. Without user-supplied known_hosts the static block
 # is a comment: the executor scans each target's host key per run and merges this block.
 # Automation always logs in with the Deployment Key (decision 039), so no Site credential is
-# written; an operator adds a become password later only if their hosts need one.
+# written; a user adds a become password later only if their hosts need one.
 ensure_automation() {
   local site_id="$1" status body known_hosts
   local scanned_note="# swallow scans each target's SSH host key at run time; add static entries for hosts it cannot scan"

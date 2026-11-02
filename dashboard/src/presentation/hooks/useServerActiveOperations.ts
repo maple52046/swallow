@@ -10,7 +10,7 @@ import {
 export interface ActiveOperationSummary {
   id: string
   kind: string
-  /** Human-readable operator intent, e.g. "Deploy production k0s platform". */
+  /** Human-readable user intent, e.g. "Deploy production k0s platform". */
   intent: string
   status: string
   /** Servers the Operation targets, so a multi-Server prompt can say which ones are held. */
@@ -50,7 +50,7 @@ function summarize(operation: Operation): ActiveOperationSummary {
  *
  * Server IDs are joined into a stable dependency key so passing a fresh array each render
  * does not re-trigger detection. A failed read fails open (treated as "no known active
- * work") rather than blocking a release the operator asked for.
+ * work") rather than blocking a release the user asked for.
  */
 export function useServerActiveOperations(
   serverIds: readonly string[],

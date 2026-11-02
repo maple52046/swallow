@@ -85,7 +85,7 @@ export interface OSImageStatus {
    * The effective default login user swallow automation uses on Servers deployed with this image
    * (decision 039): the metadata `defaultUser` when set, otherwise swallow's built-in for the
    * provider OS family (e.g. `ubuntu` → `ubuntu`). Absent when neither applies, which is typical
-   * for an uploaded custom image until an operator sets one.
+   * for an uploaded custom image until a user sets one.
    */
   defaultUser?: string
   /** The provider's own values, shown when reverting a label. */

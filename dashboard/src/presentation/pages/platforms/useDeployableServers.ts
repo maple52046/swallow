@@ -13,7 +13,7 @@ export interface DeployableData {
    * carries its Platform Claim, which marks it as another Platform's target.
    */
   servers: Server[]
-  /** Site Platforms resolve Platform Claim and observed membership IDs into operator-readable context. */
+  /** Site Platforms resolve Platform Claim and observed membership IDs into user-readable context. */
   platforms: Platform[]
 }
 

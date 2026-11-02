@@ -1,6 +1,6 @@
 ---
 # Remove the k0s installation created by swallow while preserving the host OS,
-# operator data, conntrack, and unrelated packages. Every task tolerates a node that
+# user data, conntrack, and unrelated packages. Every task tolerates a node that
 # was only partly installed or was already cleaned by an earlier attempt.
 
 - name: Uninstall k0s from the original deployment targets

@@ -8,12 +8,12 @@ import (
 )
 
 // maxGroupNameLen bounds a Zone/Pool name so a single field cannot carry an unbounded string
-// into storage or a provider request. It is generous for an operator label.
+// into storage or a provider request. It is generous for a user label.
 const maxGroupNameLen = 100
 
 // ValidateName trims and checks a Zone/Pool name, returning the cleaned value.
 //
-// It is shared by Zone and Pool because both use the same operator-facing naming rule: a
+// It is shared by Zone and Pool because both use the same user-facing naming rule: a
 // non-empty, length-bounded label. An empty or whitespace-only name, or one past the length
 // bound, is ErrInvalidGroup. The returned value is what callers must store and send to a
 // provider, so surrounding whitespace never causes swallow and the provider to disagree.

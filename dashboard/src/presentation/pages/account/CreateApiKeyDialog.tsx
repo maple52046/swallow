@@ -27,7 +27,7 @@ const CLI_EXAMPLE = [
 
 interface CreateApiKeyDialogProps {
   onClose: () => void
-  /** Called once the operator has confirmed saving the secret, with the toast title to show. */
+  /** Called once the user has confirmed saving the secret, with the toast title to show. */
   onCreated: (title: string) => void
 }
 
@@ -41,11 +41,11 @@ interface CreatedSecret {
  * Creates an API Key for the signed-in admin and shows its secret once (decision 042).
  *
  * swallow keeps only a hash of the secret, so this dialog is the only place it ever exists outside
- * the operator's tooling. Security and state contract:
+ * the user's tooling. Security and state contract:
  * - The secret lives only in component state; it is never written to storage or logged, and it is
  *   dropped when the dialog unmounts.
  * - After creation the dialog cannot be dismissed (Escape, backdrop, close button) until the
- *   operator confirms they saved the secret, because a dismissal would lose it irrecoverably.
+ *   user confirms they saved the secret, because a dismissal would lose it irrecoverably.
  * - The usage examples show where the secret goes without echoing it into a command line.
  */
 export function CreateApiKeyDialog({ onClose, onCreated }: CreateApiKeyDialogProps) {

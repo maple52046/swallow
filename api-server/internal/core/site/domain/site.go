@@ -39,7 +39,7 @@ const (
 	IntegrationKindPlatform IntegrationKind = "platform"
 )
 
-// ValidIntegrationKinds lists every kind, for validation and for telling an operator
+// ValidIntegrationKinds lists every kind, for validation and for telling a user
 // what they may have meant.
 var ValidIntegrationKinds = []IntegrationKind{
 	IntegrationKindProvisioner,

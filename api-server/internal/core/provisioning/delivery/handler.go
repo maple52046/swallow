@@ -129,7 +129,7 @@ func (h *ProvisioningHandler) DeleteServer(c *fiber.Ctx) error {
 // capabilities that tell a client which actions to offer. Read live, so it reflects the
 // provisioner exactly and swallow keeps no schema for it.
 func (h *ProvisioningHandler) ProvisionerDetail(c *fiber.Ctx) error {
-	// The optional live BMC section can contain an operator-requested password. Keep the
+	// The optional live BMC section can contain a user-requested password. Keep the
 	// response out of browser and intermediary caches even though the route is admin-only.
 	c.Set(fiber.HeaderCacheControl, "no-store")
 
@@ -198,7 +198,7 @@ type powerConfigurationRequest struct {
 
 // GetPowerConfiguration serves GET /servers/{id}/power-configuration (server-detail-actions.md):
 // the Server's Power Configuration read live from its provisioner, without the password. The
-// response is not cached because it reflects live provisioner state an operator is about to edit.
+// response is not cached because it reflects live provisioner state a user is about to edit.
 func (h *ProvisioningHandler) GetPowerConfiguration(c *fiber.Ctx) error {
 	c.Set(fiber.HeaderCacheControl, "no-store")
 	if h.power == nil {
@@ -215,7 +215,7 @@ func (h *ProvisioningHandler) GetPowerConfiguration(c *fiber.Ctx) error {
 	return c.JSON(item)
 }
 
-// SetPowerConfiguration serves PUT /servers/{id}/power-configuration: it writes the operator's
+// SetPowerConfiguration serves PUT /servers/{id}/power-configuration: it writes the user's
 // Power Configuration through to the provisioner and answers 200 with the configuration read back.
 // The request carries a write-only password; nothing here logs the body, and the shared error
 // mapper logs only the provider's client-safe detail.
@@ -253,7 +253,7 @@ type httpProxyRequest struct {
 
 // GetHTTPProxy serves GET /provisioning/integrations/{id}/http-proxy (provisioner-http-proxy.md):
 // the Integration's Provisioner HTTP Proxy read live from its provisioner. The response is not
-// cached because it reflects live provisioner state an operator is about to edit.
+// cached because it reflects live provisioner state a user is about to edit.
 func (h *ProvisioningHandler) GetHTTPProxy(c *fiber.Ctx) error {
 	c.Set(fiber.HeaderCacheControl, "no-store")
 	if h.httpProxy == nil {
@@ -270,7 +270,7 @@ func (h *ProvisioningHandler) GetHTTPProxy(c *fiber.Ctx) error {
 	return c.JSON(item)
 }
 
-// SetHTTPProxy serves PUT /provisioning/integrations/{id}/http-proxy: it writes the operator's
+// SetHTTPProxy serves PUT /provisioning/integrations/{id}/http-proxy: it writes the user's
 // Provisioner HTTP Proxy through to the provisioner and answers 200 with the configuration read
 // back. Field validation beyond a present mode belongs to the use case, so the API and any later
 // client share one set of rules.
@@ -672,7 +672,7 @@ func (h *ProvisioningHandler) EditServerTags(c *fiber.Ctx) error {
 // Reconcile runs a projection pass immediately instead of waiting for the interval.
 //
 // The report is returned rather than just an acknowledgement, because the interesting
-// output is what it refused to do: conflicts need an operator, and hiding them behind
+// output is what it refused to do: conflicts need a user, and hiding them behind
 // a 202 would leave them unnoticed.
 func (h *ProvisioningHandler) Reconcile(c *fiber.Ctx) error {
 	integrationID := c.Params("id")
@@ -827,7 +827,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 
 	// Every durable OS deployment carries configure-ntp ansible Tasks (decision 065), so it is
-	// accepted only while the Site's automation can run; the operator fixes these outside the
+	// accepted only while the Site's automation can run; the user fixes these outside the
 	// request, as the site-automation contract says.
 	case errors.Is(err, workflowdomain.ErrAutomationConfigNotFound),
 		errors.Is(err, workflowdomain.ErrAutomationDisabled),

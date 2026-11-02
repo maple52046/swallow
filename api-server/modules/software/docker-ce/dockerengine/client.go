@@ -192,7 +192,7 @@ func succeeded(status int, alsoOK []int) bool {
 }
 
 // unreachable classifies a transport failure, keeping the low-level cause (for example "connection
-// refused" or a timeout) in the message because it is what tells an operator whether the listener
+// refused" or a timeout) in the message because it is what tells a user whether the listener
 // is closed or the host is down.
 func (c *Client) unreachable(err error) error {
 	cause := err

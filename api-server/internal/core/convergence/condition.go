@@ -14,7 +14,7 @@ const (
 	ConditionRealized ConditionType = "realized"
 	// ConditionDrifted is true when an observed field departed from the spec without swallow asking.
 	ConditionDrifted ConditionType = "drifted"
-	// ConditionRequiresAttention is true when the controller stopped trying and an operator must act.
+	// ConditionRequiresAttention is true when the controller stopped trying and a user must act.
 	ConditionRequiresAttention ConditionType = "requires_attention"
 	// ConditionHeld is true while convergence is paused (glossary: Hold).
 	ConditionHeld ConditionType = "held"
@@ -37,7 +37,7 @@ const (
 	// ReasonConverging: the controller has not yet realized the current spec.
 	ReasonConverging = "converging"
 	// ReasonAwaitingApproval: realizing the current spec is destructive and its Change Plan waits
-	// for an operator (decision 076).
+	// for a user (decision 076).
 	ReasonAwaitingApproval = "awaiting_approval"
 	// ReasonCapabilityMissing: the provider cannot realize a field; the desired value is kept.
 	ReasonCapabilityMissing = "capability_missing"

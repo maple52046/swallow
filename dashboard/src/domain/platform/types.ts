@@ -153,7 +153,7 @@ export type GPUResourceNaming = "single" | "mixed";
 
 /**
  * The GPU Operator State (glossary): where the latest swallow change to a Platform's GPU
- * Operator stands, projected from the Task applying it. `failed` means the cluster may still run
+ * User stands, projected from the Task applying it. `failed` means the cluster may still run
  * the previous settings; `absent` means swallow manages no operator there any more.
  */
 export type GPUOperatorState = "installing" | "ready" | "failed" | "uninstalling" | "absent";
@@ -211,7 +211,7 @@ export interface GPUOperatorRelease {
 export type ExporterOwner = "ansible" | "k8s";
 
 /**
- * A Monitoring Link (glossary): an operator-registered name and absolute http(s) URL pointing at
+ * A Monitoring Link (glossary): a user-registered name and absolute http(s) URL pointing at
  * the runtime's own monitoring UI, such as the Grafana Omnistat brings for Slurm. swallow never
  * queries it; it is a shortcut, not a metrics source. Set through the API/CLI `PATCH`.
  */
@@ -319,7 +319,7 @@ export interface Platform {
   gpuOperator: PlatformGPUOperator | null;
   /** Which subsystem installs this platform's exporters; `ansible` unless set to `k8s`. */
   exporterOwner: ExporterOwner;
-  /** Operator-registered links to the runtime's own monitoring UI; always an array. */
+  /** User-registered links to the runtime's own monitoring UI; always an array. */
   monitoringLinks: MonitoringLink[];
   /** The swallow-managed Omnistat of a Slurm Platform; null when swallow never installed it. */
   omnistat: PlatformOmnistat | null;
@@ -327,9 +327,9 @@ export interface Platform {
   deviceMetricsExporter: PlatformDeviceMetricsExporter | null;
   /** The container runtime a Slurm deploy installed on compute and login nodes; null when off. */
   containerRuntime: SlurmContainerRuntime | null;
-  /** Operator-set amdgpu module options the deploy recorded; null when none were set. */
+  /** User-set amdgpu module options the deploy recorded; null when none were set. */
   gpuDriver: GPUDriverSettings | null;
-  /** The operator's Slurm GPU GRES type name; null when the deploy derived it from the GPUs. */
+  /** The user's Slurm GPU GRES type name; null when the deploy derived it from the GPUs. */
   gpuGresType: string | null;
   /** Whether the Slurm deploy set up native OCI containers (`srun --container`); false otherwise. */
   ociContainers: boolean;
@@ -397,7 +397,7 @@ export interface SlurmNodeAssignment {
 
 /**
  * The optional shared workload filesystem (user/job data), distinct from controller state.
- * `mode` is "self-hosted" (the login node exports NFS) or "external" (an operator NFS URL);
+ * `mode` is "self-hosted" (the login node exports NFS) or "external" (a user NFS URL);
  * `type` is "nfs"; `mountPath` is a non-overlapping path (never /home). `nfs.url` is required
  * for external mode. Omitting the whole object means no shared workload filesystem.
  */

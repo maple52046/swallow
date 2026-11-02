@@ -101,7 +101,7 @@ export function actionLabel(action: ServerMenuAction): string {
  * Reports whether a Server is currently running a RAM (ephemeral) deployment: the OS runs from
  * memory and the disks are left untouched, so anything written to the Server is lost on power off
  * or reboot (provisioning re-provides the same OS, so only the data is lost). "RAM deploy" is the
- * operator term for the `ephemeral` provisioning fact (see the Deploy Target glossary). The list,
+ * user term for the `ephemeral` provisioning fact (see the Deploy Target glossary). The list,
  * detail, and power dialogs use this to gate a destructive-power-off warning + confirmation, since
  * a disk deployment keeps its data across a power cycle but a RAM one does not.
  */
@@ -110,7 +110,7 @@ export function isRamDeploy(server: Server): boolean {
 }
 
 // State gates mirroring the swallow-owned recovery policy (docs/decisions/033). The dashboard
-// gates on the same normalized `provisioning.state` the backend does, so an operator sees a
+// gates on the same normalized `provisioning.state` the backend does, so a user sees a
 // disabled control with a swallow reason instead of a provider rejection after the fact.
 // `allocated` is included because MAAS parks a machine there when a deployment was reserved
 // but never finished (a failed/canceled deploy, or a verification borrow that ended early);
@@ -119,7 +119,7 @@ export function isRamDeploy(server: Server): boolean {
 const RELEASE_SOURCE_STATES = new Set(['deployed', 'allocated', 'failed', 'broken', 'rescue'])
 // Recover is offered only for the not-usable states it is meant to fix. The backend also
 // tolerates `deployed`/`ready` (for internal and uninstall reuse), but offering Recover on a
-// healthy deployed Server would release it — a footgun — so the operator menu excludes those.
+// healthy deployed Server would release it — a footgun — so the user menu excludes those.
 // `allocated` is offered: it means "stuck reserved", and Recover returns it to Ready.
 const RECOVER_SOURCE_STATES = new Set(['allocated', 'failed', 'broken', 'rescue'])
 const RESCUE_ENTER_STATES = new Set(['deployed', 'broken', 'failed'])

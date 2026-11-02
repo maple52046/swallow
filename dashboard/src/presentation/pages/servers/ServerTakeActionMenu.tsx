@@ -58,11 +58,11 @@ const ACTION_ICONS: Record<ServerMenuAction, LucideIcon> = {
   'exit-rescue-mode': LogOut,
 }
 
-// Always-on operator guidance shown under an action even when it is enabled. Rescue is a
+// Always-on user guidance shown under an action even when it is enabled. Rescue is a
 // diagnostic environment, not a recovery path, so the menu states that up front rather than
-// letting an operator learn it by exiting rescue back into Failed. See the rescue-mode glossary.
+// letting a user learn it by exiting rescue back into Failed. See the rescue-mode glossary.
 // Inspect is swallow's provider-neutral name (decision 048), so its hint names the MAAS action
-// an operator may be looking for.
+// a user may be looking for.
 const ACTION_HINTS: Partial<Record<ServerMenuAction, string>> = {
   recover: 'Returns the Server to Ready (Mark fixed, exit rescue, or Release by state).',
   inspect: 'Re-inventories the hardware through the provisioner (MAAS calls this Commission).',

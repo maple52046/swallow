@@ -38,7 +38,7 @@ const (
 	completionParamMode     = "mode"
 	completionParamKind     = "softwareKind"
 	completionParamServers  = "serverIds"
-	// The platform-uninstall completion's params: the operator's choices for a kept-servers
+	// The platform-uninstall completion's params: the user's choices for a kept-servers
 	// uninstall and the name the exporter restoration labels its Workflow with.
 	completionParamDeleteRecord     = "deleteRecord"
 	completionParamRestoreExporters = "restoreExporters"

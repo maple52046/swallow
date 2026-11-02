@@ -503,7 +503,7 @@ func (h *DockerHandler) RemoveNetwork(c *fiber.Ctx) error {
 // respondDockerError maps explorer errors onto the shared envelope per servers-docker.md:
 // eligibility failures are 404 (no Server) or 409 (ineligible), the lock is 409 (or 503 when it
 // cannot be confirmed), validation is 400, and Engine failures follow their DockerEngineError kind.
-// Eligibility messages are fixed, operator-facing sentences; Engine messages carry the Engine's
+// Eligibility messages are fixed, user-facing sentences; Engine messages carry the Engine's
 // own reason. Unknown errors are logged and returned as 500 without detail.
 func respondDockerError(c *fiber.Ctx, err error) error {
 	switch {

@@ -13,7 +13,7 @@ import (
 )
 
 // migrateBackupConfirmed gates the destructive v2 -> v3 Platform rename behind an
-// explicit operator acknowledgement that a verified backup exists.
+// explicit user acknowledgement that a verified backup exists.
 var migrateBackupConfirmed bool
 
 var migrateCmd = &cobra.Command{

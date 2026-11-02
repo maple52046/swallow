@@ -19,7 +19,7 @@ var (
 	ErrServerLockUnavailable = errors.New("server lock state is unavailable")
 )
 
-// ServerLockedError identifies the protected Server and gives the operator the only
+// ServerLockedError identifies the protected Server and gives the user the only
 // remediation that makes mutation valid.
 type ServerLockedError struct {
 	Name string

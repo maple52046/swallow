@@ -1,7 +1,7 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// Server Enrollment (decision 053): Add servers guides an operator one question at a time to the
+// Server Enrollment (decision 053): Add servers guides a user one question at a time to the
 // one action that adds a Server, and the list says when hardware inspection needs attention.
 
 test.beforeEach(async ({ page }) => {

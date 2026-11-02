@@ -81,7 +81,7 @@ const (
 	ExporterOwnerK8s ExporterOwner = "k8s"
 	// ExporterOwnerUnmanaged is not a platform policy value. It is the resolved effective
 	// owner of a host swallow must not touch: a locked machine, or one where the
-	// operator installed exporters by hand. It is deliberately excluded from
+	// user installed exporters by hand. It is deliberately excluded from
 	// ValidExporterOwners so it can never be set as a platform policy.
 	ExporterOwnerUnmanaged ExporterOwner = "unmanaged"
 )
@@ -113,7 +113,7 @@ type Platform struct {
 	// ExporterOwner decides who installs this platform's exporters. Defaults to
 	// ExporterOwnerAnsible; only ExporterOwnerK8s is honoured as an alternative.
 	ExporterOwner ExporterOwner
-	// MonitoringLinks are operator-registered links to the runtime's own monitoring UI.
+	// MonitoringLinks are user-registered links to the runtime's own monitoring UI.
 	// Display data only; written through NormalizeMonitoringLinks and never nil once read.
 	MonitoringLinks []MonitoringLink
 	// GPUOperator is the swallow-managed GPU Operator, nil when swallow has never managed one on
@@ -129,7 +129,7 @@ type Platform struct {
 	// ContainerRuntime is the container runtime feature a Slurm deploy chose, empty when off. Set
 	// at creation; each Server's runtime install state is its Software Assignment.
 	ContainerRuntime ContainerRuntime
-	// GPUDriver is the operator's amdgpu driver intent, empty when none was requested. Set at
+	// GPUDriver is the user's amdgpu driver intent, empty when none was requested. Set at
 	// creation and applied by every Workflow that loads the driver on the Platform's GPU nodes.
 	GPUDriver GPUDriverSettings
 	// GPUGresType is the GRES type name a Slurm deploy gave every GPU node, empty when it is
@@ -145,7 +145,7 @@ type Platform struct {
 	// OwnedIntegrationID is set only for a credential integration created by swallow.
 	// It is private persistence metadata and is never exposed by the platform API.
 	OwnedIntegrationID string
-	// Spec is what the operator wants the Platform to be; nil for a Platform recorded before
+	// Spec is what the user wants the Platform to be; nil for a Platform recorded before
 	// Platforms had a spec and not yet adopted (decision 069). Generation counts its writes.
 	Spec       *PlatformSpec
 	Generation int64

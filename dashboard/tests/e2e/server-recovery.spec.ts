@@ -36,7 +36,7 @@ test('a failed Server offers Recover and Release, but Mark fixed is gated to Bro
   await expect(page).toHaveURL(/\/servers(\?|$)/)
 })
 
-// A failed Server held by an unfinished deployment must point the operator at that Workflow, where
+// A failed Server held by an unfinished deployment must point the user at that Workflow, where
 // retrying the failed Step recovers and redeploys this Server, instead of offering only a Recover
 // that cancels the whole Operation (every Server of a platform deployment with it).
 test('a failed Server links the work blocking recovery and explains retrying it', async ({ page }) => {

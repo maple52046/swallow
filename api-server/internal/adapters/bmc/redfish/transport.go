@@ -265,7 +265,7 @@ func extractMessage(data []byte) (string, string) {
 }
 
 // classify maps a transport or status failure onto the domain sentinels, keeping the BMC's own
-// words as the detail for the operator.
+// words as the detail for the user.
 func classify(err error) error {
 	var unreachable *unreachableError
 	var status *statusError
@@ -291,5 +291,5 @@ type controllerError struct {
 func (e *controllerError) Error() string { return e.detail }
 func (e *controllerError) Unwrap() error { return e.sentinel }
 
-// Detail is the operator-facing explanation, without the sentinel's generic text.
+// Detail is the user-facing explanation, without the sentinel's generic text.
 func (e *controllerError) Detail() string { return e.detail }

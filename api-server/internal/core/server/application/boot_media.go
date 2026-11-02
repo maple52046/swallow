@@ -155,7 +155,7 @@ func (uc *BootMediaUseCase) read(ctx context.Context, server *serverdomain.Serve
 
 // view assembles the stored part of a BootMediaView, resolving the Boot ISO the setting names
 // for the Server's method. A Boot ISO that no longer exists is still reported, unavailable, so
-// the operator sees what the setting points at.
+// the user sees what the setting points at.
 func (uc *BootMediaUseCase) view(ctx context.Context, server *serverdomain.Server) (*BootMediaView, error) {
 	view := &BootMediaView{Server: server}
 	if server.BootMediaApply.Running(uc.now()) {
@@ -297,7 +297,7 @@ type BootMediaChange struct {
 // While the preflight runs it is recorded on the Server with its current phase (Get reports it
 // as Apply), so any client can follow it; only one runs per Server, and a disable waits for it.
 //
-// Disabling saves the setting first — the operator's intent must not depend on the BMC — then
+// Disabling saves the setting first — the user's intent must not depend on the BMC — then
 // makes a best-effort attempt to detach the ISO and clear the boot direction, reported in the
 // result.
 //
@@ -847,7 +847,7 @@ func (uc *BootMediaUseCase) hypervisor(server *serverdomain.Server, endpoint *se
 }
 
 // recordFailure stores the failure reason on the setting, keeping whether it is enabled. A write
-// failure is only logged: the operator still gets the original error.
+// failure is only logged: the user still gets the original error.
 func (uc *BootMediaUseCase) recordFailure(ctx context.Context, server *serverdomain.Server, previous *serverdomain.BootMediaSetting, failure error) {
 	now := uc.now()
 	setting := serverdomain.BootMediaSetting{UpdatedAt: now}
@@ -865,7 +865,7 @@ func (uc *BootMediaUseCase) recordFailure(ctx context.Context, server *serverdom
 // detailed is implemented by controller errors that carry the BMC's own explanation.
 type detailed interface{ Detail() string }
 
-// explain wraps a controller or endpoint error into the operator-facing BootMediaError for the
+// explain wraps a controller or endpoint error into the user-facing BootMediaError for the
 // Server; errors that already are one or a HypervisorError, and unexpected errors, pass through as
 // they are.
 func (uc *BootMediaUseCase) explain(server *serverdomain.Server, err error) error {

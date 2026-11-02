@@ -67,7 +67,7 @@ type PlanDraft struct {
 	Blockers []string
 }
 
-// ChangePlan is a preview of what realizing a destructive spec change will do, which an operator
+// ChangePlan is a preview of what realizing a destructive spec change will do, which a user
 // approves as a whole before the resource's controller carries it out as a Workflow (decision 076).
 // Once approved its content is immutable.
 type ChangePlan struct {
@@ -81,7 +81,7 @@ type ChangePlan struct {
 	State      ChangePlanState
 	// StateReason says, for people, why the plan reached its state.
 	StateReason string
-	// DecidedBy and DecidedAt record the operator who approved or rejected it.
+	// DecidedBy and DecidedAt record the user who approved or rejected it.
 	DecidedBy  string
 	DecidedAt  *time.Time
 	WorkflowID string

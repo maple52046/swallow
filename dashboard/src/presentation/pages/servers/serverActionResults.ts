@@ -1,6 +1,6 @@
 import type { ServerMenuAction } from './serverActions'
 
-/** Identifies a Server in operator-facing action results. */
+/** Identifies a Server in user-facing action results. */
 export interface ServerActionTarget {
   serverId: string
   serverName: string

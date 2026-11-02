@@ -49,7 +49,7 @@ type BootISOList struct {
 	Items   []BootISOItem      `json:"items"`
 }
 
-// CreateBootISOInput is a build request. CreatedBy is the authenticated operator's username.
+// CreateBootISOInput is a build request. CreatedBy is the authenticated user's username.
 type CreateBootISOInput struct {
 	Name          string
 	IntegrationID string
@@ -74,7 +74,7 @@ type BootISOService struct {
 	now          func() time.Time
 	newID        func() string
 	// rebuilds serializes rebuilds: two rebuilds of the same id would race on its one file, and a
-	// rebuild is a rare operator action, so one at a time per process costs nothing.
+	// rebuild is a rare user action, so one at a time per process costs nothing.
 	rebuilds sync.Mutex
 }
 
@@ -154,7 +154,7 @@ func (s *BootISOService) Create(ctx context.Context, input CreateBootISOInput) (
 // Rebuild renders the current templates for a Boot ISO's stored address, replaces its file in
 // place, and records the rebuild; the id and the URL Boot Media mounts stay the same, so every
 // Server using the ISO boots the new script from its next boot. rebuiltBy is the authenticated
-// operator's username.
+// user's username.
 //
 // The file is replaced before the record. A failed build leaves both as they were; a record that
 // cannot be stored after a successful build leaves the new file served under the old record,

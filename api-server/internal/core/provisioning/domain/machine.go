@@ -67,7 +67,7 @@ const (
 //
 // A Machine is not a server.Server. It lives in the provider's inventory and may
 // never be managed by swallow at all; swallow reads it to decide what can be deployed.
-// The two become linked only when an operator imports a Machine, which creates a
+// The two become linked only when a user imports a Machine, which creates a
 // Server carrying a server.ProvisioningSource back-reference.
 type Machine struct {
 	// ID is the provider-side identifier (a MAAS system_id). Opaque to swallow:
@@ -85,14 +85,14 @@ type Machine struct {
 	ProviderStatus string
 	// ErrorDescription is the provider's own machine-level failure reason (e.g. "Failed to
 	// erase disks."), populated only for failure states (failed/broken/rescue) and empty
-	// otherwise. Display and diagnostics only; it exists so an operator can see why a lifecycle
+	// otherwise. Display and diagnostics only; it exists so a user can see why a lifecycle
 	// action failed without digging through the provider event log. Never branch on it.
 	ErrorDescription string
 	PowerState       PowerState
 	Architecture     string
 	CPUCores         int
 	// MemoryMiB is usable RAM in mebibytes. Mebibytes rather than megabytes
-	// because that is the unit providers report and operators see in the
+	// because that is the unit providers report and users see in the
 	// provider's own UI; converting would make the two screens disagree.
 	MemoryMiB int64
 	// StorageGB is total disk capacity in decimal gigabytes.
@@ -140,7 +140,7 @@ type Machine struct {
 	// it has no EFI system partition. The adapter sets it only when the provider's data
 	// proves the mismatch; missing data never sets it. A memory (ephemeral) deployment does
 	// not use the layout and is unaffected. InspectionRequiredReason is the swallow-authored
-	// explanation shown to operators.
+	// explanation shown to users.
 	InspectionRequired       bool
 	InspectionRequiredReason string
 	// CommissioningStatus and TestingStatus are the provisioner's own labels for the
@@ -183,7 +183,7 @@ func (m *Machine) PrimaryIP() string {
 type OSImage struct {
 	// ID is the value to pass back as DeployRequest.DistroSeries, e.g. "ubuntu/jammy".
 	ID string
-	// Name is the label the provider presents to operators.
+	// Name is the label the provider presents to users.
 	Name string
 	// OSSystem is the OS family, e.g. "ubuntu".
 	OSSystem string
@@ -264,7 +264,7 @@ const (
 	// out, or returned a server-side failure.
 	ProviderErrorUnavailable ProviderErrorKind = "unavailable"
 	// ProviderErrorAuth means the provider rejected the credentials swallow is
-	// configured with. This is an operator configuration problem, never an
+	// configured with. This is a user configuration problem, never an
 	// indication about the caller's own credentials.
 	ProviderErrorAuth ProviderErrorKind = "auth"
 	// ProviderErrorRejected means the provider understood the request and

@@ -1,6 +1,6 @@
 import type { Operation } from '@/domain/operation/types'
 
-/** One integration row in the operator overview. */
+/** One integration row in the overview. */
 export interface OverviewIntegration {
   id: string
   siteId: string
@@ -27,7 +27,7 @@ export interface OverviewAlert {
   platformId: string | null
 }
 
-/** Provider-owned aggregate read model for the operator landing screen. */
+/** Provider-owned aggregate read model for the user landing screen. */
 export interface Overview {
   generatedAt: string
   scope: { siteId: string | null }

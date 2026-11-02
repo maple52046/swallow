@@ -13,7 +13,7 @@ import { Select } from '@/presentation/components/ui/select'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useAsyncData } from '@/presentation/hooks/useAsyncData'
 
-/** The hypervisor's domains as read on request; `idle` until the operator asks. */
+/** The hypervisor's domains as read on request; `idle` until the user asks. */
 type ListState =
   | { status: 'idle' }
   | { status: 'loading' }
@@ -38,13 +38,13 @@ interface VirtualMachineEnrollmentActionProps {
  * The libvirt virtual-machine path of Add servers (contract server-enrollment.md "Virtual machines
  * (libvirt)", decision 055), shown only while the experimental `virtualMachines` switch is on.
  *
- * The operator picks a hypervisor — a deployed Server of this Site, which the API logs in to with
+ * The user picks a hypervisor — a deployed Server of this Site, which the API logs in to with
  * the Deployment Key as its Server Default User or the account typed here — lists its domains on
  * request (a live SSH read that takes seconds), ticks the ones to enroll by name, and optionally
  * chooses a Boot ISO for a network the provisioner's DHCP does not serve. Domains that already are
  * Servers (one of their MAC addresses matches) link to that Server and cannot be ticked. Enrolling
  * starts one enroll-virtual-machines Workflow and links to it: its per-domain Tasks run in the
- * worker, and a Task that needs the operator (a running domain, a hypervisor the provisioner cannot
+ * worker, and a Task that needs the user (a running domain, a hypervisor the provisioner cannot
  * reach) says so there. The new Servers then appear in the waiting list below and go through
  * automatic inspection. Nothing is typed as a MAC address, and no credential passes through here.
  */
@@ -272,7 +272,7 @@ interface VirtualMachineChoicesProps {
 
 /**
  * The hypervisor's domains as a checklist named by domain. Each row says libvirt's own state, the
- * architecture, and the MAC addresses swallow will register, so the operator can tell lab VMs
+ * architecture, and the MAC addresses swallow will register, so the user can tell lab VMs
  * apart without opening virt-manager. A domain that already is a Server is shown with a link to it
  * and cannot be chosen again. The list is a labelled group so its checkboxes are announced together.
  */

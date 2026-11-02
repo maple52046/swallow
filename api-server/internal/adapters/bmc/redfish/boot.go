@@ -32,7 +32,7 @@ import (
 //  3. Otherwise the DMTF class target "Cd", Continuous when the System allows it.
 //
 // In every case swallow also sets the one-time boot of step 2 when it can, so a reboot that the
-// provisioner did not start (an operator power cycle) boots the ISO too.
+// provisioner did not start (a user power cycle) boots the ISO too.
 
 // aptioUSBGroup is the Aptio fixed-boot-order value of the group holding BMC virtual media.
 const aptioUSBGroup = "UEFI USB Device"

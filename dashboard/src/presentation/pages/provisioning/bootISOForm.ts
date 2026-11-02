@@ -1,9 +1,9 @@
 /**
  * The rack address the Build ISO dialog pre-fills for a provisioner: the host of its endpoint
  * (`http://10.140.168.20:5240/MAAS` gives `10.140.168.20`). That host is the MAAS rack when region
- * and rack run on one machine, the common install; the operator edits it otherwise. The endpoint's
+ * and rack run on one machine, the common install; the user edits it otherwise. The endpoint's
  * port is the region API's, never the rack's `ipxe.cfg` port, so it is dropped. Returns an empty
- * string when the endpoint cannot be parsed, leaving the field for the operator to fill.
+ * string when the endpoint cannot be parsed, leaving the field for the user to fill.
  */
 export function rackAddressFromEndpoint(endpoint: string): string {
   const value = endpoint.trim()
@@ -13,7 +13,7 @@ export function rackAddressFromEndpoint(endpoint: string): string {
     if (!hostname || hostname.includes('%')) return ''
     return hostname
   } catch {
-    // An endpoint that is not a URL has no host to offer; the operator types the rack address.
+    // An endpoint that is not a URL has no host to offer; the user types the rack address.
     return ''
   }
 }

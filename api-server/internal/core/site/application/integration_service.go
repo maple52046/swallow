@@ -67,7 +67,7 @@ type IntegrationItem struct {
 	Endpoint     string            `json:"endpoint"`
 	Enabled      bool              `json:"enabled"`
 	Settings     map[string]string `json:"settings"`
-	// HasCredential reports whether a credential is stored, which an operator needs
+	// HasCredential reports whether a credential is stored, which a user needs
 	// to know without the value being readable.
 	HasCredential bool          `json:"hasCredential"`
 	Sync          SyncStateItem `json:"sync"`
@@ -106,7 +106,7 @@ func (s *IntegrationService) Create(ctx context.Context, input CreateIntegration
 	// A platform Integration reads a Kubernetes/Slurm runtime's live state, and swallow
 	// creates it only from a successful deployment because it manages only self-deployed
 	// platforms (decision 032). The deployment completion hook writes the Integration through
-	// the repository directly, so this rule constrains only the operator-facing create route.
+	// the repository directly, so this rule constrains only the user-facing create route.
 	if kind == sitedomain.IntegrationKindPlatform {
 		return nil, fmt.Errorf("%w: a platform integration is created by deploying a platform, not registered", ErrInvalidIntegration)
 	}

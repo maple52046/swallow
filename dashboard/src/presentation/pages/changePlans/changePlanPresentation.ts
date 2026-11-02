@@ -1,6 +1,6 @@
 import type { ChangePlan, ChangePlanResource, ChangePlanState, PlannedAction } from '@/domain/convergence/changePlan'
 
-/** Operator-facing words for each plan state; the badge shows these, never the colour alone. */
+/** User-facing words for each plan state; the badge shows these, never the colour alone. */
 export const CHANGE_PLAN_STATE_LABELS: Record<ChangePlanState, string> = {
   pending_approval: 'Waiting for approval',
   approved: 'Approved',
@@ -32,7 +32,7 @@ export function destructiveActionCount(plan: ChangePlan): number {
   return plan.actions.filter((action) => action.destructive).length
 }
 
-/** Plans grouped the way an operator works through them: decide, wait for the controller, history. */
+/** Plans grouped the way a user works through them: decide, wait for the controller, history. */
 export interface ChangePlanGroups {
   pending: ChangePlan[]
   approved: ChangePlan[]

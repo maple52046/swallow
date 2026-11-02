@@ -47,7 +47,7 @@ type APIConfig struct {
 	BootstrapAdminPassword string `yaml:"bootstrapAdminPassword"`
 	// CredentialKey is a base64-encoded 32-byte key used to seal integration
 	// credentials at rest. Required: an integration cannot be registered without
-	// it, and starting without it would defer that failure to the first operator
+	// it, and starting without it would defer that failure to the first user
 	// who tries. Never log this value.
 	CredentialKey string `yaml:"credentialKey"`
 	// ReconcileInterval is how often each enabled provisioner integration is

@@ -25,7 +25,7 @@ type eventJSON struct {
 
 // ListMachineEvents reads MAAS's provider-owned event stream for one system ID. MAAS
 // returns newest events first, and its documented query supports up to 1000; the swallow
-// delivery contract intentionally caps the operator view at 100.
+// delivery contract intentionally caps the user view at 100.
 func (p *Provider) ListMachineEvents(
 	ctx context.Context,
 	machineID string,

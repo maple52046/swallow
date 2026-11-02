@@ -10,6 +10,6 @@ package_maintenance_hold_grace_seconds: 600
 # unattended-upgrades run took about five minutes in the lab; past this the play fails with
 # [package_maintenance_busy] and the Task can be retried.
 package_maintenance_hold_wait_seconds: 2700
-# How long apt-get waits for a package lock held outside swallow (an operator, cloud-init).
+# How long apt-get waits for a package lock held outside swallow (a user, cloud-init).
 package_maintenance_hold_apt_lock_timeout_seconds: 600
 package_maintenance_hold_script: /usr/local/libexec/swallow/package-hold

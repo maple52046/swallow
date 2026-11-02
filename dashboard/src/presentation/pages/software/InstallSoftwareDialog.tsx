@@ -184,7 +184,7 @@ export function InstallSoftwareDialog({
     spec,
   }) && settingsSchemaState.status === 'ready' && (!settingsSchema || moduleSettingsValid(settingsSchema, spec))
   // A kind with install methods records the chosen one in `spec.installMethod` (prefilled from the
-  // assignment on Retry/Reconfigure); the catalog default applies until the operator picks one.
+  // assignment on Retry/Reconfigure); the catalog default applies until the user picks one.
   const installMethod = entry
     ? (spec.installMethod as SoftwareInstallMethod | undefined) || defaultInstallMethod(entry)
     : null

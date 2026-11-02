@@ -126,7 +126,7 @@ export interface SoftwareOperationReference {
 
 /**
  * TCP port the Docker CE `enableApi` variant opens, as published by the `software.md` contract. It is
- * shown to operators in the risk notice; the dashboard never dials it (api-server does).
+ * shown to users in the risk notice; the dashboard never dials it (api-server does).
  */
 export const DOCKER_ENGINE_API_PORT = 2375
 

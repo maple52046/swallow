@@ -7,7 +7,7 @@ const (
 	// OutcomeContinue means Tasks are running or ready to start.
 	OutcomeContinue ScheduleOutcome = iota
 	// OutcomePark means a retryable failure blocks every remaining Task: the Workflow waits in
-	// requires_attention for an operator retry or cancel.
+	// requires_attention for a user retry or cancel.
 	OutcomePark
 	// OutcomeSucceeded means every Task succeeded or was skipped.
 	OutcomeSucceeded
@@ -37,7 +37,7 @@ type Schedule struct {
 // a cross-Job DependsOn — every Task of that Job. A settled dependency permits the Task when it
 // succeeded or was skipped, or when the Task's ContinueOn lists its outcome; otherwise the Task is
 // skipped, which can settle further dependencies, so skipping repeats until nothing changes. A
-// retryable failure is not settled: its dependents wait through the operator's retry instead of
+// retryable failure is not settled: its dependents wait through the user's retry instead of
 // being skipped past a failure that may yet succeed.
 func Plan(tasks []Task, slots int) Schedule {
 	status := make([]TaskStatus, len(tasks))
@@ -199,7 +199,7 @@ func pendingStatus(status TaskStatus) bool {
 }
 
 // settled reports whether an outcome will not change by itself. A retryable failure (or
-// requires_attention) is not settled: it waits for an operator retry.
+// requires_attention) is not settled: it waits for a user retry.
 func settled(status TaskStatus, failure *NormalizedError) bool {
 	switch status {
 	case TaskSucceeded, TaskSkipped, TaskCanceled:

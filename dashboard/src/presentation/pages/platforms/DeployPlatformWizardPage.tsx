@@ -56,7 +56,7 @@ import './platformDeployment.css'
 // A platform deploy converges over both pool-ready and already-deployed Servers (decision 072):
 // ready Servers are provisioned to an OS first, deployed Servers are reused as-is. The wizard
 // therefore offers both and derives the machine-preparation mode from the selection instead of
-// asking the operator to pick it up front. Kept module-level so its reference is stable for the
+// asking the user to pick it up front. Kept module-level so its reference is stable for the
 // candidate-loading effect.
 const CANDIDATE_PROVISIONING_STATES = ['ready', 'deployed'] as const
 
@@ -152,7 +152,7 @@ interface DeployPlatformWizardPageProps {
  * The shell owns the Site, the name, the candidate Servers, OS preparation for the Servers that
  * still need an operating system, the clock check, and submission; the module owns its settings,
  * roles, features, and any steps only it has. Submitting proposes the Platform's install as a
- * Change Plan, which the operator approves on the Change Plans page. While Deployment Templates are
+ * Change Plan, which the user approves on the Change Plans page. While Deployment Templates are
  * in development (always, in release builds) the OS step offers only a custom configuration and
  * never lists templates.
  */
@@ -398,7 +398,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
   const osDeploymentModeLabel = effectiveEphemeral ? 'Ephemeral (memory-backed)' : 'Persistent (disk-backed)'
   const effectiveNetworkMode = selectedTemplate?.network.mode ?? networkMode
   // Explains a DHCP suggestion from the backend (decision 058) whatever the current choice, so it also
-  // warns an operator who switches a site-DHCP batch back to Automatic.
+  // warns a user who switches a site-DHCP batch back to Automatic.
   const siteDhcpSuggested = networkInspection !== null &&
     suggestedBatchNetworkMode(networkInspection.targets.map((target) => target.suggestion.mode)) === 'dhcp'
   const inspectedTargetKey = networkInspection?.targets.map((target) => target.serverId).sort().join(',') ?? ''

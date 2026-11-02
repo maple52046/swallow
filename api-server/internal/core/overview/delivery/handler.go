@@ -1,4 +1,4 @@
-// Package delivery exposes the provider-owned operator overview over HTTP.
+// Package delivery exposes the provider-owned overview over HTTP.
 package delivery
 
 import (

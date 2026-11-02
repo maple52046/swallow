@@ -414,7 +414,7 @@ func (uc *DeployServersUseCase) preflight(
 	}
 	// An image the provisioner has not fully staged cannot be deployed: handing it to the
 	// provider only produces an opaque mid-install failure. Refuse the batch up front with a
-	// clear reason so operators fix the image (finish the upload or re-sync) before retrying.
+	// clear reason so users fix the image (finish the upload or re-sync) before retrying.
 	if !image.Complete {
 		return nil, fmt.Errorf(
 			"%w: the %q image is not fully staged by the provisioner and cannot be deployed",
@@ -697,7 +697,7 @@ func deploymentFailure(err error) (string, string) {
 // requireCustomImageVerified blocks deploying an unverified custom image for the requested deploy
 // target. Verification is a swallow-owned attestation that a real deploy in that target succeeded;
 // a custom (uploaded) image that has not been proven is refused with a swallow reason that names
-// the target and points the operator at verification. Synced provider images are trusted and are
+// the target and points the user at verification. Synced provider images are trusted and are
 // never gated. A nil repository disables the gate for tests that do not exercise verification.
 func (uc *DeployServersUseCase) requireCustomImageVerified(
 	ctx context.Context,

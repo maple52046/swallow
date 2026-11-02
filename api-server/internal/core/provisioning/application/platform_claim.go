@@ -8,7 +8,7 @@ import (
 )
 
 // RefusePlatformClaimed returns *ServerClaimedByPlatformError when server carries a Platform
-// Claim, and nil otherwise (decision 067). It is the single rule every operator path that would
+// Claim, and nil otherwise (decision 067). It is the single rule every user path that would
 // take a node out from under its Platform applies: direct release, the release Operation, Recover
 // of a deployed Server, and Server Delete; action selects the refusal's next step. names may be
 // nil, in which case the Platform is named by id.

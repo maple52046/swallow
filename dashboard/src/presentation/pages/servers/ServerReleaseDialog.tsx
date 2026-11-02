@@ -24,7 +24,7 @@ interface ServerReleaseDialogProps {
  * before any provider request is sent.
  *
  * A release is rejected while a target still has running durable Operations, so the dialog
- * detects that work on open. When the operator opts in, the release request asks the backend to
+ * detects that work on open. When the user opts in, the release request asks the backend to
  * cancel that work (`cancelActiveWorkflows`, decision 061): the Release Operation is accepted at
  * once and starts by itself after the canceled work ends, so the dialog closes within the request
  * instead of polling for minutes with every control disabled. Leaving the box unchecked releases

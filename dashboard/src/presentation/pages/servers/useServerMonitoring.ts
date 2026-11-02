@@ -17,7 +17,7 @@ import { failureOf, type DisplayedFailure } from '@/presentation/components/fail
 
 /** The monitoring view for one server: its effective owner, current metrics, and links. */
 export interface ServerMonitoring {
-  /** Which subsystem owns this host's exporters, or `unmanaged` (locked / operator-run). */
+  /** Which subsystem owns this host's exporters, or `unmanaged` (locked / user-run). */
   owner: EffectiveExporterOwner
   /** Whether GPU metrics apply to this server. */
   gpu: boolean

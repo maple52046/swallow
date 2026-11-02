@@ -1,7 +1,7 @@
 import { ConditionTypes, findCondition, type Condition } from '@/domain/convergence/types'
 
 /**
- * The one state an operator needs from a migrated resource's conditions, most urgent first. Each
+ * The one state a user needs from a migrated resource's conditions, most urgent first. Each
  * maps to a `StatusBadge` status for its colour family; the label always carries the meaning.
  */
 export type ConvergenceState =
@@ -32,8 +32,8 @@ const HOLD_DETAIL: Record<string, string> = {
 }
 
 /**
- * Reduces a resource's conditions to one operator-facing state (servers-list.md, "Spec and
- * status"). Precedence follows what the operator must act on first: a stopped convergence, then a
+ * Reduces a resource's conditions to one user-facing state (servers-list.md, "Spec and
+ * status"). Precedence follows what the user must act on first: a stopped convergence, then a
  * hold, then a provisioner that cannot realize the spec, then drift, then transient progress.
  * Conditions judged for an older generation than `generation` describe a spec that has since
  * changed, so the resource reads as converging until the controller judges the new spec.

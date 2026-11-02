@@ -44,7 +44,7 @@ function SkipToContent() {
 }
 
 /**
- * Authenticated frame shared by every operator route.
+ * Authenticated frame shared by every user route.
  *
  * Desktop navigation is a persistent, preference-backed rail. Mobile navigation
  * uses Chakra's focus-trapped Drawer, which owns escape dismissal and focus

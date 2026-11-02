@@ -26,7 +26,7 @@ const (
 )
 
 // systemNamespaces are the cluster-owned namespaces a client hides by default. They are the
-// namespaces k0s and Kubernetes create, not operator workloads.
+// namespaces k0s and Kubernetes create, not user workloads.
 var systemNamespaces = map[string]bool{
 	"kube-system":     true,
 	"kube-public":     true,

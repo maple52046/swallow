@@ -21,7 +21,7 @@ import (
 
 // bootISORoute is the path pattern at which the API process serves Boot ISOs (decision 047). It
 // is part of the published contract (server-detail-actions.md, boot-isos.md): the installation
-// fixes the base URL, swallow derives the rest from the Boot ISO's id, and operators never type
+// fixes the base URL, swallow derives the rest from the Boot ISO's id, and users never type
 // an ISO URL. The directory component is load-bearing: AMI MegaRAC BMCs do not mount an image
 // that sits at a server's root.
 const bootISORoute = "/boot-media/ipxe/:id/" + genfsimg.BootISOFileName

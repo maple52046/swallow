@@ -30,7 +30,7 @@ function needsPowerConfiguration(operation: Operation): boolean {
 }
 
 /**
- * Tells the operator that hardware inspection stopped and what usually fixes it (decisions 053 and
+ * Tells the user that hardware inspection stopped and what usually fixes it (decisions 053 and
  * 054). Shared by the Server list (every waiting inspection in the Site scope) and the Server detail
  * page (that Server's inspection).
  *

@@ -13,7 +13,7 @@ import (
 type DefaultUserSource string
 
 const (
-	// DefaultUserSourceServer is a value an operator set on this Server (decision 039).
+	// DefaultUserSourceServer is a value a user set on this Server (decision 039).
 	DefaultUserSourceServer DefaultUserSource = "server"
 	// DefaultUserSourceOSImage is the mirrored default user of the OS Image the Server was
 	// deployed with (decision 039).
@@ -49,7 +49,7 @@ func (s *Server) EffectiveDefaultUser() (string, DefaultUserSource) {
 }
 
 // SudoAccess is what a Server Default User can do with sudo, observed by running `sudo -n true`
-// over a Deployment Key login. Automation needs root for host changes, so it tells the operator
+// over a Deployment Key login. Automation needs root for host changes, so it tells the user
 // whether the Site become password matters (password_required) or whether the account cannot be
 // used for them at all (unavailable).
 type SudoAccess string
@@ -64,7 +64,7 @@ const (
 )
 
 // HostLoginTarget addresses one deployed Server for a direct SSH login. SiteID selects the Site's
-// SSH port; Name is only used in operator-facing messages.
+// SSH port; Name is only used in user-facing messages.
 type HostLoginTarget struct {
 	SiteID  string
 	Address string
@@ -106,7 +106,7 @@ var (
 	ErrDeploymentKeyMissing = errors.New("the installation has no deployment key")
 )
 
-// DefaultUserError explains a failed Server Default User change in operator terms — which Server,
+// DefaultUserError explains a failed Server Default User change in user terms — which Server,
 // which account, and what to do — while Unwrap keeps the sentinel for status mapping.
 type DefaultUserError struct {
 	Err    error
@@ -114,7 +114,7 @@ type DefaultUserError struct {
 	User   string
 }
 
-// Error is the operator-facing sentence the API returns as error.message. It names only the Server
+// Error is the user-facing sentence the API returns as error.message. It names only the Server
 // and the account — never a password — so it is safe to show and log.
 func (e *DefaultUserError) Error() string {
 	switch {

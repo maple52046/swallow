@@ -18,7 +18,7 @@ interface BuildBootISODialogProps {
   onBuilt: (iso: BootISO) => void
 }
 
-/** The form as typed; values are trimmed only when sent, so the operator's input is never rewritten. */
+/** The form as typed; values are trimmed only when sent, so the user's input is never rewritten. */
 interface BuildDraft {
   integrationId: string
   name: string
@@ -30,12 +30,12 @@ interface BuildDraft {
  *
  * A single provisioner is summarized read-only; only a multi-provisioner scope needs a selector.
  * The selected Integration suggests the MAAS rack host and an advanced ISO name, while either field
- * remains operator-editable and is never overwritten after editing. The iPXE script is swallow's
+ * remains user-editable and is never overwritten after editing. The iPXE script is swallow's
  * fixed template (DHCP from the Site network, then chain the rack's `ipxe.cfg`), so there is no
  * script field and the dialog previews the final chain URL instead. The API builds synchronously in
  * seconds; while it runs, dismissal is blocked so the request cannot be abandoned, and a refusal
  * (name taken, builder unavailable, packaging failure) is shown inline with the API's message so the
- * operator can correct it and retry.
+ * user can correct it and retry.
  */
 export function BuildBootISODialog({ integrations, onClose, onBuilt }: BuildBootISODialogProps) {
   const { provisioning } = useApp()

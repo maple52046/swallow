@@ -24,7 +24,7 @@ interface CapacityItem {
 /**
  * Presents the independent provider, membership, health, and lock axes without collapsing
  * them into one synthetic Server status. Provider lifecycle facts remain secondary rows so
- * an operator can scan the axes before reading the current OS and validation detail.
+ * a user can scan the axes before reading the current OS and validation detail.
  */
 export function StatusCard({ server, deployedImageHref }: { server: Server; deployedImageHref?: string }) {
   const axis = server.status.provisioning
@@ -202,7 +202,7 @@ export function DetailsCard({ server, onEditTags }: { server: Server; onEditTags
 const COPYABLE_MANAGEMENT_FIELDS = new Set(['Address', 'Username', 'Node ID', 'Power MAC'])
 const MASKED_PASSWORD = '••••••••'
 
-/** Keeps the BMC password transient and masked until an operator explicitly reveals it. */
+/** Keeps the BMC password transient and masked until a user explicitly reveals it. */
 function ManagementPassword({ value }: { value: string }) {
   const [visible, setVisible] = useState(false)
   const visibilityLabel = visible ? 'Hide password' : 'Show password'
@@ -252,12 +252,12 @@ interface ManagementControllerCardProps {
 }
 
 /**
- * Promotes out-of-band access and power control to their own operator surface on the Server
+ * Promotes out-of-band access and power control to their own user surface on the Server
  * Summary. For a Server with a BMC, connection identities are copyable and the explicitly
- * allowlisted password stays masked until an operator asks to reveal it; under them come the Power
+ * allowlisted password stays masked until a user asks to reveal it; under them come the Power
  * Configuration and Boot Media, both driven through this same controller. A Server without a BMC
  * (a libvirt virtual machine, or one with no power driver yet) gets the card retitled to power
- * control with its Power Configuration, so an operator can still give the provisioner a way to
+ * control with its Power Configuration, so a user can still give the provisioner a way to
  * power it, plus Boot Media through its Hypervisor when the caller has it. The blocks are the
  * caller's, so the card stays page-agnostic.
  */
@@ -311,7 +311,7 @@ export function ManagementControllerCard({ management, power, bootMedia, hasBMC 
  * In-band SSH access to a deployed Server, the counterpart of the out-of-band management
  * controller card. It shows the login user — the effective Server Default User the API resolves
  * (set on this Server, else the deployed OS image's default user; decision 039) with
- * where it comes from — the primary address, and the `ssh <user>@<address>` command an operator
+ * where it comes from — the primary address, and the `ssh <user>@<address>` command a user
  * runs with one of their Access Keys.
  *
  * A command is offered only when every part is known; otherwise the missing fact is spelled

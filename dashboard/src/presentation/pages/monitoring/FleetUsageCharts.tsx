@@ -13,7 +13,7 @@ import { useMetricRange } from '@/presentation/hooks/useMetricRange'
 /** What the console can chart: an explicit Server selection or one grouping. */
 type ChartScopeKind = MetricScope['kind']
 
-/** A grouping the operator can pick, loaded for the current Site. */
+/** A grouping the user can pick, loaded for the current Site. */
 interface ScopeOption {
   id: string
   name: string

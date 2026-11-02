@@ -71,7 +71,7 @@ type Assignment struct {
 // before creating a Workflow. Each Software module provides its kind's entry (Software.Entry).
 type CatalogEntry struct {
 	Kind Kind
-	// Label is the operator-facing name.
+	// Label is the user-facing name.
 	Label string
 	// Roles are the software's variants; empty for a role-less kind.
 	Roles []Role

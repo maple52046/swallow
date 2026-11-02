@@ -29,7 +29,7 @@ import type {
  * Reads platforms and writes their specs. A platform's observed members are servers carrying the
  * membership axis, read through the ServerRepository, so there is no member call here.
  * Registration of an existing platform involves a credential and is done through the API by
- * an operator, so it is not exposed to the dashboard.
+ * a user, so it is not exposed to the dashboard.
  */
 export interface PlatformRepository {
   /** All platforms, optionally scoped to one site. Small and bounded, so not paginated. */

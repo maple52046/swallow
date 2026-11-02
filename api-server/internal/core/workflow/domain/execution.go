@@ -64,7 +64,7 @@ type AutomationConfiguration struct {
 
 // CheckRunnable reports whether Ansible may run for the Site: automation must be enabled and
 // the Deployment Key, the only automation SSH key, must exist. It returns ErrAutomationDisabled
-// or ErrAutomationCredentialMissing otherwise, both of which an operator fixes outside the
+// or ErrAutomationCredentialMissing otherwise, both of which a user fixes outside the
 // Workflow (enable automation, or run the installation step that creates the key).
 //
 // The configuration must come from a reader that derives CredentialSource; one read straight

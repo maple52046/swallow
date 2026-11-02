@@ -9,7 +9,7 @@ const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]
  * The canonical form of one address, or null when it is not one. IPv4 must be dotted decimal
  * without leading zeros (the API refuses them too); IPv6 is canonicalized by the URL parser, which
  * lower-cases and compresses it the way the API reports it. A zone (`%eth0`) is not an address
- * here: it names an interface of the operator's own host.
+ * here: it names an interface of the user's own host.
  */
 function canonicalAddress(token: string): string | null {
   if (IPV4.test(token)) return token

@@ -68,7 +68,7 @@ const (
 	defaultDeploymentReadinessWait = 20 * time.Minute
 	defaultDeploymentPowerOnWait   = 10 * time.Minute
 	// defaultDeploymentStageStallWait is how long a deploying Machine may go without a new
-	// provider event before the Step asks for operator attention. Healthy MAAS stages advance
+	// provider event before the Step asks for user attention. Healthy MAAS stages advance
 	// within minutes (the longest, Configuring OS, typically under ten), so the window is wide
 	// enough for a slow mirror yet far shorter than the two-hour observation timeout. It must
 	// stay longer than defaultDeploymentPowerOnWait so a powered-off Machine keeps its more
@@ -249,7 +249,7 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 			if readiness.reachable {
 				return providerSucceeded()
 			}
-			// Releasing the installation to replay the intent is an operator's retry to make; a
+			// Releasing the installation to replay the intent is a user's retry to make; a
 			// resumed or retried activity of the same attempt only observes.
 			if len(readiness.addresses) == 0 && step.Step.Attempt > 1 {
 				return e.recoverDeploymentWithoutAddress(ctx, step, serverID, input)
@@ -271,7 +271,7 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 						provisioningapp.InspectionRequiredMessage(state.InspectionRequiredReason), false).
 						withStage("deployment_preflight")
 				}
-				// The operator retried a deployment the provider left unusable. The deploy
+				// The user retried a deployment the provider left unusable. The deploy
 				// preflight accepts only ready, so without returning the Machine to ready first
 				// every retry was refused and parked again, forever.
 				return e.recoverAndRedeploy(ctx, step, serverID, machineState, input)
@@ -283,7 +283,7 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 					"The Server is already deployed with a different image. Release it, then deploy again.", false).
 					withStage("deployment_preflight")
 			case machineState == provisioningdomain.MachineStatusFailed || machineState == provisioningdomain.MachineStatusBroken:
-				// An activity retry of the first attempt (worker turnover), not an operator retry:
+				// An activity retry of the first attempt (worker turnover), not a user retry:
 				// the deployment this attempt submitted failed while the worker was away. Report
 				// it exactly as observation would, and leave recovery to an explicit retry.
 				return providerFailed("deployment_failed", e.deploymentFailureMessage(ctx, step, serverID), true).withStage("deployment")
@@ -360,9 +360,9 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 				// ALLOCATED is the brief reserved state MAAS passes through on its way to
 				// DEPLOYING. Lingering here after an accepted deploy means the provider reserved
 				// the Machine but never started installing (for example a power or scheduling
-				// stall), so surface it for operator attention past a grace window instead of
+				// stall), so surface it for user attention past a grace window instead of
 				// silently waiting out the two-hour observation. The Machine is left allocated,
-				// which is now a Recover/Release source, so the operator can return it to ready.
+				// which is now a Recover/Release source, so the user can return it to ready.
 				now := time.Now()
 				if allocatedSince.IsZero() {
 					allocatedSince = now
@@ -515,7 +515,7 @@ func deploymentReadinessFailed(readiness deploymentReadiness) temporalworkflow.S
 }
 
 // resumedStep reports whether the attempt may already have started its provider work: an
-// operator's retry (a later attempt), an activity retry, or a later dispatch continuing the attempt.
+// user's retry (a later attempt), an activity retry, or a later dispatch continuing the attempt.
 // Such an attempt observes the provider before it acts. Only a later attempt may also replace what
 // the provider holds.
 func resumedStep(step temporalworkflow.StepExecutionInput) bool {
@@ -578,7 +578,7 @@ func recoverableBeforeRedeploy(state provisioningdomain.MachineStatus) bool {
 
 // recoverAndRedeploy is entered only by an explicit failed-Step retry (Attempt > 1) of a
 // provision-os whose Machine the provider left unusable (see recoverableBeforeRedeploy). The
-// operator's retry is the request to redeploy, so the Step runs the same state-driven Recover
+// user's retry is the request to redeploy, so the Step runs the same state-driven Recover
 // the Recover Operation runs — without unbinding static IPs, so the frozen network intent still
 // applies — and then replays the frozen deployment. It runs inside the deploying Operation, under
 // its resource leases, because a separate Recover Operation would be refused while this one
@@ -1320,7 +1320,7 @@ func (e providerStepExecutor) installationFailure(ctx context.Context, step temp
 // an account set on the Server belongs to the OS that deployment replaces (decision 039), and the
 // new OS's readiness check and every later run must log in as the new image's default user. It is
 // never called when a Step only observes an OS that already converged, so a rerun or Job retry of
-// a deployed Server keeps the operator's account. A projection write failure asks for attention.
+// a deployed Server keeps the user's account. A projection write failure asks for attention.
 func (e providerStepExecutor) clearReplacedDefaultUser(ctx context.Context, serverID string) *temporalworkflow.StepExecutionResult {
 	if err := e.servers.SetDefaultUser(ctx, serverID, ""); err != nil {
 		attention := providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
@@ -1367,8 +1367,8 @@ func (r providerResult) withStage(stage string) temporalworkflow.StepExecutionRe
 // mutation. An acceptance-time lock check can go stale while an Operation waits in a
 // durable queue, so every side-effecting provider call revalidates that the target is
 // unlocked. It fails closed: a lock read that cannot be confirmed blocks the mutation.
-// The Step pauses for operator attention (retryable) rather than failing terminally, so
-// the operator can unlock and retry the same Step.
+// The Step pauses for user attention (retryable) rather than failing terminally, so
+// the user can unlock and retry the same Step.
 func (e providerStepExecutor) requireUnlocked(ctx context.Context, serverID string) *temporalworkflow.StepExecutionResult {
 	if e.protection == nil || serverID == "" {
 		return nil
@@ -1387,13 +1387,13 @@ func normalizeProviderError(err error, stage string) temporalworkflow.StepExecut
 		return providerAttention("ssh_key_registration_failed", err.Error(), stage)
 	}
 	// Reached only if the Deployment Key disappeared after acceptance; nothing was written to the
-	// provider, so the operator can create the key and retry the Task.
+	// provider, so the user can create the key and retry the Task.
 	if errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing) {
 		return providerAttention("deployment_key_missing", err.Error(), stage)
 	}
 	// swallow's own deployment preflight refused the request before any provider write (a target
 	// that is not ready, an image that is not staged or verified, a network conflict), so the
-	// outcome is known. Reporting it as an unknown outcome invited the operator to retry the same
+	// outcome is known. Reporting it as an unknown outcome invited the user to retry the same
 	// refusal forever; ending the Step lets the Operation finish and free its Servers so the cause
 	// can be fixed and the work started again.
 	if errors.Is(err, provisioningdomain.ErrDeploymentBatchConflict) {
@@ -1412,7 +1412,7 @@ func normalizeProviderError(err error, stage string) temporalworkflow.StepExecut
 	}
 	// An unclassified error from a mutating provider call is an unknown outcome, not a
 	// safe retry: the request may have reached the provider and taken effect before the
-	// transport failed. Reconcile under operator attention instead of auto-retrying,
+	// transport failed. Reconcile under user attention instead of auto-retrying,
 	// which could duplicate a deploy or release side effect.
 	return providerAttention("provider_outcome_unknown", err.Error(), stage)
 }

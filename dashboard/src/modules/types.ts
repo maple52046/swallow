@@ -72,7 +72,7 @@ export interface DeployStep {
   name: string
   title: string
   canProceed: boolean
-  /** Why the step cannot proceed, read to the operator next to the disabled Next button. */
+  /** Why the step cannot proceed, read to the user next to the disabled Next button. */
   blockedReason?: string
   content: ReactNode
 }

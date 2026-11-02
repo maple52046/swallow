@@ -3,7 +3,7 @@
   # Notified by slurm_config when slurm.conf, cgroup.conf, gres.conf, or the JWT key changed, so
   # the controller picks up the new configuration. Defined here but shared across the controller
   # play's roles, since handlers are play-wide. A package upgrade that restarts polkit or D-Bus
-  # (the deploy holds the OS's own maintenance, but not an operator's) briefly resets systemd's
+  # (the deploy holds the OS's own maintenance, but not a user's) briefly resets systemd's
   # D-Bus connection, so a transient restart failure is retried instead of failing the deployment.
   ansible.builtin.systemd:
     name: slurmctld

@@ -33,7 +33,7 @@ const (
 	HTTPProxyModePeer HTTPProxyMode = "peer"
 )
 
-// NeedsURL reports whether the mode routes traffic through an operator-given proxy, which is the
+// NeedsURL reports whether the mode routes traffic through a user-given proxy, which is the
 // only case where HTTPProxyConfiguration.URL applies.
 func (m HTTPProxyMode) NeedsURL() bool {
 	return m == HTTPProxyModeExternal || m == HTTPProxyModePeer
@@ -53,10 +53,10 @@ type HTTPProxyConfiguration struct {
 
 // ErrInvalidHTTPProxy marks a Provisioner HTTP Proxy that swallow refuses before calling the
 // provisioner: an unknown mode, or a URL that is missing, malformed, or not applicable to the mode.
-// Errors wrapping it carry the operator-facing reason.
+// Errors wrapping it carry the user-facing reason.
 var ErrInvalidHTTPProxy = errors.New("invalid provisioner HTTP proxy")
 
-// NormalizeHTTPProxy validates an operator's configuration and returns its canonical form: the mode
+// NormalizeHTTPProxy validates a user's configuration and returns its canonical form: the mode
 // lower-cased and the URL reduced to scheme://host[:port], without surrounding whitespace or a
 // trailing "/". A refusal wraps ErrInvalidHTTPProxy with the reason.
 //

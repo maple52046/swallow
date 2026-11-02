@@ -186,7 +186,7 @@ export function ServerActivityTab() {
   const scrolledHashRef = useRef('')
   // Lands a section deep link. Scrolling waits until every source has settled because the
   // sections above the target change height when their rows arrive, and it runs once per hash
-  // so a later Refresh never pulls the operator back to the section.
+  // so a later Refresh never pulls the user back to the section.
   useEffect(() => {
     if (!sourcesSettled || !hash || scrolledHashRef.current === hash) return
     scrolledHashRef.current = hash

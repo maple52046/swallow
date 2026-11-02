@@ -36,13 +36,13 @@ export function kubernetesVersionAtLeast(k0sVersion: string, minimum: string): b
   return version[0] !== floor[0] ? version[0] > floor[0] : version[1] >= floor[1]
 }
 
-/** Operator-facing names for the GPU Allocation Mode domain values. */
+/** User-facing names for the GPU Allocation Mode domain values. */
 export const GPU_ALLOCATION_MODE_LABELS: Record<GPUAllocationMode, string> = {
   'device-plugin': 'Device Plugin',
   dra: 'DRA',
 }
 
-/** Operator-facing names for the device plugin resource naming strategies. */
+/** User-facing names for the device plugin resource naming strategies. */
 export const GPU_RESOURCE_NAMING_LABELS: Record<GPUResourceNaming, string> = {
   single: 'Single (amd.com/gpu)',
   mixed: 'Mixed (per partition type)',
@@ -62,7 +62,7 @@ export function gpuOperatorStateLabel(state: GPUOperatorState): string {
 }
 
 /**
- * Whether a Workflow is still applying the latest change, so the state moves without operator
+ * Whether a Workflow is still applying the latest change, so the state moves without user
  * action. Drives the in-progress cue and polling on the Platform page.
  */
 export function isGPUOperatorInProgress(state: GPUOperatorState): boolean {

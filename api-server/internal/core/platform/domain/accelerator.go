@@ -12,7 +12,7 @@ const HookAccelerator = "accelerator"
 type Accelerator interface {
 	// ID is the Accelerator module's id.
 	ID() string
-	// Label is the vendor's operator-facing name.
+	// Label is the vendor's user-facing name.
 	Label() string
 	// IsCompute reports whether a GPU group of a Server's inventory is this vendor's workload
 	// capacity; the vendor's display controllers are not.
@@ -29,7 +29,7 @@ func (a Accelerators) HasComputeGPU(id string, gpus []serverdomain.GPU) bool {
 	return ok && HasComputeGPU(accelerator, gpus)
 }
 
-// Label is the Accelerator's operator-facing name, or the id when the build does not include it.
+// Label is the Accelerator's user-facing name, or the id when the build does not include it.
 func (a Accelerators) Label(id string) string {
 	if accelerator, ok := a[id]; ok {
 		return accelerator.Label()

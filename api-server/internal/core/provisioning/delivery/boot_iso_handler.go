@@ -39,7 +39,7 @@ func (h *BootISOHandler) List(c *fiber.Ctx) error {
 	return c.JSON(list)
 }
 
-// Create builds a Boot ISO synchronously and answers 201 with it. The operator's username is
+// Create builds a Boot ISO synchronously and answers 201 with it. The user's username is
 // recorded as createdBy.
 func (h *BootISOHandler) Create(c *fiber.Ctx) error {
 	var req createBootISORequest
@@ -69,7 +69,7 @@ func (h *BootISOHandler) Get(c *fiber.Ctx) error {
 }
 
 // Rebuild re-renders a Boot ISO from the current template and replaces its file in place,
-// answering 200 with it. It takes no body; the operator's username is recorded as rebuiltBy.
+// answering 200 with it. It takes no body; the user's username is recorded as rebuiltBy.
 func (h *BootISOHandler) Rebuild(c *fiber.Ctx) error {
 	rebuiltBy := ""
 	if principal := middleware.GetPrincipal(c); principal != nil {

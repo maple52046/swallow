@@ -2,7 +2,7 @@ package domain
 
 // The AMD Device Metrics Exporter as Managed Software (decision 068): AMD's native per-GPU
 // exporter package, installed alone on a single Server or composed by a Slurm deployment onto its
-// GPU compute nodes. The kind has one built-in install path and no operator spec fields; the
+// GPU compute nodes. The kind has one built-in install path and no user spec fields; the
 // values below are the published language the playbook, the composing platform, and the
 // assignment record share.
 const (

@@ -147,7 +147,7 @@ EOF
 active_operations() {
   local uri
   uri="$(<"${config_root}/secrets/mongo-uri")"
-  # shellcheck disable=SC2016 # $nin is a MongoDB operator, not a shell expansion
+  # shellcheck disable=SC2016 # $nin is a MongoDB user, not a shell expansion
   mongosh "${uri}" --quiet --eval \
     'const d = db.getSiblingDB("swallow");
      const terminal = ["succeeded", "failed", "partially_succeeded", "canceled"];

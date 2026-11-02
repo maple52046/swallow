@@ -17,7 +17,7 @@ interface ImportSSHKeyDialogProps {
  *
  * Only a public key is accepted — swallow never stores an Access Key's private half — and the
  * backend is the validator of record for the key format, strength, and duplicates; its message is
- * shown inline so the operator can correct and retry. The dialog cannot be dismissed while the
+ * shown inline so the user can correct and retry. The dialog cannot be dismissed while the
  * request is in flight, so a double submit cannot store two records.
  */
 export function ImportSSHKeyDialog({ onClose, onImported }: ImportSSHKeyDialogProps) {

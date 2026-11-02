@@ -1,5 +1,5 @@
 /**
- * Operator-facing copy for the Platform removal actions (decision 010, 2026-10-29 amendment),
+ * User-facing copy for the Platform removal actions (decision 010, 2026-10-29 amendment),
  * shared by the detail dialogs (`PlatformLifecycleActions`), the bulk dialogs, and the bulk toast
  * summary (`usePlatformBulkActions`) so they never describe the same choice differently.
  *

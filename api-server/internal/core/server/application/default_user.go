@@ -13,7 +13,7 @@ import (
 // Server has an account to log in to.
 const deployedState = "deployed"
 
-// DefaultUserUseCase sets and clears the operator-set Server Default User (decision 039).
+// DefaultUserUseCase sets and clears the user-set Server Default User (decision 039).
 //
 // It owns the rule that a value is saved only after a Deployment Key login as that account
 // succeeds, so automation can never be pointed at an account it cannot use. With a one-time
@@ -105,7 +105,7 @@ func (uc *DefaultUserUseCase) Clear(ctx context.Context, serverID string) error 
 	return uc.servers.SetDefaultUser(ctx, server.ID, "")
 }
 
-// hostAccessError turns a HostAccess sentinel into the operator-facing DefaultUserError for this
+// hostAccessError turns a HostAccess sentinel into the user-facing DefaultUserError for this
 // Server and account; any other error is wrapped as an unexpected failure.
 func hostAccessError(err error, server, user string) error {
 	for _, sentinel := range []error{

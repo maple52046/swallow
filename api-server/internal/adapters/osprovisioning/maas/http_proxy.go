@@ -111,7 +111,7 @@ func (p *Provider) readSetting(ctx context.Context, name string, out any) error 
 }
 
 // translateSettingWriteError keeps a refused set_config explicit: MAAS answers 401/403 when the
-// integration's account is not an administrator, which the operator must fix in the Integration, not
+// integration's account is not an administrator, which the user must fix in the Integration, not
 // a rejected value.
 func translateSettingWriteError(err error) error {
 	var apiErr *apiError

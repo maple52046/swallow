@@ -23,7 +23,7 @@ func (busyWorkflowRepo) List(
 }
 
 // TestCreateClassifiesActiveDurableWorkAsBusyConflict guards the acceptance-time reason
-// operators actually read. A target already inside an unfinished Operation must surface
+// users actually read. A target already inside an unfinished Operation must surface
 // as ErrTargetsBusy (a 409 conflict everywhere) and must not be classified as a generic
 // ErrInvalidOperation, which the provisioning delivery mapper would otherwise leak as an
 // opaque Internal error.

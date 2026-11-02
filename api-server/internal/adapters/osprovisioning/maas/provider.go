@@ -179,7 +179,7 @@ func bootResourcePath(id int) string {
 // the per-request client timeout while a multi-gigabyte artifact is streamed sequentially.
 const uploadChunkSize = 1 << 22 // 4 MiB
 
-// UploadOSImage creates a new MAAS custom (Uploaded) boot resource from operator-supplied
+// UploadOSImage creates a new MAAS custom (Uploaded) boot resource from user-supplied
 // content and streams the artifact to it.
 //
 // MAAS reserves the resource from metadata first — it needs the exact size and sha256 up front —
@@ -473,7 +473,7 @@ func translateError(err error, machineID string) error {
 //
 // MAAS answers either with a plain sentence or with a JSON object mapping a field
 // name to its complaints; both are flattened to one line so that whatever MAAS
-// objected to reaches the operator intact.
+// objected to reaches the user intact.
 func rejectionDetail(e *apiError) string {
 	if e.Body == "" {
 		return fmt.Sprintf("MAAS refused the request (HTTP %d).", e.StatusCode)

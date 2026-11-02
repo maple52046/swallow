@@ -11,14 +11,14 @@ const LABELS: Record<PlatformLifecycleState, string> = {
   uninstalled: 'Uninstalled',
 }
 
-/** Operator-facing lifecycle label supplied by the backend read model. */
+/** User-facing lifecycle label supplied by the backend read model. */
 export function platformLifecycleLabel(state: PlatformLifecycleState): string {
   return LABELS[state]
 }
 
 /**
  * Whether the lifecycle has durable work running (a deployment or an uninstall), so the state
- * changes without operator action. Drives the in-progress cue, polling, and filtering.
+ * changes without user action. Drives the in-progress cue, polling, and filtering.
  */
 export function isPlatformLifecycleInProgress(state: PlatformLifecycleState): boolean {
   return state === 'deploying' || state === 'uninstalling'
@@ -44,7 +44,7 @@ export function platformLifecycleStatus(state: PlatformLifecycleState): string {
 
 /**
  * Disabled reason for the destructive host-side uninstall command. A Platform still deploying
- * stays uninstallable: its dialog lists the running deployment, and the operator confirms that
+ * stays uninstallable: its dialog lists the running deployment, and the user confirms that
  * the backend cancels it first (`cancelActiveWorkflows`, decision 061).
  */
 export function platformUninstallDisabledReason(platform: Platform): string | undefined {
@@ -80,7 +80,7 @@ export interface PlatformTargetProtection {
   lockedNames: readonly string[]
 }
 
-/** Whether Uninstall can be submitted now, with the operator-facing reason when it cannot. */
+/** Whether Uninstall can be submitted now, with the user-facing reason when it cannot. */
 export interface PlatformUninstallAvailability {
   enabled: boolean
   reason?: string

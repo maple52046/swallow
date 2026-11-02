@@ -289,7 +289,7 @@ type ProvisioningStatus struct {
 	// ErrorDescription is the provisioner's own machine-level failure reason (e.g. "Failed to
 	// erase disks."), mirrored only for failure states and empty otherwise. Display and
 	// diagnostics only; it surfaces why a lifecycle action failed on the failed/broken axis so
-	// an operator does not have to read the provider event log to find the reason.
+	// a user does not have to read the provider event log to find the reason.
 	ErrorDescription string
 	PowerState       string
 	// OSSystem and DistroSeries describe what is currently deployed.
@@ -327,7 +327,7 @@ type ProvisioningStatus struct {
 	// InspectionRequired reports that the provisioner's storage layout for this Server cannot
 	// take a disk deployment until the Server is inspected again (for example a UEFI Server
 	// whose layout was built while it booted BIOS). Disk deployments are refused while it is
-	// set; a memory deployment is unaffected. InspectionRequiredReason explains it to operators.
+	// set; a memory deployment is unaffected. InspectionRequiredReason explains it to users.
 	InspectionRequired       bool
 	InspectionRequiredReason string
 	// CommissioningStatus and TestingStatus are the provisioner's own labels for the
@@ -434,7 +434,7 @@ type Server struct {
 	// provider reconciliation.
 	PlatformClaim *PlatformClaim
 
-	// DefaultUser is the Server Default User an operator set on this Server (decision 039), empty
+	// DefaultUser is the Server Default User a user set on this Server (decision 039), empty
 	// when none is set. It is swallow-owned and verified by a Deployment Key login before it is
 	// saved; provider reconciliation preserves it. It belongs to the current OS installation and is
 	// cleared when swallow starts a new OS deployment or the Server is observed without an OS. Read

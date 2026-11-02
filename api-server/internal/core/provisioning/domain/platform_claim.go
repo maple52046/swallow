@@ -6,13 +6,13 @@ import (
 	"fmt"
 )
 
-// ErrServerClaimedByPlatform means an operator asked to release, recover a deployed, or delete a
+// ErrServerClaimedByPlatform means a user asked to release, recover a deployed, or delete a
 // Server that a Platform's accepted deployment claims (decision 067). Each would take the node out
 // from under the Platform, so the request is refused and the Servers must be released through the
 // Platform's uninstall instead. Delivery maps it to 409 conflict.
 var ErrServerClaimedByPlatform = errors.New("server belongs to a platform")
 
-// ClaimRefusedAction is the operator action a Platform Claim refused; it chooses the refusal's
+// ClaimRefusedAction is the user action a Platform Claim refused; it chooses the refusal's
 // next step.
 type ClaimRefusedAction int
 
@@ -26,7 +26,7 @@ const (
 )
 
 // ServerClaimedByPlatformError names the Server and the Platform that claims it, so the refusal
-// tells the operator where to go. PlatformName and PlatformType are empty when the Platform could
+// tells the user where to go. PlatformName and PlatformType are empty when the Platform could
 // not be read; the message then names its id. It unwraps to ErrServerClaimedByPlatform.
 type ServerClaimedByPlatformError struct {
 	Server       string

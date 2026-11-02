@@ -20,7 +20,7 @@ import (
 // not a second way into the rest of the API.
 //
 // When no token is configured the endpoints still work for an admin JWT, so that an
-// operator can inspect them without provisioning a credential first. API Keys are not accepted
+// user can inspect them without provisioning a credential first. API Keys are not accepted
 // here: the discovery contracts name only the machine token and an admin access token.
 func MachineAuth(jwtSvc *jwt.Service, machineToken string) fiber.Handler {
 	return func(c *fiber.Ctx) error {

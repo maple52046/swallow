@@ -1,5 +1,5 @@
 // Package output renders api-server response payloads for the terminal in the
-// operator-selected format: pretty JSON, YAML, or a human-readable table.
+// user-selected format: pretty JSON, YAML, or a human-readable table.
 //
 // Component boundary: this package presents opaque decoded JSON (Go values from
 // encoding/json: maps, slices, scalars). It intentionally knows nothing about
@@ -193,7 +193,7 @@ func (p *Printer) printKeyValue(obj map[string]any) error {
 	return tw.Flush()
 }
 
-// preferredColumns lists identity and status keys that operators scan first.
+// preferredColumns lists identity and status keys that users scan first.
 // Any present column named here is shown ahead of the alphabetical remainder.
 var preferredColumns = []string{
 	"id", "name", "hostname", "siteId", "kind", "type", "providerKind",

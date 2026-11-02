@@ -1,7 +1,7 @@
 import { Alert } from '@/presentation/components/ui/alert'
 
 /**
- * Warns operators that an ephemeral Kubernetes Platform has no durable node-local state.
+ * Warns users that an ephemeral Kubernetes Platform has no durable node-local state.
  * It is repeated at configuration and review so template-owned ephemeral intent cannot be
  * submitted without an explicit, text-based warning.
  */

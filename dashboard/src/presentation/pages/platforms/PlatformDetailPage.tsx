@@ -221,7 +221,7 @@ export function PlatformDetailPage() {
 }
 
 /**
- * Operator-facing text and badge palette for a Slurm monitoring feature's state (the Omnistat State
+ * User-facing text and badge palette for a Slurm monitoring feature's state (the Omnistat State
  * and the Device Metrics Exporter State share their values); the text carries the meaning.
  */
 const MONITORING_FEATURE_STATE_PRESENTATION: Record<OmnistatState | DeviceMetricsExporterState, { label: string; palette: string }> = {
@@ -368,10 +368,10 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
 /**
  * Secondary platform settings shown after operational state and membership.
  * Type already appears beside the page title, so this group keeps only the
- * configuration facts an operator may need while investigating the platform.
+ * configuration facts a user may need while investigating the platform.
  * A Slurm Platform also states its containers in one fact, as the deploy wizard groups them: native
  * OCI containers and the container engine (or that it has neither); each Server's engine install
- * state lives in its Software Assignment, not here. MPI is stated either way. GPU driver options and the GRES type appear only when the operator
+ * state lives in its Software Assignment, not here. MPI is stated either way. GPU driver options and the GRES type appear only when the user
  * set them; derived values are a node fact.
  */
 function PlatformConfiguration({ platform }: { platform: Platform }) {
@@ -503,7 +503,7 @@ function deploymentFailureMessage(operation?: Operation): string {
     return `${reason} Platform installation did not start. Resolve the network or SSH readiness issue, then use Repair deployment to retry the failed Step.`
   }
   // A failed install-platform Step is the common Ansible failure. Lead with the executor's
-  // enriched error (failing task, host, stderr/stdout tail) so the operator sees the cause on
+  // enriched error (failing task, host, stderr/stdout tail) so the user sees the cause on
   // the Platform page itself; the automation-details link and Stdout tab hold the full log.
   const reason = failedStep?.error?.message?.trim()
   const guidance = 'Hosts may contain partial platform state. Review the failed Step, then use Repair deployment to retry only unfinished work.'

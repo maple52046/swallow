@@ -20,7 +20,7 @@ export interface SSHKeyRepository {
   importAccessKey(input: { name: string; publicKey: string }): Promise<SSHKey>
   /**
    * Generates an ed25519 Access Key pair. The returned private key is shown exactly once; callers
-   * must hand it to the operator and then drop it.
+   * must hand it to the user and then drop it.
    */
   generateAccessKey(name: string): Promise<GeneratedAccessKey>
   /** Deletes one of the caller's Access Keys and removes it from provisioners swallow registered it in. */

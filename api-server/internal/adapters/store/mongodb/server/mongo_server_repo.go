@@ -45,7 +45,7 @@ type serverDoc struct {
 	Provisioning *provisioningDoc `bson:"provisioning,omitempty"`
 	Membership   *membershipDoc   `bson:"membership,omitempty"`
 
-	// DefaultUser is the operator-set Server Default User (decision 039). Top-level and written
+	// DefaultUser is the user-set Server Default User (decision 039). Top-level and written
 	// only by SetDefaultUser, like membership, so a reconcile Upsert never erases it; absent reads
 	// as "none set".
 	DefaultUser string `bson:"defaultUser,omitempty"`
@@ -575,7 +575,7 @@ func (r *MongoServerRepo) SetDeployment(ctx context.Context, id string, deployme
 	return nil
 }
 
-// SetDefaultUser writes the operator-set Server Default User, or unsets the field for "". It
+// SetDefaultUser writes the user-set Server Default User, or unsets the field for "". It
 // touches nothing else on the document, so it cannot race the reconcile Upsert's fields.
 func (r *MongoServerRepo) SetDefaultUser(ctx context.Context, id string, user string) error {
 	update := bson.M{"$set": bson.M{"updatedAt": time.Now().UTC()}}

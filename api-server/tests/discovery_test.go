@@ -301,7 +301,7 @@ func TestDiscovery_RequiresAuth(t *testing.T) {
 	}
 }
 
-// An admin JWT also works, so an operator can inspect the endpoints without
+// An admin JWT also works, so a user can inspect the endpoints without
 // provisioning a discovery credential first.
 func TestDiscovery_AcceptsAdminJWT(t *testing.T) {
 	f := setupPlatform(t)

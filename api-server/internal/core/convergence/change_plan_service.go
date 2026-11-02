@@ -13,7 +13,7 @@ import (
 )
 
 // ChangePlanService proposes, decides, applies, and expires Change Plans (decision 076). A
-// resource's spec write proposes a plan inside its own transaction; an operator approves or
+// resource's spec write proposes a plan inside its own transaction; a user approves or
 // rejects it; the resource's controller applies an approved plan; the expiry controller ends a plan
 // nobody decided in time.
 type ChangePlanService struct {
@@ -147,7 +147,7 @@ func (s *ChangePlanService) Reject(ctx context.Context, id, actor string) (*Chan
 	return s.plans.FindByID(ctx, id)
 }
 
-// decidable loads a plan an operator may decide, expiring it first when it is past its time.
+// decidable loads a plan a user may decide, expiring it first when it is past its time.
 func (s *ChangePlanService) decidable(ctx context.Context, id string) (*ChangePlan, error) {
 	plan, err := s.plans.FindByID(ctx, id)
 	if err != nil {

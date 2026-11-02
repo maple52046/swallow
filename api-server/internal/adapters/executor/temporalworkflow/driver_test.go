@@ -307,7 +307,7 @@ func TestDriverOfASupersededGenerationEndsWithoutSideEffects(t *testing.T) {
 }
 
 // A single-attempt executor that stops (its heartbeat times out) leaves the Task's outcome
-// unknown: the Task is handed to the operator instead of being run again.
+// unknown: the Task is handed to the user instead of being run again.
 func TestDriverRecordsAnUnknownOutcomeWhenASingleAttemptExecutorStops(t *testing.T) {
 	f := newDriverFixture(t, driverWorkflow("w", driverTask("a")))
 	f.env.OnActivity(ActivityExecuteTask, mock.Anything, mock.Anything).

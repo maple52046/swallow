@@ -14,7 +14,7 @@ import type {
  *
  * Implementations return dashboard domain types only. A missing or unreachable metrics backend
  * must be raised as `MetricsBackendUnavailableError` from the metric reads, so screens can ask
- * the operator to register a metrics Integration instead of showing a generic failure.
+ * the user to register a metrics Integration instead of showing a generic failure.
  */
 export interface MonitoringRepository {
   /** Lists current firing and suppressed alerts using supported provider filters. */

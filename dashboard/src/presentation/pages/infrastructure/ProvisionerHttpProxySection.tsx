@@ -75,7 +75,7 @@ function HttpProxySetting({ integrationId }: { integrationId: string }) {
 
 /**
  * The editable form over one setting. `setting` is the stored setting (the read, then each save and
- * re-read), so "Not saved yet" compares the operator's choice with the spec rather than with the
+ * re-read), so "Not saved yet" compares the user's choice with the spec rather than with the
  * opening state, and the status line says whether MAAS holds the spec and what MAAS reports. While a
  * saved change is still being applied, the setting is re-read quietly until it settles. A typed URL
  * is kept while another mode is chosen, so switching back does not lose it, but only modes that
@@ -97,7 +97,7 @@ function HttpProxyForm({ integrationId, current }: { integrationId: string; curr
   useSettlingRefresh(settling, refresh)
 
   // A mode this console does not know (added to the API later) has no text; the select then shows
-  // its placeholder and nothing can be saved until the operator chooses a known mode.
+  // its placeholder and nothing can be saved until the user chooses a known mode.
   const modeText: { label: string; help: string } | undefined = HTTP_PROXY_MODE_TEXT[mode]
   const needsUrl = httpProxyModeNeedsUrl(mode)
   const urlProblem = needsUrl ? httpProxyUrlProblem(url) : null
@@ -163,7 +163,7 @@ function HttpProxyForm({ integrationId, current }: { integrationId: string; curr
               disabled={saving}
               onChange={(event) => setUrl(event.target.value)}
               onKeyDown={(event) => {
-                // Enter saves the proxy, which is what an operator typing a proxy URL means; the
+                // Enter saves the proxy, which is what a user typing a proxy URL means; the
                 // default is suppressed so no enclosing form ever submits instead.
                 if (event.key !== 'Enter') return
                 event.preventDefault()

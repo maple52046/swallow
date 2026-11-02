@@ -32,7 +32,7 @@ type PowerConfigurationItem struct {
 	Drivers        []PowerDriverOptionItem `json:"drivers"`
 }
 
-// SetPowerConfigurationInput is an operator's replacement Power Configuration. Password follows
+// SetPowerConfigurationInput is a user's replacement Power Configuration. Password follows
 // provisioningdomain.PowerConfigurationChange: nil keeps the stored password for an unchanged
 // driver and clears it when the driver changes; a pointer to "" clears it.
 type SetPowerConfigurationInput struct {

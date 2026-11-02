@@ -242,7 +242,7 @@ check_maas_ntp() {
 # --- host chrony (any provisioner other than MAAS) ---------------------------------------------
 
 # render_host_config prints the swallow-owned chrony configuration from the validated settings
-# (load_settings), so the file holds no operator-supplied directive text.
+# (load_settings), so the file holds no user-supplied directive text.
 render_host_config() {
   local host subnet
   printf '# Managed by swallow local-ntp.sh (decision 065): the Control-Plane NTP Server.\n'

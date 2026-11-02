@@ -19,9 +19,9 @@ type Pool struct {
 	SiteID string
 	// Generation counts spec changes: 1 when created, +1 on every rename or description change.
 	Generation int64
-	// Name is operator-facing and unique within SiteID.
+	// Name is user-facing and unique within SiteID.
 	Name string
-	// Description is an optional operator note.
+	// Description is an optional user note.
 	Description string
 	// Status is written only by the catalog controller.
 	Status    GroupStatus

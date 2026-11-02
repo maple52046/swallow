@@ -1,7 +1,7 @@
 ---
 # AMD Device Metrics Exporter on a GPU node (Managed Software device-metrics-exporter, decision
 # 068). Intent arrives as trusted swallow_device_metrics_exporter_* vars from a standalone software
-# install or a Slurm deployment; nothing here is an operator choice except the profiler, which only
+# install or a Slurm deployment; nothing here is a user choice except the profiler, which only
 # operations turn on for a bounded measurement.
 device_metrics_exporter_version: "{{ swallow_device_metrics_exporter_version | default('1.5.3', true) }}"
 # Which scheduler GPU metrics are attributed to: none (standalone) or slurm. A Slurm run accepted

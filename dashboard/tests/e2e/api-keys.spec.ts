@@ -1,7 +1,7 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// Operator journeys for API keys (decision 042). Every request is served by deterministic fixtures;
+// User journeys for API keys (decision 042). Every request is served by deterministic fixtures;
 // the "secret" is a fixture string.
 
 test.beforeEach(async ({ page }) => {

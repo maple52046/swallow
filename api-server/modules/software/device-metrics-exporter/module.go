@@ -22,7 +22,7 @@ func Module() (moduledomain.Module, error) {
 // Software is the Device Metrics Exporter's Software hook.
 type Software struct{}
 
-// Entry is the exporter's catalog entry (decision 068): one native install path and no operator
+// Entry is the exporter's catalog entry (decision 068): one native install path and no user
 // spec, only on Servers with AMD compute GPUs, and left to the Platform on Servers a Platform
 // claims or that are Kubernetes members.
 func (Software) Entry() softwaredomain.CatalogEntry {

@@ -99,7 +99,7 @@ const percent = (value: number): string => `${value.toFixed(1)}%`
 /** Bytes per second with binary units; zero is valid traffic and must not be treated as unknown. */
 const bytesPerSecond = (value: number): string => (value > 0 ? `${formatBytes(value)}/s` : '0 B/s')
 
-/** Fixed named metrics in operator scan order: host resources first, then GPU. */
+/** Fixed named metrics in user scan order: host resources first, then GPU. */
 export const METRIC_DESCRIPTORS: MetricDescriptor[] = [
   { name: 'cpuUsagePercent', label: 'CPU usage', gpuOnly: false, unit: 'percent', format: percent },
   { name: 'memoryUsedPercent', label: 'Memory used', gpuOnly: false, unit: 'percent', format: percent },
@@ -186,7 +186,7 @@ export interface MetricRangeResult {
  * The Site has no reachable metrics backend (no metrics Integration, or it cannot be reached).
  *
  * The adapter raises it for the contract's `provider_unavailable` so screens can tell the
- * operator to register a metrics Integration instead of implying the Servers are down. It is a
+ * user to register a metrics Integration instead of implying the Servers are down. It is a
  * domain error so presentation never inspects transport error codes.
  *
  * `requestId` is the ID of the request the backend refused, kept so the screen can still show it;

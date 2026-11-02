@@ -162,7 +162,7 @@ export function RegistryCredentialsSection() {
  * Create or replace one credential. Creating asks for the registry; replacing keeps it fixed (the
  * contract cannot change it) and requires a new password, because the stored one is never sent back
  * to pre-fill. The password field uses `new-password` autocomplete so browsers do not offer the
- * operator's own swallow password for a registry. Errors from the API (an invalid host, a duplicate
+ * user's own swallow password for a registry. Errors from the API (an invalid host, a duplicate
  * registry) are shown inline; dismissal is blocked while saving.
  */
 function RegistryCredentialDialog({

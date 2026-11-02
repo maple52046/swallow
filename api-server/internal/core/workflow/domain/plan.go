@@ -11,7 +11,7 @@ import (
 // canceled, and — through each Task's kind — how a rerun and a resume treat it. The engine acts
 // only on these declarations and never on a Workflow kind, Task kind, or Task ID.
 
-// RetryGranularity says what an operator retry of a failed Task in a Job runs again.
+// RetryGranularity says what a user retry of a failed Task in a Job runs again.
 type RetryGranularity string
 
 const (
@@ -25,7 +25,7 @@ const (
 
 // JobDeclaration declares one named Job of a Workflow. Every Job a Task names must be declared,
 // so how a retry behaves is part of the accepted plan rather than a property of the engine. Label
-// is the operator-facing name of the Job; a Workflow accepted before Jobs had labels has none and
+// is the user-facing name of the Job; a Workflow accepted before Jobs had labels has none and
 // reads one from the plan catalog (PlanCatalog.JobLabel).
 type JobDeclaration struct {
 	Name string `json:"name" bson:"name"`
@@ -93,7 +93,7 @@ const (
 	// observes the external work it already started and continues it.
 	ResumeObserve ResumePolicy = "observe"
 	// ResumeAttention records the Task requires_attention (executor_outcome_unknown): its outcome
-	// cannot be proven, so only an operator retry runs it again.
+	// cannot be proven, so only a user retry runs it again.
 	ResumeAttention ResumePolicy = "attention"
 )
 
@@ -117,7 +117,7 @@ type PlanCatalog struct {
 	Compensations map[string]bool
 	// WorkflowKinds are the Workflow kinds a plan may be; the zero value accepts the built-in ones.
 	WorkflowKinds WorkflowKinds
-	// JobLabels are the operator-facing names of the Jobs launchers declare, by Job name.
+	// JobLabels are the user-facing names of the Jobs launchers declare, by Job name.
 	JobLabels map[string]string
 }
 

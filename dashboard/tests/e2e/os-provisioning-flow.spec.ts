@@ -418,7 +418,7 @@ test('a fixed provider image offers only ready unlocked target cards and skips i
   await expect(page).toHaveURL('/provisioning/images?site=site-a')
 })
 
-test('image capability chooses the deploy-mode default without overwriting an operator choice', async ({ page }) => {
+test('image capability chooses the deploy-mode default without overwriting a user choice', async ({ page }) => {
   await installApiFixtures(page, { readyServerCount: 1 })
   const image = (
     id: string,

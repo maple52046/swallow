@@ -87,7 +87,7 @@ func (s DeploymentSpec) HighlyAvailable() bool {
 	return len(s.ControlPlaneServerIDs()) >= 3
 }
 
-// Topology derives the operator-facing topology after deployment validation. An empty
+// Topology derives the user-facing topology after deployment validation. An empty
 // value means historical intent was incomplete and must not be guessed by read models.
 func (s DeploymentSpec) Topology() KubernetesTopology {
 	controllers := len(s.ControlPlaneServerIDs())
@@ -136,7 +136,7 @@ type SlurmStorageType string
 const SlurmStorageNFS SlurmStorageType = "nfs"
 
 // SlurmWorkloadStorageMode selects who provides the shared workload filesystem: swallow itself
-// (an NFS export on the login node) or an operator-managed external NFS server.
+// (an NFS export on the login node) or a user-managed external NFS server.
 type SlurmWorkloadStorageMode string
 
 const (
@@ -147,7 +147,7 @@ const (
 // SlurmWorkloadStorageSpec is the optional shared filesystem for user/job data, distinct from
 // the controller StateSaveLocation. When Enabled it is mounted on every cluster node at
 // MountPath (a non-overlapping path, never /home). Self-hosted mode exports NFS from the login
-// node (so it requires a login node); external mode mounts an operator-supplied NFSURL and
+// node (so it requires a login node); external mode mounts a user-supplied NFSURL and
 // runs no server. Type is nfs today. NFSMountOptions overrides the default mount options.
 type SlurmWorkloadStorageSpec struct {
 	Enabled         bool

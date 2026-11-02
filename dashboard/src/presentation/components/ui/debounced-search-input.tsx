@@ -20,7 +20,7 @@ interface DebouncedSearchInputProps {
 /**
  * DebouncedSearchInput is the free-text filter for list pages whose query lives in the URL: the
  * Server list discovery search, the OS image catalog search, and the Workflow kind filter. The
- * operator types into a local draft; after a pause the trimmed draft is committed so the page can
+ * user types into a local draft; after a pause the trimmed draft is committed so the page can
  * filter and the URL stays shareable.
  *
  * The field is never remounted when its own commit lands. Keying it on the committed value used to
@@ -62,7 +62,7 @@ export function DebouncedSearchInput({
   const target = inFlight.length > 0 ? inFlight[inFlight.length - 1] : value
 
   // Commits the trimmed draft once typing pauses. Every keystroke restarts the timer and unmount
-  // cancels it, so a query is never committed for a page the operator already left.
+  // cancels it, so a query is never committed for a page the user already left.
   useEffect(() => {
     const next = draft.trim()
     if (next === target) return

@@ -137,7 +137,7 @@ func retryHarness(state provisioningdomain.MachineStatus, distroSeries string) (
 	return executor, server, provider, release, deployments
 }
 
-// provisionStep is a provision-os Step for the harness Server at the given operator attempt and
+// provisionStep is a provision-os Step for the harness Server at the given user attempt and
 // Temporal activity attempt.
 func provisionStep(attempt, activityAttempt int) temporalworkflow.StepExecutionInput {
 	image := retryTestImage
@@ -242,7 +242,7 @@ func TestDeploymentRetryLeavesOtherStatesToTheirOwnRules(t *testing.T) {
 }
 
 // A first attempt that may already have started its deployment (a later dispatch resumed
-// it, or the activity retried) observes the provider and reports what it sees. Only an operator's
+// it, or the activity retried) observes the provider and reports what it sees. Only a user's
 // retry may release the Server and redeploy; before, a resumed attempt submitted a second
 // deployment, and an activity retry of a deployed Server without an address released it.
 func TestResumedFirstAttemptOnlyObserves(t *testing.T) {
@@ -400,7 +400,7 @@ func TestDeploymentFailureNamesTheProvisionerCause(t *testing.T) {
 
 // TestPreflightRejectionIsAKnownOutcome verifies a deployment swallow refused before writing to
 // the provider ends the Step with a non-retryable deployment_preflight_rejected, instead of the
-// retryable provider_outcome_unknown that invited the operator to repeat a refusal forever.
+// retryable provider_outcome_unknown that invited the user to repeat a refusal forever.
 func TestPreflightRejectionIsAKnownOutcome(t *testing.T) {
 	executor, _, _, _, deployments := retryHarness(provisioningdomain.MachineStatusReady, "")
 	deployments.err = fmt.Errorf("%w: server server-id: The Server provisioning state is not ready.", provisioningdomain.ErrDeploymentBatchConflict)

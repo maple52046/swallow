@@ -33,7 +33,7 @@ func (s *PlatformService) releaseClaims(ctx context.Context, platformID string) 
 
 // claimTargets claims targetIDs (exactly the launch's target set) for the Platform just created;
 // targets supplies display names. A target claimed by another Platform since validation (a
-// concurrent deployment) is reported in the same words as the validation refusal, so the operator
+// concurrent deployment) is reported in the same words as the validation refusal, so the user
 // sees one explanation for both orderings.
 func (s *DeployService) claimTargets(ctx context.Context, platform *platformdomain.Platform, targetIDs []string, targets []*serverdomain.Server) error {
 	if s.claims == nil {

@@ -21,14 +21,14 @@ interface CreateIntegrationDialogProps {
   onCreated: (integration: Integration) => void
 }
 
-/** Providers an operator can register per role. */
+/** Providers a user can register per role. */
 const PROVIDERS: Record<'provisioner' | 'metrics', Array<{ value: string; label: string }>> = {
   provisioner: [{ value: 'maas', label: 'MAAS' }],
   metrics: [{ value: 'prometheus', label: 'Prometheus' }],
 }
 
 /**
- * Roles an operator may create. `platform` is intentionally absent: a platform Integration is
+ * Roles a user may create. `platform` is intentionally absent: a platform Integration is
  * created only by deploying a platform (decision 032), and is edited on its settings page.
  */
 const CREATABLE_ROLE_OPTIONS: Array<{ value: 'provisioner' | 'metrics'; label: string }> = [

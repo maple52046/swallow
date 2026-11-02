@@ -81,7 +81,7 @@ function siteHref(siteId: string): string {
  * changes replace it and invalidate late responses from the previous Site.
  *
  * Rebuild (decision 047) re-renders an ISO in place behind a confirmation that names the Servers
- * it affects; an ISO built before the UEFI hand-off is flagged on its card so an operator finds it
+ * it affects; an ISO built before the UEFI hand-off is flagged on its card so a user finds it
  * before a UEFI deployment fails on it.
  */
 export function BootISOsPage() {
@@ -155,7 +155,7 @@ export function BootISOsPage() {
     }
   }
 
-  // The dialog stays open on failure so the operator keeps the context; the API leaves the
+  // The dialog stays open on failure so the user keeps the context; the API leaves the
   // previous file served, which the error toast says.
   const rebuild = async () => {
     if (!rebuilding || rebuildBusy) return
@@ -606,7 +606,7 @@ function CopyableValue({ value, label, compact = false }: { value: string; label
 /**
  * The rendered boot scripts and build facts of one Boot ISO, read-only: the iPXE script BIOS
  * firmware runs and the GRUB configuration UEFI firmware runs (decision 047). Both are swallow's
- * templates filled with the rack address; showing them lets an operator check what a Server will
+ * templates filled with the rack address; showing them lets a user check what a Server will
  * run before choosing the ISO, and the SHA-256 lets them verify a downloaded copy. An ISO built
  * before the UEFI hand-off has no GRUB configuration, which the dialog says in words.
  */

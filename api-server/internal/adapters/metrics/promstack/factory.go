@@ -16,7 +16,7 @@ const defaultTimeout = 30 * time.Second
 // Alertmanager for alerts). It is persisted, so it stays stable.
 const ProviderKind = "prometheus"
 
-// Setting keys an operator may set on a metrics integration.
+// Setting keys a user may set on a metrics integration.
 const (
 	SettingTimeout            = "timeout"
 	SettingInsecureSkipVerify = "insecureSkipVerify"

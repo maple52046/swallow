@@ -1,6 +1,6 @@
 /**
  * Per-provider explanation of what an Integration credential is, what it maps to, and what it
- * affects. UI copy only — it exists so the dashboard can tell an operator, in plain terms, why a
+ * affects. UI copy only — it exists so the dashboard can tell a user, in plain terms, why a
  * credential is needed and what breaks without it. Kept out of the domain layer because it is
  * presentation microcopy, keyed by the integration's `providerKind`.
  */
@@ -9,7 +9,7 @@ export interface CredentialGuidance {
   term: string
   /** One line: what swallow does with it. */
   purpose: string
-  /** What the value actually is and where an operator gets it. */
+  /** What the value actually is and where a user gets it. */
   whatItIs: string
   /** Which features it drives, and what fails when it is missing or wrong. */
   impact: string

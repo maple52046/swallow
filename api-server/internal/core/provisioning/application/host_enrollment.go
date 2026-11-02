@@ -33,7 +33,7 @@ type HostEnrollmentBundle struct {
 
 // HostEnrollmentUseCase produces the existing-OS enrollment bundle of one provisioner Integration
 // (decision 053). The provider adapter says where the provider is and which credential it needs;
-// this use case phrases the command an operator copies.
+// this use case phrases the command a user copies.
 //
 // Authorization is the caller's concern: the bundle carries a credential, so only admin routes may
 // expose it. A provisioner without existing-host enrollment is a ProviderErrorRejected refusal.

@@ -149,7 +149,7 @@ func (c *Catalog) Lookup(kind Kind) (Software, bool) {
 	return software, ok
 }
 
-// Label is the operator-facing name of kind ("Docker CE"), or the kind itself when it is not in
+// Label is the user-facing name of kind ("Docker CE"), or the kind itself when it is not in
 // the catalog.
 func (c *Catalog) Label(kind Kind) string {
 	if software, ok := c.byKind[kind]; ok {

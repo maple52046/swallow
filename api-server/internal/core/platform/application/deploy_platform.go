@@ -91,7 +91,7 @@ const (
 	// always sent so a rerun converges both ways.
 	varSlurmOCIContainers = "swallow_slurm_oci_containers"
 	varSlurmPMIx          = "swallow_slurm_pmix"
-	// varGPUDriverModuleOptions is the operator's amdgpu module options ({"name": "value"}), read by
+	// varGPUDriverModuleOptions is the user's amdgpu module options ({"name": "value"}), read by
 	// the shared amdgpu loader of every Workflow that loads the driver (decision 063). It is always
 	// sent, possibly empty, so dropping an option converges on the next run.
 	varGPUDriverModuleOptions = "swallow_gpu_driver_module_options"
@@ -189,7 +189,7 @@ func NewDeployService(
 // non-nil and enabled, installs Omnistat with Prometheus and Grafana, both in the same Workflow
 // (Slurm only, decision 063). DeviceMetricsExporter, when non-nil and enabled, installs AMD's Device
 // Metrics Exporter the same way instead (Slurm only, decision 066); it and Omnistat are mutually
-// exclusive. GPUDriver, when non-nil, carries the operator's amdgpu module options for the
+// exclusive. GPUDriver, when non-nil, carries the user's amdgpu module options for the
 // Platform's GPU nodes (either type).
 type DeployPlatformInput struct {
 	SiteID           string
@@ -515,7 +515,7 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 }
 
 // featureRecord writes one record a deployment carries besides the Platform itself (its GPU
-// Operator, Omnistat, or Device Metrics Exporter state). It runs inside accept's transaction.
+// User, Omnistat, or Device Metrics Exporter state). It runs inside accept's transaction.
 type featureRecord func(ctx context.Context) error
 
 // accept is the second phase of Deploy: one store transaction that claims the targets, stores the
@@ -807,7 +807,7 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 	// every backup slurmctld can recover from. swallow provisions this automatically (a managed
 	// NFS export on the login node when one is assigned, otherwise an off-controller node,
 	// mounted on every controller by the playbook), so stateSaveLocation is no longer required
-	// from the operator; when supplied it overrides the state directory path. See buildSlurmVars.
+	// from the user; when supplied it overrides the state directory path. See buildSlurmVars.
 
 	normalized, err := validateSlurmWorkloadStorage(spec)
 	if err != nil {
@@ -818,14 +818,14 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 	return validatedDeployment{slurmSpec: spec, targets: targets, machinePreparation: preparation}, nil
 }
 
-// defaultWorkloadMountPath is the shared workload filesystem mountpoint used when the operator
+// defaultWorkloadMountPath is the shared workload filesystem mountpoint used when the user
 // does not override it. It is deliberately not /home: mounting an (initially empty) share over
 // /home would hide the automation user's ~/.ssh and break SSH on every node.
 const defaultWorkloadMountPath = "/shared"
 
 // validateSlurmWorkloadStorage normalizes and checks the optional shared workload filesystem.
 // A disabled spec passes through untouched. NFS is the only supported type. Self-hosted mode
-// exports from the login node, so it requires one; external mode requires an operator NFS URL
+// exports from the login node, so it requires one; external mode requires a user NFS URL
 // (host:/path). The mount path must be absolute and must not overlay /home or the root.
 func validateSlurmWorkloadStorage(spec platformdomain.SlurmDeploymentSpec) (platformdomain.SlurmWorkloadStorageSpec, error) {
 	ws := spec.WorkloadStorage
@@ -1239,7 +1239,7 @@ func buildDeploymentVars(platform *platformdomain.Platform, spec platformdomain.
 // it sets controller-state mode to "shared" and names a state server (see slurmStateServerID)
 // that the playbook turns into a managed NFS export mounted on every controller. A single
 // controller stays "local" with a controller-local StateSaveLocation. Optional vars are
-// omitted when empty so the playbook applies its own defaults; an operator-supplied
+// omitted when empty so the playbook applies its own defaults; a user-supplied
 // stateSaveLocation, when present, overrides the state directory path in either mode.
 // gpuComputeIDs is always sent (possibly empty) so a rerun converges GPU GRES both ways.
 func buildSlurmVars(platform *platformdomain.Platform, spec platformdomain.SlurmDeploymentSpec, gpuComputeIDs []string) map[string]any {
@@ -1282,7 +1282,7 @@ func buildSlurmVars(platform *platformdomain.Platform, spec platformdomain.Slurm
 
 // addSlurmWorkloadVars sets the trusted vars for the optional shared workload filesystem. When
 // disabled it records only the disabled flag. Self-hosted mode names the login node as the NFS
-// server and a fixed export path; external mode passes the operator NFS source through. The
+// server and a fixed export path; external mode passes the user NFS source through. The
 // playbook mounts it on every node at the mount path with the guarded builtin mount.
 func addSlurmWorkloadVars(vars map[string]any, spec platformdomain.SlurmDeploymentSpec) {
 	ws := spec.WorkloadStorage

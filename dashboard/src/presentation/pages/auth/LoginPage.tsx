@@ -14,7 +14,7 @@ interface LoginLocationState {
 /**
  * Sign-in route backed by the real authentication API.
  *
- * When the Session ended on its own (expired or revoked) the form explains why the operator is
+ * When the Session ended on its own (expired or revoked) the form explains why the user is
  * here; after sign-in they return to the page they were on.
  *
  * Only same-origin return paths are honoured. Authentication failures remain
@@ -110,7 +110,7 @@ export function LoginPage() {
                 <Text fontSize="xl" fontWeight="bold" color="fg" letterSpacing="tight">Swallow</Text>
               </HStack>
               <Heading size="2xl" fontWeight="semibold">Sign in</Heading>
-              <Text color="fg.muted">Continue to the operator console.</Text>
+              <Text color="fg.muted">Continue to the console.</Text>
             </Stack>
             {error && <Alert status="error" title={<FailureMessage failure={error} />} />}
             {!error && sessionEnded && (

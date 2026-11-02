@@ -238,7 +238,7 @@ func TestShippedPackageTasksRetry(t *testing.T) {
 }
 
 // The hold changes only runtime state: it stops and starts timers, never enables, disables, or masks
-// them, so a reboot or the lease's own expiry always gives the operator's update policy back.
+// them, so a reboot or the lease's own expiry always gives the user's update policy back.
 func TestPackageMaintenanceHoldOnlyChangesRuntimeState(t *testing.T) {
 	dir := roleDir(t, holdRole)
 	script, err := os.ReadFile(filepath.Join(dir, "files", "swallow-package-hold.py"))
@@ -430,7 +430,7 @@ func (h *holdHost) makeLeasesDue() {
 
 // Two overlapping leases share one hold: the timers stay stopped until the last lease ends, one
 // expiry timer always tracks the latest deadline, and only the timers the hold stopped start again,
-// so a timer the operator had stopped stays stopped.
+// so a timer the user had stopped stays stopped.
 func TestPackageHoldGivesBackOnlyTheTimersItStopped(t *testing.T) {
 	host := newHoldHost(t, map[string]string{
 		"apt-daily.timer":         "inactive",

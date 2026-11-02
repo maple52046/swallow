@@ -1,4 +1,4 @@
-// Package domain defines the Operation kernel: operator intent, durable workflow state,
+// Package domain defines the Operation kernel: user intent, durable workflow state,
 // executor progress, and the invariants swallow enforces before accepting mutating work.
 // The context is named workflow, but its types keep their Operation names, and its records keep
 // the collection and field names they were first stored under (renaming those is a data
@@ -25,7 +25,7 @@ const (
 	// chooses the primitive by observed state per the recovery policy (decision 033).
 	WorkflowKindRecoverServer WorkflowKind = "recover-server"
 	// WorkflowKindVerifyOSImage proves an OS Image deploys for a deploy target by running a real
-	// deploy on an operator-chosen ready Server, recording the verification on success, then
+	// deploy on a user-chosen ready Server, recording the verification on success, then
 	// auto-releasing the Server (decision 035).
 	WorkflowKindVerifyOSImage WorkflowKind = "verify-os-image"
 	// WorkflowKindInspectHardware inspects one Server's hardware through its provisioner: it waits
@@ -233,7 +233,7 @@ var (
 	// of operation requires.
 	ErrTargetStateInvalid = errors.New("a target is not in the required provisioning state")
 	// ErrTargetLocked means a target machine is locked and this kind of operation must
-	// not change it. It protects machines an operator has deliberately taken off-limits.
+	// not change it. It protects machines a user has deliberately taken off-limits.
 	ErrTargetLocked = errors.New("a target is locked and must not be changed")
 	// ErrPolicyConflict means the operation contradicts a platform policy, e.g.
 	// installing GPU drivers on nodes whose platform delegates that to the GPU operator.

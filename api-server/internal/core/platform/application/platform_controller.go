@@ -50,7 +50,7 @@ type WorkflowReader interface {
 //   - judges realized, and drifted from the members the platform reports.
 //
 // A Platform whose record is gone has its claims released and its waiting plan withdrawn. A failed
-// Workflow is not started again for the same generation: an operator reruns it or writes a new spec.
+// Workflow is not started again for the same generation: a user reruns it or writes a new spec.
 type PlatformController struct {
 	platforms platformdomain.PlatformRepository
 	specs     platformdomain.PlatformSpecStore
@@ -185,7 +185,7 @@ func (c *PlatformController) Reconcile(ctx context.Context, request convergence.
 			outcome = latest.Status
 		} else {
 			// The lifecycle tracks only deploys and uninstalls; any other realizing Workflow (a GPU
-			// Operator change) is read itself.
+			// User change) is read itself.
 			if outcome, err = c.workflows.WorkflowOutcome(ctx, platform.ID, realizing.WorkflowID); err != nil {
 				return err
 			}

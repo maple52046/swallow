@@ -1,9 +1,9 @@
-// Package command builds the Cobra command tree for the `swallow` operator CLI.
+// Package command builds the Cobra command tree for the `swallow` CLI.
 // Each file registers one resource group (auth, servers, provisioning, and so
 // on) that maps onto the api-server Active HTTP contract.
 //
 // Component boundary: these commands are a conformist consumer of the
-// api-server published contract. They translate operator input into contract
+// api-server published contract. They translate user input into contract
 // requests through the client package and render responses through the output
 // package. They do not import api-server internals and do not define API
 // behavior; where a request body is complex, a command accepts a JSON/YAML file
@@ -65,8 +65,8 @@ var (
 func NewRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "swallow",
-		Short: "Operator CLI for swallow, GPU datacenter management",
-		Long: "swallow is the operator command-line client for swallow. " +
+		Short: "CLI for swallow, GPU datacenter management",
+		Long: "swallow is the command-line client for swallow. " +
 			"It talks to the api-server HTTP API and covers auth, API keys, sites, integrations, servers, " +
 			"provisioning, infrastructure, ssh-keys, platforms, Change Plans, workflows, monitoring, " +
 			"and discovery. Managed Software, the Server Default User, the provisioner HTTP proxy, and " +

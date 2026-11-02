@@ -11,7 +11,7 @@ import (
 	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
-// ProvisioningTaskItem is the safe operator-facing task history. The static-link
+// ProvisioningTaskItem is the safe user-facing task history. The static-link
 // snapshot stays internal because the Activity view only needs progress and errors.
 type ProvisioningTaskItem struct {
 	ID        string `json:"id"`
@@ -172,8 +172,8 @@ func (c *ReleaseNetworkCleanup) Retry(ctx context.Context, task *provisioningdom
 
 // Advance runs one pass of a pending cleanup and persists where it got to: waiting while the
 // Server is not yet Ready, then removing every recorded static link that is still exactly as the
-// release found it (an operator's change is preserved), then succeeded; any provider failure
-// fails the task with an operator-facing reason.
+// release found it (a user's change is preserved), then succeeded; any provider failure
+// fails the task with a user-facing reason.
 func (c *ReleaseNetworkCleanup) Advance(
 	ctx context.Context,
 	task *provisioningdomain.ProvisioningTask,

@@ -26,7 +26,7 @@ interface NavEntry {
   feature?: ExperimentalFeature
 }
 
-/** Primary operator destinations in workflow order. */
+/** Primary user destinations in workflow order. */
 const NAVIGATION: readonly NavEntry[] = [
   { label: 'Overview', path: '/', icon: LayoutDashboard },
   { label: 'Servers', path: '/servers', icon: Server },

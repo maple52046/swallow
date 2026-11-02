@@ -78,7 +78,7 @@ func (v VirtualMachine) ShutOff() bool {
 	return v.State == "shut off"
 }
 
-// maxDomainNameLength bounds a requested domain name; libvirt allows longer, but no operator types
+// maxDomainNameLength bounds a requested domain name; libvirt allows longer, but no user types
 // one.
 const maxDomainNameLength = 128
 
@@ -106,7 +106,7 @@ func BootMediaVolumeName(isoID string) string {
 const BootMediaPool = "default"
 
 // LibvirtHost is the port for what swallow does with a Hypervisor's libvirt (decision 055): read
-// domains, stop one the operator allowed to stop, authorize the provisioner's SSH key, and give a
+// domains, stop one the user allowed to stop, authorize the provisioner's SSH key, and give a
 // domain libvirt Boot Media.
 //
 // Implementations log in with the Deployment Key (see HostAccess for the trust model), run
@@ -147,7 +147,7 @@ var (
 	ErrLibvirtRefused = errors.New("libvirt refused the change")
 )
 
-// HypervisorError explains a failed Hypervisor action in operator terms — which Hypervisor, which
+// HypervisorError explains a failed Hypervisor action in user terms — which Hypervisor, which
 // account, which domain, and what libvirt said — while Unwrap keeps the sentinel for status
 // mapping.
 type HypervisorError struct {
@@ -158,7 +158,7 @@ type HypervisorError struct {
 	Detail     string
 }
 
-// Error is the operator-facing sentence returned as error.message.
+// Error is the user-facing sentence returned as error.message.
 func (e *HypervisorError) Error() string {
 	detail := ""
 	if e.Detail != "" {

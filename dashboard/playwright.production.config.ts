@@ -1,7 +1,7 @@
 import { defineConfig, devices } from 'playwright/test'
 
 // Release-build smoke checks. Unlike playwright.config.ts (the Vite dev server), this serves the real
-// `vite build` output through `vite preview`, so it proves what operators get: in-development
+// `vite build` output through `vite preview`, so it proves what users get: in-development
 // features hidden and no experimental-features switch. API calls are still answered by the
 // deterministic fixtures in tests/e2e/fixtures.ts.
 export default defineConfig({

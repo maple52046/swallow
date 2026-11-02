@@ -23,7 +23,7 @@ type Dispatch struct {
 	DispatchedAt     *time.Time `json:"dispatchedAt,omitempty" bson:"dispatchedAt,omitempty"`
 }
 
-// Commands are the operator requests stored for a Workflow. Operators and launchers only write
+// Commands are the user requests stored for a Workflow. Users and launchers only write
 // commands; the Workflow's run applies them, and the dispatcher makes sure a run exists to do so.
 type Commands struct {
 	// Sequence increases with every command, so the dispatcher can tell whether one is new.
@@ -45,7 +45,7 @@ type RetryCommand struct {
 	RequestedAt time.Time `json:"requestedAt" bson:"requestedAt"`
 }
 
-// CanceledByOperatorReason is the statusReason of a Workflow an operator canceled.
+// CanceledByOperatorReason is the statusReason of a Workflow a user canceled.
 const CanceledByOperatorReason = "Canceled by operator."
 
 // ResourceOwnership records that a Workflow owns one Server or Platform. It has no expiry: the

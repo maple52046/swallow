@@ -13,7 +13,7 @@ import (
 // starts, has cloud-init write them into the deployed image's default user. swallow deploys with
 // the integration's API key, so registering a key here makes every later swallow deployment
 // through this MAAS authorize it. The keys belong to the MAAS user that owns the API key: an
-// operator who shares that MAAS account sees swallow's keys in the MAAS UI, and keys the operator
+// user who shares that MAAS account sees swallow's keys in the MAAS UI, and keys the user
 // added there are listed too (swallow never removes a key it did not register or adopt).
 
 // sshKeysPath is the MAAS collection of SSH keys for the authenticated user.
@@ -36,7 +36,7 @@ func (k sshKeyJSON) toDomain() provisioningdomain.ProviderSSHKey {
 }
 
 // ListSSHKeys returns every SSH key MAAS holds for the API-key owner, including keys MAAS imported
-// from Launchpad or GitHub and keys an operator pasted into the MAAS UI.
+// from Launchpad or GitHub and keys a user pasted into the MAAS UI.
 func (p *Provider) ListSSHKeys(ctx context.Context) ([]provisioningdomain.ProviderSSHKey, error) {
 	var out []sshKeyJSON
 	if err := p.client.get(ctx, sshKeysPath, nil, &out); err != nil {
@@ -60,7 +60,7 @@ func (p *Provider) AddSSHKey(ctx context.Context, publicKey string) (provisionin
 	return out.toDomain(), nil
 }
 
-// RemoveSSHKey deletes one MAAS SSH key. A 404 means the key is already gone (an operator deleted
+// RemoveSSHKey deletes one MAAS SSH key. A 404 means the key is already gone (a user deleted
 // it in MAAS, or an earlier removal succeeded without being recorded), which is the requested end
 // state, so it is not an error.
 func (p *Provider) RemoveSSHKey(ctx context.Context, keyID string) error {

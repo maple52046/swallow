@@ -35,7 +35,7 @@ func NewUninstallService(
 	return service
 }
 
-// UninstallPlatformInput identifies the platform and requesting operator.
+// UninstallPlatformInput identifies the platform and requesting user.
 //
 // When ReleaseServers is true the uninstall also releases every member server back to the
 // provider; ReleaseOptions then controls disk erasure and static-IP handling per server.
@@ -86,7 +86,7 @@ func (s *UninstallService) Uninstall(
 	retryOf := ""
 	switch snapshot.State {
 	case platformdomain.PlatformLifecycleDeploying:
-		// Only an operator who agreed to cancel the deployment may uninstall over it.
+		// Only a user who agreed to cancel the deployment may uninstall over it.
 		if !input.CancelActiveWorkflows {
 			return nil, fmt.Errorf("%w: platform lifecycle is %s; cancel its deployment, or send cancelActiveWorkflows",
 				platformdomain.ErrPlatformUninstallConflict, snapshot.State)

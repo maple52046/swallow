@@ -19,15 +19,15 @@ const MaxSubnetDNSServers = 8
 
 // ErrInvalidSubnetDNS marks a Subnet DNS swallow refuses before calling the provisioner: an entry
 // that is empty, not an IP address, or scoped to a zone; a repeated address; or too many entries.
-// Errors wrapping it carry the operator-facing reason.
+// Errors wrapping it carry the user-facing reason.
 var ErrInvalidSubnetDNS = errors.New("invalid subnet DNS servers")
 
 // ErrSubnetNotFound means the provisioner has no subnet with the requested id. It is a domain miss
 // on the provisioner's live catalog, not an infrastructure failure.
 var ErrSubnetNotFound = errors.New("subnet not found")
 
-// NormalizeSubnetDNSServers validates an operator's Subnet DNS and returns it in canonical form:
-// each entry trimmed and rewritten as netip prints it, in the operator's order. A nil or empty
+// NormalizeSubnetDNSServers validates a user's Subnet DNS and returns it in canonical form:
+// each entry trimmed and rewritten as netip prints it, in the user's order. A nil or empty
 // input is valid and means "clear the setting"; the result is then nil. A refusal wraps
 // ErrInvalidSubnetDNS with the reason.
 //

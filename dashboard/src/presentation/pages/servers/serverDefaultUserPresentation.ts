@@ -9,7 +9,7 @@ import type { ToastTone } from '@/presentation/components/toast/toastContext'
 export const DEFAULT_USER_PATTERN = /^[a-z_][a-z0-9_-]{0,31}$/
 
 /**
- * The one-line command an operator runs as the account on the host to authorize the Deployment Key
+ * The one-line command a user runs as the account on the host to authorize the Deployment Key
  * without giving swallow a password. It creates `~/.ssh` and `authorized_keys` with the permissions
  * sshd requires. `publicKey` is the Deployment Key's authorized_keys line from the SSH Keys API; it
  * never contains a single quote, so single-quoting it is safe.
@@ -21,7 +21,7 @@ export function deploymentKeyInstallCommand(publicKey: string): string {
 /**
  * The toast for a saved default user. Sudo access decides the tone: automation needs root for host
  * changes, so an account that needs a password (the Site become password applies) or cannot use
- * sudo is a warning the operator must act on, not a plain success.
+ * sudo is a warning the user must act on, not a plain success.
  */
 export function defaultUserSavedToast(result: SetServerDefaultUserResult): { tone: ToastTone; title: string; description: string } {
   const user = result.defaultUser.user

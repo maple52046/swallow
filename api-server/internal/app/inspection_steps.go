@@ -45,8 +45,8 @@ const (
 
 // waitEnrollmentSettled runs the wait-enrollment-settled Task: it holds the inspection until the
 // provider's own enrollment of the Server has finished. A requested inspection does not wait,
-// because an operator decided the Server may boot, but it still needs a power driver (see
-// requirePowerDriver). A retried run waits again: retrying is how an operator resumes after fixing
+// because a user decided the Server may boot, but it still needs a power driver (see
+// requirePowerDriver). A retried run waits again: retrying is how a user resumes after fixing
 // the Power Configuration, and it must not commission a Machine whose enrollment has not ended. A
 // provisioner without the EnrollmentSettler capability has nothing to wait for.
 //
@@ -113,7 +113,7 @@ func (e providerStepExecutor) waitEnrollmentSettled(ctx context.Context, step te
 // requirePowerDriver is the enrollment Task of a requested inspection: no wait, one reading. Only
 // a Machine with no power driver at all is stopped, because the provisioner could not power it on
 // to inspect it and its commission would be refused outright; a manual driver is allowed, since an
-// operator who asked for the inspection can switch the power. A failed reading lets the inspection
+// user who asked for the inspection can switch the power. A failed reading lets the inspection
 // proceed, where the provider reports its own error.
 func requirePowerDriver(ctx context.Context, settler provisioningdomain.EnrollmentSettler, server *serverdomain.Server) temporalworkflow.StepExecutionResult {
 	observation, err := settler.ObserveEnrollment(ctx, server.Source.ProviderMachineID)
@@ -222,7 +222,7 @@ func (e providerStepExecutor) inspectServer(ctx context.Context, step temporalwo
 	return inspectionExhausted(server.DisplayName(), attempts, last, networkBootRemedy(ctx, server, provider))
 }
 
-// networkBootRemedy says how an operator gets a Server that never network-booted into its
+// networkBootRemedy says how a user gets a Server that never network-booted into its
 // inspection onto the provisioner's network boot. Boot Media is the remedy only for a Server with a
 // BMC; a virtual machine has none (decision 054), so it is pointed at its own boot order. The
 // answer comes from the power adapter of the Server's Power Configuration; when that cannot be read
@@ -311,7 +311,7 @@ func (e providerStepExecutor) observeInspection(
 
 // abortStalledInspection aborts an attempt that made no progress and waits for the Server to leave
 // inspecting. For MAAS the abort returns a Machine that was never inspected to New, which is the
-// state the operator's next step (Boot Media, then Inspect) expects. An abort that does not settle
+// state the user's next step (Boot Media, then Inspect) expects. An abort that does not settle
 // stops the Task for attention rather than commissioning a Machine that is still inspecting.
 func (e providerStepExecutor) abortStalledInspection(
 	ctx context.Context, serverID string, validator provisioningdomain.HardwareValidator, machineID, detail string,
@@ -342,8 +342,8 @@ func (e providerStepExecutor) abortStalledInspection(
 }
 
 // inspectionInterrupted stops the Task when the Server left inspecting without swallow aborting
-// it, typically an operator abort or another action in the provisioner: swallow does not
-// commission again over an operator's decision.
+// it, typically a user abort or another action in the provisioner: swallow does not
+// commission again over a user's decision.
 func inspectionInterrupted(state string) inspectionOutcome {
 	return inspectionOutcome{kind: inspectionStopped, result: providerAttention("inspect_interrupted",
 		"The Server left hardware inspection without swallow aborting it (it is now "+state+"). Retry this Task to inspect it again.",

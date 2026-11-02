@@ -18,7 +18,7 @@ import (
 // Security: the CLI handles a private key in exactly two places — reading one
 // from a file for `deployment replace`, and receiving the one-time private key
 // from `generate`. Neither is cached or written to the profile; `generate
-// --private-key-out` writes it only to the file the operator names, with 0600
+// --private-key-out` writes it only to the file the user names, with 0600
 // permissions.
 func newSSHKeysCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -89,7 +89,7 @@ func sshKeysImportCmd() *cobra.Command {
 // key exactly once. With --private-key-out it is written to that file (created
 // exclusively with 0600, never overwriting an existing file) and only the stored
 // key is printed; without it the full response, private key included, is printed
-// so the operator can capture it from stdout. The flag is not named --output
+// so the user can capture it from stdout. The flag is not named --output
 // because that is the global output-format flag.
 func sshKeysGenerateCmd() *cobra.Command {
 	cmd := &cobra.Command{

@@ -7,7 +7,7 @@ import (
 )
 
 // publicSteps must strip opaque secret references and the executor-only Parameters (which
-// carry the frozen request and extraVars) so no operator-supplied plaintext crosses the
+// carry the frozen request and extraVars) so no user-supplied plaintext crosses the
 // HTTP boundary, while still normalizing nil collections to arrays.
 func TestPublicStepsStripsSecretsAndParameters(t *testing.T) {
 	public := publicSteps([]workflowdomain.Task{{
@@ -27,7 +27,7 @@ func TestPublicStepsStripsSecretsAndParameters(t *testing.T) {
 }
 
 // redactSensitiveMap must drop sensitive keys at any depth while preserving the rest of the
-// operator's intent snapshot.
+// user's intent snapshot.
 func TestRedactSensitiveMapRemovesSecretsAtAnyDepth(t *testing.T) {
 	redacted := redactSensitiveMap(map[string]any{
 		"summary": "deploy prod",

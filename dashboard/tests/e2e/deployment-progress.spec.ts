@@ -1,7 +1,7 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// Operator journey for OS deployment progress (decision 046): while a Server deploys, the detail
+// User journey for OS deployment progress (decision 046): while a Server deploys, the detail
 // page shows the provisioner's current installation stage instead of an unchanging generic
 // message. Every request is served by deterministic fixtures; no backend or provisioner is
 // contacted.

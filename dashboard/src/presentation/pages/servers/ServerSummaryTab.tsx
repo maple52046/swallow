@@ -87,7 +87,7 @@ function powerPanelState(
 }
 
 /**
- * Operator-first overview for one Server. Projection-backed state and capacity remain useful
+ * User-first overview for one Server. Projection-backed state and capacity remain useful
  * when live provider detail fails; dedicated tabs own large Network, Storage, and PCI tables so
  * the overview stays a fast scan rather than a second inventory page. In-band SSH connection
  * info sits beside the out-of-band management controller, so both ways in read as one row; its
@@ -102,7 +102,7 @@ function powerPanelState(
  *
  * A Server with a BMC also shows its Boot Media there (decision 047): the stored setting,
  * its Boot ISO, and the Redfish probe are read when the page opens; the BMC itself is read only
- * when the operator asks ("Check BMC"), and re-probing or changing the setting (enable, change ISO,
+ * when the user asks ("Check BMC"), and re-probing or changing the setting (enable, change ISO,
  * re-apply, disable) re-reads the block. While an enable preflight runs — sent from here, from
  * another tab, or before a reload — the block is re-read every two seconds for its progress and its
  * actions wait until it ends. A libvirt virtual machine (a `virsh` driver outside a provisioner VM
@@ -137,7 +137,7 @@ export function ServerSummaryTab() {
     ? power.data.family === 'bmc' && !server.status.providerPod
     : !server.status.providerPod
   const virtualMachines = useExperimentalFeature('virtualMachines')
-  // Only a virsh driver the operator controls (not a provisioner VM host's) can name a swallow
+  // Only a virsh driver the user controls (not a provisioner VM host's) can name a swallow
   // Hypervisor; whether it does is the Boot Media read's answer (`libvirt.support`).
   const throughHypervisor = virtualMachines && power.status === 'ready' && power.data.family === 'virsh' && !server.status.providerPod
   const readsBootMedia = hasBMC || throughHypervisor

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// GPUDriverSettings is the operator's amdgpu driver intent for a Platform's GPU nodes (decision
+// GPUDriverSettings is the user's amdgpu driver intent for a Platform's GPU nodes (decision
 // 063). ModuleOptions are module parameters applied before the driver loads; swallow adds the
 // options a topology rule derives on each node (for example pcie_p2p=0 when KFD reports duplicate
 // peer links), and an option named here always wins over a rule. No field names a GPU model or a

@@ -1,7 +1,7 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// Operator journeys for swallow-owned Server tags (decision 071): the edit writes the spec, the
+// User journeys for swallow-owned Server tags (decision 071): the edit writes the spec, the
 // provisioner follows asynchronously, and the Server's conditions say whether it has. Every request
 // is served by deterministic fixtures; no backend or provisioner is contacted.
 

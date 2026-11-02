@@ -14,7 +14,7 @@ type subnetDNSRequest struct {
 
 // ListSubnets serves GET /provisioning/integrations/{id}/subnets (provisioner-subnet-dns.md): the
 // Integration's subnets with their Subnet DNS, read live from its provisioner. The response is not
-// cached because it reflects live provisioner state an operator is about to edit.
+// cached because it reflects live provisioner state a user is about to edit.
 func (h *ProvisioningHandler) ListSubnets(c *fiber.Ctx) error {
 	c.Set(fiber.HeaderCacheControl, "no-store")
 	if h.subnetDNS == nil {
@@ -32,7 +32,7 @@ func (h *ProvisioningHandler) ListSubnets(c *fiber.Ctx) error {
 }
 
 // SetSubnetDNSServers serves PUT /provisioning/integrations/{id}/subnets/{subnetId}/dns-servers:
-// it writes the operator's Subnet DNS through to the provisioner and answers 200 with the subnet
+// it writes the user's Subnet DNS through to the provisioner and answers 200 with the subnet
 // read back. Address rules belong to the use case, so the API and any later client share one set;
 // this adapter only requires the field to be present and an array.
 func (h *ProvisioningHandler) SetSubnetDNSServers(c *fiber.Ctx) error {

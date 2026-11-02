@@ -10,7 +10,7 @@ import (
 // deploy successfully for a given deploy target.
 //
 // Verification is not a provider capability: the provider does not certify that its image works,
-// swallow does, by running a real deploy on an operator-chosen Server and observing success. It is
+// swallow does, by running a real deploy on a user-chosen Server and observing success. It is
 // therefore swallow-owned data (like OS Image metadata, decision 071) keyed by the same
 // provider image identity — (IntegrationID, ImageID, Architecture) — because one image name can back
 // several architectures. An image with no verification row is simply unverified; absence is normal,
@@ -26,7 +26,7 @@ type OSImageVerification struct {
 	// the map is unverified.
 	Targets map[DeployTarget]OSImageVerificationEvidence
 	// FailedTargets holds one entry per deploy target whose most recent verification run failed. It
-	// exists so a failed verification is visibly distinct from a never-attempted one — the operator
+	// exists so a failed verification is visibly distinct from a never-attempted one — the user
 	// can tell "we tried and it does not deploy this way" apart from "we have not tried". A target is
 	// in Targets or FailedTargets but never both: recording one outcome clears the other, so the map
 	// always reflects the latest run.
@@ -47,7 +47,7 @@ type OSImageVerificationEvidence struct {
 }
 
 // OSImageVerificationFailure records the most recent verification run that failed for one deploy
-// target, so the failure is auditable and the operator can open the run for the provider's reason.
+// target, so the failure is auditable and the user can open the run for the provider's reason.
 type OSImageVerificationFailure struct {
 	// FailedAt is when the proving deploy failed.
 	FailedAt time.Time

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Box, Button, Flex, Steps, Text } from '@chakra-ui/react'
 
-/** One wizard step: a stable id, a nav label, its body, and whether the operator may advance. */
+/** One wizard step: a stable id, a nav label, its body, and whether the user may advance. */
 export interface WizardStepDef {
   id: string
   name: string
@@ -24,7 +24,7 @@ export interface WizardStepDef {
 
 interface WizardProps {
   steps: WizardStepDef[]
-  /** Invoked when the operator confirms the final step. */
+  /** Invoked when the user confirms the final step. */
   onFinish: () => void
   finishLabel?: string
   /** Reflects an in-flight submit on the final step. */
@@ -71,7 +71,7 @@ export function Wizard({
     if (previousStepRef.current === current) return
     previousStepRef.current = current
 
-    // Announce the new step and bring its start below the sticky operator header. This also
+    // Announce the new step and bring its start below the sticky user header. This also
     // resets a long dialog workspace to the top without moving deployment data outside React.
     const progress = progressRef.current
     if (!progress) return

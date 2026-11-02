@@ -87,7 +87,7 @@ func sendJSON(cmd *cobra.Command, method, path string, q url.Values, body any) e
 		return err
 	}
 	if out == nil {
-		// A 204/empty success still deserves operator feedback.
+		// A 204/empty success still deserves user feedback.
 		return printResult(map[string]any{"success": true})
 	}
 	return printResult(out)

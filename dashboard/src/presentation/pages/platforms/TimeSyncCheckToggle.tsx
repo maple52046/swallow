@@ -12,7 +12,7 @@ interface TimeSyncCheckToggleProps {
  *
  * Every Platform deployment checks each node's clock before the platform is installed; this only
  * chooses what a problem does. On, the default, fails the deployment and names the nodes at fault;
- * off lets it continue with a warning, for operators who accept the risk. The copy says what is
+ * off lets it continue with a warning, for users who accept the risk. The copy says what is
  * checked, because the switch itself never enables or disables the check.
  */
 export function TimeSyncCheckToggle({ enforced, onEnforcedChange }: TimeSyncCheckToggleProps) {

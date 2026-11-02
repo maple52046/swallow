@@ -32,7 +32,7 @@ func NewMeUseCase(users authdomain.UserRepository) *MeUseCase {
 // Execute returns the user with userID, or authdomain.ErrUserNotFound when the credential is
 // valid but its user was deleted (the contract's 404, on which a client ends its Session). Any
 // other failure of the user store is returned wrapped (a 500), so an unavailable store never
-// signs an operator out.
+// signs a user out.
 func (uc *MeUseCase) Execute(ctx context.Context, userID string) (*MeOutput, error) {
 	user, err := uc.users.FindByID(ctx, userID)
 	if errors.Is(err, authdomain.ErrUserNotFound) {

@@ -171,7 +171,7 @@ func TestDeploySlurmRejectsNodeWithoutDaemon(t *testing.T) {
 
 // A multi-controller (HA) Slurm deployment needs a shared StateSaveLocation so a backup
 // controller can recover state. swallow now provisions it: the deploy must succeed without an
-// operator-supplied path, mark the controller state shared, and select an off-controller state
+// user-supplied path, mark the controller state shared, and select an off-controller state
 // server (a compute-only node) to export it.
 func TestDeploySlurmHighAvailabilityProvisionsSharedState(t *testing.T) {
 	service, launcher, _ := newDeployHarness(slurmServers()...)
@@ -202,14 +202,14 @@ func TestDeploySlurmHighAvailabilityProvisionsSharedState(t *testing.T) {
 	if vars[varSlurmStateExport] != "/srv/slurm-state" {
 		t.Errorf("state export = %v, want /srv/slurm-state", vars[varSlurmStateExport])
 	}
-	// No operator path was supplied, so the playbook applies its own shared default.
+	// No user path was supplied, so the playbook applies its own shared default.
 	if _, ok := vars[varSlurmStateSaveLocation]; ok {
 		t.Errorf("state save location should be unset when the operator supplied none, got %v", vars[varSlurmStateSaveLocation])
 	}
 }
 
 // When every node is also a controller there is no off-controller host, so the state server
-// falls back to the primary controller, and an operator-supplied path overrides the default.
+// falls back to the primary controller, and a user-supplied path overrides the default.
 func TestDeploySlurmHighAvailabilityFallsBackToPrimaryStateServer(t *testing.T) {
 	service, launcher, _ := newDeployHarness(slurmServers()...)
 	input := validSlurmInput()
@@ -320,7 +320,7 @@ func TestDeploySlurmWorkloadSelfHostedRequiresLogin(t *testing.T) {
 	}
 }
 
-// External workload storage mounts an operator NFS URL and runs no swallow server.
+// External workload storage mounts a user NFS URL and runs no swallow server.
 func TestDeploySlurmWorkloadExternal(t *testing.T) {
 	service, launcher, _ := newDeployHarness(slurmServers()...)
 	input := validSlurmInput()

@@ -11,20 +11,20 @@ import { useServerActiveOperations } from '@/presentation/hooks/useServerActiveO
 
 /**
  * Presents a provider-lifecycle failure (`failed` / `broken` / `rescue`) on the Server detail page
- * with everything an operator needs to act, rather than a coarse state label:
+ * with everything a user needs to act, rather than a coarse state label:
  *
  * - the provisioner's own machine-level reason (e.g. "Failed to erase disks."), which is otherwise
  *   only buried in the provider event log;
  * - state- and reason-specific guidance (a failed disk erase is recovered without wiping);
  * - the durable Operations still active on this Server, which block a new recovery with a 409 —
- *   the trap where a parked failed Release keeps the operator from recovering. Each links to its
+ *   the trap where a parked failed Release keeps the user from recovering. Each links to its
  *   Workflow, because when the blocking work is the deployment that failed here, retrying its
  *   failed Step returns this Server to Ready and redeploys it without stopping the rest of that
  *   work (for example the other Servers of a platform deployment). A Server whose layout needs a
  *   new inspection (`inspectionRequired`) is the exception: the retry ends the Step instead, so
  *   the guidance says that rather than promising a redeploy; and
  * - a single Recover action that has the backend cancel those blocking Operations when present
- *   (decision 061): the Recover is accepted at once and starts after they end, so the operator is
+ *   (decision 061): the Recover is accepted at once and starts after they end, so the user is
  *   neither left to cancel by hand nor kept waiting here. It stops the whole Operation, so it is
  *   the choice for abandoning that work, not for redeploying this Server.
  */
@@ -100,7 +100,7 @@ export function ProviderFailureAlert({
             </List.Root>
             <Text mt="2">
               {/* A retry of a disk deployment onto a layout that needs a new inspection is refused
-                  before Recover, so promising a redeploy there would send the operator in a loop. */}
+                  before Recover, so promising a redeploy there would send the user in a loop. */}
               {provisioning.inspectionRequired
                 ? 'This Server must be inspected again before a disk deployment, so retrying the deployment that failed here ends its Step with that reason instead of redeploying; once no other Step waits for a retry, the Operation ends and frees the Server for Inspect. The button below cancels the whole Operation instead.'
                 : 'If one of them is the deployment that failed on this Server, open it and retry the failed Step: Swallow returns this Server to Ready and redeploys it, and keeps the rest of that work. The button below cancels the whole Operation instead.'}
@@ -122,7 +122,7 @@ export function ProviderFailureAlert({
  * Chooses the alert tone, title, and guidance for a provider-lifecycle failure. A failed disk
  * erase gets specific guidance because Recover returns the Server to Ready without wiping (and
  * escalates to Mark fixed when a plain release cannot complete), which is exactly the escape an
- * operator cannot infer from "Failed to erase disks." alone.
+ * user cannot infer from "Failed to erase disks." alone.
  */
 function describeFailure(provisioning: ProvisioningAxis): {
   status: 'error' | 'warning' | 'info'

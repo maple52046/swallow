@@ -5,7 +5,7 @@ import { realizationMessage, realizationState, syncStateLabel, syncStatePalette,
 
 interface SSHKeySyncStatusProps {
   sshKey: SSHKey
-  /** Resolves an Integration id to its operator-facing name; falls back to the id. */
+  /** Resolves an Integration id to its user-facing name; falls back to the id. */
   integrationName: (integrationId: string) => string
   /**
    * `list` shows one row per provisioner with its reason (the Deployment Key card); `summary`
@@ -21,7 +21,7 @@ interface SSHKeySyncStatusProps {
 
 /**
  * Shows whether an SSH Key has been realized in each provisioner — the backend controller's
- * per-provisioner conditions, reduced to this page's states — so an operator knows whether
+ * per-provisioner conditions, reduced to this page's states — so a user knows whether
  * Servers deployed next will authorize it. It is the one presentation of sync status on the SSH
  * Keys page, used for both the Deployment Key and every Access Key. States are always spelled out
  * in text (badges carry a label, not only a colour), and a failure's reason is always shown as

@@ -20,7 +20,7 @@ func ArchitecturesCompatible(serverArch, imageArch string) bool {
 
 // DeployTarget is where an OS Deployment runs: on the machine's disk, or from memory.
 //
-// It is the canonical operator-facing vocabulary. `ram` is the same fact the provider-neutral
+// It is the canonical user-facing vocabulary. `ram` is the same fact the provider-neutral
 // deploy request and the MAAS adapter still call "ephemeral" (the OS runs from memory and leaves
 // the disks untouched); the two map one-to-one at the boundary so existing wire, storage, and
 // durable-snapshot fields keep working. The dashboard label for `ram` is "RAM deploy (ephemeral)".
@@ -70,7 +70,7 @@ func ResolveEphemeral(deployTarget *string) (resolved *bool, ok bool) {
 	return &value, true
 }
 
-// ParseDeployTarget normalizes an operator-supplied deploy-target string. It accepts the canonical
+// ParseDeployTarget normalizes a user-supplied deploy-target string. It accepts the canonical
 // "disk"/"ram" case-insensitively and returns ok=false for anything else, so a delivery adapter can
 // map an unknown value onto a 400 rather than silently defaulting a deploy mode.
 func ParseDeployTarget(value string) (DeployTarget, bool) {

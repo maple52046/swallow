@@ -92,7 +92,7 @@ function eventMatchesQuery(event: TaskEvent, needle: string): boolean {
  * Parses the focused Step stderr report emitted by the runner into per-host task diagnostics.
  *
  * The event projection intentionally contains no module output because it is broadly reusable and
- * secret-safe. The separately authorized stderr endpoint already exposes an operator diagnostic;
+ * secret-safe. The separately authorized stderr endpoint already exposes a user diagnostic;
  * matching that report here lets the Events view explain a failure without widening the event API.
  */
 function parseFailureDiagnostics(report: string): FailureDiagnostic[] {

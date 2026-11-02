@@ -20,7 +20,7 @@ const ARCHITECTURE_OPTIONS = [
 
 /**
  * Artifact formats a provisioner accepts. The empty value lets the backend apply the provider
- * default (MAAS: a root tarball), so the operator only picks a value for a disk image.
+ * default (MAAS: a root tarball), so the user only picks a value for a disk image.
  */
 const FILETYPE_OPTIONS = [
   { value: '', label: 'Provider default' },
@@ -38,7 +38,7 @@ const FILETYPE_OPTIONS = [
  * repository, showing upload progress for a potentially multi-gigabyte artifact. It never
  * decides whether the result is a custom image: that is the provisioner's classification,
  * surfaced afterwards in the catalog. A failure keeps the dialog open with the provider's own
- * message so the operator can correct and retry; only a success unmounts it.
+ * message so the user can correct and retry; only a success unmounts it.
  */
 export function UploadImageDialog({
   integrations,
@@ -65,7 +65,7 @@ export function UploadImageDialog({
   const [file, setFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   // null while the total is unknown (before the first progress event or when the browser cannot
-  // report length), otherwise the whole-number percentage shown to the operator.
+  // report length), otherwise the whole-number percentage shown to the user.
   const [percent, setPercent] = useState<number | null>(null)
   const [error, setError] = useState<DisplayedFailure | null>(null)
 
@@ -95,7 +95,7 @@ export function UploadImageDialog({
       )
       onUploaded('OS image uploaded')
     } catch (caught) {
-      // Keep the dialog open on failure so the operator can correct and retry; only a success
+      // Keep the dialog open on failure so the user can correct and retry; only a success
       // unmounts it, so submitting is reset here.
       setError(failureOf(caught, 'The image could not be uploaded.'))
       setSubmitting(false)

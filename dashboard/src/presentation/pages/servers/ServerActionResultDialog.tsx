@@ -36,7 +36,7 @@ function formatResult(result: ServerActionRunResult): string {
 /**
  * Shows every target outcome for a Server action and the request ID needed to find its
  * corresponding backend log entry. Copy exports the full result as plain text (best-effort
- * on insecure origins) so an operator can attach it to an incident.
+ * on insecure origins) so a user can attach it to an incident.
  */
 export function ServerActionResultDialog({ result, onClose }: ServerActionResultDialogProps) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')

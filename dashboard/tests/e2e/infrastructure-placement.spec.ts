@@ -1,7 +1,7 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// Operator journeys for swallow-owned Zones, Pools, and Server placement (decision 071): edits
+// User journeys for swallow-owned Zones, Pools, and Server placement (decision 071): edits
 // write the spec, the provisioners follow, and the status says whether they have. Every request
 // is served by deterministic fixtures; no backend or provisioner is contacted.
 

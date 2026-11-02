@@ -318,7 +318,7 @@ func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs [
 		}
 		// Recovering a deployed Server releases it, so a Platform's deployed node is refused like a
 		// release (decision 067). A failed, broken, rescue, or allocated node of a Platform is not:
-		// returning it to Ready is how an operator recovers a broken deployment.
+		// returning it to Ready is how a user recovers a broken deployment.
 		if server.Provisioning.State == "deployed" {
 			if err := provisioningapp.RefusePlatformClaimed(ctx, l.platformNames, server, provisioningdomain.ClaimRefusedRecover); err != nil {
 				return nil, err
@@ -357,12 +357,12 @@ func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs [
 }
 
 // LaunchImageVerification proves one OS Image works for one deploy target by deploying it on an
-// operator-chosen ready Server, recording the swallow-owned attestation on success (or a failure
+// user-chosen ready Server, recording the swallow-owned attestation on success (or a failure
 // fact on failure), then, unless input.KeepServer is set, returning the Server to the ready pool.
 // The proving deploy reuses the ordinary provision-os executor, so a success already means the
 // provider installed the requested image in the requested target and SSH came up; VerificationRun
 // bypasses the unverified-custom-image gate for this one establishing run. KeepServer leaves the
-// Server deployed instead of returning it, for an operator who wants to keep the verified deployment.
+// Server deployed instead of returning it, for a user who wants to keep the verified deployment.
 func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context, input provisioningapp.ImageVerificationInput, requestedBy, requestID string) (*provisioningapp.OperationReference, error) {
 	if strings.TrimSpace(input.ServerID) == "" || strings.TrimSpace(input.ImageID) == "" ||
 		strings.TrimSpace(input.IntegrationID) == "" || strings.TrimSpace(input.Architecture) == "" {
@@ -457,8 +457,8 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 	}
 	// By default the borrowed Server is returned to the ready pool after the verification, whether
 	// the proving deploy succeeded or failed. KeepServer omits that return step, leaving the Server
-	// deployed on success (for an operator who wants to keep and use the verified deployment) and in
-	// its failed state on failure, which the operator can Recover from the Server detail page.
+	// deployed on success (for a user who wants to keep and use the verified deployment) and in
+	// its failed state on failure, which the user can Recover from the Server detail page.
 	if !input.KeepServer {
 		steps = append(steps, workflowdomain.Task{
 			// Return-to-ready compensation: it runs after whichever record step ran (the other is

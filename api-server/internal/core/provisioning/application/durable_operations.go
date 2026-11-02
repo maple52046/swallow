@@ -23,9 +23,9 @@ type RecoverServerInput struct {
 }
 
 // ImageVerificationInput carries the intent to prove one OS Image works for one deploy target by
-// deploying it on an operator-chosen ready Server. By default the Server is returned to the ready
+// deploying it on a user-chosen ready Server. By default the Server is returned to the ready
 // pool after the verification (success or failure), so a verification consumes the Server only
-// briefly; KeepServer leaves the Server deployed instead, for an operator who wants to keep and use
+// briefly; KeepServer leaves the Server deployed instead, for a user who wants to keep and use
 // (or inspect) the verified deployment.
 type ImageVerificationInput struct {
 	IntegrationID string       `json:"integrationId"`

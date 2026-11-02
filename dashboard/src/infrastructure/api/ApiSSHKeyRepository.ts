@@ -7,7 +7,7 @@ import { apiRequest } from './client'
  * port. The contract's JSON already matches the domain shapes, so responses are returned as-is.
  *
  * Security: the only secret that ever crosses this adapter is a private key — outbound when the
- * operator replaces the Deployment Key, inbound once from `generate`. Neither is cached, logged,
+ * user replaces the Deployment Key, inbound once from `generate`. Neither is cached, logged,
  * or written to browser storage here; the generate response is handed straight to the caller.
  */
 export class ApiSSHKeyRepository implements SSHKeyRepository {

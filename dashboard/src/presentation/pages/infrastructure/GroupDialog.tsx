@@ -14,7 +14,7 @@ interface GroupDialogProps {
   kind: GroupKind
   /** The group being edited, or undefined when creating. */
   group?: GroupingResource
-  /** Sites the operator may attach a new group to; used only in the create flow. */
+  /** Sites the user may attach a new group to; used only in the create flow. */
   sites: Site[]
   /** Preselected Site for the create flow, typically the active global Site scope. */
   defaultSiteId?: string

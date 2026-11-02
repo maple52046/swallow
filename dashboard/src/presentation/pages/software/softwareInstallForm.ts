@@ -9,7 +9,7 @@ import {
   type SoftwareRole,
 } from '@/domain/software/types'
 
-/** Operator intent shown on the final Software installation button. */
+/** User intent shown on the final Software installation button. */
 export type SoftwareInstallMode = 'install' | 'retry' | 'reconfigure'
 
 /** String and boolean form state derived from one existing assignment. */

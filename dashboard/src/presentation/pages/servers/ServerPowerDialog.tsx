@@ -21,7 +21,7 @@ interface PowerTile {
 }
 
 interface ServerPowerDialogProps {
-  /** The Server whose power the operator is acting on; drives the current-state hint and gating. */
+  /** The Server whose power the user is acting on; drives the current-state hint and gating. */
   server: Server
   /**
    * Runs the chosen power action. The dialog does not execute it directly: it hands the action
@@ -33,7 +33,7 @@ interface ServerPowerDialogProps {
 }
 
 /**
- * Lets an operator pick a power action (on/off) for one Server from the server list, opened by
+ * Lets a user pick a power action (on/off) for one Server from the server list, opened by
  * the icon-and-text power button before tags in the Server field.
  *
  * The two actions are presented as a two-column grid of square tiles. The list has no live

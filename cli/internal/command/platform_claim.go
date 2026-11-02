@@ -11,7 +11,7 @@ import (
 	"github.com/maple52046/swallow/cli/internal/client"
 )
 
-// claimNextStep names, for a claiming Platform's id, what the operator runs instead of the
+// claimNextStep names, for a claiming Platform's id, what the user runs instead of the
 // refused command.
 type claimNextStep func(platformID string) string
 

@@ -396,7 +396,7 @@ func (s *DeployService) inputFromSpec(module platformdomain.PlatformModule, site
 
 // PlatformPlanner computes and carries out Platform Change Plans (decision 076): it classifies the
 // spec against what was last applied, and an approved plan becomes the deploy, uninstall, or GPU
-// Operator Workflow the type's module names.
+// User Workflow the type's module names.
 type PlatformPlanner struct {
 	platforms    platformdomain.PlatformRepository
 	lifecycle    platformdomain.LifecycleReader

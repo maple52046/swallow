@@ -17,7 +17,7 @@ import (
 // is. ProviderKeyID is the provider key swallow registered or adopted for Fingerprint's material;
 // RetiredProviderKeyIDs are provider keys swallow registered for earlier material that still have
 // to be removed. These recorded ids are the only handles swallow ever uses to remove a key from a
-// provisioner, which is what keeps operator-added keys safe. Status's TargetID is IntegrationID.
+// provisioner, which is what keeps user-added keys safe. Status's TargetID is IntegrationID.
 type ProviderSync struct {
 	KeyID                 string
 	IntegrationID         string
@@ -42,7 +42,7 @@ type RegisteredKey struct {
 }
 
 // KeyRegistrar is one provisioner's key list. Implementations translate provider errors into
-// errors whose message is safe to show an operator; RemoveKey treats a missing key as satisfied.
+// errors whose message is safe to show a user; RemoveKey treats a missing key as satisfied.
 type KeyRegistrar interface {
 	ListKeys(ctx context.Context) ([]RegisteredKey, error)
 	AddKey(ctx context.Context, publicKey string) (RegisteredKey, error)
@@ -52,7 +52,7 @@ type KeyRegistrar interface {
 // ProvisionerKeys resolves the provisioners swallow realizes keys into.
 //
 // ListProvisioners returns every enabled provisioner Integration across all Sites; a paused
-// Integration is left alone until an operator re-enables it. Registrar returns the key registrar
+// Integration is left alone until a user re-enables it. Registrar returns the key registrar
 // for one Integration and ok=false (with a nil error) when its provisioner cannot hold SSH keys;
 // an error means the provisioner could not be built (for example a missing credential) and is
 // recorded as unreachable rather than as a missing capability.

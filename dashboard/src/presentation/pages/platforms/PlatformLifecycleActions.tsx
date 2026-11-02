@@ -54,7 +54,7 @@ interface PlatformLifecycleActionsProps {
  * Schema-v3 repair signals each retryable failed Step on the existing durable Operation,
  * preserving successful provider effects and protected inputs. Legacy deployment history keeps
  * the compatibility retry that creates a new Operation. The parent callback refreshes lifecycle
- * state without redirecting operators into the automation debugger.
+ * state without redirecting users into the automation debugger.
  *
  * Removal (decision 010, 2026-10-29 amendment): while the Platform can still be uninstalled the
  * control is a split button whose primary part opens the Uninstall dialog and whose chevron menu
@@ -66,7 +66,7 @@ interface PlatformLifecycleActionsProps {
  * `uninstalled`, or was never deployed by swallow, the control is a single "Delete platform" button.
  *
  * The Uninstall dialog lists the unfinished Workflows still holding the deployment targets (a
- * failed deployment parked for attention, or one still running) and requires the operator to
+ * failed deployment parked for attention, or one still running) and requires the user to
  * confirm that the backend cancels them (`cancelActiveWorkflows`, decision 061) before the
  * uninstall starts.
  */

@@ -18,7 +18,7 @@ type MachineTag struct {
 }
 
 // maxTagNameLen bounds a tag name so a single label cannot carry an unbounded string into storage
-// or a provider request. It is generous for an operator label while staying well within a
+// or a provider request. It is generous for a user label while staying well within a
 // provider's own limits.
 const maxTagNameLen = 100
 

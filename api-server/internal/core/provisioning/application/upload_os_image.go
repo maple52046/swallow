@@ -30,14 +30,14 @@ type UploadOSImageInput struct {
 }
 
 // UploadOSImageUseCase drives one provisioner to create a new provider-owned OS image from
-// operator-supplied content.
+// user-supplied content.
 //
 // Symmetric to DeleteOSImageUseCase and scoped to an integration: an image only exists within the
 // provisioner that stores it. Upload is an optional provider capability, so a provisioner without
 // it is refused rather than silently accepting bytes it cannot keep (see decision 027). A freshly
 // uploaded image carries no display override; whether the provider classifies it as a custom
 // image is provider-determined. The only metadata value an upload may set is the default user,
-// because an operator uploading a custom image is the one who knows its login account.
+// because a user uploading a custom image is the one who knows its login account.
 type UploadOSImageUseCase struct {
 	providers       provisioningdomain.ProviderFactory
 	metadataRecords provisioningdomain.OSImageMetadataRepository
@@ -64,7 +64,7 @@ func NewUploadOSImageUseCase(
 // request was understood and declined. The provider owns the resulting artifact and its
 // classification; swallow neither keeps a copy nor labels it custom. An invalid DefaultUser is
 // ErrOSImageMetadataInvalid before any provider call. When the provider accepted the upload but
-// storing the default user failed, the error is returned although the image exists; the operator
+// storing the default user failed, the error is returned although the image exists; the user
 // sets the default user afterwards through the metadata.
 func (uc *UploadOSImageUseCase) Execute(ctx context.Context, input UploadOSImageInput) (*OSImageItem, error) {
 	defaultUser := strings.TrimSpace(input.DefaultUser)

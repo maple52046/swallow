@@ -26,7 +26,7 @@ export interface OSImageBulkTarget {
 export interface OSImageBulkOutcome extends OSImageBulkTarget {
   accepted: boolean
   /**
-   * Present only on failure: the client-safe reason to show the operator, as one line that
+   * Present only on failure: the client-safe reason to show the user, as one line that
    * includes the request ID when there is one.
    */
   message?: string

@@ -5,10 +5,10 @@ import { credentialGuidance } from './credentialGuidance'
 /**
  * Explains, in plain terms, what an Integration credential is for a given provider.
  *
- * Rendered wherever an operator sets or replaces a credential (create and replace dialogs), so
+ * Rendered wherever a user sets or replaces a credential (create and replace dialogs), so
  * the abstract, write-only secret is never presented without saying what it maps to and what it
  * affects. The copy is provider-specific (keyed by `providerKind`) and always states the
- * write-only rule, because that surprises operators who expect to read the value back.
+ * write-only rule, because that surprises users who expect to read the value back.
  */
 export function CredentialGuidanceNote({ providerKind }: { providerKind: string }) {
   const guidance = credentialGuidance(providerKind)

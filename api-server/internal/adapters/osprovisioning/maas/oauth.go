@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-// APIKey is a MAAS API key split into its OAuth components. MAAS shows operators
+// APIKey is a MAAS API key split into its OAuth components. MAAS shows users
 // a single "consumer_key:token_key:token_secret" string.
 type APIKey struct {
 	ConsumerKey string

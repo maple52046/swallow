@@ -1,7 +1,7 @@
 ---
 # Shared workload filesystem mount, set from the playbook trusted vars. The mount path is a
 # non-overlapping path (never /home). Source is host:/export (self-hosted from the login node,
-# or an external operator NFS URL). hard + _netdev so a job blocks rather than corrupts data if
+# or an external user NFS URL). hard + _netdev so a job blocks rather than corrupts data if
 # the server blips, and the mount is ordered after the network is up.
 slurm_workload_mount_path: /shared
 slurm_workload_source: ""

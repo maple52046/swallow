@@ -1,7 +1,7 @@
 package domain
 
 // Connection setting keys every platform Integration may carry; a Platform module defines its own
-// keys beside them. An operator sets them on an Integration they register, and swallow sets them on
+// keys beside them. A user sets them on an Integration they register, and swallow sets them on
 // the Integration it records for a Platform it deployed; the platform API clients read them when
 // they connect. The keys are stored on Integrations, so renaming one silently drops the setting
 // from every existing Integration.

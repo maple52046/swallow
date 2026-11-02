@@ -3058,7 +3058,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
             : null,
           // Mirrors platforms.md "Container Runtime": the Platform records the chosen kind.
           containerRuntime: body.containerRuntime?.kind ?? null,
-          // Mirrors platforms.md "GPU driver options" and "GPU GRES": only operator-set values are recorded.
+          // Mirrors platforms.md "GPU driver options" and "GPU GRES": only user-set values are recorded.
           gpuDriver: Object.keys(body.gpuDriver?.moduleOptions ?? {}).length > 0 ? body.gpuDriver : null,
           gpuGresType: body.slurm?.gpuGresType ?? null,
           // Mirrors platforms.md "Native OCI Containers" and "MPI (PMIx)": false unless requested.

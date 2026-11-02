@@ -1,10 +1,10 @@
 import { createSystem, defaultConfig, defineConfig } from '@chakra-ui/react'
 
 /**
- * Chakra styling engine for the swallow operator console.
+ * Chakra styling engine for the swallow console.
  *
  * This module is the single source of truth for the dashboard's visual language.
- * It layers a bespoke operator-console theme on top of Chakra's
+ * It layers a bespoke user-console theme on top of Chakra's
  * `defaultConfig` (so every stock recipe keeps working) and is consumed only by
  * the composition root in `components/ui/provider`. Nothing in `domain/` or
  * `application/` may import it — it is a framework/UI detail.

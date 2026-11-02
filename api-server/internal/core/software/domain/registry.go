@@ -31,7 +31,7 @@ var dockerHubAliases = map[string]bool{
 	"registry-1.docker.io": true,
 }
 
-// dockerHubCredentialNames are further names operators type for Docker Hub when saving a credential
+// dockerHubCredentialNames are further names users type for Docker Hub when saving a credential
 // (the website, the legacy registry host, and the common misspelling of it). They are folded only by
 // NormalizeRegistry: no image reference uses them, so keeping them as separate registries would store
 // a credential that never matches a Docker Hub pull.
@@ -53,7 +53,7 @@ type RegistryCredential struct {
 	Username  string
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	// UpdatedBy is the username of the operator who last created or replaced the credential.
+	// UpdatedBy is the username of the user who last created or replaced the credential.
 	UpdatedBy string
 }
 
@@ -65,9 +65,9 @@ type DockerRegistryAuth struct {
 	ServerAddress string
 }
 
-// NormalizeRegistry turns operator input into the stored registry key: trimmed, lower-cased, with a
+// NormalizeRegistry turns user input into the stored registry key: trimmed, lower-cased, with a
 // leading http(s):// and trailing slash removed, and every Docker Hub name — the Engine's aliases and
-// the names operators commonly type (hub.docker.com, registry.hub.docker.com, hub.docker.io, the
+// the names users commonly type (hub.docker.com, registry.hub.docker.com, hub.docker.io, the
 // index URL https://index.docker.io/v1/) — folded into DockerHubRegistry. Anything else that is not
 // host or host:port (a path, a bad port) is ErrInvalidRegistryCredential, so lookups by reference
 // can match exactly.

@@ -308,7 +308,7 @@ type slurmNodeAssignReq struct {
 }
 
 // slurmWorkloadStorageReq is the optional shared workload filesystem. mode is self-hosted (the
-// login node exports NFS) or external (an operator NFS url); type is nfs; mountPath defaults to
+// login node exports NFS) or external (a user NFS url); type is nfs; mountPath defaults to
 // a non-overlapping path. nfs.url is required for external mode.
 type slurmWorkloadStorageReq struct {
 	Mode      string       `json:"mode"`
@@ -414,7 +414,7 @@ func (h *PlatformHandler) Get(c *fiber.Ctx) error {
 }
 
 // updatePlatformRequest omits integrationId on purpose: a Platform's credential Integration is
-// set only by its deployment. Accepting it here would let an operator repoint a Platform at an
+// set only by its deployment. Accepting it here would let a user repoint a Platform at an
 // arbitrary Integration, a register-existing back door removed by decision 032.
 //
 // MonitoringLinks is a pointer so "absent" (leave unchanged) and "[]" (clear) stay distinct.
@@ -598,7 +598,7 @@ func respondError(c *fiber.Ctx, err error) error {
 		// custom OS image not yet verified for the requested deploy target) surface here. Map it to
 		// 409 with the actionable message instead of leaking a generic 500 to the dashboard.
 		errors.Is(err, provisioningdomain.ErrDeploymentBatchConflict),
-		// No Deployment Key: an installation-state conflict the operator fixes by running the
+		// No Deployment Key: an installation-state conflict the user fixes by running the
 		// install step, reported with the command to run (decision 039).
 		errors.Is(err, platformdomain.ErrDeploymentKeyMissing),
 		errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing),

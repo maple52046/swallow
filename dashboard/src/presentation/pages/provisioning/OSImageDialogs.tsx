@@ -11,7 +11,7 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { hasOSImageMetadata } from './osImageListPresentation'
 
-/** Edits operator-facing image details without mutating the underlying image artifact. */
+/** Edits user-facing image details without mutating the underlying image artifact. */
 export function EditImageDialog({
   image,
   repository,

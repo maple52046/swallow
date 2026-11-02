@@ -155,7 +155,7 @@ ensure_admin() {
 # hypervisors with (decision 055): a passphrase-less key in the snap's root home (an existing
 # ed25519 or RSA key is kept), and accept-new host key checking as the default for every host, so
 # the first connection to a hypervisor records its key and a changed key is refused. More specific
-# Host blocks an operator adds earlier in the file still win. The public key is copied to
+# Host blocks a user adds earlier in the file still win. The public key is copied to
 # secrets/maas-virsh-ssh.pub, which bootstrap.sh records as the Integration's virshSshPublicKey;
 # swallow authorizes it on a hypervisor when it enrolls that hypervisor's virtual machines.
 ensure_virsh_identity() {

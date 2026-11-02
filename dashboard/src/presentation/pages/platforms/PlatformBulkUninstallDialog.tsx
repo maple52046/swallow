@@ -35,7 +35,7 @@ interface PlatformBulkUninstallDialogProps {
  * servers instead, and, through the variant behind the submit chevron, delete each record after its
  * own operation succeeds (`deleteRecord`).
  *
- * Bulk destructive actions cannot ask an operator to type every platform name, so the gate is
+ * Bulk destructive actions cannot ask a user to type every platform name, so the gate is
  * typing `uninstall`; the record choice is then the explicit submit variant. The dialog lists the
  * unfinished Workflows holding any targeted platform's servers and requires confirming that the
  * backend cancels them first (`cancelActiveWorkflows`, decision 061). It stays open with each

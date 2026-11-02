@@ -206,7 +206,7 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 }
 
 // prepareSlurm plans the durable Slurm deployment Operation. It reuses the ensure-os Job to
-// bring targets to a booted, SSH-reachable OS (with the operator's Slurm image in provision_os
+// bring targets to a booted, SSH-reachable OS (with the user's Slurm image in provision_os
 // mode) and then runs the hardcoded deploy-slurm playbook. Unlike k0s it adds no internal
 // validate-platform-health Task: the deployed reader integration only exists once the
 // install step's result is recorded, so cluster validation lives in the playbook itself and
@@ -619,7 +619,7 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	launch platformdomain.UninstallLaunch,
 ) (string, error) {
 	// Uninstall reuses one flow for both platform types and differs only in the workflow kind,
-	// the hardcoded playbook, and operator-facing labels.
+	// the hardcoded playbook, and user-facing labels.
 	uninstallKind := uninstallKubernetesKind
 	uninstallPlaybook := uninstallKubernetesPlaybook
 	workflowKind := workflowdomain.WorkflowKindUninstallKubernetes
@@ -729,7 +729,7 @@ func uninstallSteps(
 	// Internal finalize step: Platform completion is otherwise the ansible step's
 	// platform-uninstall completion, and this path omits that step, so this clears the Platform's membership,
 	// owned credential Integration, and sync projection once every release succeeds, and removes
-	// the record when the operator asked for it. Exporter restoration stays off (a released host
+	// the record when the user asked for it. Exporter restoration stays off (a released host
 	// is wiped).
 	steps = append(steps, workflowdomain.Task{
 		ID: completeUninstallStepID, Kind: "complete-uninstall", Name: "Finalize platform uninstall",
@@ -749,7 +749,7 @@ type platformDeploymentObserver struct {
 	servers     serverdomain.ServerRepository
 }
 
-// uninstallChoice is what the operator chose for a kept-servers uninstall, declared on the
+// uninstallChoice is what the user chose for a kept-servers uninstall, declared on the
 // platform-uninstall completion that carries it out.
 type uninstallChoice struct {
 	deleteRecord, restoreExporters bool
@@ -765,7 +765,7 @@ func uninstallChoiceOf(completion workflowdomain.Completion) uninstallChoice {
 }
 
 // restoreExporters queues an install-exporters Workflow for the uninstalled Platform's Servers
-// that are still deployed and unlocked, when the operator asked for it.
+// that are still deployed and unlocked, when the user asked for it.
 func (o platformDeploymentObserver) restoreExporters(ctx context.Context, workflow *workflowdomain.Workflow, choice uninstallChoice) {
 	if !choice.restoreExporters {
 		return

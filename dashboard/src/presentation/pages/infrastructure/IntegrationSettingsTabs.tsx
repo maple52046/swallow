@@ -199,7 +199,7 @@ function sortedEntries(settings: Record<string, string>): Array<[string, string]
 /**
  * Credential tab: sets or replaces the Integration's write-only secret (contract
  * sites-integrations.md, `PUT /integrations/{id}/credential`). The wording says whether one exists
- * ("Set" vs "Replace") so an operator knows which they are doing. The value lives only in this
+ * ("Set" vs "Replace") so a user knows which they are doing. The value lives only in this
  * tab's state, is cleared on success and when the tab unmounts, and is never read back; the copy
  * warns that it cannot be viewed again.
  */

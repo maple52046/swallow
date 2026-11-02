@@ -7,8 +7,8 @@ interface FailureMessageProps {
 }
 
 /**
- * The shared body of an error message: the operator-facing text and, below it, the request ID an
- * operator quotes when reporting the failure (dashboard architecture spec, API and Error Boundary).
+ * The shared body of an error message: the user-facing text and, below it, the request ID an
+ * user quotes when reporting the failure (dashboard architecture spec, API and Error Boundary).
  * Place it inside an error `Alert`, a form error, or any other error container.
  */
 export function FailureMessage({ failure }: FailureMessageProps) {

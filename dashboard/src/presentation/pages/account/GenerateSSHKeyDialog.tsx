@@ -13,7 +13,7 @@ import { privateKeyFileName } from './sshKeyPresentation'
 
 interface GenerateSSHKeyDialogProps {
   onClose: () => void
-  /** Called once the operator has confirmed saving the private key, with the toast title to show. */
+  /** Called once the user has confirmed saving the private key, with the toast title to show. */
   onGenerated: (title: string) => void
 }
 
@@ -27,11 +27,11 @@ interface GeneratedSecret {
  * Generates an ed25519 Access Key pair for the signed-in admin and shows its private key once.
  *
  * swallow keeps only the public key, so this dialog is the only place the private key ever exists
- * outside the operator's machine. Security and state contract:
+ * outside the user's machine. Security and state contract:
  * - The private key lives only in component state; it is never written to storage or logged, and
  *   it is dropped when the dialog unmounts.
  * - After generation the dialog cannot be dismissed (Escape, backdrop, close button) until the
- *   operator confirms they saved the key, because a dismissal would lose it irrecoverably.
+ *   user confirms they saved the key, because a dismissal would lose it irrecoverably.
  * - Download creates a local file from memory; nothing is sent anywhere.
  */
 export function GenerateSSHKeyDialog({ onClose, onGenerated }: GenerateSSHKeyDialogProps) {

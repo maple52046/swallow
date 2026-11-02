@@ -13,7 +13,7 @@ slurm_job_hooks_timeout_seconds: 30
 
 # The hooks swallow owns, in dispatch order (the file name's numeric prefix). The deployment enables
 # them by name (slurm_job_hooks_enabled); a hook that is not enabled is removed, and executables an
-# operator adds under other names are left alone and dispatched too.
+# user adds under other names are left alone and dispatched too.
 slurm_job_hooks_known:
   - name: omnistat
     file: 10-omnistat

@@ -178,7 +178,7 @@ function PlatformMembership({ platform }: { platform: Platform }) {
 /**
  * Whole-Site control-plane summary.
  *
- * Facts intentionally ignore list filters so operators cannot mistake a search
+ * Facts intentionally ignore list filters so users cannot mistake a search
  * result for the health of the complete Site runtime fleet.
  */
 function PlatformFleetOverview({ platforms }: { platforms: readonly Platform[] }) {

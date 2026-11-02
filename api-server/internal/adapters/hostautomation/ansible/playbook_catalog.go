@@ -69,7 +69,7 @@ func LoadManifestCatalog(manifestPath, projectRoot string) (*ManifestCatalog, er
 	return catalog, nil
 }
 
-// Resolve returns a manifest-owned relative path, never an operator path.
+// Resolve returns a manifest-owned relative path, never a user path.
 func (c *ManifestCatalog) Resolve(name string) (string, error) {
 	path, ok := c.paths[name]
 	if !ok {

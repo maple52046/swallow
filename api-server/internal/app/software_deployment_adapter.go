@@ -108,7 +108,7 @@ func (l softwareDeploymentLauncher) PersistWorkflow(ctx context.Context, prepare
 	return created.ID, nil
 }
 
-// launchLabel is the kind's operator-facing name ("Docker CE", "NFS"), so Workflow intents and Step
+// launchLabel is the kind's user-facing name ("Docker CE", "NFS"), so Workflow intents and Step
 // names spell the product as it is written rather than as its slug; without one it is the slug.
 func launchLabel(launch softwareapp.SoftwareLaunch) string {
 	if launch.Label != "" {

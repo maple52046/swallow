@@ -18,7 +18,7 @@ const defaultTimeout = 30 * time.Second
 // Integrations and Server sources, so it stays stable.
 const ProviderKind = "maas"
 
-// Setting keys an operator may set on a provisioner integration.
+// Setting keys a user may set on a provisioner integration.
 const (
 	SettingTimeout            = "timeout"
 	SettingInsecureSkipVerify = "insecureSkipVerify"

@@ -34,7 +34,7 @@ required_secrets=(mongo-root-username mongo-root-password mongo-keyfile mongo-ur
 # installed_marker records the release of the last install or upgrade that passed doctor;
 # install.sh upgrades only an installation that has one.
 installed_marker="${script_dir}/state/installed"
-# Operator settings that install and upgrade copy from the environment into .env.
+# User settings that install and upgrade copy from the environment into .env.
 # SWALLOW_SSH_KNOWN_HOSTS is left out: it may span lines, which .env cannot hold.
 setting_keys=(SWALLOW_ADDRESS SWALLOW_MAAS_URL SWALLOW_BOOT_MEDIA_BASE_URL SWALLOW_HTTP_PORT
   SWALLOW_POSTGRES_HOST_PORT SWALLOW_MAAS_IMAGE_TIMEOUT SWALLOW_SITE_NAME
@@ -61,9 +61,9 @@ load_env() {
 }
 
 # write_env_from_manifest copies the release version and exact image digests from a release
-# manifest into .env, keeping every other operator setting. The manifest is the only source of
+# manifest into .env, keeping every other user setting. The manifest is the only source of
 # the required image references: the installer never substitutes tags. SWALLOW_TEMPORAL_UI_IMAGE
-# is operator-owned because releases do not ship the diagnostics UI.
+# is user-owned because releases do not ship the diagnostics UI.
 write_env_from_manifest() {
   local manifest="$1" tmp key
   [[ -f "${manifest}" ]] || die "release manifest not found: ${manifest}"
@@ -105,7 +105,7 @@ set_env_value() {
   mv -- "${tmp}" "${env_file}"
 }
 
-# persist_settings writes the operator settings set in the caller's environment into .env (the
+# persist_settings writes the user settings set in the caller's environment into .env (the
 # environment wins, as with Compose), so a later upgrade or a plain `docker compose up` sees the
 # same values. It then fills in what .env still lacks from one host address: the URL machines
 # use to reach MAAS and the Boot Media base URL BMCs use to reach swallow. The address is
@@ -269,7 +269,7 @@ mongo_database() {
 }
 
 # active_operations counts the Workflows that have not reached a terminal status, including
-# requires_attention ones still waiting for an operator. Schema v4 and later keep them in
+# requires_attention ones still waiting for a user. Schema v4 and later keep them in
 # `workflows`. upgrade counts before it migrates, so a database from before v4 still keeps its
 # schema-v3 Workflows in `operations`; those are counted too. Schema-v2 records are not: no
 # release runs them, and v10 drops them.
@@ -759,7 +759,7 @@ maas_api_answers() {
 }
 
 # report_active_operations prints how many Workflows are still in flight. It is information for
-# the operator, not part of the contract: a busy installation is a healthy one.
+# the user, not part of the contract: a busy installation is a healthy one.
 report_active_operations() {
   local active
   if active="$(active_operations 2>/dev/null)" && [[ "${active}" =~ ^[0-9]+$ ]]; then
@@ -839,7 +839,7 @@ settle_seconds() {
 
 # converge holds one condition of the desired state whose owners are Compose services: after its
 # settle time it restarts them once and waits out their startup window. A condition that still
-# fails is reported with the owners' recent logs, so the operator sees why without running
+# fails is reported with the owners' recent logs, so the user sees why without running
 # Compose by hand. It returns the condition's final status.
 converge() {
   local description="$1" probe="$2" output
@@ -912,7 +912,7 @@ converge_installation_records() {
 # desired state") and returns doctor's verdict on the result. It is safe to rerun: a stack that
 # holds its contract is left untouched. It starts what is missing or stopped but never recreates
 # a running container, so configuration and image changes stay with upgrade. It never cancels or
-# retries Workflows; that is the operator's call.
+# retries Workflows; that is the user's call.
 ensure() {
   if [[ "${profile}" == production ]]; then
     require_root

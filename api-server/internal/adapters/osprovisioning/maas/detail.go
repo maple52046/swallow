@@ -418,7 +418,7 @@ func nameOf(n *namedJSON) string {
 }
 
 // powerParametersUnavailableStatus keeps the optional admin-only read from hiding all
-// machine detail while making a permission or provider failure explicit to the operator.
+// machine detail while making a permission or provider failure explicit to the user.
 func powerParametersUnavailableStatus(err error) string {
 	var apiErr *apiError
 	if errors.As(err, &apiErr) &&

@@ -14,7 +14,7 @@ import { useToast } from "@/presentation/components/toast/toastContext";
 import { useSiteScope } from "@/presentation/contexts/SiteScopeContext";
 
 /**
- * Global Platform administration for deployment eligibility. Values are entered in operator-
+ * Global Platform administration for deployment eligibility. Values are entered in user-
  * friendly GiB but converted to the provider-owned MiB contract only when loading or saving.
  */
 export function PlatformSettingsPage() {

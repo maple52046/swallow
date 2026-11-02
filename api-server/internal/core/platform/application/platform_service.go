@@ -167,7 +167,7 @@ type PlatformItem struct {
 	// ExporterOwner decides which subsystem installs this platform's Prometheus
 	// exporters: "ansible" (default) or "k8s".
 	ExporterOwner string `json:"exporterOwner"`
-	// MonitoringLinks are the operator-registered links to the runtime's own monitoring UI.
+	// MonitoringLinks are the user-registered links to the runtime's own monitoring UI.
 	// Always an array (empty when none), so clients never branch on null.
 	MonitoringLinks []MonitoringLinkItem `json:"monitoringLinks"`
 	// GPUOperator is the swallow-managed GPU Operator, null when swallow never managed one here.
@@ -179,7 +179,7 @@ type PlatformItem struct {
 	DeviceMetricsExporter *DeviceMetricsExporterItem `json:"deviceMetricsExporter"`
 	// ContainerRuntime is the Slurm container runtime feature (docker-ce or podman), null when off.
 	ContainerRuntime *string `json:"containerRuntime"`
-	// GPUDriver is the operator's amdgpu driver intent, null when none was requested.
+	// GPUDriver is the user's amdgpu driver intent, null when none was requested.
 	GPUDriver *GPUDriverItem `json:"gpuDriver"`
 	// GPUGresType is the GRES type name a Slurm deploy gave every GPU node, null when it is
 	// derived per node from the GPU architecture.
@@ -200,7 +200,7 @@ type PlatformItem struct {
 }
 
 // GPUDriverItem is the wire shape of a Platform's amdgpu driver intent (platforms.md, "GPU
-// driver options"): the operator's module options. Options a topology rule adds on a node are not
+// driver options"): the user's module options. Options a topology rule adds on a node are not
 // listed here; the Workflow that loads the driver reports them.
 type GPUDriverItem struct {
 	ModuleOptions map[string]string `json:"moduleOptions"`
@@ -267,7 +267,7 @@ type MonitoringLinkItem struct {
 // PlatformDeploymentItem explains topology and workload co-location without exposing
 // runner variables or conflating the Node Role with workload capability. LoginServerIDs names
 // the Slurm login (submission) hosts, which are neither role assignments nor members; a read
-// model resolves them to an address to tell the operator which host to use to run the cluster.
+// model resolves them to an address to tell the user which host to use to run the cluster.
 type PlatformDeploymentItem struct {
 	Topology        string                       `json:"topology"`
 	RoleAssignments []PlatformRoleAssignmentItem `json:"roleAssignments"`
@@ -536,7 +536,7 @@ func (s *PlatformService) markExportersRemoved(ctx context.Context, platform *pl
 // perspective, so a missing platform is an idempotent success. That also makes a retried
 // completion safe after deleteRecord already removed the record.
 //
-// deleteRecord is the operator's uninstall-time choice (recorded on the Operation) to remove the
+// deleteRecord is the user's uninstall-time choice (recorded on the Operation) to remove the
 // Platform record once the cleanup succeeds. Unlike Delete it never cancels Operations: the
 // caller is the uninstall's own success hook, and that uninstall is still the Workflow holding
 // the targets, so canceling would turn a finished uninstall into a canceled one.
@@ -626,7 +626,7 @@ func (s *PlatformService) completeUninstall(ctx context.Context, id string, dele
 		return nil
 	}
 	// Membership and the owned Integration are already gone above, which is everything Delete
-	// removes besides the record itself. An operator Delete racing this step leaves the same end
+	// removes besides the record itself. A user Delete racing this step leaves the same end
 	// state, so a record that is already gone is not a failure.
 	if err := s.platforms.Delete(ctx, id); err != nil && !errors.Is(err, platformdomain.ErrPlatformNotFound) {
 		return err

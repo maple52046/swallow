@@ -44,7 +44,7 @@ func (p *ProvisionerKeys) ListProvisioners(ctx context.Context) ([]sshkeydomain.
 
 // Registrar builds the provider for integrationID and returns its key registrar when the provider
 // is key-capable. A provider that cannot be built (missing credential, unknown product) is an
-// error with an operator-safe message; a built provider without the capability is (nil, false, nil).
+// error with a user-safe message; a built provider without the capability is (nil, false, nil).
 func (p *ProvisionerKeys) Registrar(ctx context.Context, integrationID string) (sshkeydomain.KeyRegistrar, bool, error) {
 	provider, err := p.providers.For(ctx, integrationID)
 	if err != nil {
@@ -63,7 +63,7 @@ type keyRegistrar struct {
 }
 
 // ListKeys, AddKey, and RemoveKey translate between provider and sshkey vocabulary and reduce
-// provider errors to operator-safe messages; RemoveKey inherits the provider's "missing is
+// provider errors to user-safe messages; RemoveKey inherits the provider's "missing is
 // satisfied" rule.
 func (k keyRegistrar) ListKeys(ctx context.Context) ([]sshkeydomain.RegisteredKey, error) {
 	keys, err := k.registrar.ListSSHKeys(ctx)

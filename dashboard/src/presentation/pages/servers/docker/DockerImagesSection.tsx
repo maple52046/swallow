@@ -42,7 +42,7 @@ interface ActivePull {
  *
  * The list is read on mount and after every write; nothing is cached. A pull is one synchronous
  * api-server request (up to 55 minutes — GPU images run to tens of gigabytes), owned by this section
- * rather than the dialog: the operator can close the dialog while it runs, the section lists every
+ * rather than the dialog: the user can close the dialog while it runs, the section lists every
  * pull still running, and the outcome arrives as a toast (plus a list refresh). While the dialog is
  * open, a failure is shown inline there instead. Remove asks for confirmation and offers the
  * Engine's `force` option, explaining what it adds. Writes are disabled while the Server is locked
@@ -221,7 +221,7 @@ export function DockerImagesSection({ serverId, readOnlyReason, onChanged }: Doc
 /**
  * Pull dialog. The reference is `name[:tag]` or `name@digest`; an untagged reference pulls `latest`
  * (api-server never pulls every tag). The saved Registry Credentials are read once when the dialog
- * opens so it can say, as the operator types, whether the pull will sign in to the reference's
+ * opens so it can say, as the user types, whether the pull will sign in to the reference's
  * registry (and as whom) or be anonymous; api-server makes the authoritative choice. If that list
  * cannot be read the hint is omitted and pulling still works. `onPull` is owned by the section: it
  * closes the dialog on success and rejects with the API's error (for example "access denied") while

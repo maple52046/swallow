@@ -71,7 +71,7 @@ export type PlatformDetailState =
   | { status: 'ready'; data: PlatformDetailData }
 
 /**
- * Only accepted automation states continue polling without an operator action: a running
+ * Only accepted automation states continue polling without a user action: a running
  * deployment or uninstall, or a running GPU Operator change.
  */
 function lifecycleCanChangeWithoutInput(platform: Platform): boolean {

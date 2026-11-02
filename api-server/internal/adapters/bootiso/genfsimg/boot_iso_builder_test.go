@@ -184,7 +184,7 @@ func TestGenfsimgBuilderBuildFailures(t *testing.T) {
 	}
 }
 
-// Available names the first missing piece so the dashboard can tell the operator what to fix.
+// Available names the first missing piece so the dashboard can tell the user what to fix.
 func TestGenfsimgBuilderAvailable(t *testing.T) {
 	cases := []struct {
 		name   string

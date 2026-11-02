@@ -1,7 +1,7 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// Operator journeys for SSH key management and the OS Image default user (decision 039). Every
+// User journeys for SSH key management and the OS Image default user (decision 039). Every
 // request is served by deterministic fixtures; no backend or provisioner is contacted.
 
 test.beforeEach(async ({ page }) => {
@@ -41,7 +41,7 @@ test('Generating an access key shows the private key once and blocks dismissal u
   await expect(page.locator('#ssh-key-generated-private')).toHaveValue(/BEGIN OPENSSH PRIVATE KEY/)
   const done = page.getByRole('button', { name: 'Done' })
   await expect(done).toBeDisabled()
-  // Escape must not discard a private key the operator has not saved yet.
+  // Escape must not discard a private key the user has not saved yet.
   await page.keyboard.press('Escape')
   await expect(page.getByRole('heading', { name: 'Save your private key' })).toBeVisible()
 
@@ -51,7 +51,7 @@ test('Generating an access key shows the private key once and blocks dismissal u
   await expect(page.getByRole('table', { name: 'Access keys' })).toContainText('ops-jumpbox')
 })
 
-// Operators often reach the dashboard over plain HTTP on a LAN, where the async Clipboard API is
+// Users often reach the dashboard over plain HTTP on a LAN, where the async Clipboard API is
 // unavailable and copying falls back to a temporary textarea. Inside a modal that fallback must still
 // put the real text on the clipboard, not just show "Copied".
 test('Copying the generated private key inside the dialog works on an insecure origin', async ({ page, context }) => {

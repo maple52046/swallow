@@ -12,7 +12,7 @@ interface CodeBlockProps {
 
 /**
  * The console's read-only, syntax-colored code sample (highlight.js with the GitHub light and dark
- * themes, following the current color mode). Use it for commands an operator copies, such as CLI
+ * themes, following the current color mode). Use it for commands a user copies, such as CLI
  * examples, rather than hand-styled `<pre>` blocks, so every sample looks the same.
  *
  * The theme stylesheet is a React 19 style resource: React hoists it into `<head>` once, however many

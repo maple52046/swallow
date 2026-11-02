@@ -1,4 +1,4 @@
-/** Operator-visible lifecycle of a durable workflow. */
+/** User-visible lifecycle of a durable workflow. */
 export type OperationStatus =
   | "pending"
   | "running"
@@ -96,7 +96,7 @@ export interface OperationStep {
 }
 
 /**
- * One Job of a Workflow (decision 072): the name its Steps give in `job`, the operator-facing
+ * One Job of a Workflow (decision 072): the name its Steps give in `job`, the user-facing
  * label its group of Steps is titled with, and what a retry of a failed Step in it runs again.
  */
 export interface OperationJob {
@@ -127,7 +127,7 @@ export interface OperationTimelineEvent {
   createdAt: string;
 }
 
-/** An Operation is a Workflow: the durable record of an operator intent and its Steps. */
+/** An Operation is a Workflow: the durable record of a user intent and its Steps. */
 export interface Operation {
   id: string;
   schemaVersion?: number;
@@ -200,7 +200,7 @@ export function operationStatus(operation: Operation): OperationStatus {
   return operation.status ?? operation.execution.status;
 }
 
-/** Whether a workflow can no longer advance without a new operator command. */
+/** Whether a workflow can no longer advance without a new user command. */
 export function isTerminalStatus(status: OperationStatus): boolean {
   return (
     status === "succeeded" ||
@@ -212,7 +212,7 @@ export function isTerminalStatus(status: OperationStatus): boolean {
 
 /**
  * Whether a workflow is actively making progress, as opposed to terminal or parked awaiting an
- * operator (`requires_attention`) or tearing down (`canceling`). Use this — not merely "not
+ * user (`requires_attention`) or tearing down (`canceling`). Use this — not merely "not
  * terminal" — to decide when to show an in-progress affordance such as the OS Images "verifying"
  * spinner: a parked or canceling workflow is not progressing and must not read as still working.
  */

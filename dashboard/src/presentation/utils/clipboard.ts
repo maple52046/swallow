@@ -45,7 +45,7 @@ function focusScopeHost(): HTMLElement {
  * Insecure-origin fallback: place the text in an off-screen, read-only textarea inside the active
  * focus scope, focus and select it, and run the legacy copy command. Success is reported only when
  * the textarea really held focus and the whole value was selected, because `execCommand('copy')`
- * returns true even when the selection is empty. The operator's prior selection and focus are
+ * returns true even when the selection is empty. The user's prior selection and focus are
  * restored so copying never disturbs what they had highlighted or where keyboard focus was.
  */
 function copyViaTextarea(value: string): boolean {

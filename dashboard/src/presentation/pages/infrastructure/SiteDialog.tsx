@@ -16,7 +16,7 @@ interface SiteDialogProps {
 /**
  * Creates or edits the deliberately thin Site aggregate.
  *
- * Identity remains backend-owned; only the operator label and optional description
+ * Identity remains backend-owned; only the user label and optional description
  * change. Submit stays disabled until a name is present, and dismissal is blocked
  * while the save is in flight.
  */

@@ -56,7 +56,7 @@ func (p *Provider) PowerConfiguration(ctx context.Context, machineID string) (*p
 // machine update (PUT), the path the MAAS CLI's `machine update power_type=… power_parameters_…=`
 // uses. MAAS validates the parameters against the driver (it needs a connected rack controller to
 // do so) and fills every parameter the request omits from the stored ones, which is what keeps a
-// password the operator did not resend. A VM-host member is refused before the write: its power
+// password the user did not resend. A VM-host member is refused before the write: its power
 // comes from the VM host, and rewriting it on the machine would detach it from that host.
 func (p *Provider) SetPowerConfiguration(ctx context.Context, machineID string, change provisioningdomain.PowerConfigurationChange) error {
 	var m powerMachineJSON
@@ -104,7 +104,7 @@ func powerUpdateFields(current provisioningdomain.PowerDriver, change provisioni
 
 // translatePowerParametersError keeps the meaning of a refused power-parameter call explicit: MAAS
 // answers 401/403 when the integration's account is not an administrator, which is a setup problem
-// the operator must fix in the Integration, not a rejected configuration.
+// the user must fix in the Integration, not a rejected configuration.
 func translatePowerParametersError(err error, machineID, verb string) error {
 	var apiErr *apiError
 	if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden) {

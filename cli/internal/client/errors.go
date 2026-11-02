@@ -5,7 +5,7 @@ import "fmt"
 // APIError is the typed form of the api-server shared error envelope
 // (conventions.md): a machine-readable Code, a human-readable Message, and an
 // opaque RequestID that correlates with the server's X-Request-ID log entry.
-// Commands surface Code and RequestID so an operator can branch on the failure
+// Commands surface Code and RequestID so a user can branch on the failure
 // class and quote the correlation ID when reporting a problem.
 //
 // Status is the HTTP status code carried alongside the envelope. It is retained

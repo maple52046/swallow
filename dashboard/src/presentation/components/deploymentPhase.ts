@@ -19,7 +19,7 @@ export interface DeploymentPhase {
   color: AxisColor
   tooltip: string
   /**
-   * Work is running and the state will change without operator action. The badge shows a
+   * Work is running and the state will change without user action. The badge shows a
    * spinner after the label; the label still names the state, so the motion is only a cue.
    */
   inProgress: boolean
@@ -73,7 +73,7 @@ function observedSince(provider: ProvisioningAxis | null, label: string): Deploy
  *    It outranks any leftover swallow result, because that result describes an installation the
  *    running work is replacing or erasing.
  * 2. A swallow deployment that is still running or did not succeed (Deploying, Verifying, Failed,
- *    Attention, Canceled), so the operator sees swallow's own reason.
+ *    Attention, Canceled), so the user sees swallow's own reason.
  * 3. The installed OS when the provider reports `deployed`.
  * 4. Every other OS Provisioning State by its own name (Deploying, Broken, Failed, Rescue, Ready,
  *    Allocated, New, Retired, Unknown). A live provider state outranks a stale swallow success:

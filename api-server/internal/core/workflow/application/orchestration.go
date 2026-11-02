@@ -74,7 +74,7 @@ type WorkflowItem struct {
 }
 
 // WorkflowJobItem is one Job of a Workflow as the API reports it: the name its Tasks give in
-// `steps[].job`, the operator-facing label, and what a retry of a failed Task in it runs again.
+// `steps[].job`, the user-facing label, and what a retry of a failed Task in it runs again.
 type WorkflowJobItem struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
@@ -186,7 +186,7 @@ func (s *WorkflowService) create(ctx context.Context, input CreateWorkflowInput)
 			// malformed request: it is exactly workflowdomain.ErrTargetsBusy, which
 			// every delivery mapper renders as 409 with this message. Classifying it
 			// as ErrInvalidOperation would leak it as an opaque 4xx/5xx that hides the
-			// actionable "the Server is busy" reason from operators, and naming the
+			// actionable "the Server is busy" reason from users, and naming the
 			// holder tells them which Workflow to finish or cancel.
 			if holder == nil {
 				return nil, fmt.Errorf("%w: Server %s already has active durable work", workflowdomain.ErrTargetsBusy, serverID)
@@ -476,7 +476,7 @@ func (s *WorkflowService) RetryStep(ctx context.Context, id, stepID string) erro
 
 // Rerun converges a Workflow's intent again as a new Workflow, on the same Platform, without
 // deleting anything (decision 061). It is for a Workflow that finished failed, partially
-// succeeded, or canceled, and for a parked (requires_attention) one the operator wants to converge
+// succeeded, or canceled, and for a parked (requires_attention) one the user wants to converge
 // from the start rather than retry by Task. The new Workflow copies the original's plan by the
 // catalog's rerun policies, re-seals the original's secrets under itself (CloneForOperation), and
 // links back through RetryOfOperationID; its later requestedAt makes the platform lifecycle follow
@@ -636,7 +636,7 @@ func rerunJobs(old *workflowdomain.Workflow) []workflowdomain.JobDeclaration {
 	return jobs
 }
 
-// rerunSummary keeps the original operator-facing summary so the recovery Operation reads as
+// rerunSummary keeps the original user-facing summary so the recovery Operation reads as
 // the same intent. It falls back to a generated line only when the original summary is missing.
 func rerunSummary(old *workflowdomain.Workflow) string {
 	if summary, ok := old.Intent["summary"].(string); ok && strings.TrimSpace(summary) != "" {
@@ -701,7 +701,7 @@ func publicSteps(source []workflowdomain.Task) []workflowdomain.Task {
 	for index := range steps {
 		steps[index].SecretRefs = nil
 		// Step Parameters hold the frozen internal request and extraVars, which can carry
-		// operator-supplied plaintext (cloud-init, credentials). They are an executor
+		// user-supplied plaintext (cloud-init, credentials). They are an executor
 		// input, not part of the public Step contract, so they never cross the API.
 		steps[index].Parameters = nil
 		steps[index].DependsOn = append([]string{}, steps[index].DependsOn...)
@@ -711,9 +711,9 @@ func publicSteps(source []workflowdomain.Task) []workflowdomain.Task {
 	return steps
 }
 
-// sensitiveKeys are dropped from operator-facing intent snapshots at any nesting depth.
+// sensitiveKeys are dropped from user-facing intent snapshots at any nesting depth.
 // Secrets are sealed and referenced opaquely elsewhere; these keys can still hold
-// operator-supplied plaintext that must never appear in an API response or (via the
+// user-supplied plaintext that must never appear in an API response or (via the
 // intent snapshot) in workflow history.
 var sensitiveKeys = map[string]bool{
 	"extravars": true, "userdata": true, "secret": true, "secrets": true,

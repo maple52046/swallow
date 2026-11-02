@@ -127,7 +127,7 @@ func (s *Service) EnsureRegistered(ctx context.Context, integrationID string) er
 //
 // Removal is conservative: swallow removes only provider key ids it recorded as registered or
 // adopted, only when no desired key claims the same provider key in this pass, and only when the
-// provider still lists it. Operator-added provider keys are never candidates.
+// provider still lists it. User-added provider keys are never candidates.
 func (s *Service) syncProvisioner(
 	ctx context.Context,
 	provisioner sshkeydomain.Provisioner,

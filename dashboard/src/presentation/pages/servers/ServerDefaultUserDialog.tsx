@@ -25,7 +25,7 @@ interface ServerDefaultUserDialogProps {
  * The account field starts at the current effective user. The optional password is sent once in the
  * request so api-server can add the Deployment Key to that account; it lives only in this dialog's
  * state, is never shown back, and is dropped when the dialog unmounts. Without a password the
- * operator authorizes the key themselves with the shown command (the Deployment Key's public key is
+ * user authorizes the key themselves with the shown command (the Deployment Key's public key is
  * read from the SSH Keys API; if that read fails the command is simply omitted). Saving takes a few
  * seconds because the API proves a Deployment Key login before saving, so dismissal is blocked while
  * it runs and the API's error is shown inline. "Use the OS image default" clears a value set on the
@@ -135,7 +135,7 @@ export function ServerDefaultUserDialog({ server, onClose, onChanged }: ServerDe
         </Field.Root>
         <Field.Root>
           <Field.Label>Password (optional)</Field.Label>
-          {/* new-password keeps browsers from offering the operator's own swallow password here. */}
+          {/* new-password keeps browsers from offering the user's own swallow password here. */}
           <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" disabled={busy !== null} />
           <Field.HelperText>
             Used once to add the Deployment Key to this account&apos;s authorized_keys; swallow does not store it. Leave it empty if

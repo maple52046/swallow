@@ -1,7 +1,7 @@
 import type { ServerStatus } from "@/domain/server/types";
 import type { MinimumResources } from "./types";
 
-/** One resource deficit, retaining machine-readable dimension data and an operator label. */
+/** One resource deficit, retaining machine-readable dimension data and a user label. */
 export interface ResourceShortfall {
   dimension: "cpu" | "memory" | "storage";
   actual: number;
@@ -71,7 +71,7 @@ export function evaluateMinimumResourceEligibility(
       };
 }
 
-/** Formats a MiB contract value for the GiB-facing operator UI. */
+/** Formats a MiB contract value for the GiB-facing user UI. */
 export function formatGiB(memoryMiB: number): string {
   return formatNumber(memoryMiB / 1024);
 }

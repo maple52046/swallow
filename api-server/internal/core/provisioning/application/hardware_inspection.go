@@ -17,7 +17,7 @@ import (
 const SettingAutoInspect = "autoInspect"
 
 // AutoInspectWindow bounds automatic inspection to Servers swallow first observed this recently.
-// It keeps an upgrade, or a re-enabled Integration, from powering on Machines operators left New on
+// It keeps an upgrade, or a re-enabled Integration, from powering on Machines users left New on
 // purpose long ago; an older New Server is inspected only on request (decision 053).
 const AutoInspectWindow = 24 * time.Hour
 
@@ -31,7 +31,7 @@ func AutoInspectEnabled(integration *sitedomain.Integration) bool {
 type InspectionRequest struct {
 	ServerID string
 	Origin   provisioningdomain.InspectionOrigin
-	// RequestedBy is the operator, or "system" for the automatic sweep.
+	// RequestedBy is the user, or "system" for the automatic sweep.
 	RequestedBy string
 	RequestID   string
 }
@@ -77,14 +77,14 @@ func ProvisioningStateItemOf(server *serverdomain.Server) ProvisioningStateItem 
 }
 
 // AutoInspectUseCase starts hardware inspection for Servers that network-boot enrollment just
-// brought into a provisioner (decision 053), so an operator no longer presses Commission in the
+// brought into a provisioner (decision 053), so a user no longer presses Commission in the
 // provisioner's UI.
 //
 // It is a policy sweep beside the reconciler, which stays a read-only projection. It is
 // deliberately conservative: only enabled provisioners whose autoInspect setting is not off, only
 // present, unlocked Servers in `new` first observed within AutoInspectWindow, and at most one
 // inspect-hardware Workflow per Server ever, so a failed or canceled inspection is left for an
-// operator instead of being retried in a loop. A Server enrolled with its OS kept is `deployed` and
+// user instead of being retried in a loop. A Server enrolled with its OS kept is `deployed` and
 // never matches.
 type AutoInspectUseCase struct {
 	integrations sitedomain.IntegrationRepository

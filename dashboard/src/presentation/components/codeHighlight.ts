@@ -15,7 +15,7 @@ highlighter.registerLanguage('bash', bash)
 
 /**
  * Returns `code` as highlight.js HTML. highlight.js escapes the source text, so the result is safe
- * to inject even for operator-supplied input; it contains only `<span class="hljs-…">` markup.
+ * to inject even for user-supplied input; it contains only `<span class="hljs-…">` markup.
  */
 export function highlightCode(code: string, language: CodeLanguage): string {
   return highlighter.highlight(code, { language, ignoreIllegals: true }).value

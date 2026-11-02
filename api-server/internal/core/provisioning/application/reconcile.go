@@ -32,7 +32,7 @@ type ReconcileReport struct {
 //
 // Conflicts are reported rather than resolved. Guessing which existing server a machine
 // belongs to risks merging two distinct servers, which cannot be undone; leaving the
-// machine unprojected is recoverable by an operator.
+// machine unprojected is recoverable by a user.
 type Conflict struct {
 	ProviderMachineID  string   `json:"providerMachineId"`
 	Hostname           string   `json:"hostname"`
@@ -50,7 +50,7 @@ type ReconcileUseCase struct {
 	servers      serverdomain.ServerRepository
 	providers    provisioningdomain.ProviderFactory
 	// metadata records supplies swallow-owned OS image display names so the mirrored deployed-image
-	// name reflects an operator's custom rename, not just the provider catalog title.
+	// name reflects a user's custom rename, not just the provider catalog title.
 	metadataRecords provisioningdomain.OSImageMetadataRepository
 }
 
@@ -329,7 +329,7 @@ func (uc *ReconcileUseCase) project(
 }
 
 // relinkConflict decides whether a single hardware match may be re-pointed at this
-// machine, or whether the situation needs an operator.
+// machine, or whether the situation needs a user.
 //
 // Re-enrollment inside one provisioner is normal and always safe to relink. Across
 // provisioners it is only safe when the other one has stopped reporting the machine;
@@ -573,7 +573,7 @@ func primaryArch(architecture string) string {
 }
 
 // clearStaleOSState drops the swallow-owned facts that describe an OS installation the machine no
-// longer has: a finished deployment record and an operator-set Server Default User.
+// longer has: a finished deployment record and a user-set Server Default User.
 func (uc *ReconcileUseCase) clearStaleOSState(
 	ctx context.Context,
 	server *serverdomain.Server,
@@ -585,7 +585,7 @@ func (uc *ReconcileUseCase) clearStaleOSState(
 	return uc.clearDefaultUserWithoutOS(ctx, server, machine)
 }
 
-// clearDefaultUserWithoutOS clears an operator-set Server Default User (decision 039) once the
+// clearDefaultUserWithoutOS clears a user-set Server Default User (decision 039) once the
 // machine is observed with no OS — `ready` (released) or `allocated` (reserved, nothing running).
 // The account it names belonged to the previous installation, whether that was released through
 // swallow or directly in the provisioner; keeping it would make automation log in to the next OS as
@@ -619,7 +619,7 @@ func (uc *ReconcileUseCase) clearDefaultUserWithoutOS(
 // without the release-os step that normally clears it, and it otherwise paints a stale
 // "Deployed"/"Failed" badge on an available machine and confuses recovery. Reconcile clears
 // it so the Server returns to a clean, deployable state without any manual data fix. It is a
-// no-op for an active deployment (deploying/verifying) or an operator-pending one
+// no-op for an active deployment (deploying/verifying) or a user-pending one
 // (requires_attention), so it never races an in-flight Operation.
 func (uc *ReconcileUseCase) clearStaleDeployment(
 	ctx context.Context,

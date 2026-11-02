@@ -85,7 +85,7 @@ export const DOCKER_HUB_REGISTRY = 'docker.io'
 const DOCKER_HUB_ALIASES = new Set(['docker.io', 'index.docker.io', 'registry-1.docker.io'])
 
 /**
- * Further names operators type for Docker Hub when saving a credential. No image reference uses
+ * Further names users type for Docker Hub when saving a credential. No image reference uses
  * them, so api-server folds them into `docker.io` only when it stores a credential.
  */
 const DOCKER_HUB_CREDENTIAL_NAMES = new Set(['hub.docker.com', 'registry.hub.docker.com', 'hub.docker.io', 'index.docker.io/v1'])
@@ -358,7 +358,7 @@ export function parseVolumeLines(text: string): ParsedLines<VolumeMapping> {
  *
  * `installed` qualifies, and so does a re-apply in progress or one that failed (`pending`, `failed`,
  * `uninstalling`) as long as an earlier apply succeeded (`lastAppliedAt` set) — otherwise the tab
- * would vanish while the operator enables the Docker Engine API from it. A first install that has
+ * would vanish while the user enables the Docker Engine API from it. A first install that has
  * not succeeded yet, and an `absent` record, do not qualify.
  */
 export function hasSwallowInstalledDocker<T extends { state: string; lastAppliedAt: string | null }>(

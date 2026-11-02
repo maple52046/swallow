@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// WorkflowStatus is the operator-visible state of a durable multi-step workflow.
+// WorkflowStatus is the user-visible state of a durable multi-step workflow.
 type WorkflowStatus string
 
 const (
@@ -66,7 +66,7 @@ type ResourceReference struct {
 	ID   string `json:"id" bson:"id"`
 }
 
-// NormalizedError is the stable diagnostic shown to operators. Raw provider details may
+// NormalizedError is the stable diagnostic shown to users. Raw provider details may
 // be attached separately and are never used to infer workflow policy.
 type NormalizedError struct {
 	Code      string `json:"code" bson:"code"`
@@ -126,7 +126,7 @@ type Task struct {
 	// widens this — typically a compensation/cleanup Task that must run even when the work it
 	// follows was skipped because an earlier Task failed — by listing the extra permitted
 	// outcomes (for example "skipped"). A retryable dependency failure is never treated as
-	// settled, so a dependent still waits through operator retries rather than skipping past a
+	// settled, so a dependent still waits through user retries rather than skipping past a
 	// failure that may yet succeed.
 	ContinueOn        []TaskStatus                `json:"continueOn,omitempty" bson:"continueOn,omitempty"`
 	Targets           []ResourceReference         `json:"targets" bson:"targets"`

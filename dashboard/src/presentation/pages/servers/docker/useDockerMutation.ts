@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react'
 import { failureOf, failureText } from '@/presentation/components/failure'
 import { useToast } from '@/presentation/components/toast/toastContext'
 
-/** Operator-facing outcome messages for one Docker write. */
+/** User-facing outcome messages for one Docker write. */
 export interface DockerMutationMessages {
   success: string
   failure: string

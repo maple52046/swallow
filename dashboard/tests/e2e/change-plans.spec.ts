@@ -1,7 +1,7 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// Operator journeys for Change Plans (decision 076). Every request is served by deterministic
+// User journeys for Change Plans (decision 076). Every request is served by deterministic
 // fixtures: one plan to decide, one with a blocker, and one already applied.
 
 test.beforeEach(async ({ page }) => {

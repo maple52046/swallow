@@ -19,7 +19,7 @@ export function bootMediaTargetLabel(method: BootMediaMethod | string | null | u
 }
 
 /**
- * Operator wording for a libvirt probe result. The domain value stays the API's `supported` /
+ * User wording for a libvirt probe result. The domain value stays the API's `supported` /
  * `unsupported` / `unreachable` / `no_hypervisor`; an unknown future value reads as not supported.
  */
 export function libvirtSupportLabel(support: LibvirtSupport | string): string {
@@ -46,7 +46,7 @@ export function libvirtSupportStatus(support: LibvirtSupport | string): string {
 }
 
 /**
- * Operator wording for a Redfish probe result (glossary BMC). The domain value stays the API's
+ * User wording for a Redfish probe result (glossary BMC). The domain value stays the API's
  * `supported` / `unsupported` / `unreachable` / `no_bmc`; an unknown future value reads as not
  * supported rather than failing open.
  */

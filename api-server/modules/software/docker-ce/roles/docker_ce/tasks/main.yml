@@ -142,7 +142,7 @@
     enabled: true
     state: started
 
-# The Server's default user is the account operators use on this host, so granting it the docker
+# The Server's default user is the account users use on this host, so granting it the docker
 # group lets them run Docker without sudo. append keeps its other groups; the membership applies
 # from the account's next login. Removal leaves the membership alone (the group may outlive the
 # packages, and the account is not swallow's to edit beyond this grant).

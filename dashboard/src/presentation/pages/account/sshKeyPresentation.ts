@@ -32,7 +32,7 @@ export function realizationMessage(entry: SSHKeyRealization): string | undefined
   return findCondition(entry.conditions, ConditionTypes.realized)?.message || undefined
 }
 
-/** Operator-facing label for a realization state. */
+/** User-facing label for a realization state. */
 export function syncStateLabel(state: KeyRealizationState): string {
   switch (state) {
     case 'synced':
@@ -79,7 +79,7 @@ export function worstSyncState(key: SSHKey): KeyRealizationState | undefined {
 
 /**
  * Whether a key still waits for a provisioner. It is the signal for following that one key:
- * `pending` is the only state the backend's SSH Key controller advances without operator action,
+ * `pending` is the only state the backend's SSH Key controller advances without user action,
  * so the key is re-read while it is present and no longer once every entry has settled.
  */
 export function isSyncPending(key: SSHKey): boolean {

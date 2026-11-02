@@ -7,7 +7,7 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { serverActivityPath } from './serverActivitySections'
 import type { ServerReleaseActivity } from './useServerReleaseActivity'
 
-/** Why lifecycle controls are disabled, shown in every variant so the operator need not guess. */
+/** Why lifecycle controls are disabled, shown in every variant so the user need not guess. */
 const STATE_LOCK_NOTE =
   'Swallow cannot change the state of a Server the provider is releasing: Release, Recover, Lock, and Deploy OS stay unavailable until the provider returns it to Ready or reports a failure.'
 
@@ -30,7 +30,7 @@ function attentionMessage(operation: Operation): string | undefined {
 
 /**
  * Explains a Server that shows Releasing on its detail page and links to the record of that work,
- * which the Server projection does not reference directly. Without it the operator sees a
+ * which the Server projection does not reference directly. Without it the user sees a
  * Releasing badge, disabled lifecycle actions, and no hint of where the release is tracked.
  *
  * - A Workflow following the release (info): links to it and to Activity → Related Operations.
@@ -130,7 +130,7 @@ export function ReleaseInProgressAlert({ serverId, activity }: ReleaseInProgress
  * The layout every variant shares: the variant's explanation, the state-lock note, then its links
  * in a wrapping row so two links fit a narrow viewport. The banner is a polite `status` region
  * because the polling hook can change its variant (for example to "Release needs attention")
- * while the operator is on the page.
+ * while the user is on the page.
  */
 function ReleaseAlertFrame({
   status,

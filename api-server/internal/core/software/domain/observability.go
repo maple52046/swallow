@@ -40,7 +40,7 @@ type PrometheusListen string
 
 const (
 	// PrometheusListenLoopback accepts only processes on the same Server (Grafana there, an
-	// operator's SSH session). It is the default.
+	// user's SSH session). It is the default.
 	PrometheusListenLoopback PrometheusListen = "loopback"
 	// PrometheusListenManagement accepts the Server's management network. The API has no
 	// authentication, so anyone who reaches the address can read every series.

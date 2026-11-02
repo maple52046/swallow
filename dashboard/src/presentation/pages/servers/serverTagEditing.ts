@@ -6,14 +6,14 @@ import type { ServerTagOption } from "@/domain/provisioning/types";
  * They are separated from the React component so the diff logic — which is what actually decides
  * the add/remove sent to the backend — can be reasoned about and reused without a DOM. swallow owns
  * every manual tag and the backend writes the edit into each Server's spec (decision 071); this
- * module only computes the operator's intent from the checkbox states.
+ * module only computes the user's intent from the checkbox states.
  */
 
 /** How many of the edited Servers currently carry a tag: all, some (mixed), or none. */
 export type TagCoverage = "all" | "some" | "none";
 
 /**
- * The operator's decision for a tag, overriding its current coverage:
+ * The user's decision for a tag, overriding its current coverage:
  * - `"add"` — apply to every edited Server.
  * - `"remove"` — remove from every edited Server.
  * - `undefined` — leave each Server as it is (no change), which is the only way a mixed tag stays mixed.
@@ -108,10 +108,10 @@ export function tagCheckboxState(
 }
 
 /**
- * The next decision when the operator clicks a tag's checkbox, like an email label.
+ * The next decision when the user clicks a tag's checkbox, like an email label.
  *
  * A mixed (some) tag cycles indeterminate → add-to-all → remove-from-all → back to mixed, so the
- * operator can either apply, clear, or leave it as it is. An all/none tag is a plain toggle between
+ * user can either apply, clear, or leave it as it is. An all/none tag is a plain toggle between
  * its original state (no change) and the opposite definite decision.
  */
 export function cycleTagDecision(
@@ -128,7 +128,7 @@ export function cycleTagDecision(
 }
 
 /**
- * Computes the backend diff from the rows and the operator's decisions, dropping no-ops so the
+ * Computes the backend diff from the rows and the user's decisions, dropping no-ops so the
  * request only carries real changes: an `add` for a tag already on every Server, or a `remove` for a
  * tag on no Server, is omitted. Non-editable tags never carry a decision, so they never appear here.
  */

@@ -32,7 +32,7 @@ export function softwareSettingsPath(kind: SoftwareKind): string {
 /**
  * Presentation helpers shared by the Software page and its dialogs so the assignment state and
  * software-kind labels are rendered identically everywhere (DRY). These map domain values to
- * operator-facing text and a badge palette; the palette only reinforces the text, which always
+ * user-facing text and a badge palette; the palette only reinforces the text, which always
  * carries the meaning so state is never conveyed by colour alone.
  */
 
@@ -73,7 +73,7 @@ export function assignmentStatePalette(state: SoftwareAssignmentState): string {
   }
 }
 
-/** Operator-facing label for an assignment state. */
+/** User-facing label for an assignment state. */
 export function assignmentStateLabel(state: SoftwareAssignmentState): string {
   switch (state) {
     case 'installed':

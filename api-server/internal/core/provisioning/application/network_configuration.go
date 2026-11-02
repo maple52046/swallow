@@ -15,7 +15,7 @@ import (
 const networkInspectionWorkers = 4
 
 // NetworkSuggestion is swallow's non-authoritative deployment default derived
-// from live provider state. Empty identifiers mean operator input is required.
+// from live provider state. Empty identifiers mean user input is required.
 type NetworkSuggestion struct {
 	Mode           provisioningdomain.DeploymentNetworkMode
 	InterfaceID    string

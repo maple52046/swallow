@@ -370,7 +370,7 @@ function activeFilterCount(query: OSImageInventoryQuery): number {
   return query.os.length + query.architectures.length + query.tags.length + query.integrations.length + (query.target === 'any' ? 0 : 1) + (query.readiness === 'any' ? 0 : 1)
 }
 
-/** Deployment-focused OS Image catalog with operator-owned discovery metadata. */
+/** Deployment-focused OS Image catalog with user-owned discovery metadata. */
 export function OSImageCatalogPage() {
   const { provisioning, servers } = useApp()
   const { sites, siteId, scopedHref } = useSiteScope()

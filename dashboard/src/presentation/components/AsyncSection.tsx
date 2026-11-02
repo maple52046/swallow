@@ -9,7 +9,7 @@ interface AsyncSectionProps<T> {
   state: AsyncData<T>
   /** Headline of the eligibility notice, naming the explorer that is unavailable. */
   unavailableTitle: string
-  /** Sentence appended to the API's reason, telling the operator when the view becomes available. */
+  /** Sentence appended to the API's reason, telling the user when the view becomes available. */
   unavailableHint: string
   /** Skeleton rows while loading. */
   loadingRows?: number

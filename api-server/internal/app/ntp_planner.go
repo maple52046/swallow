@@ -23,7 +23,7 @@ const (
 	// Site needs no playbookMappings entry.
 	ntpPlaybook = "configure-ntp"
 	// ntpServersVar carries the installation's NTP server, frozen at acceptance, as a trusted
-	// variable the operator cannot forge. It is a list so the playbooks stay ready for more than one
+	// variable the user cannot forge. It is a list so the playbooks stay ready for more than one
 	// server without a contract change.
 	ntpServersVar = "swallow_ntp_servers"
 	// timeSyncCheckModeVar is enforce or warn; timeSyncMaxOffsetVar is the largest offset in seconds

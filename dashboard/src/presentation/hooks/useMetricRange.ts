@@ -14,7 +14,7 @@ import { failureOf, type DisplayedFailure } from '@/presentation/components/fail
  *
  * - `idle`: no scope chosen yet (for example no Servers selected); nothing was requested.
  * - `loading`: a request for the current scope and window is in flight.
- * - `unavailable`: the Site has no reachable metrics backend; the view asks the operator to
+ * - `unavailable`: the Site has no reachable metrics backend; the view asks the user to
  *   register a metrics Integration rather than implying the Servers are down.
  * - `error`: any other failure (unknown grouping, rejected request), with the backend message and,
  *   when the API answered, its request ID; a scope refused locally has no request ID.

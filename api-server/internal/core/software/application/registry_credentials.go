@@ -96,7 +96,7 @@ func (s *RegistryCredentialService) Delete(ctx context.Context, id string) error
 
 // requireCredentialSecret returns the trimmed username after checking both fields are present. The
 // password is used as given: registry tokens can legitimately contain surrounding characters an
-// operator pasted on purpose, and trimming would silently store a different secret.
+// user pasted on purpose, and trimming would silently store a different secret.
 func requireCredentialSecret(username, password string) (string, error) {
 	trimmed := strings.TrimSpace(username)
 	if trimmed == "" {

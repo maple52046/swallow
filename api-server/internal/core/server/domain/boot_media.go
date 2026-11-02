@@ -58,7 +58,7 @@ const (
 // It never holds a credential. ServiceRoot is the Redfish root URL without userinfo.
 type RedfishCapability struct {
 	Support RedfishSupport
-	// Reason explains, in operator terms, why Support is not RedfishSupported. Empty otherwise.
+	// Reason explains, in user terms, why Support is not RedfishSupported. Empty otherwise.
 	Reason          string
 	ServiceRoot     string
 	Vendor          string
@@ -101,7 +101,7 @@ const (
 // only to gate and explain Boot Media.
 type LibvirtCapability struct {
 	Support LibvirtSupport
-	// Reason explains, in operator terms, why Support is not LibvirtSupported. Empty otherwise.
+	// Reason explains, in user terms, why Support is not LibvirtSupported. Empty otherwise.
 	Reason             string
 	HypervisorServerID string
 	Account            string
@@ -135,13 +135,13 @@ type BootMediaEndpoint struct {
 type BootMediaApplier string
 
 const (
-	// BootMediaAppliedByPreflight is the operator's enable action on the Server.
+	// BootMediaAppliedByPreflight is the user's enable action on the Server.
 	BootMediaAppliedByPreflight BootMediaApplier = "preflight"
 	// BootMediaAppliedByEnsure is the ensure-boot-media Task of an OS Deployment.
 	BootMediaAppliedByEnsure BootMediaApplier = "ensure"
 )
 
-// BootMediaSetting is a Server's Boot Media setting (decision 047): the operator's
+// BootMediaSetting is a Server's Boot Media setting (decision 047): the user's
 // intent that the Server boot a chosen Boot ISO first, plus the outcome of the last apply.
 //
 // It is swallow-owned and written only through BootMediaStore; provider reconciliation preserves
@@ -160,7 +160,7 @@ type BootMediaSetting struct {
 	// BootOverride is the BootSourceOverrideEnabled mode the BMC accepted at the last apply:
 	// "Continuous" when the BMC allows it, otherwise "Once".
 	BootOverride string
-	// LastError is the operator-facing reason the most recent apply failed, cleared by a
+	// LastError is the user-facing reason the most recent apply failed, cleared by a
 	// successful one. It contains no credential.
 	LastError   string
 	LastErrorAt *time.Time
@@ -386,7 +386,7 @@ var (
 	ErrBootMediaApplying = errors.New("boot media is already being applied to this server; wait until it finishes")
 )
 
-// BootMediaError explains a failed Boot Media action in operator terms — which Server and what
+// BootMediaError explains a failed Boot Media action in user terms — which Server and what
 // the BMC said — while Unwrap keeps the sentinel for status mapping. Detail never holds a
 // credential.
 type BootMediaError struct {
@@ -395,7 +395,7 @@ type BootMediaError struct {
 	Detail string
 }
 
-// Error is the operator-facing sentence returned as error.message.
+// Error is the user-facing sentence returned as error.message.
 func (e *BootMediaError) Error() string {
 	detail := ""
 	if e.Detail != "" {
