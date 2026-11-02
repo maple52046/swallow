@@ -67,6 +67,7 @@ test('catalog identity stays available when deployment footprint loading fails',
   await expect(page.getByRole('heading', { name: 'Software', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Open Docker CE' })).toBeVisible()
   await expect(page.getByText('Deployment context is temporarily unavailable')).toBeVisible()
+  await expect(page.getByText('Request ID: req-software-list')).toBeVisible()
   await expect(page.getByText('Deployment count unavailable').first()).toBeVisible()
 })
 

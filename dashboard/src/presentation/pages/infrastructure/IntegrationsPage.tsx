@@ -6,6 +6,7 @@ import { useApp } from '@/di/AppProvider'
 import type { Integration, IntegrationKind } from '@/domain/site/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
@@ -25,7 +26,7 @@ import { ResourceDeleteDialog } from './ResourceDeleteDialog'
 
 type IntegrationsState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; integrations: Integration[] }
 
 const KIND_LABELS: Record<IntegrationKind, string> = {
@@ -71,7 +72,7 @@ export function IntegrationsPage() {
     try {
       setState({ status: 'ready', integrations: await repository.listIntegrations({ siteId }) })
     } catch (caught) {
-      setState({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not load integrations' })
+      setState({ status: 'error', ...failureOf(caught, 'Could not load integrations') })
     }
   }, [repository, siteId])
 
@@ -82,7 +83,7 @@ export function IntegrationsPage() {
         if (!cancelled) setState({ status: 'ready', integrations })
       })
       .catch((caught: Error) => {
-        if (!cancelled) setState({ status: 'error', message: caught.message })
+        if (!cancelled) setState({ status: 'error', ...failureOf(caught, 'Could not load integrations') })
       })
     return () => { cancelled = true }
   }, [repository, siteId])
@@ -151,7 +152,7 @@ export function IntegrationsPage() {
       </DataToolbar>
 
       {state.status === 'loading' && <LoadingState rows={7} />}
-      {state.status === 'error' && <ErrorState message={state.message} onRetry={() => void load()} />}
+      {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} onRetry={() => void load()} />}
       {state.status === 'ready' && filtered.length === 0 && (
         <EmptyState
           title="No integrations"

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Box, Button, Stack, Text } from '@chakra-ui/react'
 import type { ProvisionerCapabilities, Server } from '@/domain/server/types'
+import { failureOf, failureText } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useApp } from '@/di/AppProvider'
 import { useToast } from '@/presentation/components/toast/toastContext'
@@ -57,7 +58,7 @@ export function InspectionRequiredAlert({
       showToast({
         tone: 'error',
         title: 'Inspection could not start',
-        description: error instanceof Error ? error.message : 'Try again in a moment.',
+        description: failureText(failureOf(error, 'Try again in a moment.')),
       })
     } finally {
       setBusy(false)

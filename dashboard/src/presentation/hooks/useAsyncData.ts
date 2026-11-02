@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 
 /**
  * Loading/error/ready states for an on-demand async read, plus the "unavailable" outcome a live
@@ -12,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 export type AsyncData<T> =
   | { status: 'loading' }
   | { status: 'unavailable'; message: string }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; data: T }
 
 /** API error codes that mean "the explorer is not available for this Platform", not a fault. */
@@ -73,12 +74,12 @@ export function useAsyncData<T>(
       .catch((error) => {
         if (cancelled) return
         const status = httpStatusOf(error)
-        const message = error instanceof Error ? error.message : 'Request failed.'
+        const failure = failureOf(error, 'Request failed.')
         if (status !== null && unavailableStatuses.current.includes(status)) {
-          setState({ status: 'unavailable', message })
+          setState({ status: 'unavailable', message: failure.message })
           return
         }
-        setState({ status: 'error', message })
+        setState({ status: 'error', ...failure })
       })
     return () => {
       cancelled = true

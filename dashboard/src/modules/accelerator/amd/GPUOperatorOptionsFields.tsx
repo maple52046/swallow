@@ -1,6 +1,7 @@
 import { Button, Field, Stack, Switch, Text } from '@chakra-ui/react'
 import { GPU_ALLOCATION_MODE_LABELS, GPU_RESOURCE_NAMING_LABELS } from '@/domain/platform/gpuOperator'
 import type { GPUAllocationMode, GPUResourceNaming } from '@/domain/platform/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Select } from '@/presentation/components/ui/select'
@@ -84,7 +85,7 @@ export function GPUOperatorOptionsFields({
         <>
           {releases.status === 'error' && (
             <Alert status="error" title="GPU Operator releases are unavailable">
-              {releases.message}
+              <FailureMessage failure={releases} />
               <Button size="sm" variant="outline" onClick={onRetryReleases}>Retry</Button>
             </Alert>
           )}

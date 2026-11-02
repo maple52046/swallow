@@ -3,6 +3,8 @@ import { Button, Field, HStack, Input, Stack, Text, Textarea } from '@chakra-ui/
 import { Download } from 'lucide-react'
 import { useApp } from '@/di/AppProvider'
 import { CopyButton } from '@/presentation/components/CopyButton'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -36,7 +38,7 @@ export function GenerateSSHKeyDialog({ onClose, onGenerated }: GenerateSSHKeyDia
   const { sshKeys } = useApp()
   const [name, setName] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [secret, setSecret] = useState<GeneratedSecret | null>(null)
   const [saved, setSaved] = useState(false)
 
@@ -54,12 +56,12 @@ export function GenerateSSHKeyDialog({ onClose, onGenerated }: GenerateSSHKeyDia
   const generate = async () => {
     if (submitting || !name.trim()) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const result = await sshKeys.generateAccessKey(name.trim())
       setSecret({ name: result.key.spec.name, privateKey: result.privateKey })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The key pair could not be generated.')
+      setError(failureOf(caught, 'The key pair could not be generated.'))
     } finally {
       setSubmitting(false)
     }
@@ -144,7 +146,7 @@ export function GenerateSSHKeyDialog({ onClose, onGenerated }: GenerateSSHKeyDia
       <Stack gap="4">
         {error && (
           <Alert status="error" title="Key pair could not be generated">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Field.Root required>

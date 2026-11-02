@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Box, Button, Card, chakra, Field, Flex, Heading, HStack, Input, Stack, Text } from '@chakra-ui/react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { SwallowLogo } from '@/presentation/components/SwallowLogo'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useAuth } from '@/presentation/contexts/AuthContext'
@@ -26,7 +28,7 @@ export function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const state = location.state as LoginLocationState | null
   const from = state?.from
   const returnPath = from && from.startsWith('/') && !from.startsWith('//') ? from : '/'
@@ -46,7 +48,7 @@ export function LoginPage() {
       await login(username.trim(), password)
       navigate(returnPath, { replace: true })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Sign in failed')
+      setError(failureOf(caught, 'Sign in failed'))
     } finally {
       setSubmitting(false)
     }
@@ -110,7 +112,7 @@ export function LoginPage() {
               <Heading size="2xl" fontWeight="semibold">Sign in</Heading>
               <Text color="fg.muted">Continue to the operator console.</Text>
             </Stack>
-            {error && <Alert status="error" title={error} />}
+            {error && <Alert status="error" title={<FailureMessage failure={error} />} />}
             {!error && sessionEnded && (
               <Alert status="info" title="Your session ended">Sign in again to continue where you left off.</Alert>
             )}

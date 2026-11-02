@@ -10,6 +10,8 @@ import {
   type CreateDockerContainerInput,
   type DockerRestartPolicy,
 } from '@/domain/software/docker'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -59,7 +61,7 @@ export function CreateContainerDialog({ serverId, onClose, onCreated }: CreateCo
   const [restartPolicy, setRestartPolicy] = useState<DockerRestartPolicy>('no')
   const [start, setStart] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   // Set once a create succeeded but the start failed: the container exists, so closing must refresh.
   const [createdButNotStarted, setCreatedButNotStarted] = useState(false)
 
@@ -92,7 +94,7 @@ export function CreateContainerDialog({ serverId, onClose, onCreated }: CreateCo
       start,
     }
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const created = await dockerHosts.createContainer(serverId, input)
       showToast({
@@ -102,9 +104,9 @@ export function CreateContainerDialog({ serverId, onClose, onCreated }: CreateCo
       })
       onCreated()
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'The container could not be created.'
-      if (message.includes('created but could not be started')) setCreatedButNotStarted(true)
-      setError(message)
+      const failure = failureOf(caught, 'The container could not be created.')
+      if (failure.message.includes('created but could not be started')) setCreatedButNotStarted(true)
+      setError(failure)
     } finally {
       setSubmitting(false)
     }
@@ -136,7 +138,7 @@ export function CreateContainerDialog({ serverId, onClose, onCreated }: CreateCo
       <Stack gap="4">
         {error && (
           <Alert status="error" title="The container could not be created">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <SimpleGrid columns={{ base: 1, md: 2 }} gap="4">

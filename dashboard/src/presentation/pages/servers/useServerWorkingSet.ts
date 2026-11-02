@@ -10,19 +10,21 @@ import type {
   ServerStreamEvent,
 } from '@/application/ports/ServerEventStream'
 import type { Server } from '@/domain/server/types'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 
 /**
  * Discriminated state for the Servers working set.
  *
  * `loading` is only a load with no rows for the current query signature, and `error` is only a
  * current-signature load that failed. Once rows exist, background refresh failures keep the
- * last-good data and surface through `refreshError`; `refreshedAt` remains the last successful
- * complete read rather than advancing for individual SSE patches.
+ * last-good data and surface through `refreshError` (one line that includes the request ID, if
+ * any); `refreshedAt` remains the last successful complete read rather than advancing for
+ * individual SSE patches. `error` carries the failed read's message and request ID.
  */
 export type WorkingSetState =
   | { status: 'loading' }
   | { status: 'ready'; data: ServerWorkingSet; refreshedAt: string; refreshError?: string }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
 
 interface StoredWorkingSetState {
   queryKey: string
@@ -83,14 +85,15 @@ export function useServerWorkingSet(query: WorkingSetQuery): {
       })
       .catch((err: Error) => {
         if (cancelled) return
+        const failure = failureOf(err, 'Servers could not be loaded.')
         setStoredState((current) => {
           if (current.queryKey === queryKey && current.value.status === 'ready') {
             return {
               queryKey,
-              value: { ...current.value, refreshError: err.message },
+              value: { ...current.value, refreshError: failureText(failure) },
             }
           }
-          return { queryKey, value: { status: 'error', message: err.message } }
+          return { queryKey, value: { status: 'error', ...failure } }
         })
       })
       .finally(() => {

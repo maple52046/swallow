@@ -1,4 +1,5 @@
 import type { MonitoringRepository } from '@/application/ports/MonitoringRepository'
+import type { RequestFailure } from '@/application/ports/RequestFailure'
 import type { MetricName, ServerMetrics, ServerMetricsResult } from '@/domain/monitoring/types'
 
 const MAX_SERVER_IDS = 200
@@ -8,6 +9,8 @@ const MAX_CONCURRENCY = 2
 export interface FleetMetricsError {
   serverIds: string[]
   message: string
+  /** The request ID of the failed batch request, when the API answered with one. */
+  requestId?: string
 }
 
 /** Aggregated metrics preserve input order and describe any partial provider failure. */
@@ -43,7 +46,12 @@ export async function loadFleetMetrics(
       try {
         successes.push(await repository.getServerMetrics(batch, metrics))
       } catch (error) {
-        errors.push({ serverIds: batch, message: error instanceof Error ? error.message : 'Metrics provider unavailable' })
+        errors.push({
+          serverIds: batch,
+          message: error instanceof Error ? error.message : 'Metrics provider unavailable',
+          // Structural read through the port: the adapter's error class is not visible here.
+          requestId: error instanceof Error ? (error as Partial<RequestFailure>).requestId : undefined,
+        })
       }
     }
   }

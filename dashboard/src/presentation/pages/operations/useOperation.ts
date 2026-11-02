@@ -5,6 +5,7 @@ import {
   type Operation,
   type OperationStatus,
 } from "@/domain/operation/types";
+import { failureOf, failureText, type DisplayedFailure } from "@/presentation/components/failure";
 
 /**
  * How often a running operation is re-read. An HA platform deployment runs for minutes
@@ -21,15 +22,20 @@ export interface OperationDetailData {
    * Set when a background poll failed while the last-good operation is still shown. The view
    * keeps the previous data and keeps polling, so this is a non-blocking "live updates
    * interrupted, retrying" notice rather than a page-replacing error. Cleared on the next
-   * successful poll.
+   * successful poll. One line of text that already includes the request ID, if any.
    */
   refreshError?: string;
 }
 
+/**
+ * The detail view of one Operation read. `not-found` is an unknown id; `error` is a failed first
+ * read, with its message and request ID. A later poll failure stays `ready` and sets
+ * `refreshError` instead.
+ */
 export type OperationDetailState =
   | { status: "loading" }
   | { status: "not-found" }
-  | { status: "error"; message: string }
+  | ({ status: "error" } & DisplayedFailure)
   | { status: "ready"; data: OperationDetailData };
 
 /**
@@ -96,16 +102,17 @@ export function useOperation(id: string | undefined): OperationDetailState {
           // network hiccup) must not collapse the live view into an error screen that only a manual
           // refresh escapes. Keep the last-good data, surface a non-blocking notice, and keep
           // polling so the page recovers on its own. Only a failed first load fails hard.
+          const failure = failureOf(err, "The Operation could not be loaded.");
           if (loadedIdRef.current === id) {
             setState((current) =>
               current.status === "ready"
-                ? { status: "ready", data: { ...current.data, refreshError: err.message } }
+                ? { status: "ready", data: { ...current.data, refreshError: failureText(failure) } }
                 : current,
             );
             scheduleNext();
             return;
           }
-          setState({ status: "error", message: err.message });
+          setState({ status: "error", ...failure });
         });
     };
 

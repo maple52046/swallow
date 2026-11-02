@@ -3,6 +3,8 @@ import { Box, Button, Field, Input, InputGroup, Stack, Text } from '@chakra-ui/r
 import { useApp } from '@/di/AppProvider'
 import { CodeBlock } from '@/presentation/components/CodeBlock'
 import { CopyButton } from '@/presentation/components/CopyButton'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -51,7 +53,7 @@ export function CreateApiKeyDialog({ onClose, onCreated }: CreateApiKeyDialogPro
   const [name, setName] = useState('')
   const [expiry, setExpiry] = useState<ApiKeyExpiryChoice>(DEFAULT_API_KEY_EXPIRY)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [created, setCreated] = useState<CreatedSecret | null>(null)
   const [saved, setSaved] = useState(false)
 
@@ -69,12 +71,12 @@ export function CreateApiKeyDialog({ onClose, onCreated }: CreateApiKeyDialogPro
   const create = async () => {
     if (submitting || !name.trim()) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const result = await apiKeys.createApiKey({ name: name.trim(), expiresAt: expiresAtFor(expiry, Date.now()) })
       setCreated({ name: result.key.name, secret: result.secret })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The API key could not be created.')
+      setError(failureOf(caught, 'The API key could not be created.'))
     } finally {
       setSubmitting(false)
     }
@@ -142,7 +144,7 @@ export function CreateApiKeyDialog({ onClose, onCreated }: CreateApiKeyDialogPro
       <Stack gap="4">
         {error && (
           <Alert status="error" title="API key could not be created">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Field.Root required>

@@ -57,7 +57,11 @@ export function ServerSoftwareInstallDialog({ server, onClose, onLaunched }: Ser
         </Button>
       }
     >
-      <ErrorState message={workspace.message} onRetry={workspace.reload} />
+      <ErrorState
+        message={workspace.message}
+        requestId={workspace.status === 'error' ? workspace.requestId : undefined}
+        onRetry={workspace.reload}
+      />
     </Modal>
   )
 }

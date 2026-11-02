@@ -10,6 +10,7 @@ import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
@@ -36,7 +37,7 @@ interface ReadyBootISOsState {
 
 type BootISOsState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | ReadyBootISOsState
 
 type LoadMode = 'replace' | 'refresh'
@@ -123,11 +124,11 @@ export function BootISOsPage() {
       })
     } catch (error) {
       if (generation !== generationRef.current) return
-      const message = error instanceof Error ? error.message : 'Could not load Boot ISOs.'
+      const failure = failureOf(error, 'Could not load Boot ISOs.')
       setState((current) =>
         mode === 'refresh' && current.status === 'ready'
-          ? { ...current, refreshing: false, refreshError: message }
-          : { status: 'error', message },
+          ? { ...current, refreshing: false, refreshError: failureText(failure) }
+          : { status: 'error', ...failure },
       )
     }
   }, [provisioning, siteId, siteRepository])
@@ -148,7 +149,7 @@ export function BootISOsPage() {
       setDeleting(null)
       await load('refresh')
     } catch (error) {
-      showToast({ tone: 'error', title: 'Could not delete the Boot ISO', description: error instanceof Error ? error.message : 'Unknown error' })
+      showToast({ tone: 'error', title: 'Could not delete the Boot ISO', description: failureText(failureOf(error, 'Unknown error')) })
     } finally {
       setDeleteBusy(false)
     }
@@ -165,10 +166,11 @@ export function BootISOsPage() {
       setRebuilding(null)
       await load('refresh')
     } catch (error) {
+      const failure = failureOf(error, 'Unknown error')
       showToast({
         tone: 'error',
         title: 'Could not rebuild the Boot ISO',
-        description: `${error instanceof Error ? error.message : 'Unknown error'} The previous ISO is still served.`,
+        description: failureText({ ...failure, message: `${failure.message} The previous ISO is still served.` }),
       })
     } finally {
       setRebuildBusy(false)
@@ -250,7 +252,7 @@ export function BootISOsPage() {
           )}
 
           {state.status === 'loading' && <LoadingState rows={3} />}
-          {state.status === 'error' && <ErrorState message={state.message} onRetry={() => void load('replace')} />}
+          {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} onRetry={() => void load('replace')} />}
           {ready && ready.catalog.items.length === 0 && (
             <div className="sw-boot-iso-empty">
               <EmptyState

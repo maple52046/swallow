@@ -8,6 +8,8 @@ import { AsyncSection } from '@/presentation/components/AsyncSection'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { SectionSurface } from '@/presentation/components/OperatorPrimitives'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -138,13 +140,13 @@ function CreateVolumeDialog({ serverId, onClose, onCreated }: { serverId: string
   const [name, setName] = useState('')
   const [driver, setDriver] = useState('local')
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const nameInvalid = name.trim() !== '' && !DOCKER_OBJECT_NAME_PATTERN.test(name.trim())
 
   const submit = async () => {
     if (nameInvalid || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const volume = await dockerHosts.createVolume(serverId, {
         ...(name.trim() ? { name: name.trim() } : {}),
@@ -153,7 +155,7 @@ function CreateVolumeDialog({ serverId, onClose, onCreated }: { serverId: string
       showToast({ tone: 'success', title: 'Volume created', description: volume.name })
       onCreated()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The volume could not be created.')
+      setError(failureOf(caught, 'The volume could not be created.'))
     } finally {
       setSubmitting(false)
     }
@@ -184,7 +186,7 @@ function CreateVolumeDialog({ serverId, onClose, onCreated }: { serverId: string
       <Stack gap="4">
         {error && (
           <Alert status="error" title="The volume could not be created">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Field.Root invalid={nameInvalid}>

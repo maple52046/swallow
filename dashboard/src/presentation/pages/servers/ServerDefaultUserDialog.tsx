@@ -5,6 +5,8 @@ import { serverDisplayName, type Server } from '@/domain/server/types'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { defaultUserSourceLabel } from '@/presentation/components/serverSummary/defaultUserLabels'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { useAsyncData } from '@/presentation/hooks/useAsyncData'
@@ -36,7 +38,7 @@ export function ServerDefaultUserDialog({ server, onClose, onChanged }: ServerDe
   const [user, setUser] = useState(current?.user ?? '')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState<'save' | 'clear' | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const deploymentKey = useAsyncData(
     async () => (await sshKeys.listSSHKeys()).find((key) => key.spec.purpose === 'deployment') ?? null,
     [sshKeys],
@@ -49,14 +51,14 @@ export function ServerDefaultUserDialog({ server, onClose, onChanged }: ServerDe
   const save = async () => {
     if (!valid || busy || locked) return
     setBusy('save')
-    setError('')
+    setError(null)
     try {
       const result = await servers.setDefaultUser(server.id, password ? { user: trimmed, password } : { user: trimmed })
       showToast(defaultUserSavedToast(result))
       onChanged()
       onClose()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The default user could not be set.')
+      setError(failureOf(caught, 'The default user could not be set.'))
     } finally {
       setBusy(null)
     }
@@ -65,14 +67,14 @@ export function ServerDefaultUserDialog({ server, onClose, onChanged }: ServerDe
   const clear = async () => {
     if (busy || locked) return
     setBusy('clear')
-    setError('')
+    setError(null)
     try {
       await servers.clearDefaultUser(server.id)
       showToast({ tone: 'success', title: 'Default user reset', description: `${name} uses its OS image's default user again.` })
       onChanged()
       onClose()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The default user could not be reset.')
+      setError(failureOf(caught, 'The default user could not be reset.'))
     } finally {
       setBusy(null)
     }
@@ -115,7 +117,7 @@ export function ServerDefaultUserDialog({ server, onClose, onChanged }: ServerDe
         )}
         {error && (
           <Alert status="error" title="The default user was not changed">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         {current && (

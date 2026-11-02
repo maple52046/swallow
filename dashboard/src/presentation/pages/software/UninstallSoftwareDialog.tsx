@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button, Stack, Text } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { SoftwareAssignment } from '@/domain/software/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { softwareKindLabel } from './softwarePresentation'
@@ -26,7 +28,7 @@ interface UninstallSoftwareDialogProps {
  */
 export function UninstallSoftwareDialog({ assignment, serverLabel, onClose, onLaunched }: UninstallSoftwareDialogProps) {
   const { software } = useApp()
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const label = softwareKindLabel(assignment.kind)
 
@@ -37,12 +39,12 @@ export function UninstallSoftwareDialog({ assignment, serverLabel, onClose, onLa
   const submit = async () => {
     if (submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const result = await software.uninstallSoftware({ kind: assignment.kind, serverIds: [assignment.serverId] })
       onLaunched(result.operationId)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The software could not be uninstalled.')
+      setError(failureOf(caught, 'The software could not be uninstalled.'))
     } finally {
       setSubmitting(false)
     }
@@ -69,7 +71,7 @@ export function UninstallSoftwareDialog({ assignment, serverLabel, onClose, onLa
       <Stack gap="4">
         {error && (
           <Alert status="error" title="The software could not be uninstalled">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Text>

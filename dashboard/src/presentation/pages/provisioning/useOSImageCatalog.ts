@@ -2,10 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadOSImageCatalog, type OSImageCatalog } from '@/application/usecases/provisioning/loadOSImageCatalog'
 import type { Integration } from '@/domain/site/types'
 import { useApp } from '@/di/AppProvider'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 
+/**
+ * The scope's OS image catalog read. `error` is a failed first read, with its message and request
+ * ID; a later refresh failure keeps `ready` and sets `refreshError`, one line that includes the
+ * request ID, if any.
+ */
 export type OSImageCatalogState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | {
       status: 'ready'
       catalog: OSImageCatalog
@@ -64,10 +70,10 @@ export function useOSImageCatalog(siteId?: string): {
       })
       .catch((caught: unknown) => {
         if (cancelled) return
-        const message = caught instanceof Error ? caught.message : 'Could not load OS images.'
+        const failure = failureOf(caught, 'Could not load OS images.')
         setStored((current) => current.scopeKey === scopeKey && current.value.status === 'ready'
-          ? { scopeKey, value: { ...current.value, refreshError: message } }
-          : { scopeKey, value: { status: 'error', message } })
+          ? { scopeKey, value: { ...current.value, refreshError: failureText(failure) } }
+          : { scopeKey, value: { status: 'error', ...failure } })
       })
       .finally(() => {
         reloadInFlight.current = false

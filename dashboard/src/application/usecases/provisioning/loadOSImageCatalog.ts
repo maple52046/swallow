@@ -1,4 +1,5 @@
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
+import type { RequestFailure } from '@/application/ports/RequestFailure'
 import type { Integration, OSImage } from '@/domain/site/types'
 
 export interface OSImageCatalogRow extends OSImage {
@@ -8,10 +9,16 @@ export interface OSImageCatalogRow extends OSImage {
   refreshedAt: string
 }
 
+/**
+ * A provisioner Integration whose live image catalog could not be read. The other Integrations'
+ * images still load, so the catalog shows this beside them instead of failing as a whole.
+ */
 export interface OSImageCatalogFailure {
   integrationId: string
   integrationName: string
   message: string
+  /** The request ID of the failed catalog read, when the API answered with one. */
+  requestId?: string
 }
 
 export interface OSImageCatalog {
@@ -51,6 +58,8 @@ export async function loadOSImageCatalog(
           integrationId: integration.id,
           integrationName: integration.name,
           message: error instanceof Error ? error.message : 'Provider unavailable.',
+          // Structural read through the port: the adapter's error class is not visible here.
+          requestId: error instanceof Error ? (error as Partial<RequestFailure>).requestId : undefined,
         })
       }
     }

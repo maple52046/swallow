@@ -188,10 +188,17 @@ export interface MetricRangeResult {
  * The adapter raises it for the contract's `provider_unavailable` so screens can tell the
  * operator to register a metrics Integration instead of implying the Servers are down. It is a
  * domain error so presentation never inspects transport error codes.
+ *
+ * `requestId` is the ID of the request the backend refused, kept so the screen can still show it;
+ * the field matches the application `RequestFailure` port structurally, since the domain cannot
+ * import it.
  */
 export class MetricsBackendUnavailableError extends Error {
-  constructor(message: string) {
+  readonly requestId?: string
+
+  constructor(message: string, requestId?: string) {
     super(message)
     this.name = 'MetricsBackendUnavailableError'
+    this.requestId = requestId
   }
 }

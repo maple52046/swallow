@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { BootMediaLiveState, Server, ServerBootMedia, ServerPowerConfiguration } from '@/domain/server/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { BootMediaPanel, type BootMediaPanelState } from '@/presentation/components/serverSummary/BootMediaPanel'
 import { PowerConfigurationPanel, type PowerConfigurationPanelState } from '@/presentation/components/serverSummary/PowerConfigurationPanel'
@@ -119,7 +121,7 @@ export function ServerSummaryTab() {
   const [savedPower, setSavedPower] = useState<ServerPowerConfiguration | null>(null)
   const [bootMediaDialog, setBootMediaDialog] = useState<ServerBootMediaDialogMode | null>(null)
   const [bootMediaBusy, setBootMediaBusy] = useState<'probe' | 'live' | null>(null)
-  const [live, setLive] = useState<{ state: BootMediaLiveState | null; error?: string } | undefined>(undefined)
+  const [live, setLive] = useState<{ state: BootMediaLiveState | null; error?: DisplayedFailure | string } | undefined>(undefined)
   const system = detail?.sections.find((section) => section.title === 'System')
   const management = detail?.sections.find((section) => section.title === 'BMC')
   const storage = detail ? findTable(detail.tables, 'Storage') : undefined
@@ -155,7 +157,7 @@ export function ServerSummaryTab() {
       }
       bootMedia.reload()
     } catch (caught) {
-      showToast({ tone: 'error', title: 'Boot Media probe failed', description: caught instanceof Error ? caught.message : undefined })
+      showToast({ tone: 'error', title: 'Boot Media probe failed', description: failureText(failureOf(caught, '')) })
     } finally {
       setBootMediaBusy(null)
     }
@@ -169,7 +171,7 @@ export function ServerSummaryTab() {
       const result = await servers.getBootMedia(server.id, { live: true })
       setLive({ state: result.live, error: result.liveError })
     } catch (caught) {
-      setLive({ state: null, error: caught instanceof Error ? caught.message : `The ${target} could not be read.` })
+      setLive({ state: null, error: failureOf(caught, `The ${target} could not be read.`) })
     } finally {
       setBootMediaBusy(null)
     }
@@ -223,7 +225,7 @@ export function ServerSummaryTab() {
       </div>
       {detailError && (
         <Alert status="warning" title="Live hardware detail unavailable">
-          {detailError}
+          <FailureMessage failure={detailError} />
         </Alert>
       )}
       <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">

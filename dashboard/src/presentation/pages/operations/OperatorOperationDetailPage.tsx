@@ -11,7 +11,7 @@ export function OperatorOperationDetailPage() {
   const state = useOperation(id)
 
   if (state.status === 'loading') return <LoadingState rows={7} />
-  if (state.status === 'error') return <ErrorState message={state.message} />
+  if (state.status === 'error') return <ErrorState message={state.message} requestId={state.requestId} />
   if (state.status === 'not-found') return <EmptyState title="Operation not found" />
   const { operation, reload, refreshError } = state.data
   return <DurableOperationDetail operation={operation} reload={reload} refreshError={refreshError} />

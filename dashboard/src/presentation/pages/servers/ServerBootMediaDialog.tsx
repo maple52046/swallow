@@ -7,6 +7,8 @@ import { serverDisplayName, type Server, type ServerBootMedia } from '@/domain/s
 import { BootMediaApplyProgress } from '@/presentation/components/serverSummary/BootMediaApplyProgress'
 import { bootMediaTargetLabel, bootOverrideLabel, shownBootMediaMethod } from '@/presentation/components/serverSummary/bootMediaLabels'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
@@ -88,7 +90,7 @@ export function ServerBootMediaDialog({ server, bootMedia, mode, onClose, onChan
   )
   const [chosenId, setChosenId] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [requestedAt, setRequestedAt] = useState<number | undefined>(undefined)
   // Set when the operator closes the dialog while a preflight runs, so its outcome becomes a toast.
   const closedWhileBusy = useRef(false)
@@ -119,7 +121,7 @@ export function ServerBootMediaDialog({ server, bootMedia, mode, onClose, onChan
   const submit = async () => {
     if (!canSubmit) return
     setBusy(true)
-    setError('')
+    setError(null)
     if (!disabling) {
       setRequestedAt(Date.now())
       onApplyStarted?.()
@@ -151,12 +153,12 @@ export function ServerBootMediaDialog({ server, bootMedia, mode, onClose, onChan
       onChanged()
       if (!closedWhileBusy.current) onClose()
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : `The ${target} could not be reached.`
+      const failure = failureOf(caught, `The ${target} could not be reached.`)
       if (closedWhileBusy.current) {
-        showToast({ tone: 'error', title: `Boot Media was not applied on ${name}`, description: message })
+        showToast({ tone: 'error', title: `Boot Media was not applied on ${name}`, description: failureText(failure) })
         onChanged()
       } else {
-        setError(message)
+        setError(failure)
       }
     } finally {
       setBusy(false)
@@ -206,7 +208,7 @@ export function ServerBootMediaDialog({ server, bootMedia, mode, onClose, onChan
         )}
         {error && (
           <Alert status="error" title={disabling ? 'Boot Media was not disabled' : 'Boot Media was not applied'}>
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         {choosing && !busy && (
@@ -309,7 +311,7 @@ function BootISOChoice({ state, value, currentId, disabled, requiresURL, bootISO
   if (state.status !== 'ready') {
     return (
       <Alert status="error" title="Boot ISOs could not be read">
-        {state.message}
+        <FailureMessage failure={state} />
       </Alert>
     )
   }

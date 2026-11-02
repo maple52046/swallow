@@ -19,6 +19,8 @@ import type {
 } from '@/domain/software/types'
 import { moduleSettingsValid } from '@/domain/module/settings'
 import { DockerApiRiskNotice } from '@/presentation/components/DockerApiRiskNotice'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { ModuleSettingsFields } from '@/presentation/components/ModuleSettings'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -99,7 +101,7 @@ export function InstallSoftwareDialog({
   const [spec, setSpec] = useState<Record<string, string>>(initialDefaults?.spec ?? {})
   const [enableApi, setEnableApi] = useState(initialDefaults?.enableApi ?? true)
   const [targetQuery, setTargetQuery] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   const entry = useMemo(() => catalog.find((item) => item.kind === kind), [catalog, kind])
@@ -142,7 +144,7 @@ export function InstallSoftwareDialog({
     setSelected(fixedServer ? { [fixedServer.id]: defaults.roles } : {})
     setSpec(defaults.spec)
     setEnableApi(defaults.enableApi)
-    setError('')
+    setError(null)
   }
 
   const softwareChoiceBlocker = (candidate: SoftwareCatalogEntry): string | null => {
@@ -198,7 +200,7 @@ export function InstallSoftwareDialog({
   const submit = async () => {
     if (!entry || !configurationValid || !runtimeReady || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       // The runtime is sent explicitly (the one installed on the targets) so a recorded value from
       // an older runtime never travels; the native method sends none.
@@ -219,7 +221,7 @@ export function InstallSoftwareDialog({
       }))
       onLaunched(result.operationId)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The software could not be installed.')
+      setError(failureOf(caught, 'The software could not be installed.'))
     } finally {
       setSubmitting(false)
     }
@@ -305,7 +307,7 @@ export function InstallSoftwareDialog({
         )}
 
         {error && (
-          <Alert status="error" title="The software could not be installed">{error}</Alert>
+          <Alert status="error" title="The software could not be installed"><FailureMessage failure={error} /></Alert>
         )}
 
         {step === 'software' && fixedServer && (
@@ -600,7 +602,7 @@ function SoftwareSpecFields({
           title="The settings form could not be loaded"
           actions={<Button size="sm" variant="outline" onClick={onRetrySchema}>Retry</Button>}
         >
-          {schemaState.message}
+          <FailureMessage failure={schemaState} />
         </Alert>
       )
     }

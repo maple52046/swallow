@@ -40,15 +40,15 @@ function isKnownMetric(name: string): name is MetricName {
 
 /**
  * Re-raises `provider_unavailable` from a metric read as the domain's
- * `MetricsBackendUnavailableError`, keeping the backend's human message. Every other failure is
- * passed through unchanged.
+ * `MetricsBackendUnavailableError`, keeping the backend's human message and request ID. Every
+ * other failure is passed through unchanged.
  */
 async function translateMetricsError<T>(request: Promise<T>): Promise<T> {
   try {
     return await request
   } catch (error) {
     if (error instanceof ApiRequestError && error.code === 'provider_unavailable') {
-      throw new MetricsBackendUnavailableError(error.message)
+      throw new MetricsBackendUnavailableError(error.message, error.requestId)
     }
     throw error
   }

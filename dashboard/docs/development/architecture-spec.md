@@ -107,7 +107,11 @@ eligibility、working-set refresh 或 presentation-independent rule 才建立 us
 - `src/infrastructure/api/contractCompatibility.ts` 以 compile-time 檢查確認每個 adapter 讀取的 contract response
   型別能指派給 adapter 回傳的 dashboard 型別。檢查失敗代表契約與 dashboard 型別不一致：修正 dashboard 型別，
   或回報 provider contract，不得放寬檢查。Adapter 全面改用產生的型別列為後續工作。
-- Shared error envelope 轉成 typed client error；UI 顯示 human message 與 request ID。
+- Shared error envelope 轉成 typed client error；UI 顯示 human message 與 request ID。adapter 的錯誤實作
+  `src/application/ports/RequestFailure.ts`；presentation 以 `src/presentation/components/failure.ts` 的 `failureOf`
+  讀出訊息與 request ID，在錯誤容器內以 `FailureMessage`（或 `ErrorState` 的 `requestId`）呈現；只收純文字的地方
+  （toast 的 description、嵌進句子的字串）用 `failureText`。來自 API payload 的錯誤欄位（例如 Task 的 `error`）
+  沒有 request ID，不經過這些 helper。
 - `401` 先嘗試換發一次，失敗才結束 session；role visibility 不取代 server authorization。
 - SSE ownership、reconnect/backoff、abort/cancellation 與 cleanup 必須集中且有註解。
 - Unknown enum 使用 least-privileged/safe presentation，不 fail open。

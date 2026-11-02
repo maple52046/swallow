@@ -7,6 +7,7 @@ import type { DeploymentNetworkMode, DeploymentTemplate } from '@/domain/provisi
 import type { Integration, OSImage } from '@/domain/site/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
@@ -27,7 +28,7 @@ import { defaultDeployTargetForImage } from './osDeploymentFlow'
 
 type TemplatesState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; templates: DeploymentTemplate[]; integrations: Integration[] }
 
 interface TemplateDraft {
@@ -76,7 +77,7 @@ export function DeploymentTemplatesPage() {
   const [draft, setDraft] = useState<TemplateDraft>(EMPTY_DRAFT)
   const [formOpen, setFormOpen] = useState(false)
   const [images, setImages] = useState<OSImage[]>([])
-  const [imageError, setImageError] = useState('')
+  const [imageError, setImageError] = useState<DisplayedFailure | null>(null)
   const [saving, setSaving] = useState(false)
   const [secretTemplate, setSecretTemplate] = useState<DeploymentTemplate | null>(null)
   const [secretValue, setSecretValue] = useState('')
@@ -92,7 +93,7 @@ export function DeploymentTemplatesPage() {
       ])
       setState({ status: 'ready', templates, integrations })
     } catch (error) {
-      setState({ status: 'error', message: error instanceof Error ? error.message : 'Could not load deployment templates.' })
+      setState({ status: 'error', ...failureOf(error, 'Could not load deployment templates.') })
     }
   }, [provisioning, siteId, siteRepository])
 
@@ -114,11 +115,11 @@ export function DeploymentTemplatesPage() {
   useEffect(() => {
     if (!formOpen || !draft.integrationId) {
       setImages([])
-      setImageError('')
+      setImageError(null)
       return
     }
     let cancelled = false
-    setImageError('')
+    setImageError(null)
     provisioning
       .listOSImages(draft.integrationId)
       .then((items) => {
@@ -136,7 +137,7 @@ export function DeploymentTemplatesPage() {
       .catch((error: Error) => {
         if (!cancelled) {
           setImages([])
-          setImageError(error.message)
+          setImageError(failureOf(error, 'OS images could not be loaded.'))
         }
       })
     return () => {
@@ -192,7 +193,7 @@ export function DeploymentTemplatesPage() {
       closeForm()
       await load()
     } catch (error) {
-      showToast({ tone: 'error', title: 'Could not save deployment template', description: error instanceof Error ? error.message : 'Unknown error' })
+      showToast({ tone: 'error', title: 'Could not save deployment template', description: failureText(failureOf(error, 'Unknown error')) })
     } finally {
       setSaving(false)
     }
@@ -205,7 +206,7 @@ export function DeploymentTemplatesPage() {
       showToast({ tone: 'success', title: 'Deployment template deleted' })
       await load()
     } catch (error) {
-      showToast({ tone: 'error', title: 'Could not delete deployment template', description: error instanceof Error ? error.message : 'Unknown error' })
+      showToast({ tone: 'error', title: 'Could not delete deployment template', description: failureText(failureOf(error, 'Unknown error')) })
     }
   }
 
@@ -219,7 +220,7 @@ export function DeploymentTemplatesPage() {
       showToast({ tone: 'success', title: 'Cloud-init replaced' })
       await load()
     } catch (error) {
-      showToast({ tone: 'error', title: 'Could not replace cloud-init', description: error instanceof Error ? error.message : 'Unknown error' })
+      showToast({ tone: 'error', title: 'Could not replace cloud-init', description: failureText(failureOf(error, 'Unknown error')) })
     } finally {
       setSecretSaving(false)
     }
@@ -231,7 +232,7 @@ export function DeploymentTemplatesPage() {
       showToast({ tone: 'success', title: 'Cloud-init removed' })
       await load()
     } catch (error) {
-      showToast({ tone: 'error', title: 'Could not remove cloud-init', description: error instanceof Error ? error.message : 'Unknown error' })
+      showToast({ tone: 'error', title: 'Could not remove cloud-init', description: failureText(failureOf(error, 'Unknown error')) })
     }
   }
 
@@ -401,7 +402,7 @@ export function DeploymentTemplatesPage() {
       </DataToolbar>
 
       {state.status === 'loading' && <LoadingState rows={6} />}
-      {state.status === 'error' && <ErrorState message={state.message} onRetry={() => void load()} />}
+      {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} onRetry={() => void load()} />}
       {state.status === 'ready' && filtered.length === 0 && (
         <EmptyState title="No deployment templates" message="Create one to reuse deployment settings." />
       )}

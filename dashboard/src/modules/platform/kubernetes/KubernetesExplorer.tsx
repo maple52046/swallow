@@ -9,6 +9,8 @@ import type {
 } from '@/domain/platform/kubernetes'
 import { useApp } from '@/di/AppProvider'
 import { EmptyState } from '@/presentation/components/EmptyState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LogViewer } from '@/presentation/components/LogViewer'
 import { MetricGrid, SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
@@ -71,7 +73,7 @@ export function KubernetesClusterTab({ platform, onOpenServer }: { platform: Pla
         showToast({ tone: 'success', title: node.unschedulable ? 'Node uncordoned' : 'Node cordoned', description: node.name })
         nodes.reload()
       } catch (error) {
-        showToast({ tone: 'error', title: 'Action failed', description: error instanceof Error ? error.message : 'Could not update the node.' })
+        showToast({ tone: 'error', title: 'Action failed', description: failureText(failureOf(error, 'Could not update the node.')) })
       }
     },
     [platforms, platform.id, showToast, nodes],
@@ -185,7 +187,7 @@ export function KubernetesNamespacesTab({ platform }: { platform: Platform }) {
       showToast({ tone: 'success', title: 'Namespace deleted', description: pendingDelete.name })
       namespaces.reload()
     } catch (error) {
-      showToast({ tone: 'error', title: 'Delete failed', description: error instanceof Error ? error.message : 'Could not delete the namespace.' })
+      showToast({ tone: 'error', title: 'Delete failed', description: failureText(failureOf(error, 'Could not delete the namespace.')) })
     } finally {
       setPendingDelete(null)
     }
@@ -277,18 +279,18 @@ function CreateNamespaceDialog({ platformId, onClose, onCreated }: { platformId:
   const { showToast } = useToast()
   const [name, setName] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
 
   const submit = async () => {
     if (!name.trim() || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await platforms.kubernetes.createNamespace(platformId, name.trim())
       showToast({ tone: 'success', title: 'Namespace created', description: name.trim() })
       onCreated()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not create the namespace.')
+      setError(failureOf(caught, 'Could not create the namespace.'))
     } finally {
       setSubmitting(false)
     }
@@ -317,7 +319,7 @@ function CreateNamespaceDialog({ platformId, onClose, onCreated }: { platformId:
     >
       {error && (
         <Alert status="error" title="Namespace could not be created">
-          {error}
+          <FailureMessage failure={error} />
         </Alert>
       )}
       <Input
@@ -357,7 +359,7 @@ export function KubernetesApplicationsTab({ platform }: { platform: Platform }) 
         }
         applications.reload()
       } catch (error) {
-        showToast({ tone: 'error', title: 'Action failed', description: error instanceof Error ? error.message : 'The action failed.' })
+        showToast({ tone: 'error', title: 'Action failed', description: failureText(failureOf(error, 'The action failed.')) })
       }
     },
     [platforms, platform.id, showToast, applications],
@@ -370,7 +372,7 @@ export function KubernetesApplicationsTab({ platform }: { platform: Platform }) 
         showToast({ tone: 'success', title: 'Scaled', description: `${app.kind}/${app.name} to ${replicas}` })
         applications.reload()
       } catch (error) {
-        showToast({ tone: 'error', title: 'Scale failed', description: error instanceof Error ? error.message : 'Could not scale.' })
+        showToast({ tone: 'error', title: 'Scale failed', description: failureText(failureOf(error, 'Could not scale.')) })
       }
     },
     [platforms, platform.id, showToast, applications],
@@ -565,19 +567,19 @@ function ApplyManifestDialog({ platformId, onClose, onApplied }: { platformId: s
   const { showToast } = useToast()
   const [manifest, setManifest] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
 
   const run = async (dryRun: boolean) => {
     if (!manifest.trim() || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const results = await platforms.kubernetes.apply(platformId, manifest, dryRun)
       const summary = results.map((result) => `${result.kind}/${result.name} ${result.action}`).join(', ')
       showToast({ tone: 'success', title: dryRun ? 'Manifest validated' : 'Manifest applied', description: summary || 'No changes.' })
       if (!dryRun) onApplied()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The manifest could not be applied.')
+      setError(failureOf(caught, 'The manifest could not be applied.'))
     } finally {
       setSubmitting(false)
     }
@@ -606,7 +608,7 @@ function ApplyManifestDialog({ platformId, onClose, onApplied }: { platformId: s
     >
       {error && (
         <Alert status="error" title="Manifest could not be applied">
-          <span className="sw-error-detail">{error}</span>
+          <span className="sw-error-detail"><FailureMessage failure={error} /></span>
         </Alert>
       )}
       <Textarea

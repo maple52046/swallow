@@ -4,6 +4,7 @@ import type { Platform } from '@/domain/platform/types'
 import type { Site } from '@/domain/site/types'
 import type { Server } from '@/domain/server/types'
 import { loadServerWorkingSet } from '@/application/usecases/servers/loadServerWorkingSet'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 
 export interface DeployableData {
   sites: Site[]
@@ -16,9 +17,10 @@ export interface DeployableData {
   platforms: Platform[]
 }
 
+/** The wizard's read of its Sites and candidate Servers; `error` carries the message and request ID. */
 export type DeployableState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; data: DeployableData }
 
 /**
@@ -78,7 +80,7 @@ export function useDeployableServers(
         setState({ status: 'ready', data: { sites: siteList, ...candidates } })
       })
       .catch((err: Error) => {
-        if (!cancelled) setState({ status: 'error', message: err.message })
+        if (!cancelled) setState({ status: 'error', ...failureOf(err, 'Deployable Servers could not be loaded.') })
       })
 
     return () => {

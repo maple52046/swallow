@@ -4,6 +4,7 @@ import { ExternalLink } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { isMetricRangeWindow, METRIC_DESCRIPTORS, type MetricRangeWindow, type MetricScope } from '@/domain/monitoring/types'
+import { failureOf, failureText } from '@/presentation/components/failure'
 import { UsageCharts } from '@/presentation/components/monitoring/UsageCharts'
 import { Select } from '@/presentation/components/ui/select'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -99,7 +100,7 @@ export function FleetUsageCharts({ selectedServerIds, onClearSelection, refreshK
       })
       .catch((error: unknown) => {
         if (cancelled) return
-        setSettledOptions({ siteKey, state: { status: 'error', message: error instanceof Error ? error.message : 'Groupings could not be listed.' } })
+        setSettledOptions({ siteKey, state: { status: 'error', message: failureText(failureOf(error, 'Groupings could not be listed.')) } })
       })
     return () => {
       cancelled = true

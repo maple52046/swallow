@@ -26,7 +26,7 @@ func monitoringAlertsCmd() *cobra.Command {
 
 	list := &cobra.Command{
 		Use:   "list",
-		Short: "List firing/resolved alerts",
+		Short: "List firing and suppressed alerts",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			site, _ := cmd.Flags().GetString("site-id")
 			server, _ := cmd.Flags().GetString("server")

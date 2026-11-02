@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button, Field, Heading, Input, Stack } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { Integration, Site } from '@/domain/site/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -53,7 +55,7 @@ export function CreateIntegrationDialog({ sites: availableSites, defaultSiteId, 
   const [credential, setCredential] = useState('')
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [enabled, setEnabled] = useState(true)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const providerOptions = PROVIDERS[kind]
   // Metrics backends may allow anonymous reads; every other role needs a credential to work.
@@ -73,7 +75,7 @@ export function CreateIntegrationDialog({ sites: availableSites, defaultSiteId, 
   const submit = async () => {
     if (!valid || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const created = await sites.createIntegration({
         siteId,
@@ -88,7 +90,7 @@ export function CreateIntegrationDialog({ sites: availableSites, defaultSiteId, 
       setCredential('')
       onCreated(created)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Integration could not be created.')
+      setError(failureOf(caught, 'Integration could not be created.'))
     } finally {
       setSubmitting(false)
     }
@@ -120,7 +122,7 @@ export function CreateIntegrationDialog({ sites: availableSites, defaultSiteId, 
       <Stack gap="4" className="sw-resource-form">
         {error && (
           <Alert status="error" title="Integration could not be created">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <div className="sw-resource-form-grid">

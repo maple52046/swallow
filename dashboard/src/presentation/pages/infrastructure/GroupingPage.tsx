@@ -7,6 +7,7 @@ import { ConvergenceStatus } from '@/presentation/components/convergence/Converg
 import { describeConvergence, isSettling } from '@/presentation/components/convergence/convergencePresentation'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
@@ -27,7 +28,7 @@ interface GroupingPageProps {
 
 type GroupingState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; groups: GroupingResource[] }
 
 /**
@@ -62,7 +63,7 @@ export function GroupingPage({ kind }: GroupingPageProps) {
       const groups = await infrastructure.listGroups(kind, siteId)
       setState({ status: 'ready', groups })
     } catch (caught) {
-      setState({ status: 'error', message: caught instanceof Error ? caught.message : `Could not load ${noun}s` })
+      setState({ status: 'error', ...failureOf(caught, `Could not load ${noun}s`) })
     }
   }, [infrastructure, kind, noun, siteId])
 
@@ -74,12 +75,12 @@ export function GroupingPage({ kind }: GroupingPageProps) {
         if (!cancelled) setState({ status: 'ready', groups })
       })
       .catch((caught: Error) => {
-        if (!cancelled) setState({ status: 'error', message: caught.message })
+        if (!cancelled) setState({ status: 'error', ...failureOf(caught, `Could not load ${noun}s`) })
       })
     return () => {
       cancelled = true
     }
-  }, [infrastructure, kind, siteId])
+  }, [infrastructure, kind, noun, siteId])
 
   const settling =
     state.status === 'ready' &&
@@ -127,7 +128,7 @@ export function GroupingPage({ kind }: GroupingPageProps) {
       </DataToolbar>
 
       {state.status === 'loading' && <LoadingState rows={5} />}
-      {state.status === 'error' && <ErrorState message={state.message} onRetry={() => void load()} />}
+      {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} onRetry={() => void load()} />}
       {state.status === 'ready' && visibleGroups.length === 0 && (
         <EmptyState
           title={`No ${noun}s`}

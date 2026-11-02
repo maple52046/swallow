@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { LogViewer } from '@/presentation/components/LogViewer'
 
 type LogsState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; text: string }
 
 /**
@@ -45,7 +46,7 @@ export function OperationLogWorkspace({
         if (!cancelled) setState({ status: 'ready', text })
       })
       .catch((error: Error) => {
-        if (!cancelled) setState({ status: 'error', message: error.message })
+        if (!cancelled) setState({ status: 'error', ...failureOf(error, 'The Step output could not be loaded.') })
       })
     return () => {
       cancelled = true
@@ -53,7 +54,7 @@ export function OperationLogWorkspace({
   }, [nonce, operationId, operations, stepId, variant])
 
   if (state.status === 'loading') return <LoadingState rows={5} />
-  if (state.status === 'error') return <ErrorState message={state.message} onRetry={reload} />
+  if (state.status === 'error') return <ErrorState message={state.message} requestId={state.requestId} onRetry={reload} />
   if (!state.text.trim()) {
     return variant === 'stderr' ? (
       <EmptyState title="No errors" message="This Step recorded no failed or unreachable tasks." />

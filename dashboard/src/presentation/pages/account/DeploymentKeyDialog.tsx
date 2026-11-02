@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button, Field, Input, Stack, Text, Textarea } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { SSHKey } from '@/domain/access/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 
@@ -30,7 +32,7 @@ export function DeploymentKeyDialog({ mode, current, onClose, onChanged }: Deplo
   const [privateKey, setPrivateKey] = useState('')
   const [name, setName] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const isReplace = mode === 'replace'
   const canSubmit = !submitting && (!isReplace || privateKey.trim() !== '')
 
@@ -41,7 +43,7 @@ export function DeploymentKeyDialog({ mode, current, onClose, onChanged }: Deplo
   const submit = async () => {
     if (!canSubmit) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       if (isReplace) {
         await sshKeys.replaceDeploymentKey({ privateKey, name: name.trim() || undefined })
@@ -51,7 +53,7 @@ export function DeploymentKeyDialog({ mode, current, onClose, onChanged }: Deplo
         onChanged('Deployment key regenerated')
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The deployment key could not be changed.')
+      setError(failureOf(caught, 'The deployment key could not be changed.'))
       setSubmitting(false)
     }
   }
@@ -77,7 +79,7 @@ export function DeploymentKeyDialog({ mode, current, onClose, onChanged }: Deplo
       <Stack gap="4">
         {error && (
           <Alert status="error" title="Deployment key could not be changed">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Alert status="warning" title="Servers deployed earlier keep the old key">

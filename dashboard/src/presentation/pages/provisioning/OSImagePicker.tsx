@@ -3,6 +3,8 @@ import { Badge, Button, Field, HStack, Input, RadioCard, Text } from '@chakra-ui
 import { CircleCheck, CircleX, RefreshCw, Search } from 'lucide-react'
 import type { DeployTarget } from '@/domain/provisioning/types'
 import type { OSImage } from '@/domain/site/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import type { DisplayedFailure } from '@/presentation/components/failure'
 import { InProgressSpinner } from '@/presentation/components/InProgressSpinner'
 import { ResourceTag } from '@/presentation/components/ResourceTag'
 import { formatBytes } from '@/shared/utils/bytes'
@@ -16,7 +18,8 @@ interface OSImagePickerProps {
   onChange: (imageId: string) => void
   disabled?: boolean
   loading?: boolean
-  error?: string
+  /** The failed catalog read, shown under the field with its request ID; `null` when there is none. */
+  error?: DisplayedFailure | null
   required?: boolean
   onRefresh?: () => void
   label?: string
@@ -452,7 +455,7 @@ export function OSImagePicker({
           </>
         )}
       </div>
-      {error && <Field.ErrorText>{error}</Field.ErrorText>}
+      {error && <Field.ErrorText><FailureMessage failure={error} /></Field.ErrorText>}
     </Field.Root>
   )
 }

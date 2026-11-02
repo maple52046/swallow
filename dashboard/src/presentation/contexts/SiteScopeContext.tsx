@@ -11,6 +11,7 @@ import {
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Site } from '@/domain/site/types'
+import { failureOf, failureText } from '@/presentation/components/failure'
 import { useToast } from '@/presentation/components/toast/toastContext'
 
 interface SiteScopeValue {
@@ -57,7 +58,7 @@ export function SiteScopeProvider({ children }: { children: ReactNode }) {
         if (!cancelled) {
           showToast({
             title: 'Sites unavailable',
-            description: error.message,
+            description: failureText(failureOf(error, 'The Site list could not be loaded.')),
             tone: 'warning',
           })
         }

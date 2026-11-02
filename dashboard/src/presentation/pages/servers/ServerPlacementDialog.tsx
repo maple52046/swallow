@@ -4,6 +4,8 @@ import { useApp } from '@/di/AppProvider'
 import type { GroupingResource } from '@/domain/infrastructure/types'
 import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/list'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
@@ -22,7 +24,7 @@ interface PlacementOptions {
 
 type LoadState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; options: PlacementOptions }
 
 /** The select value for "no swallow group": the Server belongs in its provisioner's default group. */
@@ -45,7 +47,7 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
   const initialPoolId = server.spec.poolId ?? PROVIDER_DEFAULT
   const [zoneId, setZoneId] = useState(initialZoneId)
   const [poolId, setPoolId] = useState(initialPoolId)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   const siteId = server.status.source.siteId
@@ -57,7 +59,7 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
         if (!cancelled) setLoad({ status: 'ready', options: { zones, pools } })
       })
       .catch((caught: Error) => {
-        if (!cancelled) setLoad({ status: 'error', message: caught.message })
+        if (!cancelled) setLoad({ status: 'error', ...failureOf(caught, 'Zones and pools could not be loaded.') })
       })
     return () => {
       cancelled = true
@@ -79,7 +81,7 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
   const submit = async () => {
     if (!canSubmit) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       // The backend answers with the new spec; the caller reloads the Server, whose conditions
       // report the move, so the result is not needed here.
@@ -92,7 +94,7 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
       onChanged()
       onClose()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Placement could not be saved.')
+      setError(failureOf(caught, 'Placement could not be saved.'))
     } finally {
       setSubmitting(false)
     }
@@ -126,13 +128,13 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
       <Stack gap="4">
         {error && (
           <Alert status="error" title="Placement could not be saved">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         {load.status === 'loading' && <Text color="fg.muted">Loading zones and pools…</Text>}
         {load.status === 'error' && (
           <Alert status="error" title="Could not load zones and pools">
-            {load.message}
+            <FailureMessage failure={load} />
           </Alert>
         )}
         {emptyForSite && (

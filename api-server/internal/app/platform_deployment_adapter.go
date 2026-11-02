@@ -46,8 +46,9 @@ const deleteRecordParameter = "deleteRecord"
 
 // Deploy Jobs (decision 017): the k0s deployment is composed of two reusable, convergent Jobs.
 // `ensure-os` brings every target Server to a booted, SSH-reachable OS (provisioner Tasks
-// plus the readiness gate); `configure-k0s` installs and validates the Platform on top. The
-// Workflow runs each Job as a Temporal child workflow in cross-Job dependency order.
+// plus the readiness gate); `configure-k0s` installs and validates the Platform on top. Jobs are
+// groupings in the Workflow's plan: the engine schedules their Tasks by their cross-Job
+// dependencies, with no Temporal child workflow per Job.
 const (
 	jobEnsureOS       = "ensure-os"
 	jobConfigureK0s   = "configure-k0s"

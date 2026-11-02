@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button, Stack, Text } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { ApiKey } from '@/domain/access/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 
@@ -20,7 +22,7 @@ interface DeleteApiKeyDialogProps {
 export function DeleteApiKeyDialog({ apiKey, onClose, onDeleted }: DeleteApiKeyDialogProps) {
   const { apiKeys } = useApp()
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
 
   const close = () => {
     if (!submitting) onClose()
@@ -29,12 +31,12 @@ export function DeleteApiKeyDialog({ apiKey, onClose, onDeleted }: DeleteApiKeyD
   const submit = async () => {
     if (submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await apiKeys.deleteApiKey(apiKey.id)
       onDeleted('API key deleted')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The API key could not be deleted.')
+      setError(failureOf(caught, 'The API key could not be deleted.'))
       setSubmitting(false)
     }
   }
@@ -60,7 +62,7 @@ export function DeleteApiKeyDialog({ apiKey, onClose, onDeleted }: DeleteApiKeyD
       <Stack gap="4">
         {error && (
           <Alert status="error" title="API key could not be deleted">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Text>

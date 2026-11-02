@@ -1,6 +1,7 @@
 import { Button, Field, Heading, Text } from '@chakra-ui/react'
 import { RefreshCw } from 'lucide-react'
 import type { OSImage } from '@/domain/site/types'
+import type { DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Select, type SelectOption } from '@/presentation/components/ui/select'
 import { OSImagePicker } from './OSImagePicker'
@@ -26,7 +27,8 @@ interface OSImageSelectionStepProps {
   siteId?: string
   integrationId?: string
   loading?: boolean
-  error?: string
+  /** The failed catalog read, shown under the picker with its request ID; `null` when there is none. */
+  error?: DisplayedFailure | null
   disabled?: boolean
   onChange: (imageId: string) => void
   onRefresh: () => void

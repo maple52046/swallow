@@ -5,6 +5,7 @@ import { useApp } from '@/di/AppProvider'
 import { isApiKeyExpired, type ApiKey } from '@/domain/access/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionSurface, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
@@ -17,7 +18,7 @@ import { DeleteApiKeyDialog } from './DeleteApiKeyDialog'
 
 type PageState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; keys: ApiKey[] }
 
 /** Which dialog is open; at most one at a time. */
@@ -52,7 +53,7 @@ export function ApiKeysPage() {
         setState({ status: 'ready', keys })
       })
       .catch((caught: unknown) => {
-        if (!cancelled) setState({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not load API keys.' })
+        if (!cancelled) setState({ status: 'error', ...failureOf(caught, 'Could not load API keys.') })
       })
     return () => {
       cancelled = true
@@ -86,7 +87,7 @@ export function ApiKeysPage() {
       />
 
       {state.status === 'loading' && <LoadingState rows={4} />}
-      {state.status === 'error' && <ErrorState message={state.message} onRetry={reload} />}
+      {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} onRetry={reload} />}
       {state.status === 'ready' && (
         <SectionSurface
           title="Your API keys"

@@ -8,6 +8,7 @@ import type { Server } from '@/domain/server/types'
 import { DockerApiRiskNotice } from '@/presentation/components/DockerApiRiskNotice'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionSurface } from '@/presentation/components/OperatorPrimitives'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -39,7 +40,7 @@ export function ServerContainersTab() {
   const { scopedHref } = useSiteScope()
 
   if (docker.status === 'loading') return <LoadingState rows={4} />
-  if (docker.status === 'error') return <ErrorState message={docker.message} onRetry={docker.reload} />
+  if (docker.status === 'error') return <ErrorState message={docker.message} requestId={docker.requestId} onRetry={docker.reload} />
   const assignment = docker.assignment
   if (!hasSwallowInstalledDocker(assignment)) {
     return (
@@ -102,7 +103,7 @@ function DockerApiDisabledPanel({ server, assignment, onStarted }: { server: Ser
         <DockerApiRiskNotice context="enable" />
         {toggle.error && (
           <Alert status="error" title="The Docker Engine API could not be enabled">
-            {toggle.error}
+            <FailureMessage failure={toggle.error} />
           </Alert>
         )}
         {blocked && (
@@ -169,7 +170,7 @@ function DockerApplyFailed({
       </Alert>
       {toggle.error && (
         <Alert status="error" title="Docker CE could not be re-applied">
-          {toggle.error}
+          <FailureMessage failure={toggle.error} />
         </Alert>
       )}
       {dockerApiEnabled(assignment.spec) && <DockerApiRiskNotice context="enable" />}

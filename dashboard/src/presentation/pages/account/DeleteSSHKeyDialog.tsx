@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button, Stack, Text } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { SSHKey } from '@/domain/access/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 
@@ -23,7 +25,7 @@ interface DeleteSSHKeyDialogProps {
 export function DeleteSSHKeyDialog({ sshKey, onClose, onDeleted }: DeleteSSHKeyDialogProps) {
   const { sshKeys } = useApp()
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
 
   const close = () => {
     if (!submitting) onClose()
@@ -32,12 +34,12 @@ export function DeleteSSHKeyDialog({ sshKey, onClose, onDeleted }: DeleteSSHKeyD
   const submit = async () => {
     if (submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await sshKeys.deleteAccessKey(sshKey.id)
       onDeleted('SSH key deleted')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The key could not be deleted.')
+      setError(failureOf(caught, 'The key could not be deleted.'))
       setSubmitting(false)
     }
   }
@@ -63,7 +65,7 @@ export function DeleteSSHKeyDialog({ sshKey, onClose, onDeleted }: DeleteSSHKeyD
       <Stack gap="4">
         {error && (
           <Alert status="error" title="Key could not be deleted">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Text>

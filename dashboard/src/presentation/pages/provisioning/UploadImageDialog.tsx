@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button, Field, Input, Progress, Stack, Text } from '@chakra-ui/react'
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 import { isValidDefaultUser, type Integration } from '@/domain/site/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
@@ -65,7 +67,7 @@ export function UploadImageDialog({
   // null while the total is unknown (before the first progress event or when the browser cannot
   // report length), otherwise the whole-number percentage shown to the operator.
   const [percent, setPercent] = useState<number | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
 
   const close = () => {
     if (!submitting) onClose()
@@ -76,7 +78,7 @@ export function UploadImageDialog({
   const submit = async () => {
     if (!canSubmit || !file) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     setPercent(null)
     try {
       await repository.uploadOSImage(
@@ -95,7 +97,7 @@ export function UploadImageDialog({
     } catch (caught) {
       // Keep the dialog open on failure so the operator can correct and retry; only a success
       // unmounts it, so submitting is reset here.
-      setError(caught instanceof Error ? caught.message : 'The image could not be uploaded.')
+      setError(failureOf(caught, 'The image could not be uploaded.'))
       setSubmitting(false)
       setPercent(null)
     }
@@ -122,7 +124,7 @@ export function UploadImageDialog({
       <Stack gap="4">
         {error && (
           <Alert status="error" title="Image could not be uploaded">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Field.Root required>

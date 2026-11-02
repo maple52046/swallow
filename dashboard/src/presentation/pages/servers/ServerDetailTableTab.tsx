@@ -7,6 +7,7 @@ import { DetailTableView, DetailUnavailable } from '@/presentation/components/se
 import { findTable } from '@/presentation/components/serverSummary/detailTableUtils'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { formatSubnetOptionLabel } from '@/presentation/utils/network'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
@@ -29,7 +30,7 @@ const DETAIL_TABLE_DESCRIPTIONS: Record<string, string> = {
  */
 export function ServerDetailTableTab({ title }: { title: string }) {
   const { detail, detailError } = useServerDetailContext()
-  if (!detail) return <DetailUnavailable message={detailError ?? 'The provisioner did not return detail.'} />
+  if (!detail) return <DetailUnavailable message={detailError ? failureText(detailError) : 'The provisioner did not return detail.'} />
   const table = findTable(detail.tables, title)
   if (!table) return <DetailUnavailable message={`This provisioner reported no ${title.toLowerCase()} detail.`} />
   return (
@@ -40,7 +41,7 @@ export function ServerDetailTableTab({ title }: { title: string }) {
   )
 }
 
-type NetworkState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; target: NetworkTarget }
+type NetworkState = { status: 'loading' } | ({ status: 'error' } & DisplayedFailure) | { status: 'ready'; target: NetworkTarget }
 
 interface LinkEditor {
   iface: NetworkInterface
@@ -84,7 +85,7 @@ export function ServerNetworkTab() {
     try {
       setState({ status: 'ready', target: await servers.getNetwork(server.id) })
     } catch (error) {
-      setState({ status: 'error', message: error instanceof Error ? error.message : 'Could not load network configuration.' })
+      setState({ status: 'error', ...failureOf(error, 'Could not load network configuration.') })
     }
   }, [server.id, servers])
 
@@ -126,7 +127,7 @@ export function ServerNetworkTab() {
       setEditor(null)
       showToast({ tone: 'success', title: 'Network configuration updated' })
     } catch (error) {
-      showToast({ tone: 'error', title: 'Could not update network configuration', description: error instanceof Error ? error.message : 'Unknown error' })
+      showToast({ tone: 'error', title: 'Could not update network configuration', description: failureText(failureOf(error, 'Unknown error')) })
     } finally {
       setSaving(false)
     }
@@ -141,7 +142,7 @@ export function ServerNetworkTab() {
       setUnbind(null)
       showToast({ tone: 'success', title: 'Network link removed' })
     } catch (error) {
-      showToast({ tone: 'error', title: 'Could not remove network link', description: error instanceof Error ? error.message : 'Unknown error' })
+      showToast({ tone: 'error', title: 'Could not remove network link', description: failureText(failureOf(error, 'Unknown error')) })
     } finally {
       setSaving(false)
     }
@@ -155,7 +156,7 @@ export function ServerNetworkTab() {
   }, [state])
 
   if (state.status === 'loading') return <LoadingState rows={5} />
-  if (state.status === 'error') return <ErrorState message={state.message} onRetry={() => void load()} />
+  if (state.status === 'error') return <ErrorState message={state.message} requestId={state.requestId} onRetry={() => void load()} />
 
   return (
     <div className="sw-activity-stack">

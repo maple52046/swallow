@@ -14,6 +14,8 @@ import {
   type OperationTimelineEvent,
 } from '@/domain/operation/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { KeyValueGrid, SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
@@ -88,7 +90,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
       showToast({ tone: 'success', title: 'Cancellation requested', description: 'Running provider work will be canceled when it is safe to do so.' })
       reload()
     } catch (error) {
-      showToast({ tone: 'error', title: 'Could not cancel Operation', description: error instanceof Error ? error.message : 'Unknown error' })
+      showToast({ tone: 'error', title: 'Could not cancel Operation', description: failureText(failureOf(error, 'Unknown error')) })
     } finally {
       setControlling(false)
     }
@@ -103,7 +105,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
         setRetryCandidate(null)
         reload()
       } catch (error) {
-        showToast({ tone: 'error', title: 'Could not retry Step', description: error instanceof Error ? error.message : 'Unknown error' })
+        showToast({ tone: 'error', title: 'Could not retry Step', description: failureText(failureOf(error, 'Unknown error')) })
       } finally {
         setControlling(false)
       }
@@ -568,7 +570,7 @@ function stepColumnsRow(key: string, indented: boolean) {
 function StepEvents({ operation, step }: { operation: Operation; step: OperationStep }) {
   const { operations } = useApp()
   const [events, setEvents] = useState<OperationEvents | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [failureReport, setFailureReport] = useState<string | null>(null)
   const [failureReportError, setFailureReportError] = useState('')
   useEffect(() => {
@@ -578,11 +580,11 @@ function StepEvents({ operation, step }: { operation: Operation; step: Operation
       .then((result) => {
         if (!canceled) {
           setEvents(result)
-          setError('')
+          setError(null)
         }
       })
       .catch((caught: Error) => {
-        if (!canceled) setError(caught.message)
+        if (!canceled) setError(failureOf(caught, 'Events could not be loaded.'))
       })
     operations
       .getStepStderr(operation.id, step.id)
@@ -595,7 +597,7 @@ function StepEvents({ operation, step }: { operation: Operation; step: Operation
       .catch((caught: Error) => {
         if (!canceled) {
           setFailureReport('')
-          setFailureReportError(caught.message)
+          setFailureReportError(failureText(failureOf(caught, 'The failure report could not be loaded.')))
         }
       })
     return () => {
@@ -605,7 +607,7 @@ function StepEvents({ operation, step }: { operation: Operation; step: Operation
   if (error) {
     return (
       <Alert status="warning" title="Events unavailable">
-        {error}
+        <FailureMessage failure={error} />
       </Alert>
     )
   }
@@ -726,7 +728,7 @@ function ProviderStepNote({ hasServerTarget }: { hasServerTarget: boolean }) {
 function StepProviderEvents({ serverId }: { serverId: string }) {
   const { servers } = useApp()
   const [state, setState] = useState<
-    { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: ProviderEvents }
+    { status: 'loading' } | ({ status: 'error' } & DisplayedFailure) | { status: 'ready'; data: ProviderEvents }
   >({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
   useEffect(() => {
@@ -737,7 +739,7 @@ function StepProviderEvents({ serverId }: { serverId: string }) {
         if (!cancelled) setState({ status: 'ready', data })
       })
       .catch((error: Error) => {
-        if (!cancelled) setState({ status: 'error', message: error.message })
+        if (!cancelled) setState({ status: 'error', ...failureOf(error, 'Provider events could not be loaded.') })
       })
     return () => {
       cancelled = true
@@ -758,7 +760,7 @@ function StepProviderEvents({ serverId }: { serverId: string }) {
       {state.status === 'loading' && <Text color="fg.muted">Loading provider events…</Text>}
       {state.status === 'error' && (
         <Alert status="warning" title="Provider events are unavailable">
-          {state.message}
+          <FailureMessage failure={state} />
         </Alert>
       )}
       {state.status === 'ready' && !state.data.supported && (

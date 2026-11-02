@@ -2,6 +2,8 @@ import { Box, Heading, HStack, Stack, Text } from '@chakra-ui/react'
 import type { ReactNode } from 'react'
 import type { BootMediaLiveState, ServerBootMedia } from '@/domain/server/types'
 import { CopyButton } from '@/presentation/components/CopyButton'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import type { DisplayedFailure } from '@/presentation/components/failure'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
 import { DescriptionList, type DescriptionItem } from '@/presentation/components/ui/description-list'
@@ -18,16 +20,23 @@ import {
   shownBootMediaMethod,
 } from './bootMediaLabels'
 
-/** The panel's read state, mirroring useAsyncData without importing the hook. */
+/**
+ * The panel's read state, mirroring useAsyncData without importing the hook: `error` carries the
+ * failed read's request ID, `unavailable` only its message.
+ */
 export type BootMediaPanelState =
   | { status: 'loading' }
-  | { status: 'unavailable' | 'error'; message: string }
+  | { status: 'unavailable'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; data: ServerBootMedia }
 
 interface BootMediaPanelProps {
   state: BootMediaPanelState
-  /** A live BMC or Hypervisor read the caller requested, shown until the next read; absent when not read. */
-  live?: { state: BootMediaLiveState | null; error?: string }
+  /**
+   * A live BMC or Hypervisor read the caller requested, shown until the next read; absent when not
+   * read. `error` is the API's reason text, or the failed request with its request ID.
+   */
+  live?: { state: BootMediaLiveState | null; error?: DisplayedFailure | string }
   /** The caller's controls (enable/disable, re-detect, check), rendered under the facts. */
   actions?: ReactNode
 }
@@ -81,7 +90,7 @@ function BootMediaFacts({ state, live }: Pick<BootMediaPanelProps, 'state' | 'li
   if (state.status !== 'ready') {
     return (
       <Alert status="warning" title="Boot Media unavailable">
-        {state.message}
+        <FailureMessage failure={state} />
       </Alert>
     )
   }
@@ -235,7 +244,7 @@ function BootISOFact({ image, libvirt }: { image: ServerBootMedia['image']; libv
  */
 function LiveState({ live, target }: { live: NonNullable<BootMediaPanelProps['live']>; target: string }) {
   if (!live.state) {
-    return <Text as="span" color="fg.muted">{live.error ?? `The ${target} did not answer.`}</Text>
+    return <Text as="span" color="fg.muted">{live.error !== undefined ? <FailureMessage failure={live.error} /> : `The ${target} did not answer.`}</Text>
   }
   const { mediaInserted, ready, overrideEnabled, overrideTarget, mediaImage } = live.state
   const hypervisor = target === 'hypervisor'

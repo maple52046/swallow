@@ -4,6 +4,8 @@ import { useApp } from '@/di/AppProvider'
 import { serverDisplayName, type Server, type ServerPowerConfiguration } from '@/domain/server/types'
 import { powerDriverLabel, powerFamilyLabel } from '@/presentation/components/serverSummary/powerConfigurationLabels'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -51,7 +53,7 @@ export function ServerPowerConfigurationDialog({ server, configuration, onClose,
   }))
   const [touched, setTouched] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const name = serverDisplayName(server)
   const locked = server.status.provisioning?.locked ?? false
   const family = draftFamily(draft, options)
@@ -66,7 +68,7 @@ export function ServerPowerConfigurationDialog({ server, configuration, onClose,
     setTouched(true)
     if (!valid || busy || locked) return
     setBusy(true)
-    setError('')
+    setError(null)
     try {
       const saved = await servers.setPowerConfiguration(server.id, powerConfigurationInput(draft, options))
       showToast({
@@ -77,7 +79,7 @@ export function ServerPowerConfigurationDialog({ server, configuration, onClose,
       onChanged(saved)
       onClose()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The power configuration could not be saved.')
+      setError(failureOf(caught, 'The power configuration could not be saved.'))
     } finally {
       setBusy(false)
     }
@@ -119,7 +121,7 @@ export function ServerPowerConfigurationDialog({ server, configuration, onClose,
         )}
         {error && (
           <Alert status="error" title="The power configuration was not changed">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Field.Root required invalid={touched && Boolean(errors.driver)}>

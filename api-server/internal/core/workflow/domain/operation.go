@@ -3,8 +3,6 @@
 // The context is named workflow, but its types keep their Operation names, and its records keep
 // the collection and field names they were first stored under (renaming those is a data
 // migration).
-// Operation v3 is orchestrated by Temporal; historical v2 Ansible runs remain readable
-// through the permanent compatibility projection.
 package domain
 
 import (
@@ -13,8 +11,9 @@ import (
 	"sort"
 )
 
-// WorkflowKind is what an operation is for. Each kind maps to a release-manifest playbook,
-// resolved through the site's automation configuration.
+// WorkflowKind is what a Workflow is for. It selects the plan a launcher builds; that plan's
+// Tasks may run playbooks, provider calls, or swallow's own steps, so a kind names no playbook
+// (inspect-hardware runs none).
 type WorkflowKind string
 
 const (

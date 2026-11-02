@@ -8,6 +8,7 @@ import { formatGPUDriverModuleOptions } from '@/domain/platform/gpuDriver'
 import type { DeviceMetricsExporterState, ObservabilityInstallMethod, OmnistatState, Platform } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { failureOf, failureText } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
@@ -53,7 +54,7 @@ export function PlatformDetailPage() {
       })
       if (state.status === 'ready') state.data.reload()
     } catch (error) {
-      showToast({ tone: 'error', title: 'Sync failed', description: error instanceof Error ? error.message : 'Could not sync membership.' })
+      showToast({ tone: 'error', title: 'Sync failed', description: failureText(failureOf(error, 'Could not sync membership.')) })
     } finally {
       setSyncing(false)
     }
@@ -79,7 +80,7 @@ export function PlatformDetailPage() {
     return (
       <>
         <PageHeader title="Platform" />
-        <ErrorState message={state.message} />
+        <ErrorState message={state.message} requestId={state.requestId} />
       </>
     )
   }

@@ -38,6 +38,7 @@ import { useApp } from '@/di/AppProvider'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { InProgressSpinner } from '@/presentation/components/InProgressSpinner'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { InventorySurface, SelectionToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
@@ -455,7 +456,7 @@ export function OSImageCatalogPage() {
     </>} />
     <ProvisioningTabs />
     {state.status === 'loading' && <LoadingState rows={7} />}
-    {state.status === 'error' && <ErrorState message={state.message} onRetry={reload} />}
+    {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} onRetry={reload} />}
     {state.status === 'ready' && <>
       <CatalogOverview facts={facts} partial={failures.length > 0} />
       <InventorySurface headingId="os-image-inventory-title" eyebrow="OS provisioning catalog" title="Deployment images" summary={summary} className="sw-os-image-inventory" toolbar={<div className="sw-os-image-toolbar-layout">
@@ -485,7 +486,7 @@ export function OSImageCatalogPage() {
 }
 
 function CatalogFailureAlert({ failure }: { failure: OSImageCatalogFailure }) {
-  return <Alert status="warning" title={`${failure.integrationName} image catalog unavailable`}>{failure.message}</Alert>
+  return <Alert status="warning" title={`${failure.integrationName} image catalog unavailable`}><FailureMessage failure={failure} /></Alert>
 }
 
 function CatalogGroupRows({ group, grouped, selected, sites, activities, templatesEnabled, scopedHref, onToggle, onEdit, onTest, onDelete }: {

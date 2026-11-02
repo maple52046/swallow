@@ -4,6 +4,8 @@ import type { ProvisioningRepository } from '@/application/ports/ProvisioningRep
 import type { ServerRepository } from '@/application/ports/ServerRepository'
 import type { DeployTarget } from '@/domain/provisioning/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -44,9 +46,9 @@ export function TestImageDeploymentDialog({
   // Starts true because the dialog opens straight into the fetch below; the effect only flips it
   // off (in the async callbacks), so no synchronous setState runs inside the effect body.
   const [loadingServers, setLoadingServers] = useState(true)
-  const [loadError, setLoadError] = useState('')
+  const [loadError, setLoadError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   // Default false: a verification borrows the Server and returns it to the ready pool when done.
   // When kept, the Server is left deployed (on success) for the operator to use or inspect.
   const [keepServer, setKeepServer] = useState(false)
@@ -67,7 +69,7 @@ export function TestImageDeploymentDialog({
       })
       .catch((caught: unknown) => {
         if (cancelled) return
-        setLoadError(caught instanceof Error ? caught.message : 'Could not load ready Servers.')
+        setLoadError(failureOf(caught, 'Could not load ready Servers.'))
         setLoadingServers(false)
       })
     return () => {
@@ -82,7 +84,7 @@ export function TestImageDeploymentDialog({
   const submit = async () => {
     if (!serverId || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await provisioning.createImageVerification({
         integrationId: image.integrationId,
@@ -98,7 +100,7 @@ export function TestImageDeploymentDialog({
           : `Testing ${image.status.name || image.id} — the Server will auto-return to Ready when done`,
       )
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The deployment test could not be started.')
+      setError(failureOf(caught, 'The deployment test could not be started.'))
       setSubmitting(false)
     }
   }
@@ -131,12 +133,12 @@ export function TestImageDeploymentDialog({
       <Stack gap="4">
         {error && (
           <Alert status="error" title="Deployment test could not be started">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         {loadError && (
           <Alert status="error" title="Could not load ready Servers">
-            {loadError}
+            <FailureMessage failure={loadError} />
           </Alert>
         )}
         <DeployTargetField

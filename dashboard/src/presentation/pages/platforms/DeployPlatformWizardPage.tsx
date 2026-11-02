@@ -20,6 +20,8 @@ import {
 } from '@/modules/registry'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
@@ -180,12 +182,12 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
   const [networkInspection, setNetworkInspection] = useState<NetworkInspectionResult | null>(null)
   const [networkAssignments, setNetworkAssignments] = useState<Record<string, { interfaceId: string; subnetId: string; ipAddress: string }>>({})
   const [provisioningLoading, setProvisioningLoading] = useState(false)
-  const [provisioningError, setProvisioningError] = useState('')
+  const [provisioningError, setProvisioningError] = useState<DisplayedFailure | null>(null)
   const [siteProvisionerState, setSiteProvisionerState] = useState<{
     siteKey: string | null
     items: Integration[]
-    error: string
-  }>({ siteKey: null, items: [], error: '' })
+    error: DisplayedFailure | null
+  }>({ siteKey: null, items: [], error: null })
   const effectiveSiteId = siteId ?? scopedSiteId
   const state = useDeployableServers(effectiveSiteId, CANDIDATE_PROVISIONING_STATES, candidateRevision)
   const candidates = state.status === 'ready' ? state.data.servers : []
@@ -208,7 +210,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
           setSiteProvisionerState({
             siteKey: effectiveSiteId,
             items: integrations,
-            error: '',
+            error: null,
           })
         }
       })
@@ -217,7 +219,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
           setSiteProvisionerState({
             siteKey: effectiveSiteId,
             items: [],
-            error: error.message,
+            error: failureOf(error, 'The Site provisioner could not be read.'),
           })
         }
       })
@@ -237,7 +239,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
         if (!canceled) setTemplates(nextTemplates)
       })
       .catch((error: Error) => {
-        if (!canceled) setProvisioningError(error.message)
+        if (!canceled) setProvisioningError(failureOf(error, 'Deployment templates could not be loaded.'))
       })
     return () => {
       canceled = true
@@ -271,7 +273,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
   const siteProvisioners = siteProvisionerState.siteKey === effectiveSiteId
     ? siteProvisionerState.items
     : null
-  const siteProvisionerError = siteProvisionerState.siteKey === effectiveSiteId ? siteProvisionerState.error : ''
+  const siteProvisionerError = siteProvisionerState.siteKey === effectiveSiteId ? siteProvisionerState.error : null
   const siteProvisioner =
     siteProvisioners?.length === 1 ? siteProvisioners[0] : undefined
   const provisionerSourceMismatch = Boolean(
@@ -292,7 +294,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
       : siteProvisionerError
         ? {
             title: 'Provisioner configuration unavailable',
-            message: siteProvisionerError,
+            ...siteProvisionerError,
           }
         : siteProvisioners.length === 0
           ? {
@@ -334,7 +336,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
         if (!canceled) setImages(nextImages)
       })
       .catch((error: Error) => {
-        if (!canceled) setProvisioningError(error.message)
+        if (!canceled) setProvisioningError(failureOf(error, 'OS images could not be loaded.'))
       })
       .finally(() => {
         if (!canceled) setProvisioningLoading(false)
@@ -367,7 +369,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
         setDefaultGateway(inspection.targets.some((target) => target.suggestion.defaultGateway))
       })
       .catch((error: Error) => {
-        if (!canceled) setProvisioningError(error.message)
+        if (!canceled) setProvisioningError(failureOf(error, 'Deployment networks could not be inspected.'))
       })
       .finally(() => {
         if (!canceled) setProvisioningLoading(false)
@@ -420,6 +422,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
     Boolean(integrationId && networkAssignmentsValid && !provisioningError)
   const osConfigurationValid =
     osImageValid && osInstallationValid && osNetworkingValid
+  const provisioningErrorText = provisioningError ? failureText(provisioningError) : ''
 
   const selectTemplate = (nextTemplateId: string) => {
     setTemplateId(nextTemplateId)
@@ -484,7 +487,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
     } catch (error) {
       form.refresh?.()
       setCandidateRevision((current) => current + 1)
-      showToast({ title: 'Deployment failed', description: error instanceof Error ? error.message : 'Could not start the deployment.', tone: 'error' })
+      showToast({ title: 'Deployment failed', description: failureText(failureOf(error, 'Could not start the deployment.')), tone: 'error' })
       setSubmitting(false)
     }
   }
@@ -583,7 +586,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
                 ) : undefined
               }
             >
-              {siteProvisionerIssue.message}
+              <FailureMessage failure={siteProvisionerIssue} />
             </Alert>
           )}
           {state.data.servers.length === 0 ? (
@@ -743,7 +746,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
         id: 'deploy-os-image',
         name: 'OS image',
         canProceed: osImageValid,
-        blockedReason: provisioningError || (provisioningLoading ? 'Wait for the OS image catalog to load.' : 'Choose an OS image for the Servers that need provisioning.'),
+        blockedReason: provisioningErrorText || (provisioningLoading ? 'Wait for the OS image catalog to load.' : 'Choose an OS image for the Servers that need provisioning.'),
         content: (
           <OSImageSelectionStep
             images={images}
@@ -762,11 +765,11 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
             onRefresh={() => {
               if (!integrationId) return
               setProvisioningLoading(true)
-              setProvisioningError('')
+              setProvisioningError(null)
               provisioning
                 .listOSImages(integrationId)
                 .then(setImages)
-                .catch((error: Error) => setProvisioningError(error.message))
+                .catch((error: Error) => setProvisioningError(failureOf(error, 'OS images could not be loaded.')))
                 .finally(() => setProvisioningLoading(false))
             }}
             configurationSource={templatesEnabled ? {
@@ -842,13 +845,13 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
         id: 'deploy-os-networking',
         name: 'OS networking',
         canProceed: osNetworkingValid,
-        blockedReason: provisioningError || 'Complete the network interface and addressing assignment for every Server being provisioned.',
+        blockedReason: provisioningErrorText || 'Complete the network interface and addressing assignment for every Server being provisioned.',
         content: (
           <WizardSection title="OS networking">
             {preparationScope}
             {provisioningError && (
               <Alert status="error" title="Provisioning data is unavailable">
-                {provisioningError}
+                <FailureMessage failure={provisioningError} />
               </Alert>
             )}
             <section className="sw-section">
@@ -914,7 +917,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
         id: 'deploy-server-preparation',
         name: 'Operating system',
         canProceed: osConfigurationValid,
-        blockedReason: provisioningError || (effectiveImageId
+        blockedReason: provisioningErrorText || (effectiveImageId
           ? 'Complete the addressing assignment for every Server being provisioned.'
           : 'Choose an OS image for the Servers that need provisioning.'),
         content: (
@@ -1019,7 +1022,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
       </div>
 
       {state.status === 'loading' && <LoadingState rows={7} />}
-      {state.status === 'error' && <ErrorState message={state.message} />}
+      {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} />}
       {state.status === 'ready' && (
         <Wizard
           steps={steps}

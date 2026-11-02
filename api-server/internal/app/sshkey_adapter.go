@@ -20,8 +20,9 @@ import (
 
 // newSSHKeyService assembles the SSH Key service (decision 039) over the process's MongoDB, sealer,
 // integration repository, and provider factory. The api, worker, and ansible-executor processes
-// each build one: the API serves the HTTP surface and runs the sync loop, the worker ensures
-// registration before OS deployments, and every automation process reads the Deployment Key.
+// each build one: the API serves the HTTP surface, the worker runs the SSH Key controller and
+// ensures registration before OS deployments, and every automation process reads the Deployment
+// Key.
 // The sealer must use the installation's credential key, or the Deployment Key cannot be opened.
 func newSSHKeyService(
 	db *mongo.Database,

@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
+import { failureOf, failureText } from '@/presentation/components/failure'
 import { useToast } from '@/presentation/components/toast/toastContext'
 
 /**
@@ -24,7 +25,10 @@ export interface OSImageBulkTarget {
 /** The result of running a bulk action against one target. */
 export interface OSImageBulkOutcome extends OSImageBulkTarget {
   accepted: boolean
-  /** Present only on failure: the client-safe reason to show the operator. */
+  /**
+   * Present only on failure: the client-safe reason to show the operator, as one line that
+   * includes the request ID when there is one.
+   */
   message?: string
 }
 
@@ -67,7 +71,7 @@ export function useOSImageBulkActions() {
           return {
             ...target,
             accepted: false,
-            message: outcome.reason instanceof Error ? outcome.reason.message : 'The request failed.',
+            message: failureText(failureOf(outcome.reason, 'The request failed.')),
           }
         })
 

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import type { Platform } from '@/domain/platform/types'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 
-/** Discriminated union so the list is never both loading and loaded. */
+/**
+ * Discriminated union so the list is never both loading and loaded; `error` carries the failed
+ * read's message and request ID.
+ */
 export type PlatformsState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; platforms: Platform[] }
 
 /**
@@ -28,7 +32,7 @@ export function usePlatforms(siteId?: string): { state: PlatformsState; reload: 
         if (!cancelled) setState({ status: 'ready', platforms: result })
       })
       .catch((err: Error) => {
-        if (!cancelled) setState({ status: 'error', message: err.message })
+        if (!cancelled) setState({ status: 'error', ...failureOf(err, 'Platforms could not be loaded.') })
       })
     return () => {
       cancelled = true

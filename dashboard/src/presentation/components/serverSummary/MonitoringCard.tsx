@@ -4,6 +4,7 @@ import { METRIC_DESCRIPTORS } from '@/domain/monitoring/types'
 import type { EffectiveExporterOwner } from '@/domain/monitoring/exporterOwner'
 import type { ServerMonitoring } from '@/presentation/pages/servers/useServerMonitoring'
 import { Alert } from '@/presentation/components/ui/alert'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionSurface } from '@/presentation/components/OperatorPrimitives'
 
@@ -79,7 +80,7 @@ export function MonitoringCard({ monitoring }: { monitoring: ServerMonitoring })
           )}
           {metricsError && (
             <Alert status="warning" title="Metrics are unavailable">
-              {metricsError}
+              <FailureMessage failure={metricsError} />
             </Alert>
           )}
           <SimpleGrid minChildWidth="190px" gap="3">

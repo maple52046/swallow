@@ -6,6 +6,7 @@ import { useApp } from '@/di/AppProvider'
 import type { Integration, Site } from '@/domain/site/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
@@ -20,7 +21,7 @@ import { SiteDialog } from './SiteDialog'
 
 type SitesState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; sites: Site[]; integrations: Integration[] }
 
 /**
@@ -43,7 +44,7 @@ export function SitesPage() {
       const [nextSites, integrations] = await Promise.all([repository.listSites(), repository.listIntegrations()])
       setState({ status: 'ready', sites: nextSites, integrations })
     } catch (caught) {
-      setState({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not load sites' })
+      setState({ status: 'error', ...failureOf(caught, 'Could not load sites') })
     }
   }, [repository])
 
@@ -54,7 +55,7 @@ export function SitesPage() {
         if (!cancelled) setState({ status: 'ready', sites: nextSites, integrations })
       })
       .catch((caught: Error) => {
-        if (!cancelled) setState({ status: 'error', message: caught.message })
+        if (!cancelled) setState({ status: 'error', ...failureOf(caught, 'Could not load sites') })
       })
     return () => { cancelled = true }
   }, [repository])
@@ -101,7 +102,7 @@ export function SitesPage() {
       </DataToolbar>
 
       {state.status === 'loading' && <LoadingState rows={5} />}
-      {state.status === 'error' && <ErrorState message={state.message} onRetry={() => void load()} />}
+      {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} onRetry={() => void load()} />}
       {state.status === 'ready' && visibleSites.length === 0 && (
         <EmptyState
           title="No sites"

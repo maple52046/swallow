@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { operationStatus, type Operation } from '@/domain/operation/types'
+import { failureText } from '@/presentation/components/failure'
 import { isWorkflowChangingStatus } from '@/presentation/pages/operations/workflowListPresentation'
 import { useOperations } from '@/presentation/pages/operations/useOperations'
 import {
@@ -109,7 +110,7 @@ export function useOSImageVerificationActivity(
 
   return {
     activities,
-    refreshError: state.status === 'ready' ? state.refreshError : state.status === 'error' ? state.message : undefined,
+    refreshError: state.status === 'ready' ? state.refreshError : state.status === 'error' ? failureText(state) : undefined,
     reload,
   }
 }

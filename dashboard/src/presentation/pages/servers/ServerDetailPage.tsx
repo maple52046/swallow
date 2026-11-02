@@ -151,7 +151,7 @@ export function ServerDetailPage() {
     }
   }, [mutationFollow, activeProjection, servers])
   if (state.status === 'loading') return <LoadingState />
-  if (state.status === 'error') return <ErrorState message={state.message} />
+  if (state.status === 'error') return <ErrorState message={state.message} requestId={state.requestId} />
   if (state.status === 'not-found') return <EmptyState title="Server not found" />
   const { server, detail, reload } = state.data
   const dockerInstalled = docker.status === 'ready' && hasSwallowInstalledDocker(docker.assignment)

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import type { ModuleKind, ModuleSpecSchema } from '@/domain/module/types'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 
-/** The read of one module's spec schema; `ready` with a null schema means it declares none. */
+/**
+ * The read of one module's spec schema; `ready` with a null schema means it declares none, and
+ * `error` carries the failed module-list read's message and request ID.
+ */
 export type ModuleSpecSchemaState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; schema: ModuleSpecSchema | null }
 
 const NO_SCHEMA: ModuleSpecSchemaState = { status: 'ready', schema: null }
@@ -34,7 +38,7 @@ export function useModuleSpecSchema(kind: ModuleKind, id: string | undefined): {
         if (!cancelled) setResult({ key, state: { status: 'ready', schema } })
       })
       .catch((error: Error) => {
-        if (!cancelled) setResult({ key, state: { status: 'error', message: error.message } })
+        if (!cancelled) setResult({ key, state: { status: 'error', ...failureOf(error, 'The module list could not be loaded.') } })
       })
     return () => {
       cancelled = true

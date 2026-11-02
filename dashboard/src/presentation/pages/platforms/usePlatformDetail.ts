@@ -6,6 +6,7 @@ import { isPlatformLifecycleInProgress } from '@/domain/platform/lifecycle'
 import type { Platform } from '@/domain/platform/types'
 import type { Operation } from '@/domain/operation/types'
 import type { Server } from '@/domain/server/types'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 
 const LIFECYCLE_POLL_INTERVAL_MS = 5000
 
@@ -59,11 +60,14 @@ export interface PlatformDetailData {
   reload: () => void
 }
 
-/** Explicit loading, missing, failure, and usable states for the Platform route. */
+/**
+ * Explicit loading, missing, failure, and usable states for the Platform route; a failure carries
+ * the failed read's message and request ID.
+ */
 export type PlatformDetailState =
   | { status: 'loading' }
   | { status: 'not-found' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; data: PlatformDetailData }
 
 /**
@@ -131,7 +135,7 @@ export function usePlatformDetail(id: string | undefined): PlatformDetailState {
           }
         })
         .catch((err: Error) => {
-          if (!cancelled) setState({ status: 'error', message: err.message })
+          if (!cancelled) setState({ status: 'error', ...failureOf(err, 'The Platform could not be loaded.') })
         })
     }
 

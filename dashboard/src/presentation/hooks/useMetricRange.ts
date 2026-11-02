@@ -7,6 +7,7 @@ import {
   type MetricRangeWindow,
   type MetricScope,
 } from '@/domain/monitoring/types'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 
 /**
  * Usage-history state for one chart group.
@@ -15,14 +16,15 @@ import {
  * - `loading`: a request for the current scope and window is in flight.
  * - `unavailable`: the Site has no reachable metrics backend; the view asks the operator to
  *   register a metrics Integration rather than implying the Servers are down.
- * - `error`: any other failure (unknown grouping, rejected request), with the backend message.
+ * - `error`: any other failure (unknown grouping, rejected request), with the backend message and,
+ *   when the API answered, its request ID; a scope refused locally has no request ID.
  * - `ready`: the answer for the current scope and window.
  */
 export type MetricRangeState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'unavailable'; message: string }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; result: MetricRangeResult }
 
 /** Explicit Servers beyond the contract bound are refused locally instead of sending a doomed request. */
@@ -77,10 +79,10 @@ export function useMetricRange(
       })
       .catch((error: unknown) => {
         if (cancelled) return
-        const message = error instanceof Error ? error.message : 'Usage history could not be loaded.'
+        const failure = failureOf(error, 'Usage history could not be loaded.')
         setSettled({
           key: requestKey,
-          state: error instanceof MetricsBackendUnavailableError ? { status: 'unavailable', message } : { status: 'error', message },
+          state: error instanceof MetricsBackendUnavailableError ? { status: 'unavailable', message: failure.message } : { status: 'error', ...failure },
         })
       })
     return () => {

@@ -12,6 +12,8 @@ import type { Integration } from '@/domain/site/types'
 import { AsyncSection } from '@/presentation/components/AsyncSection'
 import { ConvergenceStatus } from '@/presentation/components/convergence/ConvergenceStatus'
 import { describeConvergence, isSettling } from '@/presentation/components/convergence/convergencePresentation'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Select } from '@/presentation/components/ui/select'
@@ -86,7 +88,7 @@ function HttpProxyForm({ integrationId, current }: { integrationId: string; curr
   const [mode, setMode] = useState<ProvisionerHttpProxyMode>(current.spec.mode)
   const [url, setUrl] = useState(current.spec.httpProxy)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
 
   const settling = isSettling(describeConvergence(setting.status.conditions, setting.generation).state)
   const refresh = useCallback(async () => {
@@ -107,7 +109,7 @@ function HttpProxyForm({ integrationId, current }: { integrationId: string; curr
   const save = async () => {
     if (!canSave) return
     setSaving(true)
-    setError('')
+    setError(null)
     try {
       const result = await provisioning.setProvisionerHttpProxy(integrationId, requested)
       setSetting(result)
@@ -119,7 +121,7 @@ function HttpProxyForm({ integrationId, current }: { integrationId: string; curr
         description: 'swallow applies it to MAAS shortly; deployments MAAS starts afterwards use it.',
       })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The HTTP proxy could not be saved.')
+      setError(failureOf(caught, 'The HTTP proxy could not be saved.'))
     } finally {
       setSaving(false)
     }
@@ -131,7 +133,7 @@ function HttpProxyForm({ integrationId, current }: { integrationId: string; curr
     <Stack gap="4">
       {error && (
         <Alert status="error" title="HTTP proxy could not be saved">
-          {error}
+          <FailureMessage failure={error} />
         </Alert>
       )}
       <div className="sw-resource-form-grid">

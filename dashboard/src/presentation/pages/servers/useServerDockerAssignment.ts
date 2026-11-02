@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import type { SoftwareAssignment } from '@/domain/software/types'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 
 /**
  * The Server's swallow-owned Docker CE Software Assignment, which decides whether the Server detail
  * shows its Containers tab and what that tab offers (decision 043). `assignment` is null when
- * swallow has no non-absent Docker CE record for the Server.
+ * swallow has no non-absent Docker CE record for the Server; `error` carries the failed read's
+ * message and request ID.
  */
 export type ServerDockerAssignment =
   | { status: 'loading'; reload: () => void }
-  | { status: 'error'; message: string; reload: () => void }
+  | ({ status: 'error'; reload: () => void } & DisplayedFailure)
   | { status: 'ready'; assignment: SoftwareAssignment | null; reload: () => void }
 
 // A re-apply (enabling or disabling the Engine API) is a durable Workflow that usually takes tens of
@@ -30,7 +32,7 @@ const IN_FLIGHT_POLL_MS = 5_000
 export function useServerDockerAssignment(serverId: string | undefined): ServerDockerAssignment {
   const { software } = useApp()
   const [state, setState] = useState<
-    { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; assignment: SoftwareAssignment | null }
+    { status: 'loading' } | ({ status: 'error' } & DisplayedFailure) | { status: 'ready'; assignment: SoftwareAssignment | null }
   >({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
   const reload = useCallback(() => setNonce((value) => value + 1), [])
@@ -45,7 +47,7 @@ export function useServerDockerAssignment(serverId: string | undefined): ServerD
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setState({ status: 'error', message: error instanceof Error ? error.message : 'Docker CE status could not be read.' })
+          setState({ status: 'error', ...failureOf(error, 'Docker CE status could not be read.') })
         }
       })
     return () => {

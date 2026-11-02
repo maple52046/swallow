@@ -6,6 +6,7 @@ import type { SSHKey } from '@/domain/access/types'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionSurface, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
@@ -29,7 +30,7 @@ interface SSHKeysData {
 
 type PageState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; data: SSHKeysData }
 
 /** Which dialog is open; at most one at a time. */
@@ -89,7 +90,7 @@ export function SSHKeysPage() {
           },
         })
       } catch (caught) {
-        if (!cancelled) setState({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not load SSH keys.' })
+        if (!cancelled) setState({ status: 'error', ...failureOf(caught, 'Could not load SSH keys.') })
       }
     })()
     return () => {
@@ -146,7 +147,7 @@ export function SSHKeysPage() {
       showToast({ tone: 'info', title: 'Sync requested', description: 'Provisioner status refreshes in a few seconds.' })
       setSyncRequests((value) => value + 1)
     } catch (caught) {
-      showToast({ tone: 'error', title: 'Sync could not be requested', description: caught instanceof Error ? caught.message : undefined })
+      showToast({ tone: 'error', title: 'Sync could not be requested', description: failureText(failureOf(caught, '')) })
     } finally {
       setSyncing(false)
     }
@@ -168,7 +169,7 @@ export function SSHKeysPage() {
       />
 
       {state.status === 'loading' && <LoadingState rows={6} />}
-      {state.status === 'error' && <ErrorState message={state.message} onRetry={reload} />}
+      {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} onRetry={reload} />}
       {state.status === 'ready' && (
         <Stack gap="6">
           <SectionSurface

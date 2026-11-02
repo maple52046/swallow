@@ -6,6 +6,7 @@ import { evaluateMinimumResourceEligibility, formatMinimumResources } from '@/do
 import type { ObservabilityInstallMethod, SlurmContainerRuntime } from '@/domain/platform/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
 import type { PlatformDeployContext, PlatformDeployForm } from '@/modules/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { AdvancedSettings } from '@/presentation/pages/platforms/AdvancedSettings'
@@ -158,7 +159,7 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
         )}
         {requirementState.status === 'error' && (
           <Alert status="error" title="Slurm deployment requirement is unavailable">
-            {requirementState.message}
+            <FailureMessage failure={requirementState} />
             <Button size="sm" variant="outline" onClick={reloadRequirement}>Retry</Button>
           </Alert>
         )}

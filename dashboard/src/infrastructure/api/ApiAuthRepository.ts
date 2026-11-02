@@ -40,8 +40,9 @@ export class ApiAuthRepository implements AuthRepository {
       await authApi.login(username, password)
       return toUser(await authApi.getMe())
     } catch (error) {
-      if (error instanceof ApiRequestError && error.status === 401) throw new Error('Invalid username or password')
-      if (error instanceof Error) throw new Error(error.message)
+      if (error instanceof ApiRequestError && error.status === 401) {
+        throw new ApiRequestError(error.code, 'Invalid username or password', error.status, error.requestId)
+      }
       throw error
     }
   }

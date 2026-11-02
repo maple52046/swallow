@@ -770,7 +770,7 @@ export function ServersPage() {
     return (
       <div className="operator-page sw-servers-page">
         <PageHeader title="Servers" subtitle="Discover hardware inventory and operate Server lifecycle across the datacenter." />
-        <ErrorState message={state.message} onRetry={reload} />
+        <ErrorState message={state.message} requestId={state.requestId} onRetry={reload} />
       </div>
     )
   }

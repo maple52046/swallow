@@ -7,6 +7,8 @@ import { AsyncSection } from '@/presentation/components/AsyncSection'
 import { ConvergenceStatus } from '@/presentation/components/convergence/ConvergenceStatus'
 import { describeConvergence, isSettling } from '@/presentation/components/convergence/convergencePresentation'
 import { EmptyState } from '@/presentation/components/EmptyState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useAsyncData } from '@/presentation/hooks/useAsyncData'
@@ -119,7 +121,7 @@ function SubnetDnsRow({ integrationId, subnet }: { integrationId: string; subnet
   const [saved, setSaved] = useState(subnet)
   const [text, setText] = useState(formatDnsServerList(subnet.spec.dnsServers))
   const [applying, setApplying] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
 
   const settling = isSettling(describeConvergence(saved.status.conditions, saved.generation).state)
   const refresh = useCallback(async () => {
@@ -138,7 +140,7 @@ function SubnetDnsRow({ integrationId, subnet }: { integrationId: string; subnet
   const apply = async () => {
     if (!canApply || parsed.servers === null) return
     setApplying(true)
-    setError('')
+    setError(null)
     try {
       const result = await provisioning.setProvisionerSubnetDnsServers(integrationId, subnet.id, parsed.servers)
       setSaved(result)
@@ -149,7 +151,7 @@ function SubnetDnsRow({ integrationId, subnet }: { integrationId: string; subnet
         description: 'swallow applies it to MAAS shortly; Automatic and Static deployments MAAS starts afterwards use it.',
       })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The DNS servers could not be saved.')
+      setError(failureOf(caught, 'The DNS servers could not be saved.'))
     } finally {
       setApplying(false)
     }
@@ -172,7 +174,7 @@ function SubnetDnsRow({ integrationId, subnet }: { integrationId: string; subnet
       <Stack gap="2" className="sw-subnet-dns-row__editor">
         {error && (
           <Alert status="error" title="DNS servers could not be saved">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Field.Root invalid={parsed.problem !== null}>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import type { SoftwareAssignment } from '@/domain/software/types'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { useToast } from '@/presentation/components/toast/toastContext'
 
 /**
@@ -10,20 +11,20 @@ import { useToast } from '@/presentation/components/toast/toastContext'
  * The contract replaces the recorded spec on a re-apply, so the request sends the recorded spec with
  * only `enableApi` changed — a pinned `version` is kept. The request returns once the Workflow is
  * accepted; `onStarted` then re-reads the assignment, which turns `pending` and is polled until the
- * Workflow lands. A refusal (for example a locked Server or an active Workflow) is kept in `error`
- * for inline display. Re-applying restarts the Docker daemon on the host; callers must have shown
- * the shared risk notice first.
+ * Workflow lands. A refusal (for example a locked Server or an active Workflow) is kept in `error`,
+ * with its request ID, for inline display. Re-applying restarts the Docker daemon on the host;
+ * callers must have shown the shared risk notice first.
  */
 export function useDockerApiToggle(serverId: string, assignment: SoftwareAssignment, onStarted: () => void) {
   const { software } = useApp()
   const { showToast } = useToast()
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
 
   const setApiEnabled = async (enabled: boolean): Promise<boolean> => {
     if (submitting) return false
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await software.installSoftware({
         kind: 'docker-ce',
@@ -38,7 +39,7 @@ export function useDockerApiToggle(serverId: string, assignment: SoftwareAssignm
       onStarted()
       return true
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Docker CE could not be re-applied.')
+      setError(failureOf(caught, 'Docker CE could not be re-applied.'))
       return false
     } finally {
       setSubmitting(false)

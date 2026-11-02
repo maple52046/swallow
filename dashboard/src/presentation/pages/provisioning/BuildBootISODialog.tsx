@@ -3,6 +3,8 @@ import { Box, Button, Field, HStack, Input, Stack, Text } from '@chakra-ui/react
 import { useApp } from '@/di/AppProvider'
 import { bootISOChainURL, type BootISO } from '@/domain/provisioning/types'
 import type { Integration } from '@/domain/site/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
@@ -45,7 +47,7 @@ export function BuildBootISODialog({ integrations, onClose, onBuilt }: BuildBoot
   )
   const [edited, setEdited] = useState({ name: false, rackAddress: false })
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const selectedIntegration = integrations.find((item) => item.id === draft.integrationId)
   const chainURL = bootISOChainURL(draft.rackAddress)
   const ready = Boolean(draft.integrationId && draft.name.trim() && draft.rackAddress.trim())
@@ -62,7 +64,7 @@ export function BuildBootISODialog({ integrations, onClose, onBuilt }: BuildBoot
   const submit = async () => {
     if (busy || !ready) return
     setBusy(true)
-    setError('')
+    setError(null)
     try {
       const iso = await provisioning.createBootISO({
         integrationId: draft.integrationId,
@@ -71,7 +73,7 @@ export function BuildBootISODialog({ integrations, onClose, onBuilt }: BuildBoot
       })
       onBuilt(iso)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The Boot ISO could not be built.')
+      setError(failureOf(caught, 'The Boot ISO could not be built.'))
     } finally {
       setBusy(false)
     }
@@ -102,7 +104,7 @@ export function BuildBootISODialog({ integrations, onClose, onBuilt }: BuildBoot
       <Stack gap="4">
         {error && (
           <Alert status="error" title="The Boot ISO was not built">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         {single ? (

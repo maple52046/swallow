@@ -4,6 +4,8 @@ import type { ReleaseServerInput } from '@/domain/server/types'
 import { BlockingWorkflowsNotice } from '@/presentation/components/BlockingWorkflowsNotice'
 import { ReleaseOptionsFields } from '@/presentation/components/ReleaseOptionsFields'
 import { emptyReleaseOptions, type ReleaseOptionsValue } from '@/presentation/components/releaseOptions'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { useServerActiveOperations } from '@/presentation/hooks/useServerActiveOperations'
@@ -40,7 +42,7 @@ export function ServerReleaseDialog({
   const [comment, setComment] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [cancelRunning, setCancelRunning] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
 
   const { activeOperations } = useServerActiveOperations(targets.map((target) => target.serverId))
 
@@ -61,7 +63,7 @@ export function ServerReleaseDialog({
   const submit = async () => {
     if (submitting || targets.length === 0) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await onRelease({
         erase: supportsReleaseOptions && options.erase,
@@ -73,7 +75,7 @@ export function ServerReleaseDialog({
       })
       onClose()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not release the selected Server.')
+      setError(failureOf(caught, 'Could not release the selected Server.'))
     } finally {
       setSubmitting(false)
     }
@@ -105,7 +107,7 @@ export function ServerReleaseDialog({
       <Stack gap="4">
         {error && (
           <Alert status="error" title="Release could not be started">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Text>

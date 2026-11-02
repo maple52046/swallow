@@ -9,6 +9,7 @@ import {
 } from '@/domain/monitoring/types'
 import { TimeSeriesChart } from '@/presentation/components/charts/TimeSeriesChart'
 import { EmptyState } from '@/presentation/components/EmptyState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionSurface } from '@/presentation/components/OperatorPrimitives'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -42,7 +43,7 @@ interface UsageChartsProps {
  *
  * State contract: `idle` explains how to pick a scope; `loading` keeps chart-sized skeletons;
  * `unavailable` explains that a metrics Integration is required (never "servers down");
- * `error` shows the backend message; an empty scope says so; a metric without data shows
+ * `error` shows the backend message and request ID; an empty scope says so; a metric without data shows
  * "No data" in its card rather than a flat zero line. The window control is a labelled button
  * group whose pressed state is exposed through `aria-pressed`.
  */
@@ -117,7 +118,7 @@ function UsageChartsBody({
         </Alert>
       )
     case 'error':
-      return <Alert status="warning" title="Usage history is unavailable">{state.message}</Alert>
+      return <Alert status="warning" title="Usage history is unavailable"><FailureMessage failure={state} /></Alert>
     case 'ready':
       if (state.result.scope.serverCount === 0) {
         return <EmptyState title="No Servers in this scope" message="This grouping currently contains no Servers, so there is nothing to chart." />

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "@/di/AppProvider";
 import type { SlurmDeploymentRequirement } from "@/domain/platform/types";
+import { failureOf, type DisplayedFailure } from "@/presentation/components/failure";
 
-/** Fail-closed loading contract for the Slurm deployment policy used by the wizard. */
+/**
+ * Fail-closed loading contract for the Slurm deployment policy used by the wizard; `error` carries
+ * the failed read's message and request ID.
+ */
 export type SlurmRequirementState =
   | { status: "loading" }
-  | { status: "error"; message: string }
+  | ({ status: "error" } & DisplayedFailure)
   | { status: "ready"; requirement: SlurmDeploymentRequirement };
 
 /**
@@ -34,7 +38,7 @@ export function useSlurmDeploymentRequirement(): {
         if (!cancelled) setState({ status: "ready", requirement });
       })
       .catch((error: Error) => {
-        if (!cancelled) setState({ status: "error", message: error.message });
+        if (!cancelled) setState({ status: "error", ...failureOf(error, "The Slurm deployment requirement could not be loaded.") });
       });
     return () => {
       cancelled = true;

@@ -12,6 +12,8 @@ import { isSoftwareKind, type SoftwareAssignment } from '@/domain/software/types
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ModuleSettingsDetails } from '@/presentation/components/ModuleSettings'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { InventorySurface, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
@@ -44,8 +46,8 @@ import './software.css'
 type DetailState =
   | { status: 'loading' }
   | { status: 'not-found' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; data: SoftwareDetailWorkingSet; refreshError?: string }
+  | ({ status: 'error' } & DisplayedFailure)
+  | { status: 'ready'; data: SoftwareDetailWorkingSet; refreshError?: DisplayedFailure }
 
 const PAGE_SIZE = 10
 const REFRESH_INTERVAL_MS = 5_000
@@ -81,10 +83,10 @@ export function SoftwareDetailPage() {
       const data = await loadSoftwareDetailWorkspace(software, servers, kind, siteId)
       setState(data.entry ? { status: 'ready', data } : { status: 'not-found' })
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Software details could not be loaded.'
+      const failure = failureOf(caught, 'Software details could not be loaded.')
       setState((current) => background && current.status === 'ready'
-        ? { ...current, refreshError: message }
-        : { status: 'error', message })
+        ? { ...current, refreshError: failure }
+        : { status: 'error', ...failure })
     }
   }, [kind, siteId, software, servers])
 
@@ -109,7 +111,7 @@ export function SoftwareDetailPage() {
         if (!cancelled) {
           setState({
             status: 'error',
-            message: caught instanceof Error ? caught.message : 'Software details could not be loaded.',
+            ...failureOf(caught, 'Software details could not be loaded.'),
           })
         }
       },
@@ -142,7 +144,7 @@ export function SoftwareDetailPage() {
   }, [hasChanging, load, state])
 
   if (state.status === 'loading') return <LoadingState rows={6} />
-  if (state.status === 'error') return <ErrorState message={state.message} onRetry={() => void load()} />
+  if (state.status === 'error') return <ErrorState message={state.message} requestId={state.requestId} onRetry={() => void load()} />
   if (state.status === 'not-found' || !kind || !state.data.entry) {
     return (
       <div className="operator-page">
@@ -229,7 +231,7 @@ export function SoftwareDetailPage() {
       {state.refreshError && (
         <Alert status="warning" title="Deployment data may be out of date">
           <HStack justify="space-between" gap="3" wrap="wrap">
-            <Text>{state.refreshError}</Text>
+            <Text><FailureMessage failure={state.refreshError} /></Text>
             <Button size="xs" variant="outline" onClick={() => void load(true)}>Retry</Button>
           </HStack>
         </Alert>

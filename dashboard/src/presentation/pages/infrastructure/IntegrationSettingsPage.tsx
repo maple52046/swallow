@@ -51,7 +51,7 @@ export function IntegrationSettingsPage() {
   const ownDrafts = drafts.id === id ? drafts : { id, general: null, connection: null }
 
   if (state.status === 'loading') return <LoadingState />
-  if (state.status === 'error') return <ErrorState message={state.message} onRetry={reload} />
+  if (state.status === 'error') return <ErrorState message={state.message} requestId={state.requestId} onRetry={reload} />
   if (state.status === 'not-found') {
     return (
       <EmptyState

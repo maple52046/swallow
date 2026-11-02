@@ -3,6 +3,8 @@ import { Button, Field, Input, Stack, Textarea } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import { type GroupKind, type GroupingResource, groupKindLabel } from '@/domain/infrastructure/types'
 import type { Site } from '@/domain/site/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
@@ -34,7 +36,7 @@ export function GroupDialog({ kind, group, sites, defaultSiteId, onClose, onSave
   const [siteId, setSiteId] = useState(group?.siteId ?? defaultSiteId ?? '')
   const [name, setName] = useState(group?.spec.name ?? '')
   const [description, setDescription] = useState(group?.spec.description ?? '')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const editing = Boolean(group)
   const label = groupKindLabel(kind)
@@ -48,14 +50,14 @@ export function GroupDialog({ kind, group, sites, defaultSiteId, onClose, onSave
   const submit = async () => {
     if (!valid || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const saved = group
         ? await infrastructure.updateGroup(kind, group.id, { name: name.trim(), description: description.trim() })
         : await infrastructure.createGroup(kind, { siteId, name: name.trim(), description: description.trim() })
       onSaved(saved)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : `${label} could not be saved.`)
+      setError(failureOf(caught, `${label} could not be saved.`))
     } finally {
       setSubmitting(false)
     }
@@ -90,7 +92,7 @@ export function GroupDialog({ kind, group, sites, defaultSiteId, onClose, onSave
       <Stack gap="4">
         {error && (
           <Alert status="error" title={`${label} could not be saved`}>
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Field.Root required>

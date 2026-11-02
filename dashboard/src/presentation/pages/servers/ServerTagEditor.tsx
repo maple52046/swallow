@@ -7,6 +7,8 @@ import type { ServerTagOption, ServerTagsResult } from '@/domain/provisioning/ty
 import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/list'
 import { serverManualTags } from '@/domain/server/tags'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -58,7 +60,7 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
   const [decisions, setDecisions] = useState<Map<string, TagDecision>>(new Map())
   const [newTagInput, setNewTagInput] = useState('')
   const [inputError, setInputError] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
         // selected Servers and warn, rather than trapping the operator in an error dialog.
         if (cancelled) return
         setKnown([])
-        setKnownWarning(caught instanceof Error ? caught.message : 'Existing tags could not be loaded.')
+        setKnownWarning(failureText(failureOf(caught, 'Existing tags could not be loaded.')))
       })
     return () => {
       cancelled = true
@@ -135,7 +137,7 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
   const submit = async () => {
     if (!hasChanges || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const results = await provisioning.editServerTags({
         serverIds: servers.map((server) => server.id),
@@ -153,7 +155,7 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
       onSaved(results)
       onClose()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Tags could not be saved.')
+      setError(failureOf(caught, 'Tags could not be saved.'))
     } finally {
       setSubmitting(false)
     }
@@ -189,7 +191,7 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
       <Stack gap="4">
         {error && (
           <Alert status="error" title="Tags could not be saved">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         {knownWarning && (

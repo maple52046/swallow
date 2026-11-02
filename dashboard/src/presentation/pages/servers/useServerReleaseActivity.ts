@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import { findServerReleaseWorkflow, type Operation, type ServerReleaseWorkflow } from '@/domain/operation/types'
+import { failureOf, failureText } from '@/presentation/components/failure'
 
 /**
  * How often a releasing Server's Workflows are re-read. A release (with disk erasure) takes
@@ -16,7 +17,8 @@ const RELEASE_ACTIVITY_PAGE_SIZE = 50
  *
  * - `idle`: the Server is not releasing, so nothing was read.
  * - `loading`: the first read for this release is in flight.
- * - `error`: the Workflows could not be read and there is no earlier result to keep showing.
+ * - `error`: the Workflows could not be read and there is no earlier result to keep showing;
+ *   `message` is one line that includes the request ID, if any.
  * - `ready`: `workflow` is the Workflow behind the release, or `null` when none covers it.
  */
 export type ServerReleaseActivity =
@@ -65,7 +67,7 @@ export function useServerReleaseActivity({ serverId, releasing, stateSince }: Se
           setRead((current) =>
             current?.scopeKey === scopeKey && current.status === 'ready'
               ? current
-              : { scopeKey, status: 'error', message: error.message },
+              : { scopeKey, status: 'error', message: failureText(failureOf(error, 'The Workflows could not be read.')) },
           )
         },
       )

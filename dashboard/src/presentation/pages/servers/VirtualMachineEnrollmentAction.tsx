@@ -4,6 +4,8 @@ import { Link as RouterLink } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { serverDisplayName, type HypervisorVirtualMachines, type Server } from '@/domain/server/types'
 import type { Integration } from '@/domain/site/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
@@ -15,14 +17,14 @@ import { useAsyncData } from '@/presentation/hooks/useAsyncData'
 type ListState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; data: HypervisorVirtualMachines }
 
 /** The enrollment request: not sent, in flight, refused (with the API's reason), or accepted. */
 type SubmitState =
   | { status: 'idle' }
   | { status: 'submitting' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'accepted'; workflowId: string; count: number }
 
 interface VirtualMachineEnrollmentActionProps {
@@ -101,7 +103,7 @@ export function VirtualMachineEnrollmentAction({ provisioners, servers }: Virtua
       if (request === listRequest.current) setList({ status: 'ready', data })
     } catch (caught) {
       if (request === listRequest.current) {
-        setList({ status: 'error', message: caught instanceof Error ? caught.message : 'The virtual machines could not be read.' })
+        setList({ status: 'error', ...failureOf(caught, 'The virtual machines could not be read.') })
       }
     }
   }
@@ -130,7 +132,7 @@ export function VirtualMachineEnrollmentAction({ provisioners, servers }: Virtua
       })
       setSubmit({ status: 'accepted', workflowId: accepted.workflowId, count: selected.size })
     } catch (caught) {
-      setSubmit({ status: 'error', message: caught instanceof Error ? caught.message : 'The enrollment could not be started.' })
+      setSubmit({ status: 'error', ...failureOf(caught, 'The enrollment could not be started.') })
     }
   }
 
@@ -189,7 +191,7 @@ export function VirtualMachineEnrollmentAction({ provisioners, servers }: Virtua
       </HStack>
       {list.status === 'error' && (
         <Alert status="error" title="The virtual machines could not be read">
-          {list.message}
+          <FailureMessage failure={list} />
         </Alert>
       )}
       {list.status === 'ready' && (
@@ -219,7 +221,7 @@ export function VirtualMachineEnrollmentAction({ provisioners, servers }: Virtua
             />
             <Field.HelperText>
               {bootISOs.status === 'error'
-                ? `Boot ISOs could not be read: ${bootISOs.message}`
+                ? `Boot ISOs could not be read: ${failureText(bootISOs)}`
                 : 'With a Boot ISO, each virtual machine boots it first from its CD-ROM, and keeps that for every inspection and OS deployment.'}
             </Field.HelperText>
           </Field.Root>
@@ -228,7 +230,7 @@ export function VirtualMachineEnrollmentAction({ provisioners, servers }: Virtua
           </Checkbox>
           {submit.status === 'error' && (
             <Alert status="error" title="The enrollment was not started">
-              {submit.message}
+              <FailureMessage failure={submit} />
             </Alert>
           )}
           {submit.status === 'accepted' ? (

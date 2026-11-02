@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Overview } from '@/domain/overview/types'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { MetricGrid, SectionSurface, StickyTableFrame, type MetricItem } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
@@ -18,7 +19,7 @@ import { formatRelative } from '@/shared/utils/time'
 type OverviewState =
   | { status: 'loading' }
   | { status: 'ready'; data: Overview }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
 
 interface AttentionItem {
   key: string
@@ -163,7 +164,7 @@ export function OperatorOverviewPage() {
         if (!cancelled) setState({ status: 'ready', data })
       })
       .catch((error: Error) => {
-        if (!cancelled) setState({ status: 'error', message: error.message })
+        if (!cancelled) setState({ status: 'error', ...failureOf(error, 'The overview could not be loaded.') })
       })
     return () => { cancelled = true }
   }, [overview, siteId])
@@ -174,7 +175,7 @@ export function OperatorOverviewPage() {
   )
 
   if (state.status === 'loading') return <LoadingState />
-  if (state.status === 'error') return <ErrorState message={state.message} />
+  if (state.status === 'error') return <ErrorState message={state.message} requestId={state.requestId} />
 
   const data = state.data
 

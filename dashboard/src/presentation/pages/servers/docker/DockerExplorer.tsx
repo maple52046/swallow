@@ -8,6 +8,7 @@ import { formatBytes } from '@/shared/utils/bytes'
 import { AsyncSection } from '@/presentation/components/AsyncSection'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { CopyButton } from '@/presentation/components/CopyButton'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { MetricGrid, SectionSurface } from '@/presentation/components/OperatorPrimitives'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useAsyncData } from '@/presentation/hooks/useAsyncData'
@@ -55,7 +56,7 @@ export function DockerExplorer({ server, assignment, onAssignmentChanged }: Dock
       )}
       {toggle.error && (
         <Alert status="error" title="The Docker Engine API could not be disabled">
-          {toggle.error}
+          <FailureMessage failure={toggle.error} />
         </Alert>
       )}
       <SectionSurface

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Box, Button, Link, List, Stack, Text } from '@chakra-ui/react'
 import { Link as RouterLink } from 'react-router-dom'
 import type { ProvisioningAxis } from '@/domain/server/types'
+import { failureOf, failureText } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useApp } from '@/di/AppProvider'
 import { useToast } from '@/presentation/components/toast/toastContext'
@@ -64,7 +65,7 @@ export function ProviderFailureAlert({
       })
       onRecoverStarted()
     } catch (error) {
-      showToast({ tone: 'error', title: 'Recovery could not start', description: error instanceof Error ? error.message : 'Try again in a moment.' })
+      showToast({ tone: 'error', title: 'Recovery could not start', description: failureText(failureOf(error, 'Try again in a moment.')) })
       void refresh()
     } finally {
       setBusy(false)

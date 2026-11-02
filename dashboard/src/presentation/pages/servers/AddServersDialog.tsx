@@ -10,6 +10,8 @@ import { DeploymentBadge } from '@/presentation/components/AxisBadge'
 import { CodeBlock } from '@/presentation/components/CodeBlock'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { InProgressSpinner } from '@/presentation/components/InProgressSpinner'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
@@ -175,7 +177,7 @@ function Action({ children }: { children: ReactNode }) {
 function BootISOAction({ provisioners }: { provisioners: readonly Integration[] }) {
   const { provisioning } = useApp()
   const { siteId, scopedHref } = useSiteScope()
-  const [isos, setIsos] = useState<{ status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; items: BootISO[] }>({ status: 'loading' })
+  const [isos, setIsos] = useState<{ status: 'loading' } | ({ status: 'error' } & DisplayedFailure) | { status: 'ready'; items: BootISO[] }>({ status: 'loading' })
   const [isoId, setIsoId] = useState('')
   const [bmc, setBmc] = useState({ address: '', user: '' })
 
@@ -192,7 +194,7 @@ function BootISOAction({ provisioners }: { provisioners: readonly Integration[] 
         setIsoId((current) => current || items[0]?.id || '')
       })
       .catch((error: unknown) => {
-        if (!cancelled) setIsos({ status: 'error', message: error instanceof Error ? error.message : 'Boot ISOs could not be read.' })
+        if (!cancelled) setIsos({ status: 'error', ...failureOf(error, 'Boot ISOs could not be read.') })
       })
     return () => {
       cancelled = true
@@ -203,7 +205,7 @@ function BootISOAction({ provisioners }: { provisioners: readonly Integration[] 
   if (isos.status === 'error') {
     return (
       <Alert status="error" title="Boot ISOs could not be read">
-        {isos.message}
+        <FailureMessage failure={isos} />
       </Alert>
     )
   }
@@ -284,7 +286,7 @@ function BootISOAction({ provisioners }: { provisioners: readonly Integration[] 
 /** The enrollment bundle read for one provisioner. */
 type BundleState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; bundle: HostEnrollmentBundle }
 
 /**
@@ -310,7 +312,7 @@ function ExistingOSAction({ provisioners }: { provisioners: readonly Integration
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setBundle({ integrationId, state: { status: 'error', message: error instanceof Error ? error.message : 'The command could not be generated.' } })
+          setBundle({ integrationId, state: { status: 'error', ...failureOf(error, 'The command could not be generated.') } })
         }
       })
     return () => {
@@ -345,7 +347,7 @@ function ExistingOSAction({ provisioners }: { provisioners: readonly Integration
       {state?.status === 'loading' && <Text color="fg.muted">Generating the command…</Text>}
       {state?.status === 'error' && (
         <Alert status="error" title="The command could not be generated">
-          {state.message}
+          <FailureMessage failure={state} />
         </Alert>
       )}
       {state?.status === 'ready' && (

@@ -6,6 +6,8 @@ import { useApp } from '@/di/AppProvider'
 import type { Operation } from '@/domain/operation/types'
 import { platformPrimaryRemovalAction, platformUninstallAvailability } from '@/domain/platform/lifecycle'
 import type { Platform } from '@/domain/platform/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { emptyReleaseOptions, type ReleaseOptionsValue } from '@/presentation/components/releaseOptions'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
@@ -76,7 +78,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
   const [dialog, setDialog] = useState<RemovalDialog | null>(null)
   const [confirmation, setConfirmation] = useState('')
   const confirmationRef = useRef<HTMLInputElement>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [releaseServers, setReleaseServers] = useState(false)
   const [releaseOptions, setReleaseOptions] = useState<ReleaseOptionsValue>(emptyReleaseOptions)
@@ -84,7 +86,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
   // Read only while the Uninstall dialog is open, so a closed page issues no Workflow lookups.
   const { activeOperations: blockingWorkflows } = useServerActiveOperations(dialog === 'uninstall' ? targetServerIds ?? [] : [])
   const [repairOpen, setRepairOpen] = useState(false)
-  const [repairError, setRepairError] = useState('')
+  const [repairError, setRepairError] = useState<DisplayedFailure | null>(null)
   const [repairing, setRepairing] = useState(false)
   const targetProtection = useTargetLockProtection(targetServerIds)
   const targetCount = targetServerIds?.length
@@ -123,7 +125,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
   const open = (next: RemovalDialog) => {
     setDialog(next)
     setConfirmation('')
-    setError('')
+    setError(null)
     setReleaseServers(false)
     setReleaseOptions(emptyReleaseOptions)
     setCancelBlocking(false)
@@ -149,7 +151,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
   const submit = async () => {
     if (!canSubmit) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       if (dialog === 'uninstall') {
         const proposed = await platforms.deletePlatform(platform.id, platformUninstallOptions({
@@ -176,7 +178,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
       })
       navigate(scopedHref('/platforms'), { replace: true })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The platform action failed.')
+      setError(failureOf(caught, 'The platform action failed.'))
     } finally {
       setSubmitting(false)
     }
@@ -185,7 +187,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
   const startRepair = async () => {
     if (!platform.lifecycleOperationId || repairing) return
     setRepairing(true)
-    setRepairError('')
+    setRepairError(null)
     try {
       const operation = await operations.getOperation(platform.lifecycleOperationId)
       if (!operation) throw new Error('The deployment Operation no longer exists.')
@@ -220,7 +222,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
       showToast({ tone: 'success', title: 'Platform repair started', description })
       onRepairStarted()
     } catch (caught) {
-      setRepairError(caught instanceof Error ? caught.message : 'Could not start platform repair.')
+      setRepairError(failureOf(caught, 'Could not start platform repair.'))
     } finally {
       setRepairing(false)
     }
@@ -236,7 +238,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
             <Button
               colorPalette="brand"
               onClick={() => {
-                setRepairError('')
+                setRepairError(null)
                 setRepairOpen(true)
               }}
               disabled={Boolean(repairDisabledReason)}
@@ -282,7 +284,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         <Stack gap="3">
           {repairError && (
             <Alert status="error" title="Repair could not start">
-              {repairError}
+              <FailureMessage failure={repairError} />
             </Alert>
           )}
           <Alert
@@ -335,7 +337,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         <Stack gap="4">
           {error && (
             <Alert status="error" title="Action failed">
-              {error}
+              <FailureMessage failure={error} />
             </Alert>
           )}
           {/* Polite so a screen reader hears the new targets and consequence when a choice changes. */}

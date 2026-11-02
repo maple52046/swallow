@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button, Field, HStack, Input, Stack, Text } from '@chakra-ui/react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
@@ -45,7 +47,7 @@ export function IntegrationGeneralTab() {
   const { sites } = useApp()
   const { showToast } = useToast()
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const draft = generalDraft ?? { name: integration.name, endpoint: integration.endpoint, enabled: integration.enabled }
   const dirty = draft.name !== integration.name || draft.endpoint !== integration.endpoint || draft.enabled !== integration.enabled
   const valid = Boolean(draft.name.trim() && draft.endpoint.trim())
@@ -54,7 +56,7 @@ export function IntegrationGeneralTab() {
   const save = async () => {
     if (!dirty || !valid || saving) return
     setSaving(true)
-    setError('')
+    setError(null)
     try {
       const saved = await sites.updateIntegration(integration.id, {
         name: draft.name.trim(),
@@ -66,7 +68,7 @@ export function IntegrationGeneralTab() {
       onSaved(saved)
       showToast({ tone: 'success', title: 'Integration updated' })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The Integration could not be saved.')
+      setError(failureOf(caught, 'The Integration could not be saved.'))
     } finally {
       setSaving(false)
     }
@@ -86,7 +88,7 @@ export function IntegrationGeneralTab() {
       >
         {error && (
           <Alert status="error" title="Integration could not be saved">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <DescriptionList
@@ -134,14 +136,14 @@ export function IntegrationConnectionTab() {
   const { sites } = useApp()
   const { showToast } = useToast()
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const settings = connectionDraft ?? integration.settings
   const dirty = JSON.stringify(sortedEntries(settings)) !== JSON.stringify(sortedEntries(integration.settings))
 
   const save = async () => {
     if (!dirty || saving) return
     setSaving(true)
-    setError('')
+    setError(null)
     try {
       const saved = await sites.updateIntegration(integration.id, {
         name: integration.name,
@@ -153,7 +155,7 @@ export function IntegrationConnectionTab() {
       onSaved(saved)
       showToast({ tone: 'success', title: 'Connection settings saved' })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The connection settings could not be saved.')
+      setError(failureOf(caught, 'The connection settings could not be saved.'))
     } finally {
       setSaving(false)
     }
@@ -173,7 +175,7 @@ export function IntegrationConnectionTab() {
       >
         {error && (
           <Alert status="error" title="Connection settings could not be saved">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <IntegrationConnectionFields
@@ -207,7 +209,7 @@ export function IntegrationCredentialTab() {
   const { showToast } = useToast()
   const [credential, setCredential] = useState('')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const replacing = integration.hasCredential
   const term = credentialGuidance(integration.providerKind).term
   const action = replacing ? 'Replace' : 'Set'
@@ -215,7 +217,7 @@ export function IntegrationCredentialTab() {
   const save = async () => {
     if (!credential || saving) return
     setSaving(true)
-    setError('')
+    setError(null)
     try {
       await sites.replaceIntegrationCredential(integration.id, credential)
       setCredential('')
@@ -223,7 +225,7 @@ export function IntegrationCredentialTab() {
       reload()
       showToast({ tone: 'success', title: replacing ? 'Credential replaced' : 'Credential set' })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : `The credential could not be ${replacing ? 'replaced' : 'set'}.`)
+      setError(failureOf(caught, `The credential could not be ${replacing ? 'replaced' : 'set'}.`))
     } finally {
       setSaving(false)
     }
@@ -247,7 +249,7 @@ export function IntegrationCredentialTab() {
       >
         {error && (
           <Alert status="error" title={`Credential could not be ${replacing ? 'replaced' : 'set'}`}>
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <CredentialGuidanceNote providerKind={integration.providerKind} />

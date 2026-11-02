@@ -418,7 +418,7 @@ export function PlatformsPage() {
       />
 
       {state.status === 'loading' && <LoadingState rows={4} />}
-      {state.status === 'error' && <ErrorState message={state.message} />}
+      {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} />}
       {state.status === 'ready' && allPlatforms.length === 0 && (
         <EmptyState
           title="No platforms"

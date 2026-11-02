@@ -3,6 +3,8 @@ import { Button, Field, Input, Stack, Textarea } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { Site } from '@/domain/site/types'
 import { Alert } from '@/presentation/components/ui/alert'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Modal } from '@/presentation/components/ui/modal'
 
 interface SiteDialogProps {
@@ -22,7 +24,7 @@ export function SiteDialog({ site, onClose, onSaved }: SiteDialogProps) {
   const { sites } = useApp()
   const [name, setName] = useState(site?.name ?? '')
   const [description, setDescription] = useState(site?.description ?? '')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const editing = Boolean(site)
 
@@ -33,14 +35,14 @@ export function SiteDialog({ site, onClose, onSaved }: SiteDialogProps) {
   const submit = async () => {
     if (!name.trim() || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const saved = site
         ? await sites.updateSite(site.id, { name: name.trim(), description: description.trim() })
         : await sites.createSite({ name: name.trim(), description: description.trim() })
       onSaved(saved)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Site could not be saved.')
+      setError(failureOf(caught, 'Site could not be saved.'))
     } finally {
       setSubmitting(false)
     }
@@ -71,7 +73,7 @@ export function SiteDialog({ site, onClose, onSaved }: SiteDialogProps) {
       <Stack gap="4">
         {error && (
           <Alert status="error" title="Site could not be saved">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Field.Root required>

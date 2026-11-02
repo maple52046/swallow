@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { Button, Field, Input, Stack } from '@chakra-ui/react'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 
@@ -35,7 +37,7 @@ export function ResourceDeleteDialog({
   onDeleted,
 }: ResourceDeleteDialogProps) {
   const [confirmation, setConfirmation] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   const close = () => {
@@ -45,12 +47,12 @@ export function ResourceDeleteDialog({
   const submit = async () => {
     if (confirmation !== name || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await onDelete()
       onDeleted()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : `${resourceLabel} could not be deleted.`)
+      setError(failureOf(caught, `${resourceLabel} could not be deleted.`))
     } finally {
       setSubmitting(false)
     }
@@ -82,7 +84,7 @@ export function ResourceDeleteDialog({
       <Stack gap="4">
         {error && (
           <Alert status="error" title={`${resourceLabel} could not be deleted`}>
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Alert status="warning" title="This cannot be undone">

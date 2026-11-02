@@ -2,21 +2,28 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import type { ListOperationsFilters, Operation } from '@/domain/operation/types'
 import { operationStatus } from '@/domain/operation/types'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { isWorkflowChangingStatus } from './workflowListPresentation'
 
 const POLL_INTERVAL_MS = 5000
 
-/** Query-keyed state prevents a new URL filter from temporarily showing the previous result. */
+/**
+ * Query-keyed state prevents a new URL filter from temporarily showing the previous result.
+ * `error` is a failed first read for the current filter, with its message and request ID.
+ */
 export type OperationsState =
   | { status: 'loading'; filterKey: string }
-  | { status: 'error'; filterKey: string; message: string }
+  | ({ status: 'error'; filterKey: string } & DisplayedFailure)
   | {
       status: 'ready'
       filterKey: string
       operations: Operation[]
       total: number
       refreshedAt: string
-      /** A background failure leaves the last-good page visible and retrying. */
+      /**
+       * A background failure leaves the last-good page visible and retrying. One line of text that
+       * already includes the request ID, if any.
+       */
       refreshError?: string
     }
 
@@ -92,14 +99,15 @@ export function useOperations(filters: ListOperationsFilters): {
         })
         .catch((error: Error) => {
           if (cancelled) return
+          const failure = failureOf(error, 'Workflows could not be loaded.')
           if (loadedFilterRef.current === filterKey) {
             setSnapshot((current) => current.status === 'ready' && current.filterKey === filterKey
-              ? { ...current, refreshError: error.message }
+              ? { ...current, refreshError: failureText(failure) }
               : current)
             scheduleNext()
             return
           }
-          setSnapshot({ status: 'error', filterKey, message: error.message })
+          setSnapshot({ status: 'error', filterKey, ...failure })
         })
     }
 

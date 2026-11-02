@@ -1,3 +1,4 @@
+import type { RequestFailure } from '@/application/ports/RequestFailure'
 import { API_BASE_URL } from './baseUrl'
 import {
   accessTokenExpiresSoon,
@@ -9,7 +10,7 @@ import {
 export { API_BASE_URL }
 
 /** A client-safe API failure with an opaque server-log correlation ID. */
-export class ApiRequestError extends Error {
+export class ApiRequestError extends Error implements RequestFailure {
   constructor(
     public readonly code: string,
     message: string,

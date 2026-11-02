@@ -5,6 +5,8 @@ import type { ProvisioningRepository } from '@/application/ports/ProvisioningRep
 import type { OSImageCatalogRow } from '@/application/usecases/provisioning/loadOSImageCatalog'
 import { isValidDefaultUser } from '@/domain/site/types'
 import { ResourceTag } from '@/presentation/components/ResourceTag'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { hasOSImageMetadata } from './osImageListPresentation'
@@ -28,7 +30,7 @@ export function EditImageDialog({
   const [tagDraft, setTagDraft] = useState('')
   const [defaultUser, setDefaultUser] = useState(image.spec.defaultUser)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const defaultUserInvalid = defaultUser.trim() !== '' && !isValidDefaultUser(defaultUser.trim())
   const builtinDefaultUser = image.spec.defaultUser ? '' : image.status.defaultUser ?? ''
 
@@ -47,7 +49,7 @@ export function EditImageDialog({
     const pending = tagDraft.trim()
     const finalTags = pending && !tags.includes(pending) ? [...tags, pending] : tags
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await repository.setOSImageMetadata(image.integrationId, image.id, image.architecture, {
         name: name.trim(),
@@ -58,7 +60,7 @@ export function EditImageDialog({
       })
       onSaved('OS image updated')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The image could not be updated.')
+      setError(failureOf(caught, 'The image could not be updated.'))
       setSubmitting(false)
     }
   }
@@ -66,12 +68,12 @@ export function EditImageDialog({
   const reset = async () => {
     if (submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await repository.clearOSImageMetadata(image.integrationId, image.id, image.architecture)
       onSaved('Original OS image details restored')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The image could not be reset.')
+      setError(failureOf(caught, 'The image could not be reset.'))
       setSubmitting(false)
     }
   }
@@ -94,7 +96,7 @@ export function EditImageDialog({
       }
     >
       <Stack gap="4">
-        {error && <Alert status="error" title="Image could not be updated">{error}</Alert>}
+        {error && <Alert status="error" title="Image could not be updated"><FailureMessage failure={error} /></Alert>}
         <Field.Root>
           <Field.Label htmlFor="os-image-name">Name</Field.Label>
           <Input id="os-image-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Optional display name" maxLength={200} autoFocus />
@@ -177,19 +179,19 @@ export function DeleteImageDialog({
   onDeleted: () => void
 }) {
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const close = () => {
     if (!submitting) onClose()
   }
   const submit = async () => {
     if (submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await repository.deleteOSImage(image.integrationId, image.id, image.architecture)
       onDeleted()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The image could not be deleted.')
+      setError(failureOf(caught, 'The image could not be deleted.'))
     } finally {
       setSubmitting(false)
     }
@@ -210,7 +212,7 @@ export function DeleteImageDialog({
       }
     >
       <Stack gap="4">
-        {error && <Alert status="error" title="Image could not be deleted">{error}</Alert>}
+        {error && <Alert status="error" title="Image could not be deleted"><FailureMessage failure={error} /></Alert>}
         <Alert status="warning" title="This cannot be undone">
           This will permanently remove <strong>{image.status.name || image.id}</strong> ({image.architecture}) from its provider. Deployment templates and
           in-flight deployments that reference this image may fail after deletion. Make the image available again or update the affected templates before retrying.

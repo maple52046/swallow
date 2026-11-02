@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Button, Field, Input, Stack, Textarea } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 
@@ -23,7 +25,7 @@ export function ImportSSHKeyDialog({ onClose, onImported }: ImportSSHKeyDialogPr
   const [name, setName] = useState('')
   const [publicKey, setPublicKey] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const canSubmit = Boolean(name.trim() && publicKey.trim()) && !submitting
 
   const close = () => {
@@ -33,12 +35,12 @@ export function ImportSSHKeyDialog({ onClose, onImported }: ImportSSHKeyDialogPr
   const submit = async () => {
     if (!canSubmit) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await sshKeys.importAccessKey({ name: name.trim(), publicKey: publicKey.trim() })
       onImported('SSH key imported')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The key could not be imported.')
+      setError(failureOf(caught, 'The key could not be imported.'))
       setSubmitting(false)
     }
   }
@@ -68,7 +70,7 @@ export function ImportSSHKeyDialog({ onClose, onImported }: ImportSSHKeyDialogPr
       <Stack gap="4">
         {error && (
           <Alert status="error" title="Key could not be imported">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Field.Root required>

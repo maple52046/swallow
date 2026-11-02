@@ -6,6 +6,8 @@ import { DOCKER_OBJECT_NAME_PATTERN, shortDockerId, type DockerNetwork } from '@
 import { AsyncSection } from '@/presentation/components/AsyncSection'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { EmptyState } from '@/presentation/components/EmptyState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { SectionSurface } from '@/presentation/components/OperatorPrimitives'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
@@ -164,7 +166,7 @@ function CreateNetworkDialog({ serverId, onClose, onCreated }: { serverId: strin
   const [internal, setInternal] = useState(false)
   const [attachable, setAttachable] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const trimmedName = name.trim()
   const nameError =
     trimmedName === ''
@@ -180,7 +182,7 @@ function CreateNetworkDialog({ serverId, onClose, onCreated }: { serverId: strin
   const submit = async () => {
     if (!valid || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const network = await dockerHosts.createNetwork(serverId, {
         name: trimmedName,
@@ -193,7 +195,7 @@ function CreateNetworkDialog({ serverId, onClose, onCreated }: { serverId: strin
       showToast({ tone: 'success', title: 'Network created', description: network.name })
       onCreated()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The network could not be created.')
+      setError(failureOf(caught, 'The network could not be created.'))
     } finally {
       setSubmitting(false)
     }
@@ -224,7 +226,7 @@ function CreateNetworkDialog({ serverId, onClose, onCreated }: { serverId: strin
       <Stack gap="4">
         {error && (
           <Alert status="error" title="The network could not be created">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <SimpleGrid columns={{ base: 1, md: 2 }} gap="4">

@@ -5,6 +5,7 @@ import { useApp } from "@/di/AppProvider";
 import { formatMinimumResources } from "@/domain/platform/resourceEligibility";
 import type { MinimumResources } from "@/domain/platform/types";
 import { ErrorState } from "@/presentation/components/ErrorState";
+import { failureOf, failureText, type DisplayedFailure } from "@/presentation/components/failure";
 import { LoadingState } from "@/presentation/components/LoadingState";
 import { PageHeader } from "@/presentation/components/PageHeader";
 import { Alert } from "@/presentation/components/ui/alert";
@@ -22,7 +23,7 @@ export function PlatformSettingsPage() {
   const { scopedHref } = useSiteScope();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
+  const [loadError, setLoadError] = useState<DisplayedFailure | null>(null);
   const [saving, setSaving] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [cpuCores, setCpuCores] = useState("4");
@@ -43,10 +44,10 @@ export function PlatformSettingsPage() {
           setMemoryGiB(String(requirement.minimumResources.memoryMiB / 1024));
           setStorageGB(String(requirement.minimumResources.storageGB));
         }
-        setLoadError("");
+        setLoadError(null);
       })
       .catch((error: Error) => {
-        if (!cancelled) setLoadError(error.message);
+        if (!cancelled) setLoadError(failureOf(error, "The Slurm deployment requirement could not be loaded."));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -88,8 +89,7 @@ export function PlatformSettingsPage() {
     } catch (error) {
       showToast({
         title: "Could not update requirement",
-        description:
-          error instanceof Error ? error.message : "The setting was not saved.",
+        description: failureText(failureOf(error, "The setting was not saved.")),
         tone: "error",
       });
     } finally {
@@ -107,7 +107,7 @@ export function PlatformSettingsPage() {
         ]}
       />
       {loading && <LoadingState rows={4} />}
-      {!loading && loadError && <ErrorState message={loadError} />}
+      {!loading && loadError && <ErrorState message={loadError.message} requestId={loadError.requestId} />}
       {!loading && !loadError && (
         <Card.Root>
           <Card.Body gap="5">

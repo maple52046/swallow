@@ -69,6 +69,7 @@ test('A key that never expires sends no expiry, and a duplicate name is explaine
   await page.locator('#api-key-create-name').fill('laptop-cli')
   await page.getByRole('button', { name: 'Create', exact: true }).click()
   await expect(page.getByText('You already have an API key with this name.')).toBeVisible()
+  await expect(page.getByText('Request ID: req-api-key-conflict')).toBeVisible()
 
   await page.locator('#api-key-create-name').fill('forever')
   await page.getByRole('combobox', { name: 'Expires', exact: true }).click()

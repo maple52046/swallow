@@ -6,6 +6,8 @@ import { loadSoftwareFootprint, type SoftwareFootprintWorkingSet } from '@/appli
 import { useApp } from '@/di/AppProvider'
 import type { SoftwareCatalogEntry } from '@/domain/software/types'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -20,12 +22,12 @@ import './software.css'
 
 type CatalogState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; catalog: SoftwareCatalogEntry[] }
 
 type FootprintState =
   | { status: 'loading' }
-  | { status: 'error'; message: string; data?: SoftwareFootprintWorkingSet }
+  | ({ status: 'error'; data?: SoftwareFootprintWorkingSet } & DisplayedFailure)
   | { status: 'ready'; data: SoftwareFootprintWorkingSet }
 
 const REFRESH_INTERVAL_MS = 5_000
@@ -50,7 +52,7 @@ export function SoftwarePage() {
     } catch (caught) {
       setCatalogState({
         status: 'error',
-        message: caught instanceof Error ? caught.message : 'The software catalog could not be loaded.',
+        ...failureOf(caught, 'The software catalog could not be loaded.'),
       })
     }
   }, [software])
@@ -65,7 +67,7 @@ export function SoftwarePage() {
         if (!cancelled) {
           setCatalogState({
             status: 'error',
-            message: caught instanceof Error ? caught.message : 'The software catalog could not be loaded.',
+            ...failureOf(caught, 'The software catalog could not be loaded.'),
           })
         }
       },
@@ -81,10 +83,10 @@ export function SoftwarePage() {
       const data = await loadSoftwareFootprint(software, servers, siteId)
       setFootprintState({ status: 'ready', data })
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Deployment data could not be loaded.'
+      const failure = failureOf(caught, 'Deployment data could not be loaded.')
       setFootprintState((current) => ({
         status: 'error',
-        message,
+        ...failure,
         data: current.status === 'ready' || current.status === 'error' ? current.data : undefined,
       }))
     }
@@ -103,7 +105,7 @@ export function SoftwarePage() {
         if (!cancelled) {
           setFootprintState({
             status: 'error',
-            message: caught instanceof Error ? caught.message : 'Deployment data could not be loaded.',
+            ...failureOf(caught, 'Deployment data could not be loaded.'),
           })
         }
       },
@@ -151,14 +153,18 @@ export function SoftwarePage() {
       {footprintState.status === 'error' && (
         <Alert status="warning" title="Deployment context is temporarily unavailable">
           <HStack justify="space-between" gap="3" align="flex-start" wrap="wrap">
-            <Text>{footprintState.message} The installable software catalog is still available.</Text>
+            <Text>
+              <FailureMessage
+                failure={{ ...footprintState, message: `${footprintState.message} The installable software catalog is still available.` }}
+              />
+            </Text>
             <Button size="xs" variant="outline" onClick={() => void refreshFootprint(false)}>Retry</Button>
           </HStack>
         </Alert>
       )}
 
       {catalogState.status === 'loading' && <LoadingState rows={3} />}
-      {catalogState.status === 'error' && <ErrorState message={catalogState.message} onRetry={() => void loadCatalog()} />}
+      {catalogState.status === 'error' && <ErrorState message={catalogState.message} requestId={catalogState.requestId} onRetry={() => void loadCatalog()} />}
       {catalogState.status === 'ready' && catalogState.catalog.length === 0 && (
         <ErrorState message="The active installation does not publish any Managed Software." onRetry={() => void loadCatalog()} />
       )}

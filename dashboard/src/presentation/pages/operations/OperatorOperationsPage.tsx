@@ -448,7 +448,7 @@ export function OperatorOperationsPage() {
         {state.status === 'loading' && <div className="sw-workflow-state"><LoadingState rows={7} /></div>}
         {state.status === 'error' && (
           <div className="sw-workflow-state">
-            <ErrorState message={state.message} onRetry={reload} />
+            <ErrorState message={state.message} requestId={state.requestId} onRetry={reload} />
           </div>
         )}
         {state.status === 'ready' && state.total === 0 && !hasFilters && (

@@ -7,6 +7,8 @@ import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { AsyncSection } from '@/presentation/components/AsyncSection'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { EmptyState } from '@/presentation/components/EmptyState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { SectionSurface } from '@/presentation/components/OperatorPrimitives'
 import { ResponsiveResourceList } from '@/presentation/components/ResponsiveResourceList'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -44,7 +46,7 @@ export function RegistryCredentialsSection() {
       credentials.reload()
       setDialog(null)
     } catch (caught) {
-      showToast({ tone: 'error', title: 'Registry credential could not be deleted', description: caught instanceof Error ? caught.message : undefined })
+      showToast({ tone: 'error', title: 'Registry credential could not be deleted', description: failureText(failureOf(caught, '')) })
     } finally {
       setDeleting(false)
     }
@@ -178,7 +180,7 @@ function RegistryCredentialDialog({
   const [username, setUsername] = useState(credential?.username ?? '')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const replacing = credential !== null
   const valid = (replacing || registry.trim() !== '') && username.trim() !== '' && password !== ''
   const storedRegistry = normalizeRegistryInput(registry)
@@ -186,7 +188,7 @@ function RegistryCredentialDialog({
   const submit = async () => {
     if (!valid || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const saved = credential
         ? await registryCredentials.replace(credential.id, { username: username.trim(), password })
@@ -194,7 +196,7 @@ function RegistryCredentialDialog({
       showToast({ tone: 'success', title: replacing ? 'Registry credential replaced' : 'Registry credential saved', description: saved.registry })
       onSaved()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The credential could not be saved.')
+      setError(failureOf(caught, 'The credential could not be saved.'))
     } finally {
       setSubmitting(false)
     }
@@ -225,7 +227,7 @@ function RegistryCredentialDialog({
       <Stack gap="4">
         {error && (
           <Alert status="error" title="The credential could not be saved">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Field.Root required={!replacing} disabled={replacing}>

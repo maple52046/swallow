@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { ProvisionerDetail, Server } from '@/domain/server/types'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import type { ServerDockerAssignment } from './useServerDockerAssignment'
 
 /** The server projection plus its live provisioner detail, shared by the detail tabs. */
@@ -9,16 +10,20 @@ export interface ServerDetailData {
   server: Server
   /** Live provider detail, or null when the provisioner could not be read. */
   detail: ProvisionerDetail | null
-  /** Message from a failed detail read; the projection can still render without it. */
-  detailError: string | null
+  /** A failed detail read, with its request ID; the projection can still render without it. */
+  detailError: DisplayedFailure | null
   /** Refetches both projection and detail, e.g. after an action changes the machine. */
   reload: () => void
 }
 
+/**
+ * The detail route's read of one Server: `not-found` for an unknown id, `error` for a failed
+ * projection read with its message and request ID, and `ready` once the projection loaded.
+ */
 export type ServerDetailState =
   | { status: 'loading' }
   | { status: 'not-found' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; data: ServerDetailData }
 
 /**
@@ -54,8 +59,8 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
     Promise.all([
       servers.getServer(id),
       servers.getProvisionerDetail(id).then(
-        (detail) => ({ detail, detailError: null as string | null }),
-        (err: Error) => ({ detail: null, detailError: err.message }),
+        (detail) => ({ detail, detailError: null as DisplayedFailure | null }),
+        (err: Error) => ({ detail: null, detailError: failureOf(err, 'The provisioner detail could not be read.') }),
       ),
     ])
       .then(([server, detailResult]) => {
@@ -75,7 +80,7 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
         })
       })
       .catch((err: Error) => {
-        if (!cancelled) setState({ status: 'error', message: err.message })
+        if (!cancelled) setState({ status: 'error', ...failureOf(err, 'The Server could not be loaded.') })
       })
       .finally(() => {
         reloadInFlight.current = false

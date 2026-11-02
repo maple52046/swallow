@@ -13,6 +13,7 @@ import {
   type ServerMetrics,
 } from '@/domain/monitoring/types'
 import type { Server } from '@/domain/server/types'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 
 /** The monitoring view for one server: its effective owner, current metrics, and links. */
 export interface ServerMonitoring {
@@ -25,10 +26,11 @@ export interface ServerMonitoring {
   /** Optional Grafana base URL for advanced exploration, or null when unconfigured. */
   grafana: string | null
   /**
-   * A metrics-backend problem other than "no backend registered". Surfaced as a notice rather
-   * than a page error: the metric cards still render empty so the absence is explicit.
+   * A metrics-backend problem other than "no backend registered", with its request ID. Surfaced
+   * as a notice rather than a page error: the metric cards still render empty so the absence is
+   * explicit.
    */
-  metricsError: string | null
+  metricsError: DisplayedFailure | null
   /**
    * The Site has no reachable metrics backend. The usage charts below explain how to register
    * one, so the current-value panel does not repeat the warning.
@@ -80,12 +82,12 @@ export function useServerMonitoring(server: Server): ServerMonitoring {
     const loadMetrics = monitoring.getServerMetrics([server.id], wanted).then(
       (result) => {
         const item = result.items.find((entry: ServerMetrics) => entry.serverId === server.id)
-        return { metrics: item?.metrics ?? {}, grafana: result.grafana, metricsError: null as string | null, metricsUnavailable: false }
+        return { metrics: item?.metrics ?? {}, grafana: result.grafana, metricsError: null as DisplayedFailure | null, metricsUnavailable: false }
       },
       (err: Error) => ({
         metrics: {},
         grafana: null as string | null,
-        metricsError: err instanceof MetricsBackendUnavailableError ? null : err.message,
+        metricsError: err instanceof MetricsBackendUnavailableError ? null : failureOf(err, 'Metrics could not be read.'),
         metricsUnavailable: err instanceof MetricsBackendUnavailableError,
       }),
     )

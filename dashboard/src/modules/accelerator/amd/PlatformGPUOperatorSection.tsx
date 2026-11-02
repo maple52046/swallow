@@ -13,6 +13,8 @@ import {
 import type { Platform } from '@/domain/platform/types'
 import type { Server } from '@/domain/server/types'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { InProgressSpinner } from '@/presentation/components/InProgressSpinner'
 import { SectionHeader } from '@/presentation/components/OperatorPrimitives'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
@@ -59,7 +61,7 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
   const [dialog, setDialog] = useState<'configure' | 'uninstall' | null>(null)
   const [form, setForm] = useState<GPUOperatorFormValue | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const { state: releases, reload: reloadReleases } = useGPUOperatorReleases(dialog === 'configure')
 
   const operator = platform.gpuOperator
@@ -87,17 +89,17 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
 
   const openConfigure = () => {
     setForm(gpuOperatorFormFromPlatform(managed ? operator : null))
-    setError('')
+    setError(null)
     setDialog('configure')
   }
   const close = () => {
     if (submitting) return
     setDialog(null)
-    setError('')
+    setError(null)
   }
   const submit = async (settings: Parameters<typeof platforms.configureGPUOperator>[1], title: string) => {
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       const written = await platforms.configureGPUOperator(platform.id, settings)
       setDialog(null)
@@ -110,7 +112,7 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
       showToast({ tone: 'success', title, description: 'The Platform shows the GPU Operator state while the workflow runs.' })
       onChanged()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not start the GPU Operator change.')
+      setError(failureOf(caught, 'Could not start the GPU Operator change.'))
     } finally {
       setSubmitting(false)
     }
@@ -126,7 +128,7 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
             {managed ? (
               <>
                 <Button variant="outline" size="sm" disabled={Boolean(blockedReason)} onClick={openConfigure}>Configure</Button>
-                <Button variant="outline" size="sm" colorPalette="red" disabled={Boolean(blockedReason)} onClick={() => { setError(''); setDialog('uninstall') }}>
+                <Button variant="outline" size="sm" colorPalette="red" disabled={Boolean(blockedReason)} onClick={() => { setError(null); setDialog('uninstall') }}>
                   Uninstall
                 </Button>
               </>
@@ -199,7 +201,7 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
           }
         >
           {error && (
-            <Alert status="error" title="The change could not be started">{error}</Alert>
+            <Alert status="error" title="The change could not be started"><FailureMessage failure={error} /></Alert>
           )}
           <GPUOperatorOptionsFields
             value={form}
@@ -226,7 +228,7 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
           Swallow removes the AMD GPU Operator, its DeviceConfig, and its node labels from {platform.name}. Pods can no longer
           request AMD GPUs; the Platform itself keeps running. The uninstall is refused while a Pod still uses an AMD GPU.
         </Text>
-        {error && <Alert status="error" title="The uninstall could not be started">{error}</Alert>}
+        {error && <Alert status="error" title="The uninstall could not be started"><FailureMessage failure={error} /></Alert>}
       </ConfirmDialog>
     </section>
   )

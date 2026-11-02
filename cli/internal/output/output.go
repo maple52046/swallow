@@ -95,8 +95,8 @@ func (p *Printer) printYAML(v any) error {
 }
 
 // printTable renders v as a table when its shape allows, otherwise falls back to
-// JSON so no payload is ever unprintable. The pagination envelope is detected by
-// the presence of an "items" array plus a "total" field.
+// JSON so no payload is ever unprintable. An object with an "items" array is a
+// pagination envelope; its "total", "page", and "pageSize" are summarized when present.
 func (p *Printer) printTable(v any) error {
 	switch t := v.(type) {
 	case map[string]any:

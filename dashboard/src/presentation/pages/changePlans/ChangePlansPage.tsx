@@ -5,6 +5,7 @@ import type { ChangePlan } from '@/domain/convergence/changePlan'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionSurface } from '@/presentation/components/OperatorPrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
@@ -14,7 +15,7 @@ import { changePlanResourceLabel, destructiveActionCount, groupChangePlans } fro
 
 type PageState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; plans: ChangePlan[] }
 
 /** The decision being confirmed; at most one at a time. */
@@ -52,7 +53,7 @@ export function ChangePlansPage() {
         setState({ status: 'ready', plans })
       })
       .catch((caught: unknown) => {
-        if (!cancelled) setState({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not load Change Plans.' })
+        if (!cancelled) setState({ status: 'error', ...failureOf(caught, 'Could not load Change Plans.') })
       })
     return () => {
       cancelled = true
@@ -76,7 +77,7 @@ export function ChangePlansPage() {
         description: changePlanResourceLabel(decision.plan.resource),
       })
     } catch (caught: unknown) {
-      showToast({ tone: 'error', title: 'The decision was not recorded', description: caught instanceof Error ? caught.message : undefined })
+      showToast({ tone: 'error', title: 'The decision was not recorded', description: failureText(failureOf(caught, '')) })
     } finally {
       setBusy(false)
       setDecision(null)
@@ -92,7 +93,7 @@ export function ChangePlansPage() {
       />
 
       {state.status === 'loading' && <LoadingState rows={4} />}
-      {state.status === 'error' && <ErrorState message={state.message} onRetry={reload} />}
+      {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} onRetry={reload} />}
       {state.status === 'ready' && (
         <ChangePlanSections
           plans={state.plans}

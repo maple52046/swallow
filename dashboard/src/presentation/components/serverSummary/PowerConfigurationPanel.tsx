@@ -2,6 +2,8 @@ import { Box, Heading, HStack, Stack, Text } from '@chakra-ui/react'
 import type { ReactNode } from 'react'
 import type { ServerPowerConfiguration } from '@/domain/server/types'
 import { CopyButton } from '@/presentation/components/CopyButton'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import type { DisplayedFailure } from '@/presentation/components/failure'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
 import { DescriptionList, type DescriptionItem } from '@/presentation/components/ui/description-list'
@@ -13,10 +15,14 @@ import {
   powerFamilyLabel,
 } from './powerConfigurationLabels'
 
-/** The panel's read state, mirroring useAsyncData without importing the hook. */
+/**
+ * The panel's read state, mirroring useAsyncData without importing the hook: `error` carries the
+ * failed read's request ID, `unavailable` only its message.
+ */
 export type PowerConfigurationPanelState =
   | { status: 'loading' }
-  | { status: 'unavailable' | 'error'; message: string }
+  | { status: 'unavailable'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; data: ServerPowerConfiguration }
 
 interface PowerConfigurationPanelProps {
@@ -81,7 +87,7 @@ function PowerConfigurationFacts({ state, compact }: { state: PowerConfiguration
   if (state.status !== 'ready') {
     return (
       <Alert status="warning" title="Power configuration unavailable">
-        {state.message}
+        <FailureMessage failure={state} />
       </Alert>
     )
   }

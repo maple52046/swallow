@@ -30,6 +30,8 @@ var packageModules = map[string]bool{
 }
 
 // repositoryModules refresh the package index, and so take the lock, unless update_cache is false.
+// yum_repository is not one: it only writes a .repo file and never runs dnf, so it takes no lock;
+// the dnf task that installs from the new repository is the one that must hold and retry.
 var repositoryModules = map[string]bool{"apt_repository": true, "ansible.builtin.apt_repository": true}
 
 var commandModules = []string{

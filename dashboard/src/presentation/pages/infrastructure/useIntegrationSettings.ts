@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Integration } from '@/domain/site/types'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 
 /** The General tab's editable fields while they differ from the saved Integration. */
 export interface IntegrationGeneralDraft {
@@ -34,11 +35,14 @@ export function useIntegrationSettingsContext(): IntegrationSettingsContext {
   return useOutletContext<IntegrationSettingsContext>()
 }
 
-/** The settings page's view of its Integration read: loading, missing, failed, or loaded. */
+/**
+ * The settings page's view of its Integration read: loading, missing, failed (with the message and
+ * request ID of the failed read), or loaded.
+ */
 export type IntegrationLoadState =
   | { status: 'loading' }
   | { status: 'not-found' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; integration: Integration }
 
 /**
@@ -65,7 +69,7 @@ export function useIntegration(id: string | undefined): {
         setState(integration ? { status: 'ready', integration } : { status: 'not-found' })
       })
       .catch((caught: Error) => {
-        if (!cancelled) setState({ status: 'error', message: caught.message })
+        if (!cancelled) setState({ status: 'error', ...failureOf(caught, 'The Integration could not be loaded.') })
       })
     return () => {
       cancelled = true

@@ -10,6 +10,8 @@ import { AsyncSection } from '@/presentation/components/AsyncSection'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { SectionSurface } from '@/presentation/components/OperatorPrimitives'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
@@ -88,7 +90,7 @@ export function DockerImagesSection({ serverId, readOnlyReason, onChanged }: Doc
       showToast({
         tone: 'error',
         title: 'Image could not be pulled',
-        description: `${reference}: ${caught instanceof Error ? caught.message : 'the pull failed.'}`,
+        description: `${reference}: ${failureText(failureOf(caught, 'the pull failed.'))}`,
       })
     } finally {
       setActivePulls((current) => current.filter((item) => item.key !== pull.key))
@@ -230,7 +232,7 @@ function PullImageDialog({ onPull, onClose }: { onPull: (reference: string) => P
   const { scopedHref } = useSiteScope()
   const credentials = useAsyncData(() => registryCredentials.list(), [registryCredentials])
   const [reference, setReference] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const trimmed = reference.trim()
   const valid = trimmed !== '' && !/\s/.test(trimmed)
@@ -240,11 +242,11 @@ function PullImageDialog({ onPull, onClose }: { onPull: (reference: string) => P
   const submit = async () => {
     if (!valid || submitting) return
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await onPull(trimmed)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The image could not be pulled.')
+      setError(failureOf(caught, 'The image could not be pulled.'))
     } finally {
       setSubmitting(false)
     }
@@ -275,7 +277,7 @@ function PullImageDialog({ onPull, onClose }: { onPull: (reference: string) => P
       <Stack gap="3">
         {error && (
           <Alert status="error" title="The image could not be pulled">
-            {error}
+            <FailureMessage failure={error} />
           </Alert>
         )}
         <Field.Root required invalid={trimmed !== '' && !valid}>

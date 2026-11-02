@@ -26,7 +26,7 @@ interface AsyncSectionProps<T> {
  */
 export function AsyncSection<T>({ state, unavailableTitle, unavailableHint, loadingRows = 4, children }: AsyncSectionProps<T>) {
   if (state.status === 'loading') return <LoadingState rows={loadingRows} />
-  if (state.status === 'error') return <ErrorState message={state.message} />
+  if (state.status === 'error') return <ErrorState message={state.message} requestId={state.requestId} />
   if (state.status === 'unavailable') {
     return (
       <Alert status="info" title={unavailableTitle}>

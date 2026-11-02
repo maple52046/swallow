@@ -7,6 +7,8 @@ import { loadServerWorkingSet } from '@/application/usecases/servers/loadServerW
 import { useApp } from '@/di/AppProvider'
 import { type MonitoringAlert, type MonitoringAlertState, type ServerMetrics } from '@/domain/monitoring/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { DataToolbar, SectionHeader, MetricGrid, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { PageHeader } from '@/presentation/components/PageHeader'
@@ -21,8 +23,8 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
 import { FleetUsageCharts } from './FleetUsageCharts'
 
-type AlertsState = { status: 'loading' } | { status: 'ready'; alerts: MonitoringAlert[] } | { status: 'error'; message: string }
-type FleetState = { status: 'loading' } | { status: 'ready'; servers: Server[]; metrics: FleetMetricsResult } | { status: 'error'; message: string }
+type AlertsState = { status: 'loading' } | { status: 'ready'; alerts: MonitoringAlert[] } | ({ status: 'error' } & DisplayedFailure)
+type FleetState = { status: 'loading' } | { status: 'ready'; servers: Server[]; metrics: FleetMetricsResult } | ({ status: 'error' } & DisplayedFailure)
 
 
 
@@ -75,7 +77,7 @@ export function MonitoringPage() {
   const [duration, setDuration] = useState('4h')
   const [comment, setComment] = useState('')
   const [acknowledging, setAcknowledging] = useState(false)
-  const [ackError, setAckError] = useState<string | null>(null)
+  const [ackError, setAckError] = useState<DisplayedFailure | null>(null)
   const [nonce, setNonce] = useState(0)
   const [refreshedAt, setRefreshedAt] = useState(currentIsoTime)
   const severity = searchParams.get('severity') ?? ''
@@ -95,7 +97,7 @@ export function MonitoringPage() {
         }
       })
       .catch((error: Error) => {
-        if (!cancelled) setAlertsState({ status: 'error', message: error.message })
+        if (!cancelled) setAlertsState({ status: 'error', ...failureOf(error, 'Alerts could not be loaded.') })
       })
     return () => {
       cancelled = true
@@ -115,7 +117,7 @@ export function MonitoringPage() {
         }
       })
       .catch((error: Error) => {
-        if (!cancelled) setFleetState({ status: 'error', message: error.message })
+        if (!cancelled) setFleetState({ status: 'error', ...failureOf(error, 'The Server inventory could not be loaded.') })
       })
     return () => {
       cancelled = true
@@ -190,7 +192,7 @@ export function MonitoringPage() {
       setSelectedAlert(null)
       refresh()
     } catch (error) {
-      setAckError(error instanceof Error ? error.message : 'Could not acknowledge alert')
+      setAckError(failureOf(error, 'Could not acknowledge alert'))
     } finally {
       setAcknowledging(false)
     }
@@ -258,7 +260,7 @@ export function MonitoringPage() {
               ]}
             />
           </DataToolbar>
-          {alertsState.status === 'error' && <Alert status="warning" title="Alerts are unavailable">{alertsState.message}</Alert>}
+          {alertsState.status === 'error' && <Alert status="warning" title="Alerts are unavailable"><FailureMessage failure={alertsState} /></Alert>}
           {alertsState.status === 'loading' && <div className="sw-section-empty">Loading alerts…</div>}
           {alertsState.status === 'ready' && visibleAlerts.length === 0 && <div className="sw-section-empty">No alerts match these filters.</div>}
           {visibleAlerts.length > 0 && (
@@ -356,7 +358,7 @@ export function MonitoringPage() {
           <DataToolbar>
             <SearchInput value={serverQuery} onChange={setServerQuery} placeholder="Search server or address" aria-label="Search server metrics" />
           </DataToolbar>
-          {fleetState.status === 'error' && <Alert status="error" title="Inventory is unavailable">{fleetState.message}</Alert>}
+          {fleetState.status === 'error' && <Alert status="error" title="Inventory is unavailable"><FailureMessage failure={fleetState} /></Alert>}
           {fleetState.status === 'loading' && <div className="sw-section-empty">Loading metrics…</div>}
           {fleetState.status === 'ready' && fleetState.metrics.errors.length > 0 && <Alert status="warning" title="Some metric batches are unavailable">{`${fleetState.metrics.errors.length} batch request${fleetState.metrics.errors.length === 1 ? '' : 's'} failed. Other values remain current.`}</Alert>}
           {fleetState.status === 'ready' && visibleServers.length === 0 && <div className="sw-section-empty">No servers match this view.</div>}
@@ -458,7 +460,7 @@ export function MonitoringPage() {
         }
       >
         <Stack gap="4">
-          {ackError && <Alert status="error" title="Acknowledgement failed">{ackError}</Alert>}
+          {ackError && <Alert status="error" title="Acknowledgement failed"><FailureMessage failure={ackError} /></Alert>}
           <Field.Root required>
             <Field.Label>
               Silence duration <Field.RequiredIndicator />

@@ -25,6 +25,8 @@ import { DEPLOY_TARGET_LABELS, DEPLOYMENT_NETWORK_MODE_LABELS } from '@/domain/p
 import { serverDisplayName, type Server } from '@/domain/server/types'
 import type { Integration, OSImage } from '@/domain/site/types'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { useToast } from '@/presentation/components/toast/toastContext'
@@ -65,19 +67,19 @@ interface DeployOSDialogProps {
 
 type ResourceState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; integrations: Integration[] }
 
 type ProvisionerResolution =
   | { status: 'loading' }
-  | { status: 'error'; title: string; message: string }
+  | ({ status: 'error'; title: string } & DisplayedFailure)
   | { status: 'ready'; integration: Integration }
 
 type InspectionState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'attention'; issues: DeploymentTargetIssue[] }
-  | { status: 'error'; message: string }
+  | ({ status: 'error' } & DisplayedFailure)
   | { status: 'ready'; inspection: NetworkInspectionResult }
 
 interface NetworkAssignmentDraft {
@@ -166,6 +168,7 @@ function resolveProvisioner(
       status: 'error',
       title: 'Provisioner configuration unavailable',
       message: state.message,
+      requestId: state.requestId,
     }
   }
   if (state.integrations.length === 0) {
@@ -227,7 +230,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
     context.kind === 'fixed-image' ? [context.image] : [],
   )
   const [catalogLoading, setCatalogLoading] = useState(context.kind === 'fixed-targets')
-  const [catalogError, setCatalogError] = useState('')
+  const [catalogError, setCatalogError] = useState<DisplayedFailure | null>(null)
   const [catalogNonce, setCatalogNonce] = useState(0)
   const initialTargetIds = context.kind === 'fixed-targets'
     ? context.targets.map((server) => server.id)
@@ -273,7 +276,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
         if (!cancelled) setResourceState({ status: 'ready', integrations })
       })
       .catch((error: Error) => {
-        if (!cancelled) setResourceState({ status: 'error', message: error.message })
+        if (!cancelled) setResourceState({ status: 'error', ...failureOf(error, 'The Site provisioner could not be read.') })
       })
     return () => {
       cancelled = true
@@ -290,7 +293,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
   useEffect(() => {
     if (context.kind !== 'fixed-targets') {
       setCatalogLoading(false)
-      setCatalogError('')
+      setCatalogError(null)
       return
     }
     if (!resolvedIntegrationId) {
@@ -300,14 +303,14 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
     }
     let cancelled = false
     setCatalogLoading(true)
-    setCatalogError('')
+    setCatalogError(null)
     provisioning
       .listOSImages(resolvedIntegrationId)
       .then((items) => {
         if (!cancelled) setImages(items)
       })
       .catch((error: Error) => {
-        if (!cancelled) setCatalogError(error.message)
+        if (!cancelled) setCatalogError(failureOf(error, 'OS images could not be loaded.'))
       })
       .finally(() => {
         if (!cancelled) setCatalogLoading(false)
@@ -489,7 +492,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
     } catch (error) {
       setInspectionState({
         status: 'error',
-        message: error instanceof Error ? error.message : 'Unknown error',
+        ...failureOf(error, 'Unknown error'),
       })
       return false
     }
@@ -613,7 +616,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
       showToast({
         tone: 'error',
         title: 'Deployment preflight failed',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        description: failureText(failureOf(error, 'Unknown error')),
       })
     } finally {
       setSubmitting(false)
@@ -680,12 +683,12 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
           issuesContent(inspectionState.issues)}
         {inspectionState.status === 'error' && (
           <Alert status="warning" title="Could not inspect deployment targets">
-            {inspectionState.message}
+            <FailureMessage failure={inspectionState} />
           </Alert>
         )}
         {workingSet.state.status === 'error' && (
           <Alert status="warning" title="Servers unavailable">
-            {workingSet.state.message}
+            <FailureMessage failure={workingSet.state} />
           </Alert>
         )}
         {workingSet.state.status === 'loading' ? (
@@ -1124,7 +1127,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
           </HStack>
         }
       >
-        {resolution.message}
+        <FailureMessage failure={resolution} />
       </Alert>
     )
   } else if (
@@ -1166,7 +1169,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
               </Button>
             }
           >
-            {inspectionState.message}
+            <FailureMessage failure={inspectionState} />
           </Alert>
         )}
       </Stack>

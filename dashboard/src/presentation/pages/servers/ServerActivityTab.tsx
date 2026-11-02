@@ -6,6 +6,8 @@ import type { Operation } from '@/domain/operation/types'
 import type { ProvisioningTask } from '@/domain/provisioning/types'
 import type { ProviderEvents } from '@/domain/server/types'
 import { useApp } from '@/di/AppProvider'
+import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
 import { Pagination } from '@/presentation/components/Pagination'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
@@ -25,7 +27,7 @@ import {
 import { SERVER_ACTIVITY_SECTION_IDS, SERVER_ACTIVITY_SECTION_TITLES } from './serverActivitySections'
 import { useServerDetailContext } from './useServerDetail'
 
-type LoadState<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: T }
+type LoadState<T> = { status: 'loading' } | ({ status: 'error' } & DisplayedFailure) | { status: 'ready'; data: T }
 
 const DEFAULT_ACTIVITY_PAGE_SIZE = 10
 const ACTIVITY_PAGE_SIZES = [5, 10, 15, 20] as const
@@ -143,7 +145,7 @@ export function ServerActivityTab() {
         if (!cancelled) setProvider({ status: 'ready', data })
       },
       (error: Error) => {
-        if (!cancelled) setProvider({ status: 'error', message: error.message })
+        if (!cancelled) setProvider({ status: 'error', ...failureOf(error, 'Provider events could not be loaded.') })
       },
     )
     operations.listOperations({ serverId: server.id, page: 1, pageSize: 50 }).then(
@@ -151,7 +153,7 @@ export function ServerActivityTab() {
         if (!cancelled) setRelated({ status: 'ready', data: data.items })
       },
       (error: Error) => {
-        if (!cancelled) setRelated({ status: 'error', message: error.message })
+        if (!cancelled) setRelated({ status: 'error', ...failureOf(error, 'Related Operations could not be loaded.') })
       },
     )
     servers.listProvisioningTasks(server.id).then(
@@ -159,7 +161,7 @@ export function ServerActivityTab() {
         if (!cancelled) setTasks({ status: 'ready', data })
       },
       (error: Error) => {
-        if (!cancelled) setTasks({ status: 'error', message: error.message })
+        if (!cancelled) setTasks({ status: 'error', ...failureOf(error, 'Provisioning tasks could not be loaded.') })
       },
     )
 
@@ -198,7 +200,7 @@ export function ServerActivityTab() {
       showToast({ tone: 'success', title: 'Cleanup retry queued' })
       refresh()
     } catch (error) {
-      showToast({ tone: 'error', title: 'Could not retry cleanup', description: error instanceof Error ? error.message : 'Unknown error' })
+      showToast({ tone: 'error', title: 'Could not retry cleanup', description: failureText(failureOf(error, 'Unknown error')) })
     } finally {
       setRetryingTaskId('')
     }
@@ -259,7 +261,7 @@ export function ServerActivityTab() {
         {tasks.status === 'error' && (
           <div className="sw-activity-alert">
             <Alert status="warning" title="Provisioning tasks are unavailable">
-              {tasks.message}
+              <FailureMessage failure={tasks} />
             </Alert>
           </div>
         )}
@@ -326,7 +328,7 @@ export function ServerActivityTab() {
         {provider.status === 'error' && (
           <div className="sw-activity-alert">
             <Alert status="warning" title="Provider events are unavailable">
-              {provider.message}
+              <FailureMessage failure={provider} />
             </Alert>
           </div>
         )}
@@ -368,7 +370,7 @@ export function ServerActivityTab() {
         {related.status === 'error' && (
           <div className="sw-activity-alert">
             <Alert status="warning" title="Related Operations are unavailable">
-              {related.message}
+              <FailureMessage failure={related} />
             </Alert>
           </div>
         )}

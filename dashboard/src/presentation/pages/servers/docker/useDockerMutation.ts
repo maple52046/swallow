@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { failureOf, failureText } from '@/presentation/components/failure'
 import { useToast } from '@/presentation/components/toast/toastContext'
 
 /** Operator-facing outcome messages for one Docker write. */
@@ -31,7 +32,7 @@ export function useDockerMutation(onSuccess: () => void) {
         onSuccess()
         return true
       } catch (error) {
-        showToast({ tone: 'error', title: messages.failure, description: error instanceof Error ? error.message : 'The Docker Engine request failed.' })
+        showToast({ tone: 'error', title: messages.failure, description: failureText(failureOf(error, 'The Docker Engine request failed.')) })
         return false
       } finally {
         setBusyKey(null)

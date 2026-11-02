@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import type { Platform, UninstallPlatformOptions } from '@/domain/platform/types'
+import { failureOf, failureText } from '@/presentation/components/failure'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { platformBulkDeleteToast, platformBulkUninstallToast } from './platformRemovalCopy'
 
@@ -9,6 +10,7 @@ export interface PlatformBulkOutcome {
   platformId: string
   platformName: string
   accepted: boolean
+  /** Why a rejected request failed, as one line that includes the request ID when there is one. */
   message?: string
 }
 
@@ -47,7 +49,7 @@ export function usePlatformBulkActions() {
                 platformId: target.id,
                 platformName: target.name,
                 accepted: false,
-                message: result.reason instanceof Error ? result.reason.message : 'The action failed.',
+                message: failureText(failureOf(result.reason, 'The action failed.')),
               }
         })
 
