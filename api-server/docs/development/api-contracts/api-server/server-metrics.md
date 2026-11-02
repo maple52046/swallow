@@ -11,7 +11,7 @@ Active
 ## Consumer Components
 
 - `dashboard`
-- `cli` (the `swallow` operator command-line client)
+- `cli` (the `swallow` command-line client)
 
 ## Purpose
 
@@ -20,7 +20,7 @@ and list the fixed set of metric names a client may ask for. swallow stores no m
 evaluates a bounded set of named PromQL queries against the backend and correlates results
 by `server_id`.
 
-These endpoints are what swallow's own usage charts are built on: an operator sees CPU,
+These endpoints are what swallow's own usage charts are built on: a user sees CPU,
 memory, disk, network, and GPU usage of a Server, a selection of Servers, a Pool, a Zone, or a
 Platform without leaving swallow. Grafana is an optional advanced layer for exploration beyond
 the named queries; when the metrics Integration configures it, responses carry its link, and
@@ -219,7 +219,7 @@ The common error envelope applies.
 | --- | ---: | --- |
 | `validation_error` | 400 | Missing `serverIds` (current values); no or more than one scope parameter; more than 200 `serverIds`; a Server id outside the letter, digit, `-`, `_` set; an unknown metric name; an unknown `window` or `mode`; `window` together with `start`/`end`; only one of `start`/`end`, an unparsable timestamp, `start` not before `end`, or a span outside 5 minutes–7 days; a scope over 1000 Servers; `perServer` over 50 Servers; a query the backend rejects. |
 | `not_found` | 404 | The `poolId`, `zoneId`, or `platformId` does not exist. |
-| `provider_unavailable` | 503 | No metrics backend is registered, or the backend cannot be reached or rejects swallow's credential. A client tells the operator to register a metrics Integration for the Site rather than reporting the Servers as down. |
+| `provider_unavailable` | 503 | No metrics backend is registered, or the backend cannot be reached or rejects swallow's credential. A client tells the user to register a metrics Integration for the Site rather than reporting the Servers as down. |
 | `unauthorized` / `forbidden` | 401 / 403 | Missing or invalid credential / a non-admin caller (conventions). |
 | `internal_error` | 500 | An unexpected failure. |
 

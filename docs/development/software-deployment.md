@@ -278,7 +278,7 @@ Docker CE 的 `enableApi` 變體讓 api-server 能即時管理主機上的 Docke
   （同源、admin 授權、經 provider-owned contract），不是透明的 Docker API proxy；新的 Engine 能力以明確路由加入。
   契約見 [servers-docker](../../api-server/docs/development/api-contracts/api-server/servers-docker.md)。
 - **資格只看 swallow-owned 事實**：Server `deployed` 且有 primary address、`docker-ce` assignment
-  `installed`、`enableApi: true`。swallow 不探測、也不使用 operator 在 swallow 之外開啟的 Docker API；Podman
+  `installed`、`enableApi: true`。swallow 不探測、也不使用 user 在 swallow 之外開啟的 Docker API；Podman
   沒有 explorer。不符合時 explorer 回 `409`，consumer 應依 Software Assignment 決定是否提供 explorer。
 - **不保存 Docker 物件**：images、containers、volumes、networks 屬於 Docker Engine，每次讀寫都在請求當下呼叫
   Engine，不寫入 Mongo；寫入是同步呼叫，不建立 Workflow。swallow 與 Docker 相關的狀態只有 Software Assignment
@@ -331,7 +331,7 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
   `install-platform` 之後依序組入：
   1. container runtime Job（`configure-docker-ce` 或 `configure-podman`）：`containerRuntime` 功能的
      compute＋login node，加上 Omnistat `container` method 的 primary controller（無功能時採該機已
-     assign 的 runtime，否則 Docker CE）；已 `installed` 的 Server 跳過，不覆蓋 operator 的 spec；
+     assign 的 runtime，否則 Docker CE）；已 `installed` 的 Server 跳過，不覆蓋 user 的 spec；
   2. Omnistat 或 Device Metrics Exporter 開啟時 `configure-prometheus`、`configure-grafana`（目標＝
      primary controller，spec 帶該功能的 `installMethod` 與 runtime）；
   3. Device Metrics Exporter 開啟時 `configure-device-metrics-exporter`（目標＝GPU compute nodes 的
@@ -349,7 +349,7 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
   launcher 在寫入 Workflow 的同一個 transaction 中呼叫 `RecordComposedInstall` 寫入 pending assignment
   （decision 069），寫入失敗會讓整個 deploy 受理失敗；安裝失敗由 install Task 宣告的 `software-assignment-failure` 標 `failed`。
 - **禁止** `ExecuteChildWorkflow` 一個完整的獨立 software Workflow（會重複 `wait-for-ssh`、搶同一
-  Server 的資源所有權、retry/cancel 歸屬混亂、出現兩個 operator-visible Workflow）。
+  Server 的資源所有權、retry/cancel 歸屬混亂、出現兩個 user-visible Workflow）。
 - **禁止**只用 ansible `include_role` 當唯一連動（會抹掉 Job 邊界與 dashboard 分組）。playbook 內部
   仍可 `include_role`，但 Job 邊界由 launcher 決定。
 

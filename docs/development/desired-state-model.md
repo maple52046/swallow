@@ -1,7 +1,7 @@
 # Desired-state 模型設計與規範
 
 本文件是 swallow 管理受管資源的**上位模型**：哪些狀態由 swallow 擁有、provider 如何把它實現出來、
-差異如何收斂、破壞性變更如何經 operator 核准，以及執行狀態與 store 必須遵守的規則。所有開發都必須遵守；
+差異如何收斂、破壞性變更如何經 user 核准，以及執行狀態與 store 必須遵守的規則。所有開發都必須遵守；
 功能規格（[os-provisioning.md](os-provisioning.md)、[platform-deployment.md](platform-deployment.md)、
 [software-deployment.md](software-deployment.md) 等）在此模型之下描述各功能的細節。
 
@@ -32,7 +32,7 @@
 [Change Plan](glossaries/terms/change-plan.md)、[Destructive Change](glossaries/terms/destructive-change.md)、
 [Provider Interface](glossaries/terms/provider-interface.md)、[Provider Adapter](glossaries/terms/provider-adapter.md)。
 
-- **Desired State（spec）**：operator 要某個受管資源成為的樣子。swallow 擁有，store 是唯一真相來源。
+- **Desired State（spec）**：user 要某個受管資源成為的樣子。swallow 擁有，store 是唯一真相來源。
 - **Observed State（status）**：provider 回報的實際樣子，帶來源（哪個 Integration）與觀察時間。
 - **Derived**：由 desired 與 observed 推導出的值（例如 Server Type、Allocation State），可隨時重算。
 - **generation 與 observedGeneration**：spec 每次改變，資源的 `generation` 加一；controller 依某一版 spec
@@ -45,7 +45,7 @@
 - **Provider Interface 與 Provider Adapter**：core 定義的、和某類外部系統溝通的介面（port），以及實作它的
   adapter（例如 MAAS 是 OS provisioning 的 adapter）。規則見 [core-and-extensions.md](core-and-extensions.md) §3。
 - **Destructive Change**：實現它會造成資料遺失、讓資源離開服務、中斷 workload，或無法以套回舊 spec 復原的變更。
-- **Change Plan**：破壞性變更在執行前的預覽，經 operator 核准後才執行。
+- **Change Plan**：破壞性變更在執行前的預覽，經 user 核准後才執行。
 - **Hold**：暫停某個資源的收斂；觀察與 drift 回報照常進行。
 
 這裡的 Convergence 和既有的「reconcile」不同：現有的 provider reconcile 是把 provider inventory 同步進
@@ -60,7 +60,7 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 
 | 類別 | 誰寫入 | 規則 |
 | --- | --- | --- |
-| desired | API（operator、dashboard、CLI），或擁有它的上層資源 | 唯一真相來源；寫入者必須唯一且可追溯 |
+| desired | API（user、dashboard、CLI），或擁有它的上層資源 | 唯一真相來源；寫入者必須唯一且可追溯 |
 | observed | 對應 provider adapter 的觀察路徑 | 帶來源與觀察時間；永遠不是寫入外部系統的依據 |
 | derived | 由 desired 與 observed 計算 | 可以快取，但必須能重算；不得成為另一個 desired 欄位的唯一來源 |
 
@@ -76,7 +76,7 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 
 - 只由 provider adapter 的觀察路徑寫入，帶來源 Integration 與觀察時間，沿用
   [Staleness](glossaries/terms/staleness.md) 的規則：provider 無法連線時，資料只是變舊，不會變成「已知是壞的」。
-- 永遠不拿 observed 值寫回 provider，也不把 observed 值當成新的 desired（除非 operator 明確 adopt，見 §6.3）。
+- 永遠不拿 observed 值寫回 provider，也不把 observed 值當成新的 desired（除非 user 明確 adopt，見 §6.3）。
 
 ### 3.4 swallow 永不擁有的事實
 
@@ -108,7 +108,7 @@ decision 069 相同）：
 | --- | --- | --- |
 | `realized` | observed state 已符合目前的 spec | `converging`、`capability_missing`、`awaiting_approval`、`failed`、`provider_unreachable` |
 | `drifted` | 有 observed 欄位在 swallow 沒有要求的情況下偏離 spec | — |
-| `requires_attention` | controller 已停止自動嘗試，需要 operator 處理 | — |
+| `requires_attention` | controller 已停止自動嘗試，需要 user 處理 | — |
 | `held` | 收斂被暫停（§6.4） | — |
 
 `realized=false` 加上 reason `capability_missing` 表示 provider 沒有能力實現某個欄位；desired 值照樣保留。
@@ -120,7 +120,7 @@ decision 069 相同）：
 
 | 資源 | desired | observed | 備註 |
 | --- | --- | --- | --- |
-| Server | OS 部署意圖（OS Image、Deploy Target、網路意圖、Deployment Template 參照）、Zone／Pool placement、operator 指派的 tag、Boot Media 設定、Server Default User、Power Configuration | OS Provisioning State、硬體與 GPU inventory、位址、power 狀態、membership、health、provider 自動計算的 tag | tag 與 Zone／Pool placement 已遷移（§4.4）；Power Configuration 目前在 capable provider 上由 provider 擁有；power on／off 是 desired power 狀態還是保留為動作：待定；Server Lock 改為 swallow 的 hold 還是維持 provider 擁有：待定 |
+| Server | OS 部署意圖（OS Image、Deploy Target、網路意圖、Deployment Template 參照）、Zone／Pool placement、user 指派的 tag、Boot Media 設定、Server Default User、Power Configuration | OS Provisioning State、硬體與 GPU inventory、位址、power 狀態、membership、health、provider 自動計算的 tag | tag 與 Zone／Pool placement 已遷移（§4.4）；Power Configuration 目前在 capable provider 上由 provider 擁有；power on／off 是 desired power 狀態還是保留為動作：待定；Server Lock 改為 swallow 的 hold 還是維持 provider 擁有：待定 |
 | Platform | type、拓樸、各 Server 的 Node Role、功能開關（GPU Operator、Omnistat、Device Metrics Exporter 等）與版本 | 叢集 membership、連線狀態、各功能的狀態讀回 | Platform Lifecycle State 改由 conditions 與 Workflow 推導；Platform Claim 是由 spec 的 target 推導的欄位，與 spec 在同一個 transaction 寫入 |
 | Managed Software（Software Assignment） | kind、variant 或 role、版本 | 已套用的狀態與版本 | 現行設計已有 desired 與 last-applied，最接近本模型 |
 | Zone／Pool | 存在與否、名稱、說明 | provisioner 中的實現狀態 | 已遷移（§4.4） |
@@ -192,7 +192,7 @@ User、Boot Media）尚未遷移，維持現行行為。
 | --- | --- | --- |
 | 加入新成員（新的 worker 或 compute node；`ready` 的 Server 先部署 OS） | 非破壞性 | 既有成員與 workload 不受影響 |
 | 版本升級（k0s、GPU Operator release） | 破壞性 | 重啟 k0s、kubelet、containerd 或使用 GPU 的 pod；降級不保證可行 |
-| 啟用 GPU Operator | 非破壞性 | 只新增 operator |
+| 啟用 GPU Operator | 非破壞性 | 只新增 user |
 | 停用 GPU Operator、變更它的設定 | 破壞性 | GPU workload 失去 device plugin，或使用 GPU 的 pod 重啟 |
 | 啟用或停用監控功能（Omnistat、Device Metrics Exporter） | 非破壞性 | 只增減 exporter 與監控元件，不中斷 Slurm 工作 |
 | 第一次啟用 workload storage 或 container runtime | 非破壞性 | 加入新的能力，不影響執行中的工作 |
@@ -205,7 +205,7 @@ swallow 還沒有自動化的破壞性變更（移除成員、改變 Node Role�
 Platform 的 controller 在 worker 執行：第一次看到沒有 spec 的 Platform 時，由最近一次部署的紀錄接管（generation 1，
 已 active 的 spec 視為已套用）；讓 present spec 的成員都有 Platform Claim；非破壞性變更以 type 模組指定的 Workflow
 收斂（加入成員是對所有成員重跑可收斂的部署）；核准的 Change Plan 由它 apply；Workflow 成功後把當時那個 generation
-的 spec 記為已套用。同一個 generation 的 Workflow 失敗後不自動重啟，由 operator 重跑或寫入新的 spec。成員的
+的 spec 記為已套用。同一個 generation 的 Workflow 失敗後不自動重啟，由 user 重跑或寫入新的 spec。成員的
 observed membership 與已套用的 spec 不同時回報 `drifted`。spec 中內嵌的 cloud-init user data 以 credential key 加密
 保存。
 
@@ -224,7 +224,7 @@ Managed Software 的版本升級仍待該功能遷移時定案。
   spec `generation` 與 observed 的觀察時間；預期影響（例如哪些 Server 會離開服務）；阻擋事項（preflight 失敗）。
 - **狀態**：`pending_approval → approved → applied`，或結束於 `rejected`、`superseded`、`expired`。值集以 glossary
   的 [Change Plan](glossaries/terms/change-plan.md) 為準。
-- **核准**：由有權限的 operator 核准整份 plan；第一版不支援部分核准。核准後 plan 內容不可變。
+- **核准**：由有權限的 user 核准整份 plan；第一版不支援部分核准。核准後 plan 內容不可變。
 - **過時偵測**：apply 前重新計算。spec 的 generation 已改變，或 observed 的變化讓動作清單不同時，plan 轉為
   `superseded`，要重新核准；不影響動作清單的觀察變化不會讓 plan 失效。
 - **到期**：plan 有有限的有效期間，因為它依據的 observed 會變舊。
@@ -249,12 +249,12 @@ Managed Software 的版本升級仍待該功能遷移時定案。
 - auto-correct 的修正時機（decision 071）：spec 改變時立即收斂；drift 由例行的觀察偵測並以 `drifted` 回報，在
   controller 的定期 resync（預設 10 分鐘，`SWALLOW_API_CONTROLLER_RESYNC_INTERVAL`）時修正，不持續監控 provider。
   修正寫入 timeline。
-- 修正錯值會讓硬體失去控制的欄位（例如 Power Configuration）只回報 drift，由 operator 選擇 adopt 或 reapply（§6.3）。
+- 修正錯值會讓硬體失去控制的欄位（例如 Power Configuration）只回報 drift，由 user 選擇 adopt 或 reapply（§6.3）。
 
 ### 6.3 外部操作
 
 有人直接在 provider 或 Platform 上操作（例如 MAAS UI、`kubectl`、手動 SSH）時，swallow 不會默默接受新值，
-而是回報 drift。operator 有兩個選擇：
+而是回報 drift。user 有兩個選擇：
 
 - **adopt**：把 spec 改成目前的 observed 值。這是一般的 spec 寫入，走同樣的 API 與審計。
 - **reapply**：重新實現 desired state。非破壞性時直接收斂，破壞性時產生 Change Plan。
@@ -263,7 +263,7 @@ swallow 永不擁有的事實（§3.4）不會產生 drift。
 
 ### 6.4 Hold
 
-- 以下情況暫停收斂：Server 在 Rescue Mode、Server 被 lock、operator 明確 hold、資源由未結束的 Workflow
+- 以下情況暫停收斂：Server 在 Rescue Mode、Server 被 lock、user 明確 hold、資源由未結束的 Workflow
   擁有（[workflow-execution.md](workflow-execution.md) §4）。所有權沒有 TTL，Workflow 結束時在同一個 transaction
   中釋放；controller 監看所有權的變化，所以釋放後立即收斂，不等下一次 resync。
 - hold 期間觀察與 drift 回報照常進行；controller 不執行收斂動作。Change Plan 可以產生，但要等 hold 解除才能
@@ -303,12 +303,12 @@ controller 不直接呼叫廠商 SDK 或 API，也不知道是哪個 adapter 在
 
 ### 7.5 觸發、退避與失敗
 
-- **觸發來源**：store 的 change feed（spec 與 observed 的變化）、定期 resync，以及 operator 要求的立即收斂。
+- **觸發來源**：store 的 change feed（spec 與 observed 的變化）、定期 resync，以及 user 要求的立即收斂。
   change feed 觸發時只收斂 spec 的變化並回報 drift；auto-correct 欄位的 drift 在 resync 時修正（§6.2）。
 - **退避**：暫時性錯誤（provider 無法連線、逾時）採有上限的指數退避並持續重試，`realized` 為 `false`、reason
   `provider_unreachable`。
 - **放棄**：永久性錯誤（provider 拒絕）設定 `requires_attention` condition 與正規化的錯誤，停止自動嘗試，
-  直到 spec 改變（`generation` 增加）或 operator 要求重試。缺少能力是 `realized=false`、reason `capability_missing`，
+  直到 spec 改變（`generation` 增加）或 user 要求重試。缺少能力是 `realized=false`、reason `capability_missing`，
   不是失敗。
 - **並行**：controller 不對由未結束的 Workflow 擁有的資源動作（§6.4）。
 
@@ -337,7 +337,7 @@ execution 遺失不會出現在 change feed 上（[workflow-execution.md](workfl
 ## 9. 執行與 Workflow executor
 
 - **Workflow 是 swallow 擁有的執行狀態**。Workflow 與其 Task 的狀態、attempt 與結果以 store 中的紀錄為唯一
-  真相。Workflow 的語意——Task DAG、attempt、重試、取消、fencing、等待 operator——由 core 定義（目前的行為見
+  真相。Workflow 的語意——Task DAG、attempt、重試、取消、fencing、等待 user——由 core 定義（目前的行為見
   [workflow-execution.md](workflow-execution.md)）。
 - **Workflow executor 是 provider interface**，目前的 adapter 是 Temporal。executor 負責執行與 durable 等待；
   Temporal 的型別與概念（workflow context、activity options、history event）不得越過 adapter。
@@ -349,8 +349,8 @@ execution 遺失不會出現在 change feed 上（[workflow-execution.md](workfl
 - **派發世代**：每次派發世代加一，舊世代的寫入被拒絕，舊的 run 不再產生副作用；資源由 Workflow 在生命週期內擁有，
   沒有 TTL。
 - **execution 遺失**：executor 沒有某個未結束 Workflow 的 execution 時，dispatcher 依 store 中的狀態重新派發；已成功
-  的 Task 因為是 idempotent 的 ensure 且結果已記錄，不會重做；結果無法證明的 Task 交給 operator。
-- **來源**：Workflow 由三種方式產生：operator 的明確要求、controller 的非破壞性收斂（§5.3）、核准的 Change Plan
+  的 Task 因為是 idempotent 的 ensure 且結果已記錄，不會重做；結果無法證明的 Task 交給 user。
+- **來源**：Workflow 由三種方式產生：user 的明確要求、controller 的非破壞性收斂（§5.3）、核准的 Change Plan
   （§5.4）。
 
 ## 10. Store 規範

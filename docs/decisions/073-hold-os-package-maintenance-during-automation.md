@@ -36,7 +36,7 @@ timeout.
    dnf-automatic.
 2. **The hold changes runtime state only.** It stops timers that are active and later starts exactly
    those again; it never disables or masks them. Its state lives under `/run`, so a reboot always
-   restores the operator's policy.
+   restores the user's policy.
 3. **The hold never interrupts maintenance that is already running.** Taking the hold waits for it
    (bounded). When it outlasts the wait, the play fails with `[package_maintenance_busy]` and the
    Task can be retried.
@@ -57,9 +57,9 @@ timeout.
   It fixes the failing installs, but an upgrade during a deployment still restarts sshd,
   systemd-networkd, polkit, and whatever needrestart picks under the play.
 - **Disable unattended-upgrades on Servers swallow manages.** It removes the cause but takes over the
-  operator's security update policy, which swallow does not own.
+  user's security update policy, which swallow does not own.
 - **Configure it through cloud-init at provisioning.** Existing-OS Servers are never provisioned by
-  swallow, and a Deployment Template's user-data belongs to the operator.
+  swallow, and a Deployment Template's user-data belongs to the user.
 - **Have the Ansible runner wrap every playbook with the hold.** It needs no change per playbook,
   but the core adapter would depend on module content and would hold hosts for playbooks that
   change no packages.
@@ -75,3 +75,7 @@ timeout.
 - The scattered workarounds remain as defense in depth. Only the one-time lock gate in
   `deploy-slurm` is removed.
 - A new playbook that changes packages must take the hold; the content test fails until it does.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

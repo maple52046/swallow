@@ -1,4 +1,4 @@
-# swallow-owned durable Workflows (decision 072): accept operator intent, observe a Workflow's
+# swallow-owned durable Workflows (decision 072): accept user intent, observe a Workflow's
 # Tasks, timeline, and Runner diagnostics, and control it (cancel, rerun, Task retry). Behavior
 # semantics live in api-server/workflows.md.
 #
@@ -506,7 +506,7 @@ components:
       description: >-
         The canonical status of a Workflow. `succeeded`, `failed`,
         `partially_succeeded`, and `canceled` are terminal; `requires_attention` waits for an
-        operator.
+        user.
       enum:
         - pending
         - running
@@ -534,14 +534,14 @@ components:
     CreateWorkflowRequest:
       type: object
       description: >-
-        Operator intent for a single-Task Ansible Workflow. Unknown fields are ignored.
+        User intent for a single-Task Ansible Workflow. Unknown fields are ignored.
       required: [kind, targetServerIds]
       properties:
         kind:
           $ref: '#/components/schemas/WorkflowKind'
         intent:
           type: string
-          description: Operator-facing summary, stored trimmed.
+          description: User-facing summary, stored trimmed.
         targetServerIds:
           type: array
           minItems: 1
@@ -609,7 +609,7 @@ components:
           $ref: '#/components/schemas/WorkflowKind'
         intent:
           type: string
-          description: Operator-facing summary of the intent; may be empty.
+          description: User-facing summary of the intent; may be empty.
         intentSnapshot:
           type: object
           additionalProperties: true
@@ -628,7 +628,7 @@ components:
         statusReason:
           type: string
           nullable: true
-          description: Operator-facing reason for the current status, when one was recorded.
+          description: User-facing reason for the current status, when one was recorded.
         startState:
           type: string
           enum: [pending, started]
@@ -809,14 +809,14 @@ components:
         label:
           type: string
           description: >-
-            The operator-facing name, for example `Provision OS`. A Workflow accepted before Jobs
+            The user-facing name, for example `Provision OS`. A Workflow accepted before Jobs
             had labels reads the label the running build gives the name, or the name with each
             hyphen-separated word capitalized when the build does not know it.
         retry:
           type: string
           enum: [task, job]
           description: >-
-            What an operator retry of a failed Task in the Job runs again: only that Task, or
+            What a user retry of a failed Task in the Job runs again: only that Task, or
             every Task of the Job.
     WorkflowTask:
       type: object
@@ -847,7 +847,7 @@ components:
           description: What the Task does, for example `provision-os`, `wait-for-ssh`, or `ansible-playbook`.
         name:
           type: string
-          description: Operator-facing name.
+          description: User-facing name.
         job:
           type: string
           description: The Job grouping this Task; absent for a Task outside any Job.
@@ -913,7 +913,7 @@ components:
             - $ref: '#/components/schemas/Timestamp'
     WorkflowTaskError:
       type: object
-      description: The stable, operator-facing diagnostic of a Task failure.
+      description: The stable, user-facing diagnostic of a Task failure.
       required: [code, message, retryable]
       properties:
         code:
@@ -1007,7 +1007,7 @@ components:
           type: string
         message:
           type: string
-          description: Operator-facing; must not be parsed.
+          description: User-facing; must not be parsed.
         details:
           type: object
           additionalProperties: true

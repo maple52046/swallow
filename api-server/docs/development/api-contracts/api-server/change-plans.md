@@ -14,7 +14,7 @@ Active.
 
 ## Purpose
 
-A destructive change waits for an operator's approval before swallow carries it out
+A destructive change waits for a user's approval before swallow carries it out
 ([decision 069](../../../../../docs/decisions/069-swallow-owns-desired-state.md) (swallow owns desired state),
 [decision 076](../../../../../docs/decisions/076-change-plans.md) (change plans)). A resource API that accepts a
 destructive spec write commits the spec and answers `202 Accepted` with the
@@ -85,7 +85,7 @@ pagination.
   blockers cannot be approved.
 - `state` is `pending_approval`, `approved`, `applied`, `rejected`, `superseded`, or `expired`
   (glossary). A resource has at most one plan in `pending_approval` or `approved`.
-- `stateReason` says why a plan reached its state; `decidedBy` and `decidedAt` name the operator
+- `stateReason` says why a plan reached its state; `decidedBy` and `decidedAt` name the user
   who approved or rejected it; `workflowId` is the Workflow an applied plan produced.
 - `expiresAt` is 24 hours after the plan was computed by default (`changePlanTTL`).
 

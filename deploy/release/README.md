@@ -17,7 +17,7 @@ tagged `<component>-<version>`. The runtime services use official images as they
 Installations never use tags: `release-manifest.json` pins every image by digest. Review and
 bump `runtime-images.env` deliberately; the PostgreSQL image also hosts the co-located MAAS
 database, so it must stay PostgreSQL 14 or newer. The optional Temporal UI is not part of a
-release; an operator who wants it sets its digest in `production/.env`.
+release; a user who wants it sets its digest in `production/.env`.
 
 ## Publish a release
 

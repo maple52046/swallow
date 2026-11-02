@@ -38,7 +38,7 @@ decision 040、
   時執行 `swallow-api deployment-key ensure`。
 - Boot Media／Boot ISO、Server Enrollment 下載路由、MAAS rack virsh SSH identity 的用途；installation 只
   推導 `SWALLOW_BOOT_MEDIA_BASE_URL`、提供 Nginx 路由，並建立與記錄 virsh 公鑰。
-- MAAS 的 DHCP／PXE 設定：在 installation 之外，由 operator 在 MAAS 設定。
+- MAAS 的 DHCP／PXE 設定：在 installation 之外，由 user 在 MAAS 設定。
 - 多主機拓樸、TLS、離線（air-gapped）安裝與 native（systemd）安裝：目前都不支援（§2.6、§4.5）。
 
 ---
@@ -59,7 +59,7 @@ decision 040、
 | `mongo` | `SWALLOW_MONGO_IMAGE` | `control` | 無 |
 | `postgres` | `SWALLOW_POSTGRES_IMAGE` | `control`、`host-postgres` | `127.0.0.1:${SWALLOW_POSTGRES_HOST_PORT:-5432}`（只給主機上的 MAAS） |
 | `temporal` | `SWALLOW_TEMPORAL_SERVER_IMAGE` | `control` | 無 |
-| `temporal-ui`（profile `diagnostics`） | `SWALLOW_TEMPORAL_UI_IMAGE`（operator 自設） | `control` | `127.0.0.1:${SWALLOW_TEMPORAL_UI_PORT:-8233}` |
+| `temporal-ui`（profile `diagnostics`） | `SWALLOW_TEMPORAL_UI_IMAGE`（user 自設） | `control` | `127.0.0.1:${SWALLOW_TEMPORAL_UI_PORT:-8233}` |
 | `api-server` | `SWALLOW_API_IMAGE` | `control`、`egress` | 無（經 Dashboard 代理） |
 | `worker` | `SWALLOW_API_IMAGE`（command `worker`） | `control`、`egress` | 無 |
 | `ansible-executor` | `SWALLOW_API_IMAGE`（command `ansible-executor`） | `control`、`egress` | 無 |
@@ -74,7 +74,7 @@ decision 040、
   10 秒重新解析 `api-server`，所以只重建 API container（例如只換 API image 的 upgrade）不需要一起重建 dashboard。
 - API、worker、Ansible executor 是同一個 image，以不同 command 啟動。Ansible executor 以 `init: true` 執行：
   Docker 的 init 擔任 PID 1，轉送 signal 並回收 `ansible-runner` 留下的 ssh-agent，否則每次 run 都會留下 zombie。
-- Temporal UI 是選用的 diagnostics service：只在 operator 設定 `SWALLOW_TEMPORAL_UI_IMAGE` 後以 profile
+- Temporal UI 是選用的 diagnostics service：只在 user 設定 `SWALLOW_TEMPORAL_UI_IMAGE` 後以 profile
   `diagnostics` 啟動，只聽 loopback。
 
 ### 2.3 共用的 PostgreSQL instance
@@ -137,11 +137,11 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 5. Site 沒有 [Automation Configuration](glossaries/terms/automation-configuration.md) 時才寫入預設：
    啟用、`sshPort` 22、沒有 `playbookMappings`，`knownHosts` 為 `SWALLOW_SSH_KNOWN_HOSTS` 或一行註解
    （executor 每次執行時自行掃描 target 的 host key）；不寫 Site credential（automation 一律使用 Deployment
-   Key）。已存在就不動，operator 之後的修改每次重跑都保留。
+   Key）。已存在就不動，user 之後的修改每次重跑都保留。
 6. 確認 Deployment Key 存在，等 Integration sync 成功，以及 OS Image catalog 出現完整的 `ubuntu/noble`
    amd64（上限 `SWALLOW_BOOTSTRAP_TIMEOUT`，預設 900 秒）。
 
-- 不建立任何 SSH Access Key：由 operator 自己上傳。
+- 不建立任何 SSH Access Key：由 user 自己上傳。
 - `bootstrap.sh verify` 是對應的唯讀檢查，供 `doctor` 使用（§3.4）。
 - Ownership 不變（decision 069）：MAAS 仍是擁有
   machine 與 image 事實的 provisioner；共置只改變拓樸。
@@ -182,7 +182,7 @@ decision 040。
 - **`.env` 是 installation 的宣告設定**。release manifest 提供 `SWALLOW_RELEASE_VERSION` 與五個 image
   參照（`SWALLOW_API_IMAGE`、`SWALLOW_DASHBOARD_IMAGE`、`SWALLOW_MONGO_IMAGE`、`SWALLOW_POSTGRES_IMAGE`、
   `SWALLOW_TEMPORAL_SERVER_IMAGE`）：從 manifest 寫入時一律覆寫，且優先於 shell 中殘留的同名值；其餘
-  operator 設定保留。設定的持久化規則見 §5.3。
+  user 設定保留。設定的持久化規則見 §5.3。
 - 腳本讀取 `.env` 的優先順序與 Compose 相同：shell environment 優先於 `.env`。
 - **Secrets 只補不換**：`prepare-secrets.sh` 只產生缺少的 secret（隨機值），從不替換既有的（例如替換
   credential key 會讓已封存的資料無法解開）。`secrets/` 必須是 mode 0700。
@@ -225,7 +225,7 @@ decision 040。
     過）；不是 `upgrade.to`、也不在 `upgrade.from` 中的版本同樣拒絕（沒有升級路徑）。
   - 這些欄位在此機制之前的 release 是寫死且過時的，所以只保護升級到之後的 release；binary 只服務自己的
     schema、拒絕啟動在其他版本的資料庫上，仍是最後一道防線。
-- 有未到終態的 Workflow（包含停在 `requires_attention` 等待 operator 的）時拒絕，除非帶 `--force`。
+- 有未到終態的 Workflow（包含停在 `requires_attention` 等待 user 的）時拒絕，除非帶 `--force`。
 - 寫入新 manifest、持久化設定、補齊 secrets、preflight、pull 新 image。
 - **停止 API、worker 與 Ansible executor**，再備份到 `pre-upgrade-<已安裝版本>-<UTC 時間戳>`（§3.6）並印出
   路徑：備份期間與 migrate 時沒有任何 process 寫入資料庫，也沒有舊 binary 在已遷移的 schema 上執行。
@@ -274,7 +274,7 @@ decision 040。
 - NTP 檢查失敗時重跑 `local-ntp.sh install` 與 `upstream`；排在 MAAS 條件之後，因為 MAAS 的 chronyd 就是
   server。
 - installation records 的 verify 失敗時重跑 `bootstrap.sh apply`。
-- **從不取消或重試 Workflow**：那是 operator 的決定。
+- **從不取消或重試 Workflow**：那是 user 的決定。
 
 ### 3.6 `backup` 與 `restore`
 
@@ -285,7 +285,7 @@ decision 040。
 - `SHA256SUMS` 以備份目錄內的相對檔名記錄，所以 weekly 副本、或搬到其他主機的備份都能獨立驗證。
 - 週日的備份另以 hard link 複製為 `weekly-<時間戳>`；保留最近 7 份 daily 與 4 份 weekly。
 - Compose installation 不自帶備份排程；`upgrade` 一律先備份，寫成 `pre-upgrade-<已安裝版本>-<時間戳>`，內容
-  相同但不參與輪替，保留到 operator 手動刪除。
+  相同但不參與輪替，保留到 user 手動刪除。
 - 排程的 `backup` 在系統執行中取得，不停任何 process；MongoDB 的各 collection 因此不是同一瞬間的快照。
 - `restore BACKUP_DIRECTORY --yes`：
   1. 驗證 `SHA256SUMS`（早於相對檔名的備份記的是絕對路徑，只取其檔名，檢查的仍是這個目錄中的檔案），並確認
@@ -306,7 +306,7 @@ decision 040。
   派發世代。
   - backup 之後才完成的 Task 在 store 中仍未完成。當時還是 `pending` 的會再執行一次（ensure 語意讓重跑安全）；
     當時為 `running` 的依 Task kind 的接續方式：可重新觀察的 Runner 先觀察再接續，Ansible Task 記為
-    `requires_attention`（`executor_outcome_unknown`）等 operator 重試。backup 之後才受理的 Workflow 不存在。
+    `requires_attention`（`executor_outcome_unknown`）等 user 重試。backup 之後才受理的 Workflow 不存在。
   - 資源所有權與 Workflow 可能對不上（collection 不是同一瞬間取得）：新世代的第一輪重新取得 Workflow 的資源
     （被另一個 Workflow 擁有時等待），resync 釋放 owner 已結束或不存在的所有權（workflow-execution.md §4）。
   - 被終止的 run 若正在 Server 上執行 playbook，沒有跑到釋放 OS 套件維護 hold 的最後一個 play；那些 Server 的
@@ -329,7 +329,7 @@ decision 040。
 
 - `swallowctl` 是唯一的 lifecycle 工具、installed marker 只在 `doctor` 通過後寫入：見
   decision 040。
-- upgrade 在 operation 進行中拒絕、除非 operator 明確強制：沿用
+- upgrade 在 operation 進行中拒絕、除非 user 明確強制：沿用
   [decision 072](../decisions/072-store-driven-workflow-execution.md)（store driven workflow execution） 的 Consequences。
 - backup／restore 包含 `maasdb`，因為 MAAS 依賴 Compose 的 PostgreSQL：見
   decision 040。
@@ -407,13 +407,13 @@ decision 040。
   `deploy/production/native/`。
 - **離線 image archive**：支援離線安裝（含 MAAS images）之前不發佈。離線安裝屆時自帶 media，不以把第三方
   image 放進 GHCR 實現。
-- **Temporal UI**：不鏡像，installer 也不寫入 `.env`；`SWALLOW_TEMPORAL_UI_IMAGE` 由 operator 自行設定，且
+- **Temporal UI**：不鏡像，installer 也不寫入 `.env`；`SWALLOW_TEMPORAL_UI_IMAGE` 由 user 自行設定，且
   必須是 digest。
 - 因此 air-gapped 站點目前無法從 release 安裝。
 
 ### 設計理由
 
-- release 只發佈 Compose installation、延後 native bundle 與離線 archive、Temporal UI 交給 operator、發佈機
+- release 只發佈 Compose installation、延後 native bundle 與離線 archive、Temporal UI 交給 user、發佈機
   必須自備 crane：見 decision 040。這延後而非放棄
   decision 072 與
   decision 072 的 air-gap 目標。
@@ -450,7 +450,7 @@ decision 040。
 
 ### 5.3 設定持久化與位址推導
 
-- `install` 與 `upgrade` 把 environment 中有設定的 operator settings 寫入 `.env`（environment 優先，與
+- `install` 與 `upgrade` 把 environment 中有設定的 user settings 寫入 `.env`（environment 優先，與
   Compose 相同），讓之後的 `upgrade` 或直接的 `docker compose up` 看到相同的值：`SWALLOW_ADDRESS`、
   `SWALLOW_MAAS_URL`、`SWALLOW_BOOT_MEDIA_BASE_URL`、`SWALLOW_HTTP_PORT`、`SWALLOW_POSTGRES_HOST_PORT`、
   `SWALLOW_MAAS_IMAGE_TIMEOUT`、`SWALLOW_SITE_NAME`、`SWALLOW_TEMPORAL_UI_IMAGE`、`SWALLOW_TEMPORAL_UI_PORT`、
@@ -534,7 +534,7 @@ decision 040。
   playbook，不需要 Site `playbookMappings`。Workflow kind `configure-ntp` 只用來標示這個 Task，從不是獨立的
   Workflow。
 - NTP server 來自 api-server 設定 `SWALLOW_API_NTP_SERVER`（production Compose 帶入 `SWALLOW_ADDRESS`），在
-  受理時凍結為 trusted variable `swallow_ntp_servers`（單一元素的 list），operator 無法偽造。
+  受理時凍結為 trusted variable `swallow_ntp_servers`（單一元素的 list），user 無法偽造。
 - 不會被重新設定的 Server：Platform deployment 中沿用的 `deployed` Server，以及 `existing_os` 模式的所有
   targets。已佈署的 Server 保留原本的時間設定，直到再次被 provision。OS Image verification 不設定時間
   （它最後會把 Server 歸還）。

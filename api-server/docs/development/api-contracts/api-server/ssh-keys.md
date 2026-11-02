@@ -11,7 +11,7 @@ Active
 ## Consumer Components
 
 - `dashboard`
-- `cli` (the `swallow` operator command-line client)
+- `cli` (the `swallow` command-line client)
 - swallow installation tooling (checks that the Deployment Key exists)
 
 ## Purpose
@@ -226,7 +226,7 @@ read.
 
 - swallow lists the provisioner's keys first, adopts a key whose material already matches,
   adds missing keys, and removes only keys swallow itself registered or adopted. Keys an
-  operator added directly in the provisioner are never removed.
+  user added directly in the provisioner are never removed.
 - The SSH Key controller (worker process) realizes keys after each key change, after each
   change to a provisioner Integration, on request, at its periodic resync (every 10 minutes by
   default, which also adds back a key someone removed in the provisioner), and before every OS

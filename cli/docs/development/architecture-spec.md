@@ -1,7 +1,7 @@
 # CLI Architecture Spec
 
 This document is the architecture constitution for the `cli` component (the
-`swallow` operator command-line client). It refines, and never contradicts, the
+`swallow` command-line client). It refines, and never contradicts, the
 repository root architecture spec (`../../../docs/development/architecture-spec.md`).
 Where both apply, both must be satisfied.
 
@@ -17,7 +17,7 @@ It follows the api-server contract as published rather than building an
 anticorruption layer, because the CLI's job is to expose the contract faithfully.
 The consequence is a hard rule: the CLI must not import api-server internals and
 must not encode payload field sets it would have to keep in sync by hand — it
-passes structured request bodies through as operator-supplied JSON/YAML so a
+passes structured request bodies through as user-supplied JSON/YAML so a
 contract change does not silently diverge from a copied struct.
 
 ## Clean Architecture Layers
@@ -46,7 +46,7 @@ Dependency direction:
 
 ### Layer responsibilities
 
-- **command** — parses operator input, maps it to a contract request, and prints
+- **command** — parses user input, maps it to a contract request, and prints
   the result. It contains no HTTP or transport detail beyond choosing the path,
   method, query, body, and auth mode. Cross-cutting request/response mechanics
   live in shared helpers (`helpers.go`) so a new command is a small, uniform

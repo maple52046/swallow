@@ -18,7 +18,7 @@ GPU 資料中心通常已經有專門系統：
 - Prometheus 與 Alertmanager 擁有 metrics 與 alerts。
 - Ansible 對 host 執行可重複的變更。
 
-取代這些系統會失去成熟能力；完全分離則會迫使 operator 手動回答「這個
+取代這些系統會失去成熟能力；完全分離則會迫使 user 手動回答「這個
 Kubernetes node 是哪台 MAAS machine、哪些 alerts 屬於它、最近是哪個 automation
 改動它」。swallow 解決的是 correlation 與 intent 問題。
 
@@ -43,7 +43,7 @@ Platform 或 GPU 廠商的知識。兩種組件把它組合成開箱即用的 da
 
 swallow 記錄你要的狀態，由擁有事實的系統回報實際狀態：
 
-- **Desired state** 是 operator 要求的樣子，例如 Server 的 tag 與 Zone／Pool
+- **Desired state** 是 user 要求的樣子，例如 Server 的 tag 與 Zone／Pool
   placement、swallow 登錄到 provisioner 的 Zone、Pool 與 SSH key、一個
   Platform，或指派到 Server 的 software。swallow 擁有它，是它唯一的真相來源。
 - **Observed state** 是 provider 回報的樣子：MAAS 的 machine 與 hardware facts、
@@ -75,14 +75,14 @@ swallow 刻意不擁有：
 ## 操作介面
 
 - **Dashboard：** 引導式操作流程、fleet status、診斷與 resource management。
-- **CLI：** 以 table、JSON、YAML 與 streaming output 提供廣泛的 operator
+- **CLI：** 以 table、JSON、YAML 與 streaming output 提供廣泛的 user
   能力；Managed Software 目前使用 Dashboard 或 HTTP API。
 - **HTTP API：** 給 external integration 與自訂 automation 使用的 provider-owned contracts。
 
 三種介面都以 opaque ID 作為 resource identity。Hostname 與 IP address 是可變的
 observed attributes，不能當作 key。
 
-## 主要 operator journeys
+## 主要 user journeys
 
 1. 建立 Site，註冊 MAAS 與 monitoring Integration。
 2. 設定 Site automation，將 MAAS machines reconcile 成 Servers。
@@ -94,8 +94,9 @@ observed attributes，不能當作 key。
 ## 非目標與目前狀態
 
 swallow 只管理自己佈署的 Platform，不註冊任意既有 Kubernetes／Slurm 環境。
-Teams、user administration、實體 rack topology 與 GPU-specific observability
-仍是 planned design area，不是 active feature。
+Teams、user administration 與實體 rack topology 仍是 planned design area，不是 active
+feature。GPU 監控涵蓋 AMD GPU Server 上 RDC exporter 的圖表，以及 Slurm Platform 上選用的
+Omnistat（[Monitoring](guides/monitoring.md)）。
 
 專案正在積極開發，尚無穩定 SemVer release。Compose topology 是功能完整的執行
 topology；在 Temporal 與 PostgreSQL native service packaging 完成前，native

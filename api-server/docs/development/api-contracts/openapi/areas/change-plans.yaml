@@ -10,7 +10,7 @@ paths:
       summary: List Change Plans, newest first.
       description: >-
         Requires role `admin`. `resourceKind` and `resourceId` narrow the list to one resource;
-        `state` may repeat. The list is small (plans of the resources an operator changed), so it
+        `state` may repeat. The list is small (plans of the resources a user changed), so it
         is not paginated.
       parameters:
         - name: resourceKind
@@ -209,7 +209,7 @@ components:
           description: Why the plan reached its state, for people; empty while pending.
         decidedBy:
           type: string
-          description: The operator who approved or rejected it; empty before a decision.
+          description: The user who approved or rejected it; empty before a decision.
         decidedAt:
           type: string
           format: date-time

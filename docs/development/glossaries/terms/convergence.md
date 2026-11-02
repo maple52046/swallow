@@ -6,6 +6,6 @@
 - Disallowed meaning: Not provider reconcile — the existing reconcile that syncs provider inventory into swallow is observation (it writes observed state), while Convergence changes the outside world to match the spec. Not automatic correction of Drift, which is reported unless a field opts in. Not the convergent ("ensure") execution of a single Task, which is how one Workflow step stays idempotent.
 - Synonyms: None.
 - Deprecated terms: None.
-- Examples: "An operator adds a tag; the controller converges it to MAAS without a Change Plan." / "The Pool controller backs off while MAAS is unreachable and reports `provider_unreachable`."
+- Examples: "A user adds a tag; the controller converges it to MAAS without a Change Plan." / "The Pool controller backs off while MAAS is unreachable and reports `provider_unreachable`."
 - Related terms: Desired State, Observed State, Condition, Drift, Change Plan, Destructive Change, Workflow, Provider Interface.
 - Change note: Added 2026-10-30 for [decision 069](../../../decisions/069-swallow-owns-desired-state.md) (swallow owns desired state), distinguishing it from the existing provider reconcile.

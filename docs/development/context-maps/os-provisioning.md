@@ -1,6 +1,6 @@
 # OS provisioning context map
 
-The OS Provisioning bounded context owns operator intent, policy, validation,
+The OS Provisioning bounded context owns user intent, policy, validation,
 Deployment Templates, and durable Provisioning Tasks. External provisioners own
 machine inventory, OS Images, subnets, IP allocation, and the execution of
 deploy/release/network operations.
@@ -17,10 +17,10 @@ The adapter is not a conformist boundary. Provider terms such as MAAS `AUTO`,
 model. `AUTO` is translated to the read-only `provider_managed` observation;
 `LINK_UP` is translated to the NIC configuration state `link_only`.
 
-swallow applies `automatic`, `dhcp`, or `static` intent when the operator deploys
+swallow applies `automatic`, `dhcp`, or `static` intent when the user deploys
 an OS or changes a Ready Server's Network. `automatic` asks the provider to
 allocate and record an address; `dhcp` leaves address, gateway, and DNS to the
-network's DHCP server; `static` carries the operator-selected address. Release
+network's DHCP server; `static` carries the user-selected address. Release
 cleanup is coordinated through a durable Provisioning Task. No continuous
 network reconciliation runs on deployed hosts.
 
@@ -73,7 +73,7 @@ The Access context owns SSH Key records as desired state; the provisioner's key 
 is only a realization target, converged by the SSH Key controller in the worker. The optional `SSHKeyRegistrar` capability (advertised as
 `SSHKeyRegistration`) keeps MAAS vocabulary (`/account/prefs/sshkeys/`, numeric key ids)
 inside the MAAS adapter. swallow removes only provider keys it registered or adopted, so
-keys an operator added in MAAS are untouched. A non-capable provisioner is recorded as
+keys a user added in MAAS are untouched. A non-capable provisioner is recorded as
 `unsupported`; there is no cloud-init fallback yet.
 
 The installation Deployment Key is the only SSH credential used for readiness,

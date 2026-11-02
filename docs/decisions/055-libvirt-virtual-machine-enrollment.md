@@ -8,10 +8,10 @@
 
 [ADR 054](054-provisioner-power-configuration.md) let swallow write a Server's Power Configuration
 and stop the enrollment wait with `power_configuration_required` when the power-off cannot be
-observed. Enrolling three lab VMs on `tainan-ci` still needed an operator to log in to the
+observed. Enrolling three lab VMs on `tainan-ci` still needed a user to log in to the
 hypervisor to start them, to set each VM's `virsh` driver in the window between enlistment and the
 wait, and to mount the iPXE ISO on each domain's CD-ROM by hand. At thirty VMs that does not work,
-and it breaks the rule that operators work through swallow alone. Configuring MAAS's own SSH access
+and it breaks the rule that users work through swallow alone. Configuring MAAS's own SSH access
 to the hypervisor was the one step that had to happen on the MAAS host.
 
 MAAS 3.7 facts that shape the decision: the admin machine create needs `architecture` and
@@ -21,7 +21,7 @@ VM-host discovery (`add-chassis`, pod probe) rewrites a domain to boot network t
 
 ## Decision
 
-- **Virtual machines enroll by name.** An operator names libvirt domains on a Hypervisor (a
+- **Virtual machines enroll by name.** A user names libvirt domains on a Hypervisor (a
   deployed swallow Server) and, for an externally served network, a Boot ISO. swallow reads each
   domain's MAC addresses and architecture, registers the Machine with the provisioner without
   commissioning it and with its `virsh` Power Configuration, and leaves it `new` and powered off.
@@ -30,11 +30,11 @@ VM-host discovery (`add-chassis`, pod probe) rewrites a domain to boot network t
 - **It is a durable Workflow** targeting the Hypervisor, with one independent ensure Task per
   domain, so many VMs run in parallel and one failure is retried alone.
 - **swallow reaches the Hypervisor with the Deployment Key** (ADR 039), as the Hypervisor's
-  effective Server Default User or an account the operator names. Being a Hypervisor is a role of
+  effective Server Default User or an account the user names. Being a Hypervisor is a role of
   a deployed Server, not a new record or credential. This refines ADR 054's rejection of driving
   libvirt from swallow: swallow still does not switch power — MAAS does — and holds no hypervisor
   secret of its own; it touches libvirt only for what MAAS cannot do, reading domains and attaching
-  Boot Media (and, only when the operator explicitly asks, stopping a running domain before
+  Boot Media (and, only when the user explicitly asks, stopping a running domain before
   enrollment).
 - **Boot Media has a method**, chosen from the Power Configuration: `redfish` for a Server with a
   BMC (ADR 047, unchanged) and `libvirt` for a `virsh` Server whose address names a Hypervisor,
@@ -55,7 +55,7 @@ VM-host discovery (`add-chassis`, pod probe) rewrites a domain to boot network t
   externally served network), and runs asynchronously on the rack, so swallow cannot report per VM.
 - **Register the hypervisor as a MAAS VM host:** rejected; MAAS would own the VMs' lifecycle and
   boot order, and ADR 054 kept VM-host management out of swallow.
-- **Have the operator type MAC addresses:** rejected by the requirement to name VMs.
+- **Have the user type MAC addresses:** rejected by the requirement to name VMs.
 - **swallow starts the domain itself:** rejected; it would bypass MAAS's power state and the
   commission that starts it anyway.
 - **Attach the ISO as a QEMU HTTP CD-ROM:** rejected; it depends on QEMU's curl block driver and on
@@ -76,3 +76,7 @@ VM-host discovery (`add-chassis`, pod probe) rewrites a domain to boot network t
   libvirt Boot Media and enrollment.
 - New published Workflow and Task vocabulary, a provider capability for machine registration, and
   an Integration setting for the provisioner's public key.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

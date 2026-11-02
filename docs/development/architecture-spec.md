@@ -12,14 +12,14 @@ Strategic DDD 的部分整理自 Eric Evans 的 [Domain-Driven Design Reference:
 
 **swallow 的 core 是通用的；組合不同的 provider 與 plugin，就成為開箱即用的 datacenter 管理。**
 
-- **core 什麼都能管**：core 管理意圖、身分與收斂——operator 要受管資源成為什麼樣子、同一台機器在各個外部系統中是誰、
+- **core 什麼都能管**：core 管理意圖、身分與收斂——user 要受管資源成為什麼樣子、同一台機器在各個外部系統中是誰、
   如何讓實際狀態趨近意圖，以及執行這些變更的 Workflow。core 不含任何廠商、產品、平台或 GPU 廠商的知識，所以它能管理
   的範圍不受限於目前整合的系統。
 - **provider 與 plugin**：provider（[Provider Adapter](glossaries/terms/provider-adapter.md)）負責和某一類外部系統溝通，
   例如 OS provisioning、Workflow executor、host automation、store 與 metrics；plugin
   （[Extension Module](glossaries/terms/extension-module.md)）是 swallow 能管理的東西：Platform、Accelerator 與 Software
   模組。
-- **交付的是組合**：operator 拿到的是組合好、驗證過的 core、provider 與 plugin，也就是一個 distribution，不必自己組裝；
+- **交付的是組合**：user 拿到的是組合好、驗證過的 core、provider 與 plugin，也就是一個 distribution，不必自己組裝；
   包含哪些組合、哪些組合驗證過，記在 [Support Matrix](glossaries/terms/support-matrix.md)。
 - **先有通用的 core，再往外長**：Kubernetes、Slurm 與 Managed Software 是從 core 往外長出來的 plugin，再包裝成產品。
   日後要支援其他 platform 或 GPU 廠商（例如 NVIDIA），是新增 plugin，不是重新設計 core。
@@ -33,7 +33,7 @@ Strategic DDD 的部分整理自 Eric Evans 的 [Domain-Driven Design Reference:
 | provider | OS provisioning：MAAS；Workflow executor：Temporal；host automation：Ansible；store：MongoDB；metrics 與 alerts：Prometheus、Alertmanager；BMC 與 hypervisor：Redfish、libvirt |
 | plugin | Platform：Kubernetes、Slurm；Accelerator（與 Platform 分開的維度，一個 GPU 廠商只支援一次）：AMD；Software：每個 Managed Software kind 一個模組（目前的 kind 以 `api-server/modules/software/` 與 Software catalog 為準） |
 
-目前只有一種組合：以上全部，給要開箱即用 GPU datacenter 的 operator。依設定選擇 plugin 組裝發行版尚未實作
+目前只有一種組合：以上全部，給要開箱即用 GPU datacenter 的 user。依設定選擇 plugin 組裝發行版尚未實作
 （[`core-and-extensions.md`](core-and-extensions.md) §8）。
 
 判斷新程式碼的位置：在說「swallow 管什麼」放 plugin，在說「怎麼和某個外部系統溝通」放 provider，兩者都不是才放 core
@@ -44,7 +44,7 @@ Strategic DDD 的部分整理自 Eric Evans 的 [Domain-Driven Design Reference:
 依下面 [Distillation](#distillation) 的定義：
 
 - **Core Domain**：意圖與收斂——受管資源的 desired state、跨系統的身分對應、drift 與 Change Plan 的政策，以及
-  Workflow 的語意（Task DAG、重試、取消、fencing、等待 operator）。這是 swallow 自己的模型，任何 provider 或 plugin
+  Workflow 的語意（Task DAG、重試、取消、fencing、等待 user）。這是 swallow 自己的模型，任何 provider 或 plugin
   都無法替代。
 - **Supporting Subdomain**：plugin（各 platform、GPU 廠商與軟體的整合）、provider 的翻譯、監控關聯、安裝與其生命週期。
 - **Generic Subdomain**：認證與 API key，以及 store、Workflow executor、host automation 的引擎；metrics 的儲存與 alert
@@ -55,14 +55,14 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
 
 ### 原則
 
-1. **擁有意圖，整合事實。** swallow 擁有 operator 的意圖（desired state）、政策與跨系統的身分對應；外部系統擁有它們
+1. **擁有意圖，整合事實。** swallow 擁有 user 的意圖（desired state）、政策與跨系統的身分對應；外部系統擁有它們
    最擅長產生的事實，swallow 讀回成 observed state，帶來源與觀察時間，永遠不拿它當寫入的依據。每個欄位都是 desired、
    observed 或 derived 其中之一，而且只有一個寫入者；provider 永遠不寫 desired state。metrics、alert 的評估、workload
    的排程與 Platform 內部的資源由各自的系統擁有，swallow 不保存。
    （[`desired-state-model.md`](desired-state-model.md) §3；[decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state）、
    decision 069）
 2. **收斂，而不是下命令。** controller 依目前的 desired 與 observed 決定動作，事件只負責喚醒它，漏掉事件不會遺失工作。
-   非破壞性的差異自動收斂；破壞性的變更先產生 Change Plan，經 operator 核准後以 Workflow 執行；drift 預設只回報，
+   非破壞性的差異自動收斂；破壞性的變更先產生 Change Plan，經 user 核准後以 Workflow 執行；drift 預設只回報，
    不自動修正。（[`desired-state-model.md`](desired-state-model.md) §5–§7；
    decision 069、[decision 071](../decisions/071-provisioner-realized-desired-state.md)（provisioner realized desired state））
 3. **core 與廠商無關。** core 只有領域模型、Workflow 的模型與語意、controller，以及各類 provider interface 與模組
@@ -86,7 +86,7 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
 8. **不確定時不猜。** 無法證明的事不當成已知：provider 無法連線時，資料只是變舊（[Staleness](glossaries/terms/staleness.md)），
    不是壞掉；provider 沒有能力時回報 `capability_missing`，不建立同形狀的替代品（取代
    decision 069 的 fallback）；結果無法證明的
-   Ansible Task 交給 operator（`executor_outcome_unknown`）；無法確定一個變更是否破壞性時，歸為破壞性。
+   Ansible Task 交給 user（`executor_outcome_unknown`）；無法確定一個變更是否破壞性時，歸為破壞性。
    （[`desired-state-model.md`](desired-state-model.md) §5.1、§8；[`workflow-execution.md`](workflow-execution.md) §10）
 9. **語言與契約先於程式。** 新概念先進 glossary，API 行為先寫進 provider-owned 契約，同一個行為只有一份 canonical
    實作（本文件以下的 Strategic DDD 規則）。
@@ -110,7 +110,7 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
 - 執行狀態只在 store（原則 4、5）：已實作（decision 072）。
 - desired state 與收斂（原則 1、2）：由 provisioner 實現的資源（遷移第一段）與 Platform 已遷移
   （[`desired-state-model.md`](desired-state-model.md) §4.4、§5.2）。Platform 的破壞性變更產生 Change Plan，核准後才執行
-  （[decision 076](../decisions/076-change-plans.md)（change plans））；Server 的破壞性動作（Release、Recover 等）仍由 operator 直接要求，以
+  （[decision 076](../decisions/076-change-plans.md)（change plans））；Server 的破壞性動作（Release、Recover 等）仍由 user 直接要求，以
   Workflow 執行。
 - core 與廠商無關（原則 3）：provider 與 plugin 已依配置分開（`api-server/internal/adapters/`、`api-server/modules/`）。
   Module Manifest、Go hook 與模組 registry 已實作（[decision 075](../decisions/075-module-contract-v1.md)（module contract v1））：Software、

@@ -33,7 +33,7 @@ link to public documentation, because doing so expands agent reading paths and
 context unnecessarily. Public documentation may link inward to these
 authoritative development sources. Read public guides only when the task itself
 creates, reviews, or explains public documentation, or when a change is
-user-visible: a screen, a command, or API behavior an operator or integrator
+user-visible: a screen, a command, or API behavior a user or integrator
 relies on (making code do what a contract already documents is not). Find the page that covers it
 through the public index, `docs/en/README.md`, or by searching `docs/en/` for the feature's name,
 and update its `docs/zh-TW/` twin too; when no page covers the behavior, add none. A component's
@@ -122,7 +122,7 @@ component's directory (an API contract, for example), does not count:
 
 - `api-server/AGENTS.md` — the Go backend / Data Center API Service.
 - `dashboard/AGENTS.md` — the React + TypeScript frontend.
-- `cli/AGENTS.md` — the Go operator CLI (`swallow` binary), an HTTP consumer of the api-server contract.
+- `cli/AGENTS.md` — the Go CLI (`swallow` binary), an HTTP consumer of the api-server contract.
 
 Component boundaries are logical: sharing one repository never means sharing a
 component boundary. Cross-component interaction goes through the provider-owned

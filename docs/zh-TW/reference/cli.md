@@ -2,7 +2,7 @@
 
 [English](../../../docs/en/reference/cli.md) · [文件首頁](../README.md)
 
-`swallow` binary 是 operator CLI。它與 `swallow-api` 是不同 Go module，
+`swallow` binary 是 CLI。它與 `swallow-api` 是不同 Go module，
 只透過 published HTTP API 溝通。
 
 ## 安裝
@@ -60,7 +60,7 @@ usage manual。
 - [`api-keys`](../../../cli/docs/usage.zh-TW.md#api-keys)：以 `list`、`create` 與
   `delete`（alias `revoke`）管理 non-interactive credential。
 - [`overview`](../../../cli/docs/usage.zh-TW.md#overview)：讀取 swallow-wide 或
-  Site-scoped operator aggregate。
+  Site-scoped user aggregate。
 - [`sites`](../../../cli/docs/usage.zh-TW.md#sites)：以 `list`、`get`、`create`、
   `update`、`delete` 管理 Site；`automation get|set` 與
   `automation credential set` 管理 Site automation。

@@ -11,7 +11,7 @@ Active
 ## Consumer Components
 
 - `dashboard`
-- `cli` (the `swallow` operator command-line client)
+- `cli` (the `swallow` command-line client)
 
 ## Purpose
 
@@ -254,7 +254,7 @@ from MAAS). Clients branch on `state` only.
 | `unknown` | The provider reported a state swallow does not recognise. |
 
 `inspecting`, `deploying`, `releasing`, and `testing` are in progress and change without
-operator action.
+user action.
 
 `stateSince` is when swallow first observed the current `state`: it stays the same while the
 state is unchanged and moves to the observation time when the state changes. It is swallow's
@@ -296,7 +296,7 @@ deployed or the image cannot be resolved from the catalog; clients fall back to
 
 `deployedImageDefaultUser` is the effective default login user of the currently deployed
 OS image (the image's metadata `defaultUser`, else the built-in derived from the OS
-family), mirrored the same way as `deployedImageName`. It is the account an operator's
+family), mirrored the same way as `deployedImageName`. It is the account a user's
 Access Key authorizes on Servers the provisioner deployed, and the account automation logs
 in as unless the Server has its own default user (automation uses `defaultUser` below). It
 is omitted when nothing is deployed or no default user applies. It stays the image's value
@@ -308,7 +308,7 @@ automation logs in as with the Deployment Key and that Docker CE adds to the `do
 | Field | Meaning |
 | --- | --- |
 | `user` | The account name. |
-| `source` | `server` when an operator set it on this Server ([Default User](server-detail-actions.md#default-user)); `os_image` when it is `deployedImageDefaultUser`. |
+| `source` | `server` when a user set it on this Server ([Default User](server-detail-actions.md#default-user)); `os_image` when it is `deployedImageDefaultUser`. |
 
 It is omitted when neither applies, in which case automation falls back to the Site SSH user
 and built-in candidates. A value with source `server` is cleared when swallow starts a new

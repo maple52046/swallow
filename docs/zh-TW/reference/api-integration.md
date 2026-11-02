@@ -25,7 +25,7 @@ JWT 必須視為 opaque。Identity 與 role 從 `/auth/me` 讀取，收到 `401`
 authenticate。
 
 Prometheus discovery 等 machine endpoint 可接受 configured machine bearer token；
-它不是 operator endpoint 的替代 login。
+它不是 user endpoint 的替代 login。
 
 ## Error
 
@@ -102,6 +102,6 @@ Workflow，不再是單一 provider 呼叫。`202` response 保留 provisioning 
 不得對 Planned entry 實作。舊的 `/operations` 與 `/clusters` alias 已移除；請使用 `/workflows` 與
 `/platforms`。
 
-Shell automation 可使用具備廣泛 operator coverage、能輸出 lossless
+Shell automation 可使用具備廣泛 user coverage、能輸出 lossless
 JSON／YAML 的 [swallow CLI](cli.md)。Managed Software 目前需使用 Dashboard
 或 HTTP API。

@@ -7,7 +7,7 @@
 ## Context
 
 Software deployment ([ADR 038](038-software-deployment.md)) installs Docker CE on deployed
-Servers and records a swallow-owned Software Assignment. Operators then want to manage that
+Servers and records a swallow-owned Software Assignment. Users then want to manage that
 Docker from swallow itself — images first, then containers, volumes, and networks — on the
 Server detail page, instead of logging in to each host.
 
@@ -39,7 +39,7 @@ enabled without inventing a second software lifecycle.
   workload vocabulary.
 - **Eligibility comes only from swallow-owned facts**: the Server is deployed with a known primary
   address, and its `docker-ce` assignment is `installed` with `enableApi` true. Swallow does not
-  probe for, and does not use, a Docker API the operator enabled by other means.
+  probe for, and does not use, a Docker API the user enabled by other means.
 - **Nothing Docker-owned is persisted.** Images, containers, volumes, and networks are facts the
   Docker Engine owns; every read and write goes to the Engine at request time, consistent with
   ADR 069. Writes are synchronous calls, not Workflows. Swallow's only Docker-related state remains
@@ -57,14 +57,14 @@ enabled without inventing a second software lifecycle.
 ## Alternatives considered
 
 - **Browser calls the host's Engine API directly:** rejected — the Engine API sends no CORS
-  headers, an HTTPS dashboard cannot call a plain-HTTP host (mixed content), the operator's
+  headers, an HTTPS dashboard cannot call a plain-HTTP host (mixed content), the user's
   workstation often cannot route to datacenter hosts, and it would bypass swallow's
   authentication, authorization, and contract.
 - **A transparent Docker API proxy (`/servers/{id}/docker/*` passthrough):** rejected for the same
   reason ADR 032 rejected a transparent Kubernetes proxy — it bypasses the contract workflow,
   the auth model, and the testing surface. A small opinionated surface covers the need.
 - **Run each Docker action as an Ansible Workflow over SSH:** rejected — interactive reads would
-  become durable operations taking seconds to minutes each, and the operator-visible Workflow
+  become durable operations taking seconds to minutes each, and the user-visible Workflow
   history would fill with list calls.
 - **Reach the local socket through an SSH tunnel from api-server:** deferred — it avoids an open
   TCP listener but adds per-request SSH session management; it is a candidate for the hardening
@@ -76,7 +76,7 @@ enabled without inventing a second software lifecycle.
   naming the surface after Docker keeps the provider's language, as the Kubernetes explorer does.
 - **Mirror Docker objects into Mongo:** rejected — the Docker Engine owns them (ADR 069); a mirror
   would go stale and adds no value for a per-Server live view.
-- **Detect an operator-enabled Docker API:** rejected for this version — eligibility must be
+- **Detect a user-enabled Docker API:** rejected for this version — eligibility must be
   derivable from swallow-owned intent, not from probing hosts.
 
 ## Consequences
@@ -90,3 +90,7 @@ enabled without inventing a second software lifecycle.
 - Hosts with the API enabled expose an unauthenticated Docker daemon to their network — root-
   equivalent access for anyone who can reach port 2375. This is accepted for internal networks
   only and is the main item for a future hardening slice.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

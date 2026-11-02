@@ -1,7 +1,7 @@
 # cli Agent Entry Guide
 
 This file is the entry point for AI agents working in the `cli` component: the
-`swallow` operator command-line client. All paths in this file are relative to
+`swallow` command-line client. All paths in this file are relative to
 this component's root (`cli/`).
 
 ## Component Boundary

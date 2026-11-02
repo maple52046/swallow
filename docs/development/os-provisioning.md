@@ -179,7 +179,7 @@ provisioner 的性質，所以由後端決定；在 api-server spool 讓 hash �
 
 ### 5.1 Deploy Target
 
-- [Deploy Target](glossaries/terms/deploy-target.md) `disk`｜`ram` 是 operator 面對的部署模式詞彙。`ram` 就是
+- [Deploy Target](glossaries/terms/deploy-target.md) `disk`｜`ram` 是 user 面對的部署模式詞彙。`ram` 就是
   既有的 `ephemeral`，兩者在每個邊界一對一映射（`disk ↔ ephemeral=false`、`ram ↔ ephemeral=true`）。
 - 部署請求只讀 `deployTarget`，未知值是 `400`；舊的 `ephemeral` 請求欄位已不再讀取（送了也被忽略）。回應、BSON、
   durable snapshot、MAAS adapter 與 k0s var 的 `ephemeral` 欄位都不改名。
@@ -202,7 +202,7 @@ provisioner 的性質，所以由後端決定；在 api-server spool 讓 hash �
 
 ### 5.4 `verify-os-image` Workflow
 
-`POST /provisioning/image-verifications` 以一台 operator 選的 Server 做一次真實部署來證明 image。受理時要求
+`POST /provisioning/image-verifications` 以一台 user 選的 Server 做一次真實部署來證明 image。受理時要求
 Server 存在、`ready`、未鎖定、屬於 image 的 Integration、架構相符；證明用的部署走一般的 deploy resolve（image
 已完整 staged、`ram` 需要能力），只以 `VerificationRun` 略過 §5.3 的閘門。
 
@@ -217,7 +217,7 @@ Server 存在、`ready`、未鎖定、屬於 image 的 Integration、架構相�
 規則：
 
 - **借用與歸還**：預設不論證明成功或失敗，Server 都會以 `recover-server` 歸還到 `ready`；`keepServer: true` 時
-  省略歸還 Task，成功時留在 deployed、失敗時留在失敗狀態，由 operator 自行 Recover。
+  省略歸還 Task，成功時留在 deployed、失敗時留在失敗狀態，由 user 自行 Recover。
 - 在 `VerificationRun` 下，證明用部署的可重試失敗或 `requires_attention`（例如 SSH 不通、stage stall）一律改為
   不可重試的 `failed`，讓 Workflow 走到終態並執行歸還，而不是停在 `requires_attention` 佔住 Server；只有從未碰到
   machine 的 `provider_unavailable` 仍可重試。結果是 Workflow 以 `partially_succeeded` 結束，provider 的原因留在
@@ -230,7 +230,7 @@ Server 存在、`ready`、未鎖定、屬於 image 的 Integration、架構相�
 
 **設計理由**：provider 不保證上傳的 image 能開機與安裝（Rocky image 曾在 RAM 成功、在 disk 失敗），所以信任必須
 按 Deploy Target 分開；驗證是 swallow 的觀察，因此是 owned data。驗證借用的是一台備用機，契約就是要歸還；一般
-部署失敗則保留現場給 operator（§11.4）。見 [decision 035](../decisions/035-os-image-verification-and-deploy-target.md)
+部署失敗則保留現場給 user（§11.4）。見 [decision 035](../decisions/035-os-image-verification-and-deploy-target.md)
 與 [decision 036](../decisions/036-provisioning-lifecycle-integrity.md)。
 
 ---
@@ -248,7 +248,7 @@ Network Inspection 與 Multi-Server Deployment。
 | --- | --- | --- | --- |
 | `automatic`（預設） | provisioner 分配並記錄一個穩定位址 | NIC link 為 `AUTO`：從 subnet 的非 dynamic 空間分配 static IP、MAAS 記錄、寫進部署後的 netplan | subnet 需有 static 空間；DNS 用 Subnet DNS，空時用 provisioner 自己的 DNS |
 | `dhcp` | 網路自己的 DHCP server 指派位址、gateway、DNS | NIC link 為 `DHCP` | MAAS 只記錄它觀察到的位址；DNS 來自 DHCP server |
-| `static` | operator 為每台指定位址 | NIC link 為 `STATIC` | 每台一個 IPv4，須落在所選 subnet、同批內唯一；DNS 同 `automatic` |
+| `static` | user 為每台指定位址 | NIC link 為 `STATIC` | 每台一個 IPv4，須落在所選 subnet、同批內唯一；DNS 同 `automatic` |
 
 規則：
 
@@ -257,7 +257,7 @@ Network Inspection 與 Multi-Server Deployment。
   或 static IP。
 - 每台 target 預設用 boot NIC（只有一張 NIC 時用它），可覆寫 `interfaceId` 與 `subnetId`；subnet 依序取：該台指定、
   整批共用、建議值（NIC 唯一已連結的 subnet，或唯一的 managed subnet）。所選 subnet 上有多個 link 時拒絕，請
-  operator 先在 Server Network 解除其中一個。
+  user 先在 Server Network 解除其中一個。
 - 在 site DHCP 的網路上用 `dhcp` 部署時，MAAS 收不到該 machine 的 lease：swallow 顯示的是 MAAS 最後觀察到的
   介面位址，部署後以 SSH 進行的 automation 依賴它。
 
@@ -266,17 +266,17 @@ Network Inspection 與 Multi-Server Deployment。
 `POST /provisioning/networks/inspect`（1–100 台，唯讀）回傳每台的 live 網路觀察與一個**非權威**的建議：
 
 1. boot NIC 上恰好一個明確的 Static link → 建議 `static`，沿用其 subnet、IP 與 gateway。多個 Static link 視為
-   模糊，需要 operator 輸入。
+   模糊，需要 user 輸入。
 2. 否則取唯一已連結的 subnet 或唯一 compatible managed subnet；該 subnet 沒有 provisioner DHCP（`provisionerDhcp`
    為 false，MAAS：VLAN 的 DHCP 關閉）時建議 `dhcp`，否則 `automatic`。
-3. 有多個 compatible subnet 時回報 `network_selection_required` 並建議 `automatic`，不默默替 operator 選。
+3. 有多個 compatible subnet 時回報 `network_selection_required` 並建議 `automatic`，不默默替 user 選。
 
 觀察到的 NIC 狀態（`dhcp`、`static`、`link_only`、`unconfigured`、`provider_managed`、`unknown`）只供顯示；MAAS 的
 `AUTO` 觀察為 `provider_managed`、`LINK_UP` 為 `link_only`，provider 原值只作診斷，不可當作可寫入的意圖送回。
 
 ### 6.3 何時套用、adapter 的義務
 
-- swallow 只在明確的 operator 邊界套用網路意圖：送出 OS 部署時，或對一台 present、未鎖定、`ready` 的 Server 編輯
+- swallow 只在明確的 user 邊界套用網路意圖：送出 OS 部署時，或對一台 present、未鎖定、`ready` 的 Server 編輯
   NIC link（`dhcp`｜`static`｜`link_only`，見
   [server-detail-actions.md](../../api-server/docs/development/api-contracts/api-server/server-detail-actions.md)
   的 Structured Network Configuration）。已部署的主機不做持續的網路 reconcile。
@@ -310,7 +310,7 @@ Network Inspection 與 Multi-Server Deployment。
 而 subnet 的 dynamic range 依慣例是 enlistment／commissioning 用的短期池，所以 `automatic` 改由 `AUTO` 實現，位址
 穩定且 provider 一定知道。但在 DHCP 由 site 而非 provisioner 提供的網路上（例如經 Boot ISO 開機的 Server），`AUTO`
 不知道 site DHCP 的位址池，兩個分配者可能發出同一個位址，也會忽略 site 的 gateway 與 DNS，因此 `dhcp` 重新成為一個
-明確、可被 operator 覆寫的模式，由 network inspection 建議。DNS 跟著 link mode 走，所以 per-subnet 的 DNS 設定沿用
+明確、可被 user 覆寫的模式，由 network inspection 建議。DNS 跟著 link mode 走，所以 per-subnet 的 DNS 設定沿用
 provisioner 自己的設定而不由 swallow 產生 cloud-init。見
 decision 058、
 decision 058、
@@ -372,7 +372,7 @@ state 管理（[desired-state-model.md](desired-state-model.md) §4.4）。API �
 - `infrastructure` feature 只依賴 `provisioning` 的 domain port（`ProviderFactory`、`GroupingController`）與自己的
   port（Site 的 provisioner、Server placement），MAAS 詞彙只在 provisioning adapter。
 
-**設計理由**：operator 需要在 swallow 管理分組並搬動 Server，不論 provisioner 是否支援，也不希望 MAAS 上的分組與 swallow
+**設計理由**：user 需要在 swallow 管理分組並搬動 Server，不論 provisioner 是否支援，也不希望 MAAS 上的分組與 swallow
 不一致；所以 Zone／Pool 與 placement 是 swallow 的 desired state，由 controller 在每個 provisioner 實現。只存在於
 provisioner 的 group 被接管而不是被刪除，因為它可能仍有 machine。見
 decision 071。
@@ -475,7 +475,7 @@ provider 回報 Deploying 時，`provision-os` 每次觀察都讀 provider 的 m
   安裝時才會發現。
 
 **設計理由**：全域 timeout 分不出慢的 mirror 與死掉的 mirror，而且會耗掉大部分的時間窗；provider event 才能顯示進度。
-stall 可能是環境問題、可就地修復，abort 會毀掉 operator 需要的證據，所以只要求處理。見
+stall 可能是環境問題、可就地修復，abort 會毀掉 user 需要的證據，所以只要求處理。見
 [decision 046](../decisions/046-os-deployment-progress-and-stall.md)。
 
 ---
@@ -514,7 +514,7 @@ Operator State and Provider Recovery。
 - Release 的磁碟清除選項（`erase`、`secureErase`、`quickErase`）與 `unbindStaticIPs`（§6.3）由 API 傳入；swallow 永不
   轉送 MAAS 的 `force`。`release-os` 每次 attempt 都先觀察（已 Ready 即成功、Releasing 則跟到 Ready），見
   [workflow-execution.md](workflow-execution.md)。
-- Recover 與 Release 都是 operator 觸發；一般部署失敗後不會自動回復。
+- Recover 與 Release 都是 user 觸發；一般部署失敗後不會自動回復。
 
 ### 11.2 Recover 如何收斂到 ready
 
@@ -532,7 +532,7 @@ Operator State and Provider Recovery。
 
 ### 11.3 重試失敗的部署
 
-對失敗的 `provision-os` 做**明確 Retry**（Task attempt 大於 1）就是 operator 要求重新部署那台 Server。Retry 先觀察，再依
+對失敗的 `provision-os` 做**明確 Retry**（Task attempt 大於 1）就是 user 要求重新部署那台 Server。Retry 先觀察，再依
 provider 狀態行動：
 
 | provider 觀察 | 明確 Retry |
@@ -553,7 +553,7 @@ provider 狀態行動：
 - 放棄整個部署（cancel）、rerun，以及取消時被中斷部署的回收，見 [workflow-execution.md](workflow-execution.md)。
 
 **設計理由**：部署停在 `requires_attention` 時仍持有 Server 的 lease，另開的 Recover Workflow 會被拒為 busy；兩個
-Workflow 也不能同時宣告同一台 Server。把 provider 失敗改成不可重試只會讓 operator 多走「Recover、再 repair／rerun」
+Workflow 也不能同時宣告同一台 Server。把 provider 失敗改成不可重試只會讓 user 多走「Recover、再 repair／rerun」
 幾步。preflight 拒絕則是已知結果，重試只會重複同一個拒絕，所以改為不可重試讓 Workflow 結束。見
 decision 033 與
 decision 033。
@@ -562,11 +562,11 @@ decision 033。
 
 - `allocated`（MAAS `RESERVED`／`ALLOCATED`：已保留但沒完成部署，例如失敗或取消的部署、提早結束的驗證借用）是
   Release 與 Recover 的來源，primitive 為 Release。
-- 一般部署失敗不會自動 release：失敗的 Machine 是 operator 可能想檢查的證據。只有驗證借用會自動歸還（§5.4），因為
+- 一般部署失敗不會自動 release：失敗的 Machine 是 user 可能想檢查的證據。只有驗證借用會自動歸還（§5.4），因為
   借用的契約就是歸還。
 - **投影誠實化**：
   - reconcile 在 provider 回報 `ready` 或 `allocated` 時，清除已結束（`succeeded`／`failed`／`canceled`）的 deployment
-    紀錄；進行中（`deploying`／`verifying`）或等待 operator（`requires_attention`）的紀錄不動。同樣的兩個狀態也清除
+    紀錄；進行中（`deploying`／`verifying`）或等待 user（`requires_attention`）的紀錄不動。同樣的兩個狀態也清除
     Server Default User（[decision 039](../decisions/039-ssh-key-management-and-default-user.md)（ssh key management and default user））。
   - `release-os` 與 `recover-server` 成功時清除 Server 的 deployment 投影。
   - client 的 Deployment 欄先讀 provider 軸：`succeeded` 只在 provider 仍回報 `deployed` 時有效，否則依 OS Provisioning

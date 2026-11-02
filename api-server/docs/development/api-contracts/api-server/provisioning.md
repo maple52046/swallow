@@ -11,7 +11,7 @@ Active
 ## Consumer Components
 
 - `dashboard`
-- `cli` (the `swallow` operator command-line client)
+- `cli` (the `swallow` command-line client)
 - swallow installation tooling (reads the OS Image catalog to confirm `ubuntu/noble`)
 
 ## Purpose
@@ -116,7 +116,7 @@ this image (see the glossary OS Image and
 [decision 039](../../../../../docs/decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user)):
 `spec.defaultUser` when set, otherwise a swallow built-in derived from `providerOsSystem`
 (`ubuntu` → `ubuntu`, `centos` → `centos`, `rhel` → `cloud-user`). It is omitted when no value
-applies, which is the usual case for an uploaded custom image until an operator sets one;
+applies, which is the usual case for an uploaded custom image until a user sets one;
 automation then falls back to the Site SSH user and built-in candidates.
 
 The `status` fields below are described without their `status.` prefix.
@@ -166,7 +166,7 @@ failure is `503 provider_unavailable`.
 returns — because an `imageId` can contain a slash and cannot be a path segment, and
 one image name can back several architectures. It returns `204 No Content` on success.
 
-Only operator-uploaded custom images are removable. A synced OS release is a
+Only user-uploaded custom images are removable. A synced OS release is a
 provider-owned mirror the provider would immediately re-sync, so the provider refuses
 it — as it refuses an `imageId`/`architecture` that matches no deletable image — with a
 `400 validation_error` carrying the provider's own wording. A provisioner whose adapter
@@ -188,7 +188,7 @@ provisioner whose adapter does not implement it is refused.
 The request is `multipart/form-data` with these parts:
 
 - `integrationId` (required): the target provisioner Integration.
-- `name` (required): the operator-chosen image name. The adapter maps it into the provider's
+- `name` (required): the user-chosen image name. The adapter maps it into the provider's
   own namespace (for MAAS, the custom-image namespace).
 - `architecture` (required): the CPU architecture, e.g. `amd64`. The adapter expands it to the
   provider's form (for MAAS, `amd64/generic`).
@@ -420,7 +420,7 @@ Configuration states are `dhcp`, `static`, `link_only`, `unconfigured`,
 must not be sent back as writable intent. The boot interface is suggested by
 default. One explicit Static link on that NIC is preserved as the suggested
 deployment mode, subnet, IP address, and default-gateway intent. Multiple Static
-links remain ambiguous and require operator input. Without an explicit Static
+links remain ambiguous and require user input. Without an explicit Static
 link, swallow uses an existing linked subnet when unambiguous, or the sole compatible
 managed subnet, and suggests DHCP when that subnet has no provisioner DHCP
 (`provisionerDhcp` false), Automatic otherwise. Multiple compatible subnets produce
@@ -660,7 +660,7 @@ stall; the power-on check and the two-hour observation timeout stay authoritativ
 A Machine that the provider reserved (`allocated`) after the deployment was accepted but that
 never starts installing within the power-on window (10 minutes) makes the Task
 `requires_attention` with code `deployment_reserved_not_started` (stage `deployment`). The Machine
-is left `allocated`, which Recover and Release accept, so the operator can return it to Ready
+is left `allocated`, which Recover and Release accept, so the user can return it to Ready
 before retrying.
 
 Retry observes before writing. If the expected image is now SSH-reachable, the Task
@@ -807,7 +807,7 @@ how a broken deployment is repaired.
 
 `POST /image-verifications` launches a durable `verify-os-image` Workflow that
 proves one custom OS Image works for one Deploy Target by running a real deploy on
-an operator-chosen ready Server, recording the swallow-owned verification on
+a user-chosen ready Server, recording the swallow-owned verification on
 success, then auto-releasing the Server. It accepts:
 
 ```json
@@ -825,7 +825,7 @@ success, then auto-releasing the Server. It accepts:
 `deployTarget` is `"disk"` or `"ram"` (an unknown value is a `400`). `keepServer`
 is optional and defaults to `false`: when `false` the borrowed Server is returned
 to the ready pool after the verification (see the return Task below); when `true`
-the return Task is omitted, leaving the Server deployed on success (for an operator
+the return Task is omitted, leaving the Server deployed on success (for a user
 who wants to keep the verified deployment) and in its failed state on failure.
 Acceptance preflight requires the Server to exist, be `ready`, be unlocked, belong
 to the image's Integration, and match the image architecture. It responds `202`
@@ -926,7 +926,7 @@ and returns its report:
 ```
 
 `conflicts` lists the Machines the pass refused to project, because guessing which Server
-they are could merge two Servers; they need an operator, which is why the report is returned
+they are could merge two Servers; they need a user, which is why the report is returned
 rather than a bare acknowledgement. `error` is `null` for a completed pass and otherwise says
 why the pass stopped (the provisioner could not be read, for example); a failed pass still
 answers `200`, and the same message is recorded as the Integration's last sync error. An

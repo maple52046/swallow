@@ -15,7 +15,7 @@
 
 `Cluster` had so far modelled the registration of a cluster that already exists. Building
 one was a manual step outside the platform, which left the `deploy-kubernetes` operation
-kind defined but unimplemented and gave an operator no way to go from a set of deployed
+kind defined but unimplemented and gave a user no way to go from a set of deployed
 servers to a working cluster.
 
 Swallow already owned Ansible execution, stable server identity, dynamic inventory, and
@@ -29,7 +29,7 @@ dedicated k0s controllers with co-located etcd, plus workers.
 - Swallow owns the intent to build a cluster. The cluster context validates the topology and
   delegates execution to the operation context, which runs a manifest-listed k0s playbook through
   the embedded runner. The cluster exists with no integration until the deployment succeeds.
-- Role assignment is built server-side and passed as trusted variables. Operator-supplied
+- Role assignment is built server-side and passed as trusted variables. User-supplied
   variables cannot influence which host becomes a controller.
 - High availability uses k0s control plane load balancing (a keepalived VRRP virtual IP with
   k0s's in-process reverse proxy) together with node-local load balancing, not an external load
@@ -44,7 +44,7 @@ dedicated k0s controllers with co-located etcd, plus workers.
   through the run's private directory; Swallow stores it as an encrypted integration. The
   credential never passes through run output or retained artifacts, and the VRRP password is held
   in the same encrypted store rather than in the operation's persisted variables.
-- Failed deployments are retried only when an operator asks. The playbook treats an existing k0s
+- Failed deployments are retried only when a user asks. The playbook treats an existing k0s
   systemd unit as "already installed", which is what makes a rerun safe and makes adding nodes to a
   cluster the same operation with a larger target set.
 
@@ -66,7 +66,7 @@ dedicated k0s controllers with co-located etcd, plus workers.
 - All-in-one controllers that are also workers: rejected for this topology. It removes
   the etcd quorum that makes the control plane highly available.
 - Automatic retry of failed deployments: rejected, consistent with decision 072. A failed
-  bootstrap can leave partially joined nodes, and an operator should see the failure
+  bootstrap can leave partially joined nodes, and a user should see the failure
   before it is replayed.
 
 ## Consequences
@@ -82,3 +82,7 @@ dedicated k0s controllers with co-located etcd, plus workers.
 - Cluster upgrades and post-bootstrap configuration changes remain out of scope. Only the first
   controller's configuration is authoritative at bootstrap, so changing cluster-wide settings later
   is not simply a rerun.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

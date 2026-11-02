@@ -6,7 +6,7 @@
 
 ## Context
 
-An operator could release a Server that a Platform was deployed onto, through the Release
+A user could release a Server that a Platform was deployed onto, through the Release
 Operation, the deprecated single-Server release, or a Recover of a deployed Server, or delete it
 together with its provisioner Machine. Nothing checked whether the Server belonged to a Platform,
 so the release or deletion took a node out from under a running Kubernetes or Slurm Platform and
@@ -70,3 +70,7 @@ disable Release and Delete on a claimed Server with the Platform's name, and the
 
 A Server whose Platform record was lost outside these paths stays protected until the startup
 reconciliation releases the stale claim on the next API start.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

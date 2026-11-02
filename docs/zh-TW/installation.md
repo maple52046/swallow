@@ -6,7 +6,7 @@ swallow 正在積極開發中。請依需求選擇 installation path。
 
 | 目標 | 路徑 | Build source | Persistent data | 狀態 |
 | --- | --- | ---: | ---: | --- |
-| 給 operator 使用 | [Production installation（單一 VM）](../../deploy/production/README.zh-TW.md) | 否 | Volumes 與 backups | 正式支援的安裝方式 |
+| 給 user 使用 | [Production installation（單一 VM）](../../deploy/production/README.zh-TW.md) | 否 | Volumes 與 backups | 正式支援的安裝方式 |
 | 評估或開發 | [Development Compose](../../deploy/dev/README.zh-TW.md) | 是 | Local volumes | Contributor 使用 |
 | 驗證 release | [Testing Compose](../../deploy/testing/README.zh-TW.md) | 否 | Isolated volumes | Release validation |
 | 不使用 container 安裝 | [Native Ubuntu preview](../../deploy/production/native/README.zh-TW.md) | 否 | Native paths | 尚未完成的 preview，不發佈 |
@@ -101,7 +101,7 @@ API／Dashboard 變更會自動 reload。Default credentials 與 encryption mate
 ## Testing Compose
 
 Testing 使用 release manifest 的 exact image digests，不掛 source，也不使用本機 build tag。
-它用來驗證 release，不適合保存長期 operator data。
+它用來驗證 release，不適合保存長期 user data。
 
 ## Native preview
 

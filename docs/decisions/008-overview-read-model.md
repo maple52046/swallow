@@ -1,4 +1,4 @@
-# 0008. Provider-owned operator overview read model
+# 0008. Provider-owned overview read model
 
 - Status: Accepted
 - Date: 2026-08-27
@@ -37,3 +37,7 @@ The API Server owns one extra query and its compatibility contract. The dashboar
 single coherent snapshot and can render useful partial state when monitoring is down.
 Adding or changing a section requires contract review because the read model crosses the
 provider/consumer boundary.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

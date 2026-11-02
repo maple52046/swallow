@@ -27,7 +27,7 @@ Upload limit、content type 與 provider requirement 定義於
 
 ## Deployment template
 
-Deployment Template 保存可重用的 operator choice，不是 executable automation。
+Deployment Template 保存可重用的 user choice，不是 executable automation。
 它可以預選 image 與 settings，但 deployment request 仍會驗證每個 current target。
 Template 絕不繞過目前 eligibility。
 
@@ -68,12 +68,12 @@ size、與 name 不同時的 provider ID、排序後的 tags，以及只用圖�
 可部署性：勾號表示可以部署，叉號表示不可部署。Custom image 的 failed 與尚未測試
 刻意使用相同的不可部署圖示，因為兩者不影響此處的選擇判斷；若 picker 開啟時有
 verification 正在執行，則顯示 spinner。這個狀態只讀取一次，不會輪詢。
-Provider release 不作為 operator-facing label，因此不顯示。Picker 與 page／dialog 共用
+Provider release 不作為 user-facing label，因此不顯示。Picker 與 page／dialog 共用
 同一個 scroll surface，不會再建立內層 scrollbar。Catalog 只會在 step 開啟時載入，
 之後僅在選擇 **Refresh** 時更新；refresh 期間仍會保留
 既有結果、family、搜尋文字與已選 image。Deploy mode 與 addressing 選項以
 完整 choice card 說明影響，其中 memory-backed 選項標示為 **RAM deploy**。Image 只有一種
-deploy mode 可用時會預選該 mode；兩種都可用或兩種都不可用時則預選 RAM。Operator 後續
+deploy mode 可用時會預選該 mode；兩種都可用或兩種都不可用時則預選 RAM。User 後續
 手動選擇其他 mode 時不會被自動覆寫。選到不可用的 mode 時會顯示 warning，但這個
 Dashboard 版本不會因此阻擋下一步或送出。每台 Server 的 network assignment 在寬螢幕使用
 比較表格，mobile 則使用有明確 label 的卡片。

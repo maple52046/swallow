@@ -71,7 +71,7 @@ cp .env.example .env
 - `SWALLOW_API_CREDENTIAL_KEY` 加密 write-only credential。Bundled value
   只適合本機；更換後既有 credential 無法解密。
 - `SWALLOW_API_MACHINE_TOKEN` 只用於 Prometheus discovery/metrics 等 machine
-  endpoint，不是 operator API 的替代 login。
+  endpoint，不是 user API 的替代 login。
 
 所有 bundled password、token、TLS material、key 都只能用於 development。
 

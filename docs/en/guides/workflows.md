@@ -2,7 +2,7 @@
 
 [繁體中文](../../zh-TW/guides/workflows.md) · [Documentation home](../README.md)
 
-A Workflow is the durable record of operator intent and progress. Creating an
+A Workflow is the durable record of user intent and progress. Creating an
 OS deployment, Platform lifecycle action, Managed Software change, or diagnostic
 operation returns before all work is complete; the Workflow is where completion
 and failure are determined.
@@ -20,8 +20,8 @@ language.
 
 ## Runtime topology
 
-Temporal is the sole durable orchestration engine. A functional installation
-requires:
+swallow's store holds each Workflow's plan and state; Temporal is the Workflow executor that
+runs it durably. A functional installation requires:
 
 - Temporal Server and PostgreSQL;
 - `swallow-api worker`;

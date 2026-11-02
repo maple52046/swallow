@@ -55,11 +55,11 @@ Machine；之後的 Server 一律來自 reconcile。
 
 ### 1.1 Network boot
 
-- operator 讓機器 power cycle 並從網路開機，provisioner 的 enlistment 把它建成 New，swallow 投影為
+- user 讓機器 power cycle 並從網路開機，provisioner 的 enlistment 把它建成 New，swallow 投影為
   `new`，接著由自動 hardware inspection（§2.4）帶到 `ready`。
 - **External DHCP 仍是 PXE**，只是經由 iPXE Boot ISO：provisioner 還沒 enlist 這台機器，swallow 不知道
-  它的 BMC，因此 Add servers 引導 operator 選（或先建）該 provisioner 的 Boot ISO，顯示 ISO URL，讓
-  operator 從 BMC web console 或以畫面給出的 Redfish 指令掛載後開機。enlist 之後，同一台 Server 的 Boot
+  它的 BMC，因此 Add servers 引導 user 選（或先建）該 provisioner 的 Boot ISO，顯示 ISO URL，讓
+  user 從 BMC web console 或以畫面給出的 Redfish 指令掛載後開機。enlist 之後，同一台 Server 的 Boot
   Media（§4）才由 swallow 自動套用。
 
 ### 1.2 Existing OS（保留作業系統、不重開機）
@@ -81,12 +81,12 @@ Machine；之後的 Server 一律來自 reconcile。
 
 ### 1.3 libvirt virtual machine
 
-operator 指定 [Hypervisor](glossaries/terms/hypervisor.md) 與 domain 名稱，swallow 把每個 domain 註冊進
+user 指定 [Hypervisor](glossaries/terms/hypervisor.md) 與 domain 名稱，swallow 把每個 domain 註冊進
 provisioner。
 
 - **Hypervisor 是 Server 的角色，不是新紀錄或新 credential**：present、`deployed`、有 primary address 的
   Server。swallow 以 installation 的 [Deployment Key](glossaries/terms/deployment-key.md)、Site 的 SSH port
-  登入，帳號為 operator 指定的 `account`，否則為該 Server 的 effective Server Default User，執行
+  登入，帳號為 user 指定的 `account`，否則為該 Server 的 effective Server Default User，執行
   `virsh -c qemu:///system`。帳號必須能使用 system libvirt daemon（Ubuntu 的 `libvirt` group）。
 - **durable Workflow**：kind `enroll-virtual-machines`（definition `virtual-machine-enrollment` v1），target 是
   Hypervisor Server（兩個 enrollment 不會同時改同一台 Hypervisor），每個 domain 一個獨立、無依賴的
@@ -96,7 +96,7 @@ provisioner。
 - 每個 Task 依序 ensure（每步都可安全重跑，retry 沿用已註冊的 Machine）：
   1. domain 存在（否則 `domain_not_found`，不可 retry）。
   2. domain 已關機；執行中則 `requires_attention`（`domain_running`），除非請求帶 `powerOffRunning`，此時
-     swallow 以 libvirt 強制關機。這是 swallow 唯一會改 VM 電源的地方，而且只在 operator 明確要求時。
+     swallow 以 libvirt 強制關機。這是 swallow 唯一會改 VM 電源的地方，而且只在 user 明確要求時。
   3. Integration 有 `settings.virshSshPublicKey` 時，把該公鑰授權給 Hypervisor 上的登入帳號，讓
      provisioner 能經 `qemu+ssh` 連到 libvirt（§3.4）。
   4. 帶 `bootIsoId` 時，Boot ISO 放上 domain 的 CD-ROM 並設為第一開機（§4.6）。
@@ -113,7 +113,7 @@ provisioner。
   讀到關機後即 settle，再由 provisioner 的 commission 開機（§2）。Integration 關閉 `autoInspect` 時改為手動
   Inspect。
 - swallow 對 Hypervisor 的 libvirt 只做 provisioner 做不到的事：讀 domain、改 CD-ROM 與開機順序。除了上面
-  operator 明確要求的 `powerOffRunning`，開關機都由 provisioner 的 `virsh` driver 執行。改 domain 定義是對
+  user 明確要求的 `powerOffRunning`，開關機都由 provisioner 的 `virsh` driver 執行。改 domain 定義是對
   Hypervisor 的 mutation，因此被 lock 的 Hypervisor 拒絕 enrollment 與 `libvirt` Boot Media 的 enable／disable。
 - Dashboard 的入口是 experimental feature `virtualMachines`；API 與 CLI（`swallow servers virtual-machines
   list|enroll`）為正式功能，因為 experimental 開關只改 Dashboard 的呈現。
@@ -145,7 +145,7 @@ kind `inspect-hardware`、definition `hardware-inspection` v1，一個 target Se
 | `inspect-<serverId>` | `inspect` | `provisioner` | provider 已檢視硬體，Server 為 `ready` |
 
 Workflow 的 intent snapshot 記錄檢視的 origin（欄位名 `origin`，與 Server 的 [Server Origin](glossaries/terms/server-origin.md)
-無關）：`automatic`（自動 sweep）或 `requested`（operator 的 Inspect）。它決定 enrollment wait 的行為（§2.2）與已經 `ready` 時是否重檢（§2.3）。這些 kind 與 Task ID 前綴是
+無關）：`automatic`（自動 sweep）或 `requested`（user 的 Inspect）。它決定 enrollment wait 的行為（§2.2）與已經 `ready` 時是否重檢（§2.3）。這些 kind 與 Task ID 前綴是
 published vocabulary，改名會破壞已持久化的 Workflow。
 
 **不變式**：swallow 從不自行設定 Server 的 provisioning state，也不把 Server 標成 failed；attention 留在
@@ -167,7 +167,7 @@ commission 會與 enlistment 開機競速。
   為修正方式）；20 分鐘內沒有 settled 則 `requires_attention`（`enrollment_not_settled`）。讀取失敗會重設
   兩個計數而不是失敗。Machine 被 provisioner 刪除時為不可 retry 的 `machine_not_found`。這些停止點都還沒有
   commission 任何東西。
-- **requested** 的 Workflow 不等待（operator 已斷言機器可以開機）：只讀一次，只有 Machine 完全沒有 power
+- **requested** 的 Workflow 不等待（user 已斷言機器可以開機）：只讀一次，只有 Machine 完全沒有 power
   driver（control `none`）才停在 `power_configuration_required`，因為 provisioner 無法開機檢視；讀取失敗或
   有任何 driver（含 `manual`）都直接成功。
 - 是否等待由 Workflow 的 origin 決定，與是否 retry 無關：automatic Workflow 的每次 retry 都重新完整等待，
@@ -186,8 +186,8 @@ commission 會與 enlistment 開機競速。
   會把從未檢視過的 Machine 送回 New。每次 attempt 另有 45 分鐘上限（provider 沒有 event stream 時這是唯一的
   stall 判斷），到時同樣 abort。abort 後三分鐘內仍未離開 `inspecting`，停在 `requires_attention`
   （`inspect_abort_unsettled`）而不再 commission。
-- Server 不是因 swallow 的 abort 而離開 `inspecting`（例如 operator 在 provisioner 中止）時，停在
-  `requires_attention`（`inspect_interrupted`）；swallow 不與 operator 對抗。
+- Server 不是因 swallow 的 abort 而離開 `inspecting`（例如 user 在 provisioner 中止）時，停在
+  `requires_attention`（`inspect_interrupted`）；swallow 不與 user 對抗。
 - 三次用盡後停在可 retry 的 `requires_attention`：最後一次 stall 為 `inspect_pxe_unreached`，provider 回報
   失敗為 `inspect_failed`。stall 的訊息依 Server 的 power adapter 給出網路開機的修正：有 BMC 的 Server 指向
   Boot Media；沒有 BMC 的（VM）指向它自己在 hypervisor 上的開機順序（NIC 或 iPXE 開機媒體優先）。stall 的
@@ -230,7 +230,7 @@ Server、existing-OS enrollment 的 `deployed` Server，以及自動檢視失敗
 - 用盡次數後標 failed 再要求重設回 New 不可行：Recover 只回到 Ready，MAAS 也沒有把 Failed commissioning
   送回 New 的 primitive；只依賴 MAAS 自己的 commission timeout 則會在半小時後留下 Failed 且沒有機會說明
   Boot Media（[decision 053](../decisions/053-server-enrollment-and-automatic-inspection.md)）。
-- 24 小時視窗避免升級或重新啟用 Integration 時開機 operator 刻意留在 New 的 Machine（decision 053）。
+- 24 小時視窗避免升級或重新啟用 Integration 時開機 user 刻意留在 New 的 Machine（decision 053）。
 - enrollment wait 以 enlistment script set 的狀態而不是固定時間判斷「缺 power driver」：實體機的 IPMI driver
   在 enlistment 後段才設定；縮短 timeout 只會讓同樣無法診斷的 attention 提早出現；VM 跳過 wait 仍會找不到
   driver 並與 enlistment 競速；把每次 retry 都當成略過 wait 會 commission 仍在 enlist 的 Machine
@@ -258,7 +258,7 @@ Server、existing-OS enrollment 的 `deployed` Server，以及自動檢視失敗
 
 ### 3.2 Power adapter 與 driver family
 
-程式以 **power adapter** 建模（"power adapter" 是實作詞彙，不是 operator 語言）：
+程式以 **power adapter** 建模（"power adapter" 是實作詞彙，不是 user 語言）：
 
 - 每個 driver family 一個 adapter：`bmc`（driver `ipmi`、`redfish`；參數 address、username、password）與
   `virsh`（libvirt VM；參數 hypervisor URI、power ID、選用 password）。registry 依序登錄 `bmc`、`virsh`，
@@ -315,7 +315,7 @@ enrollment wait 與 inspection 只需要知道 control（§2.2）。
   Redfish capability、libvirt capability，以及進行中 preflight 的 apply 紀錄。reconcile 不覆寫它們。
 - setting 只記意圖與歷史，從不代表即時狀態；ISO 是否掛著、開機導向是否生效，一律從 BMC 或 Hypervisor 讀取
   （Read 的 `?live=true`）。
-- operator 從不輸入 ISO URL：setting 指名一個 **同一 provisioner Integration** 的 Boot ISO，URL 由它推導
+- user 從不輸入 ISO URL：setting 指名一個 **同一 provisioner Integration** 的 Boot ISO，URL 由它推導
   （§5.3）。套用失敗只記錄 `lastError`，從不改變 `enabled` 或選定的 Boot ISO；成功的套用清除 `lastError`。
 - 路由與欄位見
   [server-detail-actions.md](../../api-server/docs/development/api-contracts/api-server/server-detail-actions.md#boot-media)；
@@ -363,7 +363,7 @@ Read 回應的 `method` 由已儲存的 probe 推導：libvirt probe 找到 Hype
 - 每台 Server 同時只跑一個 preflight（apply 紀錄；超過十分鐘視為已遺棄），進度依序為 `probing`、
   `ejecting`、`mounting`、`settling`、`directing`、`verifying`，不需要的階段略過。request 持續到 preflight
   結束，client 以 Read 的 `apply` 追蹤進度。
-- **Disable** 同樣要求 Server 未被 lock，且不能與進行中的 preflight 同時執行。它先存 setting（operator 的意圖
+- **Disable** 同樣要求 Server 未被 lock，且不能與進行中的 preflight 同時執行。它先存 setting（user 的意圖
   不得依賴 BMC），再盡力退出 ISO 並清除開機導向，回報 `reverted`／`revertError`；保留最後的 Boot ISO 作為歷史。
   停用後該 Server 的 OS 佈署不再碰它的 BMC。
 
@@ -451,7 +451,7 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 ### 設計理由
 
 - 只有 preflight 不夠（BMC 重啟卸載 ISO、BIOS 重排開機順序、MAAS 在 power-on 時覆寫一次性設定）；只有
-  Workflow step 也不夠（operator 必須在依賴它之前知道這台硬體或韌體做不到）
+  Workflow step 也不夠（user 必須在依賴它之前知道這台硬體或韌體做不到）
   （decision 047）。
 - 不到處用 `Cd` override：它讓 AMI Aptio 主機卡住並破壞 BIOS 的群組順序；只加長 provider power-on 前的
   settle 也不夠：三分鐘仍曾在 MAAS 的 IPMI power-on 時掉 mount，沒有任何等待被證明足夠（decision 047）。
@@ -464,7 +464,7 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 
 ### 5.1 建置
 
-- operator 在 Provisioning 頁選 provisioner Integration、給 MAAS rack 位址（Dashboard 以 Integration endpoint
+- user 在 Provisioning 頁選 provisioner Integration、給 MAAS rack 位址（Dashboard 以 Integration endpoint
   的 host 預填；MAAS region 與 rack 同機時即為 rack）與名稱，`POST /provisioning/boot-isos` **同步**建置
   （數秒，不需要 durable Workflow）。名稱在同一 Integration 內唯一（不分大小寫）、1–63 字元；rack 位址為 IPv4
   或 hostname，可帶 `:port`（預設 5248），swallow 不解析也不連線。

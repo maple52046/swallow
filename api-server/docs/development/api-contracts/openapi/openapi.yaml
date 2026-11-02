@@ -16,7 +16,7 @@ tags:
     name: change-plans
   - description: Read the Extension Modules compiled into the running build, with the spec schema a module declares, so a client can render a generic settings form and details for a module it has no dedicated screens for.
     name: modules
-  - description: The operator overview, alerts read from Alertmanager, named metric queries against the metrics backend, and the Prometheus and Ansible discovery projections of the Server inventory. swallow stores no alerts and no metrics.
+  - description: The overview, alerts read from Alertmanager, named metric queries against the metrics backend, and the Prometheus and Ansible discovery projections of the Server inventory. swallow stores no alerts and no metrics.
     name: monitoring
   - description: swallow-deployed Kubernetes and Slurm Platforms (platforms.md) and the live Kubernetes cluster explorer of a deployed Kubernetes Platform (platforms-kubernetes.md). Every operation requires the `admin` role.
     name: platforms
@@ -279,7 +279,7 @@ paths:
         - auth
   /api/v1/change-plans:
     get:
-      description: Requires role `admin`. `resourceKind` and `resourceId` narrow the list to one resource; `state` may repeat. The list is small (plans of the resources an operator changed), so it is not paginated.
+      description: Requires role `admin`. `resourceKind` and `resourceId` narrow the list to one resource; `state` may repeat. The list is small (plans of the resources a user changed), so it is not paginated.
       operationId: listChangePlans
       parameters:
         - in: query
@@ -1436,7 +1436,7 @@ paths:
         - monitoring
   /api/v1/monitoring/metrics/names:
     get:
-      description: Requires the `admin` role. A plain array in operator scan order; the order is not significant to a consumer (server-metrics.md, Metric Names).
+      description: Requires the `admin` role. A plain array in user scan order; the order is not significant to a consumer (server-metrics.md, Metric Names).
       operationId: listMetricNames
       responses:
         "200":
@@ -1627,7 +1627,7 @@ paths:
           description: A durable repository read or mapping failed (internal_error).
         default:
           $ref: '#/components/responses/Error'
-      summary: Read the site-scoped, point-in-time operator overview.
+      summary: Read the site-scoped, point-in-time overview.
       tags:
         - monitoring
   /api/v1/platforms:
@@ -3046,7 +3046,7 @@ paths:
           description: '`provider_unavailable`: a provider transport failure, or the Integration has no credential.'
         default:
           $ref: '#/components/responses/Error'
-      summary: Delete one operator-uploaded custom OS Image from its provisioner.
+      summary: Delete one user-uploaded custom OS Image from its provisioner.
       tags:
         - provisioning
     get:
@@ -8284,7 +8284,7 @@ components:
           nullable: true
           type: string
         decidedBy:
-          description: The operator who approved or rejected it; empty before a decision.
+          description: The user who approved or rejected it; empty before a decision.
           type: string
         effects:
           description: The expected consequences, for people.
@@ -8393,7 +8393,7 @@ components:
         - podman
       type: string
     CreateWorkflowRequest:
-      description: Operator intent for a single-Task Ansible Workflow. Unknown fields are ignored.
+      description: User intent for a single-Task Ansible Workflow. Unknown fields are ignored.
       properties:
         extraVars:
           additionalProperties: true
@@ -8401,7 +8401,7 @@ components:
           nullable: true
           type: object
         intent:
-          description: Operator-facing summary, stored trimmed.
+          description: User-facing summary, stored trimmed.
           type: string
         kind:
           $ref: '#/components/schemas/WorkflowKind'
@@ -8472,7 +8472,7 @@ components:
         - privateKey
       type: object
     DeploymentTargetIssue:
-      description: One operator-remediable reason a target cannot be deployed now.
+      description: One user-remediable reason a target cannot be deployed now.
       properties:
         code:
           enum:
@@ -10302,7 +10302,7 @@ components:
         - availableSubnets
       type: object
     NetworkInspectionIssue:
-      description: A target that needs operator input before a deployment.
+      description: A target that needs user input before a deployment.
       properties:
         code:
           enum:
@@ -10394,7 +10394,7 @@ components:
         - provisionerDhcp
       type: object
     NetworkInspectionSuggestion:
-      description: The suggested deployment intent; empty ids mean operator input is required.
+      description: The suggested deployment intent; empty ids mean user input is required.
       properties:
         defaultGateway:
           type: boolean
@@ -10739,7 +10739,7 @@ components:
           description: The target provisioner Integration.
           type: string
         name:
-          description: The operator-chosen image name, mapped into the provider's namespace.
+          description: The user-chosen image name, mapped into the provider's namespace.
           maxLength: 200
           type: string
         title:
@@ -10780,7 +10780,7 @@ components:
         - serverId
       type: object
     Overview:
-      description: One coherent, point-in-time operator overview (overview.md).
+      description: One coherent, point-in-time overview (overview.md).
       properties:
         generatedAt:
           $ref: '#/components/schemas/Timestamp'
@@ -11018,7 +11018,7 @@ components:
         id:
           type: string
         intent:
-          description: The operator's intent text, or a Workflow's intent summary.
+          description: The user's intent text, or a Workflow's intent summary.
           type: string
         kind:
           description: The Workflow kind (workflows.md).
@@ -11129,7 +11129,7 @@ components:
         gpuDriver:
           allOf:
             - $ref: '#/components/schemas/PlatformGPUDriver'
-          description: The operator's amdgpu driver intent; null when the deploy requested none.
+          description: The user's amdgpu driver intent; null when the deploy requested none.
           nullable: true
         gpuGresType:
           description: The GRES type name a Slurm deploy gave every GPU node; null when it is derived per node from the GPU architecture (always for Kubernetes).
@@ -11155,7 +11155,7 @@ components:
         lifecycleState:
           $ref: '#/components/schemas/PlatformLifecycleState'
         monitoringLinks:
-          description: Operator-registered Monitoring Links; always an array.
+          description: User-registered Monitoring Links; always an array.
           items:
             $ref: '#/components/schemas/PlatformMonitoringLink'
           type: array
@@ -11296,7 +11296,7 @@ components:
         - updatedAt
       type: object
     PlatformGPUDriver:
-      description: The operator's amdgpu module options for the Platform's GPU nodes. A name is lower-case letters, digits, and underscores (at most 64); a value is letters, digits, and `_.,:-` (at most 128); at most 16 options. Options a topology rule adds on a node are not listed.
+      description: The user's amdgpu module options for the Platform's GPU nodes. A name is lower-case letters, digits, and underscores (at most 64); a value is letters, digits, and `_.,:-` (at most 128); at most 16 options. Options a topology rule adds on a node are not listed.
       properties:
         moduleOptions:
           additionalProperties:
@@ -12090,7 +12090,7 @@ components:
       description: The outcome of one reconciliation pass over one provisioner's inventory.
       properties:
         conflicts:
-          description: Machines the pass refused to project; they need an operator.
+          description: Machines the pass refused to project; they need a user.
           items:
             $ref: '#/components/schemas/ProvisionerReconcileConflict'
           type: array
@@ -12351,7 +12351,7 @@ components:
         updatedAt:
           $ref: '#/components/schemas/Timestamp'
         updatedBy:
-          description: Username of the operator who last created or replaced the credential.
+          description: Username of the user who last created or replaced the credential.
           type: string
         username:
           type: string
@@ -12489,7 +12489,7 @@ components:
       description: The effective Server Default User; omitted from the Server when none applies.
       properties:
         source:
-          description: '`server` when an operator set it on this Server, `os_image` when it is the deployed OS Image''s default user.'
+          description: '`server` when a user set it on this Server, `os_image` when it is the deployed OS Image''s default user.'
           enum:
             - server
             - os_image
@@ -13525,7 +13525,7 @@ components:
         kind:
           $ref: '#/components/schemas/SoftwareKind'
         label:
-          description: Operator-facing name.
+          description: User-facing name.
           type: string
         mutuallyExclusiveWith:
           description: Kinds that cannot coexist with this one on a Server.
@@ -13826,7 +13826,7 @@ components:
           description: Opaque Workflow ID (a UUID).
           type: string
         intent:
-          description: Operator-facing summary of the intent; may be empty.
+          description: User-facing summary of the intent; may be empty.
           type: string
         intentSnapshot:
           additionalProperties: true
@@ -13880,7 +13880,7 @@ components:
         status:
           $ref: '#/components/schemas/WorkflowStatus'
         statusReason:
-          description: Operator-facing reason for the current status, when one was recorded.
+          description: User-facing reason for the current status, when one was recorded.
           nullable: true
           type: string
         steps:
@@ -13986,13 +13986,13 @@ components:
       description: One Job of a Workflow (decision 072).
       properties:
         label:
-          description: The operator-facing name, for example `Provision OS`. A Workflow accepted before Jobs had labels reads the label the running build gives the name, or the name with each hyphen-separated word capitalized when the build does not know it.
+          description: The user-facing name, for example `Provision OS`. A Workflow accepted before Jobs had labels reads the label the running build gives the name, or the name with each hyphen-separated word capitalized when the build does not know it.
           type: string
         name:
           description: The name the Job's Tasks give in `steps[].job`.
           type: string
         retry:
-          description: 'What an operator retry of a failed Task in the Job runs again: only that Task, or every Task of the Job.'
+          description: 'What a user retry of a failed Task in the Job runs again: only that Task, or every Task of the Job.'
           enum:
             - task
             - job
@@ -14090,7 +14090,7 @@ components:
         - id
       type: object
     WorkflowStatus:
-      description: The canonical status of a Workflow. `succeeded`, `failed`, `partially_succeeded`, and `canceled` are terminal; `requires_attention` waits for an operator.
+      description: The canonical status of a Workflow. `succeeded`, `failed`, `partially_succeeded`, and `canceled` are terminal; `requires_attention` waits for an user.
       enum:
         - pending
         - running
@@ -14157,7 +14157,7 @@ components:
         live:
           $ref: '#/components/schemas/WorkflowTaskLiveProgress'
         name:
-          description: Operator-facing name.
+          description: User-facing name.
           type: string
         progress:
           type: integer
@@ -14212,7 +14212,7 @@ components:
         - createdAt
       type: object
     WorkflowTaskError:
-      description: The stable, operator-facing diagnostic of a Task failure.
+      description: The stable, user-facing diagnostic of a Task failure.
       properties:
         code:
           description: Machine-readable failure code, for example `ansible_failed`.
@@ -14374,7 +14374,7 @@ components:
         id:
           type: string
         message:
-          description: Operator-facing; must not be parsed.
+          description: User-facing; must not be parsed.
           type: string
         operationId:
           description: The Workflow ID (wire name `operationId`).

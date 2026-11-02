@@ -11,7 +11,7 @@ Active
 ## Consumer Components
 
 - `dashboard`
-- `cli` (the `swallow` operator command-line client)
+- `cli` (the `swallow` command-line client)
 
 ## Purpose
 
@@ -135,10 +135,10 @@ one on the Platform. `enabled` is the latest requested intent; `state` is exactl
 `installing | ready | failed | uninstalling | absent`; `lastWorkflowId` is the Workflow applying
 or last applying it. `draDriverVersion` is `null` unless `allocationMode` is `dra`.
 
-`monitoringLinks` lists the Platform's **Monitoring Links**: operator-registered links to an
+`monitoringLinks` lists the Platform's **Monitoring Links**: user-registered links to an
 external monitoring UI that belongs to the runtime itself — for example the Grafana that Omnistat
 brings for a Slurm Platform. It is always an array, empty by default. Each link has a `name`
-(the label an operator clicks) and an absolute `http`/`https` `url`. Monitoring Links are
+(the label a user clicks) and an absolute `http`/`https` `url`. Monitoring Links are
 swallow-owned display data: swallow never connects to, authenticates against, or checks the
 URL, and they are not a metrics Integration — swallow's own usage charts keep reading the Site
 metrics backend (see [server-metrics.md](server-metrics.md)). They are set with `PATCH`.
@@ -158,7 +158,7 @@ on the Platform (always for Kubernetes, where the GPU Operator's `metricsExporte
 nodes, `docker-ce` or `podman` (see [Container Runtime](#container-runtime)). It is `null` when
 the feature was off (always for Kubernetes).
 
-`gpuDriver` is the operator's amdgpu driver intent, `{ "moduleOptions": { "<name>": "<value>" } }`
+`gpuDriver` is the user's amdgpu driver intent, `{ "moduleOptions": { "<name>": "<value>" } }`
 (see [GPU driver options](#gpu-driver-options)); `null` when the deploy requested none. Options a
 topology rule adds on a node are not listed here.
 
@@ -556,10 +556,10 @@ mints the shared MUNGE key, hosts `slurmrestd`, and produces the reader credenti
 `workloadStorage` is optional and configures a shared filesystem for user/job data (distinct
 from controller state), mounted on every node at `mountPath` (a non-overlapping path, never
 `/home`). Omit it for no shared filesystem. `type` is `nfs`. `mode` is `self-hosted` (swallow
-exports NFS from the login node, so it requires one) or `external` (mount the operator's
+exports NFS from the login node, so it requires one) or `external` (mount the user's
 `nfs.url`, `host:/path`, with optional `nfs.mountOptions`). An omitted `type` is `nfs` and an
 omitted `mountPath` is `/shared`. swallow provides the mount, not
-cluster identity: consistent workload-user UID/GID across nodes is the operator's
+cluster identity: consistent workload-user UID/GID across nodes is the user's
 responsibility.
 
 `ociContainers` (default `false`) sets up native OCI containers (see
@@ -583,7 +583,7 @@ compute node they run every executable in `/etc/slurm/prolog.d` and `/etc/slurm/
 order with the job's environment and a 30-second limit each; a hook that fails or times out is
 logged (syslog tag `swallow-prolog`/`swallow-epilog`) and never fails the job or drains the node.
 swallow installs only its own hooks there (`10-omnistat`, `20-device-metrics-exporter`) and removes
-the ones a redeploy no longer enables; other executables an operator places there run too. A rerun
+the ones a redeploy no longer enables; other executables a user places there run too. A rerun
 of a converged deployment reports no change.
 
 The same target claim, lock, membership, and Site rules as Kubernetes apply. Before any Platform
@@ -648,7 +648,7 @@ node's KFD topology shows, never from a GPU model or a virtualization mode. Toda
 when a GPU node reaches the same peer through both an XGMI `io_link` and a PCIe `p2p_link`, the
 ROCm thunk overflows its peer array and HIP processes corrupt the heap at exit, so the rule adds
 `pcie_p2p=0`. A rule option is kept once applied (the condition disappears with it); an option the
-operator names always wins over a rule. The options apply to the Slurm GPU nodes and to the GPU
+user names always wins over a rule. The options apply to the Slurm GPU nodes and to the GPU
 Operator's host driver step on Kubernetes.
 
 Every name is first checked against the installed driver's own list (`modinfo -p amdgpu`); a name it
@@ -660,7 +660,7 @@ units that require it (`slurmd`, Omnistat) stop, and when nothing else holds the
 unloaded and loaded in place, which keeps the operating system of a RAM (ephemeral) deployment.
 When the driver is still held, a disk-deployed node reboots once to apply the options; a node whose
 root filesystem is in memory never reboots, because that would erase its operating system, and the
-Task fails with `amdgpu_reload_blocked`, naming the processes that hold the GPUs. An operator who
+Task fails with `amdgpu_reload_blocked`, naming the processes that hold the GPUs. A user who
 names the options in `gpuDriver.moduleOptions` gets them on the first load, with no second load at
 all. Every readable option is then verified against `/sys/module/amdgpu/parameters`
 (`amdgpu_option_not_applied` otherwise); an option the driver has but does not expose for reading
@@ -1078,7 +1078,7 @@ be unlocked, and have no overlapping active Workflow. Lock is checked live befor
 the uninstall Workflow is created. No single provisioning state is
 required because a failed deployment can leave a mixed target set.
 
-A failed deployment waiting for operator attention (`requires_attention`) still holds its
+A failed deployment waiting for user attention (`requires_attention`) still holds its
 targets, as does a deployment still running. A plan waits while a deploy or uninstall of the
 Platform runs. Send `"cancelActiveWorkflows": true` to have swallow cancel every unfinished Workflow
 holding a target instead, with the same semantics as Release and
@@ -1140,7 +1140,7 @@ with a host. Any violation is `validation_error` and changes nothing.
 ```
 
 `PATCH` does not accept `integrationId`: a Platform's credential
-Integration is set only by its deployment, and repointing it at an operator-owned Integration
+Integration is set only by its deployment, and repointing it at a user-owned Integration
 would be a register-existing back door, which
 [decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) removes.
 
@@ -1158,7 +1158,7 @@ finished Workflow observed after cancellation is left as-is; retrying a finished
 deploy/uninstall Workflow whose Platform no longer exists is refused.
 
 Legacy records delete their linked Integration only when deployment provenance and the
-complete auto-generated Kubernetes Integration signature both match. Operator-owned
+complete auto-generated Kubernetes Integration signature both match. User-owned
 Integrations are never deleted.
 
 ## Sync Membership

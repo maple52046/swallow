@@ -11,7 +11,7 @@ Sites, or to set up a development stack.
 
 ## 1. Create the Site
 
-Create a short operator-facing name and an optional description under
+Create a short user-facing name and an optional description under
 **Infrastructure → Sites**. A Site is intentionally not a rack hierarchy. Use
 Zones and Pools for grouping Servers after inventory appears.
 

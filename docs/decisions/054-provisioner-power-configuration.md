@@ -21,7 +21,7 @@ Three gaps met there:
   because they were created through a MAAS VM host, which configures power itself.
 - The code equated "no BMC" with "no power": the BMC reader rejected VM-host members and empty
   drivers, the detail view labelled any driver's address a BMC (a `virsh` URI included), and the
-  enrollment timeout told operators to check BMC settings.
+  enrollment timeout told users to check BMC settings.
 - The enrollment wait could not tell "enrollment is still running" from "the power-off can never
   be observed", and any retry skipped the wait altogether, so retrying after fixing power could
   commission a Machine whose enrollment had not ended.
@@ -45,7 +45,7 @@ Three gaps met there:
   uncontrollable; MAAS reports the last only once its enlistment script set — where it sets a
   physical Machine's BMC driver — has finished without an automatic driver or a recorded
   power-off. That stops the Task for a Power Configuration instead of timing out.
-- **A retry waits again.** Only an operator-requested inspection skips the wait, and it still stops
+- **A retry waits again.** Only a user-requested inspection skips the wait, and it still stops
   when the Machine has no driver at all, because the provisioner could not power it on.
 - **Virsh addresses are clean `qemu+ssh` URIs** that the provisioner connects with; its SSH access
   to the hypervisor is an installation prerequisite, not part of the Power Configuration.
@@ -81,3 +81,7 @@ names a Hypervisor use `libvirt` Boot Media ([ADR 055](055-libvirt-virtual-machi
 - A MAAS integration account must be an administrator to read and write power parameters.
 - Lab VMs from any number of hypervisors can be enrolled and inspected once MAAS can reach each
   hypervisor over SSH.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

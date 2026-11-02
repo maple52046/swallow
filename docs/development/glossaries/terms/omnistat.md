@@ -37,7 +37,7 @@
 - Related terms: Platform, Managed Software, Software Assignment, Monitoring Link, Workflow, Job,
   Task, GPU Inventory.
 - Change note: Added 2026-10-21 ([decision 063](../../../decisions/063-omnistat-slurm-observability.md) (omnistat slurm observability)) when swallow started installing Omnistat with a
-  Slurm deployment instead of operators overlaying it by hand. 2026-10-22: added the install
+  Slurm deployment instead of users overlaying it by hand. 2026-10-22: added the install
   method (`container` default, `native`). 2026-10-29 ([decision 066](../../../decisions/066-slurm-job-hooks-and-device-metrics-exporter.md) (slurm job hooks and device metrics exporter)): its job attribution became a
   hook of the Prolog/Epilog dispatcher, and it is mutually exclusive with the Device Metrics
   Exporter.

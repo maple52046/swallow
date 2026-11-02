@@ -140,7 +140,7 @@ Docker requests.
 
 ## Dashboard and API
 
-Use the Dashboard **Software** page for operator workflows. The `swallow` CLI
+Use the Dashboard **Software** page for user workflows. The `swallow` CLI
 does not yet expose a `software` command group; automation clients should use
 the active
 [Managed Software contract](../../../api-server/docs/development/api-contracts/api-server/software.md)

@@ -20,12 +20,12 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Resource Ownership and Convergence
 
-- [Desired State](terms/desired-state.md): What an operator wants a managed resource to be (its spec), the single source of truth that providers realize.
+- [Desired State](terms/desired-state.md): What a user wants a managed resource to be (its spec), the single source of truth that providers realize.
 - [Observed State](terms/observed-state.md): What a provider reports a resource actually is, with source and observation time; never authoritative for a write.
 - [Condition](terms/condition.md): A named judgement in a resource's status — shared types `realized`, `drifted`, `requires_attention`, `held` — written only by its controller.
 - [Drift](terms/drift.md): Observed State that departed from Desired State without swallow asking; reported, not corrected, by default.
 - [Convergence](terms/convergence.md): The controller's continuous, level-triggered process of bringing Observed State to Desired State; not provider reconcile.
-- [Change Plan](terms/change-plan.md): The operator-approved preview of a Destructive Change, applied as a Workflow — `pending_approval | approved | applied | rejected | superseded | expired`.
+- [Change Plan](terms/change-plan.md): The user-approved preview of a Destructive Change, applied as a Workflow — `pending_approval | approved | applied | rejected | superseded | expired`.
 - [Destructive Change](terms/destructive-change.md): A change whose realization erases data, takes a Server out of service or a Platform, interrupts workloads, or cannot be undone by reapplying the old spec.
 - [Controller](terms/controller.md): The level-triggered convergence loop for one resource kind; one active instance (store lease), outside the API process; the only writer of that resource's Conditions.
 - [Hold](terms/hold.md): A pause on a resource's convergence — Server Lock, Rescue Mode, or a running Workflow holding the resource — shown as the `held` Condition; observation and Drift reporting continue.
@@ -62,7 +62,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Server Default User](terms/server-default-user.md): The OS account automation logs in as with the Deployment Key — set on the Server (verified, optionally installing the key with a one-time password) or else the deployed OS Image's default user; Docker CE adds it to `docker`.
 - [Server Type](terms/server-type.md): A derived classification by GPU capability — `cpu`, `amd-gpu`, or (reserved) `nvidia-gpu` — that decides which exporters a host runs; AMD is identified by the MAAS tag `amd-gpu`.
 - [GPU Inventory](terms/gpu-inventory.md): Provider-observed GPU groups classified as workload `compute` accelerators or non-capacity `display` controllers.
-- [Tag](terms/tag.md): An operator-facing label on a Server — manual tags set in the Server spec, automatic tags computed by the provisioner; observed tags drive Server Type and discovery filters.
+- [Tag](terms/tag.md): A user-facing label on a Server — manual tags set in the Server spec, automatic tags computed by the provisioner; observed tags drive Server Type and discovery filters.
 - [BMC](terms/bmc.md): A physical Server's out-of-band management controller: its connection facts from the provisioner and swallow's probe of its Redfish capability (virtual media, boot override); independent of the provisioner's power driver.
 - [Power Configuration](terms/power-configuration.md): The power driver and parameters that let the provisioner switch and read a Server's power — family `bmc` (`ipmi`, `redfish`) or `virsh`, control `none`/`manual`/`automatic`; the password is write-only.
 - [Boot Media](terms/boot-media.md): A Server's setting that a chosen Boot ISO is attached and booted first to reach the provisioner on externally served networks — method `redfish` (BMC virtual media) or `libvirt` (a VM's CD-ROM on its Hypervisor); applied as a preflight and re-ensured before every inspection and OS Deployment.
@@ -147,7 +147,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 ### Observability
 
 - [Exporter Ownership](terms/exporter-ownership.md): Which subsystem installs a host's Prometheus exporters — `ansible`, `k8s`, or `unmanaged` — resolved per host so exactly one owner exists and exporters never contend for a fixed port.
-- [Monitoring Link](terms/monitoring-link.md): An operator-registered name and URL from a Platform to the runtime's own monitoring UI (e.g. Omnistat's or the Device Metrics Exporter's Grafana); display only, never queried, not a metrics Integration.
+- [Monitoring Link](terms/monitoring-link.md): A user-registered name and URL from a Platform to the runtime's own monitoring UI (e.g. Omnistat's or the Device Metrics Exporter's Grafana); display only, never queried, not a metrics Integration.
 
 ### Software Deployment
 
@@ -158,7 +158,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Automation
 
-- [Workflow](terms/workflow.md): An operator intent as a desired end-state for a set of resources, executed durably and convergently as a composition of Jobs and Tasks (canonical; compatibility code and wire fields still contain "Operation").
+- [Workflow](terms/workflow.md): A user intent as a desired end-state for a set of resources, executed durably and convergently as a composition of Jobs and Tasks (canonical; compatibility code and wire fields still contain "Operation").
 - [Job](terms/job.md): A reusable, convergent unit of Tasks that brings resources to a sub-goal (e.g. `ensure-os`), composable into Workflows and runnable on its own.
 - [Task](terms/task.md): The atomic, idempotent ("ensure") unit of work run by exactly one Runner (code/API still say "Step").
 - [Runner](terms/runner.md): The mechanism that executes a Task — `provisioner` / `ansible` (host automation) / `internal` (named by the Provider Interface it drives; code still says "executor", and `maas` → `provisioner`).

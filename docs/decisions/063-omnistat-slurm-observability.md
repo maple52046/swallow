@@ -7,7 +7,7 @@
 ## Context
 
 A Swallow-deployed Slurm Platform had no GPU scheduling: `slurm.conf` listed CPU and memory only,
-so jobs could not request GPUs and had no device isolation. Operators who wanted AMD's Slurm-aware
+so jobs could not request GPUs and had no device isolation. Users who wanted AMD's Slurm-aware
 monitoring, [Omnistat](https://github.com/ROCm/omnistat), overlaid it by hand after the deploy:
 an exporter on every compute node, Prolog/Epilog job attribution on the controller, GPU GRES, and a
 Docker Compose Prometheus and Grafana. Every Slurm redeploy rewrote `slurm.conf` and lost the
@@ -24,11 +24,11 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   derived architecture name, and a deploy may name one type for every GPU node. A selected node
   whose KFD shows no GPU fails the deploy.
 - **Driver options never name hardware.** The shared loader writes a Swallow-owned modprobe file
-  before the driver loads, from the operator's options plus options a topology rule derives from
+  before the driver loads, from the user's options plus options a topology rule derives from
   what KFD reports. Today's only rule: a GPU node that reaches the same peer through both an XGMI
   `io_link` and a PCIe `p2p_link` overflows libhsakmt's peer array (heap corruption when HIP
   processes exit), so the rule adds `pcie_p2p=0`. A rule option is kept once applied, because
-  applying it removes the condition; an operator option always wins; every option is verified
+  applying it removes the condition; a user option always wins; every option is verified
   against the loaded driver, and a name the installed driver does not have is refused before
   anything loads. A rule is known only after the driver loads, so a driver running with other
   parameters loads again: a driver nothing holds is unloaded and loaded in place; a driver still
@@ -76,14 +76,14 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
 
 Revision history: 2026-10-22 added the `native` install method and the container-runtime feature
 (containers had been the only method, with a hard Docker CE requirement); 2026-10-26 replaced
-module options from cloud-init with operator options plus KFD topology rules, added the HIP probe
+module options from cloud-init with user options plus KFD topology rules, added the HIP probe
 and the per-deploy GRES type, and made Prometheus listen on loopback with a documented retention;
 2026-10-27 replaced "never unload, reboot once" with an in-place reload of an unheld driver and
 moved `omnistat-query` to Grafana's datasource proxy (original text in git history).
 
 ## Alternatives considered
 
-- **Omnistat as a Managed Software kind.** Rejected by the operator: its target is the Slurm
+- **Omnistat as a Managed Software kind.** Rejected by the user: its target is the Slurm
   Platform's job attribution and every compute node, and it only works together with Slurm.
 - **Letting `configure-omnistat` edit `slurm.conf`.** Rejected: two writers of one file, and the
   next `deploy-slurm` run would silently remove the overlay — the exact failure of the manual setup.
@@ -105,7 +105,7 @@ moved `omnistat-query` to Grafana's datasource proxy (original text in git histo
 - **Rebooting a RAM-deployed node to apply options.** Rejected: the reboot erases the operating
   system and the deployment with it.
 - **Requiring RAM deployments to declare driver options.** Rejected: it pushes hardware knowledge
-  back to the operator; the option remains available for anyone who wants no second load.
+  back to the user; the option remains available for anyone who wants no second load.
 - **Remembering each Server's derived options in the backend for the next deploy.** Not done: the
   in-place reload makes it unnecessary; kept as the fallback had the reload proved unreliable.
 - **A management-address Prometheus behind a firewall allowlist.** Rejected for now: Swallow does
@@ -125,7 +125,7 @@ moved `omnistat-query` to Grafana's datasource proxy (original text in git histo
   deployment learns its addresses only after the OS install. Prometheus takes Server ids
   (`scrapeServerIds`) and resolves them from the run's inventory snapshot.
 - **Containers as the only Prometheus and Grafana install method** (the first implementation,
-  with a hard Docker CE requirement). Rejected by the operator: some sites prefer distribution
+  with a hard Docker CE requirement). Rejected by the user: some sites prefer distribution
   packages over a container runtime on their monitoring host.
 - **Grafana's native install from the distribution repository, or Prometheus from Ubuntu's
   `prometheus` package.** Rejected: the distribution versions lag and differ per OS, so the pinned
@@ -150,3 +150,7 @@ moved `omnistat-query` to Grafana's datasource proxy (original text in git histo
   than patched.
 - Grafana's `native` method owns the Server's `grafana` package: uninstalling it removes the
   package Swallow installed, never one installed outside Swallow.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

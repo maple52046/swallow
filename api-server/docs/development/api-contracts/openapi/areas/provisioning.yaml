@@ -124,7 +124,7 @@ paths:
     delete:
       tags: [provisioning]
       operationId: deleteOsImage
-      summary: Delete one operator-uploaded custom OS Image from its provisioner.
+      summary: Delete one user-uploaded custom OS Image from its provisioner.
       description: >-
         Requires role `admin`. The image is addressed by the identity the catalog returns, as query
         parameters, because an image id can contain a slash. Also removes swallow's metadata of
@@ -1556,7 +1556,7 @@ components:
         name:
           type: string
           maxLength: 200
-          description: The operator-chosen image name, mapped into the provider's namespace.
+          description: The user-chosen image name, mapped into the provider's namespace.
         architecture:
           type: string
           maxLength: 200
@@ -1757,7 +1757,7 @@ components:
             $ref: '#/components/schemas/DeploymentTargetIssue'
     DeploymentTargetIssue:
       type: object
-      description: One operator-remediable reason a target cannot be deployed now.
+      description: One user-remediable reason a target cannot be deployed now.
       required:
         - serverId
         - code
@@ -1976,7 +1976,7 @@ components:
             $ref: '#/components/schemas/NetworkInspectionIssue'
     NetworkInspectionIssue:
       type: object
-      description: A target that needs operator input before a deployment.
+      description: A target that needs user input before a deployment.
       required:
         - serverId
         - code
@@ -2022,7 +2022,7 @@ components:
                 $ref: '#/components/schemas/NetworkInspectionInterface'
     NetworkInspectionSuggestion:
       type: object
-      description: The suggested deployment intent; empty ids mean operator input is required.
+      description: The suggested deployment intent; empty ids mean user input is required.
       required:
         - mode
         - interfaceId
@@ -2217,7 +2217,7 @@ components:
           minimum: 0
         conflicts:
           type: array
-          description: Machines the pass refused to project; they need an operator.
+          description: Machines the pass refused to project; they need a user.
           items:
             $ref: '#/components/schemas/ProvisionerReconcileConflict'
         error:

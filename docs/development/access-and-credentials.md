@@ -40,7 +40,7 @@ decision 039 的現行結果寫成一份規格；API 認證的決策見
 | [Deployment Key](glossaries/terms/deployment-key.md) | swallow（每個 installation 唯一一把） | MongoDB `ssh_keys`；私鑰以 installation 的 credential key 封存 | 所有 automation SSH 登入；公鑰落到 provisioner | 私鑰不經任何 API 回傳 |
 | Access Key（[SSH Key](glossaries/terms/ssh-key.md) purpose `access`） | 一個 User（目前只有 bootstrap admin） | MongoDB `ssh_keys`，只存公鑰 | 人員以自己的私鑰登入受管 Server；公鑰落到 provisioner | swallow 不持有私鑰；產生時回傳一次 |
 | Site become password（[Automation Configuration](glossaries/terms/automation-configuration.md) 的 credential） | Site | MongoDB `automation_configurations`，封存 | Ansible 以 sudo 提權且需要密碼時 | write-only，只以 `hasCredential` 表示 |
-| Server Default User 的一次性密碼 | 該 OS 帳號的 operator | 不保存 | 一次 SSH 登入，把 Deployment Key 加入該帳號 | 不保存、不記錄、不回傳 |
+| Server Default User 的一次性密碼 | 該 OS 帳號的 user | 不保存 | 一次 SSH 登入，把 Deployment Key 加入該帳號 | 不保存、不記錄、不回傳 |
 | [Session](glossaries/terms/session.md)（access token + refresh token） | User | MongoDB（見 decision 042） | API 認證 | 見 §9 |
 | [API Key](glossaries/terms/api-key.md) | User | MongoDB，只存 hash 與 display prefix | 非互動 API 認證 | 只在建立時回傳一次 |
 
@@ -159,10 +159,10 @@ state；provider 有能力持有 SSH key 時，SSH Key controller 把每把金�
   2. 新增缺少的金鑰；
   3. 只移除 swallow 自己註冊或採用、且已不再需要的 provider 金鑰（被刪除的 Access Key、被替換的 Deployment Key
      舊材料），而且只在 provider 仍列出它時移除。
-- **operator 直接在 provisioner 加入的金鑰永遠不會被移除**：swallow 只以自己記錄的 provider key id 移除金鑰。
+- **user 直接在 provisioner 加入的金鑰永遠不會被移除**：swallow 只以自己記錄的 provider key id 移除金鑰。
 - 每把金鑰在每個 Integration 有一筆紀錄，帶 conditions（語意見 glossary [SSH Key](glossaries/terms/ssh-key.md)
   與 ssh-keys 契約）：持有目前的金鑰材料時 `realized` 為 `true`。Deployment Key 替換後 generation 加一，舊材料的
-  紀錄不再算數，直到新材料落地。單一金鑰被拒時 reason 為 `failed`，訊息只含可給 operator 看的原因（不含 transport
+  紀錄不再算數，直到新材料落地。單一金鑰被拒時 reason 為 `failed`，訊息只含可給 user 看的原因（不含 transport
   細節）；provider 無法建構或連線（例如缺少 credential）為 `provider_unreachable`，該 provisioner 由 runtime 退避
   重試；一個 provisioner 失敗不影響其他 provisioner。新落地與在 provisioner 被刪除後補回都記在 timeline。
 
@@ -182,12 +182,12 @@ state；provider 有能力持有 SSH key 時，SSH Key controller 把每把金�
 
 - provisioner 只在 OS 佈署時注入金鑰：重產 Deployment Key、刪除 Access Key 都不會改變已佈署的 Server。
 - 把金鑰推送到已佈署主機尚未實作；唯一的例外是以 Server Default User 的一次性密碼安裝 Deployment Key（§8.2）。
-- 對沒有能力的 provisioner 以 cloud-init 注入金鑰尚未實作（需要與 operator user-data 合併的設計）。
+- 對沒有能力的 provisioner 以 cloud-init 注入金鑰尚未實作（需要與 user user-data 合併的設計）。
 
 ### 5.5 設計理由
 
 swallow 擁有金鑰紀錄、provisioner 只是落地目標，所以 swallow 會修補 provider 的清單，但不把它當成來源；只移除
-自己記錄的 provider 金鑰，operator 的金鑰才安全；佈署前 ensure 保證不會佈出 swallow 無法管理的主機。cloud-init fallback 因
+自己記錄的 provider 金鑰，user 的金鑰才安全；佈署前 ensure 保證不會佈出 swallow 無法管理的主機。cloud-init fallback 因
 目前唯一的 provisioner（MAAS）已有能力而延後。見
 decision 039。
 
@@ -245,7 +245,7 @@ Site 私鑰 override 只保護兩種主機：decision 039 之前佈署的 Server
 - effective 值：metadata 的值；否則依 provider OS family 的內建值（`ubuntu`→`ubuntu`、`centos`→`centos`、
   `rhel`→`cloud-user`）；否則沒有。內建值只依 provider 自己回報的 OS family 推導，不依 overlay 的顯示名稱，改
   image 的顯示 OS 不會改變 automation 的登入帳號。uploaded custom image（OS family `custom`）沒有內建值，需由
-  operator 設定。
+  user 設定。
 - effective 值鏡射到每台以該 image 佈署的 Server，成為 `provisioning.deployedImageDefaultUser`（reconcile 時，
   以及 overlay 變更後盡力立即更新）。即使 Server 有自己的 Server Default User，此欄位仍是 image 的值。
 
@@ -253,7 +253,7 @@ Site 私鑰 override 只保護兩種主機：decision 039 之前佈署的 Server
 
 每台 Server 的登入帳號只在一處解析（[Server Default User](glossaries/terms/server-default-user.md)）：
 
-1. Server 上 operator 設定的值（projection `defaultUser.source` 為 `server`，§8）；
+1. Server 上 user 設定的值（projection `defaultUser.source` 為 `server`，§8）；
 2. 否則 `deployedImageDefaultUser`（`source` 為 `os_image`）；
 3. 否則未知。
 
@@ -314,7 +314,7 @@ automation 登入；任何 deployed Server 都可以設定，覆寫 image 的值
 3. **只有 Deployment Key 登入成功才儲存**。金鑰已安裝但後續步驟失敗時，金鑰留在主機上（安裝是 idempotent），
    不儲存任何值。
 
-- 不提供密碼時，operator 必須先自行把 Deployment Key 公鑰加入該帳號（契約提供一行指令），api-server 只做第 2、3 步。
+- 不提供密碼時，user 必須先自行把 Deployment Key 公鑰加入該帳號（契約提供一行指令），api-server 只做第 2、3 步。
 - 連線使用 Server 的 primary address 與 Site 的 SSH port（未設定時 22）；每次登入有固定的逾時上限；不驗證 host key，
   與登入帳號探測相同，權威的 host key 驗證仍由 Ansible 執行負責。
 

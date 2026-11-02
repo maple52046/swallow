@@ -16,7 +16,7 @@
   the two map one-to-one at the boundary. While the provider reports the machine as deploying, its newest
   installation event (for MAAS a stage such as *Configuring OS*) is the deployment's
   progress; a stage that stops advancing for the stall window is a stalled
-  deployment that needs operator attention, even though the provider still calls it
+  deployment that needs user attention, even though the provider still calls it
   deploying.
 - Disallowed meaning: Installing the swallow control plane, running post-install
   automation, or a swallow-owned job with its own execution lifecycle.
@@ -32,7 +32,7 @@
   Operations and platform Installation; expanded when swallow began owning the
   provider-neutral deployment network intent. Updated 2026-09-21: the memory-backed
   mode is the `ram` [Deploy Target](deploy-target.md) (its provider realization is
-  still `ephemeral`), which supersedes `Ephemeral` as the sole operator-facing name
+  still `ephemeral`), which supersedes `Ephemeral` as the sole user-facing name
   per [decision 035](../../../decisions/035-os-image-verification-and-deploy-target.md) (os image verification and deploy target).
   Updated 2026-10-03: provider-stage progress and stall, per
   [decision 046](../../../decisions/046-os-deployment-progress-and-stall.md) (os deployment progress and stall).

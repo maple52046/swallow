@@ -8,7 +8,7 @@
 Login exchanged a username and password for one HS256 JWT that lived 24 hours by default.
 The dashboard kept it in `localStorage`, so any script injected into the page could read a
 credential valid for a day, and nothing could revoke it: there was no logout on the server,
-no session record, and no refresh. When the token expired the operator was sent back to the
+no session record, and no refresh. When the token expired the user was sent back to the
 login page.
 
 The `swallow` CLI stored the same token in its profile and had no way to authenticate
@@ -49,7 +49,7 @@ accepts access tokens only, so API keys never travel in URLs. The machine token 
 
 **Compatibility.** Login keeps returning `accessToken`, so installer tooling and seeds are
 unaffected. Tokens issued before the upgrade (no `typ` claim) remain valid until they expire.
-The dashboard no longer reads the old `localStorage` token; operators sign in once after the
+The dashboard no longer reads the old `localStorage` token; users sign in once after the
 upgrade.
 
 ## Alternatives considered
@@ -80,3 +80,7 @@ upgrade.
   exposure.
 - Configuration gains `accessTokenTTL`, `refreshTokenTTL`, and `sessionMaxAge`;
   `jwtExpiryHours` is deprecated.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

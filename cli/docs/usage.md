@@ -1,10 +1,10 @@
 # swallow CLI Usage Manual
 
-This is the usage manual for the `swallow` operator command-line client (the
-`cli` component). It is written for operators and external developers who need interactive commands or stable JSON/YAML output for scripts.
+This is the usage manual for the `swallow` command-line client (the
+`cli` component). It is written for users and external developers who need interactive commands or stable JSON/YAML output for scripts.
 
 The CLI is a conformist HTTP consumer of the `api-server` contract. It covers
-the operator surfaces listed below. It has no commands yet for Managed Software
+the surfaces listed below. It has no commands yet for Managed Software
 (including registry credentials and the Docker explorer), the Server Default
 User, the provisioner HTTP proxy, or Subnet DNS; use the Dashboard or HTTP API
 for those. Planned endpoints are intentionally absent. When a detail here is ambiguous, the source of truth is the
@@ -33,7 +33,7 @@ go build -o bin/swallow ./cmd/swallow
 sudo install -m 0755 bin/swallow /usr/local/bin/swallow
 ```
 
-`swallow` is the operator client; the backend service binary is `swallow-api`.
+`swallow` is the client; the backend service binary is `swallow-api`.
 They are different programs built from different components.
 
 ## Quick start

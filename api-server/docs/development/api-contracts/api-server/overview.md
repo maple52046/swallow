@@ -1,4 +1,4 @@
-# Operator Overview
+# User Overview
 
 ## Status
 
@@ -11,11 +11,11 @@ Active
 ## Consumer Components
 
 - `dashboard`
-- `cli` (the `swallow` operator command-line client)
+- `cli` (the `swallow` command-line client)
 
 ## Purpose
 
-Return one site-scoped, point-in-time read model for the operator landing screen. The
+Return one site-scoped, point-in-time read model for the user landing screen. The
 response derives facts from their owning contexts and stores no overview state.
 
 ## Related Glossary Terms

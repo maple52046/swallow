@@ -25,7 +25,7 @@ Three things had to be settled and are easy to question later.
    Platform (membership, credential, whole-batch claim) would create a fake platform for
    something that is a single software install.
 3. **How a platform composes software** without duplicating the software's automation and
-   without two operator-visible Workflows fighting over the same host.
+   without two user-visible Workflows fighting over the same host.
 
 ## Decision
 
@@ -61,7 +61,7 @@ sharing the same Ansible roles. It must not `ExecuteChildWorkflow` an entire sta
 software Workflow (that would duplicate `wait-for-ssh`, contend for the same per-Server
 lease, split retry/cancel ownership, and surface two Workflows), and it must not rely on
 ansible `include_role` as the only linkage (that erases the Job boundary and the
-operator-visible grouping). Roles are shared; orchestration is Jobs.
+user-visible grouping). Roles are shared; orchestration is Jobs.
 
 **First cut installs Docker CE, Podman, and NFS.** Docker CE and Podman are mutually
 exclusive, and both are refused on a Server that is already a Kubernetes Platform member
@@ -81,7 +81,7 @@ Slurm-managed state NFS.
 - **Model software as a Platform:** rejected — it invents membership, credential, and
   whole-batch claim for a single package and blurs the Platform term.
 - **Link platforms to software by nesting a whole software Workflow:** rejected — duplicated
-  readiness, lease contention, ambiguous retry/cancel ownership, and two operator-visible
+  readiness, lease contention, ambiguous retry/cancel ownership, and two user-visible
   Workflows for one intent. Compose the Job instead.
 - **Link only via ansible `include_role`:** rejected as the sole mechanism — it hides the
   Job boundary and the standalone-vs-composed views diverge. Playbooks may still
@@ -109,7 +109,7 @@ Slurm-managed state NFS.
   login with the site automation key instead of only probing TCP, so a host whose SSH user does
   not authorize the automation key fails fast at readiness with a clear credential message rather
   than deep inside the Ansible step as a raw `Permission denied (publickey)`. This surfaced from
-  software deployment (which always targets operator-picked, already-deployed hosts) but applies
+  software deployment (which always targets user-picked, already-deployed hosts) but applies
   to the platform `ensure-os` Job too; see `docs/development/platform-deployment.md` §4.6.1.
 
 ## Related
@@ -125,3 +125,4 @@ Slurm-managed state NFS.
 
 - 2026-09-24: decided that a single Managed Software install is a deploy target distinct from Platforms and is composed into other Workflows as a Job.
 - 2026-10-30: decision 070 moved each software kind into a Software module.
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

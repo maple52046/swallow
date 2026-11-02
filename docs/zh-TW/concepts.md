@@ -2,7 +2,7 @@
 
 [English](../en/concepts.md) · [文件首頁](README.md)
 
-Shared [glossary](../development/glossaries/README.md) 是權威來源。本頁提供 operator
+Shared [glossary](../development/glossaries/README.md) 是權威來源。本頁提供 user
 安全使用 swallow 所需的最小 model。
 
 ## Site 與 Integration
@@ -12,7 +12,7 @@ colocation cage 或 lab。**Integration** 只會把一個 Site 連到一個外�
 Site 通常會有一個 MAAS provisioner 與一個 Prometheus-compatible metrics integration。
 
 Integration credential 是 write-only。Sync metadata 會顯示何時開始 refresh、最後
-成功與失敗時間，讓 operator 判斷 staleness。
+成功與失敗時間，讓 user 判斷 staleness。
 
 ## Server
 
@@ -50,7 +50,7 @@ Provisioning axis 使用 swallow 定義、與 provider 無關的
 | --- | --- |
 | `realized` | Observed state 符合目前的 spec。 |
 | `drifted` | swallow 以外有人改動，已不符合 spec。 |
-| `requires_attention` | swallow 已停止重試，需要 operator 處理。 |
+| `requires_attention` | swallow 已停止重試，需要 user 處理。 |
 | `held` | 收斂被暫停，例如 Server 被 lock，或由某個 Workflow 擁有。 |
 
 寫入 spec 後，swallow 存下即回應，變更之後才套用；請以 conditions 與
@@ -61,7 +61,7 @@ tag 與 placement、Zone 與 Pool、SSH key，以及 provisioner 的 HTTP proxy 
 
 ## Zone、Pool、tag 與 lock
 
-Zone／Pool 是 operator-defined infrastructure grouping；tag 加上 capability 或 policy
+Zone／Pool 是 user-defined infrastructure grouping；tag 加上 capability 或 policy
 metadata。Server 的手動 tag 與它的 Zone／Pool 屬於 spec，由 provisioner 實現；
 provisioner 自行計算的 tag 只是 observed。Provisioner 沒有這個能力時回報
 `capability_missing`，swallow 不另外保存替代的副本。
@@ -78,7 +78,7 @@ runtime API 擁有 observed membership 與 live state。既有 third-party runti
 
 ## Workflow、Job、Task 與 Runner
 
-**Workflow** 是 durable operator intent，由可重用的 **Job** 與 atomic、idempotent
+**Workflow** 是 durable user intent，由可重用的 **Job** 與 atomic、idempotent
 的 **Task** 組成。**Runner** 透過 provisioner、Ansible 或 internal mechanism 執行
 Task。swallow 的 store 記錄每個 Workflow 與 Task 的 state，由 Temporal 執行；負責
 派發 Workflow 的 worker 與 Ansible executor 必須保持執行才能前進。

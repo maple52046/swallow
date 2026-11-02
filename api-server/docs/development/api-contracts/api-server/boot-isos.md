@@ -11,7 +11,7 @@ Active
 ## Consumer Components
 
 - `dashboard`
-- `cli` (the `swallow` operator command-line client)
+- `cli` (the `swallow` command-line client)
 
 ## Purpose
 
@@ -77,7 +77,7 @@ mounts the URL with no way to send a token; it is described in
 | Field | Meaning |
 | --- | --- |
 | `id` | Opaque Boot ISO id. |
-| `name` | Operator name, unique per Integration (case-insensitive), 1–63 characters. |
+| `name` | User name, unique per Integration (case-insensitive), 1–63 characters. |
 | `siteId`, `integrationId` | The provisioner Integration the ISO chains to, and its Site. Only a Server of this Integration may use it. `siteId` is `""` when the Integration no longer exists, so its ISO can still be listed and deleted. |
 | `rackAddress` | The MAAS rack address as given: an IPv4 address or hostname, optionally with `:port`. |
 | `chainUrl` | Where iPXE chains after DHCP on BIOS firmware: `http://<rack host>:<port or 5248>/ipxe.cfg`. |
@@ -86,7 +86,7 @@ mounts the URL with no way to send a token; it is described in
 | `grubConfig` | The GRUB configuration UEFI firmware runs, rendered from swallow's fixed template and embedded in the ISO's GRUB. `""` for an ISO that predates it. Display only. |
 | `ipxeVersion` | The iPXE release the ISO was built with. |
 | `sizeBytes`, `sha256` | The built file. |
-| `url` | Where BMCs mount the ISO (and where an operator can download it). Empty when the installation has no Boot Media base URL. |
+| `url` | Where BMCs mount the ISO (and where a user can download it). Empty when the installation has no Boot Media base URL. |
 | `inUseBy` | How many Servers have Boot Media enabled with this ISO. |
 | `createdAt`, `createdBy` | When and by whom it was first built; `createdBy` is omitted when no username was recorded. |
 | `rebuiltAt`, `rebuiltBy` | When and by whom it was last rebuilt; omitted when it never was. |

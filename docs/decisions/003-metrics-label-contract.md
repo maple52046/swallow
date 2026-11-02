@@ -131,7 +131,7 @@ beyond a `cluster` label. The `(cluster, kubernetes node name)` pair is resolved
 Kubernetes API.
 
 Requiring `server_id` inside cluster scrape configs was considered and rejected: it would
-mean either swallow mutating a cluster's monitoring config, or an operator hand-maintaining
+mean either swallow mutating a cluster's monitoring config, or a user hand-maintaining
 a mapping that drifts. Resolving at query time costs one lookup against data swallow
 already has.
 
@@ -188,7 +188,7 @@ said the host `node_exporter` always stays and a cluster's `node-exporter` Daemo
 always disabled. Implementation replaced that with a generalisation of `gpuStackOwner`: a
 per-host **exporter owner** with exactly three values — `ansible` (swallow installs an
 exporter container on the host), `k8s` (a cluster DaemonSet installs it), and `unmanaged`
-(the operator installed something by hand, or the machine is locked; swallow keeps out).
+(the user installed something by hand, or the machine is locked; swallow keeps out).
 
 The owner is decided as a per-cluster policy (`exporterOwner`): a member of a Kubernetes
 cluster follows that cluster's policy, a host in no cluster is `ansible`, and a locked
@@ -214,7 +214,7 @@ one metric name serves both stacks without the caller knowing which is present.
 
 ## Built-in usage charts, Monitoring Links, and runtimes with their own monitoring
 
-Driven by the product requirement that an operator who deploys a Server through swallow can see
+Driven by the product requirement that a user who deploys a Server through swallow can see
 how much of it is used **without leaving swallow**.
 
 **swallow draws basic usage charts itself; Grafana becomes optional.** "How swallow queries"
@@ -245,7 +245,7 @@ belongs to the query definition so a client cannot choose a misleading one.
 interfaces), all from the host node-exporter already installed under the exporter-owner policy.
 
 **Runtimes with their own complete monitoring are linked, not scraped.** A Platform may carry
-operator-registered **Monitoring Links** (glossary) to the runtime's own UI — the motivating case is
+user-registered **Monitoring Links** (glossary) to the runtime's own UI — the motivating case is
 Omnistat on Slurm, which brings its own Prometheus and Grafana. swallow never queries a Monitoring
 Link and does not add such a stack as a second metrics backend; the host exporters keep running so
 Server charts are identical for every Platform type and survive the Platform. The runtime's own
@@ -322,3 +322,4 @@ responsible for, and it exports the two-join-path complexity to every caller.
 - unrecorded: decided the monitoring topology, the metrics label contract, and that alerts are read from Alertmanager rather than received.
 - 2026-08-27: added switchable exporter ownership and the AMD RDC exporter.
 - 2026-10-12: added built-in usage charts, Monitoring Links, and runtimes that bring their own monitoring.
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

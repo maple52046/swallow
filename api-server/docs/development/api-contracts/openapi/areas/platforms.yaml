@@ -1259,7 +1259,7 @@ components:
           $ref: '#/components/schemas/ExporterOwner'
         monitoringLinks:
           type: array
-          description: Operator-registered Monitoring Links; always an array.
+          description: User-registered Monitoring Links; always an array.
           items:
             $ref: '#/components/schemas/PlatformMonitoringLink'
         gpuOperator:
@@ -1286,7 +1286,7 @@ components:
           enum: [docker-ce, podman, null]
         gpuDriver:
           nullable: true
-          description: The operator's amdgpu driver intent; null when the deploy requested none.
+          description: The user's amdgpu driver intent; null when the deploy requested none.
           allOf:
             - $ref: '#/components/schemas/PlatformGPUDriver'
         gpuGresType:
@@ -1611,7 +1611,7 @@ components:
     PlatformGPUDriver:
       type: object
       description: >-
-        The operator's amdgpu module options for the Platform's GPU nodes. A name is lower-case
+        The user's amdgpu module options for the Platform's GPU nodes. A name is lower-case
         letters, digits, and underscores (at most 64); a value is letters, digits, and `_.,:-` (at
         most 128); at most 16 options. Options a topology rule adds on a node are not listed.
       required: [moduleOptions]

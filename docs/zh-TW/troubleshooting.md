@@ -64,7 +64,7 @@ sudo ./swallowctl ensure
 ## Server 持續停在 Releasing 或 Inspecting
 
 `releasing`、`inspecting`、`testing` 與 `deploying` 都是進行中的 OS
-provisioning state，預期會在不需要另一個 operator action 的情況下改變。
+provisioning state，預期會在不需要另一個 user action 的情況下改變。
 Deployment 欄位的 spinner 會標示這種狀況，但不代表 provider 一定仍有進度。
 
 若有顯示執行時間，這些 provider state 會從 swallow 第一次觀察到它時起算；
@@ -86,7 +86,7 @@ swallow -o json servers get server1
 swallow workflows list --server server1
 ```
 
-如果 state 變成 `failed`、`broken` 或 `rescue`，代表需要 operator 處理，而不是
+如果 state 變成 `failed`、`broken` 或 `rescue`，代表需要 user 處理，而不是
 繼續等待。各 state 與 recovery 提示見
 [Server 與 infrastructure](guides/servers-and-infrastructure.md#判讀-deployment-欄位)。
 

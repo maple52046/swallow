@@ -7,7 +7,7 @@
 > evolving, and the repository does not currently publish a stable SemVer
 > release. Evaluate upgrades and operational procedures before production use.
 
-swallow is out-of-the-box GPU datacenter management for operators who need one
+swallow is out-of-the-box GPU datacenter management for users who need one
 place to correlate physical servers, operating-system provisioning, Kubernetes
 or Slurm Platforms, host software, automation progress, and monitoring signals.
 Its core is generic: providers connect it to external systems such as MAAS,
@@ -16,7 +16,7 @@ Kubernetes, Slurm, AMD GPUs, and Managed Software. It owns intent, policy, and
 identity mapping while external systems continue to own the facts they are best
 at producing.
 
-![The swallow operator overview](docs/assets/overview.png)
+![The swallow overview](docs/assets/overview.png)
 
 ## What swallow does
 
@@ -29,7 +29,7 @@ at producing.
   pinned Ansible content.
 - Correlates Prometheus metrics and Alertmanager alerts with Server and Platform
   identities without storing metrics itself.
-- Provides complementary operator access through a browser Dashboard and the
+- Provides complementary user access through a browser Dashboard and the
   `swallow` CLI; Managed Software is currently available through the Dashboard
   and HTTP API.
 
@@ -58,7 +58,7 @@ The API records intent and Workflows in MongoDB; the worker dispatches each
 Workflow to Temporal, which runs its Tasks on the worker and the Ansible
 executor. MAAS owns machine and provisioning facts. Kubernetes and Slurm own
 live runtime state. Prometheus and Alertmanager own metrics and alerts. swallow
-owns the operator's desired state and the stable relationships between those
+owns the user's desired state and the stable relationships between those
 systems.
 
 ## Try it locally
@@ -83,7 +83,7 @@ Site, register integrations, configure automation, and use the CLI.
 
 | Interface | Purpose | Entry point |
 | --- | --- | --- |
-| Dashboard | Daily operator workflows and diagnostics | [Dashboard guide](docs/en/guides/dashboard.md) |
+| Dashboard | Daily user workflows and diagnostics | [Dashboard guide](docs/en/guides/dashboard.md) |
 | `swallow` CLI | Interactive operation and automation-friendly output | [CLI guide](docs/en/reference/cli.md) |
 | HTTP API | External integrations against the active `/api/v1` contract | [API integration](docs/en/reference/api-integration.md) |
 
@@ -92,8 +92,8 @@ Site, register integrations, configure automation, and use the CLI.
 | Component | Role | Artifact |
 | --- | --- | --- |
 | [`api-server/`](api-server/) | HTTP API, reconciliation, durable workflow activities, and automation execution | `swallow-api` |
-| [`dashboard/`](dashboard/) | React operator console | static web application |
-| [`cli/`](cli/) | HTTP operator client | `swallow` |
+| [`dashboard/`](dashboard/) | React console | static web application |
+| [`cli/`](cli/) | HTTP user client | `swallow` |
 | [`deploy/`](deploy/) | Development, testing, installation, release, and third-party assets | Compose/native bundles |
 
 For the complete repository map, see the

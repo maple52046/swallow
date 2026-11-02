@@ -27,7 +27,7 @@ Treat the JWT as opaque. Read identity and role from `/auth/me`, and
 reauthenticate after `401`.
 
 Machine endpoints such as Prometheus discovery may accept the configured
-machine bearer token. That token is not an alternative login for operator
+machine bearer token. That token is not an alternative login for user
 endpoints.
 
 ## Errors
@@ -112,6 +112,6 @@ Start with:
 Do not implement against entries marked Planned. The old `/operations` and
 `/clusters` aliases were removed; use `/workflows` and `/platforms`.
 
-For shell automation, the [swallow CLI](cli.md) implements broad operator
+For shell automation, the [swallow CLI](cli.md) implements broad user
 coverage and emits lossless JSON or YAML. Managed Software currently requires
 the Dashboard or HTTP API.

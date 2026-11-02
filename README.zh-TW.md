@@ -8,12 +8,12 @@
 
 swallow 是開箱即用的 GPU 資料中心管理，提供給需要把實體 Server、作業系統佈署、
 Kubernetes／Slurm Platform、host software、自動化進度與監控訊號關聯在同一個操作面的
-operator。它的 core 是通用的：provider 把它連到 MAAS、Temporal、Ansible、Prometheus
+user。它的 core 是通用的：provider 把它連到 MAAS、Temporal、Ansible、Prometheus
 等外部系統，plugin 加入它能管理的東西，例如 Kubernetes、Slurm、AMD GPU 與 Managed
 Software。swallow 擁有 intent、policy 與 identity mapping；外部系統繼續擁有其最擅長
 產生的事實。
 
-![swallow operator overview](docs/assets/overview.png)
+![swallow overview](docs/assets/overview.png)
 
 ## swallow 能做什麼
 
@@ -25,7 +25,7 @@ Software。swallow 擁有 intent、policy 與 identity mapping；外部系統繼
 - 透過 Temporal 與版本固定的 Ansible content 執行 durable Workflow、Job 與 Task。
 - 將 Prometheus metrics、Alertmanager alerts 與 Server／Platform identity 關聯，
   但不自行儲存 metrics。
-- 透過 Dashboard 與 `swallow` operator CLI 提供互補的操作入口；Managed
+- 透過 Dashboard 與 `swallow` CLI 提供互補的操作入口；Managed
   Software 目前由 Dashboard 與 HTTP API 操作。
 
 ## 系統關係
@@ -52,7 +52,7 @@ flowchart LR
 API 把 intent 與 Workflow 記錄在 MongoDB；worker 把每個 Workflow 派發到 Temporal，
 由 Temporal 在 worker 與 Ansible executor 上執行它的 Task。MAAS 擁有 machine 與
 provisioning facts；Kubernetes／Slurm 擁有即時 runtime state；Prometheus／Alertmanager
-擁有 metrics 與 alerts。swallow 擁有 operator 的 desired state，以及這些系統間穩定的
+擁有 metrics 與 alerts。swallow 擁有 user 的 desired state，以及這些系統間穩定的
 關聯。
 
 ## 本機試用
@@ -85,8 +85,8 @@ secrets 只能用於本機開發。API 位於 <http://localhost:30051>。
 | Component | 職責 | Artifact |
 | --- | --- | --- |
 | [`api-server/`](api-server/) | HTTP API、reconciliation、durable workflow activity 與 automation execution | `swallow-api` |
-| [`dashboard/`](dashboard/) | React operator console | static web application |
-| [`cli/`](cli/) | HTTP operator client | `swallow` |
+| [`dashboard/`](dashboard/) | React console | static web application |
+| [`cli/`](cli/) | HTTP user client | `swallow` |
 | [`deploy/`](deploy/) | Development、testing、installation、release 與 third-party assets | Compose/native bundles |
 
 完整 repository map 請見

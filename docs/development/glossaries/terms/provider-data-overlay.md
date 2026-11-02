@@ -20,7 +20,7 @@
 - Deprecated terms: Provider Data Overlay itself (retired 2026-10-31; see the change note).
 - Examples: "MAAS exposes no way to relabel an image, so swallow stores an OS Image overlay
   (name, OS family, release) keyed by `(integrationId, imageId, architecture)` and merges each
-  non-empty field over the provider value at read." / "An operator relabels an image; the catalog
+  non-empty field over the provider value at read." / "A user relabels an image; the catalog
   returns the effective `name`/`osSystem`/`release`, the provider's `provider*` values, and the
   swallow `custom*` overrides." / "If the image disappears from the provider catalog the overlay
   is simply not merged; deleting the image also deletes its overlay." / "An OS Image overlay's

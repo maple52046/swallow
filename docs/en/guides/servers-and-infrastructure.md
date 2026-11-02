@@ -2,7 +2,7 @@
 
 [繁體中文](../../zh-TW/guides/servers-and-infrastructure.md) · [Documentation home](../README.md)
 
-Servers are reconciled projections of provisioner machines. Operators inspect,
+Servers are reconciled projections of provisioner machines. Users inspect,
 organize, protect, and act on them; they do not create Server records.
 
 ## Add servers
@@ -149,7 +149,7 @@ when swallow deployed and verified the installed OS, or **Unknown** when the OS
 was installed without a swallow deployment result. The Summary card shows the
 installed image.
 
-| Display | Operator meaning |
+| Display | User meaning |
 | --- | --- |
 | Inspecting / Testing | The provider is inventorying hardware or running hardware tests. |
 | Releasing | The provider is returning the Server to its available pool, including any requested disk erasure. |
@@ -174,7 +174,7 @@ to see which start it uses.
 
 A provider-state start is swallow's observation, not the provider's exact
 transition time, so it is only as precise as inventory reconcile or a targeted
-Server refresh. It is close to real time after an operator action such as
+Server refresh. It is close to real time after a user action such as
 Release because the list follows that Server. If no start is known, no running
 time is shown.
 
@@ -340,7 +340,7 @@ reports it on the Server instead of swallow keeping a separate copy.
 ## Locks and destructive actions
 
 Lock a Server to exclude it from automatic or destructive management. Unlock it
-only after confirming no Workflow or external operator depends on the
+only after confirming no Workflow or external user depends on the
 protection. Power, release, delete, rescue/recovery, and placement actions are
 also gated by provider capability and current state.
 

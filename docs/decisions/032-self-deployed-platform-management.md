@@ -6,7 +6,7 @@
 ## Context
 
 Swallow's Platform management grew up around one capability: deploy a k0s (Kubernetes)
-Platform, then observe its membership. The public API also let an operator *register* an
+Platform, then observe its membership. The public API also let a user *register* an
 already-existing Kubernetes or Slurm Platform (`POST /api/v1/platforms/`, producing
 `origin=registered`), on the theory that Swallow could manage clusters it did not build.
 
@@ -35,8 +35,8 @@ Concretely:
 - `POST /api/v1/integrations` rejects `kind=platform` (and its `cluster` deprecated alias):
   a `platform` Integration is created only by a successful deployment's completion hook,
   which calls the repository directly and is unaffected.
-- `PATCH /api/v1/platforms/{id}` no longer accepts `integrationId`, so an operator cannot
-  point a Platform at an operator-owned Integration as a registration back door. Name,
+- `PATCH /api/v1/platforms/{id}` no longer accepts `integrationId`, so a user cannot
+  point a Platform at a user-owned Integration as a registration back door. Name,
   `gpuStackOwner`, and `exporterOwner` remain editable.
 - Existing `origin=registered` records keep working for one release: readable and deletable,
   never uninstallable, and never eligible for the cluster explorer. No new `registered`
@@ -113,3 +113,7 @@ for the explorer) is deliberately deferred.
   Slurm cluster read, whose read/write boundary the Kubernetes explorer follows.
 - [`docs/development/platform-deployment.md`](../development/platform-deployment.md) — the
   lifecycle plane (Workflow/Job/Task/Runner) the explorer sits beside.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

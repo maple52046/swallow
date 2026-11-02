@@ -2,7 +2,7 @@
 
 [繁體中文](../../zh-TW/reference/cli.md) · [Documentation home](../README.md)
 
-The `swallow` binary is the operator command-line client. It is a separate Go
+The `swallow` binary is the command-line client. It is a separate Go
 module from `swallow-api` and communicates only through the published HTTP API.
 
 ## Install
@@ -62,7 +62,7 @@ and follow each link into the complete usage manual.
 - [`api-keys`](../../../cli/docs/usage.md#api-keys) — `list`, `create`, and
   `delete` (`revoke` alias) non-interactive credentials.
 - [`overview`](../../../cli/docs/usage.md#overview) — read the swallow-wide or
-  Site-scoped operator aggregate.
+  Site-scoped user aggregate.
 - [`sites`](../../../cli/docs/usage.md#sites) — `list`, `get`, `create`,
   `update`, and `delete` Sites; `automation get|set` and
   `automation credential set` manage Site automation.

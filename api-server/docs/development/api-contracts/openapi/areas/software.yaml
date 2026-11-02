@@ -1060,7 +1060,7 @@ components:
           $ref: '#/components/schemas/SoftwareKind'
         label:
           type: string
-          description: Operator-facing name.
+          description: User-facing name.
         roles:
           type: array
           description: The kind's variant roles; empty for a role-less kind.
@@ -1232,7 +1232,7 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updatedBy:
           type: string
-          description: Username of the operator who last created or replaced the credential.
+          description: Username of the user who last created or replaced the credential.
     RegistryCredentialList:
       type: object
       required:

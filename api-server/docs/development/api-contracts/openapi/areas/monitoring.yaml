@@ -1,10 +1,10 @@
-# Operator overview, monitoring reads (alerts, current metric values, usage history), and the
+# Overview, monitoring reads (alerts, current metric values, usage history), and the
 # machine-to-machine discovery projections (overview.md, monitoring-alerts.md, server-metrics.md,
 # discovery-prometheus.md).
 tags:
   - name: monitoring
     description: >-
-      The operator overview, alerts read from Alertmanager, named metric queries against the
+      The overview, alerts read from Alertmanager, named metric queries against the
       metrics backend, and the Prometheus and Ansible discovery projections of the Server
       inventory. swallow stores no alerts and no metrics.
 paths:
@@ -12,7 +12,7 @@ paths:
     get:
       tags: [monitoring]
       operationId: getOverview
-      summary: Read the site-scoped, point-in-time operator overview.
+      summary: Read the site-scoped, point-in-time overview.
       description: >-
         Requires the `admin` role. Derives every section from its owning context and stores no
         overview state. An absent or failing alert source is reported inside `monitoring` with a
@@ -432,7 +432,7 @@ paths:
       operationId: listMetricNames
       summary: List the fixed set of metric names a client may request.
       description: >-
-        Requires the `admin` role. A plain array in operator scan order; the order is not
+        Requires the `admin` role. A plain array in user scan order; the order is not
         significant to a consumer (server-metrics.md, Metric Names).
       responses:
         '200':
@@ -599,7 +599,7 @@ components:
   schemas:
     Overview:
       type: object
-      description: One coherent, point-in-time operator overview (overview.md).
+      description: One coherent, point-in-time overview (overview.md).
       required:
         - generatedAt
         - scope
@@ -752,7 +752,7 @@ components:
           description: The Workflow kind (workflows.md).
         intent:
           type: string
-          description: The operator's intent text, or a Workflow's intent summary.
+          description: The user's intent text, or a Workflow's intent summary.
         siteId:
           type: string
         platformId:

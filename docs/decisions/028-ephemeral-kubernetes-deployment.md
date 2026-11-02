@@ -47,5 +47,9 @@ Swallow; the image must carry modules that match the provider's boot kernel.
   is unchanged.
 - Compatibility failures happen before cluster state is created and identify the missing host
   capability in retained automation output.
-- Operators must recreate or redeploy a Platform after an ephemeral host reboot; automatic
+- Users must recreate or redeploy a Platform after an ephemeral host reboot; automatic
   restoration is not part of this decision.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

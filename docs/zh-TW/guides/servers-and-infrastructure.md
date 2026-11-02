@@ -2,7 +2,7 @@
 
 [English](../../../docs/en/guides/servers-and-infrastructure.md) · [文件首頁](../README.md)
 
-Server 是 provisioner machine 的 reconciled projection。Operator 可以檢視、組織、
+Server 是 provisioner machine 的 reconciled projection。User 可以檢視、組織、
 保護與操作 Server，但不會建立 Server record。
 
 ## 新增 Server
@@ -133,7 +133,7 @@ Server detail header 不顯示 image 名稱，而是顯示結果：swallow 佈�
 顯示 **Deployed**；OS 已安裝但沒有 swallow deployment result 時顯示 **Unknown**。
 已安裝的 image 請見 Summary card。
 
-| 顯示 | Operator 應如何判讀 |
+| 顯示 | User 應如何判讀 |
 | --- | --- |
 | Inspecting / Testing | Provider 正在盤點硬體，或執行硬體測試。 |
 | Releasing | Provider 正在讓 Server 回到 available pool，包括執行要求的 disk erase。 |
@@ -156,7 +156,7 @@ Provider 工作（**Releasing**、**Inspecting**、**Testing**，或不是由 sw
 
 Provider state 的起始時間是 swallow 的 observation，不是 provider 確切的
 transition time；其精確度約等於 inventory reconcile 或 targeted Server refresh
-的頻率。Release 等 operator action 後，list 會持續追蹤該 Server，因此時間會接近
+的頻率。Release 等 user action 後，list 會持續追蹤該 Server，因此時間會接近
 即時。起始時間未知時不會顯示執行時間。
 
 Release 接受後可留在 list：provider 執行期間該列會變成 **Releasing**，Server
@@ -294,7 +294,7 @@ swallow 不另存一份。
 ## Lock 與 destructive action
 
 Lock 會排除 Server 的自動或 destructive management。解除前先確認沒有 Workflow
-或 external operator 依賴這項保護。Power、release、delete、rescue/recovery 與
+或 external user 依賴這項保護。Power、release、delete、rescue/recovery 與
 placement action 也受 provider capability 與 current state 限制。
 
 刪除 Server 是 provider-backed action：先刪除 backing machine，再刪除 projection，

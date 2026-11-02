@@ -81,7 +81,7 @@ the installation's NTP server at every OS provisioning; 2026-10-29 removed the s
   and made "which time does this Server follow" a question with two answers.
 - **Configure NTP in the Platform deployment instead of at OS provisioning:** rejected. Time is
   part of an OS being ready, not of a platform; a Platform deployment only verifies it, and the
-  operator chooses per deployment whether a problem blocks it.
+  user chooses per deployment whether a problem blocks it.
 - **One time-check Task shared by every Platform deployment (`check-time-sync` in `ensure-os`):**
   implemented and removed on 2026-10-29 by the user. Whether a runtime needs synchronized clocks
   is that Platform's concern, so the check belongs in its own installation, not in a step every
@@ -90,7 +90,7 @@ the installation's NTP server at every OS provisioning; 2026-10-29 removed the s
   minutes per deployment on a slow package mirror (465 s in the lab) while the image's own client
   does the job.
 - **Synthesize cloud-init `ntp:` at deploy time:** deferred, kept as the fallback above. It
-  contradicts ADR 058's "swallow composes no cloud-init", needs merge rules for operator user
+  contradicts ADR 058's "swallow composes no cloud-init", needs merge rules for user user
   data, and cannot re-converge a host after the address changes.
 - **Run chrony in a container with host networking:** rejected. It needs `CAP_SYS_TIME` to
   discipline the host clock from inside a container, ties fleet time to the Compose stack's
@@ -100,7 +100,7 @@ the installation's NTP server at every OS provisioning; 2026-10-29 removed the s
 - **Rely only on MAAS's cloud-init NTP:** rejected as the only mechanism. It picks rack addresses
   per subnet outside swallow's control and is specific to MAAS.
 - **A Managed Software `chrony` kind:** rejected. Time sync is part of every OS provisioning, not
-  an optional install an operator remembers to compose.
+  an optional install a user remembers to compose.
 
 ## Consequences
 
@@ -111,3 +111,7 @@ the installation's NTP server at every OS provisioning; 2026-10-29 removed the s
 - swallowctl owns MAAS's NTP servers: an upstream set in the MAAS UI is replaced on the next
   install, upgrade, or ensure.
 - Servers already deployed keep their time configuration until they are provisioned again.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

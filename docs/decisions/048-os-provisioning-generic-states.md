@@ -26,7 +26,7 @@ state.
   lifecycle onto these values and keeps its own label only as the display-only
   `providerState`. A new provider step is mapped to an existing value; it never adds a
   provider word to the set.
-- `commissioning` is renamed to `inspecting` on the wire. The operator action follows:
+- `commissioning` is renamed to `inspecting` on the wire. The user action follows:
   `POST /api/v1/servers/{id}/commission` becomes `POST /api/v1/servers/{id}/inspect`
   (the MAAS adapter still calls MAAS `commission`), and the CLI verb becomes
   `swallow servers inspect`. `commissioningStatus`, the provider's label for its last
@@ -45,7 +45,7 @@ state.
 
 - **Keep hiding provider lifecycle in the list and show only the Swallow deployment
   result.** Rejected: Release, deploy, and failure states are generic. Hiding them left
-  operators unable to see that a Server was releasing, and it produced a second name
+  users unable to see that a Server was releasing, and it produced a second name
   ("Not deployed") for `ready`.
 - **Keep `commissioning` on the API and relabel it only in the UI.** Rejected by the
   user: the API is the published language shared by the dashboard, the CLI, and
@@ -53,7 +53,7 @@ state.
 - **A schema migration that rewrites stored `commissioning` values.** Rejected: the
   value is a mirrored observation that reconcile rewrites within one inventory pass, so
   reading the old value as `inspecting` is enough. A schema version bump would block
-  serving until an operator runs `swallow-api migrate`.
+  serving until a user runs `swallow-api migrate`.
 
 ## Consequences
 
@@ -64,3 +64,7 @@ state.
 - The Server list now shows provider failures (Failed, Broken, Rescue) and in-progress
   provider work (Releasing, Inspecting, Testing). The list's changing and attention
   signals count them too, so the column and the row signals agree.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

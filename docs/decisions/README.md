@@ -95,7 +95,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [003](003-metrics-label-contract.md) | monitoring 拓撲與把 metrics 接回 Server 的標籤契約；swallow 只提供有上限的基本用量圖表 | — |
 | [005](005-monorepo-consolidation.md) | 由 submodule superproject 收斂為單一 swallow monorepo | — |
 | [007](007-cluster-deployment-ownership.md) | swallow 擁有建立 Kubernetes Platform 的意圖，角色由伺服器端指派，HA 採 k0s 內建負載平衡 | — |
-| [008](008-operator-overview-read-model.md) | operator overview 是跨 context 的唯讀聚合視圖 | — |
+| [008](008-overview-read-model.md) | overview 是跨 context 的唯讀聚合視圖 | — |
 | [009](009-deployment-template-ownership.md) | Deployment Template 只擁有可重用的 OS 部署意圖，不擁有 image、automation 或執行生命週期 | — |
 | [010](010-cluster-lifecycle-actions.md) | Platform 的移除：Uninstall 改變部署過的主機並在成功時刪除紀錄，只刪紀錄（`recordOnly`）不碰主機；同時 release 時直接 release，略過 platform 軟體的 uninstall | 022 |
 | [011](011-flexible-k0s-topologies.md) | k0s 支援單機、非 HA 多節點與 HA 三種拓樸，不新增 Node Role | — |
@@ -103,7 +103,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [015](015-platform-term-disambiguation.md) | swallow（小寫）指系統本身；Platform 專指 swallow 部署的受管 runtime 聚合，取代 Cluster | 014 |
 | [019](019-slurm-platform-deployment.md) | Slurm 以 per-daemon 角色部署，套件由 image 提供，slurmrestd credential 為選用 | — |
 | [021](021-platform-type-specific-management.md) | Platform 詳情為共用外殼加各 type 專屬視圖，Slurm 另有唯讀即時叢集讀取 | — |
-| [023](023-slurm-ha-shared-state-provisioning.md) | Slurm HA 的共享 StateSaveLocation 由 swallow 自動佈署，不由 operator 提供 | — |
+| [023](023-slurm-ha-shared-state-provisioning.md) | Slurm HA 的共享 StateSaveLocation 由 swallow 自動佈署，不由 user 提供 | — |
 | [024](024-slurm-login-and-workload-storage.md) | Slurm 新增 login 角色與選用的 workload 共享檔案系統，與 controller state 分離 | — |
 | [026](026-slurm-minimum-resource-policy.md) | Slurm 部署採單一選用的全系統 CPU／記憶體／儲存資格門檻，前後端都檢查 | — |
 | [027](027-os-image-upload.md) | swallow 可驅動 provisioner 上傳 OS image，但不持有 artifact，custom 與否由 provider 判定 | — |
@@ -112,7 +112,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [033](033-provider-recovery-policy.md) | provider recovery 由 swallow 擁有的單一政策決定，provisioner 只執行選中的 primitive；明確重試失敗的 OS 部署會先 Recover 再重新部署 | 059 |
 | [035](035-os-image-verification-and-deploy-target.md) | 以 Deploy Target 為部署模式詞彙，custom image 須依 target 經 swallow 驗證才能部署 | — |
 | [036](036-provisioning-lifecycle-integrity.md) | `allocated` 可回復、驗證採借用歸還、投影以 provider 狀態為準 | — |
-| [037](037-operator-cli-component.md) | 新增 `cli/` component，API 服務 binary 改名 `swallow-api` | — |
+| [037](037-cli-component.md) | 新增 `cli/` component，API 服務 binary 改名 `swallow-api` | — |
 | [038](038-software-deployment.md) | 單一 Managed Software 是獨立於 Platform 的 deploy target，並以 Job 組入其他 Workflow | — |
 | [039](039-ssh-key-management-and-default-user.md) | swallow 擁有 SSH Key；automation 只以 Deployment Key 登入；登入帳號依序取 Server Default User（設定前先驗證）與 OS Image 的預設帳號 | 041、045 |
 | [040](040-single-vm-production-installation.md) | 單一 VM 安裝與發佈：Compose 與 swallowctl 安裝的 MAAS 共置、共用一個 PostgreSQL；只發佈 Compose installation，GHCR 只放 swallow 建置的 image，install.sh 一行安裝與升級 | 050、051、052 |

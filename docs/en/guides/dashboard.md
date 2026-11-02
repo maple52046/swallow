@@ -2,7 +2,7 @@
 
 [繁體中文](../../zh-TW/guides/dashboard.md) · [Documentation home](../README.md)
 
-The Dashboard is the browser interface for swallow's active operator workflows.
+The Dashboard is the browser interface for swallow's active user workflows.
 It talks only to the published HTTP API and stores only UI preferences and the
 current session in the browser.
 

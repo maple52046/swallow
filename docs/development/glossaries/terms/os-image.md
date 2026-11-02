@@ -6,7 +6,7 @@
 - Allowed meaning: Live provider-owned catalog data identified by the opaque
   value the same provider accepts on an OS Deployment request. swallow may show
   and select the value, and — on a provisioner whose adapter supports it — may
-  drive the provider to upload a new artifact from operator-supplied content, but
+  drive the provider to upload a new artifact from user-supplied content, but
   does not own, mirror, or synchronize a durable copy of the artifact: an uploaded
   image is provider-owned exactly like a synced one. Whether an uploaded artifact
   is classified as a custom image is provider-determined by the site's provisioner,
@@ -40,22 +40,22 @@
   most one of them because recording one outcome clears the other. A custom image
   must be verified for a Deploy Target before a normal deploy in that target is
   allowed — a failed or absent target is blocked the same way, so `failedDeployTargets`
-  affects only display, letting an operator tell "proven not to deploy this way" apart
+  affects only display, letting a user tell "proven not to deploy this way" apart
   from "not yet tried". Synced provider images are provider-trusted and are never
   gated on verification.
 - Disallowed meaning: A swallow release, container image, package bundle,
   post-install script collection, or durable swallow-owned copy of the image
   artifact. Driving a provider upload does not make swallow the owner of the
-  resulting artifact — swallow streams operator content to the provider and keeps
+  resulting artifact — swallow streams user content to the provider and keeps
   no copy — nor does the caller decide whether it becomes a custom image. The
   overlay is not a mirror of the artifact and is never written back to the
   provider; it stores only the swallow-owned display overrides, not provider
   catalog data, and never changes what the image deploys.
 - Synonyms: Provisioning image (deprecated UI wording).
 - Deprecated terms: Provisioning Image.
-- Examples: An operator selects the MAAS image `ubuntu/jammy` for Servers managed
+- Examples: A user selects the MAAS image `ubuntu/jammy` for Servers managed
   by that MAAS Integration. Another Integration may expose a different catalog. An
-  operator relabels that image; the catalog returns the effective `name`/`osSystem`/
+  user relabels that image; the catalog returns the effective `name`/`osSystem`/
   `release`, the provider's `provider*` values, and the swallow `custom*` overrides,
   and can reset to the provider values.
 - Related terms: OS Deployment, Deploy Target, Deployment Template, Server, Desired State.

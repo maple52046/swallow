@@ -27,7 +27,7 @@ Repository 以頂層目錄承載每個 component，目錄名即 component 的角
   迴圈與 controller，是唯一的 API-owning component。以 Go module
   `github.com/maple52046/swallow` 建置，binary 為 `swallow-api`。
 - `dashboard` — 目錄 `dashboard/`。前端 dashboard：React + TypeScript + Vite。
-- `cli` — 目錄 `cli/`。Operator CLI：命令列客戶端，是 `api-server` HTTP API 的 consumer
+- `cli` — 目錄 `cli/`。CLI：命令列客戶端，是 `api-server` HTTP API 的 consumer
   （與 `dashboard` 同級）。以獨立 Go module `github.com/maple52046/swallow/cli` 建置，
   binary 為 `swallow`。
 

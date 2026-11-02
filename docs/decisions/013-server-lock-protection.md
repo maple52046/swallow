@@ -14,7 +14,7 @@ Operation can also bypass MAAS mutation checks entirely.
 ## Decision
 
 MAAS remains the source of truth and executor for Lock and Unlock. Swallow treats
-the observed lock as a platform-wide guard against every operator or worker path
+the observed lock as a platform-wide guard against every user or worker path
 that can mutate the Server, its provider record, or the host. Application use
 cases use a shared policy instead of reproducing provider-state comparisons.
 
@@ -45,6 +45,10 @@ Swallow never changes its exporter installation.
 ## Consequences
 
 Provider lock availability is required before new mutation work is accepted;
-an unverifiable state fails closed. Operators can still diagnose locked Servers,
+an unverifiable state fails closed. Users can still diagnose locked Servers,
 and pending work cannot slip through after an external lock. Provider adapters
 remain the anticorruption boundary for lock execution and live observation.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

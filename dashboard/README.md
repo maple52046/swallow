@@ -2,7 +2,7 @@
 
 [繁體中文](README.zh-TW.md) · [Project documentation](../docs/en/README.md)
 
-`dashboard` is the React operator console for swallow. It is a conformist
+`dashboard` is the React console for swallow. It is a conformist
 consumer of the provider-owned HTTP contract and binds only real API adapters.
 
 ## Active routes
@@ -75,7 +75,7 @@ npm run review:visual:themes -- --grep servers
 npm run review:visual -- --grep @representative
 ```
 
-Playwright includes deterministic functional operator journeys. Visual review is
+Playwright includes deterministic functional user journeys. Visual review is
 a separate developer workflow: `review:visual` captures dark desktop/mobile
 screenshots, while `review:visual:themes` also captures light mode. Open and
 inspect the disposable images under `test-results/visual-review/`; they are not

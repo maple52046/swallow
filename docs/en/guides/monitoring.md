@@ -123,7 +123,7 @@ swallow platforms update plat1 -f patch.yaml
 ```
 
 An empty list (`monitoringLinks: []`) removes the links. swallow never connects to a
-Monitoring Link; it is a shortcut for operators.
+Monitoring Link; it is a shortcut for users.
 
 ## Alerts and acknowledgements
 

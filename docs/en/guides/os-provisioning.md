@@ -29,7 +29,7 @@ metadata swallow keeps for it.
 
 ## Deployment templates
 
-A Deployment Template records reusable operator choices, not executable
+A Deployment Template records reusable user choices, not executable
 automation. It can preselect an image and settings while the deployment request
 still validates each current target. Templates never bypass current eligibility.
 
@@ -76,14 +76,14 @@ sorted tags, and icon-only Disk/RAM availability. A check means the mode can dep
 it cannot. Custom-image failures and modes that have not been tested intentionally use the same
 unavailable icon because that distinction does not change the selection. A spinner means a
 verification was active when the picker opened. This activity is read once and is not polled.
-Provider release is omitted because it is not a reliable operator-facing label. The picker shares
+Provider release is omitted because it is not a reliable user-facing label. The picker shares
 the page or dialog scroll surface instead of adding a nested scrollbar. The catalog loads when
 the step opens and refreshes only when you choose **Refresh**; existing results, family, search
 text, and the selected image remain visible while that request is in progress.
 Deploy mode and addressing choices explain their effects in full-width cards; the memory-backed
 choice is labelled **RAM deploy**. When an image supports exactly one deploy mode, that mode is
 selected by default. Images that support both modes—or neither mode—default to RAM. Choosing a
-different mode remains an explicit operator override. An unavailable mode shows a warning, but
+different mode remains an explicit user override. An unavailable mode shows a warning, but
 does not block the next step or submission in this Dashboard release. Per-Server network
 assignments use a comparison table on wide screens and labelled cards on mobile.
 Each Site must have exactly one enabled provisioner Integration. Deployment is

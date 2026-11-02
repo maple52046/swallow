@@ -11,7 +11,7 @@ Active
 ## Consumer Components
 
 - `dashboard`
-- `cli` (the `swallow` operator command-line client; no command yet)
+- `cli` (the `swallow` command-line client; no command yet)
 
 ## Purpose
 

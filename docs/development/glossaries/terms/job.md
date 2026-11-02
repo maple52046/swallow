@@ -2,7 +2,7 @@
 
 - Bounded context: Automation (swallow-owned intent and execution).
 - Definition: A reusable, convergent unit of Tasks that brings a set of resources to a sub-goal, composable into Workflows and runnable on its own.
-- Allowed meaning: A named capability such as `ensure-os` or `configure-k0s`. A Job is convergent as a whole: re-running it leaves resources already at the sub-goal unchanged. The same Job is reused across Workflows — `ensure-os` runs standalone and inside `deploy-kubernetes` — rather than being duplicated. A Job groups Tasks that may use different Runners, and declares its retry granularity: retry only the failed Task, or every Task of the Job at the next attempt, and an operator-facing label (for example "Provision OS" for `ensure-os`) that clients title its Tasks with. A Task without a Job belongs to an implicit Job that retries by Task.
+- Allowed meaning: A named capability such as `ensure-os` or `configure-k0s`. A Job is convergent as a whole: re-running it leaves resources already at the sub-goal unchanged. The same Job is reused across Workflows — `ensure-os` runs standalone and inside `deploy-kubernetes` — rather than being duplicated. A Job groups Tasks that may use different Runners, and declares its retry granularity: retry only the failed Task, or every Task of the Job at the next attempt, and a user-facing label (for example "Provision OS" for `ensure-os`) that clients title its Tasks with. A Task without a Job belongs to an implicit Job that retries by Task.
 - Disallowed meaning: Not a synonym for a whole Workflow (a Job is a composable part), not a single Task, and not an OS Deployment or a Platform.
 - Synonyms: None.
 - Deprecated terms: None.

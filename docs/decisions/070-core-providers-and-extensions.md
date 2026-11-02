@@ -12,7 +12,7 @@ VM platform) and a second GPU vendor (NVIDIA, beside AMD) are expected. Within t
 Platforms are expected to stay at Kubernetes and Slurm, possibly with Docker Swarm. Developers from
 outside the team are expected to join the project and build modules in this repository alongside
 the team; external teams developing and owning modules independently, against a published
-protocol, is not a near-term goal. The target user is a data center operator who
+protocol, is not a near-term goal. The target user is a data center user who
 wants a working GPU cluster out of the box, so every integrated Platform has to be done correctly
 and in depth.
 
@@ -114,3 +114,7 @@ owner of desired state. That only holds if no external system is part of the cor
 - Cost: a module contract, a manifest loader, conformance tests, an import check, module ownership,
   and the authoring guide now; the migration of existing Platform and AMD code; and a support matrix
   to maintain per release.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

@@ -64,7 +64,7 @@ JSON
 ## 5. Reconcile 與檢視
 
 MAAS Integration 成功後，下一輪 reconciliation 會建立或更新 Server projection。
-Operator 不會直接建立 Server。
+User 不會直接建立 Server。
 
 - 開啟 **Servers** 檢視 inventory 與 staleness。
 - 使用 **Provisioning** 檢視 image、驗證 deployability 並建立 deployment template。

@@ -16,7 +16,7 @@ authoritative than it is.
   reserved but never completed — a failed or canceled deploy, or a verification
   borrow that ended before install. The provider allows Release from it, but the
   Swallow-owned recovery policy ([ADR 033](033-provider-recovery-policy.md))
-  omitted it, so Recover and Release both refused and the operator had no verb to
+  omitted it, so Recover and Release both refused and the user had no verb to
   return the Machine to `ready`.
 - **`verify-os-image` had no failure compensation.** The Workflow was a strict
   `provision-os` -> `record-image-verification` -> `release-os` dependency chain,
@@ -30,7 +30,7 @@ authoritative than it is.
 - **The list badge presented a stale deployment result as the truth.** A Server
   observed back at `allocated` still carried an old `deployment.succeeded`
   record, and the merged Deployment badge rendered it as green "Deployed" while
-  the provider said otherwise, so an operator saw "Deployed" on a Machine that
+  the provider said otherwise, so a user saw "Deployed" on a Machine that
   could not be Released. Reconcile only cleared a finished deployment record when
   the provider was back at `ready`, never at `allocated`.
 
@@ -63,15 +63,15 @@ authoritative than it is.
   counts only genuinely in-flight Operations as "verifying"; `requires_attention`,
   `failed`, and `canceled` are not.
 - **General (non-verification) deploy failures are unchanged.** They still leave
-  the Machine for operator-initiated Recover/Release per ADR 033; only the
+  the Machine for user-initiated Recover/Release per ADR 033; only the
   verification *borrow* auto-returns, because the borrowed spare's contract is to
   be given back.
 
 ## Alternatives considered
 
 - **Make every failed deploy auto-release.** Rejected: it contradicts ADR 033's
-  operator-initiated recovery for production deploys, where the failed Machine is
-  evidence the operator may want to inspect. The borrow contract is specific to
+  user-initiated recovery for production deploys, where the failed Machine is
+  evidence the user may want to inspect. The borrow contract is specific to
   verification, which chose a spare and promised to return it.
 - **Keep parking verification on failure to "preserve the scene".** Rejected: the
   scene lives in the Operation (the provider's reason is recorded on the failed
@@ -87,7 +87,7 @@ authoritative than it is.
 
 ## Consequences
 
-- Operators regain a verb for a reserved-but-stuck Machine, and a failed
+- Users regain a verb for a reserved-but-stuck Machine, and a failed
   verification returns its borrowed Server to `ready` on its own while leaving the
   image unverified with the provider's reason on the Operation.
 - The orchestration engine gains a small, general capability: a Task may declare
@@ -95,3 +95,7 @@ authoritative than it is.
   The default is unchanged, so every existing Workflow replays identically.
 - The Deployment badge and reconcile no longer let a stale success outlive the
   provider truth, removing the "shows Deployed but cannot Release" contradiction.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

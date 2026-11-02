@@ -1470,7 +1470,7 @@ components:
           type: string
           enum: [server, os_image]
           description: >-
-            `server` when an operator set it on this Server, `os_image` when it is the deployed
+            `server` when a user set it on this Server, `os_image` when it is the deployed
             OS Image's default user.
     ServerChange:
       type: object

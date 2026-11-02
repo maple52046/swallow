@@ -68,7 +68,7 @@ back; `hasCredential` only reports whether one is stored.
 ## 5. Reconcile and inspect
 
 After a MAAS Integration succeeds, the next reconciliation creates or updates
-Server projections. Operators do not create Servers directly.
+Server projections. Users do not create Servers directly.
 
 - Open **Servers** to inspect inventory and staleness.
 - Use **Provisioning** to inspect images, verify deployability, and create

@@ -8,7 +8,7 @@
 
 Decision 066 installs AMD's Device Metrics Exporter (DME) only as a feature of a Swallow-deployed
 Slurm Platform: a `configure-device-metrics-exporter` Job of the Slurm Workflow, recorded on the
-Platform and nowhere else. Operators also want per-GPU metrics on a single Server that runs no
+Platform and nowhere else. Users also want per-GPU metrics on a single Server that runs no
 Platform, and later on its AI NICs. The software deployment rule (decision 038, §5) is that a
 Platform needing a piece of host software composes that software's Job instead of carrying its own
 copy, so a standalone install and the Slurm feature should be one implementation.
@@ -22,7 +22,7 @@ feature's `installMethod` only chooses how Prometheus and Grafana run on the pri
 - **A new Managed Software kind, `device-metrics-exporter`.** It is role-less and has one built-in
   install path, the same pinned native package as the Slurm feature. A standalone install provides
   the exporter only, with Slurm job attribution off; Prometheus and Grafana stay separate kinds the
-  operator installs to scrape and show it. The request takes no spec fields; the assignment records
+  user installs to scrape and show it. The request takes no spec fields; the assignment records
   the applied version.
 - **Standalone targets.** Besides the usual `deployed` requirement, a target must list AMD compute
   GPUs in its GPU Inventory. A Kubernetes member is refused (the GPU Operator runs its own
@@ -51,7 +51,7 @@ feature's `installMethod` only chooses how Prometheus and Grafana run on the pri
   privileged mode, and the Slurm feature already runs it natively. A container method would also
   have to compose a container runtime.
 - **Compose Prometheus and Grafana into the standalone install.** Rejected for now: they are
-  already Managed Software an operator can point at the exporter, and one Prometheus usually
+  already Managed Software a user can point at the exporter, and one Prometheus usually
   scrapes many Servers.
 - **Check the operating system from the Server projection.** Rejected: custom images report
   `osSystem` `custom`, so the projection cannot tell Ubuntu 24.04 apart.
@@ -62,3 +62,7 @@ feature's `installMethod` only chooses how Prometheus and Grafana run on the pri
   every exporter Swallow manages has a Software Assignment.
 - The glossary's Device Metrics Exporter is now Managed Software as well as a Slurm feature.
 - A Kubernetes deployment onto a Server that already runs a standalone exporter is not handled yet.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

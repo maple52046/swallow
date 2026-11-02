@@ -67,7 +67,7 @@ names one connection, with the owning services' recent logs. Rerunning the relea
 ## A Server stays Releasing or Inspecting
 
 `releasing`, `inspecting`, `testing`, and `deploying` are in-progress OS
-provisioning states. They are expected to change without another operator
+provisioning states. They are expected to change without another user
 action. The spinner in the Deployment column identifies this condition but does
 not prove that the provider is making progress.
 
@@ -94,7 +94,7 @@ swallow -o json servers get server1
 swallow workflows list --server server1
 ```
 
-If the state changes to `failed`, `broken`, or `rescue`, it needs operator
+If the state changes to `failed`, `broken`, or `rescue`, it needs user
 attention rather than more waiting. See
 [Servers and infrastructure](guides/servers-and-infrastructure.md#read-the-deployment-column)
 for the state and recovery cues.

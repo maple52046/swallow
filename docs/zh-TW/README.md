@@ -12,7 +12,7 @@ CLI、API、automation 與 installation assets。
 - [Installation 選擇](installation.md) — 在 evaluation、testing、Compose 與 native preview 間選擇。
 - [核心概念](concepts.md) — 了解 Site、Server、desired 與 observed state、Platform、Workflow、Managed Software、status 與 staleness。
 
-## Operator 指南
+## User 指南
 
 - [Dashboard](guides/dashboard.md)
 - [初始設定](guides/initial-setup.md)

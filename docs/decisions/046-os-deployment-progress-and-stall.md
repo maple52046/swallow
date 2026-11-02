@@ -13,7 +13,7 @@ stayed *Configuring OS* for 1h28m until curtin gave up and MAAS marked the node 
 
 Swallow saw only `Deploying` + power on. Its existing guards — a ten-minute power-off check and a
 two-hour observation timeout — could not tell a slow installation from one that would never
-finish, and operators had no way to see which installation stage a deployment was in.
+finish, and users had no way to see which installation stage a deployment was in.
 
 ## Decision
 
@@ -31,11 +31,11 @@ produces a stall.
 - **Rely on the two-hour observation timeout, or lower it.** Rejected: a global timeout cannot tell
   a slow mirror from a dead one and still burns most of the window; provider events show progress.
 - **Abort the provider deployment on stall.** Rejected: the stall may be environmental and fixable
-  in place; aborting destroys the evidence an operator needs. The Task asks for attention instead.
+  in place; aborting destroys the evidence a user needs. The Task asks for attention instead.
 - **A package-origin preflight before every deploy, with a per-OS-Image check URL.** Implemented on
   2026-10-03 and removed the same day by user decision. Swallow probed a check URL (MAAS archive,
-  OS-family default, or an operator value on the OS Image) through the MAAS proxy and refused
-  deploys that would stall. In use it failed its purpose: an operator value pointing at a reachable
+  OS-family default, or a user value on the OS Image) through the MAAS proxy and refused
+  deploys that would stall. In use it failed its purpose: a user value pointing at a reachable
   mirror made the probe pass while the installation still fetched from MAAS's unreachable archive,
   the check URL changed nothing about where packages come from, refusals had no in-product fix, and
   every custom image was blocked until a URL was set. A preflight is only worth having if swallow
@@ -50,3 +50,7 @@ produces a stall.
 - Unreachable package sources are still discovered only during installation. Configuring the
   sources installations actually use (provider package repositories, or cloud-init for the
   installed OS) is separate, later work.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

@@ -19,7 +19,7 @@
 - Deprecated terms: None.
 - Examples: "The dashboard's access token expired after 15 minutes; it refreshed the Session in
   the background and retried the request." / "After seven days without use the Session expired
-  and the operator signed in again." / "Logging out of the CLI revoked its Session, so its saved
+  and the user signed in again." / "Logging out of the CLI revoked its Session, so its saved
   refresh token no longer works."
 - Related terms: User, API Key.
 - Change note: Added when login moved from one 24-hour token to short access tokens plus a

@@ -18,7 +18,7 @@ contract before implementing or integrating against it.
 
 ## HTTP REST API
 
-Possible consumers: `dashboard`, the `cli` operator client (`../../../../../cli/`),
+Possible consumers: `dashboard`, the `cli` user client (`../../../../../cli/`),
 and external integrators; neither component owns a contract here. Each contract
 lists the components that call it today.
 

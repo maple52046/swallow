@@ -22,13 +22,13 @@ Bring machines into a provisioner's inventory and inspect them to a usable state
 ([decision 053](../../../../../docs/decisions/053-server-enrollment-and-automatic-inspection.md) (server enrollment and automatic inspection)).
 A Server still comes into being only through reconciliation; nothing here creates one.
 
-- **Network boot**: the operator power-cycles the machine into the provisioner's enrollment
+- **Network boot**: the user power-cycles the machine into the provisioner's enrollment
   (PXE, or Boot Media on a network the provisioner does not serve). swallow then inspects it
   with an `inspect-hardware` Workflow.
 - **Existing OS**: one command on a host that keeps its OS downloads a script and the swallow
   CLI from the installation and registers the host with the provisioner. This contract hands
   that command the provisioner endpoint and credential.
-- **Virtual machine**: the operator names libvirt domains on a hypervisor that swallow manages;
+- **Virtual machine**: the user names libvirt domains on a hypervisor that swallow manages;
   swallow registers each with the provisioner together with its `virsh` Power Configuration and,
   when asked, its Boot Media, and automatic inspection takes it to `ready`
   ([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md) (libvirt virtual machine enrollment)).
@@ -102,7 +102,7 @@ installing, or running: MAAS sets a physical Machine's BMC driver from within th
 so a Machine still running it is waiting for its driver, not missing one. Nothing was
 commissioned.
 
-A Workflow started by `POST /servers/{id}/inspect` does not wait: the operator asserts the Server
+A Workflow started by `POST /servers/{id}/inspect` does not wait: the user asserts the Server
 may boot now. It reads the Machine once and stops with `power_configuration_required` only when
 the Machine has no power driver at all (`control` `none`), because the provisioner could not
 power it on to inspect it; otherwise, or when that reading fails, it succeeds at once.
@@ -132,7 +132,7 @@ already brought to `ready` succeeds without inspecting. Observation:
   inspected to New. When the provisioner still reports `inspecting` after the abort, the Task
   stops with `requires_attention` and `inspect_abort_unsettled`.
 - Leaving `inspecting` for `new` or another state without swallow's abort is
-  `requires_attention` with `inspect_interrupted`; swallow does not fight an operator.
+  `requires_attention` with `inspect_interrupted`; swallow does not fight a user.
 
 After the last attempt the Task is `requires_attention` and retryable, with code
 `inspect_pxe_unreached` (the last attempt stalled) or `inspect_failed` (the provider reported
@@ -147,7 +147,7 @@ Retrying any Task of the Workflow (`POST /workflows/{id}/tasks/{taskId}/retry`, 
 above (a requested Workflow keeps skipping it), Boot Media is read and applied again, and Inspect
 gets three new attempts. Canceling the Workflow aborts a running inspection.
 
-Operator recovery by attention code:
+User recovery by attention code:
 
 | Code | Fix, then retry |
 | --- | --- |
@@ -307,7 +307,7 @@ or credentials (a trailing `/` is dropped). Without it the address of the reques
 The response is `Cache-Control: no-store`. The credential is the one exception to
 "credentials are write-only" ([sites-integrations.md](sites-integrations.md)): MAAS offers no
 narrower credential for registering a host. api-server never logs it. A host that runs the
-command can use the key; operators rotate it when a host is not trusted.
+command can use the key; users rotate it when a host is not trusted.
 
 ## Downloads
 

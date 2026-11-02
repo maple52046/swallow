@@ -38,7 +38,7 @@ workload-capable control-plane Servers, and the resolved API endpoint.
 
 ## Alternatives considered
 
-- Keep only the HA topology: rejected because it makes the operator provision unnecessary
+- Keep only the HA topology: rejected because it makes the user provision unnecessary
   machines for labs and non-HA environments.
 - Add a `control-plane-worker` Node Role: rejected because co-location is deployment
   placement, while observed membership should retain the closed `control-plane | worker`
@@ -56,3 +56,7 @@ nodes while still counting every control-plane Server as an etcd member.
 
 Non-HA deployments are explicitly less resilient and the Dashboard must label that tradeoff
 before submission. API and playbook compatibility remain additive for existing HA callers.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

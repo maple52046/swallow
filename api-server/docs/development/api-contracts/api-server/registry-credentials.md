@@ -68,7 +68,7 @@ There is no password field in any response.
 - the host is lower-cased;
 - every Docker Hub name becomes `docker.io`: the names Docker itself uses (`docker.io`,
   `index.docker.io`, `registry-1.docker.io`), the index URL `https://index.docker.io/v1/`, and the
-  names operators commonly type for it (`hub.docker.com`, `registry.hub.docker.com`,
+  names users commonly type for it (`hub.docker.com`, `registry.hub.docker.com`,
   `hub.docker.io`). No image reference names Docker Hub by the latter, so a credential stored under
   one of them would never match a Docker Hub pull.
 

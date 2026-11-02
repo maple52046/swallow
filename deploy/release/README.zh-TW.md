@@ -16,7 +16,7 @@ GHCR package `ghcr.io/<owner>/swallow` 只放由此 repository build 的 images�
 
 Installation 從不使用 tag：`release-manifest.json` 以 digest 固定每個 image。請審慎地檢查並
 更新 `runtime-images.env`；PostgreSQL image 同時承載共置 MAAS 的 database，必須維持
-PostgreSQL 14 以上。選配的 Temporal UI 不屬於 release；operator 需要時，自行在
+PostgreSQL 14 以上。選配的 Temporal UI 不屬於 release；user 需要時，自行在
 `production/.env` 設定它的 digest。
 
 ## 發佈 release

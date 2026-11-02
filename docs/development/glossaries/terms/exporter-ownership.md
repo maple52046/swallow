@@ -11,7 +11,7 @@
   | --- | --- |
   | `ansible` | swallow installs the exporter as a host container via the swallow-owned Ansible executor |
   | `k8s` | a Kubernetes DaemonSet installs the exporter on the node |
-  | `unmanaged` | swallow does not manage exporters here: the operator installed something by hand, or the machine is locked |
+  | `unmanaged` | swallow does not manage exporters here: the user installed something by hand, or the machine is locked |
 
   Ownership is decided as a per-platform policy that generalises `gpuStackOwner`. The
   **effective owner** of a host is resolved in order: a locked machine

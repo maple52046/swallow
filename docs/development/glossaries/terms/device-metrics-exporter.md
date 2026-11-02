@@ -12,7 +12,7 @@
 - Allowed meaning:
   - **As Managed Software**: one Software Assignment per Server, on the Server's address at port
     `5001`, version recorded in its spec. A standalone install provides the exporter only, without
-    job attribution; Prometheus and Grafana are separate kinds an operator points at it. It needs
+    job attribution; Prometheus and Grafana are separate kinds a user points at it. It needs
     AMD compute GPUs and Ubuntu 24.04, installs swallow's post-boot amdgpu loader when the Server
     has none, and is refused on a Kubernetes member and on a Server with a Platform Claim, whose
     Platform manages the exporter there.

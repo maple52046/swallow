@@ -17,7 +17,7 @@ Dashboard, CLI, API, automation, and installation assets in this repository.
 - [Core concepts](concepts.md) — understand Sites, Servers, desired and
   observed state, Platforms, Workflows, Managed Software, status, and staleness.
 
-## Operator guides
+## User guides
 
 - [Dashboard](guides/dashboard.md)
 - [Initial setup](guides/initial-setup.md)

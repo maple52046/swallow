@@ -3,7 +3,7 @@
 [繁體中文](../zh-TW/concepts.md) · [Documentation home](README.md)
 
 The shared [glossary](../development/glossaries/README.md) is authoritative.
-This page gives operators the minimum model needed to use swallow safely.
+This page gives users the minimum model needed to use swallow safely.
 
 ## Site and Integration
 
@@ -13,7 +13,7 @@ to an external system. A Site usually has one MAAS provisioner and one
 Prometheus-compatible metrics integration.
 
 Integration credentials are write-only. Sync metadata reports when a refresh
-started, last succeeded, and last failed so operators can judge staleness.
+started, last succeeded, and last failed so users can judge staleness.
 
 ## Server
 
@@ -52,7 +52,7 @@ A resource that swallow converges has a `spec`, what you asked for, and a
 | --- | --- |
 | `realized` | The observed state matches the current spec. |
 | `drifted` | Something changed outside swallow and no longer matches the spec. |
-| `requires_attention` | swallow stopped retrying; an operator must act. |
+| `requires_attention` | swallow stopped retrying; a user must act. |
 | `held` | Convergence is paused, for example while the Server is locked or a Workflow owns it. |
 
 Writing a spec returns once swallow has stored it; the change is applied
@@ -65,7 +65,7 @@ guides describe.
 
 ## Zone, Pool, tag, and lock
 
-Zones and Pools are operator-defined infrastructure grouping. Tags add
+Zones and Pools are user-defined infrastructure grouping. Tags add
 capability or policy metadata. A Server's manual tags and its Zone and Pool are
 part of its spec, and the provisioner realizes them; tags the provisioner
 computes itself are observed only. A provisioner without the capability reports
@@ -83,7 +83,7 @@ Existing third-party runtimes cannot be registered as managed Platforms.
 
 ## Workflow, Job, Task, and Runner
 
-A **Workflow** is durable operator intent. It is composed of reusable **Jobs**
+A **Workflow** is durable user intent. It is composed of reusable **Jobs**
 and atomic idempotent **Tasks**. A **Runner** executes each Task through a
 provisioner, Ansible, or internal mechanism. swallow's store records every
 Workflow and Task state; Temporal executes them. The worker, which dispatches

@@ -24,7 +24,7 @@
 - Synonyms: NIC configuration, when the OS Provisioning context is clear.
 - Deprecated terms: Network mode when used without distinguishing deployment
   intent from observed NIC configuration.
-- Examples: An operator binds a static address to a Ready Server's boot NIC; a
+- Examples: A user binds a static address to a Ready Server's boot NIC; a
   deployment with `automatic` addressing produces a provider auto-assigned,
   recorded IP; a Server booted through a Boot ISO on a site-DHCP network is
   deployed with `dhcp` and keeps the address the site DHCP server leases it; an
@@ -32,7 +32,7 @@
   provider-managed rather than offered as a manual NIC choice.
 - Related terms: IP Binding, OS Deployment, Server Status, Subnet DNS.
 - Change note: Added when swallow began owning provider-neutral deployment
-  networking rather than requiring operators to configure MAAS out of band.
+  networking rather than requiring users to configure MAAS out of band.
   Updated 2026-10-13: `dhcp` is a deployment mode again beside `automatic` and
   `static`, no longer an alias of `automatic`, per
   decision 058.

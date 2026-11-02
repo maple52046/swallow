@@ -2,11 +2,11 @@
 
 [English](usage.md) · [CLI README](../README.zh-TW.md)
 
-本手冊提供 `swallow` operator CLI（`cli` component）的完整使用方式，適合需要
-互動 command，或需要穩定 JSON／YAML output 進行 scripting 的 operator 與 external
+本手冊提供 `swallow` CLI（`cli` component）的完整使用方式，適合需要
+互動 command，或需要穩定 JSON／YAML output 進行 scripting 的 user 與 external
 developer。
 
-CLI 是 `api-server` contract 的 conformist HTTP consumer，涵蓋下列 operator surface。Managed Software
+CLI 是 `api-server` contract 的 conformist HTTP consumer，涵蓋下列 surface。Managed Software
 （含 registry credential 與 Docker explorer）、Server Default User、provisioner HTTP proxy 與 Subnet DNS
 目前還沒有 command，請使用 Dashboard 或 HTTP API。Planned endpoint 刻意不提供。本手冊如有語意不清之處，
 以
@@ -35,7 +35,7 @@ go build -o bin/swallow ./cmd/swallow
 sudo install -m 0755 bin/swallow /usr/local/bin/swallow
 ```
 
-`swallow` 是 operator client；backend service binary 是 `swallow-api`。兩者由
+`swallow` 是 client；backend service binary 是 `swallow-api`。兩者由
 不同 component 建置，是不同程式。
 
 ## Quick start

@@ -2,7 +2,7 @@
 
 - Bounded context: swallow-wide (resource ownership and convergence).
 - Definition: A pause on a managed resource's convergence: while held, its Controller observes it and reports Drift but makes no change to the outside world.
-- Allowed meaning: A Server is held while it is locked by Server Lock (reason `server_locked`), while it is in Rescue Mode (`rescue_mode`), or while an unfinished Workflow owns it (`workflow_lease`; ownership has no TTL and ends with the Workflow); an operator's explicit hold is planned but not built. A hold is shown as the `held` Condition, whose reason says which; it ends by itself when its cause ends. A Change Plan may be produced during a hold but is applied only after it ends, except for explicitly allowed recovery actions.
+- Allowed meaning: A Server is held while it is locked by Server Lock (reason `server_locked`), while it is in Rescue Mode (`rescue_mode`), or while an unfinished Workflow owns it (`workflow_lease`; ownership has no TTL and ends with the Workflow); a user's explicit hold is planned but not built. A hold is shown as the `held` Condition, whose reason says which; it ends by itself when its cause ends. A Change Plan may be produced during a hold but is applied only after it ends, except for explicitly allowed recovery actions.
 - Disallowed meaning: Not Server Lock itself (one cause of a hold), not a Workflow's resource ownership (another cause), and not a failure; a held resource is not `requires_attention`.
 - Synonyms: None.
 - Deprecated terms: None.

@@ -10,7 +10,7 @@
 
 ## 1. 建立 Site
 
-在 **Infrastructure → Sites** 建立簡短的 operator-facing name 與 optional
+在 **Infrastructure → Sites** 建立簡短的 user-facing name 與 optional
 description。Site 刻意不是 rack hierarchy；inventory 出現後請用 Zone 與 Pool
 組織 Server。
 

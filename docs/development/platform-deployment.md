@@ -54,7 +54,7 @@ deployment 一律以這四層表達（完整定義見 glossary：
 [Workflow](glossaries/terms/workflow.md)、[Job](glossaries/terms/job.md)、
 [Task](glossaries/terms/task.md)、[Runner](glossaries/terms/runner.md)）：
 
-- **Workflow** — operator 的意圖，表達為「一組 resource 的 desired end-state」（例如「這 7 台
+- **Workflow** — user 的意圖，表達為「一組 resource 的 desired end-state」（例如「這 7 台
   Server 是一個帶這些角色的 k0s Platform」）。durable、可觀察、可取消；狀態在 store，由 Temporal 的 driver
   執行（[workflow-execution.md](workflow-execution.md) §2）。
 - **Job** — 可重用、convergent 的中間單元，把一組 resource 帶到子目標（`ensure-os`、
@@ -104,7 +104,7 @@ deploy use case 由它推導 [Kubernetes Topology](glossaries/terms/kubernetes-t
 - 只有 HA 設定 keepalived 並需要 `apiVip`：k0s control plane load balancing（keepalived VRRP VIP）加 node-local load
   balancing（`EnvoyProxy`），不用外部 load balancer；VRRP 密碼是 sealed secret（§4.3）。單一 control-plane 以該 Server
   的 observed 位址為 API endpoint，不建立 VIP。Dashboard 在送出前標示非 HA 拓樸沒有 control-plane failover。
-- 角色由 server-side 組成 trusted vars（§4.2），operator 的變數無法影響哪台成為 controller。controller 預設為
+- 角色由 server-side 組成 trusted vars（§4.2），user 的變數無法影響哪台成為 controller。controller 預設為
   dedicated（不帶 `--enable-worker`，不註冊成 Kubernetes node）；`runWorkloads` 的 controller 以
   `--enable-worker --no-taints` 安裝。其他 controller 以 k0s controller join token 加入，token 帶 CA material，
   主機之間不複製憑證。
@@ -302,7 +302,7 @@ Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。
 
 Kubernetes deploy 以 `machinePreparation.settings.deployTarget: "ram"`（[Deploy Target](glossaries/terms/deploy-target.md)；
 deprecated 的 `settings.ephemeral: true` 同義）選擇 RAM：provider 以 memory-backed root 開機、不碰磁碟。這是刻意 volatile 的契約：節點重開後 OS、etcd、
-container runtime 與 workload state 全部消失，swallow 不自動復原，operator 需重建或重新部署 Platform。
+container runtime 與 workload state 全部消失，swallow 不自動復原，user 需重建或重新部署 Platform。
 
 - 本次以 RAM provision 時，launcher 帶 trusted var `swallow_k0s_ephemeral_root`；`k0s_host_preflight` 斷言 `/` 為
   `overlay`（MAAS overlayroot）或 `tmpfs`（custom `root.tgz`），並把 containerd 改用 `native` snapshotter
@@ -480,7 +480,7 @@ swallow 的內部實作。資料流總覽見
 ### 4.2 Trusted variables 契約
 
 swallow 以 server-side use case 組裝 extra vars 注入 ansible run；**`swallow_` 前綴為保留字**，
-client/operator **不可偽造**（operator 只能提供非 `swallow_` 前綴的變數）。
+client/user **不可偽造**（user 只能提供非 `swallow_` 前綴的變數）。
 
 - **每個 run 的 standard vars**（所有 platform 皆有）：`swallow_operation_id`、
   `swallow_operation_kind`、`swallow_site_id`、`swallow_server_ids`、`swallow_platform_id`、
@@ -536,7 +536,7 @@ client/operator **不可偽造**（operator 只能提供非 `swallow_` 前綴的
   | --- | --- |
   | `swallow_slurm_gpu_compute_ids` | 有 AMD compute GPU 的 compute serverId（一律為 list） |
   | `swallow_slurm_gpu_gres_type` | GPU node 的 GRES type；空字串＝依 GPU 架構推導（一律送出） |
-  | `swallow_gpu_driver_module_options` | operator 的 amdgpu module options（`{name: value}`，一律送出，可為空）；Slurm 與 GPU Operator 共用 |
+  | `swallow_gpu_driver_module_options` | user 的 amdgpu module options（`{name: value}`，一律送出，可為空）；Slurm 與 GPU Operator 共用 |
   | `swallow_slurm_omnistat_enabled` | `deploy-slurm` 渲染 Omnistat 的 Slurm 端 overlay |
   | `swallow_omnistat_version` / `swallow_omnistat_port` | Omnistat 版本（`1.15.0`）與 exporter port（`8001`） |
   | `swallow_omnistat_compute_ids` | 裝 exporter 的 compute serverId |
@@ -658,7 +658,7 @@ image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線
 - Platform deploy 沿用 durable Workflow 的通用執行語意，規則以
   [workflow-execution.md](workflow-execution.md) 為準：
   - worker turnover 的 infrastructure retry 接續同一個 Task attempt、不取消外部工作 → §5.3；
-  - 可重試的失敗停在 `requires_attention`，由 operator 觸發 Task／Job 重試 → §5.4；
+  - 可重試的失敗停在 `requires_attention`，由 user 觸發 Task／Job 重試 → §5.4；
   - 停等不依賴計時器或續租，暫時性中斷不會結束 Workflow → §6；
   - 已結束的 Workflow 以 rerun 收斂（新 Workflow、`retryOfOperationId`、ensure 類 Task 一律重跑、已部署的
     節點不重裝）→ §7；
@@ -666,7 +666,7 @@ image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線
 - Platform 特有的部分：Platform lifecycle 以 `requestedAt` 最新的 deploy Workflow 為準，rerun 的新
   Workflow 自然接管、原 Workflow 留作診斷，全程不需刪 Platform。
 - 取消部署：Workflow 取消進行中（`canceling`）Platform 仍是 `deploying`，結束後為 `deploy_failed`。platform
-  controller 把取消當成失敗：同一個 spec generation 不自動重跑，由 operator rerun 或寫入新的 spec。被中斷的
+  controller 把取消當成失敗：同一個 spec generation 不自動重跑，由 user rerun 或寫入新的 spec。被中斷的
   playbook 已在主機上做的改變不會回滾（取消補償只在 Task 宣告時執行，ansible Task 沒有宣告；workflow-execution.md
   §8.1、§12），rerun 時由冪等的
   playbook 從那個狀態收斂；Platform Claim 不因取消而釋放。一起組入的功能紀錄跟著它們的 Task 轉換：GPU Operator
@@ -678,7 +678,7 @@ Kubernetes 的 ephemeral（RAM）部署語意見 §2.3.2。
 ### 4.8 錯誤節點的復原（Provider Recovery）
 
 Platform deploy 失敗**不會**自動 release、mark-broken 或清 claim；它停在 `requires_attention`／
-`deploy_failed`，交由 operator 收斂。收斂時必須分清兩種失敗層級，並用對應機制：
+`deploy_failed`，交由 user 收斂。收斂時必須分清兩種失敗層級，並用對應機制：
 
 > **取消不回退已完成的 OS 佈署**：取消 platform deploy Workflow **不會**把成員 Server 已成功的 OS
 > 佈署改成 `canceled`。Server 的 `deployment` 軸是它**自身的 OS 佈署結果**，與 platform 分離；platform
@@ -740,8 +740,8 @@ playbook + trusted-vars 契約 + manifest」。目前**骨架與契約已具備*
 trusted vars 與 deploy 定義仍由 Go 組裝**（k0s 即如此）。因此依需求分兩種情況：
 
 - **(A) 能沿用既有 generic 介面**：playbook 只需 §4.1 的 inventory + §4.2 的 standard vars +
-  operator 提供的非 `swallow_` 變數。此類可用 custom-kind workflow / exporter 式路徑（site
-  `playbookMappings` + operator extraVars）整合，**幾乎不需改 Go**。
+  user 提供的非 `swallow_` 變數。此類可用 custom-kind workflow / exporter 式路徑（site
+  `playbookMappings` + user extraVars）整合，**幾乎不需改 Go**。
 - **(B) 需要 platform 專屬 trusted vars 或專屬 orchestration**（像 k0s 的角色/VIP/初始 controller）：
   目前**需要少量 Go**——新增 `WorkflowKind`、一支 launcher（組 Job/Task 與 `buildXxxVars`）、與
   deploy 前的 validate。這是過渡期允許的做法（core-and-extensions §3.6 的過渡期規則）：launcher 在
@@ -780,7 +780,7 @@ deploy handler 與憑證記錄，並重用 `ensure-os`。具體對照見 §6.3�
    遵守 §5 與[模組撰寫指南](module-authoring.md)。以 Kubernetes 模組的 `deploy-kubernetes.yml` + `roles/k0s_*` 為範本。
 5. **註冊**：在 `manifest.json` 加入 `{ "name": "deploy-slurm", "path": "platform/slurm/playbooks/deploy-slurm.yml" }`；
    pin 依賴（模組撰寫指南 §2、§4）。
-6. **決定 trusted vars**：屬 (A) 就只用 standard vars + operator vars；屬 (B) 就在 Go 定義
+6. **決定 trusted vars**：屬 (A) 就只用 standard vars + user vars；屬 (B) 就在 Go 定義
    `swallow_slurm_*`，在 `internal/app/platform_deployment_adapter.go` 的 launcher 組裝（比照 core
    `deploy_platform.go` 的 `buildDeploymentVars`），client 不可偽造。
 7. **site mapping**：設定 `playbookMappings["deploy-slurm"] = "deploy-slurm"`（或比照 uninstall
@@ -804,7 +804,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   投影由記錄的 `swallow_slurm_controller_ids`／`swallow_slurm_compute_ids` 推導：controller → `control-plane`、
   controller＋compute → `control-plane` 且 `runWorkloads`、compute → `worker`；login-only 不是 role assignment，
   另列在 `loginServerIds`。因此 slurmrestd 只把 compute 回報成 member 時，controller 仍會被計入與列出。
-- **Job**：重用 `ensure-os`（用 operator 的 Slurm image 佈 OS 或重用已 `deployed` 者），新增
+- **Job**：重用 `ensure-os`（用 user 的 Slurm image 佈 OS 或重用已 `deployed` 者），新增
   `configure-slurm` Job 只含 `install-platform`（ansible）。**無 `validate-platform-health`**——
   deployed integration 要等 install 步驟成功後才存在，故驗證放在 playbook 內（`slurm_verify`：`scontrol ping` 與
   `sinfo --Node` 必須通過；跨 compute 的 `srun` smoke test 只警告，因為 slurmd 剛啟動時可能仍在註冊），成員由背景
@@ -835,7 +835,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `slurm-smd-slurmrestd`。對應地，後端把「Slurm 無 credential」視為**非致命**（k0s 的 kubeconfig
   則為必要）。
 - **HA shared state 由 swallow 供給**：一台 controller 免 shared storage（`controller_state_mode=local`，
-  controller-local `StateSaveLocation`）；多台為 HA 時 swallow **自動佈署** shared `StateSaveLocation`，operator 不必提供
+  controller-local `StateSaveLocation`）；多台為 HA 時 swallow **自動佈署** shared `StateSaveLocation`，user 不必提供
   任何東西——deploy use case 選一台 state server，順序為 login node、非 controller 的 compute-only 節點、primary
   controller（讓 controller state 不在 controller 上，controller 主機遺失時不連帶遺失 state，也避免 controller 上的
   kernel NFS loopback mount）。playbook 以 `slurm_state_server` 匯出（managed NFS export，只開給 controller 位址，
@@ -880,7 +880,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   對應 roles `slurm_login`、`slurm_workload_storage_server`、`slurm_workload_storage_client`;mount 只用
   `ansible.builtin`（§5）且 fail-closed。
   self-hosted export 在 ephemeral OverlayFS 上使用 bounded tmpfs（預設 4 GiB）及 NFSv3；external
-  storage 不受此選擇影響，仍使用 Workflow snapshot 捕捉的 NFSv4 與 operator mount options。
+  storage 不受此選擇影響，仍使用 Workflow snapshot 捕捉的 NFSv4 與 user mount options。
   HA 時 state server 優先選 login node。支援兩種拓樸:single controller + n compute,以及
   1 login + n controllers(HA)+ n compute(login 提供整個 cluster 的 NFS)。詳見
   [decision 024](../decisions/024-slurm-login-and-workload-storage.md) (slurm login and workload storage)。
@@ -898,11 +898,11 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `Flags=amd_gpu_env,explicit`，configless 一併下發）。image 的 SchedMD 套件沒有 `gpu_rsmi.so`，因此不做
   RSMI autodetect／`gres/gpumem` accounting。
 - **amdgpu driver options（decision 063）**：loader 在 driver 載入前寫 swallow 擁有的
-  `/etc/modprobe.d/swallow-amdgpu.conf`＝operator 的 `swallow_gpu_driver_module_options`＋topology 規則
+  `/etc/modprobe.d/swallow-amdgpu.conf`＝user 的 `swallow_gpu_driver_module_options`＋topology 規則
   推導的選項（`roles/amdgpu_loader/files/amdgpu_node_state.py` 讀 sysfs）。目前唯一規則：KFD 某 GPU node
   對同一 peer 同時有 `io_link` 與 `p2p_link`（libhsakmt peer array overflow）→ `pcie_p2p=0`。規則套用後記錄在
-  `/var/lib/swallow/amdgpu/options.json`（條件會隨之消失，所以不每次重推導）；operator 指定同名選項一律優先。
-  規則要等 driver 載入後才知道，所以可能需要第二次載入；operator 在 `gpuDriver.moduleOptions` 指定的選項第一次載入就生效。
+  `/var/lib/swallow/amdgpu/options.json`（條件會隨之消失，所以不每次重推導）；user 指定同名選項一律優先。
+  規則要等 driver 載入後才知道，所以可能需要第二次載入；user 在 `gpuDriver.moduleOptions` 指定的選項第一次載入就生效。
   寫檔前先以 `modinfo -F parm amdgpu` 檢查名稱，不存在即 `[amdgpu_option_unknown]`（附最接近的名稱），driver
   不會被載入。driver 已載入但參數不符 → `tasks/reload.yml`：停掉 loader（`RequiredBy` 的 `slurmd`、omnistat
   一併停止，事後再啟動），`refcnt` 為 0 就 `timeout N modprobe -r amdgpu` 後重新啟動 loader（原地重載，RAM
@@ -925,7 +925,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `Prolog=/etc/slurm/swallow-prolog`、`Epilog=/etc/slurm/swallow-epilog`、`PrologFlags=Alloc,Contain`。
   `slurm_job_hooks` role（compute play、`slurm_compute` 之前，因為 Prolog 檔不存在會讓節點 drain）安裝
   dispatcher 範本與 `slurm_job_hooks_enabled` 指定的 hook（`files/prolog.d|epilog.d/<NN-name>`），移除未啟用的
-  swallow hook；dispatcher 依字典序執行目錄內所有可執行檔（operator 以其他名稱放入的也會執行），每個上限 30 秒，
+  swallow hook；dispatcher 依字典序執行目錄內所有可執行檔（user 以其他名稱放入的也會執行），每個上限 30 秒，
   失敗只 `logger -t swallow-prolog`，永遠 `exit 0`——hook 只負責把 job 歸屬給監控，不能讓 job 失敗或讓節點 drain。
   configless 不配送 script，所以 hook 與 dispatcher 都由 Ansible 下發。每個 Slurm 部署都有 dispatcher（即使沒有
   hook），舊 Platform 重佈時取代 Omnistat 先前的 Prolog/Epilog 檔。非 Omnistat 時

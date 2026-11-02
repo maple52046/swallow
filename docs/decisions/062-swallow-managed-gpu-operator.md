@@ -7,9 +7,9 @@
 ## Context
 
 `gpuStackOwner=gpu-operator` ([decision 003](003-metrics-label-contract.md)) said a Platform's GPU
-operator owns its GPU stack, but Swallow never installed one: operators followed hand-written
+operator owns its GPU stack, but Swallow never installed one: users followed hand-written
 runbooks to install the AMD GPU Operator chart, create a `DeviceConfig`, and work around k0s
-paths for DRA. Operators want the operator as an optional part of deploying a Kubernetes Platform,
+paths for DRA. Users want the operator as an optional part of deploying a Kubernetes Platform,
 with a choice between the device plugin and DRA, and want to change those settings later.
 
 ## Decision
@@ -67,7 +67,7 @@ with a choice between the device plugin and DRA, and want to change those settin
 - **Refusing a node whose image defers loading `amdgpu`.** Rejected after the lab image
   (`modprobe.blacklist=amdgpu`, "the operator loads amdgpu manually") made every deploy fail
   preflight. Loading it once without a post-boot unit was also rejected: a rebooted node would
-  expose no GPUs until the operator re-applied the settings.
+  expose no GPUs until a user re-applied the settings.
 
 ## Consequences
 
@@ -79,3 +79,7 @@ with a choice between the device plugin and DRA, and want to change those settin
 - Swallow does not adopt an operator it did not install; preflight refuses one.
 - Node-level checks need NFD, so a node whose image has no `amdgpu`, or whose driver does not load,
   is refused after the release is installed and before the `DeviceConfig` is applied.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

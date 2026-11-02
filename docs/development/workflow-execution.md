@@ -41,7 +41,7 @@ platform deployment、OS provisioning、software deployment 都建立在它之�
 
 - **store 是執行狀態的唯一紀錄**。`workflows` collection 保存受理時凍結的計畫（kind、targets、Job、Task 與其
   宣告、intent snapshot），以及執行狀態：Workflow 與 Task 的 status、attempt、normalized error、
-  `externalExecution`、`live`、operator 送出的命令與派發世代。timeline 在 `workflow_events`，封存的 secret 在
+  `externalExecution`、`live`、user 送出的命令與派發世代。timeline 在 `workflow_events`，封存的 secret 在
   `workflow_secrets`，資源所有權在 `resource_leases`。API 一律讀 store。
 - **只有一個寫入者**：core 的 Workflow service。每次狀態轉換（開始 Task、記錄結果、略過、停等、結束、取消）是一個
   store transaction，同時寫入 Task、timeline 與該 Task 宣告的投影（§12）。防止倒退的檢查是 domain 規則：已有結果
@@ -157,7 +157,7 @@ decision 072；受理原子性見
 
 - 對 Server 或 Platform 的所有 mutation 都在擁有該資源的 Workflow 內執行；其他 Workflow 只能等。
 - 舊世代不得產生副作用：被取代的 run 一律停止。
-- **所有權不會自動過期**：卡住或被放棄的 Workflow 由 operator 取消；取消一定生效，因為 execution 已不存在時
+- **所有權不會自動過期**：卡住或被放棄的 Workflow 由 user 取消；取消一定生效，因為 execution 已不存在時
   dispatcher 會重新派發它來執行取消路徑（§8）。
 - **Busy check 與所有權是兩道不同的防線**：busy check 在受理時拒絕 target Server 重疊；所有權在執行時序列化。
   `cancelActiveWorkflows` 只略過前者，從不略過後者（§9）。
@@ -178,7 +178,7 @@ decision 072。
   Job 時，它也等那個 Job 的**每個** Task 定案。
 - **決定一個 Task**：依賴都**定案**後才決定。預設只有 `succeeded` 或 `skipped` 的依賴允許它執行，否則它被
   `skipped`；Task 可用 `ContinueOn` 列出額外允許的依賴結果（例如補償 Task 允許 `skipped`），在 Job 內也一樣有效。
-  `canceled` 與不可重試的 `failed` 算定案；**可重試的失敗不算**，依賴它的 Task 會等 operator 重試，而不是被略過。
+  `canceled` 與不可重試的 `failed` 算定案；**可重試的失敗不算**，依賴它的 Task 會等 user 重試，而不是被略過。
 - **並行**：sliding window，同時最多 `OperationMaxParallelism`（預設 4，`SWALLOW_API_OPERATION_MAX_PARALLELISM`）
   個 Task 執行；一個 Task 結束就補上下一個可執行的 Task，不等整批結束。
 - **執行中的投影**：開始的 Task 為 `running`；有 Task 在執行時 Workflow 為 `waiting_external`
@@ -188,10 +188,10 @@ decision 072。
 
 ### 5.2 Task attempt 與 idempotency
 
-- 每個 Task 有 operator 看得到的 `attempt`（從 1 起）。Runner 的 idempotency identity 包含 Workflow、Task、target
+- 每個 Task 有 user 看得到的 `attempt`（從 1 起）。Runner 的 idempotency identity 包含 Workflow、Task、target
   與 attempt（例如 Ansible run ID 由 `<workflowId>/<taskId>/<attempt>` 決定）：同一 attempt 只會接續觀察同一個
   外部工作，換了 attempt 才真正重做。
-- Runner 在較後的 attempt、activity 重試與接續（§10）時**先觀察再動作**，這是 ensure 語意的落實。只有 operator 的
+- Runner 在較後的 attempt、activity 重試與接續（§10）時**先觀察再動作**，這是 ensure 語意的落實。只有 user 的
   明確重試（attempt 大於 1）可以做破壞性的回復（例如 release 後重新部署）；activity 重試與接續只觀察。各 Runner
   觀察到什麼、如何收斂，由該功能的規格描述（例如 `provision-os` 見 [os-provisioning.md](os-provisioning.md)）。
 
@@ -204,12 +204,12 @@ decision 072。
 - **worker graceful stop** 只中止本地等待（`worker_shutdown`），不 abort MAAS、不 cancel Ansible；下一次 activity
   attempt 以同一 idempotency key 接續觀察同一個外部工作。只有真正的 Workflow cancel 才取消外部工作。
 - **ansible executor 遺失**：Ansible activity 只執行一次（MaximumAttempts 1），heartbeat timeout 10 秒。executor
-  停止時 activity 逾時，Task 記為 `requires_attention`（`executor_outcome_unknown`），不自動重跑；由 operator
+  停止時 activity 逾時，Task 記為 `requires_attention`（`executor_outcome_unknown`），不自動重跑；由 user
   明確重試。結果無法證明時不報成功、也不自動重跑。
 - 狀態轉換的 activity 無上限重試；轉換是 idempotent 的，timeline 事件以 deterministic ID upsert（例如 Task 狀態
   事件以 `(task, status, attempt)` 為 ID），重試不會產生重複事件。
 
-### 5.4 Operator 觸發的 Task／Job 重試
+### 5.4 User 觸發的 Task／Job 重試
 
 - `POST /workflows/{id}/tasks/{taskId}/retry` 只接受 `failed` 或 `requires_attention`、且 normalized error 為
   `retryable=true` 的 Task。API 把重試命令寫進 store，dispatcher 喚醒 driver（execution 已不存在時重新派發，§10），
@@ -218,14 +218,14 @@ decision 072。
   - `task`（隱含的 Job 一律如此）：該 Task 的 attempt 加一、回到 `pending`、清除 error；已成功的依賴不重跑。
   - `job`：該 Task 所在 Job 的**每個** Task attempt 加一、回到 `pending`，Runner 因此以新的 idempotency key 真正
     重做；已收斂的 ensure Task 很快就成功。
-- **沒有自動重試**：任何 Task 都只在 operator 要求時重試。
+- **沒有自動重試**：任何 Task 都只在 user 要求時重試。
 - 不可重試的失敗（例如 `dispatch_fenced`、`executor_unavailable`）直接是 `failed`，不提供 retry。
 
 ### 設計理由
 
-不自動重試、operator 重試遞增 attempt 見 decision 072；
+不自動重試、user 重試遞增 attempt 見 decision 072；
 Job 與 ensure Task 見 decision 072；重試粒度與單一路徑見
-decision 072；「結果無法證明就交給 operator」源自
+decision 072；「結果無法證明就交給 user」源自
 decision 072。
 
 ---
@@ -238,9 +238,9 @@ decision 072。
   `A failed Step requires operator attention.`），driver 等待 wake signal。
 - **持有所有權、不做 mutation**：停等期間 Workflow 仍擁有全部資源，但不執行任何 Task。所有權沒有 TTL，所以停等
   不需要續租，也不累積 history。
-- **離開**：operator 的 Task 重試或取消；兩者都是 store 中的命令，由 dispatcher 送達（§10）。
+- **離開**：user 的 Task 重試或取消；兩者都是 store 中的命令，由 dispatcher 送達（§10）。
 - 停等中的 execution 若被 Temporal 終止（例如 history 超過上限、主機遷移後 Temporal 遺失資料），dispatcher 的
-  resync 重新派發它，新的 run 依 store 回到停等，operator 看到的狀態不變。
+  resync 重新派發它，新的 run 依 store 回到停等，user 看到的狀態不變。
 
 ### 規則與不變式
 
@@ -255,7 +255,7 @@ decision 072 的停等續租）。
 ## 7. Rerun：以新 Workflow 收斂
 
 Rerun 建立一個新的 Workflow，依現況收斂同一個 intent。execution 遺失時 Task 重試與取消仍可用（§10），所以 rerun
-用於已結束的 Workflow，以及 operator 想從頭收斂、而不是重試單一 Task 的情況。rerun 的 Task 複製規則已凍結，日後由
+用於已結束的 Workflow，以及 user 想從頭收斂、而不是重試單一 Task 的情況。rerun 的 Task 複製規則已凍結，日後由
 desired-state 模型的 reapply（依 spec 重新收斂，[desired-state-model.md](desired-state-model.md) §6.3）取代，不再新增例外。
 
 ### 現行行為
@@ -269,7 +269,7 @@ desired-state 模型的 reapply（依 spec 重新收斂，[desired-state-model.m
   §8 走完取消路徑並釋放所有權後，新 Workflow 才離開 `waiting_dependency`（§4）。
 - **新 Workflow**：新的 UUID（因此是新的 Temporal Workflow ID），沿用原本的 kind、definition、Job 宣告、intent
   snapshot、intent summary、Site、Platform 與 targets；`retryOfOperationId` 指回原 Workflow；`requestedBy` 是發起
-  rerun 的 operator。
+  rerun 的 user。
 - **Secret**：以 `CloneForOperation` 把原 Workflow 的全部 sealed secret 複製成新 Workflow 自己的副本，並重新對應
   每個 Task 的 `SecretRefs`；應用層不解密，刪除原 Workflow 也不影響 rerun。沒有 secret storage 時 rerun 不可用。
 - **Task 複製規則（收斂）**，依 Task kind 宣告的性質（§12）：
@@ -347,7 +347,7 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
     Releasing 時繼續觀察。
   - Allocated（MAAS 中止部署後停留的狀態）：以 Recover 計畫回到 Ready——一般 Release，保留 static IP binding、
     不清磁碟。
-  - Ready、deployed、failed、broken、rescue：不動。Ready 已是目標；其他狀態是這次部署的結果，可能需要 operator
+  - Ready、deployed、failed、broken、rescue：不動。Ready 已是目標；其他狀態是這次部署的結果，可能需要 user
     檢查。
 - 結果記在被中斷 Task 的 timeline：`canceled_deployment_returned_to_ready`、`canceled_deployment_left_as_is`、
   `canceled_deployment_return_failed`（無法回收時 Server 留在 Recover 可接受的狀態）。
@@ -399,7 +399,7 @@ decision 072。
   取消由 Platform 的 `realized` Condition 回報。platform 專屬規則見 [platform-deployment.md](platform-deployment.md)
   §4.8 最後一段。
 - **Consumer**：dashboard 的 Release／Recover 對話框只送旗標、在請求內關閉，並提示工作會在被取消的 Workflow 結束後
-  自動開始；Platform 的刪除選項列出佔用的 Workflow，要求 operator 確認後才送旗標。CLI 的
+  自動開始；Platform 的刪除選項列出佔用的 Workflow，要求 user 確認後才送旗標。CLI 的
   `platforms delete`、`provisioning release`、`provisioning recover` 提供 `--cancel-active-workflows`，未帶旗標
   遇到這類 `409` 時提示該旗標。
 
@@ -438,7 +438,7 @@ decision 061。
   的接續方式（§12）：
   - 可以重新觀察的 Runner（provider、internal）：以同一個 attempt 重新執行並標記為接續，Runner 先觀察再接續同一個
     外部工作。
-  - Ansible：結果無法證明，Task 記為 `requires_attention`（`executor_outcome_unknown`），等 operator 重試。
+  - Ansible：結果無法證明，Task 記為 `requires_attention`（`executor_outcome_unknown`），等 user 重試。
 - **孤兒**：resync 時列出 Temporal 中仍在執行的 driver run，終止 store 不認得的、Workflow 已結束的，以及 Workflow
   已改由目前 driver 執行時舊 driver 留下的 run（包括舊 driver 的 Job child）。不比對 run ID：每個 Workflow 的
   Temporal workflow ID 固定，同時最多一個 run，而派發在啟動新 run 前已終止舊的。
@@ -451,7 +451,7 @@ decision 061。
 
 - execution 遺失時由 store 的狀態重新派發，不只是標記；Task 重試與取消因此在 execution 遺失後仍可用。
 - 同一時間只有一個世代能產生副作用（§4）。
-- 派發不改變 Task 的 attempt：只有 operator 的重試會。
+- 派發不改變 Task 的 attempt：只有 user 的重試會。
 
 ### 設計理由
 

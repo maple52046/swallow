@@ -7,7 +7,7 @@
 ## Context
 
 A Server comes into being only when the reconciler sees a Machine in a provisioner's inventory
-([ADR 002](002-server-identity.md)). After installation nothing told an operator how to get a
+([ADR 002](002-server-identity.md)). After installation nothing told a user how to get a
 Machine there: the empty Server list only linked to the provisioner Integration. With MAAS,
 getting a machine to a deployable state took two steps outside swallow: network-boot it so MAAS
 enlists it as New, then press Commission in the MAAS UI. A host that already runs an OS could
@@ -18,7 +18,7 @@ Two facts shape automation of the second step. MAAS creates the Machine while th
 environment is still running and powers the machine off when enlistment ends, so a commission
 issued as soon as swallow sees New races the enlistment boot. And a commission that powers the
 machine on cannot reach MAAS when the Server's network is not served by MAAS DHCP; it then sits
-in Commissioning until a timeout, while the operator's fix is Boot Media
+in Commissioning until a timeout, while the user's fix is Boot Media
 ([decision 047](047-redfish-boot-media.md) (redfish boot media)).
 
 ## Decision
@@ -56,10 +56,10 @@ made a retried run wait again instead of succeeding at once
   no durable retry or attention state.
 - **Mark the Server failed after the retries and require a reset to New:** rejected. Recover
   returns a Server to Ready, not New, and MAAS has no primitive that returns a Failed
-  commissioning to New; the operator's next step (Boot Media, then Inspect) needs no reset.
+  commissioning to New; the user's next step (Boot Media, then Inspect) needs no reset.
 - **Rely on MAAS's own commissioning timeout:** rejected. It leaves the Machine Failed
   commissioning after half an hour and gives swallow no point to explain Boot Media.
-- **Inspect every New Server on upgrade:** rejected. It would power on Machines operators left
+- **Inspect every New Server on upgrade:** rejected. It would power on Machines users left
   New on purpose; the 24-hour window limits automation to fresh enrollments.
 - **Register existing hosts from api-server:** rejected. Hardware facts must be read on the
   host, so a program has to run there either way.
@@ -81,3 +81,7 @@ made a retried run wait again instead of succeeding at once
 - The generated existing-OS command carries the provisioner's API key; a host that runs it
   could use that key. Rotate it when a host is not trusted.
 - The Server Default User is still not captured during enrollment (ADR 039 future direction).
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

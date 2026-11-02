@@ -2,7 +2,7 @@
 
 [English](README.md) · [專案文件](../docs/zh-TW/README.md)
 
-`dashboard` 是 swallow React operator console，也是 provider-owned HTTP contract
+`dashboard` 是 swallow React console，也是 provider-owned HTTP contract
 的 conformist consumer，只綁定 real API adapter。
 
 ## Active routes
@@ -70,7 +70,7 @@ npm run review:visual:themes -- --grep servers
 npm run review:visual -- --grep @representative
 ```
 
-Playwright 包含 deterministic functional operator journey。Visual review 是獨立
+Playwright 包含 deterministic functional user journey。Visual review 是獨立
 developer workflow：`review:visual` 產生 dark desktop/mobile screenshots，
 `review:visual:themes` 另加 light mode。必須實際開啟並檢查
 `test-results/visual-review/` 下的 disposable images；它們不是 pixel baseline，

@@ -11,9 +11,9 @@ provider does not promise an uploaded image actually boots and installs. A real
 Rocky failure — missing grub packages plus broken install-time DNS — installed
 fine as an in-memory (ephemeral) deploy but failed a disk install, and Swallow
 had no way to know an image was untrustworthy for a given deploy mode until an
-operator hit the failure in production.
+user hit the failure in production.
 
-Separately, the operator-facing vocabulary for "install to disk" vs "run from
+Separately, the user-facing vocabulary for "install to disk" vs "run from
 memory" was the single boolean `ephemeral`, which is wire/BSON/MAAS/k0s
 vocabulary leaking into the UI, and gave no room to talk about per-mode
 trust.
@@ -23,7 +23,7 @@ trust.
 Introduce a **Deploy Target** vocabulary and a **swallow-owned OS Image
 verification** attestation.
 
-- **Deploy Target** (`disk` | `ram`) is the canonical operator-facing concept.
+- **Deploy Target** (`disk` | `ram`) is the canonical user-facing concept.
   `ram` is exactly the existing `ephemeral`; the two map one-to-one at every
   boundary (`disk ↔ ephemeral=false`, `ram ↔ ephemeral=true`). Deploy requests
   accept `deployTarget` (preferred), with `ephemeral` kept as a still-accepted
@@ -35,7 +35,7 @@ verification** attestation.
   `(integrationId, imageId, architecture)`, stored separately from the display
   overlay, with per-target evidence of the run that produced it.
 - A durable `verify-os-image` Workflow proves an image for a target with a real
-  `provision-os` deploy on an operator-chosen ready Server, records the outcome,
+  `provision-os` deploy on a user-chosen ready Server, records the outcome,
   and returns the Server. The proving deploy is exempt from the gate below.
 - A **deploy gate**: a *custom* image not verified for the requested deploy
   target is refused at deploy acceptance with a Swallow reason. Synced provider
@@ -67,7 +67,7 @@ git history).
 
 ## Consequences
 
-- Operators see per-target trust at a glance and can prove an image with one
+- Users see per-target trust at a glance and can prove an image with one
   action; a verified target is required before a normal custom-image deploy in
   that target, preventing a known-bad image from reaching production.
 - One new swallow-owned collection and one new durable Workflow kind; both follow
@@ -80,3 +80,4 @@ git history).
 
 - 2026-09-21: decided Deploy Target as the deployment-mode vocabulary and that a custom image must pass verification for a target before it deploys.
 - 2026-09-21: [decision 036](036-provisioning-lifecycle-integrity.md) (provisioning lifecycle integrity) made verification a borrow-and-return contract with non-retryable proving failures.
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

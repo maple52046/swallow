@@ -5,7 +5,7 @@ architecture spec、shared glossary 與 api-server published contract 同時適�
 
 ## Component Boundary
 
-`dashboard` 是 `api-server` HTTP API 的 conformist consumer。它負責 operator
+`dashboard` 是 `api-server` HTTP API 的 conformist consumer。它負責 user
 interaction、presentation state、browser lifecycle 與 accessibility，不擁有 API
 contract、provider fact 或 backend policy。
 
@@ -130,7 +130,7 @@ desired-state 模型後：
   reapply 屬於破壞性時，走 Change Plan 而不是直接執行。
 - 待核准的 Change Plan 有核准畫面：列出每個 target 的動作、標示破壞性動作與預期影響（例如哪些 Server
   會離開服務），並清楚說明核准後不可撤回；`superseded` 或 `expired` 的 plan 不可核准。
-- 寫入 spec 時帶 API 契約定義的預期 `generation`；收到 conflict 時重新讀取並告知 operator，不默默覆蓋。
+- 寫入 spec 時帶 API 契約定義的預期 `generation`；收到 conflict 時重新讀取並告知 user，不默默覆蓋。
 
 這些規則是 presentation 與 application 的規則；判斷是否破壞性、是否 drift 一律以 API 的回應為準，
 dashboard 不自行推導。
@@ -198,7 +198,7 @@ dialogs、release options、pagination、loading/error/empty states 等須 reuse
 `npm run test:e2e` 使用 Playwright（Vite dev server）；`npm run test:e2e:production` 以
 `vite build` + `vite preview` 驗證 release build 隱藏實驗功能：
 
-- deterministic API fixtures 驗證 operator journeys；
+- deterministic API fixtures 驗證 user journeys；
 - active route、auth、action、failure/recovery behavior；
 - 以獨立 visual-review workflow 產生 disposable desktop/mobile screenshots，由
   agent 或 developer 實際開啟檢查，不進行 pixel-baseline comparison；

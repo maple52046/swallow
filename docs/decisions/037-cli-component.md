@@ -1,18 +1,18 @@
-# 037. Operator CLI component and binary naming
+# 037. CLI component and binary naming
 
 - Status: Accepted
 - Date: 2026-09-23
 
 ## Context
 
-swallow had no operator-facing command-line client for its HTTP API. The only
+swallow had no user-facing command-line client for its HTTP API. The only
 "CLI" surfaces were the `api-server` service binary (a Cobra process entry point
 with the `api`, `worker`, `migrate`, and `ansible-executor` service subcommands)
 and `swallowctl`, a bash lifecycle installer under `deploy/production/`. Neither
 is a client of the Data Center API: `dashboard` was the only consumer of the
 `api-server` HTTP contract.
 
-We want a scriptable operator client that covers the full Active API surface
+We want a scriptable user client that covers the full Active API surface
 (auth, sites, integrations, servers, provisioning, infrastructure, platforms
 including the live Kubernetes explorer and Slurm views, workflows, monitoring,
 and discovery) in Go.
@@ -25,7 +25,7 @@ Two boundary questions had to be settled:
 
 ## Decision
 
-Add a new top-level component `cli/` — an operator command-line client and a
+Add a new top-level component `cli/` — a command-line client and a
 second HTTP consumer of the `api-server` contract, peer to `dashboard`. It is a
 separate Go module (`github.com/maple52046/swallow/cli`) and builds a binary
 named `swallow`.
@@ -45,7 +45,7 @@ directory names.
 
 The CLI is a conformist consumer: it depends only on the provider-owned API
 contract, never on `api-server` internals, and passes complex request bodies
-through as operator-supplied JSON/YAML so payloads track the contract rather than
+through as user-supplied JSON/YAML so payloads track the contract rather than
 a hand-copied struct. It targets the Active surface only and does not expose the
 deprecated `/operations` and `/clusters` aliases or the single-server
 `deploy`/`release` routes as first-class commands.
@@ -53,7 +53,7 @@ deprecated `/operations` and `/clusters` aliases or the single-server
 ## Alternatives considered
 
 - **Add resource subcommands to the existing `swallow` service binary.**
-  Rejected: it mixes the API provider's process entry point with an operator
+  Rejected: it mixes the API provider's process entry point with a user
   client, blurring the provider/consumer boundary, and would ship client code
   inside the backend module and container image.
 - **Extend `swallowctl` into an API client.** Rejected: `swallowctl` is a
@@ -62,7 +62,7 @@ deprecated `/operations` and `/clusters` aliases or the single-server
   reuse a name already meaning "installer".
 - **Keep the service binary named `swallow` and name the client differently
   (e.g. `swallowctl`, `sw`).** Rejected per explicit product preference: the
-  operator client is the primary `swallow` command; the backend service is the
+  user client is the primary `swallow` command; the backend service is the
   supporting `swallow-api` binary.
 - **Rename the `api-server/` directory to `swallow-api/`.** Rejected: directory
   names denote component roles, not binaries (see codebase-structure); renaming
@@ -73,7 +73,11 @@ deprecated `/operations` and `/clusters` aliases or the single-server
 - A second consumer now depends on the `api-server` contract, reinforcing that
   the contract — not any component's internals — is the shared boundary.
   Contract changes must consider both `dashboard` and `cli`.
-- Operators, docs, and any automation that invoked `swallow <service-subcommand>`
+- Users, docs, and any automation that invoked `swallow <service-subcommand>`
   must use `swallow-api` for the backend service; `swallow` now means the client.
 - The CLI is intentionally scoped to the Active surface, so a Planned endpoint
   gets a command only after its contract is promoted to Active.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

@@ -115,7 +115,7 @@ registry。Pull 時會使用 image reference 中那個 registry 的憑證——`
 
 ## Dashboard 與 API
 
-Operator 請使用 Dashboard 的 **Software** 頁面。`swallow` CLI 尚未提供
+User 請使用 Dashboard 的 **Software** 頁面。`swallow` CLI 尚未提供
 `software` command group；automation client 應依 active
 [Managed Software contract](../../../api-server/docs/development/api-contracts/api-server/software.md)
 處理 payload fields、authentication 與 errors；Containers tab 的 API 見

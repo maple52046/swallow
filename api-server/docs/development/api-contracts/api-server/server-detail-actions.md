@@ -11,7 +11,7 @@ Active
 ## Consumer Components
 
 - `dashboard`
-- `cli` (the `swallow` operator command-line client)
+- `cli` (the `swallow` command-line client)
 
 ## Purpose
 
@@ -62,7 +62,7 @@ executor of that state; swallow does not persist a second lock. MAAS only accept
 
 Every state-changing action except Unlock performs a live lock check before touching
 the provider. A locked Server returns `409 conflict` naming the Server and directing the
-operator to Unlock it. An unavailable lock read fails closed with
+user to Unlock it. An unavailable lock read fails closed with
 `503 provider_unavailable`. Refresh, power query, event and network reads remain
 available. Delete also retains its compatible stale-record behavior when the provider
 explicitly reports that its Machine is already absent.
@@ -75,7 +75,7 @@ provisioner and returns a swallow-authored `409 conflict` when the state does no
 instead of forwarding the provider's own rejection text ([decision 033](../../../../../docs/decisions/033-provider-recovery-policy.md) (provider recovery policy)):
 
 - `mark-fixed` is accepted only from `broken`. From `failed` or any other state it is
-  refused with a reason directing the operator to Recover or Release.
+  refused with a reason directing the user to Recover or Release.
 - `mark-broken` is accepted only when the Machine is not already `broken` and has no
   active provider lifecycle work.
 - `rescue-mode` (enter) is a diagnostic action accepted from `deployed`, `broken`, and
@@ -84,7 +84,7 @@ instead of forwarding the provider's own rejection text ([decision 033](../../..
   had before entering rescue (commonly still `deployed`, `broken`, or `failed`); it is not
   a path to `ready`.
 
-The two operator-facing recovery verbs are the durable Workflows documented in
+The two user-facing recovery verbs are the durable Workflows documented in
 [provisioning.md](provisioning.md): `release-operations` (allowed from `deployed`,
 `allocated`, `failed`, `broken`, `rescue`) and `recover-operations` ("Return to Ready"). A
 client should present Recover and Release as the primary way to make an `allocated`,
@@ -152,7 +152,7 @@ carries a password. A Machine without a power driver has neither section.
 `Connection details` communicates an unavailable or empty parameter response. `Password`
 is the only allowlisted secret and exists solely for manual administration through this
 admin-only live-detail route. Consumers must mask it by default, reveal it only on an
-explicit operator action, and must not persist or log it. Provisioner adapters must never
+explicit user action, and must not persist or log it. Provisioner adapters must never
 return K_g values, tokens, keys, private keys, or unrecognised power parameters through this
 endpoint. URL userinfo, query parameters, and fragments are removed from `Address`.
 
@@ -170,7 +170,7 @@ fields.
 Full inventory reconciliation additionally clears a Server's terminal deployment outcome
 (`succeeded`, `failed`, or `canceled`) once the machine is observed back at `ready` or
 `allocated` in the provider, so an available Server never keeps a stale deployment result from a canceled
-or abandoned run. An active (`deploying`/`verifying`) or operator-pending
+or abandoned run. An active (`deploying`/`verifying`) or user-pending
 (`requires_attention`) deployment is left untouched. An active deployment whose Workflow has
 already ended is settled separately from that Workflow's Task outcome (see the Cancel section
 of `workflows.md`), after which this clearing applies to it like any other terminal outcome.
@@ -189,7 +189,7 @@ provisioner, deletes the backing Machine, and only then removes the swallow proj
 If the provisioner reports that the Machine is already missing, swallow removes the stale
 projection and still succeeds. Provider refusal, authentication failure, or unavailability
 leaves the projection intact. swallow never adds a provider-specific force flag implicitly;
-an operator must resolve any provider safeguard before retrying. Success is `204 No Content`.
+a user must resolve any provider safeguard before retrying. Success is `204 No Content`.
 
 A Server a Platform claims (its `platformClaim`, see
 [servers-list.md](servers-list.md#platform-claim) and
@@ -277,7 +277,7 @@ provider call, so a commission that cannot reach the provisioner is retried, bou
 reported for attention. It takes no body.
 
 - When no `inspect-hardware` Workflow is active for the Server, a new one starts. A request from
-  this route skips the enrollment wait: the operator asserts the Server may boot now. It still
+  this route skips the enrollment wait: the user asserts the Server may boot now. It still
   stops in `requires_attention` with `power_configuration_required` when the Machine has no power
   driver at all, because the provisioner could not power it on to inspect it.
 - When the Server's `inspect-hardware` Workflow is waiting in `requires_attention`, the request
@@ -374,7 +374,7 @@ reports, such as a VM host's own driver).
 | `username` | The BMC account of a `bmc` driver; `""` otherwise. |
 | `passwordSet` | Whether the provisioner holds a password for the driver. The password itself is write-only. |
 | `editable` | `false` when the provisioner manages this Server's power elsewhere: a virtual machine that belongs to a provisioner VM host takes its power from that VM host. |
-| `readOnlyReason` | Why `editable` is `false`, in operator terms; `""` otherwise. |
+| `readOnlyReason` | Why `editable` is `false`, in user terms; `""` otherwise. |
 | `drivers` | The drivers a write may choose, with their family. |
 
 ### Write
@@ -446,7 +446,7 @@ installation must have a Deployment Key. api-server connects to the primary addr
 Site's SSH port (default `22`). Host keys are not verified (like the login-user probe). In
 every case — with or without a password — it then logs in **with the Deployment Key** as `user`
 and runs `sudo -n true`; the value is saved only after that login succeeds. Without a password
-the operator must have installed the key already, for example:
+the user must have installed the key already, for example:
 
 ```sh
 mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '<Deployment Key public key>' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys

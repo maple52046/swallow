@@ -462,7 +462,7 @@ composes:
   dashboards `device-metrics-exporter`, and then `device-metrics-exporter` itself onto the GPU
   compute nodes with Slurm job attribution on (see [platforms](platforms.md#device-metrics-exporter)).
 
-A composed runtime skips a Server where it is already `installed`, so an operator's own runtime
+A composed runtime skips a Server where it is already `installed`, so a user's own runtime
 spec is never reverted. Composition adds no endpoint. A Slurm Platform's uninstall removes the
 Device Metrics Exporter from its Servers, and a successful one marks their
 `device-metrics-exporter` assignments `absent`; the composed Prometheus, Grafana, and runtime stay

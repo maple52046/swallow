@@ -12,7 +12,7 @@ over from state the primary persisted there. Controller redundancy is not storag
 (see `knowledge/Slurm/controller-ha-and-configless.md`).
 
 The first Slurm implementation ([ADR 019](019-slurm-platform-deployment.md)) shipped single
-controller fully but left HA half-done: the deploy use case *required the operator to hand-supply*
+controller fully but left HA half-done: the deploy use case *required the user to hand-supply*
 `stateSaveLocation`, and nothing mounted a real shared filesystem. In practice an HA deploy then
 failed with every `slurmctld` DOWN and `get_last_heartbeat: heartbeat open attempt failed from
 <StateSaveLocation>/heartbeat`, because the path was a plain local directory, not a shared mount.
@@ -24,7 +24,7 @@ playbook. swallow was missing both.
 
 ## Decision
 
-**swallow provisions the HA shared `StateSaveLocation` itself; the operator supplies nothing.**
+**swallow provisions the HA shared `StateSaveLocation` itself; the user supplies nothing.**
 
 - **State-server selection in the deploy use case.** For a multi-controller deploy swallow picks
   a state server from the existing targets: a compute-only node when one exists, otherwise the
@@ -49,7 +49,7 @@ playbook. swallow was missing both.
 
 ## Alternatives considered
 
-- **Keep requiring an operator-supplied `stateSaveLocation`:** rejected — it is exactly the manual
+- **Keep requiring a user-supplied `stateSaveLocation`:** rejected — it is exactly the manual
   half-step that produced an all-DOWN HA cluster; the goal is a complete deployment mechanism.
 - **A dedicated storage-host role in `SlurmDeploymentSpec`:** rejected for now — it expands the
   domain model, deploy API, and dashboard wizard. Auto-selecting an existing node deploys a working
@@ -74,3 +74,7 @@ playbook. swallow was missing both.
   corruption.
 - The controller-state role, not the Slurm configuration role, owns the state directory in both
   modes.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

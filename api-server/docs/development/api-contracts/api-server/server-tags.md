@@ -11,7 +11,7 @@ Active
 ## Consumer Components
 
 - `dashboard`
-- `cli` (the `swallow` operator command-line client)
+- `cli` (the `swallow` command-line client)
 
 ## Purpose
 
@@ -91,7 +91,7 @@ no Site, returns an empty `tags` array rather than `404`.
 Writes a tri-state edit into each listed Server's spec, like email labels: `add` is the set of tags to apply to **every** listed
 Server, `remove` is the set to unapply from **every** listed Server, and any tag not named is left
 untouched on each Server. The editor computes this diff from each tag's all / some / none state
-across the selection and sends only the tags whose state changed; a new name typed by the operator
+across the selection and sends only the tags whose state changed; a new name typed by the user
 is created and applied. A single edit is the same request with one `serverId`.
 
 ```json

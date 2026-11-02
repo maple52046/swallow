@@ -11,7 +11,7 @@ Active
 ## Consumer Components
 
 - Prometheus (per-site), via `http_sd_config`
-- `cli` (the `swallow` operator command-line client)
+- `cli` (the `swallow` command-line client)
 - swallow installation tooling
 - External Ansible diagnostics and tools (the Ansible inventory route)
 
@@ -52,7 +52,7 @@ The wire shape is published in
 ## Authentication
 
 Both endpoints use **machine authentication**, not the interactive login flow: the caller
-presents a static machine bearer token, or, for operator inspection, an admin access token.
+presents a static machine bearer token, or, for user inspection, an admin access token.
 
 ```text
 Authorization: Bearer <machineToken | adminAccessToken>

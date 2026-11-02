@@ -74,7 +74,7 @@ Important values:
 - `SWALLOW_API_CREDENTIAL_KEY` encrypts write-only credentials. The bundled
   value is local-only; changing it makes existing local credentials unreadable.
 - `SWALLOW_API_MACHINE_TOKEN` authenticates Prometheus discovery/metrics and
-  other machine endpoints, not the operator API.
+  other machine endpoints, not the user API.
 
 All bundled passwords, tokens, TLS material, and keys are development-only.
 

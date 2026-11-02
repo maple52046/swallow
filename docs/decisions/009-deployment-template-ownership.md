@@ -6,14 +6,14 @@
 
 ## Context
 
-Operators need to apply one OS deployment configuration to several Servers and
+Users need to apply one OS deployment configuration to several Servers and
 reuse it when the same provisioner fleet scales out. The retired
 `ProvisioningProfile` combined an OS image with packages and scripts, which made
 Swallow an owner of mutable automation content and crossed the boundary recorded
 by ADR 069 and ADR 072.
 
 OS Images and deployment execution remain owned by the provisioner. No external
-system, however, owns the operator's reusable selection of an image, ephemeral
+system, however, owns the user's reusable selection of an image, ephemeral
 mode, and cloud-init for a named Swallow Integration.
 
 ## Decision
@@ -65,3 +65,7 @@ condition without copying image metadata into the template.
 Encrypted cloud-init can be inherited, replaced, or omitted for one deployment,
 but never read back. Provider calls can partially succeed after preflight and
 cannot be rolled back safely.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

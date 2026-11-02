@@ -140,7 +140,7 @@ export interface paths {
         };
         /**
          * List Change Plans, newest first.
-         * @description Requires role `admin`. `resourceKind` and `resourceId` narrow the list to one resource; `state` may repeat. The list is small (plans of the resources an operator changed), so it is not paginated.
+         * @description Requires role `admin`. `resourceKind` and `resourceId` narrow the list to one resource; `state` may repeat. The list is small (plans of the resources a user changed), so it is not paginated.
          */
         get: operations["listChangePlans"];
         put?: never;
@@ -534,7 +534,7 @@ export interface paths {
         };
         /**
          * List the fixed set of metric names a client may request.
-         * @description Requires the `admin` role. A plain array in operator scan order; the order is not significant to a consumer (server-metrics.md, Metric Names).
+         * @description Requires the `admin` role. A plain array in user scan order; the order is not significant to a consumer (server-metrics.md, Metric Names).
          */
         get: operations["listMetricNames"];
         put?: never;
@@ -573,7 +573,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read the site-scoped, point-in-time operator overview.
+         * Read the site-scoped, point-in-time overview.
          * @description Requires the `admin` role. Derives every section from its owning context and stores no overview state. An absent or failing alert source is reported inside `monitoring` with a 200; every other read failure fails the request (overview.md).
          */
         get: operations["getOverview"];
@@ -1403,7 +1403,7 @@ export interface paths {
          */
         post: operations["uploadOsImage"];
         /**
-         * Delete one operator-uploaded custom OS Image from its provisioner.
+         * Delete one user-uploaded custom OS Image from its provisioner.
          * @description Requires role `admin`. The image is addressed by the identity the catalog returns, as query parameters, because an image id can contain a slash. Also removes swallow's metadata of the image.
          */
         delete: operations["deleteOsImage"];
@@ -3836,7 +3836,7 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             decidedAt: string | null;
-            /** @description The operator who approved or rejected it; empty before a decision. */
+            /** @description The user who approved or rejected it; empty before a decision. */
             decidedBy: string;
             /** @description The expected consequences, for people. */
             effects: string[];
@@ -3892,13 +3892,13 @@ export interface components {
          * @enum {string}
          */
         ContainerRuntime: "docker-ce" | "podman";
-        /** @description Operator intent for a single-Task Ansible Workflow. Unknown fields are ignored. */
+        /** @description User intent for a single-Task Ansible Workflow. Unknown fields are ignored. */
         CreateWorkflowRequest: {
             /** @description Extra variables for the playbook. Keys starting with `swallow_` are dropped, so a client cannot forge the variables swallow sets. */
             extraVars?: {
                 [key: string]: unknown;
             } | null;
-            /** @description Operator-facing summary, stored trimmed. */
+            /** @description User-facing summary, stored trimmed. */
             intent?: string;
             kind: components["schemas"]["WorkflowKind"];
             /** @description The Platform the work belongs to, if any. */
@@ -3935,7 +3935,7 @@ export interface components {
             /** @description An unencrypted private key in OpenSSH, PKCS#1, PKCS#8, or SEC1 PEM form, of a type import accepts. */
             privateKey: string;
         };
-        /** @description One operator-remediable reason a target cannot be deployed now. */
+        /** @description One user-remediable reason a target cannot be deployed now. */
         DeploymentTargetIssue: {
             /** @enum {string} */
             code: "integration_mismatch" | "absent" | "not_ready" | "locked" | "provider_machine_missing" | "provider_not_ready";
@@ -4745,7 +4745,7 @@ export interface components {
             /** @description The provider's own mode; diagnostic only, never writable intent. */
             rawProviderMode: string;
         };
-        /** @description A target that needs operator input before a deployment. */
+        /** @description A target that needs user input before a deployment. */
         NetworkInspectionIssue: {
             /** @enum {string} */
             code: "integration_mismatch" | "network_interface_required" | "network_selection_required";
@@ -4778,7 +4778,7 @@ export interface components {
             /** @description True when the provisioner itself serves DHCP on the subnet; false means any DHCP there is the site's. */
             provisionerDhcp: boolean;
         };
-        /** @description The suggested deployment intent; empty ids mean operator input is required. */
+        /** @description The suggested deployment intent; empty ids mean user input is required. */
         NetworkInspectionSuggestion: {
             defaultGateway: boolean;
             interfaceId: string;
@@ -4941,7 +4941,7 @@ export interface components {
             filetype?: string;
             /** @description The target provisioner Integration. */
             integrationId: string;
-            /** @description The operator-chosen image name, mapped into the provider's namespace. */
+            /** @description The user-chosen image name, mapped into the provider's namespace. */
             name: string;
             /** @description A human-readable label. */
             title?: string;
@@ -4960,7 +4960,7 @@ export interface components {
             /** @description The ready Server the verification borrows. */
             serverId: string;
         };
-        /** @description One coherent, point-in-time operator overview (overview.md). */
+        /** @description One coherent, point-in-time overview (overview.md). */
         Overview: {
             generatedAt: components["schemas"]["Timestamp"];
             integrations: {
@@ -5051,7 +5051,7 @@ export interface components {
                 statusReason: string | null;
             };
             id: string;
-            /** @description The operator's intent text, or a Workflow's intent summary. */
+            /** @description The user's intent text, or a Workflow's intent summary. */
             intent: string;
             /** @description The Workflow kind (workflows.md). */
             kind: string;
@@ -5100,7 +5100,7 @@ export interface components {
              * @description The spec generation; 0 before the Platform has a spec.
              */
             generation: number;
-            /** @description The operator's amdgpu driver intent; null when the deploy requested none. */
+            /** @description The user's amdgpu driver intent; null when the deploy requested none. */
             gpuDriver: components["schemas"]["PlatformGPUDriver"] | null;
             /** @description The GRES type name a Slurm deploy gave every GPU node; null when it is derived per node from the GPU architecture (always for Kubernetes). */
             gpuGresType: string | null;
@@ -5113,7 +5113,7 @@ export interface components {
             /** @description The newest deployment or uninstall Workflow, or null. */
             lifecycleOperationId: string | null;
             lifecycleState: components["schemas"]["PlatformLifecycleState"];
-            /** @description Operator-registered Monitoring Links; always an array. */
+            /** @description User-registered Monitoring Links; always an array. */
             monitoringLinks: components["schemas"]["PlatformMonitoringLink"][];
             name: string;
             /** @description Whether a Slurm deploy set up native OCI containers; false for Kubernetes. */
@@ -5167,7 +5167,7 @@ export interface components {
             updatedAt: components["schemas"]["Timestamp"];
             version: string;
         };
-        /** @description The operator's amdgpu module options for the Platform's GPU nodes. A name is lower-case letters, digits, and underscores (at most 64); a value is letters, digits, and `_.,:-` (at most 128); at most 16 options. Options a topology rule adds on a node are not listed. */
+        /** @description The user's amdgpu module options for the Platform's GPU nodes. A name is lower-case letters, digits, and underscores (at most 64); a value is letters, digits, and `_.,:-` (at most 128); at most 16 options. Options a topology rule adds on a node are not listed. */
         PlatformGPUDriver: {
             moduleOptions: {
                 [key: string]: string;
@@ -5522,7 +5522,7 @@ export interface components {
         };
         /** @description The outcome of one reconciliation pass over one provisioner's inventory. */
         ProvisionerReconcileReport: {
-            /** @description Machines the pass refused to project; they need an operator. */
+            /** @description Machines the pass refused to project; they need a user. */
             conflicts: components["schemas"]["ProvisionerReconcileConflict"][];
             created: number;
             /** @description Why the pass failed, or null when it completed. */
@@ -5633,7 +5633,7 @@ export interface components {
             /** @description The normalized registry host or host:port (Docker Hub is `docker.io`). */
             registry: string;
             updatedAt: components["schemas"]["Timestamp"];
-            /** @description Username of the operator who last created or replaced the credential. */
+            /** @description Username of the user who last created or replaced the credential. */
             updatedBy: string;
             username: string;
         };
@@ -5701,7 +5701,7 @@ export interface components {
         /** @description The effective Server Default User; omitted from the Server when none applies. */
         ServerDefaultUser: {
             /**
-             * @description `server` when an operator set it on this Server, `os_image` when it is the deployed OS Image's default user.
+             * @description `server` when a user set it on this Server, `os_image` when it is the deployed OS Image's default user.
              * @enum {string}
              */
             source: "server" | "os_image";
@@ -6179,7 +6179,7 @@ export interface components {
             /** @description The kind's install methods, the first being the default; empty for a kind with one built-in way. */
             installMethods: components["schemas"]["SoftwareInstallMethod"][];
             kind: components["schemas"]["SoftwareKind"];
-            /** @description Operator-facing name. */
+            /** @description User-facing name. */
             label: string;
             /** @description Kinds that cannot coexist with this one on a Server. */
             mutuallyExclusiveWith: components["schemas"]["SoftwareKind"][];
@@ -6331,7 +6331,7 @@ export interface components {
             finishedAt: components["schemas"]["Timestamp"] | null;
             /** @description Opaque Workflow ID (a UUID). */
             id: string;
-            /** @description Operator-facing summary of the intent; may be empty. */
+            /** @description User-facing summary of the intent; may be empty. */
             intent: string;
             /** @description The frozen, non-secret intent the Workflow converges to. Its shape depends on `kind`; keys such as `extraVars`, `userData`, `password`, `token`, `credential`, and `privateKey` are removed at every depth. `summary` repeats `intent`. */
             intentSnapshot: {
@@ -6360,7 +6360,7 @@ export interface components {
             startState: "pending" | "started";
             startedAt: components["schemas"]["Timestamp"] | null;
             status: components["schemas"]["WorkflowStatus"];
-            /** @description Operator-facing reason for the current status, when one was recorded. */
+            /** @description User-facing reason for the current status, when one was recorded. */
             statusReason: string | null;
             /** @description The Workflow's Tasks (wire name `steps`). A Workflow is created with at least one Task, so this is null only for a record that holds none. */
             steps: components["schemas"]["WorkflowTask"][] | null;
@@ -6391,12 +6391,12 @@ export interface components {
         };
         /** @description One Job of a Workflow (decision 072). */
         WorkflowJob: {
-            /** @description The operator-facing name, for example `Provision OS`. A Workflow accepted before Jobs had labels reads the label the running build gives the name, or the name with each hyphen-separated word capitalized when the build does not know it. */
+            /** @description The user-facing name, for example `Provision OS`. A Workflow accepted before Jobs had labels reads the label the running build gives the name, or the name with each hyphen-separated word capitalized when the build does not know it. */
             label: string;
             /** @description The name the Job's Tasks give in `steps[].job`. */
             name: string;
             /**
-             * @description What an operator retry of a failed Task in the Job runs again: only that Task, or every Task of the Job.
+             * @description What a user retry of a failed Task in the Job runs again: only that Task, or every Task of the Job.
              * @enum {string}
              */
             retry: "task" | "job";
@@ -6433,7 +6433,7 @@ export interface components {
             kind: string;
         };
         /**
-         * @description The canonical status of a Workflow. `succeeded`, `failed`, `partially_succeeded`, and `canceled` are terminal; `requires_attention` waits for an operator.
+         * @description The canonical status of a Workflow. `succeeded`, `failed`, `partially_succeeded`, and `canceled` are terminal; `requires_attention` waits for an user.
          * @enum {string}
          */
         WorkflowStatus: "pending" | "running" | "waiting_external" | "waiting_dependency" | "canceling" | "succeeded" | "failed" | "partially_succeeded" | "canceled" | "requires_attention";
@@ -6463,7 +6463,7 @@ export interface components {
             /** @description What the Task does, for example `provision-os`, `wait-for-ssh`, or `ansible-playbook`. */
             kind: string;
             live?: components["schemas"]["WorkflowTaskLiveProgress"];
-            /** @description Operator-facing name. */
+            /** @description User-facing name. */
             name: string;
             progress: number;
             startedAt: components["schemas"]["Timestamp"] | null;
@@ -6481,7 +6481,7 @@ export interface components {
             /** Format: int64 */
             sizeBytes: number;
         };
-        /** @description The stable, operator-facing diagnostic of a Task failure. */
+        /** @description The stable, user-facing diagnostic of a Task failure. */
         WorkflowTaskError: {
             /** @description Machine-readable failure code, for example `ansible_failed`. */
             code: string;
@@ -6559,7 +6559,7 @@ export interface components {
                 [key: string]: unknown;
             };
             id: string;
-            /** @description Operator-facing; must not be parsed. */
+            /** @description User-facing; must not be parsed. */
             message: string;
             /** @description The Workflow ID (wire name `operationId`). */
             operationId: string;

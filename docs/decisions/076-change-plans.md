@@ -6,7 +6,7 @@
 
 ## Context
 
-[ADR 069](069-swallow-owns-desired-state.md) made a destructive change wait for an operator's
+[ADR 069](069-swallow-owns-desired-state.md) made a destructive change wait for a user's
 approval, and desired-state-model §5.4 specifies what a [Change Plan](../development/glossaries/terms/change-plan.md)
 contains, its states, whole-plan approval, recomputation before apply, expiry, at most one unfinished
 plan per resource, and that applying it produces a Workflow. Nothing implements it yet: the
@@ -15,7 +15,7 @@ convergence package has controllers, leases, conditions, and events, but no plan
 The Platform is about to become a spec/status resource, and creating, uninstalling, changing a Node
 Role of, or removing a member from a Platform are destructive (desired-state-model §5.2). The spec
 leaves open where a plan is stored, who computes and applies it, how applying it relates to the
-resource's controller and holds, how long it lives, and how operators reach it.
+resource's controller and holds, how long it lives, and how users reach it.
 
 ## Decision
 
@@ -67,6 +67,10 @@ resource's controller and holds, how long it lives, and how operators reach it.
 - The convergence context gains the plan model, the planner port, and the `awaiting_approval`
   reason; the Platform is the first resource that plans, and the Server's destructive changes can
   adopt the same mechanism later.
-- A destructive change takes two operator steps (write, approve) and at least one controller pass;
+- A destructive change takes two user steps (write, approve) and at least one controller pass;
   a plan nobody approves expires instead of applying stale intent.
 - The dashboard and the CLI gain an approval surface over a new API contract.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

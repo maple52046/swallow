@@ -8,7 +8,7 @@
 
 A Swallow-deployed Slurm Platform could attribute jobs to monitoring only through Omnistat, whose
 Prolog and Epilog were `slurm.conf`'s `Prolog=` and `Epilog=` themselves, so a second integration
-would have to overwrite them. Operators wanted AMD's Device Metrics Exporter (DME) instead: per-GPU
+would have to overwrite them. Users wanted AMD's Device Metrics Exporter (DME) instead: per-GPU
 metrics with Slurm job attribution on nodes that several jobs share. Two other gaps showed up on
 the way. A job that named no memory took the whole node (`DefMemPerNode=UNLIMITED`), so a second
 job waited although CPUs and GPUs were free. And AI workloads wanted MPI and containers launched by
@@ -24,7 +24,7 @@ GPU to none, while Slurm's own GRES allocation and device cgroup are correct.
   dispatchers. They run every executable in `prolog.d`/`epilog.d` in name order, each with a
   30-second limit; a failing hook is logged and never fails the job or drains the node, because the
   hooks attribute jobs to monitoring. Swallow installs its own enabled hooks on every compute node
-  (configless distributes no scripts) and removes the rest; executables an operator adds under
+  (configless distributes no scripts) and removes the rest; executables a user adds under
   other names run too.
 - **Jobs share nodes by default.** Without Omnistat the partition is `OverSubscribe=NO`, each
   node's `RealMemory` keeps a share for the operating system, and `DefMemPerCPU` is the smallest
@@ -44,7 +44,7 @@ GPU to none, while Slurm's own GRES allocation and device cgroup are correct.
 - **Swallow reports whether the exporters tell GPUs apart.** The install compares each node's KFD
   GPU count with the exporter's distinct GPU identities and records the Platform's GPU identity,
   `distinct` or `collapsed`. A collapsed identity does not fail the deployment (the endpoint works)
-  but is shown to the operator instead of letting job dashboards look right.
+  but is shown to the user instead of letting job dashboards look right.
 - **Native OCI containers and PMIx are Slurm options.** Native OCI installs crun and a
   configless-distributed `oci.conf`: rootless crun as the job user, a `ContainerPath` identical on
   every node so PMIx paths resolve across nodes, the step spool at that same path inside the
@@ -65,7 +65,7 @@ GPU to none, while Slurm's own GRES allocation and device cgroup are correct.
 - **DME as the privileged container image.** Rejected: the native package needs no container
   runtime on compute nodes and no privileged mode.
 - **Failing the deployment on a collapsed GPU identity.** Rejected: the exporter is still the only
-  per-GPU telemetry on those nodes; the operator decides with the identity shown.
+  per-GPU telemetry on those nodes; the user decides with the identity shown.
 - **Hiding the collapse by aggregating dashboards.** Rejected: it would present wrong attribution
   as working.
 - **Lowering only `RealMemory`, or setting `DefMemPerNode`.** Not enough alone: a job without
@@ -85,3 +85,7 @@ GPU to none, while Slurm's own GRES allocation and device cgroup are correct.
   `--exclusive` is how a job asks for a whole node.
 - On MI308X virtual functions the exporter installs and is scraped, but the Platform reports a
   `collapsed` GPU identity until AMD fixes the per-VF identity.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

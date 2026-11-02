@@ -11,11 +11,11 @@ Active
 ## Consumer Components
 
 - `dashboard`
-- `cli` (the `swallow` operator command-line client)
+- `cli` (the `swallow` command-line client)
 
 ## Purpose
 
-Accept durable operator intent and expose swallow's owned multi-Task Workflow state:
+Accept durable user intent and expose swallow's owned multi-Task Workflow state:
 normalized timeline, runner events, logs, and artifact metadata. A Workflow is a DAG of
 Tasks executed by Runners (`internal`, `ansible`, `provisioner`) and orchestrated by
 Temporal ([decision 072](../../../../../docs/decisions/072-store-driven-workflow-execution.md) (store driven workflow execution),
@@ -211,7 +211,7 @@ the Workflow is first dispatched and `started` after; `temporal.runId` is the cu
 `continueOn`, `waitingReason`, and `live` are omitted when unset, while its `error`,
 `externalExecution`, `startedAt`, and `finishedAt` are present as `null`.
 
-`jobs` lists every Job the Tasks name in `steps[].job`, in plan order, with the operator-facing
+`jobs` lists every Job the Tasks name in `steps[].job`, in plan order, with the user-facing
 `label` a client titles that group of Tasks with and its `retry` granularity (`task` or `job`, see
 [Retry Task](#retry-task)). The launcher that plans a Workflow names its Jobs, and the label is
 recorded with the plan. A Workflow accepted before Jobs had labels reads the label the running build
@@ -244,7 +244,7 @@ and `attempt`, and, when the Task has a normalized error, that error's `code`, `
 where an earlier attempt's failure remains readable after a retry. A cancel that interrupted a
 `provision-os` records, on that Task's `stepId`, what happened to its Server (see Cancel):
 `canceled_deployment_returned_to_ready`, `canceled_deployment_left_as_is`, or
-`canceled_deployment_return_failed`, with an operator-facing `message` and `details.attempt`. Task logs are UTF-8
+`canceled_deployment_return_failed`, with a user-facing `message` and `details.attempt`. Task logs are UTF-8
 `text/plain`; a non-Ansible Task or one without output returns an empty body. `GET
 /tasks/{taskId}/stderr` returns an error-only UTF-8 `text/plain` report for an Ansible Task —
 one block per failed or unreachable task (task, host, message, return code, and its captured
@@ -312,7 +312,7 @@ includes Workflow, Task, target, and attempt.
 
 `POST /{id}/rerun` converges a Workflow's intent again as a new Workflow, for a Workflow that
 finished `failed`, `partially_succeeded`, or `canceled`, or one parked in `requires_attention`
-that the operator wants to converge from the start rather than retry by Task. It launches a new
+that the user wants to converge from the start rather than retry by Task. It launches a new
 Workflow for the same intent, on the same Platform, and returns `202` with the new Workflow
 projection (its `leases` is `null`: it owns none yet). A `requires_attention` original is canceled
 (`statusReason` `Superseded by a rerun.`) in the same request, and the new Workflow waits in

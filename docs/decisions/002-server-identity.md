@@ -84,7 +84,7 @@ For each machine a provider reports:
 3. No match at all: a new server.
 4. **Ambiguous hardware match** — more than one existing server matches: do not guess and
    do not merge. Create nothing, leave the existing records alone, and surface a conflict
-   for an operator. Silent merging of two servers is unrecoverable; a visible conflict is
+   for a user. Silent merging of two servers is unrecoverable; a visible conflict is
    merely annoying.
 
 Rule 4 matters more than it looks. Hardware identifiers are not as unique in practice as
@@ -116,7 +116,7 @@ with it.
 
 ### What is not part of identity
 
-No operator-assigned display name. The provider's `hostname` is the display label, with
+No user-assigned display name. The provider's `hostname` is the display label, with
 `serverId` as the fallback when there is none. Adding a swallow-owned name invites two names
 for the same machine that disagree, and nothing currently needs it. If a stable label is
 wanted later, it is additive.
@@ -163,7 +163,7 @@ they disagree, the cluster is right and the disagreement is worth showing.
   re-enrollment lookup.
 - `hostname` and addresses become nullable and non-unique.
 - The single `status` field is replaced by three optional sub-documents.
-- Server records are created by the reconciler, not by an operator. The manual
+- Server records are created by the reconciler, not by a user. The manual
   "register a server" endpoint loses its reason to exist: a machine swallow has not
   discovered through a provider is a machine swallow cannot act on anyway. Manual
   registration is removed rather than kept as a second, weaker creation path.
@@ -221,3 +221,4 @@ redesign than before it. The existing naming rule was right.
 
 - unrecorded: decided the three identity layers and the three independent status axes of a Server.
 - 2026-10-31: [decision 071](071-provisioner-realized-desired-state.md) (provisioner-realized desired state) added the Server's origin and reports a missing machine as a condition.
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

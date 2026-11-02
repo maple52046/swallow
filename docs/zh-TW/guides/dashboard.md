@@ -2,7 +2,7 @@
 
 [English](../../../docs/en/guides/dashboard.md) · [文件首頁](../README.md)
 
-Dashboard 是 swallow active operator workflow 的 browser interface。它只使用
+Dashboard 是 swallow active user workflow 的 browser interface。它只使用
 published HTTP API，browser 內只保存 UI preference 與目前 session。
 
 ## 導覽

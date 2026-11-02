@@ -63,7 +63,7 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
 8. runs `doctor`, records the installed release in `state/installed`, and prints the
    Dashboard URL and where the passwords are.
 
-It never creates an SSH Access Key: the operator adds their own in the Dashboard.
+It never creates an SSH Access Key: the user adds their own in the Dashboard.
 
 ## Topology
 

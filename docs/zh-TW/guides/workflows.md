@@ -2,7 +2,7 @@
 
 [English](../../../docs/en/guides/workflows.md) · [文件首頁](../README.md)
 
-Workflow 是 operator intent 與 progress 的 durable record。建立 OS deployment、
+Workflow 是 user intent 與 progress 的 durable record。建立 OS deployment、
 Platform lifecycle action、Managed Software change 或 diagnostic operation 後，
 request 會在全部工作完成前回傳；是否完成或失敗應以 Workflow 為準。
 
@@ -18,7 +18,8 @@ Wire model 仍保留部分 historical operation／step field names。Dashboard �
 
 ## Runtime topology
 
-Temporal 是唯一 durable orchestration engine。可運作的 installation 需要：
+swallow 的 store 保存每個 Workflow 的計畫與狀態；Temporal 是負責 durable 執行的 Workflow executor。可運作的
+installation 需要：
 
 - Temporal Server 與 PostgreSQL。
 - `swallow-api worker`。

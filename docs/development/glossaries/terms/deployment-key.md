@@ -8,7 +8,7 @@
   User. The installation creates it as ed25519 (`swallow-api deployment-key ensure`,
   run by `swallowctl install` and `upgrade` after `migrate`), so every installation has one
   without manual steps; the API process neither creates it nor needs it to start. OS and
-  Platform deployment require it and are refused while it is missing. An operator may regenerate it or replace it
+  Platform deployment require it and are refused while it is missing. A user may regenerate it or replace it
   with an existing unencrypted private key; it can never be deleted. Its private key is
   write-only: no API returns it. It is the only automation SSH credential: every Site's
   SSH readiness, login-user probe, and Ansible run uses it. Its public key is realized

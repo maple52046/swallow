@@ -6,7 +6,7 @@ swallow is in active development. Choose an installation path based on what you 
 
 | Goal | Path | Builds source | Persistent data | Status |
 | --- | --- | ---: | ---: | --- |
-| Run swallow for operators | [Production installation (single VM)](../../deploy/production/README.md) | No | Volumes and backups | Supported installation |
+| Run swallow for users | [Production installation (single VM)](../../deploy/production/README.md) | No | Volumes and backups | Supported installation |
 | Evaluate or develop | [Development Compose](../../deploy/dev/README.md) | Yes | Local volumes | Contributor path |
 | Verify a release | [Testing Compose](../../deploy/testing/README.md) | No | Isolated volumes | Release validation |
 | Install without containers | [Native Ubuntu preview](../../deploy/production/native/README.md) | No | Native paths | Incomplete preview, not published |
@@ -107,7 +107,7 @@ encryption material are intentionally unsafe for shared use.
 ## Testing Compose
 
 Testing consumes the exact image digests of a release manifest, never source mounts or
-locally built tags. It is for validating a release, not for long-lived operator data.
+locally built tags. It is for validating a release, not for long-lived user data.
 
 ## Native preview
 

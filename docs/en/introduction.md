@@ -2,7 +2,7 @@
 
 [繁體中文](../zh-TW/introduction.md) · [Documentation home](README.md)
 
-swallow gives datacenter operators one identity and automation layer across
+swallow gives datacenter users one identity and automation layer across
 provisioning, runtime Platforms, host software, and observability. It is useful
 when the same physical Server appears under different names and identifiers in
 MAAS, Kubernetes or Slurm, Prometheus, and automation logs.
@@ -19,7 +19,7 @@ A GPU datacenter usually already has specialized systems:
 - Ansible performs repeatable changes on hosts.
 
 Replacing those systems would lose mature capabilities. Leaving them unrelated
-makes operators manually answer questions such as: which MAAS machine is this
+makes users manually answer questions such as: which MAAS machine is this
 Kubernetes node, which alerts belong to it, and which automation last changed
 it? swallow solves the correlation and intent problem.
 
@@ -47,7 +47,7 @@ statement in the
 swallow records what you want, and the systems that own the facts report what
 is:
 
-- **Desired state** is what an operator asks for, such as a Server's tags and
+- **Desired state** is what a user asks for, such as a Server's tags and
   Zone and Pool placement, the Zones, Pools, and SSH keys swallow registers
   with the provisioner, a Platform, or the software assigned to a Server.
   swallow owns it and is its only source of truth.
@@ -84,9 +84,9 @@ for the detailed boundary.
 
 ## Interfaces
 
-- **Dashboard:** guided operator workflows, fleet status, diagnostics, and
+- **Dashboard:** guided user workflows, fleet status, diagnostics, and
   resource management.
-- **CLI:** broad operator coverage with table, JSON, YAML, and streaming
+- **CLI:** broad user coverage with table, JSON, YAML, and streaming
   output. Managed Software currently uses the Dashboard or HTTP API.
 - **HTTP API:** provider-owned contracts for external integrations and custom
   automation.
@@ -94,7 +94,7 @@ for the detailed boundary.
 All three use opaque IDs as resource identity. Hostnames and IP addresses are
 observed, mutable attributes and must not be used as keys.
 
-## Main operator journeys
+## Main user journeys
 
 1. Create a Site and register its MAAS and monitoring Integrations.
 2. Configure Site automation and reconcile MAAS machines into Servers.
@@ -108,9 +108,10 @@ observed, mutable attributes and must not be used as keys.
 ## Non-goals and current status
 
 swallow manages only Platforms it deploys itself. It does not register arbitrary
-existing Kubernetes or Slurm environments. Teams, user administration, physical
-rack topology, and GPU-specific observability are planned design areas and are
-not active features.
+existing Kubernetes or Slurm environments. Teams, user administration, and physical
+rack topology are planned design areas and are not active features. GPU monitoring
+covers the RDC exporter's charts on AMD GPU Servers and, on a Slurm Platform, the
+optional Omnistat ([Monitoring](guides/monitoring.md)).
 
 The project is in active development and has no stable SemVer release. The
 Compose topology is the complete runnable topology. Native packaging is a

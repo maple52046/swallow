@@ -59,7 +59,7 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
 8. 執行 `doctor`，把已安裝的 release 記錄在 `state/installed`，並印出 Dashboard URL 與密碼
    位置。
 
-它不會建立 SSH Access Key：由 operator 自行在 Dashboard 加入。
+它不會建立 SSH Access Key：由 user 自行在 Dashboard 加入。
 
 ## 拓樸
 

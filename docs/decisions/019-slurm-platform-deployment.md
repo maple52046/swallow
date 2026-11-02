@@ -17,7 +17,7 @@ are easy to question later.
    with an opt-in workload flag. Slurm does not work that way: a node runs the controller
    daemon (`slurmctld`), the compute daemon (`slurmd`), or both, and a controller commonly
    also contributes compute. There are also login/submit and accounting daemons.
-2. **Where the Slurm packages come from.** SchedMD recommends operator-built `slurm-smd`
+2. **Where the Slurm packages come from.** SchedMD recommends user-built `slurm-smd`
    deb/rpm and swallow has no local package repository yet.
 3. **How swallow reads a deployed Slurm Platform.** Slurm has no kubeconfig; membership is read
    from slurmrestd, which needs an endpoint, a JWT, and an endpoint version.
@@ -27,7 +27,7 @@ are easy to question later.
 ## Decision
 
 - **Reuse the ensure-os Job; add a `configure-slurm` Job.** A Slurm deployment provisions the OS
-  (the operator's Slurm image) or reuses already-deployed hosts via the same `ensure-os` Job as
+  (the user's Slurm image) or reuses already-deployed hosts via the same `ensure-os` Job as
   k0s, then runs a `deploy-slurm` playbook whose name is fixed on the launcher (like
   `uninstall-kubernetes`), so no site `playbookMappings` entry is needed. The workflow kind is
   `configure-slurm`.
@@ -51,7 +51,7 @@ are easy to question later.
   step's result is recorded, so cluster validation lives in the playbook, and background
   membership sync fills in members after success.
 - **Single controller first.** One controller is the default and needs no shared storage. More
-  than one controller is high availability; this decision required an operator-supplied shared
+  than one controller is high availability; this decision required a user-supplied shared
   `StateSaveLocation`, which [ADR 023](023-slurm-ha-shared-state-provisioning.md) replaced with
   swallow-provisioned shared state.
 - **No ephemeral guard for Slurm.** Slurm accepts an ephemeral (run-from-RAM) OS. Kubernetes did
@@ -64,7 +64,7 @@ are easy to question later.
   express a node that is both controller and compute, which is normal for Slurm, and would leak
   Kubernetes vocabulary into a different scheduler.
 - **Install Slurm from a distribution repo or build it in the playbook:** rejected for this
-  cut — SchedMD recommends operator-built packages, swallow has no local repo, and building per
+  cut — SchedMD recommends user-built packages, swallow has no local repo, and building per
   host causes version drift. Baking packages into the image is the reliable path until a local
   repo exists.
 - **Add a `validate-platform-health` Task for Slurm like k0s:** rejected for the first cut — the
@@ -87,3 +87,7 @@ are easy to question later.
 - Uninstall mirrors `uninstall-kubernetes` and can optionally release the member Servers.
 - Accounting (SlurmDBD) remains future work. HA shared storage, login nodes, and GPU GRES were
   added later by ADRs 023, 024, and [063](063-omnistat-slurm-observability.md).
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.

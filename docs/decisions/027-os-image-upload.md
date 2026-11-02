@@ -13,9 +13,9 @@ and swallow owns only reusable deployment intent. The OS Image glossary term wen
 said swallow "does not own, mirror, upload, or synchronize the artifact".
 
 swallow already **drives** provider-owned image actions it does not itself own the artifact for:
-image deletion removes an operator-uploaded custom image through an optional provider
+image deletion removes a user-uploaded custom image through an optional provider
 capability, refusing the request when the provisioner does not offer it. The missing counterpart
-is creation: an operator can build a custom OS image (for example a ROCm-enabled Ubuntu root
+is creation: a user can build a custom OS image (for example a ROCm-enabled Ubuntu root
 tarball) but has no way to get it into the site's provisioner through swallow, so they drop to
 the provider's own CLI/UI and swallow's catalog only sees the result after the fact.
 
@@ -25,14 +25,14 @@ provider-owned image artifact is large (multi-GB), and MAAS's create protocol ne
 `sha256` and `size` up front and then accepts the bytes in chunks — so the transport boundary
 (who holds the bytes, who computes the hash) is a real decision.
 
-A further constraint the operator raised: **whether an uploaded artifact is a "custom image" is
+A further constraint the user raised: **whether an uploaded artifact is a "custom image" is
 not the caller's choice — it depends on the site's provisioner, and swallow's backend must decide
 it.** For MAAS an uploaded boot resource surfaces as `osSystem: custom`; another provider might
 classify it differently or not at all.
 
 ## Decision
 
-**swallow may drive a provisioner to upload a new OS image from operator-supplied content, as an
+**swallow may drive a provisioner to upload a new OS image from user-supplied content, as an
 optional provider capability, without ever owning, mirroring, or keeping a durable copy of the
 artifact. The uploaded image is provider-owned exactly like a synced one, and its classification
 (such as "custom") is determined by the provider adapter, not by the caller.**
@@ -53,15 +53,15 @@ artifact. The uploaded image is provider-owned exactly like a synced one, and it
 ## Alternatives considered
 
 - **Keep the status quo (no upload; use the provider CLI/UI).** Rejected: it leaves a real
-  operator need unmet and splits image lifecycle across two tools while swallow already owns the
+  user need unmet and splits image lifecycle across two tools while swallow already owns the
   symmetric delete.
-- **Let the caller declare the image "custom".** Rejected per the operator constraint: custom-ness
+- **Let the caller declare the image "custom".** Rejected per the user constraint: custom-ness
   is a property of the provisioner, so the backend must decide it. A caller-supplied flag would let
   the dashboard and API disagree with what the provider actually does.
 - **Have api-server store/mirror the artifact (a swallow image registry).** Rejected: it violates
   ADRs 069 and 009 — the artifact is provider-owned and live-read — and turns swallow into a large
   binary store it has no reason to own.
-- **Import from an operator-supplied URL instead of streaming a file.** Rejected for the first
+- **Import from a user-supplied URL instead of streaming a file.** Rejected for the first
   version: it moves fetch responsibility and network trust into api-server for no provider that
   needs it today; MAAS custom-image upload is a content upload, not a source import.
 - **Trust a browser-computed sha256 and stream straight through without spooling.** Rejected as
@@ -76,4 +76,8 @@ artifact. The uploaded image is provider-owned exactly like a synced one, and it
 - The OS Image glossary term changes: swallow may drive a provider-owned upload; the artifact
   stays provider-owned and its custom classification is provider-determined.
 - Provider refusals (unsupported provisioner, duplicate name, unsupported file type) reach the
-  operator in the provider's own wording.
+  user in the provider's own wording.
+
+## Revision history
+
+- 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
