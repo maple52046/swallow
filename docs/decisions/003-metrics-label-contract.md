@@ -1,11 +1,13 @@
 # 003 — Monitoring Topology and the Metrics Label Contract
 
-- Status: Accepted (foundational refoundation decision; predates the current ADR template, so Date is unrecorded rather than fabricated)
+- Status: Accepted
+- Date: unrecorded (predates the ADR template)
 
-> **Terminology note:** This ADR predates [ADR 014](014-platform-resource-language.md). The
-> `cluster` / `clusterId` label here is the external Kubernetes cluster; for the swallow
-> aggregate the canonical term is now **Platform**, and `clusterId` is a compatibility alias
-> for `platformId` per ADR 014.
+> **Terminology note:** The `cluster` label here is an external Kubernetes cluster's own name.
+> swallow's managed runtime aggregate is a Platform
+> ([decision 015](015-platform-term-disambiguation.md) (platform term disambiguation)), and the
+> `clusterId` alias of `platformId` was removed
+> ([decision 074](074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)).
 
 ## Decision
 
@@ -82,10 +84,10 @@ flowchart TB
     Swallow -->|deep link| Grafana
 ```
 
-### Amendment: alerts are read, not received
+### Alerts are read, not received
 
 This decision originally said alerts arrive by Alertmanager webhook. Implementation
-showed that to be inconsistent with [001](001-system-ownership-boundaries.md): a webhook
+showed that to be inconsistent with [069](069-swallow-owns-desired-state.md): a webhook
 receiver has to store what it receives in order to display it later, and that store is a
 copy of state Alertmanager owns — exactly the kind of second home 001 forbids.
 
@@ -177,7 +179,7 @@ of the driver's lifecycle being coupled to the cluster's.
 swallow records the policy per cluster and refuses operations that contradict it — a driver
 installation targeting servers in a `gpu-operator` cluster is rejected rather than executed.
 
-## Amendment (2026-08-27): switchable exporter ownership and the AMD RDC exporter
+## Switchable exporter ownership and the AMD RDC exporter
 
 Two refinements, both driven by implementing monitoring for CPU and AMD GPU servers.
 
@@ -210,7 +212,7 @@ an AMD GPU server by the MAAS tag `amd-gpu` (mirrored into `observed.tags`), and
 Named GPU queries are vendor-neutral: each evaluates the DCGM series or the RDC series, so
 one metric name serves both stacks without the caller knowing which is present.
 
-## Amendment (2026-10-12): built-in usage charts, Monitoring Links, and runtimes with their own monitoring
+## Built-in usage charts, Monitoring Links, and runtimes with their own monitoring
 
 Driven by the product requirement that an operator who deploys a Server through swallow can see
 how much of it is used **without leaving swallow**.
@@ -267,7 +269,7 @@ Rejected in this amendment:
 
 - swallow implements a Prometheus `http_sd` endpoint serving host-layer targets with
   `server_id` and `site` attached, derived from the server projection.
-- The same projection serves both the diagnostic dynamic-inventory endpoint and the embedded runner through one application use case ([006](006-embedded-ansible-execution.md)).
+- The same projection serves both the diagnostic dynamic-inventory endpoint and the embedded runner through one application use case ([072](072-store-driven-workflow-execution.md)).
 - swallow stores no metrics. The `GPUMetrics` and `GPUDevice` entities as storage concepts
   are dropped; GPU inventory comes from the provisioner and GPU telemetry from the TSDB.
 - Alerts are read from Alertmanager on demand and correlated to servers by label;
@@ -310,7 +312,13 @@ responsible for, and it exports the two-join-path complexity to every caller.
 
 ## Related
 
-- [001 — System Ownership Boundaries](001-system-ownership-boundaries.md)
+- [001 — System Ownership Boundaries](069-swallow-owns-desired-state.md)
 - [002 — Server Identity](002-server-identity.md)
-- [006 — Embedded Ansible execution](006-embedded-ansible-execution.md)
+- [006 — Embedded Ansible execution](072-store-driven-workflow-execution.md)
 - Glossary: Monitoring Link, Exporter Ownership, Pool, Zone
+
+## Revision history
+
+- unrecorded: decided the monitoring topology, the metrics label contract, and that alerts are read from Alertmanager rather than received.
+- 2026-08-27: added switchable exporter ownership and the AMD RDC exporter.
+- 2026-10-12: added built-in usage charts, Monitoring Links, and runtimes that bring their own monitoring.

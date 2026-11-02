@@ -13,7 +13,7 @@ import (
 )
 
 // BootMediaHandler serves the Boot Media routes of contract server-detail-actions.md
-// (decisions 047 and 049): GET and PUT /api/v1/servers/{id}/boot-media and
+// (decision 047): GET and PUT /api/v1/servers/{id}/boot-media and
 // POST /api/v1/servers/{id}/redfish/probe. It is admin-only through its route group.
 //
 // No response or error carries a BMC credential; error messages come from BootMediaError, which
@@ -28,7 +28,7 @@ func NewBootMediaHandler(bootMedia *application.BootMediaUseCase) *BootMediaHand
 }
 
 // setBootMediaRequest is the PUT body. Enabled is a pointer so a body without it is a 400 rather
-// than an accidental disable. ISOID names the Boot ISO to enable with (decision 049).
+// than an accidental disable. ISOID names the Boot ISO to enable with (decision 047).
 type setBootMediaRequest struct {
 	Enabled *bool  `json:"enabled"`
 	ISOID   string `json:"isoId"`

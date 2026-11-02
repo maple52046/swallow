@@ -12,7 +12,7 @@ export function withIntegrationSetting(settings: Record<string, string>, key: st
 
 /**
  * Whether the Integration is a MAAS provisioner, the only kind whose settings page has the
- * provider-owned HTTP proxy and Subnet DNS tabs (decisions 056 and 058).
+ * provider-owned HTTP proxy and Subnet DNS tabs (decisions 071 and 058).
  */
 export function isMaasProvisioner(integration: { kind: string; providerKind: string }): boolean {
   return integration.kind === 'provisioner' && integration.providerKind === 'maas'

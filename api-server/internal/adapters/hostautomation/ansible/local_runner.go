@@ -728,7 +728,7 @@ func cloneInventory(source map[string]any) map[string]any {
 }
 
 // setConnectionVars sets each host's ansible_port and ansible_user. The user is resolved per host
-// (decisions 039 and 045): a host whose inventory carries default_user — its effective Server
+// (decision 039): a host whose inventory carries default_user — its effective Server
 // Default User — uses exactly that user, with no probe; image_default_user is honoured the same way
 // for inventories frozen before default_user existed. Otherwise, when a prober is
 // attached and the automation key parses, it tries the candidate login users (Site user first,

@@ -38,7 +38,7 @@ Swallow never changes its exporter installation.
 - Persist a second Swallow lock: rejected because two independently mutable
   protection states would drift and require reconciliation semantics.
 - Cancel running work when a lock appears: rejected because interruption can
-  leave an externally executed operation in an indeterminate partial state.
+  leave an externally executed operation in an unknown partial state.
 - Remove locked Servers from monitoring discovery: rejected because Lock is a
   mutation policy, not a health or visibility state.
 
@@ -48,7 +48,3 @@ Provider lock availability is required before new mutation work is accepted;
 an unverifiable state fails closed. Operators can still diagnose locked Servers,
 and pending work cannot slip through after an external lock. Provider adapters
 remain the anticorruption boundary for lock execution and live observation.
-
-## Current status
-
-Implemented by the Server Lock Protection workflow on 2026-09-03.

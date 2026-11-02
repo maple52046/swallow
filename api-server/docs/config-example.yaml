@@ -81,7 +81,7 @@ api:
   # Env: SWALLOW_API_WORKFLOW_RESYNC_INTERVAL.
   workflowResyncInterval: "30s"
 
-  # Boot Media (decisions 047 and 049): Boot ISOs are built on the dashboard's Provisioning page,
+  # Boot Media (decision 047): Boot ISOs are built on the dashboard's Provisioning page,
   # written under dir (one subdirectory each), and served unauthenticated at
   # <baseURL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso for BMCs to mount as virtual media.
   # Optional: without baseURL no Boot ISO can be built. Many BMCs mount only plain http:// on

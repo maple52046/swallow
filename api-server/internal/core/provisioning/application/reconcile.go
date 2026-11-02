@@ -585,7 +585,7 @@ func (uc *ReconcileUseCase) clearStaleOSState(
 	return uc.clearDefaultUserWithoutOS(ctx, server, machine)
 }
 
-// clearDefaultUserWithoutOS clears an operator-set Server Default User (decision 045) once the
+// clearDefaultUserWithoutOS clears an operator-set Server Default User (decision 039) once the
 // machine is observed with no OS — `ready` (released) or `allocated` (reserved, nothing running).
 // The account it names belonged to the previous installation, whether that was released through
 // swallow or directly in the provisioner; keeping it would make automation log in to the next OS as

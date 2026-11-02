@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// BootISO is a swallow-built network boot ISO for one provisioner Integration (decision 049): a
+// BootISO is a swallow-built network boot ISO for one provisioner Integration (decision 047): a
 // machine that boots it takes an address from the site's own DHCP and then chains to that
 // provisioner's boot server. A Server's Boot Media mounts one through its BMC.
 //
@@ -16,7 +16,7 @@ import (
 // are rendered by the provisioner's BootChainRenderer from its fixed templates; operators never
 // write them. The file lives outside this record, in the Boot Media directory, under the ISO's ID.
 // A rebuild re-renders both with the current templates and replaces the file in place, so the ID
-// and the URL Boot Media mounts never change (decision 057).
+// and the URL Boot Media mounts never change (decision 047).
 type BootISO struct {
 	ID            string
 	Name          string
@@ -27,7 +27,7 @@ type BootISO struct {
 	// ChainURL is where the script chains after DHCP on BIOS firmware, derived from RackAddress.
 	ChainURL string
 	// UEFIChainURL is what the ISO's GRUB loads on UEFI firmware. It is meaningful only when
-	// GRUBConfig is set: an ISO built before decision 057 has no GRUB and sends UEFI firmware
+	// GRUBConfig is set: an ISO built before decision 047 has no GRUB and sends UEFI firmware
 	// through the BIOS path, so it needs a rebuild.
 	UEFIChainURL string
 	// Script is the iPXE script (BIOS); GRUBConfig the GRUB configuration (UEFI).
@@ -146,7 +146,7 @@ func ValidateBootISOName(raw string) (string, error) {
 }
 
 // BootISOContent is what a Boot ISO is built from: the iPXE script BIOS firmware runs and the GRUB
-// configuration UEFI firmware runs (decision 057).
+// configuration UEFI firmware runs (decision 047).
 type BootISOContent struct {
 	IPXEScript string
 	GRUBConfig string

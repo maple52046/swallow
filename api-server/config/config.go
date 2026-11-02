@@ -111,7 +111,7 @@ type APIConfig struct {
 	// Never log this value.
 	MachineToken string `yaml:"machineToken"`
 	// BootMedia configures where Boot ISOs are built and stored and the URL BMCs mount them at
-	// (decisions 047 and 049). Optional: without BaseURL no Boot ISO can be built or mounted, and
+	// (decision 047). Optional: without BaseURL no Boot ISO can be built or mounted, and
 	// every build or enable request explains what is missing.
 	BootMedia BootMediaConfig `yaml:"bootMedia"`
 	// CLIBinary is the path of the linux-amd64 swallow CLI this process serves, without
@@ -135,7 +135,7 @@ type APIConfig struct {
 	NTPServer string `yaml:"ntpServer"`
 }
 
-// BootMediaConfig locates the Boot ISOs the API process builds and serves (decision 049) and the
+// BootMediaConfig locates the Boot ISOs the API process builds and serves (decision 047) and the
 // URL BMCs mount them at.
 //
 // A Boot ISO's URL is derived, never typed per Server: BaseURL plus
@@ -143,7 +143,7 @@ type APIConfig struct {
 // BMCs (AMI MegaRAC among them) mount only plain http:// on port 80, so the production reverse
 // proxy publishes /boot-media/ on port 80.
 type BootMediaConfig struct {
-	// ISOPath is retired (decision 049): the installation no longer supplies an ISO. A value is
+	// ISOPath is retired (decision 047): the installation no longer supplies an ISO. A value is
 	// ignored with a startup warning so an upgraded configuration still loads.
 	ISOPath string `yaml:"isoPath"`
 	// BaseURL is the absolute http(s) URL, without path, at which BMCs reach this API process.

@@ -141,7 +141,7 @@ func (uc *DiscoveryUseCase) AnsibleInventory(ctx context.Context, input Discover
 
 		addGroup(groups, "site_"+groupToken(server.Source.SiteID), server.ID)
 
-		// The effective Server Default User (decision 045): the value set on the Server, else the
+		// The effective Server Default User (decision 039): the value set on the Server, else the
 		// image's. The runner turns it into ansible_user, so it is emitted only when known and its
 		// absence means "fall back to probing".
 		if defaultUser, _ := server.EffectiveDefaultUser(); defaultUser != "" {

@@ -434,7 +434,7 @@ type Server struct {
 	// provider reconciliation.
 	PlatformClaim *PlatformClaim
 
-	// DefaultUser is the Server Default User an operator set on this Server (decision 045), empty
+	// DefaultUser is the Server Default User an operator set on this Server (decision 039), empty
 	// when none is set. It is swallow-owned and verified by a Deployment Key login before it is
 	// saved; provider reconciliation preserves it. It belongs to the current OS installation and is
 	// cleared when swallow starts a new OS deployment or the Server is observed without an OS. Read

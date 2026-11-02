@@ -177,7 +177,7 @@ func TestDeploymentReadinessFailureWithAddressDoesNotOfferRedeploy(t *testing.T)
 
 func TestProviderStepProjectsDeploymentFailureOntoServer(t *testing.T) {
 	// The Step fails before any deployment is submitted (no frozen image), so no OS is replaced
-	// and the Server Default User set for the installed one is kept (decision 045).
+	// and the Server Default User set for the installed one is kept (decision 039).
 	server := &serverdomain.Server{ID: "server-id", DefaultUser: "amd"}
 	executor := providerStepExecutor{servers: &deploymentProjectionTestRepo{server: server}}
 	result := executor.Execute(context.Background(), temporalworkflow.StepExecutionInput{
@@ -211,8 +211,8 @@ func TestProviderStepProjectsDeploymentFailureOntoServer(t *testing.T) {
 	}
 }
 
-// TestProviderStepClearsDefaultUserOnlyWhenSubmittingDeployment guards decision 045 under
-// convergent reruns (decision 060): the account set on the Server belongs to the OS a submitted
+// TestProviderStepClearsDefaultUserOnlyWhenSubmittingDeployment guards decision 039 under
+// convergent reruns (decision 061): the account set on the Server belongs to the OS a submitted
 // deployment replaces, even when the provider then fails it, but a Step that only observes the
 // frozen image already deployed and reachable replaces nothing and keeps it.
 func TestProviderStepClearsDefaultUserOnlyWhenSubmittingDeployment(t *testing.T) {

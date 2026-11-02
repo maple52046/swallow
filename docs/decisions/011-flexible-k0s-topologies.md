@@ -4,7 +4,7 @@
 - Date: 2026-08-30
 - 現行規格：[platform-deployment.md](../development/platform-deployment.md) §2 一次 platform deployment 的解剖（k0s reference）的「拓樸與角色」
 
-> **Terminology note:** This ADR predates [ADR 014](014-platform-resource-language.md). Where it
+> **Terminology note:** This ADR predates [ADR 015](015-platform-term-disambiguation.md). Where it
 > names the swallow aggregate *Cluster*, the canonical term is now **Platform**; *cluster* stays
 > valid only for the external technology (see [ADR 015](015-platform-term-disambiguation.md)).
 

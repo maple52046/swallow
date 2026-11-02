@@ -1,7 +1,7 @@
 import { expect, test, type Page } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// Provisioner HTTP Proxy (decisions 056 and 071): the proxy MAAS hands to the machines it deploys,
+// Provisioner HTTP Proxy (decision 071): the proxy MAAS hands to the machines it deploys,
 // saved as swallow's spec from the HTTP proxy tab of the Integration settings page by its own button
 // — never by the General or Connection Save — and applied to MAAS by the backend.
 

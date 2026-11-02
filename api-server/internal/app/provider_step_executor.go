@@ -751,7 +751,7 @@ func (e providerStepExecutor) recoverServer(ctx context.Context, step temporalwo
 
 // returnCanceledDeployment runs the internal step a canceled Workflow issues for each
 // provision-os the cancel interrupted: it returns that deployment's Server to Ready
-// (decision 060). It acts only on what the canceled deployment left in flight. A Deploying
+// (decision 061). It acts only on what the canceled deployment left in flight. A Deploying
 // Machine is aborted once and watched until the provider leaves Deploying (a Releasing one is
 // watched until the Release ends), and an Allocated Machine, which is where MAAS parks an aborted
 // deployment, is returned to Ready with the Recover plan: a plain Release, with static IP bindings
@@ -1317,7 +1317,7 @@ func (e providerStepExecutor) installationFailure(ctx context.Context, step temp
 }
 
 // clearReplacedDefaultUser clears the Server Default User right before a deployment is submitted:
-// an account set on the Server belongs to the OS that deployment replaces (decision 045), and the
+// an account set on the Server belongs to the OS that deployment replaces (decision 039), and the
 // new OS's readiness check and every later run must log in as the new image's default user. It is
 // never called when a Step only observes an OS that already converged, so a rerun or Job retry of
 // a deployed Server keeps the operator's account. A projection write failure asks for attention.

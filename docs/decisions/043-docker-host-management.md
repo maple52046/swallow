@@ -11,7 +11,7 @@ Servers and records a swallow-owned Software Assignment. Operators then want to 
 Docker from swallow itself — images first, then containers, volumes, and networks — on the
 Server detail page, instead of logging in to each host.
 
-Swallow has no node agent ([ADR 001](001-system-ownership-boundaries.md)); everything it does on
+Swallow has no node agent ([ADR 069](069-swallow-owns-desired-state.md)); everything it does on
 a host runs as versioned Ansible over SSH. Running a Workflow per click (list images, stop a
 container) would be slow and would turn interactive reads into durable operations. The Docker
 Engine itself exposes an HTTP API that can listen on TCP. The deployment targets are internal
@@ -42,7 +42,7 @@ enabled without inventing a second software lifecycle.
   probe for, and does not use, a Docker API the operator enabled by other means.
 - **Nothing Docker-owned is persisted.** Images, containers, volumes, and networks are facts the
   Docker Engine owns; every read and write goes to the Engine at request time, consistent with
-  ADR 001. Writes are synchronous calls, not Workflows. Swallow's only Docker-related state remains
+  ADR 069. Writes are synchronous calls, not Workflows. Swallow's only Docker-related state remains
   the Software Assignment.
 - **Writes respect the Server Lock** ([ADR 013](013-server-lock-protection.md)): they change the
   host, so they are refused on a locked Server; reads stay available.
@@ -74,7 +74,7 @@ enabled without inventing a second software lifecycle.
 - **A generic `/servers/{id}/containers` workload surface (planned-surface):** not adopted —
   `Workload` and `Container` are still pending glossary terms with an unverified state set;
   naming the surface after Docker keeps the provider's language, as the Kubernetes explorer does.
-- **Mirror Docker objects into Mongo:** rejected — the Docker Engine owns them (ADR 001); a mirror
+- **Mirror Docker objects into Mongo:** rejected — the Docker Engine owns them (ADR 069); a mirror
   would go stale and adds no value for a per-Server live view.
 - **Detect an operator-enabled Docker API:** rejected for this version — eligibility must be
   derivable from swallow-owned intent, not from probing hosts.

@@ -85,7 +85,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		return err
 	}
 	providers := maas.NewProviderFactory(integrations)
-	// Every run authenticates with the Deployment Key, the only automation key (decision 041),
+	// Every run authenticates with the Deployment Key, the only automation key (decision 039),
 	// through the effective-credential decorator built below.
 	sshKeys, err := newSSHKeyService(db, sealer, integrations, providers)
 	if err != nil {

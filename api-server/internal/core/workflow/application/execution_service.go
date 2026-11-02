@@ -350,7 +350,7 @@ func (s *AutomationConfigurationService) Put(ctx context.Context, configuration 
 
 // ReplaceCredential seals becomePassword as the Site's whole credential, replacing what it
 // stored before; an empty password clears it. It never accepts SSH key material: the Deployment
-// Key is the only automation key (decision 041), and delivery refuses a request that carries
+// Key is the only automation key (decision 039), and delivery refuses a request that carries
 // one. An unconfigured Site is ErrAutomationConfigNotFound.
 func (s *AutomationConfigurationService) ReplaceCredential(ctx context.Context, siteID, becomePassword string) error {
 	return s.configurations.ReplaceCredential(ctx, siteID, workflowdomain.AutomationCredential{BecomePassword: becomePassword})

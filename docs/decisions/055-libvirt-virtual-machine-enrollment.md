@@ -29,7 +29,7 @@ VM-host discovery (`add-chassis`, pod probe) rewrites a domain to boot network t
   through MAAS.
 - **It is a durable Workflow** targeting the Hypervisor, with one independent ensure Task per
   domain, so many VMs run in parallel and one failure is retried alone.
-- **swallow reaches the Hypervisor with the Deployment Key** (ADR 039/041), as the Hypervisor's
+- **swallow reaches the Hypervisor with the Deployment Key** (ADR 039), as the Hypervisor's
   effective Server Default User or an account the operator names. Being a Hypervisor is a role of
   a deployed Server, not a new record or credential. This refines ADR 054's rejection of driving
   libvirt from swallow: swallow still does not switch power — MAAS does — and holds no hypervisor
@@ -37,7 +37,7 @@ VM-host discovery (`add-chassis`, pod probe) rewrites a domain to boot network t
   Boot Media (and, only when the operator explicitly asks, stopping a running domain before
   enrollment).
 - **Boot Media has a method**, chosen from the Power Configuration: `redfish` for a Server with a
-  BMC (ADR 047/049, unchanged) and `libvirt` for a `virsh` Server whose address names a Hypervisor,
+  BMC (ADR 047, unchanged) and `libvirt` for a `virsh` Server whose address names a Hypervisor,
   where the Boot ISO is uploaded to the Hypervisor's storage, put on the domain's CD-ROM, and the
   CD-ROM boots first in the domain's persistent definition. The setting, the Boot ISO, the
   preflight, and the ensure Task before inspection and deployment are shared.

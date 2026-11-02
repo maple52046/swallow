@@ -10,7 +10,7 @@ FROM golang:1.26-bookworm AS air-build
 ARG AIR_VERSION=v1.67.4
 RUN go install "github.com/air-verse/air@${AIR_VERSION}"
 
-# iPXE for Boot ISOs (decision 049), built exactly as in the production image: pinned commit, no
+# iPXE for Boot ISOs (decision 047), built exactly as in the production image: pinned commit, no
 # embedded script; each Boot ISO is packaged with genfsimg at runtime.
 FROM golang:1.25-bookworm AS ipxe
 ARG IPXE_VERSION=v2.0.0
@@ -43,7 +43,7 @@ COPY --from=air-build /go/bin/air /usr/local/bin/air
 # mount replaces /app, and the venv is available to the non-root developer user.
 COPY api-server/internal/adapters/hostautomation/ansible/requirements.txt /tmp/ansible-requirements.txt
 # mtools, xorriso, isolinux, and syslinux-common are what genfsimg needs to package a Boot ISO;
-# grub-common (grub-mkstandalone) and grub-efi-amd64-bin build its UEFI GRUB (decision 057).
+# grub-common (grub-mkstandalone) and grub-efi-amd64-bin build its UEFI GRUB (decision 047).
 RUN apt-get update \
  && apt-get install -y --no-install-recommends openssh-client python3-venv mtools xorriso isolinux syslinux-common grub-common grub-efi-amd64-bin \
  && python3 -m venv /opt/ansible \

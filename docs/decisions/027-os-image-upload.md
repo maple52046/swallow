@@ -6,7 +6,7 @@
 
 ## Context
 
-[ADR 001](001-system-ownership-boundaries.md) settled that swallow integrates a system that
+[ADR 069](069-swallow-owns-desired-state.md) settled that swallow integrates a system that
 already owns a capability rather than rebuilding it. [ADR 009](009-deployment-template-ownership.md)
 applied that to OS provisioning: OS Images are read live from the provider and never mirrored,
 and swallow owns only reusable deployment intent. The OS Image glossary term went further and
@@ -40,7 +40,7 @@ artifact. The uploaded image is provider-owned exactly like a synced one, and it
 1. **Upload is an optional provider capability, symmetric to delete.** A provisioner whose
    adapter does not implement upload refuses the request as a provider rejection, never a
    silent success. It joins delete as an operation-side capability of the
-   [ADR 025](025-provider-data-overlay.md) capability model.
+   [ADR 071](071-provisioner-realized-desired-state.md) capability model.
 2. **The classification is provider-determined.** The API and the dashboard never send or infer a
    "custom" flag; the provider adapter reports it.
 3. **The bytes stream browser → api-server → provider; swallow keeps no copy.** api-server spools
@@ -59,7 +59,7 @@ artifact. The uploaded image is provider-owned exactly like a synced one, and it
   is a property of the provisioner, so the backend must decide it. A caller-supplied flag would let
   the dashboard and API disagree with what the provider actually does.
 - **Have api-server store/mirror the artifact (a swallow image registry).** Rejected: it violates
-  ADR 001/009 — the artifact is provider-owned and live-read — and turns swallow into a large
+  ADRs 069 and 009 — the artifact is provider-owned and live-read — and turns swallow into a large
   binary store it has no reason to own.
 - **Import from an operator-supplied URL instead of streaming a file.** Rejected for the first
   version: it moves fetch responsibility and network trust into api-server for no provider that

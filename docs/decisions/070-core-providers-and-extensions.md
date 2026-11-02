@@ -18,7 +18,7 @@ and in depth.
 
 The code and the documents did not reflect that intent:
 
-- **Platform and GPU-vendor knowledge grew into the core.** `internal/platform/application/deploy_platform.go`
+- **Platform and GPU-vendor knowledge grew into the core.** `internal/core/platform/application/deploy_platform.go`
   is about 1,430 lines; `platform/domain` holds the AMD GPU Operator, Omnistat, and Device Metrics
   Exporter models; completion handling is routed by Task ID strings; the Slurm composition lives in
   the composition root.
@@ -26,9 +26,9 @@ The code and the documents did not reflect that intent:
   the MAAS rack (its HTTP boot port, chain URLs, and iPXE template); the Workflow domain has an
   `ansible_execution.go` and `RunnerKind` values `ansible` and `maas`; the Site domain lists a
   `ProviderKindMAAS`.
-- **The documents disagree with each other.** [ADR 017](017-workflow-job-task-runner-model.md) says
+- **The documents disagree with each other.** [ADR 072](072-store-driven-workflow-execution.md) says
   adding a platform is contributing a playbook, while in practice it needs a Go launcher, trusted
-  variables assembly, and a composition adapter. [ADR 001](001-system-ownership-boundaries.md)
+  variables assembly, and a composition adapter. [ADR 069](069-swallow-owns-desired-state.md)
   positions swallow as an integration and correlation layer whose product is the correlation.
 - **The boundary is achievable.** Temporal appears only in `operation/infra/temporalworkflow` and
   the composition root; no domain or use case imports it.
@@ -101,10 +101,10 @@ owner of desired state. That only holds if no external system is part of the cor
   system goes in an adapter, and only what is neither goes in the core.
 - The existing leaks become migration work: Boot ISO's MAAS knowledge moves into the MAAS adapter;
   Runner kinds are named by port (host automation, OS provisioning) rather than product; Kubernetes,
-  Slurm, and AMD code moves out of `internal/platform` and `internal/app` into modules. Identifier
+  Slurm, and AMD code moves out of `internal/core/platform` and `internal/app` into modules. Identifier
   values already stored or on the API (such as the `RunnerKind` value `maas`) stay as opaque adapter
   identifiers, so no data migration or contract change is needed for them.
-- ADR 017's "adding a platform is contributing a playbook" becomes "adding a platform is contributing
+- ADR 072's "adding a platform is contributing a playbook" becomes "adding a platform is contributing
   a module", whose host automation content is still a playbook today.
 - The dashboard needs a way to show modules without bespoke screens (a form generated from the
   module's spec schema), alongside first-party module screens.

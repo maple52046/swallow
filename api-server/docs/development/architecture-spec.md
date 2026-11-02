@@ -248,7 +248,7 @@ Interface 不用來包裝每個 concrete type；只有需要保護 boundary、�
 - 每個欄位只有一個寫入者：spec 由 API 或擁有它的上層資源寫入，observed 由 adapter 的觀察路徑寫入，
   conditions 由該資源的 controller 寫入。
 - provider 沒有能力實現某個欄位時回報 `realized=false`（reason `capability_missing`），不再建立同形狀的
-  swallow-owned fallback（[decision 069](../../../docs/decisions/069-swallow-owns-desired-state.md)（swallow owns desired state） 取代 [decision 031](../../../docs/decisions/031-provider-capability-first-with-swallow-owned-fallback.md)（provider capability first with swallow owned fallback））。
+  swallow-owned fallback（[decision 069](../../../docs/decisions/069-swallow-owns-desired-state.md)（swallow owns desired state） 取代 decision 069）。
 - metrics、alert 評估、workload 排程與 Platform 內部的資源仍由各自的系統擁有，只即時讀取。
 
 尚未遷移的功能維持現行行為（包括 capability-first fallback），以各功能規格為準；

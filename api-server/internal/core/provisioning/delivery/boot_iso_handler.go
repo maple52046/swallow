@@ -8,7 +8,7 @@ import (
 	"github.com/maple52046/swallow/internal/shared/middleware"
 )
 
-// BootISOHandler serves the Boot ISO routes of contract boot-isos.md (decisions 049, 057):
+// BootISOHandler serves the Boot ISO routes of contract boot-isos.md (decision 047):
 // GET/POST /api/v1/provisioning/boot-isos, GET/DELETE /api/v1/provisioning/boot-isos/{id}, and
 // POST /api/v1/provisioning/boot-isos/{id}/rebuild.
 // It is admin-only through its route group; the unauthenticated file route is served by the

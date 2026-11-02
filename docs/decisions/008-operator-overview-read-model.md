@@ -37,7 +37,3 @@ The API Server owns one extra query and its compatibility contract. The dashboar
 single coherent snapshot and can render useful partial state when monitoring is down.
 Adding or changing a section requires contract review because the read model crosses the
 provider/consumer boundary.
-
-## Current status
-
-Implemented.

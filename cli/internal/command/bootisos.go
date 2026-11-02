@@ -15,7 +15,7 @@ import (
 // the server is still finishing.
 const bootISOBuildTimeout = 3 * time.Minute
 
-// provisioningBootISOsCmd groups Boot ISOs (boot-isos.md, decision 049): iPXE boot ISOs swallow
+// provisioningBootISOsCmd groups Boot ISOs (boot-isos.md, decision 047): iPXE boot ISOs swallow
 // builds per provisioner Integration from its fixed template, which take a lease from the site's
 // own DHCP and chain to that provisioner's MAAS rack. A Server's Boot Media mounts one of its own
 // provisioner's ISOs (`swallow servers boot-media enable --iso`). There is no script input: the

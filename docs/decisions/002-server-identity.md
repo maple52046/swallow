@@ -1,6 +1,7 @@
 # 002 — Server Identity and the Three Status Axes
 
-- Status: Accepted (foundational refoundation decision; predates the current ADR template, so Date is unrecorded rather than fabricated); Refined by [071](071-provisioner-realized-desired-state.md) (Server origin; a missing machine is a condition)
+- Status: Accepted
+- Date: unrecorded (predates the ADR template)
 
 ## Decision
 
@@ -166,7 +167,7 @@ they disagree, the cluster is right and the disagreement is worth showing.
   "register a server" endpoint loses its reason to exist: a machine swallow has not
   discovered through a provider is a machine swallow cannot act on anyway. Manual
   registration is removed rather than kept as a second, weaker creation path.
-- The import action from [001](001-system-ownership-boundaries.md) disappears with it.
+- The import action from [069](069-swallow-owns-desired-state.md) disappears with it.
   There is nothing to import: every provider machine is already a server projection. What
   used to be "import" is now just "allocate this server to a tenant", which is a tenancy
   operation on something that already exists.
@@ -212,6 +213,11 @@ redesign than before it. The existing naming rule was right.
 
 ## Related
 
-- [001 — System Ownership Boundaries](001-system-ownership-boundaries.md)
+- [001 — System Ownership Boundaries](069-swallow-owns-desired-state.md)
 - [003 — Metrics Label Contract](003-metrics-label-contract.md)
 - [Glossary: Server term](../development/glossaries/terms/server.md)
+
+## Revision history
+
+- unrecorded: decided the three identity layers and the three independent status axes of a Server.
+- 2026-10-31: [decision 071](071-provisioner-realized-desired-state.md) (provisioner-realized desired state) added the Server's origin and reports a missing machine as a condition.

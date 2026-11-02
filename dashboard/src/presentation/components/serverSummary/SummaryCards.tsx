@@ -310,7 +310,7 @@ export function ManagementControllerCard({ management, power, bootMedia, hasBMC 
 /**
  * In-band SSH access to a deployed Server, the counterpart of the out-of-band management
  * controller card. It shows the login user — the effective Server Default User the API resolves
- * (set on this Server, else the deployed OS image's default user; decisions 045 and 039) with
+ * (set on this Server, else the deployed OS image's default user; decision 039) with
  * where it comes from — the primary address, and the `ssh <user>@<address>` command an operator
  * runs with one of their Access Keys.
  *

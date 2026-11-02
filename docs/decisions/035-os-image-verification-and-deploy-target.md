@@ -1,6 +1,6 @@
 # 035. OS image verification and deploy-target vocabulary
 
-- Status: Accepted (verification failure handling refined by [ADR 036](036-provisioning-lifecycle-integrity.md))
+- Status: Accepted
 - Date: 2026-09-21
 - 現行規格：[os-provisioning.md](../development/os-provisioning.md) §5 OS Image 驗證與 Deploy Target
 
@@ -31,7 +31,7 @@ verification** attestation.
   renamed.
 - **Verification** is a swallow-owned fact (Swallow ran a real deploy and it
   worked), not a provider capability. It follows the Provider Data Overlay
-  identity rule ([ADR 025](025-provider-data-overlay.md)), keyed by
+  identity rule ([ADR 071](071-provisioner-realized-desired-state.md)), keyed by
   `(integrationId, imageId, architecture)`, stored separately from the display
   overlay, with per-target evidence of the run that produced it.
 - A durable `verify-os-image` Workflow proves an image for a target with a real
@@ -55,7 +55,7 @@ git history).
   shows up mid-deploy in production, and disk-vs-RAM trust is invisible.
 - **Model verification as a provider capability / read the provider.** Rejected:
   the provider does not certify custom images; verification is a Swallow
-  observation, so it is swallow-owned data (ADR 025/031), not a mirrored fact.
+  observation, so it is swallow-owned data (ADRs 071 and 069), not a mirrored fact.
 - **Rename `ephemeral` everywhere to a deploy-target enum.** Rejected: churns the
   wire, stored deployments, durable snapshots, the MAAS adapter, and the k0s var
   for no behavioural gain; a boundary mapping is enough.
@@ -75,3 +75,8 @@ git history).
 - `deployTarget` becomes the vocabulary in new surface while `ephemeral` keeps
   working, so existing clients and platform deploys are unaffected.
 - Verification runs a real deploy: it consumes a ready Server for several minutes.
+
+## Revision history
+
+- 2026-09-21: decided Deploy Target as the deployment-mode vocabulary and that a custom image must pass verification for a target before it deploys.
+- 2026-09-21: [decision 036](036-provisioning-lifecycle-integrity.md) (provisioning lifecycle integrity) made verification a borrow-and-return contract with non-retryable proving failures.

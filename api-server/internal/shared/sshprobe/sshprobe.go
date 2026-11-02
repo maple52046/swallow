@@ -1,5 +1,5 @@
 // Package sshprobe resolves the working SSH login user for a host by trying candidate users with
-// the automation key (the installation's Deployment Key, decision 041).
+// the automation key (the installation's Deployment Key, decision 039).
 //
 // It exists because different OS images use different default login users (ubuntu images use
 // "ubuntu", swallow's custom images use "cloud-user"), while a Site has a single configured SSH

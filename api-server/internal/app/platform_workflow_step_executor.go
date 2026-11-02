@@ -200,14 +200,14 @@ func (e platformWorkflowStepExecutor) recordSoftwareAssignment(ctx context.Conte
 const sshAuthGracePeriod = 45 * time.Second
 
 // waitForSSH blocks until every target host is not just reachable on the SSH port but actually
-// accepts the automation key (the Deployment Key, decision 041 — the configurations repository is
+// accepts the automation key (the Deployment Key, decision 039 — the configurations repository is
 // the effective-credential decorator) as the host's login user. Authenticating here
 // (rather than only probing TCP) closes the gap where "SSH verified" meant only "port open": a host
 // whose login user does not authorize the key now fails at this step with a clear credential
 // message, instead of connecting far later in the Ansible Step and failing with a raw
 // "Permission denied (publickey)". The login user is resolved per target: the Server's effective
 // Server Default User when known (its own value, else the deployed OS Image's default user;
-// decisions 045 and 039), else the candidate list (site user first, then swallow's built-ins), so a
+// decision 039), else the candidate list (site user first, then swallow's built-ins), so a
 // mixed-image fleet still passes readiness. A rejected key is failed
 // fast (after a short grace for cloud-init), while a still-booting host keeps the full readiness
 // window. When no automation credential is wired (only in tests), it degrades to a TCP probe.

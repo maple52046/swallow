@@ -23,7 +23,7 @@ type DeploymentKeySource interface {
 // EffectiveAutomationConfigurations wraps the Site Automation Configuration repository so every
 // automation reader — the execution service, the Ansible executor, wait-for-ssh, and the
 // host-user prober — sees what a run will actually use: the installation's Deployment Key, the
-// only automation SSH key (decision 041), with the Site's become password. FindBySiteID derives
+// only automation SSH key (decision 039), with the Site's become password. FindBySiteID derives
 // CredentialSource so callers can gate on AutomationConfiguration.CheckRunnable; every other
 // method passes through unchanged.
 //

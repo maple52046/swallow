@@ -318,7 +318,7 @@ func TestRefreshServer_DropsStaleDefaultUserOnRedeploy(t *testing.T) {
 	}
 }
 
-// A Server Default User set on the Server belongs to one OS installation (decision 045): reconcile
+// A Server Default User set on the Server belongs to one OS installation (decision 039): reconcile
 // keeps it while the machine runs that OS and clears it once the machine is seen without one.
 func TestReconcile_ClearsServerDefaultUserOnlyWithoutOS(t *testing.T) {
 	tests := []struct {

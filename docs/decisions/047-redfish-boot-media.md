@@ -1,111 +1,123 @@
-# 047. Redfish Boot Media: a swallow-served iPXE ISO mounted through the BMC
+# 047. Boot Media: swallow builds Boot ISOs per provisioner and boots Servers from them
 
 - Status: Accepted
 - Date: 2026-10-03
-- 現行規格：[server-enrollment-and-boot-media.md](../development/server-enrollment-and-boot-media.md) §4 Boot Media
+- 現行規格：[server-enrollment-and-boot-media.md](../development/server-enrollment-and-boot-media.md) §4 Boot Media、§5 Boot ISO、§6 需要重新檢視的儲存配置
 
 ## Context
 
-Some Servers sit on a physical network whose DHCP is provided by the site, not by the
-provisioner, so MAAS cannot run DHCP there. The working manual recipe was to mount an iPXE ISO
-through the BMC's web UI and make that virtual media the first boot device; the ISO takes a lease
-from the site's DHCP and chains to the MAAS rack (`http://<rack>:5248/ipxe.cfg`). Doing that by
-hand at every enrollment and every OS deployment does not scale.
+Some Servers sit on a network whose DHCP the site provides, so the provisioner (MAAS) cannot
+network-boot them. The manual recipe was to mount an iPXE ISO through the BMC and boot it first; the
+ISO takes the site's DHCP lease and chains to the MAAS rack. That does not scale by hand, and MAAS
+cannot do it: it knows the power driver and the BMC account, not Redfish virtual media.
 
-MAAS cannot do it for us. It knows only the power driver (`power_type`) and the BMC account it
-enlisted; commissioning reports DMI hardware, not Redfish virtual media or boot override, and
-MAAS has no "mount this ISO" operation. On `tainan-ci` MAAS drives power over **IPMI** while the
-same BMC and account offer **Redfish**, so the power driver is no gate either.
-
-Probing `tainan-ci` (AMI MegaRAC BMC firmware 13.06.10, AMI Aptio BIOS, Redfish 1.15.1) on
-2026-10-03 established what a real BMC requires:
-
-- Two ComputerSystems (the host and a GPU baseboard without `Boot`); the baseboard answers HTTP
-  500 while the host is off — exactly when a released Server's deployment starts.
-- Remote media is off until an OEM action enables it. `InsertMedia` rejects `https://` sources
-  and credentials for HTTP, never connects with a non-80 port or an image at the server root, and
-  needs a Range-capable server: the BMC streams the ISO at every boot. The BMC network had no
-  egress, so a public ISO URL failed too.
-- The Redfish `Cd` target hangs the host (the virtual CD lives in the BIOS's "UEFI USB Device"
-  group) and a `Continuous` `Cd` override reorders the BIOS fixed boot order; `UefiTarget`
-  refuses `Continuous`, `BootNext` works once, and a Redfish `BootOrder` change is re-sorted by
-  the BIOS at the next POST.
-- MAAS's IPMI driver writes a one-time "force PXE" flag before every power-on, overriding any
-  one-time Redfish setting; when that PXE attempt fails the BIOS falls back to its group order.
-- A BMC restart unmounts the ISO. The InsertMedia Task completes before the virtual CD is ready:
-  a power-on 18 or 67 seconds after a mount left the CD detached, three minutes held through a
-  Redfish power-on but once still not through MAAS's IPMI power-on, and a device left detached
-  refuses a new mount of the same image until ejected. A fresh mount was also dropped by a Redfish
-  restart and by the host booting its disk.
-- After a boot without the CD the BIOS deletes the virtual CD's UEFI boot option, and the BMC's
-  `/Bios` view can disagree with what the BIOS boots.
+The reference BMC (`tainan-ci`: AMI MegaRAC, AMI Aptio BIOS, Redfish 1.15.1) accepts the ISO only over
+plain HTTP on port 80 from a Range-capable server it can reach; its Redfish `Cd` target hangs the
+host; MAAS's IPMI driver forces PXE before every power-on; and a BMC restart or a provisioner power-on
+can drop a fresh mount. The ISO embeds the rack address it chains to, so one installation ISO cannot
+serve a second rack. On UEFI, MAAS chooses a Machine's disk layout from the boot method it last
+recorded; an ISO that chains MAAS's iPXE path is recorded as `pxe`, so UEFI Servers got a BIOS layout
+and every disk deployment failed in curtin.
 
 ## Decision
 
-- **swallow serves the iPXE ISO and fixes its URL.** The API process serves the ISO
-  unauthenticated and Range-capable at a URL derived from an installation-fixed base URL (HTTP on
-  port 80 for broad BMC compatibility); operators never type an ISO URL per Server.
-- **Per Server, swallow owns only intent and history.** The Boot Media setting and the BMC's
-  Redfish capability snapshot (with `probedAt`) are swallow-owned fields on the Server, untouched
-  by reconcile. BMC credentials stay provisioner-owned: read for each call, never stored or
-  logged. The BMC's live state is read, never assumed.
-- **Enrollment-time detection** probes the BMC address of new or stale Servers periodically,
-  whatever the provisioner's power driver is.
-- **Enable is a preflight**: probe, mount, direct the boot, read both back, and save `enabled`
-  only when that worked on that Server, because support differs by model and firmware version.
-- **Boot direction follows what the firmware supports**: an AMI Aptio fixed boot order with the
-  USB group first (persistent), else the virtual CD first in `BootOrder` plus `BootNext`, else the
-  DMTF `Cd` override; a one-time `BootNext` is added whenever possible.
-- **Every OS deployment re-ensures** with an internal `ensure-boot-media` Task before
-  `provision-os`, re-applying unconditionally with the ISO frozen in the Task; the provisioner's
-  own power-on starts the host.
-- **A fresh mount settles before anything powers the host on**, and is mounted once more if the
-  BMC dropped it.
-- **A deployment boot that missed the ISO is recovered once**: the `provision-os` observer remounts
-  a dropped ISO early in the boot and, if the host never network-booted, re-applies Boot Media and
-  restarts the host through Redfish, not through the provisioner.
+### Boot Media on a Server
 
-Revision history: 2026-10-05 replaced the single installation-supplied ISO with Boot ISOs built
-per provisioner ([ADR 049](049-boot-iso-builder.md)); 2026-10-06 added the same ensure before
-hardware inspection ([ADR 053](053-server-enrollment-and-automatic-inspection.md)); 2026-10-09
-moved BMC access onto the provisioner's Power Configuration and added a `libvirt` method
-([ADR 054](054-provisioner-power-configuration.md), [ADR 055](055-libvirt-virtual-machine-enrollment.md))
-(original text in git history).
+- **swallow serves the ISO and derives its URL** from an installation-fixed base URL (HTTP, port 80),
+  unauthenticated and Range-capable. Users never type an ISO URL.
+- **Per Server, swallow owns only intent and history**: the Boot Media setting and the capability
+  probe results with `probedAt`, which reconcile never overwrites. Live BMC or Hypervisor state is
+  read, never assumed. BMC credentials come from the provisioner's Power Configuration for each call
+  and are never stored ([decision 054](054-provisioner-power-configuration.md) (provisioner Power
+  Configuration)).
+- **The method follows the Power Configuration**: `redfish` for a Server with a BMC, `libvirt` for a
+  `virsh` Server on a swallow Hypervisor ([decision 055](055-libvirt-virtual-machine-enrollment.md)
+  (libvirt virtual machine enrollment)); both share the setting, Boot ISO, preflight, and ensure Task.
+- **Detection ignores the power driver**: new and stale Servers' BMCs are probed for Redfish
+  periodically, because a BMC driven over IPMI may still offer it.
+- **Enable is a preflight**: probe, mount, direct the boot, read both back, and save the setting only
+  when that worked on that Server, because support differs by model and firmware version.
+- **Boot direction follows the firmware**: an AMI Aptio fixed boot order with the USB group first
+  (persistent), else the virtual CD first in `BootOrder`, else the DMTF `Cd` override, plus a one-time
+  `BootNext` whenever possible.
+- **Every hardware inspection and OS deployment re-ensures** with an `internal` `ensure-boot-media`
+  Task that re-applies mount and boot direction unconditionally; an OS deployment freezes its Boot ISO.
+  The provisioner's own power-on starts the host, after a fresh mount has settled.
+- **A deployment boot that missed the ISO is recovered once** (`redfish` only): a dropped ISO is
+  remounted, and a host that never network-booted gets Boot Media re-applied and is restarted through
+  Redfish, not through the provisioner.
+
+### Boot ISOs
+
+- **swallow builds Boot ISOs per provisioner Integration** from fixed templates filled with the rack
+  address the user gives; there is no free-form script. A build is synchronous and stored in the
+  installation's Boot Media directory. The installation-supplied single ISO is retired.
+- **Boot Media selects a Boot ISO of the Server's own provisioner Integration**; one in use by an
+  enabled setting cannot be deleted.
+- **No compiler at runtime**: the api-server image carries iPXE built once from a pinned tag without
+  an embedded script, and packages each ISO with iPXE's `genfsimg`.
+- **The firmware chooses the boot loader.** BIOS runs iPXE, which chains the rack's `ipxe.cfg`. UEFI
+  runs a GRUB built for the ISO from a swallow template, which takes the lease itself and loads the
+  rack's `grub/grub.cfg-<mac>`: MAAS's own UEFI path, so MAAS records `uefi` and commissioning gives an
+  EFI system partition. Deployed Machines boot their installed loader through the same path.
+- **Boot ISOs are rebuilt in place** from the current templates and the stored rack address, under the
+  same id, so every setting and accepted Workflow naming it stays valid; a failed rebuild keeps the
+  previous file.
+
+### Disk deployments that need a new inspection
+
+- The provider adapter flags, only on proof, a Machine whose layout cannot take a disk deployment
+  until it is inspected again. The deployment preflight refuses a disk deployment of it (RAM is
+  allowed), and an explicit retry stops before Recover
+  ([decision 033](033-provider-recovery-policy.md) (provider recovery policy)). A failed deployment
+  names the provisioner's cause and the relevant installation-log line.
 
 ## Alternatives considered
 
-- **Mount the operator-given public HTTPS URL:** rejected — the reference BMC rejects HTTPS and
-  could not reach the Internet; the ISO must be streamed from a host the BMC network reaches.
-- **Per-Server ISO URL typed by the operator:** rejected by the user once swallow serves the ISO.
-- **Preflight only, no Workflow step:** rejected — a BMC restart unmounted the ISO, the BIOS
-  re-sorted the boot order, and MAAS overrides one-time settings at power-on.
-- **Workflow step only, no preflight:** rejected — an operator must learn that a Server's
-  hardware or firmware cannot do it before relying on it.
-- **Gate on `power_type == redfish`:** rejected — the reference BMC is driven over IPMI yet
-  supports Redfish.
-- **Store BMC credentials in swallow:** rejected — the provisioner owns them (decision 001).
-- **Use the `Cd` override everywhere:** rejected — it hangs AMI Aptio hosts and destroys the
-  BIOS group order.
-- **Only lengthen the settle before the provisioner's power-on:** rejected — three minutes still
-  lost the mount once at MAAS's IPMI power-on, and no wait is proven sufficient.
-- **Power-cycle through the provisioner after a remount:** rejected — the provisioner's IPMI
-  power-on is the event that detaches a fresh mount; a Redfish reset does not rewrite the IPMI
-  boot flags.
-- **Build a per-Site ISO now:** deferred — the ISO embeds the provisioner's rack address; how it
-  is produced and distributed for production is a follow-up (taken up by ADR 049).
+- **Mount a public HTTPS URL, or a per-Server URL the user types:** rejected; the reference BMC rejects
+  HTTPS and cannot reach the Internet, and the user rejected typed URLs once swallow serves the ISO.
+- **Preflight only, or a Workflow step only:** rejected; a BMC restart, a BIOS re-sort, or MAAS's
+  power-on undoes a preflight, and a user must learn that hardware cannot do it before relying on it.
+- **Gate on `power_type == redfish`:** rejected; the reference BMC is driven over IPMI yet offers
+  Redfish. **Store BMC credentials in swallow:** rejected; the provisioner owns them (decision 054).
+- **Use the `Cd` override everywhere:** rejected; it hangs AMI Aptio hosts and destroys the BIOS
+  group order.
+- **Only lengthen the settle, or power-cycle through the provisioner after a remount:** rejected; three
+  minutes still lost the mount once, and the provisioner's IPMI power-on is what detaches it.
+- **Compile iPXE per ISO with an embedded script:** rejected; a C toolchain in the runtime image and
+  minutes per build, for what prebuilt binaries give in seconds.
+- **A free-form script editor, or keeping the installation ISO beside built ones:** rejected by the
+  user; a script typo only shows as a host that never boots, and two sources keep the hand-built path.
+- **Keep iPXE on UEFI and chain MAAS's `grubx64.efi` (or shim):** implemented and rejected after a lab
+  test; GRUB gets no network state from iPXE and stops at its prompt.
+- **Have iPXE also request `grub/grub.cfg-<mac>` so the rack records `uefi`:** rejected by the user; it
+  relies on undocumented rack behaviour and MAAS would believe a path the Machine did not boot.
+- **Add the EFI system partition before deployment, or switch to BIOS firmware:** rejected as repairs
+  of the symptom; every new UEFI Server would need them.
+- **Build a new Boot ISO and switch every Server instead of rebuilding:** rejected; the old ISO stays
+  wrong and every Server needs a Boot Media change.
+- **Only warn about a layout that needs a new inspection:** rejected; every disk deployment of such a
+  Server fails after minutes of work.
 
 ## Consequences
 
-- A Boot Media Server's deployment may be restarted once by swallow, outside the provisioner,
-  when its boot missed the ISO; such a deployment takes ten to fifteen minutes longer, and the
-  boot check needs the provisioner's event stream.
-- On the reference Server the fixed-boot-order write did not persist, so its deployments boot the
-  ISO only through the boot check. Whether preferring BootOrder + BootNext on Aptio avoids that is
-  an open follow-up.
-- The MAAS integration account must be an administrator to read power parameters.
-- Installations must publish the ISO route on port 80 of an address the BMC network reaches.
-- Vendor behaviour is encoded in one adapter; a new BMC family may need a new strategy there,
-  found by its preflight failing with the BMC's own message.
-- With the AMI Aptio strategy a Server keeps booting the ISO first while it is mounted, which is
-  the intended permanent behaviour; MAAS answers "boot local" for a deployed machine.
-- Only inspections and OS deployments re-ensure; other provisioner power-ons do not.
+- A Boot Media deployment may be restarted once by swallow outside the provisioner, taking ten to
+  fifteen minutes longer; the boot check needs the provisioner's event stream.
+- The installation must publish `/boot-media/` on port 80 of an address the BMC network reaches, and
+  the MAAS integration account must be an administrator to read power parameters.
+- Vendor behaviour lives in one BMC adapter; a new BMC family may need a strategy there, found by its
+  preflight failing with the BMC's own message. With the Aptio strategy a Server boots the ISO first
+  while it is mounted, by design. Other provisioner power-ons do not re-ensure.
+- Secure Boot must be off: neither iPXE nor swallow's GRUB is signed. A new iPXE version, like a fixed
+  template, reaches a Boot ISO only through a rebuild; UEFI Servers commissioned through the old path
+  also need a new inspection.
+- Boot Media is not yet a spec/status resource under
+  [decision 069](069-swallow-owns-desired-state.md) (swallow owns desired state); it keeps this
+  behavior until its migration is designed.
+
+## Revision history
+
+- 2026-10-03: decision 047 made swallow serve an iPXE ISO, mount it through each Server's BMC over Redfish after a per-Server preflight, and re-apply it before every OS deployment.
+- 2026-10-05: decision 047 replaced the installation-supplied ISO with Boot ISOs that swallow builds per provisioner from fixed templates.
+- 2026-10-13: decision 047 booted UEFI through the ISO's own GRUB into MAAS's UEFI path, rebuilt Boot ISOs in place, and (revised 2026-10-19) refused disk deployments of Servers whose layout needs a new inspection.
+- 2026-11-02: merged decision 047 into this ADR; the body states the current decision.

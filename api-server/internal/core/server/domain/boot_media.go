@@ -141,7 +141,7 @@ const (
 	BootMediaAppliedByEnsure BootMediaApplier = "ensure"
 )
 
-// BootMediaSetting is a Server's Boot Media setting (decisions 047 and 049): the operator's
+// BootMediaSetting is a Server's Boot Media setting (decision 047): the operator's
 // intent that the Server boot a chosen Boot ISO first, plus the outcome of the last apply.
 //
 // It is swallow-owned and written only through BootMediaStore; provider reconciliation preserves
@@ -150,7 +150,7 @@ const (
 type BootMediaSetting struct {
 	Enabled bool
 	// ISOID is the chosen Boot ISO, one of the Server's own provisioner Integration. It is empty
-	// on a setting enabled before Boot ISOs existed (decision 049); such a setting needs one
+	// on a setting enabled before Boot ISOs existed (decision 047); such a setting needs one
 	// chosen, and a disabled setting keeps the last one only as history.
 	ISOID     string
 	UpdatedAt time.Time
@@ -274,7 +274,7 @@ type BootMediaEndpointSource interface {
 //
 // Every method re-discovers the BMC's resources (host System, virtual CD, actions) instead of
 // trusting stored paths, retries a busy BMC (HTTP 503, connection resets) until ctx is done, and
-// never puts the password into an error. ISO URLs passed in are Boot ISO URLs (decision 049).
+// never puts the password into an error. ISO URLs passed in are Boot ISO URLs (decision 047).
 type RedfishController interface {
 	// Probe classifies the BMC. It reports unreachable or unsupported BMCs in the result rather
 	// than as an error; it returns an error only when ctx ended before an answer.
@@ -318,7 +318,7 @@ type BootMediaStore interface {
 	EndBootMediaApply(ctx context.Context, id string, startedAt time.Time) error
 }
 
-// BootISOImage is a Boot ISO as Boot Media uses it (decision 049): which one, which provisioner
+// BootISOImage is a Boot ISO as Boot Media uses it (decision 047): which one, which provisioner
 // Integration's rack it chains to, and the URL BMCs mount it at.
 type BootISOImage struct {
 	ID            string

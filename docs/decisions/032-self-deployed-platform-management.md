@@ -18,7 +18,7 @@ provisioning capability, not Platform management. Second, "manage" for a Kuberne
 resource browsing — and Swallow had neither the in-cluster plane nor a clear boundary
 between them. The `KubernetesReader` only performed a read-only `GET /api/v1/nodes`.
 
-Registering a foreign cluster also sat awkwardly against [ADR 001](001-system-ownership-boundaries.md):
+Registering a foreign cluster also sat awkwardly against [ADR 069](069-swallow-owns-desired-state.md):
 Swallow does not own workloads, node state, or membership; it reads them live. Owning a
 registration for a cluster Swallow cannot otherwise account for added surface without adding
 value.
@@ -53,7 +53,7 @@ a cluster summary, namespaces, an Application aggregation (Deployment / DaemonSe
 StatefulSet / owner-less Pod, resolved from Pod `ownerReferences`), pods and pod logs,
 subsidiary resource lists (Services, Ingresses, ConfigMaps, Secrets, PVCs), YAML `apply`
 (with optional dry-run), and node cordon/uncordon. Reads and writes go straight to the
-Kubernetes API; nothing is stored in Mongo, consistent with ADR 001. Writes are synchronous
+Kubernetes API; nothing is stored in Mongo, consistent with ADR 069. Writes are synchronous
 against the cluster API and do not create Workflows; only long-running lifecycle changes are
 Workflows. This is on-demand and separate from membership sync: it never writes the Server
 membership axis, never touches the sync counters, and never runs on the reconcile interval,
@@ -69,13 +69,13 @@ for the explorer) is deliberately deferred.
 
 - **Keep register-existing for foreign clusters:** rejected — it contradicts the confirmed
   product boundary (manage only self-deployed) and adds ownership Swallow cannot justify
-  under ADR 001.
+  under ADR 069.
 - **A generic Steve-style `/k8s/clusters/{id}` proxy (Rancher):** rejected — a transparent
   proxy bypasses Swallow's provider-owned API contract workflow, its auth model, and its
   testing surface. An opinionated REST surface plus YAML `apply` covers the same needs while
   staying inside the contract.
 - **Model in-cluster resources as Swallow entities in Mongo:** rejected — workloads and node
-  state are owned by the Kubernetes API; ADR 001 requires a live read, not a mirror.
+  state are owned by the Kubernetes API; ADR 069 requires a live read, not a mirror.
 - **Import kubeconfig / agent (Portainer):** rejected — Swallow already holds a deployment
   credential; an import wizard exists only to attach foreign clusters, which are out of scope.
 - **Mint a separate least-privilege explorer token now:** rejected for the first wave — the
@@ -100,22 +100,15 @@ for the explorer) is deliberately deferred.
 - The planned `/planes` surface (kubeconfig-registered management planes) is superseded: it
   described registering foreign planes, which this decision removes.
 
-## Current status
-
-Planned/partial: the register-existing removal, the `KubernetesClusterClient` port and REST
-client, the explorer use cases and routes, and the Dashboard sub-navigation are being
-implemented in the first wave. Scale-out, upgrade, Helm, and structured create forms are
-future work.
-
 ## Related
 
-- [ADR 001](001-system-ownership-boundaries.md) — integrate-don't-rebuild; workloads are a
+- [ADR 069](069-swallow-owns-desired-state.md) — integrate-don't-rebuild; workloads are a
   live read, refined here for the explorer's live read/write boundary.
 - [ADR 007](007-cluster-deployment-ownership.md) — Swallow owns k0s deployment and the
   resulting credential the explorer reuses.
 - [ADR 010](010-cluster-lifecycle-actions.md) — Uninstall vs Delete; registered Platforms
   can only be deleted, which this decision keeps for the compatibility window.
-- [ADR 014](014-platform-resource-language.md) — Platform is the canonical aggregate.
+- [ADR 015](015-platform-term-disambiguation.md) — Platform is the canonical aggregate.
 - [ADR 021](021-platform-type-specific-management.md) — type-specific views and on-demand
   Slurm cluster read, whose read/write boundary the Kubernetes explorer follows.
 - [`docs/development/platform-deployment.md`](../development/platform-deployment.md) — the

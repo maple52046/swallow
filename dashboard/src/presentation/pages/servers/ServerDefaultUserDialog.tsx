@@ -20,7 +20,7 @@ interface ServerDefaultUserDialogProps {
 }
 
 /**
- * Sets or clears one Server's Server Default User (decision 045) from the Server detail Summary.
+ * Sets or clears one Server's Server Default User (decision 039) from the Server detail Summary.
  *
  * The account field starts at the current effective user. The optional password is sent once in the
  * request so api-server can add the Deployment Key to that account; it lives only in this dialog's

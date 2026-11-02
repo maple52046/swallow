@@ -59,7 +59,7 @@ HISTORICAL_CODE_PATHS = {
     ("docs/development/glossaries/terms/staleness.md", "docs/glossaries/site.md"): "change note",
 }
 # Terms for mechanisms that no longer exist. A document that still uses one describes a model
-# the code left behind; ADRs are frozen records and are not checked.
+# the code left behind. An ADR's revision history records the past and is not checked.
 RETIRED_TERMS = {
     "indeterminate": "unprovable outcomes are requires_attention with executor_outcome_unknown",
     "step observer": "Tasks declare completion behaviors (workflow-execution.md §12)",
@@ -82,12 +82,11 @@ RETIRED_TERM_RECORDS = {
 }
 
 # Architecture-review tracking codes are defined only in uncommitted plan drafts, so a committed
-# document that cites one points nowhere. Two frozen ADRs kept them as historical markers.
+# document that cites one points nowhere.
 TRACKING_CODE_RE = re.compile(r"\b(?:AR|DF)-\d{2}\b")
-TRACKING_CODE_RECORDS = {
-    "docs/decisions/072-store-driven-workflow-execution.md",
-    "docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md",
-}
+# An ADR ends with its revision history (decisions/README.md); what it says about the past may
+# name paths and mechanisms that no longer exist.
+REVISION_HISTORY_RE = re.compile(r"^## (?:Revision history|修訂紀錄)[ \t]*$", re.MULTILINE)
 
 
 def markdown_files() -> list[Path]:
@@ -224,11 +223,17 @@ def check_links(files: list[Path], errors: list[str]) -> None:
 def is_current_spec(path: Path) -> bool:
     """Return whether path is a current specification whose inline paths must exist.
 
-    ADRs are frozen records and plans are history, so either may name paths that moved since.
+    Plans are history, so they may name paths that moved since.
     """
-    if not is_development_source(path) or "plans" in path.parts:
-        return False
-    return path.parts[:2] != ("docs", "decisions")
+    return is_development_source(path) and "plans" not in path.parts
+
+
+def current_text(path: Path, text: str) -> str:
+    """Return the part of a document that describes the present: an ADR without its revision history."""
+    if path.parts[:2] != ("docs", "decisions") or path.name == "README.md":
+        return text
+    match = REVISION_HISTORY_RE.search(text)
+    return text[: match.start()] if match else text
 
 
 def code_path_candidates(source: Path, token: str) -> list[Path]:
@@ -279,7 +284,7 @@ def check_code_paths(files: list[Path], errors: list[str]) -> None:
     for source in files:
         if not is_current_spec(source):
             continue
-        text = without_fenced_code((ROOT / source).read_text(encoding="utf-8"))
+        text = without_fenced_code(current_text(source, (ROOT / source).read_text(encoding="utf-8")))
         for raw in INLINE_CODE_RE.findall(text):
             if any(character.isspace() for character in raw) or "/" not in raw:
                 continue
@@ -304,15 +309,13 @@ def check_code_paths(files: list[Path], errors: list[str]) -> None:
 
 
 def check_retired_terms(files: list[Path], errors: list[str]) -> None:
-    """Report retired mechanism names outside ADRs and the documents that record the retirement."""
+    """Report retired mechanism names outside the documents that record the retirement."""
     patterns = {
         term: re.compile(r"(?<![\w-])" + re.escape(term) + r"(?![\w-])", re.IGNORECASE)
         for term in RETIRED_TERMS
     }
     for source in files:
-        if source.parts[:2] == ("docs", "decisions"):
-            continue
-        text = (ROOT / source).read_text(encoding="utf-8")
+        text = current_text(source, (ROOT / source).read_text(encoding="utf-8"))
         for term, pattern in patterns.items():
             if (str(source), term) in RETIRED_TERM_RECORDS:
                 continue
@@ -324,10 +327,8 @@ def check_retired_terms(files: list[Path], errors: list[str]) -> None:
 
 
 def check_tracking_codes(files: list[Path], errors: list[str]) -> None:
-    """Report architecture-review tracking codes outside the ADRs that kept them."""
+    """Report architecture-review tracking codes in committed documents."""
     for source in files:
-        if str(source) in TRACKING_CODE_RECORDS:
-            continue
         text = (ROOT / source).read_text(encoding="utf-8")
         for number, line in enumerate(text.splitlines(), start=1):
             match = TRACKING_CODE_RE.search(line)

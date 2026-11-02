@@ -1,7 +1,7 @@
 import { expect, test, type Page } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// Boot ISOs (decision 049): optional iPXE setup for Servers whose external DHCP path cannot use
+// Boot ISOs (decision 047): optional iPXE setup for Servers whose external DHCP path cannot use
 // provisioner-managed network boot.
 
 test.beforeEach(async ({ page }) => {
@@ -78,7 +78,7 @@ test('cards keep serving, usage, links, technical facts, and guarded actions dis
   expect(writes).toEqual(['DELETE /api/v1/provisioning/boot-isos/iso-edge'])
 })
 
-// Decision 057: an ISO built before the UEFI hand-off is flagged in words, and rebuilding it in
+// Decision 047: an ISO built before the UEFI hand-off is flagged in words, and rebuilding it in
 // place — after a confirmation naming the Servers it affects — keeps its URL and adds the UEFI path.
 test('an ISO built before the UEFI hand-off is flagged and rebuilt in place', async ({ page }) => {
   const writes: string[] = []

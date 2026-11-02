@@ -4,7 +4,7 @@
 - Date: 2026-08-26
 - 現行規格：[platform-deployment.md](../development/platform-deployment.md) §2 一次 platform deployment 的解剖（k0s reference）的「拓樸與角色」、§4.4 Result / credential 契約
 
-> **Terminology note:** This ADR predates [ADR 014](014-platform-resource-language.md). Where it
+> **Terminology note:** This ADR predates [ADR 015](015-platform-term-disambiguation.md). Where it
 > names the swallow aggregate *Cluster*, the canonical term is now **Platform**; *cluster* stays
 > valid only for the external technology (see [ADR 015](015-platform-term-disambiguation.md)).
 > [ADR 011](011-flexible-k0s-topologies.md) amends the fixed high-availability topology while
@@ -19,7 +19,7 @@ kind defined but unimplemented and gave an operator no way to go from a set of d
 servers to a working cluster.
 
 Swallow already owned Ansible execution, stable server identity, dynamic inventory, and
-encrypted credential storage (decision 006). What it lacked was an intent that says
+encrypted credential storage (decision 072). What it lacked was an intent that says
 "build a cluster out of these servers in these roles", and a way to end up holding a
 credential for the result. The target topology was a highly available control plane: three
 dedicated k0s controllers with co-located etcd, plus workers.
@@ -65,7 +65,7 @@ dedicated k0s controllers with co-located etcd, plus workers.
   002, and would drift the moment a controller was replaced outside the platform.
 - All-in-one controllers that are also workers: rejected for this topology. It removes
   the etcd quorum that makes the control plane highly available.
-- Automatic retry of failed deployments: rejected, consistent with decision 006. A failed
+- Automatic retry of failed deployments: rejected, consistent with decision 072. A failed
   bootstrap can leave partially joined nodes, and an operator should see the failure
   before it is replayed.
 

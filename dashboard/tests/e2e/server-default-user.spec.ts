@@ -1,7 +1,7 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// The Server Default User (decision 045): shown on the Summary Connection card and set there with an
+// The Server Default User (decision 039): shown on the Summary Connection card and set there with an
 // optional one-time password that installs the Deployment Key, or the shown manual command.
 
 test.beforeEach(async ({ page }) => {

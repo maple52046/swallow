@@ -81,7 +81,7 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 ### 3.4 swallow 永不擁有的事實
 
 以下事實由各自的系統擁有，swallow 即時讀取或深度連結，不保存、不收斂，也不產生 drift（與
-[decision 001](../decisions/001-system-ownership-boundaries.md)（system ownership boundaries） 相同）：
+decision 069 相同）：
 
 - metrics（時間序列）、alert 規則的評估與 firing 狀態、dashboard。
 - workload 的排程與佇列（Slurm、Kubernetes 的工作）。
@@ -328,7 +328,7 @@ execution 遺失不會出現在 change feed 上（[workflow-execution.md](workfl
 
 - adapter 宣告自己的 capability。有能力就實現 desired state；沒有能力時，controller 回報 `realized=false`、
   reason `capability_missing`，desired 值照樣保留。swallow 不再為沒有能力的 provider 建立同形狀的 fallback
-  （取代 [decision 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)（provider capability first with swallow owned fallback））。
+  （取代 decision 069）。
 - adapter 只回報 observed state，永遠不寫 desired state，也不決定政策。
 - adapter 把錯誤分成暫時性、永久性與缺少能力三類，由 controller 決定退避或放棄。
 - 目前以 write-through 方式設定的 provider 設定（HTTP Proxy、Subnet DNS、Power Configuration）遷移後是 swallow
@@ -439,11 +439,11 @@ store 規則與資料庫引擎無關：
 ## 13. 設計理由與相關文件
 
 - 為什麼由 swallow 擁有 desired state、為什麼採混合收斂、為什麼 Temporal 只負責執行：
-  [decision 069](../decisions/069-swallow-owns-desired-state.md)。
+  decision 069。
 - spec／status 的 API 形狀、auto-correct 的時機、第一次觀察即接管、Server 的 origin 與 tag 的所有權：
-  [decision 071](../decisions/071-provisioner-realized-desired-state.md)。
-- 被取代的 capability-first fallback：[decision 031](../decisions/031-provider-capability-first-with-swallow-owned-fallback.md)；
-  仍然有效的「swallow 永不擁有」清單：[decision 001](../decisions/001-system-ownership-boundaries.md)。
+  decision 071。
+- 被取代的 capability-first fallback：decision 069；
+  仍然有效的「swallow 永不擁有」清單：decision 069。
 - core、provider adapter 與擴充模組：[core-and-extensions.md](core-and-extensions.md)、
   [decision 070](../decisions/070-core-providers-and-extensions.md)。
 - 目前的 Workflow 執行行為：[workflow-execution.md](workflow-execution.md)。

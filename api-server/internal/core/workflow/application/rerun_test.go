@@ -141,7 +141,7 @@ func TestRerunClonesFailedOperationConvergingEveryEnsureStep(t *testing.T) {
 		t.Fatal("a terminal Operation must not be canceled")
 	}
 
-	// Both Steps are ensure operations (decision 060): the succeeded readiness check runs again
+	// Both Steps are ensure operations (decision 061): the succeeded readiness check runs again
 	// so the rerun observes the current state, and each continues its attempt sequence so its
 	// executor observes before acting the way an explicit retry does.
 	steps := repo.created.Steps

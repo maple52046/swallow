@@ -64,9 +64,3 @@ state.
 - The Server list now shows provider failures (Failed, Broken, Rescue) and in-progress
   provider work (Releasing, Inspecting, Testing). The list's changing and attention
   signals count them too, so the column and the row signals agree.
-
-## Current status
-
-Implemented: glossary, `api-server` domain, MAAS mapping, storage read compatibility,
-route and contract; `cli` verb and usage; `dashboard` state and action vocabulary, the
-Deployment cell, and in-progress spinners.

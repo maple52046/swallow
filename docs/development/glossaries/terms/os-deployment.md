@@ -7,9 +7,9 @@
   progress observed through the Server provisioning axis. One request may submit
   the same image, ephemeral, cloud-init, and `automatic`, `dhcp`, or `static`
   network intent (automatic is realized by provider auto-assign — see
-  [decision 018](../../../decisions/018-automatic-addressing-provider-auto-assign.md) (automatic addressing provider auto assign);
+  [decision 058](../../../decisions/058-deployment-dhcp-and-subnet-dns.md) (deployment dhcp and subnet dns);
   dhcp by the network's own DHCP — see
-  [decision 058](../../../decisions/058-deployment-dhcp-and-subnet-dns.md) (deployment dhcp and subnet dns)) for
+  decision 058) for
   several Servers managed by one Integration. The deployment mode is named by its
   [Deploy Target](deploy-target.md) (`disk` | `ram`); `ram` is the memory-backed
   mode the wire, MAAS adapter, and stored deployment still call `ephemeral`, and
@@ -37,4 +37,4 @@
   Updated 2026-10-03: provider-stage progress and stall, per
   [decision 046](../../../decisions/046-os-deployment-progress-and-stall.md) (os deployment progress and stall).
   Updated 2026-10-13: network intent gains `dhcp`, per
-  [decision 058](../../../decisions/058-deployment-dhcp-and-subnet-dns.md).
+  decision 058.

@@ -152,7 +152,7 @@ export interface ProvisioningRepository {
   deleteBootISO(id: string): Promise<void>;
   /**
    * Rebuilds a Boot ISO in place from the current template and its own rack address (contract
-   * boot-isos.md, decision 057) and resolves with it once the new file is served. Its id and URL
+   * boot-isos.md, decision 047) and resolves with it once the new file is served. Its id and URL
    * stay the same, so Servers using it boot the new script from their next boot. Rejects with
    * `not_found`, `conflict` (the builder is unavailable — the message says why), or
    * `internal_error` carrying the packaging tool's summary; a failed rebuild keeps the previous file.

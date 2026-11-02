@@ -13,7 +13,7 @@ import (
 // configurations (grub/grub.cfg-<mac>).
 const DefaultRackPort = 5248
 
-// BootChainRenderer renders a Boot ISO that chains to a MAAS rack (decisions 049, 057): the operator
+// BootChainRenderer renders a Boot ISO that chains to a MAAS rack (decision 047): the operator
 // gives the rack as an IPv4 address or hostname with an optional ":port".
 type BootChainRenderer struct{}
 
@@ -90,13 +90,13 @@ func chainURL(host string, port int) string {
 
 // uefiChainURL is where a Boot ISO's UEFI path loads its MAAS configuration from: the rack's
 // per-MAC GRUB configuration, with "<mac>" standing for the MAC of the interface that took the
-// DHCP lease (decision 057).
+// DHCP lease (decision 047).
 func uefiChainURL(host string, port int) string {
 	return fmt.Sprintf("http://%s:%d/grub/grub.cfg-<mac>", host, port)
 }
 
-// renderBootScript renders the Boot ISO's iPXE script for a MAAS rack (decision 049); only
-// BIOS firmware runs it, because UEFI firmware boots the ISO's GRUB instead (decision 057,
+// renderBootScript renders the Boot ISO's iPXE script for a MAAS rack (decision 047); only
+// BIOS firmware runs it, because UEFI firmware boots the ISO's GRUB instead (decision 047,
 // renderGrubConfig). It is the template verified on networks whose DHCP is not MAAS's
 // (MAAS knowledge base: iPXE 2.0.0, MAAS 3.7): take a DHCP lease, set next-server to the rack
 // because MAAS's follow-up scripts build their URLs from it, and chain the rack's ipxe.cfg without
@@ -127,7 +127,7 @@ iseq ${platform} efi && exit 1 || goto retry
 const bootISOGrubCards = 16
 
 // renderGrubConfig renders the GRUB configuration a Boot ISO boots on UEFI firmware
-// (decision 057). It is embedded in the ISO's own GRUB, which replaces iPXE on UEFI: a GRUB that
+// (decision 047). It is embedded in the ISO's own GRUB, which replaces iPXE on UEFI: a GRUB that
 // iPXE chains receives none of iPXE's network state and stops at its prompt.
 //
 // GRUB takes a DHCP lease from the site network itself (net_bootp, retried every ten seconds until

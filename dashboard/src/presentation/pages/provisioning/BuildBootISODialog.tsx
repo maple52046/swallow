@@ -26,7 +26,7 @@ interface BuildDraft {
 }
 
 /**
- * Builds a Boot ISO for one provisioner from the Provisioning page's Boot ISOs tab (decision 049).
+ * Builds a Boot ISO for one provisioner from the Provisioning page's Boot ISOs tab (decision 047).
  *
  * A single provisioner is summarized read-only; only a multi-provisioner scope needs a selector.
  * The selected Integration suggests the MAAS rack host and an advanced ISO name, while either field

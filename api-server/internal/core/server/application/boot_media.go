@@ -34,7 +34,7 @@ const (
 // the domain's persistent definition, which lasts until Boot Media is disabled.
 const libvirtBootOverride = "Continuous"
 
-// BootMediaUseCase owns Boot Media for Servers (decisions 047, 049, and 055): the capability probe,
+// BootMediaUseCase owns Boot Media for Servers (decisions 047 and 055): the capability probe,
 // the enable preflight with a chosen Boot ISO, disable, and the ensure step that runs before every
 // inspection and OS Deployment.
 //

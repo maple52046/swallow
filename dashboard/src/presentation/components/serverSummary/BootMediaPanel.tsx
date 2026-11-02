@@ -42,7 +42,7 @@ interface BootMediaPanelProps {
 }
 
 /**
- * Boot Media for one Server (glossary Boot Media, decisions 047, 049, and 055), shown inside the
+ * Boot Media for one Server (glossary Boot Media, decisions 047 and 055), shown inside the
  * Management controller card on the Server Summary.
  *
  * Its method follows the Server's Power Configuration: `redfish` — the BMC mounts the Boot ISO as

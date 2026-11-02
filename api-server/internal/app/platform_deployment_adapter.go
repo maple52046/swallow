@@ -44,7 +44,7 @@ const (
 // release path, whose Workflow has no ansible step and so no extra vars.
 const deleteRecordParameter = "deleteRecord"
 
-// Deploy Jobs (decision 017): the k0s deployment is composed of two reusable, convergent Jobs.
+// Deploy Jobs (decision 072): the k0s deployment is composed of two reusable, convergent Jobs.
 // `ensure-os` brings every target Server to a booted, SSH-reachable OS (provisioner Tasks
 // plus the readiness gate); `configure-k0s` installs and validates the Platform on top. Jobs are
 // groupings in the Workflow's plan: the engine schedules their Tasks by their cross-Job
@@ -56,7 +56,7 @@ const (
 )
 
 // Uninstall Jobs group the uninstall Workflow's Tasks the same way the deploy Jobs group a
-// deployment (decision 017), so the API `steps[].job` and the dashboard present uninstall with the
+// deployment (decision 072), so the API `steps[].job` and the dashboard present uninstall with the
 // same Job grouping (and per-Task events) as deploy. Keeping the servers is a single
 // `uninstall-platform` Job that removes the platform software; releasing the servers is a
 // per-server `release-servers` Job followed by a `finalize-uninstall` Job that cleans the
@@ -275,7 +275,7 @@ type ensureOSPlan struct {
 }
 
 // buildEnsureOS constructs the ensure-os Job shared by every platform deployment. In
-// provision_os mode it provisions only targets that still need an OS (decision 017 convergence):
+// provision_os mode it provisions only targets that still need an OS (decision 072 convergence):
 // a target already `deployed` in the same batch is reused as-is and only gets the SSH
 // readiness gate, so one deploy can mix ready and deployed servers. In existing_os mode it
 // adds a single readiness gate over the prepared targets. prepared is the install step's

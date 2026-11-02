@@ -4,9 +4,9 @@
 production installation 拓樸、`swallowctl` lifecycle 的保證、release 發佈物與 image 來源、一行指令
 安裝與升級，以及 [Control-Plane NTP Server](glossaries/terms/control-plane-ntp-server.md) 與 OS 佈署後
 的時間同步。它收斂 [decision 040](../decisions/040-single-vm-production-installation.md)（single vm production installation）、
-[decision 050](../decisions/050-compose-only-release-artifacts.md) (compose only release artifacts)、
-[decision 051](../decisions/051-ghcr-holds-only-swallow-images.md) (ghcr holds only swallow images)、
-[decision 052](../decisions/052-one-command-installation.md) (one command installation)、
+decision 040、
+decision 040、
+decision 040、
 [decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)（control plane ntp and post provision time sync） 的現行規則。
 決策理由與否決方案以 ADR 為準，本文只寫目前有效的行為與不變式。
 
@@ -143,7 +143,7 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 
 - 不建立任何 SSH Access Key：由 operator 自己上傳。
 - `bootstrap.sh verify` 是對應的唯讀檢查，供 `doctor` 使用（§3.4）。
-- Ownership 不變（[decision 001](../decisions/001-system-ownership-boundaries.md)（system ownership boundaries））：MAAS 仍是擁有
+- Ownership 不變（decision 069）：MAAS 仍是擁有
   machine 與 image 事實的 provisioner；共置只改變拓樸。
 
 ### 2.6 Plain HTTP
@@ -166,7 +166,7 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 
 單一 VM、MAAS 共用 Compose 的 PostgreSQL instance（而非第二個 PostgreSQL 或 host PostgreSQL）、不用
 `maas-test-db`、紀錄經已發佈 API 建立、先以 plain HTTP 提供：見
-[decision 040](../decisions/040-single-vm-production-installation.md)。
+decision 040。
 
 ---
 
@@ -328,13 +328,13 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 ### 設計理由
 
 - `swallowctl` 是唯一的 lifecycle 工具、installed marker 只在 `doctor` 通過後寫入：見
-  [decision 052](../decisions/052-one-command-installation.md)。
+  decision 040。
 - upgrade 在 operation 進行中拒絕、除非 operator 明確強制：沿用
-  [decision 006](../decisions/006-embedded-ansible-execution.md)（embedded ansible execution） 的 Consequences。
+  [decision 072](../decisions/072-store-driven-workflow-execution.md)（store driven workflow execution） 的 Consequences。
 - backup／restore 包含 `maasdb`，因為 MAAS 依賴 Compose 的 PostgreSQL：見
-  [decision 040](../decisions/040-single-vm-production-installation.md)。
+  decision 040。
 - 還原以 store 為準、不備份 Temporal：store 是唯一的真相，execution 遺失時由 store 重新派發，見
-  [decision 072](../decisions/072-store-driven-workflow-execution.md) (store driven workflow execution)。
+  decision 072。
 
 ---
 
@@ -414,11 +414,11 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 ### 設計理由
 
 - release 只發佈 Compose installation、延後 native bundle 與離線 archive、Temporal UI 交給 operator、發佈機
-  必須自備 crane：見 [decision 050](../decisions/050-compose-only-release-artifacts.md)。這延後而非放棄
-  [decision 006](../decisions/006-embedded-ansible-execution.md) 與
-  [decision 016](../decisions/016-temporal-operation-orchestration.md)（temporal operation orchestration） 的 air-gap 目標。
+  必須自備 crane：見 decision 040。這延後而非放棄
+  decision 072 與
+  decision 072 的 air-gap 目標。
 - GHCR 只放 swallow 建置的 image、官方 image 以上游 digest 原樣使用、共用 PostgreSQL 的中性命名：見
-  [decision 051](../decisions/051-ghcr-holds-only-swallow-images.md)。
+  decision 040。
 
 ---
 
@@ -479,7 +479,7 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 
 `install.sh` 作為 bootstrapper 而 `swallowctl` 仍是唯一 lifecycle 工具、以 installed marker 而非 `.env` 版本選擇
 upgrade、以 Integration endpoint 而非 Dashboard 修正 rack 預填：見
-[decision 052](../decisions/052-one-command-installation.md)。
+decision 040。
 
 ---
 
@@ -632,14 +632,14 @@ lab 事故）。
 
 ## 8. 相關文件
 
-- 決策：[decision 040](../decisions/040-single-vm-production-installation.md)、
-  [decision 050](../decisions/050-compose-only-release-artifacts.md)、
-  [decision 051](../decisions/051-ghcr-holds-only-swallow-images.md)、
-  [decision 052](../decisions/052-one-command-installation.md)、
+- 決策：decision 040、
+  decision 040、
+  decision 040、
+  decision 040、
   [decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)；背景：
-  [decision 001](../decisions/001-system-ownership-boundaries.md)、
-  [decision 006](../decisions/006-embedded-ansible-execution.md)、
-  [decision 016](../decisions/016-temporal-operation-orchestration.md)、
+  decision 069、
+  decision 072、
+  decision 072、
   [decision 058](../decisions/058-deployment-dhcp-and-subnet-dns.md)（deployment dhcp and subnet dns；swallow 不合成 cloud-init）。
 - 語言：glossary [Installation](glossaries/terms/installation.md)、
   [Control-Plane NTP Server](glossaries/terms/control-plane-ntp-server.md)、

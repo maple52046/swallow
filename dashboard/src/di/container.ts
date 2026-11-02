@@ -47,7 +47,7 @@ export interface AppContainer {
   /** Live Server projection changes, so the list patches rows instead of re-reading. */
   serverEvents: ServerEventStream
   sites: SiteRepository
-  /** swallow-owned Zone/Pool management and Server placement (decision 029). */
+  /** swallow-owned Zone/Pool management and Server placement (decision 071). */
   infrastructure: InfrastructureRepository
   platforms: PlatformRepository
   /** Managed Software install/uninstall and Software Assignment reads (decision 038). */

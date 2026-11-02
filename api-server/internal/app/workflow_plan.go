@@ -14,7 +14,7 @@ import (
 // only plans the worker and the Ansible executor can run.
 
 // compensationReturnCanceledDeployment returns a deployment a cancel interrupted to Ready
-// (decision 060). Deploy launchers declare it on provision-os.
+// (decision 061). Deploy launchers declare it on provision-os.
 const compensationReturnCanceledDeployment = "return-canceled-deployment"
 
 // workflowJobLabels are the operator-facing names of the Jobs this package's launchers declare,
@@ -105,7 +105,7 @@ func declareJobs(steps []workflowdomain.Task, retry workflowdomain.RetryGranular
 
 // canceledDeploymentCompensation implements the return-canceled-deployment compensation with the
 // provider Runner: it runs the Runner's return step for the interrupted Task's Server and turns the
-// outcome into the timeline event the cancel records (decision 060).
+// outcome into the timeline event the cancel records (decision 061).
 type canceledDeploymentCompensation struct {
 	runner temporalworkflow.StepLifecycleExecutor
 }

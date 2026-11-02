@@ -70,7 +70,7 @@ type SSHPortResolver interface {
 }
 
 // SSHHostAccess implements serverdomain.HostAccess with x/crypto/ssh: the direct logins that
-// setting a Server Default User performs from api-server (decision 045), and the Deployment Key
+// setting a Server Default User performs from api-server (decision 039), and the Deployment Key
 // commands the libvirt adapter runs on a Hypervisor (decision 055).
 //
 // Trust and secrecy: host keys are not verified, matching the login-user probe (the Ansible run

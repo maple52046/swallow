@@ -100,7 +100,7 @@ function powerPanelState(
  * VM host does. Until it is read, or when it cannot be, VM-host membership is the only signal, so a
  * physical Server keeps its card while the read is in flight.
  *
- * A Server with a BMC also shows its Boot Media there (decisions 047 and 049): the stored setting,
+ * A Server with a BMC also shows its Boot Media there (decision 047): the stored setting,
  * its Boot ISO, and the Redfish probe are read when the page opens; the BMC itself is read only
  * when the operator asks ("Check BMC"), and re-probing or changing the setting (enable, change ISO,
  * re-apply, disable) re-reads the block. While an enable preflight runs — sent from here, from

@@ -149,7 +149,7 @@ capable provisioner.
 New in 2026-10-13; additive.
 
 On 2026-10-31 the DNS servers became desired state
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). Breaking,
+(decision 071). Breaking,
 with no alias: a Subnet's `dnsServers` moved into `spec.dnsServers` (what swallow wants) and
 `status.dnsServers` (what the provisioner holds), with `generation` and `status.conditions` added; a
 write stores the spec and no longer reports the read-back or returns a provisioner refusal.

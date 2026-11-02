@@ -75,7 +75,7 @@ export interface OperationStep {
   kind: string;
   name: string;
   /**
-   * The Job this Step belongs to (decision 017), e.g. "ensure-os" or "configure-k0s"; its label is in
+   * The Job this Step belongs to (decision 072), e.g. "ensure-os" or "configure-k0s"; its label is in
    * the Operation's `jobs`. Empty for a Step outside any Job. The detail view groups Steps by it.
    */
   job?: string;

@@ -56,7 +56,3 @@ problems of their own.
   built on GPU utilization those functions do not provide; that is reported, not patched.
 - Choosing a different upstream version stays the first answer, so a later Omnistat version or
   commit that works on virtual functions should replace the patches rather than carry them.
-
-## Current status
-
-Implemented in `api-server` (`roles/omnistat`) and the development documentation.

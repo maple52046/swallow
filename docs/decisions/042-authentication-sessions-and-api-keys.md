@@ -80,7 +80,3 @@ upgrade.
   exposure.
 - Configuration gains `accessTokenTTL`, `refreshTokenTTL`, and `sessionMaxAge`;
   `jwtExpiryHours` is deprecated.
-
-## Current status
-
-Implemented.

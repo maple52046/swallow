@@ -14,7 +14,7 @@ interface BootMediaApplyProgressProps {
 }
 
 /**
- * The progress of a Boot Media enable preflight (decisions 047 and 049), shared by the enable
+ * The progress of a Boot Media enable preflight (decision 047), shared by the enable
  * dialog and the Server Summary's Boot media block so both read the same while it runs.
  *
  * It shows a bar, the steps (done, current, ahead), the time since it started, and — during the

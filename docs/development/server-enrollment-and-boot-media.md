@@ -35,7 +35,7 @@ provisioner」目前生效的規則。
 provisioner 不提供 DHCP 的網路上，機器要靠 **Boot Media** 開機到 provisioner：Server 的 Boot Media
 setting 選一個 **Boot ISO**，swallow 把它掛到 BMC 的 virtual media 或 VM 的 CD-ROM 並讓它先開機。
 
-事實的所有權（[decision 001](../decisions/001-system-ownership-boundaries.md)（system ownership boundaries））：
+事實的所有權（[decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state））：
 
 | 事實 | 擁有者 | swallow 的做法 |
 | --- | --- | --- |
@@ -452,7 +452,7 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 
 - 只有 preflight 不夠（BMC 重啟卸載 ISO、BIOS 重排開機順序、MAAS 在 power-on 時覆寫一次性設定）；只有
   Workflow step 也不夠（operator 必須在依賴它之前知道這台硬體或韌體做不到）
-  （[decision 047](../decisions/047-redfish-boot-media.md)）。
+  （decision 047）。
 - 不到處用 `Cd` override：它讓 AMI Aptio 主機卡住並破壞 BIOS 的群組順序；只加長 provider power-on 前的
   settle 也不夠：三分鐘仍曾在 MAAS 的 IPMI power-on 時掉 mount，沒有任何等待被證明足夠（decision 047）。
 - `libvirt` method 上傳 volume 而不是讓 QEMU 以 HTTP CD-ROM 讀 URL：後者依賴 QEMU 的 curl block driver，且需要
@@ -544,13 +544,13 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 - 不為每個 ISO 以 `EMBED=` 編譯 iPXE：那需要 runtime image 有 C toolchain、每次要數分鐘，而 `genfsimg -s` 以預先
   編譯的 binary 數秒就得到相同結果；不提供 free-form script：已驗證的範本涵蓋 external DHCP，打錯字只會表現為
   一台永遠開不起來的主機；不保留 installation ISO 作為預設：同一件事兩個來源會讓手工路徑繼續存在
-  （[decision 049](../decisions/049-boot-iso-builder.md)（boot iso builder））。
+  （decision 047）。
 - UEFI 不用 iPXE chain MAAS 的 `grubx64.efi`：實作並在 lab 測試後否決，GRUB 拿不到 iPXE 的網路狀態而停在
   prompt；讓 MAAS 記成 `uefi` 是因為 MAAS 依最後記錄的 boot method 決定 layout，經 `ipxe.cfg` 時記成 `ipxe`
   並視同 BIOS，UEFI 部署就會在 curtin 的 bootloader 步驟失敗
-  （[decision 057](../decisions/057-uefi-boot-iso-hand-off.md)（uefi boot iso hand off））。
+  （decision 047）。
 - 原地 rebuild 而不是建新 ISO 再逐台切換：後者讓舊 ISO 對仍使用它的人保持錯誤，且每台 Server 都要改一次 Boot
-  Media（decision 057）。
+  Media（decision 047）。
 
 ---
 
@@ -580,7 +580,7 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 
 - 不在部署前把 EFI system partition 補進 MAAS layout：那是修補症狀，每台新的 UEFI Server 都需要，而且 MAAS 會繼續
   認為 Machine 以 BIOS 開機；只警告也不行：這種 Server 的每次磁碟部署都會在數分鐘後失敗，接受它沒有任何好處
-  （[decision 057](../decisions/057-uefi-boot-iso-hand-off.md)）。
+  （decision 047）。
 
 ---
 
@@ -630,11 +630,11 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 ## 8. 相關文件
 
 - 決策：[decision 047 Redfish Boot Media](../decisions/047-redfish-boot-media.md)、
-  [decision 049 Boot ISO builder](../decisions/049-boot-iso-builder.md)、
+  [decision 047 Boot ISO builder](../decisions/047-redfish-boot-media.md)、
   [decision 053 Server Enrollment 與自動檢視](../decisions/053-server-enrollment-and-automatic-inspection.md)、
   [decision 054 Power Configuration](../decisions/054-provisioner-power-configuration.md)、
   [decision 055 libvirt VM enrollment](../decisions/055-libvirt-virtual-machine-enrollment.md)、
-  [decision 057 UEFI Boot ISO hand-off](../decisions/057-uefi-boot-iso-hand-off.md)。
+  [decision 047 UEFI Boot ISO hand-off](../decisions/047-redfish-boot-media.md)。
 - 語言：glossary [Server Enrollment](glossaries/terms/server-enrollment.md)、
   [Power Configuration](glossaries/terms/power-configuration.md)、[BMC](glossaries/terms/bmc.md)、
   [Boot Media](glossaries/terms/boot-media.md)、[Boot ISO](glossaries/terms/boot-iso.md)、

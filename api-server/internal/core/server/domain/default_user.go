@@ -13,7 +13,7 @@ import (
 type DefaultUserSource string
 
 const (
-	// DefaultUserSourceServer is a value an operator set on this Server (decision 045).
+	// DefaultUserSourceServer is a value an operator set on this Server (decision 039).
 	DefaultUserSourceServer DefaultUserSource = "server"
 	// DefaultUserSourceOSImage is the mirrored default user of the OS Image the Server was
 	// deployed with (decision 039).
@@ -72,7 +72,7 @@ type HostLoginTarget struct {
 }
 
 // HostAccess is the port for the SSH logins that setting a Server Default User performs from
-// api-server itself, outside any Ansible run (decision 045).
+// api-server itself, outside any Ansible run (decision 039).
 //
 // Implementations log in to the target's address on the Site SSH port without verifying host keys
 // (like the login-user probe; the Ansible run keeps the authoritative host-key check), bound every

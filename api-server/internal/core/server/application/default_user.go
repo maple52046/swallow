@@ -13,7 +13,7 @@ import (
 // Server has an account to log in to.
 const deployedState = "deployed"
 
-// DefaultUserUseCase sets and clears the operator-set Server Default User (decision 045).
+// DefaultUserUseCase sets and clears the operator-set Server Default User (decision 039).
 //
 // It owns the rule that a value is saved only after a Deployment Key login as that account
 // succeeds, so automation can never be pointed at an account it cannot use. With a one-time

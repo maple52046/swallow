@@ -216,12 +216,12 @@ Beyond the shared codes in [conventions.md](conventions.md):
 
 ## Compatibility Notes
 
-New surface introduced with [decision 029](../../../../../docs/decisions/029-infrastructure-zone-pool-ownership.md) (infrastructure zone pool ownership). Field names and enum-like values follow swallow's
+New surface introduced with decision 071. Field names and enum-like values follow swallow's
 glossary (`Zone`, `Pool`, `Site`, `Server`). Adding an optional field is backward compatible;
 see [conventions.md](conventions.md) for the breaking-change rules.
 
 On 2026-10-31 Zones, Pools, and Server placement became desired state
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). Breaking,
+(decision 071). Breaking,
 with no alias: a Zone/Pool is `{id, siteId, generation, spec, status}` (`name` and `description`
 moved under `spec`, `createdAt`/`updatedAt` under `status`, `providerRealized` was replaced by the
 conditions); create and update no longer call the provisioner and no longer return `503` or a

@@ -53,7 +53,7 @@ import { AdvancedSettings } from './AdvancedSettings'
 import { TimeSyncCheckToggle } from './TimeSyncCheckToggle'
 import './platformDeployment.css'
 
-// A platform deploy converges over both pool-ready and already-deployed Servers (decision 017):
+// A platform deploy converges over both pool-ready and already-deployed Servers (decision 072):
 // ready Servers are provisioned to an OS first, deployed Servers are reused as-is. The wizard
 // therefore offers both and derives the machine-preparation mode from the selection instead of
 // asking the operator to pick it up front. Kept module-level so its reference is stable for the
@@ -265,7 +265,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
     return server ? [server] : []
   })
 
-  // Convergent selection (decision 017): a Server already `deployed` is reused as-is; anything else
+  // Convergent selection (decision 072): a Server already `deployed` is reused as-is; anything else
   // (pool-ready) is provisioned first. The machine-preparation mode is derived from this.
   const deployedSelectedServers = selectedServers.filter((server) => server.status.provisioning?.state === 'deployed')
   const readySelectedServers = selectedServers.filter((server) => server.status.provisioning?.state !== 'deployed')

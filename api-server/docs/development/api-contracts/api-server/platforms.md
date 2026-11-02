@@ -1087,7 +1087,7 @@ after every other check passes, swallow requests their cancellation and creates 
 once, ignoring them in the busy check. The uninstall takes the same resource leases, so it waits in
 `waiting_dependency` and starts by itself once they end; a canceled deployment first returns the
 Servers it was installing to Ready and keeps finished OS deployments
-([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md) (cancel and rerun converge)). A cancel refused
+(decision 061). A cancel refused
 for a Workflow that is still running is reported by the `realized` Condition. With the flag, a
 Platform whose lifecycle is `deploying` may be uninstalled. The flag needs the durable
 orchestration topology, like `releaseServers`.
@@ -1243,7 +1243,7 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 ## Compatibility Notes
 
 - The aggregate was renamed from Cluster to Platform
-  ([decision 014](../../../../../docs/decisions/014-platform-resource-language.md) (platform resource language)). Its one-release
+  ([decision 015](../../../../../docs/decisions/015-platform-term-disambiguation.md) (platform term disambiguation)). Its one-release
   aliases were removed on 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)),
   which is breaking: the `/api/v1/clusters...` routes (including the Slurm read and the
   [Kubernetes explorer](platforms-kubernetes.md)), and `clusterId` in the deploy and uninstall

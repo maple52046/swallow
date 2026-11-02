@@ -19,7 +19,7 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
-// bootISORoute is the path pattern at which the API process serves Boot ISOs (decision 049). It
+// bootISORoute is the path pattern at which the API process serves Boot ISOs (decision 047). It
 // is part of the published contract (server-detail-actions.md, boot-isos.md): the installation
 // fixes the base URL, swallow derives the rest from the Boot ISO's id, and operators never type
 // an ISO URL. The directory component is load-bearing: AMI MegaRAC BMCs do not mount an image

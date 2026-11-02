@@ -136,7 +136,7 @@ func sitesAutomationCmd() *cobra.Command {
 			return sendNoContent(cmd, "PUT", fmt.Sprintf("sites/%s/automation/credential", args[0]), nil, body)
 		},
 	}
-	// The body is passed through as published: since decision 041 it holds only becomePassword,
+	// The body is passed through as published: since decision 039 it holds only becomePassword,
 	// and the api-server refuses sshPrivateKey because automation always uses the Deployment Key.
 	addFileFlag(credentialSet, "credential material (becomePassword; automation always uses the Deployment Key)")
 	credential := &cobra.Command{Use: "credential", Short: "Manage the automation credential"}

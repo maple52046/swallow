@@ -35,7 +35,7 @@ Integrations are registered per Site at runtime:
 
 swallow stores intent and identity relationships. It does not copy hardware
 facts, live Platform state, metrics, or alerts into a competing source of truth.
-See the [ownership decision](../docs/decisions/001-system-ownership-boundaries.md).
+See the [ownership decision](../docs/decisions/069-swallow-owns-desired-state.md).
 
 ## Build and verify
 

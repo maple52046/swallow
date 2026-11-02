@@ -77,10 +77,3 @@ deprecated `/operations` and `/clusters` aliases or the single-server
   must use `swallow-api` for the backend service; `swallow` now means the client.
 - The CLI is intentionally scoped to the Active surface, so a Planned endpoint
   gets a command only after its contract is promoted to Active.
-
-## Current status
-
-Implemented. `cli/` builds the `swallow` client covering the Active surface; the
-`api-server` service binary and all deploy/build references were renamed to
-`swallow-api`. Shared docs (codebase-structure, api-contracts, conventions,
-outline, root AGENTS) register `cli` as a component and api-server consumer.

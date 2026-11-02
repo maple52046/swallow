@@ -135,7 +135,7 @@ services:
       SWALLOW_API_CREDENTIAL_KEY_FILE: /run/secrets/credential_key
       SWALLOW_API_MACHINE_TOKEN_FILE: /run/secrets/machine_token
       SWALLOW_API_JOB_ARTIFACT_RETENTION: 720h
-      # Boot Media (decisions 047 and 049), optional: Boot ISOs built on the Provisioning page are
+      # Boot Media (decision 047), optional: Boot ISOs built on the Provisioning page are
       # kept in the boot-media volume and served at
       # <SWALLOW_BOOT_MEDIA_BASE_URL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso through the
       # dashboard's port 80. An empty base URL keeps Boot Media off.
@@ -288,7 +288,7 @@ volumes:
   mongo-data:
   mongo-config:
   job-artifacts:
-  # Boot ISOs (decision 049); first mounted over the image's directory, so owned by the service user.
+  # Boot ISOs (decision 047); first mounted over the image's directory, so owned by the service user.
   boot-media:
   postgres-data:
 

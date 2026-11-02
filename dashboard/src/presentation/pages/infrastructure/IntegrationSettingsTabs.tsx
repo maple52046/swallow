@@ -289,7 +289,7 @@ function GeneralRedirect() {
   return <Navigate to={{ pathname: '../general', search: location.search }} relative="path" replace />
 }
 
-/** HTTP proxy tab: the provider-owned proxy of a MAAS provisioner (decision 056). */
+/** HTTP proxy tab: the provider-owned proxy of a MAAS provisioner (decision 071). */
 export function IntegrationHttpProxyTab() {
   const { integration } = useIntegrationSettingsContext()
   if (!isMaasProvisioner(integration)) return <GeneralRedirect />

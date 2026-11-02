@@ -144,7 +144,7 @@ type automationResponse struct {
 	// HasCredential reports that the Site stores a become password.
 	HasCredential bool `json:"hasCredential"`
 	// CredentialSource is the key automation uses for the Site: deploymentKey, or none before
-	// the Deployment Key exists (decision 041).
+	// the Deployment Key exists (decision 039).
 	CredentialSource string `json:"credentialSource"`
 	CreatedAt        string `json:"createdAt"`
 	UpdatedAt        string `json:"updatedAt"`
@@ -181,7 +181,7 @@ func (h *ExecutionHandler) PutAutomation(c *fiber.Ctx) error {
 
 // automationCredentialRequest is the body of PUT /sites/{id}/automation/credential. Only the
 // become password is accepted. SSHPrivateKey exists solely to detect callers that still send the
-// Site key removed by decision 041: any non-null value is refused rather than ignored, so no
+// Site key removed by decision 039: any non-null value is refused rather than ignored, so no
 // caller believes an override took effect.
 type automationCredentialRequest struct {
 	SSHPrivateKey  *string `json:"sshPrivateKey"`

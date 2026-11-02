@@ -31,7 +31,7 @@ interface ProvisionerHttpProxySectionProps {
 
 /**
  * The HTTP proxy tab of a MAAS provisioner's Integration settings page (contract
- * provisioner-http-proxy.md, decisions 056 and 071): the proxy MAAS hands to the machines it deploys.
+ * provisioner-http-proxy.md, decision 071): the proxy MAAS hands to the machines it deploys.
  *
  * swallow keeps the value as desired state: the tab's own **Save proxy** button stores it, never the
  * General or Connection Save, because it is not an Integration setting, and the backend then applies

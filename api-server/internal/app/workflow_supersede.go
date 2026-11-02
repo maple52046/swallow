@@ -13,7 +13,7 @@ import (
 // Release, Recover, and Platform uninstall: it asks each unfinished Workflow holding a target to
 // cancel and returns their IDs so Create does not refuse the new Operation as busy. The new
 // Operation waits for those Workflows' resource leases, so it acts only after they end, including
-// after a canceled deployment returned its Server to Ready (decision 060). A refused cancel is
+// after a canceled deployment returned its Server to Ready (decision 061). A refused cancel is
 // accepted only when the Workflow finished meanwhile; one still running fails the request as a
 // conflict naming it, because the new Operation would otherwise wait behind it with no end. Call it
 // once every other validation passed, right before Create, because a cancel cannot be undone.

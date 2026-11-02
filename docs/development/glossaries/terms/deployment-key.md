@@ -20,7 +20,7 @@
   password adds the current public key to that account on that Server.
 - Synonyms: None.
 - Deprecated terms: Automation key; Site private key or Site override (removed by
-  [decision 041](../../../decisions/041-deployment-key-only-automation.md) (deployment key only automation)).
+  [decision 039](../../../decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user)).
 - Examples: "`swallowctl install` creates the Deployment Key right after `migrate` and
   registers its public key in MAAS, so the first Kubernetes deploy passes SSH readiness
   with no Site credential." / "Regenerating the Deployment Key warns that Servers deployed
@@ -28,7 +28,7 @@
 - Related terms: SSH Key, Automation Configuration, OS Deployment, Workflow, Runner,
   Installation, Server Default User.
 - Change note: Added for SSH key management
-  ([decision 039](../../../decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user)). Updated
+  (decision 039). Updated
   2026-10-01: created by the installation step instead of at API start, and required by OS
   and Platform deployment. Updated 2026-10-02: the only automation credential, with no
-  Site override ([decision 041](../../../decisions/041-deployment-key-only-automation.md)).
+  Site override (decision 039).

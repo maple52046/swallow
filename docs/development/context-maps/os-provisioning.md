@@ -24,7 +24,7 @@ network's DHCP server; `static` carries the operator-selected address. Release
 cleanup is coordinated through a durable Provisioning Task. No continuous
 network reconciliation runs on deployed hosts.
 
-## Enrollment and boot path (decisions 047, 049, 053, 055, 057)
+## Enrollment and boot path (decisions 047, 053, and 055)
 
 ```text
 network boot/BMC --Boot ISO or provider PXE--> provisioner enrollment
@@ -47,7 +47,7 @@ owns the downstream PXE/GRUB boot resources and resulting machine inventory.
 The Boot ISO translates the site's DHCP boot into the MAAS rack's BIOS iPXE or
 UEFI GRUB path; it is not an OS Image.
 
-## Disk-layout inspection guard (decision 057)
+## Disk-layout inspection guard (decision 047)
 
 ```text
 MAAS storage/firmware observation --adapter translation--> Server provisioning.inspectionRequired
@@ -62,7 +62,7 @@ its explicit Retry stops before provider writes or recovery, while a RAM
 deployment remains allowed. Re-inspection updates the provider layout and the
 next reconciliation updates the guard; clients do not clear it directly.
 
-## SSH Keys realized in the provisioner (decisions 039 and 041)
+## SSH Keys realized in the provisioner (decision 039)
 
 ```text
 SSH Key controller (worker) --ProvisionerKeys port--> internal/app adapter --ProviderFactory--> SSHKeyRegistrar --> MAAS account sshkeys
@@ -86,7 +86,7 @@ catalog on read. Reconcile mirrors the effective value onto each deployed Server
 `deployedImageDefaultUser`, alongside `deployedImageName`, so automation reads it from the
 projection without a catalog call.
 
-## Provisioner HTTP Proxy as desired state (decision 056)
+## Provisioner HTTP Proxy as desired state (decision 071)
 
 ```text
 dashboard --provisioner-http-proxy.md--> spec in provisioner_http_proxies

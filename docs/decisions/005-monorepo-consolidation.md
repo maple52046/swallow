@@ -6,8 +6,8 @@
 ## Context
 
 The platform began as a git submodule *superproject* named `gdcm` (GPU Datacenter
-Management). Business code lived in two submodules under `src/` — `src/swallow`
-(Go backend) and `src/dashboard` (TypeScript frontend) — and the repository root
+Management). Business code lived in two submodules under src/ — src/swallow
+(Go backend) and src/dashboard (TypeScript frontend) — and the repository root
 exposed each platform component through a symlink (`api-server`, `agent`,
 `dashboard`). The root owned only the shared model: glossary, API contracts,
 ADRs, and the structure contract.
@@ -16,8 +16,8 @@ Two things changed the calculus:
 
 1. The product is installed on a single login / management node, not as a
    distributed fleet agent. The node-side `agent` was already retired in
-   [ADR-001](001-system-ownership-boundaries.md); node control is delegated to
-   embedded Ansible execution ([ADR-006](006-embedded-ansible-execution.md)). The
+   [ADR-069](069-swallow-owns-desired-state.md); node control is delegated to
+   embedded Ansible execution ([ADR-072](072-store-driven-workflow-execution.md)). The
    original distributed-systems motivation for keeping separate repositories no
    longer applies.
 2. The platform has no external consumers yet. The submodules had no independent
@@ -42,8 +42,8 @@ the platform from `gdcm` to `swallow`.
 
 - The two submodules become ordinary top-level directories, with git history
   preserved via `git subtree`:
-  - `src/swallow` -> `api-server/`
-  - `src/dashboard` -> `dashboard/`
+  - src/swallow -> `api-server/`
+  - src/dashboard -> `dashboard/`
 - The `agent`, `api-server`, and `dashboard` root symlinks, `.gitmodules`, and
   the `src/` tree are removed.
 - Component boundaries remain, but as **logical** boundaries enforced by
@@ -89,10 +89,3 @@ the platform from `gdcm` to `swallow`.
 - `go build` / `go test` verification of the module rename was not run at
   migration time because the Go toolchain was absent on the migration host; the
   change is a mechanical 1:1 rewrite of the module path and imports.
-
-## Current status
-
-Implemented on the `chore/swallow-monorepo` branch: submodules removed, code
-imported with history under `api-server/` and `dashboard/`, module and env
-prefixes rebranded, and the structure-contract docs and Cursor harness updated to
-the monorepo model.

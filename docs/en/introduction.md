@@ -79,7 +79,7 @@ swallow deliberately does not own:
   integration and automation credentials are write-only.
 
 See the [desired-state model](../development/desired-state-model.md) and the
-binding [system ownership decision](../decisions/001-system-ownership-boundaries.md)
+binding [system ownership decision](../decisions/069-swallow-owns-desired-state.md)
 for the detailed boundary.
 
 ## Interfaces

@@ -123,7 +123,7 @@ type Machine struct {
 
 	// SystemVendor, SystemProduct, and CPUModel describe the physical machine as the
 	// provisioner commissioned it. Mirrored so a fleet can be queried by hardware
-	// generation without opening each machine; see decision 001.
+	// generation without opening each machine; see decision 069.
 	SystemVendor  string
 	SystemProduct string
 	CPUModel      string

@@ -67,7 +67,7 @@ names a Hypervisor use `libvirt` Boot Media ([ADR 055](055-libvirt-virtual-machi
   driver late in enlistment; the enlistment script set's state says when that can no longer happen.
 - **Drive libvirt over SSH from swallow:** rejected. It duplicates the provisioner's power driver
   and would put hypervisor SSH keys into swallow.
-- **Store power credentials in swallow:** rejected by [ADR 001](001-system-ownership-boundaries.md);
+- **Store power credentials in swallow:** rejected by [ADR 069](069-swallow-owns-desired-state.md);
   the provisioner owns them.
 - **Keep treating every retry as an override of the wait:** rejected. Retrying after a fix is the
   normal recovery, and it must not commission an enlisting Machine.

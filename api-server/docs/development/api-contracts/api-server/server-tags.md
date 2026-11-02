@@ -151,7 +151,7 @@ conditions instead.
 
 ## Compatibility Notes
 
-New surface introduced with [decision 031](../../../../../docs/decisions/031-provider-capability-first-with-swallow-owned-fallback.md) (provider capability first with swallow owned fallback). Field names and enum-like values follow swallow's glossary
+New surface introduced with [decision 069](../../../../../docs/decisions/069-swallow-owns-desired-state.md) (swallow owns desired state). Field names and enum-like values follow swallow's glossary
 (`Tag`, `Server`, `Site`). Adding an optional field is backward compatible; see
 [conventions.md](conventions.md) for the breaking-change rules.
 
@@ -160,7 +160,7 @@ response's `tags` can be `null` for a Server left without tags, a repeated `serv
 once, and an unknown `siteId` lists no tags instead of failing.
 
 On 2026-10-31 the edit moved from driving the provisioner to writing the spec
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). Breaking
+(decision 071). Breaking
 for clients that read the result as the observed tags: each result item gained `generation`, its
 `tags` is the manual-tag spec and never `null`, `503` is no longer returned, and `409` was added.
 The swallow-owned tag fallback for provisioners without tag support was retired; such tags are now

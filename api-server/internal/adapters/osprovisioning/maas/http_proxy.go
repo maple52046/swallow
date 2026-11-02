@@ -11,7 +11,7 @@ import (
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
-// This file implements the Provisioner HTTP Proxy capability against MAAS (decision 056). MAAS holds
+// This file implements the Provisioner HTTP Proxy capability against MAAS (decision 071). MAAS holds
 // the proxy as three region settings on the /maas/ handler, read with op=get_config and written with
 // op=set_config one setting per call. The setting names stay here.
 

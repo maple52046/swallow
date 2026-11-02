@@ -45,7 +45,7 @@ type serverDoc struct {
 	Provisioning *provisioningDoc `bson:"provisioning,omitempty"`
 	Membership   *membershipDoc   `bson:"membership,omitempty"`
 
-	// DefaultUser is the operator-set Server Default User (decision 045). Top-level and written
+	// DefaultUser is the operator-set Server Default User (decision 039). Top-level and written
 	// only by SetDefaultUser, like membership, so a reconcile Upsert never erases it; absent reads
 	// as "none set".
 	DefaultUser string `bson:"defaultUser,omitempty"`
@@ -597,7 +597,7 @@ func (r *MongoServerRepo) SetDefaultUser(ctx context.Context, id string, user st
 // bootMediaDoc stores serverdomain.BootMediaSetting.
 type bootMediaDoc struct {
 	Enabled bool `bson:"enabled"`
-	// ISOID is absent on settings written before Boot ISOs (decision 049); it reads as none chosen.
+	// ISOID is absent on settings written before Boot ISOs (decision 047); it reads as none chosen.
 	ISOID         string     `bson:"isoId,omitempty"`
 	UpdatedAt     time.Time  `bson:"updatedAt"`
 	LastAppliedAt *time.Time `bson:"lastAppliedAt,omitempty"`
@@ -639,7 +639,7 @@ func (r *MongoServerRepo) SetBootMedia(ctx context.Context, id string, setting *
 }
 
 // CountBootMediaUsing counts the Servers whose enabled Boot Media uses the Boot ISO isoID; a Boot
-// ISO in use cannot be deleted (decision 049). A disabled setting that still names it does not
+// ISO in use cannot be deleted (decision 047). A disabled setting that still names it does not
 // count: it is history, and re-enabling requires choosing a Boot ISO again.
 func (r *MongoServerRepo) CountBootMediaUsing(ctx context.Context, isoID string) (int, error) {
 	count, err := r.col.CountDocuments(ctx, bson.M{"bootMedia.enabled": true, "bootMedia.isoId": isoID})

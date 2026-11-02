@@ -244,7 +244,7 @@ endpoint is not bounded by the short provider read timeout used for catalog read
 No supported provider exposes an operation to rename an image or relabel its OS and release, and
 these values have no external owner, so swallow keeps them as the image's metadata: desired state
 that needs no provider realization
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). It never
+(decision 071). It never
 changes the provider or the deployable image identity, and it is keyed by the same
 `integrationId` + `imageId` + `architecture` identity the catalog returns, passed as query
 parameters because an `imageId` can contain a slash and one image name can back several
@@ -324,9 +324,9 @@ carries the `ephemeral` boolean; `deployTarget` maps onto it (`disk ↔ false`,
 `ram ↔ true`). `network.mode` is `automatic`, `dhcp`, or
 `static` (glossary Network Configuration); missing network intent defaults to Automatic.
 Automatic addressing is realized by provider auto-assign (a stable, provider-recorded
-address; see [decision 018](../../../../../docs/decisions/018-automatic-addressing-provider-auto-assign.md) (automatic addressing provider auto assign));
+address; see [decision 058](../../../../../docs/decisions/058-deployment-dhcp-and-subnet-dns.md) (deployment dhcp and subnet dns));
 DHCP leaves the address, gateway, and DNS to the network's own DHCP server (see
-[decision 058](../../../../../docs/decisions/058-deployment-dhcp-and-subnet-dns.md) (deployment dhcp and subnet dns)). `dhcp` is no
+decision 058). `dhcp` is no
 longer an alias of `automatic`, and a template stored with `dhcp` reads as DHCP.
 `subnetId` names a live provider subnet and `defaultGateway` defaults to false. A default
 gateway can be requested only for Static intent. It returns `201` and never echoes `userData`.
@@ -618,7 +618,7 @@ accepted (see [server-detail-actions.md](server-detail-actions.md#boot-media) an
 [decision 047](../../../../../docs/decisions/047-redfish-boot-media.md) (redfish boot media)), the Workflow also has
 an `internal` Task `ensure-boot-media-<serverId>` of kind `ensure-boot-media`, and that Server's
 `provision-os` Task depends on it. The Task's parameters carry the URL of that Server's chosen
-Boot ISO ([boot-isos.md](boot-isos.md), [decision 049](../../../../../docs/decisions/049-boot-iso-builder.md) (boot iso builder))
+Boot ISO ([boot-isos.md](boot-isos.md), decision 047)
 as accepted (`isoUrl`). When it runs it re-reads the Server's setting — a Server whose Boot
 Media was disabled meanwhile is left alone — then reads the BMC and re-applies the ISO mount and
 boot direction unconditionally, because a BMC can lose either between deployments. A BMC that
@@ -935,7 +935,7 @@ unknown Integration is `404 not_found` and a non-provisioner Integration `400 va
 ## Compatibility Notes
 
 On 2026-10-31 the OS Image overlay became OS Image metadata
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). Breaking,
+(decision 071). Breaking,
 with no alias: a catalog image is `{id, architecture, spec, status}` — the `custom*` fields and
 `tags` became `spec`, and the effective and `provider*` values, `sizeBytes`, and the verification
 arrays moved under `status` — and `PATCH /images/overlay` / `DELETE /images/overlay` became
@@ -951,13 +951,13 @@ of templates and deployment settings is no longer read; send `deployTarget`.
 On 2026-10-19 `POST /release-operations` and `POST /recover-operations` gained the optional
 `cancelActiveWorkflows` field, and a first `release-os` attempt began observing a Server that is
 already Ready or Releasing instead of sending another Release; clients that omit the field are
-unaffected ([decision 061](../../../../../docs/decisions/061-recovery-supersedes-blocking-work.md)).
+unaffected (decision 061).
 
 On 2026-10-19 the deployment preflight began refusing a disk deployment of a Server whose
 layout needs a new inspection (`inspection_required`), and `deployment_failed` messages began
 carrying the provider's error description and installation error line. Both keep their status
 codes and error codes; clients that branch on codes are unaffected
-([decision 057 amendment](../../../../../docs/decisions/057-uefi-boot-iso-hand-off.md)).
+([decision 047 amendment](../../../../../docs/decisions/047-redfish-boot-media.md)).
 
 On 2026-10-29 `POST /release-operations`, the deprecated `POST /servers/{id}/release`, and
 `POST /recover-operations` for a `deployed` target began refusing a Server a Platform claims

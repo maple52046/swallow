@@ -70,7 +70,7 @@ type ServerStatusItem struct {
 	// is why a claimed Server cannot be released directly.
 	PlatformClaim *PlatformClaimItem `json:"platformClaim"`
 
-	// DefaultUser is the effective Server Default User (decision 045), omitted when unknown. It is
+	// DefaultUser is the effective Server Default User (decision 039), omitted when unknown. It is
 	// what automation logs in as, so a client showing an SSH login or a docker-group account must
 	// read this rather than provisioning.deployedImageDefaultUser.
 	DefaultUser *DefaultUserItem `json:"defaultUser,omitempty"`

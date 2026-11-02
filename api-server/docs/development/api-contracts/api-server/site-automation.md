@@ -100,7 +100,7 @@ valid.
 ```
 
 `credentialSource` is the key automation uses for this Site. Every Site uses the
-installation's Deployment Key ([decision 041](../../../../../docs/decisions/041-deployment-key-only-automation.md) (deployment key only automation)):
+installation's Deployment Key ([decision 039](../../../../../docs/decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user)):
 
 - `deploymentKey` — the Deployment Key exists and is used.
 - `none` — no Deployment Key exists (the installation step that creates it has not run).
@@ -139,9 +139,9 @@ credential request carrying a non-null `sshPrivateKey` return `validation_error`
 
 ## Compatibility Notes
 
-[Decision 039](../../../../../docs/decisions/039-ssh-key-management-and-default-user.md)
+Decision 039
 made `sshUser` optional and added `credentialSource`.
-[Decision 041](../../../../../docs/decisions/041-deployment-key-only-automation.md) removed
+Decision 039 removed
 the Site private-key override (breaking): `sshPrivateKey` is refused, `credentialSource`
 no longer reports `site`, and a key stored by an earlier release is ignored. Workflows consume
 this configuration through the standalone Ansible executor.

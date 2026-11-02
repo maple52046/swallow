@@ -328,7 +328,7 @@ interface BootISOFixture {
   rackAddress: string
   /** Undefined uses the fixture's served URL; null models an ISO record that is not currently served. */
   url?: string | null
-  /** An ISO built before the UEFI hand-off (decision 057): no `uefiChainUrl` until rebuilt. */
+  /** An ISO built before the UEFI hand-off (decision 047): no `uefiChainUrl` until rebuilt. */
   legacyTemplate?: boolean
   rebuiltAt?: string
   rebuiltBy?: string
@@ -558,7 +558,7 @@ export interface FixtureOptions {
   registryCredentials?: Array<{ registry: string; username: string }>
   /** Called for every Registry Credential write with its method, path, and JSON body (passwords included). */
   onRegistryCredentialRequest?: (method: string, path: string, body: Record<string, unknown> | null) => void
-  /** Called for every Server Default User write (decision 045) with its method and JSON body. */
+  /** Called for every Server Default User write (decision 039) with its method and JSON body. */
   onDefaultUserRequest?: (method: string, body: Record<string, unknown> | null) => void
   /** Sudo access the default-user PUT reports; `passwordless` when omitted. */
   defaultUserSudo?: 'passwordless' | 'password_required' | 'unavailable'
@@ -587,7 +587,7 @@ export interface FixtureOptions {
    */
   bootMediaApplyGate?: Promise<void>
   /**
-   * Boot ISOs at page load (boot-isos.md, decision 049). Omitted: `taipei-rack` for MAAS Taipei
+   * Boot ISOs at page load (boot-isos.md, decision 047). Omitted: `taipei-rack` for MAAS Taipei
    * (srv-1's provisioner) and `edge-rack` for MAAS Edge.
    */
   bootISOs?: BootISOFixture[]
@@ -626,7 +626,7 @@ export interface FixtureOptions {
   /** Servers whose Boot Media goes through a swallow hypervisor (method `libvirt`), on srv-1. */
   libvirtBootMediaServerIds?: string[]
   /**
-   * Provisioner HTTP Proxy by Integration id as MAAS holds it (decision 056). Omitted Integrations
+   * Provisioner HTTP Proxy by Integration id as MAAS holds it (decision 071). Omitted Integrations
    * start on the MAAS default, the built-in proxy.
    */
   httpProxies?: Record<string, { mode: string; httpProxy: string }>
@@ -902,7 +902,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       drivers: [{ driver: 'ipmi', family: 'bmc' }, { driver: 'redfish', family: 'bmc' }, { driver: 'virsh', family: 'virsh' }],
     }
   }
-  // Per-page Boot ISOs (decision 049). Only srv-1 has Boot Media in the fixture, so an ISO's
+  // Per-page Boot ISOs (decision 047). Only srv-1 has Boot Media in the fixture, so an ISO's
   // inUseBy is whether srv-1's enabled setting names it.
   let bootISOItems = (options.bootISOs ?? [
     { id: 'iso-taipei', name: 'taipei-rack', integrationId: 'maas-a', rackAddress: '10.0.0.2' },
@@ -3266,7 +3266,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         ? json(route, platform)
         : json(route, { error: { code: 'not_found', message: 'Platform not found' } }, 404)
     }
-    // The dashboard reads a single Operation as a Workflow (decision 017 rename). Serve it by id so
+    // The dashboard reads a single Operation as a Workflow (decision 072 rename). Serve it by id so
     // deployment claim resolution can read a Platform's target history.
     // Canonical Workflow listing: filtering and pagination stay server-owned so dashboard
     // behavior tests exercise the same contract as production rather than client-side narrowing.

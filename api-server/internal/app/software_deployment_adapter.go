@@ -16,7 +16,7 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-// Software deployment Jobs (decision 017 / decision 038). A standalone software install composes three
+// Software deployment Jobs (decision 072 / decision 038). A standalone software install composes three
 // convergent Jobs on one parent Workflow: prepare-hosts brings each already-deployed target to SSH
 // readiness, configure-<kind> runs the one idempotent software playbook, and record-software writes
 // the swallow-owned Software Assignment. A platform deploy that pulls in a software component

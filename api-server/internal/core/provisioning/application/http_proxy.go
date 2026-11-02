@@ -11,7 +11,7 @@ import (
 )
 
 // HTTPProxyItem is a provisioner Integration's Provisioner HTTP Proxy as the API reports it
-// (provisioner-http-proxy.md, decisions 056 and 071): the spec swallow owns and the status the
+// (provisioner-http-proxy.md, decision 071): the spec swallow owns and the status the
 // HTTP Proxy controller reports.
 type HTTPProxyItem struct {
 	IntegrationID string              `json:"integrationId"`

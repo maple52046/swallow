@@ -248,7 +248,7 @@ New surface. It supersedes the planned `/ssh-keys` design in
 is not secret) and there is no `vaultRef`.
 
 On 2026-10-31 an SSH Key became a migrated resource
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). Breaking,
+(decision 071). Breaking,
 with no alias: `name`, `purpose`, `keyType`, `fingerprint`, and `publicKey` moved under `spec`,
 `createdAt`/`updatedAt` under `status`; `generation` was added; and `providerSync[]` (with its
 `state`, `syncedAt`, and `error`) was replaced by `status.provisioners[]` with conditions and the

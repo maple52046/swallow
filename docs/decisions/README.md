@@ -17,7 +17,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 - 改變 component 邊界、跨 component 的互動方式，或某個事實由誰擁有。
 - 建立之後的功能都必須遵守的規則（例如 [069](069-swallow-owns-desired-state.md)、
   [064](064-upstream-patches-are-the-exception.md)）。
-- 引入、更換或否決重大的技術依賴或 runtime 拓撲（例如 [016](016-temporal-operation-orchestration.md)、
+- 引入、更換或否決重大的技術依賴或 runtime 拓撲（例如 [072](072-store-driven-workflow-execution.md)、
   [040](040-single-vm-production-installation.md)）。
 
 決議改變時更新原本那份 ADR（見下方「ADR 的更新」），不另開一份去取代它；只有新的問題才新增 ADR。
@@ -30,8 +30,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 - 文件與程式註解以「decision NNN」引用 ADR，不寫「ADR NNN」「ADR-NNN」或只有編號的連結。每份文件第一次
   引用某份 ADR 時附上標題並連結，例如「[decision 069](069-swallow-owns-desired-state.md)（swallow owns desired
   state）」；之後只寫「decision 069」。下方的索引不受此限。
-- decision 072 與 074 的內文提到 AR-xx、DF-xx 這類編號。它們是當時架構檢視的追蹤編號，定義只在沒有提交的
-  plan 草稿中，查不到不影響閱讀。之後的 ADR、現行規格與程式註解不使用這類編號，改寫成自足的說明。
+- ADR、現行規格與程式註解不使用 AR-xx、DF-xx 這類架構檢視的追蹤編號，改寫成自足的說明。
 
 ## ADR 與規格的分工
 
@@ -53,6 +52,8 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
   段落，細節留在 git 歷史。
 - 讀 ADR 時讀 Context 與 Decision，需要時再讀 Alternatives considered 與 Consequences；除非任務與決議的演變有關，
   不讀修訂紀錄。
+- 2026-11-02 起，修訂同一個問題的 ADR 已合併成一份，沿用現行那份的編號；被併入的編號列在下方「已併入的編號」，
+  引用一律寫現行的編號。
 
 ## 格式
 
@@ -86,88 +87,94 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 
 ## 既有 ADR
 
-「關係」欄只列這份 ADR 修訂了哪些較早的 ADR；細節與現行規則見各 ADR 指向的規格。
+「併入的舊編號」列出 2026-11-02 合併進這份的 ADR；細節與現行規則見各 ADR 指向的規格。
 
-| ADR | 決定了什麼 | 關係 |
+| ADR | 決定了什麼 | 併入的舊編號 |
 | --- | --- | --- |
-| [001](001-system-ownership-boundaries.md) | 哪個系統擁有哪些事實，以及 swallow 因此不得儲存或重建什麼 | — |
 | [002](002-server-identity.md) | Server 以 opaque identity 跨站點與重裝維持身分，狀態分為三個獨立軸 | — |
 | [003](003-metrics-label-contract.md) | monitoring 拓撲與把 metrics 接回 Server 的標籤契約；swallow 只提供有上限的基本用量圖表 | — |
 | [005](005-monorepo-consolidation.md) | 由 submodule superproject 收斂為單一 swallow monorepo | — |
-| [006](006-embedded-ansible-execution.md) | swallow 以 pinned ansible-runner 自行執行 Ansible，不使用 AWX | 執行引擎部分被 016 取代 |
 | [007](007-cluster-deployment-ownership.md) | swallow 擁有建立 Kubernetes Platform 的意圖，角色由伺服器端指派，HA 採 k0s 內建負載平衡 | — |
 | [008](008-operator-overview-read-model.md) | operator overview 是跨 context 的唯讀聚合視圖 | — |
 | [009](009-deployment-template-ownership.md) | Deployment Template 只擁有可重用的 OS 部署意圖，不擁有 image、automation 或執行生命週期 | — |
-| [010](010-cluster-lifecycle-actions.md) | Uninstall 改變原部署主機，Delete 只移除 swallow 紀錄與自有投影 | — |
+| [010](010-cluster-lifecycle-actions.md) | Platform 的移除：Uninstall 改變部署過的主機並在成功時刪除紀錄，只刪紀錄（`recordOnly`）不碰主機；同時 release 時直接 release，略過 platform 軟體的 uninstall | 022 |
 | [011](011-flexible-k0s-topologies.md) | k0s 支援單機、非 HA 多節點與 HA 三種拓樸，不新增 Node Role | — |
-| [012](012-provider-network-configuration.md) | swallow 擁有部署網路意圖，provider adapter 負責翻譯並驗證 NIC 設定 | — |
 | [013](013-server-lock-protection.md) | provider 擁有的 Server Lock 是所有 provider 與主機變更的共同防護 | — |
-| [014](014-platform-resource-language.md) | Platform 是跨 context 的受管 runtime 聚合，取代 Cluster | 一個 release 的 alias 由 074 結束 |
-| [015](015-platform-term-disambiguation.md) | swallow 指系統本身，capital-P Platform 專指受管 runtime 聚合 | — |
-| [016](016-temporal-operation-orchestration.md) | 多步驟 Workflow 由 Temporal 編排：Task DAG、typed Runner、per-resource fencing lease | supersede 006（部分）；v2 永久可讀被 074 取代 |
-| [017](017-workflow-job-task-runner-model.md) | Workflow／Job／Task／Runner 詞彙、收斂式執行，以及 Workflow 與 playbook 的界線 | refine 016；`/operations` alias 由 074 結束 |
-| [018](018-automatic-addressing-provider-auto-assign.md) | 自動定址意圖 `automatic` 由 provider auto-assign 實現，而非 raw DHCP | refine 012 |
+| [015](015-platform-term-disambiguation.md) | swallow（小寫）指系統本身；Platform 專指 swallow 部署的受管 runtime 聚合，取代 Cluster | 014 |
 | [019](019-slurm-platform-deployment.md) | Slurm 以 per-daemon 角色部署，套件由 image 提供，slurmrestd credential 為選用 | — |
-| [020](020-durable-operation-recovery.md) | 失敗或 execution 遺失的 Workflow 以帶 lineage 的新 Workflow 重跑回復、不刪 Platform；遺失只標記不自動重跑 | — |
 | [021](021-platform-type-specific-management.md) | Platform 詳情為共用外殼加各 type 專屬視圖，Slurm 另有唯讀即時叢集讀取 | — |
-| [022](022-uninstall-release-shortcut.md) | Uninstall 同時 release 主機時直接 release，略過 platform 軟體的 uninstall | — |
 | [023](023-slurm-ha-shared-state-provisioning.md) | Slurm HA 的共享 StateSaveLocation 由 swallow 自動佈署，不由 operator 提供 | — |
 | [024](024-slurm-login-and-workload-storage.md) | Slurm 新增 login 角色與選用的 workload 共享檔案系統，與 controller state 分離 | — |
-| [025](025-provider-data-overlay.md) | provider 擁有的事實可疊加 swallow-owned overlay，讀取時合併、永不回寫 provider | refine 001、009；被 071 取代 |
 | [026](026-slurm-minimum-resource-policy.md) | Slurm 部署採單一選用的全系統 CPU／記憶體／儲存資格門檻，前後端都檢查 | — |
-| [027](027-os-image-upload.md) | swallow 可驅動 provisioner 上傳 OS image，但不持有 artifact，custom 與否由 provider 判定 | refine 001、009 |
+| [027](027-os-image-upload.md) | swallow 可驅動 provisioner 上傳 OS image，但不持有 artifact，custom 與否由 provider 判定 | — |
 | [028](028-ephemeral-kubernetes-deployment.md) | Kubernetes 接受 ephemeral（RAM）OS，以開機後主機相容性檢查把關 | — |
-| [029](029-infrastructure-zone-pool-ownership.md) | Zone 與 Pool 由 swallow 擁有、以 Site 為範圍，provisioner 有能力時再同步實現 | refine 001、012、025 |
-| [030](030-live-ansible-task-streaming.md) | Ansible Task 執行中即時串流 per-task 結果並以計數呈現進度；raw stdout 不進 MongoDB | refine 016、017 |
-| [031](031-provider-capability-first-with-swallow-owned-fallback.md) | provisioner 可能擁有的事實採 capability-first，並以同形狀的 swallow-owned fallback 補足 | refine 001；收斂 025、029 |
 | [032](032-self-deployed-platform-management.md) | swallow 只管理自己佈署的 Platform，runtime 狀態以 live explorer 讀取、不保存副本 | — |
-| [033](033-provider-recovery-policy.md) | provider recovery 由 swallow 擁有的單一政策決定，provisioner 只執行選中的 primitive | — |
+| [033](033-provider-recovery-policy.md) | provider recovery 由 swallow 擁有的單一政策決定，provisioner 只執行選中的 primitive；明確重試失敗的 OS 部署會先 Recover 再重新部署 | 059 |
 | [035](035-os-image-verification-and-deploy-target.md) | 以 Deploy Target 為部署模式詞彙，custom image 須依 target 經 swallow 驗證才能部署 | — |
-| [036](036-provisioning-lifecycle-integrity.md) | `allocated` 可回復、驗證採借用歸還、投影以 provider 狀態為準 | refine 033、035 |
+| [036](036-provisioning-lifecycle-integrity.md) | `allocated` 可回復、驗證採借用歸還、投影以 provider 狀態為準 | — |
 | [037](037-operator-cli-component.md) | 新增 `cli/` component，API 服務 binary 改名 `swallow-api` | — |
 | [038](038-software-deployment.md) | 單一 Managed Software 是獨立於 Platform 的 deploy target，並以 Job 組入其他 Workflow | — |
-| [039](039-ssh-key-management-and-default-user.md) | swallow 擁有 SSH Key 並同步到 provisioner，OS Image 決定登入帳號 | — |
-| [040](040-single-vm-production-installation.md) | 單一 VM 安裝：swallow Compose 與 swallowctl 安裝的 MAAS 共置，共用一個 PostgreSQL instance | refine 001（拓樸面） |
-| [041](041-deployment-key-only-automation.md) | 所有 automation SSH 登入只用 Deployment Key，移除 Site 私鑰 override | supersede 039（Site override） |
+| [039](039-ssh-key-management-and-default-user.md) | swallow 擁有 SSH Key；automation 只以 Deployment Key 登入；登入帳號依序取 Server Default User（設定前先驗證）與 OS Image 的預設帳號 | 041、045 |
+| [040](040-single-vm-production-installation.md) | 單一 VM 安裝與發佈：Compose 與 swallowctl 安裝的 MAAS 共置、共用一個 PostgreSQL；只發佈 Compose installation，GHCR 只放 swallow 建置的 image，install.sh 一行安裝與升級 | 050、051、052 |
 | [042](042-authentication-sessions-and-api-keys.md) | 登入建立 Session（短效 access token 與輪替的 refresh token），User 可建立 API Key | — |
 | [043](043-docker-host-management.md) | Docker CE 以 `enableApi` 開放 Engine API，由 api-server 代為即時管理主機 Docker，不保存 Docker 物件 | — |
 | [044](044-docker-registry-credentials.md) | 私有 registry 帳密由 swallow 以 installation 範圍加密保存，每次 pull 依 image 解析並隨請求送出 | — |
-| [045](045-server-default-user.md) | Server Default User 優先於 OS Image 帳號，設定前以 Deployment Key 驗證 | — |
 | [046](046-os-deployment-progress-and-stall.md) | 部署中投影 provider stage，同一 stage 25 分鐘未推進即要求處理 | — |
-| [047](047-redfish-boot-media.md) | swallow 自行提供 iPXE ISO，經 BMC Redfish 掛載並導向開機，每次部署前重新套用 | — |
+| [047](047-redfish-boot-media.md) | Boot Media：swallow 依 provisioner 以固定範本建置 Boot ISO，經 BMC（Redfish）掛載並導向開機；UEFI 走 ISO 自己的 GRUB，可以原地 rebuild | 049、057 |
 | [048](048-os-provisioning-generic-states.md) | swallow 定義通用的 OS Provisioning State 詞彙，provider 只做對應 | — |
-| [049](049-boot-iso-builder.md) | Boot ISO 由 swallow 依 provisioner 以固定範本建置並提供，取代安裝層級的單一 ISO | refine 047 |
-| [050](050-compose-only-release-artifacts.md) | Release 只發佈 Compose installation；native bundle 與離線 image archive 延後 | refine 040 |
-| [051](051-ghcr-holds-only-swallow-images.md) | GHCR 只放 swallow 建置的 image，第三方 runtime image 以上游 digest 原樣使用 | supersede 040（image package） |
-| [052](052-one-command-installation.md) | 每個 release 附 install.sh 一行指令安裝與升級，swallowctl 仍是唯一 lifecycle 工具 | refine 040 |
 | [053](053-server-enrollment-and-automatic-inspection.md) | Server Enrollment 引導 network boot 與 existing OS；硬體檢視改為自動啟動的 durable Workflow | — |
-| [054](054-provisioner-power-configuration.md) | Power Configuration 歸 provisioner、swallow 即時 write-through；以 power adapter 建模並診斷缺少的 driver | refine 053；遷移成 desired state 後的 drift 政策見 071 |
-| [055](055-libvirt-virtual-machine-enrollment.md) | libvirt VM 以 domain 名稱經 Hypervisor enroll；Boot Media 新增 libvirt method | refine 054 |
-| [056](056-provisioner-http-proxy.md) | Provisioner HTTP Proxy 由 provisioner 擁有，swallow 以封閉 mode 值集即時讀寫 | 部分被 071 取代 |
-| [057](057-uefi-boot-iso-hand-off.md) | Boot ISO 的 UEFI 改用內建 GRUB 走 MAAS 原生路徑，可原地 rebuild，並擋下需重新檢視的磁碟部署 | refine 049 |
-| [058](058-deployment-dhcp-and-subnet-dns.md) | `dhcp` 重新成為部署模式，Subnet DNS 由 swallow 透過 provisioner write-through | supersede 018（部分）；部分被 071 取代 |
-| [059](059-retry-recovers-failed-deployment.md) | 明確重試失敗的 `provision-os` 會先回復 Server 再重新部署 | refine 033 |
-| [060](060-cancel-and-rerun-converge.md) | 取消不改寫已完成的結果並把被中斷的部署帶回 Ready；Rerun 依現況收斂而非沿用歷史結果 | refine 017、020、059 |
-| [061](061-recovery-supersedes-blocking-work.md) | Release、Recover 與 Platform uninstall 由後端取消佔用其 Server 的 Workflow，等它們結束後自動執行 | refine 060 |
-| [062](062-swallow-managed-gpu-operator.md) | swallow 以 Platform Job 安裝 AMD GPU Operator，只用 image driver，由 NFD 決定納管節點 | refine 003 |
-| [063](063-omnistat-slurm-observability.md) | Slurm 部署一律設定 AMD GPU GRES，Omnistat 為選用功能並組入 Prometheus／Grafana | refine 019、038、062 |
-| [064](064-upstream-patches-are-the-exception.md) | 優先選擇可用的上游版本，自行維護 patch 是例外 | refine 063 |
+| [054](054-provisioner-power-configuration.md) | Power Configuration 歸 provisioner、swallow 即時 write-through；以 power adapter 建模並診斷缺少的 driver | — |
+| [055](055-libvirt-virtual-machine-enrollment.md) | libvirt VM 以 domain 名稱經 Hypervisor enroll；Boot Media 新增 libvirt method | — |
+| [058](058-deployment-dhcp-and-subnet-dns.md) | swallow 擁有部署網路意圖，provider adapter 實現 `automatic`、`dhcp`、`static` 三種定址模式 | 012、018 |
+| [061](061-recovery-supersedes-blocking-work.md) | Workflow 的回復與停止：rerun 依現況收斂並保留原 Workflow；取消不改寫已完成的結果並把被中斷的部署帶回 Ready；Release、Recover 與 uninstall 取代佔用 Server 的工作 | 020、060 |
+| [062](062-swallow-managed-gpu-operator.md) | swallow 以 Platform Job 安裝 AMD GPU Operator，只用 image driver，由 NFD 決定納管節點 | — |
+| [063](063-omnistat-slurm-observability.md) | Slurm 部署一律設定 AMD GPU GRES，Omnistat 為選用功能並組入 Prometheus／Grafana | — |
+| [064](064-upstream-patches-are-the-exception.md) | 優先選擇可用的上游版本，自行維護 patch 是例外 | — |
 | [065](065-control-plane-ntp-and-post-provision-time-sync.md) | Installation 在主機提供 NTP server，每台 provision 的 Server 都指向它，Platform 只檢查時間 | — |
 | [066](066-slurm-job-hooks-and-device-metrics-exporter.md) | Slurm 以單一 Prolog/Epilog dispatcher 執行 hook、預設共用節點，並提供 DME、OCI、PMIx 選項 | — |
 | [067](067-platform-claim-on-server.md) | Platform 對 Server 的佔用存為 Platform Claim，被佔用的 Server 不能直接 Release 或刪除 | — |
-| [068](068-device-metrics-exporter-managed-software.md) | AMD Device Metrics Exporter 成為可單台安裝的 Managed Software，Slurm 部署改為組入同一 kind | refine 038、066 |
-| [069](069-swallow-owns-desired-state.md) | swallow 擁有 desired state 與執行狀態，provider 收斂到它；混合收斂、Temporal 只執行、store 需要 transaction | refine 001、016、017、040；supersede 031 |
-| [070](070-core-providers-and-extensions.md) | core 只有領域模型、Workflow 與 provider interface；外部系統都是可抽換的 adapter，平台與 GPU 廠商邏輯放在擴充模組，交付為發行版 | refine 001、006、016、017、038 |
-| [071](071-provisioner-realized-desired-state.md) | 由 provisioner 實現的欄位以 spec／status 呈現、由 controller 收斂：非破壞性欄位在定期 resync 時自動修正，第一次觀察即接管，Server 記錄 origin，swallow 擁有所有手動 tag | refine 002、029、069；supersede 025 的一部分 |
-| [072](072-store-driven-workflow-execution.md) | store 是 Workflow 執行狀態的唯一紀錄：`workflow-dispatch` controller 依 store 派發與接續 run，派發世代 fencing，Workflow 在生命週期內擁有資源，Job 宣告重試粒度，Task 宣告完成行為與取消補償，ansible-executor 是 Temporal worker | refine 006、016、017、020、030、069 |
+| [068](068-device-metrics-exporter-managed-software.md) | AMD Device Metrics Exporter 成為可單台安裝的 Managed Software，Slurm 部署改為組入同一 kind | — |
+| [069](069-swallow-owns-desired-state.md) | 所有權邊界：swallow 擁有 desired state 與執行狀態，provider 收斂到它；swallow 不保存也不重建哪些事實；Temporal 只執行，store 需要 transaction | 001、031 |
+| [070](070-core-providers-and-extensions.md) | core 只有領域模型、Workflow 與 provider interface；外部系統都是可抽換的 adapter，平台與 GPU 廠商邏輯放在擴充模組，交付為發行版 | — |
+| [071](071-provisioner-realized-desired-state.md) | 由 provisioner 實現的欄位（tag、Zone／Pool、HTTP Proxy、Subnet DNS、SSH Key、OS Image metadata）是 swallow 的 desired state，由 controller 收斂；overlay 退場 | 025、029、056 |
+| [072](072-store-driven-workflow-execution.md) | Workflow 的執行：Workflow／Job／Task／Runner 模型、store 驅動的 Temporal 執行、swallow 以 ansible-runner 自行執行 Ansible 並即時串流 task 事件 | 006、016、017、030 |
 | [073](073-hold-os-package-maintenance-during-automation.md) | swallow 改套件的 playbook 執行期間暫緩 OS 的自動套件維護：只停 timer、不停用，以有期限的租約歸還，由內容測試強制 | — |
-| [074](074-retire-schema-v2-and-deprecated-aliases.md) | 退役 schema-v2 Operation 紀錄（schema v10 刪除）與「保留一個 release」的 alias：`/operations`、`/clusters`、`clusterId` 等欄位、request `ephemeral` 與同步的部署路由 | supersede 016（v2 永久可讀）；refine 014、017 |
-| [075](075-module-contract-v1.md) | 模組契約 v1：每個模組以 `module.json` 宣告自己並以一個 root Go package 提供 hook，composition root 為三個 process 組出同一個 registry，模組之間只經由 core 的 port 依賴 | refine 070 |
-| [076](076-change-plans.md) | Change Plan 是 convergence context 的獨立文件，每個資源最多一份未完成；破壞性的 spec 寫入與 plan 同一個 transaction，整份核准，由資源的 controller 重算後 apply 成 Workflow，24 小時到期 | refine 069 |
+| [074](074-retire-schema-v2-and-deprecated-aliases.md) | 退役 schema-v2 Operation 紀錄（schema v10 刪除）與「保留一個 release」的 alias：`/operations`、`/clusters`、`clusterId` 等欄位、request `ephemeral` 與同步的部署路由 | — |
+| [075](075-module-contract-v1.md) | 模組契約 v1：每個模組以 `module.json` 宣告自己並以一個 root Go package 提供 hook，composition root 為三個 process 組出同一個 registry，模組之間只經由 core 的 port 依賴 | — |
+| [076](076-change-plans.md) | Change Plan 是 convergence context 的獨立文件，每個資源最多一份未完成；破壞性的 spec 寫入與 plan 同一個 transaction，整份核准，由資源的 controller 重算後 apply 成 Workflow，24 小時到期 | — |
 
-`001`–`003` 的章節結構與上方格式不同（Decision / Context / Consequences / Rejected
-alternatives）。2026-09-05 已為三者補上 `Status`；但當時未記錄 `Date`，依「不得杜撰歷史理由」
-原則保留為 unrecorded 而非捏造。其論述結構刻意維持原樣。`005` 起採用本文件定義的格式。（原 `004`
+### 已併入的編號
+
+程式、文件與 commit 訊息中的舊編號，對應到現行的 ADR：
+
+| 舊編號 | 現行 ADR |
+| --- | --- |
+| 001 | [069](069-swallow-owns-desired-state.md) |
+| 006 | [072](072-store-driven-workflow-execution.md) |
+| 012 | [058](058-deployment-dhcp-and-subnet-dns.md) |
+| 014 | [015](015-platform-term-disambiguation.md) |
+| 016 | [072](072-store-driven-workflow-execution.md) |
+| 017 | [072](072-store-driven-workflow-execution.md) |
+| 018 | [058](058-deployment-dhcp-and-subnet-dns.md) |
+| 020 | [061](061-recovery-supersedes-blocking-work.md) |
+| 022 | [010](010-cluster-lifecycle-actions.md) |
+| 025 | [071](071-provisioner-realized-desired-state.md) |
+| 029 | [071](071-provisioner-realized-desired-state.md) |
+| 030 | [072](072-store-driven-workflow-execution.md) |
+| 031 | [069](069-swallow-owns-desired-state.md) |
+| 041 | [039](039-ssh-key-management-and-default-user.md) |
+| 045 | [039](039-ssh-key-management-and-default-user.md) |
+| 049 | [047](047-redfish-boot-media.md) |
+| 050 | [040](040-single-vm-production-installation.md) |
+| 051 | [040](040-single-vm-production-installation.md) |
+| 052 | [040](040-single-vm-production-installation.md) |
+| 056 | [071](071-provisioner-realized-desired-state.md) |
+| 057 | [047](047-redfish-boot-media.md) |
+| 059 | [033](033-provider-recovery-policy.md) |
+| 060 | [061](061-recovery-supersedes-blocking-work.md) |
+
+`002`、`003` 的章節結構與上方格式不同（Decision 在 Context 之前、Rejected Alternatives），當時也未記錄
+`Date`，依「不得杜撰歷史理由」原則保留為 unrecorded。`005` 起採用本文件定義的格式。（原 `004`
 記錄的 AWX 執行模型已由 `006` 取代並移除。）`034` 從未指派，不代表有遺失或未索引的 ADR。
 
 swallow 另有若干值得記錄的決策（例如 API contract 由 provider component 擁有），但這些理由

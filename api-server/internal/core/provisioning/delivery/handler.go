@@ -917,7 +917,7 @@ func (h *ProvisioningHandler) AttachPowerConfiguration(power *application.PowerC
 	h.power = power
 }
 
-// AttachHTTPProxy enables the Provisioner HTTP Proxy routes (decision 056). Without it, as in legacy
+// AttachHTTPProxy enables the Provisioner HTTP Proxy routes (decision 071). Without it, as in legacy
 // tests, they answer 503 rather than panicking on a nil use case.
 func (h *ProvisioningHandler) AttachHTTPProxy(httpProxy *application.HTTPProxyUseCase) {
 	h.httpProxy = httpProxy

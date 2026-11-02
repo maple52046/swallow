@@ -24,7 +24,7 @@ func returnCanceledDeploymentStep() temporalworkflow.StepExecutionInput {
 	}
 }
 
-// TestReturnCanceledDeployment covers decision 060: a cancel returns only what the canceled
+// TestReturnCanceledDeployment covers decision 061: a cancel returns only what the canceled
 // deployment left in flight to Ready. A Deploying Machine is aborted and, once MAAS parks it at
 // Allocated, released; a Machine that holds a deployment outcome (deployed, failed) is left as it
 // is, as is one already Ready. The step never writes the Server's deployment result.

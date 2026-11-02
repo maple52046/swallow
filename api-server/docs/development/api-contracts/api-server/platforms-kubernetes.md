@@ -24,7 +24,7 @@ cordon. It is separate from the *lifecycle plane* (deploy/uninstall/repair, in
 [platforms.md](platforms.md) and [workflows.md](workflows.md)).
 
 Every route here reads or writes the deployed cluster's Kubernetes API on demand and stores
-nothing in swallow ([decision 001](../../../../../docs/decisions/001-system-ownership-boundaries.md) (system ownership boundaries)). Writes are synchronous against the cluster API and do not create
+nothing in swallow ([decision 069](../../../../../docs/decisions/069-swallow-owns-desired-state.md) (swallow owns desired state)). Writes are synchronous against the cluster API and do not create
 Workflows. This surface never writes the Server membership axis or the sync counters, and
 never runs on the reconcile interval ([decision 021](../../../../../docs/decisions/021-platform-type-specific-management.md) (platform type specific management)).
 

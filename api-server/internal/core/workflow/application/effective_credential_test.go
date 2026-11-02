@@ -41,7 +41,7 @@ func (s stubDeploymentKeys) HasDeploymentKey(context.Context) (bool, error) {
 	return s.ok, s.err
 }
 
-// TestEffectiveAutomationConfigurations_Credential covers decision 041: every Site's run uses
+// TestEffectiveAutomationConfigurations_Credential covers decision 039: every Site's run uses
 // the Deployment Key, even if the repository were to hand back a key, and keeps the Site's
 // become password.
 func TestEffectiveAutomationConfigurations_Credential(t *testing.T) {

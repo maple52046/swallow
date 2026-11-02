@@ -8,8 +8,8 @@ platform deployment、OS provisioning、software deployment 都建立在它之�
 > **本文件不重述決策**：store 擁有執行狀態、Temporal 只執行見
 > [decision 072](../decisions/072-store-driven-workflow-execution.md)（store driven workflow execution；建立在
 > [decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state） 之上），Workflow / Job / Task / Runner 與收斂式
-> （ensure）執行見 [decision 017](../decisions/017-workflow-job-task-runner-model.md)（workflow job task runner model），swallow 自己擁有 Ansible
-> 執行見 [decision 006](../decisions/006-embedded-ansible-execution.md)（embedded ansible execution）。本文件描述這些決策之下**目前實作的行為**；
+> （ensure）執行見 decision 072，swallow 自己擁有 Ansible
+> 執行見 decision 072。本文件描述這些決策之下**目前實作的行為**；
 > 各節的「設計理由」只連到對應 ADR。
 
 > **範圍分界**：各功能自己的 Task 組成與 Runner 行為不在本文件——platform 見
@@ -124,7 +124,7 @@ glossary [Task](glossaries/terms/task.md)。終態是 `succeeded`、`failed`、`
 
 ### 設計理由
 
-[decision 072](../decisions/072-store-driven-workflow-execution.md)；受理原子性見
+decision 072；受理原子性見
 [decision 069](../decisions/069-swallow-owns-desired-state.md)。
 
 ---
@@ -164,8 +164,8 @@ glossary [Task](glossaries/terms/task.md)。終態是 `succeeded`、`failed`、`
 
 ### 設計理由
 
-[decision 072](../decisions/072-store-driven-workflow-execution.md)；per-resource 序列化取代單站 site lease 見
-[decision 016](../decisions/016-temporal-operation-orchestration.md) (temporal operation orchestration)。
+decision 072；per-resource 序列化取代單站 site lease 見
+decision 072。
 
 ---
 
@@ -223,10 +223,10 @@ glossary [Task](glossaries/terms/task.md)。終態是 `succeeded`、`failed`、`
 
 ### 設計理由
 
-不自動重試、operator 重試遞增 attempt 見 [decision 016](../decisions/016-temporal-operation-orchestration.md)；
-Job 與 ensure Task 見 [decision 017](../decisions/017-workflow-job-task-runner-model.md)；重試粒度與單一路徑見
-[decision 072](../decisions/072-store-driven-workflow-execution.md)；「結果無法證明就交給 operator」源自
-[decision 006](../decisions/006-embedded-ansible-execution.md)。
+不自動重試、operator 重試遞增 attempt 見 decision 072；
+Job 與 ensure Task 見 decision 072；重試粒度與單一路徑見
+decision 072；「結果無法證明就交給 operator」源自
+decision 072。
 
 ---
 
@@ -248,8 +248,7 @@ Job 與 ensure Task 見 [decision 017](../decisions/017-workflow-job-task-runner
 
 ### 設計理由
 
-[decision 072](../decisions/072-store-driven-workflow-execution.md)（取代
-[decision 020](../decisions/020-durable-operation-recovery.md)（durable operation recovery） 的停等續租）。
+decision 072 的停等續租）。
 
 ---
 
@@ -301,9 +300,9 @@ desired-state 模型的 reapply（依 spec 重新收斂，[desired-state-model.m
 
 ### 設計理由
 
-新 Workflow 加 lineage 見 [decision 020](../decisions/020-durable-operation-recovery.md)；依現況收斂、不信任
-歷史，見 [decision 060](../decisions/060-cancel-and-rerun-converge.md)（cancel and rerun converge）；ensure 語意見
-[decision 017](../decisions/017-workflow-job-task-runner-model.md)。
+新 Workflow 加 lineage 見 [decision 061](../decisions/061-recovery-supersedes-blocking-work.md)；依現況收斂、不信任
+歷史，見 decision 061；ensure 語意見
+decision 072。
 
 ---
 
@@ -368,8 +367,8 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
 
 ### 設計理由
 
-[decision 060](../decisions/060-cancel-and-rerun-converge.md)；單一寫入者與宣告式補償見
-[decision 072](../decisions/072-store-driven-workflow-execution.md)。
+decision 061；單一寫入者與宣告式補償見
+decision 072。
 
 ---
 
@@ -411,7 +410,7 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
 
 ### 設計理由
 
-[decision 061](../decisions/061-recovery-supersedes-blocking-work.md) (recovery supersedes blocking work)。
+decision 061。
 
 ---
 
@@ -456,8 +455,7 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
 
 ### 設計理由
 
-[decision 072](../decisions/072-store-driven-workflow-execution.md)（取代
-[decision 020](../decisions/020-durable-operation-recovery.md) 只標記的 reconciler）。
+decision 072。
 
 ---
 
@@ -497,7 +495,7 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
   stdout 留在 executor 的磁碟，由 logs 端點提供。
 - 進度以計數與 current play／task 表示，**不提供百分比**：Ansible 事先不知道總 task 數。
 - `Task.Live` 是 advisory：權威結果是 Task 的 status 與 error。串流是 best-effort，失敗只記 log，不影響 run 的結果。
-- 一支 playbook 內的 Ansible task 不是 Workflow Task（[decision 017](../decisions/017-workflow-job-task-runner-model.md)）；
+- 一支 playbook 內的 Ansible task 不是 Workflow Task（decision 072）；
   串流只讓單一 Task 的內部進度可觀察，不改變執行模型或 Runner 邊界。
 
 ### 已知限制
@@ -506,8 +504,8 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
 
 ### 設計理由
 
-[decision 030](../decisions/030-live-ansible-task-streaming.md)（live ansible task streaming）；executor 成為 Temporal worker 見
-[decision 072](../decisions/072-store-driven-workflow-execution.md)。
+decision 072；executor 成為 Temporal worker 見
+decision 072。
 
 ---
 
@@ -540,7 +538,7 @@ deployment 只需要產生這份計畫。
 
 ### 設計理由
 
-[decision 072](../decisions/072-store-driven-workflow-execution.md)；deployment 以宣告式定義開發的方向見
+decision 072；deployment 以宣告式定義開發的方向見
 [core-and-extensions.md](core-and-extensions.md)。
 
 ---
@@ -579,16 +577,16 @@ deployment 只需要產生這份計畫。
 
 ## 14. 相關文件
 
-- 決策（why）：[decision 006](../decisions/006-embedded-ansible-execution.md)、
-  [decision 016](../decisions/016-temporal-operation-orchestration.md)、
-  [decision 017](../decisions/017-workflow-job-task-runner-model.md)、
-  [decision 020](../decisions/020-durable-operation-recovery.md)、
-  [decision 030](../decisions/030-live-ansible-task-streaming.md)、
-  [decision 060](../decisions/060-cancel-and-rerun-converge.md)、
-  [decision 061](../decisions/061-recovery-supersedes-blocking-work.md)、
-  [decision 072](../decisions/072-store-driven-workflow-execution.md)；相關的 OS 層回復：
+- 決策（why）：decision 072、
+  decision 072、
+  decision 072、
+  decision 061、
+  decision 072、
+  decision 061、
+  decision 061、
+  decision 072；相關的 OS 層回復：
   [decision 033](../decisions/033-provider-recovery-policy.md) (provider recovery policy)、
-  [decision 059](../decisions/059-retry-recovers-failed-deployment.md) (retry recovers failed deployment)、
+  decision 033、
   [decision 067](../decisions/067-platform-claim-on-server.md) (platform claim on server)。
 - 語言：glossary [Workflow](glossaries/terms/workflow.md)、[Job](glossaries/terms/job.md)、
   [Task](glossaries/terms/task.md)、[Runner](glossaries/terms/runner.md)、[Server](glossaries/terms/server.md)、

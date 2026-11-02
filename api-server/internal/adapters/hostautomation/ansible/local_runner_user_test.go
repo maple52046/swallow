@@ -104,7 +104,7 @@ func TestSetConnectionVarsUsesImageDefaultUserWithoutProbing(t *testing.T) {
 	}
 }
 
-// TestSetConnectionVarsPrefersServerDefaultUser guards decision 045: default_user is the effective
+// TestSetConnectionVarsPrefersServerDefaultUser guards decision 039: default_user is the effective
 // Server Default User (a value set on the Server overrides the image's), so it wins over
 // image_default_user and over any probe.
 func TestSetConnectionVarsPrefersServerDefaultUser(t *testing.T) {

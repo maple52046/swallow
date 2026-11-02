@@ -53,7 +53,7 @@ being published. `install.sh` and `swallowctl upgrade` use them, together with t
 refuse a downgrade.
 
 Releases carry only the Compose installation
-([decision 050](../../docs/decisions/050-compose-only-release-artifacts.md) (compose only release artifacts)): there is no native
+([decision 040](../../docs/decisions/040-single-vm-production-installation.md) (single vm production installation)): there is no native
 bundle until native packaging is complete, and no offline image archive until offline
 installation, including MAAS images, is supported.
 

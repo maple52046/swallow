@@ -114,7 +114,7 @@ type Task struct {
 	ID   string `json:"id" bson:"id"`
 	Kind string `json:"kind" bson:"kind"`
 	Name string `json:"name" bson:"name"`
-	// Job groups Tasks into a reusable, convergent unit (decision 017). When set, the
+	// Job groups Tasks into a reusable, convergent unit (decision 072). When set, the
 	// Workflow runs each Job as a Temporal child workflow; empty means the Task runs in
 	// the flat, single-workflow path. Cross-Job dependencies order the child workflows.
 	Job       string     `json:"job,omitempty" bson:"job,omitempty"`

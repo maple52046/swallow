@@ -174,7 +174,7 @@ func retryableInspectionTask(workflow *workflowdomain.Workflow) string {
 
 // inspectionSteps builds the ensure-inspected Job: wait for the provider's enrollment, apply Boot
 // Media read live, then inspect. Running it as a Job makes any retry re-run all three, so each is
-// an idempotent ensure (decision 017).
+// an idempotent ensure (decision 072).
 func inspectionSteps(server *serverdomain.Server, origin provisioningdomain.InspectionOrigin) []workflowdomain.Task {
 	target := []workflowdomain.ResourceReference{{Kind: "server", ID: server.ID}}
 	name := server.DisplayName()

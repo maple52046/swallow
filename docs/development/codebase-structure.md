@@ -40,7 +40,7 @@ coding style。
 
 > Note：早期設計曾規劃節點端 `agent` component，並以 `src/<project>` git submodule 搭配
 > root component symlink 承載程式碼。`agent` 已依
-> [decision 001](../decisions/001-system-ownership-boundaries.md)（system ownership boundaries） 退場（node control 交由
+> [decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state） 退場（node control 交由
 > swallow 的 versioned Ansible execution），submodule 架構亦已依
 > [decision 005](../decisions/005-monorepo-consolidation.md)（monorepo consolidation） 收斂為本 monorepo。若在舊文件或
 > 討論中看到 `src/swallow`、`src/dashboard` 或 component symlink，一律以本檔為準。
@@ -106,7 +106,7 @@ flowchart LR
   - [`system-overview.md`](system-overview.md) — 系統總覽：功能地圖、process 與背景工作、一次 Platform 部署的流程、collection 與寫入者、入門名詞與程式地圖。
   - [`development-and-testing.md`](development-and-testing.md) — 開發環境、測試的位置與寫法、測試用的環境變數與各 component 的完整檢查指令。
   - [`api-contracts.md`](api-contracts.md) — API contract 的所有權規則；契約本身在 provider component（目前是 `api-server`）。
-  - [`desired-state-model.md`](desired-state-model.md) — 所有功能都必須遵守的上位模型：swallow 擁有 desired state、provider 回報 observed state、收斂與 drift、Change Plan，以及 store 與 Workflow 執行的規則（[decision 069](../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state））。
+  - [`desired-state-model.md`](desired-state-model.md) — 所有功能都必須遵守的上位模型：swallow 擁有 desired state、provider 回報 observed state、收斂與 drift、Change Plan，以及 store 與 Workflow 執行的規則（decision 069）。
   - [`core-and-extensions.md`](core-and-extensions.md) — 大尺度結構：core 的內容、provider interface 與可抽換的 adapter、三種擴充模組與其契約、支援矩陣（[decision 070](../decisions/070-core-providers-and-extensions.md)（core providers and extensions））。
   - [`platform-deployment.md`](platform-deployment.md) — Platform 的部署、uninstall 與整合規範，以及新增 platform 的現行做法。
   - [`software-deployment.md`](software-deployment.md) — software deployment（Managed Software）的設計與整合規範：單一軟體的安裝/卸載，與 platform 的分界是 deploy target 的粒度。

@@ -490,8 +490,8 @@ swallow starts a new OS deployment on the Server and when the Server is observed
 
 Boot Media is a Server's setting that a Boot ISO is attached to it and booted first, so a Server
 on a network whose DHCP is not the provisioner's still reaches the provisioner
-([decision 047](../../../../../docs/decisions/047-redfish-boot-media.md),
-[decision 049](../../../../../docs/decisions/049-boot-iso-builder.md) (boot iso builder),
+(decision 047,
+decision 047,
 [decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md) (libvirt virtual machine enrollment)). Boot ISOs
 are built in swallow per provisioner Integration ([boot-isos.md](boot-isos.md)); per Server, swallow
 owns whether Boot Media is enabled, which Boot ISO it uses, and the outcome of the last apply.

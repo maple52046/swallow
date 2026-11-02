@@ -45,7 +45,7 @@ type ExecutionOperation struct {
 //
 // SSHUser is a fallback login user: automation first uses each Server's deployed OS Image
 // default user (decision 039). Every Site logs in with the installation's Deployment Key and
-// cannot carry its own SSH key (decision 041). HasCredential reports that the Site stores a
+// cannot carry its own SSH key (decision 039). HasCredential reports that the Site stores a
 // become password. CredentialSource is derived by the reader (AutomationConfigurationService
 // for API reads, EffectiveAutomationConfigurations for automation) and is never persisted; a
 // configuration read straight from the repository leaves it empty.
@@ -80,7 +80,7 @@ func (c *AutomationConfiguration) CheckRunnable() error {
 }
 
 // CredentialSource is the closed set of places a Site's effective automation SSH key comes from
-// (glossary Automation Configuration). Since decision 041 the only key is the Deployment Key, so
+// (glossary Automation Configuration). Since decision 039 the only key is the Deployment Key, so
 // the set says whether it exists.
 type CredentialSource string
 

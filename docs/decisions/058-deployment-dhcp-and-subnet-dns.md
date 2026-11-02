@@ -1,75 +1,96 @@
-# 058. Deployments can take the site's DHCP, and Subnet DNS is written through
+# 058. swallow owns deployment network intent; the provider adapter realizes its addressing modes
 
-- Status: Accepted; Superseded in part by [071](071-provisioner-realized-desired-state.md) (swallow stores Subnet DNS as desired state and corrects drift instead of writing it through)
-- Date: 2026-10-13
+- Status: Accepted
+- Date: 2026-09-02
 - 現行規格：[os-provisioning.md](../development/os-provisioning.md) §6 部署網路意圖與 Subnet DNS
 
 ## Context
 
-[ADR 018](018-automatic-addressing-provider-auto-assign.md) made `automatic` the only automatic
-deployment addressing intent, realized by MAAS `AUTO`, and turned `dhcp` into a deprecated alias
-of it. It rejected keeping both as first-class modes because, on a MAAS-managed network, they
-mean the same thing and raw DHCP is less reliable.
+Deploying an OS needs each target NIC's addressing configured on the provisioner. Leaving that to
+the provisioner's defaults, and to the user configuring MAAS directly, makes those defaults product
+behavior, leaves released Servers inconsistent, and would make every consumer learn MAAS
+vocabulary. The provisioner still owns its subnets, IP allocation, and execution APIs.
 
-Servers that boot through a Boot ISO ([ADR 049](049-boot-iso-builder.md),
-[ADR 053](053-server-enrollment-and-automatic-inspection.md)) sit on networks whose DHCP is the
-site's, not MAAS's. MAAS still models such a subnet and `AUTO` allocates from the space it
-believes is free, without knowing the site DHCP server's pool. On `lab-afde-mi308-1` (subnet
-`10.170.168.0/23`, MAAS DHCP off on its VLAN) `AUTO` gave `10.170.169.190` while the site DHCP had
-leased `.126` and `.127` on the same subnet: the two allocators can hand out the same address,
-and the site's DHCP options (gateway, DNS) are ignored.
+What most users ask for is "give this machine an address". On MAAS, raw DHCP serves that badly:
+MAAS knows a DHCP interface's address only while it observes a live lease, so quiet deployed
+machines showed no IP, and a subnet's dynamic range is by convention the enlistment and
+commissioning pool. MAAS auto-assign (`AUTO`) instead allocates a static address from the subnet's
+non-dynamic space, records it, and writes it into the deployed netplan.
 
-DNS follows the link mode. For an `AUTO` or static link MAAS writes nameservers from the subnet's
-DNS servers (after the VLAN rack's addresses when the subnet allows MAAS DNS) and falls back to
-its own DNS when that list is empty; a DHCP link gets none from MAAS and uses what the DHCP
-server offers. Setting a subnet's DNS servers meant leaving swallow for the MAAS UI or CLI, and
-[ADR 001](001-system-ownership-boundaries.md) lists DNS and subnets as provisioner-owned facts
-that swallow does not model.
+Servers that boot through a Boot ISO ([decision 047](047-redfish-boot-media.md) (boot media and Boot
+ISOs), [decision 053](053-server-enrollment-and-automatic-inspection.md) (Server Enrollment and
+automatic inspection)) often sit on networks whose DHCP is the site's, not the provisioner's. There
+`AUTO` allocates from space it believes is free without knowing the site DHCP pool, so the two
+allocators can hand out the same address, and the site's gateway and DNS options are ignored.
 
 ## Decision
 
-- **`dhcp` is a deployment addressing mode again.** The modes are `automatic` (default),
-  `dhcp`, and `static`. `automatic` keeps ADR 018's meaning — the provisioner allocates and
-  records a stable address. `dhcp` means the network's own DHCP server assigns the address,
-  gateway, and DNS; the MAAS adapter links the NIC in MAAS `DHCP` mode. It is the right choice
-  on a subnet whose DHCP the provisioner does not serve, and the wrong one where it does, so the
-  two are no longer the same request.
-- **Network inspection suggests it.** When the boot NIC has no static binding and the subnet it
-  would use has no provisioner DHCP, the suggested mode is `dhcp`. The suggestion stays
-  non-authoritative; the operator can pick any mode.
-- **The alias ends.** `dhcp` no longer normalizes to `automatic`. Deployment Templates are
-  normalized on write since ADR 018, so only a template stored before 2026-09-06 can still say
-  `dhcp`; it now means DHCP.
-- **Subnet DNS is written through.** A provisioner Integration's subnets and their DNS servers
-  are read live and the DNS servers written through, behind a provider capability, the way
-  [ADR 056](056-provisioner-http-proxy.md) writes the HTTP proxy. swallow stores nothing. The
-  list applies to `automatic` and `static` deployments on that subnet; `dhcp` deployments take
-  DNS from the DHCP server.
-- **ADR 001 still holds.** swallow models no DNS zones, records, resolvers, or subnets of its
-  own; it edits one attribute the provisioner owns, through the provisioner.
-
-This partly supersedes ADR 018 (its `dhcp` alias and its rejection of a separate DHCP mode).
+- **swallow owns deployment network intent.** The OS Provisioning context owns the addressing
+  vocabulary, its default, validation, and flow. The modes are a closed, provider-neutral set:
+  - `automatic` (the default): the provisioner allocates and records a stable address. It is
+    realized by the provider's auto-assign (MAAS `AUTO`), not by raw DHCP.
+  - `dhcp`: the network's own DHCP server assigns the address, gateway, and DNS (MAAS link mode
+    `DHCP`). It is for subnets whose DHCP the provisioner does not serve, and is not another name
+    for `automatic`.
+  - `static`: the user chooses each Server's address (MAAS link mode `STATIC`).
+- **DNS follows the link mode.** `automatic` and `static` deployments take the subnet's Subnet DNS
+  servers, or the provisioner's own DNS when that list is empty; `dhcp` deployments take DNS from
+  the DHCP server. Subnet DNS itself is a provisioner subnet attribute that swallow stores as
+  desired state and a controller converges, as
+  [decision 071](071-provisioner-realized-desired-state.md) (provisioner-realized desired state)
+  decides.
+- **Network inspection suggests a mode; the user decides.** An explicit static binding on the boot
+  NIC suggests `static`, a subnet without provisioner DHCP suggests `dhcp`, and otherwise
+  `automatic`. The suggestion is never authoritative.
+- **The provider adapter is an anticorruption layer.** Provider vocabulary (MAAS `AUTO` and
+  `LINK_UP`, link ids, operation names) stays in the adapter, as
+  [decision 070](070-core-providers-and-extensions.md) (core, provider adapters, and extension
+  modules) requires of every adapter; a provider's own NIC states are shown only as observations and
+  never accepted back as intent. The adapter never uses provider force options and verifies every
+  mutation by reading the machine again. An adapter that cannot honor the intent rejects the
+  deployment before its first write; it may not silently keep provider defaults.
+- **Intent is applied only at explicit user actions**: an OS deployment, or a NIC link edit on a
+  Ready Server. Deployed hosts are not continuously reconciled.
+- **swallow keeps only the intent and the coordination it owns.** Subnets, IP allocation, and NIC
+  and link identifiers stay the provisioner's, read live and revalidated before each mutation;
+  swallow models no subnets, DNS zones, records, or resolvers of its own. Static-link cleanup at
+  release, when requested, is a durable Provisioning Task recorded before Release and carried out by
+  the release Workflow's `release-os` Task.
 
 ## Alternatives considered
 
-- **Keep `automatic` only and reserve the site DHCP pool in MAAS:** rejected. The operator has to
-  copy the site pool into MAAS by hand and keep it in step, and the machine still ends up with an
-  address and DNS the site DHCP server knows nothing about.
-- **Let `automatic` choose DHCP by itself on subnets the provisioner does not serve DHCP for:**
-  rejected by the user in favor of an explicit mode the operator sees and can override.
-- **Set DNS per deployment through swallow-generated cloud-init:** rejected by the user in favor
-  of the provisioner's own per-subnet setting. swallow composes no cloud-init of its own today,
-  and a resolver written beside MAAS's netplan would be a second source of DNS on the host.
-- **Store DNS servers in the Integration's `settings`:** rejected for the reason ADR 056 gives —
-  a copy that drifts when the provisioner is changed directly.
+- **Conform to the provisioner's defaults** (require an existing subnet link, otherwise send the
+  user to MAAS): rejected — behavior would vary by provider, and MAAS `AUTO` is not DHCP.
+- **Expose every MAAS link mode as a deployment mode:** rejected — provider vocabulary would become
+  swallow's public domain model.
+- **Realize `automatic` with raw DHCP** (the first choice for the automatic mode): rejected — the
+  address is known only while a live lease is observed, which caused deployed Servers to show no
+  IP, and it misuses the enlistment pool.
+- **Fix the missing IP in the read path** (show the guest's self-reported address): rejected — the
+  address would still be neither stable nor known to the provider.
+- **Keep `automatic` only and reserve the site DHCP pool in MAAS:** rejected — the user would copy
+  the site pool into MAAS by hand and keep it in step, and the machine would still get an address
+  and DNS the site DHCP server knows nothing about.
+- **Let `automatic` switch to DHCP by itself on subnets the provisioner does not serve DHCP for:**
+  rejected by the user in favor of an explicit mode the user sees and can override.
+- **Continuously reconcile every NIC:** rejected — changing a deployed host's network can interrupt
+  running workloads without a user action.
 
 ## Consequences
 
-- The published deployment network mode set gains `dhcp`, and Subnet DNS becomes a new
-  provisioner-owned term and contract.
-- With site DHCP, MAAS receives no lease for a deployed machine. The address swallow shows is
-  the one MAAS last observed for the interface, and SSH-based automation after deployment
-  depends on it.
-- The MAAS account behind the Integration must be an administrator to edit a subnet.
-- A DNS change affects only deployments the provisioner starts afterwards; deployed hosts keep
-  their netplan.
+- `automatic` gives a stable, provisioner-recorded address that swallow shows right after
+  deployment. It consumes a static IP from the subnet's non-dynamic space, so the subnet needs
+  static space; the dynamic range stays for enlistment and commissioning.
+- With `dhcp` on a site-DHCP network the provisioner receives no lease. The address swallow shows is
+  the one MAAS last observed for the interface, and SSH-based automation after deployment depends
+  on it.
+- Deployed hosts keep their netplan until they are redeployed; a mode or Subnet DNS change affects
+  only deployments started afterwards.
+- Every new provider adapter must translate the three modes or reject before writing.
+
+## Revision history
+
+- 2026-09-02: decision 058 made swallow the owner of deployment network intent, with the modes DHCP (default, realized as the provider's raw DHCP) and Static translated by the provider adapter.
+- 2026-09-06: decision 058 renamed the default `automatic`, realized it by provider auto-assign (MAAS `AUTO`), and kept `dhcp` only as a deprecated alias.
+- 2026-10-13: decision 058 made `dhcp` a separate mode again for networks whose DHCP the provisioner does not serve, and had swallow write Subnet DNS through to the provisioner.
+- 2026-11-02: merged decision 058 into this ADR; the body states the current decision.

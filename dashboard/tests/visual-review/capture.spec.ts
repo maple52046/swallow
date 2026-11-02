@@ -155,7 +155,7 @@ test.describe('dashboard visual review', () => {
               },
             }
           : {}),
-        // A Boot ISO built before the UEFI hand-off (decision 057), in use by a Server.
+        // A Boot ISO built before the UEFI hand-off (decision 047), in use by a Server.
         ...(visualCase.name === 'boot-isos-needs-rebuild'
           ? {
               bootISOs: [{ id: 'iso-taipei', name: 'taipei-rack', integrationId: 'maas-a', rackAddress: '10.0.0.2', legacyTemplate: true }],

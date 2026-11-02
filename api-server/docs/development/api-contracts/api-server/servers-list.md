@@ -330,7 +330,7 @@ deployment does not partition the disk and is not affected. A new inspection tha
 the layout clears it. The flag is set only on proof: for MAAS, a machine that boots UEFI
 (`bios_boot_method=uefi`) while its boot disk has partitions but no EFI system partition
 (FAT mounted at `/boot/efi`) — the layout of a Server inspected while it booted BIOS
-([decision 057](../../../../../docs/decisions/057-uefi-boot-iso-hand-off.md) (uefi boot iso hand off)). A Server without a
+([decision 047](../../../../../docs/decisions/047-redfish-boot-media.md) (redfish boot media)). A Server without a
 layout, or whose layout MAAS did not report, is never flagged.
 
 ### Error Response
@@ -379,7 +379,7 @@ values are documented as never refused (previously "a client error"), and the ex
 every field the projection has always carried.
 
 On 2026-10-31 the Server representation was restructured into spec and status
-([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)). This is
+(decision 071). This is
 a breaking change with no alias: every former top-level field except `id` moved unchanged under
 `status`, and `origin`, `generation`, `spec`, `status.observedGeneration`, `status.conditions`,
 and `status.automaticTags` were added; the same day `spec.zoneId` and `spec.poolId` joined the
@@ -387,7 +387,7 @@ spec. `status.tags` is now the provisioner's observation only; a
 tag swallow kept for a provisioner without tag support is in `spec.tags`.
 
 Following the Cluster to Platform rename
-([decision 014](../../../../../docs/decisions/014-platform-resource-language.md) (platform resource language)), the one-release
+([decision 015](../../../../../docs/decisions/015-platform-term-disambiguation.md) (platform term disambiguation)), the one-release
 aliases of `platformId` — the `clusterId` query parameter and the membership `clusterId` field —
 were removed on 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)),
 which is breaking.

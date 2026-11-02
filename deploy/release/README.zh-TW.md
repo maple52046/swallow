@@ -50,7 +50,7 @@ manifest 中的 database schema 版本與可升級的來源 schema，取自已�
 `swallowctl upgrade` 依這些值與版本拒絕降級。
 
 Release 只包含 Compose installation
-（[decision 050](../../docs/decisions/050-compose-only-release-artifacts.md)（compose only release artifacts））：native packaging
+（[decision 040](../../docs/decisions/040-single-vm-production-installation.md)（single vm production installation））：native packaging
 完成前不出 native bundle；在支援離線安裝（含 MAAS images）之前，也不出離線 image 封存檔。
 
 第一次推送後，請把 GHCR package 設為 public，否則每個 installation 在 `swallowctl install`

@@ -11,7 +11,7 @@ import (
 	"github.com/maple52046/swallow/internal/shared/secret"
 )
 
-// TestMongoAutomationConfigurationRepo_IgnoresLegacySiteKey proves decision 041 against a
+// TestMongoAutomationConfigurationRepo_IgnoresLegacySiteKey proves decision 039 against a
 // document an earlier release wrote: a sealed Site private key never reaches a run, and the next
 // credential write drops both the key and the unsealed override marker.
 func TestMongoAutomationConfigurationRepo_IgnoresLegacySiteKey(t *testing.T) {

@@ -142,7 +142,7 @@ printf 'automation configured (enabled=%s), exporter playbooks mapped\n' "${auto
 
 # --- site become password (optional) ---
 # Automation always logs in with the Deployment Key created above, which the API registers in
-# MAAS (decision 041); a Site stores only its become password.
+# MAAS (decision 039); a Site stores only its become password.
 if [[ -n "${become_password}" ]]; then
   curl "${curl_flags[@]}" "${auth[@]}" -X PUT "${base_url}/sites/${site_id}/automation/credential" \
     -H 'Content-Type: application/json' \

@@ -11,7 +11,7 @@ import (
 // The intent is provider-neutral: "let the provisioner assign and record an address", "let
 // the network's own DHCP server assign it", or "use a caller-chosen address". How the
 // provider realizes each is an adapter concern — the MAAS adapter fulfils Automatic with
-// MAAS "auto-assign" (a provider-managed static IP recorded by MAAS, decision 018) and DHCP with
+// MAAS "auto-assign" (a provider-managed static IP recorded by MAAS, decision 058) and DHCP with
 // a MAAS DHCP link (decision 058). The two differ on a subnet whose DHCP the provisioner does not
 // serve: auto-assign allocates without knowing the site DHCP pool, while DHCP takes the
 // site's address, gateway, and DNS.
@@ -32,8 +32,8 @@ const (
 // NormalizeDeploymentNetworkMode resolves a raw, possibly-empty mode string to a canonical
 // DeploymentNetworkMode. Empty becomes Automatic, the default; "automatic", "dhcp", and
 // "static" are kept; anything else returns ok=false so the caller can reject it with its own
-// bounded error. "dhcp" was an alias of Automatic between decision 018 and decision 058 and is now its
-// own mode, so a stored "dhcp" now means DHCP.
+// bounded error. "dhcp" was once an alias of Automatic and is now its own mode (decision 058), so
+// a stored "dhcp" now means DHCP.
 func NormalizeDeploymentNetworkMode(raw string) (DeploymentNetworkMode, bool) {
 	switch DeploymentNetworkMode(raw) {
 	case "", DeploymentNetworkAutomatic:

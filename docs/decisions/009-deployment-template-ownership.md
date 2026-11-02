@@ -10,7 +10,7 @@ Operators need to apply one OS deployment configuration to several Servers and
 reuse it when the same provisioner fleet scales out. The retired
 `ProvisioningProfile` combined an OS image with packages and scripts, which made
 Swallow an owner of mutable automation content and crossed the boundary recorded
-by ADR 001 and ADR 006.
+by ADR 069 and ADR 072.
 
 OS Images and deployment execution remain owned by the provisioner. No external
 system, however, owns the operator's reusable selection of an image, ephemeral
@@ -39,8 +39,8 @@ One narrow exception is the mirrored display name of a Server's currently
 deployed image. The reconciler already reads each Integration's catalog once per
 pass, so it resolves each deployed machine's image to its effective name (the
 provider title overlaid with any Swallow custom name per
-[ADR 025](025-provider-data-overlay.md)) and mirrors that single string onto the
-Server provisioning axis with an `observedAt`. This is the ADR 001 mirror
+[ADR 071](071-provisioner-realized-desired-state.md)) and mirrors that single string onto the
+Server provisioning axis with an `observedAt`. This is the ADR 069 mirror
 mechanism, and it exists so the fleet Server list can show a meaningful image
 name without a per-request fan-out. The catalog itself remains live-read and
 un-mirrored.

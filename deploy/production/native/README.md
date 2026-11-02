@@ -5,7 +5,7 @@
 This directory is the template for a self-contained native bundle with `bin/swallow-api`,
 dashboard assets, automation, an offline Python wheelhouse, systemd and Nginx files, and
 separately checksummed MongoDB/Nginx packages. Releases do not publish that bundle until native
-packaging is complete ([decision 050](../../../docs/decisions/050-compose-only-release-artifacts.md) (compose only release artifacts));
+packaging is complete ([decision 040](../../../docs/decisions/040-single-vm-production-installation.md) (single vm production installation));
 the steps below describe the intended bundle.
 
 Merge the checksummed MongoDB and native runtime media as
@@ -29,8 +29,8 @@ is kept. OS and Platform deployments are refused until it exists.
 
 ## Durable orchestration requires Temporal
 
-swallow's sole execution engine is Temporal ([decision 016](../../../docs/decisions/016-temporal-operation-orchestration.md) (temporal operation orchestration),
-[decision 017](../../../docs/decisions/017-workflow-job-task-runner-model.md) (workflow job task runner model)). A Workflow cannot
+swallow's sole execution engine is Temporal ([decision 072](../../../docs/decisions/072-store-driven-workflow-execution.md) (store driven workflow execution),
+decision 072). A Workflow cannot
 execute without Temporal Server, its PostgreSQL datastore, the Workflow worker
 (`swallow-api worker`), and the Ansible executor (`swallow-api ansible-executor`).
 

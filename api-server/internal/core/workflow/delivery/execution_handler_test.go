@@ -33,7 +33,7 @@ func (r *recordingAutomationRepo) ReplaceCredential(_ context.Context, _ string,
 	return nil
 }
 
-// TestPutAutomationCredential covers the site-automation contract after decision 041: the body
+// TestPutAutomationCredential covers the site-automation contract after decision 039: the body
 // carries only becomePassword, and any sshPrivateKey value is refused so no caller believes a
 // Site key override took effect.
 func TestPutAutomationCredential(t *testing.T) {

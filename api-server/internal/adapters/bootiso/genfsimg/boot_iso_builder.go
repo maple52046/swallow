@@ -52,13 +52,13 @@ func execRunner(ctx context.Context, dir, name string, args ...string) ([]byte, 
 // grubModuleDir is where grub-efi-amd64-bin installs the x86_64-efi modules grub-mkstandalone packs.
 const grubModuleDir = "/usr/lib/grub/x86_64-efi"
 
-// GenfsimgBuilder builds Boot ISOs with iPXE's genfsimg (decisions 049, 057) and owns their files
+// GenfsimgBuilder builds Boot ISOs with iPXE's genfsimg (decision 047) and owns their files
 // under dir/<isoId>/swallow-ipxe.iso.
 //
 // BIOS firmware boots the prebuilt ipxe.lkrn with the iPXE script as initrd=autoexec.ipxe (genfsimg
 // -s). UEFI firmware boots a GRUB built for the ISO by grub-mkstandalone with the GRUB
 // configuration embedded in its memdisk, which genfsimg places as EFI/BOOT/BOOTX64.EFI; iPXE's own
-// EFI build is not used, because a GRUB it chains cannot reach the network (decision 057). No
+// EFI build is not used, because a GRUB it chains cannot reach the network (decision 047). No
 // compiler is needed: both tools only package prebuilt binaries and modules. Each build
 // works in a private directory inside dir and renames the finished file into place, so the
 // served URL never exposes a half-written ISO and concurrent builds of different ids do not

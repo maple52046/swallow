@@ -57,7 +57,7 @@ type CreateBootISOInput struct {
 	CreatedBy     string
 }
 
-// BootISOService builds, rebuilds, lists, and deletes Boot ISOs (decisions 049, 057).
+// BootISOService builds, rebuilds, lists, and deletes Boot ISOs (decision 047).
 //
 // A build renders, through the Integration's provisioner's BootChainRenderer, the content that
 // chains to the given boot server, packages it synchronously through BootISOBuilder (seconds), and
@@ -322,7 +322,7 @@ func (s *BootISOService) view(ctx context.Context, iso *provisioningdomain.BootI
 }
 
 // item shapes a record for the API. uefiChainUrl is reported only for an ISO that carries a GRUB:
-// one built before decision 057 — including one rebuilt while its UEFI path still went through
+// one built before decision 047 — including one rebuilt while its UEFI path still went through
 // iPXE, which recorded a UEFI URL but no GRUB — must read as needing a rebuild.
 func (s *BootISOService) item(iso *provisioningdomain.BootISO, siteID string, inUse int) BootISOItem {
 	uefiChainURL := ""

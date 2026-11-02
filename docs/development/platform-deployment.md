@@ -2,9 +2,9 @@
 
 本文件為 swallow **platform deployment** 的權威設計文件（design）、開發指引（development
 guide）與整合規範（standards）。它把
-[decision 016](../decisions/016-temporal-operation-orchestration.md) (temporal operation orchestration)、
-[decision 017](../decisions/017-workflow-job-task-runner-model.md) (workflow job task runner model)、
-[decision 006](../decisions/006-embedded-ansible-execution.md)（embedded ansible execution） 以及 root glossary 的
+[decision 072](../decisions/072-store-driven-workflow-execution.md) (store driven workflow execution)、
+decision 072、
+decision 072 以及 root glossary 的
 Workflow / Job / Task / Runner 語言，落成「swallow 如何佈署一個 platform」與「如何整合一個
 新的 platform」的具體設計與規範。
 
@@ -70,7 +70,7 @@ deployment 一律以這四層表達（完整定義見 glossary：
 1. **Desired-state / convergent（收斂）**：Workflow 宣告 end-state，對**每台 resource 各自
    收斂**，因此 targets 可以**起始於不同狀態**（有些 Server 已裝 OS、有些沒有）。deployment
    不再要求整批同狀態。
-2. **Orchestration up, host-config down**（[decision 017](../decisions/017-workflow-job-task-runner-model.md) §3）——
+2. **Orchestration up, host-config down**（decision 072 §3）——
    邊界由「誰擁有該能力」決定：
    - **跨 Runner 或可跨 platform 重用的動作 → swallow 擁有的 Workflow Task**：OS 佈署與網路
      （`provisioner`）、SSH 就緒（`internal`）、credential/membership 記錄（`internal`）。
@@ -332,9 +332,9 @@ Uninstall 與 deploy 一樣把 Task 以 `Task.Job` 分組，因此 API 的 `step
 與 deploy 相同，Job 順序由 **cross-Job 的 `DependsOn`** 推導（`finalize-uninstall` 依賴
 `release-servers` 的全部 Task，故在其整包成功後才跑），每個 Job 宣告重試粒度 `job`。events/live 本來就是
 per-Task，故分組後即與 deploy 一致，無需另外處理。Release 捷徑（略過 ansible）仍依
-[decision 022](../decisions/022-uninstall-release-shortcut.md)（uninstall release shortcut），此處只加 Job 邊界，不改步驟語意。
+[decision 010](../decisions/010-cluster-lifecycle-actions.md)（cluster lifecycle actions），此處只加 Job 邊界，不改步驟語意。
 
-**Release 捷徑**（[decision 022](../decisions/022-uninstall-release-shortcut.md)）：release 會清除 OS，所以帶 `releaseServers`
+**Release 捷徑**（decision 010）：release 會清除 OS，所以帶 `releaseServers`
 時不跑 platform 軟體的 uninstall playbook，直接並行 release 每台成員。`complete-uninstall` 做的就是保留主機路徑上
 `uninstall-platform` 成功時由結果類完成行為 `platform-uninstall` 做的投影清理（`CompleteUninstall`，§2.5），
 只需要 Platform id、不帶 ansible result；released 主機已被清除，所以不還原 exporter。保留主機的路徑不變。
@@ -343,11 +343,11 @@ per-Task，故分組後即與 deploy 一致，無需另外處理。Release 捷�
 - Workflow kind 仍是 `uninstall-kubernetes`／`uninstall-slurm`（definition `platform-uninstall` v1），lifecycle 照舊由
   Workflow 狀態推導（`uninstalling` → `uninstalled`），`retryOfOperationId` 的重試規則相同。
 - 設計理由：否決「保留 uninstall step 但當 no-op」、「改接通用的 operation-success hook」與「受理時就清理投影」，
-  見 decision 022。
+  見 decision 010。
 
 ### 2.5 Uninstall 與 Delete：分開的 lifecycle 動作（decision 010）
 
-Platform 的移除分成兩個指令（[decision 010](../decisions/010-cluster-lifecycle-actions.md)（cluster lifecycle actions））。欄位、eligibility 與錯誤見
+Platform 的移除分成兩個指令（decision 010）。欄位、eligibility 與錯誤見
 platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-contracts/api-server/platforms.md#delete-a-platform)
 與 [List, Get, Update, And Delete Only The Record](../../api-server/docs/development/api-contracts/api-server/platforms.md#list-get-update-and-delete-only-the-record)。
 
@@ -438,7 +438,7 @@ deployment 的非終態 stage；同一 stage 25 分鐘未推進即 `requires_att
 > 部分 wire/BSON 仍是舊名（`Operation`/`Step`/`executor`、`Task.Executor` 的 bson tag 為
 > `runner`、`Workflow.Steps` 的 bson 為 `tasks`、`RunnerKindProvisioner` 的值仍是 `maas`）。HTTP 只有
 > `/workflows`（`/operations` alias 已移除，[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)（retire schema v2 and deprecated aliases））。導航 code 時以此對照，這是
-> [decision 017](../decisions/017-workflow-job-task-runner-model.md) 追蹤中的 rename。
+> decision 072 追蹤中的 rename。
 
 ---
 
@@ -460,7 +460,7 @@ swallow 的內部實作。資料流總覽見
 - `_meta.hostvars[serverId]` 提供的鍵（playbook 可依賴）：
   - 連線：`ansible_host`；`ansible_user`、`ansible_port` 於**執行時**注入：`ansible_user` 優先取
     `default_user`（Server 的 effective Server Default User：Server 上設定的值，否則所佈署 OS Image 的
-    default user，[decision 045](../decisions/045-server-default-user.md)（server default user）／[decision 039](../decisions/039-ssh-key-management-and-default-user.md)（ssh key management and default user）），
+    default user，[decision 039](../decisions/039-ssh-key-management-and-default-user.md)（ssh key management and default user）／decision 039），
     否則依 §4.6.1 的候選解析；`ansible_port` 來自 site Automation Configuration。playbook 可把
     `ansible_user` 當成該 Server 的 default user（例如 Docker CE 把它加入 `docker` group）。
   - 身分：`server_id`、`site_id`、`integration_id`、`provider_machine_id`。
@@ -589,7 +589,7 @@ playbook 若需回傳結果（例如叢集 credential），寫入 runner 提供�
 
 ### 4.5 Playbook manifest 與 site playbookMappings
 
-- **Release manifest**（allow-list，[decision 006](../decisions/006-embedded-ansible-execution.md)）：
+- **Release manifest**（allow-list，decision 072）：
   [`api-server/modules/manifest.json`](../../api-server/modules/manifest.json) 登錄
   `name → path`；只有登錄的 playbook 可執行。路徑相對於 `api-server/modules/`，必須是
   `<種類>/<id>/playbooks/<file>.yml` 或 `shared/playbooks/<file>.yml`；執行時 role 只從該模組的 `roles/` 與
@@ -614,8 +614,8 @@ host key 不必事先登錄在 `knownHosts`，重裝後也不必更新。Site au
 
 ### 4.6.1 SSH readiness 是「驗證式」，SSH 使用者為 per-host 解析
 
-**automation 金鑰來源**（[decision 039](../decisions/039-ssh-key-management-and-default-user.md)、
-[decision 041](../decisions/041-deployment-key-only-automation.md)（deployment key only automation））：所有站台一律使用安裝時自動產生的
+**automation 金鑰來源**（decision 039、
+decision 039）：所有站台一律使用安裝時自動產生的
 **Deployment Key**（ed25519，私鑰加密存於 MongoDB；由 `swallow-api deployment-key ensure` 建立，`swallowctl
 install`／`upgrade` 於 migrate 後執行，API 啟動不建立也不依賴它），站台不能另設私鑰。Platform deploy 與 OS 佈署
 在受理時先確認 Deployment Key 存在，缺少時以 `409 conflict` 拒絕並指出該指令；Ansible 可執行的條件是站台
@@ -691,7 +691,7 @@ Platform deploy 失敗**不會**自動 release、mark-broken 或清 claim；它�
   `requires_attention` 時仍佔著該 Server，另開的 Recover Workflow 會被拒為 busy，所以收斂方式是
   **直接重試該 `provision-os` Task**：明確 Retry 會先在同一個 Workflow 內、在它擁有 Server 時執行與
   **Recover**（Return to Ready）相同的 provider recovery（[decision 033](../decisions/033-provider-recovery-policy.md)（provider recovery policy））把 Server 收回 `ready`
-  （不解除 static IP），再重送凍結的部署內容；同批其他 Server 與已完成的 Task 保留（[decision 059](../decisions/059-retry-recovers-failed-deployment.md)（retry recovers failed deployment））。
+  （不解除 static IP），再重送凍結的部署內容；同批其他 Server 與已完成的 Task 保留（decision 033）。
   首次 attempt、activity 重試與接續都不會自動回復，已 `deployed` 但 image 不符的 Server 也不會被覆蓋。
   若要放棄整個部署，才 cancel Workflow，再對錯誤節點 Recover（直接 Release 會因 Platform Claim
   被拒，見下方「Platform Claim 與 `deploy_failed`」）。不要用 Mark fixed 去修一個
@@ -707,7 +707,7 @@ Platform Claim（[decision 067](../decisions/067-platform-claim-on-server.md)）
 仍保有 claim，故 `deploy_failed` 期間目標受保護：直接 Release 一律被拒（409，訊息帶 Platform
 名稱，`cancelActiveWorkflows` 也繞不過），Recover 只對 `deployed` 的目標被拒。要把這些節點放回
 可用池，可先 Recover 錯誤（非 `deployed`）的節點，再以 **Uninstall（可勾 release servers）** 或
-**Delete** 解除 claim。Uninstall+release（[decision 022](../decisions/022-uninstall-release-shortcut.md)）
+**Delete** 解除 claim。Uninstall+release（decision 010）
 對非 `deployed` 的 failed 目標**沿用同一條 Release 政策**（與 Server 的 Release 一致，見
 decision 033），不另立門檻，避免捷徑與獨立 Release 規則分裂。失敗的 deploy 停在 `requires_attention`
 時仍擁有目標，所以 uninstall 需帶 `cancelActiveWorkflows`（帶旗標時 `deploying` 也可
@@ -735,7 +735,7 @@ OS 的套件維護）、登錄方式（§2）與 role 的解析（§3）。platf
 
 ### 6.1 先判斷整合層級（誠實的現況）
 
-[decision 017](../decisions/017-workflow-job-task-runner-model.md) §4 的目標是「新增 platform =
+decision 072 §4 的目標是「新增 platform =
 playbook + trusted-vars 契約 + manifest」。目前**骨架與契約已具備**，但**platform 專屬的
 trusted vars 與 deploy 定義仍由 Go 組裝**（k0s 即如此）。因此依需求分兩種情況：
 
@@ -977,7 +977,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `install-omnistat` 宣告投影類完成行為 `omnistat-state`，把狀態投影成 Omnistat State（fence＝record id），
   以及結果類完成行為 `omnistat-result`，讀 result 寫入 Monitoring Link `Omnistat Grafana`。完成行為由
   launcher 宣告在各 Task 上（只有 `install-platform` 宣告 `slurm-credential`，產 slurmrestd credential），
-  不再依 Workflow kind 或 Task id 分流（[decision 072](../decisions/072-store-driven-workflow-execution.md)（store driven workflow execution））。uninstall 移除 exporter、overlay、dispatcher 與 hook、DME 套件與設定、OCI 與 PMIx
+  不再依 Workflow kind 或 Task id 分流（decision 072）。uninstall 移除 exporter、overlay、dispatcher 與 hook、DME 套件與設定、OCI 與 PMIx
   的 swallow 產物、Slurm 的 amdgpu loader 與 udev 規則，state → `absent` 並移除 link；成功時把該 Platform 各
   Server 的 `device-metrics-exporter` assignment 標為 `absent`（`CompleteUninstall`，於釋放 claim 之前讀出
   claimed Servers）；container runtime／Prometheus／Grafana 的 assignment 保留。
@@ -1110,9 +1110,9 @@ playbook 使用的內容放在 `shared/`。
 
 ## 8. 相關文件
 
-- 決策：[decision 016 Temporal orchestration](../decisions/016-temporal-operation-orchestration.md)、
-  [decision 017 Workflow/Job/Task/Runner](../decisions/017-workflow-job-task-runner-model.md)、
-  [decision 006 Embedded Ansible execution](../decisions/006-embedded-ansible-execution.md)。
+- 決策：[decision 072 Temporal orchestration](../decisions/072-store-driven-workflow-execution.md)、
+  [decision 072 Workflow/Job/Task/Runner](../decisions/072-store-driven-workflow-execution.md)、
+  [decision 072 Embedded Ansible execution](../decisions/072-store-driven-workflow-execution.md)。
   Platform 專屬決策（007、010、011、019、021、022、023、024、026、028、062、063、066、067）在各自的章節以「設計理由」連結。
 - 語言：glossary [Workflow](glossaries/terms/workflow.md)、[Job](glossaries/terms/job.md)、
   [Task](glossaries/terms/task.md)、[Runner](glossaries/terms/runner.md)、

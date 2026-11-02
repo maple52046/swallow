@@ -11,7 +11,7 @@ A Server comes into being only when the reconciler sees a Machine in a provision
 Machine there: the empty Server list only linked to the provisioner Integration. With MAAS,
 getting a machine to a deployable state took two steps outside swallow: network-boot it so MAAS
 enlists it as New, then press Commission in the MAAS UI. A host that already runs an OS could
-only be added by running MAAS's own `maas-run-scripts` with a MAAS API key, which ADR 045
+only be added by running MAAS's own `maas-run-scripts` with a MAAS API key, which ADR 039
 recorded as missing ("swallow has no enrollment step for existing hosts").
 
 Two facts shape automation of the second step. MAAS creates the Machine while the enlistment
@@ -19,7 +19,7 @@ environment is still running and powers the machine off when enlistment ends, so
 issued as soon as swallow sees New races the enlistment boot. And a commission that powers the
 machine on cannot reach MAAS when the Server's network is not served by MAAS DHCP; it then sits
 in Commissioning until a timeout, while the operator's fix is Boot Media
-([ADR 047](047-redfish-boot-media.md), [ADR 049](049-boot-iso-builder.md)).
+([decision 047](047-redfish-boot-media.md) (redfish boot media)).
 
 ## Decision
 
@@ -52,7 +52,7 @@ made a retried run wait again instead of succeeding at once
 ## Alternatives considered
 
 - **Commission from the reconciler when it creates a New Server:** rejected. It writes from a
-  read path ([ADR 001](001-system-ownership-boundaries.md)), races the enlistment boot, and has
+  read path ([ADR 069](069-swallow-owns-desired-state.md)), races the enlistment boot, and has
   no durable retry or attention state.
 - **Mark the Server failed after the retries and require a reset to New:** rejected. Recover
   returns a Server to Ready, not New, and MAAS has no primitive that returns a Failed
@@ -80,4 +80,4 @@ made a retried run wait again instead of succeeding at once
 - Two new unauthenticated downloads; the installation must serve its CLI to the API process.
 - The generated existing-OS command carries the provisioner's API key; a host that runs it
   could use that key. Rotate it when a host is not trusted.
-- The Server Default User is still not captured during enrollment (ADR 045 future direction).
+- The Server Default User is still not captured during enrollment (ADR 039 future direction).

@@ -66,7 +66,7 @@
   [decision 027](../../../decisions/027-os-image-upload.md) (os image upload). Updated 2026-09-13 to
   clarify that live image size metadata remains provider-owned. Updated 2026-09-12
   for the swallow-owned display overlay (name, OS, release) per
-  [decision 025](../../../decisions/025-provider-data-overlay.md) (provider data overlay).   Updated 2026-09-21
+  decision 071.   Updated 2026-09-21
   for the swallow-owned per-Deploy-Target verification and the custom-image deploy
   gate per [decision 035](../../../decisions/035-os-image-verification-and-deploy-target.md) (os image verification and deploy target).
   Updated 2026-09-21 so per-Deploy-Target verification records a failed outcome as well
@@ -75,4 +75,4 @@
   [decision 036](../../../decisions/036-provisioning-lifecycle-integrity.md) (provisioning lifecycle integrity).
   Updated 2026-10-01 for the swallow-owned default user used as the automation
   login user, per
-  [decision 039](../../../decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user). On 2026-10-31 ([decision 071](../../../decisions/071-provisioner-realized-desired-state.md)) the Provider Data Overlay of an image became its metadata, desired state stored in `os_image_metadata`.
+  [decision 039](../../../decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user). On 2026-10-31 (decision 071) the Provider Data Overlay of an image became its metadata, desired state stored in `os_image_metadata`.

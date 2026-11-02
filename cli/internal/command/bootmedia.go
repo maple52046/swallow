@@ -15,7 +15,7 @@ import (
 const bootMediaPreflightTimeout = 8 * time.Minute
 
 // serversBootMediaCmd groups one Server's Boot Media (server-detail-actions.md "Boot Media",
-// decisions 047, 049, and 055): the Boot ISO the Server boots first. The method follows the
+// decisions 047 and 055): the Boot ISO the Server boots first. The method follows the
 // Server's Power Configuration — redfish (the BMC mounts it) or libvirt (the Hypervisor puts it on
 // the virtual machine's CD-ROM). Enabling names a Boot ISO built for the Server's own provisioner
 // (`swallow provisioning boot-isos`); the API derives the rest, so no command takes a URL or path.

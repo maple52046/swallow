@@ -18,8 +18,8 @@ Active
 Accept durable operator intent and expose swallow's owned multi-Task Workflow state:
 normalized timeline, runner events, logs, and artifact metadata. A Workflow is a DAG of
 Tasks executed by Runners (`internal`, `ansible`, `provisioner`) and orchestrated by
-Temporal ([decision 016](../../../../../docs/decisions/016-temporal-operation-orchestration.md) (temporal operation orchestration),
-[decision 017](../../../../../docs/decisions/017-workflow-job-task-runner-model.md) (workflow job task runner model)).
+Temporal ([decision 072](../../../../../docs/decisions/072-store-driven-workflow-execution.md) (store driven workflow execution),
+decision 072).
 
 ## Related Glossary Terms
 
@@ -61,7 +61,7 @@ without its trailing slash; Fiber serves both spellings.
 The route segments are canonical (`workflows`, `tasks`). The JSON body and Mongo still use
 the field names `steps[]`, `executor`, `operationId`, and the `provisioner` Runner still
 serializes as `maas`. Renaming these to `tasks[]`, `runner`, `workflowId`, and
-`provisioner` ([decision 017](../../../../../docs/decisions/017-workflow-job-task-runner-model.md))
+`provisioner` (decision 072)
 has not started. When it is done, it is one switch: api-server, dashboard, and cli change in
 the same commit, with a schema migration for the stored names, and no period in which
 consumers read both.
@@ -283,7 +283,7 @@ retried it. The provider-owned `provisioning.state` is not rewritten by the canc
 following the provider.
 
 A cancel also returns the Servers whose `provision-os` it interrupted to Ready
-([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md) (cancel and rerun converge)). Before the
+([decision 061](../../../../../docs/decisions/061-recovery-supersedes-blocking-work.md) (recovery supersedes blocking work)). Before the
 Workflow becomes `canceled`, and while it still owns its resources, swallow aborts a deployment the
 provider still reports as Deploying, waits up to 10 minutes for the provider to leave it, and
 returns an Allocated Machine (where MAAS parks an aborted deployment) to Ready with the Recover
@@ -321,7 +321,7 @@ projection (its `leases` is `null`: it owns none yet). A `requires_attention` or
 `requestedAt` so the platform lifecycle follows it, and the original stays in history.
 
 A rerun converges the intent to its desired state
-([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md)). Every ensure
+(decision 061). Every ensure
 Task runs again, whatever its earlier outcome, at the attempt after its last one: `provision-os`,
 `ensure-boot-media`, `wait-for-ssh`, `ansible-playbook`, `validate-platform-health`,
 `release-os`, and `recover-server`. Like an explicit Task retry, each observes before acting:
@@ -366,7 +366,7 @@ Workflow or Task, an unknown target Server, and a Site with no Automation Config
 
 ## Compatibility Notes
 
-On 2026-10-19 ([decision 060](../../../../../docs/decisions/060-cancel-and-rerun-converge.md)) a
+On 2026-10-19 (decision 061) a
 cancel began returning the Servers of interrupted `provision-os` Tasks to Ready and recording
 three new timeline event types, and a rerun began running every ensure Task again instead of
 carrying succeeded ones over. Routes, statuses, and error codes are unchanged. A rerun of a
@@ -379,7 +379,7 @@ Site with no Automation Configuration are `conflict` and `not_found` (not `valid
 `provider_unavailable`); Task events never carry a `changed` status; the legacy logs and events
 of a schema-v3 Workflow are `not_found`; and the cancel and Task-retry bodies are documented.
 
-On 2026-10-31 ([decision 072](../../../../../docs/decisions/072-store-driven-workflow-execution.md) (store driven workflow execution))
+On 2026-10-31 (decision 072)
 execution state moved to the store alone. Breaking: a lease is ownership with no `expiresAt`, its
 `owner` is the Workflow id instead of the Temporal Workflow ID, and `fencingToken` is the dispatch
 generation. Task retry and cancel no longer return `conflict` when the execution is gone; the

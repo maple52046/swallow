@@ -140,7 +140,7 @@ api-server/modules/
 ## 2. 登錄 playbook
 
 [`api-server/modules/manifest.json`](../../api-server/modules/manifest.json) 是 release 的 allowlist：只有登錄的
-playbook 可以執行（[decision 006](../decisions/006-embedded-ansible-execution.md)（embedded ansible execution））。
+playbook 可以執行（[decision 072](../decisions/072-store-driven-workflow-execution.md)（store driven workflow execution））。
 
 ```json
 {

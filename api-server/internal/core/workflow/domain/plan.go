@@ -69,7 +69,7 @@ type CancelBehavior struct {
 	Run bool `json:"run,omitempty" bson:"run,omitempty"`
 }
 
-// RerunPolicy says whether a rerun runs a Task again (decision 060).
+// RerunPolicy says whether a rerun runs a Task again (decision 061).
 type RerunPolicy string
 
 const (

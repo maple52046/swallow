@@ -367,7 +367,7 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
   - 保留 `api-server/automation/` 並依模組分子目錄：改動最小，但一個模組永遠分在兩處，而且把「模組」和
     「host automation 的內容」混在一起。
   - Go hook 不在 `internal/` 之下，Go 不會阻止外部 import；由 §9 的 import 檢查守住。
-- 資源的所有權與收斂：[desired-state-model.md](desired-state-model.md)、[decision 069](../decisions/069-swallow-owns-desired-state.md)。
+- 資源的所有權與收斂：[desired-state-model.md](desired-state-model.md)、decision 069。
 - 現行的 Platform 與 Managed Software 設計：[platform-deployment.md](platform-deployment.md)、
   [software-deployment.md](software-deployment.md)。
 - 在模組中撰寫 host automation 內容：[module-authoring.md](module-authoring.md)。

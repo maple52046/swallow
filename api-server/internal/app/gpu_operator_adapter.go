@@ -22,7 +22,7 @@ const (
 // gpuOperatorTask builds the ansible Task that applies GPU Operator settings. Its gpu-operator-state
 // completion carries the mode, the trusted swallow_amd_gpu_operator_state ("present" or "absent"),
 // which selects the states the Task's outcome maps to, and the record the state is fenced on: a
-// parameter rather than the running Workflow's id, because a rerun (decision 060) copies the Task
+// parameter rather than the running Workflow's id, because a rerun (decision 061) copies the Task
 // under a new Workflow id and must still report the outcome of that intent.
 func gpuOperatorTask(
 	prepared *workflowapp.PreparedAnsibleStep,

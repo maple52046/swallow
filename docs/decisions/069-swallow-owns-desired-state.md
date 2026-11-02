@@ -1,100 +1,132 @@
-# 069. swallow owns desired state; providers converge to it
+# 069. Ownership boundaries: swallow owns desired state; providers converge to it
 
-- Status: Accepted; Refined by [071](071-provisioner-realized-desired-state.md) (spec/status API shape, scheduled auto-correction of non-destructive provisioner-realized fields, adoption at first observation); Refined by [076](076-change-plans.md) (Change Plan storage, apply by the resource's controller, expiry)
-- Date: 2026-10-30
+- Status: Accepted
+- Date: unrecorded (predates the ADR template)
 - 現行規格：[desired-state-model.md](../development/desired-state-model.md)
 
 ## Context
 
-[ADR 001](001-system-ownership-boundaries.md) decided ownership per capability: swallow owns
-intent, policy, and identity mapping, and integrates a system that already owns everything else,
-mirroring its facts. As provisioning, Workflows, and Platform deployment deepened, that rule left
-the same question open in several places — which side is the truth — and each place answered it
-with extra machinery:
-
-- **Execution state has two sources of truth.** [ADR 016](016-temporal-operation-orchestration.md)
-  made Temporal hold execution history and MongoDB a query projection. In practice MongoDB is also
-  where a Workflow starts (written as `startState=pending` and picked up by a Starter loop), the
-  Ansible work queue, and the lease store. Keeping both sides consistent takes a Starter and a
-  lost-execution reconciler in two processes, a deployment projection repair sweep, and three
-  separate mechanisms so that cancelling never rolls back an OS deployment that already succeeded.
-- **Truth depends on the configured provider.** [ADR 031](031-provider-capability-first-with-swallow-owned-fallback.md)
-  made a fact owned by the provisioner when it is capable and by swallow when it is not. Every such
-  feature carries two paths, one of them inert while MAAS is the only provisioner, and a reader has
-  to know which provider a Site uses to know which side is authoritative.
-- **Intent is not recorded where a provider is capable.** On the capable path swallow writes to the
-  provider and mirrors the result back, keeping no copy of what the operator asked for. A change made
-  directly in the provider (for example in the MAAS UI) silently becomes the new value; swallow
-  cannot report it as drift.
-- **No transactions.** MongoDB runs standalone in every environment. Cross-document invariants, such
-  as a Platform and the Platform Claims on its Servers, rely on hand-written compensation and a
-  repair pass at API start.
-
-The product direction decided alongside this ADR ([ADR 070](070-core-providers-and-extensions.md))
-is a generic core whose external systems are replaceable adapters. That only works if the core,
-not any one adapter, holds the truth.
+swallow manages Servers and Platforms whose real state lives in external systems: a provisioner per
+Site, host automation, a Workflow executor, a store, and monitoring. Every stored field needs one
+answer to "which side is the truth"; without it two systems claim the same state, a change made in a
+provider silently becomes the new value, and features build repair loops to keep copies consistent.
+The first swallow modelled those facts before deciding who owned them (hostname and IP as unique
+keys, an agent on every server, its own alert lifecycle), and a later rule made ownership depend on
+whether a Site's provisioner was capable. The answer must also survive replacing an external system,
+since each is a provider adapter ([decision 070](070-core-providers-and-extensions.md) (core,
+provider adapters, and extension modules)).
 
 ## Decision
 
+### Who owns what
+
 1. **swallow's store is the single source of truth for desired state and execution state.** The
-   desired state (spec) of every managed resource, and every Workflow's state, is owned by swallow.
-   Providers realize the desired state. What swallow reads back from a provider is observed state
-   (status), carrying its source and observation time. A provider never writes desired state.
-2. **What swallow never owns is unchanged.** Metrics, alert evaluation and firing state, workload
-   scheduling, and resources inside a managed Platform (Kubernetes objects, Slurm jobs) stay with
-   their systems, as in ADR 001.
-3. **Convergence is hybrid.**
-   - Non-destructive differences between desired and observed state are converged continuously by
-     controllers.
-   - Destructive changes — reinstalling an OS, releasing a Server, uninstalling a Platform, changing
-     a node's role — first produce a Change Plan preview. An operator approves it, it is checked
-     again against current state, and it runs as a Workflow.
-   - Drift (observed state changed outside swallow) is reported, not corrected, unless a field
-     explicitly opts into auto-correction.
-   - Desired state is written through the API, which the dashboard and CLI use. GitOps may later be
-     added as an import/export channel, not as a second write path.
-4. **Workflow semantics belong to swallow; the executor only executes.** swallow defines the
-   Workflow model (Task DAG, attempts, retry, cancellation, waiting for an operator) and stores its
-   state. Temporal executes it. If an execution's history is lost, swallow rebuilds or re-dispatches
-   it from its own store.
-5. **Transactions and change notification are platform requirements.** MongoDB runs as a
-   single-node replica set, and every process checks this at startup. A cross-document invariant is
-   kept inside one transaction, never by compensation or a repair sweep. Store rules are stated as
-   ports (a transaction port and a change feed port); database-specific types and semantics stay
-   inside infrastructure adapters.
+   desired state (spec) of every managed resource and the state of every Workflow belong to swallow,
+   as does what no external system can hold: Sites and their Integrations, policy, allocation, and
+   identity mapping. Providers realize desired state and never write it.
+2. **Integrate, do not rebuild.** Where a mature system already does a job well (OS provisioning, host
+   automation, durable execution, metrics, alerting, workload scheduling), swallow drives it through a
+   provider adapter and reads its facts back as observed state.
+3. **Every stored field is desired, observed, or derived, and has one writer.** A new feature
+   classifies each field before it is built.
+   - *Desired*: written by the API or by the parent resource that owns it; authoritative, never stale.
+   - *Observed*: written only by a provider adapter's observation path, with its source Integration
+     and observation time; staleness is part of the API. It is never the basis of a write to an
+     external system and becomes desired only when a user adopts it.
+   - *Derived*: computed from desired and observed values; cacheable but always recomputable.
+4. **Store what the fleet is queried by; read the rest live.** Observed facts the fleet is listed,
+   filtered, sorted, or aggregated by (current hardware and GPU inventory, provisioning state, observed
+   tags) are stored, so a listing never fans out to every Site. Detail read one object at a time (NIC,
+   link, and subnet detail; the provider's image catalog) is a live read from its owner.
+5. **Identity is swallow's.** A Server is identified by a swallow-issued opaque id; hostname, IP
+   address, and provider ids are observed attributes or opaque references to the provider's object
+   ([decision 002](002-server-identity.md) (server identity)). Joining a provider's machine, its metric
+   labels, and a Platform's node name to that id is the identity mapping only swallow can hold.
+
+### What swallow does not store or rebuild
+
+These belong to the systems built for them; swallow reads them live or links to them, keeps no copy,
+builds no replacement, and reports no drift on them:
+
+- Time-series metrics (labels per [decision 003](003-metrics-label-contract.md) (metrics label
+  contract)), alert rule evaluation and firing state, and dashboards. Acknowledging an alert creates
+  an Alertmanager silence; swallow keeps no alert lifecycle of its own.
+- Workload scheduling, and resources inside a managed Platform: Kubernetes objects and Slurm
+  partitions, node states, and jobs ([decision 032](032-self-deployed-platform-management.md)
+  (self-deployed Platform management)).
+- Hardware detail and liveness: the provisioner's inspection and `node_exporter` provide them, so
+  managed servers run no swallow agent, and swallow keeps no hardware history.
+- Network services: DHCP, address management, subnets, and VLANs stay with the provisioner. swallow
+  owns only deployment network intent, plus a subnet's DNS servers and the provisioner's HTTP Proxy as
+  desired fields the provisioner realizes ([decision 071](071-provisioner-realized-desired-state.md)
+  (provisioner-realized desired state)).
+- Automation content: playbooks and roles ship with the release, not as database records, and only
+  those in its allowlist (`api-server/modules/manifest.json`) run; raw run output is a retained
+  artifact, not a store record.
+
+### Providers converge to swallow
+
+6. **Ownership never depends on the provider.** An adapter declares its capabilities. When it cannot
+   realize a desired field, the value stays in the spec and the resource reports `realized=false` with
+   reason `capability_missing`; swallow builds no same-shaped fallback.
+7. **Convergence is hybrid.** Controllers converge non-destructive differences continuously. A
+   destructive change (reinstalling an OS, releasing a Server, uninstalling a Platform, changing a Node
+   Role) first produces a Change Plan that a user approves, is recomputed against current state, and
+   runs as a Workflow ([decision 076](076-change-plans.md) (Change Plans)). Drift is reported, not
+   corrected, unless the field's feature specification declares it auto-corrected (decision 071 does
+   so for non-destructive provisioner-realized fields); a user adopts the observed value or reapplies
+   the spec. Desired state is written only through the API; GitOps may later be an import and export
+   channel, not a second write path.
+8. **Workflow semantics belong to swallow; the executor only executes.** swallow defines the Workflow
+   model (Task DAG, attempts, retry, cancellation, waiting for a user) and stores its state; Temporal
+   executes it, and a lost execution is re-dispatched from the store
+   ([decision 072](072-store-driven-workflow-execution.md) (store-driven Workflow execution)).
+9. **Transactions and change notification are platform requirements.** A cross-document invariant is
+   kept in one transaction, never by compensation or a repair sweep. Store rules are ports (a
+   transaction port and a change feed port); database-specific types stay in the store adapter.
+   MongoDB runs as a single-node replica set; no process starts without transactions and a change feed.
 
 ## Alternatives considered
 
-- **Keep the current ownership rules (ADR 001 with ADR 031).** Rejected: every feature keeps two
-  paths and its repair loops, and who owns a fact keeps varying with the provider.
-- **Pure continuous reconciliation, correcting all drift automatically.** Rejected: in a physical
-  data center an automatic correction can reinstall a machine or power off a node that an operator
-  changed on purpose.
-- **Pure plan/apply for every change.** Rejected: nothing heals itself, and even a tag change would
-  need a plan and an approval.
-- **GitOps as the write path now.** Rejected for now: two write sources (API and git), secrets in a
-  repository, and offline sites. It stays possible as an import/export channel.
-- **Make Temporal the single source of execution state.** Rejected: what an operator can see would
-  depend on Temporal's history retention and on restoring Temporal together with swallow's store, and
-  the Workflow semantics would be tied to one executor.
-- **Replace Temporal with swallow's own durable execution.** Rejected: ADR 016 already declined to
-  rebuild durable timers, replay, and fencing. Temporal stays, limited to executing.
-- **Move the store to PostgreSQL now.** Deferred, not rejected. It would let swallow share one
-  database engine with Temporal and MAAS, but it rewrites 33 source files and about 30 collections
-  for no change in behavior. Stating store rules as ports keeps the move open; it needs its own ADR.
+- **Integrate and mirror, keeping no intent where a provider can act** (the original rule, later with
+  capability-first ownership and a swallow-owned fallback for providers that cannot). Rejected: who
+  owns a fact varied with the provider, every such feature carried two paths (one inert while MAAS is
+  the only provisioner), and a change made in the provider silently became the new value.
+- **A read-only pane of glass, with every change made in the underlying tools.** Rejected: cross-system
+  work (reimaging a rack and returning it to service, moving Servers between Platforms) spans
+  provisioner, automation, and Platform; without it swallow is a dashboard.
+- **Rebuild what a mature system owns**: an agent on every server (even for liveness only), a metric
+  store or alert lifecycle of swallow's own, or swallow's own durable execution. Rejected: each repeats
+  a solved problem worse (inspection and `up{}` from a scrape; a TSDB's retention, cardinality
+  handling, and query language; Alertmanager silences; Temporal's durable timers, replay, and fencing),
+  and the copy is bound to disagree with the original.
+- **Pure continuous reconciliation, or pure plan and apply.** Rejected: correcting all drift
+  automatically can reinstall a machine or power off a node a user changed on purpose; requiring a
+  plan for every change means nothing heals itself and even a tag change needs an approval.
+- **GitOps as the write path now.** Rejected for now: two write sources, secrets in a repo, offline sites.
+- **Temporal as the single source of execution state.** Rejected: what a user sees would depend on
+  Temporal's history retention and on restoring it with swallow's store, and the Workflow semantics
+  would be tied to one executor.
+- **Move the store to PostgreSQL now.** Deferred, not rejected: one database engine with Temporal and
+  MAAS, but a rewrite of the store layer for no change in behavior. Store rules as ports keep the move
+  open; it needs its own ADR.
 
 ## Consequences
 
-- Every managed resource separates spec from status and reports conditions; every new field states
-  whether it is desired, observed, or derived.
-- ADR 031 no longer applies. A provider that cannot realize a desired field reports it as not
-  realized instead of swallow building a same-shaped fallback, and the read-time overlays of
-  [ADR 025](025-provider-data-overlay.md) retire as their facts become desired fields.
-- ADR 017 rejected a plan/apply phase in favor of idempotent "ensure" Tasks. Ensure Tasks remain;
-  Change Plans are added for destructive changes only.
-- The repair loops — projection repair, the cancel-invariant sweeps, Platform Claim reconciliation —
-  become removable as features move to the model. Until a feature is migrated it keeps its current
-  behavior; the migration is tracked outside the ADRs.
-- Every installation, and the development and testing stacks, must run MongoDB as a replica set,
-  which needs an upgrade path for existing installations.
+- Every managed resource separates spec from status and reports conditions; every field states its
+  class and its writer.
+- A missing provider capability is a condition, not a second code path; read-time overlays and
+  same-shaped fallbacks retire as their facts become desired fields (decision 071).
+- A change made directly in a provider or a Platform is drift; an auto-corrected field is restored at
+  the next resync, so users change those fields in swallow.
+- Idempotent ensure Tasks remain; Change Plans add an approval step for destructive changes only.
+- One view can show a Server across its Site, provisioner, Platform, metrics, and Workflows without
+  fanning out to every Site, at the cost of observed data that can be stale and says how stale it is.
 - Cost: a controller framework, a Change Plan model, and a staged migration of existing features.
+
+## Revision history
+
+- unrecorded: decision 069 decided which system owns which facts: swallow owns intent, policy, and identity mapping, integrates a mature system for everything else, and keeps external facts only as mirrored facts with their source and observation time.
+- 2026-09-15: decision 069 made a fact a provisioner may own capability-first: owned by a capable provisioner, and by a same-shaped swallow-owned fallback otherwise.
+- 2026-10-30: decision 069 made swallow's store the single source of truth for desired and execution state, with providers converging to it, hybrid convergence, Temporal only executing, and a transactional store, and retired the capability-first fallback.
+- 2026-11-02: merged decision 069 into this ADR; the body states the current decision.

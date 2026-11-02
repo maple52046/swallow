@@ -19,7 +19,7 @@ interface ProvisionerLiveSettingSectionProps {
 
 /**
  * The panel of a provisioner setting on the Integration settings page of a MAAS provisioner — the
- * HTTP Proxy (decision 056) and Subnet DNS (decision 058) tabs. swallow keeps such a setting as
+ * HTTP Proxy (decision 071) and Subnet DNS (decision 058) tabs. swallow keeps such a setting as
  * desired state and its backend applies it to MAAS (decision 071); it is saved by its own button
  * and is not part of the Integration record. Without a stored credential the API could not reach
  * MAAS to adopt or apply it, so instead of rendering `children` (and issuing their request) it says

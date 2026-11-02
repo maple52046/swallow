@@ -1,13 +1,13 @@
 # 038. Software deployment: single-software deploy target, distinct from platform, composed as a Job
 
-- Status: Accepted; Refined by [ADR 070](070-core-providers-and-extensions.md) (Managed Software is provided by Software modules)
+- Status: Accepted
 - Date: 2026-09-24
 
 ## Context
 
 swallow deploys **platforms** (Kubernetes/Slurm) through the Workflow/Job/Task/Runner
-model ([ADR 016](016-temporal-operation-orchestration.md),
-[ADR 017](017-workflow-job-task-runner-model.md)): a platform is a runtime composed of
+model ([ADR 072](072-store-driven-workflow-execution.md),
+[ADR 072](072-store-driven-workflow-execution.md)): a platform is a runtime composed of
 several components brought to a desired topology (roles, membership, credential). What was
 missing was a way to install a **single** piece of host software — Docker CE, Podman, an
 NFS server/client, and later PostgreSQL or an LDAP client — onto one or more existing
@@ -91,10 +91,13 @@ Slurm-managed state NFS.
 
 ## Consequences
 
-- A new `software` feature in `api-server` owns the Managed Software catalog and Software
-  Assignment record, and a launcher that composes `prepare-hosts` (wait-for-ssh),
-  `configure-<kind>` (ansible), and `record-software` (internal) Jobs — reusing the existing
-  Temporal engine, leases, retry, and `requires_attention` machinery rather than a new one.
+- The `software` context in `api-server` owns the Software Assignment record and a launcher that
+  composes `prepare-hosts` (wait-for-ssh), `configure-<kind>` (ansible), and `record-software`
+  (internal) Jobs, reusing the Workflow engine's resource ownership, retry, and
+  `requires_attention` machinery rather than a new one. Each kind is provided by a Software
+  module, whose hook supplies the catalog entry, spec validation, and install variables
+  ([decision 070](070-core-providers-and-extensions.md) (core providers and extensions),
+  [decision 075](075-module-contract-v1.md) (module contract v1)).
 - New Workflow kinds (`configure-docker-ce`/`uninstall-docker-ce`,
   `configure-podman`/`uninstall-podman`, `configure-nfs`/`uninstall-nfs`) with hardcoded
   playbook names (no site `playbookMappings` entry), registered in the release manifest.
@@ -109,18 +112,16 @@ Slurm-managed state NFS.
   software deployment (which always targets operator-picked, already-deployed hosts) but applies
   to the platform `ensure-os` Job too; see `docs/development/platform-deployment.md` §4.6.1.
 
-## Current status
-
-First cut in progress: catalog + assignment model, Docker CE / Podman / NFS playbooks,
-the software launcher and internal record/clear steps, the OS-lifecycle assignment sweep,
-the HTTP contract, and the dashboard install/uninstall flow. Slurm NFS extraction and
-Kubernetes-Docker linkage are Planned (slice 2).
-
 ## Related
 
-- [ADR 017](017-workflow-job-task-runner-model.md) — Workflow/Job/Task/Runner and the
+- [ADR 072](072-store-driven-workflow-execution.md) — Workflow/Job/Task/Runner and the
   "reusable Job" layer this composes.
 - [ADR 019](019-slurm-platform-deployment.md) — the Slurm platform whose embedded NFS a
   later slice extracts into a composable software Job.
 - [`docs/development/software-deployment.md`](../development/software-deployment.md) — the
   design and integration contract this decision establishes.
+
+## Revision history
+
+- 2026-09-24: decided that a single Managed Software install is a deploy target distinct from Platforms and is composed into other Workflows as a Job.
+- 2026-10-30: decision 070 moved each software kind into a Software module.

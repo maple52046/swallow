@@ -41,7 +41,7 @@ component 組成的 runtime；software deployment 佈署單一軟體及其變體
 ## 1. 心智模型：沿用 Workflow → Job → Task → Runner
 
 software deployment 不新增編排引擎，直接沿用
-[decision 017](../decisions/017-workflow-job-task-runner-model.md)（workflow job task runner model） 的模型；資源所有權、重試、`requires_attention`
+[decision 072](../decisions/072-store-driven-workflow-execution.md)（store driven workflow execution） 的模型；資源所有權、重試、`requires_attention`
 與完成行為照 [workflow-execution.md](workflow-execution.md)。
 
 一次獨立 software 安裝的 Job 組成：
@@ -59,7 +59,7 @@ uninstall 對稱：`prepare-hosts` → `configure-<kind>`（跑 `uninstall-<kind
 它攜帶的 assignment 身分把 Software Assignment 標為 `failed`（見 §4.3）。
 
 **SSH 就緒是驗證式、帳號 per-host 解析**：`prepare-hosts` 的 `wait-for-ssh` 會以 Deployment Key
-（唯一的 automation 金鑰，[decision 041](../decisions/041-deployment-key-only-automation.md)（deployment key only automation））對每台目標**實際完成 SSH 認證**，不是只探 22 埠；且 SSH 登入帳號為
+（唯一的 automation 金鑰，[decision 039](../decisions/039-ssh-key-management-and-default-user.md)（ssh key management and default user））對每台目標**實際完成 SSH 認證**，不是只探 22 埠；且 SSH 登入帳號為
 **per-host 解析**：所佈署 OS Image 有 default user 時只用它，否則以候選清單
 （`[站台 sshUser, cloud-user, ubuntu]`，站台值優先）探測，因此可在同一 site 混用 ubuntu（`ubuntu`）與自訂
 image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如被以未授權 automation 公鑰的 image 重裝過）
@@ -290,7 +290,7 @@ Docker CE 的 `enableApi` 變體讓 api-server 能即時管理主機上的 Docke
   保持關閉。TLS／mTLS 為後續 hardening（見 §6）。
 - **Dashboard**：Server detail 的 "Containers" tab 只在 swallow 裝了 Docker CE 的 Server 上列出；該 tab 也能開關
   API，作法是送出只改了 `enableApi` 的完整 recorded spec 重跑 install。
-- **`docker` group**（[decision 045](../decisions/045-server-default-user.md)（server default user））：`roles/docker_ce` 把
+- **`docker` group**（decision 039）：`roles/docker_ce` 把
   `ansible_user`——也就是該 Server 的 effective Server Default User（Server 上設定的值，否則 OS Image 的
   default user）——加入 `docker` group（`root` 除外），讓該帳號不需 sudo 就能用 Docker；新的 group 在該帳號
   下次登入後生效。不另帶 trusted var；043 之前或本變更之前安裝的主機重跑 install 即補上。卸載不移除該帳號
@@ -395,7 +395,7 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
   [decision 043 Docker host management](../decisions/043-docker-host-management.md)、
   [decision 044 Docker registry credentials](../decisions/044-docker-registry-credentials.md)、
   [decision 068 Device Metrics Exporter Managed Software](../decisions/068-device-metrics-exporter-managed-software.md)、
-  [decision 017 Workflow/Job/Task/Runner](../decisions/017-workflow-job-task-runner-model.md)、
+  [decision 072 Workflow/Job/Task/Runner](../decisions/072-store-driven-workflow-execution.md)、
   [decision 019 Slurm platform deployment](../decisions/019-slurm-platform-deployment.md)。
 - 語言：glossary [Managed Software](glossaries/terms/managed-software.md)、
   [Software Assignment](glossaries/terms/software-assignment.md)、

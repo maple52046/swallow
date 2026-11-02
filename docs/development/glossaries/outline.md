@@ -164,7 +164,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Runner](terms/runner.md): The mechanism that executes a Task — `provisioner` / `ansible` (host automation) / `internal` (named by the Provider Interface it drives; code still says "executor", and `maas` → `provisioner`).
 - [Automation Configuration](terms/automation-configuration.md): Site-scoped settings for swallow's Ansible execution.
 
-> Retired names that survive only in code types and unrenamed wire fields ([decision 017](../../decisions/017-workflow-job-task-runner-model.md) (workflow job task runner model), [decision 074](../../decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)): [Operation](terms/operation.md) → Workflow, [Operation Step](terms/operation-step.md) → Task.
+> Retired names that survive only in code types and unrenamed wire fields ([decision 072](../../decisions/072-store-driven-workflow-execution.md) (store driven workflow execution), [decision 074](../../decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)): [Operation](terms/operation.md) → Workflow, [Operation Step](terms/operation-step.md) → Task.
 
 ## Old Names
 
@@ -222,4 +222,4 @@ Two names that look related are not: the schema-v2 Operation records were retire
 - ~~`Plane`（Kubernetes / Slurm 管理平面）~~：已由 [decision 032](../../decisions/032-self-deployed-platform-management.md)（self deployed platform management） supersede。管理平面不再是可註冊的外部物件；受管 runtime 一律是 swallow 自部的 `Platform`，Kubernetes 的叢集內管理走 Platform explorer，不需要獨立的 `Plane` term。
 
 > `Agent`（節點端 runtime）與其 `Node ID` / `Inventory` / `Agent Info` 概念已依
-> [decision 001](../../decisions/001-system-ownership-boundaries.md)（system ownership boundaries） 退場，不再是 pending term。
+> [decision 069](../../decisions/069-swallow-owns-desired-state.md)（swallow owns desired state） 退場，不再是 pending term。

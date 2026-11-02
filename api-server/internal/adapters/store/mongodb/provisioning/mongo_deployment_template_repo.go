@@ -262,8 +262,8 @@ func mapTemplateWriteError(err error) error {
 
 func toDeploymentTemplate(doc *deploymentTemplateDoc) *provisioningdomain.DeploymentTemplate {
 	// A template stored before network intent existed has no mode and reads as Automatic. One
-	// stored with "dhcp" before decision 018 normalized writes reads as DHCP: since decision 058 that is
-	// its own mode, not an alias of Automatic. An unknown stored value is surfaced unchanged so
+	// stored with "dhcp" while it was an alias reads as DHCP: "dhcp" is now its own mode
+	// (decision 058), not an alias of Automatic. An unknown stored value is surfaced unchanged so
 	// the deploy-time validation refuses it rather than guessing.
 	mode, ok := provisioningdomain.NormalizeDeploymentNetworkMode(doc.NetworkMode)
 	if !ok {

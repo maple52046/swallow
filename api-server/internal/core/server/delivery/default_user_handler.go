@@ -12,7 +12,7 @@ import (
 )
 
 // DefaultUserHandler serves PUT and DELETE /api/v1/servers/{id}/default-user (contract
-// server-detail-actions.md, decision 045). It is admin-only through its route group.
+// server-detail-actions.md, decision 039). It is admin-only through its route group.
 //
 // The request's password is handed to the use case for one login and never logged, echoed, or
 // included in an error; error messages come from DefaultUserError, which carries only the Server

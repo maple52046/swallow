@@ -6,7 +6,7 @@ import (
 )
 
 // BootMediaItem is the published shape of a Server's Boot Media (contract
-// server-detail-actions.md, decisions 047 and 049). Image, Setting, Redfish, Live, and Apply are
+// server-detail-actions.md, decision 047). Image, Setting, Redfish, Live, and Apply are
 // null when no Boot ISO is named, never set, never probed, not read, or no preflight runs; that
 // distinction is part of the contract.
 type BootMediaItem struct {

@@ -1,7 +1,7 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// Boot Media (decisions 047 and 049): shown inside the Summary's Management controller card,
+// Boot Media (decision 047): shown inside the Summary's Management controller card,
 // enabled there with a Boot ISO of the Server's own provisioner through a preflight the API runs
 // against the BMC, switched to another Boot ISO, and disabled with a best-effort BMC reset.
 

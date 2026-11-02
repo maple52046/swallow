@@ -139,7 +139,7 @@ simply has no Alertmanager, which is the intended behavior. `available` keeps it
 (alerts were read).
 
 Following the Cluster to Platform rename
-([decision 014](../../../../../docs/decisions/014-platform-resource-language.md) (platform resource language)), the one-release
+([decision 015](../../../../../docs/decisions/015-platform-term-disambiguation.md) (platform term disambiguation)), the one-release
 aliases `inventory.clustered`, the `clusters` section, and `clusterId` on recent operations and
 firing alert items were removed on 2026-10-31
 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)),

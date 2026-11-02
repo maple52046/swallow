@@ -33,7 +33,7 @@ Integration 依 Site 在 runtime 註冊：
 
 swallow 儲存 intent 與 identity relationship，不把 hardware fact、live Platform
 state、metric 或 alert 複製成競爭的 source of truth。請見
-[ownership decision](../docs/decisions/001-system-ownership-boundaries.md)。
+[ownership decision](../docs/decisions/069-swallow-owns-desired-state.md)。
 
 ## Build 與驗證
 

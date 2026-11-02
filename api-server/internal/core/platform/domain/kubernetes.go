@@ -9,7 +9,7 @@ import (
 // client port for managing a swallow-deployed Kubernetes Platform's own resources on demand.
 //
 // Nothing here is persisted. Every value is read from, or written to, the deployed cluster's
-// Kubernetes API at request time (decision 001: workloads and node state are owned by Kubernetes,
+// Kubernetes API at request time (decision 069: workloads and node state are owned by Kubernetes,
 // not mirrored into swallow). The explorer is separate from membership sync: it never writes
 // the Server membership axis, never touches the sync counters, and never runs on the reconcile
 // interval (decision 021 boundary, reused for Kubernetes). See

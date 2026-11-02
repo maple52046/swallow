@@ -195,7 +195,7 @@ export interface HealthAxis {
 
 /**
  * Where a Server's effective Server Default User comes from (glossary Server Default User,
- * decision 045): `server` was set by an operator on this Server and verified by a Deployment Key
+ * decision 039): `server` was set by an operator on this Server and verified by a Deployment Key
  * login; `os_image` is the deployed OS Image's default user.
  */
 export type ServerDefaultUserSource = 'server' | 'os_image'
@@ -344,7 +344,7 @@ export interface BootMediaSetting {
   enabled: boolean
   /**
    * The chosen Boot ISO, kept when Boot Media is disabled so re-enabling offers it again. `null`
-   * for a setting enabled before Boot ISOs existed (decision 049): such a Server must choose one,
+   * for a setting enabled before Boot ISOs existed (decision 047): such a Server must choose one,
    * and until it does its OS deployments stop at the Boot Media step.
    */
   isoId: string | null

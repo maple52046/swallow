@@ -9,22 +9,22 @@
 
 Three earlier decisions left compatibility surfaces behind:
 
-- [ADR 016](016-temporal-operation-orchestration.md) kept the schema-v2 single-run Operations
+- [ADR 072](072-store-driven-workflow-execution.md) kept the schema-v2 single-run Operations
   readable through a *permanent* compatibility projection. They lived on in the `operations`
   collection, read by every Workflow list, get, and history projection (overview, Platform
   lifecycle, the auto-exporter dedup, the Server lock's active-work check), plus three v2-only
   routes (`/operations/{id}/logs`, `/events`, `/retry`). No release has created or run one since the
   v2 dispatcher was removed; the records only age.
-- [ADR 017](017-workflow-job-task-runner-model.md) kept the `/operations` HTTP alias "for one
+- [ADR 072](072-store-driven-workflow-execution.md) kept the `/operations` HTTP alias "for one
   release", with `stepId` and `operationId` duplicates in the Task-retry response.
-- [ADR 014](014-platform-resource-language.md) kept the `/clusters` routes, the `clusterId` fields
+- [ADR 015](015-platform-term-disambiguation.md) kept the `/clusters` routes, the `clusterId` fields
   and query parameter, `kind=cluster`, and the `cluster` monitoring label "for one release".
 
 Several deprecated request aliases of the same kind accumulated elsewhere: the `ephemeral` request
 field next to `deployTarget`, and the synchronous `POST /servers/{id}/deploy`, `POST
 /servers/{id}/release`, and `POST /provisioning/deployments` next to their durable Workflow
 endpoints. The synchronous single-Server deploy was the only deploy path that did not clear the
-Server Default User (DF-12).
+Server Default User.
 
 swallow has no external installations yet, so every consumer of these surfaces is in this
 repository (the dashboard, the CLI, tests) and moves in the same change.
@@ -48,7 +48,7 @@ repository (the dashboard, the CLI, tests) and moves in the same change.
 
 ## Alternatives considered
 
-- **Keep v2 readable forever, as ADR 016 said.** Rejected: it keeps a second read model in every
+- **Keep v2 readable forever, as ADR 072 said.** Rejected: it keeps a second read model in every
   history projection and a collection no code can write, for records no installation needs.
 - **Keep the aliases one more release.** Rejected: there is no external consumer to give the time
   to, and each alias is a second name a reader must learn.

@@ -13,7 +13,7 @@ import (
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
-// bootISODoc is the stored Boot ISO record (decision 049). The file itself lives in the Boot
+// bootISODoc is the stored Boot ISO record (decision 047). The file itself lives in the Boot
 // Media directory; this document holds what was built and from what input.
 type bootISODoc struct {
 	ID             string    `bson:"_id"`
@@ -30,7 +30,7 @@ type bootISODoc struct {
 	SHA256         string    `bson:"sha256"`
 	CreatedAt      time.Time `bson:"createdAt"`
 	CreatedBy      string    `bson:"createdBy,omitempty"`
-	// RebuiltAt and RebuiltBy are absent on a document never rebuilt (decision 057); documents
+	// RebuiltAt and RebuiltBy are absent on a document never rebuilt (decision 047); documents
 	// written before then decode with both empty, which is the same meaning.
 	RebuiltAt time.Time `bson:"rebuiltAt,omitempty"`
 	RebuiltBy string    `bson:"rebuiltBy,omitempty"`

@@ -126,7 +126,7 @@ services:
       SWALLOW_API_JOB_RUNTIME_DIR: "/tmp/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_DIR: "/var/lib/swallow/jobs"
       SWALLOW_API_JOB_ARTIFACT_RETENTION: "${SWALLOW_API_JOB_ARTIFACT_RETENTION:-720h}"
-      # Boot Media (decisions 047 and 049): Boot ISOs built on the Provisioning page are written
+      # Boot Media (decision 047): Boot ISOs built on the Provisioning page are written
       # to ./boot-media/<isoId>/ and mounted by BMCs at
       # <base URL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso. Empty base URL leaves Boot Media off.
       SWALLOW_API_BOOT_MEDIA_DIR: "/var/lib/swallow/boot-media"

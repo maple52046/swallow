@@ -7,8 +7,8 @@
 ## Context
 
 swallow already deploys Kubernetes (k0s) Platforms through the Workflow/Job/Task/Runner model
-([ADR 016](016-temporal-operation-orchestration.md),
-[ADR 017](017-workflow-job-task-runner-model.md)) and already registered Slurm Platforms for
+([ADR 072](072-store-driven-workflow-execution.md),
+[ADR 072](072-store-driven-workflow-execution.md)) and already registered Slurm Platforms for
 membership reads (a `SlurmReader` over slurmrestd existed). What was missing was the ability to
 **deploy** a Slurm Platform. Adding it raised four decisions that differ from the k0s path and
 are easy to question later.

@@ -31,6 +31,6 @@ Deployment Key and the login user prefers the OS Image default user, per
 [decision 039](../../../decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user). Updated
 2026-10-02 to remove the site private-key override: automation uses only the Deployment
 Key and a Site stores only its become password, per
-[decision 041](../../../decisions/041-deployment-key-only-automation.md) (deployment key only automation). Corrected
+decision 039. Corrected
 2026-10-31: the Server Default User precedes the OS Image default user, per
-[decision 045](../../../decisions/045-server-default-user.md) (server default user).
+decision 039.

@@ -356,11 +356,11 @@ func RunAPI(cfg config.APIConfig) error {
 	platformService.AttachDeviceMetricsExporterRecorder(platformRepo)
 	platformService.AttachPlatformClaims(serverRepo)
 	automationRepo := workflowstore.NewMongoAutomationConfigurationRepo(db, sealer)
-	// Automation readers get the effective credential (the Deployment Key, decision 041) and the
+	// Automation readers get the effective credential (the Deployment Key, decision 039) and the
 	// derived credential source; the configuration service reads the plain repository and derives
 	// the same source itself, because it reports what is stored and never needs key material.
 	effectiveAutomation := workflowapp.NewEffectiveAutomationConfigurations(automationRepo, deploymentKeys)
-	// Server Default User (decision 045): setting one logs in to the host directly — once with an
+	// Server Default User (decision 039): setting one logs in to the host directly — once with an
 	// optional one-time password to install the Deployment Key, then with the key to verify — on the
 	// Site's SSH port, behind the live Server Lock guard.
 	hostAccess := sshaccess.NewSSHHostAccess(deploymentKeys, siteSSHPorts{configurations: automationRepo})
@@ -371,7 +371,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// virtual machines libvirt Boot Media over the same Deployment Key logins.
 	libvirtHosts := libvirt.NewHost(hostAccess)
 	virtualMachineHandler := serverdelivery.NewVirtualMachineHandler(serverapp.NewVirtualMachineUseCase(serverRepo, libvirtHosts))
-	// Boot Media (decisions 047 and 049): this process builds and serves Boot ISOs, probes each
+	// Boot Media (decision 047): this process builds and serves Boot ISOs, probes each
 	// Server's BMC for Redfish capability, and applies a Server's chosen Boot ISO through Redfish
 	// with the BMC connection read live from the provisioner. The setting and capability are
 	// written straight to the Mongo repository (the event broker only carries projection changes).
@@ -650,11 +650,11 @@ type routeDeps struct {
 	// virtualMachines lists a Hypervisor's libvirt domains (decision 055).
 	virtualMachines *serverdelivery.VirtualMachineHandler
 	bootMedia       *serverdelivery.BootMediaHandler
-	// bootMediaISO serves Boot ISO files without authentication (decisions 047 and 049).
+	// bootMediaISO serves Boot ISO files without authentication (decision 047).
 	bootMediaISO fiber.Handler
 	// cliBinary serves the swallow CLI without authentication for Server Enrollment (decision 053).
 	cliBinary fiber.Handler
-	// bootISOs builds, lists, and deletes Boot ISOs (decision 049).
+	// bootISOs builds, lists, and deletes Boot ISOs (decision 047).
 	bootISOs       *provisioningdelivery.BootISOHandler
 	serverStream   *serverdelivery.ServerStreamHandler
 	provisioning   *provisioningdelivery.ProvisioningHandler
@@ -846,7 +846,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	servers.Post("/:id/rescue-mode", deps.provisioning.RescueMode)
 	servers.Post("/:id/exit-rescue-mode", deps.provisioning.ExitRescueMode)
 	// Placement assigns a Server to a swallow-owned Zone and/or Pool, realized in the
-	// provisioner (decision 029). Mounted here because clients address a Server, but handled by
+	// provisioner (decision 071). Mounted here because clients address a Server, but handled by
 	// the infrastructure feature that owns the Zone/Pool catalog.
 	servers.Put("/:id/placement", deps.infrastructure.AssignServerPlacement)
 	explorerhttp.RegisterRoutes(servers, deps.docker)
@@ -887,7 +887,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Post("/integrations/:id/reconcile", deps.provisioning.Reconcile)
 	provisioning.Post("/integrations/:id/enroll-bundle", deps.provisioning.EnrollBundle)
 	// The provisioner-owned proxy handed to deployed machines, read live and written through; not an
-	// Integration setting (contract provisioner-http-proxy.md, decision 056).
+	// Integration setting (contract provisioner-http-proxy.md, decision 071).
 	provisioning.Get("/integrations/:id/http-proxy", deps.provisioning.GetHTTPProxy)
 	provisioning.Put("/integrations/:id/http-proxy", deps.provisioning.SetHTTPProxy)
 	// The provisioner's subnets and their DNS servers, read live and written through (contract
@@ -895,7 +895,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Get("/integrations/:id/subnets", deps.provisioning.ListSubnets)
 	provisioning.Put("/integrations/:id/subnets/:subnetId/dns-servers", deps.provisioning.SetSubnetDNSServers)
 	provisioning.Post("/virtual-machine-enrollments", deps.provisioning.EnrollVirtualMachines)
-	// Boot ISOs (decision 049): built here, mounted by a Server's Boot Media.
+	// Boot ISOs (decision 047): built here, mounted by a Server's Boot Media.
 	if deps.bootISOs != nil {
 		provisioning.Get("/boot-isos", deps.bootISOs.List)
 		provisioning.Post("/boot-isos", deps.bootISOs.Create)
@@ -930,7 +930,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	software.Delete("/docker-ce/registry-credentials/:credentialId", deps.registryCreds.Delete)
 
 	// swallow-owned Zones and Pools (the dashboard's Infrastructure area). Each write is also
-	// realized in the Site's provisioner when it is grouping-capable (decision 029).
+	// realized in the Site's provisioner when it is grouping-capable (decision 071).
 	infrastructure := v1.Group("/infrastructure", admin...)
 	infrastructure.Get("/zones", deps.infrastructure.ListZones)
 	infrastructure.Post("/zones", deps.infrastructure.CreateZone)
@@ -975,7 +975,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	monitoring.Get("/metrics/range", deps.monitoring.MetricRange)
 	monitoring.Get("/metrics/names", deps.monitoring.MetricNames)
 
-	// Canonical Workflow surface (decision 017). A Workflow is a DAG of Tasks.
+	// Canonical Workflow surface (decision 072). A Workflow is a DAG of Tasks.
 	workflows := v1.Group("/workflows", admin...)
 	workflows.Post("/", deps.operations.Create)
 	workflows.Get("/", deps.operations.List)

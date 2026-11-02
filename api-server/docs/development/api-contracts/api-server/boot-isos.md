@@ -18,8 +18,8 @@ Active
 Build, rebuild, list, and delete Boot ISOs: swallow-built boot ISOs, one provisioner Integration
 each, that take an address from the site's own DHCP and hand off to that provisioner's MAAS rack
 (iPXE chaining `ipxe.cfg` on BIOS firmware; the ISO's own GRUB loading MAAS's per-MAC GRUB
-configuration on UEFI) ([decision 049](../../../../../docs/decisions/049-boot-iso-builder.md) (boot iso builder),
-[decision 057](../../../../../docs/decisions/057-uefi-boot-iso-hand-off.md) (uefi boot iso hand off)). A Server's Boot
+configuration on UEFI) ([decision 047](../../../../../docs/decisions/047-redfish-boot-media.md) (redfish boot media),
+decision 047). A Server's Boot
 Media mounts one of them through its BMC or its hypervisor
 ([server-detail-actions.md](server-detail-actions.md#boot-media)).
 
@@ -81,7 +81,7 @@ mounts the URL with no way to send a token; it is described in
 | `siteId`, `integrationId` | The provisioner Integration the ISO chains to, and its Site. Only a Server of this Integration may use it. `siteId` is `""` when the Integration no longer exists, so its ISO can still be listed and deleted. |
 | `rackAddress` | The MAAS rack address as given: an IPv4 address or hostname, optionally with `:port`. |
 | `chainUrl` | Where iPXE chains after DHCP on BIOS firmware: `http://<rack host>:<port or 5248>/ipxe.cfg`. |
-| `uefiChainUrl` | What the ISO's GRUB loads after DHCP on UEFI firmware: `http://<rack host>:<port or 5248>/grub/grub.cfg-<mac>`, `<mac>` being the interface that took the lease. `""` for an ISO without a GRUB (built before decision 057, which sends UEFI firmware through iPXE too); rebuild it. |
+| `uefiChainUrl` | What the ISO's GRUB loads after DHCP on UEFI firmware: `http://<rack host>:<port or 5248>/grub/grub.cfg-<mac>`, `<mac>` being the interface that took the lease. `""` for an ISO without a GRUB (built before decision 047, which sends UEFI firmware through iPXE too); rebuild it. |
 | `script` | The iPXE script BIOS firmware runs, rendered from swallow's fixed template (`autoexec.ipxe`). Display only. |
 | `grubConfig` | The GRUB configuration UEFI firmware runs, rendered from swallow's fixed template and embedded in the ISO's GRUB. `""` for an ISO that predates it. Display only. |
 | `ipxeVersion` | The iPXE release the ISO was built with. |
@@ -160,6 +160,6 @@ those Servers or switch them to another Boot ISO first.
 
 Added 2026-10-05. It replaces the installation-supplied ISO (`api.bootMedia.isoPath`) and its
 fixed route `/boot-media/ipxe/swallow-ipxe.iso`, which are removed. 2026-10-13
-([decision 057](../../../../../docs/decisions/057-uefi-boot-iso-hand-off.md)): additive
+(decision 047): additive
 `uefiChainUrl`, `grubConfig`, `rebuiltAt`, `rebuiltBy`, and the rebuild route; ISOs built earlier
 keep working on BIOS and need a rebuild to boot UEFI firmware through MAAS's UEFI path.

@@ -475,7 +475,7 @@ func (s *WorkflowService) RetryStep(ctx context.Context, id, stepID string) erro
 }
 
 // Rerun converges a Workflow's intent again as a new Workflow, on the same Platform, without
-// deleting anything (decision 060). It is for a Workflow that finished failed, partially
+// deleting anything (decision 061). It is for a Workflow that finished failed, partially
 // succeeded, or canceled, and for a parked (requires_attention) one the operator wants to converge
 // from the start rather than retry by Task. The new Workflow copies the original's plan by the
 // catalog's rerun policies, re-seals the original's secrets under itself (CloneForOperation), and
@@ -555,7 +555,7 @@ func (s *WorkflowService) rerunSuperseding(ctx context.Context, old *workflowdom
 }
 
 // cloneStepsForRerun copies an Operation's Steps for a fresh execution that converges the
-// intent to its desired state (decision 060), by each Task kind's registered RerunPolicy. A
+// intent to its desired state (decision 061), by each Task kind's registered RerunPolicy. A
 // converging Task runs again whatever its earlier outcome, at the attempt after its last one, so
 // its Runner first observes the resource and acts only where it has not converged. A
 // RerunConvergeOnLiveHosts Task that already succeeded is kept once a Task whose kind releases

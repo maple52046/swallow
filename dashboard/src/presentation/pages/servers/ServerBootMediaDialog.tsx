@@ -57,7 +57,7 @@ const SUBMIT_LABELS: Record<ServerBootMediaDialogMode, string> = {
 
 /**
  * Enables, switches, re-applies, or disables Boot Media on one Server from the Server Summary
- * (decisions 047 and 049).
+ * (decision 047).
  *
  * Applying is a preflight run by the API against the real target of the Server's method. For
  * `redfish` it probes the BMC, mounts the chosen Boot ISO, waits three minutes for the mount to

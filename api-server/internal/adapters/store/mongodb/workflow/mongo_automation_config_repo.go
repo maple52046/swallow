@@ -26,7 +26,7 @@ type automationConfigurationDoc struct {
 }
 
 // sealedAutomationCredential is the JSON document sealed into sealedCredential. It holds only
-// the become password (decision 041). Credentials written by earlier releases may also carry
+// the become password (decision 039). Credentials written by earlier releases may also carry
 // an "sshPrivateKey" member; decoding into this type drops it, so a stored Site key can never
 // reach a run, and the next ReplaceCredential overwrites it.
 type sealedAutomationCredential struct {
@@ -91,7 +91,7 @@ func (r *MongoAutomationConfigurationRepo) Upsert(ctx context.Context, configura
 
 // ReplaceCredential seals the Site's become password as one authenticated value, replacing
 // whatever credential the Site stored before. credential.SSHPrivateKey is never stored: the
-// Deployment Key is the only automation key (decision 041), and callers reject a Site key
+// Deployment Key is the only automation key (decision 039), and callers reject a Site key
 // before reaching this port.
 //
 // An empty become password clears the credential: the sealed value is removed rather than

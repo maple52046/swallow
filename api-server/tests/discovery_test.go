@@ -216,7 +216,7 @@ func TestAnsibleInventory_KeysHostsByServerID(t *testing.T) {
 	}
 }
 
-// default_user carries the effective Server Default User (decision 045) — the value set on the
+// default_user carries the effective Server Default User (decision 039) — the value set on the
 // Server over the image's — while image_default_user keeps the image's own value, and neither is
 // emitted when unknown so the runner falls back to probing.
 func TestAnsibleInventory_EmitsEffectiveDefaultUser(t *testing.T) {

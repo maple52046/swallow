@@ -136,7 +136,7 @@ virsh_key_recorded() {
 # later edits survive every rerun. Automation is enabled (Ansible Tasks refuse to run
 # otherwise) with no playbook mappings. Without operator-supplied known_hosts the static block
 # is a comment: the executor scans each target's host key per run and merges this block.
-# Automation always logs in with the Deployment Key (decision 041), so no Site credential is
+# Automation always logs in with the Deployment Key (decision 039), so no Site credential is
 # written; an operator adds a become password later only if their hosts need one.
 ensure_automation() {
   local site_id="$1" status body known_hosts

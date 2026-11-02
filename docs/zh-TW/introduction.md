@@ -70,7 +70,7 @@ swallow 刻意不擁有：
 - API 可讀回的第二份 credential；integration 與 automation credentials 都是 write-only。
 
 完整邊界請見 [desired-state model](../development/desired-state-model.md) 與具約束力的
-[system ownership decision](../decisions/001-system-ownership-boundaries.md)。
+[system ownership decision](../decisions/069-swallow-owns-desired-state.md)。
 
 ## 操作介面
 

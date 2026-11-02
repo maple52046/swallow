@@ -13335,7 +13335,7 @@ export interface operations {
                     becomePassword?: string;
                     /**
                      * @deprecated
-                     * @description Removed by decision 041. Any non-null value is `400 validation_error`; replace the Deployment Key with `PUT /api/v1/ssh-keys/deployment` instead. `null` is ignored.
+                     * @description Removed by decision 039. Any non-null value is `400 validation_error`; replace the Deployment Key with `PUT /api/v1/ssh-keys/deployment` instead. `null` is ignored.
                      */
                     sshPrivateKey?: string | null;
                 };

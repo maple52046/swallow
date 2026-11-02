@@ -4,7 +4,7 @@ import type { ProvisioningActionResult } from "@/domain/server/types";
 /**
  * swallow-owned writable deployment addressing intent (glossary Network Configuration).
  * `automatic` asks the provisioner to allocate and record an address (provider auto-assign, a
- * stable recorded IP — decision 018); `dhcp` leaves the address, gateway, and DNS to the network's
+ * stable recorded IP — decision 058); `dhcp` leaves the address, gateway, and DNS to the network's
  * own DHCP server, the right choice on a subnet whose DHCP the provisioner does not serve
  * (decision 058); `static` uses a caller-chosen address. `dhcp` is not an alias of `automatic`.
  */
@@ -346,7 +346,7 @@ export interface ProvisioningTask {
 }
 
 /**
- * A Boot ISO (glossary Boot ISO, decisions 049 and 057): a network boot ISO swallow built for one
+ * A Boot ISO (glossary Boot ISO, decision 047): a network boot ISO swallow built for one
  * provisioner Integration. It takes an address from the site's own DHCP and hands off to that
  * provisioner's MAAS rack, so a Server whose network DHCP is not the provisioner's still reaches
  * it. Only a Server of the same Integration may mount it as its Boot Media; the API enforces that.
@@ -355,7 +355,7 @@ export interface ProvisioningTask {
  *   firmware runs the ISO's own GRUB with `grubConfig`: it takes a DHCP lease and loads
  *   `uefiChainUrl` (the rack's `grub/grub.cfg-<mac>`, `<mac>` being the leasing interface), MAAS's
  *   own UEFI path, which is what makes MAAS give a UEFI Machine its EFI system partition. An empty
- *   `uefiChainUrl` marks an ISO built before decision 057 that sends UEFI firmware through iPXE and
+ *   `uefiChainUrl` marks an ISO built before decision 047 that sends UEFI firmware through iPXE and
  *   needs a rebuild (see `bootISONeedsRebuild`).
  * - `script` and `grubConfig` are what swallow rendered from its fixed templates; display-only.
  * - `url` is where BMCs mount the ISO without credentials (and where an operator can download it);
@@ -387,7 +387,7 @@ export interface BootISO {
 }
 
 /**
- * Whether a Boot ISO predates the UEFI hand-off (decision 057): UEFI Servers booting it reach MAAS
+ * Whether a Boot ISO predates the UEFI hand-off (decision 047): UEFI Servers booting it reach MAAS
  * through `ipxe.cfg`, MAAS treats them as BIOS, and their disk deployment fails installing GRUB.
  * Rebuilding fixes it in place. A missing field (an API older than this console) reads as needing
  * a rebuild, the safe answer.

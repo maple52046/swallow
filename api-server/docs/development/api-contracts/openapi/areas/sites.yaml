@@ -1,7 +1,7 @@
 # Sites and their provider Integrations, each Site's Automation Configuration, swallow-owned Zones
 # and Pools with Server placement, and the swallow-owned HTTP proxy and subnet DNS settings of one
 # provisioner Integration (contracts sites-integrations.md, site-automation.md, infrastructure.md,
-# provisioner-http-proxy.md, provisioner-subnet-dns.md; decisions 029, 032, 041, 056, 058, 071).
+# provisioner-http-proxy.md, provisioner-subnet-dns.md; decisions 071, 032, 039, and 058).
 tags:
   - name: sites
     description: >-
@@ -328,7 +328,7 @@ paths:
                   nullable: true
                   deprecated: true
                   description: >-
-                    Removed by decision 041. Any non-null value is `400 validation_error`; replace
+                    Removed by decision 039. Any non-null value is `400 validation_error`; replace
                     the Deployment Key with `PUT /api/v1/ssh-keys/deployment` instead. `null` is
                     ignored.
       responses:

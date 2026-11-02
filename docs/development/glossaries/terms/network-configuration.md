@@ -14,8 +14,8 @@
   | `dhcp` | DHCP | The network's own DHCP server assigns the address, gateway, and DNS; the provisioner records only what it observes. Suggested when the subnet's DHCP is not the provisioner's. |
   | `static` | Static | A caller-chosen address per Server, with DNS from the subnet's Subnet DNS or the provisioner's own DNS. |
 
-  See [decision 018](../../../decisions/018-automatic-addressing-provider-auto-assign.md) (automatic addressing provider auto assign)
-  and [decision 058](../../../decisions/058-deployment-dhcp-and-subnet-dns.md) (deployment dhcp and subnet dns).
+  See [decision 058](../../../decisions/058-deployment-dhcp-and-subnet-dns.md) (deployment dhcp and subnet dns)
+  and decision 058.
 - Disallowed meaning: VLAN, bond, bridge, DNS, route, or complete network/IPAM
   lifecycle ownership (a subnet's DNS servers are the provisioner's Subnet DNS,
   not part of a NIC's configuration); interpreting a provider's `LINK_UP` mode
@@ -35,4 +35,4 @@
   networking rather than requiring operators to configure MAAS out of band.
   Updated 2026-10-13: `dhcp` is a deployment mode again beside `automatic` and
   `static`, no longer an alias of `automatic`, per
-  [decision 058](../../../decisions/058-deployment-dhcp-and-subnet-dns.md).
+  decision 058.

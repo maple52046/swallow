@@ -1,4 +1,4 @@
-// Package genfsimg builds Boot ISOs with iPXE's genfsimg and grub-mkstandalone (decisions 049 and
+// Package genfsimg builds Boot ISOs with iPXE's genfsimg and grub-mkstandalone (decisions 047 and
 // 057): it packages the prebuilt iPXE and GRUB binaries the API image ships with a rendered boot
 // script, and needs no compiler at runtime.
 //

@@ -19,7 +19,7 @@ import (
 const TaskQueue = "swallow-operations"
 
 // ReturnCanceledDeploymentKind is the provider Runner's step kind that returns a deployment a
-// cancel interrupted to Ready (decision 060); the return-canceled-deployment compensation runs it.
+// cancel interrupted to Ready (decision 061); the return-canceled-deployment compensation runs it.
 const ReturnCanceledDeploymentKind = "return-canceled-deployment"
 
 // StepExecutionInput is what a Runner gets for one Task attempt: the Workflow's identity and the

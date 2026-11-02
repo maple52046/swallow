@@ -4,8 +4,8 @@
 （Deployment Key 與 Access Key）、它們如何由 SSH Key controller 落到 provisioner、automation 以哪把金鑰與
 哪個帳號登入受管 Server（含 Server Default User）、Site automation credential，以及 API 認證（Session 與
 API Key）的概覽。它把 [decision 039](../decisions/039-ssh-key-management-and-default-user.md)（ssh key management and default user）、
-[decision 041](../decisions/041-deployment-key-only-automation.md) (deployment key only automation)、
-[decision 045](../decisions/045-server-default-user.md)（server default user） 的現行結果寫成一份規格；API 認證的決策見
+decision 039、
+decision 039 的現行結果寫成一份規格；API 認證的決策見
 [decision 042](../decisions/042-authentication-sessions-and-api-keys.md) (authentication sessions and api keys)。
 
 > **本文件的定位**：ADR 只記錄「為什麼」；本檔記錄目前有效的行為與規則。行為改變時更新本檔，決策本身被推翻時
@@ -111,7 +111,7 @@ API Key）的概覽。它把 [decision 039](../decisions/039-ssh-key-management-
 - 安裝步驟（而非 API 啟動或 `prepare-secrets.sh`）建立金鑰：durable 的 installation 狀態由安裝建立，各安裝
   路徑共用 API 的設定與封存方式；需要金鑰的是佈署路徑，所以在那裡檢查，缺少時明確指出要執行的指令。
 - 只能替換或重產、不能刪除：所有 automation 只有這一把金鑰，刪除會讓每個 Site 失去登入能力（inferred）。
-- 完整脈絡與否決方案見 [decision 039](../decisions/039-ssh-key-management-and-default-user.md)。
+- 完整脈絡與否決方案見 decision 039。
 
 ---
 
@@ -130,7 +130,7 @@ API Key）的概覽。它把 [decision 039](../decisions/039-ssh-key-management-
 
 **設計理由**：私鑰只由 swallow 保管一份（Deployment Key），人員金鑰只存公鑰，避免 swallow 成為個人金鑰保管庫，
 也避免離職者的金鑰成為 automation credential；金鑰以 User 為擁有者，未來的多使用者模型可以直接沿用。見
-[decision 039](../decisions/039-ssh-key-management-and-default-user.md) 的 Alternatives considered。
+decision 039 的 Alternatives considered。
 
 ---
 
@@ -189,7 +189,7 @@ state；provider 有能力持有 SSH key 時，SSH Key controller 把每把金�
 swallow 擁有金鑰紀錄、provisioner 只是落地目標，所以 swallow 會修補 provider 的清單，但不把它當成來源；只移除
 自己記錄的 provider 金鑰，operator 的金鑰才安全；佈署前 ensure 保證不會佈出 swallow 無法管理的主機。cloud-init fallback 因
 目前唯一的 provisioner（MAAS）已有能力而延後。見
-[decision 039](../decisions/039-ssh-key-management-and-default-user.md)。
+decision 039。
 
 ---
 
@@ -231,7 +231,7 @@ swallow 擁有金鑰紀錄、provisioner 只是落地目標，所以 swallow 會
 Site 私鑰 override 只保護兩種主機：decision 039 之前佈署的 Server（可重新佈署取得 Deployment Key），以及 swallow
 管理但未佈署的主機（不在範圍內）。它沒有保護任何人，卻讓 domain 保留第二個金鑰來源，還留下「只靠 Deployment Key
 的 Site 仍被要求存有 credential 紀錄」的缺陷。拒絕而非忽略 `sshPrivateKey`，是因為看似成功卻沒有效果的請求會誤導
-呼叫端。見 [decision 041](../decisions/041-deployment-key-only-automation.md)。
+呼叫端。見 decision 039。
 
 ---
 
@@ -285,9 +285,9 @@ Default User 與 OS Image overlay 的帳號名稱共用同一條 POSIX login nam
 ### 7.5 設計理由
 
 不同 OS image family 的預設帳號不同，而一個 Site 只有一個 `sshUser`，所以帳號 per-host 解析；已知 image 帳號時
-只用它，讓錯誤明確（[decision 039](../decisions/039-ssh-key-management-and-default-user.md)）。OS 不是由 swallow
+只用它，讓錯誤明確（decision 039）。OS 不是由 swallow
 佈署的 Server，image 推導的帳號可能不存在，所以 Server 上的值優先於 image 的值
-（[decision 045](../decisions/045-server-default-user.md)）。
+（decision 039）。
 
 ---
 
@@ -323,14 +323,14 @@ automation 登入；任何 deployed Server 都可以設定，覆寫 image 的值
 - 密碼只用於該次登入，不保存、不記錄、不回傳，也不作為 become password。
 - 登入失敗的錯誤訊息只指名 Server 與帳號，從不包含密碼。
 - 一次性密碼經 SSH 傳到主機；因為不驗證 host key，冒用該位址的主機可能截取它。此流程只在「所有佈署目標都是內部
-  資料中心主機」的前提下可接受（decision 045 由使用者裁定此版本不以此為安全顧慮）；前提改變時必須重新檢討。
+  資料中心主機」的前提下可接受（decision 039 由使用者裁定此版本不以此為安全顧慮）；前提改變時必須重新檢討。
 
 ### 8.3 清除
 
 - **手動**：delete 移除 Server 上的值，image 的值重新適用。不接觸主機（金鑰仍授權）；沒有值時也成功。
 - **自動**：Server 上的值只屬於一次 OS 安裝。
   - swallow 真正送出新的 OS 佈署之前清除：Workflow 的 `provision-os` 在寫入 provider 前清除；只觀察到已收斂 OS 的
-    rerun 或 retry 不清除（[decision 060](../decisions/060-cancel-and-rerun-converge.md)（cancel and rerun converge））。
+    rerun 或 retry 不清除（[decision 061](../decisions/061-recovery-supersedes-blocking-work.md)（recovery supersedes blocking work））。
   - reconcile 觀察到 Machine 為 `ready` 或 `allocated`（沒有 OS）時清除，不論是經 swallow 或直接在 provisioner
     release；其他狀態（含 `deployed`、`rescue`）保留，因為 OS 仍在主機上。
 - reconcile 不以 provider 資料覆寫此值，只在上述情況清除。
@@ -354,7 +354,7 @@ automation 登入；任何 deployed Server 都可以設定，覆寫 image 的值
 
 只靠手動指令會讓每台 existing Server 先需要一個 shell session，所以以一次性密碼為主要路徑、手動指令為備援；不保存
 密碼，因為 Site become password 已涵蓋 sudo，且金鑰登入取代密碼；用 api-server 的單次 SSH 登入安裝金鑰，因為
-Ansible 本身需要先能登入。見 [decision 045](../decisions/045-server-default-user.md)。
+Ansible 本身需要先能登入。見 decision 039。
 
 ---
 
@@ -428,16 +428,15 @@ API 認證的決策與時效、cookie、rotation 細節見
 
 ## 11. 相關文件
 
-- 決策：[decision 039](../decisions/039-ssh-key-management-and-default-user.md)、
-  [decision 041](../decisions/041-deployment-key-only-automation.md)、
-  [decision 045](../decisions/045-server-default-user.md)、
+- 決策：decision 039、
+  decision 039、
+  decision 039、
   [decision 042](../decisions/042-authentication-sessions-and-api-keys.md)；相關的
-  [decision 069](../decisions/069-swallow-owns-desired-state.md) 與
-  [decision 071](../decisions/071-provisioner-realized-desired-state.md)（desired state；取代 031 的 capability-first 與
-  025 的 OS Image overlay）、
+  decision 069 與
+  decision 071、
   [decision 053](../decisions/053-server-enrollment-and-automatic-inspection.md)（existing-OS enrollment）、
   [decision 055](../decisions/055-libvirt-virtual-machine-enrollment.md)（Hypervisor）、
-  [decision 060](../decisions/060-cancel-and-rerun-converge.md)（只在真正送出佈署時清除 Server Default User）。
+  decision 061。
 - 規格：[platform-deployment.md](platform-deployment.md) §4.1（inventory）、§4.6（host key）、§4.6.1（SSH 就緒與
   per-host 使用者）；[software-deployment.md](software-deployment.md)；[desired-state-model.md](desired-state-model.md)。
 - Glossary：[SSH Key](glossaries/terms/ssh-key.md)、[Deployment Key](glossaries/terms/deployment-key.md)、

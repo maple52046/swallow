@@ -80,7 +80,7 @@ function siteHref(siteId: string): string {
  * empty setup rather than a fleet warning. Refreshes preserve the last-good setup, while Site
  * changes replace it and invalidate late responses from the previous Site.
  *
- * Rebuild (decision 057) re-renders an ISO in place behind a confirmation that names the Servers
+ * Rebuild (decision 047) re-renders an ISO in place behind a confirmation that names the Servers
  * it affects; an ISO built before the UEFI hand-off is flagged on its card so an operator finds it
  * before a UEFI deployment fails on it.
  */
@@ -401,7 +401,7 @@ interface BootISOCardProps {
 
 /**
  * One Boot ISO: identity, serving and usage badges, its BIOS and UEFI hand-offs, and actions. An
- * ISO built before the UEFI hand-off (decision 057) carries a text badge and a notice that explains
+ * ISO built before the UEFI hand-off (decision 047) carries a text badge and a notice that explains
  * what fails and holds a Rebuild button, so the warning never depends on colour alone; Rebuild is
  * also always in the More menu beside the script view and Delete.
  */
@@ -605,7 +605,7 @@ function CopyableValue({ value, label, compact = false }: { value: string; label
 
 /**
  * The rendered boot scripts and build facts of one Boot ISO, read-only: the iPXE script BIOS
- * firmware runs and the GRUB configuration UEFI firmware runs (decision 057). Both are swallow's
+ * firmware runs and the GRUB configuration UEFI firmware runs (decision 047). Both are swallow's
  * templates filled with the rack address; showing them lets an operator check what a Server will
  * run before choosing the ISO, and the SHA-256 lets them verify a downloaded copy. An ISO built
  * before the UEFI hand-off has no GRUB configuration, which the dialog says in words.

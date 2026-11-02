@@ -26,7 +26,7 @@ import (
 //   - Registry Credentials for pulls (decision 044): the stored credential matching the reference's
 //     registry is sent with that one pull, never persisted on the host.
 //
-// It performs no writes to swallow state: Docker objects are Engine facts (decision 001), every call is
+// It performs no writes to swallow state: Docker objects are Engine facts (decision 069), every call is
 // a synchronous Engine request, and no Workflow is created. Engine failures surface unchanged as
 // *DockerEngineError for delivery to map.
 type DockerExplorerUseCase struct {

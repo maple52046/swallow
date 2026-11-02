@@ -64,7 +64,7 @@ func TestRenderBootScript(t *testing.T) {
 		t.Errorf("script must start with the iPXE signature, got %q", script[:10])
 	}
 	if strings.Contains(script, "grub") {
-		t.Errorf("the iPXE script must not hand UEFI to GRUB (decision 057):\n%s", script)
+		t.Errorf("the iPXE script must not hand UEFI to GRUB (decision 047):\n%s", script)
 	}
 	if got := chainURL("10.140.168.20", 5248); got != "http://10.140.168.20:5248/ipxe.cfg" {
 		t.Errorf("chainURL = %q", got)
