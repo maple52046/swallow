@@ -289,8 +289,8 @@ const rows = pendingServers ?? previousServers
   screenshots；color、theme token、shared style 或 appearance change 使用
   `npm run review:visual:themes -- --grep <route-name>` 加驗 light。
 - Shared layout、navigation、typography 或 theme change 使用
-  `--grep @representative` 選取 login、overview、servers、server detail 與
-  deploy wizard，不得無目的地對所有 route 建立完整排列。
+  `--grep @representative` 選取 `tests/visual-review/capture.spec.ts` 中標為
+  `representative: true` 的 case，不得無目的地對所有 route 建立完整排列。
 - Agent 必須實際開啟每張產生的圖片，檢查 overlap、clipping、overflow、
   alignment、spacing、visual hierarchy、responsive behavior 與 contrast。只確認
   command 成功或 PNG 存在不算完成。

@@ -5,7 +5,8 @@
   Swallow can install on and uninstall from one or more already-deployed Servers through the
   Workflow/Job/Task/Runner model. The deploy target is one software (for example Docker CE,
   Podman, or NFS), not a runtime composed of several components.
-- Allowed meaning: A named software kind such as `docker-ce`, `podman`, or `nfs`, each with
+- Allowed meaning: A named software kind such as `docker-ce`, `podman`, or `nfs` (the value set is
+  what `GET /api/v1/software/catalog` lists, one per Software Module; this term does not fix it), each with
   kind-specific variants — for NFS the `server` and `client` roles are variants of the same
   software; for a container runtime an optional pinned version is a variant, and for Docker CE
   whether the Docker Engine API listens on the network (`enableApi`, default on) is a variant

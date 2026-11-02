@@ -344,6 +344,6 @@ Temporal、artifact path、retention、parallelism 等 security/lifecycle semant
 1. 先確認 glossary 與 Active API contract。
 2. 保持 dependency direction、provider ownership 與 provider adapter boundary。
 3. 執行 `gofmt -l .`、`go vet ./...`、`go test ./...`、`go build ./...`。
-4. 依 coding style 手動檢查 changed Go files 的 comments、security、concurrency、
-   cleanup 與 compatibility。
-5. 同步更新 contract、glossary、architecture、tests 與 public docs（若 user-visible）。
+4. 依 coding style 手動檢查新增或修改的宣告的 comments、security、concurrency、
+   cleanup 與 compatibility；同一檔案中沒有改到的既有宣告不在範圍內。
+5. 同步更新 contract、glossary、architecture、tests；user-visible 的變更同時更新對應的公開文件（雙語）。

@@ -2,7 +2,7 @@
 
 - Bounded context: swallow-wide (core and extensions).
 - Definition: The Extension Module that provides one Managed Software kind — its variants, install methods, and install and uninstall automation.
-- Allowed meaning: Each Managed Software kind in the catalog (Docker CE, Podman, NFS, Prometheus, Grafana, the Device Metrics Exporter) is provided by a Software Module. It can be installed on its own onto deployed Servers and composed as a Job into a Platform deployment, sharing the same automation and Software Assignment. Its id is its kind; its Module Manifest declares the kind's Workflow kinds and playbooks, and its Go package provides the kind's catalog entry (including conflicting and required software) through the `software` hook.
+- Allowed meaning: Each Managed Software kind in the catalog is provided by a Software Module; the catalog (`GET /api/v1/software/catalog`) is the only list of kinds. It can be installed on its own onto deployed Servers and composed as a Job into a Platform deployment, sharing the same automation and Software Assignment. Its id is its kind; its Module Manifest declares the kind's Workflow kinds and playbooks, and its Go package provides the kind's catalog entry (including conflicting and required software) through the `software` hook.
 - Disallowed meaning: Not a Platform Module (its deploy target is one software, not a multi-component runtime). Not the Software Assignment record.
 - Synonyms: None.
 - Deprecated terms: None.

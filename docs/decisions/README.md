@@ -24,6 +24,14 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 不寫 ADR。判斷不了時這樣想：三個月後做另一個功能的人也必須遵守它，就是 ADR；只有修改這個功能的人
 需要知道，就屬於規格。只影響單一 component 內部實作的決策，留在該 component 的文件。
 
+## 引用方式
+
+- 文件與程式註解以「decision NNN」引用 ADR，不寫「ADR NNN」「ADR-NNN」或只有編號的連結。每份文件第一次
+  引用某份 ADR 時附上標題並連結，例如「[decision 069](069-swallow-owns-desired-state.md)（swallow owns desired
+  state）」；之後只寫「decision 069」。下方的索引不受此限。
+- decision 072 與 074 的內文提到 AR-xx、DF-xx 這類編號。它們是當時架構檢視的追蹤編號，定義只在沒有提交的
+  plan 草稿中，查不到不影響閱讀。之後的 ADR、現行規格與程式註解不使用這類編號，改寫成自足的說明。
+
 ## ADR 與規格的分工
 
 - ADR 回答「為什麼」：背景、決定、否決的方案與取捨。Accepted 後凍結，不追加 amendment、Revision

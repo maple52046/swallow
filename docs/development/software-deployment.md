@@ -210,12 +210,10 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 
 ### 4.4 Playbook manifest 與命名
 
-- 於 [`api-server/modules/manifest.json`](../../api-server/modules/manifest.json) 註冊：
-  `deploy-docker-ce` / `uninstall-docker-ce`、`deploy-podman` / `uninstall-podman`、
-  `deploy-nfs` / `uninstall-nfs`、`deploy-prometheus` / `uninstall-prometheus`、
-  `deploy-grafana` / `uninstall-grafana`、`deploy-device-metrics-exporter` /
-  `uninstall-device-metrics-exporter`（舊名 `configure-device-metrics-exporter` 仍指向同一支
-  playbook，供 068 之前受理的 Workflow 重試）。每個 kind 是一個模組，playbook 在
+- 每個 kind 的 `deploy-<kind>` 與 `uninstall-<kind>` 註冊於
+  [`api-server/modules/manifest.json`](../../api-server/modules/manifest.json)（舊名
+  `configure-device-metrics-exporter` 仍指向 DME 同一支 playbook，供 decision 068 之前受理的 Workflow 重試）。
+  每個 kind 是一個模組，playbook 在
   `api-server/modules/software/<kind>/playbooks/`、專屬 role 在同一模組的 `roles/`；DME 使用 `shared/roles/` 的
   `device_metrics_exporter` 與 `amdgpu_loader`（Slurm 也使用它們）。
 - playbook 名與 Workflow kind 由 kind 推導（`deploy-<kind>`／`uninstall-<kind>` 與

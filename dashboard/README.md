@@ -77,8 +77,9 @@ screenshots, while `review:visual:themes` also captures light mode. Open and
 inspect the disposable images under `test-results/visual-review/`; they are not
 pixel baselines and must not be committed. All browser workflows use synthetic
 fixture data—never replace it with captured customer data. The
-`@representative` filter selects login, overview, servers, and server detail
-for shared layout, navigation, typography, or theme changes.
+`@representative` filter selects the cases marked `representative: true` in
+`tests/visual-review/capture.spec.ts`, for shared layout, navigation, typography,
+or theme changes.
 
 ## Architecture
 

@@ -5,9 +5,13 @@ alwaysApply: true
 
 # Project Plan File Convention
 
-When creating or updating implementation plans for this codebase:
+This rule makes plans that an agent tool writes (for example in plan mode) live in
+this codebase, not only in the tool's own plan directory (`~/.cursor/plans/`). It
+does not require a plan for every change.
 
-- Do not store project plans only in Cursor's default user-level plan storage.
+When creating or updating an implementation plan for this codebase:
+
+- Do not store it only in Cursor's default user-level plan storage.
 - Save all project-level plan manuscripts under the repository root, in the
   single canonical, flat location:
 
@@ -23,8 +27,8 @@ When creating or updating implementation plans for this codebase:
 
   `YYYYMMDD-<short-topic>.md`
 
-- Before implementation, create or update the relevant plan file first.
-- If a plan already exists for the same topic, update the existing file instead of creating a duplicate.
+- Save the manuscript there before implementing the plan.
+- If a plan already exists for the same topic, update the existing file instead of creating a duplicate; listing the file names in `docs/plans/manuscripts/` is enough to find it.
 
 ## Enforcement
 

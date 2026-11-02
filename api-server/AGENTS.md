@@ -24,8 +24,12 @@ For any Go code addition or modification, `docs/development/coding-style.md` is
 not just background reading. It is a mandatory completion gate.
 
 Before claiming that Go work is done, agents must perform a manual coding-style
-review of every changed Go file. Passing `go test`, `go build`, `gofmt`,
+review of the Go code they changed. Passing `go test`, `go build`, `gofmt`,
 `go vet`, lints, or IDE diagnostics is not sufficient.
+
+The gate covers the declarations a change adds or modifies. Existing declarations
+in the same file that the change does not touch are out of scope; fill their gaps
+in a separate commit rather than mixing them into this one.
 
 The review must specifically verify high-maintenance documentation quality:
 
@@ -48,7 +52,7 @@ The review must specifically verify high-maintenance documentation quality:
 5. New packages must have package-level comments that explain ownership,
    component boundary, and what must not be placed in that package.
 
-If any changed Go file fails this documentation gate, the task is not complete.
+If any changed declaration fails this documentation gate, the task is not complete.
 Fix the comments immediately before moving to the next milestone, to-do item, or
 final response.
 
@@ -103,25 +107,19 @@ resolve it there before implementing.
 
 ## Plans
 
-When creating or updating an implementation plan for this project, store the
-manuscript under the repository root `../docs/plans/manuscripts/` as
-`YYYYMMDD-<short-topic>.md`, and update an existing plan for the same topic
-instead of creating a duplicate. Do not create a component-local plan tree.
-
-Do not proactively read files directly under `../docs/plans/`. They are historical
-records, and should only be read when the user asks for planning history or plan
-consolidation.
+Plans follow the root `../AGENTS.md` (Plans): a plan you write is also saved in
+the repository root `../docs/plans/manuscripts/` as `YYYYMMDD-<short-topic>.md`,
+never in a component-local plan tree.
 
 ## Commit Messages
 
-When asked to draft or validate a commit message, read and follow:
-
-- `docs/development/commit-spec.md`
+When asked to draft or validate a commit message, read and follow the repository
+commit spec, `../docs/development/commit-spec.md`.
 
 Commit messages MUST be written in English, regardless of the chat language.
 
 ## Skills
 
-Task-specific operating guides live under `skills/`. When a task may benefit from
-one, read `skills/README.md` and follow its lookup workflow before acting.
-Skills never replace this file or the documents it requires.
+Task-specific operating guides live in the repository's `../skills/`. When a task
+may benefit from one, read `../skills/README.md` and follow its lookup workflow
+before acting. Skills never replace this file or the documents it requires.

@@ -21,8 +21,12 @@ addition or modification, `docs/development/coding-style.md` is not just
 background reading. It is a mandatory completion gate.
 
 Before claiming that dashboard work is done, agents must perform a manual
-coding-style review of every changed source file. Passing `npm run lint`,
+coding-style review of the source they changed. Passing `npm run lint`,
 `npm run build`, TypeScript, or IDE diagnostics is not sufficient.
+
+The gate covers the declarations and UI a change adds or modifies. Existing code in
+the same file that the change does not touch is out of scope; fill its gaps in a
+separate commit rather than mixing them into this one.
 
 The review must specifically verify high-maintenance documentation, UI, and
 accessibility quality:
@@ -59,8 +63,8 @@ accessibility quality:
 8. Visible UI changes must satisfy the visual-verification gate below. Producing
    screenshots without opening and evaluating them does not satisfy the gate.
 
-If any changed source file fails this documentation, accessibility, real-data, or
-layering gate, the task is not complete. Fix the issue immediately before moving
+If any changed declaration or UI fails this documentation, accessibility, real-data,
+or layering gate, the task is not complete. Fix the issue immediately before moving
 to the next milestone, to-do item, or final response.
 
 For large implementations that add or change multiple modules, agents must do a
@@ -80,8 +84,8 @@ content, layout, styling, or responsive behavior.
 2. Use `npm run review:visual:themes -- --grep <route-name>` when changing
    colors, theme tokens, shared styles, or appearance behavior.
 3. For shared layout, navigation, typography, or theme changes, select the
-   representative route set (login, overview, servers, server detail, and
-   deploy wizard) with `--grep @representative`.
+   representative route set with `--grep @representative`: the cases marked
+   `representative: true` in `tests/visual-review/capture.spec.ts`.
 4. Open every generated PNG under `test-results/visual-review/` and inspect
    overlap, clipping, overflow, alignment, spacing, hierarchy, responsive
    behavior, and contrast. Fix defects and repeat capture plus inspection.
@@ -133,25 +137,19 @@ API payloads, and persistence.
 
 ## Plans
 
-When creating or updating an implementation plan for this project, store the
-manuscript under the repository root `../docs/plans/manuscripts/` as
-`YYYYMMDD-<short-topic>.md`, and update an existing plan for the same topic
-instead of creating a duplicate. Do not create a component-local plan tree.
-
-Do not proactively read files directly under `../docs/plans/`. They are historical
-records, and should only be read when the user asks for planning history or plan
-consolidation.
+Plans follow the root `../AGENTS.md` (Plans): a plan you write is also saved in
+the repository root `../docs/plans/manuscripts/` as `YYYYMMDD-<short-topic>.md`,
+never in a component-local plan tree.
 
 ## Commit Messages
 
-When asked to draft or validate a commit message, read and follow:
-
-- `docs/development/commit-spec.md`
+When asked to draft or validate a commit message, read and follow the repository
+commit spec, `../docs/development/commit-spec.md`.
 
 Commit messages MUST be written in English, regardless of the chat language.
 
 ## Skills
 
-Task-specific operating guides live under `skills/`. When a task may benefit from
-one, read `skills/README.md` and follow its lookup workflow before acting.
-Skills never replace this file or the documents it requires.
+Task-specific operating guides live in the repository's `../skills/`. When a task
+may benefit from one, read `../skills/README.md` and follow its lookup workflow
+before acting. Skills never replace this file or the documents it requires.

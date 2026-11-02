@@ -149,8 +149,13 @@ scraping rather than for consumers (OpenAPI area `system`):
 ## Compatibility Notes
 
 - Adding an optional response field is backward compatible. Removing or renaming
-  a field, changing a field's type, or changing an `error.code` mapping is
-  breaking and requires a `BREAKING CHANGE` commit plus a consumer migration
-  note.
+  a field, changing a field's type, or changing an `error.code` mapping that a
+  contract documents is breaking and requires a `BREAKING CHANGE` commit plus a
+  consumer migration note. Fixing the implementation so it returns the mapping a
+  contract already documents is a bug fix, not a breaking change.
 - Enum values in payloads are domain language. They come from swallow's
-  glossary, and adding a value is a model change, not just an API change.
+  glossary, and adding a value is a model change, not just an API change. Values
+  a module owns (a Managed Software kind, the Workflow kinds a module declares)
+  come from that module's `module.json` and its catalog; the contract's enum or
+  pattern lists them, and the glossary defines the concept rather than the full
+  value set.

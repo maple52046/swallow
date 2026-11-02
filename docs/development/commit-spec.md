@@ -32,10 +32,13 @@ machine-readable history and maps cleanly onto SemVer.
 ## Scope
 
 An optional noun in parentheses describing the affected area. In this repository
-the natural scopes are the component or the shared document category:
+the scope is the component or the shared document category:
 
-- Platform component: `api-server`, `dashboard`, `cli`.
+- Component: `api-server`, `dashboard`, `cli`.
 - Shared documents / areas: `glossary`, `contracts`, `docs`, `standards`, `deploy`.
+
+A change that spans components (for example an API contract with its provider
+and consumers) uses no scope, or the shared area it is mainly about.
 
 Examples: `docs(glossary): define allocation state`, `chore(deploy): update the
 dev compose stack`.
@@ -46,6 +49,14 @@ Indicate either way (both may be used together):
 
 - Append `!` after the type/scope: `feat(api-server)!: change the response schema`.
 - Add a footer: `BREAKING CHANGE: <what broke and the migration>`.
+
+What counts as breaking:
+
+- A change to a published API contract whenever an existing consumer must be
+  updated, even if the code still compiles.
+- In the dashboard, a change to a port interface, a domain type's shape, or a
+  status value set, for every layer that depends on it, even when the build
+  still passes.
 
 ## Examples
 
@@ -71,3 +82,7 @@ chore(deploy): rename the environment prefix to SWALLOW_
 - This is a single git repository (a monorepo). A change that spans components —
   for example an API contract plus its provider and consumer — is committed
   together here; there is no submodule-pointer step.
+- A commit that changes API behavior includes the matching contract update under
+  `api-server/docs/development/api-contracts/`.
+- A commit that changes a domain term or status value stays consistent with the
+  glossary; no component renames a domain concept on its own.

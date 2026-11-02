@@ -72,8 +72,8 @@ developer workflow：`review:visual` 產生 dark desktop/mobile screenshots，
 `review:visual:themes` 另加 light mode。必須實際開啟並檢查
 `test-results/visual-review/` 下的 disposable images；它們不是 pixel baseline，
 也不得 commit。所有 browser workflow 都使用 synthetic fixture data，不得替換成
-customer data capture。`@representative` filter 會選取 login、overview、servers 與 server detail，供
-shared layout、navigation、typography 或 theme change 使用。
+customer data capture。`@representative` filter 會選取 `tests/visual-review/capture.spec.ts` 中標為
+`representative: true` 的 case，供 shared layout、navigation、typography 或 theme change 使用。
 
 ## Architecture
 

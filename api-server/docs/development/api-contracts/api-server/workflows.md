@@ -56,14 +56,15 @@ schema with `WorkflowTask` and `WorkflowTimelineEvent`. This document keeps the 
 semantics. OpenAPI names the path parameters `{id}` and `{taskId}` and writes the collection path
 without its trailing slash; Fiber serves both spellings.
 
-### Wire field rename (in progress)
+### Wire field rename (planned)
 
 The route segments are canonical (`workflows`, `tasks`). The JSON body and Mongo still use
 the field names `steps[]`, `executor`, `operationId`, and the `provisioner` Runner still
 serializes as `maas`. Renaming these to `tasks[]`, `runner`, `workflowId`, and
-`provisioner` is the one-release data/wire migration tracked by
-[ADR 017](../../../../../docs/decisions/017-workflow-job-task-runner-model.md); consumers
-must accept both during the window.
+`provisioner` ([decision 017](../../../../../docs/decisions/017-workflow-job-task-runner-model.md))
+has not started. When it is done, it is one switch: api-server, dashboard, and cli change in
+the same commit, with a schema migration for the stored names, and no period in which
+consumers read both.
 
 ## Create Request
 

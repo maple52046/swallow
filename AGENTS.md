@@ -31,7 +31,11 @@ API contracts, glossaries, ADRs, and skills — stay single-source. They must no
 link to public documentation, because doing so expands agent reading paths and
 context unnecessarily. Public documentation may link inward to these
 authoritative development sources. Read public guides only when the task itself
-creates, reviews, or explains public documentation.
+creates, reviews, or explains public documentation, or when a change is
+user-visible and its component's Completion Gate asks for the matching public page
+to be updated. Find that page through the public index, `docs/en/README.md`, and
+update its `docs/zh-TW/` twin too; a component's own public references (for example
+`cli/docs/usage.md`) have a `.zh-TW.md` companion.
 
 ## Always Read
 
@@ -106,28 +110,28 @@ authoritative for layering, data flow, and implementation constraints.
 
 ## Architecture Decisions
 
-`docs/decisions/` holds lightweight ADRs for decisions that cross component
-boundaries. Read an ADR when you need to know *why* a boundary or interaction
-looks the way it does. Add one — following `docs/decisions/README.md` — when a
-decision affects multiple components or has a non-obvious rejected alternative.
-Never fabricate a historical rationale.
+`docs/decisions/` holds lightweight ADRs for decisions that constrain later work.
+Read an ADR when you need to know *why* a boundary or interaction looks the way it
+does. Add one only when the decision meets the threshold in
+`docs/decisions/README.md` (何時新增 ADR); a single feature's design, including the
+alternatives it rejected, belongs in its spec instead. Never fabricate a historical
+rationale.
 
-## Plan Backup
+## Plans
 
-Do not proactively read `docs/plans/` during normal development work. Plans are
-historical records and should only be read when the user asks for historical
-planning context, decision archaeology, or plan consolidation.
+Not every change needs a plan. When you do write an implementation plan, in a
+tool's plan mode or as a planning step, also save it in this repository, so it is
+not kept only in the tool's own directory (for example `~/.cursor/plans/`):
 
-Before beginning implementation work, create or update the relevant
-project-level plan manuscript. Store it under `docs/plans/manuscripts/` rather
-than relying only on user-level plan storage.
+- Location: the root `docs/plans/manuscripts/`, even when the plan concerns one
+  component. Never use a component-local plan tree or drop the `plans/` segment.
+- Name: `YYYYMMDD-<short-topic>.md`, in Markdown.
+- One plan per topic: list the file names in `docs/plans/manuscripts/` to find a
+  plan on the same topic, and update that file instead of creating a duplicate.
+  Open only that file.
 
-When creating or updating an implementation plan for the current project, store
-the manuscript in that single root-level location even when the plan concerns a
-specific component. Do not use a component-local `docs/plans/manuscripts/`
-directory or omit the `plans/` path segment. Use Markdown with the naming
-convention `YYYYMMDD-<short-topic>.md`, and update an existing plan for the same
-topic instead of creating a duplicate.
+Otherwise do not read `docs/plans/`. Plans are historical records, read only when
+the user asks for planning history, decision archaeology, or plan consolidation.
 
 ## Commit Messages
 

@@ -1,4 +1,4 @@
-# Swallow CLI Agent Entry Guide
+# cli Agent Entry Guide
 
 This file is the entry point for AI agents working in the `cli` component: the
 `swallow` operator command-line client. All paths in this file are relative to
@@ -33,8 +33,11 @@ Before planning, reviewing, or explaining CLI work, read:
 
 Before adding or modifying any code, also read:
 
-1. `docs/development/coding-style.md` — the CLI follows the swallow Go coding
-   style; this file records the small CLI-specific additions.
+1. `docs/development/coding-style.md` — the CLI-specific additions. The CLI
+   follows the Go coding style at `../api-server/docs/development/coding-style.md`
+   in these sections: 格式與命名, 註解與文件 (except the Clean Architecture
+   layer notes, which describe api-server's layers), 錯誤處理, Imports 與 Package
+   組織, and 測試規範.
 2. The relevant Active contract under
    `../api-server/docs/development/api-contracts/api-server/` for any command you
    add or change. The contract is the source of truth for paths, methods,
@@ -62,9 +65,11 @@ bodies must be the domain value defined by the contract and glossary.
 
 ## Coding Style Completion Gate
 
-For any Go addition or change, `docs/development/coding-style.md` and the
-repository Go style are a mandatory completion gate, not background reading.
-Before claiming CLI work is done, review every changed Go file for doc comments
+For any Go addition or change, `docs/development/coding-style.md` and the Go
+style sections it applies (listed under Required Reading) are a mandatory
+completion gate, not background reading.
+Before claiming CLI work is done, review the Go declarations you added or changed
+(not untouched ones in the same file) for doc comments
 that explain contract, caller obligations, error semantics, and boundaries — not
 comments that merely restate an identifier. Passing `go build`/`go vet`/`gofmt`
 is necessary but not sufficient.
@@ -72,12 +77,16 @@ is necessary but not sufficient.
 Run before claiming done: `gofmt -l .` (no output), `go vet ./...`,
 `go build ./...`, `go test ./...`.
 
+## Public Documentation
+
+A change that adds or changes a command, flag, or output updates `docs/usage.md`
+and `docs/usage.zh-TW.md` in the same commit.
+
 ## Plans
 
-When creating or updating an implementation plan for this project, store the
-manuscript under the repository root `../docs/plans/manuscripts/` as
-`YYYYMMDD-<short-topic>.md` (see the repository plan convention), not in a
-component-local directory.
+Plans follow the root `../AGENTS.md` (Plans): a plan you write is also saved in
+the repository root `../docs/plans/manuscripts/` as `YYYYMMDD-<short-topic>.md`,
+never in a component-local plan tree.
 
 ## Commit Messages
 

@@ -72,9 +72,8 @@ describes the change.
 ### 4. Write the commit message (follow Conventional Commits)
 
 The commit message **must** follow [`docs/development/commit-spec.md`](../../docs/development/commit-spec.md),
-which is the authoritative source for allowed types, this repository's scopes
-(the platform components `api-server` / `dashboard`, or shared areas such as
-`glossary`, `contracts`, `docs`, `deploy`), and the English-only rule.
+the only authority for allowed types, this repository's scopes, what counts as
+breaking, and the English-only rule.
 
 For the verbatim Conventional Commits 1.0.0 text, see
 [`conventional-commits-1.0.0.md`](conventional-commits-1.0.0.md); when unsure about details (footers,

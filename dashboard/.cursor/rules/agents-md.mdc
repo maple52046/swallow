@@ -7,8 +7,8 @@ alwaysApply: true
 
 # Read Agent Entry Guide
 
-Before making any code changes, you must read this project's `AGENTS.md` at the
-dashboard project root.
+Before making any code changes, you must read this component's `AGENTS.md` at the
+`dashboard/` component root.
 
 `AGENTS.md` is the entry point for AI-assisted development in this project. It
 explains how to follow the development documents under `docs/`.
@@ -17,7 +17,7 @@ explains how to follow the development documents under `docs/`.
 
 When starting a task:
 
-1. Read `AGENTS.md` from the dashboard project root.
+1. Read `AGENTS.md` from the `dashboard/` component root.
 2. Follow the document-reading workflow defined in `AGENTS.md`.
 3. Read the required project documents before editing code.
 4. Do not skip the architecture spec or coding style documents when the task scope requires them.

@@ -224,6 +224,6 @@ Domain/use-case logic 應保持可在不 render React、不啟動 browser、不�
 4. User-visible UI 變更使用獨立 visual-review workflow 截取受影響 route 的 dark
    desktop/mobile；theme、color 或 shared-style 變更加驗 light。Agent 必須實際
    開啟 screenshots，修正發現的 layout、responsive 或 contrast 問題後重新檢查。
-5. 手動檢查 changed source 的 JSDoc、cleanup、auth/storage、error/loading/empty
-   state、responsive behavior 與 shared-component reuse。
+5. 手動檢查新增或修改的宣告與 UI 的 JSDoc、cleanup、auth/storage、error/loading/empty
+   state、responsive behavior 與 shared-component reuse；同一檔案中沒有改到的既有程式不在範圍內。
 6. 同步更新 tests、architecture 與雙語 public docs（若 user-visible）。

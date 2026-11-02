@@ -47,8 +47,6 @@ HISTORICAL_CODE_PATHS = {
         "docs/api-contracts/README.md",
     ): "migrated-from note",
     ("skills/README.md", "skills/inspect-logs/SKILL.md"): "example of a skill to add",
-    ("api-server/skills/README.md", "skills/inspect-logs/SKILL.md"): "example of a skill to add",
-    ("dashboard/skills/README.md", "skills/inspect-logs/SKILL.md"): "example of a skill to add",
     ("docs/development/glossaries/terms/integration.md", "docs/glossaries/site.md"): "change note",
     ("docs/development/glossaries/terms/machine.md", "docs/glossaries/provisioning.md"): "change note",
     (
