@@ -99,6 +99,7 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
   `openapi.yaml` 與 dashboard 的型別（[api-contracts README](../../api-server/docs/development/api-contracts/README.md)
   的 OpenAPI 一節）。`SoftwareKind` 在契約中是 pattern，不必改。
 - dashboard 的 kind 清單與呈現（[模組撰寫指南](module-authoring.md) §1.2）。
+- 本文件 §2 的 kind 表與 §7 的位置表加上新 kind。
 
 **安裝方法**（[decision 063](../decisions/063-omnistat-slurm-observability.md)（omnistat slurm observability））：catalog 的
 `installMethods` 列出 kind 可用的安裝方法（第一個是預設），`containerRuntimes` 列出 `container` method
@@ -243,7 +244,8 @@ playbook、依賴鎖定、不逃出內容根目錄、結果與 secret 走契約�
 
 1. 契約是 §4.1 的 inventory 與 §4.2 的 trusted vars；每個 kind 的 install 與 uninstall playbook 都要登錄
    （`TestEverySoftwareKindHasRegisteredPlaybooks`）。
-2. 可離線為目標：第一刀 lab 可走 distro／官方 repo，但須 pin 版本；air-gap 為後續。
+2. 可離線為目標：第一刀 lab 可走 distro／官方 repo；spec 指定 `version` 時 pin 該版本，未指定時安裝 repo 目前的版本
+   （Docker CE、Podman）；air-gap 為後續。
 
 ### 4.6 Docker CE 的 Engine API 與 Docker Host Explorer
 

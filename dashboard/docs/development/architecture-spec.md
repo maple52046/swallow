@@ -63,7 +63,8 @@ src/
 
 ## Data Crossing Boundaries
 
-- API DTO 只存在 infrastructure；map 後才進入 application/domain/presentation。
+- API DTO 只存在 infrastructure；map 後才進入 application/domain/presentation。回應的形狀與 domain 型別相同時，adapter
+  可以直接回傳它，由 `src/infrastructure/api/contractCompatibility.ts` 在 compile time 檢查可以指派（見 API and Error Boundary）。
 - Domain/application 不接受 `Response`、`URLSearchParams`、route object、
   DOM event、storage record 或 Chakra props。
 - Route/query/form input 在 presentation adapter 轉成 typed application input。
@@ -114,7 +115,8 @@ eligibility、working-set refresh 或 presentation-independent rule 才建立 us
   沒有 request ID，不經過這些 helper。
 - `401` 先嘗試換發一次，失敗才結束 session；role visibility 不取代 server authorization。
 - SSE ownership、reconnect/backoff、abort/cancellation 與 cleanup 必須集中且有註解。
-- Unknown enum 使用 least-privileged/safe presentation，不 fail open。
+- Unknown enum 使用 least-privileged/safe presentation，不 fail open：影響可執行動作或權限的值，未知時以最保守的方式呈現；
+  只供顯示的值（例如 Server Origin），契約允許時原樣顯示。
 
 ## Desired and observed state
 

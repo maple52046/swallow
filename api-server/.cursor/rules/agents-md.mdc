@@ -1,8 +1,21 @@
 ---
-description: Always read the project agent entry guide before making changes
+description: Read the api-server agent entry guide before changing api-server code
 globs:
-  - "**/*"
-alwaysApply: true
+  - "cmd/**"
+  - "config/**"
+  - "internal/**"
+  - "modules/**"
+  - "tests/**"
+  - "go.mod"
+  - "go.sum"
+  - "api-server/cmd/**"
+  - "api-server/config/**"
+  - "api-server/internal/**"
+  - "api-server/modules/**"
+  - "api-server/tests/**"
+  - "api-server/go.mod"
+  - "api-server/go.sum"
+alwaysApply: false
 ---
 
 # Read Agent Entry Guide

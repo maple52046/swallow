@@ -208,7 +208,8 @@ SELinux、哪些 role 依 OS 分支）見 platform-deployment §2.3。
 - 「套件 task」包括 `apt`、`dnf`、`yum`、`package`（含 `ansible.builtin.` 前綴）、沒有設 `update_cache: false` 的
   `apt_repository`，以及執行 `apt-get`、`apt`、`dpkg`、`dnf`、`yum` 安裝、移除、升級或更新索引的
   `command`、`shell`、`raw`。`yum_repository` 只寫入 `.repo` 檔、不執行 dnf，不算套件 task；之後從新 repository
-  安裝的 `dnf` task 才是。新增第三方 repository 時鎖定它的 GPG key（比照 Docker CE 模組的 `docker_ce` role）。
+  安裝的 `dnf` task 才是。新增第三方 repository 時開啟 `gpgcheck` 並指定 `gpgkey`（比照 `docker_ce` role，它在執行時從 URL 取得 key）。這類 repository
+  需要對外連線，與 §4 的可離線規則衝突，加入前在 plan 中說明 air-gap 環境怎麼取得它。
 
 ## 6. 測試
 
@@ -251,16 +252,22 @@ AMD 模組的 chart 路徑，搬移該 role 時要一併修改。
 
 ## 8. 提交前的檢查清單
 
+每次修改：
+
 - [ ] 內容放在正確的模組目錄；共用的內容放在 `shared/`（§1）。
+- [ ] role 只在自己模組或 `shared/` 解析，名稱與檔名唯一（§3）。
+- [ ] 遵守 §4 的規則；改套件的 playbook 取得與釋放 hold，套件 task 會重試（§5）。
+- [ ] 結構測試通過，並為新內容或改變的行為寫了契約測試（§6）。
+- [ ] 行為改變時，描述它的規格已更新（例如 Kubernetes 的 OS 差異在 platform-deployment §2.3）。
+
+新模組，或改變模組的宣告時：
+
 - [ ] `module.json` 列出模組擁有的 playbook、Workflow kind、completion 與 route，模組已加入 `compiledModules`（§1.1）。
 - [ ] 模組定義 spec 時，`spec` 屬於 schema 子集，Software 模組的屬性等於 catalog 的 `SpecFields`（§1.1）。
-- [ ] 新的 Job 都在 `workflowJobLabels` 有顯示名稱（§1.1）。
+- [ ] 新的 Job 都在 `workflowJobLabels` 有顯示名稱（§1.1；Software 的 `configure-<kind>` 以 catalog 的 label 命名，不必登錄）。
 - [ ] dashboard 的畫面已決定：專屬畫面登錄在 `src/modules/registry.ts`，或依 `spec` 產生（§1.2）。
 - [ ] 新模組的 `api-server/modules/<種類>/<id>/` 與 dashboard 的模組目錄（有的話；Software 模組沒有）已在 `.github/CODEOWNERS` 登錄負責人；
   `internal/app` 的測試檢查每個編入的模組都有一行。
 - [ ] 新 playbook 已登錄在 `manifest.json`；改名保留了舊名（§2、§7）。
-- [ ] role 只在自己模組或 `shared/` 解析，名稱與檔名唯一（§3）。
-- [ ] 遵守 §4 的規則；改套件的 playbook 取得與釋放 hold，套件 task 會重試（§5）。
-- [ ] 結構測試通過，並為新內容寫了契約測試（§6）。
-- [ ] 位置表與相關規格已更新（§7）。
+- [ ] 搬移或改名後，位置表與相關規格已更新（§7）。
 - [ ] 模組層級的檢查見 [core-and-extensions.md](core-and-extensions.md) §11.2。

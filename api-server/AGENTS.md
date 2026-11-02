@@ -10,17 +10,21 @@ Before changing api-server Go code, or planning or reviewing such a change, read
 
 1. `docs/development/architecture-spec.md` — the Clean Architecture boundaries: Dependency Rule, Layout,
    Prohibited Designs, Completion Gate, and the boundary sections for what the change touches (Provider
-   Adapter, Durable Workflow, Store and Transaction, Configuration, Error). Read "2026-10-31 搬移前的路徑"
+   Ownership, Provider Adapter, Durable Workflow, Store and Transaction, Configuration, Error). Read "2026-10-31 搬移前的路徑"
    only when you meet a path from before that move.
-2. `docs/development/coding-style.md` — Go naming, comments, errors, concurrency, and testing rules.
+2. `docs/development/coding-style.md` — Go rules. Every change reads 核心原則, 格式與命名, 註解與文件, and Agent
+   執行規則; add 錯誤處理, API 與語言使用, Imports 與 Package 組織, or 測試規範 when the change touches that.
 
-Explaining api-server behavior needs neither unless the answer requires following the code.
+Planning or reviewing a design (no code yet) needs only the architecture spec; coding-style applies when
+code is written or a code diff is reviewed. Explaining api-server behavior needs neither, even when you
+read code to confirm a detail.
 
 A change confined to host automation content under `modules/` (playbooks, roles, the playbook manifest, a
 module's layout) reads `../docs/development/module-authoring.md` instead; it needs coding-style only for the
 Go content tests it adds (測試規範). A module's Go hooks are Go code and follow the list above.
 
-When the change adds or changes Go tests, read `../docs/development/development-and-testing.md` §3 for
+When the change adds or changes Go tests other than host automation content tests, read
+`../docs/development/development-and-testing.md` §3 for
 where each kind of test lives, the shared fakes, and the test environment variables (host automation
 content tests are in module-authoring §6); its §6 has the complete check commands, including the Mongo
 integration tests.
@@ -73,8 +77,9 @@ This component is swallow's only API-owning component. When the contract
 workflow applies (its README defines when), read and maintain:
 
 1. `docs/development/api-contracts/README.md` — the API contract workflow.
-2. `docs/development/api-contracts/api-server/outline.md` — the contract index.
-3. The relevant contract the index lists.
+2. `docs/development/api-contracts/api-server/outline.md` — the contract index, unless a spec or the
+   root `AGENTS.md` already names the contract.
+3. The relevant contract, and in it the sections for the routes involved.
 
 If the task changes an API owned by swallow, update or create the provider-owned
 API contract before or together with implementation. If the relevant API is only

@@ -131,9 +131,10 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 
 ### 4.4 已遷移的資源
 
-遷移依 [decision 071](../decisions/071-provisioner-realized-desired-state.md)（provisioner realized desired state） 分兩段進行（遷移第一段、遷移第二段；與
-core-and-extensions.md §10 模組演進的「階段」無關）。遷移第一段是由 provisioner
-以短的呼叫實現的欄位。已遷移的資源與其規格列在下面，尚未列出的資源維持現行行為：
+遷移分兩段進行（遷移第一段、遷移第二段；與 core-and-extensions.md §10 模組演進的「階段」無關）。遷移第一段是由
+provisioner 以短的呼叫實現的欄位，依 [decision 071](../decisions/071-provisioner-realized-desired-state.md)（provisioner
+realized desired state）；遷移第二段（Power Configuration、Server Default User、Boot Media）還沒有設計，071 只決定了
+Power Configuration 這類欄位的 drift 只回報。已遷移的資源與其規格列在下面，尚未列出的資源維持現行行為：
 
 | 資源 | spec | controller | 規格與契約 |
 | --- | --- | --- | --- |

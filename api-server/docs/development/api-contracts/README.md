@@ -6,7 +6,7 @@ component.
 ## When this workflow applies
 
 Follow it whenever a task adds, changes, deprecates, removes, or validates an HTTP
-route, field, status, or error. Other documents refer to this definition instead of
+route, query parameter, field, status, or error. Other documents refer to this definition instead of
 restating it.
 
 A task that only consumes or explains existing API behavior reads the contract
@@ -18,7 +18,7 @@ only for the exact wire shape (the dashboard's types are generated from it).
 ## Reading workflow
 
 1. Read this file.
-2. Open the [api-server outline](api-server/outline.md).
+2. Open the [api-server outline](api-server/outline.md), unless you already know the contract file.
 3. Read only the relevant contract, and in it the sections for the routes involved.
 4. Use only contracts marked Active as implementation-ready.
 

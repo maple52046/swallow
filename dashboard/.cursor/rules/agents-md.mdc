@@ -1,8 +1,21 @@
 ---
-description: Always read the project agent entry guide before making changes
+description: Read the dashboard agent entry guide before changing dashboard code
 globs:
-  - "**/*"
-alwaysApply: true
+  - "src/**"
+  - "tests/**"
+  - "package.json"
+  - "*.config.ts"
+  - "*.config.js"
+  - "tsconfig*.json"
+  - "index.html"
+  - "dashboard/src/**"
+  - "dashboard/tests/**"
+  - "dashboard/package.json"
+  - "dashboard/*.config.ts"
+  - "dashboard/*.config.js"
+  - "dashboard/tsconfig*.json"
+  - "dashboard/index.html"
+alwaysApply: false
 ---
 
 # Read Agent Entry Guide

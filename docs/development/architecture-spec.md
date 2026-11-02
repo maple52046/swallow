@@ -116,7 +116,7 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
   Module Manifest、Go hook 與模組 registry 已實作（[decision 075](../decisions/075-module-contract-v1.md)（module contract v1））：Software、
   Kubernetes、Slurm 與 AMD 都是模組，dashboard 依模組 registry 組成畫面，沒有專屬畫面的模組依 manifest 的 spec schema
   產生表單（Software 的 kind 清單在 dashboard 仍是固定的）。依設定組裝發行版尚未實作，每個 build 編入全部模組。core 內仍有平台與 AMD 專屬的邏輯，列在
-  [`core-and-extensions.md`](core-and-extensions.md) §3.6，以廠商詞彙的 ratchet 守住，只能減少。
+  [`core-and-extensions.md`](core-and-extensions.md) §3.6，以廠商詞彙的 ratchet 守住，只能減少（新增平台或廠商名稱的例外見同一節的過渡期規則）。
 
 ## 憲法層級
 

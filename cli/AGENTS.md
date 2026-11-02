@@ -31,7 +31,8 @@ Before changing CLI code, or planning or reviewing such a change, read:
 2. `docs/development/architecture-spec.md` — the CLI's own Clean Architecture
    layering (command → client/output → config).
 
-Explaining CLI behavior needs only the usage manual and the command code. Before adding or modifying code,
+Explaining CLI behavior needs only the usage manual and the command code, even when you read code to
+confirm a detail. Before adding or modifying code,
 also read:
 
 1. `docs/development/coding-style.md` — the CLI-specific additions. The CLI
@@ -83,8 +84,12 @@ Run before claiming done: `gofmt -l .` (no output), `go vet ./...`,
 A change that adds or changes a command, flag, or output updates `docs/usage.md`
 and `docs/usage.zh-TW.md` in the same commit; a new command group also updates
 `README.md`, `README.zh-TW.md`, and the public command index
-`../docs/en/reference/cli.md` with its `../docs/zh-TW/reference/cli.md` twin.
-Run `python3 scripts/check-docs.py` from the repository root after changing them.
+`../docs/en/reference/cli.md` with its `../docs/zh-TW/reference/cli.md` twin, and
+any public guide that says the area has no command (search `../docs/en/` and
+`../docs/zh-TW/` for the group name; the Managed Software guide is one). Run
+`python3 scripts/check-docs.py` from the repository root after changing them.
+Adding `cli` to the contract's Consumer Components belongs to the same change
+(the contract README's rule for consumers).
 
 The CLI does not cover every Active route yet: Managed Software (with registry
 credentials and the Docker explorer), the Server Default User, the provisioner

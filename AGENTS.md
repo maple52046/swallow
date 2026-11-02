@@ -34,7 +34,8 @@ context unnecessarily. Public documentation may link inward to these
 authoritative development sources. Read public guides only when the task itself
 creates, reviews, or explains public documentation, or when a change is
 user-visible: a screen, a command, or API behavior an operator or integrator
-relies on (making code do what a contract already documents is not). Find that page through the public index, `docs/en/README.md`, and
+relies on (making code do what a contract already documents is not). When no public page covers
+the behavior, add none. Find that page through the public index, `docs/en/README.md`, and
 update its `docs/zh-TW/` twin too; a component's own public references (for example
 `cli/docs/usage.md`) have a `.zh-TW.md` companion.
 
@@ -42,7 +43,7 @@ update its `docs/zh-TW/` twin too; a component's own public references (for exam
 
 Before planning, editing, reviewing, or explaining repository work, read:
 
-1. `docs/development/codebase-structure.md` — its Components, Code Lookup Workflow, and core, provider adapter, and module location sections: the components, how each maps to its top-level directory, and where code goes. Read the rest only when the task changes that structure.
+1. `docs/development/codebase-structure.md` — its Components and Code Lookup Workflow sections: the components and how each maps to its top-level directory. Add its core, provider adapter, and module location section for work in `api-server`, and read the rest only when the task changes that structure.
 
 ## Reading by Task
 
@@ -58,23 +59,23 @@ sections for the routes involved. A link that names a section (§4.6) needs only
 
 | Task | Also read |
 | --- | --- |
-| Design a change, review one, or decide between approaches; add or change a managed resource, a module, or a provider adapter; decide where code belongs | The "swallow 的設計主張" section at the top of `docs/development/architecture-spec.md`: the core idea, the current composition, the principles, and how to trade them off. Only that section; the rest of the spec is the last row's. |
-| Fix a defect, wording, or behavior without changing who owns a fact, an API contract, or the data model | The domain spec of the area (an area without one uses its API contract) and the `AGENTS.md` of the component that owns the behavior. For a defect seen on a screen or in a command, find that component first: the contract says what the API must do. |
-| Explain how something works or why | The domain spec of the area and the glossary terms it uses (lookup: `docs/development/glossaries/README.md`); for the whole system (features, processes and their background work, collections and their writers), `docs/development/system-overview.md`. A component's guides only when the answer needs its code. |
+| Design new behavior or choose between approaches; review a change; add a managed resource, module, or provider adapter, or change what one owns or declares; decide where code belongs | The "swallow 的設計主張" section at the top of `docs/development/architecture-spec.md`: the core idea, the current composition, the principles, and how to trade them off. Only that section; the rest of the spec is the last row's. |
+| Fix a defect, wording, or behavior without changing who owns a fact, an API contract, or the data model | The domain spec of the area (an area without one uses its API contract) and the `AGENTS.md` of the component that owns the behavior. For a defect seen on a screen or in a command, find that component first: compare what the API returns (or the code behind it) with the contract; if the API breaks the contract the defect is in `api-server`, otherwise in the consumer. |
+| Explain how something works or why | The domain spec of the area; a glossary term only when the spec does not define it well enough (open a linked term directly; otherwise `docs/development/glossaries/README.md`); for the whole system (features, processes and their background work, collections and their writers), `docs/development/system-overview.md`. Reading code to confirm a detail needs no component guide: find it with the code map in `system-overview.md` or the spec's code table. |
 | Add or change a consumer feature (dashboard, cli) over existing API behavior | The API contract; the domain spec when the feature shows domain behavior. |
-| Add or change API behavior (a route, query parameter, field, status, or error) | The contract workflow (`api-server/docs/development/api-contracts/README.md`) and the contract; add the consumer row for a consumer that uses it. |
+| Add or change API behavior (a route, query parameter, field, status, or error) | The contract workflow (`api-server/docs/development/api-contracts/README.md`) and the contract. Regenerating the dashboard's types is part of this; add the consumer row only for a consumer whose own code the change also changes. |
 | Add or change a managed resource, a field of its spec or status, an action that changes the outside world, or who owns a fact | `docs/development/desired-state-model.md` (readers: its §1); the API contract when the change reaches the API; the glossary authoring workflow when it introduces or changes a term. |
 | Add an external system, provider adapter, Platform, GPU vendor, Managed Software kind, or module | `docs/development/core-and-extensions.md` (readers: its §1) and `docs/development/module-authoring.md`. |
 | Decide where new code belongs (core, provider adapter, or module) | `docs/development/core-and-extensions.md` §1. |
 | Introduce or rename a domain term, a type, or an enum value the glossary owns | The glossary authoring workflow (`docs/development/glossaries/README.md`). A query parameter or response field that uses existing terms is an API change, not a glossary change. |
-| Write or run tests, run the full checks, or start the development environment | `docs/development/development-and-testing.md`. |
+| Write or run tests, run the full checks, or start the development environment | `docs/development/development-and-testing.md`; content tests of playbooks and roles are in `docs/development/module-authoring.md` §6 instead. |
 | Change how components or bounded contexts depend on each other (a new cross-context dependency, a context map, a component boundary) | The rest of `docs/development/architecture-spec.md` (bounded contexts, context maps) and the map in `docs/development/context-maps/` for the contexts involved. An ordinary contract change with its provider and consumer is not this row. |
 
 ## Domain Specs
 
 Add the spec of each area the task touches:
 
-- Adding, changing, deprecating, or removing an HTTP route, field, status, or error:
+- Adding, changing, deprecating, or removing an HTTP route, query parameter, field, status, or error:
   `api-server/docs/development/api-contracts/README.md`, which defines the workflow. Consuming or
   explaining existing API behavior needs only the contract itself; find it in
   `api-server/docs/development/api-contracts/api-server/outline.md` unless a spec already links it.
@@ -145,9 +146,9 @@ not kept only in the tool's own directory (for example `~/.cursor/plans/`):
 - Location: the root `docs/plans/manuscripts/`, even when the plan concerns one
   component. Never use a component-local plan tree or drop the `plans/` segment.
 - Name: `YYYYMMDD-<short-topic>.md`, in Markdown.
-- One plan per topic: list the file names in `docs/plans/manuscripts/` to find a
-  plan on the same topic, and update that file instead of creating a duplicate.
-  Open only that file.
+- One plan per topic: list the file names in `docs/plans/manuscripts/` (listing
+  names is not reading plans) to find a plan on the same topic, and update that
+  file instead of creating a duplicate. Open only that file.
 - A plan that replaces or retires a mechanism lists, in its completion conditions,
   the documents that restate the mechanism, and adds the retired names to
   `RETIRED_TERMS` in `scripts/check-docs.py`.
@@ -173,7 +174,8 @@ submodule-pointer dance.
 
 ## Skills
 
-Task-specific operating guides live under `skills/`. When a task may benefit from
-one, read `skills/README.md` and follow its lookup workflow before acting.
+Task-specific operating guides live under `skills/`. When the task acts on real
+machines or the development stack, writes a commit, or consolidates plans, read
+`skills/README.md` and follow its lookup workflow before acting.
 Skills never replace this file or the documents it requires; satisfy those
 reading requirements first, then consult the relevant skill.

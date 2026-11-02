@@ -6,8 +6,8 @@
 directory) 依 component 分門別類，直接放在 repository 內，不再使用 git
 submodule。每個 component 目錄就是該 component 的 code entry point。
 
-本文件是這個 repository 的**結構契約 (structure contract)**。每個任務都先讀 Components、Code Lookup Workflow 與
-「Core、Provider Adapter 與擴充模組的位置」三節（root `AGENTS.md` 的 Always Read）。以下情境要讀全文，並在同一個
+本文件是這個 repository 的**結構契約 (structure contract)**。每個任務都先讀 Components 與 Code Lookup Workflow 兩節
+（root `AGENTS.md` 的 Always Read），`api-server` 的工作另讀「Core、Provider Adapter 與擴充模組的位置」。以下情境要讀全文，並在同一個
 變更中更新本檔：
 
 - 新增、移除或重命名 component。
@@ -86,8 +86,9 @@ flowchart LR
 
 1. 先判斷需求涉及哪個 component，例如 `api-server` 或 `dashboard`。
 2. 進入對應頂層目錄。
-3. 回到 root [`AGENTS.md`](../../AGENTS.md) 的任務導引，讀取該 component 的 `AGENTS.md`，
-   再依其 project-local 規範定位實作。
+3. 要改程式時，回到 root [`AGENTS.md`](../../AGENTS.md) 的任務導引，讀取該 component 的 `AGENTS.md`，
+   再依其 project-local 規範定位實作。只讀程式確認細節時，用 [`system-overview.md`](system-overview.md) 的程式地圖或
+   規格的程式位置表直接找，不必讀 component 的導引。
 
 只有在任務本身是 repository 層級（跨 component tooling、`deploy/` 環境編排、`docs/` 共通
 文件）時，才從 root 或這些共用目錄開始。

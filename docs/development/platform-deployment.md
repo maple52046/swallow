@@ -190,7 +190,8 @@ flowchart TB
 ### 2.3 OS 支援：Ubuntu 與 Rocky/RHEL 同一套流程
 
 `configure-k0s` 的 `deploy-kubernetes.yml` 是**單一 OS-conditional 流程**，同時 fulfill Debian
-家族（Ubuntu）與 RHEL 家族（Rocky Linux）host，分支一律以 `ansible_facts['os_family']` 判斷，
+家族（Ubuntu）與 RHEL 家族（Rocky Linux）host，分支一律以 `ansible_facts['os_family']` 判斷（只影響某個版本時，在 `os_family` 條件內再加
+`ansible_facts['distribution_major_version']`），
 Debian 路徑維持不變。RHEL 專屬行為集中在 `k0s_prereq`、`k0s_host_preflight`、`k0s_worker_join`
 （皆 gated on `RedHat`），OS 中立的 kernel 網路前置（modules-load、bridge/forward sysctl）對兩族
 都持久化。
@@ -350,7 +351,7 @@ Platform 的移除分成兩個指令（[decision 010](../decisions/010-cluster-l
 platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-contracts/api-server/platforms.md#delete-a-platform)
 與 [List, Get, Update, And Delete Only The Record](../../api-server/docs/development/api-contracts/api-server/platforms.md#list-get-update-and-delete-only-the-record)。
 
-- **Uninstall** 只適用 swallow 部署的 Platform（`registered` 拒絕）。target set 一律是最新 deploy Operation 的完整
+- **Uninstall** 只適用 swallow 部署的 Platform（`registered` 拒絕）。target set 一律是最新 deploy Workflow 的完整
   `targetServerIds` snapshot，不看 membership（membership 可能過期、未比對，或在失敗部署後正好消失）；任一 target 缺少、
   absent、locked 或 busy 時，核准的 Change Plan 不會開始 uninstall，由 controller 以 `realized` Condition 回報並重試
   （busy 可用 `cancelActiveWorkflows`，§4.8）。保留主機時跑
@@ -365,7 +366,7 @@ platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-co
   platform controller 啟動；uninstall 成功時在清理的最後刪除紀錄，刪除的紀錄與投影與只刪紀錄相同，但不取消 Operation，
   因為正在完成的 uninstall 就是持有 target 的 Workflow。失敗或取消時保留紀錄（`uninstall_failed`）。
   清理把已不存在的紀錄視為成功，所以重試是安全的。從未核准安裝的 Platform 沒有動過任何機器，直接刪除。
-- **只刪紀錄**（`DELETE /platforms/{id}?recordOnly=true`）只移除紀錄與 swallow 擁有的投影：先對該 Platform 未完成的 durable Operation 寫入取消命令（它們在取消
+- **只刪紀錄**（`DELETE /platforms/{id}?recordOnly=true`）只移除紀錄與 swallow 擁有的投影：先對該 Platform 未完成的 Workflow 寫入取消命令（它們在取消
   路徑結束時釋放所有權；寫不進去就拒絕 Delete、保留紀錄），再清 membership、Platform Claim 與 swallow 擁有的 credential Integration，最後刪紀錄。它永不執行
   automation、不改主機、不等 uninstall、不還原 exporter，target locked 時仍可執行。Platform 刪除後，已結束的
   deploy／uninstall Operation 不能再重試。
@@ -484,7 +485,8 @@ client/operator **不可偽造**（operator 只能提供非 `swallow_` 前綴的
 - **每個 run 的 standard vars**（所有 platform 皆有）：`swallow_operation_id`、
   `swallow_operation_kind`、`swallow_site_id`、`swallow_server_ids`、`swallow_platform_id`、
   `swallow_server_hostnames`。
-- **platform 專屬 trusted vars**：由該 platform 的 Go launcher 組裝。k0s 的範例（見
+- **platform 專屬 trusted vars**：由該 platform 的 Go launcher 組裝（過渡期做法，見 §6.1 (B) 與
+  core-and-extensions §3.6）。k0s 的範例（見
   [`deploy_platform.go`](../../api-server/internal/core/platform/application/deploy_platform.go)
   的 `buildDeploymentVars`）：
 
@@ -665,8 +667,10 @@ image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線
   Workflow 自然接管、原 Workflow 留作診斷，全程不需刪 Platform。
 - 取消部署：Workflow 取消進行中（`canceling`）Platform 仍是 `deploying`，結束後為 `deploy_failed`。platform
   controller 把取消當成失敗：同一個 spec generation 不自動重跑，由 operator rerun 或寫入新的 spec。被中斷的
-  playbook 已在主機上做的改變不會回滾（ansible Task 沒有取消補償，workflow-execution.md §8.1），rerun 時由冪等的
-  playbook 從那個狀態收斂；Platform Claim 不因取消而釋放。dashboard 的 Repair 先試單一 Task 重試，
+  playbook 已在主機上做的改變不會回滾（取消補償只在 Task 宣告時執行，ansible Task 沒有宣告；workflow-execution.md
+  §8.1、§12），rerun 時由冪等的
+  playbook 從那個狀態收斂；Platform Claim 不因取消而釋放。一起組入的功能紀錄跟著它們的 Task 轉換：GPU Operator
+  State 與 Software Assignment 變成 `failed`。dashboard 的 Repair 先試單一 Task 重試，
   沒有可重試的 Task 時改走 rerun。
 
 Kubernetes 的 ephemeral（RAM）部署語意見 §2.3.2。

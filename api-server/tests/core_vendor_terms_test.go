@@ -19,7 +19,8 @@ import (
 // (docs/development/core-and-extensions.md §2, §3.6). The import rules keep vendor SDKs out, but a
 // vendor's name, constant, or wire format can still sit in an identifier, a string, or a struct
 // tag. Existing violations are migrating out, so this is a ratchet: each core file's count of
-// vendor terms is recorded in coreVendorTermsBaseline and may only fall. A count that rises fails;
+// vendor terms is recorded in coreVendorTermsBaseline and may only fall (adding a new platform or
+// vendor name is the one exception, core-and-extensions.md §3.6). A count that rises fails;
 // a count that falls also fails until the baseline is rewritten with UPDATE_VENDOR_BASELINE=1, so a
 // removed violation cannot come back unnoticed. Comments are not counted.
 

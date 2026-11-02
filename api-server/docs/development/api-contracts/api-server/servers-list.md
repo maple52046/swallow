@@ -178,7 +178,7 @@ in the later sections (GPU inventory onward) is relative to `status`.
 
 | Field | Meaning |
 | --- | --- |
-| `origin` | How the Server arrived: `discovered` (its provisioner enlisted it, for example PXE enlistment in MAAS), `enrolled` (swallow registered it, [server-enrollment.md](server-enrollment.md)), or `imported` (registered with an OS already installed). Display only; after adoption swallow owns the spec whatever the origin. Ignore an unknown value. |
+| `origin` | How the Server arrived: `discovered` (its provisioner enlisted it, for example PXE enlistment in MAAS), `enrolled` (swallow registered it, [server-enrollment.md](server-enrollment.md)), or `imported` (registered with an OS already installed). Display only; after adoption swallow owns the spec whatever the origin. A client must accept an unknown value; showing it as it is is safe, because no value changes what a client may do. |
 | `generation` | Counts spec changes. A Server's first observation is adopted as its spec (generation `1`) without changing the provisioner. |
 | `spec.tags` | The complete set of manual tags the Server must carry ([server-tags.md](server-tags.md)). |
 | `spec.zoneId`, `spec.poolId` | The Zone and Pool the Server must be in ([infrastructure.md](infrastructure.md#server-placement)); `null` for the provisioner's default group. |

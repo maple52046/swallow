@@ -11,9 +11,14 @@ Before changing dashboard code, or planning or reviewing such a change, read:
    responsibilities, Data Crossing Boundaries, Prohibited Designs, Completion Gate, and the sections for what
    the change touches (React and Presentation, API and Error Boundary, Desired and observed state, Module UI,
    Experimental features, Shared UI and DRY, Accessibility, Testing).
-2. `docs/development/coding-style.md` — TypeScript, React, accessibility, comments, and testing rules.
+2. `docs/development/coding-style.md` — every change reads 核心原則, 檔案與模組, 命名, 註解與 JSDoc, and Agent 執行規則;
+   add TypeScript 規範, React 與 JSX, 元件共用與組合（DRY）, 可存取性, 狀態、資料與副作用, 錯誤處理, or 測試規範
+   (with Visual review) when the change touches that.
 
-Explaining dashboard behavior needs neither unless the answer requires following the code.
+Planning or reviewing a design (no code yet) needs only the architecture spec; coding-style applies when
+code is written or a code diff is reviewed. Explaining dashboard behavior needs neither, even when you
+read code to confirm a detail. Regenerating `src/infrastructure/api/generated/openapi.ts` for an API change is part of
+that API change and needs neither either.
 
 ## Coding Style Completion Gate
 
@@ -105,9 +110,10 @@ treated as expected images.
 ## API Consumption
 
 Dashboard consumes APIs owned by provider components; it owns no API contracts.
-When the contract workflow applies (its README,
-`../api-server/docs/development/api-contracts/README.md`, defines when), use the
-provider's contract as the source of truth and read it before implementing.
+Read the provider's contract for every API the change uses before implementing;
+it is the source of truth. A change that also adds or changes API behavior follows
+the contract workflow in
+`../api-server/docs/development/api-contracts/README.md`.
 
 Dashboard must not infer API behavior from provider implementation details, and
 must not integrate against an endpoint whose contract is only Planned. If a

@@ -290,9 +290,8 @@ desired-state 模型的 reapply（依 spec 重新收斂，[desired-state-model.m
   由 `requestedAt` 最新的 deploy 或 uninstall Workflow 推導，所以 rerun 自然接管 Platform 狀態；原 Workflow 留作
   診斷。全程不需刪除 Platform。
 - Rerun 與 kind 無關：platform deploy、OS 佈署、release 等都用同一個原語。
-- **相關但不同的 lineage**：失敗的 uninstall 重新送出時，新的 uninstall Workflow 同樣以 `retryOfOperationId`
-  指向最近一次 uninstall，但那是新的 uninstall 請求，不是 rerun（見
-  [platforms 契約](../../api-server/docs/development/api-contracts/api-server/platforms.md)）。
+- **uninstall 也用 rerun**：失敗或取消的 uninstall 以 rerun 重跑，期間 Platform 維持 `uninstall_failed`，紀錄保留到
+  uninstall 成功（[platforms 契約](../../api-server/docs/development/api-contracts/api-server/platforms.md)）。
 - **Consumer**：dashboard 的 Platform Repair 先對可重試的 Task 送 Task retry；沒有可重試的 Task 時改呼叫 rerun。
 
 ### 規則與不變式
