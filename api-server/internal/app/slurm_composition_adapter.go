@@ -306,6 +306,7 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 			DependsOn:  []string{installID},
 			Targets:    serverResourceRefs(install.ServerIDs),
 			Parameters: map[string]any{"softwareKind": string(kind), "serverIds": install.ServerIDs},
+			Completion: []workflowdomain.Completion{softwareFailure(kind, install.ServerIDs)},
 		},
 	)
 	plan.installs = append(plan.installs, install)

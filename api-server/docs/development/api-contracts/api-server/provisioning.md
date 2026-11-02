@@ -236,8 +236,9 @@ unsupported `filetype`, a name that duplicates an existing provider image, an In
 not a provisioner, or a provisioner whose adapter does not implement upload is
 `400 validation_error` — the provider's own wording is preserved for a provider-side refusal. An
 unknown integration is `404 not_found`. A provider transport failure or 5xx during upload, or an
-Integration with no credential, is `503 provider_unavailable`. Because the artifact can be large, this
-endpoint is not bounded by the short provider read timeout used for catalog reads.
+Integration with no credential, is `503 provider_unavailable`. A body larger than the installation's
+upload limit (`api.imageUploadMaxBytes`) is `413 payload_too_large`. Because the artifact can be large,
+this endpoint is not bounded by the short provider read timeout used for catalog reads.
 
 ## OS Image Metadata
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -99,6 +100,65 @@ func TestSoftwareWorkflowLabelsItsConfigureJobByDirection(t *testing.T) {
 		}
 		if got != want {
 			t.Errorf("configure-nfs label = %q, want %q", got, want)
+		}
+	}
+}
+
+// An install is failed until its record Task succeeds, so both the install Task and the record Task
+// declare the failure marking; an uninstall declares none, leaving its Assignments uninstalling
+// for a retry.
+func TestSoftwareInstallRecordTaskMarksTheAssignmentFailed(t *testing.T) {
+	launcher := softwareDeploymentLauncher{
+		operations:     workflowapp.NewExecutionService(slurmTestServers{}, ntpTestAutomation{}, slurmTestCatalog{}, testModules(t).workflowKinds, nil, nil, nil),
+		orchestrations: workflowapp.NewWorkflowService(&storetest.Transactor{}, nil, workflowdomain.PlanCatalog{}),
+		modules:        testModules(t).registry,
+	}
+	launch := softwareapp.SoftwareLaunch{Kind: softwaredomain.KindPodman, Label: "Podman", ServerIDs: []string{"s1"}, RequestedBy: "admin"}
+	want := []workflowdomain.Completion{softwareFailure(softwaredomain.KindPodman, []string{"s1"})}
+	for mode, prepare := range map[string]func(context.Context, softwareapp.SoftwareLaunch) (softwareapp.PreparedSoftwareWorkflow, error){
+		"install": launcher.PrepareInstall, "uninstall": launcher.PrepareUninstall,
+	} {
+		prepared, err := prepare(context.Background(), launch)
+		if err != nil {
+			t.Fatalf("prepare %s: %v", mode, err)
+		}
+		for _, task := range prepared.(*preparedSoftwareWorkflow).workflow.Steps {
+			if task.ID != softwareInstallStepID && task.ID != softwareRecordStepID {
+				continue
+			}
+			if mode == "install" && !reflect.DeepEqual(task.Completion, want) {
+				t.Errorf("install %s completion = %v, want %v", task.ID, task.Completion, want)
+			}
+			if mode == "uninstall" && len(task.Completion) != 0 {
+				t.Errorf("uninstall %s completion = %v, want none", task.ID, task.Completion)
+			}
+		}
+	}
+}
+
+// The failure marking applies to every way an install or record Task ends without success,
+// including a Task skipped after an earlier one failed, and never to a running or succeeded one.
+func TestSoftwareFailureCompletionMarksEveryUnfinishedOutcome(t *testing.T) {
+	for status, want := range map[workflowdomain.TaskStatus]softwaredomain.AssignmentState{
+		workflowdomain.TaskFailed:            softwaredomain.StateFailed,
+		workflowdomain.TaskRequiresAttention: softwaredomain.StateFailed,
+		workflowdomain.TaskCanceled:          softwaredomain.StateFailed,
+		workflowdomain.TaskSkipped:           softwaredomain.StateFailed,
+		workflowdomain.TaskRunning:           softwaredomain.StatePending,
+		workflowdomain.TaskSucceeded:         softwaredomain.StatePending,
+	} {
+		assignments := newFakeAssignmentRepo()
+		_ = assignments.Upsert(context.Background(), &softwaredomain.Assignment{ServerID: "s1", Kind: softwaredomain.KindPodman, State: softwaredomain.StatePending})
+		handler := workflowProjections(nil, assignments, nil, nil, nil)[completionSoftwareFailure]
+		completion := softwareFailure(softwaredomain.KindPodman, []string{"s1"})
+		err := handler.Project(context.Background(), workflowapp.TaskTransition{
+			Workflow: &workflowdomain.Workflow{ID: "wf-1"}, Task: workflowdomain.Task{ID: "record-software", Status: status}, Completion: completion,
+		})
+		if err != nil {
+			t.Fatalf("Project(%s) error = %v", status, err)
+		}
+		if got, _ := assignments.FindByServerAndKind(context.Background(), "s1", softwaredomain.KindPodman); got.State != want {
+			t.Errorf("assignment after a %s Task = %s, want %s", status, got.State, want)
 		}
 	}
 }

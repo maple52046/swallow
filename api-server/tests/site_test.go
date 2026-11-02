@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 )
 
 func createSite(t *testing.T, f *platformFixture, name string) string {
@@ -269,6 +271,34 @@ func TestDeleteIntegration_SucceedsWithoutServers(t *testing.T) {
 	resp := doRequest(t, f.app, "DELETE", "/api/v1/integrations/"+testIntegrationID, nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+// A Boot ISO that boots into the Integration, or a Platform that reads through it, keeps it from
+// being deleted; otherwise the records that only describe its provider go with it.
+func TestDeleteIntegration_RefusedWhileDependentsExistAndRemovesRecords(t *testing.T) {
+	for name, tc := range map[string]struct {
+		blocking error
+		want     int
+	}{
+		"boot ISO": {blocking: sitedomain.ErrIntegrationHasBootISOs, want: http.StatusConflict},
+		"platform": {blocking: sitedomain.ErrIntegrationHasPlatforms, want: http.StatusConflict},
+		"free":     {want: http.StatusOK},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := setupPlatform(t)
+			seedProvisionerIntegration(t, f)
+			f.integrationDeps.blocking = tc.blocking
+
+			resp := doRequest(t, f.app, "DELETE", "/api/v1/integrations/"+testIntegrationID, nil, f.adminAuth(t))
+			if resp.StatusCode != tc.want {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, tc.want)
+			}
+			removed := len(f.integrationDeps.removed) == 1 && f.integrationDeps.removed[0] == testIntegrationID
+			if removed != (tc.blocking == nil) {
+				t.Errorf("records removed = %v, want %v", f.integrationDeps.removed, tc.blocking == nil)
+			}
+		})
 	}
 }
 

@@ -113,12 +113,8 @@ func (r *fakeServerRepo) List(_ context.Context, filter serverdomain.ListFilter)
 		if !filter.IncludeAbsent && s.Absent {
 			continue
 		}
-		if filter.Keyword != "" {
-			keyword := strings.ToLower(filter.Keyword)
-			if !strings.Contains(strings.ToLower(s.Observed.Hostname), keyword) &&
-				!strings.Contains(strings.ToLower(s.Observed.FQDN), keyword) {
-				continue
-			}
+		if filter.Keyword != "" && !matchesKeyword(s, filter.Keyword) {
+			continue
 		}
 		all = append(all, s)
 	}
@@ -1702,4 +1698,31 @@ func (r *fakeChangePlanRepo) Transition(_ context.Context, id string, from []con
 		}
 	}
 	return convergence.ErrChangePlanNotFound
+}
+
+// matchesKeyword is the servers-list keyword rule: a case-insensitive literal substring of the
+// hostname, FQDN, an address, the serial number, or the system UUID.
+func matchesKeyword(s *serverdomain.Server, keyword string) bool {
+	keyword = strings.ToLower(keyword)
+	fields := append([]string{s.Observed.Hostname, s.Observed.FQDN, s.Hardware.SerialNumber, s.Hardware.SystemUUID}, s.Observed.Addresses...)
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(field), keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+// fakeIntegrationDependents answers CheckDeletable with blocking and records whose records were
+// removed.
+type fakeIntegrationDependents struct {
+	blocking error
+	removed  []string
+}
+
+func (f *fakeIntegrationDependents) CheckDeletable(context.Context, string) error { return f.blocking }
+
+func (f *fakeIntegrationDependents) RemoveRecords(_ context.Context, integrationID string) error {
+	f.removed = append(f.removed, integrationID)
+	return nil
 }

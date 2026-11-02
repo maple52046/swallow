@@ -125,6 +125,12 @@ func (r *MongoOSImageMetadataRepo) Delete(
 	return err
 }
 
+// DeleteByIntegration removes every metadata record of one Integration.
+func (r *MongoOSImageMetadataRepo) DeleteByIntegration(ctx context.Context, integrationID string) error {
+	_, err := r.col.DeleteMany(ctx, bson.M{"integrationId": integrationID})
+	return err
+}
+
 // toOSImageMetadata maps a stored document onto the domain metadata, keeping bson concerns in
 // this store package.
 func toOSImageMetadata(doc *osImageMetadataDoc) *provisioningdomain.OSImageMetadata {

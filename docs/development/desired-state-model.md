@@ -205,7 +205,9 @@ swallow 還沒有自動化的破壞性變更（移除成員、改變 Node Role�
 Platform 的 controller 在 worker 執行：第一次看到沒有 spec 的 Platform 時，由最近一次部署的紀錄接管（generation 1，
 已 active 的 spec 視為已套用）；讓 present spec 的成員都有 Platform Claim；非破壞性變更以 type 模組指定的 Workflow
 收斂（加入成員是對所有成員重跑可收斂的部署）；核准的 Change Plan 由它 apply；Workflow 成功後把當時那個 generation
-的 spec 記為已套用。同一個 generation 的 Workflow 失敗後不自動重啟，由 user 重跑或寫入新的 spec。成員的
+的 spec 記為已套用。同一個 generation 的 Workflow 失敗後不自動重啟，由 user 重跑或寫入新的 spec；新的 spec
+取代失敗的舊 generation 時，舊 generation 仍停在 `requires_attention` 的 Workflow 會佔著 target，controller 先取消它
+（原因 `Superseded by a newer spec of its Platform.`），等它結束後才啟動新 generation 的 Workflow。成員的
 observed membership 與已套用的 spec 不同時回報 `drifted`。spec 中內嵌的 cloud-init user data 以 credential key 加密
 保存。
 

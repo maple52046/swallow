@@ -27,6 +27,9 @@ const (
 	operationSucceeded = "succeeded"
 	operationFailed    = "failed"
 	operationCanceled  = "canceled"
+	// operationRequiresAttention is a Workflow that stopped on a failed Task and waits for the
+	// user; it still holds its targets.
+	operationRequiresAttention = "requires_attention"
 )
 
 // WorkflowReader is what the platform controller reads of a Workflow.
@@ -37,6 +40,14 @@ type WorkflowReader interface {
 	// WorkflowOutcome is the status of the Platform's Workflow, or of its newest rerun when it was
 	// rerun; "" for a Workflow that is gone.
 	WorkflowOutcome(ctx context.Context, platformID, workflowID string) (string, error)
+}
+
+// WorkflowCanceler cancels a realizing Workflow that a newer spec replaced.
+type WorkflowCanceler interface {
+	// CancelUnfinished asks the Platform's Workflow, or its newest rerun, to cancel when it has not
+	// finished, and reports whether it is still unfinished. A Workflow that is gone or finished is
+	// false, so the caller may start the next one.
+	CancelUnfinished(ctx context.Context, platformID, workflowID string) (bool, error)
 }
 
 // PlatformController converges Platforms to their specs (desired-state-model §5.2). Reconciling one
@@ -50,7 +61,10 @@ type WorkflowReader interface {
 //   - judges realized, and drifted from the members the platform reports.
 //
 // A Platform whose record is gone has its claims released and its waiting plan withdrawn. A failed
-// Workflow is not started again for the same generation: a user reruns it or writes a new spec.
+// Workflow is not started again for the same generation: a user reruns it or writes a new spec. A
+// newer spec supersedes a failed Workflow of an older generation; one that still waits for the user
+// holds its targets, so the controller cancels it and starts the newer generation's Workflow once it
+// ended.
 type PlatformController struct {
 	platforms platformdomain.PlatformRepository
 	specs     platformdomain.PlatformSpecStore
@@ -59,6 +73,7 @@ type PlatformController struct {
 	lifecycle platformdomain.LifecycleReader
 	records   platformdomain.DeploymentRecordReader
 	workflows WorkflowReader
+	canceler  WorkflowCanceler
 	plans     *convergence.ChangePlanService
 	planner   *PlatformPlanner
 	modules   map[platformdomain.PlatformType]platformdomain.PlatformModule
@@ -76,13 +91,14 @@ func NewPlatformController(
 	lifecycle platformdomain.LifecycleReader,
 	records platformdomain.DeploymentRecordReader,
 	workflows WorkflowReader,
+	canceler WorkflowCanceler,
 	plans *convergence.ChangePlanService,
 	planner *PlatformPlanner,
 	modules map[platformdomain.PlatformType]platformdomain.PlatformModule,
 ) *PlatformController {
 	return &PlatformController{
 		platforms: platforms, specs: specs, claims: claims, servers: servers, lifecycle: lifecycle,
-		records: records, workflows: workflows, plans: plans, planner: planner, modules: modules,
+		records: records, workflows: workflows, canceler: canceler, plans: plans, planner: planner, modules: modules,
 		now: func() time.Time { return time.Now().UTC() },
 	}
 }
@@ -194,14 +210,25 @@ func (c *PlatformController) Reconcile(ctx context.Context, request convergence.
 		case operationSucceeded:
 			applied := realizing.Spec.Clone()
 			status.Applied, status.ObservedGeneration, status.Realizing = &applied, realizing.Generation, nil
-		case operationFailed, operationCanceled:
+		case operationFailed, operationCanceled, operationRequiresAttention:
 			failed = true
 		}
 	}
 
+	superseding := false
 	if failed && status.Realizing.Generation < platform.Generation {
-		// A newer spec supersedes the failed Workflow: it is planned against what was applied.
-		status.Realizing, failed = nil, false
+		// A newer spec supersedes the failed Workflow: it is planned against what was applied. A
+		// Workflow still waiting for the user holds the targets the new one needs, so it is canceled
+		// first; its end changes the Workflow, which wakes this Platform again.
+		unfinished, err := c.canceler.CancelUnfinished(ctx, platform.ID, status.Realizing.WorkflowID)
+		if err != nil {
+			return err
+		}
+		if unfinished {
+			superseding = true
+		} else {
+			status.Realizing, failed = nil, false
+		}
 	}
 	if snapshot.State != platformdomain.PlatformLifecycleUninstalled {
 		c.reconcileClaims(ctx, platform.ID, spec, status)
@@ -211,7 +238,7 @@ func (c *PlatformController) Reconcile(ctx context.Context, request convergence.
 		return err
 	}
 	var actErr error
-	if !held && !(failed && status.Realizing.Generation == platform.Generation) {
+	if !held && !superseding && !(failed && status.Realizing.Generation == platform.Generation) {
 		before := status.Realizing
 		actErr = c.act(ctx, module, platform, &status)
 		failed = failed && status.Realizing == before

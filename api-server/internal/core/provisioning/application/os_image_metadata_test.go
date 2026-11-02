@@ -61,6 +61,17 @@ func (r *osImageMetadataRepoFake) Delete(_ context.Context, integrationID, image
 	return nil
 }
 
+func (r *osImageMetadataRepoFake) DeleteByIntegration(_ context.Context, integrationID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key, metadata := range r.metadataRecords {
+		if metadata.IntegrationID == integrationID {
+			delete(r.metadataRecords, key)
+		}
+	}
+	return nil
+}
+
 func (r *osImageMetadataRepoFake) get(integrationID, imageID, architecture string) (*provisioningdomain.OSImageMetadata, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -267,7 +278,7 @@ func TestListOSImagesProjectsVerifiedDeployTargets(t *testing.T) {
 	}
 }
 
-func TestListOSImagesMergesOverlay(t *testing.T) {
+func TestListOSImagesMergesMetadata(t *testing.T) {
 	provider := &osImageBaseProvider{images: []*provisioningdomain.OSImage{
 		{ID: "ubuntu/jammy", Name: "Ubuntu 22.04 LTS", OSSystem: "ubuntu", Release: "jammy", Architecture: "amd64", SizeBytes: 5 * 1024 * 1024 * 1024},
 		{ID: "ubuntu/noble", Name: "Ubuntu 24.04 LTS", OSSystem: "ubuntu", Release: "noble", Architecture: "amd64"},
@@ -333,7 +344,7 @@ func TestListOSImagesMergesOverlay(t *testing.T) {
 	}
 }
 
-func TestListOSImagesReturnsOverlayError(t *testing.T) {
+func TestListOSImagesReturnsMetadataError(t *testing.T) {
 	metadataRecords := newOSImageMetadataRepoFake()
 	metadataRecords.listErr = errors.New("metadata store unavailable")
 	uc := NewListOSImagesUseCase(osImageTestFactory{provider: &osImageBaseProvider{}}, metadataRecords, newOSImageVerificationRepoFake())
@@ -407,7 +418,7 @@ func TestSetOSImageMetadataClearsWhenAllBlank(t *testing.T) {
 	}
 }
 
-func TestClearOSImageMetadataRemovesOverlay(t *testing.T) {
+func TestClearOSImageMetadataRemovesTheRecord(t *testing.T) {
 	metadataRecords := newOSImageMetadataRepoFake()
 	metadataRecords.seed(&provisioningdomain.OSImageMetadata{
 		IntegrationID: "integration-1", ImageID: "ubuntu/jammy", Architecture: "amd64", DisplayName: "Golden Ubuntu",
@@ -467,7 +478,7 @@ func TestSetOSImageMetadataIgnoresRefresherFailure(t *testing.T) {
 	}
 }
 
-func TestDeleteOSImagePrunesOverlay(t *testing.T) {
+func TestDeleteOSImagePrunesMetadata(t *testing.T) {
 	provider := &osImageRemovableProvider{}
 	metadataRecords := newOSImageMetadataRepoFake()
 	metadataRecords.seed(&provisioningdomain.OSImageMetadata{

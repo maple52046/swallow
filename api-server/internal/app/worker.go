@@ -299,7 +299,8 @@ func RunWorker(cfg config.APIConfig) error {
 	// accepts deployments through (desired-state-model §5.2).
 	platformController := platformapp.NewPlatformController(platforms, platforms, servers, servers,
 		platformLifecycleReader{orchestrations: operations}, platformDeploymentRecords{orchestrations: operations},
-		workflowPlatforms{orchestrations: operations}, changePlans, platformOps.planner, modules.platforms)
+		workflowPlatforms{orchestrations: operations}, platformWorkflowCanceler{orchestrations: operations, workflows: workflows},
+		changePlans, platformOps.planner, modules.platforms)
 	controllers := []convergence.Controller{
 		workflowapp.NewDispatcher(operations, engine, executor, cfg.WorkflowResyncInterval),
 		provisioningapp.NewServerController(servers, servers, providers, serverWorkflowHolds{leases: ownership},

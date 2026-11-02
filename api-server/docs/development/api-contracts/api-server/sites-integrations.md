@@ -91,8 +91,12 @@ the credential or `sync`.
 non-empty value (`400 validation_error` otherwise), so a credential can be replaced but not
 cleared.
 
-An Integration cannot be deleted while Servers are projected from it or Deployment Templates
-reference it (`409 conflict`).
+An Integration cannot be deleted while Servers are projected from it, Deployment Templates
+reference it, Boot ISOs were built for it, or a Platform reads its state through it (its reader
+Integration or the credential Integration swallow created for it); each is `409 conflict` with a
+message naming what to delete first. Deleting it also deletes, in the same transaction, the
+records that only describe its provider: the metadata and the verification records of its OS
+Images.
 
 `POST /api/v1/integrations` accepts `kind` of `provisioner` or `metrics` only. `kind=platform`
 is rejected with `400 validation_error`: a `platform`
@@ -130,5 +134,8 @@ has it absent, which means on.
 
 - Since 2026-10-31 a Site name that is empty after trimming is refused on create and on `PATCH`.
   Before, a whitespace-only name was stored as `""` and `PATCH` accepted an empty name.
+- Since 2026-11-03 deleting an Integration is also `409 conflict` while Boot ISOs were built for it
+  or a Platform reads through it, and a successful delete removes its OS Image metadata and
+  verification records; before, those records were left behind.
 - Since 2026-10-31 a duplicate Integration name in one Site is `409 conflict` on create and on
   rename; it was `500 internal_error`.

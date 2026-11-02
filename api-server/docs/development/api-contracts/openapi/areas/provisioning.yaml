@@ -103,6 +103,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '413':
+          description: >-
+            `payload_too_large`: the body is larger than the installation's upload limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           description: >-
             `internal_error`: the provider accepted the artifact but storing its default user

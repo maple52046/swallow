@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -399,11 +400,15 @@ func (r *MongoServerRepo) List(ctx context.Context, filter serverdomain.ListFilt
 		query["absent"] = false
 	}
 	if filter.Keyword != "" {
-		regex := bson.M{"$regex": filter.Keyword, "$options": "i"}
+		// The keyword is a literal substring, never a pattern: escaping it keeps "." from matching
+		// every Server and an unbalanced "(" from failing the query.
+		regex := bson.M{"$regex": regexp.QuoteMeta(filter.Keyword), "$options": "i"}
 		query["$or"] = bson.A{
 			bson.M{"observed.hostname": regex},
 			bson.M{"observed.fqdn": regex},
 			bson.M{"observed.addresses": regex},
+			bson.M{"hardware.serialNumber": regex},
+			bson.M{"hardware.systemUuid": regex},
 		}
 	}
 

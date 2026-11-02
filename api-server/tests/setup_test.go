@@ -79,6 +79,7 @@ type platformFixture struct {
 	platformReader    *fakeReaderFactory
 	kubernetesClient  *fakeKubernetesClientFactory
 	requirementRepo   *fakeDeploymentRequirementRepo
+	integrationDeps   *fakeIntegrationDependents
 }
 
 // setupPlatform wires the routes exactly as internal/app does, so that route shape and
@@ -100,13 +101,14 @@ func setupPlatform(t *testing.T) *platformFixture {
 
 	jwtSvc := jwt.NewService("test-secret", time.Hour)
 
+	integrationDeps := &fakeIntegrationDependents{}
 	siteHandler := sitedelivery.NewSiteHandler(
 		siteapp.NewSiteService(sites, integrations),
 		siteapp.NewIntegrationService(integrations, sites, servers, templates, sitedomain.IntegrationProviders{
 			sitedomain.IntegrationKindProvisioner: {maas.ProviderKind},
 			sitedomain.IntegrationKindMetrics:     {promstack.ProviderKind},
 			sitedomain.IntegrationKindPlatform:    {kubeapi.ProviderKind, slurmapi.ProviderKind},
-		}),
+		}, &storetest.Transactor{}, integrationDeps),
 	)
 	serverHandler := serverdelivery.NewServerHandler(
 		serverapp.NewListServersUseCase(servers, health),
@@ -312,6 +314,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		platformReader:    readerFactory,
 		kubernetesClient:  kubernetesFactory,
 		requirementRepo:   requirementRepo,
+		integrationDeps:   integrationDeps,
 		platformLifecycle: lifecycle,
 		uninstallLauncher: uninstallLauncher,
 	}

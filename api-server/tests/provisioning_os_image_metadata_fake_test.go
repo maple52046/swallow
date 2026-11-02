@@ -53,3 +53,14 @@ func (r *fakeOSImageMetadataRepo) Delete(_ context.Context, integrationID, image
 	delete(r.metadataRecords, fakeOSImageMetadataKey(integrationID, imageID, architecture))
 	return nil
 }
+
+func (r *fakeOSImageMetadataRepo) DeleteByIntegration(_ context.Context, integrationID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key, metadata := range r.metadataRecords {
+		if metadata.IntegrationID == integrationID {
+			delete(r.metadataRecords, key)
+		}
+	}
+	return nil
+}

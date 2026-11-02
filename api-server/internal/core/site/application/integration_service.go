@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
+	"github.com/maple52046/swallow/internal/core/store"
 	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
@@ -29,22 +30,41 @@ type DeploymentTemplateCounter interface {
 }
 
 // IntegrationService registers, updates, and removes a Site's Integrations.
+// IntegrationDependents covers the swallow-owned records that depend on an Integration besides its
+// Servers and Deployment Templates. It is a port so the site context never reads the provisioning
+// or platform models; the app layer implements it.
+type IntegrationDependents interface {
+	// CheckDeletable returns sitedomain.ErrIntegrationHasBootISOs or ErrIntegrationHasPlatforms
+	// when records that must not outlive the Integration still name it, and nil otherwise.
+	CheckDeletable(ctx context.Context, integrationID string) error
+	// RemoveRecords deletes the records that only describe the Integration's provider (its OS
+	// Image metadata and verification records). The caller runs it in the transaction that
+	// deletes the Integration, so either both are gone or neither.
+	RemoveRecords(ctx context.Context, integrationID string) error
+}
+
 type IntegrationService struct {
 	integrations sitedomain.IntegrationRepository
 	sites        sitedomain.SiteRepository
 	servers      ServerCounter
 	templates    DeploymentTemplateCounter
 	providers    sitedomain.IntegrationProviders
+	transactor   store.Transactor
+	dependents   IntegrationDependents
 }
 
 // NewIntegrationService creates the Integration use cases; providers are the provider kinds the
-// installation's adapters and modules offer for each Integration kind.
+// installation's adapters and modules offer for each Integration kind. Every dependency is
+// required: transactor deletes an Integration together with the records that only describe it,
+// and dependents finds and removes them.
 func NewIntegrationService(
 	integrations sitedomain.IntegrationRepository,
 	sites sitedomain.SiteRepository,
 	servers ServerCounter,
 	templates DeploymentTemplateCounter,
 	providers sitedomain.IntegrationProviders,
+	transactor store.Transactor,
+	dependents IntegrationDependents,
 ) *IntegrationService {
 	return &IntegrationService{
 		integrations: integrations,
@@ -52,6 +72,8 @@ func NewIntegrationService(
 		servers:      servers,
 		templates:    templates,
 		providers:    providers,
+		transactor:   transactor,
+		dependents:   dependents,
 	}
 }
 
@@ -229,8 +251,10 @@ func (s *IntegrationService) ReplaceCredential(ctx context.Context, id, credenti
 	return s.integrations.ReplaceCredential(ctx, id, credential)
 }
 
-// Delete refuses while servers are still projected from this integration. Those
-// servers' identities are keyed on it, so removing it would strand them.
+// Delete refuses while servers are still projected from this integration (their identities are
+// keyed on it, so removing it would strand them), while Deployment Templates reference it, and
+// while a Boot ISO or a Platform depends on it. It then deletes the Integration and the records that
+// only describe its provider (OS Image metadata and verifications) in one transaction.
 func (s *IntegrationService) Delete(ctx context.Context, id string) error {
 	if _, err := s.integrations.FindByID(ctx, id); err != nil {
 		return err
@@ -254,8 +278,16 @@ func (s *IntegrationService) Delete(ctx context.Context, id string) error {
 			return sitedomain.ErrIntegrationHasDeploymentTemplates
 		}
 	}
+	if err := s.dependents.CheckDeletable(ctx, id); err != nil {
+		return err
+	}
 
-	return s.integrations.Delete(ctx, id)
+	return s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		if err := s.dependents.RemoveRecords(ctx, id); err != nil {
+			return err
+		}
+		return s.integrations.Delete(ctx, id)
+	})
 }
 
 // hasCredential reports credential presence without exposing the value. A failure to

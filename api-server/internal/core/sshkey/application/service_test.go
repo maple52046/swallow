@@ -643,8 +643,8 @@ func TestEnsureRegistered_GatesOnDeploymentKey(t *testing.T) {
 	}
 
 	f.provisioners.provisioners = append(f.provisioners.provisioners, sshkeydomain.Provisioner{IntegrationID: "plain-1"})
-	if err := f.service.EnsureRegistered(ctx, "plain-1"); err != nil {
-		t.Errorf("EnsureRegistered() on a non-capable provisioner = %v, want nil", err)
+	if err := f.service.EnsureRegistered(ctx, "plain-1"); !errors.Is(err, sshkeydomain.ErrDeploymentKeyNotRegistered) {
+		t.Errorf("EnsureRegistered() on a provisioner that cannot hold keys = %v, want ErrDeploymentKeyNotRegistered", err)
 	}
 	if err := f.service.EnsureRegistered(ctx, "not-a-provisioner"); err != nil {
 		t.Errorf("EnsureRegistered() on an unknown integration = %v, want nil", err)

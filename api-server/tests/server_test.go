@@ -144,7 +144,9 @@ func TestListServers_FiltersAndPagination(t *testing.T) {
 	f.seedServer("srv-2", "gpu-node-02", "10.0.1.11", func(s *serverdomain.Server) {
 		s.Provisioning.State = "ready"
 	})
-	f.seedServer("srv-3", "storage-01", "10.0.1.12", nil)
+	f.seedServer("srv-3", "storage-01", "10.0.1.12", func(s *serverdomain.Server) {
+		s.Hardware.SerialNumber = "SN-STORAGE-01"
+	})
 	auth := f.adminAuth(t)
 
 	resp := doRequest(t, f.app, "GET", "/api/v1/servers/?provisioningState=ready", nil, auth)
@@ -155,6 +157,17 @@ func TestListServers_FiltersAndPagination(t *testing.T) {
 	resp = doRequest(t, f.app, "GET", "/api/v1/servers/?keyword=GPU-NODE", nil, auth)
 	if total := parseBody(t, resp)["total"].(float64); total != 2 {
 		t.Errorf("keyword filter should be case-insensitive: got total=%v", total)
+	}
+
+	// A serial number matches, and a regex metacharacter is an ordinary character: no query
+	// value is refused.
+	resp = doRequest(t, f.app, "GET", "/api/v1/servers/?keyword=sn-storage", nil, auth)
+	if total := parseBody(t, resp)["total"].(float64); total != 1 {
+		t.Errorf("keyword on the serial number: got total=%v", total)
+	}
+	resp = doRequest(t, f.app, "GET", "/api/v1/servers/?keyword=%28", nil, auth)
+	if resp.StatusCode != 200 {
+		t.Errorf("keyword=( status = %d, want 200", resp.StatusCode)
 	}
 
 	resp = doRequest(t, f.app, "GET", "/api/v1/servers/?page=2&pageSize=2", nil, auth)

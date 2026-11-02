@@ -212,12 +212,6 @@ func RunAPI(cfg config.APIConfig) error {
 	apiKeyHandler := apikeydelivery.NewHandler(apiKeyService)
 	authenticator := middleware.NewAuthenticator(jwtSvc, apiKeyService)
 
-	integrationService := siteapp.NewIntegrationService(integrationRepo, siteRepo, serverRepo, templateRepo, integrationProviders())
-	siteHandler := sitedelivery.NewSiteHandler(
-		siteapp.NewSiteService(siteRepo, integrationRepo),
-		integrationService,
-	)
-
 	// The health axis is resolved from the metrics store at query time and never
 	// persisted. With no metrics integration registered the resolver returns nothing,
 	// which reads as "not known" rather than as anything about the machine.
@@ -384,6 +378,16 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("boot ISO repo init: %w", err)
 	}
+	// Deleting an Integration is refused while a Boot ISO or a Platform depends on it, and removes
+	// its OS Image metadata and verification records with it.
+	integrationService := siteapp.NewIntegrationService(integrationRepo, siteRepo, serverRepo, templateRepo, integrationProviders(),
+		transactor, integrationDependents{
+			bootISOs: bootISORepo, platforms: platformRepo, metadata: osImageMetadataRepo, verifications: osImageVerificationRepo,
+		})
+	siteHandler := sitedelivery.NewSiteHandler(
+		siteapp.NewSiteService(siteRepo, integrationRepo),
+		integrationService,
+	)
 	bootISOFiles := genfsimg.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL)
 	bootISOs := newBootISOCatalog(bootISORepo, bootISOFiles, cfg.BootMedia.BaseURL)
 	bootISOHandler := provisioningdelivery.NewBootISOHandler(provisioningapp.NewBootISOService(
@@ -533,17 +537,7 @@ func RunAPI(cfg config.APIConfig) error {
 		// multipart file part to a temp file the handler then streams to the provider.
 		StreamRequestBody: true,
 		BodyLimit:         int(cfg.ImageUploadMaxBytes),
-		ErrorHandler: func(c *fiber.Ctx, err error) error {
-			slog.Error("unhandled HTTP error",
-				"requestId", c.GetRespHeader(fiber.HeaderXRequestID), "error", err)
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": fiber.Map{
-					"code":      "internal_error",
-					"message":   "An unexpected error occurred.",
-					"requestId": c.GetRespHeader(fiber.HeaderXRequestID),
-				},
-			})
-		},
+		ErrorHandler:      httpErrorHandler,
 	})
 	fiberApp.Use(requestid.New())
 	fiberApp.Use(func(c *fiber.Ctx) error {

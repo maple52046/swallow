@@ -582,8 +582,8 @@ paths:
                 $ref: '#/components/schemas/Error'
         '409':
           description: >-
-            `conflict`: Servers are still projected from the Integration, or Deployment Templates
-            still reference it.
+            `conflict`: Servers are still projected from the Integration, Deployment Templates
+            still reference it, Boot ISOs were built for it, or a Platform reads through it.
           content:
             application/json:
               schema:

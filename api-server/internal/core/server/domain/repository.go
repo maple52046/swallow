@@ -11,7 +11,8 @@ type ListFilter struct {
 	IntegrationID string
 	// ProvisioningState filters on the provisioning axis.
 	ProvisioningState string
-	// Keyword is a case-insensitive substring match on hostname, FQDN, or address.
+	// Keyword is a case-insensitive literal substring match on hostname, FQDN, address, serial
+	// number, or system UUID. It is never a pattern, so any value is accepted.
 	Keyword string
 	// IncludeAbsent includes servers whose provisioner stopped reporting them.
 	// Excluded by default: an absent machine is usually not what a caller wants to

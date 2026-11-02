@@ -648,7 +648,7 @@ automation 公鑰，readiness 會直接失敗，而不是讓 ansible step 稍後
 
 **per-host SSH 使用者**：不同 OS image 的預設登入帳號不同（ubuntu image 用 `ubuntu`、swallow 自訂
 image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線帳號為 **per-host 解析**：
-1. 若該 Server 所佈署 OS Image 有 effective **default user**（OS Image overlay 的 `defaultUser`，否則
+1. 若該 Server 所佈署 OS Image 有 effective **default user**（OS Image metadata 的 `defaultUser`，否則
    依 provider OS family 的內建值：`ubuntu`→`ubuntu`、`centos`→`centos`、`rhel`→`cloud-user`），就**只**用它，
    不再探測；它由 reconcile／佈署完成時鏡射到 `Server.provisioning.deployedImageDefaultUser`。
 2. 否則以候選清單 `[站台 sshUser, cloud-user, ubuntu]`（站台值優先、去重）逐一用金鑰嘗試登入，第一個
@@ -682,7 +682,9 @@ image 用 `cloud-user`），但一個 site 只有一個 `sshUser`。因此連線
 - Platform 特有的部分：Platform lifecycle 以 `requestedAt` 最新的 deploy Workflow 為準，rerun 的新
   Workflow 自然接管、原 Workflow 留作診斷，全程不需刪 Platform。
 - 取消部署：Workflow 取消進行中（`canceling`）Platform 仍是 `deploying`，結束後為 `deploy_failed`。platform
-  controller 把取消當成失敗：同一個 spec generation 不自動重跑，由 user rerun 或寫入新的 spec。被中斷的
+  controller 把取消當成失敗：同一個 spec generation 不自動重跑，由 user rerun 或寫入新的 spec。新的 spec 取代
+  失敗的舊 generation 時，仍停在 `requires_attention` 的舊 Workflow（或它最新的 rerun）由 controller 取消，結束後
+  才啟動新 generation 的 Workflow（desired-state-model §5.2）。被中斷的
   playbook 已在主機上做的改變不會回滾（取消補償只在 Task 宣告時執行，ansible Task 沒有宣告；workflow-execution.md
   §8.1、§12），rerun 時由冪等的
   playbook 從那個狀態收斂；Platform Claim 不因取消而釋放。一起組入的功能紀錄跟著它們的 Task 轉換：GPU Operator

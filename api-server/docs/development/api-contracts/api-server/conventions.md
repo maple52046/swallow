@@ -92,11 +92,16 @@ user correlate the failure with server logs. Consumers must treat it as opaque.
 | `forbidden` | 403 | The caller is authenticated but lacks the required role. |
 | `not_found` | 404 | The addressed resource does not exist. |
 | `conflict` | 409 | The request violates a uniqueness or state constraint. |
+| `method_not_allowed` | 405 | The path exists, but not for the request's method. |
+| `payload_too_large` | 413 | The request body exceeds the size the route accepts. |
 | `internal_error` | 500 | An unexpected server-side failure. |
 | `provider_unavailable` | 503 | An upstream integration swallow depends on (e.g. the metrics backend) is not configured or cannot be reached. Distinct from `internal_error` so a client can tell "not wired up / upstream down" from "swallow has a bug". |
 
 Adding a new `error.code` is a contract change: add it here first, then in the
 endpoint contract that returns it.
+
+A path that no route matches is `404 not_found`, and a matched path requested with a method its
+route does not accept is `405 method_not_allowed`; both use this envelope like every other error.
 
 ## Timestamps
 
@@ -159,3 +164,6 @@ scraping rather than for consumers (OpenAPI area `system`):
   come from that module's `module.json` and its catalog; the contract's enum or
   pattern lists them, and the glossary defines the concept rather than the full
   value set.
+- Since 2026-11-03 a path no route matches is `404 not_found` and a wrong method is
+  `405 method_not_allowed`, and an upload over the size limit is `413 payload_too_large`; before,
+  all three were `500 internal_error`.

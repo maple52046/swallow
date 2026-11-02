@@ -166,8 +166,8 @@ OS Image Catalog、OS Image Upload、OS Image Metadata。
 
 - 只有操作者上傳的 custom image 可刪；synced release 會被 provider 立即重新同步，provider 拒絕並以 `400`
   帶回 provider 原文。刪除同樣是可選能力。
-- 刪除成功後一併刪除該 image 的 metadata 與驗證紀錄。刪除 Integration 時不清理驗證紀錄；孤兒紀錄不會再被合併，
-  不影響使用者。
+- 刪除成功後一併刪除該 image 的 metadata 與驗證紀錄。刪除 Integration 時，它的所有 OS Image metadata 與驗證紀錄
+  在同一個 transaction 內一起刪除。
 
 **設計理由**：swallow 可以**驅動** provider 擁有的動作，但不因此擁有 artifact（decision 069）；custom 與否是
 provisioner 的性質，所以由後端決定；在 api-server spool 讓 hash 由 swallow 自己計算並可決定性地分段送出，

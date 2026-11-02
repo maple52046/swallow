@@ -443,6 +443,12 @@ func (s *WorkflowService) Timeline(ctx context.Context, id string) ([]workflowdo
 // runs its own cancel path: compensations, then every unfinished Task and the Workflow canceled
 // with its resources released. A finished Workflow is a control conflict.
 func (s *WorkflowService) Cancel(ctx context.Context, id string) error {
+	return s.CancelFor(ctx, id, workflowdomain.CanceledByOperatorReason)
+}
+
+// CancelFor is Cancel with the reason the Workflow records, for a cancel swallow requests itself
+// (a controller replacing a Workflow) rather than a user. The reason is shown with the Workflow.
+func (s *WorkflowService) CancelFor(ctx context.Context, id, reason string) error {
 	operation, err := s.operations.FindByID(ctx, id)
 	if err != nil {
 		return err
@@ -451,7 +457,7 @@ func (s *WorkflowService) Cancel(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: a finished Operation cannot be canceled", workflowdomain.ErrWorkflowControlConflict)
 	}
 	return s.operations.RequestCancel(ctx, id, workflowdomain.CancelCommand{
-		Reason: workflowdomain.CanceledByOperatorReason, RequestedAt: time.Now().UTC(),
+		Reason: reason, RequestedAt: time.Now().UTC(),
 	})
 }
 

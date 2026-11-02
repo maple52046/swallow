@@ -171,6 +171,8 @@ func (l softwareDeploymentLauncher) prepare(
 			DependsOn:  []string{softwareInstallStepID},
 			Targets:    serverResourceRefs(launch.ServerIDs),
 			Parameters: softwareParams,
+			// A record that never completes (canceled while waiting, or skipped) fails the install too.
+			Completion: installCompletions(mode, launch.Kind, launch.ServerIDs),
 		},
 	}
 
@@ -269,8 +271,9 @@ func (c kubernetesMembershipChecker) IsKubernetesMember(ctx context.Context, ser
 	return platform.Type == platformdomain.PlatformTypeKubernetes, nil
 }
 
-// installCompletions declares the failure marking of an install's Assignments; the record Task owns
-// the success path, and an uninstall failure leaves its Assignments uninstalling for a retry.
+// installCompletions declares the failure marking of an install's Assignments, on both its install
+// and its record Task: the record Task owns the success path, so an install is failed until it
+// succeeds. An uninstall failure leaves its Assignments uninstalling for a retry.
 func installCompletions(mode string, kind softwaredomain.Kind, serverIDs []string) []workflowdomain.Completion {
 	if mode != "install" {
 		return nil

@@ -73,12 +73,12 @@ func (s *Service) Targets(ctx context.Context) ([]string, error) {
 
 // EnsureRegistered realizes every SSH Key in one provisioner Integration and reports whether the
 // Deployment Key is usable for a deployment that provisioner is about to start. It returns nil when
-// the Deployment Key is synced, when the provisioner cannot hold keys (nothing swallow can do; the
-// Server must authorize the key another way), or when the Integration is not a provisioner. It
-// returns ErrDeploymentKeyNotFound when the installation has no Deployment Key (deployment callers
-// check that first; this covers a key removed in between), and otherwise
-// ErrDeploymentKeyNotRegistered with the provider's reason, which callers treat as retryable
-// because the provisioner may recover.
+// the Deployment Key is synced, or when the Integration is not a provisioner. It returns
+// ErrDeploymentKeyNotFound when the installation has no Deployment Key (deployment callers check
+// that first; this covers a key removed in between), and otherwise ErrDeploymentKeyNotRegistered
+// with the reason: the provider's, which callers treat as retryable because the provisioner may
+// recover, or that the provisioner cannot hold keys at all, so a deployed Server would not
+// authorize swallow's automation and the deployment must not go ahead.
 func (s *Service) EnsureRegistered(ctx context.Context, integrationID string) error {
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
@@ -112,7 +112,8 @@ func (s *Service) EnsureRegistered(ctx context.Context, integrationID string) er
 		case ok && realized.Status == convergence.ConditionTrue:
 			return nil
 		case ok && realized.Reason == convergence.ReasonCapabilityMissing:
-			return nil
+			return fmt.Errorf("%w: the provisioner cannot hold SSH Keys, so a deployed Server would not authorize swallow's automation",
+				sshkeydomain.ErrDeploymentKeyNotRegistered)
 		default:
 			return fmt.Errorf("%w: %s", sshkeydomain.ErrDeploymentKeyNotRegistered, realized.Message)
 		}

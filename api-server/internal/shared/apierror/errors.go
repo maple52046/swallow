@@ -17,6 +17,10 @@ const (
 	// that clients can tell "this installation is not wired up / the upstream is
 	// down" apart from "swallow has a bug".
 	CodeProviderUnavailable Code = "provider_unavailable"
+	// CodeMethodNotAllowed means the path exists but does not accept the request's method.
+	CodeMethodNotAllowed Code = "method_not_allowed"
+	// CodePayloadTooLarge means the request body exceeds the size the route accepts.
+	CodePayloadTooLarge Code = "payload_too_large"
 )
 
 // APIError is the client-safe error payload. RequestID correlates the response
@@ -47,6 +51,10 @@ func (e *APIError) HTTPStatus() int {
 		return fiber.StatusConflict
 	case CodeProviderUnavailable:
 		return fiber.StatusServiceUnavailable
+	case CodeMethodNotAllowed:
+		return fiber.StatusMethodNotAllowed
+	case CodePayloadTooLarge:
+		return fiber.StatusRequestEntityTooLarge
 	default:
 		return fiber.StatusInternalServerError
 	}

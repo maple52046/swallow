@@ -10,10 +10,10 @@ import (
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
-// TestOSImageMetadataDocPersistsOverlayKey locks the persisted field names to the ones the
+// TestOSImageMetadataDocPersistsMetadataKey locks the persisted field names to the ones the
 // unique index and the metadata queries rely on. A silent rename here would break the merge
 // and let one image carry two names, so the schema is asserted explicitly rather than trusted.
-func TestOSImageMetadataDocPersistsOverlayKey(t *testing.T) {
+func TestOSImageMetadataDocPersistsMetadataKey(t *testing.T) {
 	doc := osImageMetadataDoc{
 		IntegrationID: "integration-1",
 		ImageID:       "ubuntu/jammy",

@@ -4,12 +4,14 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-// softwareStepTerminalFailure reports whether a Task status means the install cannot proceed, so the
-// assignment should be marked failed. Canceled is included because a canceled install left nothing
-// installed to record.
+// softwareStepTerminalFailure reports whether the status of an install's install or record Task
+// means the install did not complete, so the assignment should be marked failed. Canceled is
+// included because a canceled install left nothing recorded, and skipped because the Task never ran
+// after an earlier Task failed. A record Task that fails after its software was installed is still
+// a failed install: reinstalling converges a host that already has the software.
 func softwareStepTerminalFailure(status workflowdomain.TaskStatus) bool {
 	switch status {
-	case workflowdomain.TaskFailed, workflowdomain.TaskRequiresAttention, workflowdomain.TaskCanceled:
+	case workflowdomain.TaskFailed, workflowdomain.TaskRequiresAttention, workflowdomain.TaskCanceled, workflowdomain.TaskSkipped:
 		return true
 	default:
 		return false

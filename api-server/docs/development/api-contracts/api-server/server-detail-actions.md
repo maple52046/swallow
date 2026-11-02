@@ -67,6 +67,10 @@ user to Unlock it. An unavailable lock read fails closed with
 available. Delete also retains its compatible stale-record behavior when the provider
 explicitly reports that its Machine is already absent.
 
+`power-on` and `power-off` are also `409 conflict` while an unfinished Workflow owns the Server
+(a deployment, an inspection, a Platform deployment): switching power under it would break the
+work. The message names the Workflow; wait for it to finish, or cancel it, and retry.
+
 ## Operator State and Provider Recovery
 
 `mark-broken`, `mark-fixed`, `rescue-mode`, and `exit-rescue-mode` are advanced provider
@@ -742,6 +746,9 @@ not alter the Server projection. These are provider events, not a claim that swa
 owns a complete durable audit trail.
 
 ## Compatibility Notes
+
+On 2026-11-03 `power-on` and `power-off` became `409 conflict` while an unfinished Workflow owns
+the Server; before, they reached the provisioner even during a deployment.
 
 On 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases),
 breaking) the deprecated `POST /servers/{id}/deploy` and `POST /servers/{id}/release` were removed;

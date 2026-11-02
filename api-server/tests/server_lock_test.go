@@ -172,6 +172,31 @@ func TestServerLock_RefusesActiveOperationsAndProvisioningTasks(t *testing.T) {
 		})
 	}
 }
+
+// Power on and off are refused while an unfinished Workflow owns the Server, naming it, and never
+// reach the provider: switching power under a deployment would break it.
+func TestServerPower_RefusesWhileAWorkflowOwnsTheServer(t *testing.T) {
+	for _, path := range []string{"power-on", "power-off"} {
+		t.Run(path, func(t *testing.T) {
+			f := setupPlatform(t)
+			serverID := seedActionableServer(t, f)
+			f.activeWork.work[serverID] = provisioningapp.ActiveServerWork{OperationIDs: []string{"workflow-1"}}
+
+			response := doRequest(t, f.app, http.MethodPost, "/api/v1/servers/"+serverID+"/"+path, nil, f.adminAuth(t))
+			if response.StatusCode != http.StatusConflict {
+				t.Fatalf("%s with active work: got %d, want 409", path, response.StatusCode)
+			}
+			if len(f.provider.actions) != 0 {
+				t.Fatalf("%s with active work reached the provider: %v", path, f.provider.actions)
+			}
+			message := parseBody(t, response)["error"].(map[string]any)["message"].(string)
+			if !strings.Contains(message, "workflow-1") {
+				t.Errorf("message %q does not name the Workflow", message)
+			}
+		})
+	}
+}
+
 func TestServerLock_RequiresAdmin(t *testing.T) {
 	f := setupPlatform(t)
 	serverID := seedActionableServer(t, f)

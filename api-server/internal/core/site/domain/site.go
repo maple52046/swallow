@@ -149,6 +149,12 @@ var (
 	ErrIntegrationHasServers = errors.New("integration still has servers")
 	// ErrIntegrationHasDeploymentTemplates prevents deleting template ownership.
 	ErrIntegrationHasDeploymentTemplates = errors.New("integration still has deployment templates")
+	// ErrIntegrationHasBootISOs prevents deleting a provisioner whose Boot ISOs chain to it: their
+	// files and records would outlive the Integration they boot into.
+	ErrIntegrationHasBootISOs = errors.New("integration still has boot ISOs")
+	// ErrIntegrationHasPlatforms prevents deleting an Integration a Platform reads its live state
+	// through, which would leave the Platform unable to report membership.
+	ErrIntegrationHasPlatforms = errors.New("a platform still reads through this integration")
 	// ErrCredentialNotSet means the integration has no stored credential, which for
 	// most adapters makes it unusable.
 	ErrCredentialNotSet = errors.New("integration has no credential")

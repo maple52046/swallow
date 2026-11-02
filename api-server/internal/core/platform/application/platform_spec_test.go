@@ -235,6 +235,21 @@ func (w recordedWorkflows) WorkflowOutcome(_ context.Context, _, workflowID stri
 	return w.outcomes[workflowID], nil
 }
 
+// recordingCanceler reports the Workflows in unfinished as still running and records each cancel
+// request.
+type recordingCanceler struct {
+	unfinished map[string]bool
+	canceled   []string
+}
+
+func (c *recordingCanceler) CancelUnfinished(_ context.Context, _, workflowID string) (bool, error) {
+	if !c.unfinished[workflowID] {
+		return false, nil
+	}
+	c.canceled = append(c.canceled, workflowID)
+	return true, nil
+}
+
 type specHarness struct {
 	specs      *PlatformSpecService
 	controller *PlatformController
@@ -245,10 +260,12 @@ type specHarness struct {
 	servers    *deployFakeServerRepo
 	lifecycle  *deployFakeLifecycleReader
 	workflows  recordedWorkflows
+	canceler   *recordingCanceler
 }
 
 func newSpecHarness(record *platformdomain.DeploymentRecord) specHarness {
-	servers := append(haServers(), deployedServer("w2", "lab-compute-2", "site-1", "192.168.100.5"))
+	servers := append(haServers(), deployedServer("w2", "lab-compute-2", "site-1", "192.168.100.5"),
+		deployedServer("w3", "lab-compute-3", "site-1", "192.168.100.6"))
 	deploy, launcher, platforms, serverRepo := newClaimingDeployHarness(servers...)
 	launcher.launchIDs = true
 	deploy.platformService.AttachPlatformClaims(serverRepo)
@@ -261,11 +278,12 @@ func newSpecHarness(record *platformdomain.DeploymentRecord) specHarness {
 	plans := convergence.NewChangePlanService(&storetest.Transactor{}, &memoryPlans{}, nil, nil, 0, planner)
 	specs := &memorySpecs{repo: platforms}
 	workflows := recordedWorkflows{outcomes: map[string]string{}}
+	canceler := &recordingCanceler{unfinished: map[string]bool{}}
 	return specHarness{
 		specs:      NewPlatformSpecService(&storetest.Transactor{}, platforms, specs, serverRepo, deploy, deploy.platformService, plans, nil, modules),
-		controller: NewPlatformController(platforms, specs, serverRepo, serverRepo, lifecycle, fixedRecords{record: record}, workflows, plans, planner, modules),
+		controller: NewPlatformController(platforms, specs, serverRepo, serverRepo, lifecycle, fixedRecords{record: record}, workflows, canceler, plans, planner, modules),
 		plans:      plans, launcher: launcher, uninstalls: uninstalls, platforms: platforms, servers: serverRepo, lifecycle: lifecycle,
-		workflows: workflows,
+		workflows: workflows, canceler: canceler,
 	}
 }
 
@@ -591,6 +609,48 @@ func TestControllerDoesNotRestartAFailedWorkflowAndReportsDrift(t *testing.T) {
 	realized, _ := convergence.FindCondition(platform.Status.Conditions, convergence.ConditionRealized)
 	if realized.Reason != convergence.ReasonFailed {
 		t.Errorf("realized = %+v, want failed", realized)
+	}
+}
+
+// A newer spec supersedes a failed realization; one that still waits for the user holds its
+// targets, so the controller cancels it and starts the newer generation only once it ended.
+func TestControllerCancelsASupersededRealizationThatStillWaits(t *testing.T) {
+	h := newSpecHarness(nil)
+	platform := h.installed(t)
+	grown := platform.Spec.Clone()
+	grown.Members = append(grown.Members, platformdomain.PlatformMember{ServerID: "w2", Roles: []string{"worker"}})
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, grown); err != nil {
+		t.Fatalf("UpdateSpec(add w2) error = %v", err)
+	}
+	h.reconcile(t, platform.ID)
+	stuck := platform.Status.Realizing
+	h.lifecycle.snapshots[platform.ID] = platformdomain.LifecycleSnapshot{
+		Origin: platformdomain.PlatformOriginDeployed, State: platformdomain.PlatformLifecycleDeployFailed,
+		Deployment: &platformdomain.LifecycleOperation{ID: stuck.WorkflowID, Status: operationFailed, RequestedAt: stuck.StartedAt},
+	}
+	h.canceler.unfinished[stuck.WorkflowID] = true
+	launches := h.launcher.launches
+
+	newer := grown.Clone()
+	newer.Members = append(newer.Members, platformdomain.PlatformMember{ServerID: "w3", Roles: []string{"worker"}})
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 2, newer); err != nil {
+		t.Fatalf("UpdateSpec(add w3) error = %v", err)
+	}
+	h.reconcile(t, platform.ID)
+	if len(h.canceler.canceled) != 1 || h.canceler.canceled[0] != stuck.WorkflowID {
+		t.Fatalf("canceled = %v, want the superseded %s", h.canceler.canceled, stuck.WorkflowID)
+	}
+	if h.launcher.launches != launches {
+		t.Fatalf("launches = %d, want none while the superseded Workflow holds the targets", h.launcher.launches)
+	}
+
+	h.canceler.unfinished[stuck.WorkflowID] = false
+	h.reconcile(t, platform.ID)
+	if h.launcher.launches != launches+1 {
+		t.Errorf("launches = %d, want the newer generation started once the old Workflow ended", h.launcher.launches)
+	}
+	if platform.Status.Realizing == nil || platform.Status.Realizing.Generation != 3 {
+		t.Errorf("realizing = %+v, want generation 3", platform.Status.Realizing)
 	}
 }
 

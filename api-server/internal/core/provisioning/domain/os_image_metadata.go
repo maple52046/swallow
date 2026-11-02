@@ -117,6 +117,9 @@ type OSImageMetadataRepository interface {
 	// Deleting metadata that does not exist is not an error: the requested end state (no
 	// swallow overrides) is already true.
 	Delete(ctx context.Context, integrationID, imageID, architecture string) error
+	// DeleteByIntegration removes every metadata record of one Integration, so deleting the
+	// Integration leaves none behind. Deleting none is not an error.
+	DeleteByIntegration(ctx context.Context, integrationID string) error
 }
 
 // ErrOSImageMetadataInvalid means a requested OS Image metadata field failed validation — for

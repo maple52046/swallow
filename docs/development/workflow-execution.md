@@ -395,6 +395,9 @@ decision 072。
 - **不帶旗標**：busy check 照常，`409` 訊息點名佔用的 Workflow（id、intent、status）。
 - **繞不過的檢查**：[Platform Claim](glossaries/terms/platform-claim.md) 在取代之前檢查，旗標無法繞過（被 Platform
   佔用的 Server 不能直接 Release，`deployed` 的也不能 Recover）；所有權也從不被略過。
+- **Platform controller**：新的 spec 取代實現失敗的舊 generation 時，controller 對仍未結束（停在
+  `requires_attention`）的那次 realization 寫入取消命令，等它結束後才啟動新的 Workflow，不經 `cancelActiveWorkflows`
+  （[desired-state-model.md](desired-state-model.md) §5.2）。
 - **Platform 的刪除**：帶旗標時 lifecycle 為 `deploying` 的 Platform 也可以 uninstall；對仍在執行的 Workflow 被拒的
   取消由 Platform 的 `realized` Condition 回報。platform 專屬規則見 [platform-deployment.md](platform-deployment.md)
   §4.8 最後一段。

@@ -56,7 +56,8 @@ uninstall 對稱：`prepare-hosts` → `configure-<kind>`（跑 `uninstall-<kind
 `record-software` 的 `clear-software-assignment`（標 `absent`）。
 
 **失敗語意**：install 的 ansible Task 若失敗，`record-software` 不會執行；此時由該 Task 宣告的完成行為依
-它攜帶的 assignment 身分把 Software Assignment 標為 `failed`（見 §4.3）。
+它攜帶的 assignment 身分把 Software Assignment 標為 `failed`。record Task 宣告同一個完成行為，所以 record 被取消、
+失敗或略過時 assignment 也是 `failed`，不會停在 `pending`（見 §4.3）。
 
 **SSH 就緒是驗證式、帳號 per-host 解析**：`prepare-hosts` 的 `wait-for-ssh` 會以 Deployment Key
 （唯一的 automation 金鑰，[decision 039](../decisions/039-ssh-key-management-and-default-user.md)（ssh key management and default user））對每台目標**實際完成 SSH 認證**，不是只探 22 埠；且 SSH 登入帳號為
@@ -248,9 +249,11 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 - `record-software-assignment`（internal）在 install 成功後把 assignment 標 `installed`、更新
   `lastAppliedAt`。
 - `clear-software-assignment`（internal）在 uninstall 成功後把 assignment 標 `absent`。
-- install 的 ansible Task 宣告投影類完成行為 `software-assignment-failure`（參數 `softwareKind`、`serverIds`；
-  完成行為見 [workflow-execution.md](workflow-execution.md) §12）。Task 轉為 `failed`、`requires_attention` 或
-  `canceled` 時，handler 把對應 assignment 標 `failed`。
+- install 的 ansible Task 與 record Task 都宣告投影類完成行為 `software-assignment-failure`（參數 `softwareKind`、
+  `serverIds`；完成行為見 [workflow-execution.md](workflow-execution.md) §12）：record 成功之前，install 都還沒
+  完成。任一個 Task 轉為 `failed`、`requires_attention`、`canceled`，或因前面的 Task 失敗而 `skipped` 時，handler
+  把對應 assignment 標 `failed`。軟體已裝好但 record 沒有完成時也是 `failed`；重新 install 會在主機上收斂（playbook
+  是 ensure），再標 `installed`。uninstall 不宣告這個完成行為：失敗時 assignment 維持 `uninstalling`，等重試。
 
 ### 4.4 Playbook manifest 與命名
 
@@ -372,7 +375,7 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
   Task。組入用的 trusted vars 與驗證由 `SoftwareService.PlanComposedInstall` 產生（同樣的
   catalog／role／spec／互斥／k8s 規則，但不檢查 deployed 與 runtime 狀態，因為由 Job 順序保證）；
   launcher 在寫入 Workflow 的同一個 transaction 中呼叫 `RecordComposedInstall` 寫入 pending assignment
-  （decision 069），寫入失敗會讓整個 deploy 受理失敗；安裝失敗由 install Task 宣告的 `software-assignment-failure` 標 `failed`。
+  （decision 069），寫入失敗會讓整個 deploy 受理失敗；安裝失敗由 install 與 record Task 宣告的 `software-assignment-failure` 標 `failed`。
 - **OS 部署組入 Node Exporter**：deploy-os Workflow 在每台 provision 的 Server 的 `configure-ntp-<serverId>` 之後
   加上 `install-node-exporter-<serverId>`（ansible，跑 `deploy-node-exporter`）與 `record-node-exporter-<serverId>`
   （internal `record-software-assignment`）；Workflow 受理時寫入 pending assignment，安裝失敗由

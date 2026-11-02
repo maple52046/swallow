@@ -4233,7 +4233,7 @@ export interface components {
                  * @description Machine-readable category; the only field a consumer may branch on.
                  * @enum {string}
                  */
-                code: "validation_error" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "internal_error" | "provider_unavailable";
+                code: "validation_error" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "method_not_allowed" | "payload_too_large" | "internal_error" | "provider_unavailable";
                 /** @description Human-readable; must not be parsed. */
                 message: string;
                 /** @description Opaque correlation ID matching the X-Request-ID response header. Always present in a running installation; absent only when no request-ID middleware runs. */
@@ -7945,7 +7945,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: Servers are still projected from the Integration, or Deployment Templates still reference it. */
+            /** @description `conflict`: Servers are still projected from the Integration, Deployment Templates still reference it, Boot ISOs were built for it, or a Platform reads through it. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10116,6 +10116,15 @@ export interface operations {
             403: components["responses"]["Error"];
             /** @description `not_found`: the Integration does not exist. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `payload_too_large`: the body is larger than the installation's upload limit. */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };

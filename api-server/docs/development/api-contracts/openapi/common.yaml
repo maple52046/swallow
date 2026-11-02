@@ -77,6 +77,8 @@ components:
                 - forbidden
                 - not_found
                 - conflict
+                - method_not_allowed
+                - payload_too_large
                 - internal_error
                 - provider_unavailable
             message:

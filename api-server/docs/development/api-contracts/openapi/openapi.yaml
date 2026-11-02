@@ -1060,7 +1060,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`conflict`: Servers are still projected from the Integration, or Deployment Templates still reference it.'
+          description: '`conflict`: Servers are still projected from the Integration, Deployment Templates still reference it, Boot ISOs were built for it, or a Platform reads through it.'
         default:
           $ref: '#/components/responses/Error'
       summary: Delete an Integration nothing depends on.
@@ -3122,6 +3122,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: '`not_found`: the Integration does not exist.'
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`payload_too_large`: the body is larger than the installation''s upload limit.'
         "500":
           content:
             application/json:
@@ -9129,6 +9135,8 @@ components:
                 - forbidden
                 - not_found
                 - conflict
+                - method_not_allowed
+                - payload_too_large
                 - internal_error
                 - provider_unavailable
               type: string

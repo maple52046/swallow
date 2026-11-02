@@ -22,16 +22,29 @@ type MachineActionsUseCase struct {
 	work      ActiveServerWorkReader
 }
 
+// NewMachineActionsUseCase wires the Server actions. Every dependency is required: work tells
+// whether an unfinished Workflow owns a Server, which refuses Lock and the power actions.
 func NewMachineActionsUseCase(
 	servers serverdomain.ServerRepository,
 	providers provisioningdomain.ProviderFactory,
-	work ...ActiveServerWorkReader,
+	work ActiveServerWorkReader,
 ) *MachineActionsUseCase {
-	uc := &MachineActionsUseCase{servers: servers, providers: providers}
-	if len(work) > 0 {
-		uc.work = work[0]
+	return &MachineActionsUseCase{servers: servers, providers: providers, work: work}
+}
+
+// refuseActiveWork is a mutation conflict when an unfinished Workflow owns the Server: changing it
+// underneath that Workflow (powering it off mid-deployment) would break the work the Workflow
+// fences. action names the refused request for the message.
+func (uc *MachineActionsUseCase) refuseActiveWork(ctx context.Context, server *serverdomain.Server, action string) error {
+	work, err := uc.work.ActiveWork(ctx, server.ID)
+	if err != nil {
+		return err
 	}
-	return uc
+	if len(work.OperationIDs) > 0 {
+		return lockConflict(server,
+			"has active Workflow(s) "+strings.Join(work.OperationIDs, ", ")+". Wait for them to finish, or cancel them, before "+action+".")
+	}
+	return nil
 }
 
 // PowerStateItem reports a machine's live power state after a query. Separate from
@@ -81,9 +94,14 @@ func unsupported(action string) error {
 
 // --- power ---
 
+// PowerOn powers the Server on through its provisioner. It is refused while the Server is locked
+// or an unfinished Workflow owns it.
 func (uc *MachineActionsUseCase) PowerOn(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
 	server, provider, err := uc.resolveMutable(ctx, serverID)
 	if err != nil {
+		return nil, err
+	}
+	if err := uc.refuseActiveWork(ctx, server, "powering it on"); err != nil {
 		return nil, err
 	}
 	controller, ok := provider.(provisioningdomain.PowerController)
@@ -97,9 +115,14 @@ func (uc *MachineActionsUseCase) PowerOn(ctx context.Context, serverID string) (
 	return applyProvisioningResult(ctx, uc.servers, server, machine), nil
 }
 
+// PowerOff powers the Server off through its provisioner. It is refused while the Server is locked
+// or an unfinished Workflow owns it.
 func (uc *MachineActionsUseCase) PowerOff(ctx context.Context, serverID string) (*ProvisioningStateItem, error) {
 	server, provider, err := uc.resolveMutable(ctx, serverID)
 	if err != nil {
+		return nil, err
+	}
+	if err := uc.refuseActiveWork(ctx, server, "powering it off"); err != nil {
 		return nil, err
 	}
 	controller, ok := provider.(provisioningdomain.PowerController)
@@ -202,15 +225,8 @@ func (uc *MachineActionsUseCase) Lock(ctx context.Context, serverID string) (*Pr
 		return nil, lockConflict(server,
 			fmt.Sprintf("is %s. Lock is available only when the Server is deployed.", machine.Status))
 	}
-	if uc.work != nil {
-		work, workErr := uc.work.ActiveWork(ctx, server.ID)
-		if workErr != nil {
-			return nil, workErr
-		}
-		if len(work.OperationIDs) > 0 {
-			return nil, lockConflict(server,
-				"has active Operation(s) "+strings.Join(work.OperationIDs, ", ")+". Wait for them to finish before locking it.")
-		}
+	if err := uc.refuseActiveWork(ctx, server, "locking it"); err != nil {
+		return nil, err
 	}
 	updated, err := controller.Lock(ctx, server.Source.ProviderMachineID)
 	if err != nil {

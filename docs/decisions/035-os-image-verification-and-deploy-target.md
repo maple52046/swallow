@@ -30,10 +30,10 @@ verification** attestation.
   deprecated alias. No wire, BSON, durable-snapshot, MAAS, or k0s field is
   renamed.
 - **Verification** is a swallow-owned fact (Swallow ran a real deploy and it
-  worked), not a provider capability. It follows the Provider Data Overlay
-  identity rule ([ADR 071](071-provisioner-realized-desired-state.md)), keyed by
-  `(integrationId, imageId, architecture)`, stored separately from the display
-  overlay, with per-target evidence of the run that produced it.
+  worked), not a provider capability. It is keyed like the OS Image metadata
+  ([ADR 071](071-provisioner-realized-desired-state.md)), by
+  `(integrationId, imageId, architecture)`, stored separately from the metadata,
+  with per-target evidence of the run that produced it.
 - A durable `verify-os-image` Workflow proves an image for a target with a real
   `provision-os` deploy on a user-chosen ready Server, records the outcome,
   and returns the Server. The proving deploy is exempt from the gate below.
@@ -59,8 +59,8 @@ git history).
 - **Rename `ephemeral` everywhere to a deploy-target enum.** Rejected: churns the
   wire, stored deployments, durable snapshots, the MAAS adapter, and the k0s var
   for no behavioural gain; a boundary mapping is enough.
-- **Fold verification into the display overlay row.** Rejected: the overlay
-  deletes itself when it has no overrides, which would silently erase a
+- **Fold verification into the OS Image metadata row.** Rejected: the metadata
+  record deletes itself when it has no overrides, which would silently erase a
   verification; a separate collection keeps the attestation durable.
 - **Gate synced images too.** Rejected: provider-synced images are already
   provider-trusted; gating them adds friction with no safety gain.
@@ -71,7 +71,7 @@ git history).
   action; a verified target is required before a normal custom-image deploy in
   that target, preventing a known-bad image from reaching production.
 - One new swallow-owned collection and one new durable Workflow kind; both follow
-  existing overlay and operation patterns.
+  existing metadata and Workflow patterns.
 - `deployTarget` becomes the vocabulary in new surface while `ephemeral` keeps
   working, so existing clients and platform deploys are unaffected.
 - Verification runs a real deploy: it consumes a ready Server for several minutes.
@@ -81,3 +81,4 @@ git history).
 - 2026-09-21: decided Deploy Target as the deployment-mode vocabulary and that a custom image must pass verification for a target before it deploys.
 - 2026-09-21: [decision 036](036-provisioning-lifecycle-integrity.md) (provisioning lifecycle integrity) made verification a borrow-and-return contract with non-retryable proving failures.
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-03: named the OS Image metadata, which replaced the display overlay in decision 071; the decision is unchanged.

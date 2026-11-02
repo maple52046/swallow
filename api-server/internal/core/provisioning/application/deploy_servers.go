@@ -82,9 +82,9 @@ type DeployServersResult struct {
 //
 // HasDeploymentKey reports whether the installation has a Deployment Key; deployment is refused
 // without one because the deployed Server would not authorize swallow. EnsureRegistered makes the
-// provisioner hold swallow's SSH Keys right before it deploys: nil when the key is registered or
-// the provisioner cannot hold keys, an error when a key-capable provisioner could not be made to
-// hold it.
+// provisioner hold swallow's SSH Keys right before it deploys: nil when the key is registered, an
+// error when the provisioner could not be made to hold it or cannot hold keys at all (a Server it
+// deployed would not authorize swallow).
 type DeploymentKeys interface {
 	HasDeploymentKey(ctx context.Context) (bool, error)
 	EnsureRegistered(ctx context.Context, integrationID string) error

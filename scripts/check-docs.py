@@ -72,6 +72,7 @@ RETIRED_TERMS = {
     "software assignment sweep": (
         "a Workflow that removes a Server's OS, or reconcile, marks its Software Assignments absent"
     ),
+    "OS Image overlay": "the swallow-owned overrides are OS Image metadata (decision 071)",
 }
 # Documents whose purpose is to record the retirement itself: a contract change note or the
 # public compatibility page.
@@ -83,6 +84,9 @@ RETIRED_TERM_RECORDS = {
     ("docs/en/reference/compatibility.md", "/api/v1/clusters"),
     ("docs/zh-TW/reference/compatibility.md", "/api/v1/operations"),
     ("docs/zh-TW/reference/compatibility.md", "/api/v1/clusters"),
+    ("api-server/docs/development/api-contracts/api-server/provisioning.md", "OS Image overlay"),
+    ("docs/development/glossaries/outline.md", "OS Image overlay"),
+    ("docs/development/glossaries/terms/provider-data-overlay.md", "OS Image overlay"),
 }
 
 # Architecture-review tracking codes are defined only in uncommitted plan drafts, so a committed

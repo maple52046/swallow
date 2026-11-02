@@ -182,7 +182,8 @@ state；provider 有能力持有 SSH key 時，SSH Key controller 把每把金�
 
 - provisioner 只在 OS 佈署時注入金鑰：重產 Deployment Key、刪除 Access Key 都不會改變已佈署的 Server。
 - 把金鑰推送到已佈署主機尚未實作；唯一的例外是以 Server Default User 的一次性密碼安裝 Deployment Key（§8.2）。
-- 對沒有能力的 provisioner 以 cloud-init 注入金鑰尚未實作（需要與 user user-data 合併的設計）。
+- provisioner 沒有登錄金鑰的能力時，佈署前的 ensure 以錯誤拒絕佈署，不靜默放行：佈署出來的 Server 不會授權 swallow
+  的 automation。以 cloud-init 注入金鑰作為替代尚未實作（需要與 user 提供的 user-data 合併的設計）。
 
 ### 5.5 設計理由
 
@@ -243,11 +244,11 @@ Site 私鑰 override 只保護兩種主機：decision 039 之前佈署的 Server
   可在上傳時或之後設定（見
   [provisioning](../../api-server/docs/development/api-contracts/api-server/provisioning.md) 契約）。
 - effective 值：metadata 的值；否則依 provider OS family 的內建值（`ubuntu`→`ubuntu`、`centos`→`centos`、
-  `rhel`→`cloud-user`）；否則沒有。內建值只依 provider 自己回報的 OS family 推導，不依 overlay 的顯示名稱，改
+  `rhel`→`cloud-user`）；否則沒有。內建值只依 provider 自己回報的 OS family 推導，不依 metadata 的顯示名稱，改
   image 的顯示 OS 不會改變 automation 的登入帳號。uploaded custom image（OS family `custom`）沒有內建值，需由
   user 設定。
 - effective 值鏡射到每台以該 image 佈署的 Server，成為 `provisioning.deployedImageDefaultUser`（reconcile 時，
-  以及 overlay 變更後盡力立即更新）。即使 Server 有自己的 Server Default User，此欄位仍是 image 的值。
+  以及 metadata 變更後盡力立即更新）。即使 Server 有自己的 Server Default User，此欄位仍是 image 的值。
 
 ### 7.2 Effective Server Default User
 
@@ -259,7 +260,7 @@ Site 私鑰 override 只保護兩種主機：decision 039 之前佈署的 Server
 
 Server projection 以 `defaultUser {user, source}` 回報 effective 值（見
 [servers-list](../../api-server/docs/development/api-contracts/api-server/servers-list.md) 契約）。設定 Server
-Default User 與 OS Image overlay 的帳號名稱共用同一條 POSIX login name 規則。
+Default User 與 OS Image metadata 的 default user 共用同一條 POSIX login name 規則。
 
 ### 7.3 解析與探測
 

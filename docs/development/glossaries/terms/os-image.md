@@ -48,7 +48,7 @@
   artifact. Driving a provider upload does not make swallow the owner of the
   resulting artifact — swallow streams user content to the provider and keeps
   no copy — nor does the caller decide whether it becomes a custom image. The
-  overlay is not a mirror of the artifact and is never written back to the
+  metadata is not a mirror of the artifact and is never written back to the
   provider; it stores only the swallow-owned display overrides, not provider
   catalog data, and never changes what the image deploys.
 - Synonyms: Provisioning image (deprecated UI wording).

@@ -109,6 +109,44 @@ func (w workflowPlatforms) WorkflowOutcome(ctx context.Context, platformID, work
 	return outcome, nil
 }
 
+// supersededBySpecReason is the cancel reason of a realization a newer Platform spec replaced.
+const supersededBySpecReason = "Superseded by a newer spec of its Platform."
+
+// platformWorkflowCanceler implements platformapp.WorkflowCanceler: it follows a Platform's Workflow
+// to its newest rerun, as WorkflowOutcome does, and asks that one to cancel.
+type platformWorkflowCanceler struct {
+	orchestrations workflowdomain.WorkflowRepository
+	workflows      *workflowapp.WorkflowService
+}
+
+// CancelUnfinished requests the cancel and reports true while the Workflow has not finished; a
+// Workflow that is gone, finished, or finishes while the cancel is requested is false.
+func (c platformWorkflowCanceler) CancelUnfinished(ctx context.Context, platformID, workflowID string) (bool, error) {
+	workflows, _, err := c.orchestrations.List(ctx, workflowdomain.WorkflowFilter{PlatformID: platformID, Limit: workflowOutcomeHistory})
+	if err != nil {
+		return false, err
+	}
+	var newest *workflowdomain.Workflow
+	chain := map[string]bool{workflowID: true}
+	// Newest first, so walking backwards meets each Workflow before its reruns.
+	for i := len(workflows) - 1; i >= 0; i-- {
+		if workflow := workflows[i]; workflow.ID == workflowID || chain[workflow.RetryOfOperationID] {
+			chain[workflow.ID] = true
+			newest = workflow
+		}
+	}
+	if newest == nil || newest.Status.Terminal() {
+		return false, nil
+	}
+	if err := c.workflows.CancelFor(ctx, newest.ID, supersededBySpecReason); err != nil {
+		if errors.Is(err, workflowdomain.ErrWorkflowControlConflict) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // PlatformOfWorkflow returns the Workflow's Platform id, "" for a Workflow that is gone.
 func (w workflowPlatforms) PlatformOfWorkflow(ctx context.Context, workflowID string) (string, error) {
 	workflow, err := w.orchestrations.FindByID(ctx, workflowID)

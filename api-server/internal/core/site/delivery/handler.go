@@ -211,6 +211,12 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, sitedomain.ErrIntegrationHasDeploymentTemplates):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"Deployment templates still reference this integration. Delete them first."))
+	case errors.Is(err, sitedomain.ErrIntegrationHasBootISOs):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"Boot ISOs were built for this integration. Delete them first."))
+	case errors.Is(err, sitedomain.ErrIntegrationHasPlatforms):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"A Platform still reads its state through this integration. Delete the Platform first."))
 	case errors.Is(err, application.ErrInvalidSite):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "name is required."))
 	case errors.Is(err, application.ErrInvalidIntegration):
