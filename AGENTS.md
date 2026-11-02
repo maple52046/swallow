@@ -12,7 +12,8 @@ top-level directories.
 
 swallow's core is generic; composed with providers and plugins, it becomes
 out-of-the-box datacenter management. The design principles in the root
-architecture spec state this idea and the principles that follow from it.
+architecture spec state this idea and the principles that follow from it; read
+them for design, review, and placement work (Reading by Task).
 
 This repository is the swallow monorepo. Every component lives in its
 own top-level directory (`api-server/`, `dashboard/`, `cli/`); the repository root also
@@ -42,7 +43,6 @@ update its `docs/zh-TW/` twin too; a component's own public references (for exam
 Before planning, editing, reviewing, or explaining repository work, read:
 
 1. `docs/development/codebase-structure.md` — its Components, Code Lookup Workflow, and core, provider adapter, and module location sections: the components, how each maps to its top-level directory, and where code goes. Read the rest only when the task changes that structure.
-2. The "swallow 的設計主張" section at the top of `docs/development/architecture-spec.md` — the core idea, the current composition of core, providers, and plugins, the principles, and how to trade them off. Read only that section here; the rest of the spec is for changing how components or bounded contexts depend on each other (Reading by Task).
 
 ## Reading by Task
 
@@ -58,6 +58,7 @@ sections for the routes involved. A link that names a section (§4.6) needs only
 
 | Task | Also read |
 | --- | --- |
+| Design a change, review one, or decide between approaches; add or change a managed resource, a module, or a provider adapter; decide where code belongs | The "swallow 的設計主張" section at the top of `docs/development/architecture-spec.md`: the core idea, the current composition, the principles, and how to trade them off. Only that section; the rest of the spec is the last row's. |
 | Fix a defect, wording, or behavior without changing who owns a fact, an API contract, or the data model | The domain spec of the area (an area without one uses its API contract) and the `AGENTS.md` of the component that owns the behavior. For a defect seen on a screen or in a command, find that component first: the contract says what the API must do. |
 | Explain how something works or why | The domain spec of the area and the glossary terms it uses (lookup: `docs/development/glossaries/README.md`); for the whole system (features, processes and their background work, collections and their writers), `docs/development/system-overview.md`. A component's guides only when the answer needs its code. |
 | Add or change a consumer feature (dashboard, cli) over existing API behavior | The API contract; the domain spec when the feature shows domain behavior. |

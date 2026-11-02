@@ -314,7 +314,7 @@ flowchart TB
 
 - 已讀取 root [`AGENTS.md`](../../AGENTS.md)。
 - 已讀取 [`codebase-structure.md`](codebase-structure.md)，並辨識本次工作所屬的 component。
-- 已讀取本文件的設計主張；改變 component 或 bounded context 之間依賴的工作，已讀取全文。
+- 設計、審查或決定程式位置的工作，已讀取本文件的設計主張；改變 component 或 bounded context 之間依賴的工作，已讀取全文。
 - 已辨識本次工作所屬 bounded context。
 - 已依 root `AGENTS.md` 判斷是否需要讀取 glossary、API contract workflow、commit spec 或 component `AGENTS.md`。
 - 工作在 [`desired-state-model.md`](desired-state-model.md) §1 的讀者範圍內時，已讀取它，並為每個新欄位標明 desired、observed 或 derived。
