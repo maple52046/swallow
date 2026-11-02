@@ -119,7 +119,7 @@ flowchart LR
   - [`commit-spec.md`](commit-spec.md) — commit message 規範。
   - [`glossaries/`](glossaries) — 跨 component 共通的 domain glossary，定義 swallow 的 ubiquitous language。
   - [`context-maps/`](context-maps) — 跨 context 的 context map：[`automation-execution.md`](context-maps/automation-execution.md)、[`os-provisioning.md`](context-maps/os-provisioning.md)；需要時新增。
-- [`docs/decisions/`](../decisions) — 輕量 ADR，只記錄「為什麼」並在 Accepted 後凍結；現行行為寫在上列規格。
+- [`docs/decisions/`](../decisions) — 輕量 ADR，記錄現行的決議與「為什麼」；決議改變時更新，修訂紀錄在每份的最後；現行行為寫在上列規格。
 - `docs/plans/` — 歷史計畫紀錄；`docs/plans/manuscripts/` 為進行中的計畫草稿。
 
 每個類別目錄內的文件應遵循相同風格：採結構化段落，描述 swallow 範圍內的共識，不描述某個

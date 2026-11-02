@@ -20,6 +20,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 - 引入、更換或否決重大的技術依賴或 runtime 拓撲（例如 [016](016-temporal-operation-orchestration.md)、
   [040](040-single-vm-production-installation.md)）。
 
+決議改變時更新原本那份 ADR（見下方「ADR 的更新」），不另開一份去取代它；只有新的問題才新增 ADR。
 單一功能的設計——包括它的參數、流程與否決過的方案——寫在 `docs/development/` 對應規格的「設計理由」，
 不寫 ADR。判斷不了時這樣想：三個月後做另一個功能的人也必須遵守它，就是 ADR；只有修改這個功能的人
 需要知道，就屬於規格。只影響單一 component 內部實作的決策，留在該 component 的文件。
@@ -34,15 +35,24 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 
 ## ADR 與規格的分工
 
-- ADR 回答「為什麼」：背景、決定、否決的方案與取捨。Accepted 後凍結，不追加 amendment、Revision
-  或實作狀態。
-- 「現在怎麼運作」寫在規格（`docs/development/` 的設計文件、glossary、API 契約）。行為改變只更新規格。
-- 決策本身被推翻或改變時，新增一份 ADR，在下方索引的「關係」欄寫明它 refine 或 supersede 哪一份，
-  並把舊 ADR 的 Status 改為 `Superseded by NNN` 或 `Refined by NNN`。這與更新「現行規格」連結，
-  是 Accepted ADR 唯一允許的修改。
-- 2026-10-30 起，原本兼作規格的功能型 ADR 已縮減為決策核心，細節移入規格，原文保留在 git 歷史；
-  ADR 編號不變，程式碼與文件中的「decision NNN」引用仍然有效。在此之前建立的修訂關係記錄在索引的
-  「關係」欄。
+- ADR 回答「為什麼」：背景、現行的決議、否決的方案與取捨。正文永遠描述現行的決議。
+- 「現在怎麼運作」寫在規格（`docs/development/` 的設計文件、glossary、API 契約）。行為改變只更新規格；
+  決議本身改變時才更新 ADR。
+
+## ADR 的更新
+
+- 同一個問題只有一份 ADR。決議改變時改寫那份 ADR 的正文，讓它描述新的決議，並在最後的修訂紀錄加一行。
+- 修訂紀錄是 ADR 的最後一節（英文 ADR 用 `## Revision history`，中文 ADR 用 `## 修訂紀錄`），每次修訂一行，
+  只增加、不刪除：
+
+  ```md
+  - 2026-11-02（commit abc1234）：一句話說明改了什麼、為什麼。
+  ```
+
+  commit 是實作或觸發這次修訂的 commit；ADR 與實作在同一個 commit 時無法事先知道 hash，就只寫日期。不寫成
+  段落，細節留在 git 歷史。
+- 讀 ADR 時讀 Context 與 Decision，需要時再讀 Alternatives considered 與 Consequences；除非任務與決議的演變有關，
+  不讀修訂紀錄。
 
 ## 格式
 
@@ -51,8 +61,8 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 ```md
 # NNN. 標題
 
-- Status: Proposed | Accepted | Superseded by NNN | Refined by NNN | Deprecated
-- Date: YYYY-MM-DD
+- Status: Proposed | Accepted | Deprecated
+- Date: YYYY-MM-DD（第一次 Accepted 的日期）
 - 現行規格：`docs/development/<spec>.md` §<章節>（若決策的現行行為由規格描述）
 
 ## Context
@@ -66,6 +76,9 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 
 ## Consequences
 （決策帶來的好處與代價）
+
+## Revision history
+- YYYY-MM-DD（commit abc1234）：一句話說明改了什麼。
 ```
 
 > **重要**：不要為了補 ADR 而 **杜撰歷史理由**。若理由是由現有程式碼 / plan **推論** 而來、

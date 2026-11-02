@@ -317,7 +317,7 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 | 第二階段 | 在一個安裝上管理模組生命週期：單獨啟用、停用或更新某個模組（不必升級 swallow）、core 與模組版本的相容檢查、模組的離線更新包。更新只涵蓋資料與 host automation 內容，Go hook 的變更仍需要升級 swallow | 客戶需要的模組組合或更新節奏和 swallow 的 release 不同 |
 | 第三階段 | 模組由本專案以外的人獨立擁有：簽章與信任、套件不得附帶 Go hook、獨立 process 的 hook（webhook 或 gRPC） | 有本專案以外的人需要獨立於 swallow 的 release，自行開發並發佈模組 |
 
-進入下一階段前，要先依本文件更新設計，並視需要寫新的 ADR。
+進入下一階段前，要先依本文件更新設計，並視需要更新 decision 070（模組的演進階段）。
 
 ## 11. 檢查清單
 

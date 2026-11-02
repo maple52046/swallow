@@ -140,8 +140,11 @@ authoritative for layering, data flow, and implementation constraints.
 Read an ADR when you need to know *why* a boundary or interaction looks the way it
 does. Add one only when the decision meets the threshold in
 `docs/decisions/README.md` (何時新增 ADR); a single feature's design, including the
-alternatives it rejected, belongs in its spec instead. Never fabricate a historical
-rationale.
+alternatives it rejected, belongs in its spec instead. When a decision changes, update its
+ADR (the body states the current decision; a one-line entry is appended to the revision history
+at the end) rather than adding one that supersedes it. Read an ADR's Context and Decision, and
+skip its revision history unless the task is about how the decision evolved. Never fabricate a
+historical rationale.
 
 ## Plans
 
