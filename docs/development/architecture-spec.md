@@ -137,7 +137,7 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
 
 ## Glossary Workflow
 
-任何涉及 implementation planning、code changes、implementation review、domain behavior、data models、cross-component integration 或 core flows 的工作，都必須依 [`docs/development/glossaries/README.md`](glossaries/README.md) 處理 glossary。
+建立、改名或改變 domain term、型別、enum 值或 API 欄位的工作，依 [`docs/development/glossaries/README.md`](glossaries/README.md) 處理 glossary；只需要理解既有用語時，依同一份 README 的查詢流程只讀相關的 term。何時讀取見 root [`AGENTS.md`](../../AGENTS.md) 的 Reading by Task。
 
 Root architecture spec 不重複定義 glossary lookup 或 authoring steps；詳細閱讀與修改流程以 glossary README 與 glossary spec 為準。
 
@@ -145,7 +145,7 @@ Root architecture spec 不重複定義 glossary lookup 或 authoring steps；詳
 
 ## API Contract Workflow
 
-任何建立、修改、消費或驗證 API 的工作，都必須依 [`docs/development/api-contracts.md`](api-contracts.md) 處理 API contract，再進行實作或整合。
+API contract workflow 何時適用，由 [`api-server/docs/development/api-contracts/README.md`](../../api-server/docs/development/api-contracts/README.md) 定義；適用時先依它處理 API contract，再進行實作或整合。所有權規則見 [`api-contracts.md`](api-contracts.md)。
 
 API contract 是跨 bounded contexts 的 published language 與 shared boundary。Glossary 定義語言與 model；API contract 定義 provider 與 consumer 之間可依賴的路由、欄位、狀態碼、錯誤格式、認證授權與行為語意。
 
@@ -313,11 +313,11 @@ flowchart TB
 
 - 已讀取 root [`AGENTS.md`](../../AGENTS.md)。
 - 已讀取 [`codebase-structure.md`](codebase-structure.md)，並辨識本次工作所屬的 component。
-- 已讀取本文件。
+- 已讀取本文件的設計主張；跨 component 或跨 bounded context 的工作，已讀取全文。
 - 已辨識本次工作所屬 bounded context。
 - 已依 root `AGENTS.md` 判斷是否需要讀取 glossary、API contract workflow、commit spec 或 component `AGENTS.md`。
-- 涉及受管資源、欄位或改變外部世界的動作時，已讀取 [`desired-state-model.md`](desired-state-model.md)，並為每個新欄位標明 desired、observed 或 derived。
-- 涉及外部系統、平台、GPU 廠商或 Managed Software 時，已讀取 [`core-and-extensions.md`](core-and-extensions.md)，並確認新程式碼屬於 core、哪一個 provider adapter，還是哪一種擴充模組。
+- 工作在 [`desired-state-model.md`](desired-state-model.md) §1 的讀者範圍內時，已讀取它，並為每個新欄位標明 desired、observed 或 derived。
+- 工作在 [`core-and-extensions.md`](core-and-extensions.md) §1 的讀者範圍內時，已讀取它，並確認新程式碼屬於 core、哪一個 provider adapter，還是哪一種擴充模組。
 - 已確認是否需要更新 context map、API contract、資料模型或測試策略。
 
 ## Agent 執行規則
@@ -325,7 +325,7 @@ flowchart TB
 AI agent 執行任務時必須遵守：
 
 - 符合 glossary workflow 條件時，不得跳過 [`docs/development/glossaries/README.md`](glossaries/README.md)。
-- 符合 API contract workflow 條件時，不得跳過 [`docs/development/api-contracts.md`](api-contracts.md)。
+- 符合 API contract workflow 條件時，不得跳過 [`api-server/docs/development/api-contracts/README.md`](../../api-server/docs/development/api-contracts/README.md)。
 - 不得在未確認 bounded context 前創造新的 domain term、type、API、event 或資料欄位。
 - 若發現 glossary 缺漏或衝突，必須先更新 glossary 或詢問使用者，不得直接猜測。
 - 不得創造未文件化的 API route、request field、response field、status code、error format、auth/authz 規則或行為語意。

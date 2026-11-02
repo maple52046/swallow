@@ -18,8 +18,8 @@ When starting a task:
 1. Read `AGENTS.md` from the repository root.
 2. Follow the document-reading workflow defined in `AGENTS.md`.
 3. Read the required project documents before editing code.
-4. Do not skip architecture, codebase-structure, glossary, API contract, data model, or coding-style documents when the task scope requires them.
-5. When the task touches a component directory (`api-server/`, `dashboard/`), also read that component's own `AGENTS.md` and follow it.
+4. Do not skip a document that `AGENTS.md` requires for the task (its Reading by Task table and domain specs).
+5. When the task touches a component directory (`api-server/`, `dashboard/`, `cli/`), also read that component's own `AGENTS.md` and follow it.
 6. If `AGENTS.md` does not exist, stop and report that the project entry guide is missing.
 
 ## Important
@@ -28,4 +28,4 @@ The project rules are not defined in this Cursor rule.
 
 This Cursor rule only requires you to start from `AGENTS.md`.
 
-The actual source of truth for development rules, architecture rules, domain glossary, API contracts, and data models is defined by the project documentation referenced from `AGENTS.md`.
+The actual source of truth for development rules, architecture rules, the domain glossary, and API contracts is the project documentation referenced from `AGENTS.md`.

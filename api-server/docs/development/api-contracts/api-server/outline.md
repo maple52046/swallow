@@ -1,8 +1,7 @@
 # API Server Contract Outline
 
 This file indexes the API contracts owned by the `api-server` component. Read it
-after [../README.md](../README.md) and [../outline.md](../outline.md), then open
-only the contract you need.
+after [../README.md](../README.md), then open only the contract you need.
 
 Only **Active** contracts are implementation-ready. A **Planned** entry means the
 API area is expected but has no authoritative contract yet: create or promote the
@@ -17,8 +16,9 @@ contract before implementing or integrating against it.
 
 ## HTTP REST API
 
-Consumers: `dashboard` and the `cli` operator client (`../../../../../cli/`). Both are
-conformist HTTP consumers of this surface; neither owns any contract here.
+Possible consumers: `dashboard`, the `cli` operator client (`../../../../../cli/`),
+and external integrators; neither component owns a contract here. Each contract
+lists the components that call it today.
 
 | Contract | Status | Endpoint | Purpose |
 | --- | --- | --- | --- |
@@ -31,21 +31,21 @@ conformist HTTP consumers of this surface; neither owns any contract here.
 | [change-plans.md](change-plans.md) | Active | `/api/v1/change-plans` | Read, approve, and reject the Change Plans of destructive changes; the resource's controller applies an approved plan as a Workflow (decision 076). |
 | [overview.md](overview.md) | Active | `GET /api/v1/overview` | Site-scoped inventory, compute-GPU capacity, integration, platform, operation, and monitoring summary. |
 | [sites-integrations.md](sites-integrations.md) | Active | `/api/v1/sites`, `/api/v1/integrations` | Manage Sites and their write-only provider integrations. |
-| [servers-list.md](servers-list.md) | Active | `GET /api/v1/servers` | List complete Server projections with filtering, pagination, compute/display GPU Inventory, swallow-defined `provisioning.state` values, and the swallow-owned `platformClaim`. |
+| [servers-list.md](servers-list.md) | Active | `GET /api/v1/servers` | List complete Server projections with filtering, pagination, compute/display GPU Inventory, swallow-defined `provisioning.state` values, and the `platformClaim`. |
 | [servers-stream.md](servers-stream.md) | Active | `GET /api/v1/servers/stream` | Live Server projection changes as Server-Sent Events, so the list is patched per row instead of re-read. |
-| [server-detail-actions.md](server-detail-actions.md) | Active | `/api/v1/servers/{id}`, `/boot-media/ipxe/{isoId}/swallow-ipxe.iso` | Read a Server, allowlisted live BMC connection detail, provider-backed actions (power, hardware inspection and tests, operator state), read and write its provisioner-owned Power Configuration (driver families `bmc` and `virsh`, password write-only), set or clear its Server Default User (optionally installing the Deployment Key with a one-time password), and Boot Media (Redfish for a BMC, libvirt for a VM on a swallow hypervisor): probe, enable with a chosen Boot ISO (preflight) or disable, and the unauthenticated Boot ISO file. |
+| [server-detail-actions.md](server-detail-actions.md) | Active | `/api/v1/servers/{id}`, `/boot-media/ipxe/{isoId}/swallow-ipxe.iso` | Read a Server, allowlisted live BMC connection detail, provider-backed actions (power, hardware inspection and tests, operator state), read and write its Power Configuration (driver families `bmc` and `virsh`, password write-only), set or clear its Server Default User (optionally installing the Deployment Key with a one-time password), and Boot Media (Redfish for a BMC, libvirt for a VM on a swallow hypervisor): probe, enable with a chosen Boot ISO (preflight) or disable, and the unauthenticated Boot ISO file. |
 | [server-enrollment.md](server-enrollment.md) | Active | `/api/v1/provisioning/integrations/{id}/enroll-bundle`, `/api/v1/provisioning/virtual-machine-enrollments`, `/api/v1/servers/{id}/virtual-machines`, `/downloads/swallow-enroll.sh`, `/downloads/swallow` | Server Enrollment: automatic and manual `inspect-hardware` Workflows (wait for the provider's enrollment — stopping for a missing Power Configuration — Boot Media, bounded commission attempts); libvirt virtual machines enrolled by domain name on a swallow hypervisor (`enroll-virtual-machines` Workflow); and the one-line command, unauthenticated script, and CLI download a host uses to enroll with its OS kept. |
-| [provisioner-http-proxy.md](provisioner-http-proxy.md) | Active | `GET/PUT /api/v1/provisioning/integrations/{id}/http-proxy` | Read and write a provisioner Integration's provider-owned HTTP proxy for deployed machines (mode `none`/`builtin`/`external`/`peer` plus URL), live and written through, never stored. |
-| [provisioner-subnet-dns.md](provisioner-subnet-dns.md) | Active | `GET /api/v1/provisioning/integrations/{id}/subnets`, `PUT .../subnets/{subnetId}/dns-servers` | List a provisioner Integration's subnets (with whether the provisioner serves their DHCP) and read and write each subnet's provider-owned DNS servers for `automatic`/`static` deployments, live and written through, never stored. |
-| [boot-isos.md](boot-isos.md) | Active | `/api/v1/provisioning/boot-isos`, `/boot-media/ipxe/{id}/swallow-ipxe.iso` | Build, rebuild in place, list, and delete swallow-built iPXE Boot ISOs (one provisioner Integration each, booting through its MAAS rack: iPXE to `ipxe.cfg` on BIOS, the ISO's own GRUB to MAAS's per-MAC GRUB configuration on UEFI) that a Server's Boot Media mounts. |
-| [provisioning.md](provisioning.md) | Active | `/api/v1/provisioning` | List, upload, and delete provider-owned OS Images, manage Deployment Templates, and submit multi-Server OS Deployments with `automatic`, `dhcp`, or `static` network intent; Release and Recover refuse a Platform-claimed Server. |
-| [infrastructure.md](infrastructure.md) | Active | `/api/v1/infrastructure`, `PUT /api/v1/servers/{id}/placement` | Manage swallow-owned Zones and Pools and assign a Server to them, realized in the provisioner when grouping-capable. |
-| [server-tags.md](server-tags.md) | Active | `GET/POST /api/v1/provisioning/tags` | List a Site's known tags and edit Server tags (single or batch, tri-state), driving the provisioner when it owns tags and swallow-owned otherwise. |
+| [provisioner-http-proxy.md](provisioner-http-proxy.md) | Active | `GET/PUT /api/v1/provisioning/integrations/{id}/http-proxy` | Read and set a provisioner Integration's HTTP proxy for deployed machines (mode `none`/`builtin`/`external`/`peer` plus URL). |
+| [provisioner-subnet-dns.md](provisioner-subnet-dns.md) | Active | `GET /api/v1/provisioning/integrations/{id}/subnets`, `PUT .../subnets/{subnetId}/dns-servers` | List a provisioner Integration's subnets (with whether the provisioner serves their DHCP) and read and set each subnet's DNS servers for `automatic`/`static` deployments. |
+| [boot-isos.md](boot-isos.md) | Active | `/api/v1/provisioning/boot-isos`, `/boot-media/ipxe/{id}/swallow-ipxe.iso` | Build, rebuild in place, list, and delete iPXE Boot ISOs (one provisioner Integration each, booting through its MAAS rack: iPXE to `ipxe.cfg` on BIOS, the ISO's own GRUB to MAAS's per-MAC GRUB configuration on UEFI) that a Server's Boot Media mounts. |
+| [provisioning.md](provisioning.md) | Active | `/api/v1/provisioning` | List, upload, and delete OS Images, manage Deployment Templates, and submit multi-Server OS Deployments with `automatic`, `dhcp`, or `static` network intent; Release and Recover refuse a Platform-claimed Server. |
+| [infrastructure.md](infrastructure.md) | Active | `/api/v1/infrastructure`, `PUT /api/v1/servers/{id}/placement` | Manage Zones and Pools and assign a Server to them. |
+| [server-tags.md](server-tags.md) | Active | `GET/POST /api/v1/provisioning/tags` | List a Site's known tags and edit Server tags (single or batch, tri-state). |
 | [site-automation.md](site-automation.md) | Active | `GET/PUT /api/v1/sites/{id}/automation`, `PUT /api/v1/sites/{id}/automation/credential` | Configure embedded Ansible execution and its optional write-only become password; every Site logs in with the installation Deployment Key. |
 | [ssh-keys.md](ssh-keys.md) | Active | `/api/v1/ssh-keys` | Manage the system Deployment Key and the caller's public-key-only Access Keys, realized into key-capable provisioners. |
-| [workflows.md](workflows.md) | Active | `/api/v1/workflows` | Create, observe, and retry Swallow-owned Workflows (DAG of Tasks), with timeline, logs, and per-Task events. |
-| [platforms.md](platforms.md) | Active | `/api/v1/platforms` | Deploy Kubernetes and Slurm Platforms, manage Slurm deployment requirements, lifecycle, uninstall/delete, Monitoring Links to the runtime's own monitoring UI, and observed state (self-deployed only). |
-| [software.md](software.md) | Active | `/api/v1/software` | Install and uninstall single host software (Docker CE, Podman, NFS, Prometheus, Grafana, the AMD Device Metrics Exporter) on deployed Servers, and read swallow-owned Software Assignment records. |
+| [workflows.md](workflows.md) | Active | `/api/v1/workflows` | Create, list, observe, retry, rerun, and cancel Workflows (Jobs and Tasks), with timeline, logs, and per-Task events. |
+| [platforms.md](platforms.md) | Active | `/api/v1/platforms` | Create, change, and delete Kubernetes and Slurm Platforms by their spec (destructive changes through Change Plans), read their status and membership, manage the Slurm deployment requirement and Monitoring Links. |
+| [software.md](software.md) | Active | `/api/v1/software` | List the Managed Software catalog, install and uninstall a kind on deployed Servers, and read Software Assignments. |
 | [platforms-kubernetes.md](platforms-kubernetes.md) | Active | `/api/v1/platforms/{id}/kubernetes` | Live in-cluster explorer for a deployed Kubernetes Platform: namespaces, applications, pods/logs, subsidiary resources, YAML apply, and node cordon. |
 | [registry-credentials.md](registry-credentials.md) | Active | `/api/v1/software/docker-ce/registry-credentials` | Manage the sealed, installation-wide Registry Credentials the Docker Host Explorer attaches to private image pulls (password write-only). |
 | [servers-docker.md](servers-docker.md) | Active | `/api/v1/servers/{id}/docker` | Live Docker Host Explorer for a Server where swallow installed Docker CE with `enableApi`: images (pull/remove), containers (create/start/stop/restart/logs/remove), volumes, and networks; nothing persisted. |
@@ -95,5 +95,5 @@ this list.
 
 - Update this file whenever a contract owned by `api-server` is added, changed,
   deprecated, deleted, renamed, promoted from Planned to Active, or moved.
-- Update [../outline.md](../outline.md) only when the set of API-owning
-  components changes.
+- Keep each summary to what the contract is for; ownership and behavior live in
+  the contract itself.

@@ -97,9 +97,9 @@ treated as expected images.
 ## API Consumption
 
 Dashboard consumes APIs owned by provider components; it owns no API contracts.
-When the task creates, modifies, consumes, or validates backend integration, use
-the provider component's API contract as the source of truth, and read it before
-implementing.
+When the contract workflow applies (its README,
+`../api-server/docs/development/api-contracts/README.md`, defines when), use the
+provider's contract as the source of truth and read it before implementing.
 
 Dashboard must not infer API behavior from provider implementation details, and
 must not integrate against an endpoint whose contract is only Planned. If a

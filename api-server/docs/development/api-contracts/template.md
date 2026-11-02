@@ -10,6 +10,9 @@ Draft / Active / Deprecated
 
 ## Consumer Components
 
+List the components that call this API today (see the contract README); not every
+component that could.
+
 - `{consumer-component}`
 
 ## Purpose

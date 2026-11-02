@@ -100,20 +100,20 @@ flowchart LR
 - [`docs/development/`](.) — swallow 層級的開發規範：
   - [`architecture-spec.md`](architecture-spec.md) — swallow 的設計主張（通用的 core 組合 provider 與 plugin、原則與取捨順序）與 Strategic DDD architecture constitution。
   - [`codebase-structure.md`](codebase-structure.md) — 本檔，結構契約。
-  - [`api-contracts.md`](api-contracts.md) — API contract 的 provider-first discovery workflow。
+  - [`api-contracts.md`](api-contracts.md) — API contract 的所有權規則；契約本身在 provider component（目前是 `api-server`）。
   - [`desired-state-model.md`](desired-state-model.md) — 所有功能都必須遵守的上位模型：swallow 擁有 desired state、provider 回報 observed state、收斂與 drift、Change Plan，以及 store 與 Workflow 執行的規則（decision 069）。
   - [`core-and-extensions.md`](core-and-extensions.md) — 大尺度結構：core 的內容、provider interface 與可抽換的 adapter、三種擴充模組與其契約、支援矩陣（decision 070）。
-  - [`platform-deployment.md`](platform-deployment.md) — platform deployment 的設計、開發與整合規範（Workflow/Job/Task/Runner；新增 platform 的現行做法）。
+  - [`platform-deployment.md`](platform-deployment.md) — Platform 的部署、uninstall 與整合規範，以及新增 platform 的現行做法。
   - [`software-deployment.md`](software-deployment.md) — software deployment（Managed Software）的設計與整合規範：單一軟體的安裝/卸載，與 platform 的分界是 deploy target 的粒度。
-  - [`module-authoring.md`](module-authoring.md) — 模組撰寫指南：`api-server/modules/` 的佈局、playbook 的登錄、role 的解析與命名、每支 playbook 的規則與內容測試。
-  - [`os-provisioning.md`](os-provisioning.md) — OS provisioning 的現行行為：OS Image、Deployment Template、部署網路意圖、provider recovery、Zone/Pool 與 write-through 的 provisioner 設定。
+  - [`module-authoring.md`](module-authoring.md) — 模組撰寫指南：模組的宣告（`module.json`、Go hook、路由）、dashboard 的模組畫面、`api-server/modules/` 的佈局、playbook 的登錄、role 的解析、每支 playbook 的規則與內容測試。
+  - [`os-provisioning.md`](os-provisioning.md) — OS provisioning：OS Image、Deployment Template、部署網路意圖、provider recovery、Zone/Pool、Provisioner HTTP Proxy 與 Subnet DNS。
   - [`server-enrollment-and-boot-media.md`](server-enrollment-and-boot-media.md) — Server Enrollment、硬體檢視、Power Configuration、Boot Media 與 Boot ISO。
-  - [`workflow-execution.md`](workflow-execution.md) — durable Workflow 的跨功能執行語意：啟動、lease、Task 重試、rerun、取消、取代佔用的工作與即時事件。
-  - [`access-and-credentials.md`](access-and-credentials.md) — swallow 擁有的憑證（Deployment Key、Access Key、Server Default User、Site automation credential）與認證概要。
+  - [`workflow-execution.md`](workflow-execution.md) — durable Workflow 的跨功能執行語意：啟動、資源所有權、Task 重試、rerun、取消、取代佔用的工作、即時事件與 Job label。
+  - [`access-and-credentials.md`](access-and-credentials.md) — 憑證（Deployment Key、Access Key、Server Default User、Site automation credential）與認證概要。
   - [`installation.md`](installation.md) — 支援的安裝拓樸、`swallowctl` 生命週期保證、發佈產物與時間同步。
   - [`commit-spec.md`](commit-spec.md) — commit message 規範。
   - [`glossaries/`](glossaries) — 跨 component 共通的 domain glossary，定義平台的 ubiquitous language。
-  - `context-maps/` — 跨 context 的 context map（依需要建立）。
+  - [`context-maps/`](context-maps) — 跨 context 的 context map：[`automation-execution.md`](context-maps/automation-execution.md)、[`os-provisioning.md`](context-maps/os-provisioning.md)；需要時新增。
 - [`docs/decisions/`](../decisions) — 輕量 ADR，只記錄「為什麼」並在 Accepted 後凍結；現行行為寫在上列規格。
 - `docs/plans/` — 歷史計畫紀錄；`docs/plans/manuscripts/` 為進行中的計畫草稿。
 
@@ -168,7 +168,7 @@ git clone <repo-url>
 1. 在 repository root 建立頂層目錄 `<component-name>/`，放入該 component 的 source 與
    `AGENTS.md`（以及該 component 的 `docs/` 與 coding style）。
 2. 在本檔的 [Components](#components) 章節登錄該 component。
-3. 若該 component 提供 API，於 [`api-contracts.md`](api-contracts.md) 的 provider 表格登錄，
+3. 若該 component 提供 API，在 [`api-contracts.md`](api-contracts.md) 登錄，
    並在該 component 內建立 provider-owned contract。
 4. 若該 component 引入新的共通概念，於 [`glossaries/`](glossaries) 增補對應 term，並更新
    glossary outline。

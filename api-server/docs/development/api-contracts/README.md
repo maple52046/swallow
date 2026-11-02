@@ -3,31 +3,33 @@
 This is the starting point for contract work owned by the `api-server`
 component.
 
+## When this workflow applies
+
+Follow it whenever a task adds, changes, deprecates, removes, consumes, or validates
+an HTTP route, field, status, or error, or explains how the API behaves. Other
+documents refer to this definition instead of restating it.
+
 ## Reading workflow
 
-For any API reading, creation, modification, deprecation, deletion, consumption,
-or validation:
-
 1. Read this file.
-2. Read [outline.md](outline.md).
-3. Open the [api-server outline](api-server/outline.md).
-4. Read only the relevant contract.
-5. Use only contracts marked Active as implementation-ready.
+2. Open the [api-server outline](api-server/outline.md).
+3. Read only the relevant contract.
+4. Use only contracts marked Active as implementation-ready.
 
 Do not infer routes, fields, statuses, errors, authentication, authorization, or
 semantics from private implementation.
 
 ## Ownership
 
-`api-server` owns one HTTP REST surface consumed by `dashboard`, `cli`, and
-external integrators. This tree contains no other public protocol.
+`api-server` is the only component that provides an API: one HTTP REST surface,
+consumed by `dashboard`, `cli`, and external integrators. This tree contains no
+other public protocol, and no consumer keeps a copy of a provider contract.
 
 Contracts live under:
 
 ```text
 docs/development/api-contracts/
 ├── README.md
-├── outline.md
 ├── template.md
 └── api-server/
     ├── outline.md
@@ -50,8 +52,14 @@ owner, consumers, purpose, endpoints, request/response, errors, auth,
 compatibility, glossary terms, and relevant implementation constraints.
 
 Update `api-server/outline.md` whenever a contract is added, changed,
-deprecated, deleted, renamed, or promoted. Update the top-level outline only
-when the set of provider components or outline paths changes.
+deprecated, deleted, renamed, or promoted. Its one-line summaries state what a
+contract is for and where it lives; they do not restate ownership or behavior
+(for example whether a setting is stored or written through), which only the
+contract says.
+
+A contract's **Consumer Components** are the components that call it today. A
+component that could call it but does not is not listed; add it in the commit
+that starts calling the contract.
 
 Contract field names and enums use the repository glossary. Resolve missing or
 ambiguous domain language in the glossary before defining the wire behavior.
@@ -87,8 +95,7 @@ a route: `system` (`/livez`, `/readyz`, `/healthz`, `/metrics`), `auth`
 `/api/v1/servers/stream`, `/api/v1/servers/{id}` and the routes under it except
 `/docker*` and `/placement`, `/api/v1/provisioning/tags`), `provisioning` (the rest
 of `/api/v1/provisioning/*`, the Boot ISO file, `/downloads/*`), `platforms`
-(`/api/v1/platforms*`, `/api/v1/clusters*`), `workflows` (`/api/v1/workflows*`,
-`/api/v1/operations*`), `software` (`/api/v1/software/*`, `/api/v1/servers/{id}/docker*`),
+(`/api/v1/platforms*`), `workflows` (`/api/v1/workflows*`), `software` (`/api/v1/software/*`, `/api/v1/servers/{id}/docker*`),
 `monitoring` (`/api/v1/overview`, `/api/v1/monitoring/*`, `/api/v1/discovery/*`), and `modules`
 (`/api/v1/modules`).
 

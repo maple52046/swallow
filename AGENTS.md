@@ -38,77 +38,52 @@ creates, reviews, or explains public documentation.
 Before planning, editing, reviewing, or explaining repository work, read:
 
 1. `docs/development/codebase-structure.md` — understand the repository structure, the components, and how each component maps to its top-level directory.
-2. The "swallow 的設計主張" section at the top of `docs/development/architecture-spec.md` — the core idea, the current composition of core, providers, and plugins, the principles, and how to trade them off. Read only that section here; the rest of the spec is required under Development Work.
+2. The "swallow 的設計主張" section at the top of `docs/development/architecture-spec.md` — the core idea, the current composition of core, providers, and plugins, the principles, and how to trade them off. Read only that section here; the rest of the spec is for work across components or bounded contexts (Reading by Task).
 
-## Development Work
+## Reading by Task
 
-When the task involves implementation planning, code changes, review of code
-changes, domain behavior, data models, cross-component integration, or core
-flows, also read:
+Beyond Always Read, read only what the task needs: find its row, read those documents, then add the
+domain specs below for the areas it touches. The upper-level specs state their own readers in their §1,
+and a row points to that scope rather than restating it. A task that fits several rows reads them all;
+planning or reviewing a task reads what doing it would.
 
-1. `docs/development/architecture-spec.md` — understand root codebase design principles and the Strategic DDD constraints.
-2. `docs/development/glossaries/README.md` — understand the glossary workflow and locate relevant domain terminology.
-3. `docs/development/desired-state-model.md` — the model every feature follows: swallow owns desired
- state, providers report observed state, how differences converge, when a Change Plan is required, and
- the store and Workflow execution rules.
-4. `docs/development/core-and-extensions.md` — what belongs in the core, in a provider adapter (MAAS,
- Temporal, Ansible, MongoDB, …), or in an extension module (Platform, Accelerator, Software), and the
- contracts between them.
+| Task | Also read |
+| --- | --- |
+| Fix a defect, wording, or behavior without changing who owns a fact, an API contract, or the data model | The domain spec of the area and the component `AGENTS.md`. |
+| Explain how something works or why | The domain spec of the area and the glossary terms it uses (lookup: `docs/development/glossaries/README.md`). |
+| Add or change a consumer feature (dashboard, cli) over existing API behavior | The API contract; the domain spec when the feature shows domain behavior. |
+| Add or change a managed resource, a field, an action that changes the outside world, or who owns a fact | `docs/development/desired-state-model.md` (readers: its §1), the API contract, and the glossary authoring workflow (`docs/development/glossaries/README.md`). |
+| Add an external system, provider adapter, Platform, GPU vendor, Managed Software kind, or module, or decide where code belongs | `docs/development/core-and-extensions.md` (readers: its §1) and `docs/development/module-authoring.md`. |
+| Introduce or rename a domain term, type, enum value, or API field | The glossary authoring workflow (`docs/development/glossaries/README.md`). |
+| Work across components or bounded contexts | The rest of `docs/development/architecture-spec.md` (bounded contexts, context maps) and the maps in `docs/development/context-maps/`. |
 
-If the task creates, modifies, consumes, or validates APIs, also read:
+## Domain Specs
 
-1. `docs/development/api-contracts.md` — understand the API contract workflow and which component owns the contract.
+Add the spec of each area the task touches:
 
-If the task involves platform deployment orchestration, the Workflow/Job/Task/Runner
-model, or integrating a new platform type (for example Slurm), also read:
-
-1. `docs/development/platform-deployment.md` — the platform deployment design, the
- inventory / trusted-vars / manifest integration contract, and how to add a platform.
-
-If the task involves software deployment (installing a single piece of host software such
-as Docker CE, Podman, or NFS onto deployed Servers), or composing such software into a
-platform deploy, also read:
-
-1. `docs/development/software-deployment.md` — the software deployment design, its authoritative
- deploy-target boundary versus platform deployment, and the inventory / trusted-vars / manifest
- integration contract.
-
-If the task creates or changes host automation content — playbooks, roles,
-`api-server/modules/manifest.json`, `api-server/modules/shared/`, or the module directory layout — also
-read:
-
-1. `docs/development/module-authoring.md` — the module layout, how playbooks are registered and
- roles resolve, the rules every playbook follows, and the content tests to add.
-
-If the task involves OS provisioning (OS Images and their verification, Deployment Templates,
-deployment network intent, provider recovery such as Release / Recover / Rescue, Zones and Pools,
-or provisioner settings written through such as HTTP proxy and Subnet DNS), also read:
-
-1. `docs/development/os-provisioning.md` — the current OS provisioning behavior and which facts the
- provisioner owns versus swallow.
-
-If the task involves Server Enrollment, hardware inspection, Power Configuration, Boot Media, or
-Boot ISOs, also read:
-
-1. `docs/development/server-enrollment-and-boot-media.md` — how Servers are enrolled and inspected,
- and how Boot Media and Boot ISOs work.
-
-If the task involves the generic behavior of durable Workflows (start, leases, Task retry, rerun,
-cancellation, superseding blocking work, lost executions, live task events), also read:
-
-1. `docs/development/workflow-execution.md` — the cross-feature Workflow execution semantics.
-
-If the task involves SSH keys (the Deployment Key, Access Keys), the automation login user, the
-Server Default User, Site automation credentials, or authentication sessions and API keys, also read:
-
-1. `docs/development/access-and-credentials.md` — the credentials swallow owns and how automation
- authenticates.
-
-If the task involves the installation topology, `swallowctl`, release artifacts, or the
-control-plane NTP service and post-provision time synchronization, also read:
-
-1. `docs/development/installation.md` — the supported installation, its lifecycle guarantees, and
- time synchronization.
+- HTTP API routes, fields, statuses, or errors, whether added, changed, consumed, or explained:
+  `api-server/docs/development/api-contracts/README.md`, which defines when its workflow applies.
+- Reading, listing, or filtering Workflows through the API, the CLI, or a screen: the workflows
+  contract, `api-server/docs/development/api-contracts/api-server/workflows.md`.
+- How Workflows execute (start, resource ownership, Task retry, rerun, cancellation, superseding
+  blocking work, lost executions, live task events, Job labels): `docs/development/workflow-execution.md`.
+- Platforms (their spec and Change Plans, deploy and uninstall, Platform Claims, adding a platform type):
+  `docs/development/platform-deployment.md`.
+- Managed Software (its kinds, install and uninstall, Software Assignments including reading them,
+  composing a kind into a platform deploy): `docs/development/software-deployment.md`.
+- Host automation content and module declarations (playbooks, roles, `api-server/modules/manifest.json`,
+  `api-server/modules/shared/`, `module.json`, module hooks, a module's dashboard screens, the module
+  directory layout); installing packages inside a playbook belongs here:
+  `docs/development/module-authoring.md`.
+- OS provisioning (OS Images and their verification, Deployment Templates, OS deployment and its
+  network intent, Release / Recover / Rescue, Zones and Pools, the Provisioner HTTP Proxy, Subnet DNS):
+  `docs/development/os-provisioning.md`.
+- Server Enrollment, hardware inspection, Power Configuration, Boot Media, Boot ISOs:
+  `docs/development/server-enrollment-and-boot-media.md`.
+- SSH keys (the Deployment Key, Access Keys), the automation login user, the Server Default User, Site
+  automation credentials, authentication sessions, API keys: `docs/development/access-and-credentials.md`.
+- The installation topology, `swallowctl`, release artifacts, the control-plane NTP service and
+  post-provision time synchronization: `docs/development/installation.md`.
 
 ## Component Work
 

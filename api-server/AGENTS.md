@@ -1,18 +1,18 @@
-# Swallow Agent Entry Guide
+# api-server Agent Entry Guide
 
-This file is the entry point for AI agents working in the swallow backend, the
+This file is the entry point for AI agents working in swallow's backend, the
 `api-server` component. All paths in this file are relative to this component's
 root (`api-server/`).
 
 ## Required Reading
 
-Before planning, reviewing, or explaining swallow work, read:
+Before planning, reviewing, or explaining api-server work, read:
 
-1. `docs/development/architecture-spec.md` — understand the swallow Clean Architecture boundaries.
+1. `docs/development/architecture-spec.md` — understand the api-server Clean Architecture boundaries.
 
 Before adding or modifying any code, read:
 
-1. `docs/development/architecture-spec.md` — understand that swallow uses Clean Architecture as its design principle.
+1. `docs/development/architecture-spec.md` — understand that api-server uses Clean Architecture as its design principle.
 2. `docs/development/coding-style.md` — follow Go naming, comments, errors, concurrency, and testing rules.
 
 When the change touches `modules/` (playbooks, roles, the playbook manifest, or a module's layout),
@@ -58,13 +58,12 @@ must not describe the task as complete unless this pass has been performed.
 
 ## API Work
 
-This component is swallow's only API-owning component. When the task reads,
-creates, modifies, deprecates, deletes, consumes, or validates API behavior,
-read and maintain:
+This component is swallow's only API-owning component. When the contract
+workflow applies (its README defines when), read and maintain:
 
-1. `docs/development/api-contracts/README.md` — understand the swallow API contract workflow.
-2. `docs/development/api-contracts/outline.md` — locate and maintain the API contract index.
-3. The relevant component outline and API contract document listed by the outline.
+1. `docs/development/api-contracts/README.md` — the API contract workflow.
+2. `docs/development/api-contracts/api-server/outline.md` — the contract index.
+3. The relevant contract the index lists.
 
 If the task changes an API owned by swallow, update or create the provider-owned
 API contract before or together with implementation. If the relevant API is only

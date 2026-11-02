@@ -27,7 +27,7 @@ follows.
    [desired-state model](docs/development/desired-state-model.md) and the
    [core and extensions design](docs/development/core-and-extensions.md).
 6. For API work, locate and update the provider-owned
-   [API contract](docs/development/api-contracts.md) before or with the code.
+   [API contract](api-server/docs/development/api-contracts/README.md) before or with the code.
 7. For playbooks, roles, or a plugin's content under `api-server/modules/`,
    follow the [module authoring guide](docs/development/module-authoring.md).
 
