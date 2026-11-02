@@ -13375,7 +13375,7 @@ export interface operations {
     listSoftwareAssignments: {
         parameters: {
             query?: {
-                /** @description Only assignments on this Server. */
+                /** @description Only assignments on this Server. The value is not validated: a Server that does not exist matches nothing. */
                 serverId?: string;
                 /** @description Only assignments of this software kind. The value is not validated: a value that is not a catalog kind matches nothing. */
                 kind?: string;

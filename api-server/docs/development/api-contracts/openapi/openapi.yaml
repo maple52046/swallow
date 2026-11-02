@@ -6348,7 +6348,7 @@ paths:
       description: Requires the `admin` role. Ordered by `serverId`, then `kind`; not paginated (one record per Server per kind). `absent` assignments are omitted unless `includeAbsent=true`.
       operationId: listSoftwareAssignments
       parameters:
-        - description: Only assignments on this Server.
+        - description: 'Only assignments on this Server. The value is not validated: a Server that does not exist matches nothing.'
           in: query
           name: serverId
           required: false

@@ -39,7 +39,7 @@ also read:
    follows the Go coding style at `../api-server/docs/development/coding-style.md`
    in these sections: 格式與命名, 註解與文件 (except the Clean Architecture
    layer notes, which describe api-server's layers), 錯誤處理, Imports 與 Package
-   組織, and 測試規範.
+   組織, and 測試規範; add API 與語言使用 when the change starts goroutines.
 2. The relevant Active contract under
    `../api-server/docs/development/api-contracts/api-server/` for any command you
    add or change. The contract is the source of truth for paths, methods,
@@ -75,8 +75,9 @@ that explain contract, caller obligations, error semantics, and boundaries — n
 comments that merely restate an identifier. Passing `go build`/`go vet`/`gofmt`
 is necessary but not sufficient.
 
-Run before claiming done: `gofmt -l .` (no output), `go vet ./...`,
-`go build ./...`, `go test ./...`. How CLI tests stand in for the api-server is in
+Run before claiming done (the CLI's checks in
+`../docs/development/development-and-testing.md` §6, which you need not read): `gofmt -l .`
+(no output), `go vet ./...`, `go test ./...`, `go build ./...`. How CLI tests stand in for the api-server is in
 `../docs/development/development-and-testing.md` §5.
 
 ## Public Documentation
@@ -85,10 +86,12 @@ A change that adds or changes a command, flag, or output updates `docs/usage.md`
 and `docs/usage.zh-TW.md` in the same commit; a new command group also updates
 `README.md`, `README.zh-TW.md`, and the public command index
 `../docs/en/reference/cli.md` with its `../docs/zh-TW/reference/cli.md` twin, and
-any public guide that says the area has no command (search `../docs/en/` and
-`../docs/zh-TW/` for the group name and for "no command"; the Managed Software and
-API integration guides say so today). When the new commands cover only part of the
-area, rewrite those statements to say what is still missing rather than deleting them. Run
+any public guide that says the CLI lacks the area. Today those are the Managed Software
+guide ("does not yet expose a `software` command group"), the API integration reference
+("Managed Software currently requires the Dashboard or HTTP API"), and the command index
+itself, each with its `docs/zh-TW/` twin; search for the group name to find others. When
+the new commands cover only part of the area, rewrite those statements to say what is
+still missing rather than deleting them. Run
 `python3 scripts/check-docs.py` from the repository root after changing them.
 Adding `cli` to the contract's Consumer Components belongs to the same change
 (the contract README's rule for consumers).
@@ -97,7 +100,7 @@ The CLI does not cover every Active route yet: Managed Software (with registry
 credentials and the Docker explorer), the Server Default User, the provisioner
 HTTP proxy, and Subnet DNS have no commands, and the public pages above say so.
 Adding a command for one of them is an ordinary consumer feature; update those
-statements in the same commit.
+statements, and this paragraph, in the same commit.
 
 ## Plans
 

@@ -51,11 +51,12 @@ Beyond Always Read, read only what the task needs: find its row, read those docu
 domain specs below for the areas it touches. The upper-level specs state their own readers in their §1,
 and a row points to that scope rather than restating it: read the §1 to decide whether the spec applies, and
 when it does, read the sections the task needs. A task that fits several rows reads them all; planning or
-reviewing a task reads what doing it would; reviewing a change described without a diff is a design review.
+reviewing a task reads what doing it would, except a component's coding style, which waits until code is
+written or a code diff reviewed; reviewing a change described without a diff is a design review.
 
 Domain specs and contracts are long. Read a spec's reader section (its §1, or the unnumbered reader
 section before it) and its headings, then only the sections the task needs; in a contract, read the
-sections for the routes involved. A link or guide that names a section (§4.6) needs only that section,
+sections for the routes, parameters, and fields involved, even when the contract describes one route. A link or guide that names a section (§4.6) needs only that section,
 not the spec's reader section.
 
 | Task | Also read |
@@ -89,7 +90,8 @@ Add the spec of each area the task touches:
   reads module-authoring (below) and, in this spec, §2.3 (OS-specific behavior) and §5.
 - Managed Software (its kinds, install and uninstall, how Software Assignments change state, composing a
   kind into a platform deploy): `docs/development/software-deployment.md`. Listing or showing Software
-  Assignments through the API needs only the software contract.
+  Assignments through the API, the CLI, or a screen needs only the software contract,
+  `api-server/docs/development/api-contracts/api-server/software.md`.
 - Host automation content and module declarations (playbooks, roles, `api-server/modules/manifest.json`,
   `api-server/modules/shared/`, `module.json`, module hooks, a module's dashboard screens, the module
   directory layout); installing packages inside a playbook belongs here:
@@ -112,8 +114,9 @@ metrics use `server-metrics.md`, all under
 ## Component Work
 
 After completing the required root reading for the task, identify the component
-whose code the task changes or must read, then read that component's local
-`AGENTS.md`:
+whose code the task changes or whose code diff it reviews, then read that
+component's local `AGENTS.md`. Reading code only to confirm a detail, or editing a document under the
+component's directory (an API contract, for example), does not count:
 
 - `api-server/AGENTS.md` — the Go backend / Data Center API Service.
 - `dashboard/AGENTS.md` — the React + TypeScript frontend.

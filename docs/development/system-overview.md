@@ -219,6 +219,7 @@ architecture spec。找東西時：
 | Workflow 的組成（launcher） | `api-server/internal/app/*_adapter.go`（platform deployment、software、GPU Operator、Slurm composition） |
 | 每個 context 的 domain、use case、HTTP handler | `api-server/internal/core/<context>/` |
 | 外部系統的 adapter | `api-server/internal/adapters/<port>/<adapter>/` |
+| MongoDB 的 repository（列表的篩選與搜尋在這裡） | `api-server/internal/adapters/store/mongodb/<context>/` |
 | 模組（module.json、hook、playbook、role） | `api-server/modules/<種類>/<id>/` |
 | dashboard 的頁面、模組畫面、API adapter | `dashboard/src/presentation/pages/`、`dashboard/src/modules/`、`dashboard/src/infrastructure/api/` |
 | CLI 的指令 | `cli/internal/command/` |

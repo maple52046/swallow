@@ -19,7 +19,7 @@ When starting a task:
 2. Follow the document-reading workflow defined in `AGENTS.md`.
 3. Read the required project documents before editing code.
 4. Do not skip a document that `AGENTS.md` requires for the task (its Reading by Task table and domain specs).
-5. When the task changes or must read code in a component directory (`api-server/`, `dashboard/`, `cli/`), also read that component's own `AGENTS.md` and follow it.
+5. When the task changes code in a component directory (`api-server/`, `dashboard/`, `cli/`) or reviews a diff of it, also read that component's own `AGENTS.md` and follow it. Reading code only to confirm a detail does not count.
 6. If `AGENTS.md` does not exist, stop and report that the project entry guide is missing.
 
 ## Important

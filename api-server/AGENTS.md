@@ -6,14 +6,15 @@ root (`api-server/`).
 
 ## Required Reading
 
-Before changing api-server Go code (or reviewing a code diff), read both; planning or reviewing a design
-without code reads only the first:
+Before changing api-server Go code (or reviewing a code diff), read both; planning a change, or reviewing a
+design without code, reads only the first:
 
-1. `docs/development/architecture-spec.md` — the Clean Architecture boundaries: Dependency Rule, Layout,
-   Prohibited Designs, Completion Gate, and the boundary sections for what the change touches (Provider
-   Ownership, Provider Adapter, Durable Workflow, Store and Transaction, Configuration, Error; a repository
-   query reads Data Crossing Boundaries and Store and Transaction). Read "2026-10-31 搬移前的路徑"
-   only when you meet a path from before that move.
+1. `docs/development/architecture-spec.md` — the Clean Architecture boundaries: Dependency Rule, Prohibited
+   Designs, Completion Gate; Layout when the change adds a file or package; and the sections for what the
+   change touches (Provider Ownership, Provider Adapter Boundary, Durable Workflow Boundary, Store and
+   Transaction Boundary, Configuration Boundary, Error Boundary; a repository query reads Data Crossing
+   Boundaries and Store and Transaction Boundary). Read "2026-10-31 搬移前的路徑" only when you meet a path
+   from before that move.
 2. `docs/development/coding-style.md` — Go rules. Every change reads 核心原則, 格式與命名, 註解與文件, and Agent
    執行規則; add 錯誤處理, API 與語言使用, Imports 與 Package 組織, or 測試規範 when the change touches that.
 
@@ -74,13 +75,13 @@ must not describe the task as complete unless this pass has been performed.
 
 ## API Work
 
-This component is swallow's only API-owning component. When the contract
-workflow applies (its README defines when), read and maintain:
+This component is swallow's only API-owning component. When the change adds, changes, deprecates, or
+removes a route, query parameter, field, status, or error (the contract workflow), read and maintain:
 
 1. `docs/development/api-contracts/README.md` — the API contract workflow.
 2. `docs/development/api-contracts/api-server/outline.md` — the contract index, unless a spec or the
    root `AGENTS.md` already names the contract.
-3. The relevant contract, and in it the sections for the routes involved.
+3. The relevant contract, and in it the sections for the routes, parameters, and fields involved.
 
 If the task changes an API owned by swallow, update or create the provider-owned
 API contract before or together with implementation. If the relevant API is only

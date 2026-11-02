@@ -5,8 +5,8 @@ All paths in this file are relative to the dashboard project root.
 
 ## Required Reading
 
-Before changing dashboard code (or reviewing a code diff), read both; planning or reviewing a design
-without code reads only the first:
+Before changing dashboard code (or reviewing a code diff), read both; planning a change, or reviewing a
+design without code, reads only the first:
 
 1. `docs/development/architecture-spec.md` — the Clean Architecture boundaries: Dependency Rule, Directory
    responsibilities, Data Crossing Boundaries, Prohibited Designs, Completion Gate, and the sections for what

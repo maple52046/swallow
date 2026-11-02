@@ -41,7 +41,9 @@ paths:
         - name: serverId
           in: query
           required: false
-          description: Only assignments on this Server.
+          description: >-
+            Only assignments on this Server. The value is not validated: a Server that does not
+            exist matches nothing.
           schema:
             type: string
         - name: kind

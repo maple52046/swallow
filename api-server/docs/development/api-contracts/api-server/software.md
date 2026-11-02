@@ -199,7 +199,7 @@ filters:
 
 | Param | Type | Meaning |
 | --- | --- | --- |
-| `serverId` | string | Only assignments on this Server. |
+| `serverId` | string | Only assignments on this Server. The value is not validated: a Server that does not exist matches nothing. |
 | `kind` | string | Only assignments of this software kind. The value is not validated: one that is not a catalog kind matches nothing. |
 
 By default `absent` assignments are omitted; pass `includeAbsent=true` to include them (any
