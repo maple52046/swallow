@@ -52,9 +52,8 @@ command against an endpoint whose contract is only Planned. If a needed contract
 is missing or ambiguous, raise it against the provider's contract instead of
 coding around it.
 
-The CLI intentionally does **not** expose deprecated compatibility aliases
-(`/operations`, `/clusters`, single-server `deploy`/`release`) as first-class
-commands; it targets the canonical Active surface.
+Commands target Active routes only; when a route becomes Deprecated, the CLI
+moves to its replacement rather than keeping a command for the alias.
 
 ## Domain Language
 

@@ -173,7 +173,8 @@ state. No BMC, SSH, integration, or automation credential is returned.
 
 A Server is a migrated resource ([decision 071](../../../../../docs/decisions/071-provisioner-realized-desired-state.md)):
 the provisioner-realized fields swallow owns are in `spec`, and everything observed, derived, or
-judged is in `status`. Every field described in the sections below is relative to `status`.
+judged is in `status`. The table below lists the top-level, `spec`, and condition fields; every field described
+in the later sections (GPU inventory onward) is relative to `status`.
 
 | Field | Meaning |
 | --- | --- |

@@ -17,7 +17,9 @@ Workflow / Job / Task / Runner 語言，落成「swallow 如何佈署一個 plat
 > **目標結構**：依 [decision 070](../decisions/070-core-providers-and-extensions.md)，新增一種 platform
 > 的目標做法是交一個 **Platform 模組**（見 [core-and-extensions.md](core-and-extensions.md)）；本文件的
 > playbook 與 inventory／trusted-vars 契約是該模組的 host automation 內容。所有權與收斂規則以
-> [desired-state-model.md](desired-state-model.md) 為準。模組第一階段實作前，本文件描述的現行做法不變。
+> [desired-state-model.md](desired-state-model.md) 為準。Kubernetes 與 Slurm 已是模組，但 Workflow 的組合與
+> trusted vars 仍在 `internal/app` 與 core；本文件 §6 描述現在允許的做法，它屬於
+> [core-and-extensions.md](core-and-extensions.md) §3.6 的過渡期規則，新增的位置要登錄在同一節。
 
 > **與 software deployment 的分界**：platform 的 deploy target 是**由多個 component 組成的 runtime
 > 整體**；單一軟體（Docker CE、Podman、NFS…）的安裝屬於 **software deployment**（見
@@ -167,8 +169,8 @@ flowchart TB
   `systemd-timesyncd`、`chrony`、`ntpd`；都沒有才安裝 chrony），停用其他 client，並在有限時間內等到
   回應（否則 `[ntp_not_synchronized]`）。沿用的 `deployed` Server 與 `existing_os` 的 targets 不重新
   設定。需要 provision 卻沒有 NTP server 時，受理即以 `ErrNTPServerMissing`（409）拒絕。Launcher 直接
-  指名 playbook，不需 site `playbookMappings`；這個 ansible execution 帶的是 Workflow 的 kind，
-  completion observer 以 `isTimeTask`（前綴 `configure-ntp-`）略過 platform 的完成處理。
+  指名 playbook，不需 site `playbookMappings`。`configure-ntp-<serverId>` 不宣告任何結果類的完成行為，所以
+  不會觸發 platform 的 credential 記錄（完成行為的宣告見 [workflow-execution.md](workflow-execution.md) §12）。
 - **檢查（屬於各 platform）**：`deploy-kubernetes.yml` 在下載 k0s 之前、`deploy-slurm.yml` 在
   `slurm_preflight`（MUNGE 之前）先跑 role `time_sync_check`，涵蓋全部 targets，不改主機：讀
   `timedatectl` 的 `NTPSynchronized`，有 NTP server 時再以 SNTP 量測與它的 offset（上限
@@ -248,11 +250,11 @@ Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。
 | `configure-gpu-operator`（部署後調整） | `prepare-hosts` → `configure-gpu-operator` | `wait-for-ssh` → `install-gpu-operator` | `internal` → `ansible` | — → `wait-for-ssh` |
 
 - 兩種 Workflow 的 ansible Task 都以 Platform 的全部 deployment targets 為 targets，playbook 名由 launcher 硬編碼，
-  不需 site `playbookMappings`。ansible execution 帶的是 Workflow 的 kind：部署內的 GPU Task 是 `deploy-kubernetes`，
-  completion observer 以 step id `install-gpu-operator` 略過 k0s 的 credential 記錄（只有 `install-platform` 產生
-  credential）；部署後調整的 Workflow kind 是 `configure-gpu-operator`，本來就不觸發。
-- Platform 保存目標設定與 GPU Operator State；step observer 依 ansible Task 狀態寫回，只有
-  `lastWorkflowId` 相符的 Workflow 能改狀態。
+  不需 site `playbookMappings`。只有 `install-platform` 宣告 `kubernetes-credential`，所以 GPU Operator 的 Task 不會
+  記錄 credential。
+- Platform 保存目標設定與 GPU Operator State。`install-gpu-operator` 宣告投影類完成行為 `gpu-operator-state`
+  （參數 `platformId`、`recordId`、`mode`），在 Task 每次轉換時寫回 GPU Operator State，並以 `recordId` 擋下
+  較舊的 Workflow。
 - 只沿用 OS image 的 driver：chart 以 `kmm.enabled=false`、`remediation.enabled=false` 安裝，不需 cert-manager。
   節點檢查只確認 image 有 `amdgpu` module（`modinfo`）；image 可能以 `modprobe.blacklist=amdgpu` 讓開機時不載入，
   所以 cluster play 之後、DeviceConfig 之前，每個納管節點都裝 `swallow-amdgpu-load.service`（共用 role
@@ -328,8 +330,7 @@ Uninstall 與 deploy 一樣把 Task 以 `Task.Job` 分組，因此 API 的 `step
 與 deploy 相同，Job 順序由 **cross-Job 的 `DependsOn`** 推導（`finalize-uninstall` 依賴
 `release-servers` 的全部 Task，故在其整包成功後才跑），每個 Job 宣告重試粒度 `job`。events/live 本來就是
 per-Task，故分組後即與 deploy 一致，無需另外處理。Release 捷徑（略過 ansible）仍依
-[ADR 022](../decisions/022-uninstall-release-shortcut.md)，此處只加 Job 邊界，不改步驟語意；legacy（無 Temporal）
-單步 uninstall 無 v3 Job。
+[decision 022](../decisions/022-uninstall-release-shortcut.md)，此處只加 Job 邊界，不改步驟語意。
 
 **Release 捷徑**（[ADR 022](../decisions/022-uninstall-release-shortcut.md)）：release 會清除 OS，所以帶 `releaseServers`
 時不跑 platform 軟體的 uninstall playbook，直接並行 release 每台成員。`complete-uninstall` 做的就是保留主機路徑上
@@ -339,7 +340,6 @@ per-Task，故分組後即與 deploy 一致，無需另外處理。Release 捷�
 - 只用於整個 Platform 的 uninstall。未來的 scale-in 必須先把節點從叢集移除（drain／remove）再 release，不沿用此捷徑。
 - Workflow kind 仍是 `uninstall-kubernetes`／`uninstall-slurm`（definition `platform-uninstall` v1），lifecycle 照舊由
   Operation 狀態推導（`uninstalling` → `uninstalled`），`retryOfOperationId` 的重試規則相同。
-- release 需要 durable orchestration（Temporal）；不可用時拒絕帶 `releaseServers` 的請求。
 - 設計理由：否決「保留 uninstall step 但當 no-op」、「改接通用的 operation-success hook」與「受理時就清理投影」，
   見 ADR 022。
 
@@ -352,8 +352,8 @@ platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-co
 - **Uninstall** 只適用 swallow 部署的 Platform（`registered` 拒絕）。target set 一律是最新 deploy Operation 的完整
   `targetServerIds` snapshot，不看 membership（membership 可能過期、未比對，或在失敗部署後正好消失）；任一 target 缺少、
   absent、locked 或 busy 就在派送前整批拒絕（busy 可用 `cancelActiveWorkflows`，§4.8）。保留主機時跑
-  `uninstall-<type>` playbook，移除 swallow 安裝的 runtime 狀態、保留 OS；也可 release 主機（§2.4）。失敗、取消或
-  indeterminate 的 uninstall 可再送出，新 Operation 以 `retryOfOperationId` 指向前一次，並沿用同一份凍結的 target set
+  `uninstall-<type>` playbook，移除 swallow 安裝的 runtime 狀態、保留 OS；也可 release 主機（§2.4）。失敗或取消的
+  uninstall 可再送出，新 Operation 以 `retryOfOperationId` 指向前一次，並沿用同一份凍結的 target set
   （playbook 冪等）。Platform 紀錄與 Operation 歷史保留，供診斷與重試。
 - **成功後的清理**（`CompleteUninstall`）：清 membership、釋放 Platform Claim（§2.6）、只刪證明為 swallow 擁有的 credential
   Integration（新部署會記錄自己擁有的 Integration id；legacy 紀錄要 deploy provenance 與完整的自動產生 Integration 簽章
@@ -361,7 +361,7 @@ platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-co
   `install-exporters` Operation 給仍 present、deployed、unlocked 的 target；它有自己的失敗生命週期，不回滾 uninstall。
 - **Delete**（`DELETE /platforms/{id}`）把 spec 標為 absent（帶 release 等選擇），uninstall 經 Change Plan 核准後由
   platform controller 啟動；uninstall 成功時在清理的最後刪除紀錄，刪除的紀錄與投影與只刪紀錄相同，但不取消 Operation，
-  因為正在完成的 uninstall 就是持有 target 的 Workflow。失敗、取消或 indeterminate 時保留紀錄（`uninstall_failed`）。
+  因為正在完成的 uninstall 就是持有 target 的 Workflow。失敗或取消時保留紀錄（`uninstall_failed`）。
   清理把已不存在的紀錄視為成功，所以重試是安全的。從未核准安裝的 Platform 沒有動過任何機器，直接刪除。
 - **只刪紀錄**（`DELETE /platforms/{id}?recordOnly=true`）只移除紀錄與 swallow 擁有的投影：先對該 Platform 未完成的 durable Operation 寫入取消命令（它們在取消
   路徑結束時釋放所有權；寫不進去就拒絕 Delete、保留紀錄），再清 membership、Platform Claim 與 swallow 擁有的 credential Integration，最後刪紀錄。它永不執行
@@ -394,7 +394,7 @@ Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以�
 - **保留與釋放**：Platform 為 `deploying`、`deploy_failed`、`active`、`uninstalling`、`uninstall_failed` 時保留，因為主機
   可能仍帶 platform 狀態；uninstall 成功與只刪紀錄時釋放。provider reconcile 保留 claim，
   與 Server 的 Deployment result 相同。
-- **保護**：claimed Server 的 Release（Release Operation、deprecated 單台 release、Recover 已 `deployed` 的 Server）與
+- **保護**：claimed Server 的 Release（Release Operation、Recover 已 `deployed` 的 Server）與
   Server Delete（在呼叫 provisioner 之前，即使 Machine 已不存在）一律 `409 conflict`，訊息指名 Server 與 Platform，
   `cancelActiveWorkflows` 也繞不過。Recover 處於不可用狀態（`failed`／`broken`／`rescue`／`allocated`）的 claimed Server
   仍允許，因為那是修復失敗部署的方式。代表該 Platform 執行的 Workflow（例如 uninstall 的 `release-os`）不受此規則限制；
@@ -403,10 +403,10 @@ Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以�
   spec 移除的成員保留 claim，直到移除它的變更真的執行。worker 的 platform controller 讓 present spec 的成員都有 claim
   （spec 出現前部署的 Platform 由它從最近一次部署接管時取得），並釋放指向已不存在 Platform 的 claim。claim 是選用欄位，
   不需 schema migration。
-- **Delete 與 uninstall 完成**：Delete 先向 Temporal 取消該 Platform 進行中的 Workflow，之後清除 membership、釋放
+- **只刪紀錄與 uninstall 完成**：只刪紀錄時先對未完成的 Workflow 寫入取消命令（§2.5），之後清除 membership、釋放
   claim、刪除 owned Integration 與刪除紀錄是同一個 transaction；`CompleteUninstall` 的整段清理也是一個 transaction。
 - Dashboard 與 CLI 從 Server 投影讀 `platformClaim`：Dashboard 以 Platform 名稱停用 Release 與 Delete，CLI 指向
-  `platforms uninstall`（Delete 另指 `platforms delete`）。
+  `platforms delete --release-servers`（Server Delete 另指 `platforms delete --record-only`）。
 - 失敗部署期間的處理見 §4.8 的「Platform Claim 與 `deploy_failed`」。設計理由：否決每次重算、以 membership 判斷、
   警告後仍允許 release 與新增 schema migration，見 decision 067。
 
@@ -416,7 +416,7 @@ Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以�
 | --- | --- | --- | --- |
 | `internal` | `internal` | `wait-for-ssh`、`validate-platform-health`、`complete-uninstall`、`noop` | swallow 自身邏輯（`complete-uninstall` 見 §2.4）：**驗證式 SSH 就緒**（以 Deployment Key 對每台 target 實際完成 SSH 認證；登入帳號為 per-host 解析：image default user 優先，否則 candidate 探測；非只探 TCP；20 分鐘上限）、輪詢 membership 驗證 |
 | `ansible` | `ansible` | `ansible-playbook` | 在遠端主機跑一支 manifest 註冊的 idempotent playbook |
-| `provisioner` | `maas`（值待改名） | `provision-os`、`release-os` | 透過 vendor adapter（MAAS/Ironic）驅動 OS provisioning，含佈署後 SSH 就緒；佈署前先確保 provisioner 持有 swallow 的 SSH Keys（見 §4.6.1） |
+| `provisioner` | `maas`（值待改名） | `provision-os`、`release-os` | 透過 provisioner adapter（目前是 MAAS）驅動 OS provisioning，含佈署後 SSH 就緒；佈署前先確保 provisioner 持有 swallow 的 SSH Keys（見 §4.6.1） |
 
 所有 Task 都必須 **idempotent**：重跑已收斂的 Task 為 no-op（`provisioner` 在已 `deployed`
 且 image 相符且 SSH 可達時直接成功；`ansible` 靠 playbook 本身冪等）。
@@ -730,9 +730,9 @@ trusted vars 與 deploy 定義仍由 Go 組裝**（k0s 即如此）。因此依�
   `playbookMappings` + operator extraVars）整合，**幾乎不需改 Go**。
 - **(B) 需要 platform 專屬 trusted vars 或專屬 orchestration**（像 k0s 的角色/VIP/初始 controller）：
   目前**需要少量 Go**——新增 `WorkflowKind`、一支 launcher（組 Job/Task 與 `buildXxxVars`）、與
-  deploy 前的 validate。這是 extension point 目前的成熟度；把「Go 骨架完全 data-driven、讓純
-  playbook 就能新增 platform」列為後續工作（見
-  [reliability/orchestration plan](../plans/20260906_2027_platform_orchestration_and_deploy_reliability.md)）。
+  deploy 前的 validate。這是過渡期允許的做法（core-and-extensions §3.6 的過渡期規則）：launcher 在
+  `internal/app`、vars builder 在 core，新增時登錄在同一節。讓 Workflow 組合與 trusted vars 由模組提供、純
+  playbook 就能新增 platform，是之後的工作（core-and-extensions §5.1 的宣告式範本）。
 
 **Slurm 已依 (B) 實作**（[decision 019](../decisions/019-slurm-platform-deployment.md)）：新增了
 `SlurmDeploymentSpec`、`configure-slurm` 的 launcher 分支與 `buildSlurmVars`、type-aware 的
@@ -740,25 +740,41 @@ deploy handler 與憑證記錄，並重用 `ensure-os`。具體對照見 §6.3�
 
 ### 6.2 步驟
 
-0. **宣告模組**：`api-server/modules/platform/<type>/module.json` 與 root Go package，實作 `platform` hook
-   （`PlatformModule`：spec 與部署 request 的轉換、一次 spec 變更的動作與分類、成員回報）與 `platform-reader`，加入
-   `compiledModules`（[模組撰寫指南](module-authoring.md) §1.1）。dashboard 的畫面（Overview、分頁、部署 wizard 的
-   表單）放在 `dashboard/src/modules/platform/<type>/` 並登錄在模組 registry（模組撰寫指南 §1.2）。
-1. **設計 Job**：重用 `ensure-os`（OS + SSH 就緒的骨架不必重寫）；新增 `configure-slurm` Job，並在 plan catalog 的
-   `workflowJobLabels` 登錄顯示名稱。
-2. **寫 playbook**：於模組目錄 `api-server/modules/platform/slurm/` 的 `playbooks/` 新增 `deploy-slurm.yml`，
+0. **宣告模組**：`api-server/modules/platform/<type>/module.json` 與 root Go package，實作三個 hook
+   （[模組撰寫指南](module-authoring.md) §1.1）：
+   - `platform`（`PlatformModule`：spec 與部署 request 的轉換、一次 spec 變更的動作與分類、成員回報）；
+   - `platform-reader`（membership 與 type 專屬的讀取）；
+   - `platform-credential`（`CredentialReader`：從部署結果讀出要記錄的 credential）。少了任何一個，process 會拒絕啟動。
+
+   接著加入 `internal/app/modules.go` 的 `compiledModules`，並在 `.github/CODEOWNERS` 登錄模組目錄與 dashboard 模組目錄
+   （`internal/app` 的測試檢查前者）。dashboard 的畫面（Overview、分頁、部署 wizard 的表單）放在
+   `dashboard/src/modules/platform/<type>/` 並登錄在 `src/modules/registry.ts`（模組撰寫指南 §1.2）。
+1. **core 與組裝的登錄**（過渡期做法，逐項登錄在 core-and-extensions §3.6）：
+   - platform domain 的 `PlatformType` 常數（`internal/core/platform/domain/platform.go`）；
+   - Workflow kind 的常數與 `builtInWorkflowKinds`（`internal/core/workflow/domain/operation.go`）；
+   - credential 的 provider kind（`internal/app/modules.go` 的 `integrationProviders`）與結果類完成行為的 class
+     （`internal/app/workflow_completions.go` 的 `completionClasses`）；
+   - Job 的顯示名稱（`internal/app/workflow_plan.go` 的 `workflowJobLabels`；`workflow_plan_test.go` 檢查每個以常數宣告的 Job
+     都有）。
+2. **契約**：OpenAPI `areas/platforms.yaml` 的 `PlatformType` enum 與 `areas/workflows.yaml` 的 `WorkflowKind` enum，
+   接著重新產生 `openapi.yaml`（`UPDATE_OPENAPI=1 go test ./internal/shared/apicontract`）與 dashboard 的型別
+   （`npm run contract:generate`）。**沒有測試檢查這兩個 enum 與模組一致**，漏改時 API 的回應會被契約測試擋下，
+   但只在有測試走到新 type 時。
+3. **設計 Job**：重用 `ensure-os`（OS + SSH 就緒的骨架不必重寫）；新增 `configure-slurm` Job。
+4. **寫 playbook**：於模組目錄 `api-server/modules/platform/slurm/` 的 `playbooks/` 新增 `deploy-slurm.yml`，
    所需 roles 放在同一個模組的 `roles/`（被多個模組使用的 role 放 `api-server/modules/shared/roles/`），
    遵守 §5 與[模組撰寫指南](module-authoring.md)。以 Kubernetes 模組的 `deploy-kubernetes.yml` + `roles/k0s_*` 為範本。
-3. **註冊**：在 `manifest.json` 加入 `{ "name": "deploy-slurm", "path": "platform/slurm/playbooks/deploy-slurm.yml" }`；
+5. **註冊**：在 `manifest.json` 加入 `{ "name": "deploy-slurm", "path": "platform/slurm/playbooks/deploy-slurm.yml" }`；
    pin 依賴（模組撰寫指南 §2、§4）。
-4. **決定 trusted vars**：屬 (A) 就只用 standard vars + operator vars；屬 (B) 就在 Go 定義
-   `swallow_slurm_*` 並於 launcher 組裝（比照 `buildDeploymentVars`），client 不可偽造。
-5. **site mapping**：設定 `playbookMappings["deploy-slurm"] = "deploy-slurm"`（或比照 uninstall
+6. **決定 trusted vars**：屬 (A) 就只用 standard vars + operator vars；屬 (B) 就在 Go 定義
+   `swallow_slurm_*`，在 `internal/app/platform_deployment_adapter.go` 的 launcher 組裝（比照 core
+   `deploy_platform.go` 的 `buildDeploymentVars`），client 不可偽造。
+7. **site mapping**：設定 `playbookMappings["deploy-slurm"] = "deploy-slurm"`（或比照 uninstall
    硬編碼），並註明採用哪種。
-6. **消費 inventory**：以 `role_*`/`platform_*` group 或在 playbook 內 `group_by` 依 trusted vars
+8. **消費 inventory**：以 `role_*`/`platform_*` group 或在 playbook 內 `group_by` 依 trusted vars
    分組。
-7. **credential（如需）**：以 `swallow_result_path` 寫 `result.json`。
-8. **測試**：比照 `api-server/internal/adapters/hostautomation/ansible/k0s_topology_playbook_test.go`（斷言 playbook
+9. **credential（如需）**：以 `swallow_result_path` 寫 `result.json`。
+10. **測試**：比照 `api-server/internal/adapters/hostautomation/ansible/k0s_topology_playbook_test.go`（斷言 playbook
    引用了必要的 trusted-var 表達式；結構測試與 helper 見模組撰寫指南 §6），並在 lab 以真機驗證端到端（切勿動
    `tainan-` 實體機、勿刪 MAAS 資料）。
 
@@ -1032,11 +1048,13 @@ API 契約的 "Read Slurm Cluster State"。
 | --- | --- |
 | Deploy 意圖與驗證（trusted vars、ephemeral 防呆） | `internal/core/platform/application/deploy_platform.go` |
 | GPU Operator 設定、版本清單與驗證 | `internal/core/platform/domain/gpu_operator.go`、`internal/core/platform/application/gpu_operator.go` |
-| GPU Operator Workflow 組裝與狀態 observer | `internal/app/gpu_operator_adapter.go` |
+| GPU Operator Workflow 組裝 | `internal/app/gpu_operator_adapter.go`（狀態投影的 handler 在 `internal/app/workflow_completions.go`） |
 | Omnistat 記錄與 State | `internal/core/platform/domain/omnistat.go` |
 | Device Metrics Exporter 記錄、State 與 GPU identity | `internal/core/platform/domain/device_metrics_exporter.go` |
 | Slurm container runtime 功能 | `internal/core/platform/domain/container_runtime.go` |
-| Slurm 功能的 software Job 組入（runtime、Prometheus、Grafana、Omnistat、DME）與狀態 observer | `internal/app/slurm_composition_adapter.go` |
+| Slurm 功能的 software Job 組入（runtime、Prometheus、Grafana、Omnistat、DME） | `internal/app/slurm_composition_adapter.go`（狀態投影的 handler 在 `internal/app/workflow_completions.go`） |
+| Platform spec 的收斂與 Change Plan apply | `internal/core/platform/application/platform_controller.go`、`platform_spec.go` |
+| Platform 模組的 hook（spec 轉換、變更分類、reader、credential） | `modules/platform/<type>/`（`platform.go` 等） |
 | Workflow 組裝（Job/Task） | `internal/app/platform_deployment_adapter.go` |
 | `configure-ntp-<serverId>` Task 組裝（platform `ensure-os` 與 Deploy OS 共用）、`install-platform` 的時鐘檢查 vars | `internal/app/ntp_planner.go` |
 | Installation 的 NTP server 設定（`SWALLOW_API_NTP_SERVER`，validation） | `config/config.go`、`config/env.go`、`config/validate.go` |
@@ -1063,7 +1081,7 @@ playbook 使用的內容放在 `shared/`。
 | --- | --- |
 | Playbook manifest（allow-list） | `manifest.json` |
 | 依賴鎖 | `api-server/internal/adapters/hostautomation/ansible/requirements.txt`、`requirements.yml` |
-| Kubernetes 模組 | `platform/kubernetes/`：`deploy-kubernetes.yml`、`uninstall-kubernetes.yml`、`deploy-k8s-exporters.yml`、`remove-k8s-exporters.yml`；roles `k0s_*`（reference 範本：`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`）與 `k8s_exporters` |
+| Kubernetes 模組 | `platform/kubernetes/`：`deploy-kubernetes.yml`、`uninstall-kubernetes.yml`、`deploy-k8s-exporters.yml`、`remove-k8s-exporters.yml`；roles `k0s_*`（reference 範本：`k0s_host_preflight`、`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`）與 `k8s_exporters` |
 | Slurm 模組 | `platform/slurm/`：`deploy-slurm.yml`、`uninstall-slurm.yml`、`configure-omnistat.yml`；roles `slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、`slurm_cluster_credential`…）、`gpu_probe`、`omnistat` |
 | AMD 模組（GPU Operator） | `accelerator/amd/`：`configure-amd-gpu-operator.yml`；role `amd_gpu_operator`（chart 在 `files/`、helm 版本與 checksum 在 `defaults/`） |
 | DME（Managed Software） | `software/device-metrics-exporter/`：`deploy-device-metrics-exporter.yml`、`uninstall-device-metrics-exporter.yml`；role 是共用的 `device_metrics_exporter` |
@@ -1094,4 +1112,3 @@ playbook 使用的內容放在 `shared/`。
   [workflows](../../api-server/docs/development/api-contracts/api-server/workflows.md)、
   [provisioning](../../api-server/docs/development/api-contracts/api-server/provisioning.md)、
   [platforms](../../api-server/docs/development/api-contracts/api-server/platforms.md)。
-- 背景：[platform orchestration & deploy reliability plan](../plans/20260906_2027_platform_orchestration_and_deploy_reliability.md)。

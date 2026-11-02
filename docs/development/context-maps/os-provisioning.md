@@ -65,12 +65,12 @@ next reconciliation updates the guard; clients do not clear it directly.
 ## SSH Keys realized in the provisioner (decisions 039 and 041)
 
 ```text
-sshkey Service --ProvisionerKeys port--> sshkey infra adapter --ProviderFactory--> SSHKeyRegistrar --> MAAS account sshkeys
+SSH Key controller (worker) --ProvisionerKeys port--> internal/app adapter --ProviderFactory--> SSHKeyRegistrar --> MAAS account sshkeys
 OS Provisioning deploy --SSHKeyRegistration port--> sshkey EnsureRegistered (before any provider write)
 ```
 
-The Access context owns SSH Key records; the provisioner's key list is only a
-realization target. The optional `SSHKeyRegistrar` capability (advertised as
+The Access context owns SSH Key records as desired state; the provisioner's key list
+is only a realization target, converged by the SSH Key controller in the worker. The optional `SSHKeyRegistrar` capability (advertised as
 `SSHKeyRegistration`) keeps MAAS vocabulary (`/account/prefs/sshkeys/`, numeric key ids)
 inside the MAAS adapter. swallow removes only provider keys it registered or adopted, so
 keys an operator added in MAAS are untouched. A non-capable provisioner is recorded as
@@ -80,35 +80,54 @@ The installation Deployment Key is the only SSH credential used for readiness,
 login-user probes, and Ansible execution. Site Automation may store a become
 password but cannot override that key.
 
-The OS Image default user is swallow-owned data on the OS Image Provider Data Overlay
-(`defaultUser`, with a built-in per provider OS family). Reconcile mirrors the effective
-value onto each deployed Server as `deployedImageDefaultUser`, alongside
-`deployedImageName`, so automation reads it from the projection without a catalog call.
+The OS Image default user is swallow-owned OS Image metadata (`defaultUser`, with a
+built-in per provider OS family; collection `os_image_metadata`), merged into the live
+catalog on read. Reconcile mirrors the effective value onto each deployed Server as
+`deployedImageDefaultUser`, alongside `deployedImageName`, so automation reads it from the
+projection without a catalog call.
 
-## Provisioner HTTP Proxy written through (decision 056)
+## Provisioner HTTP Proxy as desired state (decision 056)
 
 ```text
-dashboard --provisioner-http-proxy.md--> HTTPProxyUseCase --ProviderFactory--> HTTPProxyReader/Writer --> MAAS get_config/set_config
+dashboard --provisioner-http-proxy.md--> spec in provisioner_http_proxies
+HTTP Proxy controller (worker) --ProviderFactory--> HTTPProxyReader/Writer --> MAAS get_config/set_config
 ```
 
-The provisioner owns the proxy setting; swallow keeps no copy. The optional
-`HTTPProxyReader`/`HTTPProxyWriter` capability (advertised as `HTTPProxy`) translates the
+swallow owns the proxy setting as desired state; the API stores the spec, and the HTTP
+Proxy controller writes it to the provisioner and reads it back. A change made in MAAS is
+drift and is reverted on resync; the first read adopts the provisioner's current value. The
+optional `HTTPProxyReader`/`HTTPProxyWriter` capability (advertised as `HTTPProxy`) translates the
 swallow mode set (`none | builtin | external | peer`) to and from MAAS's
 `enable_http_proxy`, `use_peer_proxy`, and `http_proxy`; those names stay inside the MAAS
 adapter.
 
-## Subnet DNS written through (decision 058)
+## Subnet DNS as desired state (decision 058)
 
 ```text
-dashboard --provisioner-subnet-dns.md--> SubnetDNSUseCase --ProviderFactory--> SubnetDNSReader/Writer --> MAAS subnets
+dashboard --provisioner-subnet-dns.md--> spec in provisioner_subnet_dns
+Subnet DNS controller (worker) --ProviderFactory--> SubnetDNSReader/Writer --> MAAS subnets
 ```
 
-The provisioner owns its subnets and DNS server lists; swallow keeps no copy.
-The optional Subnet DNS capability reads live and writes through by provider
-subnet id. `automatic` and `static` deployment intent consume this observation
+The provisioner owns its subnets; swallow owns each subnet's DNS server list as desired
+state. The Subnet DNS controller writes the list by provider subnet id and reads it back,
+adopts a newly seen subnet's current list, and removes the setting of a subnet the
+provisioner no longer has. `automatic` and `static` deployment intent consume this observation
 (falling back to the provisioner's DNS when the list is empty), while `dhcp`
 intentionally takes DNS from the network DHCP server. Provider subnet ids and
 MAAS `dns_servers` remain outside the Swallow deployment model.
+
+## Power Configuration written through (decision 054)
+
+```text
+dashboard/cli --power configuration contract--> PowerConfigurationUseCase --ProviderFactory--> PowerConfigurationReader/Writer --> MAAS power_type/power_parameters
+Boot Media and Server Enrollment --live read--> Power Configuration (method and BMC address)
+```
+
+A Server's Power Configuration (the driver and its parameters, including BMC credentials)
+is still owned by a capable provisioner: swallow reads it live and writes it through, keeps
+no copy, and never returns the password. swallow validates by power family first; MAAS
+validates again and may reject. Writing changes only the configuration: it does not switch
+power or test the BMC. Migrating it to desired state is pending (desired-state-model.md §4.4).
 
 ## Time synchronization after SSH (decision 065)
 

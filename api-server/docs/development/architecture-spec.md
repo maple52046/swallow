@@ -71,8 +71,8 @@ flowchart TB
 - `internal/core/<context>/delivery` 將 HTTP transport 映射到 use-case input/output。
 - `internal/adapters/<port>/<adapter>` 實作 core 的 port：MongoDB store、MAAS、Temporal、Ansible、
   Prometheus/Alertmanager、Redfish、libvirt 等。
-- `modules/` 放擴充模組的 Go 程式碼與 host automation 內容（目前的 Go 程式碼是 Kubernetes／Slurm API client
-  與 Docker Engine client）。
+- `modules/` 放擴充模組：每個模組的 `module.json`、root Go package（模組契約的 hook）與 host automation 內容；
+  Kubernetes 與 Slurm 模組另有 cluster API 的 client（`kubeapi/`、`slurmapi/`）。
 - `internal/app` 是 composition root，可組合 core、adapter、模組、loops 與 runtime
   process。
 - `cmd/swallow-api` 只負責 Cobra command、signal/context、config load 與啟動。
@@ -91,6 +91,8 @@ api-server/
 ├── internal/
 │   ├── core/                        # 不含廠商、產品、平台或 GPU 廠商的知識
 │   │   ├── store/                   # store port：Transactor、AfterCommit
+│   │   ├── convergence/             # desired-state controller 的 runtime、lease、Change Plan
+│   │   ├── module/                  # 模組契約 v1：manifest、registry、模組清單的 API
 │   │   └── <context>/domain|application|delivery
 │   ├── adapters/                    # 依 provider interface 分組
 │   │   ├── store/mongodb/           # client、topology 檢查、Transactor；<context>/ 各 context 的 repository；migration/
@@ -108,15 +110,17 @@ api-server/
 │   └── app/                         # composition root
 └── modules/                         # host automation 的內容根目錄（ansible-runner project dir）
     ├── manifest.json                # release 的 playbook allowlist，路徑相對於 modules/
-    ├── platform/kubernetes/         # kubeapi/：cluster API 的 reader 與 explorer client
-    ├── platform/slurm/              # slurmapi/：slurmrestd 的 reader
-    ├── accelerator/amd/
-    ├── software/<kind>/
+    ├── platform/kubernetes/         # module.json、hook；kubeapi/：cluster API 的 reader 與 explorer client
+    ├── platform/slurm/              # module.json、hook；slurmapi/：slurmrestd 的 reader
+    ├── accelerator/amd/             # module.json、accelerator hook
+    ├── software/<kind>/             # module.json、型錄與 spec hook
     └── shared/                      # 跨模組共用的 playbook 與 role
 ```
 
 - **core**：`<context>` 是現在的 feature slice（site、server、provisioning、workflow、platform、software、sshkey、
   auth、apikey、infrastructure、monitoring、overview、discovery），各自保留 domain、application、delivery 三層。
+  `convergence`（controller 框架：runtime、lease、`KeysForChange`、Change Plan；用法見 desired-state-model.md §7、§12）
+  與 `module`（模組契約與 registry）是各 slice 共用的機制，不是 feature slice。
   Delivery（HTTP）屬於 core，因為它是 swallow 自己發佈的契約。core 不得 import `internal/adapters` 或
   `modules`。
 - **adapters**：依它實作的 provider interface 分組；只依賴 core 的 port 與外部 SDK，不得 import 其他 adapter
@@ -140,6 +144,10 @@ api-server/
 - `internal/shared` 不得 import core、adapter、`internal/app` 或 `modules`。
 
 新增的 import 違反上述規則時應修正依賴方向（例如把 port 或常數移到 core），不得放寬檢查。
+
+core 中的廠商與產品詞彙由 `tests/core_vendor_terms_test.go` 守住：它計算每個 core 檔案出現 `coreVendorTerms` 的
+次數，與 `tests/testdata/core_vendor_terms.json` 的基準比較，只能減少（減少時以 `UPDATE_VENDOR_BASELINE=1` 重寫
+基準）。新增廠商名稱的例外見 core-and-extensions.md §3.6 的過渡期規則。
 
 ### 2026-10-31 搬移前的路徑
 
@@ -255,20 +263,26 @@ Interface 不用來包裝每個 concrete type；只有需要保護 boundary、�
 - Adapter 的識別碼（provider kind、`RunnerKind` 的值）在 domain 與 use case 中只是不透明的資料；
   已持久化或已在 API 上的值維持不變。行為依 adapter 宣告的 capability 決定，不依識別碼分支。
 - 平台專屬（Kubernetes、Slurm）與 GPU 廠商專屬（AMD）的邏輯屬於擴充模組，不得新增到 core 的 feature
-  slice 或 `internal/app`；現有的越界列在 core-and-extensions.md §3.6，修改時不得擴大。
+  slice 或 `internal/app`；現有的越界列在 core-and-extensions.md §3.6，修改時不得擴大。遷移完成前新增 Platform、
+  Managed Software kind 或 GPU 廠商行為，只能用同一節過渡期規則列出的位置，並登錄在該節。
 
 ## Durable Workflow Boundary
+
+執行語意以 root 的 [`workflow-execution.md`](../../../docs/development/workflow-execution.md) 為準；本節只列
+api-server 程式碼要守的邊界：
 
 - Workflow 的語意與狀態由 swallow 擁有、存在 store；Temporal 只是 Workflow executor adapter，它的型別與
   概念不得越過 `internal/adapters/executor/temporalworkflow`（見 desired-state-model.md §9）。
 - Application 建立 intent 與 durable Workflow record，不直接長時間 block HTTP request。
-- Temporal Workflow code 必須 deterministic；I/O、clock、randomness、provider call
-  與 Mongo write 留在 activity。
-- Activity 使用 idempotency key，並安全處理 replay/retry。
-- Site/resource lease 保護 conflicting work；lock gate 在 application boundary 執行。
+- 執行狀態只有一個寫入者：core 的 Workflow service（workflow-execution.md §2）。activity 回報結果，由 Workflow
+  service 在 transaction 內寫入；activity 與 Runner 不直接寫 Workflow 的 store。
+- Temporal Workflow code 必須 deterministic；I/O、clock、randomness 與 provider call 留在 activity。
+- Runner 使用 idempotency key，並安全處理 replay 與 infrastructure retry（workflow-execution.md §5）。
+- 衝突的工作以 per-resource 的所有權序列化（沒有 TTL，Workflow 進入終態時釋放），受理時另以 busy check 拒絕
+  重疊的 target（workflow-execution.md §4）。
 - Ansible executor 只接受 manifest allowlist 內的 playbook，credential 經 write-only
   secret boundary 傳遞，event/artifact 不得洩漏 secret。
-- 無法證明 external side effect 的 expired run 變成 `indeterminate`，不得自動 retry。
+- 結果無法證明的 Task 記為 `requires_attention`（`executor_outcome_unknown`），不得自動重跑。
 
 ## Store and Transaction Boundary
 
@@ -334,7 +348,8 @@ Temporal、artifact path、retention、parallelism 等 security/lifecycle semant
 - 以 hostname／IP 取代 opaque Server identity。
 - 以 provider 為 desired state 的真相來源，或讓 provider adapter 寫入 desired state。
 - 以補償（先寫再刪）或修復 sweep 取代 transaction。
-- 在 core 的 feature slice 或 `internal/app` 新增平台（Kubernetes、Slurm）或 GPU 廠商（AMD、NVIDIA）專屬的邏輯。
+- 在 core 的 feature slice 或 `internal/app` 新增平台（Kubernetes、Slurm）或 GPU 廠商（AMD、NVIDIA）專屬的邏輯
+  （core-and-extensions.md §3.6 過渡期規則列出的位置除外）。
 - 在 domain 或 application 使用廠商或產品專屬的詞彙、型別、常數，或依 adapter 識別碼分支。
 
 ## Completion Gate

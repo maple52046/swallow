@@ -58,6 +58,28 @@ HISTORICAL_CODE_PATHS = {
     ("docs/development/glossaries/terms/site.md", "docs/glossaries/site.md"): "change note",
     ("docs/development/glossaries/terms/staleness.md", "docs/glossaries/site.md"): "change note",
 }
+# Terms for mechanisms that no longer exist. A document that still uses one describes a model
+# the code left behind; ADRs are frozen records and are not checked.
+RETIRED_TERMS = {
+    "indeterminate": "unprovable outcomes are requires_attention with executor_outcome_unknown",
+    "step observer": "Tasks declare completion behaviors (workflow-execution.md §12)",
+    "completion observer": "Tasks declare completion behaviors (workflow-execution.md §12)",
+    "isTimeTask": "Tasks declare completion behaviors (workflow-execution.md §12)",
+    "/api/v1/operations": "the alias was removed; the route is /api/v1/workflows",
+    "/api/v1/clusters": "the alias was removed; the route is /api/v1/platforms",
+    "IronicProvider": "there is no Ironic adapter",
+}
+# Documents whose purpose is to record the retirement itself: a contract change note or the
+# public compatibility page.
+RETIRED_TERM_RECORDS = {
+    ("api-server/docs/development/api-contracts/api-server/overview.md", "indeterminate"),
+    ("api-server/docs/development/api-contracts/api-server/workflows.md", "/api/v1/operations"),
+    ("api-server/docs/development/api-contracts/api-server/platforms.md", "/api/v1/clusters"),
+    ("docs/en/reference/compatibility.md", "/api/v1/operations"),
+    ("docs/en/reference/compatibility.md", "/api/v1/clusters"),
+    ("docs/zh-TW/reference/compatibility.md", "/api/v1/operations"),
+    ("docs/zh-TW/reference/compatibility.md", "/api/v1/clusters"),
+}
 
 
 def markdown_files() -> list[Path]:
@@ -273,6 +295,26 @@ def check_code_paths(files: list[Path], errors: list[str]) -> None:
             errors.append(f"{source}: inline path does not exist: {raw}")
 
 
+def check_retired_terms(files: list[Path], errors: list[str]) -> None:
+    """Report retired mechanism names outside ADRs and the documents that record the retirement."""
+    patterns = {
+        term: re.compile(r"(?<![\w-])" + re.escape(term) + r"(?![\w-])", re.IGNORECASE)
+        for term in RETIRED_TERMS
+    }
+    for source in files:
+        if source.parts[:2] == ("docs", "decisions"):
+            continue
+        text = (ROOT / source).read_text(encoding="utf-8")
+        for term, pattern in patterns.items():
+            if (str(source), term) in RETIRED_TERM_RECORDS:
+                continue
+            for number, line in enumerate(text.splitlines(), start=1):
+                if pattern.search(line):
+                    errors.append(
+                        f"{source}:{number}: retired term {term!r} ({RETIRED_TERMS[term]})"
+                    )
+
+
 def check_language_mirror(errors: list[str]) -> None:
     english = {
         path.relative_to(ROOT / "docs/en")
@@ -346,6 +388,7 @@ def main() -> int:
     files = markdown_files()
     check_links(files, errors)
     check_code_paths(files, errors)
+    check_retired_terms(files, errors)
     check_language_mirror(errors)
     check_required_counterparts(errors)
     check_documentation_screenshots(errors)

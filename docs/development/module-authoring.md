@@ -120,8 +120,11 @@ api-server/modules/
   （`deployFeatures`），例如 AMD 模組帶給 Kubernetes 的 GPU Operator。
 - 外殼只經由 registry 使用模組；模組不 import 其他模組與 infrastructure，模組專屬的 API adapter 放在模組資料夾，由
   `src/di` 綁定。lint 規則守住這些邊界。
-- 沒有專屬畫面的模組不必寫 dashboard 程式碼：manifest 的 `spec`（§1.1）經 `GET /api/v1/modules` 提供，dashboard 以
-  `ModuleSettingsFields` 與 `ModuleSettingsDetails` 產生表單與詳情（目前是 NFS）。
+- 沒有專屬畫面的模組，設定的表單與詳情不必寫程式：manifest 的 `spec`（§1.1）經 `GET /api/v1/modules` 提供，dashboard
+  以 `ModuleSettingsFields` 與 `ModuleSettingsDetails` 產生（目前是 NFS）。
+- Software 模組仍要改 dashboard：`SoftwareKind` 是固定清單，dashboard 會濾掉不認得的 kind。新增 kind 時把它加進
+  `src/domain/software/types.ts` 的 `SoftwareKind` 與 `SOFTWARE_KINDS`、`softwareCatalogPresentation.ts` 的
+  `PRESENTATION`（分類、說明、圖示、順序），以及 e2e fixture 的 catalog（`dashboard/tests/e2e/fixtures.ts`）。
 
 ## 2. 登錄 playbook
 

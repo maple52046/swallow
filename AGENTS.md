@@ -129,6 +129,9 @@ not kept only in the tool's own directory (for example `~/.cursor/plans/`):
 - One plan per topic: list the file names in `docs/plans/manuscripts/` to find a
   plan on the same topic, and update that file instead of creating a duplicate.
   Open only that file.
+- A plan that replaces or retires a mechanism lists, in its completion conditions,
+  the documents that restate the mechanism, and adds the retired names to
+  `RETIRED_TERMS` in `scripts/check-docs.py`.
 
 Otherwise do not read `docs/plans/`. Plans are historical records, read only when
 the user asks for planning history, decision archaeology, or plan consolidation.

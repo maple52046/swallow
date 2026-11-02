@@ -37,8 +37,8 @@ component 組成的 runtime；software deployment 佈署單一軟體及其變體
 ## 1. 心智模型：沿用 Workflow → Job → Task → Runner
 
 software deployment 不新增編排引擎，直接沿用
-[decision 017](../decisions/017-workflow-job-task-runner-model.md) 的模型與既有 Temporal
-執行、lease、retry、`requires_attention`。
+[decision 017](../decisions/017-workflow-job-task-runner-model.md) 的模型；資源所有權、重試、`requires_attention`
+與完成行為照 [workflow-execution.md](workflow-execution.md)。
 
 一次獨立 software 安裝的 Job 組成：
 
@@ -51,8 +51,8 @@ software deployment 不新增編排引擎，直接沿用
 uninstall 對稱：`prepare-hosts` → `configure-<kind>`（跑 `uninstall-<kind>` playbook）→
 `record-software` 的 `clear-software-assignment`（標 `absent`）。
 
-**失敗語意**：install 的 ansible step 若失敗，`record-software` 不會執行；此時由 step observer 依
-ansible step 上攜帶的 assignment 身分把 Software Assignment 標為 `failed`（見 §4.3）。
+**失敗語意**：install 的 ansible Task 若失敗，`record-software` 不會執行；此時由該 Task 宣告的完成行為依
+它攜帶的 assignment 身分把 Software Assignment 標為 `failed`（見 §4.3）。
 
 **SSH 就緒是驗證式、帳號 per-host 解析**：`prepare-hosts` 的 `wait-for-ssh` 會以 Deployment Key
 （唯一的 automation 金鑰，decision 041）對每台目標**實際完成 SSH 認證**，不是只探 22 埠；且 SSH 登入帳號為
@@ -86,6 +86,19 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
   專屬設定畫面的 kind 依 schema 產生安裝表單與「View settings」詳情。目前 NFS 宣告了 schema。
 - composition root 啟動時核對上述名稱並組出 catalog，這些 Workflow kind 要求 target 為 `deployed`。
 - 撰寫步驟見[模組撰寫指南](module-authoring.md) §1.1、§1.2。
+- **沒有參數的 kind**：catalog entry 的 `SpecFields` 為空，spec 可以省略或為 `{}`，`ValidateSpec` 對帶任何欄位的
+  spec 回 `ErrSpecInvalid`（API 為 `400 validation_error`），比照 Device Metrics Exporter。只有選用欄位的 kind
+  （例如 Podman 的 `version`）照常宣告欄位。
+
+模組目錄之外還要改的地方，漏改時多數沒有測試會失敗：
+
+- `internal/app/modules.go` 的 `compiledModules`；`.github/CODEOWNERS` 登錄模組目錄（有測試檢查）。
+- `modules/manifest.json` 登錄 `deploy-<kind>` 與 `uninstall-<kind>`；
+  `internal/adapters/hostautomation/ansible/software_playbook_test.go` 寫死了這份清單，一併加上。
+- OpenAPI `areas/workflows.yaml` 的 `WorkflowKind` enum 加上 `configure-<kind>`、`uninstall-<kind>`，接著重新產生
+  `openapi.yaml` 與 dashboard 的型別（[api-contracts README](../../api-server/docs/development/api-contracts/README.md)
+  的 OpenAPI 一節）。`SoftwareKind` 在契約中是 pattern，不必改。
+- dashboard 的 kind 清單與呈現（[模組撰寫指南](module-authoring.md) §1.2）。
 
 **安裝方法**（[decision 063](../decisions/063-omnistat-slurm-observability.md)）：catalog 的
 `installMethods` 列出 kind 可用的安裝方法（第一個是預設），`containerRuntimes` 列出 `container` method
@@ -205,8 +218,9 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 - `record-software-assignment`（internal）在 install 成功後把 assignment 標 `installed`、更新
   `lastAppliedAt`。
 - `clear-software-assignment`（internal）在 uninstall 成功後把 assignment 標 `absent`。
-- install 的 ansible step 攜帶 `softwareKind` 與 `serverIds` 參數；step observer 觀察到該 step 進入
-  終態失敗（failed / requires_attention / canceled）時，把對應 assignment 標 `failed`。
+- install 的 ansible Task 宣告投影類完成行為 `software-assignment-failure`（參數 `softwareKind`、`serverIds`；
+  完成行為見 [workflow-execution.md](workflow-execution.md) §12）。Task 轉為 `failed`、`requires_attention` 或
+  `canceled` 時，handler 把對應 assignment 標 `failed`。
 
 ### 4.4 Playbook manifest 與命名
 
@@ -316,7 +330,7 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
      `device-metrics-exporter`，[decision 068](../decisions/068-device-metrics-exporter-managed-software.md)）。
      其 `install-device-metrics-exporter` Task 同時帶 software 參數（因此安裝失敗時 assignment 隨之標
      `failed`）與 Platform 的 owner／record 參數，Platform 的 DME State、GPU identity、Monitoring Link 照舊由
-     step observer 與 result 檔記錄；Slurm 專屬 trusted vars（job attribution、cluster name label、observability
+     該 Task 宣告的投影類與結果類完成行為記錄；Slurm 專屬 trusted vars（job attribution、cluster name label、observability
      Server 上的抓取驗證，見 §4.2）疊加在 software vars 上。Slurm uninstall 照舊在每個 target 移除 DME，成功時把
      該 Platform 各 Server 的 `device-metrics-exporter` assignment 標為 `absent`，紀錄不會比套件活得久。
 
@@ -325,9 +339,9 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
   Task。組入用的 trusted vars 與驗證由 `SoftwareService.PlanComposedInstall` 產生（同樣的
   catalog／role／spec／互斥／k8s 規則，但不檢查 deployed 與 runtime 狀態，因為由 Job 順序保證）；
   launcher 在寫入 Workflow 的同一個 transaction 中呼叫 `RecordComposedInstall` 寫入 pending assignment
-  （decision 069），寫入失敗會讓整個 deploy 受理失敗；安裝失敗由既有 step observer 標 `failed`。
+  （decision 069），寫入失敗會讓整個 deploy 受理失敗；安裝失敗由 install Task 宣告的 `software-assignment-failure` 標 `failed`。
 - **禁止** `ExecuteChildWorkflow` 一個完整的獨立 software Workflow（會重複 `wait-for-ssh`、搶同一
-  per-Server lease、retry/cancel 歸屬混亂、出現兩個 operator-visible Workflow）。
+  Server 的資源所有權、retry/cancel 歸屬混亂、出現兩個 operator-visible Workflow）。
 - **禁止**只用 ansible `include_role` 當唯一連動（會抹掉 Job 邊界與 dashboard 分組）。playbook 內部
   仍可 `include_role`，但 Job 邊界由 launcher 決定。
 

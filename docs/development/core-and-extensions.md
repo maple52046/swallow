@@ -8,7 +8,8 @@
 > [desired-state-model.md](desired-state-model.md)（[decision 069](../decisions/069-swallow-owns-desired-state.md)）。
 
 > **目標結構與現況**：本文件描述目標結構。現有程式碼仍有越過邊界的地方（§3.6），遷移在各自的計畫中進行；
-> 新的程式碼必須依本文件放置，修改既有程式碼時不得讓越界的情況擴大。
+> 新的程式碼必須依本文件放置，修改既有程式碼時不得讓越界的情況擴大。遷移完成前新增 Platform、Managed Software
+> kind 或 GPU 廠商行為的允許做法，見 §3.6 的過渡期規則。
 
 ```mermaid
 flowchart TB
@@ -111,26 +112,49 @@ interface，而是 Platform 模組與 Software 模組提供的能力（§4）。
   deployment 記錄的 platform Integration 以 Platform type 為 provider kind。
 - store 與 Workflow executor 是安裝層級的 adapter，整個安裝只有一個，由 composition root 選擇。
 
-### 3.6 現有的越界（遷移時處理）
+### 3.6 現有的越界與過渡期規則
 
-2026-11-01 盤點的結果；`api-server/tests/layout_test.go` 以每個檔案的基準數字守住 core 中的廠商詞彙，只能減少：
+2026-11-02 盤點的結果。`api-server/tests/core_vendor_terms_test.go` 以每個檔案的基準數字
+（`api-server/tests/testdata/core_vendor_terms.json`）守住 core 中的廠商詞彙，只能減少：
 
 - **Workflow**：
   - Ansible 專屬的執行模型（playbook、playbook catalog、Ansible event、`ansible_host`）在 workflow 的 domain 與
     application。（`RunnerKind` 已依 port 命名，持久化的值 `ansible`、`maas` 不變；delivery 不再依它分支。）
   - domain 有 Temporal 的執行參照（`TemporalReference`）與 Mongo 的 `bson` struct tag，repository 直接 decode 成
     domain 型別。import 規則守住了 Temporal 與 Mongo 的 SDK，但它們的概念仍在 domain。
+  - 以平台命名的 Workflow kind 常數與 `builtInWorkflowKinds`（`internal/core/workflow/domain/operation.go`）；
+    Software 的 Workflow kind 已由模組宣告。
 - **Platform 與 AMD**：平台與 AMD 專屬的模型與流程（GPU Operator、GPU driver、Device Metrics Exporter 與 Omnistat 的
   Platform 功能）位於 `internal/core/platform` 與 `internal/app`（§4）。哪些 GPU 是 AMD 的運算容量已由 AMD 模組的
   `accelerator` hook 判斷，core 經由 platform domain 的 `Accelerator` port 詢問。
-- **Managed Software**：kind 與產品常數（版本、port、Prometheus／Grafana 的驗證規則）仍在 `internal/core/software`；
-  型錄、各 kind 的分支與 Docker Host Explorer 已在各 Software 模組。
+- **Managed Software**：kind 常數（`internal/core/software/domain/software.go`）與產品常數（版本、port、
+  Prometheus／Grafana 的驗證規則）仍在 `internal/core/software`；型錄、各 kind 的分支與 Docker Host Explorer 已在各
+  Software 模組。
+- **composition root**（`internal/app`，不在 ratchet 的範圍）：Platform 的 launcher 與組入（platform deployment、
+  Slurm composition、GPU Operator、lifecycle 的 adapter）、平台 Job 的顯示名稱（`workflow_plan.go` 的
+  `workflowJobLabels`）、credential 的 provider kind（`modules.go` 的 `integrationProviders`）與結果類完成行為的
+  class（`workflow_completions.go` 的 `completionClasses`）。
 - **BMC 與 hypervisor**：server 的 port 以 Redfish、libvirt 命名，hypervisor 的 `virsh` 指令在 domain。
 - **Metrics**：monitoring 寫死 PromQL 與 GPU exporter 的指標名稱；discovery 直接產生 Prometheus http_sd 與 Ansible
   inventory 的格式。
 - **provisioning**：MAAS 的 subarch 正規化在 domain 與 application。
 
 core 不 import 任何 adapter 或廠商 SDK，這一點已由 import 檢查守住；上面是詞彙與概念層面的越界。
+
+**過渡期規則**：Platform 與 AMD 的 Workflow 組合、trusted vars 與 GPU 功能搬進模組之前，新增下列東西時只允許
+放在這些位置，並在同一個 commit 把新的位置登錄到本節：
+
+- **新的 Platform**：模組的三個 hook 與 dashboard 模組畫面（§4.1）是目標做法；另外允許 core 的 `PlatformType`
+  常數、`operation.go` 的 Workflow kind 常數與 `builtInWorkflowKinds`、core `deploy_platform.go` 的 vars builder，以及
+  上面列出的 `internal/app` 位置。完整的修改清單見 [platform-deployment.md](platform-deployment.md) §6.2。
+- **新的 Managed Software kind**：只在模組內（§4.3），core 不加 kind 常數；dashboard 仍有固定的 kind 清單，見
+  [software-deployment.md](software-deployment.md) §2 的修改清單。
+- **新的 GPU 廠商行為**：先經 Accelerator 模組的 hook（§5.4）。hook 還表達不了的 Platform 功能（如 AMD 的
+  GPU Operator），允許比照 AMD 放在 `internal/core/platform` 與 `internal/app`。
+
+core 檔案的廠商詞彙數仍不得增加。新的平台或廠商名稱要寫進 core 時（例如 `PlatformType` 常數），把名稱加進
+`coreVendorTerms`，並在同一個 commit 以 `UPDATE_VENDOR_BASELINE=1` 重寫基準；commit 說明列出基準因此上升的
+檔案，其餘檔案的數字不得上升。
 
 ### 3.7 一致性測試
 
@@ -240,6 +264,7 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 ## 8. 支援矩陣與發行版
 
 - 交付給客戶的是 core 加上一組驗證過的 adapter 與模組。
+- 本節的發行版組裝與支援矩陣**尚未實作**：目前每個 build 編入全部模組，也沒有支援矩陣。
 - **發行版組裝**：release 建置時依一份設定選擇要包含的模組，只複製被選入的模組目錄（加上 `shared/`），不改變
   目錄結構；執行時直接以這個模組根目錄作為 host automation 的內容根目錄，manifest 只登錄被選入模組的 playbook。
   每次執行只看得到該 playbook 所屬模組與 `shared/` 的 role。
@@ -298,7 +323,20 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 - [ ] capability 已宣告，core 不依 adapter 名稱分支（§3.4）。
 - [ ] 註冊方式已決定：Site 的 Integration，或安裝層級（§3.5）。
 - [ ] 通過該 port 的一致性測試（§3.7）。
-- [ ] 支援矩陣已更新（§8）。
+- [ ] 支援矩陣已更新（§8；發行版組裝實作後適用）。
+
+目前要改的地方（路徑相對於 `api-server/`，標 ✗ 的沒有測試保護）：
+
+- adapter 放在 `internal/adapters/<port>/<adapter>/`，匯出它的 provider kind 常數；import 規則由
+  `tests/layout_test.go` 檢查。
+- `internal/app/modules.go` 的 `integrationProviders` 登錄 provider kind；provisioner 另在 `bootChainRenderers`
+  登錄 Boot ISO 的 chain renderer。
+- ✗ OpenAPI `areas/sites.yaml` 的 Integration `providerKind` enum（建立 request 與 Integration schema 兩處），以及
+  dashboard 的 Integration 建立選項（`CreateIntegrationDialog.tsx`）與 provider 專屬的設定與憑證說明
+  （`integrationSettings.ts`、`credentialGuidance.ts`）。
+- ✗ provisioner：composition root 目前直接以 `maas.NewProviderFactory` 建立 provider factory（`internal/app` 的
+  `api.go`、`worker.go`、`ansible_executor.go`、`deployment_key.go`、`platform_worker.go`）。第二個 provisioner adapter
+  要先有依 Integration 的 provider kind 選擇 adapter 的 factory。
 
 ### 11.2 新增一個模組
 
@@ -311,7 +349,7 @@ manifest 本身不假設內容一定是 Ansible。內容仍受 release 的 allow
 - [ ] dashboard 的呈現已決定：專屬畫面登錄在 dashboard 的模組 registry，或依 manifest 的 `spec` 產生（§7、
   [模組撰寫指南](module-authoring.md) §1.2）。
 - [ ] 模組目錄已在 `.github/CODEOWNERS` 登錄負責人，並依[模組撰寫指南](module-authoring.md)提交（§10.1）。
-- [ ] 支援矩陣已更新（§8）。
+- [ ] 支援矩陣已更新（§8；發行版組裝實作後適用）。
 
 ## 12. 設計理由與相關文件
 

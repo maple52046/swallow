@@ -121,8 +121,8 @@ Shared behavior：
 - Ansible execution 只允許 [modules/manifest.json](modules/manifest.json)
   內的 playbook。
 
-Expired execution 可能變成 `indeterminate`；因為 external side effect 無法證明，
-所以不會自動 retry。
+結果無法證明的 Task（例如執行中 Ansible executor 遺失）停在 `requires_attention`，原因為
+`executor_outcome_unknown`，不會自動重試。
 
 ## Development architecture
 

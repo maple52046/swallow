@@ -78,7 +78,7 @@ Exported API 與重要 internal boundary 的 doc comment 必須能回答與該 s
 - Entity/domain type：註解必須描述 domain meaning、invariant、allowed/disallowed state，不得只描述 Mongo 欄位或 JSON shape。
 - Port interface：註解必須描述實作者必須保證什麼、哪些錯誤是 domain miss、哪些實作限制只適用於測試。
 - Use case/application service：註解必須描述 application flow、port dependency、授權假設，以及回傳錯誤的語意。
-- Interface adapter（`delivery` / `infra`）：註解必須描述外部 contract 如何映射到內層 model，包括 HTTP status、DTO、Temporal payload、Mongo document 或 error mapping 的邊界。
+- Interface adapter（core 的 `delivery` 與 `internal/adapters/<port>/<adapter>`）：註解必須描述外部 contract 如何映射到內層 model，包括 HTTP status、DTO、Temporal payload、Mongo document 或 error mapping 的邊界。
 - Framework/driver（`internal/app`、`config`、`bootstrap`）：註解必須描述 config source、resource lifecycle、startup/shutdown、network、secret 或 external dependency 的 operational assumption。
 - Shared internal package（`internal/shared/*`）：註解必須描述哪些 component 可以依賴它、哪些行為是 shared contract，以及不得放入 component-specific rule 的限制。
 

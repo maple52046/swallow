@@ -144,8 +144,9 @@ from this component's private code.
 - Ansible execution is restricted to playbooks in
   [modules/manifest.json](modules/manifest.json).
 
-An expired execution may become `indeterminate` and is not retried
-automatically because its external side effect cannot be proven.
+A Task whose outcome cannot be proven (for example, the Ansible executor was
+lost mid-run) stops in `requires_attention` with reason `executor_outcome_unknown`
+and is not retried automatically.
 
 ## Development architecture
 

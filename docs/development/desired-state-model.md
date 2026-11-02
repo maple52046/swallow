@@ -143,8 +143,10 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 | Subnet DNS | 每個 provisioner subnet 的 DNS server 清單 | Subnet DNS controller：寫入並讀回；接管新 subnet、移除已消失 subnet 的設定 | glossary [Subnet DNS](glossaries/terms/subnet-dns.md)、[os-provisioning.md](os-provisioning.md) §6.4 |
 | SSH Key | 要登錄的金鑰（名稱、用途、公鑰材料） | SSH Key controller：每個 provisioner 一次同步，只移除 swallow 登錄過的金鑰；resync 補回被刪除的金鑰 | glossary [SSH Key](glossaries/terms/ssh-key.md)、[access-and-credentials.md](access-and-credentials.md) §5 |
 | OS Image metadata | 每個 provider image 的名稱、OS、release、tags 與 `defaultUser` | 無：不需要 provider 實現，所以沒有 controller、generation 與 conditions；讀取時合併到 live catalog | glossary [OS Image](glossaries/terms/os-image.md)、[os-provisioning.md](os-provisioning.md) §4.1 |
+| Platform | type、拓樸、各 Server 的 Node Role、功能開關與版本（type 模組定義 schema） | Platform controller：接管最近一次部署的紀錄；非破壞性變更以 Workflow 收斂，破壞性變更產生 Change Plan（§5.2） | glossary [Platform](glossaries/terms/platform.md)、[platform-deployment.md](platform-deployment.md)、[platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md) |
 
-第一段的資源都已遷移。第二段的資源（Power Configuration、Server Default User、Boot Media）尚未遷移，維持現行行為。
+第一段的資源都已遷移；Platform 不屬於這兩段，另依 §5.2 遷移。第二段的資源（Power Configuration、Server Default
+User、Boot Media）尚未遷移，維持現行行為。
 
 遷移後的資源共同遵守：
 
@@ -254,12 +256,6 @@ Managed Software 的版本升級仍待該功能遷移時定案。
 
 swallow 永不擁有的事實（§3.4）不會產生 drift。
 
-### 6.5 第一次觀察即接管
-
-資源還沒有 spec 時，controller 第一次觀察到它，就把 provider 目前的值寫成 spec，`generation` 與
-`observedGeneration` 同時設為 1，不對 provider 做任何寫入（decision 071）。這同時涵蓋升級時既有的資料與
-provisioner 自行 enlist 的 machine，所以 schema migration 不需要連線 provider。
-
 ### 6.4 Hold
 
 - 以下情況暫停收斂：Server 在 Rescue Mode、Server 被 lock、operator 明確 hold、資源由未結束的 Workflow
@@ -268,6 +264,12 @@ provisioner 自行 enlist 的 machine，所以 schema migration 不需要連線 
 - hold 期間觀察與 drift 回報照常進行；controller 不執行收斂動作。Change Plan 可以產生，但要等 hold 解除才能
   apply；明確允許的回復動作（例如對 rescue 中的 Server 做 Recover）除外。
 - hold 以 `held` condition 與原因呈現。
+
+### 6.5 第一次觀察即接管
+
+資源還沒有 spec 時，controller 第一次觀察到它，就把 provider 目前的值寫成 spec，`generation` 與
+`observedGeneration` 同時設為 1，不對 provider 做任何寫入（decision 071）。這同時涵蓋升級時既有的資料與
+provisioner 自行 enlist 的 machine，所以 schema migration 不需要連線 provider。
 
 ## 7. Controller 規範
 
@@ -371,14 +373,14 @@ store 規則與資料庫引擎無關：
 ### 10.3 禁止
 
 - 不得以補償（先寫再刪）或修復 sweep 取代 transaction。
-- 不得讓資料庫特有的型別或語意越過 infra 層，例如 `bson` 型別、Mongo 的 update operator、change stream 的
-  resume token。日後遷移到 PostgreSQL 時，應該只需重寫 infra adapter。
+- 不得讓資料庫特有的型別或語意越過 store adapter，例如 `bson` 型別、Mongo 的 update operator、change stream 的
+  resume token。日後遷移到 PostgreSQL 時，應該只需重寫 store adapter。
 
 ### 10.4 測試
 
 - domain 與 application 的 unit test 以 fake transaction 驗證 use case 確實在 transaction 內寫入，以及事件只在
   成功後發布。記憶體 fake 無法 rollback，所以「失敗時沒有任何寫入」由下面的整合測試驗證。
-- infra 的整合測試在 replica set 上執行。
+- store adapter 的整合測試在 replica set 上執行。
 
 ## 11. API 與 UI 慣例
 
@@ -393,7 +395,8 @@ store 規則與資料庫引擎無關：
 - Change Plan 有自己的讀取、核准與拒絕 API。
 - action endpoint 只保留給沒有自然 desired state 的動作，例如測試連線、取消或重試 Workflow、要求立即觀察。
   為了方便，API 可以提供「寫入 spec 並產生 plan」的單一呼叫，但它的效果必須等同於寫入 spec。
-- 既有資源在遷移時調整契約，依 [api-contracts.md](api-contracts.md) 的流程處理相容期間。
+- 既有資源遷移時，遷移前的欄位在同一個變更中移除（§4.4），不保留相容期間；這是破壞性的契約變更，依
+  api-server 契約 conventions 的 Compatibility Notes 標示（見 [api-contracts.md](api-contracts.md)）。
 
 ### 11.2 dashboard 與 CLI
 
@@ -402,6 +405,17 @@ store 規則與資料庫引擎無關：
 - CLI 提供相同的能力，一律經由 API。
 
 ## 12. 新增一種 resource 的檢查清單
+
+已遷移的資源是可照著做的實作（路徑相對於 `api-server/`）：
+
+- controller 框架：`internal/core/convergence`（`runtime.go` 的 runtime、lease 與 `KeysForChange`；Change Plan 在
+  `change_plan.go`、`change_plan_service.go`）。
+- 一個資源的多個欄位：`internal/core/provisioning/application/server_controller.go` 的 `serverField`。
+- 整個資源一個 spec 的 controller：`internal/core/provisioning/application/provisioner_settings_controllers.go`
+  （HTTP Proxy、Subnet DNS）、`internal/core/infrastructure/application/catalog_controller.go`（Zone、Pool）、
+  `internal/core/sshkey/application/controller.go`。
+- 有破壞性變更與 Change Plan 的資源：`internal/core/platform/application/platform_controller.go`。
+
 
 - [ ] 列出每個欄位，並標明 desired、observed 或 derived（§3）。
 - [ ] 確認沒有任何欄位屬於 swallow 永不擁有的事實（§3.4）。

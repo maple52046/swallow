@@ -50,8 +50,9 @@ Rerun 會讓 intent 收斂到它描述的目標狀態。每個 ensure Task 都�
 狀態：已用指定 image 部署且 SSH 可連的 Server 幾秒內完成，並更新它的 deployment 結果；
 failed 的 Server 會先收回 Ready 再重新部署。Platform 的設定 playbook 也會重跑，所需時間與平常相同。
 
-Expired／lost execution 可能變成 `indeterminate`；swallow 無法證明 external side
-effect 是否發生，因此不會自動 retry。
+playbook 執行中 Ansible executor 遺失時，Task 停在 `requires_attention`，原因為
+`executor_outcome_unknown`。swallow 無法證明 playbook 的變更是否已發生，因此不會自動重跑；確認主機狀態後再重試
+該 Task。
 
 ## Cancellation
 

@@ -17,6 +17,8 @@ platform deployment、OS provisioning、software deployment 都建立在它之�
 > [os-provisioning.md](os-provisioning.md)，Managed Software 見 [software-deployment.md](software-deployment.md)。
 > HTTP 路由、欄位、狀態碼與錯誤格式以 `api-server` 擁有的
 > [workflows 契約](../../api-server/docs/development/api-contracts/api-server/workflows.md)為準。
+> 功能規格只寫自己的 Task 組成與差異，共通的執行機制引用本文件的章節，不重述；本文件的機制改變時，重述它的文件
+> 才不會留下舊的模型。
 
 ---
 
@@ -224,7 +226,7 @@ glossary [Task](glossaries/terms/task.md)。終態是 `succeeded`、`failed`、`
 不自動重試、operator 重試遞增 attempt 見 [decision 016](../decisions/016-temporal-operation-orchestration.md)；
 Job 與 ensure Task 見 [decision 017](../decisions/017-workflow-job-task-runner-model.md)；重試粒度與單一路徑見
 [decision 072](../decisions/072-store-driven-workflow-execution.md)；「結果無法證明就交給 operator」源自
-[decision 006](../decisions/006-embedded-ansible-execution.md) 的 `indeterminate` 原則。
+[decision 006](../decisions/006-embedded-ansible-execution.md)。
 
 ---
 
@@ -351,6 +353,9 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
 - 結果記在被中斷 Task 的 timeline：`canceled_deployment_returned_to_ready`、`canceled_deployment_left_as_is`、
   `canceled_deployment_return_failed`（無法回收時 Server 留在 Recover 可接受的狀態）。
 - execution 遺失後才取消時，store 中仍為 `running` 的 Task 同樣算被中斷，依同樣規則回收。
+- 被中斷的 `provision-os` 結束為 `canceled`，它宣告的 Server deployment 投影把該 Server 的 deployment 結果設為
+  `canceled`；這個結果保留到 reconcile 觀察到 Server 為 Ready 時才清除。已經 `succeeded` 或 `failed` 的
+  `provision-os` 保留原本的結果（§8.2）。provider 擁有的 `provisioning.state` 不被取消改寫，繼續跟隨 provider。
 - Recover 計畫與 provider 狀態的對應見 [Provider Recovery](glossaries/terms/provider-recovery.md) 與
   [os-provisioning.md](os-provisioning.md)。
 

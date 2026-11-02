@@ -182,8 +182,8 @@ provisioner 的性質，所以由後端決定；在 api-server spool 讓 hash �
 
 - [Deploy Target](glossaries/terms/deploy-target.md) `disk`｜`ram` 是 operator 面對的部署模式詞彙。`ram` 就是
   既有的 `ephemeral`，兩者在每個邊界一對一映射（`disk ↔ ephemeral=false`、`ram ↔ ephemeral=true`）。
-- 部署請求接受 `deployTarget`（首選）或已 deprecated 的 `ephemeral`；兩者都送時 `deployTarget` 優先，未知值是
-  `400`。wire、BSON、durable snapshot、MAAS adapter 與 k0s var 的 `ephemeral` 欄位都不改名。
+- 部署請求只讀 `deployTarget`，未知值是 `400`；舊的 `ephemeral` 請求欄位已不再讀取（送了也被忽略）。回應、BSON、
+  durable snapshot、MAAS adapter 與 k0s var 的 `ephemeral` 欄位都不改名。
 - `ram` 部署需要 provider 的 `EphemeralDeploy` 能力，否則受理時拒絕。
 
 ### 5.2 驗證紀錄

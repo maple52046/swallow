@@ -57,9 +57,10 @@ requested image and reachable over SSH completes in seconds, and its deployment
 result is updated; a failed Server is returned to Ready and deployed again. The
 Platform's configuration playbook also runs again, which takes its usual time.
 
-An expired or lost execution can become `indeterminate`; it is never retried
-automatically because swallow cannot prove whether the external side effect
-occurred.
+If the Ansible executor is lost while a playbook runs, the Task stops in
+`requires_attention` with reason `executor_outcome_unknown`. swallow cannot prove
+whether the playbook's changes happened, so it never reruns it automatically;
+retry the Task once you have checked the hosts.
 
 ## Cancellation
 

@@ -87,8 +87,7 @@ entry is one target with its labels already attached:
     "labels": {
       "server_id": "srv-abc123",
       "site": "site-id",
-      "platform_id": "platform-id",
-      "cluster": "platform-id"
+      "platform_id": "platform-id"
     }
   }
 ]

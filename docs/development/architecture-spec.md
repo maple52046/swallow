@@ -98,8 +98,9 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
 1. 不破壞資料與 workload。
 2. 單一真相與正確性。
 3. core 的通用性。
-4. 相容與便利。目前沒有對外的安裝，consumer 都在本 repository，所以不為不存在的 consumer 保留相容層
-   （[ADR 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)）。
+4. 相容與便利。API 沒有本 repository 以外的 consumer（dashboard 與 cli 都在這裡），所以不為不存在的 consumer
+   保留 API 的相容層（[decision 074](../decisions/074-retire-schema-v2-and-deprecated-aliases.md)（retire schema v2 and
+   deprecated aliases））。已安裝的資料不在此列：它受第 1 點保護，升級以 schema migration 保留。
 
 ### 現況與目標
 
@@ -114,7 +115,7 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
 - core 與廠商無關（原則 3）：provider 與 plugin 已依配置分開（`api-server/internal/adapters/`、`api-server/modules/`）。
   Module Manifest、Go hook 與模組 registry 已實作（[ADR 075](../decisions/075-module-contract-v1.md)）：Software、
   Kubernetes、Slurm 與 AMD 都是模組，dashboard 依模組 registry 組成畫面，沒有專屬畫面的模組依 manifest 的 spec schema
-  產生表單。依設定組裝發行版尚未實作，每個 build 編入全部模組。core 內仍有平台與 AMD 專屬的邏輯，列在
+  產生表單（Software 的 kind 清單在 dashboard 仍是固定的）。依設定組裝發行版尚未實作，每個 build 編入全部模組。core 內仍有平台與 AMD 專屬的邏輯，列在
   [`core-and-extensions.md`](core-and-extensions.md) §3.6，以廠商詞彙的 ratchet 守住，只能減少。
 
 ## 憲法層級

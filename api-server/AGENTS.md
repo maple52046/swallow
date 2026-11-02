@@ -89,8 +89,9 @@ truth, and implementation must not define API behavior that is absent from it.
 ## Component Boundary
 
 This directory is the `api-server` component: the Data Center API
-Service — an HTTP REST API plus the background reconcile / poll loops that own
-intent, policy, and identity mapping.
+Service. One binary runs the HTTP API (which owns intent, policy, and identity
+mapping), the worker (desired-state controllers and the Workflow driver), the
+Ansible executor, and migrations.
 
 Keep the component boundary clear even inside the monorepo: `dashboard` and
 `cli` consume the `api-server` HTTP API through its published contract and must
