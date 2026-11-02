@@ -178,14 +178,10 @@ func TestAutomationConfigurationService_CredentialSource(t *testing.T) {
 	}{
 		{name: "deployment key", keys: stubDeploymentKeys{ok: true}, want: workflowdomain.CredentialSourceDeploymentKey},
 		{name: "no deployment key", keys: stubDeploymentKeys{}, want: workflowdomain.CredentialSourceNone},
-		{name: "deployment keys not wired", want: workflowdomain.CredentialSourceNone},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &stubAutomationRepo{configuration: workflowdomain.AutomationConfiguration{HasCredential: true}}
-			service := NewAutomationConfigurationService(repo, nil, nil, workflowdomain.WorkflowKinds{})
-			if tc.keys != nil {
-				service.AttachDeploymentKeys(tc.keys)
-			}
+			service := NewAutomationConfigurationService(repo, nil, nil, workflowdomain.WorkflowKinds{}, tc.keys)
 			got, err := service.Get(context.Background(), "site-1")
 			if err != nil {
 				t.Fatalf("Get: %v", err)
@@ -199,7 +195,7 @@ func TestAutomationConfigurationService_CredentialSource(t *testing.T) {
 
 func TestAutomationConfigurationService_ReplaceCredentialStoresOnlyBecomePassword(t *testing.T) {
 	repo := &stubAutomationRepo{}
-	service := NewAutomationConfigurationService(repo, nil, nil, workflowdomain.WorkflowKinds{})
+	service := NewAutomationConfigurationService(repo, nil, nil, workflowdomain.WorkflowKinds{}, stubDeploymentKeys{ok: true})
 	if err := service.ReplaceCredential(context.Background(), "site-1", "pw"); err != nil {
 		t.Fatalf("ReplaceCredential: %v", err)
 	}

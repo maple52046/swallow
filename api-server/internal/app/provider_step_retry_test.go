@@ -133,6 +133,7 @@ func retryHarness(state provisioningdomain.MachineStatus, distroSeries string) (
 		providers:   factory,
 		poll:        time.Millisecond,
 		sshProbe:    func(context.Context, string, int) error { return nil },
+		protection:  stubMutationGuard{},
 	}
 	return executor, server, provider, release, deployments
 }

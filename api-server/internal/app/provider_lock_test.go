@@ -9,13 +9,15 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
+// stubMutationGuard answers every Server Lock check with err; its zero value finds every Server
+// unlocked.
 type stubMutationGuard struct{ err error }
 
 func (g stubMutationGuard) RequireUnlocked(context.Context, []string) error { return g.err }
 
 // The provider executor must re-check the Server Lock before a host mutation and pause the
 // Step for user attention (retryable) when the target is locked, rather than mutating
-// it. A nil guard (unwired) must not block.
+// it. An unlocked target, or a Step without a Server target, is not blocked.
 func TestProviderExecutorRequireUnlockedFailsClosed(t *testing.T) {
 	locked := providerStepExecutor{protection: stubMutationGuard{err: &serverdomain.ServerLockedError{Name: "node-1"}}}
 	result := locked.requireUnlocked(context.Background(), "server-1")
@@ -26,8 +28,12 @@ func TestProviderExecutorRequireUnlockedFailsClosed(t *testing.T) {
 		t.Fatalf("locked target must pause for attention as target_locked, got %+v", result)
 	}
 
-	if (providerStepExecutor{}).requireUnlocked(context.Background(), "server-1") != nil {
-		t.Fatal("an unwired guard must not block mutation")
+	unlocked := providerStepExecutor{protection: stubMutationGuard{}}
+	if result := unlocked.requireUnlocked(context.Background(), "server-1"); result != nil {
+		t.Errorf("requireUnlocked(unlocked server-1) = %+v, want nil", result)
+	}
+	if result := locked.requireUnlocked(context.Background(), ""); result != nil {
+		t.Errorf("requireUnlocked(no Server) = %+v, want nil", result)
 	}
 }
 

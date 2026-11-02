@@ -69,6 +69,7 @@ func newProgressFixture(t *testing.T, provider provisioningdomain.OSProvisioning
 			poll:           time.Millisecond,
 			powerOnWait:    time.Hour,
 			stageStallWait: stallWait,
+			protection:     stubMutationGuard{},
 		},
 		repository: repository,
 		step:       step,

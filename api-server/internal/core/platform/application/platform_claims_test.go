@@ -7,7 +7,6 @@ import (
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
-	"github.com/maple52046/swallow/internal/core/store/storetest"
 )
 
 // claimServer returns a Server claimed by platformID (unclaimed when platformID is empty).
@@ -35,9 +34,9 @@ func newClaimPlatformService(
 	for _, server := range servers {
 		serverRepo.servers[server.ID] = server
 	}
-	service := NewPlatformService(&storetest.Transactor{}, platformRepo, &deployFakeSiteRepo{}, serverRepo, lifecycle, &recordingIntegrationCleaner{})
-	service.AttachPlatformClaims(serverRepo)
-	return service, serverRepo
+	deps := testPlatformServiceDeps(platformRepo, serverRepo)
+	deps.Lifecycle = lifecycle
+	return mustPlatformService(deps), serverRepo
 }
 
 func claimOf(repo *lifecycleServerRepo, id string) string {
@@ -72,7 +71,7 @@ func TestDeleteReleasesThePlatformsClaims(t *testing.T) {
 func TestCompleteUninstallReleasesThePlatformsClaims(t *testing.T) {
 	for _, deleteRecord := range []bool{false, true} {
 		platform := &platformdomain.Platform{ID: "platform-1", SiteID: "site-1", Name: "lab", Type: platformdomain.PlatformTypeKubernetes}
-		service, servers := newClaimPlatformService(nil, []*platformdomain.Platform{platform}, claimServer("server-1", platform.ID))
+		service, servers := newClaimPlatformService(fakeLifecycleReader{}, []*platformdomain.Platform{platform}, claimServer("server-1", platform.ID))
 
 		if err := service.CompleteUninstall(context.Background(), platform.ID, deleteRecord); err != nil {
 			t.Fatalf("CompleteUninstall(deleteRecord=%v) error = %v", deleteRecord, err)
@@ -97,10 +96,10 @@ func (r *recordingExporterAssignments) MarkDeviceMetricsExporterRemoved(_ contex
 func TestCompleteUninstallRetiresASlurmPlatformsExporterRecords(t *testing.T) {
 	for _, platformType := range []platformdomain.PlatformType{platformdomain.PlatformTypeSlurm, platformdomain.PlatformTypeKubernetes} {
 		platform := &platformdomain.Platform{ID: "platform-1", SiteID: "site-1", Name: "lab", Type: platformType}
-		service, _ := newClaimPlatformService(nil, []*platformdomain.Platform{platform},
+		service, _ := newClaimPlatformService(fakeLifecycleReader{}, []*platformdomain.Platform{platform},
 			claimServer("server-1", platform.ID), claimServer("server-2", platform.ID), claimServer("server-9", "platform-9"))
 		exporters := &recordingExporterAssignments{}
-		service.AttachDeviceMetricsExporterAssignments(exporters)
+		service.exporterAssignments = exporters
 
 		if err := service.CompleteUninstall(context.Background(), platform.ID, false); err != nil {
 			t.Fatalf("CompleteUninstall(%s) error = %v", platformType, err)

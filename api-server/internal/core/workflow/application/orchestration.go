@@ -106,19 +106,21 @@ type WorkflowService struct {
 
 // NewWorkflowService builds the service. transactor is required: every multi-document write it
 // makes runs through it. catalog validates every accepted plan (decision 072); a zero catalog
-// accepts any plan and exists only for tests. secrets is optional for compositions that never
-// create a Workflow with secret values or rerun one.
-func NewWorkflowService(transactor store.Transactor, operations workflowdomain.WorkflowRepository, catalog workflowdomain.PlanCatalog, secrets ...workflowdomain.OperationSecretRepository) *WorkflowService {
-	service := &WorkflowService{transactor: transactor, operations: operations, catalog: catalog}
+// accepts any plan and exists only for tests. ownership is required and only read: Get reports the
+// resources a Workflow owns from it. secrets is optional for compositions that never create a
+// Workflow with secret values or rerun one.
+func NewWorkflowService(
+	transactor store.Transactor,
+	operations workflowdomain.WorkflowRepository,
+	catalog workflowdomain.PlanCatalog,
+	ownership workflowdomain.OwnershipRepository,
+	secrets ...workflowdomain.OperationSecretRepository,
+) *WorkflowService {
+	service := &WorkflowService{transactor: transactor, operations: operations, catalog: catalog, ownership: ownership}
 	if len(secrets) > 0 {
 		service.secrets = secrets[0]
 	}
 	return service
-}
-
-// AttachOwnershipReader lets Get report the resources a Workflow owns; without it Get reports none.
-func (s *WorkflowService) AttachOwnershipReader(ownership workflowdomain.OwnershipRepository) {
-	s.ownership = ownership
 }
 
 // Create persists pending intent; the dispatcher starts it after the commit. The target-busy
@@ -398,17 +400,15 @@ func (s *WorkflowService) Get(ctx context.Context, id string) (*WorkflowItem, er
 		return nil, err
 	}
 	item := toWorkflowItem(operation, s.catalog)
-	if s.ownership != nil {
-		owned, err := s.ownership.FindByOwner(ctx, operation.ID)
-		if err != nil {
-			return nil, err
-		}
-		item.Leases = make([]WorkflowLeaseItem, len(owned))
-		for index, resource := range owned {
-			item.Leases[index] = WorkflowLeaseItem{
-				ResourceKey: resource.ResourceKey, Owner: operation.ID,
-				FencingToken: operation.Dispatch.Generation, UpdatedAt: resource.AcquiredAt,
-			}
+	owned, err := s.ownership.FindByOwner(ctx, operation.ID)
+	if err != nil {
+		return nil, err
+	}
+	item.Leases = make([]WorkflowLeaseItem, len(owned))
+	for index, resource := range owned {
+		item.Leases[index] = WorkflowLeaseItem{
+			ResourceKey: resource.ResourceKey, Owner: operation.ID,
+			FencingToken: operation.Dispatch.Generation, UpdatedAt: resource.AcquiredAt,
 		}
 	}
 	return &item, nil

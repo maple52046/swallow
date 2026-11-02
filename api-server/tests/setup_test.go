@@ -33,6 +33,7 @@ import (
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
+	"github.com/maple52046/swallow/modules/accelerator/amd"
 	kubernetesmodule "github.com/maple52046/swallow/modules/platform/kubernetes"
 	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
 	slurmmodule "github.com/maple52046/swallow/modules/platform/slurm"
@@ -118,7 +119,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	// handler share one instance and a rename propagates to server projections through the same
 	// server repo the reconcile pass uses.
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageMetadata, &recordingInstalledSoftware{})
-	deployments := provisioningapp.NewDeployServersUseCase(servers, templates, factory, osImageVerifications)
+	deployments := provisioningapp.NewDeployServersUseCase(servers, templates, factory, osImageVerifications, presentDeploymentKey{})
 	launcher := &executingLauncher{
 		deployments: deployments,
 		release:     provisioningapp.NewReleaseServerUseCase(servers, factory, nil),
@@ -166,25 +167,43 @@ func setupPlatform(t *testing.T) *platformFixture {
 	lifecycle := newFakeLifecycleReader()
 	uninstallLauncher := &fakeUninstallLauncher{}
 	membershipSync := platformapp.NewMembershipSyncUseCase(platformRepo, servers, readerFactory)
-	platformService := platformapp.NewPlatformService(&storetest.Transactor{}, platformRepo, sites, servers, lifecycle, nil)
-	deployService := platformapp.NewDeployService(
-		platformService, platformRepo, servers, &fakeDeploymentLauncher{})
-	deployService.AttachDeploymentRequirementReader(requirementRepo)
+	claims := fakePlatformClaims{servers: servers}
+	features := fakeFeatureRecorder{platforms: platformRepo}
+	lockGuard := storedLockGuard{servers: servers}
+	platformCleanup := &recordingPlatformCleanup{}
+	platformService, err := platformapp.NewPlatformService(platformapp.PlatformServiceDeps{
+		Transactor: &storetest.Transactor{}, Platforms: platformRepo, Sites: sites, Servers: servers,
+		Lifecycle: lifecycle, Integrations: platformCleanup, Canceler: platformCleanup, Claims: claims,
+		GPUOperators: features, Omnistats: features, DeviceMetricsExporters: features,
+		ExporterAssignments: platformCleanup,
+	})
+	if err != nil {
+		t.Fatalf("NewPlatformService() error = %v", err)
+	}
+	deployService, err := platformapp.NewDeployService(platformapp.DeployServiceDeps{
+		PlatformService: platformService, Platforms: platformRepo, Servers: servers, Launcher: &fakeDeploymentLauncher{},
+		Protection: lockGuard, Claims: claims, MachinePreparation: acceptingMachinePreparation{},
+		NodeSubnets: noNodeSubnets{}, Requirements: requirementRepo, DeploymentKeys: presentDeploymentKey{},
+		GPUOperators: features, Omnistats: features, DeviceMetricsExporters: features,
+		Accelerator: amd.Accelerator{}, ReadRequest: platformdelivery.DeployInputFromRequest,
+	})
+	if err != nil {
+		t.Fatalf("NewDeployService() error = %v", err)
+	}
 	uninstallService := platformapp.NewUninstallService(
-		platformRepo, servers, lifecycle, uninstallLauncher)
+		platformRepo, servers, lifecycle, uninstallLauncher, lockGuard)
 	slurmClusterRead := platformapp.NewGetSlurmClusterUseCase(platformRepo, readerFactory)
 	kubernetesFactory := newFakeKubernetesClientFactory()
 	kubernetesExplorer := platformapp.NewKubernetesExplorerUseCase(platformRepo, lifecycle, kubernetesFactory, servers)
 	requirementService := platformapp.NewDeploymentRequirementService(requirementRepo)
 	platformHandler := platformdelivery.NewPlatformHandler(
 		platformService, membershipSync, slurmClusterRead, kubernetesExplorer, requirementService)
-	deployService.AttachRequestReader(platformdelivery.DeployInputFromRequest)
 	platformModules := map[platformdomain.PlatformType]platformdomain.PlatformModule{
 		platformdomain.PlatformTypeKubernetes: kubernetesmodule.Platform{}, platformdomain.PlatformTypeSlurm: slurmmodule.Platform{},
 	}
 	changePlans := convergence.NewChangePlanService(&storetest.Transactor{}, &fakeChangePlanRepo{}, nil, nil, 0,
 		platformapp.NewPlatformPlanner(platformRepo, lifecycle, deployService, uninstallService, nil, platformModules))
-	platformHandler.AttachSpecService(platformapp.NewPlatformSpecService(&storetest.Transactor{}, platformRepo, platformRepo, nil,
+	platformHandler.AttachSpecService(platformapp.NewPlatformSpecService(&storetest.Transactor{}, platformRepo, platformRepo, claims,
 		deployService, platformService, changePlans, nil, platformModules))
 
 	app := fiber.New()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/netip"
 	"slices"
 	"strings"
 	"sync"
@@ -1725,4 +1726,189 @@ func (f *fakeIntegrationDependents) CheckDeletable(context.Context, string) erro
 func (f *fakeIntegrationDependents) RemoveRecords(_ context.Context, integrationID string) error {
 	f.removed = append(f.removed, integrationID)
 	return nil
+}
+
+// --- Platform dependencies the HTTP tests do not exercise directly ---
+
+// presentDeploymentKey is an installation that has a Deployment Key, which every provisioner
+// registers without error.
+type presentDeploymentKey struct{}
+
+func (presentDeploymentKey) HasDeploymentKey(context.Context) (bool, error) { return true, nil }
+func (presentDeploymentKey) EnsureRegistered(context.Context, string) error { return nil }
+
+// storedLockGuard stands in for the provider-backed Server Lock guard: it refuses the first Server
+// whose stored Provisioning.Locked flag is set, so a test locks a Platform target by setting it.
+type storedLockGuard struct{ servers serverdomain.ServerRepository }
+
+func (g storedLockGuard) RequireUnlocked(ctx context.Context, serverIDs []string) error {
+	for _, id := range serverIDs {
+		server, err := g.servers.FindByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if server.Provisioning != nil && server.Provisioning.Locked {
+			return &serverdomain.ServerLockedError{Name: server.DisplayName()}
+		}
+	}
+	return nil
+}
+
+// fakePlatformClaims is the Platform Claim store over fakeServerRepo's Servers, so a Platform the
+// HTTP tests accept claims its Servers as the Mongo store would. A refused claim does not undo the
+// ones it already wrote: the storetest Transactor cannot roll back.
+type fakePlatformClaims struct{ servers *fakeServerRepo }
+
+func (c fakePlatformClaims) ClaimForPlatform(_ context.Context, platformID string, serverIDs []string, at time.Time) error {
+	c.servers.mu.Lock()
+	defer c.servers.mu.Unlock()
+	for _, id := range serverIDs {
+		server, ok := c.servers.servers[id]
+		if !ok {
+			return serverdomain.ErrServerNotFound
+		}
+		switch {
+		case server.PlatformClaim == nil:
+			server.PlatformClaim = &serverdomain.PlatformClaim{PlatformID: platformID, ClaimedAt: at}
+		case server.PlatformClaim.PlatformID != platformID:
+			return &serverdomain.ServerClaimedError{ServerID: id, PlatformID: server.PlatformClaim.PlatformID}
+		}
+	}
+	return nil
+}
+
+func (c fakePlatformClaims) ReleasePlatformClaims(_ context.Context, platformID string) error {
+	c.servers.mu.Lock()
+	defer c.servers.mu.Unlock()
+	for _, server := range c.servers.servers {
+		if server.PlatformClaim != nil && server.PlatformClaim.PlatformID == platformID {
+			server.PlatformClaim = nil
+		}
+	}
+	return nil
+}
+
+func (c fakePlatformClaims) ReleaseServerClaims(_ context.Context, platformID string, serverIDs []string) error {
+	c.servers.mu.Lock()
+	defer c.servers.mu.Unlock()
+	for _, id := range serverIDs {
+		if server, ok := c.servers.servers[id]; ok && server.PlatformClaim != nil && server.PlatformClaim.PlatformID == platformID {
+			server.PlatformClaim = nil
+		}
+	}
+	return nil
+}
+
+func (c fakePlatformClaims) ClaimingPlatformIDs(context.Context) ([]string, error) {
+	c.servers.mu.Lock()
+	defer c.servers.mu.Unlock()
+	var ids []string
+	for _, server := range c.servers.servers {
+		if server.PlatformClaim != nil && !slices.Contains(ids, server.PlatformClaim.PlatformID) {
+			ids = append(ids, server.PlatformClaim.PlatformID)
+		}
+	}
+	slices.Sort(ids)
+	return ids, nil
+}
+
+func (c fakePlatformClaims) ClaimedServerIDs(_ context.Context, platformID string) ([]string, error) {
+	c.servers.mu.Lock()
+	defer c.servers.mu.Unlock()
+	var ids []string
+	for id, server := range c.servers.servers {
+		if server.PlatformClaim != nil && server.PlatformClaim.PlatformID == platformID {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids, nil
+}
+
+// fakeFeatureRecorder writes a Platform's GPU Operator, Omnistat, and Device Metrics Exporter
+// records onto fakePlatformRepo. The state and identity updates a Task observer makes are not
+// reached by the HTTP tests, so they change nothing and report no match.
+type fakeFeatureRecorder struct{ platforms *fakePlatformRepo }
+
+func (r fakeFeatureRecorder) SetGPUOperator(_ context.Context, platformID string, operator *platformdomain.GPUOperator, owner platformdomain.GPUStackOwner) error {
+	platform, ok := r.platforms.platforms[platformID]
+	if !ok {
+		return platformdomain.ErrPlatformNotFound
+	}
+	platform.GPUOperator, platform.GPUStackOwner = operator, owner
+	return nil
+}
+
+func (fakeFeatureRecorder) UpdateGPUOperatorState(context.Context, string, string, platformdomain.GPUOperatorState, time.Time) (bool, error) {
+	return false, nil
+}
+
+func (r fakeFeatureRecorder) SetOmnistat(_ context.Context, platformID string, omnistat *platformdomain.Omnistat) error {
+	platform, ok := r.platforms.platforms[platformID]
+	if !ok {
+		return platformdomain.ErrPlatformNotFound
+	}
+	platform.Omnistat = omnistat
+	return nil
+}
+
+func (fakeFeatureRecorder) UpdateOmnistatState(context.Context, string, string, platformdomain.OmnistatState, time.Time) (bool, error) {
+	return false, nil
+}
+
+func (r fakeFeatureRecorder) SetDeviceMetricsExporter(_ context.Context, platformID string, exporter *platformdomain.DeviceMetricsExporter) error {
+	platform, ok := r.platforms.platforms[platformID]
+	if !ok {
+		return platformdomain.ErrPlatformNotFound
+	}
+	platform.DeviceMetricsExporter = exporter
+	return nil
+}
+
+func (fakeFeatureRecorder) UpdateDeviceMetricsExporterState(context.Context, string, string, platformdomain.DeviceMetricsExporterState, time.Time) (bool, error) {
+	return false, nil
+}
+
+func (fakeFeatureRecorder) UpdateDeviceMetricsExporterGPUIdentity(context.Context, string, string, platformdomain.GPUIdentity, time.Time) (bool, error) {
+	return false, nil
+}
+
+// recordingPlatformCleanup records what removing a Platform asked to clean up: the Platforms whose
+// owned Integration was to be deleted, the Platforms whose Workflows were to be canceled, and the
+// Servers whose Device Metrics Exporter records were to be retired. It changes no other fake.
+type recordingPlatformCleanup struct {
+	integrationsOf []string
+	canceledFor    []string
+	exportersOn    []string
+}
+
+func (c *recordingPlatformCleanup) DeleteForPlatform(_ context.Context, platform *platformdomain.Platform, _ bool) error {
+	c.integrationsOf = append(c.integrationsOf, platform.ID)
+	return nil
+}
+
+func (c *recordingPlatformCleanup) CancelActiveForPlatform(_ context.Context, platformID string) error {
+	c.canceledFor = append(c.canceledFor, platformID)
+	return nil
+}
+
+func (c *recordingPlatformCleanup) MarkDeviceMetricsExporterRemoved(_ context.Context, serverIDs []string) error {
+	c.exportersOn = append(c.exportersOn, serverIDs...)
+	return nil
+}
+
+// acceptingMachinePreparation accepts every provision_os target: the HTTP tests deploy Platforms
+// onto Servers that already run an OS, and provisioning preflight has its own tests.
+type acceptingMachinePreparation struct{}
+
+func (acceptingMachinePreparation) Validate(context.Context, string, []string, platformdomain.MachinePreparation) error {
+	return nil
+}
+
+// noNodeSubnets is a provisioner that cannot read any Server's subnet, so an HA deploy uses the
+// requested API VIP prefix.
+type noNodeSubnets struct{}
+
+func (noNodeSubnets) NodeSubnets(context.Context, []string, platformdomain.MachinePreparation) (map[string]netip.Prefix, error) {
+	return nil, nil
 }

@@ -9,7 +9,6 @@ import (
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
-	"github.com/maple52046/swallow/internal/core/store/storetest"
 )
 
 // fakeDeviceMetricsExporterRecorder applies DeviceMetricsExporterRecorder writes to the deploy
@@ -72,18 +71,11 @@ func exporterSlurmInput() DeployPlatformInput {
 	return input
 }
 
-func newExporterHarness(servers ...*serverdomain.Server) (*DeployService, *recordingLauncher, *deployFakePlatformRepo) {
-	service, launcher, platforms := newDeployHarness(servers...)
-	service.AttachOmnistatRecorder(&fakeOmnistatRecorder{platforms: platforms})
-	service.AttachDeviceMetricsExporterRecorder(&fakeDeviceMetricsExporterRecorder{platforms: platforms})
-	return service, launcher, platforms
-}
-
 // Enabling the exporter records it as installing under the Workflow id the launcher must use,
 // installs its job hook through deploy-slurm, and hands the launcher only the GPU compute nodes,
 // the exporter port, and the record id the install's completion fences the GPU identity on.
 func TestDeploySlurmWithTheDeviceMetricsExporter(t *testing.T) {
-	service, launcher, platforms := newExporterHarness(exporterSlurmServers()...)
+	service, launcher, platforms := newDeployHarness(exporterSlurmServers()...)
 
 	result, err := service.Deploy(context.Background(), exporterSlurmInput())
 	if err != nil {
@@ -124,32 +116,26 @@ func TestDeployRefusesADeviceMetricsExporterItCannotApply(t *testing.T) {
 	cases := map[string]struct {
 		servers []*serverdomain.Server
 		input   func() DeployPlatformInput
-		attach  bool
 	}{
-		"Kubernetes Platform": {servers: exporterSlurmServers(), attach: true, input: func() DeployPlatformInput {
+		"Kubernetes Platform": {servers: exporterSlurmServers(), input: func() DeployPlatformInput {
 			return DeployPlatformInput{SiteID: "site-1", Name: "lab-k0s", Type: platformdomain.PlatformTypeKubernetes,
 				DeviceMetricsExporter: &platformdomain.DeviceMetricsExporterSettings{Enabled: true}}
 		}},
-		"with Omnistat": {servers: exporterSlurmServers(), attach: true, input: func() DeployPlatformInput {
+		"with Omnistat": {servers: exporterSlurmServers(), input: func() DeployPlatformInput {
 			input := exporterSlurmInput()
 			input.Omnistat = &platformdomain.OmnistatSettings{Enabled: true}
 			return input
 		}},
-		"no GPU compute node": {servers: slurmServers(), attach: true, input: exporterSlurmInput},
-		"unknown install method": {servers: exporterSlurmServers(), attach: true, input: func() DeployPlatformInput {
+		"no GPU compute node": {servers: slurmServers(), input: exporterSlurmInput},
+		"unknown install method": {servers: exporterSlurmServers(), input: func() DeployPlatformInput {
 			input := exporterSlurmInput()
 			input.DeviceMetricsExporter.InstallMethod = "snap"
 			return input
 		}},
-		"no recorder": {servers: exporterSlurmServers(), input: exporterSlurmInput},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			service, launcher, platforms := newDeployHarness(tc.servers...)
-			if tc.attach {
-				service.AttachOmnistatRecorder(&fakeOmnistatRecorder{platforms: platforms})
-				service.AttachDeviceMetricsExporterRecorder(&fakeDeviceMetricsExporterRecorder{platforms: platforms})
-			}
 			if _, err := service.Deploy(context.Background(), tc.input()); !errors.Is(err, platformdomain.ErrInvalidDeviceMetricsExporter) {
 				t.Fatalf("Deploy() error = %v, want ErrInvalidDeviceMetricsExporter", err)
 			}
@@ -163,7 +149,7 @@ func TestDeployRefusesADeviceMetricsExporterItCannotApply(t *testing.T) {
 // Without the exporter there is no record, no Jobs, and no job hook variable; a disabled object
 // is the same as an omitted one.
 func TestDeploySlurmWithoutTheDeviceMetricsExporter(t *testing.T) {
-	service, launcher, platforms := newExporterHarness(exporterSlurmServers()...)
+	service, launcher, platforms := newDeployHarness(exporterSlurmServers()...)
 	input := exporterSlurmInput()
 	input.DeviceMetricsExporter.Enabled = false
 	result, err := service.Deploy(context.Background(), input)
@@ -217,8 +203,9 @@ func TestPlatformServiceRecordsAndRetiresTheDeviceMetricsExporter(t *testing.T) 
 			Enabled: true, State: platformdomain.DeviceMetricsExporterInstalling, LastWorkflowID: "deploy-1",
 		},
 	}
-	service := NewPlatformService(&storetest.Transactor{}, platforms, &deployFakeSiteRepo{}, &deployFakeServerRepo{servers: map[string]*serverdomain.Server{}}, nil, nil)
-	service.AttachDeviceMetricsExporterRecorder(recorder)
+	deps := testPlatformServiceDeps(platforms, &deployFakeServerRepo{servers: map[string]*serverdomain.Server{}})
+	deps.DeviceMetricsExporters = recorder
+	service := mustPlatformService(deps)
 	ctx := context.Background()
 
 	if err := service.RecordDeviceMetricsExporterResult(ctx, "p1", "deploy-1", "http://10.0.0.1:3000",

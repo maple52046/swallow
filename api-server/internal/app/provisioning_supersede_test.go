@@ -9,8 +9,6 @@ import (
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
-	"github.com/maple52046/swallow/internal/core/store/storetest"
-	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
@@ -73,8 +71,9 @@ func supersedeLauncher() (durableProvisioningLauncher, *supersedeWorkflowRepo, *
 		Provisioning: &serverdomain.ProvisioningStatus{State: "failed"},
 	}
 	return durableProvisioningLauncher{
-		operations: workflowapp.NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}),
+		operations: newTestWorkflowService(repo),
 		servers:    &deploymentProjectionTestRepo{server: server},
+		protection: stubMutationGuard{},
 	}, repo, repo
 }
 

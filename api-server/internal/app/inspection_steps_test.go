@@ -128,7 +128,7 @@ func inspectionExecutor(provider provisioningdomain.OSProvisioningProvider) prov
 	repository := &deploymentProjectionTestRepo{server: server}
 	factory := inspectionProviderFactory{provider: provider}
 	return providerStepExecutor{
-		servers: repository, providers: factory,
+		servers: repository, providers: factory, protection: stubMutationGuard{},
 		refresh:              provisioningapp.NewRefreshServerUseCase(repository, factory, nil),
 		poll:                 time.Millisecond,
 		enrollmentSettlePoll: time.Millisecond, enrollmentSettleWait: 200 * time.Millisecond,

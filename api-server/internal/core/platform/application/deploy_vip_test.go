@@ -32,7 +32,7 @@ func controlPlaneOn(cidr string) staticNodeSubnets {
 // makes the VIP holder reach part of the subnet from the VIP, and etcd rejects it as a peer.
 func TestDeployTakesTheVIPPrefixFromTheControlPlaneSubnet(t *testing.T) {
 	service, launcher, _ := newDeployHarness(haServers()...)
-	service.AttachNodeSubnetResolver(controlPlaneOn("192.168.100.0/23"))
+	service.nodeSubnets = controlPlaneOn("192.168.100.0/23")
 
 	if _, err := service.Deploy(context.Background(), validDeployInput()); err != nil {
 		t.Fatalf("Deploy: %v", err)
@@ -59,7 +59,7 @@ func TestDeployRefusesAVIPThatDoesNotFitTheControlPlaneSubnet(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			service, launcher, platforms := newDeployHarness(haServers()...)
-			service.AttachNodeSubnetResolver(tc.subnets)
+			service.nodeSubnets = tc.subnets
 			input := validDeployInput()
 			tc.modify(&input)
 
@@ -76,7 +76,7 @@ func TestDeployRefusesAVIPThatDoesNotFitTheControlPlaneSubnet(t *testing.T) {
 
 func TestDeployKeepsTheRequestedVIPPrefixWithoutASubnet(t *testing.T) {
 	service, launcher, _ := newDeployHarness(haServers()...)
-	service.AttachNodeSubnetResolver(staticNodeSubnets{})
+	service.nodeSubnets = staticNodeSubnets{}
 	input := validDeployInput()
 	input.Spec.APIVIPPrefix = 22
 

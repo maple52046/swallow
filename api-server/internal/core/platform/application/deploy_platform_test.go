@@ -296,7 +296,8 @@ func newDeployHarness(servers ...*serverdomain.Server) (*DeployService, *recordi
 }
 
 // newClaimingDeployHarness also returns the in-memory Server repository, which is the Platform
-// Claim store the DeployService writes to.
+// Claim store the DeployService writes to. Every other dependency is the permissive fake of
+// testDeployServiceDeps; a test replaces the service's field to observe or refuse one.
 func newClaimingDeployHarness(
 	servers ...*serverdomain.Server,
 ) (*DeployService, *recordingLauncher, *deployFakePlatformRepo, *deployFakeServerRepo) {
@@ -305,13 +306,149 @@ func newClaimingDeployHarness(
 	for _, s := range servers {
 		serverRepo.servers[s.ID] = s
 	}
-	siteRepo := &deployFakeSiteRepo{ids: map[string]bool{"site-1": true}}
-	platformService := NewPlatformService(&storetest.Transactor{}, platformRepo, siteRepo, serverRepo, nil, nil)
 	launcher := &recordingLauncher{}
-	service := NewDeployService(platformService, platformRepo, serverRepo, launcher)
-	service.AttachAccelerator(testAccelerator{})
-	service.AttachPlatformClaims(serverRepo)
+	service := mustDeployService(testDeployServiceDeps(mustPlatformService(testPlatformServiceDeps(platformRepo, serverRepo)),
+		platformRepo, serverRepo, launcher))
 	return service, launcher, platformRepo, serverRepo
+}
+
+// claimingServerRepo is an in-memory Server repository that is also the Platform Claim store.
+type claimingServerRepo interface {
+	serverdomain.ServerRepository
+	serverdomain.PlatformClaimStore
+}
+
+// testPlatformServiceDeps returns PlatformServiceDeps whose every field is an in-memory fake: the
+// given repositories, with servers as the Platform Claim store, and recorders that write to
+// platforms. A test replaces a field before mustPlatformService to observe or fail it.
+func testPlatformServiceDeps(platforms *deployFakePlatformRepo, servers claimingServerRepo) PlatformServiceDeps {
+	return PlatformServiceDeps{
+		Transactor: &storetest.Transactor{}, Platforms: platforms,
+		Sites: &deployFakeSiteRepo{ids: map[string]bool{"site-1": true}}, Servers: servers,
+		Lifecycle: &deployFakeLifecycleReader{}, Integrations: &recordingIntegrationCleaner{},
+		Canceler: &recordingPlatformOperationCanceler{}, Claims: servers,
+		GPUOperators: &fakeGPUOperatorRecorder{platforms: platforms}, Omnistats: &fakeOmnistatRecorder{platforms: platforms},
+		DeviceMetricsExporters: &fakeDeviceMetricsExporterRecorder{platforms: platforms},
+		ExporterAssignments:    &recordingExporterAssignments{},
+	}
+}
+
+// testDeployServiceDeps returns DeployServiceDeps whose every field is an in-memory fake that lets
+// a valid deployment through: a Deployment Key exists, no target is locked beyond its stored flag,
+// provisioning preflight accepts, no subnet is known, and no Slurm requirement is set.
+func testDeployServiceDeps(
+	platformService *PlatformService,
+	platforms *deployFakePlatformRepo,
+	servers claimingServerRepo,
+	launcher platformdomain.DeploymentLauncher,
+) DeployServiceDeps {
+	return DeployServiceDeps{
+		PlatformService: platformService, Platforms: platforms, Servers: servers, Launcher: launcher,
+		Protection: storedLockGuard{servers: servers}, Claims: servers,
+		MachinePreparation: &stubMachinePrep{}, NodeSubnets: staticNodeSubnets{},
+		Requirements:   fixedRequirementReader{err: platformdomain.ErrDeploymentRequirementNotFound},
+		DeploymentKeys: deploymentKeyStub(true),
+		GPUOperators:   &fakeGPUOperatorRecorder{platforms: platforms}, Omnistats: &fakeOmnistatRecorder{platforms: platforms},
+		DeviceMetricsExporters: &fakeDeviceMetricsExporterRecorder{platforms: platforms},
+		Accelerator:            testAccelerator{}, ReadRequest: readTestRequest,
+	}
+}
+
+// mustPlatformService is NewPlatformService for test setup, where a missing dependency is a bug in
+// the test itself.
+func mustPlatformService(deps PlatformServiceDeps) *PlatformService {
+	service, err := NewPlatformService(deps)
+	if err != nil {
+		panic(err)
+	}
+	return service
+}
+
+// mustDeployService is NewDeployService for test setup, where a missing dependency is a bug in the
+// test itself.
+func mustDeployService(deps DeployServiceDeps) *DeployService {
+	service, err := NewDeployService(deps)
+	if err != nil {
+		panic(err)
+	}
+	return service
+}
+
+// storedLockGuard stands in for the provider-backed Server Lock guard: it refuses the first Server
+// whose stored Provisioning.Locked flag is set, so a test locks a target by setting that flag.
+type storedLockGuard struct{ servers serverdomain.ServerRepository }
+
+func (g storedLockGuard) RequireUnlocked(ctx context.Context, serverIDs []string) error {
+	for _, id := range serverIDs {
+		server, err := g.servers.FindByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if server.Provisioning != nil && server.Provisioning.Locked {
+			return &serverdomain.ServerLockedError{Name: server.DisplayName()}
+		}
+	}
+	return nil
+}
+
+// TestNewPlatformServiceRefusesAMissingDependency guards the process assembly: a PlatformService
+// cannot be built with any dependency left out, so no cleanup it backs is skipped at run time.
+func TestNewPlatformServiceRefusesAMissingDependency(t *testing.T) {
+	for name, drop := range map[string]func(*PlatformServiceDeps){
+		"Transactor":             func(d *PlatformServiceDeps) { d.Transactor = nil },
+		"Platforms":              func(d *PlatformServiceDeps) { d.Platforms = nil },
+		"Sites":                  func(d *PlatformServiceDeps) { d.Sites = nil },
+		"Servers":                func(d *PlatformServiceDeps) { d.Servers = nil },
+		"Lifecycle":              func(d *PlatformServiceDeps) { d.Lifecycle = nil },
+		"Integrations":           func(d *PlatformServiceDeps) { d.Integrations = nil },
+		"Canceler":               func(d *PlatformServiceDeps) { d.Canceler = nil },
+		"Claims":                 func(d *PlatformServiceDeps) { d.Claims = nil },
+		"GPUOperators":           func(d *PlatformServiceDeps) { d.GPUOperators = nil },
+		"Omnistats":              func(d *PlatformServiceDeps) { d.Omnistats = nil },
+		"DeviceMetricsExporters": func(d *PlatformServiceDeps) { d.DeviceMetricsExporters = nil },
+		"ExporterAssignments":    func(d *PlatformServiceDeps) { d.ExporterAssignments = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			deps := testPlatformServiceDeps(&deployFakePlatformRepo{platforms: map[string]*platformdomain.Platform{}},
+				&deployFakeServerRepo{servers: map[string]*serverdomain.Server{}})
+			drop(&deps)
+			if service, err := NewPlatformService(deps); err == nil || service != nil {
+				t.Errorf("NewPlatformService(without %s) = %v, %v; want an error and no service", name, service, err)
+			}
+		})
+	}
+}
+
+// TestNewDeployServiceRefusesAMissingDependency guards the process assembly: a DeployService
+// cannot be built with any acceptance check left out.
+func TestNewDeployServiceRefusesAMissingDependency(t *testing.T) {
+	for name, drop := range map[string]func(*DeployServiceDeps){
+		"PlatformService":        func(d *DeployServiceDeps) { d.PlatformService = nil },
+		"Platforms":              func(d *DeployServiceDeps) { d.Platforms = nil },
+		"Servers":                func(d *DeployServiceDeps) { d.Servers = nil },
+		"Launcher":               func(d *DeployServiceDeps) { d.Launcher = nil },
+		"Protection":             func(d *DeployServiceDeps) { d.Protection = nil },
+		"Claims":                 func(d *DeployServiceDeps) { d.Claims = nil },
+		"MachinePreparation":     func(d *DeployServiceDeps) { d.MachinePreparation = nil },
+		"NodeSubnets":            func(d *DeployServiceDeps) { d.NodeSubnets = nil },
+		"Requirements":           func(d *DeployServiceDeps) { d.Requirements = nil },
+		"DeploymentKeys":         func(d *DeployServiceDeps) { d.DeploymentKeys = nil },
+		"GPUOperators":           func(d *DeployServiceDeps) { d.GPUOperators = nil },
+		"Omnistats":              func(d *DeployServiceDeps) { d.Omnistats = nil },
+		"DeviceMetricsExporters": func(d *DeployServiceDeps) { d.DeviceMetricsExporters = nil },
+		"Accelerator":            func(d *DeployServiceDeps) { d.Accelerator = nil },
+		"ReadRequest":            func(d *DeployServiceDeps) { d.ReadRequest = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, platforms, servers := newClaimingDeployHarness()
+			deps := testDeployServiceDeps(mustPlatformService(testPlatformServiceDeps(platforms, servers)),
+				platforms, servers, &recordingLauncher{})
+			drop(&deps)
+			if service, err := NewDeployService(deps); err == nil || service != nil {
+				t.Errorf("NewDeployService(without %s) = %v, %v; want an error and no service", name, service, err)
+			}
+		})
+	}
 }
 
 func threeControllersFourWorkers() []platformdomain.RoleAssignment {
@@ -414,7 +551,7 @@ func (s deploymentKeyStub) HasDeploymentKey(context.Context) (bool, error) { ret
 // is refused before a Platform record or Workflow exists.
 func TestDeployRequiresDeploymentKey(t *testing.T) {
 	service, launcher, platforms := newDeployHarness(haServers()...)
-	service.AttachDeploymentKeyChecker(deploymentKeyStub(false))
+	service.deploymentKeys = deploymentKeyStub(false)
 
 	if _, err := service.Deploy(context.Background(), validDeployInput()); !errors.Is(err, platformdomain.ErrDeploymentKeyMissing) {
 		t.Fatalf("Deploy() error = %v, want ErrDeploymentKeyMissing", err)
@@ -423,7 +560,7 @@ func TestDeployRequiresDeploymentKey(t *testing.T) {
 		t.Errorf("a refused deploy must not create a Platform or launch a Workflow")
 	}
 
-	service.AttachDeploymentKeyChecker(deploymentKeyStub(true))
+	service.deploymentKeys = deploymentKeyStub(true)
 	if _, err := service.Deploy(context.Background(), validDeployInput()); err != nil {
 		t.Errorf("Deploy() with a Deployment Key = %v, want nil", err)
 	}
@@ -512,7 +649,7 @@ func TestDeployProvisionOSAcceptsMixedReadyAndDeployed(t *testing.T) {
 	servers[3].Provisioning.State = "ready" // w1 needs an OS
 	service, launcher, platforms := newDeployHarness(servers...)
 	prep := &stubMachinePrep{}
-	service.AttachMachinePreparationValidator(prep)
+	service.machinePreparation = prep
 
 	result, err := service.Deploy(context.Background(), provisionOSInput())
 	if err != nil {
@@ -540,7 +677,6 @@ func TestDeployProvisionOSRejectsUnconvergeableState(t *testing.T) {
 	servers := haServers()
 	servers[3].Provisioning.State = "broken"
 	service, _, _ := newDeployHarness(servers...)
-	service.AttachMachinePreparationValidator(&stubMachinePrep{})
 
 	_, err := service.Deploy(context.Background(), provisionOSInput())
 	if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
@@ -556,7 +692,7 @@ func TestDeployProvisionOSAcceptsEphemeral(t *testing.T) {
 	servers[1].Provisioning.State = "ready"
 	service, launcher, platforms := newDeployHarness(servers...)
 	prep := &stubMachinePrep{}
-	service.AttachMachinePreparationValidator(prep)
+	service.machinePreparation = prep
 	input := provisionOSInput()
 	ephemeral := true
 	input.MachinePreparation.Ephemeral = &ephemeral

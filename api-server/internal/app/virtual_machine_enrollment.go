@@ -64,9 +64,11 @@ type virtualMachineEnrollmentLauncher struct {
 	integrations sitedomain.IntegrationRepository
 	providers    provisioningdomain.ProviderFactory
 	servers      serverdomain.ServerRepository
-	protection   serverdomain.MutationGuard
-	isos         serverdomain.BootISOResolver
-	keys         interface {
+	// protection and keys are required: an enrollment is refused while the Hypervisor is locked
+	// (read live from the provisioner) or the installation has no Deployment Key to log in with.
+	protection serverdomain.MutationGuard
+	isos       serverdomain.BootISOResolver
+	keys       interface {
 		HasDeploymentKey(ctx context.Context) (bool, error)
 	}
 }
@@ -112,19 +114,15 @@ func (l virtualMachineEnrollmentLauncher) LaunchVirtualMachineEnrollment(ctx con
 			return nil, fmt.Errorf("%w: Boot ISO %q chains to another provisioner than %q", serverdomain.ErrBootISOWrongIntegration, file.Name, integration.Name)
 		}
 	}
-	if l.keys != nil {
-		exists, err := l.keys.HasDeploymentKey(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if !exists {
-			return nil, provisioningdomain.ErrDeploymentKeyMissing
-		}
+	exists, err := l.keys.HasDeploymentKey(ctx)
+	if err != nil {
+		return nil, err
 	}
-	if l.protection != nil {
-		if err := l.protection.RequireUnlocked(ctx, []string{hypervisor.ID}); err != nil {
-			return nil, err
-		}
+	if !exists {
+		return nil, provisioningdomain.ErrDeploymentKeyMissing
+	}
+	if err := l.protection.RequireUnlocked(ctx, []string{hypervisor.ID}); err != nil {
+		return nil, err
 	}
 	target := []workflowdomain.ResourceReference{{Kind: "server", ID: hypervisor.ID}}
 	steps := make([]workflowdomain.Task, 0, len(request.Domains))

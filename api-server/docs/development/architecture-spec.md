@@ -239,6 +239,11 @@ Port 由內層需要的能力驅動，應小而精確。例如 repository、cloc
 provider capability、Workflow starter 或 metrics query。外層實作 port，再由
 composition root 注入。
 
+安全檢查依賴的 port（Server Lock guard、Deployment Key、Platform Claim store 等）是 constructor 的必填參數：
+不得在建構後才掛上，use case 也不得在它為 nil 時略過檢查；用不到某個依賴的 process 仍傳入一個明確失敗的實作。
+參數多時用 `...Deps` struct，由 constructor 拒絕 nil 欄位；同一個 service 在多個 process 的組裝寫在 `internal/app`
+的同一個 helper。
+
 Interface 不用來包裝每個 concrete type；只有需要保護 boundary、替換 driver
 或隔離測試時才建立。
 

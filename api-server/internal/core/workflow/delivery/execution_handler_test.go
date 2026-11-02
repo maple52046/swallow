@@ -59,7 +59,7 @@ func TestPutAutomationCredential(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &recordingAutomationRepo{}
-			handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(repo, nil, nil, workflowdomain.WorkflowKinds{}), nil)
+			handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(repo, nil, nil, workflowdomain.WorkflowKinds{}, noDeploymentKey{}), nil)
 			app := fiber.New()
 			app.Use(apicontract.ResponseValidator(t))
 			app.Put("/api/v1/sites/:id/automation/credential", handler.PutAutomationCredential)
@@ -197,6 +197,19 @@ func (contractServers) FindByID(_ context.Context, id string) (*serverdomain.Ser
 	return &serverdomain.Server{ID: id, Source: serverdomain.Source{SiteID: "site-1"}}, nil
 }
 
+// unlockedServers is a Server Lock guard that finds every Server unlocked.
+type unlockedServers struct{}
+
+func (unlockedServers) RequireUnlocked(context.Context, []string) error { return nil }
+
+// noDeploymentKey is an installation without a Deployment Key.
+type noDeploymentKey struct{}
+
+func (noDeploymentKey) DeploymentPrivateKey(context.Context) (string, bool, error) {
+	return "", false, nil
+}
+func (noDeploymentKey) HasDeploymentKey(context.Context) (bool, error) { return false, nil }
+
 // contractAutomation reports site-1 as runnable: enabled, with the Deployment Key present.
 type contractAutomation struct {
 	workflowdomain.AutomationConfigurationRepository
@@ -324,18 +337,18 @@ func newWorkflowContractHandler() *ExecutionHandler {
 			},
 		},
 	}
-	orchestrations := application.NewWorkflowService(&storetest.Transactor{}, workflows, workflowdomain.PlanCatalog{}, contractSecrets{})
-	orchestrations.AttachOwnershipReader(contractOwnership{owned: []workflowdomain.ResourceOwnership{{
+	ownership := contractOwnership{owned: []workflowdomain.ResourceOwnership{{
 		ResourceKey: "server:server-1", Owner: running.ID, AcquiredAt: started,
-	}}})
+	}}}
+	orchestrations := application.NewWorkflowService(&storetest.Transactor{}, workflows, workflowdomain.PlanCatalog{}, ownership, contractSecrets{})
 	runner := contractRunner{events: []workflowdomain.TaskEvent{
 		{Play: "Install k0s", Task: "Download k0s", Host: "server-1", Status: "ok", Changed: true, StartedAt: &started, EndedAt: &finished},
 		{Play: "Install k0s", Task: "Start k0s", Host: "server-1", Status: "failed"},
 	}}
 	operations := application.NewExecutionService(
 		contractServers{}, contractAutomation{}, contractCatalog{}, workflowdomain.WorkflowKinds{}, runner, nil, nil,
+		unlockedServers{}, orchestrations,
 	)
-	operations.AttachWorkflow(orchestrations)
 	return NewExecutionHandler(operations, nil, orchestrations)
 }
 
@@ -431,7 +444,7 @@ func (noSites) FindByID(context.Context, string) (*sitedomain.Site, error) {
 
 // Configuring automation for a Site that does not exist is 404, not an internal error.
 func TestPutAutomationOfAnUnknownSiteIsNotFound(t *testing.T) {
-	handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(&recordingAutomationRepo{}, noSites{}, nil, workflowdomain.WorkflowKinds{}), nil)
+	handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(&recordingAutomationRepo{}, noSites{}, nil, workflowdomain.WorkflowKinds{}, noDeploymentKey{}), nil)
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
 	app.Put("/api/v1/sites/:id/automation", handler.PutAutomation)

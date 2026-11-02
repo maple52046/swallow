@@ -43,18 +43,15 @@ type ProvisioningTaskService struct {
 }
 
 // NewProvisioningTaskService creates the query and retry boundary; retrier carries a retry into
-// the release Workflow that owns the cleanup.
+// the release Workflow that owns the cleanup. guard is required: Retry reads the provider-owned
+// Server Lock live before it retries anything, because the stored Locked flag can be stale.
 func NewProvisioningTaskService(
 	tasks provisioningdomain.ProvisioningTaskRepository,
 	servers serverdomain.ServerRepository,
 	retrier ReleaseCleanupRetrier,
-	guard ...serverdomain.MutationGuard,
+	guard serverdomain.MutationGuard,
 ) *ProvisioningTaskService {
-	service := &ProvisioningTaskService{tasks: tasks, servers: servers, retrier: retrier}
-	if len(guard) > 0 {
-		service.guard = guard[0]
-	}
-	return service
+	return &ProvisioningTaskService{tasks: tasks, servers: servers, retrier: retrier, guard: guard}
 }
 
 // ListByServer returns newest task history after verifying the Server exists.
@@ -103,13 +100,8 @@ func (s *ProvisioningTaskService) Retry(
 	if err != nil {
 		return nil, err
 	}
-	if s.guard != nil {
-		if err := s.guard.RequireUnlocked(ctx, []string{server.ID}); err != nil {
-			return nil, err
-		}
-	}
-	if s.guard == nil && server.Provisioning != nil && server.Provisioning.Locked {
-		return nil, &serverdomain.ServerLockedError{Name: server.DisplayName()}
+	if err := s.guard.RequireUnlocked(ctx, []string{server.ID}); err != nil {
+		return nil, err
 	}
 	if task.Status != provisioningdomain.ProvisioningTaskFailed ||
 		task.Phase == provisioningdomain.ProvisioningTaskWaitingForRelease || task.RequestID == "" {

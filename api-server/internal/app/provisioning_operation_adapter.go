@@ -23,7 +23,9 @@ type durableProvisioningLauncher struct {
 	deployments *provisioningapp.DeployServersUseCase
 	operations  *workflowapp.WorkflowService
 	servers     serverdomain.ServerRepository
-	protection  serverdomain.MutationGuard
+	// protection is required: every accepted Workflow first reads the provider-owned Server Lock
+	// of its targets live, so a locked Server never enters one.
+	protection serverdomain.MutationGuard
 	// refresh live-syncs one Server's provisioning projection from its provisioner right before
 	// a Release/Recover decision, so the allowed-source gate branches on current provider state
 	// rather than a stale cache (the drift behind "shows Deployed but cannot Release"). It is
@@ -86,10 +88,8 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 	// Reject the deployment at acceptance if any target is locked. The executor
 	// re-checks the lock again before each host mutation; this early check fails fast
 	// and keeps a locked Server from ever entering a deploy Operation.
-	if l.protection != nil {
-		if err := l.protection.RequireUnlocked(ctx, input.ServerIDs); err != nil {
-			return nil, err
-		}
+	if err := l.protection.RequireUnlocked(ctx, input.ServerIDs); err != nil {
+		return nil, err
 	}
 	first, err := l.servers.FindByID(ctx, input.ServerIDs[0])
 	if err != nil {
@@ -278,10 +278,8 @@ func (l durableProvisioningLauncher) LaunchRelease(ctx context.Context, inputs [
 			Completion: []workflowdomain.Completion{{Type: completionServerDeploymentCleared}},
 		}
 	}
-	if l.protection != nil {
-		if err := l.protection.RequireUnlocked(ctx, targetIDs); err != nil {
-			return nil, err
-		}
+	if err := l.protection.RequireUnlocked(ctx, targetIDs); err != nil {
+		return nil, err
 	}
 	superseded, err := l.supersedeActiveWorkflows(ctx, targetIDs, options)
 	if err != nil {
@@ -363,10 +361,8 @@ func (l durableProvisioningLauncher) LaunchRecover(ctx context.Context, inputs [
 			Completion: []workflowdomain.Completion{{Type: completionServerDeploymentCleared}},
 		}
 	}
-	if l.protection != nil {
-		if err := l.protection.RequireUnlocked(ctx, targetIDs); err != nil {
-			return nil, err
-		}
+	if err := l.protection.RequireUnlocked(ctx, targetIDs); err != nil {
+		return nil, err
 	}
 	superseded, err := l.supersedeActiveWorkflows(ctx, targetIDs, options)
 	if err != nil {
@@ -419,10 +415,8 @@ func (l durableProvisioningLauncher) LaunchImageVerification(ctx context.Context
 	if !architectureMatches(server.Observed.Architecture, input.Architecture) {
 		return nil, fmt.Errorf("%w: Server %s architecture %q cannot verify a %q image", provisioningdomain.ErrInvalidDeploymentBatch, server.DisplayName(), server.Observed.Architecture, input.Architecture)
 	}
-	if l.protection != nil {
-		if err := l.protection.RequireUnlocked(ctx, []string{input.ServerID}); err != nil {
-			return nil, err
-		}
+	if err := l.protection.RequireUnlocked(ctx, []string{input.ServerID}); err != nil {
+		return nil, err
 	}
 
 	// Resolve the proving deploy through the ordinary path so it inherits the server-ready, image

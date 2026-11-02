@@ -5,20 +5,6 @@ import (
 	"testing"
 )
 
-// Every Operation kind changes its target host and must respect the provider-owned lock.
-func TestWorkflowKindRefusedWhenLocked(t *testing.T) {
-	kinds := WorkflowKinds{}
-	for _, kind := range BuiltInWorkflowKinds() {
-		if !kinds.RefusedWhenLocked(kind) {
-			t.Errorf("%s should be refused while its target is locked", kind)
-		}
-	}
-
-	if kinds.RefusedWhenLocked("unknown") {
-		t.Error("an invalid operation kind must not be treated as executable")
-	}
-}
-
 // The host exporters are Managed Software (the Node Exporter module), so the core no longer accepts
 // the kinds that installed them as plain playbooks.
 func TestRetiredExporterKindsAreNotAccepted(t *testing.T) {
@@ -41,7 +27,7 @@ func TestWorkflowKindsWithAddsModuleKinds(t *testing.T) {
 		t.Error("With changed the set it was called on")
 	}
 	for _, kind := range []WorkflowKind{"configure-widget", "uninstall-widget"} {
-		if !kinds.Valid(kind) || kinds.RequiredProvisioningState(kind) != "deployed" || !kinds.RefusedWhenLocked(kind) {
+		if !kinds.Valid(kind) || kinds.RequiredProvisioningState(kind) != "deployed" {
 			t.Errorf("%s: valid %v, required %q", kind, kinds.Valid(kind), kinds.RequiredProvisioningState(kind))
 		}
 	}

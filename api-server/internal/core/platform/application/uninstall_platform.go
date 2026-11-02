@@ -18,21 +18,19 @@ type UninstallService struct {
 	protection serverdomain.MutationGuard
 }
 
-// NewUninstallService constructs the platform uninstall use case.
+// NewUninstallService constructs the platform uninstall use case. protection is required: it reads
+// the provider-owned Server Lock of every target live before the uninstall Workflow is created,
+// because the stored Locked flag can be stale.
 func NewUninstallService(
 	platforms platformdomain.PlatformRepository,
 	servers serverdomain.ServerRepository,
 	lifecycle platformdomain.LifecycleReader,
 	launcher platformdomain.UninstallLauncher,
-	protection ...serverdomain.MutationGuard,
+	protection serverdomain.MutationGuard,
 ) *UninstallService {
-	service := &UninstallService{
-		platforms: platforms, servers: servers, lifecycle: lifecycle, launcher: launcher,
+	return &UninstallService{
+		platforms: platforms, servers: servers, lifecycle: lifecycle, launcher: launcher, protection: protection,
 	}
-	if len(protection) > 0 {
-		service.protection = protection[0]
-	}
-	return service
 }
 
 // UninstallPlatformInput identifies the platform and requesting user.
@@ -120,15 +118,10 @@ func (s *UninstallService) Uninstall(
 			return nil, fmt.Errorf("%w: deployment target %s is absent",
 				platformdomain.ErrPlatformUninstallConflict, server.DisplayName())
 		}
-		if s.protection == nil && server.Provisioning != nil && server.Provisioning.Locked {
-			return nil, &serverdomain.ServerLockedError{Name: server.DisplayName()}
-		}
 	}
 
-	if s.protection != nil {
-		if err := s.protection.RequireUnlocked(ctx, targetIDs); err != nil {
-			return nil, err
-		}
+	if err := s.protection.RequireUnlocked(ctx, targetIDs); err != nil {
+		return nil, err
 	}
 
 	// Releasing a host wipes it, so exporter restoration is meaningless there; the two are

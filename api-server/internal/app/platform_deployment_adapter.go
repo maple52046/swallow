@@ -76,7 +76,8 @@ const (
 // platformDeploymentLauncher composes optional MAAS preparation and the platform automation into
 // one durable Workflow.
 type platformDeploymentLauncher struct {
-	operations     *workflowapp.ExecutionService
+	operations *workflowapp.ExecutionService
+	// orchestrations is required: it accepts every deploy and uninstall Workflow the launcher plans.
 	orchestrations *workflowapp.WorkflowService
 	deployments    *provisioningapp.DeployServersUseCase
 	servers        serverdomain.ServerRepository
@@ -154,9 +155,6 @@ func (l platformDeploymentLauncher) PersistDeployment(ctx context.Context, prepa
 // prepareKubernetes plans the k0s deployment: the ensure-os Job, the install and health-validation
 // Tasks, and the optional GPU Operator Job, under the Workflow id the deploy use case preassigned.
 func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launch platformdomain.DeploymentLaunch) (*preparedPlatformDeployment, error) {
-	if l.orchestrations == nil {
-		return nil, fmt.Errorf("durable Kubernetes deployment is unavailable")
-	}
 	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
 	launch.TrustedVars = l.ntp.withCheckVars(launch.TrustedVars, launch.TimeSyncCheck)
 
@@ -227,9 +225,6 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 // install-platform, under the Workflow id the deploy use case preassigned for the Omnistat
 // record's fence. The composed Software Assignments are written by PersistDeployment.
 func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch platformdomain.DeploymentLaunch) (*preparedPlatformDeployment, error) {
-	if l.orchestrations == nil {
-		return nil, fmt.Errorf("durable Slurm deployment is unavailable")
-	}
 	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
 	launch.TrustedVars = l.ntp.withCheckVars(launch.TrustedVars, launch.TimeSyncCheck)
 
@@ -481,7 +476,7 @@ func (l platformDeploymentLauncher) deploymentWorkflowInput(
 
 // platformOperationCanceler implements platformdomain.PlatformOperationCanceler by finding
 // the platform's active durable Operations and canceling each one, which releases their
-// resource leases so deleting the platform frees its member servers.
+// resource leases so deleting the platform frees its member servers. orchestrations is required.
 type platformOperationCanceler struct {
 	orchestrations *workflowapp.WorkflowService
 }
@@ -491,9 +486,6 @@ type platformOperationCanceler struct {
 const activeOperationsPageSize = 100
 
 func (c platformOperationCanceler) CancelActiveForPlatform(ctx context.Context, platformID string) error {
-	if c.orchestrations == nil {
-		return nil
-	}
 	items, _, err := c.orchestrations.List(ctx, workflowapp.ListOperationsInput{
 		PlatformID: platformID,
 		Active:     true,
@@ -659,10 +651,6 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 		stepName = "Uninstall Slurm Platform"
 		intent = "Uninstall Slurm platform " + launch.Platform.Name
 		summary = "Uninstall Slurm Platform " + launch.Platform.Name
-	}
-
-	if l.orchestrations == nil {
-		return "", fmt.Errorf("durable Platform uninstall is unavailable")
 	}
 
 	operationID := uuid.NewString()

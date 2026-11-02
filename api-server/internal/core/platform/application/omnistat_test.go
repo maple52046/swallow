@@ -50,7 +50,6 @@ func omnistatSlurmInput() DeployPlatformInput {
 // the launcher the compute nodes and the configure-omnistat variables.
 func TestDeploySlurmWithOmnistatRecordsTheWorkflowBeforeLaunch(t *testing.T) {
 	service, launcher, platforms := newDeployHarness(slurmServers()...)
-	service.AttachOmnistatRecorder(&fakeOmnistatRecorder{platforms: platforms})
 
 	result, err := service.Deploy(context.Background(), omnistatSlurmInput())
 	if err != nil {
@@ -94,7 +93,6 @@ func TestDeploySlurmOmnistatInstallMethod(t *testing.T) {
 	} {
 		t.Run(string(tc.want), func(t *testing.T) {
 			service, launcher, platforms := newDeployHarness(slurmServers()...)
-			service.AttachOmnistatRecorder(&fakeOmnistatRecorder{platforms: platforms})
 			input := omnistatSlurmInput()
 			input.Omnistat.InstallMethod = tc.requested
 			result, err := service.Deploy(context.Background(), input)
@@ -111,7 +109,6 @@ func TestDeploySlurmOmnistatInstallMethod(t *testing.T) {
 	}
 
 	service, launcher, platforms := newDeployHarness(slurmServers()...)
-	service.AttachOmnistatRecorder(&fakeOmnistatRecorder{platforms: platforms})
 	input := omnistatSlurmInput()
 	input.Omnistat.InstallMethod = "snap"
 	if _, err := service.Deploy(context.Background(), input); !errors.Is(err, platformdomain.ErrInvalidOmnistat) {
@@ -255,7 +252,6 @@ func TestDeployRefusesContainerRuntimeItCannotApply(t *testing.T) {
 
 func TestDeploySlurmWithoutOmnistatLeavesItOut(t *testing.T) {
 	service, launcher, platforms := newDeployHarness(slurmServers()...)
-	service.AttachOmnistatRecorder(&fakeOmnistatRecorder{platforms: platforms})
 	input := omnistatSlurmInput()
 	input.Omnistat = &platformdomain.OmnistatSettings{Enabled: false}
 
@@ -274,21 +270,11 @@ func TestDeploySlurmWithoutOmnistatLeavesItOut(t *testing.T) {
 func TestDeployRefusesOmnistatItCannotApply(t *testing.T) {
 	t.Run("Kubernetes Platform", func(t *testing.T) {
 		service, launcher, platforms := newDeployHarness(slurmServers()...)
-		service.AttachOmnistatRecorder(&fakeOmnistatRecorder{platforms: platforms})
 		input := DeployPlatformInput{
 			SiteID: "site-1", Name: "lab-k0s", Type: platformdomain.PlatformTypeKubernetes,
 			Omnistat: &platformdomain.OmnistatSettings{Enabled: true},
 		}
 		if _, err := service.Deploy(context.Background(), input); !errors.Is(err, platformdomain.ErrInvalidOmnistat) {
-			t.Fatalf("Deploy() error = %v, want ErrInvalidOmnistat", err)
-		}
-		if launcher.launched != nil || len(platforms.platforms) != 0 {
-			t.Error("a refused deploy must create nothing")
-		}
-	})
-	t.Run("no recorder", func(t *testing.T) {
-		service, launcher, platforms := newDeployHarness(slurmServers()...)
-		if _, err := service.Deploy(context.Background(), omnistatSlurmInput()); !errors.Is(err, platformdomain.ErrInvalidOmnistat) {
 			t.Fatalf("Deploy() error = %v, want ErrInvalidOmnistat", err)
 		}
 		if launcher.launched != nil || len(platforms.platforms) != 0 {

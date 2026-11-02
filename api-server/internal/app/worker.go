@@ -134,8 +134,9 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return err
 	}
-	deployments := provisioningapp.NewDeployServersUseCase(servers, templates, providers, osImageVerifications)
-	deployments.AttachDeploymentKeys(sshKeys)
+	deployments := provisioningapp.NewDeployServersUseCase(servers, templates, providers, osImageVerifications, sshKeys)
+	// The live Server Lock check every host mutation of this process passes.
+	protection := providerServerMutationGuard{servers: servers, providers: providers}
 	providerExecutor := providerStepExecutor{
 		deployments: deployments,
 		release:     provisioningapp.NewReleaseServerUseCase(servers, providers, tasks),
@@ -145,15 +146,15 @@ func RunWorker(cfg config.APIConfig) error {
 		configurations: automationConfigurations,
 		// The executor re-checks the provider-owned Server Lock before every host
 		// mutation; an acceptance-time check alone can go stale in the durable queue.
-		protection: providerServerMutationGuard{servers: servers, providers: providers},
+		protection: protection,
 	}
 
 	// Boot Media's ensure-boot-media Task (decision 047) drives the BMC over Redfish with
 	// the connection read live from the provisioner. An OS deployment's Task carries the Boot ISO
 	// URL frozen at acceptance; an inspect-hardware Task resolves the Server's Boot ISO when it
 	// runs (decision 053), so the worker's catalog needs the Boot Media directory and base URL like
-	// the API's. The Redfish capability pass probes BMCs through it too. The enable and view paths of
-	// the use case are never called here, and the guard is unused.
+	// the API's. The Redfish capability pass probes BMCs through it too. The use case gets the same
+	// live lock guard as in the API, so any of its paths that changes a host's boot checks the lock.
 	bootISORepo, err := provisioningstore.NewMongoBootISORepo(db)
 	if err != nil {
 		return fmt.Errorf("boot ISO repo init: %w", err)
@@ -161,7 +162,7 @@ func RunWorker(cfg config.APIConfig) error {
 	bootISOs := newBootISOCatalog(bootISORepo,
 		genfsimg.NewGenfsimgBuilder(cfg.BootMedia.Dir, cfg.BootMedia.IPXEDir, cfg.BootMedia.BaseURL),
 		cfg.BootMedia.BaseURL)
-	bootMedia := serverapp.NewBootMediaUseCase(servers, servers, nil,
+	bootMedia := serverapp.NewBootMediaUseCase(servers, servers, protection,
 		newBootMediaEndpointSource(providers, servers), redfish.NewController(), libvirtHosts, bootISOs)
 	providerExecutor.bootMedia = bootMedia
 	// The observation passes read external systems into swallow's observed state and need no
@@ -192,22 +193,28 @@ func RunWorker(cfg config.APIConfig) error {
 	}
 	defer temporalClient.Close()
 
+	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
+	if err != nil {
+		return fmt.Errorf("resource ownership repo: %w", err)
+	}
+	// One WorkflowService accepts the Workflows this process plans: the platform controller's
+	// realizations and the automatic hardware inspections.
+	workflows := workflowapp.NewWorkflowService(transactor, operations, workflowPlanCatalog(modules.workflowKinds, modules.software),
+		ownership, operationSecrets)
+
 	// Finalizes the release-and-uninstall path's complete-uninstall step, and builds the Platform
-	// records the platform controller deploys onto.
+	// records the platform controller deploys onto. The worker never deletes a Platform, but its
+	// PlatformService still cancels through this process's WorkflowService rather than skipping
+	// cancellation.
 	sites, err := sitestore.NewMongoSiteRepo(db)
 	if err != nil {
 		return err
 	}
-	platformFinalizer := platformapp.NewPlatformService(transactor, platforms, sites, servers,
-		platformLifecycleReader{orchestrations: operations}, managedPlatformIntegrationCleaner{integrations: integrations},
-	)
-	platformFinalizer.AttachGPUOperatorRecorder(platforms)
-	platformFinalizer.AttachOmnistatRecorder(platforms)
-	platformFinalizer.AttachDeviceMetricsExporterRecorder(platforms)
-	// A completed uninstall frees its Servers (decision 067) and, for Slurm, retires their Device
-	// Metrics Exporter records (decision 068).
-	platformFinalizer.AttachPlatformClaims(servers)
-	platformFinalizer.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignments})
+	platformFinalizer, err := newPlatformService(transactor, platforms, sites, servers, operations, integrations,
+		softwareAssignments, platformOperationCanceler{orchestrations: workflows})
+	if err != nil {
+		return err
+	}
 	providerExecutor.virtualMachines = &virtualMachineEnroller{
 		libvirt: libvirtHosts, isos: bootISOs, bootMedia: bootMedia, integrations: integrations,
 	}
@@ -219,13 +226,9 @@ func RunWorker(cfg config.APIConfig) error {
 		},
 		workflowdomain.RunnerKindProvisioner: providerExecutor,
 	}
-	// The store-driven engine (decision 072) is the only writer of execution state.
-	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
-	if err != nil {
-		return fmt.Errorf("resource ownership repo: %w", err)
-	}
-	// The worker's Runners return no result data, so it registers only projections; the Ansible
-	// executor records results.
+	// The store-driven engine (decision 072) is the only writer of execution state. The worker's
+	// Runners return no result data, so it registers only projections; the Ansible executor records
+	// results.
 	engine, err := workflowapp.NewEngine(transactor, operations, ownership, workflowPlanCatalog(modules.workflowKinds, modules.software),
 		workflowapp.CompletionHandlers{Projections: workflowProjections(servers, softwareAssignments, platforms, platforms, platforms)},
 		cfg.OperationMaxParallelism)
@@ -279,10 +282,6 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("subnet DNS repo init: %w", err)
 	}
-	// One WorkflowService accepts the Workflows this process plans: the platform controller's
-	// realizations and the automatic hardware inspections.
-	workflows := workflowapp.NewWorkflowService(transactor, operations, workflowPlanCatalog(modules.workflowKinds, modules.software), operationSecrets)
-	workflows.AttachOwnershipReader(ownership)
 	platformOps, err := workerPlatformOperations(cfg, db, transactor, modules, workerPlatformDeps{
 		platformService: platformFinalizer, platforms: platforms, servers: servers, operations: operations,
 		workflows: workflows, automation: automationConfigurations, providers: providers,
@@ -313,8 +312,7 @@ func RunWorker(cfg config.APIConfig) error {
 		sshKeyController(sshKeys, convergenceEvents),
 		// An enabled provisioner's autoInspect policy, realized by inspect-hardware Workflows.
 		provisioningapp.NewAutoInspectController(integrations, servers, hardwareInspectionLauncher{
-			workflows: workflows, history: operations, servers: servers,
-			protection: providerServerMutationGuard{servers: servers, providers: providers},
+			workflows: workflows, history: operations, servers: servers, protection: protection,
 		}),
 		convergence.NewChangePlanExpiryController(changePlans),
 		platformController,

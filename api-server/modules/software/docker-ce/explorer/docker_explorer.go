@@ -50,7 +50,8 @@ type ServerReader interface {
 }
 
 // NewDockerExplorerUseCase wires the assignment and server readers (eligibility), the Engine
-// client factory, and the provider-backed lock guard (writes).
+// client factory, and the provider-backed lock guard, which is required: every write reads the
+// Server Lock through it first.
 func NewDockerExplorerUseCase(
 	assignments AssignmentReader,
 	servers ServerReader,
@@ -327,10 +328,8 @@ func (uc *DockerExplorerUseCase) writer(ctx context.Context, serverID string) (D
 	if err != nil {
 		return nil, err
 	}
-	if uc.guard != nil {
-		if err := uc.guard.RequireUnlocked(ctx, []string{serverID}); err != nil {
-			return nil, err
-		}
+	if err := uc.guard.RequireUnlocked(ctx, []string{serverID}); err != nil {
+		return nil, err
 	}
 	return client, nil
 }

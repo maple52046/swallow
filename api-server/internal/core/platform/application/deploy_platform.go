@@ -127,53 +127,81 @@ const (
 // DeployService owns the intent to build a platform: it validates the topology, creates the
 // platform with no integration yet, and delegates execution to the operation context.
 type DeployService struct {
-	platformService    *PlatformService
-	platforms          platformdomain.PlatformRepository
-	servers            serverdomain.ServerRepository
-	launcher           platformdomain.DeploymentLauncher
-	protection         serverdomain.MutationGuard
-	machinePreparation platformdomain.MachinePreparationValidator
-	nodeSubnets        platformdomain.NodeSubnetResolver
-	requirements       platformdomain.DeploymentRequirementReader
-	deploymentKeys     platformdomain.DeploymentKeyChecker
-	gpuOperators       platformdomain.GPUOperatorRecorder
-	omnistats          platformdomain.OmnistatRecorder
-	// deviceMetricsExporters is required to accept a deploy that requests the exporter.
+	platformService        *PlatformService
+	platforms              platformdomain.PlatformRepository
+	servers                serverdomain.ServerRepository
+	launcher               platformdomain.DeploymentLauncher
+	protection             serverdomain.MutationGuard
+	claims                 serverdomain.PlatformClaimStore
+	machinePreparation     platformdomain.MachinePreparationValidator
+	nodeSubnets            platformdomain.NodeSubnetResolver
+	requirements           platformdomain.DeploymentRequirementReader
+	deploymentKeys         platformdomain.DeploymentKeyChecker
+	gpuOperators           platformdomain.GPUOperatorRecorder
+	omnistats              platformdomain.OmnistatRecorder
 	deviceMetricsExporters platformdomain.DeviceMetricsExporterRecorder
-	// claims writes the accepted deployment's Platform Claims (decision 067); nil in tests.
-	claims serverdomain.PlatformClaimStore
-	// accelerator recognizes the GPUs the GPU Operator and the Device Metrics Exporter serve; nil
-	// (a build without an Accelerator module) finds none.
-	accelerator platformdomain.Accelerator
-	// readRequest reads a deploy request body, so a Platform spec can be deployed.
-	readRequest DeployRequestReader
+	accelerator            platformdomain.Accelerator
+	readRequest            DeployRequestReader
 }
 
-// AttachAccelerator sets the Accelerator module whose compute GPUs the Platform GPU features
-// (the GPU Operator, the Device Metrics Exporter) serve.
-func (s *DeployService) AttachAccelerator(accelerator platformdomain.Accelerator) {
-	s.accelerator = accelerator
+// DeployServiceDeps is what a DeployService is built from. Every field is required, so every
+// acceptance check runs in every process that accepts a deployment (the API and the worker's
+// platform controller); NewDeployService refuses a nil field.
+type DeployServiceDeps struct {
+	// PlatformService builds the Platform record and owns the transaction a deployment is accepted in.
+	PlatformService *PlatformService
+	Platforms       platformdomain.PlatformRepository
+	Servers         serverdomain.ServerRepository
+	// Launcher plans the deploy Workflow outside the transaction and persists it inside.
+	Launcher platformdomain.DeploymentLauncher
+	// Protection reads the provider-owned Server Lock live for every target the deployment does not
+	// already own; a stored Locked flag can be stale.
+	Protection serverdomain.MutationGuard
+	// Claims writes the accepted deployment's Platform Claims in the accepting transaction
+	// (decision 067), so a partial deployment cannot be taken by a second Platform before its
+	// platform API reports membership.
+	Claims serverdomain.PlatformClaimStore
+	// MachinePreparation preflights provision_os targets with the provisioner, without coupling the
+	// Platform to provisioning models.
+	MachinePreparation platformdomain.MachinePreparationValidator
+	// NodeSubnets reads the control plane's subnet, so an HA deploy takes the API VIP prefix from it
+	// and refuses a VIP outside it. An implementation that cannot read a subnet reports none, and
+	// the requested prefix is used.
+	NodeSubnets platformdomain.NodeSubnetResolver
+	// Requirements is the authoritative Slurm resource eligibility; its read failures refuse the
+	// deploy before any Platform or Workflow exists.
+	Requirements platformdomain.DeploymentRequirementReader
+	// DeploymentKeys refuses every deploy, existing_os or provision_os, when the installation has
+	// no Deployment Key (decision 039), before any validation, record, or Workflow.
+	DeploymentKeys platformdomain.DeploymentKeyChecker
+	// GPUOperators, Omnistats, and DeviceMetricsExporters write the feature record a deploy that
+	// requests the feature carries, in the accepting transaction.
+	GPUOperators           platformdomain.GPUOperatorRecorder
+	Omnistats              platformdomain.OmnistatRecorder
+	DeviceMetricsExporters platformdomain.DeviceMetricsExporterRecorder
+	// Accelerator is the Accelerator module whose compute GPUs the Platform GPU features (the GPU
+	// Operator, the Device Metrics Exporter) serve.
+	Accelerator platformdomain.Accelerator
+	// ReadRequest reads a deploy request body, which is how a Platform spec becomes a deployment.
+	ReadRequest DeployRequestReader
 }
 
-// NewDeployService constructs deployment preflight over Server observations. Which Platform
-// already holds a target comes from the Servers' stored Platform Claims (AttachPlatformClaims),
-// so a partial deployment cannot be assigned to a second Platform even before its platform API
-// reports membership.
-func NewDeployService(
-	platformService *PlatformService,
-	platforms platformdomain.PlatformRepository,
-	servers serverdomain.ServerRepository,
-	launcher platformdomain.DeploymentLauncher,
-	protection ...serverdomain.MutationGuard,
-) *DeployService {
-	service := &DeployService{
-		platformService: platformService, platforms: platforms,
-		servers: servers, launcher: launcher,
+// NewDeployService constructs deployment preflight and acceptance over Server observations. Which
+// Platform already holds a target comes from the Servers' stored Platform Claims. It returns an
+// error naming every nil field of deps; the caller is the process assembly, which must fail to
+// start on it.
+func NewDeployService(deps DeployServiceDeps) (*DeployService, error) {
+	if err := requireDependencies("deploy service", deps); err != nil {
+		return nil, err
 	}
-	if len(protection) > 0 {
-		service.protection = protection[0]
-	}
-	return service
+	return &DeployService{
+		platformService: deps.PlatformService, platforms: deps.Platforms, servers: deps.Servers,
+		launcher: deps.Launcher, protection: deps.Protection, claims: deps.Claims,
+		machinePreparation: deps.MachinePreparation, nodeSubnets: deps.NodeSubnets,
+		requirements: deps.Requirements, deploymentKeys: deps.DeploymentKeys,
+		gpuOperators: deps.GPUOperators, omnistats: deps.Omnistats, deviceMetricsExporters: deps.DeviceMetricsExporters,
+		accelerator: deps.Accelerator, readRequest: deps.ReadRequest,
+	}, nil
 }
 
 // DeployPlatformInput is accepted by POST /platforms/deploy.
@@ -249,50 +277,6 @@ type deploymentTargetAvailability struct {
 	platformsByID map[string]*platformdomain.Platform
 }
 
-// AttachMachinePreparationValidator adds provisioner preflight without coupling Platform to provisioning models.
-func (s *DeployService) AttachMachinePreparationValidator(validator platformdomain.MachinePreparationValidator) {
-	s.machinePreparation = validator
-}
-
-// AttachNodeSubnetResolver lets an HA deploy take the API VIP prefix from the control plane's
-// subnet and refuse a VIP outside it. Without it (tests, a provisioner without network reads)
-// the requested prefix is used as given and defaults to 24.
-func (s *DeployService) AttachNodeSubnetResolver(resolver platformdomain.NodeSubnetResolver) {
-	s.nodeSubnets = resolver
-}
-
-// AttachDeploymentKeyChecker makes every deploy, existing_os or provision_os, require the
-// installation's Deployment Key before any validation, Platform record, or Workflow is created.
-// Without it (tests) the check is skipped.
-func (s *DeployService) AttachDeploymentKeyChecker(checker platformdomain.DeploymentKeyChecker) {
-	s.deploymentKeys = checker
-}
-
-// AttachGPUOperatorRecorder enables installing the GPU Operator as part of a Kubernetes deploy.
-// Without it a deploy that requests the operator is refused instead of silently skipping it.
-func (s *DeployService) AttachGPUOperatorRecorder(recorder platformdomain.GPUOperatorRecorder) {
-	s.gpuOperators = recorder
-}
-
-// AttachOmnistatRecorder enables installing Omnistat as part of a Slurm deploy. Without it a
-// deploy that requests Omnistat is refused instead of silently skipping it.
-func (s *DeployService) AttachOmnistatRecorder(recorder platformdomain.OmnistatRecorder) {
-	s.omnistats = recorder
-}
-
-// AttachDeviceMetricsExporterRecorder enables installing the Device Metrics Exporter as part of a
-// Slurm deploy. Without it a deploy that requests the exporter is refused instead of silently
-// skipping it.
-func (s *DeployService) AttachDeviceMetricsExporterRecorder(recorder platformdomain.DeviceMetricsExporterRecorder) {
-	s.deviceMetricsExporters = recorder
-}
-
-// AttachDeploymentRequirementReader enables authoritative resource eligibility checks for
-// Slurm. Repository failures are returned before any Platform or Workflow is created.
-func (s *DeployService) AttachDeploymentRequirementReader(reader platformdomain.DeploymentRequirementReader) {
-	s.requirements = reader
-}
-
 // Deploy validates the topology, plans the build Workflow, and accepts the deployment. It
 // dispatches on the requested platform type. An empty type defaults to Kubernetes so callers
 // that predate the type field are unaffected; an unknown type is a domain error the delivery
@@ -337,14 +321,12 @@ func (p *PreparedDeploy) WorkflowID() string {
 // Prepare is Deploy's first phase: it validates the deployment and plans its Workflow, reading
 // providers and writing nothing.
 func (s *DeployService) Prepare(ctx context.Context, input DeployPlatformInput) (*PreparedDeploy, error) {
-	if s.deploymentKeys != nil {
-		exists, err := s.deploymentKeys.HasDeploymentKey(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if !exists {
-			return nil, platformdomain.ErrDeploymentKeyMissing
-		}
+	exists, err := s.deploymentKeys.HasDeploymentKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, platformdomain.ErrDeploymentKeyMissing
 	}
 	timeSyncCheck, err := platformdomain.ParseTimeSyncCheck(string(input.TimeSyncCheck))
 	if err != nil {
@@ -580,9 +562,6 @@ func (s *DeployService) validateDeployGPUOperator(
 	if owner == string(platformdomain.GPUStackOwnerProvisioning) {
 		return nil, "", fmt.Errorf("%w: gpuStackOwner provisioning contradicts an enabled gpuOperator", platformdomain.ErrInvalidGPUOperator)
 	}
-	if s.gpuOperators == nil {
-		return nil, "", fmt.Errorf("%w: GPU Operator installation is unavailable", platformdomain.ErrInvalidGPUOperator)
-	}
 	kubernetes, ok := platformdomain.ParseKubernetesMinorVersion(validated.spec.K0sVersion)
 	if !ok {
 		return nil, "", fmt.Errorf("%w: k0sVersion %q does not name a Kubernetes version", platformdomain.ErrInvalidGPUOperator, validated.spec.K0sVersion)
@@ -625,9 +604,6 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 	omnistatEnabled := input.Omnistat != nil && input.Omnistat.Enabled
 	var omnistat platformdomain.OmnistatSettings
 	if omnistatEnabled {
-		if s.omnistats == nil {
-			return nil, fmt.Errorf("%w: Omnistat installation is unavailable", platformdomain.ErrInvalidOmnistat)
-		}
 		if omnistat, err = platformdomain.NormalizeOmnistatSettings(*input.Omnistat); err != nil {
 			return nil, err
 		}
@@ -640,9 +616,6 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 			// shared nodes; both would also take the same hardware profiler. Whether they may run
 			// together is not decided, so a Platform gets one.
 			return nil, fmt.Errorf("%w: deviceMetricsExporter and omnistat cannot both be enabled", platformdomain.ErrInvalidDeviceMetricsExporter)
-		}
-		if s.deviceMetricsExporters == nil {
-			return nil, fmt.Errorf("%w: Device Metrics Exporter installation is unavailable", platformdomain.ErrInvalidDeviceMetricsExporter)
 		}
 		if exporter, err = platformdomain.NormalizeDeviceMetricsExporterSettings(*input.DeviceMetricsExporter); err != nil {
 			return nil, err
@@ -758,18 +731,16 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 	}
 
 	var minimum *platformdomain.MinimumResources
-	if s.requirements != nil {
-		requirement, err := s.requirements.FindByPlatformType(ctx, platformdomain.PlatformTypeSlurm)
-		switch {
-		case err == nil && requirement != nil:
-			minimum = requirement.MinimumResources
-		case err == nil:
-			return invalid, fmt.Errorf("read Slurm deployment requirement: repository returned nil requirement")
-		case errors.Is(err, platformdomain.ErrDeploymentRequirementNotFound):
-			// A missing record is the defined disabled state.
-		default:
-			return invalid, fmt.Errorf("read Slurm deployment requirement: %w", err)
-		}
+	requirement, err := s.requirements.FindByPlatformType(ctx, platformdomain.PlatformTypeSlurm)
+	switch {
+	case err == nil && requirement != nil:
+		minimum = requirement.MinimumResources
+	case err == nil:
+		return invalid, fmt.Errorf("read Slurm deployment requirement: repository returned nil requirement")
+	case errors.Is(err, platformdomain.ErrDeploymentRequirementNotFound):
+		// A missing record is the defined disabled state.
+	default:
+		return invalid, fmt.Errorf("read Slurm deployment requirement: %w", err)
 	}
 
 	targetIDs := make([]string, 0, len(spec.NodeAssignments))
@@ -1057,9 +1028,6 @@ func (s *DeployService) checkTargets(
 			continue
 		}
 		unowned = append(unowned, server.ID)
-		if s.protection == nil && server.Provisioning != nil && server.Provisioning.Locked {
-			return nil, &serverdomain.ServerLockedError{Name: server.DisplayName()}
-		}
 		if server.PlatformClaim != nil {
 			return nil, fmt.Errorf("%w: server %s is already claimed by %s",
 				platformdomain.ErrInvalidDeployment, server.DisplayName(), claimedBy(server, availability.platformsByID))
@@ -1080,15 +1048,10 @@ func (s *DeployService) checkTargets(
 		targets = append(targets, server)
 	}
 
-	if s.protection != nil {
-		if err := s.protection.RequireUnlocked(ctx, unowned); err != nil {
-			return nil, err
-		}
+	if err := s.protection.RequireUnlocked(ctx, unowned); err != nil {
+		return nil, err
 	}
 	if preparation.Mode == platformdomain.MachinePreparationProvisionOS && len(readyServerIDs) > 0 {
-		if s.machinePreparation == nil {
-			return nil, fmt.Errorf("%w: OS provisioning is unavailable", platformdomain.ErrInvalidDeployment)
-		}
 		if err := s.machinePreparation.Validate(ctx, siteID, readyServerIDs, preparation); err != nil {
 			return nil, err
 		}
@@ -1131,7 +1094,7 @@ func (s *DeployService) apiVIPPrefix(
 		fallback = defaultAPIVIPPrefix
 	}
 	vip, err := netip.ParseAddr(spec.APIVIP)
-	if s.nodeSubnets == nil || err != nil || !vip.Is4() {
+	if err != nil || !vip.Is4() {
 		// deploymentAPIAddress reports an unparseable VIP.
 		return fallback, nil
 	}

@@ -180,6 +180,10 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("operation secret repo init: %w", err)
 	}
+	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
+	if err != nil {
+		return fmt.Errorf("resource ownership repo init: %w", err)
+	}
 
 	if err := bootstrap.EnsureAdminUser(
 		ctx, userRepo,
@@ -250,10 +254,9 @@ func RunAPI(cfg config.APIConfig) error {
 	networkService := provisioningapp.NewNetworkConfigurationService(serverRepo, providerFactory)
 	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo, releaseCleanupRetrier{
 		orchestrations: orchestrationRepo,
-		workflows:      workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog(modules.workflowKinds, modules.software)),
+		workflows:      workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog(modules.workflowKinds, modules.software), ownership),
 	}, serverProtection)
-	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory, osImageVerificationRepo)
-	deploymentsUC.AttachDeploymentKeys(sshKeyService)
+	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory, osImageVerificationRepo, sshKeyService)
 	softwareAssignmentRepo, err := softwarestore.NewMongoAssignmentRepo(db)
 	if err != nil {
 		return fmt.Errorf("software assignment repo init: %w", err)
@@ -348,12 +351,15 @@ func RunAPI(cfg config.APIConfig) error {
 		return fmt.Errorf("playbook catalog: %w", err)
 	}
 	lifecycleReader := platformLifecycleReader{orchestrations: orchestrationRepo}
-	integrationCleaner := managedPlatformIntegrationCleaner{integrations: integrationRepo}
-	platformService := platformapp.NewPlatformService(transactor, platformRepo, siteRepo, serverRepo, lifecycleReader, integrationCleaner)
-	platformService.AttachGPUOperatorRecorder(platformRepo)
-	platformService.AttachOmnistatRecorder(platformRepo)
-	platformService.AttachDeviceMetricsExporterRecorder(platformRepo)
-	platformService.AttachPlatformClaims(serverRepo)
+	orchestrationService := workflowapp.NewWorkflowService(transactor, orchestrationRepo,
+		workflowPlanCatalog(modules.workflowKinds, modules.software), ownership, operationSecretRepo)
+	// Deleting a platform cancels its in-flight durable operations so their leases are
+	// released and the member servers are freed rather than left blocked by orphaned work.
+	platformService, err := newPlatformService(transactor, platformRepo, siteRepo, serverRepo, orchestrationRepo,
+		integrationRepo, softwareAssignmentRepo, platformOperationCanceler{orchestrations: orchestrationService})
+	if err != nil {
+		return err
+	}
 	automationRepo := workflowstore.NewMongoAutomationConfigurationRepo(db, sealer)
 	// Automation readers get the effective credential (the Deployment Key, decision 039) and the
 	// derived credential source; the configuration service reads the plain repository and derives
@@ -410,22 +416,11 @@ func RunAPI(cfg config.APIConfig) error {
 	operationService := workflowapp.NewExecutionService(
 		serverRepo, effectiveAutomation, catalog, modules.workflowKinds, runner, ansibleEventRepo,
 		platformapp.NewPolicyChecker(platformRepo, serverRepo),
-		serverProtection,
+		serverProtection, orchestrationService,
 	)
 	automationService := workflowapp.NewAutomationConfigurationService(
-		automationRepo, siteRepo, catalog, modules.workflowKinds,
+		automationRepo, siteRepo, catalog, modules.workflowKinds, deploymentKeys,
 	)
-	automationService.AttachDeploymentKeys(deploymentKeys)
-	orchestrationService := workflowapp.NewWorkflowService(transactor, orchestrationRepo, workflowPlanCatalog(modules.workflowKinds, modules.software), operationSecretRepo)
-	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
-	if err != nil {
-		return fmt.Errorf("resource ownership repo init: %w", err)
-	}
-	orchestrationService.AttachOwnershipReader(ownership)
-	operationService.AttachWorkflow(orchestrationService)
-	// Deleting a platform cancels its in-flight durable operations so their leases are
-	// released and the member servers are freed rather than left blocked by orphaned work.
-	platformService.AttachOperationCanceler(platformOperationCanceler{orchestrations: orchestrationService})
 	// Both deployment launchers point every Server they provision at the installation's NTP server
 	// after SSH readiness, and Platform deployments check time sync (decision 065); the Tasks are
 	// prepared through the same ansible acceptance checks as any other.
@@ -445,8 +440,6 @@ func RunAPI(cfg config.APIConfig) error {
 		operations: operationService, orchestrations: orchestrationService, modules: modules.registry,
 	})
 	softwareService.AttachPlatformNames(platformNames)
-	// A Slurm uninstall completed here retires its Servers' Device Metrics Exporter records (068).
-	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignmentRepo})
 
 	nodeExporterPlan := nodeExporterPlanner{software: softwareService, operations: operationService}
 	provisioningHandler.AttachDurableOperations(durableProvisioningLauncher{
@@ -486,7 +479,7 @@ func RunAPI(cfg config.APIConfig) error {
 		overviewapp.NewService(overviewReader, overviewapp.SystemClock{}))
 
 	// Platform lifecycle adapters keep durable operations outside the platform context.
-	platformOps := buildPlatformOperations(platformOperationDeps{
+	platformOps, err := buildPlatformOperations(platformOperationDeps{
 		transactor: transactor, modules: modules, platformService: platformService, platforms: platformRepo,
 		servers: serverRepo, claims: serverRepo, lifecycle: lifecycleReader,
 		operations: operationService, orchestrations: orchestrationService, deployments: deploymentsUC,
@@ -494,6 +487,9 @@ func RunAPI(cfg config.APIConfig) error {
 		protection: serverProtection,
 		networks:   networkService, requirements: requirementRepo, keys: sshKeyService,
 	})
+	if err != nil {
+		return err
+	}
 	deployService, gpuOperatorService := platformOps.deploy, platformOps.gpuOperators
 	changePlans, err := newChangePlanService(ctx, db, transactor, cfg.ChangePlanTTL, platformOps.planner)
 	if err != nil {

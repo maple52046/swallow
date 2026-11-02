@@ -52,8 +52,8 @@ type hardwareInspectionLauncher struct {
 	workflows inspectionWorkflows
 	history   inspectionWorkflowReader
 	servers   serverdomain.ServerRepository
-	// protection re-checks the provider-owned Server Lock live before anything is accepted; the
-	// inspect Task checks it again before each commission.
+	// protection is required: it re-checks the provider-owned Server Lock live before anything is
+	// accepted; the inspect Task checks it again before each commission.
 	protection serverdomain.MutationGuard
 	// refresh live-syncs a requested Server's provisioning state before the gate, so an Inspect
 	// pressed right after an out-of-band change is not judged on a stale projection. Optional.
@@ -87,10 +87,8 @@ func (l hardwareInspectionLauncher) LaunchInspection(ctx context.Context, reques
 	if decision := provisioningdomain.EvaluateInspection(state); !decision.Allowed {
 		return nil, fmt.Errorf("%w: Server %s %s", provisioningdomain.ErrInspectionNotAllowed, name, decision.Reason)
 	}
-	if l.protection != nil {
-		if err := l.protection.RequireUnlocked(ctx, []string{serverID}); err != nil {
-			return nil, err
-		}
+	if err := l.protection.RequireUnlocked(ctx, []string{serverID}); err != nil {
+		return nil, err
 	}
 	active, err := l.activeInspection(ctx, serverID)
 	if err != nil {

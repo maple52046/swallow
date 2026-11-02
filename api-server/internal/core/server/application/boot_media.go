@@ -59,8 +59,8 @@ type BootMediaUseCase struct {
 	resetCheck time.Duration
 }
 
-// NewBootMediaUseCase wires the use case. guard may be nil only in the worker, which never calls
-// SetEnabled.
+// NewBootMediaUseCase wires the use case. guard is required in every process: it reads the
+// provider-owned Server Lock live before the use case changes a host's boot.
 func NewBootMediaUseCase(
 	servers serverdomain.ServerRepository,
 	store serverdomain.BootMediaStore,

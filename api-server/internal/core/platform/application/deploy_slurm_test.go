@@ -381,7 +381,6 @@ func TestDeploySlurmAllowsEphemeralProvisionOS(t *testing.T) {
 	servers := slurmServers()
 	servers[0].Provisioning.State = "ready" // needs an OS provisioned first
 	service, launcher, _ := newDeployHarness(servers...)
-	service.AttachMachinePreparationValidator(&stubMachinePrep{})
 
 	input := validSlurmInput()
 	ephemeral := true

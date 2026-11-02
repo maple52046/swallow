@@ -80,11 +80,8 @@ func (r *EffectiveAutomationConfigurations) Credential(ctx context.Context, site
 
 // credentialSource is the one derivation of a Site's credential source, shared by the API read
 // path and automation so a Site the API reports as deploymentKey is exactly a Site automation
-// can run. A nil source (only in tests and partial wiring) reports none.
+// can run.
 func credentialSource(ctx context.Context, deploymentKeys DeploymentKeySource) (workflowdomain.CredentialSource, error) {
-	if deploymentKeys == nil {
-		return workflowdomain.CredentialSourceNone, nil
-	}
 	exists, err := deploymentKeys.HasDeploymentKey(ctx)
 	if err != nil {
 		return "", err

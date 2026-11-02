@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -115,19 +116,17 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		return err
 	}
 	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, readers)
-	lifecycles := platformLifecycleReader{orchestrations: orchestrations}
-	platformService := platformapp.NewPlatformService(transactor, platforms, sites, servers, lifecycles, managedPlatformIntegrationCleaner{integrations: integrations})
-	platformService.AttachGPUOperatorRecorder(platforms)
-	platformService.AttachOmnistatRecorder(platforms)
-	platformService.AttachDeviceMetricsExporterRecorder(platforms)
-	// An uninstall completed by its ansible Step frees its Servers (decision 067) and, for Slurm,
-	// retires their Device Metrics Exporter records (decision 068).
-	platformService.AttachPlatformClaims(servers)
 	softwareAssignments, err := softwarestore.NewMongoAssignmentRepo(db)
 	if err != nil {
 		return err
 	}
-	platformService.AttachDeviceMetricsExporterAssignments(deviceMetricsExporterAssignments{assignments: softwareAssignments})
+	// An uninstall completed by its ansible Step frees its Servers and, for Slurm, retires their
+	// Device Metrics Exporter records.
+	platformService, err := newPlatformService(transactor, platforms, sites, servers, orchestrations, integrations,
+		softwareAssignments, executorPlatformOperationCanceler{})
+	if err != nil {
+		return err
+	}
 	credentials := platformapp.NewDeploymentCredentialService(transactor, platforms, integrations, membership)
 	results := workflowResults(platformDeploymentObserver{credentials: credentials, platforms: platformService},
 		modules.credentials...)
@@ -169,6 +168,19 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		"taskQueue", cfg.AnsibleTaskQueue)
 	<-ctx.Done()
 	return nil
+}
+
+// executorPlatformOperationCanceler is the Ansible executor's platformdomain.PlatformOperationCanceler.
+// The executor's PlatformService only completes uninstalls and records feature installs, which never
+// cancel Workflows, and the process composes no WorkflowService to cancel through: only the API
+// deletes Platforms. Reaching it would mean a Platform Delete was wired into this process, so it
+// fails that Delete before anything is removed rather than leaving the Platform's Workflows holding
+// its Servers.
+type executorPlatformOperationCanceler struct{}
+
+// CancelActiveForPlatform fails every call, so the Delete that reached it removes nothing.
+func (executorPlatformOperationCanceler) CancelActiveForPlatform(context.Context, string) error {
+	return errors.New("the Ansible executor does not delete Platforms, so it cannot cancel their Workflows")
 }
 
 // ansibleTaskExecutor adapts the core Ansible Task runner to the executor adapter's Runner port.

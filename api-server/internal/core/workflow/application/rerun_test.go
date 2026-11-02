@@ -116,7 +116,7 @@ func TestRerunClonesFailedOperationConvergingEveryEnsureStep(t *testing.T) {
 	old := newRerunOldOp(workflowdomain.WorkflowFailed, workflowdomain.TaskFailed)
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
 	secrets := &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}}
-	service := NewWorkflowService(&storetest.Transactor{}, repo, rerunTestCatalog, secrets)
+	service := NewWorkflowService(&storetest.Transactor{}, repo, rerunTestCatalog, newMemoryOwnership(), secrets)
 
 	item, err := service.Rerun(context.Background(), old.ID, "operator")
 	if err != nil {
@@ -180,7 +180,7 @@ var rerunPolicyService = NewWorkflowService(nil, nil, workflowdomain.PlanCatalog
 	"ansible-playbook":          {Rerun: workflowdomain.RerunConvergeOnLiveHosts},
 	"record-image-verification": {Rerun: workflowdomain.RerunKeep},
 	"complete-uninstall":        {Rerun: workflowdomain.RerunKeep},
-}})
+}}, newMemoryOwnership())
 
 func TestCloneStepsForRerunConvergesOnlyEnsureSteps(t *testing.T) {
 	succeeded := func(id, kind string, attempt int) workflowdomain.Task {
@@ -240,7 +240,7 @@ func TestCloneStepsForRerunConvergesOnlyEnsureSteps(t *testing.T) {
 func TestRerunCancelsAParkedOriginalAndSupersedesIt(t *testing.T) {
 	old := newRerunOldOp(workflowdomain.WorkflowRequiresAttention, workflowdomain.TaskRequiresAttention)
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
-	service := NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}})
+	service := NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, newMemoryOwnership(), &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}})
 
 	if _, err := service.Rerun(context.Background(), old.ID, "operator"); err != nil {
 		t.Fatalf("Rerun() error = %v, want nil", err)
@@ -256,7 +256,7 @@ func TestRerunCancelsAParkedOriginalAndSupersedesIt(t *testing.T) {
 func TestRerunRejectsSucceededOperation(t *testing.T) {
 	old := newRerunOldOp(workflowdomain.WorkflowSucceeded, workflowdomain.TaskSucceeded)
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
-	service := NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &fakeRerunSecrets{})
+	service := NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, newMemoryOwnership(), &fakeRerunSecrets{})
 
 	_, err := service.Rerun(context.Background(), old.ID, "operator")
 	if !errors.Is(err, workflowdomain.ErrWorkflowControlConflict) {
@@ -270,7 +270,7 @@ func TestRerunRejectsSucceededOperation(t *testing.T) {
 func TestRerunRejectsStillRunningOperation(t *testing.T) {
 	old := newRerunOldOp(workflowdomain.WorkflowRunning, workflowdomain.TaskRunning)
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
-	service := NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, &fakeRerunSecrets{})
+	service := NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}, newMemoryOwnership(), &fakeRerunSecrets{})
 
 	_, err := service.Rerun(context.Background(), old.ID, "operator")
 	if !errors.Is(err, workflowdomain.ErrWorkflowControlConflict) {
@@ -292,7 +292,7 @@ func TestRerunLabelsTheJobsOfAnOldWorkflow(t *testing.T) {
 	catalog := rerunTestCatalog
 	catalog.JobLabels = map[string]string{"ensure-os": "Provision OS"}
 	repo := &fakeRerunRepo{byID: map[string]*workflowdomain.Workflow{old.ID: old}}
-	service := NewWorkflowService(&storetest.Transactor{}, repo, catalog, &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}})
+	service := NewWorkflowService(&storetest.Transactor{}, repo, catalog, newMemoryOwnership(), &fakeRerunSecrets{refMap: map[string]string{"old-ref": "new-ref"}})
 
 	if _, err := service.Rerun(context.Background(), old.ID, "operator"); err != nil {
 		t.Fatalf("Rerun() error = %v", err)

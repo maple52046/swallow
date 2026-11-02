@@ -153,13 +153,6 @@ func (k WorkflowKinds) RequiredProvisioningState(kind WorkflowKind) string {
 	return k.modules[kind]
 }
 
-// RefusedWhenLocked reports whether a Workflow of kind changes a target host. Every accepted kind
-// executes automation against the host and is therefore refused while the provider-owned Server
-// lock is active.
-func (k WorkflowKinds) RefusedWhenLocked(kind WorkflowKind) bool {
-	return k.Valid(kind)
-}
-
 // List returns every accepted kind, sorted.
 func (k WorkflowKinds) List() []WorkflowKind {
 	all := make(map[WorkflowKind]string, len(builtInWorkflowKinds)+len(k.modules))

@@ -179,7 +179,7 @@ func TestProviderStepProjectsDeploymentFailureOntoServer(t *testing.T) {
 	// The Step fails before any deployment is submitted (no frozen image), so no OS is replaced
 	// and the Server Default User set for the installed one is kept (decision 039).
 	server := &serverdomain.Server{ID: "server-id", DefaultUser: "amd"}
-	executor := providerStepExecutor{servers: &deploymentProjectionTestRepo{server: server}}
+	executor := providerStepExecutor{servers: &deploymentProjectionTestRepo{server: server}, protection: stubMutationGuard{}}
 	result := executor.Execute(context.Background(), temporalworkflow.StepExecutionInput{
 		OperationID: "operation-id",
 		Step: workflowdomain.Task{

@@ -60,7 +60,6 @@ func gpuServers() []*serverdomain.Server {
 
 func TestDeployWithGPUOperatorRecordsTheWorkflowBeforeLaunch(t *testing.T) {
 	service, launcher, platforms := newDeployHarness(gpuServers()...)
-	service.AttachGPUOperatorRecorder(&fakeGPUOperatorRecorder{platforms: platforms})
 	input := validDeployInput()
 	input.GPUStackOwner = ""
 	input.GPUOperator = &platformdomain.GPUOperatorSettings{Enabled: true, NodeLabeller: true}
@@ -130,7 +129,6 @@ func TestDeployGPUOperatorRejectsContradictionsBeforeCreatingAnything(t *testing
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			service, launcher, platforms := newDeployHarness(gpuServers()...)
-			service.AttachGPUOperatorRecorder(&fakeGPUOperatorRecorder{platforms: platforms})
 			input := validDeployInput()
 			input.GPUStackOwner = ""
 			input.GPUOperator = &platformdomain.GPUOperatorSettings{Enabled: true}
@@ -150,8 +148,7 @@ func TestDeployGPUOperatorRejectsContradictionsBeforeCreatingAnything(t *testing
 func TestDeployGPUOperatorNeedsAnAMDWorkloadNode(t *testing.T) {
 	servers := haServers()
 	withAMDGPU(servers[0]) // only c1, a dedicated controller, has an AMD GPU
-	service, _, platforms := newDeployHarness(servers...)
-	service.AttachGPUOperatorRecorder(&fakeGPUOperatorRecorder{platforms: platforms})
+	service, _, _ := newDeployHarness(servers...)
 	input := validDeployInput()
 	input.GPUStackOwner = ""
 	input.GPUOperator = &platformdomain.GPUOperatorSettings{Enabled: true}
@@ -212,8 +209,8 @@ func gpuOperatorHarness(t *testing.T, state platformdomain.PlatformLifecycleStat
 		},
 	}}
 	launcher := &recordingGPUOperatorLauncher{}
-	service := NewGPUOperatorService(&storetest.Transactor{}, platforms, &fakeGPUOperatorRecorder{platforms: platforms}, servers, lifecycle, launcher, nil)
-	service.AttachAccelerator(testAccelerator{})
+	service := NewGPUOperatorService(&storetest.Transactor{}, platforms, &fakeGPUOperatorRecorder{platforms: platforms}, servers, lifecycle,
+		launcher, deploymentKeyStub(true), testAccelerator{})
 	return service, launcher, platforms
 }
 
@@ -311,7 +308,7 @@ func TestPlatformPolicyCannotLeaveAManagedGPUOperator(t *testing.T) {
 		"p1": {ID: "p1", Type: platformdomain.PlatformTypeKubernetes, GPUStackOwner: platformdomain.GPUStackOwnerGPUOperator,
 			GPUOperator: &platformdomain.GPUOperator{State: platformdomain.GPUOperatorReady}},
 	}}
-	service := NewPlatformService(&storetest.Transactor{}, platforms, nil, nil, nil, nil)
+	service := mustPlatformService(testPlatformServiceDeps(platforms, &deployFakeServerRepo{servers: map[string]*serverdomain.Server{}}))
 	owner := string(platformdomain.GPUStackOwnerProvisioning)
 
 	_, err := service.Update(context.Background(), "p1", UpdatePlatformInput{GPUStackOwner: &owner})

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -24,83 +25,87 @@ import (
 // and CompleteUninstall — runs in one store transaction (decision 069), so a Platform, its
 // Platform Claims, its memberships, and its owned Integration never disagree after a failure.
 type PlatformService struct {
-	transactor   store.Transactor
-	platforms    platformdomain.PlatformRepository
-	sites        sitedomain.SiteRepository
-	servers      serverdomain.ServerRepository
-	lifecycle    platformdomain.LifecycleReader
-	integrations platformdomain.ManagedIntegrationCleaner
-	// canceler is optional. When wired, Delete cancels the platform's in-flight durable
-	// operations first so their resource leases are released instead of orphaned.
-	canceler platformdomain.PlatformOperationCanceler
-	// gpuOperators is optional. When wired, a completed Platform uninstall marks a managed GPU
-	// Operator absent, because removing k0s removed the operator with it.
-	gpuOperators platformdomain.GPUOperatorRecorder
-	// omnistats is optional. When wired, a completed Platform uninstall marks a managed Omnistat
-	// absent and removes its Monitoring Link, because uninstall-slurm removed the exporter.
-	omnistats platformdomain.OmnistatRecorder
-	// deviceMetricsExporters is optional, like omnistats: a completed uninstall marks a managed
-	// Device Metrics Exporter absent and removes its link; an install's completion records the
-	// GPU identity it found.
+	transactor             store.Transactor
+	platforms              platformdomain.PlatformRepository
+	sites                  sitedomain.SiteRepository
+	servers                serverdomain.ServerRepository
+	lifecycle              platformdomain.LifecycleReader
+	integrations           platformdomain.ManagedIntegrationCleaner
+	canceler               platformdomain.PlatformOperationCanceler
+	gpuOperators           platformdomain.GPUOperatorRecorder
+	omnistats              platformdomain.OmnistatRecorder
 	deviceMetricsExporters platformdomain.DeviceMetricsExporterRecorder
-	// claims is optional (tests). When wired, Delete and a successful uninstall release the
-	// Platform's Platform Claims, so its Servers can be released or claimed again (decision 067).
-	claims serverdomain.PlatformClaimStore
-	// exporterAssignments is optional (tests). When wired with claims, a successful Slurm uninstall
-	// marks its Servers' device-metrics-exporter Software Assignments absent (decision 068).
-	exporterAssignments platformdomain.DeviceMetricsExporterAssignments
+	claims                 serverdomain.PlatformClaimStore
+	exporterAssignments    platformdomain.DeviceMetricsExporterAssignments
 }
 
-// NewPlatformService constructs the platform application service. transactor is required; it is
-// also the transaction DeployService accepts a deployment in.
-func NewPlatformService(
-	transactor store.Transactor,
-	platforms platformdomain.PlatformRepository,
-	sites sitedomain.SiteRepository,
-	servers serverdomain.ServerRepository,
-	lifecycle platformdomain.LifecycleReader,
-	integrations platformdomain.ManagedIntegrationCleaner,
-) *PlatformService {
-	return &PlatformService{
-		transactor: transactor,
-		platforms:  platforms, sites: sites, servers: servers,
-		lifecycle: lifecycle, integrations: integrations,
+// PlatformServiceDeps is what a PlatformService is built from. Every field is required, in every
+// process: a process that never calls the operation a field backs still passes a real
+// implementation, or one that fails that operation loudly, so no cleanup is skipped because a
+// process left a field out. NewPlatformService refuses a nil field.
+type PlatformServiceDeps struct {
+	// Transactor runs Delete and CompleteUninstall, and DeployService's acceptance, as one store
+	// transaction each.
+	Transactor store.Transactor
+	Platforms  platformdomain.PlatformRepository
+	Sites      sitedomain.SiteRepository
+	Servers    serverdomain.ServerRepository
+	// Lifecycle derives a Platform's lifecycle from its deploy and uninstall Workflows.
+	Lifecycle platformdomain.LifecycleReader
+	// Integrations deletes the credential Integration a Platform owns, on Delete and on a completed
+	// uninstall.
+	Integrations platformdomain.ManagedIntegrationCleaner
+	// Canceler cancels the Platform's unfinished Workflows before Delete removes it, so their
+	// resource ownership is released instead of left holding the member Servers.
+	Canceler platformdomain.PlatformOperationCanceler
+	// Claims releases the Platform's Platform Claims on Delete and on a completed uninstall, so its
+	// Servers can be released or claimed again (decision 067); without it a removed Platform would
+	// keep blocking its Servers.
+	Claims serverdomain.PlatformClaimStore
+	// GPUOperators lets a completed uninstall mark a managed GPU Operator absent, because removing
+	// k0s removed the operator with it.
+	GPUOperators platformdomain.GPUOperatorRecorder
+	// Omnistats lets a completed uninstall mark a managed Omnistat absent and remove its Monitoring
+	// Link, because uninstall-slurm removed the exporter.
+	Omnistats platformdomain.OmnistatRecorder
+	// DeviceMetricsExporters does the same for a managed Device Metrics Exporter, and records the
+	// GPU identity an install's completion found.
+	DeviceMetricsExporters platformdomain.DeviceMetricsExporterRecorder
+	// ExporterAssignments marks the device-metrics-exporter Software Assignments of a Slurm
+	// Platform's claimed Servers absent once its uninstall removed the exporter (decision 068).
+	ExporterAssignments platformdomain.DeviceMetricsExporterAssignments
+}
+
+// NewPlatformService constructs the platform application service. It returns an error naming
+// every nil field of deps; the caller is the process assembly, which must fail to start on it.
+func NewPlatformService(deps PlatformServiceDeps) (*PlatformService, error) {
+	if err := requireDependencies("platform service", deps); err != nil {
+		return nil, err
 	}
+	return &PlatformService{
+		transactor: deps.Transactor, platforms: deps.Platforms, sites: deps.Sites, servers: deps.Servers,
+		lifecycle: deps.Lifecycle, integrations: deps.Integrations, canceler: deps.Canceler, claims: deps.Claims,
+		gpuOperators: deps.GPUOperators, omnistats: deps.Omnistats, deviceMetricsExporters: deps.DeviceMetricsExporters,
+		exporterAssignments: deps.ExporterAssignments,
+	}, nil
 }
 
-// AttachOperationCanceler wires in-flight operation cancellation after construction, keeping
-// the operation context out of the platform service's constructor dependencies. It is
-// composed at the API wiring root, where the orchestration service already exists.
-func (s *PlatformService) AttachOperationCanceler(canceler platformdomain.PlatformOperationCanceler) {
-	s.canceler = canceler
-}
-
-// AttachGPUOperatorRecorder lets CompleteUninstall record that a Platform uninstall also removed
-// its swallow-managed GPU Operator. Every process that completes uninstalls must wire it, or the
-// Platform keeps reporting an operator that no longer exists.
-func (s *PlatformService) AttachGPUOperatorRecorder(recorder platformdomain.GPUOperatorRecorder) {
-	s.gpuOperators = recorder
-}
-
-// AttachOmnistatRecorder lets CompleteUninstall record that a Slurm uninstall also removed the
-// Platform's swallow-managed Omnistat. Every process that completes uninstalls must wire it.
-func (s *PlatformService) AttachOmnistatRecorder(recorder platformdomain.OmnistatRecorder) {
-	s.omnistats = recorder
-}
-
-// AttachDeviceMetricsExporterRecorder lets CompleteUninstall record that a Slurm uninstall also
-// removed the Platform's swallow-managed Device Metrics Exporter, and lets an install's completion
-// record its GPU identity. Every process that completes uninstalls or installs must wire it.
-func (s *PlatformService) AttachDeviceMetricsExporterRecorder(recorder platformdomain.DeviceMetricsExporterRecorder) {
-	s.deviceMetricsExporters = recorder
-}
-
-// AttachDeviceMetricsExporterAssignments lets a successful Slurm uninstall mark the
-// device-metrics-exporter Software Assignments of its Servers absent, as the uninstall removed the
-// exporter from them. Every process that completes uninstalls must wire it together with the
-// Platform Claim store (which names those Servers), or the records outlive the package.
-func (s *PlatformService) AttachDeviceMetricsExporterAssignments(assignments platformdomain.DeviceMetricsExporterAssignments) {
-	s.exporterAssignments = assignments
+// requireDependencies returns an error naming, in declaration order, every nil field of deps, or
+// nil when there is none; service names the constructor in the message. deps must be a struct whose
+// fields are all interfaces, pointers, or funcs, so that a field added to it later is required as
+// soon as it exists instead of being skipped by a list kept by hand.
+func requireDependencies(service string, deps any) error {
+	value := reflect.ValueOf(deps)
+	var missing []string
+	for i := range value.NumField() {
+		if value.Field(i).IsNil() {
+			missing = append(missing, value.Type().Field(i).Name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s: missing required dependencies: %s", service, strings.Join(missing, ", "))
 }
 
 // RecordOmnistatGrafana registers the Grafana a successful Omnistat install reported as the
@@ -118,9 +123,6 @@ func (s *PlatformService) RecordDeviceMetricsExporterResult(
 	platformID, recordID, grafanaURL string,
 	identity platformdomain.GPUIdentity,
 ) error {
-	if s.deviceMetricsExporters == nil {
-		return fmt.Errorf("%w: Device Metrics Exporter recording is unavailable", platformdomain.ErrInvalidDeviceMetricsExporter)
-	}
 	if err := s.recordFeatureGrafana(ctx, platformID, platformdomain.DeviceMetricsExporterGrafanaLinkName, grafanaURL); err != nil {
 		return err
 	}
@@ -492,10 +494,8 @@ func (s *PlatformService) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if s.canceler != nil {
-		if err := s.canceler.CancelActiveForPlatform(ctx, id); err != nil {
-			return err
-		}
+	if err := s.canceler.CancelActiveForPlatform(ctx, id); err != nil {
+		return err
 	}
 	return s.transactor.InTransaction(ctx, func(ctx context.Context) error {
 		if err := s.clearMemberships(ctx, id); err != nil {
@@ -503,14 +503,12 @@ func (s *PlatformService) Delete(ctx context.Context, id string) error {
 		}
 		// The record is going away, so nothing can uninstall through it any more; its claims go
 		// with it (the hosts are not changed, which is what Delete means).
-		if err := s.releaseClaims(ctx, id); err != nil {
+		if err := s.claims.ReleasePlatformClaims(ctx, id); err != nil {
 			return err
 		}
-		if s.integrations != nil {
-			allowLegacy := lifecycle.Origin == platformdomain.PlatformOriginDeployed
-			if err := s.integrations.DeleteForPlatform(ctx, platform, allowLegacy); err != nil {
-				return err
-			}
+		allowLegacy := lifecycle.Origin == platformdomain.PlatformOriginDeployed
+		if err := s.integrations.DeleteForPlatform(ctx, platform, allowLegacy); err != nil {
+			return err
 		}
 		return s.platforms.Delete(ctx, id)
 	})
@@ -518,9 +516,9 @@ func (s *PlatformService) Delete(ctx context.Context, id string) error {
 
 // markExportersRemoved marks the device-metrics-exporter Software Assignments of a Slurm
 // Platform's claimed Servers absent. Kubernetes Platforms are skipped: their uninstall does not
-// touch a standalone exporter. Without the claim store or the port there is nothing to do.
+// touch a standalone exporter.
 func (s *PlatformService) markExportersRemoved(ctx context.Context, platform *platformdomain.Platform) error {
-	if platform.Type != platformdomain.PlatformTypeSlurm || s.claims == nil || s.exporterAssignments == nil {
+	if platform.Type != platformdomain.PlatformTypeSlurm {
 		return nil
 	}
 	serverIDs, err := s.claims.ClaimedServerIDs(ctx, platform.ID)
@@ -567,24 +565,22 @@ func (s *PlatformService) completeUninstall(ctx context.Context, id string, dele
 		return err
 	}
 	// The hosts no longer carry the platform, so its Servers are free to be released or claimed.
-	if err := s.releaseClaims(ctx, id); err != nil {
+	if err := s.claims.ReleasePlatformClaims(ctx, id); err != nil {
 		return err
 	}
-	if s.integrations != nil {
-		if err := s.integrations.DeleteForPlatform(ctx, platform, true); err != nil {
-			return err
-		}
+	if err := s.integrations.DeleteForPlatform(ctx, platform, true); err != nil {
+		return err
 	}
 	platform.IntegrationID = ""
 	platform.OwnedIntegrationID = ""
 	platform.Sync = platformdomain.SyncState{}
 	platform.UpdatedAt = time.Now().UTC()
-	omnistatManaged := s.omnistats != nil && platform.Omnistat.Managed()
+	omnistatManaged := platform.Omnistat.Managed()
 	if omnistatManaged {
 		// The exporter left with the Platform, so its Grafana shortcut goes too; other links stay.
 		platform.MonitoringLinks = platformdomain.RemoveMonitoringLink(platform.MonitoringLinks, platformdomain.OmnistatGrafanaLinkName)
 	}
-	exporterManaged := s.deviceMetricsExporters != nil && platform.DeviceMetricsExporter.Managed()
+	exporterManaged := platform.DeviceMetricsExporter.Managed()
 	if exporterManaged {
 		platform.MonitoringLinks = platformdomain.RemoveMonitoringLink(platform.MonitoringLinks,
 			platformdomain.DeviceMetricsExporterGrafanaLinkName)
@@ -609,7 +605,7 @@ func (s *PlatformService) completeUninstall(ctx context.Context, id string, dele
 			return err
 		}
 	}
-	if s.gpuOperators != nil && platform.GPUOperator.Managed() {
+	if platform.GPUOperator.Managed() {
 		// k0s reset (or the release that wiped the hosts) removed the operator with the cluster.
 		// The record keeps its last workflow, so its own fence still matches.
 		operator := *platform.GPUOperator
@@ -659,7 +655,7 @@ func (s *PlatformService) readLifecycles(
 		ids[i] = platform.ID
 		result[platform.ID] = registeredLifecycle()
 	}
-	if s.lifecycle == nil || len(ids) == 0 {
+	if len(ids) == 0 {
 		return result, nil
 	}
 	read, err := s.lifecycle.Read(ctx, ids)
@@ -675,9 +671,6 @@ func (s *PlatformService) readLifecycles(
 }
 
 func (s *PlatformService) readLifecycle(ctx context.Context, platformID string) (platformdomain.LifecycleSnapshot, error) {
-	if s.lifecycle == nil {
-		return registeredLifecycle(), nil
-	}
 	result, err := s.lifecycle.Read(ctx, []string{platformID})
 	if err != nil {
 		return platformdomain.LifecycleSnapshot{}, err

@@ -78,7 +78,7 @@ type DeployServersResult struct {
 }
 
 // DeploymentKeys is what OS deployment needs from the sshkey feature (decision 039), implemented
-// by it and attached by the composition root.
+// by it and passed to NewDeployServersUseCase by the composition root.
 //
 // HasDeploymentKey reports whether the installation has a Deployment Key; deployment is refused
 // without one because the deployed Server would not authorize swallow. EnsureRegistered makes the
@@ -100,26 +100,11 @@ type DeployServersUseCase struct {
 	keys          DeploymentKeys
 }
 
-// AttachDeploymentKeys makes every preflight require a Deployment Key and every batch ensure the
-// provisioner holds swallow's SSH Keys before its first provider write. Without it (tests) neither
-// check runs.
-func (uc *DeployServersUseCase) AttachDeploymentKeys(keys DeploymentKeys) {
-	uc.keys = keys
-}
-
 // requireDeploymentKey refuses a deployment when the installation has no Deployment Key. It runs
 // first in preflight, so durable acceptance, the direct batch, image verification, and Platform
 // provision_os are all refused before any provider read or write.
 func (uc *DeployServersUseCase) requireDeploymentKey(ctx context.Context) error {
-	return requireDeploymentKey(ctx, uc.keys)
-}
-
-// requireDeploymentKey is the shared check behind both deploy use cases; a nil port (tests) skips it.
-func requireDeploymentKey(ctx context.Context, keys DeploymentKeys) error {
-	if keys == nil {
-		return nil
-	}
-	exists, err := keys.HasDeploymentKey(ctx)
+	exists, err := uc.keys.HasDeploymentKey(ctx)
 	if err != nil {
 		return err
 	}
@@ -131,16 +116,19 @@ func requireDeploymentKey(ctx context.Context, keys DeploymentKeys) error {
 
 // NewDeployServersUseCase creates the batch deployment use case. The verification repository gates
 // unverified custom images per deploy target; a nil repository disables the gate (used by tests
-// that do not exercise verification).
+// that do not exercise verification). keys is required: every preflight refuses a deployment
+// without a Deployment Key, and every batch makes the provisioner hold swallow's SSH Keys before
+// its first provider write, so no Server is deployed that would not authorize swallow.
 func NewDeployServersUseCase(
 	servers serverdomain.ServerRepository,
 	templates provisioningdomain.DeploymentTemplateRepository,
 	providers provisioningdomain.ProviderFactory,
 	verifications provisioningdomain.OSImageVerificationRepository,
+	keys DeploymentKeys,
 ) *DeployServersUseCase {
 	return &DeployServersUseCase{
 		servers: servers, templates: templates, providers: providers, verifications: verifications,
-		targets: NewDeploymentTargetPreflightService(servers, providers),
+		targets: NewDeploymentTargetPreflightService(servers, providers), keys: keys,
 	}
 }
 
@@ -181,10 +169,8 @@ func (uc *DeployServersUseCase) Execute(
 	// Registration runs after the side-effect-free preflight (so a rejected request touches
 	// nothing) and before any network or deploy write (so no Server is deployed without the
 	// Deployment Key). Preflight guarantees every target shares one Integration.
-	if uc.keys != nil {
-		if err := uc.keys.EnsureRegistered(ctx, resolved.servers[0].Source.IntegrationID); err != nil {
-			return nil, fmt.Errorf("%w: %v", provisioningdomain.ErrSSHKeyRegistration, err)
-		}
+	if err := uc.keys.EnsureRegistered(ctx, resolved.servers[0].Source.IntegrationID); err != nil {
+		return nil, fmt.Errorf("%w: %v", provisioningdomain.ErrSSHKeyRegistration, err)
 	}
 
 	outcomes := make([]deploymentOutcome, len(resolved.servers))

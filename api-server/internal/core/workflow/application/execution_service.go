@@ -31,7 +31,10 @@ type ExecutionService struct {
 }
 
 // NewExecutionService constructs the Ansible automation use case. kinds are the Workflow kinds the
-// build accepts, the same set the WorkflowService's plan catalog carries.
+// build accepts, the same set the WorkflowService's plan catalog carries. protection and durable are
+// required: protection reads the provider-owned Server Lock of every target live before Create or
+// PrepareAnsibleStep accepts automation (the stored Locked flag can be stale), and durable is the
+// Workflow service Create accepts automation into.
 func NewExecutionService(
 	servers serverdomain.ServerRepository,
 	configurations workflowdomain.AutomationConfigurationRepository,
@@ -40,21 +43,15 @@ func NewExecutionService(
 	runner workflowdomain.Runner,
 	events workflowdomain.AnsibleEventRepository,
 	policy PolicyChecker,
-	protection ...serverdomain.MutationGuard,
+	protection serverdomain.MutationGuard,
+	durable *WorkflowService,
 ) *ExecutionService {
-	service := &ExecutionService{
+	return &ExecutionService{
 		servers: servers, configurations: configurations,
 		catalog: catalog, kinds: kinds, runner: runner, events: events, policy: policy,
+		protection: protection, durable: durable,
 	}
-	if len(protection) > 0 {
-		service.protection = protection[0]
-	}
-	return service
 }
-
-// AttachWorkflow gives Create the Workflow service it accepts automation into. Without it Create
-// refuses every request.
-func (s *ExecutionService) AttachWorkflow(durable *WorkflowService) { s.durable = durable }
 
 // ExecutionItem is the `execution` summary every Workflow response still carries (WorkflowItem).
 // It contains no controller-specific fields.
@@ -101,10 +98,8 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 	if err != nil {
 		return nil, err
 	}
-	if s.protection != nil {
-		if err := s.protection.RequireUnlocked(ctx, input.TargetServerIDs); err != nil {
-			return nil, err
-		}
+	if err := s.protection.RequireUnlocked(ctx, input.TargetServerIDs); err != nil {
+		return nil, err
 	}
 	if s.policy != nil {
 		if err := s.policy.CheckOperation(ctx, kind, input.PlatformID, input.TargetServerIDs); err != nil {
@@ -149,9 +144,6 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 		RunID: uuid.NewString(), Playbook: playbook, Status: workflowdomain.StatusPending,
 	}
 	operation.ExtraVars = buildExecutionExtraVars(operation, targets, input.ExtraVars, input.TrustedVars)
-	if s.durable == nil {
-		return nil, fmt.Errorf("%w: durable Workflow orchestration is unavailable", ErrInvalidOperation)
-	}
 	stepTargets := make([]workflowdomain.ResourceReference, 0, len(operation.TargetServerIDs))
 	for _, serverID := range operation.TargetServerIDs {
 		stepTargets = append(stepTargets, workflowdomain.ResourceReference{Kind: "server", ID: serverID})
@@ -194,11 +186,6 @@ func (s *ExecutionService) resolveTargets(ctx context.Context, kind workflowdoma
 		if required != "" && (server.Provisioning == nil || server.Provisioning.State != required) {
 			return nil, "", fmt.Errorf("%w: %s requires %q",
 				workflowdomain.ErrTargetStateInvalid, server.DisplayName(), required)
-		}
-		// Every Operation mutates its target host, regardless of which playbook carries it.
-		if s.protection == nil && s.kinds.RefusedWhenLocked(kind) && server.Provisioning != nil && server.Provisioning.Locked {
-			return nil, "", fmt.Errorf("%w: Server %q is locked. Unlock it before starting this Operation.",
-				workflowdomain.ErrTargetLocked, server.DisplayName())
 		}
 		targets = append(targets, server)
 	}
@@ -285,20 +272,19 @@ type AutomationConfigurationService struct {
 }
 
 // NewAutomationConfigurationService constructs site automation use cases. kinds are the Workflow
-// kinds a playbook mapping may name.
+// kinds a playbook mapping may name. deploymentKeys is required: reads derive the Site's
+// CredentialSource from the Deployment Key's existence, the same derivation automation gates on,
+// so a Site reported as deploymentKey is one automation can run.
 func NewAutomationConfigurationService(
 	configurations workflowdomain.AutomationConfigurationRepository,
 	sites sitedomain.SiteRepository,
 	catalog workflowdomain.PlaybookCatalog,
 	kinds workflowdomain.WorkflowKinds,
+	deploymentKeys DeploymentKeySource,
 ) *AutomationConfigurationService {
-	return &AutomationConfigurationService{configurations: configurations, sites: sites, catalog: catalog, kinds: kinds}
-}
-
-// AttachDeploymentKeys lets reads report CredentialSource deploymentKey once the Deployment Key
-// exists. Without it every Site reports none.
-func (s *AutomationConfigurationService) AttachDeploymentKeys(keys DeploymentKeySource) {
-	s.deploymentKeys = keys
+	return &AutomationConfigurationService{
+		configurations: configurations, sites: sites, catalog: catalog, kinds: kinds, deploymentKeys: deploymentKeys,
+	}
 }
 
 // Get returns settings, become-password presence, and the credential source; never secrets.
@@ -445,10 +431,8 @@ func (s *ExecutionService) PrepareAnsibleStep(ctx context.Context, input CreateE
 		}
 		targets = append(targets, server)
 	}
-	if s.protection != nil {
-		if err := s.protection.RequireUnlocked(ctx, input.TargetServerIDs); err != nil {
-			return nil, err
-		}
+	if err := s.protection.RequireUnlocked(ctx, input.TargetServerIDs); err != nil {
+		return nil, err
 	}
 	if s.policy != nil {
 		if err := s.policy.CheckOperation(ctx, kind, input.PlatformID, input.TargetServerIDs); err != nil {

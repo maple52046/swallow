@@ -48,7 +48,7 @@ func inspectionLauncherFor(state string, workflows *fakeInspectionWorkflows) har
 	}
 	return hardwareInspectionLauncher{
 		workflows: workflows, history: workflows,
-		servers: &deploymentProjectionTestRepo{server: server},
+		servers: &deploymentProjectionTestRepo{server: server}, protection: stubMutationGuard{},
 	}
 }
 

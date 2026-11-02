@@ -506,7 +506,7 @@ func setupNetworkWorkflow(count int) (*DeployServersUseCase, *networkWorkflowPro
 		repo.servers[id] = server
 		provider.networks[server.Source.ProviderMachineID] = workflowNetwork(server.Source.ProviderMachineID, false)
 	}
-	return NewDeployServersUseCase(repo, nil, networkWorkflowFactory{provider: provider}, nil), provider
+	return NewDeployServersUseCase(repo, nil, networkWorkflowFactory{provider: provider}, nil, &stubDeploymentKeys{}), provider
 }
 
 func TestDeployServersDefaultsToAutomaticAndReportsFailureStage(t *testing.T) {
@@ -584,7 +584,7 @@ func TestDeployServersRequiresDeploymentKey(t *testing.T) {
 	input := DeployServersInput{ServerIDs: []string{"a"}, Settings: DeploymentSettingsInput{ImageID: &imageID}}
 	uc, provider := setupNetworkWorkflow(1)
 	keys := &stubDeploymentKeys{missing: true}
-	uc.AttachDeploymentKeys(keys)
+	uc.keys = keys
 
 	if _, _, err := uc.ResolveOperationInput(context.Background(), input); !errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing) {
 		t.Errorf("ResolveOperationInput() error = %v, want ErrDeploymentKeyMissing", err)
@@ -606,7 +606,7 @@ func TestDeployServersEnsuresSSHKeysBeforeAnyWrite(t *testing.T) {
 
 	uc, provider := setupNetworkWorkflow(1)
 	keys := &stubDeploymentKeys{err: errors.New("MAAS refused the key")}
-	uc.AttachDeploymentKeys(keys)
+	uc.keys = keys
 	if _, err := uc.Execute(context.Background(), input); !errors.Is(err, provisioningdomain.ErrSSHKeyRegistration) {
 		t.Fatalf("Execute() error = %v, want ErrSSHKeyRegistration", err)
 	}
@@ -635,7 +635,7 @@ func TestResolveOperationInputFreezesTemplateIntent(t *testing.T) {
 		},
 		userData: "#cloud-config\nhostname: frozen",
 	}
-	uc := NewDeployServersUseCase(base.servers, templates, base.providers, nil)
+	uc := NewDeployServersUseCase(base.servers, templates, base.providers, nil, &stubDeploymentKeys{})
 
 	frozen, secret, err := uc.ResolveOperationInput(context.Background(), DeployServersInput{
 		ServerIDs: []string{"a"}, TemplateID: "template-a",
@@ -672,7 +672,7 @@ func TestResolveOperationInputFreezesTemplateIntent(t *testing.T) {
 // establish the verification.
 func TestResolveOperationInputPreservesVerificationRun(t *testing.T) {
 	base, _ := setupNetworkWorkflow(1)
-	uc := NewDeployServersUseCase(base.servers, nil, base.providers, nil)
+	uc := NewDeployServersUseCase(base.servers, nil, base.providers, nil, &stubDeploymentKeys{})
 	imageID := "ubuntu/noble"
 
 	frozen, _, err := uc.ResolveOperationInput(context.Background(), DeployServersInput{
@@ -924,7 +924,7 @@ func TestProvisioningTaskRetryRejectsUnacceptedRelease(t *testing.T) {
 	}
 	tasks := &networkWorkflowTaskRepo{current: cloneProvisioningTask(task)}
 	retrier := &recordingCleanupRetrier{}
-	service := NewProvisioningTaskService(tasks, repo, retrier)
+	service := NewProvisioningTaskService(tasks, repo, retrier, workflowMutationGuard{})
 
 	if provisioningTaskItem(task).Retryable {
 		t.Fatal("an unaccepted Release must not advertise cleanup retry")
@@ -951,7 +951,7 @@ func TestProvisioningTaskRetryRetriesTheOwningReleaseTask(t *testing.T) {
 	}
 	tasks := &networkWorkflowTaskRepo{current: cloneProvisioningTask(task)}
 	retrier := &recordingCleanupRetrier{}
-	service := NewProvisioningTaskService(tasks, repo, retrier)
+	service := NewProvisioningTaskService(tasks, repo, retrier, workflowMutationGuard{})
 
 	if !provisioningTaskItem(task).Retryable {
 		t.Fatal("a failed cleanup of an accepted Release must advertise retry")

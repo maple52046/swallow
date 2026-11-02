@@ -145,15 +145,13 @@ func (c *PlatformController) Keys(ctx context.Context) ([]string, error) {
 		seen[platform.ID] = true
 		keys = append(keys, platform.ID)
 	}
-	if c.claims != nil {
-		claiming, err := c.claims.ClaimingPlatformIDs(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, id := range claiming {
-			if !seen[id] {
-				keys = append(keys, id)
-			}
+	claiming, err := c.claims.ClaimingPlatformIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range claiming {
+		if !seen[id] {
+			keys = append(keys, id)
 		}
 	}
 	return keys, nil
@@ -165,9 +163,6 @@ func (c *PlatformController) Reconcile(ctx context.Context, request convergence.
 	if errors.Is(err, platformdomain.ErrPlatformNotFound) {
 		if err := c.plans.Withdraw(ctx, platformRef(request.Key), "the Platform no longer exists"); err != nil {
 			return err
-		}
-		if c.claims == nil {
-			return nil
 		}
 		return c.claims.ReleasePlatformClaims(ctx, request.Key)
 	}
@@ -442,9 +437,6 @@ func (c *PlatformController) adopt(ctx context.Context, module platformdomain.Pl
 // A Server the Platform claims outside them (a member added and dropped before it was installed) is
 // released.
 func (c *PlatformController) reconcileClaims(ctx context.Context, platformID string, spec platformdomain.PlatformSpec, status platformdomain.PlatformStatus) {
-	if c.claims == nil {
-		return
-	}
 	keep := map[string]bool{}
 	var members []string
 	add := func(ids []string) {

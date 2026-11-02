@@ -6,7 +6,7 @@
   "internal/core/monitoring/delivery/handler.go": 10,
   "internal/core/monitoring/domain/monitoring.go": 1,
   "internal/core/overview/application/overview.go": 1,
-  "internal/core/platform/application/deploy_platform.go": 278,
+  "internal/core/platform/application/deploy_platform.go": 276,
   "internal/core/platform/application/deployment_requirement.go": 2,
   "internal/core/platform/application/gpu_operator.go": 25,
   "internal/core/platform/application/kubernetes_explorer.go": 14,

@@ -41,6 +41,8 @@ type providerStepExecutor struct {
 	// cleanup advances a release's static IP cleanup from inside the release Task, under its lease.
 	cleanup        *provisioningapp.ReleaseNetworkCleanup
 	configurations workflowdomain.AutomationConfigurationRepository
+	// protection is required: requireUnlocked reads the provider-owned Server Lock through it
+	// before every host mutation.
 	protection     serverdomain.MutationGuard
 	poll           time.Duration
 	readinessWait  time.Duration
@@ -1370,7 +1372,7 @@ func (r providerResult) withStage(stage string) temporalworkflow.StepExecutionRe
 // The Step pauses for user attention (retryable) rather than failing terminally, so
 // the user can unlock and retry the same Step.
 func (e providerStepExecutor) requireUnlocked(ctx context.Context, serverID string) *temporalworkflow.StepExecutionResult {
-	if e.protection == nil || serverID == "" {
+	if serverID == "" {
 		return nil
 	}
 	if err := e.protection.RequireUnlocked(ctx, []string{serverID}); err != nil {

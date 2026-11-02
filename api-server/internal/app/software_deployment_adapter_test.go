@@ -12,7 +12,6 @@ import (
 	"github.com/maple52046/swallow/internal/adapters/hostautomation/ansible"
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
-	"github.com/maple52046/swallow/internal/core/store/storetest"
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
@@ -80,8 +79,8 @@ func TestDeviceMetricsExporterAssignmentsMarkLiveRecordsAbsent(t *testing.T) {
 // share its name.
 func TestSoftwareWorkflowLabelsItsConfigureJobByDirection(t *testing.T) {
 	launcher := softwareDeploymentLauncher{
-		operations:     workflowapp.NewExecutionService(slurmTestServers{}, ntpTestAutomation{}, slurmTestCatalog{}, testModules(t).workflowKinds, nil, nil, nil),
-		orchestrations: workflowapp.NewWorkflowService(&storetest.Transactor{}, nil, workflowdomain.PlanCatalog{}),
+		operations:     newTestExecutionService(slurmTestServers{}, ntpTestAutomation{}, slurmTestCatalog{}, testModules(t).workflowKinds),
+		orchestrations: newTestWorkflowService(nil),
 		modules:        testModules(t).registry,
 	}
 	launch := softwareapp.SoftwareLaunch{Kind: softwaredomain.KindNFS, Label: "NFS", ServerIDs: []string{"s1"}, RequestedBy: "admin"}
@@ -109,8 +108,8 @@ func TestSoftwareWorkflowLabelsItsConfigureJobByDirection(t *testing.T) {
 // for a retry.
 func TestSoftwareInstallRecordTaskMarksTheAssignmentFailed(t *testing.T) {
 	launcher := softwareDeploymentLauncher{
-		operations:     workflowapp.NewExecutionService(slurmTestServers{}, ntpTestAutomation{}, slurmTestCatalog{}, testModules(t).workflowKinds, nil, nil, nil),
-		orchestrations: workflowapp.NewWorkflowService(&storetest.Transactor{}, nil, workflowdomain.PlanCatalog{}),
+		operations:     newTestExecutionService(slurmTestServers{}, ntpTestAutomation{}, slurmTestCatalog{}, testModules(t).workflowKinds),
+		orchestrations: newTestWorkflowService(nil),
 		modules:        testModules(t).registry,
 	}
 	launch := softwareapp.SoftwareLaunch{Kind: softwaredomain.KindPodman, Label: "Podman", ServerIDs: []string{"s1"}, RequestedBy: "admin"}

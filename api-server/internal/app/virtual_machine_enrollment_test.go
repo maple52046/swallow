@@ -176,7 +176,7 @@ func newVMFixture() vmFixture {
 		Settings: map[string]string{provisioningapp.SettingVirshSSHPublicKey: "ssh-ed25519 AAAA maas-rack"}}
 	return vmFixture{
 		executor: providerStepExecutor{
-			servers: servers, providers: inspectionProviderFactory{provider: provider},
+			servers: servers, providers: inspectionProviderFactory{provider: provider}, protection: stubMutationGuard{},
 			virtualMachines: &virtualMachineEnroller{
 				libvirt: libvirt, isos: plannerISOs{}, bootMedia: bootMedia, integrations: vmIntegrations{integration: integration},
 				projectionWait: 50 * time.Millisecond, projectionPoll: time.Millisecond,
@@ -307,6 +307,7 @@ func TestVirtualMachineEnrollmentLauncher(t *testing.T) {
 	launcher := virtualMachineEnrollmentLauncher{
 		workflows: workflows, integrations: f.executor.virtualMachines.integrations,
 		providers: inspectionProviderFactory{provider: f.provider}, servers: f.servers, isos: plannerISOs{},
+		protection: stubMutationGuard{}, keys: deploymentKeyStub(true),
 	}
 	request := provisioningapp.VirtualMachineEnrollmentRequest{
 		IntegrationID: "integration-1", HypervisorServerID: "hv-1", Domains: []string{"vm-gpu-01", "vm-gpu-02"}, BootISOID: "iso-a",
@@ -349,7 +350,7 @@ func TestVirtualMachineEnrollmentLauncher(t *testing.T) {
 		}, provisioningdomain.ErrVirtualMachineEnrollmentConflict},
 		{"no deployment key", func(_ *provisioningapp.VirtualMachineEnrollmentRequest, l *virtualMachineEnrollmentLauncher) {
 			f.servers.servers["hv-1"].Source.SiteID = "site-1"
-			l.keys = noDeploymentKey{}
+			l.keys = deploymentKeyStub(false)
 		}, provisioningdomain.ErrDeploymentKeyMissing},
 	}
 	for _, tc := range refusals {
@@ -363,6 +364,7 @@ func TestVirtualMachineEnrollmentLauncher(t *testing.T) {
 	}
 }
 
-type noDeploymentKey struct{}
+// deploymentKeyStub reports whether the installation has a Deployment Key.
+type deploymentKeyStub bool
 
-func (noDeploymentKey) HasDeploymentKey(context.Context) (bool, error) { return false, nil }
+func (k deploymentKeyStub) HasDeploymentKey(context.Context) (bool, error) { return bool(k), nil }

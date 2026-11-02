@@ -113,8 +113,6 @@ func GPUOperatorReleaseItems() []GPUOperatorReleaseItem {
 // launcher owns Workflow composition and the operation context's busy and lock checks. The
 // deploy-time install is owned by DeployService, which reuses the same normalization and vars.
 type GPUOperatorService struct {
-	// accelerator recognizes the GPUs the operator serves; see AttachAccelerator.
-	accelerator    platformdomain.Accelerator
 	transactor     store.Transactor
 	platforms      platformdomain.PlatformRepository
 	recorder       platformdomain.GPUOperatorRecorder
@@ -122,16 +120,13 @@ type GPUOperatorService struct {
 	lifecycle      platformdomain.LifecycleReader
 	launcher       platformdomain.GPUOperatorLauncher
 	deploymentKeys platformdomain.DeploymentKeyChecker
+	accelerator    platformdomain.Accelerator
 }
 
-// AttachAccelerator sets the Accelerator module whose GPUs the GPU Operator serves; without it no
-// workload counts as having GPUs.
-func (s *GPUOperatorService) AttachAccelerator(accelerator platformdomain.Accelerator) {
-	s.accelerator = accelerator
-}
-
-// NewGPUOperatorService wires the change use case. deploymentKeys may be nil (tests); production
-// wiring supplies it so a change is refused before anything is written when swallow cannot log in.
+// NewGPUOperatorService wires the change use case. Every parameter is required. deploymentKeys
+// refuses a change before anything is written when the installation has no Deployment Key, so
+// swallow could not log in to apply it; accelerator is the Accelerator module whose compute GPUs
+// the operator serves.
 func NewGPUOperatorService(
 	transactor store.Transactor,
 	platforms platformdomain.PlatformRepository,
@@ -140,11 +135,12 @@ func NewGPUOperatorService(
 	lifecycle platformdomain.LifecycleReader,
 	launcher platformdomain.GPUOperatorLauncher,
 	deploymentKeys platformdomain.DeploymentKeyChecker,
+	accelerator platformdomain.Accelerator,
 ) *GPUOperatorService {
 	return &GPUOperatorService{
 		transactor: transactor,
 		platforms:  platforms, recorder: recorder, servers: servers,
-		lifecycle: lifecycle, launcher: launcher, deploymentKeys: deploymentKeys,
+		lifecycle: lifecycle, launcher: launcher, deploymentKeys: deploymentKeys, accelerator: accelerator,
 	}
 }
 
@@ -190,14 +186,12 @@ func (s *GPUOperatorService) Configure(ctx context.Context, input ConfigureGPUOp
 		return nil, fmt.Errorf("%w: the GPU Operator can be changed only on an active Swallow-deployed Platform (lifecycle is %s)",
 			platformdomain.ErrGPUOperatorConflict, snapshot.State)
 	}
-	if s.deploymentKeys != nil {
-		exists, err := s.deploymentKeys.HasDeploymentKey(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if !exists {
-			return nil, platformdomain.ErrDeploymentKeyMissing
-		}
+	exists, err := s.deploymentKeys.HasDeploymentKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, platformdomain.ErrDeploymentKeyMissing
 	}
 
 	intent := snapshot.Deployment.Intent

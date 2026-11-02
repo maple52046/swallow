@@ -42,7 +42,7 @@ func enabledSlurmRequirement() *platformdomain.DeploymentRequirement {
 
 func TestDeploySlurmAcceptsResourcesEqualToRequirement(t *testing.T) {
 	service, launcher, _ := resourceSlurmHarness()
-	service.AttachDeploymentRequirementReader(fixedRequirementReader{requirement: enabledSlurmRequirement()})
+	service.requirements = fixedRequirementReader{requirement: enabledSlurmRequirement()}
 
 	if _, err := service.Deploy(context.Background(), validSlurmInput()); err != nil {
 		t.Fatalf("Deploy() error = %v", err)
@@ -67,7 +67,7 @@ func TestDeploySlurmRejectsEveryResourceShortfallWithoutSideEffects(t *testing.T
 			service, launcher, platforms := resourceSlurmHarness()
 			requirement := enabledSlurmRequirement()
 			test.edit(requirement.MinimumResources)
-			service.AttachDeploymentRequirementReader(fixedRequirementReader{requirement: requirement})
+			service.requirements = fixedRequirementReader{requirement: requirement}
 
 			_, err := service.Deploy(context.Background(), validSlurmInput())
 			if !errors.Is(err, platformdomain.ErrInvalidDeployment) || !strings.Contains(err.Error(), test.want) {
@@ -85,7 +85,7 @@ func TestDeploySlurmRequirementAppliesToLoginOnlyNode(t *testing.T) {
 	input := validSlurmInput()
 	input.SlurmSpec.NodeAssignments[2] = platformdomain.SlurmNodeAssignment{ServerID: "s3", Login: true}
 	service.servers.(*deployFakeServerRepo).servers["s3"].Observed.MemoryMiB = 0
-	service.AttachDeploymentRequirementReader(fixedRequirementReader{requirement: enabledSlurmRequirement()})
+	service.requirements = fixedRequirementReader{requirement: enabledSlurmRequirement()}
 
 	_, err := service.Deploy(context.Background(), input)
 	if !errors.Is(err, platformdomain.ErrInvalidDeployment) || !strings.Contains(err.Error(), "lab-slurm-3") {
@@ -98,7 +98,7 @@ func TestDeploySlurmRequirementAppliesToLoginOnlyNode(t *testing.T) {
 
 func TestDeploySlurmRequirementReadFailureFailsClosed(t *testing.T) {
 	service, launcher, platforms := resourceSlurmHarness()
-	service.AttachDeploymentRequirementReader(fixedRequirementReader{err: errors.New("mongo unavailable")})
+	service.requirements = fixedRequirementReader{err: errors.New("mongo unavailable")}
 
 	_, err := service.Deploy(context.Background(), validSlurmInput())
 	if err == nil || !strings.Contains(err.Error(), "read Slurm deployment requirement") {
@@ -111,7 +111,7 @@ func TestDeploySlurmRequirementReadFailureFailsClosed(t *testing.T) {
 
 func TestKubernetesIgnoresSlurmRequirementReader(t *testing.T) {
 	service, launcher, _ := newDeployHarness(haServers()...)
-	service.AttachDeploymentRequirementReader(fixedRequirementReader{err: errors.New("mongo unavailable")})
+	service.requirements = fixedRequirementReader{err: errors.New("mongo unavailable")}
 
 	if _, err := service.Deploy(context.Background(), validDeployInput()); err != nil {
 		t.Fatalf("Kubernetes Deploy() error = %v", err)

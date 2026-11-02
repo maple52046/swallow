@@ -268,12 +268,10 @@ func newSpecHarness(record *platformdomain.DeploymentRecord) specHarness {
 		deployedServer("w3", "lab-compute-3", "site-1", "192.168.100.6"))
 	deploy, launcher, platforms, serverRepo := newClaimingDeployHarness(servers...)
 	launcher.launchIDs = true
-	deploy.platformService.AttachPlatformClaims(serverRepo)
-	deploy.AttachRequestReader(readTestRequest)
 	lifecycle := &deployFakeLifecycleReader{snapshots: map[string]platformdomain.LifecycleSnapshot{}}
 	modules := map[platformdomain.PlatformType]platformdomain.PlatformModule{platformdomain.PlatformTypeKubernetes: testPlatformModule{}}
 	uninstalls := &recordingUninstallLauncher{}
-	uninstall := NewUninstallService(platforms, serverRepo, lifecycle, uninstalls)
+	uninstall := NewUninstallService(platforms, serverRepo, lifecycle, uninstalls, storedLockGuard{servers: serverRepo})
 	planner := NewPlatformPlanner(platforms, lifecycle, deploy, uninstall, nil, modules)
 	plans := convergence.NewChangePlanService(&storetest.Transactor{}, &memoryPlans{}, nil, nil, 0, planner)
 	specs := &memorySpecs{repo: platforms}

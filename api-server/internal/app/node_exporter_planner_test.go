@@ -24,7 +24,7 @@ func newNodeExporterTestPlanner(t *testing.T, deployed map[string]bool) (nodeExp
 	return nodeExporterPlanner{
 		software: softwareapp.NewSoftwareService(&storetest.Transactor{}, modules.software, modules.accelerators,
 			assignments, servers, nil, ownedExporters(true)),
-		operations: workflowapp.NewExecutionService(servers, ntpTestAutomation{}, slurmTestCatalog{}, modules.workflowKinds, nil, nil, nil),
+		operations: newTestExecutionService(servers, ntpTestAutomation{}, slurmTestCatalog{}, modules.workflowKinds),
 	}, assignments
 }
 

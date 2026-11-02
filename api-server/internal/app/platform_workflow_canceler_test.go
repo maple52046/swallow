@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/maple52046/swallow/internal/core/store/storetest"
-	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
@@ -44,7 +42,7 @@ func TestPlatformWorkflowCancelerCancelsTheNewestRerun(t *testing.T) {
 	}}
 	canceler := platformWorkflowCanceler{
 		orchestrations: repo,
-		workflows:      workflowapp.NewWorkflowService(&storetest.Transactor{}, repo, workflowdomain.PlanCatalog{}),
+		workflows:      newTestWorkflowService(repo),
 	}
 	unfinished, err := canceler.CancelUnfinished(context.Background(), "plat-1", "deploy")
 	if err != nil || !unfinished {

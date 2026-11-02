@@ -55,8 +55,10 @@ type PlatformSpecService struct {
 	now        func() time.Time
 }
 
-// NewPlatformSpecService wires the service. requester may be nil (tests): the controller then
-// converges a non-destructive change at its next resync.
+// NewPlatformSpecService wires the service. claims is required: the members a spec names are claimed,
+// and members it drops before they were installed released, in the transaction that writes it.
+// requester may be nil (tests): the controller then converges a non-destructive change at its next
+// resync.
 func NewPlatformSpecService(
 	transactor store.Transactor,
 	platforms platformdomain.PlatformRepository,
@@ -261,7 +263,7 @@ func (s *PlatformSpecService) write(
 // nothing on them belongs to the Platform. An applied member keeps its claim until the change that
 // removes it is carried out.
 func (s *PlatformSpecService) releaseDropped(ctx context.Context, platform *platformdomain.Platform, spec platformdomain.PlatformSpec) error {
-	if s.claims == nil || platform.Spec == nil {
+	if platform.Spec == nil {
 		return nil
 	}
 	var dropped []string
@@ -292,7 +294,7 @@ func (s *PlatformSpecService) releaseDropped(ctx context.Context, platform *plat
 // Members a spec drops keep their claim until the change that removes them is carried out, unless
 // they were never installed (releaseDropped).
 func (s *PlatformSpecService) claim(ctx context.Context, platformID string, spec platformdomain.PlatformSpec) error {
-	if s.claims == nil || len(spec.Members) == 0 {
+	if len(spec.Members) == 0 {
 		return nil
 	}
 	return s.claims.ClaimForPlatform(ctx, platformID, spec.MemberIDs(), s.now())
@@ -368,18 +370,9 @@ func platformRef(platformID string) convergence.ResourceRef {
 // request format, which a Platform's spec is rendered in.
 type DeployRequestReader func(raw []byte) (DeployPlatformInput, error)
 
-// AttachRequestReader wires how a deploy request body is read, which is how a Platform spec becomes
-// a deployment.
-func (s *DeployService) AttachRequestReader(read DeployRequestReader) {
-	s.readRequest = read
-}
-
 // inputFromSpec renders a spec as the deployment it stands for: the type's module writes the spec as
 // a deploy request body, which is read as any deploy request is.
 func (s *DeployService) inputFromSpec(module platformdomain.PlatformModule, siteID, name string, spec platformdomain.PlatformSpec) (DeployPlatformInput, error) {
-	if s.readRequest == nil {
-		return DeployPlatformInput{}, errors.New("platform specs cannot be deployed without a deploy request reader")
-	}
 	body := module.DeployRequest(spec)
 	body["siteId"], body["name"], body["type"] = siteID, name, string(module.PlatformType())
 	raw, err := json.Marshal(body)

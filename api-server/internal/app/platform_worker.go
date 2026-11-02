@@ -61,10 +61,9 @@ func workerPlatformOperations(
 		return platformOperations{}, fmt.Errorf("ansible event repo init: %w", err)
 	}
 	protection := providerServerMutationGuard{servers: deps.servers, providers: deps.providers}
-	operations := workflowapp.NewExecutionService(deps.servers, deps.automation, catalog, modules.workflowKinds, runner, events,
-		platformapp.NewPolicyChecker(deps.platforms, deps.servers), protection)
 	orchestrations := deps.workflows
-	operations.AttachWorkflow(orchestrations)
+	operations := workflowapp.NewExecutionService(deps.servers, deps.automation, catalog, modules.workflowKinds, runner, events,
+		platformapp.NewPolicyChecker(deps.platforms, deps.servers), protection, orchestrations)
 	software := softwareapp.NewSoftwareService(transactor, modules.software, modules.accelerators, deps.software, deps.servers,
 		kubernetesMembershipChecker{servers: deps.servers, platforms: deps.platforms}, exporterOwnerResolver{platforms: deps.platforms})
 	software.AttachLauncher(softwareDeploymentLauncher{operations: operations, orchestrations: orchestrations, modules: modules.registry})
@@ -78,7 +77,7 @@ func workerPlatformOperations(
 		nodeExporter: nodeExporterPlanner{software: software, operations: operations},
 		networks:     provisioningapp.NewNetworkConfigurationService(deps.servers, deps.providers),
 		requirements: platformstore.NewMongoDeploymentRequirementRepo(db), keys: deps.keys,
-	}), nil
+	})
 }
 
 // workflowPlatforms names the Platform a Workflow belongs to for the platform controller.
