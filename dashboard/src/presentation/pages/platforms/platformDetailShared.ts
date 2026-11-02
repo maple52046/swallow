@@ -1,6 +1,6 @@
 import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
 import type { KubernetesTopology, Platform } from '@/domain/platform/types'
-import type { MetricItem } from '@/presentation/components/OperatorPrimitives'
+import type { MetricItem } from '@/presentation/components/ConsolePrimitives'
 import { formatRelative } from '@/shared/utils/time'
 
 /**

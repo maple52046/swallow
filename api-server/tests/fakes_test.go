@@ -577,7 +577,7 @@ func newFakeProvider() *fakeProvider {
 			DeploymentReadiness:  true,
 			Power:                true,
 			HardwareValidation:   true,
-			OperatorState:        true,
+			StateActions:         true,
 			MachineDetail:        true,
 			HardwareInventory:    true,
 			MachineRemoval:       true,

@@ -6,6 +6,7 @@ import {
   type Server,
 } from '@/domain/server/types'
 import { gpuInventoryCount, preferredServerGPUs } from '@/domain/server/gpu'
+import { describeConvergence, type ConvergenceSummary } from '@/presentation/components/convergence/convergencePresentation'
 import { resolveDeploymentPhase, type DeploymentPhase } from '@/presentation/components/deploymentPhase'
 import {
   gpuInventoryCompactSummary,
@@ -45,6 +46,12 @@ export type ServerHealthFilter = 'any' | 'up' | 'down' | 'unobserved'
 export type ServerMembershipFilter = 'any' | 'assigned' | 'unassigned'
 export type ServerGpuFilter = 'any' | 'present' | 'none'
 export type ServerLockFilter = 'any' | 'locked' | 'unlocked'
+/**
+ * How far the Server's provisioner matches what swallow wants, from its conditions
+ * (servers-list.md, "Spec and status"): `out-of-sync` is every state but In sync and Pending, and
+ * the others pick one state (`applying` includes Retrying).
+ */
+export type ServerSyncFilter = 'any' | 'out-of-sync' | 'attention' | 'drifted' | 'applying' | 'held'
 
 /** Parsed, shareable discovery state for the Server inventory. */
 export interface ServerInventoryQuery {
@@ -63,6 +70,7 @@ export interface ServerInventoryQuery {
   pools: readonly string[]
   tags: readonly string[]
   lock: ServerLockFilter
+  sync: ServerSyncFilter
   includeAbsent: boolean
   group: ServerInventoryGroup
   sort: ServerInventorySort
@@ -119,6 +127,7 @@ const HEALTH_FILTERS = new Set<ServerHealthFilter>(['any', 'up', 'down', 'unobse
 const MEMBERSHIP_FILTERS = new Set<ServerMembershipFilter>(['any', 'assigned', 'unassigned'])
 const GPU_FILTERS = new Set<ServerGpuFilter>(['any', 'present', 'none'])
 const LOCK_FILTERS = new Set<ServerLockFilter>(['any', 'locked', 'unlocked'])
+const SYNC_FILTERS = new Set<ServerSyncFilter>(['any', 'out-of-sync', 'attention', 'drifted', 'applying', 'held'])
 const GROUPS = new Set<ServerInventoryGroup>([
   'none',
   'provisioning',
@@ -190,6 +199,7 @@ export function parseServerInventoryQuery(
     pools: distinctValues(params, 'pool'),
     tags: distinctValues(params, 'tag'),
     lock: enumValue(params.get('lock'), LOCK_FILTERS, 'any'),
+    sync: enumValue(params.get('sync'), SYNC_FILTERS, 'any'),
     includeAbsent: params.get('includeAbsent') === 'true',
     group: enumValue(params.get('group'), GROUPS, 'none'),
     sort,
@@ -227,6 +237,7 @@ export function normalizeServerInventoryParams(
     ['membership', MEMBERSHIP_FILTERS, 'any'],
     ['gpu', GPU_FILTERS, 'any'],
     ['lock', LOCK_FILTERS, 'any'],
+    ['sync', SYNC_FILTERS, 'any'],
     ['group', GROUPS, 'none'],
     ['sort', SORTS, 'priority'],
   ]
@@ -393,7 +404,41 @@ export function matchesServerInventoryQuery(server: Server, query: ServerInvento
   const locked = server.status.provisioning?.locked === true
   if (query.lock === 'locked' && !locked) return false
   if (query.lock === 'unlocked' && locked) return false
+  if (query.sync !== 'any' && !matchesSyncFilter(serverSync(server), query.sync)) return false
   return true
+}
+
+/**
+ * The Server's provisioner sync state, reduced from its conditions the same way the detail page's
+ * Provisioner sync row is, so the list and the detail never disagree.
+ */
+export function serverSync(server: Server): ConvergenceSummary {
+  return describeConvergence(server.status.conditions, server.generation)
+}
+
+/**
+ * Whether a sync state needs the list to say so: everything but In sync and Pending (swallow has not
+ * checked the provisioner yet, which is not something a user can act on).
+ */
+export function isServerOutOfSync(summary: ConvergenceSummary): boolean {
+  return summary.state !== 'in_sync' && summary.state !== 'pending'
+}
+
+function matchesSyncFilter(summary: ConvergenceSummary, filter: ServerSyncFilter): boolean {
+  switch (filter) {
+    case 'out-of-sync':
+      return isServerOutOfSync(summary)
+    case 'attention':
+      return summary.state === 'requires_attention'
+    case 'drifted':
+      return summary.state === 'drifted'
+    case 'applying':
+      return summary.state === 'converging' || summary.state === 'retrying'
+    case 'held':
+      return summary.state === 'held'
+    default:
+      return true
+  }
 }
 
 /** Stable group label for the selected one-to-one grouping dimension. */
@@ -555,6 +600,6 @@ export function hasServerInventoryFilters(query: ServerInventoryQuery): boolean 
     query.membership !== 'any' || query.gpu !== 'any' || query.gpuVendors.length ||
     query.gpuModels.length || query.architectures.length || query.systemVendors.length ||
     query.systemProducts.length || query.zones.length || query.pools.length || query.tags.length ||
-    query.lock !== 'any' || query.includeAbsent
+    query.lock !== 'any' || query.sync !== 'any' || query.includeAbsent
   )
 }

@@ -893,7 +893,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   另新增**選用的 workload 共享檔案系統**(使用者/job 資料,與 controller state 分離),掛在所有
   節點的非重疊路徑(預設 `/shared`;不可為 `/home`,因為一開始為空的 export 會蓋掉 automation 使用者的 `~/.ssh`,
   部署中途 SSH／Ansible 就斷了):`slurm.workloadStorage.mode` 為
-  `self-hosted`(由 login node 匯出 NFS,需有 login node)或 `external`(掛操作者提供的 `nfs.url`,不跑 server);
+  `self-hosted`(由 login node 匯出 NFS,需有 login node)或 `external`(掛使用者提供的 `nfs.url`,不跑 server);
   `type` 為 `nfs`（enum,其他 backend 屬於擴充）;省略 `workloadStorage` 即沒有共享檔案系統。
   對應 roles `slurm_login`、`slurm_workload_storage_server`、`slurm_workload_storage_client`;mount 只用
   `ansible.builtin`（§5）且 fail-closed。

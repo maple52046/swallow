@@ -3,12 +3,12 @@ package domain
 // This file defines the swallow-owned provider recovery policy: the single source of
 // truth for which recovery intent is allowed from each normalized MachineStatus and which
 // provider primitive sequence a Recover Operation uses to reach ready. It exists so the
-// durable Release, the Recover Operation, and the single-action operator-state use cases
+// durable Release, the Recover Operation, and the single-action state-action use cases
 // share one matrix and never drift, and so a user meets a swallow-authored reason
 // before the provisioner's own rejection text. See docs/decisions/033.
 
 // RecoveryIntent is one swallow-owned command that can be directed at a Server whose
-// provisioning axis is not usable, or at an advanced operator-state primitive.
+// provisioning axis is not usable, or at an advanced state-action primitive.
 type RecoveryIntent string
 
 const (

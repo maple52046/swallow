@@ -1065,9 +1065,9 @@ func (e providerStepExecutor) escalateMarkBroken(ctx context.Context, serverID s
 		result := normalizeProviderError(err, "recover")
 		return false, &result
 	}
-	controller, ok := provider.(provisioningdomain.OperatorStateController)
+	controller, ok := provider.(provisioningdomain.StateActionsController)
 	if !ok {
-		result := providerFailed("recover_unsupported", "This provisioner cannot recover the Server through operator-state actions.", false).withStage("recover")
+		result := providerFailed("recover_unsupported", "This provisioner cannot recover the Server through state actions.", false).withStage("recover")
 		return false, &result
 	}
 	if _, err := controller.MarkBroken(ctx, server.Source.ProviderMachineID); err != nil {
@@ -1082,7 +1082,7 @@ func (e providerStepExecutor) escalateMarkBroken(ctx context.Context, serverID s
 	return true, nil
 }
 
-// recoverOperatorPrimitive issues one operator-state provider action (Mark fixed or exit
+// recoverOperatorPrimitive issues one state-action provider action (Mark fixed or exit
 // rescue) during recovery. It re-checks the lock first and returns a non-nil result only
 // when the recovery Step must stop; a nil result means the primitive was issued and the
 // caller should keep observing.
@@ -1100,9 +1100,9 @@ func (e providerStepExecutor) recoverOperatorPrimitive(ctx context.Context, serv
 		result := normalizeProviderError(err, "recover")
 		return &result
 	}
-	controller, ok := provider.(provisioningdomain.OperatorStateController)
+	controller, ok := provider.(provisioningdomain.StateActionsController)
 	if !ok {
-		result := providerFailed("recover_unsupported", "This provisioner cannot recover the Server through operator-state actions.", false).withStage("recover")
+		result := providerFailed("recover_unsupported", "This provisioner cannot recover the Server through state actions.", false).withStage("recover")
 		return &result
 	}
 	switch primitive {

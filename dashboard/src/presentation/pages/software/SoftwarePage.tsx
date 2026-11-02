@@ -144,7 +144,7 @@ export function SoftwarePage() {
   )
 
   return (
-    <div className="operator-page sw-software-catalog-page">
+    <div className="console-page sw-software-catalog-page">
       <PageHeader
         title="Software"
         subtitle="Discover and manage host-level software that Swallow can install on deployed Servers."

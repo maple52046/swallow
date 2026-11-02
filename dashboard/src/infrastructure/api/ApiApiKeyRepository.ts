@@ -1,10 +1,13 @@
 import type { ApiKeyRepository } from '@/application/ports/ApiKeyRepository'
 import type { ApiKey, CreatedApiKey } from '@/domain/access/types'
 import { apiRequest } from './client'
+import type { JsonRequestBody, JsonResponse } from './contractTypes'
+import type { operations } from './generated/openapi'
 
 /**
  * Maps the Active API Keys contract (`/api/v1/api-keys`, `api-keys.md`) onto the ApiKeyRepository
- * port; the contract's JSON already matches the domain shapes. (The `Api` prefix names the HTTP
+ * port; the contract's JSON already matches the domain shapes, which the generated request and
+ * response types prove where each is sent and returned. (The `Api` prefix names the HTTP
  * driver, as for every adapter in this folder.)
  *
  * Security: the only secret crossing this adapter is the one-time key secret in the create
@@ -13,13 +16,14 @@ import { apiRequest } from './client'
  */
 export class ApiApiKeyRepository implements ApiKeyRepository {
   listApiKeys(): Promise<ApiKey[]> {
-    return apiRequest<ApiKey[]>('/api/v1/api-keys')
+    return apiRequest<JsonResponse<operations['listApiKeys'], 200>>('/api/v1/api-keys')
   }
 
   createApiKey(input: { name: string; expiresAt?: string }): Promise<CreatedApiKey> {
-    return apiRequest<CreatedApiKey>('/api/v1/api-keys', {
+    const body: JsonRequestBody<operations['createApiKey']> = input
+    return apiRequest<JsonResponse<operations['createApiKey'], 201>>('/api/v1/api-keys', {
       method: 'POST',
-      body: JSON.stringify(input),
+      body: JSON.stringify(body),
       cache: 'no-store',
     })
   }

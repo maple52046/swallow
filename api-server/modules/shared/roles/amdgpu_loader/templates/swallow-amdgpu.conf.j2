@@ -1,7 +1,7 @@
 # Managed by Swallow ({{ amdgpu_loader_owner }}). Do not edit by hand; changes are overwritten.
 # Options a user requested or a topology rule derived; see "journalctl -u {{ amdgpu_loader_unit }}".
 {% for name, value in amdgpu_loader_desired | dictsort %}
-# {{ name }}={{ value }}: {{ amdgpu_loader_option_sources[name] | default('operator') }}
+# {{ name }}={{ value }}: {{ amdgpu_loader_option_sources[name] | default('user') }}
 {% endfor %}
 {% if amdgpu_loader_desired | length > 0 %}
 options amdgpu{% for name, value in amdgpu_loader_desired | dictsort %} {{ name }}={{ value }}{% endfor %}

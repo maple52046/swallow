@@ -807,7 +807,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	servers.Put("/:id/network/interfaces/:interfaceId/links/:linkId", deps.provisioning.ReplaceNetworkLink)
 	servers.Delete("/:id/network/interfaces/:interfaceId/links/:linkId", deps.provisioning.DeleteNetworkLink)
 	servers.Get("/:id/provisioning-tasks", deps.provisioning.ListProvisioningTasks)
-	// Power, hardware validation, and operator state are the provisioner actions beyond
+	// Power, hardware validation, and state actions are the provisioner actions beyond
 	// deploy and release. Each is refused by a provisioner that does not offer it.
 	servers.Post("/:id/power-on", deps.provisioning.PowerOn)
 	servers.Post("/:id/power-off", deps.provisioning.PowerOff)

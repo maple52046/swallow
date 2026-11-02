@@ -320,6 +320,38 @@ test('hardware facets, deterministic grouping, sorting, and URL fallback are sha
   await expect(page.getByText('Showing 1–4 of 4 servers')).toBeVisible()
 })
 
+test('provisioner sync shows only when a Server is out of sync and filters through the URL', async ({ page }) => {
+  await installApiFixtures(page, { serverSync: { 'srv-2': 'drifted', 'srv-3': 'requires_attention' } })
+  await page.goto('/servers?site=site-a')
+
+  const table = page.getByRole('table', { name: 'Servers' })
+  const syncBadge = (name: string) => table.getByRole('row').filter({ hasText: name }).getByTestId('server-sync-badge')
+  await expect(syncBadge('gpu-node-01')).toHaveCount(0)
+  await expect(syncBadge('gpu-node-02')).toHaveText('Drift detected')
+  await expect(syncBadge('gpu-node-03')).toHaveText('Needs attention')
+  await syncBadge('gpu-node-03').focus()
+  await expect(page.getByRole('tooltip')).toHaveText('MAAS refused the tag change.')
+
+  await page.getByRole('button', { name: /Filters/ }).click()
+  await chooseSelectOption(page, 'Filter provisioner sync', 'Out of sync')
+  await page.keyboard.press('Escape')
+  await expect(page).toHaveURL(/sync=out-of-sync/)
+  await expect(table.getByText('gpu-node-02', { exact: true })).toBeVisible()
+  await expect(table.getByText('gpu-node-03', { exact: true })).toBeVisible()
+  await expect(table.getByText('gpu-node-01', { exact: true })).toHaveCount(0)
+
+  await page.goto('/servers?site=site-a&sync=attention')
+  await expect(table.getByText('gpu-node-03', { exact: true })).toBeVisible()
+  await expect(table.getByText('gpu-node-02', { exact: true })).toHaveCount(0)
+
+  await page.goto('/servers?site=site-a&sync=drifted')
+  await expect(table.getByText('gpu-node-02', { exact: true })).toBeVisible()
+  await expect(table.getByText('gpu-node-03', { exact: true })).toHaveCount(0)
+
+  await page.goto('/servers?site=site-a&sync=unknown')
+  await expect(page).toHaveURL('/servers?site=site-a')
+})
+
 test('GPU summaries prefer compute capacity and Server detail separates display controllers', async ({ page }) => {
   await installApiFixtures(page, { displayOnlyServerIds: ['srv-2'], cpuOnlyServerIds: ['srv-3'] })
   await page.goto('/servers?site=site-a')
@@ -556,9 +588,11 @@ test('mobile cards preserve operational and hardware facts without horizontal ov
     changingServerIds: ['srv-2'],
     deployedImageNames: { 'srv-3': 'Ubuntu 24.04 LTS ROCm Enterprise Accelerator Image' },
     extraTags: { 'srv-1': ['east', 'training'] },
+    serverSync: { 'srv-3': 'drifted' },
   })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/servers?site=site-a')
+  await expect(page.getByRole('article').filter({ hasText: 'gpu-node-03' }).getByTestId('server-sync-badge')).toHaveText('Drift detected')
 
   const card = page.getByRole('article').filter({ hasText: 'gpu-node-01' })
   await expect(card.locator('.sw-server-hardware-purpose')).toHaveCount(0)

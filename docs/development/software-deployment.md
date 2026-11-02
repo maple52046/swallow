@@ -293,7 +293,7 @@ Docker CE 的 `enableApi` 變體讓 api-server 能即時管理主機上的 Docke
   （當時主機上沒有 listener）。
 - **Playbook 行為**（`roles/docker_ce/tasks/api.yml`）：啟用時寫 systemd drop-in
   `/etc/systemd/system/docker.service.d/swallow-api.conf`，在原本的 `-H fd://` 之外加
-  `-H tcp://0.0.0.0:<port>`（Docker 官方的 remote access 作法；不碰 `daemon.json`，避免與操作者自己的
+  `-H tcp://0.0.0.0:<port>`（Docker 官方的 remote access 作法；不碰 `daemon.json`，避免與使用者自己的
   `hosts` 設定衝突），daemon-reload 後重啟 dockerd 並等 port 開啟（60 秒內沒開即 install 失敗，不會留下
   `installed` 卻連不上的 assignment）；停用或卸載時移除 drop-in 並確認 port 已關。RHEL family 若 firewalld
   為 active，同步開/關該 port（runtime + permanent，不 reload）；ufw 不處理（MAAS Ubuntu image 預設未啟用）。

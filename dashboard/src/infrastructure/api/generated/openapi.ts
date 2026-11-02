@@ -5457,10 +5457,10 @@ export interface components {
             machineDetail: boolean;
             machineRemoval: boolean;
             networkConfiguration: boolean;
-            operatorState: boolean;
             power: boolean;
             powerConfiguration: boolean;
             releaseOptions: boolean;
+            stateActions: boolean;
         };
         /** @description A live, provider-neutral view of one Machine plus the provisioner's capabilities. Sections and tables are display-oriented and provider-defined. */
         ProvisionerDetail: {

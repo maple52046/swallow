@@ -1,5 +1,5 @@
 /*
- * Global structural styles for the operator console.
+ * Global structural styles for the console.
  *
  * Colours, fonts, radii, and elevation come from the Chakra theme (see
  * `presentation/app/theme/system.ts`) and are consumed here through the CSS
@@ -79,7 +79,7 @@ a:focus-visible {
 
 /* ---- Page rhythm --------------------------------------------------------- */
 
-.operator-page {
+.console-page {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -356,11 +356,11 @@ a:focus-visible {
 /* The dock is portalled to body; :has lets it follow the desktop rail without
    coupling the shared component to shell state. Unsupported browsers retain viewport centering. */
 @media (min-width: 62rem) {
-  body:has(.sw-operator-shell[data-navigation-collapsed='false']) .sw-selection-toolbar {
+  body:has(.sw-console-shell[data-navigation-collapsed='false']) .sw-selection-toolbar {
     inset-inline-start: calc(50% + 6.5rem);
   }
 
-  body:has(.sw-operator-shell[data-navigation-collapsed='true']) .sw-selection-toolbar {
+  body:has(.sw-console-shell[data-navigation-collapsed='true']) .sw-selection-toolbar {
     inset-inline-start: calc(50% + 2rem);
   }
 }
@@ -1365,7 +1365,7 @@ tbody .sw-sticky-selection { z-index: 2; }
 }
 
 @media (max-width: 768px) {
-  .operator-page { gap: 1rem; }
+  .console-page { gap: 1rem; }
   .sw-data-toolbar.sw-data-toolbar--plain {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3705,6 +3705,10 @@ tbody .sw-sticky-selection { z-index: 2; }
   gap: 0.25rem;
 }
 
+.sw-server-sync {
+  display: inline-flex;
+}
+
 .sw-server-identity__copy > div:first-child {
   width: 100%;
 }
@@ -3941,7 +3945,8 @@ tbody .sw-sticky-selection { z-index: 2; }
 }
 
 .sw-server-hardware-gpu:focus-visible,
-.sw-server-hardware-cpu:focus-visible {
+.sw-server-hardware-cpu:focus-visible,
+.sw-server-sync:focus-visible {
   border-radius: var(--chakra-radii-xs);
   outline: 2px solid var(--chakra-colors-brand-focus-ring, var(--chakra-colors-brand-solid));
   outline-offset: 2px;

@@ -17,7 +17,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { InProgressSpinner } from '@/presentation/components/InProgressSpinner'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { InventorySurface, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { InventorySurface, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { Pagination } from '@/presentation/components/Pagination'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
@@ -248,7 +248,7 @@ function WorkflowRuntimeCard({ operation, workflowHref, platformHref }: Workflow
  * detail route. Live rows update through useOperations without additional API
  * fan-out or client-side status aggregation.
  */
-export function OperatorOperationsPage() {
+export function ConsoleOperationsPage() {
   const [params, setParams] = useSearchParams()
   const { siteId, scopedHref } = useSiteScope()
   const paramsKey = params.toString()
@@ -370,7 +370,7 @@ export function OperatorOperationsPage() {
   ) : state.status === 'error' ? 'Workflow activity unavailable' : 'Loading workflows'
 
   return (
-    <div className="operator-page sw-workflows-page">
+    <div className="console-page sw-workflows-page">
       <PageHeader
         title="Workflows"
         subtitle="Observe durable automation, identify stalled work, and inspect execution history."

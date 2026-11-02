@@ -1,7 +1,7 @@
 import { Button, List, Stack, Text } from '@chakra-ui/react'
 import { Lock, Unlock } from 'lucide-react'
 import type { Server } from '@/domain/server/types'
-import { serverDisplayName } from '@/domain/server/list'
+import { serverDisplayName } from '@/domain/server/types'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'

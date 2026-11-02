@@ -1664,7 +1664,7 @@ components:
         - ephemeralDeploy
         - power
         - hardwareValidation
-        - operatorState
+        - stateActions
         - machineDetail
         - hardwareInventory
         - machineRemoval
@@ -1678,7 +1678,7 @@ components:
           type: boolean
         hardwareValidation:
           type: boolean
-        operatorState:
+        stateActions:
           type: boolean
         machineDetail:
           type: boolean

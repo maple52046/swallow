@@ -1,12 +1,13 @@
 /**
- * Loads the full set of servers the list needs to group, multi-filter, and paginate on
- * the client.
+ * Loads the full set of servers a page needs to group, multi-filter, and paginate on the
+ * client.
  *
- * The swallow API paginates but offers no grouping or multi-dimension filtering, so the
- * servers list fetches a working set and does that work in the browser. Only the coarse
- * filters the API supports (`siteId`, `keyword`, `includeAbsent`) are pushed server-side;
- * the rest is applied by the domain list helpers. Every page is fetched sequentially so
- * grouping and selection always cover the complete scoped fleet.
+ * The swallow API paginates but offers no grouping or multi-dimension filtering, so a page
+ * fetches a working set and does that work in the browser. Only the filters the servers-list
+ * contract supports (`siteId`, `provisioningState`, `keyword`, `includeAbsent`) are pushed to
+ * the API; the Servers page applies the rest with its list presentation rules
+ * (`serverListPresentation.ts`). Every page is fetched sequentially so grouping and selection
+ * always cover the complete scoped fleet.
  *
  * This is application orchestration over the `ServerRepository` port: it holds no React
  * or transport detail and is testable with a fake repository.
@@ -25,11 +26,10 @@ export interface WorkingSetQuery {
   includeAbsent?: boolean
 }
 
-/** The loaded working set plus whether the safety cap truncated it. */
+/** The loaded working set: every Server matching the query, and the API's total for it. */
 export interface ServerWorkingSet {
   servers: Server[]
   total: number
-  truncated: boolean
 }
 
 export async function loadServerWorkingSet(
@@ -53,7 +53,7 @@ export async function loadServerWorkingSet(
 
     // Stop once every server has been collected, or the provider returned a short page.
     if (servers.length >= result.total || result.items.length < PAGE_SIZE) {
-      return { servers, total, truncated: false }
+      return { servers, total }
     }
   }
 }

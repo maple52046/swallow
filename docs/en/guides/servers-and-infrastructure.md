@@ -105,9 +105,15 @@ addresses are valid across Sites.
 
 The chips above the inventory are built-in operational views: **All**,
 **Deployable**, **Active deployments**, and **Needs attention**. **Filters**
-adds provisioning, health, membership, GPU, hardware, placement, tag, lock, and
-absent-Server facets. Choosing an explicit provisioning state leaves the
-built-in view so the two do not silently conflict.
+adds provisioning, health, membership, GPU, hardware, placement, tag, lock,
+provisioner sync, and absent-Server facets. Choosing an explicit provisioning
+state leaves the built-in view so the two do not silently conflict.
+
+A Server whose provisioner does not yet match what swallow wants shows its
+**Provisioner sync** state under its name, for example **Drift detected** or
+**Needs attention**; focus or hover it for the explanation. In-sync Servers show
+nothing. The **Provisioner sync** filter narrows the list to Servers that are out
+of sync, need attention, drifted, are still being applied, or are held.
 
 Search, view, filters, grouping, sort, direction, Site scope, and page are
 encoded in the URL. Copy or bookmark that URL to reapply the same view; there

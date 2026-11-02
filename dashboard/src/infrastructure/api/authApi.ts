@@ -1,25 +1,32 @@
 import { apiRequest } from './client'
+import type { JsonRequestBody, JsonResponse } from './contractTypes'
+import type { operations } from './generated/openapi'
 import { clearTokens, storeTokens } from './session'
-import type { LoginRequest, LoginResponse, MeResponse } from './types'
+
+/**
+ * The signed-in user `GET /api/v1/auth/me` returns, as the contract sends it; ApiAuthRepository
+ * maps it to the domain User.
+ */
+export type CurrentUser = JsonResponse<operations['getCurrentUser'], 200>
 
 /**
  * Signs in with cookie delivery (the contract default): the response body carries only the access
  * token, which goes to memory, and the browser stores the HttpOnly refresh cookie. `credentials:
  * 'include'` lets that cookie be set and sent when the API is on another development origin.
  */
-export async function login(username: string, password: string): Promise<LoginResponse> {
-  const body: LoginRequest = { username, password }
-  const response = await apiRequest<LoginResponse>('/api/v1/auth/login', {
+export async function login(username: string, password: string): Promise<void> {
+  const body: JsonRequestBody<operations['login']> = { username, password, refreshTokenDelivery: 'cookie' }
+  const response = await apiRequest<JsonResponse<operations['login'], 200>>('/api/v1/auth/login', {
     method: 'POST',
     credentials: 'include',
     body: JSON.stringify(body),
   })
   storeTokens(response)
-  return response
 }
 
-export async function getMe(): Promise<MeResponse> {
-  return apiRequest<MeResponse>('/api/v1/auth/me')
+/** Reads the user the current Session belongs to. */
+export async function getMe(): Promise<CurrentUser> {
+  return apiRequest<CurrentUser>('/api/v1/auth/me')
 }
 
 /**

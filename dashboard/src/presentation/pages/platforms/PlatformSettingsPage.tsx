@@ -98,7 +98,7 @@ export function PlatformSettingsPage() {
   };
 
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <PageHeader
         title="Platform settings"
         breadcrumbs={[

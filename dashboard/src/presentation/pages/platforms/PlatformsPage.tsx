@@ -16,7 +16,7 @@ import type { Platform, PlatformLifecycleState, PlatformType } from '@/domain/pl
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { InventorySurface, SelectionToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { InventorySurface, SelectionToolbar, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
@@ -398,7 +398,7 @@ export function PlatformsPage() {
   }
 
   return (
-    <div className="operator-page sw-platforms-page">
+    <div className="console-page sw-platforms-page">
       <PageHeader
         title="Platforms"
         subtitle="Deploy and operate Kubernetes and Slurm runtimes from one PaaS control plane."

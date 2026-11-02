@@ -1,9 +1,5 @@
-import type { ChangePlan } from '@/domain/convergence/changePlan'
-import type { ChangePlanList } from './ApiChangePlanRepository'
-import type { ModuleList } from './ApiModuleRepository'
 import type { Paginated as OperationPage } from '@/application/ports/OperationRepository'
 import type { Paginated as ServerPage } from '@/application/ports/ServerRepository'
-import type { ApiKey, CreatedApiKey, GeneratedAccessKey, SSHKey } from '@/domain/access/types'
 import type { GroupingResource, ServerPlacement } from '@/domain/infrastructure/types'
 import type { AcknowledgeAlertResult, MonitoringAlert, ServerMetricsResult } from '@/domain/monitoring/types'
 import type { Operation, OperationArtifact, OperationEvents, OperationTimelineEvent } from '@/domain/operation/types'
@@ -65,7 +61,6 @@ import type {
   DockerImagePullResult,
   DockerNetwork,
   DockerVolume,
-  RegistryCredential,
 } from '@/domain/software/docker'
 import type { SoftwareOperationReference } from '@/domain/software/types'
 import type { ItemsEnvelope as DockerItemsEnvelope } from './ApiDockerHostRepository'
@@ -77,20 +72,9 @@ import type {
   WireSoftwareAssignment,
   WireSoftwareCatalogEntry,
 } from './ApiSoftwareRepository'
+import type { JsonResponse } from './contractTypes'
 import type { operations } from './generated/openapi'
-import type { LoginResponse, MeResponse } from './types'
 
-/**
- * The `application/json` body of one success status of a generated contract operation, picked by
- * operationId (`operations['…']`) rather than by path so a moved route keeps its entry.
- *
- * The constraint makes a wrong status, or a status whose body is not JSON (a 204, plain text), a
- * compile error at the entry instead of a silently vacuous check.
- */
-type JsonResponse<
-  Op extends { responses: Record<Status, { content: { 'application/json': unknown } }> },
-  Status extends number,
-> = Op['responses'][Status]['content']['application/json']
 
 /**
  * `true` when every value the contract allows for `Wire` is also a value of the dashboard type
@@ -135,32 +119,6 @@ type AssertNot<T extends false> = T
  * types, so it is erased at build time and has no runtime effect.
  */
 export type ContractCompatibility = [
-  // ApiApiKeyRepository
-  // listApiKeys: GET /api/v1/api-keys
-  Assert<Readable<JsonResponse<operations['listApiKeys'], 200>, ApiKey[]>>,
-
-  // ApiChangePlanRepository
-  // listChangePlans: GET /api/v1/change-plans
-  Assert<Readable<JsonResponse<operations['listChangePlans'], 200>, ChangePlanList>>,
-  // getChangePlan: GET /api/v1/change-plans/{planId}
-  Assert<Readable<JsonResponse<operations['getChangePlan'], 200>, ChangePlan>>,
-  // approveChangePlan: POST /api/v1/change-plans/{planId}/approve
-  Assert<Readable<JsonResponse<operations['approveChangePlan'], 200>, ChangePlan>>,
-  // rejectChangePlan: POST /api/v1/change-plans/{planId}/reject
-  Assert<Readable<JsonResponse<operations['rejectChangePlan'], 200>, ChangePlan>>,
-
-  // ApiModuleRepository
-  // listModules: GET /api/v1/modules
-  Assert<Readable<JsonResponse<operations['listModules'], 200>, ModuleList>>,
-  // createApiKey: POST /api/v1/api-keys
-  Assert<Readable<JsonResponse<operations['createApiKey'], 201>, CreatedApiKey>>,
-
-  // authApi
-  // login: POST /api/v1/auth/login
-  Assert<Readable<JsonResponse<operations['login'], 200>, LoginResponse>>,
-  // getMe: GET /api/v1/auth/me
-  Assert<Readable<JsonResponse<operations['getCurrentUser'], 200>, MeResponse>>,
-
   // ApiDockerHostRepository
   // summary: GET /api/v1/servers/{id}/docker
   Assert<Readable<JsonResponse<operations['getDockerEngineSummary'], 200>, DockerEngineSummary>>,
@@ -335,14 +293,6 @@ export type ContractCompatibility = [
   // setProvisionerSubnetDnsServers: PUT /api/v1/provisioning/integrations/{id}/subnets/{subnetId}/dns-servers
   Assert<Readable<JsonResponse<operations['replaceSubnetDnsServers'], 200>, ProvisionerSubnet>>,
 
-  // ApiRegistryCredentialRepository
-  // list: GET /api/v1/software/docker-ce/registry-credentials
-  Assert<Readable<JsonResponse<operations['listRegistryCredentials'], 200>, { items: RegistryCredential[] }>>,
-  // create: POST /api/v1/software/docker-ce/registry-credentials
-  Assert<Readable<JsonResponse<operations['createRegistryCredential'], 201>, RegistryCredential>>,
-  // replace: PUT /api/v1/software/docker-ce/registry-credentials/{credentialId}
-  Assert<Readable<JsonResponse<operations['replaceRegistryCredential'], 200>, RegistryCredential>>,
-
   // ApiServerRepository (getProvisionerDetail, setDefaultUser: see KnownContractMismatches)
   // listServers: GET /api/v1/servers
   Assert<Readable<JsonResponse<operations['listServers'], 200>, ServerPage<Server>>>,
@@ -442,20 +392,6 @@ export type ContractCompatibility = [
   Assert<Readable<JsonResponse<operations['installSoftware'], 202>, SoftwareOperationReference>>,
   // uninstallSoftware: POST /api/v1/software/uninstall
   Assert<Readable<JsonResponse<operations['uninstallSoftware'], 202>, SoftwareOperationReference>>,
-
-  // ApiSSHKeyRepository
-  // listSSHKeys: GET /api/v1/ssh-keys
-  Assert<Readable<JsonResponse<operations['listSshKeys'], 200>, SSHKey[]>>,
-  // getSSHKey: GET /api/v1/ssh-keys/{keyId}
-  Assert<Readable<JsonResponse<operations['getSshKey'], 200>, SSHKey>>,
-  // importAccessKey: POST /api/v1/ssh-keys
-  Assert<Readable<JsonResponse<operations['importSshKey'], 201>, SSHKey>>,
-  // generateAccessKey: POST /api/v1/ssh-keys/generate
-  Assert<Readable<JsonResponse<operations['generateSshKey'], 201>, GeneratedAccessKey>>,
-  // replaceDeploymentKey: PUT /api/v1/ssh-keys/deployment
-  Assert<Readable<JsonResponse<operations['replaceDeploymentKey'], 200>, SSHKey>>,
-  // regenerateDeploymentKey: POST /api/v1/ssh-keys/deployment/regenerate
-  Assert<Readable<JsonResponse<operations['regenerateDeploymentKey'], 200>, SSHKey>>,
 ]
 
 /**
@@ -477,7 +413,7 @@ export type KnownContractMismatches = [
   // adapter's normalizeOperation turns every such null into `[]` before an Operation leaves the
   // adapter, so nothing null reaches the UI. The call's type argument is that normalized domain
   // Operation, not the wire shape. Making the domain fields nullable would force changes in
-  // consumers that rely on the arrays (domain releasesServer, OperatorOperationsPage, the detail
+  // consumers that rely on the arrays (domain releasesServer, ConsoleOperationsPage, the detail
   // pages); the fix is to read the wire type (for example the generated one) and give it to
   // normalizeOperation as its input.
   // listOperations: GET /api/v1/workflows. Each item: `targetServerIds`, `steps`, and
@@ -492,7 +428,7 @@ export type KnownContractMismatches = [
   // ApiOverviewRepository
   // getOverview: GET /api/v1/overview. `operations.recent[].targetServerIds` is `string[] | null`
   // on the wire (a Workflow with no target Server) and `string[]` here, because `recent` reuses the
-  // domain Operation, and this adapter does not normalize. Harmless today: OperatorOverviewPage
+  // domain Operation, and this adapter does not normalize. Harmless today: ConsoleOverviewPage
   // reads only id, intent, kind, execution.status, and requestedAt. Not fixed because the field is
   // shared with Operation consumers that dereference it; the fix is a dedicated overview projection
   // type or normalizing in the adapter (a runtime change).

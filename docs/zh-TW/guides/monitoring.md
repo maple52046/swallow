@@ -109,7 +109,7 @@ swallow platforms update plat1 -f patch.yaml
 ```
 
 空清單（`monitoringLinks: []`）會移除所有連結。swallow 從不連線 Monitoring Link；它只是
-給操作者的捷徑。
+給使用者的捷徑。
 
 ## Alert 與 acknowledgement
 

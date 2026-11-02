@@ -8,7 +8,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { DataToolbar, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
 import { ResourceRowActions } from '@/presentation/components/ResourceRowActions'
 import { SearchInput } from '@/presentation/components/ui/search-input'
@@ -88,7 +88,7 @@ export function SitesPage() {
   }
 
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <InfrastructureHeader
         actions={
           <Button colorPalette="brand" onClick={() => setEditor('create')}>

@@ -94,8 +94,13 @@ address 是合法狀況。
 
 Inventory 上方的 chip 是內建 operational view：**All**、**Deployable**、
 **Active deployments** 與 **Needs attention**。**Filters** 可再設定 provisioning、
-health、membership、GPU、hardware、placement、tag、lock 與 absent Server facet。
-明確選擇 provisioning state 時會離開內建 view，避免兩者形成不明顯的衝突。
+health、membership、GPU、hardware、placement、tag、lock、provisioner sync 與 absent
+Server facet。明確選擇 provisioning state 時會離開內建 view，避免兩者形成不明顯的衝突。
+
+Provisioner 尚未符合 swallow 期望的 Server，會在名稱下方顯示 **Provisioner sync**
+狀態，例如 **Drift detected** 或 **Needs attention**；focus 或 hover 可看說明。已同步的
+Server 不顯示任何標記。**Provisioner sync** filter 可只列出尚未同步、需要處理、發生
+drift、仍在套用或被 hold 的 Server。
 
 Search、view、filter、grouping、sort、direction、Site scope 與 page 都編碼在 URL；
 複製或加入書籤即可重新套用相同 view，沒有另一筆有名稱的 saved-view record。

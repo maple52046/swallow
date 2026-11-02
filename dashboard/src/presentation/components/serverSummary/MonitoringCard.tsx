@@ -6,7 +6,7 @@ import type { ServerMonitoring } from '@/presentation/pages/servers/useServerMon
 import { Alert } from '@/presentation/components/ui/alert'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { SectionSurface } from '@/presentation/components/OperatorPrimitives'
+import { SectionSurface } from '@/presentation/components/ConsolePrimitives'
 
 const OWNER_LABEL: Record<EffectiveExporterOwner, string> = {
   ansible: 'Managed by Ansible',

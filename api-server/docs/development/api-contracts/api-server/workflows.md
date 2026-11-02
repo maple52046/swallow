@@ -278,7 +278,7 @@ empty for a Task that waits for none.
 `POST /{id}/cancel` returns `202` with `{ "operationId": "<workflowId>" }` once the cancel request is
 stored. The worker delivers it to the Workflow's run, or resumes the Workflow when its execution is
 gone or it has not started yet, so a cancel always completes. The Workflow writes `canceling`, then
-`canceled` with `statusReason` `Canceled by operator.`; a Workflow superseded by a rerun or by
+`canceled` with `statusReason` `Canceled by user.`; a Workflow superseded by a rerun or by
 `cancelActiveWorkflows` carries that reason instead. Every non-terminal Task, including
 `requires_attention`, becomes `canceled`; Tasks that already reached an outcome keep it. Active MAAS
 or Ansible execution receives a best-effort abort. Cancel on a finished Workflow is `conflict`.
@@ -372,6 +372,10 @@ Workflow or Task, an unknown target Server, and a Site with no Automation Config
 `not_found`.
 
 ## Compatibility Notes
+
+On 2026-11-03 the `statusReason` of a Workflow a user canceled became `Canceled by user.` and that of
+a Workflow stopped at a failed Step `A failed Step requires user attention.` (both said operator).
+Workflows recorded before keep their old text; clients must not match on `statusReason`.
 
 On 2026-10-19 (decision 061) a
 cancel began returning the Servers of interrupted `provision-os` Tasks to Ready and recording

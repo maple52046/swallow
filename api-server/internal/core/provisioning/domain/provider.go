@@ -71,8 +71,8 @@ type ProviderCapabilities struct {
 	Power bool
 	// HardwareValidation reports that HardwareValidator is implemented.
 	HardwareValidation bool
-	// OperatorState reports that OperatorStateController is implemented.
-	OperatorState bool
+	// StateActions reports that StateActionsController is implemented.
+	StateActions bool
 	// MachineDetail reports that MachineDetailInspector is implemented.
 	MachineDetail bool
 	// HardwareInventory reports that HardwareInventoryInspector is implemented.
@@ -158,10 +158,10 @@ type HardwareValidator interface {
 	OverrideFailedTesting(ctx context.Context, machineID string) (*Machine, error)
 }
 
-// OperatorStateController makes the user-driven state changes that are neither a
+// StateActionsController makes the user-driven state changes that are neither a
 // deployment nor a release: taking a machine out of automation, flagging it, or putting
 // it into a recovery environment.
-type OperatorStateController interface {
+type StateActionsController interface {
 	Lock(ctx context.Context, machineID string) (*Machine, error)
 	Unlock(ctx context.Context, machineID string) (*Machine, error)
 	MarkBroken(ctx context.Context, machineID string) (*Machine, error)

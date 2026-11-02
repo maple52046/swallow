@@ -24,7 +24,7 @@ import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { PageHeader } from '@/presentation/components/PageHeader'
-import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { SectionHeader, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
 import { Wizard, type WizardStepDef } from '@/presentation/components/Wizard'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -998,7 +998,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
   const PlatformIcon = module.deploy.icon
 
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <PageHeader
         title={`Deploy ${platformLabel} Platform`}
         subtitle={`Configure a ${platformLabel} runtime with its own topology, features, and preparation workflow.`}

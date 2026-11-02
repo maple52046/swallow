@@ -21,7 +21,7 @@ func TestServerActions_DriveTheProvisioner(t *testing.T) {
 		path   string
 		wantOp string
 		// state, when set, is the provider status the recovery policy requires before the
-		// operator-state primitive is accepted (decision 033); an empty value uses the
+		// state-action primitive is accepted (decision 033); an empty value uses the
 		// default Ready fixture.
 		state provisioningdomain.MachineStatus
 	}{

@@ -74,7 +74,7 @@ const ACTION_HINTS: Partial<Record<ServerMenuAction, string>> = {
 const GROUP_PRESENTATION: Partial<Record<string, { label: string; icon: LucideIcon }>> = {
   Power: { label: 'Power', icon: Power },
   'Hardware validation': { label: 'Hardware checks', icon: ClipboardCheck },
-  'Operator state': { label: 'State & recovery', icon: Wrench },
+  'State actions': { label: 'State & recovery', icon: Wrench },
 }
 
 /**

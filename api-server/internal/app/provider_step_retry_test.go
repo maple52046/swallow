@@ -17,7 +17,7 @@ const retryTestImage = "custom/ubuntu-24.04-rocm"
 
 // retryProvider is a fake provisioner whose Machine state the fake release and deployment move,
 // so a test can drive the whole retry: unusable -> ready -> deployed and SSH-reachable. It adds the
-// operator-state actions a broken or rescue Machine needs to return to ready.
+// state actions a broken or rescue Machine needs to return to ready.
 type retryProvider struct {
 	cancellationProvider
 	markFixed int

@@ -9,7 +9,7 @@ import { type MonitoringAlert, type MonitoringAlertState, type ServerMetrics } f
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
-import { DataToolbar, SectionHeader, MetricGrid, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { DataToolbar, SectionHeader, MetricGrid, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
@@ -201,7 +201,7 @@ export function MonitoringPage() {
   const acknowledgeDisabled = acknowledging || !selectedAlert || Object.keys(selectedAlert.labels).length === 0
 
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <PageHeader
         title="Monitoring"
         metadata={<Text as="span" fontSize="sm" color="fg.muted">Refreshed {formatRelative(refreshedAt)}</Text>}

@@ -77,7 +77,7 @@ func (p *Provider) OverrideFailedTesting(ctx context.Context, machineID string) 
 	return p.action(ctx, machineID, "override_failed_testing")
 }
 
-// --- OperatorStateController ---
+// --- StateActionsController ---
 
 func (p *Provider) Lock(ctx context.Context, machineID string) (*provisioningdomain.Machine, error) {
 	return p.action(ctx, machineID, "lock")

@@ -80,7 +80,7 @@ export function IntegrationSettingsPage() {
   }
 
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <PageHeader
         title={integration.name}
         subtitle={`${providerLabel(integration.providerKind)} ${roleLabel(integration.kind)} · ${siteName}`}

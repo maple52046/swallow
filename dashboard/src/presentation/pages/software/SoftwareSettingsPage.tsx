@@ -40,7 +40,7 @@ export function SoftwareSettingsPage() {
     const label = requestedKind ? softwareKindLabel(requestedKind) : 'Software'
     const detailPath = requestedKind ? `/software/${requestedKind}` : '/software'
     return (
-      <div className="operator-page">
+      <div className="console-page">
         <PageHeader
           title={`${label} settings`}
           breadcrumbs={[
@@ -61,7 +61,7 @@ export function SoftwareSettingsPage() {
   const label = softwareKindLabel(selected.kind)
 
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <PageHeader
         title={`${label} settings`}
         subtitle={`Installation-wide settings used by ${label} on every Server.`}

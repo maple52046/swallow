@@ -10,7 +10,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { failureOf, failureText } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { SectionHeader, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
@@ -96,7 +96,7 @@ export function PlatformDetailPage() {
   const openServer = (serverId: string) => navigate(scopedHref(`/servers/${serverId}`))
 
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <PageHeader
         title={platform.name}
         breadcrumbs={[{ label: 'Platforms', href: scopedHref('/platforms') }]}

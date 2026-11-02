@@ -617,7 +617,7 @@ export interface ProvisionerCapabilities {
   ephemeralDeploy: boolean
   power: boolean
   hardwareValidation: boolean
-  operatorState: boolean
+  stateActions: boolean
   machineDetail: boolean
   hardwareInventory: boolean
   machineRemoval: boolean

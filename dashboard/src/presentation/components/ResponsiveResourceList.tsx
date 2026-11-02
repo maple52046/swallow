@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Box, HStack, Table, Text } from '@chakra-ui/react'
-import { StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 
 /** One data column shared by the desktop table and the mobile card. */

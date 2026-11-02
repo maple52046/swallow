@@ -1,11 +1,11 @@
 import { ChangePlansPage } from '@/presentation/pages/changePlans/ChangePlansPage'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
-import { OperatorLayout } from './presentation/app/layout/OperatorLayout'
+import { ConsoleLayout } from './presentation/app/layout/ConsoleLayout'
 import { NotFoundPage } from './presentation/pages/NotFoundPage'
 import { LoginPage } from './presentation/pages/auth/LoginPage'
 import { ForbiddenPage } from './presentation/pages/errors/ForbiddenPage'
 import { UnexpectedErrorPage } from './presentation/pages/errors/UnexpectedErrorPage'
-import { OperatorOverviewPage } from './presentation/pages/overview/OperatorOverviewPage'
+import { ConsoleOverviewPage } from './presentation/pages/overview/ConsoleOverviewPage'
 import { MonitoringPage } from './presentation/pages/monitoring/MonitoringPage'
 import { ServersPage } from './presentation/pages/servers/ServersPage'
 import { ServerDetailPage } from './presentation/pages/servers/ServerDetailPage'
@@ -26,8 +26,8 @@ import { LegacyPlatformRedirect } from './presentation/pages/platforms/LegacyPla
 import { SoftwarePage } from './presentation/pages/software/SoftwarePage'
 import { SoftwareDetailPage } from './presentation/pages/software/SoftwareDetailPage'
 import { SoftwareSettingsPage } from './presentation/pages/software/SoftwareSettingsPage'
-import { OperatorOperationsPage } from './presentation/pages/operations/OperatorOperationsPage'
-import { OperatorOperationDetailPage } from './presentation/pages/operations/OperatorOperationDetailPage'
+import { ConsoleOperationsPage } from './presentation/pages/operations/ConsoleOperationsPage'
+import { ConsoleOperationDetailPage } from './presentation/pages/operations/ConsoleOperationDetailPage'
 import { LegacyWorkflowRedirect } from './presentation/pages/operations/LegacyWorkflowRedirect'
 import { ProtectedRoute } from './presentation/components/ProtectedRoute'
 import { DeploymentTemplatesPage } from './presentation/pages/provisioning/DeploymentTemplatesPage'
@@ -65,10 +65,10 @@ export const router = createBrowserRouter([
   { path: '/403', element: <ProtectedRoute><ForbiddenPage /></ProtectedRoute> },
   {
     path: '/',
-    element: <ProtectedRoute><OperatorLayout /></ProtectedRoute>,
+    element: <ProtectedRoute><ConsoleLayout /></ProtectedRoute>,
     errorElement: <UnexpectedErrorPage />,
     children: [
-      { index: true, element: <OperatorOverviewPage /> },
+      { index: true, element: <ConsoleOverviewPage /> },
       {
         path: 'monitoring',
         element: <FeatureRoute feature="monitoring" fallback={<NotFoundPage />}><MonitoringPage /></FeatureRoute>,
@@ -104,9 +104,9 @@ export const router = createBrowserRouter([
       { path: 'clusters', element: <LegacyPlatformRedirect /> },
       { path: 'clusters/deploy', element: <LegacyPlatformRedirect deploy /> },
       { path: 'clusters/:id', element: <LegacyPlatformRedirect /> },
-      { path: 'workflows', element: <OperatorOperationsPage /> },
+      { path: 'workflows', element: <ConsoleOperationsPage /> },
       { path: 'change-plans', element: <ChangePlansPage /> },
-      { path: 'workflows/:id', element: <OperatorOperationDetailPage /> },
+      { path: 'workflows/:id', element: <ConsoleOperationDetailPage /> },
       { path: 'operations', element: <LegacyWorkflowRedirect /> },
       { path: 'operations/:id', element: <LegacyWorkflowRedirect /> },
       { path: 'provisioning', element: <ProvisioningRedirect /> },

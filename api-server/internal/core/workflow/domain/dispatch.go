@@ -45,8 +45,8 @@ type RetryCommand struct {
 	RequestedAt time.Time `json:"requestedAt" bson:"requestedAt"`
 }
 
-// CanceledByOperatorReason is the statusReason of a Workflow a user canceled.
-const CanceledByOperatorReason = "Canceled by operator."
+// CanceledByUserReason is the statusReason of a Workflow a user canceled.
+const CanceledByUserReason = "Canceled by user."
 
 // ResourceOwnership records that a Workflow owns one Server or Platform. It has no expiry: the
 // Workflow releases it in the transaction that makes it terminal (decision 072).

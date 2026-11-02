@@ -226,7 +226,7 @@ test.describe('user interactions', () => {
     const measure = () => page.evaluate(() => {
       const rail = document.querySelector<HTMLElement>('[data-testid="desktop-navigation"]')
       const main = document.querySelector<HTMLElement>('#swallow-main-content')
-      const page = document.querySelector<HTMLElement>('.operator-page')
+      const page = document.querySelector<HTMLElement>('.console-page')
       if (!rail || !main || !page) return null
       return {
         railRight: Math.round(rail.getBoundingClientRect().right),
@@ -250,7 +250,7 @@ test.describe('user interactions', () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
     const toggle = page.getByRole('button', { name: 'Open navigation' })
-    await expect(page.getByTestId('operator-header').getByText('Swallow', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('console-header').getByText('Swallow', { exact: true })).toBeVisible()
     await toggle.click()
     const navigation = page.getByRole('navigation', { name: 'Primary navigation' })
     await expect(navigation).toBeVisible()
@@ -1624,7 +1624,7 @@ test.describe('user interactions', () => {
       id: 'op-event-diagnostics', schemaVersion: 3, kind: 'configure-slurm',
       intent: 'Configure Slurm platform', intentSnapshot: {},
       definition: 'platform-deployment', definitionVersion: 1,
-      status: 'requires_attention', statusReason: 'A failed Step requires operator attention.',
+      status: 'requires_attention', statusReason: 'A failed Step requires user attention.',
       startState: 'started', temporal: { workflowId: 'swallow-operation/op-event-diagnostics' },
       siteId: 'site-a', platformId: 'platform-b',
       targetResources: [{ kind: 'server', id: 'srv-1' }], targetServerIds: ['srv-1'],
@@ -1641,7 +1641,7 @@ test.describe('user interactions', () => {
       leases: [], requestCorrelation: 'req-event-diagnostics',
       execution: {
         runId: 'run-event-diagnostics', playbook: '', status: 'requires_attention',
-        statusReason: 'A failed Step requires operator attention.',
+        statusReason: 'A failed Step requires user attention.',
         startedAt: '2026-08-27T02:50:00Z', finishedAt: null,
       },
       requestedBy: 'admin', requestedAt: '2026-08-27T02:49:00Z',

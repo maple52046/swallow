@@ -40,7 +40,7 @@ export function DeployPlatformCatalogPage() {
   const { scopedHref } = useSiteScope()
 
   return (
-    <div className="operator-page sw-platform-deploy-catalog">
+    <div className="console-page sw-platform-deploy-catalog">
       <PageHeader
         title="Deploy platform"
         subtitle="Choose the runtime Swallow should build. Kubernetes and Slurm use deployment flows tailored to their own topology and operating model."

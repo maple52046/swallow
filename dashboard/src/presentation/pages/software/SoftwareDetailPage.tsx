@@ -15,7 +15,7 @@ import { ErrorState } from '@/presentation/components/ErrorState'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { InventorySurface, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { InventorySurface, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { Pagination } from '@/presentation/components/Pagination'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
@@ -147,7 +147,7 @@ export function SoftwareDetailPage() {
   if (state.status === 'error') return <ErrorState message={state.message} requestId={state.requestId} onRetry={() => void load()} />
   if (state.status === 'not-found' || !kind || !state.data.entry) {
     return (
-      <div className="operator-page">
+      <div className="console-page">
         <PageHeader title="Software not found" breadcrumbs={[{ label: 'Software', href: scopedHref('/software') }, { label: 'Not found' }]} />
         <EmptyState
           title="Software not found"
@@ -203,7 +203,7 @@ export function SoftwareDetailPage() {
   }
 
   return (
-    <div className="operator-page sw-software-detail-page">
+    <div className="console-page sw-software-detail-page">
       <PageHeader
         title={entry.label}
         subtitle={presentation.description}

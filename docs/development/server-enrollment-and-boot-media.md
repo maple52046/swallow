@@ -482,7 +482,7 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 - installation 缺少任何前提（Boot Media base URL、可寫的 Boot Media 目錄、iPXE asset、GRUB、打包工具）時，
   列表回報 `builder.available: false` 與原因，建置回 `409`。
 - 每個紀錄保存 `script`、`grubConfig`、`chainUrl`、`uefiChainUrl`、`ipxeVersion`、大小與 SHA-256、`inUseBy`
-  與建置／rebuild 的時間與操作者。欄位見
+  與建置／rebuild 的時間與使用者。欄位見
   [boot-isos.md](../../api-server/docs/development/api-contracts/api-server/boot-isos.md)。
 
 ### 5.2 BIOS 與 UEFI 的 hand-off

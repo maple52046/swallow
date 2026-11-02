@@ -189,7 +189,7 @@ export function BootISOsPage() {
       : ''
 
   return (
-    <div className="operator-page sw-boot-isos-page">
+    <div className="console-page sw-boot-isos-page">
       <PageHeader
         title="Boot ISOs"
         subtitle="Optional network boot media for Servers that use external DHCP instead of their provisioner's managed network."

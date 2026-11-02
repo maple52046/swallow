@@ -8,7 +8,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { SectionSurface, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { SectionSurface, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { DescriptionList } from '@/presentation/components/ui/description-list'
@@ -156,7 +156,7 @@ export function SSHKeysPage() {
   const accessKeys = useMemo(() => (state.status === 'ready' ? state.data.accessKeys : []), [state])
 
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <PageHeader
         title="SSH keys"
         subtitle="The deployment key swallow uses to manage Servers, and your own keys for logging in to them."

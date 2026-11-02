@@ -49,7 +49,7 @@ src/
 │   └── persistence/           browser preferences/session adapters
 ├── presentation/
 │   ├── app/                   shell, navigation, theme
-│   ├── pages/                 routed operator workspaces
+│   ├── pages/                 routed console workspaces
 │   ├── components/            reusable accessible UI
 │   ├── contexts/              cross-page presentation state
 │   └── hooks/                 React lifecycle adapters
@@ -107,7 +107,10 @@ eligibility、working-set refresh 或 presentation-independent rule 才建立 us
   以 `npm run contract:generate` 產生，不得手改；`npm run contract:check` 確認它是最新的。
 - `src/infrastructure/api/contractCompatibility.ts` 以 compile-time 檢查確認每個 adapter 讀取的 contract response
   型別能指派給 adapter 回傳的 dashboard 型別。檢查失敗代表契約與 dashboard 型別不一致：修正 dashboard 型別，
-  或回報 provider contract，不得放寬檢查。Adapter 全面改用產生的型別列為後續工作。
+  或回報 provider contract，不得放寬檢查。
+- Adapter 可直接以 `src/infrastructure/api/contractTypes.ts` 的 `JsonResponse`／`JsonRequestBody` 從產生的型別
+  取出 route 的回應與 request body，不另寫 DTO interface；這類 adapter 不需要 `contractCompatibility.ts` 的檢查。
+  新 adapter 用這種方式；既有 adapter 逐步改寫。
 - Shared error envelope 轉成 typed client error；UI 顯示 human message 與 request ID。adapter 的錯誤實作
   `src/application/ports/RequestFailure.ts`；presentation 以 `src/presentation/components/failure.ts` 的 `failureOf`
   讀出訊息與 request ID，在錯誤容器內以 `FailureMessage`（或 `ErrorState` 的 `requestId`）呈現；只收純文字的地方

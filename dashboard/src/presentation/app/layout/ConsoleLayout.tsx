@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { Outlet } from 'react-router-dom'
-import { OperatorShell } from './OperatorShell'
+import { ConsoleShell } from './ConsoleShell'
 import { SiteScopeProvider } from '@/presentation/contexts/SiteScopeContext'
 
 const NAV_COLLAPSED_KEY = 'swallow.shell.sidebar-collapsed'
@@ -20,7 +20,7 @@ function loadCollapsed(): boolean {
  * reloads, and back/forward navigation remain shareable. The mobile drawer is
  * ephemeral session state that resets on reload.
  */
-export function OperatorLayout() {
+export function ConsoleLayout() {
   const [collapsed, setCollapsed] = useState(loadCollapsed)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
@@ -41,7 +41,7 @@ export function OperatorLayout() {
 
   return (
     <SiteScopeProvider>
-      <OperatorShell
+      <ConsoleShell
         collapsed={collapsed}
         mobileNavOpen={mobileNavOpen}
         onCloseMobileNav={closeMobileNav}
@@ -49,7 +49,7 @@ export function OperatorLayout() {
         onToggleSidebar={toggleSidebar}
       >
         <Outlet />
-      </OperatorShell>
+      </ConsoleShell>
     </SiteScopeProvider>
   )
 }

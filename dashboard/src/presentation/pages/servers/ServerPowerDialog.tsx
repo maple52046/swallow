@@ -1,7 +1,7 @@
 import { Button, Text } from '@chakra-ui/react'
 import { Power, PowerOff, type LucideIcon } from 'lucide-react'
 import type { Server } from '@/domain/server/types'
-import { serverDisplayName } from '@/domain/server/list'
+import { serverDisplayName } from '@/domain/server/types'
 import { powerStateLabel } from '@/presentation/components/axisBadgeUtils'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Tooltip } from '@/presentation/components/ui/tooltip'

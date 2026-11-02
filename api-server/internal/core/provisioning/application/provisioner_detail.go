@@ -13,7 +13,7 @@ type CapabilitiesItem struct {
 	EphemeralDeploy      bool `json:"ephemeralDeploy"`
 	Power                bool `json:"power"`
 	HardwareValidation   bool `json:"hardwareValidation"`
-	OperatorState        bool `json:"operatorState"`
+	StateActions         bool `json:"stateActions"`
 	MachineDetail        bool `json:"machineDetail"`
 	HardwareInventory    bool `json:"hardwareInventory"`
 	MachineRemoval       bool `json:"machineRemoval"`
@@ -86,7 +86,7 @@ func (uc *GetProvisionerDetailUseCase) Execute(ctx context.Context, serverID str
 			EphemeralDeploy:      caps.EphemeralDeploy,
 			Power:                caps.Power,
 			HardwareValidation:   caps.HardwareValidation,
-			OperatorState:        caps.OperatorState,
+			StateActions:         caps.StateActions,
 			MachineDetail:        caps.MachineDetail,
 			HardwareInventory:    caps.HardwareInventory,
 			MachineRemoval:       caps.MachineRemoval,

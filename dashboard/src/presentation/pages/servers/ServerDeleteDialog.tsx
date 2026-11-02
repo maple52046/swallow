@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Button, Field, Input, List, Stack, Text } from '@chakra-ui/react'
 import { deleteServers } from '@/application/usecases/servers/deleteServers'
-import { serverDisplayName } from '@/domain/server/list'
+import { serverDisplayName } from '@/domain/server/types'
 import type { Server } from '@/domain/server/types'
 import { useApp } from '@/di/AppProvider'
 import { useToast } from '@/presentation/components/toast/toastContext'

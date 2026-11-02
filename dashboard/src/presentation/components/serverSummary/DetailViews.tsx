@@ -1,6 +1,6 @@
 import { Card, Heading, Table } from '@chakra-ui/react'
 import { EmptyState } from '@/presentation/components/EmptyState'
-import { StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { DescriptionList } from '@/presentation/components/ui/description-list'
 import type { DetailSection, DetailTable } from '@/domain/server/types'
 

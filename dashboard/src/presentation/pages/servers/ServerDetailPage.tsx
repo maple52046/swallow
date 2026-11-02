@@ -12,7 +12,7 @@ import { useExperimentalFeatures } from '@/presentation/contexts/ExperimentalFea
 import type { ExperimentalFeature } from '@/application/ports/ExperimentalFeatureSettings'
 import { useApp } from '@/di/AppProvider'
 import { DeploymentBadge, HealthBadge, LockBadge, MembershipBadge } from '@/presentation/components/AxisBadge'
-import { serverDisplayName } from '@/domain/server/list'
+import { serverDisplayName } from '@/domain/server/types'
 import { isProvisioningInProgress } from '@/domain/server/types'
 import { hasSwallowInstalledDocker } from '@/domain/software/docker'
 import { ServerActionMenu } from './ServerActionMenu'
@@ -167,7 +167,7 @@ export function ServerDetailPage() {
         ? 'Server must be ready'
         : undefined
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <PageHeader
         title={serverDisplayName(server)}
         subtitle={headerContext || `Server ID ${server.id}`}

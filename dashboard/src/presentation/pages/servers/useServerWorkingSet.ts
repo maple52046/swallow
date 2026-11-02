@@ -37,8 +37,10 @@ interface StoredWorkingSetState {
  * Query changes expose `loading` immediately so a previous Site cannot remain visible. Stale
  * requests are discarded, reconnects request one complete resync, and an SSE removal reloads
  * an include-absent working set because the frame cannot distinguish deletion from absence.
+ * The query has no `provisioningState`: a stream frame cannot tell whether a patched Server
+ * still belongs to such a set, so a caller that needs it loads the set without the stream.
  */
-export function useServerWorkingSet(query: WorkingSetQuery): {
+export function useServerWorkingSet(query: Pick<WorkingSetQuery, 'siteId' | 'keyword' | 'includeAbsent'>): {
   state: WorkingSetState
   reload: () => void
   /** True while a manual reload is in flight, for a refresh control's busy state. */

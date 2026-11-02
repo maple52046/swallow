@@ -74,8 +74,8 @@ export const SERVER_ACTION_GROUPS: ServerActionGroupDef[] = [
     ],
   },
   {
-    label: 'Operator state',
-    capability: 'operatorState',
+    label: 'State actions',
+    capability: 'stateActions',
     actions: [
       { action: 'lock', label: 'Lock' },
       { action: 'unlock', label: 'Unlock' },
@@ -265,7 +265,7 @@ export function serverActionAvailability(
     }
   }
   // Provider-recovery gating (decision 033). Recover and Release are the primary "make it
-  // usable again" verbs; the raw operator-state primitives are gated to their real source
+  // usable again" verbs; the raw state-action primitives are gated to their real source
   // states so the menu explains why, rather than forwarding a later provider rejection.
   if (action === 'recover') {
     return stateGatedAvailability(targets, (server) => RECOVER_SOURCE_STATES.has(provisioningState(server)),

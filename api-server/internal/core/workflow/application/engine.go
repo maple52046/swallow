@@ -215,7 +215,7 @@ type Compensation struct {
 const (
 	reasonWaitingForResources = "Waiting for resource leases."
 	reasonWaitingExternal     = "Waiting for an external executor or provider."
-	reasonParked              = "A failed Step requires operator attention."
+	reasonParked              = "A failed Step requires user attention."
 	reasonCanceling           = "Canceling active work."
 )
 
@@ -654,7 +654,7 @@ func (e *Engine) FinishCanceled(ctx context.Context, workflowID string, generati
 				}
 			}
 		}
-		reason := workflowdomain.CanceledByOperatorReason
+		reason := workflowdomain.CanceledByUserReason
 		if w.Commands.Cancel != nil && w.Commands.Cancel.Reason != "" {
 			reason = w.Commands.Cancel.Reason
 		}

@@ -32,7 +32,7 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeatures } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { ExperimentalFeaturesDialog } from './ExperimentalFeaturesDialog'
 
-interface OperatorHeaderProps {
+interface ConsoleHeaderProps {
   /** Collapses or expands the persisted desktop navigation rail. */
   onToggleSidebar: () => void
   /** Opens the focus-trapped mobile navigation drawer. */
@@ -67,7 +67,7 @@ function accountInitials(displayName: string, username: string): string {
  * choices distinct from page actions without consuming a second toolbar row. Development builds
  * add an "Experimental features" account entry; release builds never render it or its dialog.
  */
-export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHeaderProps) {
+export function ConsoleHeader({ onToggleSidebar, onOpenMobileNav }: ConsoleHeaderProps) {
   const navigate = useNavigate()
   const { mode, setMode } = useAppearance()
   const { currentUser, logout } = useAuth()
@@ -87,7 +87,7 @@ export function OperatorHeader({ onToggleSidebar, onOpenMobileNav }: OperatorHea
   return (
     <Flex
       as="header"
-      data-testid="operator-header"
+      data-testid="console-header"
       align="center"
       gap="2"
       minH="14"

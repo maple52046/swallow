@@ -126,7 +126,7 @@ Plan，核准後由 worker 的 platform controller 建立 Workflow。
 
 ```mermaid
 sequenceDiagram
-    actor Operator
+    actor User
     participant API as api
     participant DB as MongoDB
     participant W as worker
@@ -135,10 +135,10 @@ sequenceDiagram
     participant MAAS
     participant Hosts as Servers
 
-    Operator->>API: POST /api/v1/platforms (spec)
+    User->>API: POST /api/v1/platforms (spec)
     API->>DB: transaction: Platform claims, Platform (generation 1), Change Plan
-    API-->>Operator: 202 platform + plan
-    Operator->>API: POST /api/v1/change-plans/{id}/approve
+    API-->>User: 202 platform + plan
+    User->>API: POST /api/v1/change-plans/{id}/approve
     API->>DB: plan approved, convergence request
     W->>DB: platform controller: transaction: Workflow, plan applied
     W->>T: workflow-dispatch starts the driver run

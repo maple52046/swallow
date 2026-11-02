@@ -7,7 +7,7 @@ import type { Overview } from '@/domain/overview/types'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { MetricGrid, SectionSurface, StickyTableFrame, type MetricItem } from '@/presentation/components/OperatorPrimitives'
+import { MetricGrid, SectionSurface, StickyTableFrame, type MetricItem } from '@/presentation/components/ConsolePrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -149,7 +149,7 @@ function alertsMetric(alerts: Overview['monitoring'], icon: ReactNode): MetricIt
  * and Alerts cards keep their place with a "not available" note, and the alerts
  * warning is not shown because nothing here relies on it.
  */
-export function OperatorOverviewPage() {
+export function ConsoleOverviewPage() {
   const { overview } = useApp()
   const { siteId, scopedHref } = useSiteScope()
   const monitoring = useExperimentalFeature('monitoring')
@@ -180,7 +180,7 @@ export function OperatorOverviewPage() {
   const data = state.data
 
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <PageHeader
         title="Overview"
         metadata={<Text as="span" fontSize="sm" color="fg.muted">Updated {formatRelative(data.generatedAt)}</Text>}

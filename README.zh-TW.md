@@ -32,8 +32,8 @@ Software。swallow 擁有 intent、policy 與 identity mapping；外部系統繼
 
 ```mermaid
 flowchart LR
-    operator[Operator] --> dashboard[Dashboard]
-    operator --> cli[swallow CLI]
+    user[User] --> dashboard[Dashboard]
+    user --> cli[swallow CLI]
     integrator[API integrator] --> api[swallow-api]
     dashboard --> api
     cli --> api

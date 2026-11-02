@@ -71,7 +71,7 @@ explicitly reports that its Machine is already absent.
 (a deployment, an inspection, a Platform deployment): switching power under it would break the
 work. The message names the Workflow; wait for it to finish, or cancel it, and retry.
 
-## Operator State and Provider Recovery
+## State Actions and Provider Recovery
 
 `mark-broken`, `mark-fixed`, `rescue-mode`, and `exit-rescue-mode` are advanced provider
 primitives. swallow gates each on the Server's live provisioning state before calling the
@@ -92,7 +92,7 @@ The two user-facing recovery verbs are the durable Workflows documented in
 [provisioning.md](provisioning.md): `release-operations` (allowed from `deployed`,
 `allocated`, `failed`, `broken`, `rescue`) and `recover-operations` ("Return to Ready"). A
 client should present Recover and Release as the primary way to make an `allocated`,
-`failed`, `broken`, or `rescue` Server usable again, and keep the raw operator-state
+`failed`, `broken`, or `rescue` Server usable again, and keep the raw state-action
 primitives as advanced controls.
 
 `GET /servers/{id}` returns the same complete Server projection documented in [servers-list.md](servers-list.md).
@@ -111,7 +111,7 @@ switch and read it is written through its own route.
     "ephemeralDeploy": true,
     "power": true,
     "hardwareValidation": true,
-    "operatorState": true,
+    "stateActions": true,
     "machineDetail": true,
     "hardwareInventory": true,
     "machineRemoval": true,
@@ -126,7 +126,7 @@ switch and read it is written through its own route.
 
 `capabilities` always answers, because it describes the adapter: `power` advertises power-on,
 power-off, and the power-state read; `hardwareValidation` advertises inspect, test, abort, and
-override-failed-testing; `operatorState` advertises lock, unlock, and the mark/rescue primitives;
+override-failed-testing; `stateActions` advertises lock, unlock, and the mark/rescue primitives;
 `networkConfiguration` advertises the network routes. `sections` and `tables` are provider-defined display content, empty when the
 provisioner offers no machine detail; a section never has an empty `fields`, while a table's
 `columns` or a row may be `null` when the provider supplied none.
@@ -746,6 +746,11 @@ not alter the Server projection. These are provider events, not a claim that swa
 owns a complete durable audit trail.
 
 ## Compatibility Notes
+
+On 2026-11-03 (breaking) the provisioner-detail capability `operatorState` was renamed
+`stateActions`, with the same meaning, and a provisioner without it refuses with "This provisioner
+does not support state actions." No alias is kept; a client reading `operatorState` sees it
+missing.
 
 On 2026-11-03 `power-on` and `power-off` became `409 conflict` while an unfinished Workflow owns
 the Server; before, they reached the provisioner even during a deployment.

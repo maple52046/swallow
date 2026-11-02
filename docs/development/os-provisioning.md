@@ -164,7 +164,7 @@ OS Image Catalog、OS Image Upload、OS Image Metadata。
 
 ### 4.3 刪除
 
-- 只有操作者上傳的 custom image 可刪；synced release 會被 provider 立即重新同步，provider 拒絕並以 `400`
+- 只有使用者上傳的 custom image 可刪；synced release 會被 provider 立即重新同步，provider 拒絕並以 `400`
   帶回 provider 原文。刪除同樣是可選能力。
 - 刪除成功後一併刪除該 image 的 metadata 與驗證紀錄。刪除 Integration 時，它的所有 OS Image metadata 與驗證紀錄
   在同一個 transaction 內一起刪除。
@@ -499,7 +499,7 @@ swallow 擁有單一的 [Provider Recovery](glossaries/terms/provider-recovery.m
 選中的 primitive。API 見 [provisioning.md](../../api-server/docs/development/api-contracts/api-server/provisioning.md)
 的 Durable OS Workflows 與
 [server-detail-actions.md](../../api-server/docs/development/api-contracts/api-server/server-detail-actions.md) 的
-Operator State and Provider Recovery。
+State Actions and Provider Recovery。
 
 ### 11.1 政策矩陣：Release、Recover、Rescue、mark-*
 
@@ -515,7 +515,7 @@ Operator State and Provider Recovery。
 規則：
 
 - 矩陣與 Recover 的 primitive 計畫集中在一個 domain policy，durable Release 與 Recover 的受理、Recover 的執行、單一
-  operator-state 動作、明確的部署 Retry（§11.3）與 dashboard 的動作閘門都引用它，不得各自重寫。
+  state-action 動作、明確的部署 Retry（§11.3）與 dashboard 的動作閘門都引用它，不得各自重寫。
 - 拒絕時一律帶 swallow 撰寫的理由：mark-*／rescue 回 `409 conflict`；Release／Recover 的受理回 `400 validation_error`。
 - [Rescue Mode](glossaries/terms/rescue-mode.md) 是診斷環境，不是 recovery 路徑。MAAS 進入／離開 rescue 的過渡狀態
   （包含失敗的變體）都正規化為 `rescue`，讓政策與 UI 把它們當成同一個 rescue 問題。

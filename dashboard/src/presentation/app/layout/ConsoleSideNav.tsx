@@ -39,7 +39,7 @@ const NAVIGATION: readonly NavEntry[] = [
   { label: 'Infrastructure', path: '/infrastructure/sites', icon: Network },
 ]
 
-interface OperatorSideNavProps {
+interface ConsoleSideNavProps {
   /** Icon-only rail when true; always false in the mobile drawer. */
   collapsed: boolean
   /** Closes the mobile drawer after native router navigation. */
@@ -140,7 +140,7 @@ function NavLink({ entry, active, collapsed, href, onNavigate }: NavLinkProps) {
  * Destinations of in-development features are omitted while they are hidden; their
  * routes are guarded separately, so this only keeps navigation honest.
  */
-export function OperatorSideNav({ collapsed, onNavigate }: OperatorSideNavProps) {
+export function ConsoleSideNav({ collapsed, onNavigate }: ConsoleSideNavProps) {
   const location = useLocation()
   const { scopedHref } = useSiteScope()
   const { enabled: features } = useExperimentalFeatures()

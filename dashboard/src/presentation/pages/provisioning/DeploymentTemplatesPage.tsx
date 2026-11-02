@@ -9,7 +9,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { DataToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { DataToolbar, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -255,7 +255,7 @@ export function DeploymentTemplatesPage() {
   const siteName = (id: string) => sites.find((item) => item.id === id)?.name ?? id
 
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <PageHeader
         title="Deployment templates"
         breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/images') }, { label: 'Templates' }]}

@@ -6,7 +6,7 @@ import { DurableOperationDetail } from './DurableOperationDetail'
 import { useOperation } from './useOperation'
 
 /** One Workflow: its Jobs and Tasks, their diagnostics, and its controls. */
-export function OperatorOperationDetailPage() {
+export function ConsoleOperationDetailPage() {
   const { id } = useParams<{ id: string }>()
   const state = useOperation(id)
 

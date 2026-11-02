@@ -41,7 +41,7 @@ import { ErrorState } from '@/presentation/components/ErrorState'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { InProgressSpinner } from '@/presentation/components/InProgressSpinner'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { InventorySurface, SelectionToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { InventorySurface, SelectionToolbar, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { Pagination } from '@/presentation/components/Pagination'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { ResourceTag } from '@/presentation/components/ResourceTag'
@@ -448,7 +448,7 @@ export function OSImageCatalogPage() {
     setBulk({ action, targets: eligible.map(toBulkTarget), skipped: skipped.map(toBulkTarget) })
   }
 
-  return <div className="operator-page sw-os-image-page">
+  return <div className="console-page sw-os-image-page">
     <PageHeader title="OS images" subtitle="Organize deployment images and see which Disk or RAM modes each image supports." breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/images') }, { label: 'OS images' }]} actions={<>
       <Button variant="outline" onClick={() => navigate(scopedHref('/infrastructure/integrations'))}>Manage integrations</Button>
       <Button variant="outline" loading={isRefreshing} onClick={reload}><RefreshCw size={16} />Refresh</Button>

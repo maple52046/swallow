@@ -3,13 +3,13 @@ import type { User, UserRole } from '@/domain/user/types'
 import * as authApi from './authApi'
 import { ApiRequestError } from './client'
 import { clearTokens, currentAccessToken, discardLegacyToken, onSessionEnded, refreshSession } from './session'
-import type { MeResponse } from './types'
+import type { CurrentUser } from './authApi'
 
-function mapRole(role: MeResponse['role']): UserRole {
+function mapRole(role: CurrentUser['role']): UserRole {
   return role === 'user' ? 'member' : role
 }
 
-function toUser(response: MeResponse): User {
+function toUser(response: CurrentUser): User {
   return { id: response.id, username: response.username, displayName: response.username, role: mapRole(response.role), status: 'active' }
 }
 

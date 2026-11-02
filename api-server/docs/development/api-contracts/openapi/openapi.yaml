@@ -11932,19 +11932,19 @@ components:
           type: boolean
         networkConfiguration:
           type: boolean
-        operatorState:
-          type: boolean
         power:
           type: boolean
         powerConfiguration:
           type: boolean
         releaseOptions:
           type: boolean
+        stateActions:
+          type: boolean
       required:
         - ephemeralDeploy
         - power
         - hardwareValidation
-        - operatorState
+        - stateActions
         - machineDetail
         - hardwareInventory
         - machineRemoval

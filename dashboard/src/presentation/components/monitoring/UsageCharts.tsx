@@ -11,7 +11,7 @@ import { TimeSeriesChart } from '@/presentation/components/charts/TimeSeriesChar
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { SectionSurface } from '@/presentation/components/OperatorPrimitives'
+import { SectionSurface } from '@/presentation/components/ConsolePrimitives'
 import { Alert } from '@/presentation/components/ui/alert'
 import type { MetricRangeState } from '@/presentation/hooks/useMetricRange'
 

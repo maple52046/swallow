@@ -196,7 +196,7 @@ Top-level export 與重要 internal boundary 的 JSDoc 必須能回答與該 sym
  */
 export function ServerStatusBadge({ status }: ServerStatusBadgeProps) {
   // Unknown is a real domain state (not-yet-probed), so it renders as a neutral
-  // badge rather than an error — operators must be able to tell it from offline.
+  // badge rather than an error — users must be able to tell it from offline.
   return <Badge color={statusColor(status)}>{statusLabel(status)}</Badge>
 }
 ```

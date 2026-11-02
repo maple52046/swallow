@@ -16,7 +16,7 @@ import {
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
-import { KeyValueGrid, SectionHeader, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { KeyValueGrid, SectionHeader, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -216,7 +216,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
   }
 
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <PageHeader
         title={workflowDisplayIntent(operation)}
         breadcrumbs={[{ label: 'Workflows', href: scopedHref('/workflows') }, { label: operation.id }]}

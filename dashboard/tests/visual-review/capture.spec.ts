@@ -119,7 +119,7 @@ test.describe('dashboard visual review', () => {
       await installApiFixtures(page, {
         signedIn: visualCase.authenticated,
         ...(visualCase.name === 'servers'
-          ? { ephemeralServerIds: ['srv-1'], lockedServerIds: ['srv-1'] }
+          ? { ephemeralServerIds: ['srv-1'], lockedServerIds: ['srv-1'], serverSync: { 'srv-2': 'drifted', 'srv-3': 'requires_attention' } }
           : {}),
         ...(visualCase.name === 'server-activity' ? { serverActivityItemCount: 12 } : {}),
         // Alertmanager is optional: a Site without one is a quiet card state, a failing one warns.

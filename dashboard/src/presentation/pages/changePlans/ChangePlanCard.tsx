@@ -1,7 +1,7 @@
 import { Badge, Box, Button, HStack, Link as ChakraLink, List, Stack, Table, Text } from '@chakra-ui/react'
 import { Link as RouterLink } from 'react-router-dom'
 import { changePlanApprovalBlocker, isChangePlanUnfinished, type ChangePlan } from '@/domain/convergence/changePlan'
-import { StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { formatDateTime } from '@/shared/utils/time'

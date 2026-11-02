@@ -51,7 +51,7 @@ coding style。
 .
 ├── api-server/     # Go backend (component)
 ├── dashboard/      # TypeScript frontend (component)
-├── cli/            # Go operator CLI (component)
+├── cli/            # Go CLI (component)
 ├── deploy/         # dev/testing/production、release 與 third-party installation assets
 ├── docs/           # swallow 共通約束文件（shared model）
 ├── skills/         # 任務導向操作指南
@@ -66,7 +66,7 @@ flowchart LR
     subgraph repo [swallow monorepo]
         apiServer["api-server/ (Go backend)"]
         dashboard["dashboard/ (TS frontend)"]
-        cli["cli/ (Go operator CLI)"]
+        cli["cli/ (Go CLI)"]
         docs["docs/ (shared model)"]
         deploy["deploy/ (orchestration)"]
     end

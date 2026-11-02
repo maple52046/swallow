@@ -365,7 +365,7 @@ func (p *Provider) Capabilities() provisioningdomain.ProviderCapabilities {
 		NetworkConfiguration: true,
 		Power:                true,
 		HardwareValidation:   true,
-		OperatorState:        true,
+		StateActions:         true,
 		MachineDetail:        true,
 		HardwareInventory:    true,
 		MachineRemoval:       true,

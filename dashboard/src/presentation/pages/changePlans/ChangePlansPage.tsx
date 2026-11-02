@@ -7,7 +7,7 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { SectionSurface } from '@/presentation/components/OperatorPrimitives'
+import { SectionSurface } from '@/presentation/components/ConsolePrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { ChangePlanCard } from './ChangePlanCard'
@@ -86,7 +86,7 @@ export function ChangePlansPage() {
   }
 
   return (
-    <div className="operator-page">
+    <div className="console-page">
       <PageHeader
         title="Change Plans"
         subtitle="Destructive changes wait here until an admin approves them as a whole."

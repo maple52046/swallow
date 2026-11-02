@@ -25,9 +25,9 @@ import { refreshServerProjections } from '@/application/usecases/servers/refresh
 import { INSPECT_HARDWARE_WORKFLOW_KIND } from '@/domain/operation/types'
 import type { Integration, Site } from '@/domain/site/types'
 import type { ReleaseServerInput, Server } from '@/domain/server/types'
-import { serverDisplayName, serverPrimaryAddress } from '@/domain/server/list'
+import { serverDisplayName, serverPrimaryAddress } from '@/domain/server/types'
 import { PageHeader } from '@/presentation/components/PageHeader'
-import { InventorySurface, SelectionToolbar, StickyTableFrame } from '@/presentation/components/OperatorPrimitives'
+import { InventorySurface, SelectionToolbar, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { ResourceTag } from '@/presentation/components/ResourceTag'
 import { LoadingState } from '@/presentation/components/LoadingState'
@@ -45,6 +45,7 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Select } from '@/presentation/components/ui/select'
 import { DebouncedSearchInput } from '@/presentation/components/ui/debounced-search-input'
+import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
@@ -72,6 +73,7 @@ import {
   compareServerInventory,
   hasServerInventoryFilters,
   isServerChanging,
+  isServerOutOfSync,
   matchesServerInventoryQuery,
   normalizeServerInventoryParams,
   parseServerInventoryQuery,
@@ -90,6 +92,7 @@ import {
   type ServerInventoryQuery,
   type ServerInventorySort,
   type ServerView,
+  serverSync,
 } from './serverListPresentation'
 
 /** Table density is a local readability preference, not shareable fleet state. */
@@ -257,6 +260,7 @@ function activeAdvancedFilterCount(query: ServerInventoryQuery): number {
     query.pools.length > 0,
     query.tags.length > 0,
     query.lock !== 'any',
+    query.sync !== 'any',
     query.includeAbsent,
   ].filter(Boolean).length
 }
@@ -768,7 +772,7 @@ export function ServersPage() {
 
   if (state.status === 'error') {
     return (
-      <div className="operator-page sw-servers-page">
+      <div className="console-page sw-servers-page">
         <PageHeader title="Servers" subtitle="Discover hardware inventory and operate Server lifecycle across the datacenter." />
         <ErrorState message={state.message} requestId={state.requestId} onRetry={reload} />
       </div>
@@ -776,7 +780,7 @@ export function ServersPage() {
   }
 
   return (
-    <div className="operator-page sw-servers-page">
+    <div className="console-page sw-servers-page">
       <PageHeader
         title="Servers"
         subtitle="Discover GPU and hardware inventory, then operate provisioning and runtime signals from one fleet control plane."
@@ -1279,6 +1283,17 @@ function ServerFilterPanel({
             { value: 'unlocked', label: 'Unlocked' },
           ]} />
         </fieldset>
+        <fieldset className="sw-filter-group">
+          <legend>Provisioner sync</legend>
+          <Select value={query.sync} aria-label="Filter provisioner sync" size="sm" onChange={(value) => onSingle('sync', value)} options={[
+            { value: 'any', label: 'Any sync state' },
+            { value: 'out-of-sync', label: 'Out of sync' },
+            { value: 'attention', label: 'Needs attention' },
+            { value: 'drifted', label: 'Drift detected' },
+            { value: 'applying', label: 'Applying' },
+            { value: 'held', label: 'Held' },
+          ]} />
+        </fieldset>
       </div>
       <Checkbox id="include-absent" checked={query.includeAbsent} onCheckedChange={onIncludeAbsent}>Include absent projections</Checkbox>
       <FilterOptions title="GPU vendor" param="gpuVendor" values={options.gpuVendor} selected={query.gpuVendors} onChange={onMulti} />
@@ -1441,8 +1456,33 @@ function ServerIdentity({
           <TagSummary server={server} onEdit={onEditTags} />
         </div>
         {server.status.absent && <Badge colorPalette="gray" variant="subtle">Absent</Badge>}
+        <ServerSyncBadge server={server} />
       </div>
     </div>
+  )
+}
+
+/**
+ * The Server's provisioner sync state, shown only when the provisioner does not match yet, so an
+ * in-sync fleet stays quiet. The label carries the state; the tooltip adds swallow's explanation,
+ * which the detail page's Provisioner sync row also shows as text.
+ */
+function ServerSyncBadge({ server }: { server: Server }) {
+  const sync = serverSync(server)
+  if (!isServerOutOfSync(sync)) return null
+  if (!sync.detail) {
+    return (
+      <span className="sw-server-sync" data-testid="server-sync-badge">
+        <StatusBadge status={sync.badgeStatus} label={sync.label} />
+      </span>
+    )
+  }
+  return (
+    <Tooltip content={sync.detail}>
+      <span className="sw-server-sync" data-testid="server-sync-badge" tabIndex={0}>
+        <StatusBadge status={sync.badgeStatus} label={sync.label} />
+      </span>
+    </Tooltip>
   )
 }
 

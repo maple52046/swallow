@@ -1,9 +1,9 @@
 import { Box, Drawer, Flex, Link as ChakraLink, Portal } from '@chakra-ui/react'
 import type { ReactNode } from 'react'
-import { OperatorHeader } from './OperatorHeader'
-import { OperatorSideNav } from './OperatorSideNav'
+import { ConsoleHeader } from './ConsoleHeader'
+import { ConsoleSideNav } from './ConsoleSideNav'
 
-interface OperatorShellProps {
+interface ConsoleShellProps {
   children: ReactNode
   collapsed: boolean
   mobileNavOpen: boolean
@@ -50,19 +50,19 @@ function SkipToContent() {
  * uses Chakra's focus-trapped Drawer, which owns escape dismissal and focus
  * restoration. The routed main region remains full-width for dense inventory.
  */
-export function OperatorShell({
+export function ConsoleShell({
   children,
   collapsed,
   mobileNavOpen,
   onCloseMobileNav,
   onOpenMobileNav,
   onToggleSidebar,
-}: OperatorShellProps) {
+}: ConsoleShellProps) {
   // The portalled selection dock lives outside this subtree, so CSS reads this
   // rail state to center the dock in the workspace instead of the full viewport.
   return (
     <Flex
-      className="sw-operator-shell"
+      className="sw-console-shell"
       data-navigation-collapsed={collapsed}
       minH="100dvh"
       bg="transparent"
@@ -83,11 +83,11 @@ export function OperatorShell({
         bg="bg.panel"
         transition="width 0.18s ease"
       >
-        <OperatorSideNav collapsed={collapsed} />
+        <ConsoleSideNav collapsed={collapsed} />
       </Box>
 
       <Flex direction="column" flex="1" minW="0" minH="100dvh">
-        <OperatorHeader onToggleSidebar={onToggleSidebar} onOpenMobileNav={onOpenMobileNav} />
+        <ConsoleHeader onToggleSidebar={onToggleSidebar} onOpenMobileNav={onOpenMobileNav} />
         <Box
           as="main"
           id="swallow-main-content"
@@ -113,7 +113,7 @@ export function OperatorShell({
           <Drawer.Positioner>
             <Drawer.Content maxW="16rem" bg="bg.panel">
               <Drawer.Body p="0">
-                <OperatorSideNav collapsed={false} onNavigate={onCloseMobileNav} />
+                <ConsoleSideNav collapsed={false} onNavigate={onCloseMobileNav} />
               </Drawer.Body>
             </Drawer.Content>
           </Drawer.Positioner>

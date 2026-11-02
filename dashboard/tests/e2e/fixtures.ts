@@ -90,6 +90,26 @@ function realizedConditions(generation: number): Server['status']['conditions'] 
   ]
 }
 
+/** The conditions of a Server whose provisioner refused its spec or drifted from it at generation 1. */
+function serverSyncConditions(state: 'requires_attention' | 'drifted'): Server['status']['conditions'] {
+  const condition = (type: string, status: 'true' | 'false', reason: string, message = '') =>
+    ({ type, status, reason, message, lastTransitionTime: now, observedGeneration: 1 })
+  if (state === 'requires_attention') {
+    return [
+      condition('realized', 'false', 'failed', 'MAAS refused the tag change.'),
+      condition('drifted', 'false', 'in_sync'),
+      condition('requires_attention', 'true', 'provider_rejected', 'MAAS refused the tag change.'),
+      condition('held', 'false', 'not_held'),
+    ]
+  }
+  return [
+    condition('realized', 'true', 'converged'),
+    condition('drifted', 'true', 'tags_differ', 'MAAS tags differ from the swallow spec.'),
+    condition('requires_attention', 'false', 'none'),
+    condition('held', 'false', 'not_held'),
+  ]
+}
+
 const servers = Array.from({ length: 4 }, (_, index) => makeServer(index))
 const operations = [
   {
@@ -144,7 +164,7 @@ const operations = [
     id: 'op-deploy-failed', schemaVersion: 3, kind: 'deploy-kubernetes',
     intent: 'Deploy edge-staging k0s platform', intentSnapshot: {},
     definition: 'platform-deployment', definitionVersion: 1,
-    status: 'requires_attention', statusReason: 'A failed Step requires operator attention.',
+    status: 'requires_attention', statusReason: 'A failed Step requires user attention.',
     startState: 'started', temporal: { workflowId: 'swallow-operation/op-deploy-failed', runId: 'run-deploy-failed' },
     siteId: 'site-a', platformId: 'platform-b',
     targetResources: [{ kind: 'platform', id: 'platform-b' }, { kind: 'server', id: 'srv-4' }],
@@ -173,7 +193,7 @@ const operations = [
     leases: [], requestCorrelation: 'req-op-deploy-failed',
     execution: {
       runId: 'run-deploy-failed', playbook: '', status: 'requires_attention',
-      statusReason: 'A failed Step requires operator attention.',
+      statusReason: 'A failed Step requires user attention.',
       startedAt: '2026-08-27T00:30:00Z', finishedAt: null,
     },
     requestedBy: 'admin', requestedAt: '2026-08-27T00:29:00Z',
@@ -432,6 +452,8 @@ export interface FixtureOptions {
    * record alone, so no swallow Workflow is running for the Server (unlike `changingServerIds`).
    */
   providerWorkServerIds?: Record<string, 'releasing' | 'inspecting' | 'testing' | 'deploying'>
+  /** Replaces a Server's conditions: its provisioner refused the spec, or drifted from it. */
+  serverSync?: Record<string, 'requires_attention' | 'drifted'>
   /**
    * The swallow work behind a Releasing Server (pair with `providerWorkServerIds`): seeds one
    * `release-os` Workflow per listed Server with that status, finished after the seeded
@@ -1215,6 +1237,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     const server = fleet.find((item) => item.id === serverId)
     if (server) server.status.provisioning.stateSince = '2026-08-27T02:58:30Z'
   }
+  for (const [serverId, state] of Object.entries(options.serverSync ?? {})) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.status.conditions = serverSyncConditions(state)
+  }
   if (options.secondReadyServerIntegrationId && fleet[1]) {
     fleet[1].status.source.integrationId = options.secondReadyServerIntegrationId
     fleet[1].status.provisioning.integrationId = options.secondReadyServerIntegrationId
@@ -1542,7 +1568,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       id: `op-inspect-${serverId}`, schemaVersion: 3, kind: 'inspect-hardware',
       intent: `Inspect hardware of ${serverId}`, intentSnapshot: { serverId, origin: 'automatic' },
       definition: 'hardware-inspection', definitionVersion: 1,
-      status: 'requires_attention', statusReason: 'Job ensure-inspected requires operator attention.',
+      status: 'requires_attention', statusReason: 'Job ensure-inspected requires user attention.',
       startState: 'started', temporal: { workflowId: `swallow-operation/op-inspect-${serverId}`, runId: 'run-inspect' },
       siteId: 'site-a', platformId: null,
       targetResources: [{ kind: 'server', id: serverId }], targetServerIds: [serverId], retryOfOperationId: null,
@@ -1574,7 +1600,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       id: `op-power-${serverId}`, schemaVersion: 3, kind: 'inspect-hardware',
       intent: `Inspect hardware of ${serverId}`, intentSnapshot: { serverId, origin: 'automatic' },
       definition: 'hardware-inspection', definitionVersion: 1,
-      status: 'requires_attention', statusReason: 'Job ensure-inspected requires operator attention.',
+      status: 'requires_attention', statusReason: 'Job ensure-inspected requires user attention.',
       startState: 'started', temporal: { workflowId: `swallow-operation/op-power-${serverId}`, runId: 'run-power' },
       siteId: 'site-a', platformId: null,
       targetResources: target, targetServerIds: [serverId], retryOfOperationId: null,
@@ -2719,7 +2745,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         ...(releaseBody?.unbindStaticIPs ? { taskId: `task-${serverId}` } : {}),
       }, 202)
     }
-    if (/\/api\/v1\/servers\/[^/]+\/provisioner-detail$/.test(path)) return json(route, { capabilities: { ephemeralDeploy: true, power: true, hardwareValidation: true, operatorState: true, machineDetail: true, hardwareInventory: true, machineRemoval: true, releaseOptions: true, networkConfiguration: true, powerConfiguration: true }, sections: [{ title: 'System', fields: [{ label: 'System vendor', value: 'Supermicro' }, { label: 'Serial', value: 'SN0001' }] }, { title: 'BMC', fields: [{ label: 'Protocol', value: 'IPMI' }, { label: 'Address', value: '192.0.2.20' }, { label: 'Username', value: 'bmc-admin' }, { label: 'Password', value: 'bmc-secret' }, { label: 'Driver', value: 'LAN_2_0' }, { label: 'Boot type', value: 'efi' }, { label: 'Privilege level', value: 'OPERATOR' }, { label: 'Cipher suite', value: '17' }, { label: 'Power MAC', value: 'aa:bb:cc:dd:ee:ff' }] }], tables: [{ title: 'Storage', columns: ['Device', 'Size', 'Model'], rows: [['nvme0n1', '3.84 TB', 'PM1733']] }, { title: 'PCI devices', columns: ['Address', 'Device', 'Vendor'], rows: [['03:00.0', 'MI300X', 'AMD']] }] })
+    if (/\/api\/v1\/servers\/[^/]+\/provisioner-detail$/.test(path)) return json(route, { capabilities: { ephemeralDeploy: true, power: true, hardwareValidation: true, stateActions: true, machineDetail: true, hardwareInventory: true, machineRemoval: true, releaseOptions: true, networkConfiguration: true, powerConfiguration: true }, sections: [{ title: 'System', fields: [{ label: 'System vendor', value: 'Supermicro' }, { label: 'Serial', value: 'SN0001' }] }, { title: 'BMC', fields: [{ label: 'Protocol', value: 'IPMI' }, { label: 'Address', value: '192.0.2.20' }, { label: 'Username', value: 'bmc-admin' }, { label: 'Password', value: 'bmc-secret' }, { label: 'Driver', value: 'LAN_2_0' }, { label: 'Boot type', value: 'efi' }, { label: 'Privilege level', value: 'OPERATOR' }, { label: 'Cipher suite', value: '17' }, { label: 'Power MAC', value: 'aa:bb:cc:dd:ee:ff' }] }], tables: [{ title: 'Storage', columns: ['Device', 'Size', 'Model'], rows: [['nvme0n1', '3.84 TB', 'PM1733']] }, { title: 'PCI devices', columns: ['Address', 'Device', 'Vendor'], rows: [['03:00.0', 'MI300X', 'AMD']] }] })
     // Power Configuration (server-detail-actions.md "Power Configuration"): the real API writes it
     // through to the provisioner; the fixture keeps one per Server for the page.
     const powerConfigurationMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/power-configuration$/)
@@ -3375,7 +3401,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         return json(route, { error: { code: 'conflict', message: options.cancelRefusedMessage, requestId: 'req-cancel-refused' } }, 409)
       }
       const cancelStatus = options.cancelMarksTerminal ? 'canceled' : 'canceling'
-      const cancelReason = options.cancelMarksTerminal ? 'Canceled by operator.' : 'Canceling active work.'
+      const cancelReason = options.cancelMarksTerminal ? 'Canceled by user.' : 'Canceling active work.'
       operation.status = cancelStatus
       operation.statusReason = cancelReason
       if (options.cancelMarksTerminal) operation.finishedAt = now

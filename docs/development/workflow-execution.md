@@ -235,7 +235,7 @@ decision 072。
 ### 現行行為
 
 - **進入**：有可重試的失敗而沒有其他可執行的 Task 時，Workflow 投影為 `requires_attention`（reason
-  `A failed Step requires operator attention.`），driver 等待 wake signal。
+  `A failed Step requires user attention.`），driver 等待 wake signal。
 - **持有所有權、不做 mutation**：停等期間 Workflow 仍擁有全部資源，但不執行任何 Task。所有權沒有 TTL，所以停等
   不需要續租，也不累積 history。
 - **離開**：user 的 Task 重試或取消；兩者都是 store 中的命令，由 dispatcher 送達（§10）。
@@ -323,7 +323,7 @@ decision 072。
        歸還借用的 Server（見 [os-provisioning.md](os-provisioning.md)）；結果不寫回 Task。
      - 其他 Task（包括 `ansible-playbook`）不宣告取消補償：已在外部做的改變留在原處。
   3. 一個 transaction：所有未結束的 Task（含 `running` 與 `requires_attention`）寫成 `canceled` 並觸發它們宣告的
-     投影，Workflow 寫成 `canceled`（reason 為命令的原因，預設 `Canceled by operator.`），釋放所有權。
+     投影，Workflow 寫成 `canceled`（reason 為命令的原因，預設 `Canceled by user.`），釋放所有權。
 - **已有結果的 Task 保留結果**；取消不回退已完成的成果（§8.2）。
 
 ### 8.2 已完成的結果不被改寫（投影單調性）
