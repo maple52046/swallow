@@ -153,9 +153,6 @@ func TestUninstallUsesDeploymentTargetSnapshot(t *testing.T) {
 		got[0] != "server-1" || got[1] != "server-2" {
 		t.Fatalf("targets = %v, want deployment snapshot", got)
 	}
-	if !launcher.launch.RestoreExporters {
-		t.Error("k8s exporter owner must request independent host exporter restoration")
-	}
 	if launcher.launch.RetryOfOperationID != "" {
 		t.Errorf("unexpected retry lineage %q", launcher.launch.RetryOfOperationID)
 	}
@@ -177,7 +174,7 @@ func TestUninstallForwardsDeleteRecord(t *testing.T) {
 	}
 }
 
-func TestUninstallReleaseServersForwardsOptionsAndSkipsExporterRestore(t *testing.T) {
+func TestUninstallReleaseServersForwardsOptions(t *testing.T) {
 	service, launcher, _, _ := newUninstallHarness(platformdomain.PlatformLifecycleActive)
 
 	_, err := service.Uninstall(context.Background(), UninstallPlatformInput{
@@ -200,11 +197,6 @@ func TestUninstallReleaseServersForwardsOptionsAndSkipsExporterRestore(t *testin
 		launcher.launch.ReleaseOptions.SecureErase != true ||
 		launcher.launch.ReleaseOptions.UnbindStaticIPs != true {
 		t.Errorf("release options not forwarded: %+v", launcher.launch.ReleaseOptions)
-	}
-	// The k8s exporter owner would normally request exporter restoration, but releasing
-	// wipes the hosts, so restoration must be turned off.
-	if launcher.launch.RestoreExporters {
-		t.Error("releasing servers must disable host exporter restoration")
 	}
 }
 

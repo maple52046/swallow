@@ -22,8 +22,8 @@
   exporters. The policy is read when swallow composes the Node Exporter: a Platform
   deployment installs it on the Servers it provisions unless the policy is `k8s`, a
   standalone Node Exporter install is refused on a Server whose effective owner is not
-  `ansible`, and a kept-servers uninstall of a `k8s` platform installs it on the kept
-  Servers.
+  `ansible`, and a kept-servers uninstall installs it on the kept Servers whatever the
+  policy, since the policy ends with the Platform.
 - Disallowed meaning: Not a scrape or health status — ownership says who installs the
   exporter, not whether it is currently up. `unmanaged` does not mean "no exporter"; it
   means swallow will neither install nor remove one. Do not treat a locked machine as

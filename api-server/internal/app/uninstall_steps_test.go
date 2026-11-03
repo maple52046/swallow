@@ -88,11 +88,10 @@ func TestUninstallStepsReleaseSkipsUninstall(t *testing.T) {
 // deploy), with no release or finalize steps.
 func TestUninstallStepsKeepServersUsesAnsibleStep(t *testing.T) {
 	launch := platformdomain.UninstallLaunch{
-		Platform:         &platformdomain.Platform{ID: "platform-a", Name: "lab", Type: platformdomain.PlatformTypeKubernetes},
-		TargetServerIDs:  []string{"srv-1"},
-		ReleaseServers:   false,
-		DeleteRecord:     true,
-		RestoreExporters: true,
+		Platform:        &platformdomain.Platform{ID: "platform-a", Name: "lab", Type: platformdomain.PlatformTypeKubernetes},
+		TargetServerIDs: []string{"srv-1"},
+		ReleaseServers:  false,
+		DeleteRecord:    true,
 	}
 	prepared := &workflowapp.PreparedAnsibleStep{
 		SiteID: "site-a", Playbook: "uninstall-kubernetes", Targets: []workflowdomain.ResourceReference{{Kind: "server", ID: "srv-1"}},

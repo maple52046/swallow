@@ -31,7 +31,7 @@ A Platform is a desired-state resource, and uninstalling it is a destructive cha
   rerun. A Platform whose install was never approved touched no machine and is deleted at once.
 - **Delete only the record** (`recordOnly`) removes the record and swallow's own projections:
   membership, the Platform Claims, and a credential Integration proven to be swallow-owned. It never
-  runs automation, changes hosts, waits for an uninstall, or restores exporters, and it stays
+  runs automation, changes hosts, waits for an uninstall, or installs the Node Exporter, and it stays
   available while targets are locked. It first cancels the Platform's unfinished Workflows so they
   release its Servers, and is refused when that cancellation cannot be recorded.
 - **Uninstall targets come from deployment provenance**: the complete target snapshot of the latest
@@ -41,16 +41,17 @@ A Platform is a desired-state resource, and uninstalling it is a destructive cha
   supersedes blocking work)).
 - **An uninstall that also releases the Servers releases them directly**: one release per member in
   parallel, then an internal finalize Task that performs the cleanup a successful uninstall performs
-  on kept hosts. The platform-software uninstall is skipped and exporters are not restored. This
+  on kept hosts. The platform-software uninstall is skipped and no Node Exporter is installed. This
   applies only to a whole-Platform uninstall; a future scale-in must remove the node from the runtime
   before releasing it. It is the only way a Platform's claimed Servers are released
   ([decision 067](067-platform-claim-on-server.md) (Platform Claim on Server)).
 - **Only proven swallow-owned Integrations are deleted.** New deployments record the Integration they
   own; a legacy one is deleted only when deployment provenance and the complete auto-generated
   Integration signature both match.
-- **Exporter restoration is its own Job.** When the hosts are kept and Kubernetes owned the exporters,
-  the uninstall Workflow installs the Node Exporter on the kept Servers in a Job after the
-  platform-software uninstall. The cleanup is done when that uninstall succeeds, so the Job's failure
+- **The Node Exporter outlives the Platform.** An uninstall never removes it. When the hosts are
+  kept, the uninstall Workflow installs it on the kept Servers in a Job after the platform-software
+  uninstall, whatever the Platform's Exporter Ownership, so every kept Server ends with one; the
+  install is idempotent, so a Server that has it is unchanged. The cleanup is done when that uninstall succeeds, so the Job's failure
   does not change the uninstall.
 - **Lifecycle is a backend read model.** The API derives `origin`, `lifecycleState`, and
   `lifecycleOperationId` from the durable deployment and uninstall Workflows; clients do not infer
@@ -96,3 +97,4 @@ A Platform is a desired-state resource, and uninstalling it is a destructive cha
 - 2026-11-01: decision 076 made Platform removal a spec change: deleting a Platform marks it absent and its approved Change Plan runs the uninstall, and record-only removal became the `recordOnly` option.
 - 2026-11-02: merged decision 010 into this ADR; the body states the current decision.
 - 2026-11-03: exporter restoration became a Node Exporter Job in the uninstall Workflow instead of a separate exporter Workflow queued after it.
+- 2026-11-03: every kept-hosts uninstall installs the Node Exporter on the kept Servers, not only one whose exporters Kubernetes owned; the uninstall never removes it.

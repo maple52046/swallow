@@ -340,7 +340,7 @@ Uninstall 與 deploy 一樣把 Task 以 `Task.Job` 分組，因此 API 的 `step
 | 情境 | Job | Task | Runner |
 | --- | --- | --- | --- |
 | 保留主機 | `uninstall-platform` | `uninstall-platform`（跑 `uninstall-<type>` playbook） | `ansible` |
-| 保留主機且 `exporterOwner=k8s` | `configure-node-exporter` | 每台可安裝的 target 一組 `install-node-exporter-<serverId>`（`DependsOn` `uninstall-platform`）與 `record-node-exporter-<serverId>`（§2.5） | `ansible`、`internal` |
+| 保留主機 | `configure-node-exporter` | 每台可安裝的 target 一組 `install-node-exporter-<serverId>`（`DependsOn` `uninstall-platform`）與 `record-node-exporter-<serverId>`（§2.5） | `ansible`、`internal` |
 | Release 主機 | `release-servers` | 每台 `release-<serverId>`（Job 內並行） | `provisioner` |
 | Release 主機 | `finalize-uninstall` | `complete-uninstall`（`DependsOn` 全部 `release-*`） | `internal` |
 
@@ -375,9 +375,9 @@ platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-co
   冪等），期間 Platform 維持 `uninstall_failed`。Platform 紀錄與 Workflow 歷史保留，供診斷與重試。
 - **成功後的清理**（`CompleteUninstall`）：清 membership、釋放 Platform Claim（§2.6）、只刪證明為 swallow 擁有的 credential
   Integration（新部署會記錄自己擁有的 Integration id；legacy 紀錄要 deploy provenance 與完整的自動產生 Integration 簽章
-  都相符才刪），並清 integration／sync 投影。Kubernetes 擁有 exporter（`exporterOwner=k8s`）且保留主機時，同一個
+  都相符才刪），並清 integration／sync 投影。uninstall 不移除 Node Exporter；保留主機時，不論 `exporterOwner`，同一個
   uninstall Workflow 在 `uninstall-platform` 之後另有 `configure-node-exporter` Job（§2.4），為受理時 present、deployed、
-  unlocked 的 target 安裝 Node Exporter；清理在 `uninstall-platform` 成功時就已完成，這個 Job 失敗不回滾 uninstall。
+  unlocked 的 target 安裝 Node Exporter（已有的不變，Kubernetes 擁有 exporter 的補上）；清理在 `uninstall-platform` 成功時就已完成，這個 Job 失敗不回滾 uninstall。
 - **Delete**（`DELETE /platforms/{id}`）把 spec 標為 absent（帶 release 等選擇），uninstall 經 Change Plan 核准後由
   platform controller 啟動；uninstall 成功時在清理的最後刪除紀錄，刪除的紀錄與投影與只刪紀錄相同，但不取消 Workflow，
   因為正在完成的 uninstall 就是持有 target 的 Workflow。失敗或取消時保留紀錄（`uninstall_failed`）。

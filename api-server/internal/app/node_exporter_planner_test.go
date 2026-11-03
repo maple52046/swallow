@@ -117,3 +117,34 @@ func TestBuildEnsureOSExistingOSComposesNoNodeExporter(t *testing.T) {
 		t.Errorf("ensure-os Tasks = %v, exporters %+v; want only wait-for-ssh", got, plan.exporters)
 	}
 }
+
+// An uninstall that keeps its Servers installs the Node Exporter again on each deployed one after
+// the uninstall step, whatever the Platform's Exporter Ownership; one that releases them adds nothing.
+func TestUninstallNodeExporterFollowsTheUninstallOfKeptServers(t *testing.T) {
+	planner, _ := newNodeExporterTestPlanner(t, map[string]bool{"s1": true})
+	launcher := platformDeploymentLauncher{servers: ntpTestServers{deployed: map[string]bool{"s1": true}}, nodeExporter: planner}
+	for _, owner := range []platformdomain.ExporterOwner{platformdomain.ExporterOwnerAnsible, platformdomain.ExporterOwnerK8s} {
+		launch := platformdomain.UninstallLaunch{
+			Platform:        &platformdomain.Platform{ID: "p1", ExporterOwner: owner},
+			TargetServerIDs: []string{"s1", "s2"},
+		}
+		planned, err := launcher.uninstallNodeExporter(context.Background(), "op-1", launch)
+		if err != nil {
+			t.Fatalf("%s: uninstallNodeExporter() error = %v", owner, err)
+		}
+		if got := taskIDs(planned.tasks); !reflect.DeepEqual(got, []string{"install-node-exporter-s1", "record-node-exporter-s1"}) {
+			t.Fatalf("%s: uninstallNodeExporter() = %v, want the deployed Server only", owner, got)
+		}
+		if install := planned.tasks[0]; install.Job != softwareConfigureJob(nodeexporter.Kind) ||
+			!reflect.DeepEqual(install.DependsOn, []string{uninstallPlatformStepID}) {
+			t.Errorf("%s: install Task = %+v, want its own Job after the uninstall step", owner, install)
+		}
+	}
+
+	released, err := launcher.uninstallNodeExporter(context.Background(), "op-1", platformdomain.UninstallLaunch{
+		Platform: &platformdomain.Platform{ID: "p1"}, TargetServerIDs: []string{"s1"}, ReleaseServers: true,
+	})
+	if err != nil || len(released.tasks) != 0 {
+		t.Errorf("releasing uninstallNodeExporter() = %+v, %v; want nothing", released, err)
+	}
+}

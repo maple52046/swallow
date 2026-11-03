@@ -124,12 +124,8 @@ func (s *UninstallService) Uninstall(
 		return nil, err
 	}
 
-	// Releasing a host wipes it, so exporter restoration is meaningless there; the two are
-	// mutually exclusive. Only restore exporters when the hosts are kept.
-	restoreExporters := platform.ExporterOwner == platformdomain.ExporterOwnerK8s && !input.ReleaseServers
 	operationID, err := s.launcher.LaunchUninstall(ctx, platformdomain.UninstallLaunch{
 		Platform: platform, TargetServerIDs: targetIDs,
-		RestoreExporters:   restoreExporters,
 		ReleaseServers:     input.ReleaseServers,
 		ReleaseOptions:     input.ReleaseOptions,
 		RetryOfOperationID: retryOf, RequestedBy: input.RequestedBy,

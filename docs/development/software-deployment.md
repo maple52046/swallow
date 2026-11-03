@@ -382,8 +382,8 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
   `software-assignment-failure` 標 `failed`。這兩個 Task 是葉節點，沒有 Task 依賴它們，因此 exporter 失敗不會擋住
   OS，但 Workflow 會停在 `requires_attention` 直到 user 重試。Platform 部署的 `ensure-os` 對它 provision 的 Server
   做同樣的事（獨立的 `configure-node-exporter` Job，`install-platform` 不等它），Platform 的 `exporterOwner` 為
-  `k8s` 時不組入；保留主機且 `exporterOwner` 為 `k8s` 的 Platform uninstall 在 `uninstall-platform` 之後為保留的
-  Server 組入同一個 Job（[platform-deployment.md](platform-deployment.md) §2.1、§2.4）。組入的安裝不檢查
+  `k8s` 時不組入。Platform uninstall 不移除 Node Exporter；保留主機的 uninstall 不論 `exporterOwner`，都在
+  `uninstall-platform` 之後為保留的 Server 組入同一個 Job，確保它們最後都有 Node Exporter（[platform-deployment.md](platform-deployment.md) §2.1、§2.4）。組入的安裝不檢查
   Exporter Ownership；`ensure-os` 重用或已有 OS 的 Server 不重新安裝。
 - **禁止** `ExecuteChildWorkflow` 一個完整的獨立 software Workflow（會重複 `wait-for-ssh`、搶同一
   Server 的資源所有權、retry/cancel 歸屬混亂、出現兩個 user-visible Workflow）。

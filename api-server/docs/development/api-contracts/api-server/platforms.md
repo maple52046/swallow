@@ -1124,11 +1124,12 @@ OCI probe bundle, and the MPI probe (the `crun` and OpenMPI packages stay), and 
 
 On success swallow clears membership, releases the Platform's Platform Claims on its Servers,
 deletes only a credential Integration proven to be swallow-owned, and clears the Platform
-integration/sync projection. If Kubernetes owned the exporters (`exporterOwner` is `k8s`) and
-the servers are kept, the uninstall Workflow also has a `configure-node-exporter` Job after
+integration/sync projection. The uninstall does not remove the Node Exporter. When the servers
+are kept, the uninstall Workflow also has a `configure-node-exporter` Job after
 `uninstall-platform` that installs the Node Exporter as Managed Software
 ([software.md](software.md#node-exporter)) on the targets that were present, deployed, and
-unlocked when the uninstall was accepted. The cleanup is done once `uninstall-platform`
+unlocked when the uninstall was accepted, whatever the `exporterOwner`: a target that has it keeps
+it unchanged, and one whose exporters Kubernetes owned gets it. The cleanup is done once `uninstall-platform`
 succeeds, so a failure of that Job does not roll back the uninstall.
 
 The record is removed as the last part of the success cleanup, with the same projections as a
@@ -1259,6 +1260,8 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-03 every kept-servers uninstall installs the Node Exporter on the kept Servers, not
+  only that of a `k8s`-owned Platform. The request and response shapes are unchanged.
 - Since 2026-11-03 a `provision_os` deploy installs the Node Exporter on the Servers it provisions
   (a `configure-node-exporter` Job) unless `exporterOwner` is `k8s`, and a kept-servers uninstall
   of a `k8s` Platform installs it in the same Workflow instead of queueing a separate

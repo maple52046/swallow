@@ -90,12 +90,9 @@ type ServerReleaseOptions struct {
 //
 // When ReleaseServers is true the operation additionally releases every target server
 // back to the provider after k0s removal; ReleaseOptions then applies to each release.
-// RestoreExporters and ReleaseServers are mutually exclusive: a released host is wiped, so
-// there is nothing to restore exporters onto.
 type UninstallLaunch struct {
 	Platform           *Platform
 	TargetServerIDs    []string
-	RestoreExporters   bool
 	ReleaseServers     bool
 	ReleaseOptions     ServerReleaseOptions
 	RetryOfOperationID string

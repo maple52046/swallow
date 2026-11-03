@@ -511,8 +511,8 @@ composes:
 
 OS deployments compose `node-exporter` the same way onto every Server they provision (see
 [provisioning](provisioning.md#durable-os-workflows)), and so does a Platform deployment's
-`ensure-os` unless the Platform's `exporterOwner` is `k8s`; a kept-servers uninstall of a `k8s`
-Platform composes it onto the kept Servers (see [platforms](platforms.md)).
+`ensure-os` unless the Platform's `exporterOwner` is `k8s`; a kept-servers uninstall composes it
+onto the kept Servers whatever the `exporterOwner` (see [platforms](platforms.md)).
 
 A composed runtime skips a Server where it is already `installed`, so a user's own runtime
 spec is never reverted. Composition adds no endpoint. A Slurm Platform's uninstall removes the
