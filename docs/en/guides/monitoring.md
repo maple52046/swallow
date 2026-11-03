@@ -16,12 +16,14 @@ Grafana is optional: connect one when you want exploration beyond the basic char
 
 ## From a deployed Server to a chart
 
-1. **Run a Prometheus for the Site.** Use the per-Site template in
-   [`deploy/third-party/prometheus`](../../../deploy/third-party/prometheus/README.md).
-   It discovers targets from swallow, so you never list hosts by hand.
-2. **Register it as the Site's metrics Integration** (below). Until a metrics
-   Integration exists, the charts say that no metrics backend is configured —
-   they do not report your Servers as down.
+1. **The Site's Prometheus.** The [production installation](../installation.md) runs one
+   Prometheus for its Site and registers it as that Site's metrics Integration
+   (`site-prometheus`). It discovers the Site's exporters from swallow, so you never list
+   hosts by hand, and it is not published on the host: swallow reads it for you. A Site has
+   at most one metrics Integration.
+2. **Other Sites.** In this version only the installation's Site has a Prometheus. The
+   charts of any other Site say that no metrics backend is configured — they do not
+   report its Servers as down.
 3. **Deploy Servers as usual.** Every OS deployment installs the Node Exporter on the
    Servers it deploys (see [Exporters](#exporters)); a few minutes later the Server's
    **Monitoring** tab shows its usage history. A Server swallow did not deploy (for
@@ -30,10 +32,11 @@ Grafana is optional: connect one when you want exploration beyond the basic char
 
 ## Configure the integration
 
-Register a Site-scoped Prometheus-compatible metrics Integration. Optionally set the
+The installation's Site already has its metrics Integration. Optionally set the
 Alertmanager endpoint (for alerts and silences) and a Grafana URL (for the optional
-"Explore in Grafana" links). The Integration sync state reports upstream reachability
-and staleness.
+"Explore in Grafana" links) on it; rerunning the installation keeps them and only
+points the endpoint back at the Site's Prometheus. The Integration sync state reports
+upstream reachability and staleness.
 
 Without an Alertmanager, Overview's Alerts card reads "Not configured"; that is a normal
 state, not a failure. Overview warns "Alerts unavailable" only when a configured
@@ -41,15 +44,17 @@ Alertmanager cannot be read.
 
 ## Service discovery and labels
 
-Prometheus consumes:
+The Site's Prometheus consumes:
 
 ```text
-GET /api/v1/discovery/prometheus
+GET /api/v1/discovery/prometheus/exporters?siteId=<site>
 ```
 
-Use the configured machine bearer token for machine-to-machine access. Targets
-carry stable `server_id`, `site`, and canonical Platform labels. Do not
-replace these with hostname or address joins.
+It lists only the exporters swallow knows are installed in that Site, so a Server
+without an exporter is never a down target. Use the configured machine bearer token for
+machine-to-machine access. Targets carry stable `server_id`, `site`, `platform_id`
+(when the Server belongs to a Platform), and `exporter` labels. Do not replace these
+with hostname or address joins.
 
 ## Exporters
 
@@ -59,7 +64,7 @@ installed its exporters:
 | Exporter | Port | Installed on |
 | --- | --- | --- |
 | node-exporter | 9100 | every Server swallow deploys (CPU, memory, disk, network), from the OS package: `prometheus-node-exporter` on Debian and Ubuntu, `node_exporter` on the RHEL family (from EPEL) |
-| [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | swallow does not install it on hosts; Prometheus scrapes it on AMD GPU Servers (tag `amd-gpu`) that already run one |
+| [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | swallow neither installs it on hosts nor collects it: the Site's Prometheus collects only the exporters swallow installed |
 
 Exactly one owner installs each Server's exporters:
 

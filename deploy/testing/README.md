@@ -3,7 +3,7 @@
 [繁體中文](README.zh-TW.md) · [Installation choices](../../docs/en/installation.md)
 
 Testing never builds or bind-mounts source. Copy the exact image references (API,
-Dashboard, MongoDB, PostgreSQL, and Temporal Server) from a `release-manifest.json`
+Dashboard, MongoDB, PostgreSQL, Temporal Server, and Prometheus) from a `release-manifest.json`
 written by [`publish.sh`](../release/publish.sh) into `.env`, then run:
 
 ```bash
@@ -15,7 +15,9 @@ docker compose --env-file .env up -d
 The topology is the production Compose file with isolated secrets, served over plain HTTP
 on `SWALLOW_HTTP_PORT` (default 18080). PostgreSQL is published on loopback
 `SWALLOW_POSTGRES_HOST_PORT` (15432 in `.env.example`) so it never collides with a production
-installation on the same host. Testing does not install MAAS.
+installation on the same host. Testing does not install MAAS, and its Prometheus scrapes only
+swallow's own metrics: the exporter discovery job is rendered by `swallowctl` in a production
+installation.
 
 Set `COMPOSE_PROJECT_NAME` to run several isolated stacks on one host, and remove a stack with
 `docker compose down --volumes` when you are done.

@@ -39,6 +39,8 @@ decision 040、
 - Boot Media／Boot ISO、Server Enrollment 下載路由、MAAS rack virsh SSH identity 的用途；installation 只
   推導 `SWALLOW_BOOT_MEDIA_BASE_URL`、提供 Nginx 路由，並建立與記錄 virsh 公鑰。
 - MAAS 的 DHCP／PXE 設定：在 installation 之外，由 user 在 MAAS 設定。
+- 監控的設計（exporter 的安裝、label 契約、多租戶）：見 [monitoring.md](monitoring.md)；installation 只部署
+  installation Site 的 Prometheus 並把它登錄為該 Site 的 metrics Integration（§2.2、§2.5）。
 - 多主機拓樸、TLS、離線（air-gapped）安裝與 native（systemd）安裝：目前都不支援（§2.6、§4.5）。
 
 ---
@@ -63,11 +65,13 @@ decision 040、
 | `api-server` | `SWALLOW_API_IMAGE` | `control`、`egress` | 無（經 Dashboard 代理） |
 | `worker` | `SWALLOW_API_IMAGE`（command `worker`） | `control`、`egress` | 無 |
 | `ansible-executor` | `SWALLOW_API_IMAGE`（command `ansible-executor`） | `control`、`egress` | 無 |
+| `prometheus` | `SWALLOW_PROMETHEUS_IMAGE` | `control`、`egress` | 無（api-server 以 `http://prometheus:9090` 讀取） |
 | `dashboard` | `SWALLOW_DASHBOARD_IMAGE` | `edge`、`control` | `${SWALLOW_HTTP_PORT:-80}` → 容器 8080 |
 
 - `control` 是 `internal` network；MongoDB 與 Temporal 只在這裡。
-- `egress` 不是 internal；只有 API、worker、Ansible executor 加入，用來連共置的 MAAS（`SWALLOW_MAAS_URL`，
-  §5.4）與它們佈署、設定的 Server。三者另以 `extra_hosts` 把 `host.docker.internal` 對到 host gateway。
+- `egress` 不是 internal；只有 API、worker、Ansible executor 與 Prometheus 加入。前三者用來連共置的 MAAS
+  （`SWALLOW_MAAS_URL`，§5.4）與它們佈署、設定的 Server，並以 `extra_hosts` 把 `host.docker.internal` 對到
+  host gateway；Prometheus 用來收集 Server 上的 exporter。
 - `host-postgres` 只有 PostgreSQL 加入，用於發佈它的 loopback port。
 - Dashboard（Nginx）是唯一對外 listener，把 `/api/`、`/healthz`、`/livez`、`/readyz`、`/metrics`、
   `/boot-media/`、`/downloads/` 代理到 API（容器內 `:30051`，不發佈）。它以 Docker 內建 DNS（`127.0.0.11`）每
@@ -76,6 +80,21 @@ decision 040、
   Docker 的 init 擔任 PID 1，轉送 signal 並回收 `ansible-runner` 留下的 ssh-agent，否則每次 run 都會留下 zombie。
 - Temporal UI 是選用的 diagnostics service：只在 user 設定 `SWALLOW_TEMPORAL_UI_IMAGE` 後以 profile
   `diagnostics` 啟動，只聽 loopback。
+- `prometheus` 是 installation Site 的 Prometheus（[monitoring.md](monitoring.md) §5.1）：比照共置的 MAAS，隨
+  控制平面部署，由 bootstrap 登錄為該 Site 的 metrics Integration（§2.5），只收集這個 Site 的 exporter。它不發佈到
+  主機；api-server 經 `control` 以 `http://prometheus:9090` 讀取。
+  - 兩個 job 都以 machine token（secret `machine-token`）認證：`swallow-api` 收集 api-server 的 `/metrics`；
+    `swallow-exporters` 以 http_sd 從 `http://api-server:30051/api/v1/discovery/prometheus/exporters?siteId=<installation Site>`
+    取得 swallow 確知已安裝的 exporter，每 30 秒收集、每 60 秒重新取得 target。
+  - bundle 的 `prometheus.yml` 是固定的主設定：`swallow-api` job，並以 `scrape_config_files` 載入
+    `state/prometheus/*.yml`。Site id 要等 bootstrap 建立 Site 之後才有，所以 `swallow-exporters` job 由
+    `swallowctl` 在 `bootstrap.sh apply` 之後，以 `bootstrap.sh site-id` 讀到的 Site id 把 bundle 的
+    `prometheus-exporters.yml.template` 渲染成 `state/prometheus/swallow-exporters.yml`。內容不同時才以原子替換寫入；
+    Prometheus 在檔案寫入之後沒有成功載入過設定時（以 runtime info 的 `lastConfigTime` 與檔案的 mtime 比較）才重啟
+    它。內容相同且已載入時不動 Prometheus，所以 `install`、`upgrade`、`ensure` 重跑都是冪等的。在那之前目錄是空的，
+    Prometheus 只收集 swallow 自己。`state/` 不在 bundle 中，解壓新 release 不會覆蓋渲染結果。
+  - 保留期是 `SWALLOW_PROMETHEUS_RETENTION`（Prometheus duration，預設 `30d`），也是 swallow 能繪製的最長用量歷史。
+  - Metrics 存在 volume `prometheus-data`，可丟棄、**不在備份範圍內**（§3.6）。
 
 ### 2.3 共用的 PostgreSQL instance
 
@@ -134,15 +153,21 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
    （`providerKind` `maas`，endpoint 見 §5.4）。已存在時只替換 write-only credential（重新初始化的 MAAS
    會有新的 API key），不改 endpoint，也不重建 Integration 與其 Server 對應。
 4. 把 rack 的 virsh 公鑰記為 Integration 的 `settings.virshSshPublicKey`（與既有 settings 合併）。
-5. Site 沒有 [Automation Configuration](glossaries/terms/automation-configuration.md) 時才寫入預設：
+5. 把 installation 的 Prometheus（§2.2）登錄為該 Site 的 metrics Integration（`providerKind` `prometheus`，名稱
+   `site-prometheus`，endpoint `http://prometheus:9090`）。一個 Site 至多一個 metrics Integration（建立第二個是
+   `409 conflict`）：已存在時保留它的 id、名稱與 settings（Alertmanager、Grafana），只在 endpoint 不同時以
+   `PATCH` 改指到這個 Prometheus，從不建立第二個。
+6. Site 沒有 [Automation Configuration](glossaries/terms/automation-configuration.md) 時才寫入預設：
    啟用、`sshPort` 22、沒有 `playbookMappings`，`knownHosts` 為 `SWALLOW_SSH_KNOWN_HOSTS` 或一行註解
    （executor 每次執行時自行掃描 target 的 host key）；不寫 Site credential（automation 一律使用 Deployment
    Key）。已存在就不動，user 之後的修改每次重跑都保留。
-6. 確認 Deployment Key 存在，等 Integration sync 成功，以及 OS Image catalog 出現完整的 `ubuntu/noble`
+7. 確認 Deployment Key 存在，等 Integration sync 成功，以及 OS Image catalog 出現完整的 `ubuntu/noble`
    amd64（上限 `SWALLOW_BOOTSTRAP_TIMEOUT`，預設 900 秒）。
 
 - 不建立任何 SSH Access Key：由 user 自己上傳。
 - `bootstrap.sh verify` 是對應的唯讀檢查，供 `doctor` 使用（§3.4）。
+- `bootstrap.sh site-id` 只印出 installation Site 的 id，供 `swallowctl` 渲染 Prometheus 的 exporter discovery
+  （§2.2）；它不建立任何東西。
 - Ownership 不變（decision 069）：MAAS 仍是擁有
   machine 與 image 事實的 provisioner；共置只改變拓樸。
 
@@ -157,7 +182,9 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 - 一台主機、一個 Compose project、一個由 swallowctl 安裝的 MAAS。
 - MAAS 依賴 Compose 的 PostgreSQL：停止 stack 或 uninstall 會停止 MAAS，重建 PostgreSQL 的 upgrade 會短暫
   中斷它，backup／restore 包含 `maasdb`（§3.6）。
-- MongoDB 與 Temporal 不加入 `egress`；對外連線只來自 API、worker 與 Ansible executor。
+- MongoDB 與 Temporal 不加入 `egress`；對外連線只來自 API、worker、Ansible executor 與 Prometheus（收集
+  Server 上的 exporter）。
+- 一個 installation Site 一套 Prometheus，只收集這個 Site 的 exporter；它是該 Site 唯一的 metrics Integration。
 - 主機是 swallow 與其 provisioner 共同的單一 failure domain。
 - 安裝需要對外連線：GHCR 與 Docker Hub（image）、`images.maas.io`（`ubuntu/noble`）、snap store（MAAS），
   以及主機缺 Docker 時的 Docker apt repository。
@@ -179,10 +206,10 @@ decision 040。
 
 - **需要 root**：`install`、`upgrade`、`ensure`（production）、`backup`、`restore`、`uninstall`、
   `ntp upstream set|default`。它們安裝主機套件、管理 MAAS snap，而 `secrets/` 由 root 擁有。
-- **`.env` 是 installation 的宣告設定**。release manifest 提供 `SWALLOW_RELEASE_VERSION` 與五個 image
+- **`.env` 是 installation 的宣告設定**。release manifest 提供 `SWALLOW_RELEASE_VERSION` 與六個 image
   參照（`SWALLOW_API_IMAGE`、`SWALLOW_DASHBOARD_IMAGE`、`SWALLOW_MONGO_IMAGE`、`SWALLOW_POSTGRES_IMAGE`、
-  `SWALLOW_TEMPORAL_SERVER_IMAGE`）：從 manifest 寫入時一律覆寫，且優先於 shell 中殘留的同名值；其餘
-  user 設定保留。設定的持久化規則見 §5.3。
+  `SWALLOW_TEMPORAL_SERVER_IMAGE`、`SWALLOW_PROMETHEUS_IMAGE`）：從 manifest 寫入時一律覆寫，且優先於 shell
+  中殘留的同名值；其餘 user 設定保留。設定的持久化規則見 §5.3。
 - 腳本讀取 `.env` 的優先順序與 Compose 相同：shell environment 優先於 `.env`。
 - **Secrets 只補不換**：`prepare-secrets.sh` 只產生缺少的 secret（隨機值），從不替換既有的（例如替換
   credential key 會讓已封存的資料無法解開）。`secrets/` 必須是 mode 0700。
@@ -213,7 +240,9 @@ decision 040。
 8. 共置 MAAS：`local-maas.sh install` 與 `ensure-image`（§2.4）。
 9. 時間：`local-ntp.sh install` 與 `upstream`（§6.1、§6.2）。
 10. `bootstrap.sh apply`（§2.5）。
-11. `doctor`；通過才寫入 `state/installed`。
+11. Prometheus 的 exporter discovery：以 installation Site 的 id 渲染 `swallow-exporters` job，需要時重啟
+    Prometheus，等它載入這個 job（§2.2）。
+12. `doctor`；通過才寫入 `state/installed`。
 
 ### 3.3 `upgrade`
 
@@ -237,7 +266,8 @@ decision 040。
   `uninstall-exporters`，不需要這個確認）、
   `deployment-key ensure`、以新 image 啟動 stack、等 `/readyz`、更新 CLI。
 - 重新套用冪等步驟：`local-ntp.sh install` 與 `upstream`；有共置 MAAS 時另有
-  `local-maas.sh ensure-virsh-identity` 與 `bootstrap.sh apply`。
+  `local-maas.sh ensure-virsh-identity`、`bootstrap.sh apply` 與 Prometheus 的 exporter discovery（§3.2 第 11 步）。
+  Prometheus 之前的 installation 在這裡得到它的 metrics Integration 與 `swallow-exporters` job。
 - `doctor`；通過才更新 `state/installed`。
 - 宣告設定的變更（`compose.yaml`、`.env` 的 digest、`secrets/`）只經由 `upgrade` 套用，因為它先備份、
   再 migrate。
@@ -254,14 +284,19 @@ decision 040。
 5. Ansible executor process 在執行、在 `swallow-ansible` task queue 有 activity poller，且能以
    `ansible-runner` 跑隨附的 `diagnostic-ping` playbook。
 6. Dashboard 與 API 在 HTTP port 回應 `/readyz`。
-7. 僅 production：共置 MAAS 回應、有完整的 `ubuntu/noble` amd64 與 virsh SSH identity（`local-maas.sh check`）；
+7. Prometheus 在 `/-/ready` 回應，且載入了 `swallow-exporters` job（有它的 scrape pool；Site 可能還沒有任何
+   exporter，所以不看 target）。Prometheus 不發佈到主機，這兩項在它的容器內查詢。
+8. 僅 production：共置 MAAS 回應、有完整的 `ubuntu/noble` amd64 與 virsh SSH identity（`local-maas.sh check`）；
    Control-Plane NTP Server 在 UDP 123 服務且上游為設定值（`local-ntp.sh check`，§6.1）；installation records
-   存在（`bootstrap.sh verify`：admin 登入、Deployment Key、可執行的 Site automation、MAAS Integration sync
-   無錯誤、catalog 有 `ubuntu/noble` amd64、Integration 記有 virsh 公鑰）。
+   存在（`bootstrap.sh verify`：admin 登入、Deployment Key、可執行的 Site automation、Site 的 metrics Integration
+   指向 `http://prometheus:9090`、MAAS Integration sync 無錯誤、catalog 有 `ubuntu/noble` amd64、Integration 記有
+   virsh 公鑰）；`state/prometheus/swallow-exporters.yml` 是 installation Site 的渲染結果，且 Prometheus 在它寫入之後
+   成功載入過設定（§2.2）。
 
 - 未到終態的 Workflow 數只是資訊：忙碌的 installation 仍是健康的。
 - `--profile dev` 讓 `doctor` 與 `ensure` 改看 source checkout 的開發 stack（`deploy/dev`），不需要 root，
-  並略過第 7 項；release bundle 不含 `deploy/dev`，所以只有 checkout 能用。
+  並略過第 8 項；release bundle 不含 `deploy/dev`，所以只有 checkout 能用。開發 stack 的 `prometheus.yml` 自帶
+  兩個 job，`swallow-exporters` 不帶 `siteId`（開發 stack 只有一個 Site）。
 
 ### 3.5 `ensure`
 
@@ -275,6 +310,8 @@ decision 040。
 - NTP 檢查失敗時重跑 `local-ntp.sh install` 與 `upstream`；排在 MAAS 條件之後，因為 MAAS 的 chronyd 就是
   server。
 - installation records 的 verify 失敗時重跑 `bootstrap.sh apply`。
+- Prometheus 的 exporter discovery 檢查失敗時重新渲染並在需要時重啟 Prometheus（§2.2）；排在 installation
+  records 之後，因為 Site id 來自它們。開發 stack 則只在 `swallow-exporters` job 不在時重啟 Prometheus。
 - **從不取消或重試 Workflow**：那是 user 的決定。
 
 ### 3.6 `backup` 與 `restore`
@@ -282,7 +319,8 @@ decision 040。
 - `backup` 在 `backups/`（`SWALLOW_BACKUP_DIR` 可改）建立 `daily-<UTC 時間戳>`，內容為 MongoDB `swallow`
   database 的 archive、job artifacts、用來解開封存 secrets 的 credential key、有共置 MAAS 時的 `maasdb`
   dump、記錄取得時的 release 與資料庫 schema 版本的 `backup.json`，以及 `SHA256SUMS`。MAAS boot images 不備份：
-  restore 後從 `images.maas.io` 重新同步。**Temporal 不備份**（見下方的還原語意）。
+  restore 後從 `images.maas.io` 重新同步。**Temporal 不備份**（見下方的還原語意）。**Prometheus 的 metrics
+  （volume `prometheus-data`）不備份**：它們可丟棄，遺失只少了用量歷史，不影響 swallow 的狀態；restore 也不動它們。
 - `SHA256SUMS` 以備份目錄內的相對檔名記錄，所以 weekly 副本、或搬到其他主機的備份都能獨立驗證。
 - 週日的備份另以 hard link 複製為 `weekly-<時間戳>`；保留最近 7 份 daily 與 4 份 weekly。
 - Compose installation 不自帶備份排程；`upgrade` 一律先備份，寫成 `pre-upgrade-<已安裝版本>-<時間戳>`，內容
@@ -347,7 +385,7 @@ decision 040。
 
 | Artifact | 內容 |
 | --- | --- |
-| `swallow-compose-<version>.tar.zst` | Compose bundle：`production/`（`compose.yaml`、`.env.example`、`env.sh`、`prepare-secrets.sh`、`mongo-entrypoint.sh`、`swallowctl`、`local-maas.sh`、`local-ntp.sh`、`bootstrap.sh`、`bin/swallow` CLI）、`testing/` 與 `release-manifest.json` |
+| `swallow-compose-<version>.tar.zst` | Compose bundle：`production/`（`compose.yaml`、`.env.example`、`env.sh`、`prepare-secrets.sh`、`mongo-entrypoint.sh`、`swallowctl`、`local-maas.sh`、`local-ntp.sh`、`bootstrap.sh`、`prometheus.yml`、`prometheus-exporters.yml.template`、`bin/swallow` CLI）、`testing/` 與 `release-manifest.json` |
 | `install.sh` | 一行指令的 installer 與 upgrader，預設版本就是這個 release（§5） |
 | `swallow-linux-amd64` | CLI binary，從已推送的 `cli` image 以 `crane export` 取出 |
 | `release-manifest.json` | image digest 與 release metadata（§4.3） |
@@ -362,18 +400,20 @@ decision 040。
 | Image | 來源 | manifest 中的參照 |
 | --- | --- | --- |
 | `api`、`dashboard`、`cli` | 由本 repository 建置（linux/amd64），推送到 GHCR package `IMAGE_REPO`（預設 `ghcr.io/maple52046/swallow`），tag 為 `<component>-<version>` | `<IMAGE_REPO>@sha256:<推送後的 digest>` |
-| MongoDB、PostgreSQL、Temporal Server | Docker Hub 官方 image `docker.io/library/mongo`、`docker.io/library/postgres`、`docker.io/temporalio/auto-setup`，原樣使用 | `deploy/release/runtime-images.env` 中的上游 index digest，原樣寫入 |
+| MongoDB、PostgreSQL、Temporal Server、Prometheus | Docker Hub 官方 image `docker.io/library/mongo`、`docker.io/library/postgres`、`docker.io/temporalio/auto-setup`、`docker.io/prom/prometheus`，原樣使用 | `deploy/release/runtime-images.env` 中的上游 index digest，原樣寫入 |
 
 - GHCR 只放 swallow 建置的 image。第三方 image 不鏡像到 GHCR；installation 直接從 Docker Hub pull。
 - `runtime-images.env` 的每一項都必須是 `<registry>/<name>@sha256:<digest>`；發佈前確認每一項都能解析出
-  linux/amd64 image。升版是刻意的審查動作；PostgreSQL 必須維持 14 以上，因為它同時承載 MAAS 的資料庫。
+  linux/amd64 image。升版是刻意的審查動作；PostgreSQL 必須維持 14 以上，因為它同時承載 MAAS 的資料庫；
+  Prometheus 必須支援 `scrape_config_files`（exporter discovery 由它載入，§2.2），且是帶 busybox `wget` 的
+  變體（healthcheck 與 `doctor` 用它查詢）。
 - installation 從不使用 tag。
 - GHCR package 必須是 public，否則每台 installation 都要先 `docker login ghcr.io`。
 
 ### 4.3 Release manifest
 
-- `schemaVersion` 為 1，帶 `version` 與 `commit`。`images` 正好有六個 key：`api`、`dashboard`、`cli`、
-  `mongo`、`postgres`、`temporalServer`，全部是 digest 參照。另有 `platforms`、`schemaVersions`、
+- `schemaVersion` 為 1，帶 `version` 與 `commit`。`images` 正好有七個 key：`api`、`dashboard`、`cli`、
+  `mongo`、`postgres`、`temporalServer`、`prometheus`，全部是 digest 參照。另有 `platforms`、`schemaVersions`、
   `compatibility`（host `ubuntu-24.04-amd64`、MAAS `3.6`、MongoDB `8.0` 等）、`artifacts`（`composeBundle`、
   `cliBinary`、`thirdPartyMediaManifest`）與 `upgrade`。
 - manifest 不含 Temporal UI image、OCI archive 或 native bundle 的欄位。
@@ -382,12 +422,13 @@ decision 040。
   `version` 與 `commit` 必須就是這次發佈的。`schemaVersions.mongo` 與 `upgrade.to` 是 binary 唯一服務的
   schema（`CurrentSchemaVersion`），`upgrade.from` 是從 `OldestUpgradableSchemaVersion` 到它之前的每一個版本；
   `schemaVersions.playbookManifest` 取自 `api-server/modules/manifest.json`。`downgradeSupported` 固定為 `false`。
-- `swallowctl` 讀 `version` 與 `images` 中的 `api`、`dashboard`、`mongo`、`postgres`、`temporalServer`，缺任一項
-  即拒絕；`upgrade` 另讀 `schemaVersions.mongo` 與 `upgrade`（§3.3）。其餘欄位目前沒有 consumer。`cli` image
+- `swallowctl` 讀 `version` 與 `images` 中的 `api`、`dashboard`、`mongo`、`postgres`、`temporalServer`、
+  `prometheus`，缺任一項即拒絕；`upgrade` 另讀 `schemaVersions.mongo` 與 `upgrade`（§3.3）。其餘欄位目前沒有 consumer。`cli` image
   只用於組裝 release 時取出 CLI。
 - `deploy/release/release-manifest.example.json` 是格式範例；`validate.sh` 檢查它的 `images` key 集合與
   registry 前綴（swallow image 在 GHCR、runtime image 在 `docker.io`），以及 schema 欄位與 `migration.go` 的
-  兩個常數一致。
+  兩個常數一致；另檢查每個 runtime image 都固定在 `runtime-images.env`，且 production `compose.yaml` 要求的每個
+  image 變數都由 `swallowctl` 從 manifest 寫入。
 
 ### 4.4 發佈
 
@@ -455,7 +496,8 @@ decision 040。
   Compose 相同），讓之後的 `upgrade` 或直接的 `docker compose up` 看到相同的值：`SWALLOW_ADDRESS`、
   `SWALLOW_MAAS_URL`、`SWALLOW_BOOT_MEDIA_BASE_URL`、`SWALLOW_HTTP_PORT`、`SWALLOW_POSTGRES_HOST_PORT`、
   `SWALLOW_MAAS_IMAGE_TIMEOUT`、`SWALLOW_SITE_NAME`、`SWALLOW_TEMPORAL_UI_IMAGE`、`SWALLOW_TEMPORAL_UI_PORT`、
-  `SWALLOW_NTP_UPSTREAM`、`SWALLOW_NTP_ALLOW`。多行的值（例如 `SWALLOW_SSH_KNOWN_HOSTS`）不寫入 `.env`。
+  `SWALLOW_NTP_UPSTREAM`、`SWALLOW_NTP_ALLOW`、`SWALLOW_PROMETHEUS_RETENTION`。多行的值（例如
+  `SWALLOW_SSH_KNOWN_HOSTS`）不寫入 `.env`。
 - 接著只補 `.env` 缺少的位址衍生值，不改已有的值：
 
 | 設定 | `.env` 沒有時的值 |
@@ -607,6 +649,7 @@ lab 事故）。
 | 共置 MAAS（role／database、snap、init、admin、virsh identity、`ubuntu/noble`） | `deploy/production/local-maas.sh` |
 | Control-Plane NTP Server（install、upstream、check） | `deploy/production/local-ntp.sh` |
 | Installation records（Site、Integration、automation 預設） | `deploy/production/bootstrap.sh` |
+| Site 的 Prometheus（主設定、exporter discovery 的範本；渲染與重啟在 `swallowctl`） | `deploy/production/prometheus.yml`、`deploy/production/prometheus-exporters.yml.template` |
 | Dashboard Nginx 設定 | `deploy/production/nginx.conf`（由 `deploy/production/dashboard.Dockerfile` 放入 image） |
 | Image 建置 | `deploy/production/api-server.Dockerfile`、`dashboard.Dockerfile`、`cli.Dockerfile` |
 | Native 範本（未發佈） | `deploy/production/native/` |
@@ -649,9 +692,12 @@ lab 事故）。
   [OS Deployment](glossaries/terms/os-deployment.md)、[Deployment Key](glossaries/terms/deployment-key.md)、
   [Automation Configuration](glossaries/terms/automation-configuration.md)、
   [Workflow](glossaries/terms/workflow.md)、[Task](glossaries/terms/task.md)。
-- 規格：[platform-deployment.md](platform-deployment.md)（`ensure-os` 的 Task 組成與 platform 端時鐘檢查）。
+- 規格：[platform-deployment.md](platform-deployment.md)（`ensure-os` 的 Task 組成與 platform 端時鐘檢查）、
+  [monitoring.md](monitoring.md)（Site 的 Prometheus 收集什麼、label 契約）。
 - API 契約（`api-server` 擁有）：
   [provisioning](../../api-server/docs/development/api-contracts/api-server/provisioning.md)、
   [platforms](../../api-server/docs/development/api-contracts/api-server/platforms.md)、
   [site-automation](../../api-server/docs/development/api-contracts/api-server/site-automation.md)、
-  [sites-integrations](../../api-server/docs/development/api-contracts/api-server/sites-integrations.md)。
+  [sites-integrations](../../api-server/docs/development/api-contracts/api-server/sites-integrations.md)、
+  [discovery-prometheus](../../api-server/docs/development/api-contracts/api-server/discovery-prometheus.md)（Site
+  Prometheus 的 http_sd）。

@@ -152,6 +152,11 @@ Exactly one scope parameter must be present.
 - A Platform contains the non-absent Servers whose membership axis names it, the same set as
   `GET /api/v1/servers/?platformId=`.
 
+Each Server's series are read from its own Site's Prometheus (the Site's `metrics` Integration).
+An `aggregate` over Servers of more than one Site is refused with `validation_error`, because an
+aggregate cannot be combined across stores without changing its meaning; `perServer` may span
+Sites. A Server whose Site has no Prometheus has no data.
+
 The scope is resolved when the request is served, so the history shown is that of the
 grouping's **current** members: a Server that left the Pool yesterday is not part of today's
 query, and one that joined an hour ago contributes its whole history. A resolved scope larger
@@ -219,13 +224,17 @@ The common error envelope applies.
 
 | Code | HTTP Status | When |
 | --- | ---: | --- |
-| `validation_error` | 400 | Missing `serverIds` (current values); no or more than one scope parameter; more than 200 `serverIds`; a Server id outside the letter, digit, `-`, `_` set; an unknown metric name; an unknown `window` or `mode`; `window` together with `start`/`end`; only one of `start`/`end`, an unparsable timestamp, `start` not before `end`, or a span outside 5 minutes–7 days; a scope over 1000 Servers; `perServer` over 50 Servers; a query the backend rejects. |
+| `validation_error` | 400 | Missing `serverIds` (current values); no or more than one scope parameter; more than 200 `serverIds`; a Server id outside the letter, digit, `-`, `_` set; an unknown metric name; an unknown `window` or `mode`; `window` together with `start`/`end`; only one of `start`/`end`, an unparsable timestamp, `start` not before `end`, or a span outside 5 minutes–7 days; a scope over 1000 Servers; `perServer` over 50 Servers; an `aggregate` over Servers of more than one Site; a query the backend rejects. |
 | `not_found` | 404 | The `poolId`, `zoneId`, or `platformId` does not exist. |
-| `provider_unavailable` | 503 | No metrics backend is registered, or the backend cannot be reached or rejects swallow's credential. A client tells the user to register a metrics Integration for the Site rather than reporting the Servers as down. |
+| `provider_unavailable` | 503 | None of the requested Servers' Sites has a metrics backend, or a backend cannot be reached or rejects swallow's credential. A client tells the user to register a metrics Integration for the Site rather than reporting the Servers as down. |
 | `unauthorized` / `forbidden` | 401 / 403 | Missing or invalid credential / a non-admin caller (conventions). |
 | `internal_error` | 500 | An unexpected failure. |
 
 ## Compatibility Notes
+
+- Since 2026-11-03 each Server is read from its own Site's Prometheus rather than from the first
+  registered metrics Integration, and an `aggregate` over Servers of several Sites is
+  `validation_error`.
 
 - Adding a new named metric is additive: existing callers that pass an explicit `metrics`
   list are unaffected, and callers that omit it receive the new metric.

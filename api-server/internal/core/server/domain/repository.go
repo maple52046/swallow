@@ -7,6 +7,8 @@ import (
 
 // ListFilter narrows a server listing. Zero values mean no constraint.
 type ListFilter struct {
+	// IDs restricts the result to these Server ids; nil means no constraint.
+	IDs           []string
 	SiteID        string
 	IntegrationID string
 	// ProvisioningState filters on the provisioning axis.

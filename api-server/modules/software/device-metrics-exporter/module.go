@@ -33,7 +33,11 @@ func (Software) Entry() softwaredomain.CatalogEntry {
 		RefusedForClaimedServers:    true,
 		// The AMD Accelerator module's id; a Software module names it rather than importing it.
 		RequiredAccelerator: "amd",
-		SpecFields:          []string{},
+		Exporter: &softwaredomain.Exporter{
+			Name: string(softwaredomain.KindDeviceMetricsExporter),
+			Port: softwaredomain.DeviceMetricsExporterPort,
+		},
+		SpecFields: []string{},
 	}
 }
 

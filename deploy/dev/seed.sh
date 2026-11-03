@@ -10,8 +10,8 @@
 #   - site automation settings (automation always logs in with the Deployment Key) and an
 #     optional become password, so host automation such as the Node Exporter install that each
 #     OS deployment runs can work,
-#   - a metrics integration pointing at the in-compose Prometheus, so the dashboard can
-#     read metrics.
+#   - the in-compose Prometheus as the Site's metrics integration, the way bootstrap.sh
+#     registers a production installation's Site Prometheus, so the dashboard can read metrics.
 #
 # Everything site- or environment-specific (MAAS URL/key, become password, known_hosts) comes from
 # the environment or a .env file, so nothing secret is committed. Values left unset skip
@@ -74,10 +74,13 @@ if [[ -z "${site_id}" ]]; then
 fi
 printf 'site %s (%s)\n' "${site_name}" "${site_id}"
 
-# --- metrics integration -> in-compose Prometheus (find or create) ---
-metrics_id="$(curl "${curl_flags[@]}" "${auth[@]}" "${base_url}/integrations?siteId=${site_id}" |
-  jq -r 'first((.items? // .)[] | select(.kind == "metrics") | .id)? // ""')"
-if [[ -z "${metrics_id}" ]]; then
+# --- metrics integration -> in-compose Prometheus ---
+# A Site has at most one metrics integration, so an existing one is never duplicated: it keeps its
+# id, name, and settings, and only its endpoint (and grafanaUrl, when SWALLOW_GRAFANA_URL is set)
+# is updated when it differs. An update replaces the whole settings map, so grafanaUrl is merged.
+metrics="$(curl "${curl_flags[@]}" "${auth[@]}" "${base_url}/integrations?siteId=${site_id}&kind=metrics" |
+  jq -c 'first((.items? // .)[]) // empty')"
+if [[ -z "${metrics}" ]]; then
   settings='{}'
   if [[ -n "${grafana_url}" ]]; then
     settings="$(jq -nc --arg g "${grafana_url}" '{grafanaUrl:$g}')"
@@ -86,11 +89,22 @@ if [[ -z "${metrics_id}" ]]; then
     -H 'Content-Type: application/json' \
     --data-binary "$(jq -nc \
       --arg site "${site_id}" --arg endpoint "${prometheus_url}" --argjson settings "${settings}" \
-      '{siteId:$site,kind:"metrics",providerKind:"prometheus",name:"prometheus",endpoint:$endpoint,settings:$settings}')" \
+      '{siteId:$site,kind:"metrics",providerKind:"prometheus",name:"site-prometheus",endpoint:$endpoint,settings:$settings}')" \
     >/dev/null
   printf 'registered metrics integration -> %s\n' "${prometheus_url}"
 else
-  printf 'metrics integration already present (%s)\n' "${metrics_id}"
+  metrics_id="$(jq -r '.id' <<<"${metrics}")"
+  patch="$(jq -c --arg endpoint "${prometheus_url}" --arg g "${grafana_url}" '
+    (if .endpoint != $endpoint then {endpoint: $endpoint} else {} end) +
+    (if $g != "" and (.settings.grafanaUrl // "") != $g
+      then {settings: ((.settings // {}) + {grafanaUrl: $g})} else {} end)' <<<"${metrics}")"
+  if [[ "${patch}" == '{}' ]]; then
+    printf 'metrics integration already present (%s)\n' "${metrics_id}"
+  else
+    curl "${curl_flags[@]}" "${auth[@]}" -X PATCH "${base_url}/integrations/${metrics_id}" \
+      -H 'Content-Type: application/json' --data-binary "${patch}" >/dev/null
+    printf 'updated metrics integration (%s) -> %s\n' "${metrics_id}" "${prometheus_url}"
+  fi
 fi
 
 # --- MAAS provisioner integration (optional) ---
@@ -154,7 +168,7 @@ printf 'automation logs in with the Deployment Key\n'
 cat <<EOF
 
 Done. Next:
-  - Tag each AMD GPU server in MAAS with 'amd-gpu'.
-  - Deploy an OS to a lab machine; the OS deployment installs the Node Exporter.
+  - Deploy an OS to a lab machine; the OS deployment installs the Node Exporter, which
+    Prometheus then discovers in its swallow-exporters job.
   - Prometheus UI: http://127.0.0.1:${PROMETHEUS_PORT:-9090}
 EOF

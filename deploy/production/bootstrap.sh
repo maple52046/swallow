@@ -3,13 +3,16 @@
 # published api-server HTTP contracts (auth-login, sites-integrations, site-automation,
 # ssh-keys, provisioning). It never touches swallow internals or MongoDB directly.
 #
-# Usage: bootstrap.sh apply | verify
+# Usage: bootstrap.sh apply | verify | site-id
 #   apply   idempotent: find or create the Site, register (or re-key) the co-located MAAS as
 #           its provisioner Integration with the rack's virsh public key as its
-#           virshSshPublicKey setting, write Site automation defaults only when the Site has
-#           none, then wait for the Integration to sync and for the official ubuntu/noble
-#           amd64 OS Image to appear complete in the catalog
+#           virshSshPublicKey setting, register the installation's Prometheus as the Site's
+#           metrics Integration, write Site automation defaults only when the Site has none,
+#           then wait for the Integration to sync and for the official ubuntu/noble amd64 OS
+#           Image to appear complete in the catalog
 #   verify  read-only checks for `swallowctl doctor`
+#   site-id read-only: print the installation Site's id, which swallowctl renders into the
+#           Prometheus exporter discovery
 #
 # Access Keys are deliberately not created: the user uploads their own.
 # Environment overrides: SWALLOW_HTTP_PORT, SWALLOW_SITE_NAME (default "default"),
@@ -28,6 +31,8 @@ base_url="http://127.0.0.1:${SWALLOW_HTTP_PORT:-80}/api/v1"
 site_name="${SWALLOW_SITE_NAME:-default}"
 maas_endpoint="${SWALLOW_MAAS_ENDPOINT:-${SWALLOW_MAAS_URL:-http://host.docker.internal:5240/MAAS}}"
 wait_timeout="${SWALLOW_BOOTSTRAP_TIMEOUT:-900}"
+# The Compose service the api-server reads metrics from (compose.yaml).
+prometheus_endpoint="http://prometheus:9090"
 image_id="ubuntu/noble"
 image_arch="amd64"
 token=""
@@ -132,6 +137,41 @@ virsh_key_recorded() {
   api GET "/integrations/$1" | jq -e --arg key "${key}" '.settings.virshSshPublicKey == $key' >/dev/null
 }
 
+# site_metrics_integration prints the Site's metrics Integration as JSON, or nothing. The API keeps
+# at most one per Site.
+site_metrics_integration() {
+  api GET "/integrations?siteId=$1&kind=metrics" | jq -c 'first((.items? // .)[]) // empty'
+}
+
+# ensure_metrics_integration registers the installation's Prometheus as the Site's metrics
+# Integration. A Site has at most one, so an existing one (a Prometheus the user registered, for
+# example) is never duplicated: it keeps its id, name, and settings (Alertmanager, Grafana) and
+# only has its endpoint pointed at this Prometheus when it differs.
+ensure_metrics_integration() {
+  local site_id="$1" integration integration_id
+  integration="$(site_metrics_integration "${site_id}")"
+  if [[ -z "${integration}" ]]; then
+    integration_id="$(api POST /integrations --data-binary "$(jq -nc \
+      --arg site "${site_id}" --arg endpoint "${prometheus_endpoint}" \
+      '{siteId:$site,kind:"metrics",providerKind:"prometheus",name:"site-prometheus",endpoint:$endpoint}')" |
+      jq -er '.id')"
+    log "registered the Site Prometheus as the metrics Integration (${integration_id}) -> ${prometheus_endpoint}"
+    return 0
+  fi
+  integration_id="$(jq -r '.id' <<<"${integration}")"
+  if [[ "$(jq -r '.endpoint' <<<"${integration}")" == "${prometheus_endpoint}" ]]; then
+    log "metrics Integration already reads the Site Prometheus (${integration_id})"
+    return 0
+  fi
+  api PATCH "/integrations/${integration_id}" \
+    --data-binary "$(jq -nc --arg endpoint "${prometheus_endpoint}" '{endpoint:$endpoint}')" >/dev/null
+  log "pointed the metrics Integration (${integration_id}) at the Site Prometheus (${prometheus_endpoint})"
+}
+
+metrics_integration_reads_prometheus() {
+  site_metrics_integration "$1" | jq -e --arg endpoint "${prometheus_endpoint}" '.endpoint == $endpoint' >/dev/null
+}
+
 # ensure_automation writes defaults only for a Site with no configuration, so a user's
 # later edits survive every rerun. Automation is enabled (Ansible Tasks refuse to run
 # otherwise) with no playbook mappings. Without user-supplied known_hosts the static block
@@ -198,6 +238,7 @@ apply() {
   site_id="$(ensure_site)"
   integration_id="$(ensure_integration "${site_id}")"
   ensure_virsh_key "${integration_id}"
+  ensure_metrics_integration "${site_id}"
   ensure_automation "${site_id}"
   deployment_key_present || die 'the Deployment Key is missing; run swallowctl install'
   wait_until 'MAAS Integration sync' integration_synced "${integration_id}" ||
@@ -229,6 +270,8 @@ verify() {
   fi
   printf "ok    Site '%s' exists\n" "${site_name}"
   report 'Site automation is enabled with an effective SSH key' automation_runnable "${site_id}" || failed=1
+  report "metrics Integration reads the Site Prometheus (${prometheus_endpoint})" \
+    metrics_integration_reads_prometheus "${site_id}" || failed=1
   integration_id="$(find_maas_integration_id "${site_id}")"
   if [[ -z "${integration_id}" ]]; then
     printf 'FAIL  MAAS provisioner Integration is registered\n'
@@ -245,8 +288,18 @@ verify() {
   return "${failed}"
 }
 
+# print_site_id prints only the Site's id, so swallowctl can capture it; it creates nothing.
+print_site_id() {
+  local site_id
+  login
+  site_id="$(find_site_id)"
+  [[ -n "${site_id}" ]] || die "Site '${site_name}' does not exist; run bootstrap.sh apply"
+  printf '%s\n' "${site_id}"
+}
+
 case "${command_name}" in
   apply) apply ;;
   verify) verify ;;
-  *) printf 'usage: bootstrap.sh {apply|verify}\n' >&2; exit 2 ;;
+  site-id) print_site_id ;;
+  *) printf 'usage: bootstrap.sh {apply|verify|site-id}\n' >&2; exit 2 ;;
 esac

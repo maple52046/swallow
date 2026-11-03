@@ -25,6 +25,8 @@ Installer 完成時：
 - 官方 `ubuntu/noble` amd64 image 已 complete，出現在 **Provisioning → Images**；
 - Temporal、worker 與 Ansible executor 已串接，Deployment Key 已建立，Site automation
   已啟用；
+- Site `default` 的 Prometheus 在同一台 VM 上執行，已是該 Site 的 metrics Integration，並收集
+  swallow 安裝在該 Site 的 Server 上的 exporter（見 [Monitoring](guides/monitoring.md)）；
 - VM 在 UDP 123 提供 NTP（MAAS 自己的時間服務），swallow 佈署的每台 Server 都使用它
   （見[時間同步](guides/os-provisioning.md#時間同步)）；
 - `swallow` CLI 已安裝在 `/usr/local/bin/swallow`。
@@ -34,7 +36,7 @@ Installer 完成時：
 - 一台可 `sudo` 的乾淨 Ubuntu 24.04 amd64 VM。建議起始規格 4 vCPU、16 GiB RAM、
   100 GiB disk。
 - 能連到 `github.com`（release）、`ghcr.io`（swallow 自己的 images）、Docker Hub（官方
-  MongoDB、PostgreSQL 與 Temporal images）、`download.docker.com`、Snap Store 與
+  MongoDB、PostgreSQL、Temporal 與 Prometheus images）、`download.docker.com`、Snap Store 與
   `images.maas.io`。
 - 未被占用的 port：80（Dashboard）、5240（MAAS），以及 loopback 5432（MAAS 用的 PostgreSQL）。
   機器會連 VM 的 UDP 123 對時。
@@ -63,7 +65,7 @@ curl -fsSL https://github.com/maple52046/swallow/releases/download/v<version>/in
 Installer 會以 release 的 checksums 核對檔案、解壓到 `/opt/swallow`（`--dir` 可改目錄），再執行
 `swallowctl install`：缺少 Docker 時安裝 Docker、把 release 的 image digests 與你的設定寫入
 `.env`、產生 secrets、啟動 stack、建立 Deployment Key、安裝 MAAS、匯入 `ubuntu/noble`（數百
-MB）、在 swallow 註冊 MAAS，最後執行 `swallowctl doctor`。重複執行是安全的：中途停下的安裝會
+MB）、在 swallow 註冊 MAAS 與 Site 的 Prometheus，最後執行 `swallowctl doctor`。重複執行是安全的：中途停下的安裝會
 接續完成。`--help` 會列出所有選項。有穩定版之後，
 `https://github.com/maple52046/swallow/releases/latest/download/install.sh` 永遠安裝最新的穩定版。
 
@@ -117,4 +119,4 @@ native bundle。
 - 只用含 immutable image digests 的 release manifest 安裝。
 - 排程 `swallowctl backup` 並演練 `restore`。Backup 包含 MongoDB、credential key、
   Workflow artifacts 與 MAAS database；deployment key 的私鑰以 credential key 加密，
-  兩者必須一起還原。
+  兩者必須一起還原。Site 的 Prometheus 中的 metrics 不備份：遺失只少了用量歷史。

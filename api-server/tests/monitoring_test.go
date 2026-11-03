@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ func TestHealthResolver_MapsUpMetricToHealthAxis(t *testing.T) {
 		{Labels: map[string]string{"server_id": "srv-1"}, Value: 1, Timestamp: time.Now().UTC()},
 		{Labels: map[string]string{"server_id": "srv-2"}, Value: 0, Timestamp: time.Now().UTC()},
 	}
-	resolver := monitoringapp.NewHealthResolver(factory)
+	resolver := monitoringapp.NewHealthResolver(factory, everyServerInSite{siteID: testSiteID})
 
 	health, err := resolver.ResolveHealth(context.Background(), []string{"srv-1", "srv-2", "srv-3"})
 	if err != nil {
@@ -40,10 +41,10 @@ func TestHealthResolver_MapsUpMetricToHealthAxis(t *testing.T) {
 	}
 }
 
-// A server has several scrape jobs, so being reachable on any of them means up.
-func TestHealthResolver_AggregatesAcrossScrapeJobs(t *testing.T) {
+// Health is the Node Exporter's up only: a GPU exporter that answers does not make a Server up.
+func TestHealthResolver_ReadsTheNodeExporterOnly(t *testing.T) {
 	factory := newFakeMonitoringFactory()
-	resolver := monitoringapp.NewHealthResolver(factory)
+	resolver := monitoringapp.NewHealthResolver(factory, everyServerInSite{siteID: testSiteID})
 
 	if _, err := resolver.ResolveHealth(context.Background(), []string{"srv-1"}); err != nil {
 		t.Fatalf("ResolveHealth: %v", err)
@@ -53,8 +54,8 @@ func TestHealthResolver_AggregatesAcrossScrapeJobs(t *testing.T) {
 		t.Fatalf("expected 1 query, got %d", len(factory.querier.queries))
 	}
 	expr := factory.querier.queries[0]
-	if !strings.Contains(expr, "max by (server_id)") {
-		t.Errorf("expected aggregation over jobs, got %q", expr)
+	if !strings.Contains(expr, "max by (server_id)") || !strings.Contains(expr, `exporter="node-exporter"`) {
+		t.Errorf("expected the Node Exporter's up per server, got %q", expr)
 	}
 	if !strings.Contains(expr, `server_id=~"srv-1"`) {
 		t.Errorf("expected the server_id matcher, got %q", expr)
@@ -66,7 +67,7 @@ func TestHealthResolver_AggregatesAcrossScrapeJobs(t *testing.T) {
 func TestHealthResolver_NoIntegrationIsNotAnError(t *testing.T) {
 	factory := newFakeMonitoringFactory()
 	factory.querierErr = monitoringdomain.ErrNoMetricsIntegration
-	resolver := monitoringapp.NewHealthResolver(factory)
+	resolver := monitoringapp.NewHealthResolver(factory, everyServerInSite{siteID: testSiteID})
 
 	health, err := resolver.ResolveHealth(context.Background(), []string{"srv-1"})
 	if err != nil {
@@ -77,11 +78,36 @@ func TestHealthResolver_NoIntegrationIsNotAnError(t *testing.T) {
 	}
 }
 
+// Each Server's health comes from its own Site's Prometheus; a Server whose Site has none, or that
+// the Server projection does not know, is unknown.
+func TestHealthResolver_AsksEachServersSite(t *testing.T) {
+	east, west := newFakeQuerier(), newFakeQuerier()
+	east.samples["up{"] = []monitoringdomain.Sample{{Labels: map[string]string{"server_id": "srv-e"}, Value: 1, Timestamp: time.Now().UTC()}}
+	west.samples["up{"] = []monitoringdomain.Sample{{Labels: map[string]string{"server_id": "srv-w"}, Value: 0, Timestamp: time.Now().UTC()}}
+	resolver := monitoringapp.NewHealthResolver(perSiteMonitoringFactory{"east": east, "west": west},
+		fixedServerSites{"srv-e": "east", "srv-w": "west", "srv-n": "north"})
+
+	health, err := resolver.ResolveHealth(context.Background(), []string{"srv-e", "srv-w", "srv-n", "srv-unknown"})
+	if err != nil {
+		t.Fatalf("ResolveHealth: %v", err)
+	}
+	if health["srv-e"] == nil || health["srv-e"].State != serverdomain.HealthUp ||
+		health["srv-w"] == nil || health["srv-w"].State != serverdomain.HealthDown {
+		t.Errorf("health = %+v, want srv-e up from east and srv-w down from west", health)
+	}
+	if _, ok := health["srv-n"]; ok {
+		t.Error("a Server whose Site has no Prometheus must be unknown")
+	}
+	if len(east.queries) != 1 || !strings.Contains(east.queries[0], `"srv-e"`) || strings.Contains(east.queries[0], "srv-w") {
+		t.Errorf("east queries = %v, want only srv-e", east.queries)
+	}
+}
+
 // Identifiers are validated rather than escaped: anything outside the swallow identifier
 // character set did not come from swallow and must not be interpolated into a query.
 func TestHealthResolver_RejectsUnsafeServerID(t *testing.T) {
 	factory := newFakeMonitoringFactory()
-	resolver := monitoringapp.NewHealthResolver(factory)
+	resolver := monitoringapp.NewHealthResolver(factory, everyServerInSite{siteID: testSiteID})
 
 	_, err := resolver.ResolveHealth(context.Background(), []string{`srv-1"} or up{`})
 	if err == nil {
@@ -627,5 +653,38 @@ func TestAlerts_UnknownSiteIsNotFound(t *testing.T) {
 		if resp.StatusCode != http.StatusNotFound {
 			t.Fatalf("%s %s: expected 404, got %d", request.method, request.path, resp.StatusCode)
 		}
+	}
+}
+
+// A range read sends each Server to its own Site's Prometheus: perServer merges their series in
+// the caller's order, and an aggregate over several Sites is refused rather than averaged across
+// stores.
+func TestMetricRange_ReadsEachServersSite(t *testing.T) {
+	east, west := newFakeQuerier(), newFakeQuerier()
+	point := []monitoringdomain.Point{{Timestamp: time.Now().UTC(), Value: 1}}
+	east.series["srv-e"] = []monitoringdomain.Series{{Labels: map[string]string{"server_id": "srv-e"}, Points: point}}
+	west.series["srv-w"] = []monitoringdomain.Series{{Labels: map[string]string{"server_id": "srv-w"}, Points: point}}
+	service := monitoringapp.NewMetricRangeService(perSiteMonitoringFactory{"east": east, "west": west},
+		&fakeScopeResolver{members: map[string][]string{}}, fixedServerSites{"srv-e": "east", "srv-w": "west"})
+	input := monitoringapp.MetricRangeInput{
+		ScopeKind: monitoringdomain.ScopeServers, ServerIDs: []string{"srv-w", "srv-e"},
+		Metrics: []string{"cpuUsagePercent"}, Mode: "perServer",
+	}
+
+	result, err := service.Query(context.Background(), input)
+	if err != nil {
+		t.Fatalf("perServer across Sites: %v", err)
+	}
+	if len(result.Series) != 2 || result.Series[0].ServerID == nil || *result.Series[0].ServerID != "srv-w" ||
+		result.Series[1].ServerID == nil || *result.Series[1].ServerID != "srv-e" {
+		t.Errorf("series = %+v, want srv-w then srv-e", result.Series)
+	}
+	if len(east.rangeQueries) != 1 || strings.Contains(east.rangeQueries[0], "srv-w") {
+		t.Errorf("east range queries = %v, want only srv-e", east.rangeQueries)
+	}
+
+	input.Mode = ""
+	if _, err := service.Query(context.Background(), input); !errors.Is(err, monitoringapp.ErrInvalidMetricRange) {
+		t.Errorf("aggregate across Sites: error = %v, want ErrInvalidMetricRange", err)
 	}
 }

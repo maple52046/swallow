@@ -92,6 +92,9 @@ func macsIntersect(a, b []string) bool {
 func (r *fakeServerRepo) List(_ context.Context, filter serverdomain.ListFilter) (serverdomain.ListResult, error) {
 	var all []*serverdomain.Server
 	for _, s := range r.servers {
+		if filter.IDs != nil && !containsString(filter.IDs, s.ID) {
+			continue
+		}
 		if filter.SiteID != "" && s.Source.SiteID != filter.SiteID {
 			continue
 		}
@@ -1494,6 +1497,46 @@ type fakeMonitoringFactory struct {
 	querierErr error
 	alertsErr  error
 	grafanaURL string
+}
+
+// everyServerInSite places every Server in one Site, so tests that do not care about Sites reach
+// the one fake Prometheus.
+type everyServerInSite struct{ siteID string }
+
+func (r everyServerInSite) SitesOf(_ context.Context, serverIDs []string) (map[string]string, error) {
+	sites := make(map[string]string, len(serverIDs))
+	for _, id := range serverIDs {
+		sites[id] = r.siteID
+	}
+	return sites, nil
+}
+
+// fixedServerSites places the listed Servers in their Sites and knows no others.
+type fixedServerSites map[string]string
+
+func (r fixedServerSites) SitesOf(_ context.Context, serverIDs []string) (map[string]string, error) {
+	sites := map[string]string{}
+	for _, id := range serverIDs {
+		if site, ok := r[id]; ok {
+			sites[id] = site
+		}
+	}
+	return sites, nil
+}
+
+// perSiteMonitoringFactory gives each Site its own fake Prometheus; a Site without one has no
+// metrics Integration.
+type perSiteMonitoringFactory map[string]*fakeQuerier
+
+func (f perSiteMonitoringFactory) Querier(_ context.Context, siteID string) (monitoringdomain.MetricsQuerier, error) {
+	if querier, ok := f[siteID]; ok {
+		return querier, nil
+	}
+	return nil, monitoringdomain.ErrNoMetricsIntegration
+}
+
+func (f perSiteMonitoringFactory) Alerts(context.Context, string) (monitoringdomain.AlertSource, error) {
+	return nil, monitoringdomain.ErrNoAlertSource
 }
 
 func newFakeMonitoringFactory() *fakeMonitoringFactory {

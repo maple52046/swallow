@@ -24,7 +24,18 @@ const (
 	// LabelKubernetesNode is what in-platform metrics carry instead of a server_id,
 	// because swallow does not own a platform's scrape configuration.
 	LabelKubernetesNode = "node"
+	// LabelExporter names the exporter a series was scraped from.
+	LabelExporter = "exporter"
+	// HealthExporter is the basic tier's exporter (decision 003): a Server's health is whether the
+	// Site Prometheus can scrape it, and no other exporter counts.
+	HealthExporter = "node-exporter"
 )
+
+// ServerSiteResolver tells which Site each Server belongs to, so a read is sent to that Site's
+// Prometheus. Implementations omit an id they do not know.
+type ServerSiteResolver interface {
+	SitesOf(ctx context.Context, serverIDs []string) (map[string]string, error)
+}
 
 // Sample is one instant-query result.
 type Sample struct {
@@ -166,9 +177,8 @@ type AlertSource interface {
 
 // MonitoringFactory resolves a registered integration into monitoring clients.
 type MonitoringFactory interface {
-	// Querier returns a metrics querier for the site, or ErrNoMetricsIntegration.
-	// An empty siteID means any site's metrics integration will do, which is correct
-	// while an installation has one central store.
+	// Querier returns a querier of the Site's Prometheus (its metrics Integration), or
+	// ErrNoMetricsIntegration when the Site has none. An empty siteID matches any Site's.
 	Querier(ctx context.Context, siteID string) (MetricsQuerier, error)
 	// Alerts returns an alert source for the site, or ErrNoAlertSource.
 	Alerts(ctx context.Context, siteID string) (AlertSource, error)

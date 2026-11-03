@@ -221,7 +221,8 @@ func RunAPI(cfg config.APIConfig) error {
 	// which reads as "not known" rather than as anything about the machine.
 	monitoringFactory := promstack.NewMonitoringFactory(integrationRepo)
 	alertService := monitoringapp.NewAlertService(monitoringFactory, siteExistence{sites: siteRepo})
-	healthResolver := monitoringapp.NewHealthResolver(monitoringFactory)
+	metricSites := serverSites{servers: serverRepo}
+	healthResolver := monitoringapp.NewHealthResolver(monitoringFactory, metricSites)
 
 	serverHandler := serverdelivery.NewServerHandler(
 		serverapp.NewListServersUseCase(serverRepo, healthResolver),
@@ -325,10 +326,10 @@ func RunAPI(cfg config.APIConfig) error {
 	// server_id, so the scope is resolved to Servers here at query time.
 	monitoringHandler := monitoringdelivery.NewMonitoringHandler(
 		alertService,
-		monitoringapp.NewServerMetricsService(monitoringFactory),
+		monitoringapp.NewServerMetricsService(monitoringFactory, metricSites),
 		monitoringapp.NewMetricRangeService(monitoringFactory, metricScopeResolver{
 			zones: zoneRepo, pools: poolRepo, platforms: platformRepo, servers: serverRepo,
-		}),
+		}, metricSites),
 	)
 	requirementRepo := platformstore.NewMongoDeploymentRequirementRepo(db)
 	requirementService := platformapp.NewDeploymentRequirementService(requirementRepo)
@@ -525,7 +526,9 @@ func RunAPI(cfg config.APIConfig) error {
 		softwareapp.NewRegistryCredentialService(registryCredentialRepo))
 
 	discoveryUseCase := discoveryapp.NewDiscoveryUseCase(serverRepo)
-	discoveryHandler := discoverydelivery.NewDiscoveryHandler(discoveryUseCase)
+	exporterDiscovery := discoveryapp.NewExporterDiscovery(serverRepo,
+		installedExporters{catalog: modules.software, assignments: softwareAssignmentRepo})
+	discoveryHandler := discoverydelivery.NewDiscoveryHandler(discoveryUseCase, exporterDiscovery)
 	fiberApp := fiber.New(fiber.Config{
 		// OS image upload (POST /provisioning/images) streams a potentially multi-gigabyte
 		// artifact, so the body is read as a stream and the limit is raised well past the 4 MiB
@@ -976,5 +979,6 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 
 	discovery := v1.Group("/discovery", machine)
 	discovery.Get("/prometheus", deps.discovery.PrometheusTargets)
+	discovery.Get("/prometheus/exporters", deps.discovery.ExporterTargets)
 	discovery.Get("/ansible", deps.discovery.AnsibleInventory)
 }

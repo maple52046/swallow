@@ -457,6 +457,48 @@ paths:
                 $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
+  /api/v1/discovery/prometheus/exporters:
+    get:
+      tags: [monitoring]
+      operationId: listExporterTargets
+      summary: Serve the Site Prometheus its scrape targets, one per exporter swallow knows is installed.
+      description: >-
+        Machine authentication, as listPrometheusTargets. One target per installed exporter of the
+        Site's present Servers, labelled `server_id`, `site`, `exporter`, and `platform_id` when the
+        Server has a Platform Claim. A Server without an exporter, or without a known address, is
+        not a target. Never paginated (discovery-prometheus.md).
+      security:
+        - machineToken: []
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Keep only Servers of this Site; omitted means every Site.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The target list in Prometheus http_sd shape; an empty array when none match.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScrapeTarget'
+        '401':
+          description: Missing or invalid machine token or access token (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: A valid access token whose role is not admin (forbidden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /api/v1/discovery/prometheus:
     get:
       tags: [monitoring]
@@ -499,7 +541,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/PrometheusTarget'
+                  $ref: '#/components/schemas/ScrapeTarget'
         '400':
           description: '`port` is not an integer between 1 and 65535 (validation_error).'
           content:
@@ -1054,7 +1096,7 @@ components:
                 $ref: '#/components/schemas/Timestamp'
               value:
                 type: number
-    PrometheusTarget:
+    ScrapeTarget:
       type: object
       description: One Prometheus http_sd entry.
       required: [targets, labels]
@@ -1063,7 +1105,7 @@ components:
           type: array
           minItems: 1
           maxItems: 1
-          description: The Server's primary address and the requested port, as `host:port`.
+          description: The Server's primary address and the exporter's port, as `host:port`.
           items:
             type: string
         labels:
@@ -1080,7 +1122,10 @@ components:
               description: The Server's Site id.
             platform_id:
               type: string
-              description: The Platform id; present only when the Server is a known Platform member.
+              description: The Platform of the Server's Platform Claim; present only when it has one.
+            exporter:
+              type: string
+              description: The exporter's declared name, e.g. `node-exporter`; present on exporter targets only.
     AnsibleInventory:
       type: object
       description: >-

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
@@ -17,8 +18,10 @@ func discoveryAuth() map[string]string {
 func TestPrometheusTargets_CarryTheLabelContract(t *testing.T) {
 	f := setupPlatform(t)
 	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", func(s *serverdomain.Server) {
+		// platform_id follows the Platform Claim, not the observed membership.
+		s.PlatformClaim = &serverdomain.PlatformClaim{PlatformID: "platform-1", ClaimedAt: time.Now().UTC()}
 		s.Membership = &serverdomain.MembershipStatus{
-			PlatformID: "platform-1", NodeName: "gpu-node-01", Role: "worker",
+			PlatformID: "platform-other", NodeName: "gpu-node-01", Role: "worker",
 			ObservedAt: time.Now().UTC(),
 		}
 	})
@@ -330,4 +333,55 @@ func groupNames(inventory map[string]any) []string {
 		}
 	}
 	return names
+}
+
+// The Site Prometheus's endpoint lists only the exporters swallow knows are installed, one target
+// per exporter, each labelled with the contract; a Server with none is no target, so its health
+// stays unknown.
+func TestExporterTargets_ListOnlyInstalledExporters(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", func(s *serverdomain.Server) {
+		s.PlatformClaim = &serverdomain.PlatformClaim{PlatformID: "platform-1", ClaimedAt: time.Now().UTC()}
+	})
+	f.seedServer("srv-2", "cpu-node-02", "10.0.1.11", nil)
+	f.seedServer("srv-3", "spare-03", "10.0.1.12", nil)
+	f.exporters.installed = []discoveryapp.InstalledExporter{
+		{ServerID: "srv-1", Name: "node-exporter", Port: 9100},
+		{ServerID: "srv-1", Name: "device-metrics-exporter", Port: 5001},
+		{ServerID: "srv-2", Name: "node-exporter", Port: 9100},
+		{ServerID: "srv-gone", Name: "node-exporter", Port: 9100},
+	}
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/discovery/prometheus/exporters?siteId="+testSiteID, nil, discoveryAuth())
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	entries := parseArrayBody(t, resp)
+	type target struct{ address, server, exporter, platform string }
+	var got []target
+	for _, entry := range entries {
+		labels := entry["labels"].(map[string]any)
+		platform, _ := labels["platform_id"].(string)
+		if labels["site"] != testSiteID {
+			t.Errorf("site label = %v", labels["site"])
+		}
+		got = append(got, target{entry["targets"].([]any)[0].(string), labels["server_id"].(string), labels["exporter"].(string), platform})
+	}
+	want := []target{
+		{"10.0.1.10:5001", "srv-1", "device-metrics-exporter", "platform-1"},
+		{"10.0.1.10:9100", "srv-1", "node-exporter", "platform-1"},
+		{"10.0.1.11:9100", "srv-2", "node-exporter", ""},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("targets = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("target %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+
+	if resp := doRequest(t, f.app, "GET", "/api/v1/discovery/prometheus/exporters", nil, nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("without the machine token: %d, want 401", resp.StatusCode)
+	}
 }

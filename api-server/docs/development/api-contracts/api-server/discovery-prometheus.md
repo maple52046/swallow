@@ -10,18 +10,19 @@ Active
 
 ## Consumer Components
 
-- Prometheus (per-site), via `http_sd_config`
+- The Site Prometheus that swallow installs, via `http_sd_config` (the exporters route)
+- A Prometheus outside swallow, via `http_sd_config` (the port route)
 - `cli` (the `swallow` command-line client)
 - swallow installation tooling
 - External Ansible diagnostics and tools (the Ansible inventory route)
 
 ## Purpose
 
-Serve the Prometheus HTTP service-discovery target list for host-layer exporters, with
-the metrics label contract already attached, so a metric can be joined back to a swallow
-server without a lookup. The same projection also targets one server type at a time — the
-RDC exporter job asks for AMD GPU servers only — so a single endpoint feeds several scrape
-jobs.
+Serve the Prometheus HTTP service-discovery target list with the metrics label contract already
+attached, so a metric can be joined back to a swallow server without a lookup. The exporters
+route is what each Site's Prometheus scrapes: one target per exporter swallow knows is installed
+([monitoring.md](../../../../../docs/development/monitoring.md) §5.2). The port route lists every
+discoverable server at one port, for a Prometheus outside swallow.
 
 The same server projection is also served as an Ansible dynamic inventory for diagnostics and
 external tools (see [Ansible Inventory](#ansible-inventory)); the embedded runner builds the
@@ -41,13 +42,14 @@ label contract and monitoring topology.
 ## Endpoints
 
 ```text
+GET /api/v1/discovery/prometheus/exporters
 GET /api/v1/discovery/prometheus
 GET /api/v1/discovery/ansible
 ```
 
 The wire shape is published in
-[`openapi/areas/monitoring.yaml`](../openapi/areas/monitoring.yaml) (`listPrometheusTargets`,
-`getAnsibleInventory`).
+[`openapi/areas/monitoring.yaml`](../openapi/areas/monitoring.yaml) (`listExporterTargets`,
+`listPrometheusTargets`, `getAnsibleInventory`).
 
 ## Authentication
 
@@ -61,6 +63,36 @@ Authorization: Bearer <machineToken | adminAccessToken>
 A missing or invalid credential yields `401` with code `unauthorized`. A non-admin access token
 yields `403` with code `forbidden`. API Keys are not accepted (`401`). When the installation
 configures no machine token, only an admin access token works.
+
+## Exporter Targets
+
+`GET /api/v1/discovery/prometheus/exporters` takes one optional query parameter, `siteId` (omitted
+means every Site). It returns `200 OK` with a JSON array in Prometheus `http_sd` shape (`[]` when
+nothing matches), one entry per installed exporter of the Site's present Servers, ordered by Server
+and exporter:
+
+```json
+[
+  {
+    "targets": ["10.0.1.10:9100"],
+    "labels": {
+      "server_id": "srv-abc123",
+      "site": "site-id",
+      "platform_id": "platform-id",
+      "exporter": "node-exporter"
+    }
+  }
+]
+```
+
+- An exporter is listed while swallow records it as installed: a Managed Software kind that
+  declares an exporter (`node-exporter` on port 9100, `device-metrics-exporter` on port 5001), for
+  each Server whose Software Assignment of that kind is `installed` or `uninstalling`. A `pending`
+  or `failed` assignment is not listed, since nothing may be listening.
+- A Server with no exporter is not a target, so its health stays unknown rather than down; an
+  absent Server, or one with no known address, is omitted.
+- `platform_id` is the Platform of the Server's Platform Claim, present only when it has one.
+- The result is never paginated, and locked Servers stay listed, as on the port route.
 
 ## Prometheus Targets
 
@@ -94,8 +126,7 @@ entry is one target with its labels already attached:
 ```
 
 - `server_id` and `site` are always present. `platform_id` is present only when the server
-  is a known platform member. No other label
-  is emitted.
+  has a Platform Claim. No other label is emitted.
 - `targets` holds exactly one `address:port`: the server's primary address and the requested
   port.
 - A server with no known address is omitted rather than emitted with an empty target,
@@ -181,6 +212,11 @@ between 1 and 65535 (Prometheus targets only); `401 unauthorized` / `403 forbidd
 authentication section; `500 internal_error` for an unexpected failure.
 
 ## Compatibility Notes
+
+- Since 2026-11-03 the exporters route lists the Site Prometheus's targets, and `platform_id`, on
+  both routes, is the Platform of the Server's Platform Claim rather than its observed membership:
+  a Server claimed by a Platform but not yet a member now carries it, and a member whose claim was
+  released no longer does.
 
 - `tag` is additive and optional; a caller that omits it gets every discoverable server as
   before.

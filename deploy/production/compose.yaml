@@ -3,7 +3,8 @@ name: swallow-production
 # Single-VM production installation. Dashboard/Nginx is the only public listener (plain
 # HTTP). MongoDB and Temporal stay on the internal `control` network. The API, worker, and
 # Ansible executor also join `egress` so they can reach the co-located MAAS (through
-# host.docker.internal) and the Servers they deploy and configure.
+# host.docker.internal) and the Servers they deploy and configure; Prometheus joins it to scrape
+# the exporters on those Servers.
 
 x-backend-hosts: &backend-hosts
   extra_hosts:
@@ -261,6 +262,38 @@ services:
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
 
+  # The installation Site's Prometheus (monitoring.md §5.1). It scrapes swallow's /metrics and the
+  # exporters the API lists for the installation Site; the api-server reads it at
+  # http://prometheus:9090, and it is not published on the host. prometheus.yml is shipped;
+  # swallowctl renders the Site's discovery job into state/prometheus/ once bootstrap.sh created
+  # the Site, and Prometheus loads only what that directory holds. Its data is disposable and
+  # never backed up.
+  prometheus:
+    image: ${SWALLOW_PROMETHEUS_IMAGE:?set a digest-pinned SWALLOW_PROMETHEUS_IMAGE}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${SWALLOW_PROMETHEUS_RETENTION:-30d}
+      - --web.listen-address=:9090
+    secrets:
+      - machine_token
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./state/prometheus:/etc/prometheus/site:ro
+      - prometheus-data:/prometheus
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [control, egress]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
   dashboard:
     image: ${SWALLOW_DASHBOARD_IMAGE:?set a digest-pinned SWALLOW_DASHBOARD_IMAGE}
     restart: unless-stopped
@@ -290,6 +323,8 @@ volumes:
   # Boot ISOs (decision 047); first mounted over the image's directory, so owned by the service user.
   boot-media:
   postgres-data:
+  # Metrics only, outside the backup scope: losing it loses usage history, never swallow state.
+  prometheus-data:
 
 secrets:
   mongo_root_username:

@@ -5,8 +5,8 @@
 Initial setup establishes the Site boundary, external Integrations, and the
 automation policy required before swallow can manage Servers.
 
-The [production installation](../installation.md) already performs steps 1, 2, and 4 for the
-Site `default` with its co-located MAAS. Use this guide to review that result, to add more
+The [production installation](../installation.md) already performs steps 1 to 4 for the
+Site `default` with its co-located MAAS and its Prometheus. Use this guide to review that result, to add more
 Sites, or to set up a development stack.
 
 ## 1. Create the Site
@@ -65,15 +65,18 @@ independently operated locations as separate Site integrations.
 
 ## 3. Register monitoring
 
-Run a per-Site Prometheus from `deploy/third-party/prometheus`, then create a
-`metrics` / `prometheus` Integration with its endpoint and, optionally,
-Alertmanager and Grafana settings. This is what lets swallow draw usage charts
-for deployed Servers. swallow queries fixed metric names, bounded usage history,
-and current alerts; it does not proxy arbitrary PromQL or store monitoring data.
+The production installation runs a Prometheus for its Site and registers it as the
+Site's `metrics` / `prometheus` Integration (`site-prometheus`, endpoint
+`http://prometheus:9090`); add Alertmanager and Grafana settings to that Integration if
+you have them. A Site has at most one metrics Integration. This is what lets swallow draw
+usage charts for deployed Servers. swallow queries fixed metric names, bounded usage
+history, and current alerts; it does not proxy arbitrary PromQL or store monitoring data.
 See [Monitoring](monitoring.md).
 
-Prometheus should use swallow's HTTP service-discovery endpoint so scraped
-series receive stable `server_id`, `site`, and Platform labels.
+The Site's Prometheus discovers the exporters swallow installed in the Site through
+swallow's HTTP service-discovery endpoint, so scraped series receive stable `server_id`,
+`site`, `platform_id`, and `exporter` labels. In this version other Sites have no
+Prometheus.
 
 ## 4. Configure Site automation
 

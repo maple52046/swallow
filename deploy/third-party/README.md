@@ -11,10 +11,10 @@ Third-party media is versioned separately from the swallow core bundle.
 | PostgreSQL | One Compose instance: Temporal databases plus the co-located MAAS `maasdb`, each with its own role. |
 | Ubuntu MAAS 3.6 | Co-located on the single production VM, installed and owned by `swallowctl` (region+rack snap). Never `maas-test-db`. |
 | Ansible | Embedded in the API Execution Environment or native offline venv; not a service. |
-| Prometheus | One independent project per site, using persistent storage and swallow HTTP service discovery. |
+| Prometheus | One per Site, deployed with the production installation for its Site (Compose service `prometheus`, digest-pinned image) and registered as that Site's metrics Integration; it discovers the Site's exporters from swallow. |
 
-The installation pulls swallow's own images from GHCR, the official MongoDB, PostgreSQL, and
-Temporal images from Docker Hub, and the official `ubuntu/noble` boot resource from
+The installation pulls swallow's own images from GHCR, the official MongoDB, PostgreSQL,
+Temporal, and Prometheus images from Docker Hub, and the official `ubuntu/noble` boot resource from
 `images.maas.io`, so it needs outbound access to all three. DNS, DHCP/PXE/BMC networking and
 target hardware are site-provided inputs rather than swallow-managed resources.
 `offline-media-manifest.json` describes the media an air-gapped site would mirror; offline

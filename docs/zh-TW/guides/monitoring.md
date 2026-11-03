@@ -14,11 +14,12 @@ query。Grafana 是選用的：需要基本圖表以外的探索時再接上。
 
 ## 從佈署好的 Server 到圖表
 
-1. **為 Site 執行一個 Prometheus。** 使用
-   [`deploy/third-party/prometheus`](../../../deploy/third-party/prometheus/README.zh-TW.md)
-   的 per-Site 範本。它從 swallow 自動發現 target，不需要手動列出主機。
-2. **把它註冊為該 Site 的 metrics Integration**（見下方）。在 metrics Integration 存在之前，
-   圖表會說明尚未設定 metrics backend——不會把你的 Server 回報成 down。
+1. **Site 的 Prometheus。** [Production installation](../installation.md) 會為它的 Site 執行一套
+   Prometheus，並註冊為該 Site 的 metrics Integration（`site-prometheus`）。它從 swallow 自動發現
+   該 Site 的 exporter，不需要手動列出主機；它不發佈到主機上，由 swallow 代為讀取。一個 Site 至多
+   一個 metrics Integration。
+2. **其他 Site。** 這一版只有 installation 的 Site 有 Prometheus。其他 Site 的圖表會說明尚未設定
+   metrics backend——不會把它的 Server 回報成 down。
 3. **照常佈署 Server。** 每次 OS 佈署都會在佈署的 Server 上安裝 Node Exporter（見
    [Exporters](#exporters)）；幾分鐘後，Server 的 **Monitoring** 分頁就會顯示用量歷史。不是由
    swallow 佈署的 Server（例如保留原有 OS 納管的 Server），請以 Managed Software 安裝
@@ -26,8 +27,9 @@ query。Grafana 是選用的：需要基本圖表以外的探索時再接上。
 
 ## 設定 integration
 
-註冊 Site-scoped Prometheus-compatible metrics Integration。可選擇設定 Alertmanager
-endpoint（alerts 與 silences 使用）以及 Grafana URL（選用的「Explore in Grafana」連結）。
+Installation 的 Site 已經有它的 metrics Integration。可選擇在上面設定 Alertmanager
+endpoint（alerts 與 silences 使用）以及 Grafana URL（選用的「Explore in Grafana」連結）；重跑
+installation 會保留它們，只把 endpoint 改回 Site 的 Prometheus。
 Integration sync state 會顯示 upstream reachability 與 staleness。
 
 沒有設定 Alertmanager 時，Overview 的 Alerts 卡片顯示「Not configured」，這是正常狀態，不是故障。
@@ -35,15 +37,16 @@ Integration sync state 會顯示 upstream reachability 與 staleness。
 
 ## Service discovery 與 labels
 
-Prometheus 使用：
+Site 的 Prometheus 使用：
 
 ```text
-GET /api/v1/discovery/prometheus
+GET /api/v1/discovery/prometheus/exporters?siteId=<site>
 ```
 
-Machine-to-machine access 請使用 configured machine bearer token。Target 會帶有
-穩定 `server_id`、`site` 與 canonical Platform labels；不要用 hostname
-或 address join 取代。
+它只列出 swallow 確知已安裝在該 Site 的 exporter，所以沒有 exporter 的 Server 不會成為 down
+的 target。Machine-to-machine access 請使用 configured machine bearer token。Target 會帶有
+穩定的 `server_id`、`site`、`platform_id`（Server 屬於某個 Platform 時）與 `exporter` labels；
+不要用 hostname 或 address join 取代。
 
 ## Exporters
 
@@ -52,7 +55,7 @@ swallow 使用固定 port，因此 Server 的 scrape target 不會因為由誰�
 | Exporter | Port | 安裝對象 |
 | --- | --- | --- |
 | node-exporter | 9100 | 每台由 swallow 佈署的 Server（CPU、memory、disk、network），安裝 OS 套件：Debian 與 Ubuntu 為 `prometheus-node-exporter`，RHEL 家族為 `node_exporter`（來自 EPEL） |
-| [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | swallow 不在主機上安裝；Prometheus 會 scrape 已經執行它的 AMD GPU Server（tag `amd-gpu`） |
+| [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | swallow 不在主機上安裝，也不收集：Site 的 Prometheus 只收集 swallow 安裝的 exporter |
 
 每台 Server 的 exporters 只會有一個 owner 負責安裝：
 

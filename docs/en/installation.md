@@ -26,6 +26,9 @@ When the installer finishes:
   **Provisioning → Images**;
 - Temporal, the worker, and the Ansible executor are connected, the Deployment Key exists,
   and Site automation is enabled;
+- a Prometheus for the Site `default` runs on the same VM, is that Site's metrics Integration,
+  and collects the exporters swallow installs on the Site's Servers (see
+  [Monitoring](guides/monitoring.md));
 - the VM serves NTP on UDP 123 (MAAS's own time service), and every Server swallow deploys
   uses it (see [Time synchronization](guides/os-provisioning.md#time-synchronization));
 - the `swallow` CLI is installed at `/usr/local/bin/swallow`.
@@ -35,8 +38,8 @@ When the installer finishes:
 - A clean Ubuntu 24.04 amd64 VM with `sudo`. A practical starting size is 4 vCPU,
   16 GiB RAM, and 100 GiB disk.
 - Outbound access to `github.com` (the release), `ghcr.io` (swallow's own images), Docker Hub
-  (the official MongoDB, PostgreSQL, and Temporal images), `download.docker.com`, the Snap
-  Store, and `images.maas.io`.
+  (the official MongoDB, PostgreSQL, Temporal, and Prometheus images), `download.docker.com`,
+  the Snap Store, and `images.maas.io`.
 - Free ports: 80 (Dashboard), 5240 (MAAS), and loopback 5432 (PostgreSQL for MAAS). Machines
   reach the VM's NTP on UDP 123.
 - A reachable NTP server for the VM itself. The VM follows `ntp.ubuntu.com` by default; on a
@@ -66,7 +69,8 @@ The installer verifies the release against its checksums, extracts it into `/opt
 (`--dir` changes the directory), and runs `swallowctl install`: it installs Docker when
 missing, writes the release's image digests and your settings to `.env`, generates secrets,
 starts the stack, creates the Deployment Key, installs MAAS, imports `ubuntu/noble` (several
-hundred MB), registers MAAS in swallow, and ends with `swallowctl doctor`. It is safe to rerun:
+hundred MB), registers MAAS and the Site's Prometheus in swallow, and ends with
+`swallowctl doctor`. It is safe to rerun:
 an installation that stopped part way resumes. `--help` lists the options. Once a stable
 release exists, `https://github.com/maple52046/swallow/releases/latest/download/install.sh`
 always installs the newest one.
@@ -124,4 +128,5 @@ releases do not publish the native bundle yet.
 - Install only from a release manifest with immutable image digests.
 - Schedule `swallowctl backup` and rehearse `restore`. A backup holds MongoDB, the credential
   key, Workflow artifacts, and the MAAS database; the Deployment Key's private key is sealed
-  with the credential key, so both must be restored together.
+  with the credential key, so both must be restored together. Metrics in the Site's Prometheus
+  are not backed up: losing them loses usage history only.

@@ -1,5 +1,5 @@
 {
-  "internal/core/discovery/application/discovery.go": 16,
+  "internal/core/discovery/application/discovery.go": 12,
   "internal/core/discovery/delivery/handler.go": 4,
   "internal/core/monitoring/application/metric_range.go": 2,
   "internal/core/monitoring/application/server_metrics.go": 11,

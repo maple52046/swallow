@@ -164,17 +164,18 @@ swallow servers inspect server1
 
 ## Monitoring 是空的
 
-- 用量圖表顯示「No metrics backend for this Site」代表尚未註冊 metrics Integration（或無法
-  連線）；請為該 Site 註冊一個。
-- 驗證 Prometheus 可使用 machine token 呼叫 service discovery（若 swallow 前面有 TLS
-  terminator，也要信任它的 CA）。
+- 用量圖表顯示「No metrics backend for this Site」代表該 Site 沒有 metrics Integration（或無法
+  連線）。在 installation 的 Site 上，`sudo /opt/swallow/production/swallowctl ensure` 會重新註冊
+  Site 的 Prometheus；其他 Site 在這一版沒有 Prometheus。
+- 執行 `sudo /opt/swallow/production/swallowctl doctor`：它會檢查 Site 的 Prometheus 是否 ready，
+  以及是否為 installation 的 Site 執行 `swallow-exporters` job。
 - 確認 exporter 已安裝，且 discovered target 可連線：OS 佈署會在
   `install-node-exporter-<serverId>` Task 安裝 Node Exporter（安裝失敗時佈署 Workflow 會停下等待
   處理，請重試該 Task）。不是由 swallow 佈署的 Server 與 locked Server 不會安裝；請在未 locked 的
   Server 上以 Managed Software 安裝 **Node Exporter**。
 - 只有某個 metric 顯示「No data」——例如 GPU 圖表——通常代表該 exporter 沒有在 Server 上執行。
-  swallow 不在主機上安裝 RDC exporter，因此 AMD GPU Server 只有在主機上已經執行 RDC exporter、
-  且 Server 帶有 `amd-gpu` tag 時才會顯示 GPU 圖表。
+  Site 的 Prometheus 只收集 swallow 安裝的 exporter，所以你自己執行的 exporter（例如 RDC
+  exporter）不會被收集。
 - Missing metric data 是 unknown，不是 failure 證據。
 
 ## 保留 request ID

@@ -1,0 +1,20 @@
+# The installation Site's Prometheus. Prometheus does not expand environment variables here, so
+# both jobs read the machine token from the Compose secret.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  # swallow's own metrics.
+  - job_name: swallow-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: [api-server:30051]
+    authorization:
+      credentials_file: /run/secrets/machine_token
+
+# The swallow-exporters job: swallowctl renders it from prometheus-exporters.yml.template into
+# state/prometheus/ with the installation Site's id, which exists only after bootstrap.sh apply.
+# Until then the directory is empty and Prometheus scrapes swallow alone.
+scrape_config_files:
+  - /etc/prometheus/site/*.yml

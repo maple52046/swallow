@@ -57,10 +57,15 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
 7. runs [`bootstrap.sh`](bootstrap.sh) through the published API: Site `default`, the MAAS
    provisioner Integration with the rack's `virsh` public key as its `virshSshPublicKey`
    setting (swallow authorizes it on a hypervisor when it enrolls that hypervisor's libvirt
-   virtual machines), Site automation defaults (enabled, Deployment Key, no playbook
-   mappings) when the Site has none; then waits for the Integration sync and the
-   `ubuntu/noble` catalog entry;
-8. runs `doctor`, records the installed release in `state/installed`, and prints the
+   virtual machines), the Site's Prometheus as its metrics Integration (`site-prometheus`,
+   `http://prometheus:9090`; an existing metrics Integration is repointed, never duplicated),
+   Site automation defaults (enabled, Deployment Key, no playbook mappings) when the Site has
+   none; then waits for the Integration sync and the `ubuntu/noble` catalog entry;
+8. renders the Prometheus exporter discovery for the Site: the `swallow-exporters` job, from
+   [`prometheus-exporters.yml.template`](prometheus-exporters.yml.template) with the Site's id,
+   into `state/prometheus/swallow-exporters.yml`, restarting Prometheus only when it has not
+   loaded that file yet;
+9. runs `doctor`, records the installed release in `state/installed`, and prints the
    Dashboard URL and where the passwords are.
 
 It never creates an SSH Access Key: the user adds their own in the Dashboard.
@@ -73,6 +78,7 @@ It never creates an SSH Access Key: the user adds their own in the Dashboard.
 | API, worker, Ansible executor | Compose | internal `control` plus `egress` (reach MAAS and Servers) |
 | MongoDB (single-node replica set `rs0`), Temporal | Compose | internal only |
 | PostgreSQL | Compose | Temporal databases and `maasdb`; `127.0.0.1:${SWALLOW_POSTGRES_HOST_PORT:-5432}` for MAAS |
+| Prometheus (the Site's metrics) | Compose | internal `control` plus `egress` (scrape the Servers' exporters); not published, the API reads `http://prometheus:9090` |
 | MAAS 3.6 region+rack | snap on the host | `SWALLOW_MAAS_URL`, which swallow's provisioner Integration uses too |
 | Control-Plane NTP Server (MAAS's chronyd) | snap on the host | UDP 123 on every address, including `SWALLOW_ADDRESS` |
 | Temporal UI | Compose profile `diagnostics` | `127.0.0.1:${SWALLOW_TEMPORAL_UI_PORT:-8233}`, off by default |
@@ -92,6 +98,13 @@ from this host's clock): this host follows it, so the two would only chase each 
 reachable upstream the server keeps serving its local clock, so Servers still agree with each
 other.
 
+The Site's Prometheus collects swallow's own metrics (`swallow-api`) and every exporter swallow
+knows is installed on this Site's Servers (`swallow-exporters`, discovered from the API with the
+machine token), every 30 seconds. [`prometheus.yml`](prometheus.yml) is shipped; the exporter
+job is rendered under `state/`, which a new release does not overwrite. Its metrics are kept for
+`SWALLOW_PROMETHEUS_RETENTION` and are never backed up: losing them loses usage history, not
+swallow state.
+
 ## Settings
 
 Set these in `.env` or the environment before the first `install`. `install` and `upgrade`
@@ -109,6 +122,7 @@ write the ones set in the environment into `.env`, so later runs keep them:
 | `SWALLOW_SSH_KNOWN_HOSTS` | scanned per run | static known_hosts for the Site automation |
 | `SWALLOW_NTP_UPSTREAM` | `ntp.ubuntu.com` | NTP servers the Control-Plane NTP Server follows, separated by commas or spaces; an address becomes `server <ip> iburst`, a name `pool <name> iburst`. Change it later with `swallowctl ntp upstream` |
 | `SWALLOW_NTP_ALLOW` | every client | without a co-located MAAS only: client subnets host chrony answers |
+| `SWALLOW_PROMETHEUS_RETENTION` | `30d` | how long the Site's Prometheus keeps metrics (a Prometheus duration); the longest usage history swallow can chart |
 
 ## Check
 
@@ -121,7 +135,9 @@ sudo ./swallowctl doctor
 queue, and `ansible-runner` executes the shipped `diagnostic-ping` playbook, the MAAS API and its `ubuntu/noble` boot resource,
 the Control-Plane NTP Server (UDP 123 served, MAAS's upstream equals `SWALLOW_NTP_UPSTREAM` or the
 default, and whether it follows that upstream), the admin login, the Deployment Key, Site
-automation, the MAAS Integration sync, and the `ubuntu/noble` entry in the OS Image catalog. It also prints how many Workflows have not reached a terminal status. It deploys
+automation, the metrics Integration pointing at the Site's Prometheus, the MAAS Integration sync,
+and the `ubuntu/noble` entry in the OS Image catalog, and that Prometheus is ready and runs the
+`swallow-exporters` job of this Site. It also prints how many Workflows have not reached a terminal status. It deploys
 nothing.
 
 ## Recover
@@ -134,10 +150,11 @@ The installation's desired state is the contract `doctor` checks:
 4. the Ansible executor process runs, polls the `swallow-ansible` task queue with an activity
    poller, and executes the shipped `diagnostic-ping` playbook;
 5. the Dashboard and API answer `/readyz` on the HTTP port;
-6. the co-located MAAS answers with a complete `ubuntu/noble` and its virsh SSH identity, the
-   Control-Plane NTP Server serves UDP 123 with the configured upstream, and the installation
-   records (admin login, Deployment Key, Site automation, MAAS Integration sync, OS Image
-   catalog) exist.
+6. Prometheus is ready and runs the `swallow-exporters` job;
+7. the co-located MAAS answers with a complete `ubuntu/noble` and its virsh SSH identity, the
+   Control-Plane NTP Server serves UDP 123 with the configured upstream, the installation
+   records (admin login, Deployment Key, Site automation, metrics Integration, MAAS Integration
+   sync, OS Image catalog) exist, and Prometheus discovers the exporters of the installation Site.
 
 `doctor` only reports drift from this state. After a power loss, a host reboot, or any `FAIL`
 line, run one command:
@@ -148,8 +165,9 @@ sudo ./swallowctl ensure
 
 `ensure` starts the declared services that are not running, then holds each condition in
 dependency order: when one fails, it restarts the services that own it (the MAAS snap for the
-MAAS API), runs the idempotent `local-maas.sh` ensure steps, `local-ntp.sh install` and `upstream`, or
-`bootstrap.sh apply` when their checks fail, and finally runs `doctor`. A condition that still fails is printed with its
+MAAS API), runs the idempotent `local-maas.sh` ensure steps, `local-ntp.sh install` and `upstream`,
+`bootstrap.sh apply`, or the Prometheus exporter discovery rendering when their checks fail, and
+finally runs `doctor`. A condition that still fails is printed with its
 services' recent logs. `ensure` is safe to rerun. It never recreates a running container or
 applies a changed `.env` (that is `upgrade`), and it never cancels or retries Workflows.
 
@@ -161,8 +179,8 @@ applies a changed `.env` (that is `upgrade`), and it never cancels or retries Wo
   images, stops the API, worker, and Ansible executor, backs up to
   `backups/pre-upgrade-<installed version>-<time>` (kept until you remove it), migrates, starts
   the stack, ensures the Control-Plane NTP Server and its upstream, the MAAS rack's `virsh` SSH
-  key and its record on the Integration, and reruns `doctor`. `install.sh` refuses a downgrade
-  before it extracts anything.
+  key and its record on the Integration, the metrics Integration and the Prometheus exporter
+  discovery, and reruns `doctor`. `install.sh` refuses a downgrade before it extracts anything.
 - `sudo ./swallowctl ntp upstream [show | set SERVER... | default]` shows, sets, or resets the
   NTP server's upstream. `set` and `default` apply the change first and record it in `.env` only
   when it succeeded. swallowctl owns MAAS's `ntp_servers`: a value set in the MAAS UI is replaced
@@ -171,7 +189,7 @@ applies a changed `.env` (that is `upgrade`), and it never cancels or retries Wo
   database, and `backup.json` (the release and database schema it was taken from) under
   `backups/`, with checksums relative to the backup. Schedule it daily; retention is seven daily
   and four Sunday weekly recovery points. MAAS boot images re-sync from `images.maas.io`.
-  Temporal is not backed up.
+  Temporal and the Prometheus metrics (volume `prometheus-data`) are not backed up.
 - `sudo ./swallowctl restore BACKUP_DIRECTORY --yes` verifies the checksums, refuses a backup from
   a newer release, stops the API, worker, and Ansible executor, restores MongoDB, the artifacts
   (replacing the current ones), the credential key, and the MAAS database, migrates, terminates
@@ -193,6 +211,7 @@ images offline is not automated yet.
 docker compose logs -f api-server worker ansible-executor
 sudo ./local-maas.sh check
 sudo ./local-ntp.sh check
+docker compose exec prometheus wget -qO- http://127.0.0.1:9090/api/v1/targets   # Prometheus is not published
 ```
 
 The Temporal UI is optional and not part of a release. To use it, set

@@ -469,7 +469,7 @@ paths:
             application/json:
               schema:
                 items:
-                  $ref: '#/components/schemas/PrometheusTarget'
+                  $ref: '#/components/schemas/ScrapeTarget'
                 type: array
           description: The target list in Prometheus http_sd shape; an empty array when none match.
         "400":
@@ -501,6 +501,45 @@ paths:
       security:
         - machineToken: []
       summary: Serve the Prometheus http_sd target list with the metrics label contract attached.
+      tags:
+        - monitoring
+  /api/v1/discovery/prometheus/exporters:
+    get:
+      description: Machine authentication, as listPrometheusTargets. One target per installed exporter of the Site's present Servers, labelled `server_id`, `site`, `exporter`, and `platform_id` when the Server has a Platform Claim. A Server without an exporter, or without a known address, is not a target. Never paginated (discovery-prometheus.md).
+      operationId: listExporterTargets
+      parameters:
+        - description: Keep only Servers of this Site; omitted means every Site.
+          in: query
+          name: siteId
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ScrapeTarget'
+                type: array
+          description: The target list in Prometheus http_sd shape; an empty array when none match.
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: Missing or invalid machine token or access token (unauthorized).
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: A valid access token whose role is not admin (forbidden).
+        default:
+          $ref: '#/components/responses/Error'
+      security:
+        - machineToken: []
+      summary: Serve the Site Prometheus its scrape targets, one per exporter swallow knows is installed.
       tags:
         - monitoring
   /api/v1/infrastructure/pools:
@@ -11849,36 +11888,6 @@ components:
         - driver
         - family
       type: object
-    PrometheusTarget:
-      description: One Prometheus http_sd entry.
-      properties:
-        labels:
-          description: The metrics label contract (decision 003); no other identity label may be added.
-          properties:
-            platform_id:
-              description: The Platform id; present only when the Server is a known Platform member.
-              type: string
-            server_id:
-              description: The Server id.
-              type: string
-            site:
-              description: The Server's Site id.
-              type: string
-          required:
-            - server_id
-            - site
-          type: object
-        targets:
-          description: The Server's primary address and the requested port, as `host:port`.
-          items:
-            type: string
-          maxItems: 1
-          minItems: 1
-          type: array
-      required:
-        - targets
-        - labels
-      type: object
     ProviderEvent:
       description: One client-safe event from the provisioner's retained machine history.
       properties:
@@ -12451,6 +12460,39 @@ components:
       required:
         - kind
         - id
+      type: object
+    ScrapeTarget:
+      description: One Prometheus http_sd entry.
+      properties:
+        labels:
+          description: The metrics label contract (decision 003); no other identity label may be added.
+          properties:
+            exporter:
+              description: The exporter's declared name, e.g. `node-exporter`; present on exporter targets only.
+              type: string
+            platform_id:
+              description: The Platform of the Server's Platform Claim; present only when it has one.
+              type: string
+            server_id:
+              description: The Server id.
+              type: string
+            site:
+              description: The Server's Site id.
+              type: string
+          required:
+            - server_id
+            - site
+          type: object
+        targets:
+          description: The Server's primary address and the exporter's port, as `host:port`.
+          items:
+            type: string
+          maxItems: 1
+          minItems: 1
+          type: array
+      required:
+        - targets
+        - labels
       type: object
     Server:
       description: 'A Server as a migrated resource (servers-list.md, decision 071): its identity and origin, the spec generation, the spec (the desired provisioner-realized fields), and the status. Secret-free.'

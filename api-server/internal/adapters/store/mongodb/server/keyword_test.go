@@ -62,3 +62,41 @@ func TestListKeywordIsALiteralSubstringOfIdentityFields(t *testing.T) {
 		}
 	}
 }
+
+// IDs restricts the listing to the given Servers; an empty, non-nil list matches none.
+func TestListIDsRestrictsTheResult(t *testing.T) {
+	_, repo, _ := claimTestDatabase(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	for _, id := range []string{"srv-a", "srv-b", "srv-c"} {
+		server := &serverdomain.Server{
+			ID: id, Source: serverdomain.Source{SiteID: "site-1", IntegrationID: "maas-1", ProviderMachineID: id},
+			Observed:  serverdomain.Observed{Hostname: id},
+			CreatedAt: now, UpdatedAt: now, LastSeenAt: now,
+		}
+		if err := repo.Upsert(ctx, server); err != nil {
+			t.Fatalf("Upsert(%s) error = %v", id, err)
+		}
+	}
+	for _, tc := range []struct {
+		ids  []string
+		want []string
+	}{
+		{ids: []string{"srv-c", "srv-a", "srv-missing"}, want: []string{"srv-a", "srv-c"}},
+		{ids: []string{}, want: nil},
+		{ids: nil, want: []string{"srv-a", "srv-b", "srv-c"}},
+	} {
+		result, err := repo.List(ctx, serverdomain.ListFilter{IDs: tc.ids})
+		if err != nil {
+			t.Fatalf("List(ids %v) error = %v", tc.ids, err)
+		}
+		var got []string
+		for _, server := range result.Servers {
+			got = append(got, server.ID)
+		}
+		slices.Sort(got)
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("List(ids %v) = %v, want %v", tc.ids, got, tc.want)
+		}
+	}
+}

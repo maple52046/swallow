@@ -18,15 +18,6 @@
         "packages/"
       ]
     },
-    "prometheus": {
-      "version": "release-managed",
-      "media": "prometheus/",
-      "requiredFiles": [
-        "SHA256SUMS",
-        "prometheus",
-        "node_exporter"
-      ]
-    },
     "maas": {
       "version": "3.6",
       "media": "maas/",

@@ -216,10 +216,9 @@ node-exporter 的 target 時是 unknown，不是 `down`——swallow 沒有在�
 
 本設計正在實作。以下是目前程式與本設計不同的地方，實作完成時從這裡移除：
 
-- Site 的 Prometheus 尚未隨安裝部署：目前由 user 依 `deploy/third-party/prometheus` 的範本自行架設並登錄成 metrics
-  Integration，swallow 讀取時只取第一個啟用的 metrics Integration。
-- discovery 仍依 port 與 tag 列出所有已部署的 Server，所以沒有 exporter 的 Server 也會成為 target，health 顯示為 `down`。
-- `platform_id` 目前取自 membership。
+- 在本設計之前部署的 Server 沒有 node-exporter 的 Software Assignment，所以不是 scrape target，health 為 unknown；
+  node-exporter 成為 desired state 之後（§4.1）才會自動補裝。
+- Platform 功能的 exporter（Omnistat、GPU Operator 的 DME）尚未由模組宣告，所以還不在 scrape target 裡。
 - Exporter Ownership（`exporterOwner`）與 Kubernetes 的 exporter DaemonSet 仍在。
 - Slurm 的 Omnistat 與 DME 仍在 controller 上組入 Prometheus；Omnistat 只允許那一套 Prometheus 收集。
 - GPU Operator 的 DME 只在 Pod 網路上，沒有人收集。

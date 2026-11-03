@@ -29,7 +29,7 @@ Local-only bootstrap account 是 `admin` / `admin`。
 | `temporal-postgresql` | internal | Temporal databases |
 | `worker` | internal | Workflow／activity execution |
 | `ansible-executor` | internal | Idempotent Ansible attempt 與 event |
-| `prometheus` | 9090 | 使用 swallow discovery 的 local monitoring demo |
+| `prometheus` | 9090 | Site 的 Prometheus：swallow 自己的 metrics（`swallow-api`）與 swallow 確知已安裝的 exporter（`swallow-exporters`，來自 swallow discovery） |
 
 ## 常用指令
 
@@ -43,8 +43,9 @@ docker compose build --no-cache
 
 ## 檢查與恢復
 
-`swallowctl` 以與 production installation 相同的健康契約（不含共置 MAAS 與安裝紀錄）檢查並
-收斂這個 stack：
+`swallowctl` 以與 production installation 相同的健康契約（不含共置 MAAS、安裝紀錄，以及
+installation Site 的 exporter discovery；這裡的 `prometheus.yml` 改以一個涵蓋所有 Site 的 job 取代）
+檢查並收斂這個 stack：
 
 ```bash
 ../production/swallowctl doctor --profile dev
@@ -147,7 +148,8 @@ gateway）不能跑在這台主機上：MAAS 的 chronyd 會追一個用它自�
 
 ## Seed demonstration Site
 
-Idempotent seed script 會建立 deployment key（`swallow-api deployment-key ensure`，即安裝步驟；API 啟動時不會建立）、login、建立 Site、註冊 in-Compose Prometheus Integration、
+Idempotent seed script 會建立 deployment key（`swallow-api deployment-key ensure`，即安裝步驟；API 啟動時不會建立）、login、建立 Site、
+把 in-Compose Prometheus 註冊為它的 metrics Integration（與 production bootstrap 相同，從不建立第二個）、
 設定 site automation，並在有提供資料時註冊 MAAS：
 
 ```bash

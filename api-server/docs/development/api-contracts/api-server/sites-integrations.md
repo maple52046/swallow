@@ -79,7 +79,8 @@ are trimmed and must not be blank. The valid pairs are `provisioner`/`maas` and
 `metrics`/`prometheus`. `credential` is optional (omitted or `""` stores none), `enabled`
 defaults to `true`, and `settings` is a string map (see below). An unknown `siteId` is
 `404 not_found`. `name` is unique within a Site: a create or a rename onto a name another
-Integration of the Site has is `409 conflict`.
+Integration of the Site has is `409 conflict`. A Site has at most one `metrics` Integration (its
+Prometheus): creating a second in the same Site is `409 conflict`.
 
 `GET /api/v1/integrations` does not validate `kind`: a value no Integration has returns `[]`.
 
@@ -127,6 +128,9 @@ has it absent, which means on.
 | `virshSshPublicKey` | An OpenSSH public key line, or absent | The public key the provisioner's rack controller uses for `virsh` power over `qemu+ssh` ([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md) (libvirt virtual machine enrollment)). Virtual-machine enrollment authorizes it for the login account on the hypervisor ([server-enrollment.md](server-enrollment.md#virtual-machines-libvirt)). The installation sets it for a co-located MAAS. It is a public key, not a secret. |
 
 ## Compatibility Notes
+
+On 2026-11-03 a second `metrics` Integration in a Site became `409 conflict`; a Site has one
+Prometheus, which reads every one of its Servers' metrics.
 
 - Since 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases),
   breaking) `kind=cluster` is no longer read as `platform`: a list filter returns what any other

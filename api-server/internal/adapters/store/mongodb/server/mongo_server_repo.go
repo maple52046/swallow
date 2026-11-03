@@ -379,6 +379,9 @@ func (r *MongoServerRepo) FindByHardware(ctx context.Context, hardware serverdom
 func (r *MongoServerRepo) List(ctx context.Context, filter serverdomain.ListFilter) (serverdomain.ListResult, error) {
 	query := bson.M{}
 
+	if filter.IDs != nil {
+		query["_id"] = bson.M{"$in": filter.IDs}
+	}
 	if filter.SiteID != "" {
 		query["source.siteId"] = filter.SiteID
 	}

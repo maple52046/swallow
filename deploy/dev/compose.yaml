@@ -247,9 +247,10 @@ services:
     restart: unless-stopped
     depends_on:
       - api-server
-    # Reaches the api-server over the compose network for http_sd, and reaches lab VMs
-    # (node-exporter/rdc-exporter targets) by their own routable LAN address. host-gateway
-    # is mapped for exporters that happen to live on the host.
+    # The dev Site's Prometheus, with the same two jobs as the production installation's
+    # (prometheus.yml). It reaches the api-server over the compose network for http_sd, and the
+    # exporters on lab Servers by their own routable LAN address. host-gateway is mapped for
+    # exporters that happen to live on the host.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     command:

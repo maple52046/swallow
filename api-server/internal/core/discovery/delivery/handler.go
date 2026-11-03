@@ -14,10 +14,21 @@ const defaultExporterPort = 9100
 
 type DiscoveryHandler struct {
 	discovery *application.DiscoveryUseCase
+	exporters *application.ExporterDiscovery
 }
 
-func NewDiscoveryHandler(discovery *application.DiscoveryUseCase) *DiscoveryHandler {
-	return &DiscoveryHandler{discovery: discovery}
+func NewDiscoveryHandler(discovery *application.DiscoveryUseCase, exporters *application.ExporterDiscovery) *DiscoveryHandler {
+	return &DiscoveryHandler{discovery: discovery, exporters: exporters}
+}
+
+// ExporterTargets serves the Site Prometheus's http_sd endpoint: every exporter swallow knows is
+// installed on the Site's Servers (siteId optional), already labelled.
+func (h *DiscoveryHandler) ExporterTargets(c *fiber.Ctx) error {
+	targets, err := h.exporters.Targets(c.Context(), c.Query("siteId"))
+	if err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	return c.JSON(targets)
 }
 
 // PrometheusTargets serves a Prometheus http_sd_config endpoint.

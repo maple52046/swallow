@@ -10,7 +10,8 @@
     "cli": "ghcr.io/maple52046/swallow@sha256:REPLACE",
     "mongo": "docker.io/library/mongo@sha256:REPLACE",
     "postgres": "docker.io/library/postgres@sha256:REPLACE",
-    "temporalServer": "docker.io/temporalio/auto-setup@sha256:REPLACE"
+    "temporalServer": "docker.io/temporalio/auto-setup@sha256:REPLACE",
+    "prometheus": "docker.io/prom/prometheus@sha256:REPLACE"
   },
   "compatibility": {
     "host": "ubuntu-24.04-amd64",
@@ -25,8 +26,8 @@
     "thirdPartyMediaManifest": "offline-media-manifest.json"
   },
   "upgrade": {
-    "from": [2, 3, 4, 5, 6, 7, 8, 9],
-    "to": 10,
+    "from": [2, 3, 4, 5, 6, 7, 8, 9, 10],
+    "to": 11,
     "downgradeSupported": false
   }
 }

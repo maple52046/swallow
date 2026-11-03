@@ -257,6 +257,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/discovery/prometheus/exporters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Serve the Site Prometheus its scrape targets, one per exporter swallow knows is installed.
+         * @description Machine authentication, as listPrometheusTargets. One target per installed exporter of the Site's present Servers, labelled `server_id`, `site`, `exporter`, and `platform_id` when the Server has a Platform Claim. A Server without an exporter, or without a known address, is not a target. Never paginated (discovery-prometheus.md).
+         */
+        get: operations["listExporterTargets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/infrastructure/pools": {
         parameters: {
             query?: never;
@@ -5420,20 +5440,6 @@ export interface components {
             /** @enum {string} */
             family: "bmc" | "virsh";
         };
-        /** @description One Prometheus http_sd entry. */
-        PrometheusTarget: {
-            /** @description The metrics label contract (decision 003); no other identity label may be added. */
-            labels: {
-                /** @description The Platform id; present only when the Server is a known Platform member. */
-                platform_id?: string;
-                /** @description The Server id. */
-                server_id: string;
-                /** @description The Server's Site id. */
-                site: string;
-            };
-            /** @description The Server's primary address and the requested port, as `host:port`. */
-            targets: string[];
-        };
         /** @description One client-safe event from the provisioner's retained machine history. */
         ProviderEvent: {
             actor: string | null;
@@ -5675,6 +5681,22 @@ export interface components {
             id: string;
             /** @description The resource kind, for example `platform` or `server`. */
             kind: string;
+        };
+        /** @description One Prometheus http_sd entry. */
+        ScrapeTarget: {
+            /** @description The metrics label contract (decision 003); no other identity label may be added. */
+            labels: {
+                /** @description The exporter's declared name, e.g. `node-exporter`; present on exporter targets only. */
+                exporter?: string;
+                /** @description The Platform of the Server's Platform Claim; present only when it has one. */
+                platform_id?: string;
+                /** @description The Server id. */
+                server_id: string;
+                /** @description The Server's Site id. */
+                site: string;
+            };
+            /** @description The Server's primary address and the exporter's port, as `host:port`. */
+            targets: string[];
         };
         /** @description A Server as a migrated resource (servers-list.md, decision 071): its identity and origin, the spec generation, the spec (the desired provisioner-realized fields), and the status. Secret-free. */
         Server: {
@@ -7257,7 +7279,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrometheusTarget"][];
+                    "application/json": components["schemas"]["ScrapeTarget"][];
                 };
             };
             /** @description `port` is not an integer between 1 and 65535 (validation_error). */
@@ -7289,6 +7311,48 @@ export interface operations {
             };
             /** @description An unexpected failure (internal_error). */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listExporterTargets: {
+        parameters: {
+            query?: {
+                /** @description Keep only Servers of this Site; omitted means every Site. */
+                siteId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The target list in Prometheus http_sd shape; an empty array when none match. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScrapeTarget"][];
+                };
+            };
+            /** @description Missing or invalid machine token or access token (unauthorized). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A valid access token whose role is not admin (forbidden). */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

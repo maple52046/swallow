@@ -27,7 +27,7 @@ env_file="${script_dir}/.env"
 maas_marker="${script_dir}/state/local-maas"
 default_manifest="${script_dir}/../release-manifest.json"
 required_images=(SWALLOW_API_IMAGE SWALLOW_DASHBOARD_IMAGE SWALLOW_MONGO_IMAGE
-  SWALLOW_POSTGRES_IMAGE SWALLOW_TEMPORAL_SERVER_IMAGE)
+  SWALLOW_POSTGRES_IMAGE SWALLOW_TEMPORAL_SERVER_IMAGE SWALLOW_PROMETHEUS_IMAGE)
 managed_env_keys=(SWALLOW_RELEASE_VERSION "${required_images[@]}")
 required_secrets=(mongo-root-username mongo-root-password mongo-keyfile mongo-uri temporal-db-password
   jwt-secret bootstrap-admin-password credential-key machine-token maas-db-password maas-admin-password)
@@ -38,7 +38,14 @@ installed_marker="${script_dir}/state/installed"
 # SWALLOW_SSH_KNOWN_HOSTS is left out: it may span lines, which .env cannot hold.
 setting_keys=(SWALLOW_ADDRESS SWALLOW_MAAS_URL SWALLOW_BOOT_MEDIA_BASE_URL SWALLOW_HTTP_PORT
   SWALLOW_POSTGRES_HOST_PORT SWALLOW_MAAS_IMAGE_TIMEOUT SWALLOW_SITE_NAME
-  SWALLOW_TEMPORAL_UI_IMAGE SWALLOW_TEMPORAL_UI_PORT SWALLOW_NTP_UPSTREAM SWALLOW_NTP_ALLOW)
+  SWALLOW_TEMPORAL_UI_IMAGE SWALLOW_TEMPORAL_UI_PORT SWALLOW_NTP_UPSTREAM SWALLOW_NTP_ALLOW
+  SWALLOW_PROMETHEUS_RETENTION)
+# The Site Prometheus loads every *.yml in prometheus_site_dir (see prometheus.yml). swallowctl
+# renders the installation Site's exporter discovery there from the bundle's template; the
+# directory is not in the bundle, so extracting a new release keeps it.
+prometheus_site_dir="${script_dir}/state/prometheus"
+prometheus_site_file="${prometheus_site_dir}/swallow-exporters.yml"
+prometheus_site_template="${script_dir}/prometheus-exporters.yml.template"
 # profile selects the declared stack doctor and ensure act on (see use_profile); every other
 # command acts on the production installation only.
 profile=production
@@ -68,7 +75,7 @@ write_env_from_manifest() {
   local manifest="$1" tmp key
   [[ -f "${manifest}" ]] || die "release manifest not found: ${manifest}"
   jq -e '.version and .images.api and .images.dashboard and .images.mongo and
-    .images.postgres and .images.temporalServer' "${manifest}" >/dev/null ||
+    .images.postgres and .images.temporalServer and .images.prometheus' "${manifest}" >/dev/null ||
     die "not a swallow release manifest: ${manifest}"
   tmp="$(mktemp "${script_dir}/.env.XXXXXX")"
   if [[ -f "${env_file}" ]]; then
@@ -79,7 +86,8 @@ write_env_from_manifest() {
     "SWALLOW_DASHBOARD_IMAGE=\(.images.dashboard)",
     "SWALLOW_MONGO_IMAGE=\(.images.mongo)",
     "SWALLOW_POSTGRES_IMAGE=\(.images.postgres)",
-    "SWALLOW_TEMPORAL_SERVER_IMAGE=\(.images.temporalServer)"' \
+    "SWALLOW_TEMPORAL_SERVER_IMAGE=\(.images.temporalServer)",
+    "SWALLOW_PROMETHEUS_IMAGE=\(.images.prometheus)"' \
     "${manifest}" >>"${tmp}"
   chmod 0600 "${tmp}"
   mv -- "${tmp}" "${env_file}"
@@ -196,6 +204,11 @@ preflight() {
   if [[ -n "${SWALLOW_TEMPORAL_UI_IMAGE:-}" && ! "${SWALLOW_TEMPORAL_UI_IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]]; then
     die 'SWALLOW_TEMPORAL_UI_IMAGE must be an exact OCI digest reference when set'
   fi
+  if [[ -n "${SWALLOW_PROMETHEUS_RETENTION:-}" &&
+    ! "${SWALLOW_PROMETHEUS_RETENTION}" =~ ^(([0-9]+y)?([0-9]+w)?([0-9]+d)?([0-9]+h)?([0-9]+m)?([0-9]+s)?([0-9]+ms)?|0)$ ]]; then
+    die "SWALLOW_PROMETHEUS_RETENTION must be a Prometheus duration such as 30d or 12w: '${SWALLOW_PROMETHEUS_RETENTION}'"
+  fi
+  [[ -f "${prometheus_site_template}" ]] || die "missing ${prometheus_site_template##*/}: the bundle is incomplete"
   for secret in "${required_secrets[@]}"; do
     [[ -s "${script_dir}/secrets/${secret}" ]] || die "missing secret: ${secret} (run prepare-secrets.sh)"
   done
@@ -293,7 +306,8 @@ prune_backups() {
 
 # take_backup writes one backup to backups/NAME-<UTC stamp> and prints its path. It captures
 # MongoDB, the job artifacts, the credential key that unseals stored secrets, and, when the
-# co-located MAAS exists, its database (boot images re-sync from images.maas.io). backup.json
+# co-located MAAS exists, its database (boot images re-sync from images.maas.io). The Site
+# Prometheus's metrics (volume prometheus-data) are disposable and never captured. backup.json
 # records the release and the database schema it was taken from, which restore checks first.
 # SHA256SUMS names the files relative to the backup, so a copy (the weekly hard link, or one moved
 # to another host) verifies on its own.
@@ -343,6 +357,49 @@ backup() {
 # key is kept. It needs the same MongoDB and credential key as the API, which `run` provides.
 ensure_deployment_key() {
   "${compose[@]}" run --rm --no-deps api-server deployment-key ensure
+}
+
+# installation_site_id prints the id of the Site bootstrap.sh apply created, read through the API.
+installation_site_id() {
+  "${script_dir}/bootstrap.sh" site-id
+}
+
+# render_prometheus_site prints the exporter discovery job of one Site from the bundle's template.
+# The id goes into a URL and a sed replacement, so anything but URL-safe characters is refused
+# rather than escaped.
+render_prometheus_site() {
+  if [[ ! "$1" =~ ^[A-Za-z0-9._~-]+$ ]]; then
+    printf "[swallowctl] refusing to render Prometheus discovery for the Site id '%s'\n" "$1" >&2
+    return 1
+  fi
+  sed "s/@SWALLOW_SITE_ID@/$1/g" "${prometheus_site_template}"
+}
+
+# ensure_prometheus_site makes the Site Prometheus discover the exporters of the installation Site.
+# It renders the discovery job into state/prometheus/ when the file differs (replacing it
+# atomically, so Prometheus never reads a partial file) and restarts Prometheus when it has not
+# loaded the file since it was written; an unchanged, loaded file leaves Prometheus untouched. It
+# then waits for the job, so it needs the Site (bootstrap.sh apply) and a started Prometheus.
+ensure_prometheus_site() {
+  local site_id content tmp
+  site_id="$(installation_site_id)" || return 1
+  content="$(render_prometheus_site "${site_id}")" || return 1
+  install -d -m 0755 "${prometheus_site_dir}"
+  if [[ ! -f "${prometheus_site_file}" || "$(<"${prometheus_site_file}")" != "${content}" ]]; then
+    tmp="$(mktemp "${prometheus_site_dir}/.swallow-exporters.XXXXXX")"
+    printf '%s\n' "${content}" >"${tmp}"
+    chmod 0644 "${tmp}"
+    mv -- "${tmp}" "${prometheus_site_file}"
+    log "rendered the exporter discovery of Site ${site_id} to ${prometheus_site_file}"
+  fi
+  if ! prometheus_loaded_site_file >/dev/null 2>&1; then
+    log 'restarting Prometheus to load the exporter discovery'
+    "${compose[@]}" restart prometheus >/dev/null || return 1
+  fi
+  if ! wait_for "${ensure_startup_seconds}" prometheus_runs_site_file; then
+    log 'Prometheus did not load the swallow-exporters job (docker compose logs prometheus)'
+    return 1
+  fi
 }
 
 install_cli() {
@@ -411,6 +468,7 @@ install_stack() {
   "${script_dir}/local-ntp.sh" install
   "${script_dir}/local-ntp.sh" upstream
   "${script_dir}/bootstrap.sh" apply
+  ensure_prometheus_site || die 'the Site Prometheus does not discover the installation Site'
   doctor
   mark_installed
   print_summary
@@ -501,10 +559,12 @@ upgrade() {
   "${script_dir}/local-ntp.sh" install
   "${script_dir}/local-ntp.sh" upstream
   # An installation from before decision 055 gets the rack's virsh SSH identity and records it on
-  # the provisioner Integration; both steps are idempotent.
+  # the provisioner Integration; both steps are idempotent. bootstrap.sh also registers the Site
+  # Prometheus, whose exporter discovery is then rendered for the installation Site.
   if [[ -f "${maas_marker}" ]]; then
     "${script_dir}/local-maas.sh" ensure-virsh-identity
     "${script_dir}/bootstrap.sh" apply
+    ensure_prometheus_site || die 'the Site Prometheus does not discover the installation Site'
   fi
   doctor
   mark_installed
@@ -632,10 +692,11 @@ EOF
 #   5. the Ansible executor process runs and polls the swallow-ansible task queue with an activity
 #      poller, and the shipped diagnostic-ping playbook runs;
 #   6. the Dashboard and API answer /readyz on the HTTP port;
-#   7. production only: the co-located MAAS answers with a complete ubuntu/noble and its virsh SSH
+#   7. Prometheus is ready and runs the swallow-exporters job;
+#   8. production only: the co-located MAAS answers with a complete ubuntu/noble and its virsh SSH
 #      identity (local-maas.sh check), the Control-Plane NTP Server serves UDP 123 with the
-#      configured upstream (local-ntp.sh check), and the installation records exist
-#      (bootstrap.sh verify).
+#      configured upstream (local-ntp.sh check), the installation records exist
+#      (bootstrap.sh verify), and Prometheus runs the exporter discovery of the installation Site.
 # The configuration itself (compose.yaml, the .env digests, secrets/) is declared, not converged
 # here: changing it is upgrade, which backs up and migrates first.
 
@@ -758,6 +819,52 @@ maas_api_answers() {
   curl -fsS --max-time 5 http://127.0.0.1:5240/MAAS/api/2.0/version/
 }
 
+# prometheus_api prints one response of the Prometheus HTTP API. Prometheus is not published on
+# the host, so the request runs inside its container (the image's busybox wget).
+prometheus_api() {
+  "${compose[@]}" exec -T prometheus wget -q -O - "http://127.0.0.1:9090$1"
+}
+
+prometheus_ready() {
+  prometheus_api /-/ready
+}
+
+# prometheus_scrapes_exporters: the swallow-exporters job is loaded. The API may list no exporter
+# yet, so the job's scrape pool is checked rather than its targets.
+prometheus_scrapes_exporters() {
+  prometheus_api /api/v1/scrape_pools | jq -e '.data.scrapePools | index("swallow-exporters") != null' >/dev/null
+}
+
+# prometheus_loaded_site_file: Prometheus last loaded its configuration successfully, and no earlier
+# than the rendered exporter discovery was written. Its status API does not show jobs loaded from
+# scrape_config_files, so the load time stands in for the file's content.
+prometheus_loaded_site_file() {
+  local loaded
+  [[ -f "${prometheus_site_file}" ]] || { printf '%s does not exist\n' "${prometheus_site_file}"; return 1; }
+  loaded="$(prometheus_api /api/v1/status/runtimeinfo |
+    jq -er 'select(.data.reloadConfigSuccess) | .data.lastConfigTime')" ||
+    { printf 'Prometheus did not load its configuration\n'; return 1; }
+  (( $(date -d "${loaded}" +%s) >= $(stat -c %Y "${prometheus_site_file}") )) ||
+    { printf 'Prometheus has not loaded %s since it was written\n' "${prometheus_site_file}"; return 1; }
+}
+
+prometheus_runs_site_file() {
+  prometheus_loaded_site_file && prometheus_scrapes_exporters
+}
+
+# prometheus_site_current: the rendered exporter discovery names the installation Site, and
+# Prometheus runs it.
+prometheus_site_current() {
+  local site_id expected
+  site_id="$(installation_site_id)" || return 1
+  expected="$(render_prometheus_site "${site_id}")" || return 1
+  if [[ ! -f "${prometheus_site_file}" || "$(<"${prometheus_site_file}")" != "${expected}" ]]; then
+    printf '%s does not discover the exporters of Site %s\n' "${prometheus_site_file}" "${site_id}"
+    return 1
+  fi
+  prometheus_runs_site_file
+}
+
 # report_active_operations prints how many Workflows are still in flight. It is information for
 # the user, not part of the contract: a busy installation is a healthy one.
 report_active_operations() {
@@ -781,12 +888,15 @@ doctor() {
   check 'Ansible executor is running' ansible_executor_running || failed=1
   check 'Ansible executor polls the swallow-ansible task queue' ansible_executor_polls_task_queue || failed=1
   check 'ansible-runner runs the shipped diagnostic-ping playbook' ansible_runner_works || failed=1
+  check 'Prometheus is ready' prometheus_ready || failed=1
+  check 'Prometheus runs the swallow-exporters job' prometheus_scrapes_exporters || failed=1
   if [[ "${profile}" == production ]]; then
     "${script_dir}/local-maas.sh" check || failed=1
     "${script_dir}/local-ntp.sh" check || failed=1
     "${script_dir}/bootstrap.sh" verify || failed=1
+    check 'Prometheus discovers the exporters of the installation Site' prometheus_site_current || failed=1
   else
-    printf 'skip  co-located MAAS, control-plane NTP, and installation records (production profile only)\n'
+    printf 'skip  co-located MAAS, control-plane NTP, installation records, and the installation Site'\''s exporter discovery (production profile only)\n'
   fi
   report_active_operations
   if ((failed)); then
@@ -897,8 +1007,9 @@ converge_local_ntp() {
   "${script_dir}/local-ntp.sh" install && "${script_dir}/local-ntp.sh" upstream
 }
 
-# converge_installation_records reapplies the idempotent bootstrap (Site, MAAS Integration, and
-# Site automation defaults written only when the Site has none) when its read-only verify fails.
+# converge_installation_records reapplies the idempotent bootstrap (Site, MAAS Integration, the
+# Site Prometheus as the metrics Integration, and Site automation defaults written only when the
+# Site has none) when its read-only verify fails.
 converge_installation_records() {
   if "${script_dir}/bootstrap.sh" verify >/dev/null 2>&1; then
     printf 'ok    installation records exist\n'
@@ -906,6 +1017,18 @@ converge_installation_records() {
   fi
   printf 'fix   installation records: running bootstrap.sh apply\n'
   "${script_dir}/bootstrap.sh" apply
+}
+
+# converge_prometheus_site renders the installation Site's exporter discovery again, restarting
+# Prometheus to load it, when the read-only check fails. It runs after the installation records
+# because the Site id comes from them.
+converge_prometheus_site() {
+  if prometheus_site_current >/dev/null 2>&1; then
+    printf 'ok    Prometheus discovers the exporters of the installation Site\n'
+    return 0
+  fi
+  printf 'fix   Prometheus exporter discovery: rendering it for the installation Site\n'
+  ensure_prometheus_site
 }
 
 # ensure converges the selected stack to the installation's desired state (see "Installation
@@ -928,12 +1051,16 @@ ensure() {
   converge 'Ansible executor is running' ansible_executor_running ansible-executor || true
   converge 'Ansible executor polls the swallow-ansible task queue' ansible_executor_polls_task_queue ansible-executor || true
   converge "Dashboard and API answer on HTTP port $(http_port)" dashboard_ready api-server dashboard || true
+  converge 'Prometheus is ready' prometheus_ready prometheus || true
   if [[ "${profile}" == production ]]; then
     if [[ -f "${maas_marker}" ]]; then
       converge_local_maas || printf 'FAIL  co-located MAAS did not converge\n'
     fi
     converge_local_ntp || printf 'FAIL  control-plane NTP server did not converge\n'
     converge_installation_records || printf 'FAIL  installation records did not converge\n'
+    converge_prometheus_site || printf 'FAIL  Prometheus exporter discovery did not converge\n'
+  else
+    converge 'Prometheus runs the swallow-exporters job' prometheus_scrapes_exporters prometheus || true
   fi
   printf '\n'
   log 'verifying the desired state'

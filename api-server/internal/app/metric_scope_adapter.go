@@ -124,3 +124,22 @@ func memberIDs(servers []*serverdomain.Server, keep func(*serverdomain.Server) b
 	}
 	return ids
 }
+
+// serverSites satisfies the monitoring context's ServerSiteResolver port from the Server
+// projection, absent Servers included: their history still lives in their Site's Prometheus.
+type serverSites struct {
+	servers serverLister
+}
+
+// SitesOf returns the Site of each known Server in one read.
+func (r serverSites) SitesOf(ctx context.Context, serverIDs []string) (map[string]string, error) {
+	result, err := r.servers.List(ctx, serverdomain.ListFilter{IDs: serverIDs, IncludeAbsent: true, Limit: 0})
+	if err != nil {
+		return nil, err
+	}
+	sites := make(map[string]string, len(result.Servers))
+	for _, server := range result.Servers {
+		sites[server.ID] = server.Source.SiteID
+	}
+	return sites, nil
+}

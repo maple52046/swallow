@@ -141,6 +141,9 @@ var (
 	// ErrIntegrationNameTaken means another Integration of the same Site has the name; names
 	// are unique within a Site.
 	ErrIntegrationNameTaken = errors.New("integration name already exists in this site")
+	// ErrSiteHasMetricsIntegration means the Site already has its metrics Integration: a Site has
+	// one Prometheus (decision 003), so a second would leave swallow two answers for its Servers.
+	ErrSiteHasMetricsIntegration = errors.New("site already has a metrics integration")
 	// ErrSiteHasIntegrations prevents deleting a site out from under the
 	// integrations and servers that reference it.
 	ErrSiteHasIntegrations = errors.New("site still has integrations")

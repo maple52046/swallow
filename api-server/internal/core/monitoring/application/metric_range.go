@@ -118,16 +118,19 @@ type MetricRangeResult struct {
 type MetricRangeService struct {
 	factory monitoringdomain.MonitoringFactory
 	scopes  monitoringdomain.ServerScopeResolver
+	sites   monitoringdomain.ServerSiteResolver
 	now     func() time.Time
 }
 
 // NewMetricRangeService builds the usage-history read. scopes resolves Pools, Zones, and
-// Platforms; it is never consulted for an explicit Server list.
+// Platforms; it is never consulted for an explicit Server list. sites tells which Site's
+// Prometheus holds each Server's series.
 func NewMetricRangeService(
 	factory monitoringdomain.MonitoringFactory,
 	scopes monitoringdomain.ServerScopeResolver,
+	sites monitoringdomain.ServerSiteResolver,
 ) *MetricRangeService {
-	return &MetricRangeService{factory: factory, scopes: scopes, now: time.Now}
+	return &MetricRangeService{factory: factory, scopes: scopes, sites: sites, now: time.Now}
 }
 
 // WithClock replaces the clock used to end a named window. It exists for tests, which need a
@@ -185,23 +188,43 @@ func (s *MetricRangeService) Query(ctx context.Context, input MetricRangeInput) 
 		return result, nil
 	}
 
-	pattern, err := labelPattern(serverIDs)
+	if _, err := labelPattern(serverIDs); err != nil {
+		return nil, err
+	}
+	groups, err := groupBySite(ctx, s.sites, serverIDs)
 	if err != nil {
 		return nil, err
 	}
-	querier, err := s.factory.Querier(ctx, "")
+	if len(groups) == 0 {
+		return result, nil
+	}
+	// Each Site's Prometheus answers only for its own Servers, and an aggregate cannot be combined
+	// across stores without changing its meaning (an average of averages), so it stays in one Site.
+	if mode == RangeModeAggregate && len(groups) > 1 {
+		return nil, fmt.Errorf("%w: the scope spans %d Sites; chart one Site at a time, or use perServer mode",
+			ErrInvalidMetricRange, len(groups))
+	}
+	sites, err := siteQueriers(ctx, s.factory, groups)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, query := range queries {
-		expr := expandQuery(query.expr, pattern)
-		if mode == RangeModeAggregate {
-			expr = query.aggregate + " (" + expr + ")"
-		}
-		series, err := querier.QueryRange(ctx, expr, window)
-		if err != nil {
-			return nil, err
+		var series []monitoringdomain.Series
+		for _, site := range sites {
+			pattern, err := labelPattern(site.serverIDs)
+			if err != nil {
+				return nil, err
+			}
+			expr := expandQuery(query.expr, pattern)
+			if mode == RangeModeAggregate {
+				expr = query.aggregate + " (" + expr + ")"
+			}
+			found, err := site.querier.QueryRange(ctx, expr, window)
+			if err != nil {
+				return nil, err
+			}
+			series = append(series, found...)
 		}
 		result.Series = append(result.Series, shapeSeries(query.name, mode, serverIDs, series)...)
 	}

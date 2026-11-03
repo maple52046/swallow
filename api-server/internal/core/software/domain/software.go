@@ -69,6 +69,14 @@ type Assignment struct {
 
 // CatalogEntry describes one installable software kind and the rules the deploy use case enforces
 // before creating a Workflow. Each Software module provides its kind's entry (Software.Entry).
+// Exporter is a Prometheus exporter a module declares. Name is the `exporter` label of its scrape
+// targets and must be unique among the build's exporters; Port is where it listens on the Server's
+// primary address.
+type Exporter struct {
+	Name string
+	Port int
+}
+
 type CatalogEntry struct {
 	Kind Kind
 	// Label is the user-facing name.
@@ -89,6 +97,10 @@ type CatalogEntry struct {
 	// Platform that owns them runs its own exporter on the same port, and a locked Server is left
 	// alone. A composing Workflow decides ownership itself and is not subject to it.
 	HostExporter bool
+	// Exporter is the Prometheus exporter this kind runs on each Server it is installed on, nil for a
+	// kind that runs none. The Site Prometheus scrapes it from the moment the Server's assignment is
+	// installed until it is not.
+	Exporter *Exporter
 	// RequiredAccelerator is the id of the Accelerator module whose compute GPUs every target's GPU
 	// Inventory must list, or "" when the kind needs none.
 	RequiredAccelerator string

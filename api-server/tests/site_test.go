@@ -184,6 +184,33 @@ func TestCreateIntegration_DuplicateNameConflicts(t *testing.T) {
 	}
 }
 
+// A Site has one Prometheus: a second metrics Integration in the same Site is refused, another
+// Site may still register its own.
+func TestCreateIntegration_OneMetricsIntegrationPerSite(t *testing.T) {
+	f := setupPlatform(t)
+	east := createSite(t, f, "dc-east")
+	west := createSite(t, f, "dc-west")
+	metrics := func(siteID, name string) map[string]any {
+		return map[string]any{
+			"siteId": siteID, "kind": "metrics", "providerKind": "prometheus",
+			"name": name, "endpoint": "http://prometheus:9090",
+		}
+	}
+	if resp := doRequest(t, f.app, "POST", "/api/v1/integrations/", metrics(east, "prometheus"), f.adminAuth(t)); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("first metrics integration: expected 201, got %d", resp.StatusCode)
+	}
+	resp := doRequest(t, f.app, "POST", "/api/v1/integrations/", metrics(east, "second"), f.adminAuth(t))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("second metrics integration in the Site: expected 409, got %d", resp.StatusCode)
+	}
+	if message, _ := parseBody(t, resp)["error"].(map[string]any)["message"].(string); !strings.Contains(message, "one metrics store") {
+		t.Errorf("message = %q, want it to explain that a site has one metrics store", message)
+	}
+	if resp := doRequest(t, f.app, "POST", "/api/v1/integrations/", metrics(west, "prometheus"), f.adminAuth(t)); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("another Site's metrics integration: expected 201, got %d", resp.StatusCode)
+	}
+}
+
 // The credential must not be readable through any response, in any form.
 func TestIntegration_CredentialIsNeverReturned(t *testing.T) {
 	f := setupPlatform(t)

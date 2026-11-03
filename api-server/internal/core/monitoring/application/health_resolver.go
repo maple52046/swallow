@@ -17,18 +17,20 @@ import (
 // context needs no knowledge of Prometheus.
 type HealthResolver struct {
 	factory monitoringdomain.MonitoringFactory
+	sites   monitoringdomain.ServerSiteResolver
 }
 
-func NewHealthResolver(factory monitoringdomain.MonitoringFactory) *HealthResolver {
-	return &HealthResolver{factory: factory}
+// NewHealthResolver reads each Server's health from its Site's Prometheus.
+func NewHealthResolver(factory monitoringdomain.MonitoringFactory, sites monitoringdomain.ServerSiteResolver) *HealthResolver {
+	return &HealthResolver{factory: factory, sites: sites}
 }
 
 // ResolveHealth returns health by server ID.
 //
-// Servers with no answer are omitted rather than reported down: a server that is not
-// being scraped is unknown, and reporting it as down would be a claim nobody made.
-// A missing or unreachable metrics store is likewise not an error — it leaves every
-// health axis unknown.
+// Health is the Site Prometheus's `up` for the Server's Node Exporter only. Servers with no
+// answer are omitted rather than reported down: a server that is not being scraped (no Node
+// Exporter swallow knows of, or a Site without a Prometheus) is unknown, and reporting it as down
+// would be a claim nobody made. A missing metrics store is likewise not an error.
 func (r *HealthResolver) ResolveHealth(
 	ctx context.Context,
 	serverIDs []string,
@@ -37,7 +39,17 @@ func (r *HealthResolver) ResolveHealth(
 		return nil, nil
 	}
 
-	querier, err := r.factory.Querier(ctx, "")
+	if _, err := labelPattern(serverIDs); err != nil {
+		return nil, err
+	}
+	groups, err := groupBySite(ctx, r.sites, serverIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	queries, err := siteQueriers(ctx, r.factory, groups)
 	if errors.Is(err, monitoringdomain.ErrNoMetricsIntegration) {
 		return nil, nil
 	}
@@ -45,35 +57,29 @@ func (r *HealthResolver) ResolveHealth(
 		return nil, err
 	}
 
-	pattern, err := labelPattern(serverIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	// max() over the matcher because a server has several scrape jobs — node_exporter
-	// and possibly dcgm-exporter — and being reachable on any of them means it is up.
-	expr := fmt.Sprintf(`max by (%s) (up{%s=~"%s"})`,
-		monitoringdomain.LabelServerID, monitoringdomain.LabelServerID, pattern)
-
-	samples, err := querier.Query(ctx, expr)
-	if err != nil {
-		return nil, err
-	}
-
-	health := make(map[string]*serverdomain.HealthStatus, len(samples))
-	for _, sample := range samples {
-		serverID := sample.ServerID()
-		if serverID == "" {
-			continue
+	health := make(map[string]*serverdomain.HealthStatus, len(serverIDs))
+	for _, query := range queries {
+		pattern, err := labelPattern(query.serverIDs)
+		if err != nil {
+			return nil, err
 		}
-
-		state := serverdomain.HealthDown
-		if sample.Value > 0 {
-			state = serverdomain.HealthUp
+		expr := fmt.Sprintf(`max by (%s) (up{%s=%q, %s=~"%s"})`,
+			monitoringdomain.LabelServerID, monitoringdomain.LabelExporter, monitoringdomain.HealthExporter,
+			monitoringdomain.LabelServerID, pattern)
+		samples, err := query.querier.Query(ctx, expr)
+		if err != nil {
+			return nil, err
 		}
-		health[serverID] = &serverdomain.HealthStatus{
-			State:      state,
-			ObservedAt: sample.Timestamp,
+		for _, sample := range samples {
+			serverID := sample.ServerID()
+			if serverID == "" {
+				continue
+			}
+			state := serverdomain.HealthDown
+			if sample.Value > 0 {
+				state = serverdomain.HealthUp
+			}
+			health[serverID] = &serverdomain.HealthStatus{State: state, ObservedAt: sample.Timestamp}
 		}
 	}
 	return health, nil

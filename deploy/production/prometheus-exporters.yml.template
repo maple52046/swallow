@@ -1,0 +1,13 @@
+# The exporters swallow knows are installed in the installation Site, each target labelled
+# server_id, site, platform_id (when the Server has a Platform Claim), and exporter.
+# swallowctl renders this file to state/prometheus/swallow-exporters.yml, replacing
+# @SWALLOW_SITE_ID@, and restarts Prometheus when the rendered file changes; edits to the
+# rendered file are replaced by the next install, upgrade, or ensure.
+scrape_configs:
+  - job_name: swallow-exporters
+    scrape_interval: 30s
+    http_sd_configs:
+      - url: http://api-server:30051/api/v1/discovery/prometheus/exporters?siteId=@SWALLOW_SITE_ID@
+        refresh_interval: 60s
+        authorization:
+          credentials_file: /run/secrets/machine_token

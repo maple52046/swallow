@@ -5,8 +5,8 @@
 初始設定會建立 Site boundary、external Integration，以及 swallow 管理 Server 前
 所需的 automation policy。
 
-[Production installation](../installation.md) 已經為 Site `default` 與共置的 MAAS 完成
-步驟 1、2、4。本指南可用來檢查該結果、新增其他 Site，或設定 development stack。
+[Production installation](../installation.md) 已經為 Site `default`、共置的 MAAS 與它的
+Prometheus 完成步驟 1 到 4。本指南可用來檢查該結果、新增其他 Site，或設定 development stack。
 
 ## 1. 建立 Site
 
@@ -58,14 +58,16 @@ MAAS provisioner 另有 **HTTP proxy** 與 **Subnet DNS**，會直接套用到 M
 
 ## 3. 註冊 monitoring
 
-先以 `deploy/third-party/prometheus` 執行 per-Site Prometheus，再建立
-`metrics` / `prometheus` Integration，設定其 endpoint，以及選用的 Alertmanager／Grafana
-settings。這讓 swallow 能為已佈署的 Server 繪製用量圖表。swallow 只查詢 fixed metric
+Production installation 會為它的 Site 執行一套 Prometheus，並註冊為該 Site 的
+`metrics` / `prometheus` Integration（`site-prometheus`，endpoint `http://prometheus:9090`）；
+有 Alertmanager／Grafana 時，把它們的 settings 加到這個 Integration。一個 Site 至多一個 metrics
+Integration。這讓 swallow 能為已佈署的 Server 繪製用量圖表。swallow 只查詢 fixed metric
 names、有上限的用量歷史與 current alerts，不提供任意 PromQL passthrough，也不儲存
 monitoring data。見 [Monitoring](monitoring.md)。
 
-Prometheus 應使用 swallow HTTP service-discovery endpoint，使 scraped series 帶有
-穩定的 `server_id`、`site` 與 Platform labels。
+Site 的 Prometheus 透過 swallow HTTP service-discovery endpoint 發現 swallow 安裝在該 Site 的
+exporter，使 scraped series 帶有穩定的 `server_id`、`site`、`platform_id` 與 `exporter` labels。
+這一版其他 Site 沒有 Prometheus。
 
 ## 4. 設定 Site automation
 

@@ -53,10 +53,14 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
    +8.3% 速度 slew 好幾分鐘；
 7. 透過已發佈的 API 執行 [`bootstrap.sh`](bootstrap.sh)：建立 Site `default`、MAAS
    provisioner Integration，並把 rack 的 `virsh` 公鑰設為它的 `virshSshPublicKey`（swallow
-   納管某台 hypervisor 上的 libvirt 虛擬機時，會把它授權到那台 hypervisor）；Site 尚無
-   automation 設定時寫入預設值（啟用、Deployment Key、無 playbook mapping）；再等待 Integration
-   同步與 catalog 出現 `ubuntu/noble`；
-8. 執行 `doctor`，把已安裝的 release 記錄在 `state/installed`，並印出 Dashboard URL 與密碼
+   納管某台 hypervisor 上的 libvirt 虛擬機時，會把它授權到那台 hypervisor）；把 Site 的 Prometheus
+   註冊為它的 metrics Integration（`site-prometheus`、`http://prometheus:9090`；已有 metrics
+   Integration 時改指到這裡，從不建立第二個）；Site 尚無 automation 設定時寫入預設值（啟用、
+   Deployment Key、無 playbook mapping）；再等待 Integration 同步與 catalog 出現 `ubuntu/noble`；
+8. 為 Site 渲染 Prometheus 的 exporter discovery：以 Site 的 id 從
+   [`prometheus-exporters.yml.template`](prometheus-exporters.yml.template) 產生 `swallow-exporters` job，
+   寫到 `state/prometheus/swallow-exporters.yml`；只有 Prometheus 尚未載入這個檔案時才重啟它；
+9. 執行 `doctor`，把已安裝的 release 記錄在 `state/installed`，並印出 Dashboard URL 與密碼
    位置。
 
 它不會建立 SSH Access Key：由 user 自行在 Dashboard 加入。
@@ -69,6 +73,7 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
 | API、worker、Ansible executor | Compose | internal `control` 加上 `egress`（連 MAAS 與 Server） |
 | MongoDB（single-node replica set `rs0`）、Temporal | Compose | 只在 internal |
 | PostgreSQL | Compose | Temporal databases 與 `maasdb`；MAAS 經 `127.0.0.1:${SWALLOW_POSTGRES_HOST_PORT:-5432}` 連入 |
+| Prometheus（Site 的 metrics） | Compose | internal `control` 加上 `egress`（收集 Server 上的 exporter）；不發佈，API 以 `http://prometheus:9090` 讀取 |
 | MAAS 3.6 region+rack | host 上的 snap | `SWALLOW_MAAS_URL`；swallow 的 provisioner Integration 也用這個位址 |
 | Control-Plane NTP Server（MAAS 的 chronyd） | host 上的 snap | 所有位址（含 `SWALLOW_ADDRESS`）的 UDP 123 |
 | Temporal UI | Compose profile `diagnostics` | `127.0.0.1:${SWALLOW_TEMPORAL_UI_PORT:-8233}`，預設不啟動 |
@@ -83,6 +88,11 @@ playbook 在安裝前會檢查每個節點的時鐘。網路連不到 `ntp.ubunt
 一個可達的上游，或在第一次安裝前設定 `SWALLOW_NTP_UPSTREAM`。上游本身不能從這台主機取得時間（無論是直接對時，或透過
 以這台主機時鐘計算時間的 gateway）：這台主機會跟著它走，兩者只會互相追逐。沒有可達的上游時，它會繼續提供本機時鐘，Server 之間
 仍保持一致。
+
+Site 的 Prometheus 每 30 秒收集 swallow 自己的 metrics（`swallow-api`），以及 swallow 確知已安裝在這個
+Site 的 Server 上的每個 exporter（`swallow-exporters`，以 machine token 從 API 發現）。
+[`prometheus.yml`](prometheus.yml) 隨 bundle 提供；exporter 的 job 渲染在 `state/` 下，新的 release 不會覆蓋它。
+Metrics 保留 `SWALLOW_PROMETHEUS_RETENTION`，且從不備份：遺失只少了用量歷史，不影響 swallow 的狀態。
 
 ## 設定
 
@@ -101,6 +111,7 @@ playbook 在安裝前會檢查每個節點的時鐘。網路連不到 `ntp.ubunt
 | `SWALLOW_SSH_KNOWN_HOSTS` | 每次執行時掃描 | Site automation 的 static known_hosts |
 | `SWALLOW_NTP_UPSTREAM` | `ntp.ubuntu.com` | Control-Plane NTP Server 的上游，以逗號或空白分隔；位址寫成 `server <ip> iburst`，名稱寫成 `pool <name> iburst`。之後以 `swallowctl ntp upstream` 修改 |
 | `SWALLOW_NTP_ALLOW` | 所有 client | 僅限沒有共置 MAAS：host chrony 允許的 client subnet |
+| `SWALLOW_PROMETHEUS_RETENTION` | `30d` | Site 的 Prometheus 保留 metrics 多久（Prometheus duration）；也是 swallow 能繪製的最長用量歷史 |
 
 ## 檢查
 
@@ -112,8 +123,9 @@ sudo ./swallowctl doctor
 `swallow-operations` task queue、Ansible executor 是否執行、是否 poll `swallow-ansible` task queue，
 且 `ansible-runner` 能跑附帶的 `diagnostic-ping` playbook、MAAS API 與 `ubuntu/noble` boot resource、Control-Plane NTP
 Server（UDP 123 有服務、MAAS 的上游等於 `SWALLOW_NTP_UPSTREAM` 或 default，以及是否跟隨該上游）、
-admin 登入、Deployment Key、Site automation、MAAS Integration 同步，以及 OS Image catalog 的
-`ubuntu/noble`，並列出尚未進入 terminal status
+admin 登入、Deployment Key、Site automation、指向 Site Prometheus 的 metrics Integration、MAAS
+Integration 同步、OS Image catalog 的 `ubuntu/noble`，以及 Prometheus 是否 ready 並執行這個 Site 的
+`swallow-exporters` job，並列出尚未進入 terminal status
 的 Workflow 數量。它不會佈署任何東西。
 
 ## 恢復
@@ -126,9 +138,11 @@ admin 登入、Deployment Key、Site automation、MAAS Integration 同步，以�
 4. Ansible executor 進程在執行、在 `swallow-ansible` task queue 有 activity poller，且能跑附帶的
    `diagnostic-ping` playbook；
 5. Dashboard 與 API 在 HTTP port 回應 `/readyz`；
-6. 共置 MAAS 的 API 回應、有 complete 的 `ubuntu/noble` 與 virsh SSH identity，
-   Control-Plane NTP Server 以設定的上游提供 UDP 123，且安裝紀錄（admin 登入、Deployment
-   Key、Site automation、MAAS Integration 同步、OS Image catalog）存在。
+6. Prometheus ready，且執行 `swallow-exporters` job；
+7. 共置 MAAS 的 API 回應、有 complete 的 `ubuntu/noble` 與 virsh SSH identity，
+   Control-Plane NTP Server 以設定的上游提供 UDP 123，安裝紀錄（admin 登入、Deployment
+   Key、Site automation、metrics Integration、MAAS Integration 同步、OS Image catalog）存在，且
+   Prometheus 發現 installation Site 的 exporter。
 
 `doctor` 只回報與此狀態的差距。斷電、主機 reboot 或出現任何 `FAIL` 之後，執行一個指令：
 
@@ -137,9 +151,9 @@ sudo ./swallowctl ensure
 ```
 
 `ensure` 會啟動尚未執行的宣告 services，再依 dependency 順序維持每個條件：條件不符時重啟
-擁有它的 services（MAAS API 則重啟 MAAS snap）；`local-maas.sh`、`local-ntp.sh` 或
-`bootstrap.sh` 的檢查失敗時，執行對應的冪等 ensure 步驟、`local-ntp.sh install` 與 `upstream` 或
-`bootstrap.sh apply`；最後執行 `doctor`。仍不符的條件
+擁有它的 services（MAAS API 則重啟 MAAS snap）；`local-maas.sh`、`local-ntp.sh`、
+`bootstrap.sh` 或 Prometheus exporter discovery 的檢查失敗時，執行對應的冪等 ensure 步驟、
+`local-ntp.sh install` 與 `upstream`、`bootstrap.sh apply` 或重新渲染 exporter discovery；最後執行 `doctor`。仍不符的條件
 會連同該 services 最近的 log 一起印出。`ensure` 可以重複執行；它不會重建執行中的容器、
 不會套用變更過的 `.env`（那是 `upgrade` 的工作），也不會 cancel 或 retry Workflow。
 
@@ -149,15 +163,15 @@ sudo ./swallowctl ensure
   release，也拒絕 database schema 比該 release 支援的還新（不支援降級）；有 active Workflow 時
   拒絕，除非 `--force`。它先 pull 新 image，停止 API、worker 與 Ansible executor，備份到
   `backups/pre-upgrade-<已安裝版本>-<時間>`（保留到你手動刪除），再 migrate、啟動 stack、確保
-  Control-Plane NTP Server 與它的上游、MAAS rack 的 `virsh` SSH key 並記錄到 Integration，最後
-  重新執行 `doctor`。`install.sh` 在解壓任何東西之前就拒絕降級。
+  Control-Plane NTP Server 與它的上游、MAAS rack 的 `virsh` SSH key 並記錄到 Integration、metrics
+  Integration 與 Prometheus 的 exporter discovery，最後重新執行 `doctor`。`install.sh` 在解壓任何東西之前就拒絕降級。
 - `sudo ./swallowctl ntp upstream [show | set SERVER... | default]` 顯示、設定或重設 NTP server
   的上游。`set` 與 `default` 會先套用，成功後才寫入 `.env`。MAAS 的 `ntp_servers` 由 swallowctl
   管理：在 MAAS UI 設定的值，會在下次 install、upgrade 或 ensure 時被取代。
 - `sudo ./swallowctl backup` 把 MongoDB、job artifacts、credential key、MAAS database 與
   `backup.json`（取得時的 release 與 database schema）寫到 `backups/`，checksum 以備份內的相對
   檔名記錄。請每日排程；retention 是七份 daily 與四份 Sunday weekly。MAAS boot images 會從
-  `images.maas.io` 重新同步。Temporal 不備份。
+  `images.maas.io` 重新同步。Temporal 與 Prometheus 的 metrics（volume `prometheus-data`）不備份。
 - `sudo ./swallowctl restore BACKUP_DIRECTORY --yes` 驗證 checksum、拒絕較新 release 的備份，停止
   API、worker 與 Ansible executor，還原 MongoDB、artifacts（取代現有的）、credential key 與 MAAS
   database，migrate，終止 Temporal 中所有 swallow 的 run，再啟動 stack 並執行 `doctor`。還原後的
@@ -177,6 +191,7 @@ release 不附離線 image 封存檔，MAAS image 的離線匯入也尚未自動
 docker compose logs -f api-server worker ansible-executor
 sudo ./local-maas.sh check
 sudo ./local-ntp.sh check
+docker compose exec prometheus wget -qO- http://127.0.0.1:9090/api/v1/targets   # Prometheus 不發佈到主機
 ```
 
 Temporal UI 是選配，不屬於 release。要使用時，在 `.env` 把 `SWALLOW_TEMPORAL_UI_IMAGE` 設成

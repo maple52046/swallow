@@ -29,7 +29,7 @@ The local-only bootstrap account is `admin` / `admin`.
 | `temporal-postgresql` | internal | Temporal databases |
 | `worker` | internal | Workflow and activity execution |
 | `ansible-executor` | internal | Idempotent Ansible attempts and events |
-| `prometheus` | 9090 | local monitoring demo using swallow discovery |
+| `prometheus` | 9090 | the Site's Prometheus: swallow's own metrics (`swallow-api`) and the exporters swallow knows are installed (`swallow-exporters`, from swallow discovery) |
 
 ## Common commands
 
@@ -44,7 +44,8 @@ docker compose build --no-cache
 ## Check and recover
 
 `swallowctl` checks and converges this stack against the same health contract as a production
-installation (minus the co-located MAAS and installation records):
+installation (minus the co-located MAAS, the installation records, and the installation Site's
+exporter discovery, which `prometheus.yml` here replaces with one job for every Site):
 
 ```bash
 ../production/swallowctl doctor --profile dev
@@ -163,8 +164,8 @@ script rather than in MAAS by hand.
 
 The idempotent seed script creates the deployment key (`swallow-api deployment-key
 ensure`, the installation step; the API does not create it on start), logs in, creates a Site, registers the in-Compose
-Prometheus Integration, configures site automation, and optionally
-registers MAAS when values are present:
+Prometheus as its metrics Integration (as the production bootstrap does, never a second one),
+configures site automation, and optionally registers MAAS when values are present:
 
 ```bash
 cp .env.example .env

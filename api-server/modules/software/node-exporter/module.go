@@ -38,6 +38,7 @@ func (Software) Entry() softwaredomain.CatalogEntry {
 		Kind:         Kind,
 		Label:        "Node Exporter",
 		HostExporter: true,
+		Exporter:     &softwaredomain.Exporter{Name: string(Kind), Port: Port},
 		SpecFields:   []string{},
 	}
 }

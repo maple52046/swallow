@@ -146,6 +146,15 @@ func (s *IntegrationService) Create(ctx context.Context, input CreateIntegration
 	if _, err := s.sites.FindByID(ctx, input.SiteID); err != nil {
 		return nil, err
 	}
+	if kind == sitedomain.IntegrationKindMetrics {
+		existing, err := s.integrations.List(ctx, sitedomain.IntegrationFilter{SiteID: input.SiteID, Kind: kind})
+		if err != nil {
+			return nil, err
+		}
+		if len(existing) > 0 {
+			return nil, sitedomain.ErrSiteHasMetricsIntegration
+		}
+	}
 
 	enabled := true
 	if input.Enabled != nil {

@@ -155,11 +155,13 @@ type ServerMetricsItem struct {
 // answer provider_unavailable; an unknown metric name is ErrUnknownMetric.
 type ServerMetricsService struct {
 	factory monitoringdomain.MonitoringFactory
+	sites   monitoringdomain.ServerSiteResolver
 }
 
-// NewServerMetricsService builds the current-value read over the given factory.
-func NewServerMetricsService(factory monitoringdomain.MonitoringFactory) *ServerMetricsService {
-	return &ServerMetricsService{factory: factory}
+// NewServerMetricsService builds the current-value read; each Server is read from its Site's
+// Prometheus.
+func NewServerMetricsService(factory monitoringdomain.MonitoringFactory, sites monitoringdomain.ServerSiteResolver) *ServerMetricsService {
+	return &ServerMetricsService{factory: factory, sites: sites}
 }
 
 // ErrUnknownMetric means a client asked for a query swallow does not define.
@@ -180,33 +182,41 @@ func (s *ServerMetricsService) Query(
 		return nil, err
 	}
 
-	querier, err := s.factory.Querier(ctx, "")
-	if err != nil {
+	if _, err := labelPattern(serverIDs); err != nil {
 		return nil, err
 	}
-
-	pattern, err := labelPattern(serverIDs)
+	groups, err := groupBySite(ctx, s.sites, serverIDs)
 	if err != nil {
 		return nil, err
 	}
 
 	byServer := make(map[string]map[string]float64, len(serverIDs))
-	for _, query := range queries {
-		expr := expandQuery(query.expr, pattern)
-
-		samples, err := querier.Query(ctx, expr)
+	if len(groups) > 0 {
+		sites, err := siteQueriers(ctx, s.factory, groups)
 		if err != nil {
 			return nil, err
 		}
-		for _, sample := range samples {
-			serverID := sample.ServerID()
-			if serverID == "" {
-				continue
+		for _, site := range sites {
+			pattern, err := labelPattern(site.serverIDs)
+			if err != nil {
+				return nil, err
 			}
-			if byServer[serverID] == nil {
-				byServer[serverID] = map[string]float64{}
+			for _, query := range queries {
+				samples, err := site.querier.Query(ctx, expandQuery(query.expr, pattern))
+				if err != nil {
+					return nil, err
+				}
+				for _, sample := range samples {
+					serverID := sample.ServerID()
+					if serverID == "" {
+						continue
+					}
+					if byServer[serverID] == nil {
+						byServer[serverID] = map[string]float64{}
+					}
+					byServer[serverID][query.name] = sample.Value
+				}
 			}
-			byServer[serverID][query.name] = sample.Value
 		}
 	}
 

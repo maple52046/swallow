@@ -3,8 +3,8 @@
 [English](README.md) · [Installation 選擇](../../docs/zh-TW/installation.md)
 
 Testing environment 不 build 或 bind-mount source。從 [`publish.sh`](../release/publish.sh)
-產生的 `release-manifest.json` 把 exact image references（API、Dashboard、MongoDB、PostgreSQL
-與 Temporal Server）複製到 `.env`，再執行：
+產生的 `release-manifest.json` 把 exact image references（API、Dashboard、MongoDB、PostgreSQL、
+Temporal Server 與 Prometheus）複製到 `.env`，再執行：
 
 ```bash
 ./prepare.sh
@@ -15,7 +15,8 @@ docker compose --env-file .env up -d
 拓樸就是 production Compose file 加上獨立的 secrets，以 plain HTTP 在
 `SWALLOW_HTTP_PORT`（預設 18080）提供服務。PostgreSQL 發佈在 loopback
 `SWALLOW_POSTGRES_HOST_PORT`（`.env.example` 為 15432），因此不會與同一台主機上的
-production installation 衝突。Testing 不安裝 MAAS。
+production installation 衝突。Testing 不安裝 MAAS，它的 Prometheus 也只收集 swallow 自己的
+metrics：exporter discovery 的 job 由 production installation 的 `swallowctl` 渲染。
 
 設定 `COMPOSE_PROJECT_NAME` 可在同一台主機上執行多個互相隔離的 stack；用完請以
 `docker compose down --volumes` 移除。

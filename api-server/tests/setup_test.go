@@ -81,6 +81,16 @@ type platformFixture struct {
 	kubernetesClient  *fakeKubernetesClientFactory
 	requirementRepo   *fakeDeploymentRequirementRepo
 	integrationDeps   *fakeIntegrationDependents
+	exporters         *fakeExporterInventory
+}
+
+// fakeExporterInventory reports the exporters a test says are installed.
+type fakeExporterInventory struct {
+	installed []discoveryapp.InstalledExporter
+}
+
+func (f *fakeExporterInventory) InstalledExporters(context.Context) ([]discoveryapp.InstalledExporter, error) {
+	return append([]discoveryapp.InstalledExporter(nil), f.installed...), nil
 }
 
 // setupPlatform wires the routes exactly as internal/app does, so that route shape and
@@ -148,16 +158,18 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewEditServerTagsUseCase(&storetest.Transactor{}, servers, servers, factory),
 	)
 	provisioningHandler.AttachDurableOperations(launcher)
+	exporters := &fakeExporterInventory{}
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
 		discoveryapp.NewDiscoveryUseCase(servers),
+		discoveryapp.NewExporterDiscovery(servers, exporters),
 	)
 
 	monitoringFactory := newFakeMonitoringFactory()
 	scopeResolver := &fakeScopeResolver{members: map[string][]string{}}
 	monitoringHandler := monitoringdelivery.NewMonitoringHandler(
 		monitoringapp.NewAlertService(monitoringFactory, fakeSiteLookup{sites: sites}),
-		monitoringapp.NewServerMetricsService(monitoringFactory),
-		monitoringapp.NewMetricRangeService(monitoringFactory, scopeResolver).
+		monitoringapp.NewServerMetricsService(monitoringFactory, everyServerInSite{siteID: testSiteID}),
+		monitoringapp.NewMetricRangeService(monitoringFactory, scopeResolver, everyServerInSite{siteID: testSiteID}).
 			WithClock(func() time.Time { return testMetricsNow }),
 	)
 
@@ -313,9 +325,11 @@ func setupPlatform(t *testing.T) *platformFixture {
 
 	discoveryGroup := v1.Group("/discovery", machine)
 	discoveryGroup.Get("/prometheus", discoveryHandler.PrometheusTargets)
+	discoveryGroup.Get("/prometheus/exporters", discoveryHandler.ExporterTargets)
 	discoveryGroup.Get("/ansible", discoveryHandler.AnsibleInventory)
 
 	return &platformFixture{
+		exporters:         exporters,
 		app:               app,
 		jwtSvc:            jwtSvc,
 		servers:           servers,

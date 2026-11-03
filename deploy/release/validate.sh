@@ -21,11 +21,21 @@ jq -e --argjson current "${current_schema}" --argjson oldest "${oldest_schema}" 
   { printf 'release-manifest.example.json: schemaVersions and upgrade must match schema %s upgrading from %s (%s)\n' \
       "${current_schema}" "${oldest_schema}" "${migration_go}" >&2; exit 1; }
 jq -e '.upgrade.downgradeSupported == false and
-  (.images | keys) == ["api", "cli", "dashboard", "mongo", "postgres", "temporalServer"] and
+  (.images | keys) == ["api", "cli", "dashboard", "mongo", "postgres", "prometheus", "temporalServer"] and
   (.artifacts.cliBinary | type == "string") and
   ([.images.api, .images.dashboard, .images.cli] | map(startswith("ghcr.io/maple52046/swallow@sha256:")) | all) and
-  ([.images.mongo, .images.postgres, .images.temporalServer] | map(test("^docker\\.io/[^@]+@sha256:")) | all)' \
+  ([.images.mongo, .images.postgres, .images.temporalServer, .images.prometheus] | map(test("^docker\\.io/[^@]+@sha256:")) | all)' \
   deploy/release/release-manifest.example.json >/dev/null
+# Every runtime image the manifest carries is pinned in runtime-images.env, and every image the
+# production compose.yaml requires comes from the manifest.
+for key in MONGO_IMAGE POSTGRES_IMAGE TEMPORAL_SERVER_IMAGE PROMETHEUS_IMAGE; do
+  grep -q "^${key}=" deploy/release/runtime-images.env ||
+    { printf 'runtime-images.env must pin %s\n' "${key}" >&2; exit 1; }
+done
+while IFS= read -r variable; do
+  grep -q "\"${variable}=" deploy/production/swallowctl ||
+    { printf 'swallowctl does not write %s from the release manifest\n' "${variable}" >&2; exit 1; }
+done < <(sed -n 's/.*\${\(SWALLOW_[A-Z_]*_IMAGE\):?.*/\1/p' deploy/production/compose.yaml | sort -u)
 while IFS='=' read -r key value; do
   [[ -z "${key}" || "${key}" == \#* ]] && continue
   [[ "${value}" =~ ^[a-z0-9.-]+\.[a-z]+/[^@]+@sha256:[0-9a-f]{64}$ ]] ||
