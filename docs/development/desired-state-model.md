@@ -19,10 +19,27 @@
 - **讀者**：設計新資源、新欄位或新動作，修改既有功能的所有權或收斂行為，或審查這類變更的開發者與 AI agent。
 - **必須依本模型的工作**：
   - 新功能：新的受管資源、新欄位、新的改變外部世界的動作。
+  - deployment 的新行為：OS 部署、Platform、Managed Software（含新增一種 kind），以及部署或 uninstall 計畫新組入的
+    步驟（§1.1）。
   - 修改既有功能時，只要變更觸及**所有權**（某個欄位由誰寫入、誰是真相）或**收斂行為**（何時、如何改變
     外部世界），就要把該部分依本模型重做。只修錯誤、文字或不改所有權的行為，不需要遷移。
-- **不在範圍內**：swallow 永不擁有的事實（§3.4）；單一功能的 Task 組成與 provider 細節（見各功能規格）；
-  HTTP 路由與欄位（以 api-server 擁有的 API 契約為準）。
+- **不在範圍內**：swallow 永不擁有的事實（§3.4）；單一功能的 Task 組成與 provider 細節（見各功能規格；計畫新組入
+  的步驟仍先依 §1.1 判斷）；HTTP 路由與欄位（以 api-server 擁有的 API 契約為準）。
+
+### 1.1 deployment 以 desired state 開發
+
+deployment（把 OS、Platform 或軟體放到主機上，或把它們移除）以 desired state 的方式開發：user 或政策宣告主機應該
+是什麼樣子，controller 依 desired 與 observed 收斂，主機上的內容是宣告式、冪等的 ensure。Platform 已經是這樣
+（§4.4）；Server 的 OS 部署（deploy、release、recover）與 Managed Software（install、uninstall）尚未遷移，仍是由 user
+或計畫觸發、以 Workflow 執行的動作。在它們遷移之前：
+
+- **新行為先設計成 desired 與收斂**：說明它的 desired、observed（來源與觀察時間）與收斂方式，能放進既有資源的 spec
+  就擴充 spec，不新增另一條由動作觸發的路徑。
+- **暫時做不到時才沿用動作**（資源尚未遷移、沒有 observed 的來源）：可以沿用現行的動作或在計畫中組入步驟，但要在
+  該功能規格中寫明它是動作、哪些變化不會被發現（例如主機上被外部移除）、遷移後由什麼取代。動作的結果是
+  last-applied，不得當成 desired 或 observed 使用。
+- **主機上的內容一律 ensure**：playbook 與 Task 可以安全重跑，已經達成時不改變，遷移後才能直接由 controller 觸發而
+  不改內容。
 
 ## 2. 核心概念
 
@@ -122,7 +139,7 @@ decision 069 相同）：
 | --- | --- | --- | --- |
 | Server | OS 部署意圖（OS Image、Deploy Target、網路意圖、Deployment Template 參照）、Zone／Pool placement、user 指派的 tag、Boot Media 設定、Server Default User、Power Configuration | OS Provisioning State、硬體與 GPU inventory、位址、power 狀態、membership、health、provider 自動計算的 tag | tag 與 Zone／Pool placement 已遷移（§4.4）；Power Configuration 目前在 capable provider 上由 provider 擁有；power on／off 是 desired power 狀態還是保留為動作：待定；Server Lock 改為 swallow 的 hold 還是維持 provider 擁有：待定 |
 | Platform | type、拓樸、各 Server 的 Node Role、功能開關（GPU Operator、Omnistat、Device Metrics Exporter 等）與版本 | 叢集 membership、連線狀態、各功能的狀態讀回 | Platform Lifecycle State 改由 conditions 與 Workflow 推導；Platform Claim 是由 spec 的 target 推導的欄位，與 spec 在同一個 transaction 寫入 |
-| Managed Software（Software Assignment） | kind、variant 或 role、版本 | 已套用的狀態與版本 | 現行設計已有 desired 與 last-applied，最接近本模型 |
+| Managed Software（Software Assignment） | kind、variant 或 role、版本 | 已套用的狀態與版本 | 現行的 Software Assignment 記錄最後一次安裝的 spec 與結果（last-applied），安裝由 user 或計畫觸發，沒有 controller 依 observed 收斂（§1.1） |
 | Zone／Pool | 存在與否、名稱、說明 | provisioner 中的實現狀態 | 已遷移（§4.4） |
 | SSH Key | 公鑰與用途 | 各 provisioner 的同步狀態 | 已遷移（§4.4） |
 | OS Image | swallow 的命名與 `defaultUser` 等 metadata | provider 擁有的 artifact 本身 | 已遷移（§4.4）；Provider Data Overlay 隨之淘汰 |

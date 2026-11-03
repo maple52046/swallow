@@ -16,8 +16,9 @@ component 組成的 runtime；software deployment 佈署單一軟體及其變體
 > **模組**：每個 Managed Software kind 由一個 **Software 模組**提供（[decision 070](../decisions/070-core-providers-and-extensions.md)（core providers and extensions）、
 > [decision 075](../decisions/075-module-contract-v1.md)（module contract v1），見 [core-and-extensions.md](core-and-extensions.md)）。core 不認得任何
 > kind：catalog 由各模組的 `software` hook 組成（§2）。kind 專屬的產品常數（版本、port）仍在 core，之後隨 Platform
-> 模組一起搬出。Software Assignment 已有 desired 與 last-applied，是最接近
-> [desired-state-model.md](desired-state-model.md) 的現有設計。
+> 模組一起搬出。Managed Software 尚未遷移到 [desired-state-model.md](desired-state-model.md)：install 與 uninstall 是
+> 由 user 或計畫觸發的動作，Software Assignment 記錄最後一次安裝的 spec 與結果；主機上被外部移除或停止不會被發現。
+> 新行為依該文件 §1.1 先設計成 desired 與收斂。
 
 ## 0. 權威分界：佈署對象，不是 OS 管線
 
@@ -175,6 +176,10 @@ port `9100`。主機不安裝也不需要 Docker 或任何 container。
 - **舊的 container unit**：安裝前先停止並移除 swallow 舊的 containerised node-exporter（systemd unit
   `swallow-node-exporter.service` 與它的 container，佔用 port 9100）；Docker 本身與主機上已有的 RDC container 不動。
 - uninstall 停止 service 並移除套件。
+- **仍是動作**（[desired-state-model.md](desired-state-model.md) §1.1）：安裝只在 OS 部署、保留主機的 Platform
+  uninstall 與 user 的 install 時發生，assignment 記錄的是那次安裝的結果。主機上被外部移除、service 停止或開機後
+  起不來都不會被發現，assignment 仍是 `installed`；一次被中斷的安裝會把仍在運作的 Node Exporter 標成 `failed`。
+  遷移後改由「Server 應有 Node Exporter」的 desired 與以監控資料為 observed 的 controller 取代計畫中的組入。
 
 ## 3. Software Assignment（durable record）
 
