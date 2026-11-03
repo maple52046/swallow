@@ -81,7 +81,11 @@ import (
 // v12 retires the per-Platform exporter owner: every Platform loses `exporterOwner`, and the
 // retired deploy-k8s-exporters and remove-k8s-exporters kinds are removed from the Sites'
 // playbookMappings for the same reason as v11.
-const CurrentSchemaVersion = 12
+//
+// v13 turns the monitoring dashboards off, in the desired and the applied spec, on every Platform
+// that has no Platform Grafana: the setting is on when omitted, so those Platforms read as having a
+// Grafana they never got, and turning it on installed nothing.
+const CurrentSchemaVersion = 13
 
 // OldestUpgradableSchemaVersion is the oldest schema Migrate upgrades from; an older database
 // has no supported upgrade path. A release's manifest lists every schema from this one up to
@@ -232,6 +236,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v11 to v12: %w", err)
 			}
 			state.Version = 12
+		case 12:
+			if err := migrateV12ToV13(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v12 to v13: %w", err)
+			}
+			state.Version = 13
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}

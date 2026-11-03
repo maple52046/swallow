@@ -114,8 +114,9 @@ CPU、memory、root filesystem、network 與 load），再加上 Platform 的 GP
   Pod 換節點也不會遺失任何東西。AMD GPU Operator 執行它的 Device Metrics Exporter 時，Grafana 會加上 exporter 的 GPU
   dashboards。uninstall Platform 時隨叢集一起移除。
 
-之後才開啟 Grafana 會重新部署 Platform；部署後關閉目前還不支援。在這之前部署的 Slurm Platform 會保留它自己的
-Prometheus 與原本的 Grafana 連結，直到下一次部署；在這之前部署的 Kubernetes Platform 在下一次部署時才會有 Grafana。
+之後才開啟 Grafana 會重新部署 Platform；部署後關閉目前還不支援。在這之前部署的 Platform，Grafana 是關閉的：開啟它，
+Platform 就會帶著 Grafana 重新部署。在那之前，Slurm Platform 保留它自己的 Prometheus 與原本的 Grafana 連結，Kubernetes
+Platform 則沒有 Grafana。
 
 ## Slurm 的 GPU 與作業監控
 

@@ -384,8 +384,8 @@ Platform spec 的 `settings.monitoringDashboards`（desired，省略或 `null` �
   release 與 Secret，playbook 另外刪除 controller 上的 `/usr/local/lib/swallow/platform-grafana` 與 `/usr/local/lib/swallow/helm`；
   uninstall 完成時移除 swallow 寫的 Monitoring Link。
 - 叢集內的 Grafana 是 Platform 的一部分、由 deploy 收斂，不是 Managed Software，沒有 Software Assignment；被外部移除不會被
-  發現，直到下一次 deploy 重跑。在這之前部署的 Kubernetes Platform 沒有 Grafana，下一次 deploy 重跑（例如加入成員）時才會
-  組入。
+  發現，直到下一次 deploy 重跑。沒有 Platform Grafana 的 Platform（在這之前部署的，或 Grafana 沒有裝成功的）由 schema v13 把
+  spec 與 applied spec 的 `monitoringDashboards` 記為 `false`；user 改成 `true` 就是一個變更，Platform 重新部署並組入 Grafana。
 
 ### 2.4 Uninstall 的 Job 分組（對稱於 deploy）
 

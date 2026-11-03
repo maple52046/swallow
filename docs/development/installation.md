@@ -298,7 +298,8 @@ decision 040。
 - `swallow-api migrate --backup-confirmed`（確認已有備份，允許破壞性的 schema 變更：v3 的 Platform rename、
   v10 刪除 schema-v2 的 Operation 紀錄；v11 從每個 Site 的 `playbookMappings` 移除已退役的 `install-exporters`、
   `uninstall-exporters`，v12 移除 Platform 已退役的 exporter 擁有者欄位與 `deploy-k8s-exporters`、
-  `remove-k8s-exporters` mapping，兩者都不需要這個確認）、
+  `remove-k8s-exporters` mapping，v13 把沒有 Platform Grafana 的 Platform 的 `monitoringDashboards` 記為 `false`，三者都
+  不需要這個確認）、
   `deployment-key ensure`、以新 image 啟動 stack、等 `/readyz`、更新 CLI。
 - 重新套用冪等步驟：`local-ntp.sh install` 與 `upstream`；有共置 MAAS 時另有
   `local-maas.sh ensure-virsh-identity`、`bootstrap.sh apply` 與 Prometheus 的 exporter discovery（§3.2 第 11 步）。

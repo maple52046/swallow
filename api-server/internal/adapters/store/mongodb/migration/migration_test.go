@@ -2,6 +2,7 @@ package migration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -623,6 +624,70 @@ func TestMigrateV11ToV12_RetiresTheExporterOwner(t *testing.T) {
 	}
 	if got := count(t, ctx, db.Collection("automation_configurations"), bson.M{"_id": "site-2", "playbookMappings": bson.M{"$exists": true}}); got != 0 {
 		t.Errorf("site-2 gained playbookMappings")
+	}
+	if got := schemaVersion(t, ctx, db); got != CurrentSchemaVersion {
+		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)
+	}
+}
+
+// A Platform without a Platform Grafana gets monitoringDashboards false in both specs, whatever they
+// said, so turning the dashboards on is a change; one with the link keeps its settings.
+func TestMigrateV12ToV13_TurnsOffDashboardsNoPlatformHas(t *testing.T) {
+	db := testDatabase(t)
+	ctx := ctxFor(t)
+	if _, err := db.Collection("platforms").InsertMany(ctx, []any{
+		bson.M{"_id": "omitted", "spec": bson.M{"settings": `{"k0sVersion":"v1"}`}, "status": bson.M{"applied": bson.M{"settings": `{"k0sVersion":"v1"}`}}},
+		bson.M{"_id": "applied-without-install", "spec": bson.M{"settings": `{"monitoringDashboards":true}`},
+			"status": bson.M{"applied": bson.M{"settings": `{"monitoringDashboards":true}`}}, "monitoringLinks": []any{bson.M{"name": "Device Metrics Exporter Grafana", "url": "http://x"}}},
+		bson.M{"_id": "has-grafana", "spec": bson.M{"settings": `{"slurm":{}}`}, "status": bson.M{"applied": bson.M{"settings": `{"slurm":{}}`}},
+			"monitoringLinks": []any{bson.M{"name": "Platform Grafana", "url": "http://y:3000"}}},
+		bson.M{"_id": "no-spec", "name": "legacy"},
+	}); err != nil {
+		t.Fatalf("seed platforms: %v", err)
+	}
+	if _, err := db.Collection("schema_metadata").InsertOne(ctx, bson.M{
+		"_id": "database", "version": 12, "updatedAt": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed schema marker: %v", err)
+	}
+
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	read := func(id string) bson.M {
+		var doc bson.M
+		if err := db.Collection("platforms").FindOne(ctx, bson.M{"_id": id}).Decode(&doc); err != nil {
+			t.Fatalf("read %s: %v", id, err)
+		}
+		return doc
+	}
+	settingsOf := func(doc bson.M, path ...string) map[string]any {
+		current := doc
+		for _, key := range path[:len(path)-1] {
+			current, _ = current[key].(bson.M)
+		}
+		out := map[string]any{}
+		if raw, _ := current[path[len(path)-1]].(string); raw != "" {
+			_ = json.Unmarshal([]byte(raw), &out)
+		}
+		return out
+	}
+	for _, id := range []string{"omitted", "applied-without-install"} {
+		doc := read(id)
+		for _, path := range [][]string{{"spec", "settings"}, {"status", "applied", "settings"}} {
+			if got := settingsOf(doc, path...)["monitoringDashboards"]; got != false {
+				t.Errorf("%s %v monitoringDashboards = %v, want false", id, path, got)
+			}
+		}
+	}
+	if got := settingsOf(read("omitted"), "spec", "settings")["k0sVersion"]; got != "v1" {
+		t.Errorf("other settings were lost: k0sVersion = %v", got)
+	}
+	if _, ok := settingsOf(read("has-grafana"), "spec", "settings")["monitoringDashboards"]; ok {
+		t.Error("a Platform with its Grafana must keep its settings")
+	}
+	if doc := read("no-spec"); doc["spec"] != nil {
+		t.Errorf("a Platform without a spec gained one: %v", doc["spec"])
 	}
 	if got := schemaVersion(t, ctx, db); got != CurrentSchemaVersion {
 		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)

@@ -139,9 +139,9 @@ credential, so a credential copied from an older deployment stops working.
   dashboards. Uninstalling the Platform removes it with the cluster.
 
 Turning the Grafana on later redeploys the Platform; turning it off after deployment is not
-supported yet. A Slurm Platform deployed before this keeps its own Prometheus and the Grafana link
-it had until its next deployment; a Kubernetes Platform deployed before this gets its Grafana at
-its next deployment.
+supported yet. A Platform deployed before this has the Grafana turned off: turn it on to redeploy
+the Platform with its Grafana. Until then a Slurm Platform keeps its own Prometheus and the Grafana
+link it had, and a Kubernetes Platform has no Grafana.
 
 ## GPU and job monitoring on Slurm
 

@@ -694,7 +694,10 @@ Every Platform may have its own read-only Grafana that shows only its members' s
 ([monitoring.md](../../../../../docs/development/monitoring.md) §6.2). The setting is
 `settings.monitoringDashboards`, a boolean that defaults to `true` (omitted or `null` is on); it
 is desired state the user writes with the spec. It applies to CPU-only Platforms as well, and both
-Platform types read it. What the two have in common:
+Platform types read it. A Platform that has never had its own Grafana (it was deployed before the
+setting existed, or its Grafana never installed) carries `false` in its spec and its applied spec;
+setting it to `true` is then a change its Platform type realizes by deploying again. What the two
+have in common:
 
 - Its datasource is the [Platform metrics gateway](platform-metrics-gateway.md),
   `<public URL>/api/v1/platform-metrics/<platformId>/prometheus`, where the public URL is the
@@ -1330,10 +1333,14 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-04 (schema v13) every Platform without the Monitoring Link `Platform Grafana`
+  has `settings.monitoringDashboards: false` in its spec and applied spec; turn it on to install
+  the Platform's Grafana with a new deployment. Writing `true` on such a Platform used to be no
+  change and installed nothing.
 - Since 2026-11-03 a Kubernetes deployment reads `settings.monitoringDashboards` (default on) and
   installs the Platform's own Grafana in the cluster, so a Kubernetes deploy is refused when it is
   planned if the installation lacks `SWALLOW_API_PUBLIC_URL`. A Kubernetes Platform deployed before
-  gets its Grafana the next time its deployment runs. The same day the GPU Operator's
+  gets its Grafana when its `monitoringDashboards` is turned on (schema v13 records it off). The same day the GPU Operator's
   `metricsExporter` moved from the pod network to each managed node's host network at port `5001`,
   where the Site Prometheus scrapes it; a Platform whose exporter is on moves the next time its
   GPU Operator is applied. The request and response shapes are unchanged.
@@ -1344,7 +1351,8 @@ transport/auth failures return `provider_unavailable`; provider rejection return
   controller) unless a feature's `installMethod` says otherwise; `installMethod` now chooses only
   the Grafana's method. A Platform deployed before keeps its composed Prometheus Software
   Assignment until it is uninstalled through the software API, and keeps its `Omnistat Grafana` or
-  `Device Metrics Exporter Grafana` link until its next deploy replaces it with `Platform Grafana`.
+  `Device Metrics Exporter Grafana` link until its `monitoringDashboards` is turned on and its
+  deployment replaces the link with `Platform Grafana`.
   Omnistat's exporter now admits the Site Prometheus's scrape addresses instead of the primary
   controller, and its `ready` state means every exporter answers on its node. A Slurm deploy is
   refused when it is planned if the installation lacks `SWALLOW_API_PUBLIC_URL` (with the Grafana
