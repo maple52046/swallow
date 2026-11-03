@@ -7,6 +7,7 @@ const visualCases = [
   { name: 'overview', path: '/?site=site-a', heading: 'Overview', authenticated: true, representative: true },
   { name: 'overview-alerts-not-configured', path: '/?site=site-a', heading: 'Overview', authenticated: true, representative: false },
   { name: 'overview-alerts-unavailable', path: '/?site=site-a', heading: 'Overview', authenticated: true, representative: false },
+  { name: 'overview-without-alerts', path: '/?site=site-a', heading: 'Overview', authenticated: true, representative: false },
   { name: 'servers', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: true },
   { name: 'platform-list', path: '/platforms?site=site-a', heading: 'Platforms', authenticated: true, representative: false },
   { name: 'workflow-list', path: '/workflows?site=site-a', heading: 'Workflows', authenticated: true, representative: false },
@@ -18,6 +19,7 @@ const visualCases = [
   { name: 'software-docker-detail', path: '/software/docker-ce?site=site-a', heading: 'Docker CE', authenticated: true, representative: false },
   { name: 'software-nfs-detail', path: '/software/nfs?site=site-a', heading: 'NFS', authenticated: true, representative: false },
   { name: 'monitoring', path: '/monitoring?site=site-a', heading: 'Monitoring', authenticated: true, representative: false },
+  { name: 'monitoring-without-alerts', path: '/monitoring?site=site-a', heading: 'Monitoring', authenticated: true, representative: false },
   { name: 'monitoring-pool-charts', path: '/monitoring?site=site-a&chartScope=pool&chartScopeId=pool-research', heading: 'Monitoring', authenticated: true, representative: false },
   { name: 'server-monitoring', path: '/servers/srv-1/monitoring?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'platform-detail-slurm', path: '/platforms/platform-slurm?site=site-a', heading: 'research-slurm', authenticated: true, representative: false },
@@ -170,6 +172,13 @@ test.describe('dashboard visual review', () => {
           : {}),
       })
       await setAppearance(page, appearance)
+      // The release view of basic monitoring: alerts are the one monitoring surface still in
+      // development, so these cases switch them off through the dev-only setting.
+      if (visualCase.name.endsWith('-without-alerts')) {
+        await page.addInitScript(() => {
+          localStorage.setItem('swallow.dev.experimentalFeatures', JSON.stringify({ alerts: false }))
+        })
+      }
 
       await page.goto(visualCase.path)
       await expect(page.getByRole('heading', { name: visualCase.heading, exact: true }).first()).toBeVisible()

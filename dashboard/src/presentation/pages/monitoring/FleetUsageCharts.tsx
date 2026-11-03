@@ -3,7 +3,7 @@ import { Button, HStack, Text } from '@chakra-ui/react'
 import { ExternalLink } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
-import { isMetricRangeWindow, METRIC_DESCRIPTORS, type MetricRangeWindow, type MetricScope } from '@/domain/monitoring/types'
+import { isMetricRangeWindow, METRIC_DESCRIPTORS, METRIC_NAMES, type MetricRangeWindow, type MetricScope } from '@/domain/monitoring/types'
 import { failureOf, failureText } from '@/presentation/components/failure'
 import { UsageCharts } from '@/presentation/components/monitoring/UsageCharts'
 import { Select } from '@/presentation/components/ui/select'
@@ -43,9 +43,6 @@ function parseScopeKind(value: string | null): ChartScopeKind {
   return value === 'pool' || value === 'zone' || value === 'platform' ? value : 'servers'
 }
 
-const HOST_DESCRIPTORS = METRIC_DESCRIPTORS.filter((descriptor) => !descriptor.gpuOnly)
-const ALL_METRICS = METRIC_DESCRIPTORS.map((descriptor) => descriptor.name)
-
 interface FleetUsageChartsProps {
   /** Servers ticked in the console's Server metrics table (URL `chartServers`), in tick order. */
   selectedServerIds: readonly string[]
@@ -62,10 +59,9 @@ interface FleetUsageChartsProps {
  * Scope and window are URL-owned (`chartScope`, `chartScopeId`, `chartWindow`) so a link
  * reproduces the view — Platform detail links here with a Platform preselected. The backend
  * resolves a grouping to its current members and aggregates each metric (average for
- * utilisation, sum for throughput and power, maximum for temperature). GPU cards appear only when
- * the scope returned GPU data, so a CPU-only Pool is not padded with "No data" GPU cards.
- * Grouping lists are loaded per Site; a listing failure is shown inline and leaves the Server
- * selection usable.
+ * utilisation and fill levels, sum for throughput). Every named metric is charted; they are basic
+ * monitoring and apply to every Server. Grouping lists are loaded per Site; a listing failure is
+ * shown inline and leaves the Server selection usable.
  */
 export function FleetUsageCharts({ selectedServerIds, onClearSelection, refreshKey }: FleetUsageChartsProps) {
   const { infrastructure, platforms } = useApp()
@@ -111,13 +107,7 @@ export function FleetUsageCharts({ selectedServerIds, onClearSelection, refreshK
     if (kind === 'servers') return { kind: 'servers', serverIds: [...selectedServerIds] }
     return scopeId ? { kind, id: scopeId } : null
   }, [kind, scopeId, selectedServerIds])
-  const usage = useMetricRange(scope, ALL_METRICS, window, refreshKey)
-
-  const descriptors = useMemo(() => {
-    if (usage.status !== 'ready') return HOST_DESCRIPTORS
-    const withData = new Set(usage.result.series.map((series) => series.metric))
-    return METRIC_DESCRIPTORS.filter((descriptor) => !descriptor.gpuOnly || withData.has(descriptor.name))
-  }, [usage])
+  const usage = useMetricRange(scope, METRIC_NAMES, window, refreshKey)
 
   const updateParams = (apply: (params: URLSearchParams) => void) => {
     const next = new URLSearchParams(searchParams)
@@ -187,7 +177,7 @@ export function FleetUsageCharts({ selectedServerIds, onClearSelection, refreshK
       title="Usage charts"
       description="Aggregated usage over time for the chosen Servers or grouping."
       state={usage}
-      descriptors={descriptors}
+      descriptors={METRIC_DESCRIPTORS}
       window={window}
       onWindowChange={changeWindow}
       idleMessage={idleMessage}

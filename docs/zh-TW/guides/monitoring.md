@@ -3,14 +3,15 @@
 [English](../../../docs/en/guides/monitoring.md) · [文件首頁](../README.md)
 
 swallow 讓你不必離開 swallow 就能看到 Server 的用量。它整合 Site 的
-Prometheus-compatible metrics backend，並自行繪製基本用量圖表——CPU、memory、disk、
-network 與 GPU——對象可以是單台 Server、勾選的多台 Server、Pool、Zone 或 Platform。
+Prometheus-compatible metrics backend，提供基礎監控——Server 的 health，以及 CPU、memory、
+disk 與 network 的用量——對象可以是單台 Server、勾選的多台 Server、Pool、Zone 或 Platform。
 swallow 不儲存 metrics／alerts，也不提供任意 PromQL proxy；它只執行一組固定的 named
-query。Grafana 是選用的：需要基本圖表以外的探索時再接上。
+query。Platform 完整的監控（包括 GPU 的 metrics）在它自己的
+[Grafana](#platform-自己的-grafana)。對 swallow 本身而言 Grafana 是選用的：需要基本圖表以外的探索時再接上。
 
-> Dashboard 的 monitoring 畫面仍在開發中。Dashboard release build 會隱藏它們，health 顯示
-> 「Not available in this release」，見[開發中的功能](dashboard.md#開發中的功能)。註冊 Integration、
-> Monitoring Link、API 與 CLI 依本文運作。
+> Dashboard 的 alert 仍在開發中。Dashboard release build 會顯示 health、目前的 metrics 與用量圖表，
+> 但隱藏 alert 列表與 acknowledge，Overview 的 Alerts 卡片顯示「Not available in this release」，
+> 見[開發中的功能](dashboard.md#開發中的功能)。透過 API 與 CLI 使用 alert 依本文運作。
 
 ## 從佈署好的 Server 到圖表
 
@@ -65,16 +66,20 @@ swallow 使用固定 port，因此 Server 的 scrape target 不會因為 exporte
 
 ## 用量圖表
 
-- **Server detail → Monitoring** 顯示最新數值與該 Server 的用量歷史；GPU Server 另有 GPU 圖表。
+- **Server detail → Monitoring** 顯示最新數值與該 Server 的用量歷史：CPU、memory、root filesystem
+  與 network。
 - **Monitoring → Usage charts** 依 scope 繪圖：在 Server metrics 表格勾選 Server，或選擇
   Pool、Zone 或 Platform。Scope 與時間範圍都在 URL 中，分享連結即可重現同一畫面。
 
 時間範圍可選 1 小時、6 小時、24 小時或 7 天；解析度由 swallow 決定（每張圖約 180 點）。
-多台 Server 時每張圖是一條合併的線：使用率與佔用率取平均，network throughput 與 GPU power
-加總，GPU temperature 取最熱的那台。Pool、Zone 或 Platform 以其**目前**成員繪圖。
+多台 Server 時每張圖是一條合併的線：使用率與佔用率取平均，network throughput 加總。
+Pool、Zone 或 Platform 以其**目前**成員繪圖。
 
-Backend 沒有該 metric 的資料時，圖表顯示「No data」——例如沒有 GPU exporter 的 Server 的
-GPU 圖表。線條中斷代表該 Server 當時沒有回報。兩者都不會畫成 0。
+swallow 的圖表對每台 Server 都一樣，不論有沒有 GPU；GPU 的 metrics 由 Platform 自己的 Grafana
+顯示，不在 swallow 裡。
+
+Backend 沒有該 metric 的資料時，圖表顯示「No data」——例如剛佈署好的 Server 的 Node Exporter
+還沒被收集。線條中斷代表該 Server 當時沒有回報。兩者都不會畫成 0。
 
 ## Platform 自己的 Grafana
 
@@ -142,6 +147,8 @@ swallow platforms update plat1 -f patch.yaml
 
 Alert 會從 Alertmanager live read，並關聯到 swallow resource。Acknowledgement
 會建立 Alertmanager silence；swallow 不在 local alert copy 增加 acknowledged field。
+Dashboard 的 alert 列表與 acknowledge 仍在開發中，release build 會隱藏；CLI 與 API 在每個
+release 都提供。
 
 Silence 前檢查 matcher、duration、Site scope 與 affected Servers。遇到
 provider-unavailable error 時先診斷 Integration，不要把它當 fleet health result。

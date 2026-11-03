@@ -165,8 +165,10 @@ dashboard 不自行推導。
 
 ## Experimental features
 
-開發中的 dashboard 功能（目前為 `monitoring`、`osImageUpload`、`deploymentTemplates`、`virtualMachines`）只在
-development build（Vite dev server，含 Playwright）顯示；release build（`vite build`）一律隱藏。
+開發中的 dashboard 功能（目前為 `alerts`、`osImageUpload`、`deploymentTemplates`、`virtualMachines`）只在
+development build（Vite dev server，含 Playwright）顯示；release build（`vite build`）一律隱藏。基礎監控（health、
+目前值與用量圖）已發行，不在開關後面；`alerts` 只涵蓋 Alertmanager 的告警（Monitoring 的告警列表與 acknowledge、
+Overview 的 Alerts 卡片與告警 attention item）。
 這只影響 presentation，不改 API、CLI 或後端行為。
 
 - Feature 清單與 `ExperimentalFeatureSettings` port 在 `src/application/ports/`。
@@ -176,9 +178,10 @@ development build（Vite dev server，含 Playwright）顯示；release build（
 - Presentation 以 `useExperimentalFeature(feature)` 讀取。獨立入口（navigation、tab、action、
   route）在關閉時移除；route 一律經 `FeatureRoute` 保護（Not Found 或保留 query string 的 redirect），
   避免書籤或手打 URL 掛載未完成畫面並發出其 API request。
-- 共用頁面上的值（例如 health）在關閉時保留位置，統一使用 `NOT_AVAILABLE_IN_RELEASE` 文案，
+- 共用頁面上的值（例如 Overview 的 Alerts 卡片）在關閉時保留位置，統一使用 `NOT_AVAILABLE_IN_RELEASE` 文案，
   不顯示成空值、unknown 或 failure；依賴該功能的 URL filter 在 parse 時忽略、在 canonicalize 時移除。
-- Development build 在帳號選單提供「Experimental features」對話框，逐項切換並即時重繪。
+- Development build 在帳號選單提供「Experimental features」對話框，逐項切換並即時重繪。localStorage 只保留目前清單內
+  功能的關閉紀錄；清單已移除的 key（例如已發行功能的舊開關）讀取時忽略、下次寫入時丟棄。
 - 新增實驗功能時：擴充 `ExperimentalFeature` 與對話框文案，gate 所有入口，並在
   `tests/e2e/experimental-features.spec.ts` 與 `tests/production/` 補驗證。功能完成後移除 gate 與清單項目。
 

@@ -4,8 +4,6 @@ package application
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 
 	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
@@ -39,7 +37,7 @@ func (r *HealthResolver) ResolveHealth(
 		return nil, nil
 	}
 
-	if _, err := labelPattern(serverIDs); err != nil {
+	if _, err := monitoringdomain.NewServerSet(serverIDs); err != nil {
 		return nil, err
 	}
 	groups, err := groupBySite(ctx, r.sites, serverIDs)
@@ -59,14 +57,11 @@ func (r *HealthResolver) ResolveHealth(
 
 	health := make(map[string]*serverdomain.HealthStatus, len(serverIDs))
 	for _, query := range queries {
-		pattern, err := labelPattern(query.serverIDs)
+		servers, err := monitoringdomain.NewServerSet(query.serverIDs)
 		if err != nil {
 			return nil, err
 		}
-		expr := fmt.Sprintf(`max by (%s) (up{%s=%q, %s=~"%s"})`,
-			monitoringdomain.LabelServerID, monitoringdomain.LabelExporter, monitoringdomain.HealthExporter,
-			monitoringdomain.LabelServerID, pattern)
-		samples, err := query.querier.Query(ctx, expr)
+		samples, err := query.querier.ExporterUp(ctx, monitoringdomain.HealthExporter, servers)
 		if err != nil {
 			return nil, err
 		}
@@ -83,25 +78,4 @@ func (r *HealthResolver) ResolveHealth(
 		}
 	}
 	return health, nil
-}
-
-// labelPattern builds a PromQL regex alternation from server IDs.
-//
-// Identifiers are validated rather than escaped: they are swallow-issued UUIDs, so
-// anything outside this character set means the caller is passing something that did
-// not come from swallow, and interpolating it into a query would be the wrong response.
-func labelPattern(serverIDs []string) (string, error) {
-	for _, id := range serverIDs {
-		if id == "" {
-			return "", fmt.Errorf("%w: empty", monitoringdomain.ErrInvalidServerID)
-		}
-		for _, r := range id {
-			switch {
-			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
-			default:
-				return "", fmt.Errorf("%w: %q", monitoringdomain.ErrInvalidServerID, id)
-			}
-		}
-	}
-	return strings.Join(serverIDs, "|"), nil
 }

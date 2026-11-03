@@ -48,23 +48,23 @@ export interface AcknowledgeAlertResult {
   silenceId: string
 }
 
-/** The metric names the backend can answer, matching `GET /monitoring/metrics/names`. */
+/**
+ * The metric names the backend can answer, matching `GET /monitoring/metrics/names`. They are
+ * basic monitoring only (Node Exporter host metrics) and apply to every Server; GPU metrics are
+ * shown by a Platform's own Grafana, not here.
+ */
 export type MetricName =
   | 'cpuUsagePercent'
   | 'memoryUsedPercent'
   | 'diskUsedPercent'
   | 'networkReceiveBytesPerSecond'
   | 'networkTransmitBytesPerSecond'
-  | 'gpuUtilizationPercent'
-  | 'gpuTemperatureCelsius'
-  | 'gpuPowerWatts'
-  | 'gpuMemoryUsedPercent'
 
 /**
  * Unit of a named metric. `percent` values live on a fixed 0–100 scale; the others are open-ended
  * and a chart scales them to the data.
  */
-export type MetricUnit = 'percent' | 'celsius' | 'watts' | 'bytesPerSecond'
+export type MetricUnit = 'percent' | 'bytesPerSecond'
 
 /**
  * One server's metric values. Missing metrics are absent rather than zero because
@@ -88,8 +88,6 @@ export interface ServerMetricsResult {
 export interface MetricDescriptor {
   name: MetricName
   label: string
-  /** GPU metrics only apply to GPU servers; CPU-only views skip them rather than show "no data". */
-  gpuOnly: boolean
   unit: MetricUnit
   format: (value: number) => string
 }
@@ -99,18 +97,17 @@ const percent = (value: number): string => `${value.toFixed(1)}%`
 /** Bytes per second with binary units; zero is valid traffic and must not be treated as unknown. */
 const bytesPerSecond = (value: number): string => (value > 0 ? `${formatBytes(value)}/s` : '0 B/s')
 
-/** Fixed named metrics in user scan order: host resources first, then GPU. */
-export const METRIC_DESCRIPTORS: MetricDescriptor[] = [
-  { name: 'cpuUsagePercent', label: 'CPU usage', gpuOnly: false, unit: 'percent', format: percent },
-  { name: 'memoryUsedPercent', label: 'Memory used', gpuOnly: false, unit: 'percent', format: percent },
-  { name: 'diskUsedPercent', label: 'Disk used (/)', gpuOnly: false, unit: 'percent', format: percent },
-  { name: 'networkReceiveBytesPerSecond', label: 'Network received', gpuOnly: false, unit: 'bytesPerSecond', format: bytesPerSecond },
-  { name: 'networkTransmitBytesPerSecond', label: 'Network sent', gpuOnly: false, unit: 'bytesPerSecond', format: bytesPerSecond },
-  { name: 'gpuUtilizationPercent', label: 'GPU utilization', gpuOnly: true, unit: 'percent', format: percent },
-  { name: 'gpuMemoryUsedPercent', label: 'GPU memory used', gpuOnly: true, unit: 'percent', format: percent },
-  { name: 'gpuTemperatureCelsius', label: 'GPU temperature', gpuOnly: true, unit: 'celsius', format: (value) => `${Math.round(value)} °C` },
-  { name: 'gpuPowerWatts', label: 'GPU power', gpuOnly: true, unit: 'watts', format: (value) => `${Math.round(value)} W` },
+/** Fixed named metrics in user scan order. */
+export const METRIC_DESCRIPTORS: readonly MetricDescriptor[] = [
+  { name: 'cpuUsagePercent', label: 'CPU usage', unit: 'percent', format: percent },
+  { name: 'memoryUsedPercent', label: 'Memory used', unit: 'percent', format: percent },
+  { name: 'diskUsedPercent', label: 'Disk used (/)', unit: 'percent', format: percent },
+  { name: 'networkReceiveBytesPerSecond', label: 'Network received', unit: 'bytesPerSecond', format: bytesPerSecond },
+  { name: 'networkTransmitBytesPerSecond', label: 'Network sent', unit: 'bytesPerSecond', format: bytesPerSecond },
 ]
+
+/** Every named metric, in the descriptors' order; what a view asks for when it charts them all. */
+export const METRIC_NAMES: readonly MetricName[] = METRIC_DESCRIPTORS.map((descriptor) => descriptor.name)
 
 /** Usage-history windows the range contract accepts, each ending at the request time. */
 export type MetricRangeWindow = '1h' | '6h' | '24h' | '7d'

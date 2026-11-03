@@ -110,9 +110,9 @@ type MetricRangeResult struct {
 // MetricRangeService answers usage-history reads of the named metrics over a scope.
 //
 // It resolves a grouping to Servers through ServerScopeResolver at request time (so history is
-// that of current members), bounds the range and resolution, and evaluates the same named
-// expressions as the current-value read — wrapped in the metric's scope aggregate in aggregate
-// mode. It stores nothing. Errors: ErrUnknownMetric, ErrInvalidMetricRange,
+// that of current members), bounds the range and resolution, and asks each Site's querier for
+// the same named metrics as the current-value read — combined with the metric's scope aggregate
+// in aggregate mode. It stores nothing. Errors: ErrUnknownMetric, ErrInvalidMetricRange,
 // monitoringdomain.ErrScopeNotFound, monitoringdomain.ErrInvalidServerID,
 // monitoringdomain.ErrNoMetricsIntegration, and *monitoringdomain.QueryError from the store.
 type MetricRangeService struct {
@@ -144,7 +144,7 @@ func (s *MetricRangeService) WithClock(now func() time.Time) *MetricRangeService
 // the bounded range. Metrics, mode, and range are validated before the scope is resolved, and
 // the scope's size before the store is queried, so a refused request never costs a store query.
 func (s *MetricRangeService) Query(ctx context.Context, input MetricRangeInput) (*MetricRangeResult, error) {
-	queries, err := resolveMetrics(input.Metrics)
+	metrics, err := resolveMetrics(input.Metrics)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (s *MetricRangeService) Query(ctx context.Context, input MetricRangeInput) 
 		return result, nil
 	}
 
-	if _, err := labelPattern(serverIDs); err != nil {
+	if _, err := monitoringdomain.NewServerSet(serverIDs); err != nil {
 		return nil, err
 	}
 	groups, err := groupBySite(ctx, s.sites, serverIDs)
@@ -209,24 +209,20 @@ func (s *MetricRangeService) Query(ctx context.Context, input MetricRangeInput) 
 		return nil, err
 	}
 
-	for _, query := range queries {
+	for _, metric := range metrics {
 		var series []monitoringdomain.Series
 		for _, site := range sites {
-			pattern, err := labelPattern(site.serverIDs)
+			servers, err := monitoringdomain.NewServerSet(site.serverIDs)
 			if err != nil {
 				return nil, err
 			}
-			expr := expandQuery(query.expr, pattern)
-			if mode == RangeModeAggregate {
-				expr = query.aggregate + " (" + expr + ")"
-			}
-			found, err := site.querier.QueryRange(ctx, expr, window)
+			found, err := site.querier.History(ctx, metric, servers, window, mode == RangeModeAggregate)
 			if err != nil {
 				return nil, err
 			}
 			series = append(series, found...)
 		}
-		result.Series = append(result.Series, shapeSeries(query.name, mode, serverIDs, series)...)
+		result.Series = append(result.Series, shapeSeries(metric.Name, mode, serverIDs, series)...)
 	}
 	return result, nil
 }

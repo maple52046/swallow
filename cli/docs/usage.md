@@ -832,7 +832,7 @@ swallow monitoring metrics names
 
 # Usage history: exactly one scope (--server, --pool, --zone, or --platform).
 swallow monitoring metrics range --server srv1 --window 6h
-swallow monitoring metrics range --pool pool1 --metric cpuUsagePercent --metric gpuUtilizationPercent --window 24h
+swallow monitoring metrics range --pool pool1 --metric cpuUsagePercent --metric networkReceiveBytesPerSecond --window 24h
 swallow monitoring metrics range --platform plat1 --mode perServer --metric memoryUsedPercent
 swallow monitoring metrics range --zone zone1 --start 2026-10-10T00:00:00Z --end 2026-10-11T00:00:00Z
 ```

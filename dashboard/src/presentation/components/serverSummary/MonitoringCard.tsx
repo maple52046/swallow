@@ -33,8 +33,7 @@ function MetricTile({ label, value }: { label: string; value: string | null }) {
  * Integration configures it; swallow's own charts are the primary history view.
  */
 export function MonitoringCard({ monitoring }: { monitoring: ServerMonitoring }) {
-  const { gpu, metrics, grafana, metricsError, loading } = monitoring
-  const descriptors = METRIC_DESCRIPTORS.filter((descriptor) => gpu || !descriptor.gpuOnly)
+  const { metrics, grafana, metricsError, loading } = monitoring
   return (
     <SectionSurface
       title="Current metrics"
@@ -59,7 +58,7 @@ export function MonitoringCard({ monitoring }: { monitoring: ServerMonitoring })
             </Alert>
           )}
           <SimpleGrid minChildWidth="190px" gap="3">
-            {descriptors.map((descriptor) => {
+            {METRIC_DESCRIPTORS.map((descriptor) => {
               const value = metrics[descriptor.name]
               return (
                 <MetricTile

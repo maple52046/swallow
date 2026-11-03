@@ -10338,10 +10338,6 @@ components:
         - diskUsedPercent
         - networkReceiveBytesPerSecond
         - networkTransmitBytesPerSecond
-        - gpuUtilizationPercent
-        - gpuTemperatureCelsius
-        - gpuPowerWatts
-        - gpuMemoryUsedPercent
       type: string
     MetricRange:
       properties:
@@ -13157,14 +13153,6 @@ components:
             cpuUsagePercent:
               type: number
             diskUsedPercent:
-              type: number
-            gpuMemoryUsedPercent:
-              type: number
-            gpuPowerWatts:
-              type: number
-            gpuTemperatureCelsius:
-              type: number
-            gpuUtilizationPercent:
               type: number
             memoryUsedPercent:
               type: number

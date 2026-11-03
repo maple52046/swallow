@@ -48,9 +48,7 @@ import { DebouncedSearchInput } from '@/presentation/components/ui/debounced-sea
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { usePlatformNames } from '@/presentation/hooks/usePlatformNames'
-import { NOT_AVAILABLE_IN_RELEASE } from '@/presentation/components/releaseAvailability'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { actionLabel, isRamDeploy, serverActionAvailability, type ServerMenuAction } from './serverActions'
 import { ServerLockDialog } from './ServerLockDialog'
@@ -278,7 +276,6 @@ function serverDetailFacts(
   server: Server,
   sites: readonly Site[],
   integrations: readonly Integration[],
-  monitoring: boolean,
 ): DetailFactGroup[] {
   const provisioning = server.status.provisioning
   return [
@@ -331,7 +328,7 @@ function serverDetailFacts(
       title: 'Operational context',
       facts: [
         { label: 'Power', value: powerStateLabel(provisioning?.powerState ?? null) },
-        { label: 'Health', value: monitoring ? server.status.health?.state ?? 'Unobserved' : NOT_AVAILABLE_IN_RELEASE },
+        { label: 'Health', value: server.status.health?.state ?? 'Unobserved' },
         { label: 'Platform ID', value: textOrDash(server.status.membership?.platformId) },
         { label: 'Platform node', value: textOrDash(server.status.membership?.nodeName) },
         { label: 'Platform role', value: textOrDash(server.status.membership?.role) },
@@ -344,40 +341,31 @@ function serverDetailFacts(
         { label: 'Last seen', value: server.status.lastSeenAt ? formatDateTime(server.status.lastSeenAt) : 'Never' },
         { label: 'Provisioning observed', value: provisioning?.observedAt ? formatDateTime(provisioning.observedAt) : 'Unobserved' },
         { label: 'Membership observed', value: server.status.membership?.observedAt ? formatDateTime(server.status.membership.observedAt) : 'Unobserved' },
-        {
-          label: 'Health observed',
-          value: !monitoring
-            ? NOT_AVAILABLE_IN_RELEASE
-            : server.status.health?.observedAt ? formatDateTime(server.status.health.observedAt) : 'Unobserved',
-        },
+        { label: 'Health observed', value: server.status.health?.observedAt ? formatDateTime(server.status.health.observedAt) : 'Unobserved' },
       ],
     },
   ]
 }
 
-/** One axis of the fleet summary; `note` replaces the counts when the axis is not offered. */
+/** One axis of the fleet summary: its label and its counts in display order. */
 interface FleetAxisGroup {
   label: string
   values: ReadonlyArray<readonly [string, number]>
-  note?: string
 }
 
 /**
- * Scope-wide fleet summary that stays independent from inventory discovery filters.
- * While monitoring is in development the Health axis keeps its place but shows the
- * "not available" note instead of counts, and down Servers no longer raise attention.
+ * Scope-wide fleet summary that stays independent from inventory discovery filters. Deployment
+ * attention and down Servers raise the attention tone; unobserved health does not, because an
+ * unscraped Server is unknown rather than down.
  */
 function ServerFleetOverview({ servers }: { servers: readonly Server[] }) {
-  const monitoring = useExperimentalFeature('monitoring')
   const facts = serverFleetFacts(servers)
-  const hasAttention = facts.deploymentAttention > 0 || (monitoring && facts.healthDown > 0)
+  const hasAttention = facts.deploymentAttention > 0 || facts.healthDown > 0
   const groups: FleetAxisGroup[] = [
     { label: 'Inventory', values: [['Total', facts.total], ['Absent', facts.absent]] },
     { label: 'OS deployment', values: [['Verified', facts.deploymentVerified], ['Active', facts.deploymentActive], ['Attention', facts.deploymentAttention]] },
     { label: 'Membership', values: [['Assigned', facts.assigned], ['Unassigned', facts.unassigned]] },
-    monitoring
-      ? { label: 'Health', values: [['Up', facts.healthUp], ['Down', facts.healthDown], ['Unobserved', facts.healthUnobserved]] }
-      : { label: 'Health', values: [], note: NOT_AVAILABLE_IN_RELEASE },
+    { label: 'Health', values: [['Up', facts.healthUp], ['Down', facts.healthDown], ['Unobserved', facts.healthUnobserved]] },
   ]
   const OverviewIcon = hasAttention ? TriangleAlert : CircleCheckBig
   return (
@@ -394,18 +382,14 @@ function ServerFleetOverview({ servers }: { servers: readonly Server[] }) {
         {groups.map((group) => (
           <section key={group.label} className="sw-server-fleet-axis" aria-label={group.label}>
             <Text className="sw-server-fleet-axis__label">{group.label}</Text>
-            {group.note ? (
-              <Text color="fg.muted" fontSize="sm">{group.note}</Text>
-            ) : (
-              <dl>
-                {group.values.map(([label, value]) => (
-                  <div key={label}>
-                    <dt>{label}</dt>
-                    <dd>{value}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
+            <dl>
+              {group.values.map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
           </section>
         ))}
       </div>
@@ -424,14 +408,8 @@ export function ServersPage() {
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const paramsKey = searchParams.toString()
-  // The health filter is offered only while monitoring is shown; otherwise `?health=` is
-  // ignored and dropped from the canonical URL.
-  const monitoring = useExperimentalFeature('monitoring')
-  const query = useMemo(() => parseServerInventoryQuery(searchParams, { health: monitoring }), [searchParams, monitoring])
-  const normalizedParams = useMemo(
-    () => normalizeServerInventoryParams(searchParams, { health: monitoring }),
-    [searchParams, monitoring],
-  )
+  const query = useMemo(() => parseServerInventoryQuery(searchParams), [searchParams])
+  const normalizedParams = useMemo(() => normalizeServerInventoryParams(searchParams), [searchParams])
   const [density, setDensity] = useState<ServerDensity>(readDensityPreference)
   const [pageSize, setPageSize] = useState(readPageSizePreference)
   const [selectionState, setSelectionState] = useState<ServerSelectionState>({ filterKey: '', ids: new Set() })
@@ -1242,22 +1220,17 @@ function ServerFilterPanel({
   onIncludeAbsent: (checked: boolean) => void
   onClear: () => void
 }) {
-  // Health keeps its place while monitoring is in development but cannot be used.
-  const monitoring = useExperimentalFeature('monitoring')
   return (
     <div className="sw-server-filter-panel">
       <div className="sw-server-filter-panel__selects">
-        <fieldset className="sw-filter-group" aria-describedby={monitoring ? undefined : 'server-filter-health-note'}>
+        <fieldset className="sw-filter-group">
           <legend>Health</legend>
-          <Select value={query.health} aria-label="Filter Server health" size="sm" disabled={!monitoring} onChange={(value) => onSingle('health', value)} options={[
+          <Select value={query.health} aria-label="Filter Server health" size="sm" onChange={(value) => onSingle('health', value)} options={[
             { value: 'any', label: 'Any health' },
             { value: 'up', label: 'Up' },
             { value: 'down', label: 'Down' },
             { value: 'unobserved', label: 'Unobserved' },
           ]} />
-          {!monitoring && (
-            <Text id="server-filter-health-note" color="fg.muted" fontSize="xs">{NOT_AVAILABLE_IN_RELEASE}</Text>
-          )}
         </fieldset>
         <fieldset className="sw-filter-group">
           <legend>Membership</legend>
@@ -1788,7 +1761,6 @@ function ServerRow({
 }) {
   const [expanded, setExpanded] = useState(false)
   const [powerDialogOpen, setPowerDialogOpen] = useState(false)
-  const monitoring = useExperimentalFeature('monitoring')
   const detailId = `server-details-${server.id}`
   const tone = serverRowTone(server)
   return (
@@ -1815,7 +1787,7 @@ function ServerRow({
       </Table.Row>
       {expanded && (
         <Table.Row id={detailId} className="sw-server-detail-row">
-          <Table.Cell colSpan={10}><ServerDetailsPanel groups={serverDetailFacts(server, sites, integrations, monitoring)} /></Table.Cell>
+          <Table.Cell colSpan={10}><ServerDetailsPanel groups={serverDetailFacts(server, sites, integrations)} /></Table.Cell>
         </Table.Row>
       )}
       {powerDialogOpen && (
@@ -1857,8 +1829,7 @@ function ServerMobileCard({
   onEditTags: () => void
 }) {
   const [powerDialogOpen, setPowerDialogOpen] = useState(false)
-  const monitoring = useExperimentalFeature('monitoring')
-  const details = serverDetailFacts(server, sites, integrations, monitoring).flatMap((group) => (
+  const details = serverDetailFacts(server, sites, integrations).flatMap((group) => (
     group.facts.map((fact) => ({ ...fact, label: `${group.title} · ${fact.label}` }))
   ))
   return (

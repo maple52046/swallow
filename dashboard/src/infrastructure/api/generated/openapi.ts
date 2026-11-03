@@ -4792,7 +4792,7 @@ export interface components {
          * @description One of the fixed named metric queries (server-metrics.md, Metric Names).
          * @enum {string}
          */
-        MetricName: "cpuUsagePercent" | "memoryUsedPercent" | "diskUsedPercent" | "networkReceiveBytesPerSecond" | "networkTransmitBytesPerSecond" | "gpuUtilizationPercent" | "gpuTemperatureCelsius" | "gpuPowerWatts" | "gpuMemoryUsedPercent";
+        MetricName: "cpuUsagePercent" | "memoryUsedPercent" | "diskUsedPercent" | "networkReceiveBytesPerSecond" | "networkTransmitBytesPerSecond";
         MetricRange: {
             end: components["schemas"]["Timestamp"];
             /** @description The metrics Integration's optional Grafana base URL, or null. */
@@ -6019,10 +6019,6 @@ export interface components {
             metrics: {
                 cpuUsagePercent?: number;
                 diskUsedPercent?: number;
-                gpuMemoryUsedPercent?: number;
-                gpuPowerWatts?: number;
-                gpuTemperatureCelsius?: number;
-                gpuUtilizationPercent?: number;
                 memoryUsedPercent?: number;
                 networkReceiveBytesPerSecond?: number;
                 networkTransmitBytesPerSecond?: number;

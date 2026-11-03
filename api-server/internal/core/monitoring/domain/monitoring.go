@@ -21,9 +21,6 @@ const (
 	LabelPlatform = "platform_id"
 	// LabelPlatformLegacy is a read alias of LabelPlatform.
 	LabelPlatformLegacy = "platform"
-	// LabelKubernetesNode is what in-platform metrics carry instead of a server_id,
-	// because swallow does not own a platform's scrape configuration.
-	LabelKubernetesNode = "node"
 	// LabelExporter names the exporter a series was scraped from.
 	LabelExporter = "exporter"
 	// HealthExporter is the basic tier's exporter (decision 003): a Server's health is whether the
@@ -96,23 +93,32 @@ type TimeRange struct {
 	Step  time.Duration
 }
 
-// MetricsQuerier reads from the central metrics store.
+// MetricsQuerier evaluates swallow's named metrics against one Site's metrics store.
 //
-// Deliberately narrow: swallow exposes named, parameterised queries rather than a PromQL
-// passthrough, so the set of expressions that can reach the store is bounded by this
-// codebase rather than by a client.
+// Deliberately narrow: swallow exposes named, parameterised reads rather than a query
+// passthrough, so what can reach the store is bounded by the adapter that implements this port,
+// never by a client. The core names the metric, the Servers, and whether to combine them; the
+// expression that computes a metric, and the exporter series it reads, are the adapter's.
 //
-// Implementations drop non-finite values (NaN, ±Inf) instead of returning them: a division by
-// zero in the store means "no meaningful value", and those values cannot cross JSON anyway.
-// Failures are reported as *QueryError so the delivery layer can tell an unreachable store
-// from a rejected expression.
+// Per-Server results carry LabelServerID so the caller can attribute them; a Server the store has
+// no value for has no result. Implementations drop non-finite values (NaN, ±Inf) instead of
+// returning them: a division by zero in the store means "no meaningful value", and those values
+// cannot cross JSON anyway. An empty ServerSet is answered with no results and no store request.
+// Store failures are reported as *QueryError so the delivery layer can tell an unreachable store
+// from a rejected expression; a metric the adapter cannot compute is an ordinary error, because
+// NamedMetrics and the adapter are kept in step by the adapter's tests.
 type MetricsQuerier interface {
 	Name() string
-	// Query evaluates a PromQL expression at the current instant.
-	Query(ctx context.Context, expr string) ([]Sample, error)
-	// QueryRange evaluates a PromQL expression at every step of the range. The caller is
-	// responsible for bounding the range and step; the querier forwards them as given.
-	QueryRange(ctx context.Context, expr string, window TimeRange) ([]Series, error)
+	// Current evaluates metric for each Server at the current instant.
+	Current(ctx context.Context, metric Metric, servers ServerSet) ([]Sample, error)
+	// History evaluates metric at every step of window: one series per Server, or, when combined
+	// is true, at most one series without a server_id that combines the Servers with
+	// metric.Aggregate. The caller bounds the window and step; the querier forwards them as given.
+	History(ctx context.Context, metric Metric, servers ServerSet, window TimeRange, combined bool) ([]Series, error)
+	// ExporterUp reports, per Server, whether the store's latest scrape of the named exporter on it
+	// succeeded: a value above zero is up, zero is down. A Server with no target for that exporter
+	// has no sample, which is unknown rather than down.
+	ExporterUp(ctx context.Context, exporter string, servers ServerSet) ([]Sample, error)
 }
 
 // ScopeKind names what a metrics scope groups Servers by.

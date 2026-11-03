@@ -4,140 +4,38 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
 	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
-// namedQuery is one metric swallow will evaluate: its per-server PromQL expression and how
-// several servers combine into one series for a grouping (the contract's "scope aggregate").
-type namedQuery struct {
-	name string
-	// expr takes the server_id label pattern via every %s and must aggregate by (server_id),
-	// so a result can be attributed to exactly one server.
-	expr string
-	// aggregate is the PromQL aggregation operator applied over the per-server vector when a
-	// scope is charted as one series: avg for utilisation and fill levels, sum for throughput
-	// and power, max for temperature. Servers without a value at a timestamp do not take part,
-	// which is what PromQL aggregation does over a vector.
-	aggregate string
-}
-
-// networkDeviceExclusion matches the loopback and the virtual devices container runtimes and
-// hypervisors create. Counting a veth or a bridge as well as the physical NIC it forwards to
-// would double the reported traffic of a host running containers or VMs.
-const networkDeviceExclusion = `lo|veth.*|docker.*|br-.*|virbr.*|cali.*|flannel.*|cni.*|vxlan.*|tun.*|tap.*|kube-.*`
-
-// namedQueries is the complete, ordered set of expressions swallow will evaluate. The order is
-// the user scan order and is what MetricNames reports.
-//
-// A fixed set rather than a PromQL passthrough: an arbitrary expression through an
-// authenticated API makes swallow responsible for query cost it cannot predict, and lets
-// one client trigger a fleet-wide high-cardinality scan. Exploration beyond these belongs in
-// the optional Grafana the metrics Integration may link to.
-//
-// The current-value and range endpoints evaluate these same expressions, so a tile and a chart
-// for one metric cannot disagree about what they measure.
-//
-// The GPU expressions are vendor-neutral: each evaluates the NVIDIA DCGM series or the
-// AMD RDC series with `or`, so one metric name serves both stacks and the caller never
-// has to know which exporter a server runs. Only the first non-empty vector per server
-// contributes, because a host runs one GPU exporter, not both. Units are aligned across
-// vendors by the RDC exporter's metric catalog (Celsius, Watts), so no PromQL rescaling
-// is needed here.
-var namedQueries = []namedQuery{
-	{
-		name:      "cpuUsagePercent",
-		expr:      `100 - (avg by (server_id) (rate(node_cpu_seconds_total{mode="idle",server_id=~"%s"}[5m])) * 100)`,
-		aggregate: "avg",
-	},
-	{
-		name: "memoryUsedPercent",
-		expr: `100 * (1 - sum by (server_id) (node_memory_MemAvailable_bytes{server_id=~"%s"}) ` +
-			`/ sum by (server_id) (node_memory_MemTotal_bytes{server_id=~"%s"}))`,
-		aggregate: "avg",
-	},
-	{
-		// The root filesystem only: per-mount series would need a mount label the caller cannot
-		// choose, and "/" is the filesystem an OS deployment fills.
-		name: "diskUsedPercent",
-		expr: `100 * (1 - sum by (server_id) (node_filesystem_avail_bytes{mountpoint="/",server_id=~"%s"}) ` +
-			`/ sum by (server_id) (node_filesystem_size_bytes{mountpoint="/",server_id=~"%s"}))`,
-		aggregate: "avg",
-	},
-	{
-		name: "networkReceiveBytesPerSecond",
-		expr: `sum by (server_id) (rate(node_network_receive_bytes_total{device!~"` + networkDeviceExclusion +
-			`",server_id=~"%s"}[5m]))`,
-		aggregate: "sum",
-	},
-	{
-		name: "networkTransmitBytesPerSecond",
-		expr: `sum by (server_id) (rate(node_network_transmit_bytes_total{device!~"` + networkDeviceExclusion +
-			`",server_id=~"%s"}[5m]))`,
-		aggregate: "sum",
-	},
-	{
-		name: "gpuUtilizationPercent",
-		expr: `avg by (server_id) (DCGM_FI_DEV_GPU_UTIL{server_id=~"%s"}) ` +
-			`or avg by (server_id) (gpu_util{server_id=~"%s"})`,
-		aggregate: "avg",
-	},
-	{
-		name: "gpuTemperatureCelsius",
-		expr: `max by (server_id) (DCGM_FI_DEV_GPU_TEMP{server_id=~"%s"}) ` +
-			`or max by (server_id) (gpu_temp{server_id=~"%s"})`,
-		aggregate: "max",
-	},
-	{
-		name: "gpuPowerWatts",
-		expr: `sum by (server_id) (DCGM_FI_DEV_POWER_USAGE{server_id=~"%s"}) ` +
-			`or sum by (server_id) (power_usage{server_id=~"%s"})`,
-		aggregate: "sum",
-	},
-	{
-		name: "gpuMemoryUsedPercent",
-		expr: `100 * sum by (server_id) (DCGM_FI_DEV_FB_USED{server_id=~"%s"}) ` +
-			`/ (sum by (server_id) (DCGM_FI_DEV_FB_USED{server_id=~"%s"}) + sum by (server_id) (DCGM_FI_DEV_FB_FREE{server_id=~"%s"})) ` +
-			`or 100 * sum by (server_id) (gpu_memory_usage{server_id=~"%s"}) / sum by (server_id) (gpu_memory_total{server_id=~"%s"})`,
-		aggregate: "avg",
-	},
-}
-
-// MetricNames lists the queries a client may ask for, in user scan order.
+// MetricNames lists the metrics a client may ask for, in user scan order.
 func MetricNames() []string {
-	names := make([]string, 0, len(namedQueries))
-	for _, query := range namedQueries {
-		names = append(names, query.name)
+	metrics := monitoringdomain.NamedMetrics()
+	names := make([]string, 0, len(metrics))
+	for _, metric := range metrics {
+		names = append(names, metric.Name)
 	}
 	return names
 }
 
-// lookupQuery finds a named query, reporting false for a name swallow does not define.
-func lookupQuery(name string) (namedQuery, bool) {
-	for _, query := range namedQueries {
-		if query.name == name {
-			return query, true
-		}
-	}
-	return namedQuery{}, false
-}
-
 // resolveMetrics validates requested metric names, defaulting to every name. An unknown name is
 // ErrUnknownMetric with the available names, so a typo is answered with what would have worked.
-func resolveMetrics(requested []string) ([]namedQuery, error) {
+func resolveMetrics(requested []string) ([]monitoringdomain.Metric, error) {
+	metrics := monitoringdomain.NamedMetrics()
 	if len(requested) == 0 {
-		return append([]namedQuery(nil), namedQueries...), nil
+		return metrics, nil
 	}
-	queries := make([]namedQuery, 0, len(requested))
+	resolved := make([]monitoringdomain.Metric, 0, len(requested))
 	for _, name := range requested {
-		query, ok := lookupQuery(name)
-		if !ok {
+		at := slices.IndexFunc(metrics, func(metric monitoringdomain.Metric) bool { return metric.Name == name })
+		if at < 0 {
 			return nil, fmt.Errorf("%w: %q; available metrics are %v", ErrUnknownMetric, name, MetricNames())
 		}
-		queries = append(queries, query)
+		resolved = append(resolved, metrics[at])
 	}
-	return queries, nil
+	return resolved, nil
 }
 
 // ServerMetricsItem is one server's metric values. A metric the store had no answer for
@@ -167,7 +65,9 @@ func NewServerMetricsService(factory monitoringdomain.MonitoringFactory, sites m
 // ErrUnknownMetric means a client asked for a query swallow does not define.
 var ErrUnknownMetric = errors.New("unknown metric")
 
-// Query evaluates the named metrics for the given servers.
+// Query evaluates the named metrics for the given servers, asking each Server's Site Prometheus
+// about its own Servers only. Every id is validated before any store is asked, so one unsafe id
+// fails the request with monitoringdomain.ErrInvalidServerID instead of a partial answer.
 func (s *ServerMetricsService) Query(
 	ctx context.Context,
 	serverIDs []string,
@@ -177,12 +77,12 @@ func (s *ServerMetricsService) Query(
 		return []ServerMetricsItem{}, nil
 	}
 
-	queries, err := resolveMetrics(metrics)
+	resolved, err := resolveMetrics(metrics)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := labelPattern(serverIDs); err != nil {
+	if _, err := monitoringdomain.NewServerSet(serverIDs); err != nil {
 		return nil, err
 	}
 	groups, err := groupBySite(ctx, s.sites, serverIDs)
@@ -197,12 +97,12 @@ func (s *ServerMetricsService) Query(
 			return nil, err
 		}
 		for _, site := range sites {
-			pattern, err := labelPattern(site.serverIDs)
+			servers, err := monitoringdomain.NewServerSet(site.serverIDs)
 			if err != nil {
 				return nil, err
 			}
-			for _, query := range queries {
-				samples, err := site.querier.Query(ctx, expandQuery(query.expr, pattern))
+			for _, metric := range resolved {
+				samples, err := site.querier.Current(ctx, metric, servers)
 				if err != nil {
 					return nil, err
 				}
@@ -214,7 +114,7 @@ func (s *ServerMetricsService) Query(
 					if byServer[serverID] == nil {
 						byServer[serverID] = map[string]float64{}
 					}
-					byServer[serverID][query.name] = sample.Value
+					byServer[serverID][metric.Name] = sample.Value
 				}
 			}
 		}
@@ -229,23 +129,6 @@ func (s *ServerMetricsService) Query(
 		items = append(items, ServerMetricsItem{ServerID: serverID, Metrics: values})
 	}
 	return items, nil
-}
-
-// expandQuery substitutes the label pattern into every placeholder in an expression,
-// since some queries reference the matcher more than once.
-func expandQuery(template, pattern string) string {
-	count := 0
-	for i := 0; i+1 < len(template); i++ {
-		if template[i] == '%' && template[i+1] == 's' {
-			count++
-		}
-	}
-
-	args := make([]any, count)
-	for i := range args {
-		args[i] = pattern
-	}
-	return fmt.Sprintf(template, args...)
 }
 
 // GrafanaLink returns the optional Grafana base URL for advanced exploration, or null when

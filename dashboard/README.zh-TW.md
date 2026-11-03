@@ -21,16 +21,17 @@
 | `/software/settings`、`/software/:kind/settings` | Software 的設定，例如 registry credential |
 | `/workflows`、`/workflows/:id` | Durable Workflow list、event、log 與 control |
 | `/change-plans` | 等待核准的 Change Plan |
-| `/monitoring` | Alert、silence、用量圖表（勾選 Server、Pool、Zone、Platform）、current metric、health 與選用的 Grafana |
+| `/monitoring` | Health、用量圖表（勾選 Server、Pool、Zone、Platform）、current metric、選用的 Grafana，以及（開發中的）alert 與 silence |
 | `/infrastructure/*` | Site、Integration、Zone、Pool |
 | `/account/ssh-keys`、`/account/api-keys` | 你的 SSH key 與 API key（account menu） |
 
 `/clusters`、`/operations` 與已退役的 `/provisioning/deploy` 頁面是
 compatibility redirect。
 
-Monitoring（`/monitoring`、Server Monitoring tab、共用頁面上的 health）、OS image upload、
+Alert（Monitoring 的 alert 列表與 acknowledge、Overview 的 Alerts card）、OS image upload、
 Deployment Template 與 libvirt virtual machine 納管仍在開發中。Release build（`npm run build`）會隱藏它們：route 顯示 Not Found
-或 redirect，health 顯示「Not available in this release」。Dev server 顯示全部功能；可在
+或 redirect，共用頁面上的值（例如 Overview 的 Alerts card）顯示「Not available in this release」。基礎監控（health、
+current metrics 與用量圖表）在每個 build 都會顯示。Dev server 顯示全部功能；可在
 **Account menu → Experimental features** 逐項關閉以預覽 release 畫面，選擇保存在各瀏覽器。
 
 ## UI model rules

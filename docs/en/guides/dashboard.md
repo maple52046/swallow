@@ -17,7 +17,7 @@ current session in the browser.
 | Software | Grouped catalog (Docker CE, Podman, NFS, Prometheus, Grafana, AMD Device Metrics Exporter, Node Exporter), per-software deployments, and multi-Server installation |
 | Workflows | Durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry |
 | Change Plans | Plans for destructive Platform changes, waiting for approval or rejection |
-| Monitoring | Alerts, silences, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, fleet health, and optional Grafana links |
+| Monitoring | Fleet health, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, optional Grafana links, and (in development) alerts and silences |
 | Infrastructure | Sites, Integrations, Zones, Pools, credentials, and automation settings |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
 | API keys (account menu) | Keys that let scripts, CI, and the CLI call swallow as you without a password — see [API keys](api-keys.md) |
@@ -31,15 +31,15 @@ Overview is a read-only, point-in-time summary of facts owned elsewhere. Choose
 a Site to scope it, or clear the Site selection for the swallow-wide view. The
 **Updated** time says when the aggregate was generated.
 
-- **Capacity** and **Workflows** summarize compute GPU and deployment counts and
-  active and recently failed work. With Monitoring enabled in a development
-  build, **Fleet health** and **Alerts** also summarize Server reachability and
-  the optional Alertmanager source. A missing Alertmanager reads **Not
-  configured**; an unreadable configured source reads **Unavailable**. Release
-  builds keep those two cards in place but mark them unavailable.
+- **Fleet health**, **Capacity**, and **Workflows** summarize Server reachability,
+  compute GPU and deployment counts, and active and recently failed work. With
+  Alerts enabled in a development build, **Alerts** also summarizes the optional
+  Alertmanager source. A missing Alertmanager reads **Not configured**; an
+  unreadable configured source reads **Unavailable**. Release builds keep the
+  Alerts card in place but mark it unavailable.
 - **Needs attention** shows up to ten failed Integration syncs, unreachable
-  Platforms, unmatched members, and Workflows that failed in the last 24 hours.
-  With Monitoring enabled it also includes current alerts and down Servers.
+  Platforms, unmatched members, down Servers, and Workflows that failed in the
+  last 24 hours. With Alerts enabled it also includes current alerts.
   Follow an item to the owning page to act on it; resolving it there removes it
   from a later Overview read.
 - **Recent workflows** links to at most the eight most recently requested
@@ -54,11 +54,11 @@ owning Server, Integration, Platform, Workflow, or alert view.
 Four Dashboard features are still in development. Release builds of the
 Dashboard hide them; the API and the `swallow` CLI are not affected.
 
-- **Monitoring**: the Monitoring page, the Server Monitoring tab with its usage
-  charts, and the Platform page's "View usage charts" shortcut are absent.
-  Health keeps its place on Overview, the Server list, and Server details but
-  reads "Not available in this release". You can still register a metrics
-  Integration, and a Platform's Monitoring Links remain visible.
+- **Alerts**: the Monitoring page has no alert list, alert counts, or
+  Acknowledge action, and Overview's Alerts card reads "Not available in this
+  release" and raises no alert items. Basic monitoring is not affected: health,
+  current metrics, and usage charts are shown in every build. Use
+  `swallow monitoring alerts` instead.
 - **OS image upload**: OS images has no Upload action. Verifying an existing
   custom image is still available.
 - **Deployment Templates**: the Templates workspace, Create template, and

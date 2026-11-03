@@ -1400,40 +1400,72 @@ func (f *fakeKubernetesClientFactory) For(context.Context, *platformdomain.Platf
 
 // --- monitoring ---
 
+// fakeQuerier stands in for one Site's Prometheus. It answers by metric name (and by exporter for
+// up reads), so a test describes what the store returns without the adapter's PromQL, and it
+// records every read so a test can check what the core asked for.
 type fakeQuerier struct {
-	// samples answers by expression substring, so a test can describe what a query
-	// returns without reproducing the exact PromQL.
+	// samples answers current-value reads and series history reads, keyed by metric name; up
+	// answers exporter up reads, keyed by exporter.
 	samples map[string][]monitoringdomain.Sample
-	// series answers range queries the same way.
 	series  map[string][]monitoringdomain.Series
+	up      map[string][]monitoringdomain.Sample
 	err     error
-	queries []string
-	// rangeQueries and ranges record every range query and its window, in call order.
-	rangeQueries []string
-	ranges       []monitoringdomain.TimeRange
+	// currentReads, historyReads, and upReads record each read in call order.
+	currentReads []fakeMetricRead
+	historyReads []fakeMetricRead
+	upReads      []fakeMetricRead
+}
+
+// fakeMetricRead is one read the core asked a fakeQuerier for. name is the metric (or, for an up
+// read, the exporter); aggregate is set only for a combined history read.
+type fakeMetricRead struct {
+	name      string
+	aggregate monitoringdomain.ScopeAggregate
+	servers   []string
+	window    monitoringdomain.TimeRange
 }
 
 func newFakeQuerier() *fakeQuerier {
 	return &fakeQuerier{
 		samples: make(map[string][]monitoringdomain.Sample),
 		series:  make(map[string][]monitoringdomain.Series),
+		up:      make(map[string][]monitoringdomain.Sample),
 	}
 }
 
-func (q *fakeQuerier) QueryRange(
-	_ context.Context, expr string, window monitoringdomain.TimeRange,
-) ([]monitoringdomain.Series, error) {
-	q.rangeQueries = append(q.rangeQueries, expr)
-	q.ranges = append(q.ranges, window)
+func (q *fakeQuerier) Current(
+	_ context.Context, metric monitoringdomain.Metric, servers monitoringdomain.ServerSet,
+) ([]monitoringdomain.Sample, error) {
+	q.currentReads = append(q.currentReads, fakeMetricRead{name: metric.Name, servers: servers.IDs()})
 	if q.err != nil {
 		return nil, q.err
 	}
-	for match, series := range q.series {
-		if strings.Contains(expr, match) {
-			return series, nil
-		}
+	return q.samples[metric.Name], nil
+}
+
+func (q *fakeQuerier) History(
+	_ context.Context, metric monitoringdomain.Metric, servers monitoringdomain.ServerSet,
+	window monitoringdomain.TimeRange, combined bool,
+) ([]monitoringdomain.Series, error) {
+	read := fakeMetricRead{name: metric.Name, servers: servers.IDs(), window: window}
+	if combined {
+		read.aggregate = metric.Aggregate
 	}
-	return nil, nil
+	q.historyReads = append(q.historyReads, read)
+	if q.err != nil {
+		return nil, q.err
+	}
+	return q.series[metric.Name], nil
+}
+
+func (q *fakeQuerier) ExporterUp(
+	_ context.Context, exporter string, servers monitoringdomain.ServerSet,
+) ([]monitoringdomain.Sample, error) {
+	q.upReads = append(q.upReads, fakeMetricRead{name: exporter, servers: servers.IDs()})
+	if q.err != nil {
+		return nil, q.err
+	}
+	return q.up[exporter], nil
 }
 
 // fakeScopeResolver stands in for the composition-root adapter that resolves Pools, Zones, and
@@ -1456,19 +1488,6 @@ func (r *fakeScopeResolver) ResolveScope(
 }
 
 func (q *fakeQuerier) Name() string { return "prometheus" }
-
-func (q *fakeQuerier) Query(_ context.Context, expr string) ([]monitoringdomain.Sample, error) {
-	q.queries = append(q.queries, expr)
-	if q.err != nil {
-		return nil, q.err
-	}
-	for match, samples := range q.samples {
-		if strings.Contains(expr, match) {
-			return samples, nil
-		}
-	}
-	return nil, nil
-}
 
 type fakeAlertSource struct {
 	alerts   []*monitoringdomain.Alert

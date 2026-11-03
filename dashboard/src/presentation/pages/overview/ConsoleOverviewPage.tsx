@@ -33,11 +33,11 @@ interface AttentionItem {
 
 /**
  * Builds one severity-ordered action queue without inventing state outside the overview aggregate.
- * Firing alerts and down Servers are monitoring facts, so they are left out while monitoring is
- * in development; the queue then covers integrations, platforms, and workflows only.
+ * Firing alerts are left out while alerts are in development (always, in release builds); down
+ * Servers, integrations, platforms, and workflows are always included.
  */
-function attentionItems(data: Overview, monitoring: boolean): AttentionItem[] {
-  const alerts = monitoring ? data.monitoring.firing.items : []
+function attentionItems(data: Overview, showAlerts: boolean): AttentionItem[] {
+  const alerts = showAlerts ? data.monitoring.firing.items : []
   const items: AttentionItem[] = alerts.map((alert) => ({
     key: `alert-${alert.fingerprint}`,
     priority: alert.severity === 'critical' ? 0 : 1,
@@ -82,7 +82,7 @@ function attentionItems(data: Overview, monitoring: boolean): AttentionItem[] {
       action: 'Review',
     })
   }
-  if (monitoring && data.inventory.health.down) {
+  if (data.inventory.health.down) {
     items.push({
       key: 'servers-down',
       priority: 1,
@@ -145,14 +145,14 @@ function alertsMetric(alerts: Overview['monitoring'], icon: ReactNode): MetricIt
  * action queue; it never treats missing metrics as failure or invents trends.
  * The alerts warning appears only when an Alertmanager is configured but could not be
  * read; a scope without one is a normal state shown on the Alerts card, not a failure.
- * While monitoring is in development (always, in release builds) the Fleet health
- * and Alerts cards keep their place with a "not available" note, and the alerts
- * warning is not shown because nothing here relies on it.
+ * While alerts are in development (always, in release builds) the Alerts card keeps its
+ * place with a "not available" note, and the alerts warning is not shown because nothing
+ * here relies on it. Fleet health is basic monitoring and always shown.
  */
 export function ConsoleOverviewPage() {
   const { overview } = useApp()
   const { siteId, scopedHref } = useSiteScope()
-  const monitoring = useExperimentalFeature('monitoring')
+  const showAlerts = useExperimentalFeature('alerts')
   const [state, setState] = useState<OverviewState>({ status: 'loading' })
 
   // A Site change invalidates the aggregate. Ignore late responses so an older
@@ -170,8 +170,8 @@ export function ConsoleOverviewPage() {
   }, [overview, siteId])
 
   const attention = useMemo(
-    () => state.status === 'ready' ? attentionItems(state.data, monitoring) : [],
-    [state, monitoring],
+    () => state.status === 'ready' ? attentionItems(state.data, showAlerts) : [],
+    [state, showAlerts],
   )
 
   if (state.status === 'loading') return <LoadingState />
@@ -185,21 +185,19 @@ export function ConsoleOverviewPage() {
         title="Overview"
         metadata={<Text as="span" fontSize="sm" color="fg.muted">Updated {formatRelative(data.generatedAt)}</Text>}
       />
-      {monitoring && data.monitoring.configured && !data.monitoring.available && (
+      {showAlerts && data.monitoring.configured && !data.monitoring.available && (
         <Alert status="warning" title="Alerts unavailable">
           Swallow could not read alerts from Alertmanager. Inventory, workflows, health, and usage charts are unaffected.
         </Alert>
       )}
       <MetricGrid items={[
-        monitoring
-          ? {
-            label: 'Fleet health',
-            value: `${data.inventory.health.up} / ${data.inventory.servers}`,
-            detail: `${data.inventory.health.down} down · ${data.inventory.health.unknown} unknown · ${data.inventory.absent} absent`,
-            tone: data.inventory.health.down ? 'critical' : 'success',
-            icon: <Server size={16} />,
-          }
-          : unavailableMetric('Fleet health', <Server size={16} />),
+        {
+          label: 'Fleet health',
+          value: `${data.inventory.health.up} / ${data.inventory.servers}`,
+          detail: `${data.inventory.health.down} down · ${data.inventory.health.unknown} unknown · ${data.inventory.absent} absent`,
+          tone: data.inventory.health.down ? 'critical' : 'success',
+          icon: <Server size={16} />,
+        },
         {
           label: 'Capacity',
           value: `${data.inventory.gpuDevices} GPUs`,
@@ -213,7 +211,7 @@ export function ConsoleOverviewPage() {
           tone: data.operations.failedLast24Hours ? 'warning' : 'neutral',
           icon: <Workflow size={16} />,
         },
-        monitoring
+        showAlerts
           ? alertsMetric(data.monitoring, <BellRing size={16} />)
           : unavailableMetric('Alerts', <BellRing size={16} />),
       ]} />

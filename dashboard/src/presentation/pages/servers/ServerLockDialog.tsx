@@ -17,16 +17,16 @@ interface ServerLockDialogProps {
 
 /**
  * Confirms provider-owned Server protection for both single and convergent bulk actions.
- * The reassurance about what stays readable names metrics and alerts only while the
- * console offers monitoring, so a release build does not promise a surface it hides.
+ * The reassurance about what stays readable names alerts only while the console offers them,
+ * so a release build does not promise a surface it hides.
  */
 export function ServerLockDialog({ action, targets, skipped, busy = false, onConfirm, onClose }: ServerLockDialogProps) {
-  const monitoring = useExperimentalFeature('monitoring')
+  const alerts = useExperimentalFeature('alerts')
   const locking = action === 'lock'
   const title = locking ? 'Lock Servers' : 'Unlock Servers'
-  const readOnlyViews = monitoring
+  const readOnlyViews = alerts
     ? 'Metrics, alerts, inventory refresh, events, and other read-only views remain available.'
-    : 'Inventory refresh, events, and other read-only views remain available.'
+    : 'Metrics, inventory refresh, events, and other read-only views remain available.'
   return (
     <Modal
       open
@@ -48,7 +48,7 @@ export function ServerLockDialog({ action, targets, skipped, busy = false, onCon
       <Stack gap="3">
         <Alert
           status="info"
-          title={locking ? (monitoring ? 'Monitoring and diagnostics remain available' : 'Diagnostics remain available') : 'No work starts automatically'}
+          title={locking ? 'Monitoring and diagnostics remain available' : 'No work starts automatically'}
         >
           {locking
             ? `Lock blocks provisioning, power, network, platform, automation, and removal changes. ${readOnlyViews}`

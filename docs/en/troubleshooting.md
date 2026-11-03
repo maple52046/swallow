@@ -197,10 +197,11 @@ swallow servers inspect server1
   failed install leaves the deployment Workflow needing attention; retry that Task). A
   Server swallow did not deploy, or a locked one, gets none; install the **Node Exporter**
   as Managed Software on an unlocked Server.
-- A chart that reads "No data" for one metric only — for example the GPU charts —
-  usually means that exporter is not running on the Server. The Site's Prometheus collects
-  only the exporters swallow installed, so an exporter you run yourself (an RDC exporter,
-  for example) is not collected.
+- Charts that read "No data" for a Server usually mean its Node Exporter is not running or
+  not reachable, since every swallow chart comes from it. swallow shows no GPU charts; GPU
+  metrics are in the Platform's own Grafana. The Site's Prometheus collects only the
+  exporters swallow installed, so an exporter you run yourself (an RDC exporter, for
+  example) is not collected.
 - Missing metric data is unknown, not proof of failure.
 
 ## Keep the request ID

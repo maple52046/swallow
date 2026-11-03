@@ -44,7 +44,7 @@ interface ServerDetailTab {
 const TABS: readonly ServerDetailTab[] = [
   { value: 'summary', label: 'Summary', icon: LayoutDashboard },
   { value: 'activity', label: 'Activity', icon: Activity },
-  { value: 'monitoring', label: 'Monitoring', icon: ChartLine, feature: 'monitoring' },
+  { value: 'monitoring', label: 'Monitoring', icon: ChartLine },
   { value: 'containers', label: 'Containers', icon: Container, requiresDockerCE: true },
   { value: 'network', label: 'Networking', icon: Network },
   { value: 'storage', label: 'Storage', icon: HardDrive },

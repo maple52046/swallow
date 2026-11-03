@@ -14,7 +14,8 @@ import (
 )
 
 // Querier implements monitoringdomain.MetricsQuerier against a Prometheus-compatible
-// query API.
+// query API. It turns the core's named reads into the PromQL of named_metrics.go; no other
+// expression reaches the store through it.
 type Querier struct {
 	client *Client
 }
@@ -24,6 +25,53 @@ func NewQuerier(client *Client) *Querier {
 }
 
 func (q *Querier) Name() string { return "prometheus" }
+
+// Current evaluates metric for each Server at the current instant. An empty set asks nothing.
+func (q *Querier) Current(
+	ctx context.Context,
+	metric monitoringdomain.Metric,
+	servers monitoringdomain.ServerSet,
+) ([]monitoringdomain.Sample, error) {
+	if len(servers.IDs()) == 0 {
+		return nil, nil
+	}
+	expr, err := metricExpression(metric, servers, false)
+	if err != nil {
+		return nil, err
+	}
+	return q.query(ctx, expr)
+}
+
+// History evaluates metric over window, per Server or combined by the metric's scope aggregate.
+// An empty set asks nothing.
+func (q *Querier) History(
+	ctx context.Context,
+	metric monitoringdomain.Metric,
+	servers monitoringdomain.ServerSet,
+	window monitoringdomain.TimeRange,
+	combined bool,
+) ([]monitoringdomain.Series, error) {
+	if len(servers.IDs()) == 0 {
+		return nil, nil
+	}
+	expr, err := metricExpression(metric, servers, combined)
+	if err != nil {
+		return nil, err
+	}
+	return q.queryRange(ctx, expr, window)
+}
+
+// ExporterUp reads the latest scrape result of exporter on each Server. An empty set asks nothing.
+func (q *Querier) ExporterUp(
+	ctx context.Context,
+	exporter string,
+	servers monitoringdomain.ServerSet,
+) ([]monitoringdomain.Sample, error) {
+	if len(servers.IDs()) == 0 {
+		return nil, nil
+	}
+	return q.query(ctx, exporterUpExpression(exporter, servers))
+}
 
 // queryResponse is the Prometheus instant-query envelope.
 //
@@ -41,9 +89,9 @@ type queryResponse struct {
 	} `json:"data"`
 }
 
-// Query evaluates expr at the current instant via GET /api/v1/query. Instant expressions are
+// query evaluates expr at the current instant via GET /api/v1/query. Instant expressions are
 // bounded by the 200-server request limit, so they fit comfortably in a URL.
-func (q *Querier) Query(ctx context.Context, expr string) ([]monitoringdomain.Sample, error) {
+func (q *Querier) query(ctx context.Context, expr string) ([]monitoringdomain.Sample, error) {
 	query := url.Values{}
 	query.Set("query", expr)
 
@@ -83,11 +131,11 @@ type rangeResponse struct {
 	} `json:"data"`
 }
 
-// QueryRange evaluates expr over the window via a form-encoded POST /api/v1/query_range, so a
+// queryRange evaluates expr over the window via a form-encoded POST /api/v1/query_range, so a
 // scope with hundreds of server_ids does not overflow a URL. The window is forwarded as given:
 // bounding it is the application's job. Unparsable or non-finite points are dropped, leaving
 // a gap rather than a fabricated value.
-func (q *Querier) QueryRange(
+func (q *Querier) queryRange(
 	ctx context.Context,
 	expr string,
 	window monitoringdomain.TimeRange,

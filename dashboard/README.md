@@ -22,18 +22,20 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | `/software/settings`, `/software/:kind/settings` | Software settings such as registry credentials |
 | `/workflows`, `/workflows/:id` | Durable Workflow list, events, logs, and controls |
 | `/change-plans` | Change Plans waiting for approval |
-| `/monitoring` | Alerts, silences, usage charts (selected Servers, Pool, Zone, Platform), current metrics, health, and optional Grafana |
+| `/monitoring` | Health, usage charts (selected Servers, Pool, Zone, Platform), current metrics, optional Grafana, and (in development) alerts and silences |
 | `/infrastructure/*` | Sites, Integrations, Zones, and Pools |
 | `/account/ssh-keys`, `/account/api-keys` | Your SSH keys and API keys (account menu) |
 
 `/clusters`, `/operations`, and the retired `/provisioning/deploy` page are
 compatibility redirects.
 
-Monitoring (`/monitoring`, the Server Monitoring tab, health on shared pages), OS
+Alerts (the alert list and acknowledging on Monitoring, the Overview Alerts card), OS
 image upload, Deployment Templates, and libvirt virtual machine enrollment are still
 in development. Release builds
-(`npm run build`) hide them: their routes show Not Found or redirect, and health
-values read "Not available in this release". The dev server shows everything; use
+(`npm run build`) hide them: their routes show Not Found or redirect, and values kept
+on shared pages (such as the Overview Alerts card) read "Not available in this
+release". Basic monitoring (health, current metrics, and usage charts) is shown in
+every build. The dev server shows everything; use
 **Account menu → Experimental features** there to switch each one off and preview
 the release view. The choice is stored per browser.
 

@@ -2,8 +2,10 @@ package tests
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +19,7 @@ import (
 
 func TestHealthResolver_MapsUpMetricToHealthAxis(t *testing.T) {
 	factory := newFakeMonitoringFactory()
-	factory.querier.samples["up{"] = []monitoringdomain.Sample{
+	factory.querier.up["node-exporter"] = []monitoringdomain.Sample{
 		{Labels: map[string]string{"server_id": "srv-1"}, Value: 1, Timestamp: time.Now().UTC()},
 		{Labels: map[string]string{"server_id": "srv-2"}, Value: 0, Timestamp: time.Now().UTC()},
 	}
@@ -50,15 +52,12 @@ func TestHealthResolver_ReadsTheNodeExporterOnly(t *testing.T) {
 		t.Fatalf("ResolveHealth: %v", err)
 	}
 
-	if len(factory.querier.queries) != 1 {
-		t.Fatalf("expected 1 query, got %d", len(factory.querier.queries))
+	reads := factory.querier.upReads
+	if len(reads) != 1 || reads[0].name != "node-exporter" || !slices.Equal(reads[0].servers, []string{"srv-1"}) {
+		t.Errorf("up reads = %+v, want one node-exporter read for srv-1", reads)
 	}
-	expr := factory.querier.queries[0]
-	if !strings.Contains(expr, "max by (server_id)") || !strings.Contains(expr, `exporter="node-exporter"`) {
-		t.Errorf("expected the Node Exporter's up per server, got %q", expr)
-	}
-	if !strings.Contains(expr, `server_id=~"srv-1"`) {
-		t.Errorf("expected the server_id matcher, got %q", expr)
+	if len(factory.querier.currentReads) != 0 {
+		t.Errorf("metric reads = %+v, want none: health reads only the exporter's up", factory.querier.currentReads)
 	}
 }
 
@@ -82,8 +81,8 @@ func TestHealthResolver_NoIntegrationIsNotAnError(t *testing.T) {
 // the Server projection does not know, is unknown.
 func TestHealthResolver_AsksEachServersSite(t *testing.T) {
 	east, west := newFakeQuerier(), newFakeQuerier()
-	east.samples["up{"] = []monitoringdomain.Sample{{Labels: map[string]string{"server_id": "srv-e"}, Value: 1, Timestamp: time.Now().UTC()}}
-	west.samples["up{"] = []monitoringdomain.Sample{{Labels: map[string]string{"server_id": "srv-w"}, Value: 0, Timestamp: time.Now().UTC()}}
+	east.up["node-exporter"] = []monitoringdomain.Sample{{Labels: map[string]string{"server_id": "srv-e"}, Value: 1, Timestamp: time.Now().UTC()}}
+	west.up["node-exporter"] = []monitoringdomain.Sample{{Labels: map[string]string{"server_id": "srv-w"}, Value: 0, Timestamp: time.Now().UTC()}}
 	resolver := monitoringapp.NewHealthResolver(perSiteMonitoringFactory{"east": east, "west": west},
 		fixedServerSites{"srv-e": "east", "srv-w": "west", "srv-n": "north"})
 
@@ -98,8 +97,8 @@ func TestHealthResolver_AsksEachServersSite(t *testing.T) {
 	if _, ok := health["srv-n"]; ok {
 		t.Error("a Server whose Site has no Prometheus must be unknown")
 	}
-	if len(east.queries) != 1 || !strings.Contains(east.queries[0], `"srv-e"`) || strings.Contains(east.queries[0], "srv-w") {
-		t.Errorf("east queries = %v, want only srv-e", east.queries)
+	if len(east.upReads) != 1 || !slices.Equal(east.upReads[0].servers, []string{"srv-e"}) {
+		t.Errorf("east up reads = %+v, want only srv-e", east.upReads)
 	}
 }
 
@@ -113,7 +112,7 @@ func TestHealthResolver_RejectsUnsafeServerID(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an unsafe identifier to be rejected")
 	}
-	if len(factory.querier.queries) != 0 {
+	if len(factory.querier.upReads) != 0 {
 		t.Error("no query should have been issued")
 	}
 }
@@ -281,13 +280,13 @@ func TestAlerts_NoAlertSourceConfigured(t *testing.T) {
 
 func TestServerMetrics_ReturnsNamedQueries(t *testing.T) {
 	f := setupPlatform(t)
-	f.monitoring.querier.samples["DCGM_FI_DEV_GPU_UTIL"] = []monitoringdomain.Sample{
+	f.monitoring.querier.samples["cpuUsagePercent"] = []monitoringdomain.Sample{
 		{Labels: map[string]string{"server_id": "srv-1"}, Value: 87.5, Timestamp: time.Now().UTC()},
 	}
 	f.monitoring.grafanaURL = "https://grafana.example.com"
 
 	resp := doRequest(t, f.app, "GET",
-		"/api/v1/monitoring/metrics?serverIds=srv-1&metrics=gpuUtilizationPercent", nil, f.adminAuth(t))
+		"/api/v1/monitoring/metrics?serverIds=srv-1&metrics=cpuUsagePercent", nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -298,32 +297,13 @@ func TestServerMetrics_ReturnsNamedQueries(t *testing.T) {
 		t.Fatalf("expected 1 item, got %d", len(items))
 	}
 	metrics := items[0].(map[string]any)["metrics"].(map[string]any)
-	if metrics["gpuUtilizationPercent"].(float64) != 87.5 {
-		t.Errorf("value: got %v", metrics["gpuUtilizationPercent"])
+	if metrics["cpuUsagePercent"].(float64) != 87.5 {
+		t.Errorf("value: got %v", metrics["cpuUsagePercent"])
 	}
 	// Exploration belongs in Grafana, so the API points at it rather than growing
 	// dashboard features.
 	if body["grafana"] != "https://grafana.example.com" {
 		t.Errorf("expected a Grafana deep link, got %v", body["grafana"])
-	}
-}
-
-// The GPU metrics are vendor-neutral: an AMD server exports the RDC series (gpu_util),
-// and the same named query resolves it without the caller knowing which stack is present.
-func TestServerMetrics_ResolvesAMDRDCSeries(t *testing.T) {
-	f := setupPlatform(t)
-	f.monitoring.querier.samples["gpu_util"] = []monitoringdomain.Sample{
-		{Labels: map[string]string{"server_id": "srv-amd"}, Value: 63, Timestamp: time.Now().UTC()},
-	}
-
-	resp := doRequest(t, f.app, "GET",
-		"/api/v1/monitoring/metrics?serverIds=srv-amd&metrics=gpuUtilizationPercent", nil, f.adminAuth(t))
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-	metrics := parseBody(t, resp)["items"].([]any)[0].(map[string]any)["metrics"].(map[string]any)
-	if metrics["gpuUtilizationPercent"].(float64) != 63 {
-		t.Errorf("expected the AMD RDC value, got %v", metrics["gpuUtilizationPercent"])
 	}
 }
 
@@ -333,7 +313,7 @@ func TestServerMetrics_MissingDataIsAbsentNotZero(t *testing.T) {
 	f := setupPlatform(t)
 
 	resp := doRequest(t, f.app, "GET",
-		"/api/v1/monitoring/metrics?serverIds=srv-1&metrics=gpuUtilizationPercent", nil, f.adminAuth(t))
+		"/api/v1/monitoring/metrics?serverIds=srv-1&metrics=cpuUsagePercent", nil, f.adminAuth(t))
 	items := parseBody(t, resp)["items"].([]any)
 	metrics := items[0].(map[string]any)["metrics"].(map[string]any)
 	if len(metrics) != 0 {
@@ -342,18 +322,24 @@ func TestServerMetrics_MissingDataIsAbsentNotZero(t *testing.T) {
 }
 
 // swallow exposes a fixed query set rather than a PromQL passthrough, so an unknown metric
-// is a validation error that names what is available.
+// is a validation error that names what is available. The GPU metrics are no longer named
+// metrics: the API offers basic monitoring only.
 func TestServerMetrics_RejectsUnknownMetric(t *testing.T) {
 	f := setupPlatform(t)
 
-	resp := doRequest(t, f.app, "GET",
-		"/api/v1/monitoring/metrics?serverIds=srv-1&metrics=rm-rf-slash", nil, f.adminAuth(t))
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	for _, metric := range []string{"rm-rf-slash", "gpuUtilizationPercent", "gpuMemoryUsedPercent", "gpuTemperatureCelsius", "gpuPowerWatts"} {
+		resp := doRequest(t, f.app, "GET",
+			"/api/v1/monitoring/metrics?serverIds=srv-1&metrics="+metric, nil, f.adminAuth(t))
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("metrics=%s: expected 400, got %d", metric, resp.StatusCode)
+		}
+		message, _ := parseBody(t, resp)["error"].(map[string]any)["message"].(string)
+		if !strings.Contains(message, "networkTransmitBytesPerSecond") {
+			t.Errorf("metrics=%s: the error should list the available metrics, got %q", metric, message)
+		}
 	}
-	message, _ := parseBody(t, resp)["error"].(map[string]any)["message"].(string)
-	if !strings.Contains(message, "gpuUtilizationPercent") {
-		t.Errorf("the error should list the available metrics, got %q", message)
+	if len(f.monitoring.querier.currentReads) != 0 {
+		t.Errorf("a refused request must not read the store, got %+v", f.monitoring.querier.currentReads)
 	}
 }
 
@@ -366,15 +352,15 @@ func TestServerMetrics_RequiresServerIDs(t *testing.T) {
 	}
 }
 
-// Disk and network are host-layer metrics like CPU and memory: they come from node-exporter and
-// are attributed by server_id. Virtual devices are excluded so container traffic is not counted
-// twice.
+// Disk and network are host-layer metrics like CPU and memory, attributed by server_id; every
+// requested metric is one read of the Server's Site Prometheus. (Their expressions are the
+// metrics adapter's and are tested there.)
 func TestServerMetrics_DiskAndNetworkNamedQueries(t *testing.T) {
 	f := setupPlatform(t)
-	f.monitoring.querier.samples["node_filesystem_avail_bytes"] = []monitoringdomain.Sample{
+	f.monitoring.querier.samples["diskUsedPercent"] = []monitoringdomain.Sample{
 		{Labels: map[string]string{"server_id": "srv-1"}, Value: 41.5, Timestamp: time.Now().UTC()},
 	}
-	f.monitoring.querier.samples["node_network_receive_bytes_total"] = []monitoringdomain.Sample{
+	f.monitoring.querier.samples["networkReceiveBytesPerSecond"] = []monitoringdomain.Sample{
 		{Labels: map[string]string{"server_id": "srv-1"}, Value: 1250000, Timestamp: time.Now().UTC()},
 	}
 
@@ -387,13 +373,12 @@ func TestServerMetrics_DiskAndNetworkNamedQueries(t *testing.T) {
 	if metrics["diskUsedPercent"] != 41.5 || metrics["networkReceiveBytesPerSecond"] != 1250000.0 {
 		t.Errorf("metrics = %v, want disk 41.5 and receive 1250000", metrics)
 	}
-	for _, expr := range f.monitoring.querier.queries {
-		if strings.Contains(expr, "node_network_receive_bytes_total") && !strings.Contains(expr, `device!~"lo|veth.*`) {
-			t.Errorf("network query must exclude loopback and virtual devices, got %q", expr)
-		}
-		if strings.Contains(expr, "node_filesystem") && !strings.Contains(expr, `mountpoint="/"`) {
-			t.Errorf("disk query must read the root filesystem, got %q", expr)
-		}
+	var read []string
+	for _, item := range f.monitoring.querier.currentReads {
+		read = append(read, item.name)
+	}
+	if !slices.Equal(read, []string{"diskUsedPercent", "networkReceiveBytesPerSecond"}) {
+		t.Errorf("reads = %v, want disk then network receive", read)
 	}
 }
 
@@ -412,7 +397,7 @@ func rangePoints(values ...float64) []monitoringdomain.Point {
 func TestMetricRange_AggregatesPoolScope(t *testing.T) {
 	f := setupPlatform(t)
 	f.metricScopes.members["pool/pool-research"] = []string{"srv-1", "srv-2"}
-	f.monitoring.querier.series["node_cpu_seconds_total"] = []monitoringdomain.Series{
+	f.monitoring.querier.series["cpuUsagePercent"] = []monitoringdomain.Series{
 		{Labels: map[string]string{}, Points: rangePoints(12.5, 14)},
 	}
 
@@ -443,33 +428,36 @@ func TestMetricRange_AggregatesPoolScope(t *testing.T) {
 		t.Errorf("series = %v, want cpuUsagePercent for the whole scope with 2 points", first)
 	}
 
-	expr := f.monitoring.querier.rangeQueries[0]
-	if !strings.HasPrefix(expr, "avg (") || !strings.Contains(expr, `server_id=~"srv-1|srv-2"`) {
-		t.Errorf("expected an averaged expression over the pool members, got %q", expr)
+	read := f.monitoring.querier.historyReads[0]
+	if read.aggregate != monitoringdomain.ScopeAverage || !slices.Equal(read.servers, []string{"srv-1", "srv-2"}) {
+		t.Errorf("history read = %+v, want an average over the pool members", read)
 	}
-	if got := f.monitoring.querier.ranges[0].Step; got != 2*time.Minute {
+	if got := read.window.Step; got != 2*time.Minute {
 		t.Errorf("step = %v, want 2m for a 6h window", got)
 	}
 }
 
-// Throughput and power add up across a scope; temperature keeps the hottest host.
+// Utilisation and fill levels average across a scope; throughput adds up.
 func TestMetricRange_UsesEachMetricsScopeAggregate(t *testing.T) {
 	f := setupPlatform(t)
 
 	resp := doRequest(t, f.app, "GET",
-		"/api/v1/monitoring/metrics/range?serverIds=srv-1,srv-2&metrics=networkReceiveBytesPerSecond,gpuTemperatureCelsius,gpuPowerWatts",
+		"/api/v1/monitoring/metrics/range?serverIds=srv-1,srv-2&metrics=networkReceiveBytesPerSecond,cpuUsagePercent,networkTransmitBytesPerSecond,diskUsedPercent",
 		nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, rawBody(t, resp))
 	}
 
-	want := []string{"sum (", "max (", "sum ("}
-	if len(f.monitoring.querier.rangeQueries) != len(want) {
-		t.Fatalf("expected %d range queries, got %v", len(want), f.monitoring.querier.rangeQueries)
+	want := []monitoringdomain.ScopeAggregate{
+		monitoringdomain.ScopeSum, monitoringdomain.ScopeAverage, monitoringdomain.ScopeSum, monitoringdomain.ScopeAverage,
 	}
-	for i, prefix := range want {
-		if got := f.monitoring.querier.rangeQueries[i]; !strings.HasPrefix(got, prefix) {
-			t.Errorf("query %d = %q, want prefix %q", i, got, prefix)
+	reads := f.monitoring.querier.historyReads
+	if len(reads) != len(want) {
+		t.Fatalf("expected %d history reads, got %+v", len(want), reads)
+	}
+	for i, aggregate := range want {
+		if reads[i].aggregate != aggregate {
+			t.Errorf("read %d (%s) aggregate = %q, want %q", i, reads[i].name, reads[i].aggregate, aggregate)
 		}
 	}
 	// A request without a window charts the last hour.
@@ -482,7 +470,7 @@ func TestMetricRange_UsesEachMetricsScopeAggregate(t *testing.T) {
 // or has no points.
 func TestMetricRange_PerServerOrdersByScope(t *testing.T) {
 	f := setupPlatform(t)
-	f.monitoring.querier.series["node_memory_MemAvailable_bytes"] = []monitoringdomain.Series{
+	f.monitoring.querier.series["memoryUsedPercent"] = []monitoringdomain.Series{
 		{Labels: map[string]string{"server_id": "srv-1"}, Points: rangePoints(40)},
 		{Labels: map[string]string{"server_id": "srv-2"}, Points: rangePoints(55, 56)},
 		{Labels: map[string]string{"server_id": "srv-3"}, Points: nil},
@@ -503,8 +491,8 @@ func TestMetricRange_PerServerOrdersByScope(t *testing.T) {
 	if len(got) != 2 || got[0] != "srv-2" || got[1] != "srv-1" {
 		t.Errorf("series servers = %v, want [srv-2 srv-1]", got)
 	}
-	if expr := f.monitoring.querier.rangeQueries[0]; strings.HasPrefix(expr, "avg (") {
-		t.Errorf("perServer must not aggregate, got %q", expr)
+	if read := f.monitoring.querier.historyReads[0]; read.aggregate != "" {
+		t.Errorf("perServer must not aggregate, got %+v", read)
 	}
 }
 
@@ -513,7 +501,7 @@ func TestMetricRange_MissingDataHasNoSeries(t *testing.T) {
 	f := setupPlatform(t)
 
 	resp := doRequest(t, f.app, "GET",
-		"/api/v1/monitoring/metrics/range?serverIds=srv-1&metrics=gpuUtilizationPercent", nil, f.adminAuth(t))
+		"/api/v1/monitoring/metrics/range?serverIds=srv-1&metrics=diskUsedPercent", nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -536,7 +524,7 @@ func TestMetricRange_EmptyScopeSkipsBackend(t *testing.T) {
 	if scope := parseBody(t, resp)["scope"].(map[string]any); scope["serverCount"] != 0.0 {
 		t.Errorf("serverCount = %v, want 0", scope["serverCount"])
 	}
-	if len(f.monitoring.querier.rangeQueries) != 0 {
+	if len(f.monitoring.querier.historyReads) != 0 {
 		t.Error("an empty scope must not query the store")
 	}
 }
@@ -585,6 +573,7 @@ func TestMetricRange_RejectsInvalidRequests(t *testing.T) {
 		{"span under 5 minutes", "serverIds=srv-1&start=2026-10-10T00:00:00Z&end=2026-10-10T00:01:00Z"},
 		{"unknown mode", "serverIds=srv-1&mode=stacked"},
 		{"unknown metric", "serverIds=srv-1&metrics=loadAverage"},
+		{"retired GPU metric", "serverIds=srv-1&metrics=gpuTemperatureCelsius"},
 		{"perServer over 50 servers", "poolId=pool-large&mode=perServer"},
 		{"scope over 1000 servers", "platformId=platform-huge"},
 	}
@@ -596,8 +585,8 @@ func TestMetricRange_RejectsInvalidRequests(t *testing.T) {
 			}
 		})
 	}
-	if len(f.monitoring.querier.rangeQueries) != 0 {
-		t.Errorf("a refused request must not query the store, got %v", f.monitoring.querier.rangeQueries)
+	if len(f.monitoring.querier.historyReads) != 0 {
+		t.Errorf("a refused request must not query the store, got %+v", f.monitoring.querier.historyReads)
 	}
 }
 
@@ -636,8 +625,13 @@ func TestMetricNames_IsDiscoverable(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	if body := rawBody(t, resp); !strings.Contains(body, "gpuTemperatureCelsius") {
-		t.Fatalf("expected the query set to be listed, got %s", body)
+	var names []string
+	if err := json.Unmarshal([]byte(rawBody(t, resp)), &names); err != nil {
+		t.Fatalf("decode names: %v", err)
+	}
+	want := []string{"cpuUsagePercent", "memoryUsedPercent", "diskUsedPercent", "networkReceiveBytesPerSecond", "networkTransmitBytesPerSecond"}
+	if !slices.Equal(names, want) {
+		t.Errorf("names = %v, want the five basic-monitoring metrics %v", names, want)
 	}
 }
 
@@ -662,8 +656,8 @@ func TestAlerts_UnknownSiteIsNotFound(t *testing.T) {
 func TestMetricRange_ReadsEachServersSite(t *testing.T) {
 	east, west := newFakeQuerier(), newFakeQuerier()
 	point := []monitoringdomain.Point{{Timestamp: time.Now().UTC(), Value: 1}}
-	east.series["srv-e"] = []monitoringdomain.Series{{Labels: map[string]string{"server_id": "srv-e"}, Points: point}}
-	west.series["srv-w"] = []monitoringdomain.Series{{Labels: map[string]string{"server_id": "srv-w"}, Points: point}}
+	east.series["cpuUsagePercent"] = []monitoringdomain.Series{{Labels: map[string]string{"server_id": "srv-e"}, Points: point}}
+	west.series["cpuUsagePercent"] = []monitoringdomain.Series{{Labels: map[string]string{"server_id": "srv-w"}, Points: point}}
 	service := monitoringapp.NewMetricRangeService(perSiteMonitoringFactory{"east": east, "west": west},
 		&fakeScopeResolver{members: map[string][]string{}}, fixedServerSites{"srv-e": "east", "srv-w": "west"})
 	input := monitoringapp.MetricRangeInput{
@@ -679,8 +673,8 @@ func TestMetricRange_ReadsEachServersSite(t *testing.T) {
 		result.Series[1].ServerID == nil || *result.Series[1].ServerID != "srv-e" {
 		t.Errorf("series = %+v, want srv-w then srv-e", result.Series)
 	}
-	if len(east.rangeQueries) != 1 || strings.Contains(east.rangeQueries[0], "srv-w") {
-		t.Errorf("east range queries = %v, want only srv-e", east.rangeQueries)
+	if len(east.historyReads) != 1 || !slices.Equal(east.historyReads[0].servers, []string{"srv-e"}) {
+		t.Errorf("east history reads = %+v, want only srv-e", east.historyReads)
 	}
 
 	input.Mode = ""

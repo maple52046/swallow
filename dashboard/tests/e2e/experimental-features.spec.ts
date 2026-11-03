@@ -1,13 +1,13 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// In-development features (monitoring, OS image upload, Deployment Templates, virtual machines) are
+// In-development features (alerts, OS image upload, Deployment Templates, virtual machines) are
 // shown on the dev server and hidden in release builds. These journeys run on the dev server:
 // switching every feature off through the dev-only setting reproduces the release view, because
 // release builds bind the same gates to settings that are always off (tests/production covers the
-// real build).
+// real build). Basic monitoring is released and behind no switch.
 
-const RELEASE_VIEW = { monitoring: false, osImageUpload: false, deploymentTemplates: false, virtualMachines: false }
+const RELEASE_VIEW = { alerts: false, osImageUpload: false, deploymentTemplates: false, virtualMachines: false }
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -21,33 +21,56 @@ test('Experimental features are on in development and switch live from the accou
   await installApiFixtures(page)
   await page.goto('/?site=site-a')
   const nav = page.getByRole('navigation', { name: 'Primary navigation' })
-  await expect(nav.getByRole('link', { name: 'Monitoring' })).toBeVisible()
+  const alertsCard = page.locator('.sw-metric-card').filter({ hasText: 'Alerts' })
+  await expect(alertsCard).toContainText('1 critical')
 
   await page.getByRole('button', { name: 'Account menu' }).click()
   await page.getByRole('menuitem', { name: 'Experimental features' }).click()
   const dialog = page.getByRole('dialog', { name: 'Experimental features' })
-  for (const label of ['Monitoring', 'OS image upload', 'Deployment Templates', 'Virtual machines']) {
+  for (const label of ['Alerts', 'OS image upload', 'Deployment Templates', 'Virtual machines']) {
     await expect(dialog.getByLabel(label, { exact: true })).toBeChecked()
   }
+  await expect(dialog.getByLabel('Monitoring', { exact: true })).toHaveCount(0)
 
-  await dialog.getByText('Monitoring', { exact: true }).click()
-  await expect(dialog.getByLabel('Monitoring', { exact: true })).not.toBeChecked()
+  await dialog.getByText('Alerts', { exact: true }).click()
+  await expect(dialog.getByLabel('Alerts', { exact: true })).not.toBeChecked()
   await dialog.getByRole('button', { name: 'Done' }).click()
   // The console re-renders as soon as the switch flips, without a reload. (The page behind an
   // open modal is hidden from assistive technology, so it is checked after closing.)
-  await expect(nav.getByRole('link', { name: 'Monitoring' })).toHaveCount(0)
-  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('Not available in this release')
+  await expect(alertsCard).toContainText('Not available in this release')
+  // Basic monitoring is released: switching alerts off leaves it in place.
+  await expect(nav.getByRole('link', { name: 'Monitoring' })).toBeVisible()
+  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('3 / 4')
 
   // The choice is remembered per browser.
   await page.reload()
-  await expect(nav.getByRole('link', { name: 'Monitoring' })).toHaveCount(0)
+  await expect(alertsCard).toContainText('Not available in this release')
 
   await page.getByRole('button', { name: 'Account menu' }).click()
   await page.getByRole('menuitem', { name: 'Experimental features' }).click()
   await dialog.getByRole('button', { name: 'Reset to defaults' }).click()
-  await expect(dialog.getByLabel('Monitoring', { exact: true })).toBeChecked()
+  await expect(dialog.getByLabel('Alerts', { exact: true })).toBeChecked()
   await dialog.getByRole('button', { name: 'Done' }).click()
-  await expect(nav.getByRole('link', { name: 'Monitoring' })).toBeVisible()
+  await expect(alertsCard).toContainText('1 critical')
+})
+
+test('A stored opt-out for a switch that is no longer listed hides nothing and is dropped', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('swallow.dev.experimentalFeatures', JSON.stringify({ monitoring: false }))
+  })
+  await installApiFixtures(page)
+  await page.goto('/?site=site-a')
+  await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Monitoring' })).toBeVisible()
+  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('3 / 4')
+  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Alerts' })).toContainText('1 critical')
+
+  await page.getByRole('button', { name: 'Account menu' }).click()
+  await page.getByRole('menuitem', { name: 'Experimental features' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Experimental features' })
+  await expect(dialog.getByLabel('Alerts', { exact: true })).toBeChecked()
+  await dialog.getByText('Alerts', { exact: true }).click()
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('swallow.dev.experimentalFeatures'))).toBe('{"alerts":false}')
 })
 
 test.describe('with every in-development feature hidden (the release view)', () => {
@@ -57,39 +80,43 @@ test.describe('with every in-development feature hidden (the release view)', () 
     }, RELEASE_VIEW)
   })
 
-  test('monitoring surfaces are gone and shared health keeps its place with a note', async ({ page }) => {
-    const hiddenRequests: string[] = []
+  test('basic monitoring is shown everywhere while alerts are gone and never requested', async ({ page }) => {
+    const alertRequests: string[] = []
     page.on('request', (request) => {
       const path = new URL(request.url()).pathname
-      if (path.startsWith('/api/v1/monitoring')) hiddenRequests.push(path)
+      if (path.startsWith('/api/v1/monitoring/alerts')) alertRequests.push(path)
     })
     await installApiFixtures(page)
 
     await page.goto('/?site=site-a')
-    await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Monitoring' })).toHaveCount(0)
-    for (const card of ['Fleet health', 'Alerts']) {
-      await expect(page.locator('.sw-metric-card').filter({ hasText: card })).toContainText('Not available in this release')
-    }
-    // Firing alerts and down Servers are monitoring facts; they no longer raise attention items.
+    await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Monitoring' })).toBeVisible()
+    await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('3 / 4')
+    await expect(page.locator('.sw-metric-card').filter({ hasText: 'Alerts' })).toContainText('Not available in this release')
+    // Firing alerts no longer raise attention items; a down Server still does.
     await expect(page.getByText('gpu-node-04 stopped reporting')).toHaveCount(0)
+    await expect(page.getByRole('link', { name: /1 server down/ })).toBeVisible()
 
     await page.goto('/monitoring?site=site-a')
-    await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Usage charts', exact: true })).toBeVisible()
+    await expect(page.getByRole('table', { name: 'Server metrics' })).toBeVisible()
+    await expect(page.locator('.sw-metric-card').filter({ hasText: 'Health down' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Alerts', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('list', { name: 'Monitoring alerts' })).toHaveCount(0)
+    await expect(page.locator('.sw-metric-card').filter({ hasText: /Critical alerts|Warning alerts/ })).toHaveCount(0)
 
     await page.goto('/servers/srv-1/monitoring?site=site-a')
-    await expect(page).toHaveURL('/servers/srv-1/summary?site=site-a')
-    await expect(page.getByRole('tab', { name: 'Summary' })).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Monitoring' })).toHaveCount(0)
-    await expect(page.getByText('unavailable: health is not available in this release').first()).toBeAttached()
+    await expect(page).toHaveURL('/servers/srv-1/monitoring?site=site-a')
+    await expect(page.getByRole('heading', { name: 'Current metrics' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Usage history' })).toBeVisible()
 
-    // A bookmarked health filter cannot narrow the list through a control nobody can use.
+    // Health is a usable filter, so a bookmarked one keeps narrowing the list.
     await page.goto('/servers?site=site-a&health=down')
-    await expect(page).toHaveURL('/servers?site=site-a')
-    await expect(page.getByRole('region', { name: 'Health' })).toContainText('Not available in this release')
+    await expect(page).toHaveURL('/servers?site=site-a&health=down')
+    await expect(page.getByRole('region', { name: 'Health' })).toContainText('Down')
     await page.getByRole('button', { name: /Filters/ }).click()
-    await expect(page.getByRole('combobox', { name: 'Filter Server health', exact: true })).toBeDisabled()
+    await expect(page.getByRole('combobox', { name: 'Filter Server health', exact: true })).toBeEnabled()
 
-    expect(hiddenRequests).toEqual([])
+    expect(alertRequests).toEqual([])
   })
 
   test('image upload and Deployment Templates are not offered anywhere', async ({ page }) => {

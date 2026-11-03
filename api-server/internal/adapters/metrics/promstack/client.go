@@ -5,8 +5,10 @@
 // be deferred without changing anything here.
 //
 // MonitoringFactory builds the querier and alert source from a Site's metrics Integration and
-// caches them per Integration. Which metrics and alerts matter belongs to the core monitoring
-// context and must not be placed here.
+// caches them per Integration. Which metrics exist, how a scope combines them, and which alerts
+// matter belong to the core monitoring context and must not be decided here; how Prometheus
+// computes each named metric (its PromQL and the exporter series it reads) lives here, in
+// named_metrics.go, and nowhere in the core.
 package promstack
 
 import (

@@ -69,10 +69,7 @@ export const router = createBrowserRouter([
     errorElement: <UnexpectedErrorPage />,
     children: [
       { index: true, element: <ConsoleOverviewPage /> },
-      {
-        path: 'monitoring',
-        element: <FeatureRoute feature="monitoring" fallback={<NotFoundPage />}><MonitoringPage /></FeatureRoute>,
-      },
+      { path: 'monitoring', element: <MonitoringPage /> },
       { path: 'servers', element: <ServersPage /> },
       {
         path: 'servers/:id',
@@ -81,10 +78,7 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="summary" replace /> },
           { path: 'summary', element: <ServerSummaryTab /> },
           { path: 'activity', element: <ServerActivityTab /> },
-          {
-            path: 'monitoring',
-            element: <FeatureRoute feature="monitoring" redirectTo="../summary"><ServerMonitoringTab /></FeatureRoute>,
-          },
+          { path: 'monitoring', element: <ServerMonitoringTab /> },
           { path: 'containers', element: <ServerContainersTab /> },
           { path: 'network', element: <ServerNetworkTab /> },
           { path: 'storage', element: <ServerStorageTab /> },

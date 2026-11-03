@@ -173,7 +173,8 @@ swallow servers inspect server1
   `install-node-exporter-<serverId>` Task 安裝 Node Exporter（安裝失敗時佈署 Workflow 會停下等待
   處理，請重試該 Task）。不是由 swallow 佈署的 Server 與 locked Server 不會安裝；請在未 locked 的
   Server 上以 Managed Software 安裝 **Node Exporter**。
-- 只有某個 metric 顯示「No data」——例如 GPU 圖表——通常代表該 exporter 沒有在 Server 上執行。
+- Server 的圖表顯示「No data」，通常代表它的 Node Exporter 沒有執行或連不到，因為 swallow
+  的每張圖表都來自它。swallow 不提供 GPU 圖表；GPU 的 metrics 在 Platform 自己的 Grafana。
   Site 的 Prometheus 只收集 swallow 安裝的 exporter，所以你自己執行的 exporter（例如 RDC
   exporter）不會被收集。
 - Missing metric data 是 unknown，不是 failure 證據。

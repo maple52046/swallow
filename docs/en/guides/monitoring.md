@@ -3,16 +3,19 @@
 [繁體中文](../../zh-TW/guides/monitoring.md) · [Documentation home](../README.md)
 
 swallow shows how much of a Server is being used without you leaving swallow. It
-integrates the Site's Prometheus-compatible metrics backend and draws basic usage
-charts — CPU, memory, disk, network, and GPU — for one Server, a selection of
-Servers, a Pool, a Zone, or a Platform. swallow does not store metrics or alerts and
-does not offer an arbitrary PromQL proxy; it evaluates a fixed set of named queries.
-Grafana is optional: connect one when you want exploration beyond the basic charts.
+integrates the Site's Prometheus-compatible metrics backend and shows basic
+monitoring — Server health and CPU, memory, disk, and network usage — for one Server,
+a selection of Servers, a Pool, a Zone, or a Platform. swallow does not store metrics
+or alerts and does not offer an arbitrary PromQL proxy; it evaluates a fixed set of
+named queries. A Platform's complete monitoring, GPU metrics included, is in its own
+[Grafana](#a-platforms-own-grafana). Grafana is optional for swallow itself: connect
+one when you want exploration beyond the basic charts.
 
-> The Dashboard's monitoring screens are in development. Release builds of the
-> Dashboard hide them and show health as "Not available in this release"; see
-> [Features in development](dashboard.md#features-in-development). Registering
-> the Integration, Monitoring Links, the API, and the CLI work as described here.
+> Alerts in the Dashboard are in development. Release builds of the Dashboard show
+> health, current metrics, and usage charts, but hide the alert list and its
+> acknowledgements, and Overview's Alerts card reads "Not available in this
+> release"; see [Features in development](dashboard.md#features-in-development).
+> Alerts through the API and the CLI work as described here.
 
 ## From a deployed Server to a chart
 
@@ -77,20 +80,22 @@ anything on it.
 ## Usage charts
 
 - **Server detail → Monitoring** shows the latest values and the Server's usage
-  history. GPU charts appear on GPU Servers.
+  history: CPU, memory, root filesystem, and network.
 - **Monitoring → Usage charts** charts a scope: tick Servers in the Server metrics
   table, or choose a Pool, a Zone, or a Platform. The scope and the time window are
   part of the URL, so a link reproduces the view.
 
 Choose a window of 1 hour, 6 hours, 24 hours, or 7 days; swallow picks the
 resolution (about 180 points per chart). For a group of Servers each chart is one
-combined line: utilisation and fill levels are averaged, network throughput and GPU
-power are added up, and GPU temperature shows the hottest Server. A Pool, Zone, or
-Platform is charted by its **current** members.
+combined line: utilisation and fill levels are averaged, and network throughput is
+added up. A Pool, Zone, or Platform is charted by its **current** members.
 
-A chart reads "No data" when the backend has nothing for that metric — for example a
-GPU chart on a Server without a GPU exporter. A gap in a line means the Server was not
-reporting then. Neither is drawn as zero.
+swallow's charts are the same for every Server, with or without GPUs; GPU metrics are
+shown by the Platform's own Grafana, not in swallow.
+
+A chart reads "No data" when the backend has nothing for that metric — for example
+while a newly deployed Server's Node Exporter has not been scraped yet. A gap in a
+line means the Server was not reporting then. Neither is drawn as zero.
 
 ## A Platform's own Grafana
 
@@ -169,7 +174,9 @@ Monitoring Link; it is a shortcut for users. swallow itself sets only the
 
 Alerts are read from Alertmanager on demand and correlated to swallow resources.
 Acknowledging an alert creates an Alertmanager silence; swallow does not add an
-acknowledged field to a local alert copy.
+acknowledged field to a local alert copy. In the Dashboard, the alert list and
+acknowledging are in development and hidden in release builds; the CLI and the API
+offer them in every release.
 
 Before silencing, review matchers, duration, Site scope, and the affected
 Servers. Diagnose a provider-unavailable error from the Integration first rather

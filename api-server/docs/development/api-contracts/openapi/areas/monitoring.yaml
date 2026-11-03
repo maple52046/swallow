@@ -1374,10 +1374,6 @@ components:
         - diskUsedPercent
         - networkReceiveBytesPerSecond
         - networkTransmitBytesPerSecond
-        - gpuUtilizationPercent
-        - gpuTemperatureCelsius
-        - gpuPowerWatts
-        - gpuMemoryUsedPercent
     MetricValues:
       type: object
       required: [items, grafana]
@@ -1412,14 +1408,6 @@ components:
             networkReceiveBytesPerSecond:
               type: number
             networkTransmitBytesPerSecond:
-              type: number
-            gpuUtilizationPercent:
-              type: number
-            gpuTemperatureCelsius:
-              type: number
-            gpuPowerWatts:
-              type: number
-            gpuMemoryUsedPercent:
               type: number
     MetricRange:
       type: object

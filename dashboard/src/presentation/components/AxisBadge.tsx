@@ -1,4 +1,4 @@
-import { Badge, Box, HStack, VisuallyHidden } from '@chakra-ui/react'
+import { Badge, Box, HStack } from '@chakra-ui/react'
 import { Lock, MemoryStick } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { DeploymentAxis, HealthAxis, MembershipAxis, ProvisioningAxis } from '@/domain/server/types'
@@ -7,8 +7,6 @@ import { resolveDeploymentPhase, type AxisColor } from './deploymentPhase'
 import { ElapsedTime } from './ElapsedTime'
 import { InProgressSpinner } from './InProgressSpinner'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
-import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
-import { NOT_AVAILABLE_IN_RELEASE } from './releaseAvailability'
 
 const PROVISIONING_COLORS: Record<string, AxisColor> = {
   deployed: 'green', ready: 'blue', allocated: 'blue', deploying: 'orange', releasing: 'orange',
@@ -336,23 +334,10 @@ export function MembershipBadge({ axis }: { axis: MembershipAxis | null }) {
 }
 
 /**
- * Metrics-owned liveness state resolved at query time rather than persisted.
- *
- * While monitoring is in development (always, in release builds) every Server shows
- * the same neutral "unavailable" label instead of its state: the badge keeps its
- * place in tables, headers, and summary cards, but never suggests a Server is down
- * or unobserved. The reason is part of the accessible text, not only the tooltip.
+ * Metrics-owned liveness state resolved at query time rather than persisted. A Server whose
+ * Node Exporter is not scraped has no health, which reads as unknown, never as down.
  */
 export function HealthBadge({ axis }: { axis: HealthAxis | null }) {
-  const monitoring = useExperimentalFeature('monitoring')
-  if (!monitoring) {
-    return (
-      <AxisLabel color="gray" tooltip={NOT_AVAILABLE_IN_RELEASE}>
-        unavailable
-        <VisuallyHidden>{`: health is ${NOT_AVAILABLE_IN_RELEASE.toLowerCase()}`}</VisuallyHidden>
-      </AxisLabel>
-    )
-  }
   if (!axis) return <UnknownBadge tooltip="Health has never been observed" />
   return (
     <AxisLabel color={axis.state === 'up' ? 'green' : 'red'} tooltip={observedAtLabel(axis.observedAt)}>

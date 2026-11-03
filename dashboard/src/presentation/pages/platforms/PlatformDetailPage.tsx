@@ -17,7 +17,6 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useToast } from '@/presentation/components/toast/toastContext'
-import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { platformModuleUI, platformSections } from '@/modules/registry'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
@@ -292,16 +291,15 @@ function MonitoringFeatureSummary({
  * registered as Monitoring Links (for example the Platform Grafana swallow installs on a Slurm controller
  * or in a Kubernetes cluster).
  *
- * The chart entry links to the Monitoring console with this Platform preselected and is shown
- * only while the experimental `monitoring` console is enabled. Monitoring Links are Platform
- * data, so they show regardless; they open in a new tab and swallow never fetches them. With no
+ * The chart entry links to the Monitoring console with this Platform preselected; swallow's charts
+ * are basic monitoring, and the Platform's complete monitoring is its own Grafana. Monitoring Links
+ * open in a new tab and swallow never fetches them. With no
  * links the section explains how to add one through the API or CLI, since the console has no
  * editor for them. A Slurm Platform deployed with Omnistat or the Device Metrics Exporter also shows
  * that feature's row (MonitoringFeatureSummary). A collapsed GPU identity is stated in words: the
  * exporter's job panels would otherwise look trustworthy while attributing jobs to the wrong GPUs.
  */
 function PlatformMonitoring({ platform }: { platform: Platform }) {
-  const monitoringConsole = useExperimentalFeature('monitoring')
   const { scopedHref } = useSiteScope()
   const links = platform.monitoringLinks
   const omnistat = platform.omnistat ?? null
@@ -314,14 +312,14 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
       <SectionHeader
         title="Monitoring"
         description="Usage of this Platform's Servers in swallow, and the runtime's own monitoring tools."
-        actions={monitoringConsole ? (
+        actions={(
           <Button asChild variant="outline" size="sm">
             <Link to={chartsHref}>
               <ChartLine size={16} />
               View usage charts
             </Link>
           </Button>
-        ) : undefined}
+        )}
       />
       <div className="sw-section-content">
         {omnistat && (
@@ -348,7 +346,7 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
             {exporter.gpuIdentity === 'collapsed' && exporter.state !== 'absent' && (
               <Alert status="warning" title="GPU identity collapsed" mb="3">
                 At least one node's exporter reports fewer distinct GPU ids than it has GPUs, so its job
-                dashboards attribute a job to the wrong GPUs. GPU metrics still flow; Slurm's own GPU
+                dashboards attribute a job to the wrong GPUs. Its GPU metrics are still collected; Slurm's own GPU
                 allocation and isolation are not affected.
               </Alert>
             )}

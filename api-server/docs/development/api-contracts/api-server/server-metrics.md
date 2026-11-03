@@ -21,10 +21,11 @@ evaluates a bounded set of named PromQL queries against the backend and correlat
 by `server_id`.
 
 These endpoints are what swallow's own usage charts are built on: a user sees CPU,
-memory, disk, network, and GPU usage of a Server, a selection of Servers, a Pool, a Zone, or a
-Platform without leaving swallow. Grafana is an optional advanced layer for exploration beyond
-the named queries; when the metrics Integration configures it, responses carry its link, and
-nothing here depends on it.
+memory, disk, and network usage of a Server, a selection of Servers, a Pool, a Zone, or a
+Platform without leaving swallow. They offer basic monitoring only; a Platform's complete
+monitoring, GPU metrics included, is shown by its own Grafana. Grafana is an optional advanced
+layer for exploration beyond the named queries; when the metrics Integration configures it,
+responses carry its link, and nothing here depends on it.
 
 ## Related Glossary Terms
 
@@ -57,7 +58,7 @@ or an API Key) according to [conventions](conventions.md). The wire shape is pub
 plain JSON array. The order is not significant:
 
 ```json
-["cpuUsagePercent", "memoryUsedPercent", "diskUsedPercent", "networkReceiveBytesPerSecond", "networkTransmitBytesPerSecond", "gpuUtilizationPercent", "gpuTemperatureCelsius", "gpuPowerWatts", "gpuMemoryUsedPercent"]
+["cpuUsagePercent", "memoryUsedPercent", "diskUsedPercent", "networkReceiveBytesPerSecond", "networkTransmitBytesPerSecond"]
 ```
 
 | Metric | Unit | Applies to | Meaning | Scope aggregate |
@@ -67,10 +68,9 @@ plain JSON array. The order is not significant:
 | `diskUsedPercent` | percent | every server | Used percentage of the root filesystem (`/`) (from node-exporter). | average |
 | `networkReceiveBytesPerSecond` | bytes per second | every server | Received throughput summed across the host's network interfaces (from node-exporter). | sum |
 | `networkTransmitBytesPerSecond` | bytes per second | every server | Transmitted throughput summed across the host's network interfaces (from node-exporter). | sum |
-| `gpuUtilizationPercent` | percent | GPU servers | GPU utilisation, averaged per server. | average |
-| `gpuTemperatureCelsius` | Celsius | GPU servers | Hottest GPU temperature per server. | maximum |
-| `gpuPowerWatts` | watts | GPU servers | Total GPU power draw per server. | sum |
-| `gpuMemoryUsedPercent` | percent | GPU servers | GPU memory used percentage per server. | average |
+
+Every metric comes from the Node Exporter, so a Server has values only while the Site's
+Prometheus scrapes its Node Exporter.
 
 The network metrics are a 5-minute rate and exclude the loopback interface and the virtual
 devices container runtimes and hypervisors create (`veth*`, `docker*`, `br-*`, `virbr*`,
@@ -78,16 +78,10 @@ devices container runtimes and hypervisors create (`veth*`, `docker*`, `br-*`, `
 container is not counted twice. A bonded interface and its members are both physical-looking
 and are both counted.
 
-The GPU metrics are vendor-neutral: each evaluates the NVIDIA DCGM series or the AMD RDC
-series, so one metric name serves both stacks. GPU series exist only where a GPU exporter runs:
-swallow does not install the RDC exporter on hosts, so an AMD server returns values only when
-an RDC exporter already runs on it. A server that runs no GPU exporter simply returns no value
-for these.
-
 **Scope aggregate** is how a metric combines several Servers into one series in the range
-query's `aggregate` mode (below): utilisation and fill levels average, throughput and power
-add up, and temperature keeps the hottest. At each timestamp the aggregate covers only the
-Servers that had a value then; a Server without data is not counted as zero.
+query's `aggregate` mode (below): utilisation and fill levels average, and throughput adds up.
+At each timestamp the aggregate covers only the Servers that had a value then; a Server without
+data is not counted as zero.
 
 ## Current Values
 
@@ -119,8 +113,8 @@ escaped); an unknown metric name yields `validation_error`.
 - `items` has one entry per requested server, in the requested order.
 - `metrics` contains only the values the backend answered. A metric with no data is
   **absent** from the map rather than zero, because "no data" and "zero" are different
-  facts — a CPU server has no `gpuUtilizationPercent`, and a server that is not scraped
-  yet has no `cpuUsagePercent`. A consumer must render absence as "no data", not `0`.
+  facts — a server that is not scraped yet has no `cpuUsagePercent`. A consumer must render
+  absence as "no data", not `0`.
 - `grafana` is the configured Grafana base URL for optional advanced exploration, or `null`
   when none is configured.
 
@@ -235,7 +229,13 @@ The common error envelope applies.
 - Since 2026-11-03 each Server is read from its own Site's Prometheus rather than from the first
   registered metrics Integration, and an `aggregate` over Servers of several Sites is
   `validation_error`.
-
+- Since 2026-11-03 the named metrics are basic monitoring only. `gpuUtilizationPercent`,
+  `gpuTemperatureCelsius`, `gpuPowerWatts`, and `gpuMemoryUsedPercent` are no longer metric
+  names: the names endpoint does not list them, and asking for one in `metrics` (current values
+  or usage history) is `validation_error` like any unknown name. They read only DCGM and RDC
+  series, which no exporter swallow installs produces, so the Site's Prometheus had no data for
+  them. A client that omits `metrics` is unaffected. A few common GPU metrics, mapped from each
+  GPU exporter's own series, may be added later as new names.
 - Adding a new named metric is additive: existing callers that pass an explicit `metrics`
   list are unaffected, and callers that omit it receive the new metric.
 - `diskUsedPercent`, `networkReceiveBytesPerSecond`, `networkTransmitBytesPerSecond`, and the
@@ -248,5 +248,8 @@ The common error envelope applies.
 - The current-value and range endpoints evaluate the same named expressions, so a chart and a
   tile for the same metric cannot disagree about what they measure. `aggregate` wraps the
   per-Server expression in the metric's scope aggregate.
+- The core owns the metric names, their scope aggregates, the bounds, and the Server id rule;
+  the PromQL that computes each metric lives in the metrics adapter, not in the core
+  ([decision 003](../../../../../docs/decisions/003-metrics-label-contract.md), "How swallow queries").
 - Range queries are sent to the backend as a form-encoded `POST /api/v1/query_range`, so a
   large scope does not hit URL-length limits.

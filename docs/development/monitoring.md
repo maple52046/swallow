@@ -150,6 +150,8 @@ exporter 則依 §4.2 的情境決定，不再有「誰擁有 exporter」的政�
   exporter 時顯示。不同 exporter（DME、Omnistat、日後的 RDC）的指標名稱不同，由後端依 exporter 的宣告轉成通用指標，
   dashboard 不認得任何產品的指標名稱。
 - 完整的 GPU 監控資料由 Platform 自己的 Grafana 展示。
+- **alerts 仍是實驗功能**：告警列表與 acknowledge（讀自 user 自備的 Alertmanager，§9）只在 development build 顯示，
+  release build 只顯示基礎監控。
 
 ### 6.2 Platform 自己的 Grafana
 
@@ -225,8 +227,6 @@ node-exporter 的 target 時是 unknown，不是 `down`——swallow 沒有在�
   取自 DME 模組的宣告），成員是 swallow 從 GPU inventory 推得的納管節點，不是 NFD 的結果。
 - 啟用 firewalld 的主機（RHEL 家族的 Kubernetes 成員一定啟用）沒有替 Site 的 Prometheus 開 exporter 的 port（node-exporter
   9100、DME 5001），所以它們收集不到；只有 Kubernetes 的 Platform Grafana 的 NodePort 有開。
-- swallow 的 metrics API 仍有 GPU 指標（只認得 DCGM 與 RDC 的指標名稱），dashboard 仍顯示 GPU 圖；基礎監控仍在實驗性
-  開關後面。
 - node-exporter 尚未成為 desired state：安裝之後被移除或停止不會被發現。
 
 ## 12. 相關文件

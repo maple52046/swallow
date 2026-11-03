@@ -16,7 +16,7 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | Software | 分類呈現 catalog（Docker CE、Podman、NFS、Prometheus、Grafana、AMD Device Metrics Exporter、Node Exporter）、各 software deployment 與多 Server 安裝 |
 | Workflows | Durable execution、Job、Task、event、log、cancel、rerun 與 retry |
 | Change Plans | 等待核准或拒絕的 Platform 破壞性變更計畫 |
-| Monitoring | Alert、silence、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、fleet health 與選用的 Grafana link |
+| Monitoring | Fleet health、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、選用的 Grafana link，以及（開發中的）alert 與 silence |
 | Infrastructure | Site、Integration、Zone、Pool、credential 與 automation settings |
 | SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
 | API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 swallow 的 key，見 [API key](api-keys.md) |
@@ -30,15 +30,13 @@ Overview 是一份唯讀、point-in-time 的摘要，彙整其他 context 擁有
 可限制範圍；清除 Site selection 則查看整個 swallow。**Updated** 時間表示 aggregate
 產生的時間。
 
-- **Capacity** 與 **Workflows** 摘要 compute GPU 與 deployment 數量，以及 active／
-  近期失敗工作。Development build 啟用 Monitoring 時，**Fleet health** 與 **Alerts**
-  也會摘要 Server reachability 與選用的 Alertmanager source。沒有 Alertmanager 時顯示
-  **Not configured**；已設定但讀不到時顯示 **Unavailable**。Release build 保留這兩張
-  card 的位置，但標示為 unavailable。
+- **Fleet health**、**Capacity** 與 **Workflows** 摘要 Server reachability、compute GPU 與
+  deployment 數量，以及 active／近期失敗工作。Development build 啟用 Alerts 時，**Alerts**
+  也會摘要選用的 Alertmanager source。沒有 Alertmanager 時顯示 **Not configured**；已設定但
+  讀不到時顯示 **Unavailable**。Release build 保留 Alerts card 的位置，但標示為 unavailable。
 - **Needs attention** 最多顯示十項 Integration sync failure、unreachable Platform、
-  unmatched member，以及過去 24 小時失敗的 Workflow。啟用 Monitoring 時也會包含
-  current alert 與 down Server。請從項目進入 owner page 處理；問題解除後，之後的
-  Overview read 就不再顯示。
+  unmatched member、down Server，以及過去 24 小時失敗的 Workflow。啟用 Alerts 時也會包含
+  current alert。請從項目進入 owner page 處理；問題解除後，之後的 Overview read 就不再顯示。
 - **Recent workflows** 最多連到最近要求的八個 Workflow。**Integrations** 顯示各
   Integration 最近成功 sync 或 failure，並連到管理頁。
 
@@ -50,10 +48,9 @@ Integration、Platform、Workflow 或 alert view。
 以下四項 Dashboard 功能仍在開發中，Dashboard 的 release build 會隱藏它們；API 與 `swallow`
 CLI 不受影響。
 
-- **Monitoring**：沒有 Monitoring 頁面、含用量圖表的 Server Monitoring tab，以及 Platform 頁面的
-  「View usage charts」捷徑。Overview、Server list 與 Server detail 上的 health 保留位置，但顯示
-  「Not available in this release」。仍可註冊 metrics Integration，Platform 的 Monitoring Link
-  也仍會顯示。
+- **Alerts**：Monitoring 頁面沒有 alert 列表、alert 數量與 Acknowledge，Overview 的 Alerts card
+  顯示「Not available in this release」，也不會產生 alert 的 attention item。基礎監控不受影響：
+  health、current metrics 與用量圖表在每個 build 都會顯示。請改用 `swallow monitoring alerts`。
 - **OS image upload**：OS images 沒有 Upload。既有 custom image 的 verification 仍可使用。
 - **Deployment Template**：沒有 Templates workspace、Create template，佈署時也不能選擇或保存
   template；佈署使用 custom configuration。

@@ -1,4 +1,8 @@
-import type { ExperimentalFeature, ExperimentalFeatureSettings } from '@/application/ports/ExperimentalFeatureSettings'
+import {
+  EXPERIMENTAL_FEATURES,
+  type ExperimentalFeature,
+  type ExperimentalFeatureSettings,
+} from '@/application/ports/ExperimentalFeatureSettings'
 import { lsGet, lsSet } from './localStorage'
 
 const STORAGE_KEY = 'swallow.dev.experimentalFeatures'
@@ -6,10 +10,23 @@ const STORAGE_KEY = 'swallow.dev.experimentalFeatures'
 /** Stored shape: only features the developer switched off, as `{ feature: false }`. */
 type StoredChoices = Partial<Record<ExperimentalFeature, boolean>>
 
-/** Reads the stored choices, treating anything that is not a plain object as no choices. */
+/**
+ * Reads the stored opt-outs, treating anything that is not a plain object as no choices.
+ *
+ * Only keys of current features are kept, and the next write drops the rest: a key whose switch
+ * left the list (its feature was released or renamed) must neither keep hiding a surface nor
+ * carry over to another switch.
+ */
 function readChoices(): StoredChoices {
   const stored = lsGet<unknown>(STORAGE_KEY, {})
-  return typeof stored === 'object' && stored !== null && !Array.isArray(stored) ? (stored as StoredChoices) : {}
+  if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) return {}
+  // Safe: `stored` is a non-null, non-array object, and each value is only compared to `false`.
+  const record = stored as Record<string, unknown>
+  const choices: StoredChoices = {}
+  for (const feature of EXPERIMENTAL_FEATURES) {
+    if (record[feature] === false) choices[feature] = false
+  }
+  return choices
 }
 
 /**
@@ -28,7 +45,7 @@ export class LocalExperimentalFeatureSettings implements ExperimentalFeatureSett
   }
 
   setEnabled(feature: ExperimentalFeature, enabled: boolean): void {
-    const choices = { ...readChoices() }
+    const choices = readChoices()
     if (enabled) delete choices[feature]
     else choices[feature] = false
     lsSet(STORAGE_KEY, choices)

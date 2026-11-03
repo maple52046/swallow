@@ -35,7 +35,7 @@ release build 中隱藏。
 | Managed Software 與 registry credential | 有 | 無 | `software.md`、`registry-credentials.md` | [software-deployment.md](software-deployment.md) |
 | Docker explorer | 有 | 無 | `servers-docker.md` | 同上 |
 | Workflow | 有 | `workflows.go` | `workflows.md` | [workflow-execution.md](workflow-execution.md) |
-| 監控與告警 | 實驗 | `monitoring.go` | `monitoring-alerts.md`、`server-metrics.md` | — |
+| 監控與告警 | 有（告警為實驗） | `monitoring.go` | `monitoring-alerts.md`、`server-metrics.md` | [monitoring.md](monitoring.md) |
 | Prometheus 的 service discovery | 無 | `discovery.go` | `discovery-prometheus.md` | — |
 | Overview | 有 | `overview.go` | `overview.md` | — |
 | 登入、API Key | 有 | `auth.go`、`apikeys.go` | `auth-*.md`、`api-keys.md` | [access-and-credentials.md](access-and-credentials.md) |

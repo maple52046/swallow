@@ -35,7 +35,7 @@ const NAVIGATION: readonly NavEntry[] = [
   { label: 'Software', path: '/software', icon: Package },
   { label: 'Workflows', path: '/workflows', icon: Workflow },
   { label: 'Change Plans', path: '/change-plans', icon: ClipboardCheck },
-  { label: 'Monitoring', path: '/monitoring', icon: Activity, feature: 'monitoring' },
+  { label: 'Monitoring', path: '/monitoring', icon: Activity },
   { label: 'Infrastructure', path: '/infrastructure/sites', icon: Network },
 ]
 

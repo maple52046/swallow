@@ -2892,9 +2892,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (options.metricsBackendMissing) {
         return json(route, { error: { code: 'provider_unavailable', message: 'No metrics backend is registered. Register a Prometheus metrics Integration for the Site to see usage.' } }, 503)
       }
-      // A deterministic 1-hour, 30-second history ending at a fixed instant. The server-detail
-      // GPU chart and the network charts get data; disk is left without data on purpose so the
-      // "No data" card is exercised.
+      // A deterministic 1-hour, 30-second history ending at a fixed instant. CPU, memory, and the
+      // network charts get data; disk is left without data on purpose so the "No data" card is
+      // exercised.
       const end = Date.parse('2026-08-27T03:00:00Z')
       const step = 30
       const start = end - 3600_000
@@ -2911,12 +2911,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         memoryUsedPercent: () => wave(63, 4),
         networkReceiveBytesPerSecond: () => wave(48_000_000, 20_000_000),
         networkTransmitBytesPerSecond: () => wave(12_000_000, 6_000_000),
-        gpuUtilizationPercent: () => wave(81, 12),
-        gpuTemperatureCelsius: () => wave(68, 5),
       }
-      const isGpuScope = serverIds.length === 0 || serverIds.some((serverId) => Number(serverId.split('-')[1]) <= 4)
       const series = serverCount === 0 ? [] : requested
-        .filter((metric) => shapes[metric] && (!metric.startsWith('gpu') || isGpuScope))
+        .filter((metric) => shapes[metric])
         .map((metric) => ({ metric, serverId: null, points: shapes[metric]() }))
       return json(route, {
         scope: { kind: serverIds.length ? 'servers' : poolId ? 'pool' : zoneId ? 'zone' : 'platform', id: poolId ?? zoneId ?? platformId, serverCount },
@@ -2939,7 +2936,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (options.metricsDelayMs) await new Promise((resolve) => setTimeout(resolve, options.metricsDelayMs))
       activeMetricRequests -= 1
       if (batch === options.failMetricsBatchIndex) return json(route, { error: { code: 'provider_unavailable', message: 'Prometheus batch failed' } }, 503)
-      return json(route, { items: ids.map((serverId, index) => ({ serverId, metrics: { cpuUsagePercent: 30 + (index % 20), memoryUsedPercent: 60 + (index % 10), ...(Number(serverId.split('-')[1]) <= 4 ? { gpuUtilizationPercent: 88.1, gpuTemperatureCelsius: 71.3 } : {}) } })), grafana: 'https://grafana.example' })
+      return json(route, { items: ids.map((serverId, index) => ({ serverId, metrics: { cpuUsagePercent: 30 + (index % 20), memoryUsedPercent: 60 + (index % 10) } })), grafana: 'https://grafana.example' })
     }
 
     if (path === '/api/v1/platforms/deployment-requirements/slurm') {

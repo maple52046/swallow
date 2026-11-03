@@ -3,8 +3,9 @@ import { installApiFixtures } from './fixtures'
 
 // swallow's built-in usage charts (server-metrics.md "Usage History"): a Server's own history on
 // its Monitoring tab, aggregated history for a selection, Pool, Zone, or Platform on the
-// Monitoring console, the "no metrics backend" guidance, and Platform Monitoring Links. Also the
-// Overview's alert-source states: Alertmanager is optional, so only a failing one warns.
+// Monitoring console, the "no metrics backend" guidance, and Platform Monitoring Links. The charts
+// are basic monitoring only; GPU metrics are a Platform Grafana's. Also the Overview's alert-source
+// states: Alertmanager is optional, so only a failing one warns.
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -25,13 +26,16 @@ test('Server detail charts its own usage and keeps the window in the URL', async
   await expect(page.getByRole('heading', { name: 'Usage history' })).toBeVisible()
   await expect(page.getByRole('slider', { name: 'CPU usage' })).toBeVisible()
   await expect(page.getByRole('slider', { name: 'Network received' })).toBeVisible()
-  // srv-1 is a GPU server, so its GPU history is charted too.
-  await expect(page.getByRole('slider', { name: 'GPU utilization' })).toBeVisible()
+  // swallow charts basic monitoring only: srv-1 has GPUs, but its GPU metrics belong to a
+  // Platform's Grafana, so neither a GPU chart nor a GPU tile appears and none is requested.
+  await expect(page.getByRole('group', { name: /GPU/ })).toHaveCount(0)
+  await expect(page.getByText(/GPU (utilization|temperature|power|memory)/)).toHaveCount(0)
   // A metric the backend has no history for reads "No data", never a flat zero line.
   const disk = page.getByRole('group', { name: 'Disk used (/)' })
   await expect(disk.getByText('No data')).toBeVisible()
   expect(requests[0]?.get('serverIds')).toBe('srv-1')
   expect(requests[0]?.get('window')).toBe('1h')
+  expect(requests[0]?.get('metrics')).toBe('cpuUsagePercent,memoryUsedPercent,diskUsedPercent,networkReceiveBytesPerSecond,networkTransmitBytesPerSecond')
 
   await page.getByRole('button', { name: '6h (last 6 hours)' }).click()
   await expect(page).toHaveURL(/window=6h/)

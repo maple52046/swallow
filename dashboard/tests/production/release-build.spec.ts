@@ -3,7 +3,7 @@ import { installApiFixtures } from '../e2e/fixtures'
 
 // Runs against `vite build` output (playwright.production.config.ts). Release builds bind
 // experimental feature settings that are always off, so every in-development feature is hidden and
-// nothing a browser stored can bring one back.
+// nothing a browser stored can bring one back. Basic monitoring is released and shown.
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -16,25 +16,38 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('Release builds hide in-development features and offer no switch', async ({ page }) => {
+  const alertRequests: string[] = []
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname
+    if (path.startsWith('/api/v1/monitoring/alerts')) alertRequests.push(path)
+  })
   await installApiFixtures(page)
 
   await page.goto('/?site=site-a')
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Monitoring' })).toHaveCount(0)
-  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('Not available in this release')
+  await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Monitoring' })).toBeVisible()
+  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('3 / 4')
+  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Alerts' })).toContainText('Not available in this release')
+  await expect(page.getByText('gpu-node-04 stopped reporting')).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Account menu' }).click()
   await expect(page.getByRole('menuitem', { name: 'SSH keys' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: 'Experimental features' })).toHaveCount(0)
   await page.keyboard.press('Escape')
 
+  // The Monitoring console shows basic monitoring; its alert list is in development.
   await page.goto('/monitoring?site=site-a')
-  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Usage charts', exact: true })).toBeVisible()
+  await expect(page.getByRole('table', { name: 'Server metrics' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Alerts', exact: true })).toHaveCount(0)
 
-  // Monitoring Links are Platform data and stay; the entry into the in-development console does not.
+  await page.goto('/servers/srv-1/monitoring?site=site-a')
+  await expect(page.getByRole('heading', { name: 'Current metrics' })).toBeVisible()
+
+  // Monitoring Links are Platform data, and the usage-chart shortcut leads to the released console.
   await page.goto('/platforms/platform-slurm?site=site-a')
-  await expect(page.getByRole('link', { name: 'Omnistat Grafana' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'View usage charts' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Platform Grafana' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'View usage charts' })).toBeVisible()
 
   await page.goto('/provisioning/images?site=site-a')
   await expect(page.getByRole('heading', { name: 'OS images', exact: true })).toBeVisible()
@@ -50,4 +63,6 @@ test('Release builds hide in-development features and offer no switch', async ({
   const addServers = page.getByRole('dialog', { name: 'Add servers' })
   await expect(addServers.getByRole('button', { name: /Yes, keep its OS/ })).toBeVisible()
   await expect(addServers.getByRole('button', { name: /libvirt virtual machine/ })).toHaveCount(0)
+
+  expect(alertRequests).toEqual([])
 })

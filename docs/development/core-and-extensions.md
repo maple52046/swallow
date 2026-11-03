@@ -136,8 +136,7 @@ interface，而是 Platform 模組與 Software 模組提供的能力（§4）。
   `workflowJobLabels`）、credential 的 provider kind（`modules.go` 的 `integrationProviders`）與結果類完成行為的
   class（`workflow_completions.go` 的 `completionClasses`）。
 - **BMC 與 hypervisor**：server 的 port 以 Redfish、libvirt 命名，hypervisor 的 `virsh` 指令在 domain。
-- **Metrics**：monitoring 寫死 PromQL 與 GPU exporter 的指標名稱；discovery 直接產生 Prometheus http_sd 與 Ansible
-  inventory 的格式。
+- **Metrics**：discovery 直接產生 Prometheus http_sd 與 Ansible inventory 的格式。
 - **provisioning**：MAAS 的 subarch 正規化在 domain 與 application。
 
 core 不 import 任何 adapter 或廠商 SDK，這一點已由 import 檢查守住；上面是詞彙與概念層面的越界。

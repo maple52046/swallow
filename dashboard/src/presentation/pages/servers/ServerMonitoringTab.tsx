@@ -1,7 +1,6 @@
-import { useMemo } from 'react'
 import { Stack } from '@chakra-ui/react'
 import { useSearchParams } from 'react-router-dom'
-import { isMetricRangeWindow, METRIC_DESCRIPTORS, type MetricRangeWindow, type MetricScope } from '@/domain/monitoring/types'
+import { isMetricRangeWindow, METRIC_DESCRIPTORS, METRIC_NAMES, type MetricRangeWindow, type MetricScope } from '@/domain/monitoring/types'
 import { MonitoringCard } from '@/presentation/components/serverSummary/MonitoringCard'
 import { UsageCharts } from '@/presentation/components/monitoring/UsageCharts'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -11,12 +10,12 @@ import { useServerMonitoring } from './useServerMonitoring'
 
 /**
  * Server detail Monitoring tab: current values as a summary, then swallow's built-in usage
- * charts for this Server (CPU, memory, disk, network, and GPU on GPU servers).
+ * charts for this Server (CPU, memory, disk, and network: basic monitoring, the same for every
+ * Server).
  *
  * The chart window is URL-owned (`?window=6h`) so a link reproduces the view; an unknown value
  * falls back to the 1-hour default. History comes from the range API in aggregate mode, which
- * for a one-Server scope is that Server's own series. The tab is behind the `monitoring`
- * experimental feature gate applied by ServerDetailPage.
+ * for a one-Server scope is that Server's own series.
  */
 export function ServerMonitoringTab() {
   const { server } = useServerDetailContext()
@@ -25,10 +24,8 @@ export function ServerMonitoringTab() {
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedWindow = searchParams.get('window')
   const window: MetricRangeWindow = isMetricRangeWindow(requestedWindow) ? requestedWindow : '1h'
-  const descriptors = useMemo(() => METRIC_DESCRIPTORS.filter((descriptor) => monitoring.gpu || !descriptor.gpuOnly), [monitoring.gpu])
-  const metrics = useMemo(() => descriptors.map((descriptor) => descriptor.name), [descriptors])
   const scope: MetricScope = { kind: 'servers', serverIds: [server.id] }
-  const usage = useMetricRange(scope, metrics, window)
+  const usage = useMetricRange(scope, METRIC_NAMES, window)
 
   const changeWindow = (next: MetricRangeWindow) => {
     const params = new URLSearchParams(searchParams)
@@ -43,7 +40,7 @@ export function ServerMonitoringTab() {
       <UsageCharts
         description="This Server's usage over time, read from the Site's metrics backend."
         state={usage}
-        descriptors={descriptors}
+        descriptors={METRIC_DESCRIPTORS}
         window={window}
         onWindowChange={changeWindow}
         integrationsHref={scopedHref('/infrastructure/integrations')}

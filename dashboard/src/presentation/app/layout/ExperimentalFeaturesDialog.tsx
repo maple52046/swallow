@@ -8,9 +8,9 @@ import { useExperimentalFeatures } from '@/presentation/contexts/ExperimentalFea
 
 /** What each switch shows, written for a developer deciding what to preview. */
 const FEATURE_COPY: Readonly<Record<ExperimentalFeature, { label: string; description: string }>> = {
-  monitoring: {
-    label: 'Monitoring',
-    description: 'Monitoring page, the Server Monitoring tab, and Server health on Overview and the Server list.',
+  alerts: {
+    label: 'Alerts',
+    description: 'Alertmanager alerts and acknowledging them on Monitoring, and the Alerts card and alert items on Overview.',
   },
   osImageUpload: {
     label: 'OS image upload',

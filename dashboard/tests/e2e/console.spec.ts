@@ -203,6 +203,10 @@ test.describe('user interactions', () => {
     // Nothing is charted until a scope is chosen, and Grafana is a secondary escape hatch.
     await expect(page.getByText('Nothing to chart yet')).toBeVisible()
     await expect(page.getByRole('link', { name: 'Explore in Grafana' })).toBeVisible()
+    // Current values are basic monitoring; GPU metrics belong to a Platform's Grafana.
+    const table = page.getByRole('table', { name: 'Server metrics' })
+    await expect(table.getByRole('columnheader', { name: 'Memory used' })).toBeVisible()
+    await expect(table.getByRole('columnheader', { name: /GPU/ })).toHaveCount(0)
   })
   test('desktop navigation collapses to icons with tooltip and persists', async ({ page }) => {
     await page.goto('/')

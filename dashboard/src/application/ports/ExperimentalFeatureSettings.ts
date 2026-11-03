@@ -3,19 +3,20 @@
  * switches, not swallow domain concepts: hiding one never changes API, CLI, or
  * backend behavior, only whether the dashboard shows the surface.
  *
- * - `monitoring`: the Monitoring page, the Server detail Monitoring tab, and the
- *   metrics-owned health shown on shared pages.
+ * - `alerts`: the Alertmanager alerts read through swallow — the alert list, its counts, and
+ *   acknowledging on the Monitoring console, and the Overview's Alerts card and alert attention
+ *   items. Basic monitoring (health, current metrics, usage charts) is released and not gated.
  * - `osImageUpload`: uploading a custom OS Image from OS Images.
  * - `deploymentTemplates`: managing and applying Deployment Templates.
  * - `virtualMachines`: enrolling libvirt virtual machines by name from Add servers, and Boot Media
  *   through a virtual machine's Hypervisor on the Server Summary (decision 055). The API and the
  *   CLI offer both regardless.
  */
-export type ExperimentalFeature = 'monitoring' | 'osImageUpload' | 'deploymentTemplates' | 'virtualMachines'
+export type ExperimentalFeature = 'alerts' | 'osImageUpload' | 'deploymentTemplates' | 'virtualMachines'
 
 /** Every experimental feature, in the order the settings dialog lists them. */
 export const EXPERIMENTAL_FEATURES: readonly ExperimentalFeature[] = [
-  'monitoring',
+  'alerts',
   'osImageUpload',
   'deploymentTemplates',
   'virtualMachines',
