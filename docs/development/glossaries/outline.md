@@ -147,7 +147,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 ### Observability
 
 - [Exporter Ownership](terms/exporter-ownership.md): Which subsystem installs a host's Prometheus exporters — `ansible`, `k8s`, or `unmanaged` — resolved per host so exactly one owner exists and exporters never contend for a fixed port.
-- [Monitoring Link](terms/monitoring-link.md): A user-registered name and URL from a Platform to the runtime's own monitoring UI (e.g. Omnistat's or the Device Metrics Exporter's Grafana); display only, never queried, not a metrics Integration.
+- [Monitoring Link](terms/monitoring-link.md): A name and URL from a Platform to its own monitoring UI (e.g. the Platform's Grafana that swallow installs); display only, never queried, not a metrics Integration.
 
 ### Software Deployment
 

@@ -107,10 +107,13 @@ Add the spec of each area the task touches:
   automation credentials, authentication sessions, API keys: `docs/development/access-and-credentials.md`.
 - The installation topology, `swallowctl`, release artifacts, the control-plane NTP service and
   post-provision time synchronization: `docs/development/installation.md`.
+- Monitoring (the monitoring tiers, which exporters are installed where, the Site Prometheus and its
+  scrape targets, the metrics label contract, Platform Grafanas and their tenancy, Server health):
+  `docs/development/monitoring.md`. Reading metrics or alerts through the API needs only
+  `server-metrics.md` or `monitoring-alerts.md`.
 
 Areas without a domain spec use their contract as the spec: the Server inventory (listing,
-searching, the Server projection) uses `servers-list.md`; alerts use `monitoring-alerts.md` and
-metrics use `server-metrics.md`, all under
+searching, the Server projection) uses `servers-list.md`, under
 `api-server/docs/development/api-contracts/api-server/`.
 
 ## Component Work

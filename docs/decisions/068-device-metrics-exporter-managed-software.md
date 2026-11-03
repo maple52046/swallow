@@ -15,14 +15,15 @@ copy, so a standalone install and the Slurm feature should be one implementation
 
 The exporter itself is always installed natively on the GPU node, from AMD's pinned
 `amdgpu-exporter` package; decision 066 rejected the privileged container image. The Slurm
-feature's `installMethod` only chooses how Prometheus and Grafana run on the primary controller.
+feature's `installMethod` only chooses how the Platform's Grafana runs on the primary controller.
 
 ## Decision
 
 - **A new Managed Software kind, `device-metrics-exporter`.** It is role-less and has one built-in
   install path, the same pinned native package as the Slurm feature. A standalone install provides
-  the exporter only, with Slurm job attribution off; Prometheus and Grafana stay separate kinds the
-  user installs to scrape and show it. The request takes no spec fields; the assignment records
+  the exporter only, with Slurm job attribution off; the Site Prometheus scrapes it once its
+  assignment is installed ([decision 003](003-metrics-label-contract.md)), so nothing else has to be
+  installed to collect it. The request takes no spec fields; the assignment records
   the applied version.
 - **Standalone targets.** Besides the usual `deployed` requirement, a target must list AMD compute
   GPUs in its GPU Inventory. A Kubernetes member is refused (the GPU Operator runs its own
@@ -34,7 +35,8 @@ feature's `installMethod` only chooses how Prometheus and Grafana run on the pri
   063). A standalone install installs it; its uninstall removes it only when no other unit still
   depends on it. Inside a Slurm deployment the Slurm GPU role owns the loader.
 - **Slurm composes the kind.** With `deviceMetricsExporter` enabled, the Slurm Workflow composes
-  `device-metrics-exporter` onto its GPU compute nodes like Prometheus and Grafana. The install
+  `device-metrics-exporter` onto its GPU compute nodes, and the Platform's Grafana onto the primary
+  controller. The install
   Task carries the software identity (so the assignments turn `failed` with it) and the Platform's
   owner and record ids; Slurm job attribution and the scrape check are the Slurm run's extra
   trusted variables. The Platform's Device Metrics Exporter State, GPU identity, and Monitoring
@@ -50,9 +52,8 @@ feature's `installMethod` only chooses how Prometheus and Grafana run on the pri
 - **A container method for the exporter.** Not now: the native package needs no runtime and no
   privileged mode, and the Slurm feature already runs it natively. A container method would also
   have to compose a container runtime.
-- **Compose Prometheus and Grafana into the standalone install.** Rejected for now: they are
-  already Managed Software a user can point at the exporter, and one Prometheus usually
-  scrapes many Servers.
+- **Compose a Prometheus and Grafana into the standalone install.** Rejected: the Site Prometheus
+  already collects every exporter, and a second Prometheus would store the same series again.
 - **Check the operating system from the Server projection.** Rejected: custom images report
   `osSystem` `custom`, so the projection cannot tell Ubuntu 24.04 apart.
 
@@ -66,3 +67,4 @@ feature's `installMethod` only chooses how Prometheus and Grafana run on the pri
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-03: the Site Prometheus scrapes the exporter, standalone or composed by Slurm; no Prometheus is composed for it.

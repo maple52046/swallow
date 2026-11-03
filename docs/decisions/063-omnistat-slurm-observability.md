@@ -54,10 +54,14 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   and returns the Grafana URL, which Swallow records as a Monitoring Link.
   ([ADR 066](066-slurm-job-hooks-and-device-metrics-exporter.md) later moved the attribution into a
   Prolog/Epilog dispatcher hook.)
-- **Prometheus and Grafana are new Managed Software kinds, composed as Jobs.** With Omnistat
-  enabled, the `configure-slurm` Workflow composes their Jobs onto the primary controller after the
-  Slurm install and before the Omnistat Job, so the primary controller gets ordinary Software
-  Assignments. This is the first implementation of [decision 038](038-software-deployment.md)'s
+- **Grafana is Managed Software composed as a Job; the Site Prometheus collects.** Omnistat is the
+  Slurm Platform's default GPU monitoring, and it suits a CPU-only Platform too, collecting host and
+  job metrics without GPUs. Its exporters are scraped by the Site Prometheus
+  ([decision 003](003-metrics-label-contract.md)), not by a Prometheus on the controller. The
+  `configure-slurm` Workflow composes the Platform's Grafana onto the primary controller as an
+  ordinary Software Assignment; its datasource reads the Site Prometheus through Swallow's gateway,
+  limited to the Platform's members. Prometheus remains a Managed Software kind a user may install
+  alone, but no deployment composes it. This is the first implementation of [decision 038](038-software-deployment.md)'s
   composition rule: no nested software Workflow and no `include_role` as the only link.
 - **Containers are the default install method, not the only one.** Prometheus and Grafana install
   by `container` (on an already installed Docker CE or Podman) or `native` (each project's official
@@ -68,11 +72,12 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   compose `docker-ce` or `podman` onto every compute and login node where it is not already
   installed. The Platform records only the choice; each Server's runtime is an ordinary Software
   Assignment that outlives the Platform.
-- **Prometheus listens on the loopback address by default.** Its API has no authentication.
-  Omnistat composes `loopback`: only Grafana on the same Server reads it, and `omnistat-query` on
-  the compute nodes reads it through Grafana's read-only datasource proxy, which already serves the
-  same data to anonymous viewers, so Prometheus and its lifecycle API stay off the network.
-- **Swallow still never queries Omnistat's Prometheus** (decision 003, 2026-10-12 amendment).
+- **The exporters accept only the Site Prometheus.** Omnistat's `allowed_ips` lists the node itself
+  and the Site Prometheus's scrape address. `omnistat-query` on the compute nodes reads through the
+  Platform's Grafana datasource proxy, which already serves the same data to anonymous viewers.
+- **A standalone Prometheus listens on the loopback address by default.** Its API has no
+  authentication, so a user who installs one alone keeps it off the network unless they choose
+  otherwise.
 
 Revision history: 2026-10-22 added the `native` install method and the container-runtime feature
 (containers had been the only method, with a hard Docker CE requirement); 2026-10-26 replaced
@@ -137,8 +142,10 @@ moved `omnistat-query` to Grafana's datasource proxy (original text in git histo
 
 ## Consequences
 
-- A Slurm deployment with Omnistat succeeds only when its composed runtime, Prometheus, Grafana,
-  and the exporter all install; a failure leaves the Workflow retryable at the failed Task.
+- A Slurm deployment with Omnistat succeeds only when its composed runtime, Grafana, and the
+  exporter all install; a failure leaves the Workflow retryable at the failed Task.
+- A Platform deployed before the Site Prometheus collected Omnistat keeps the Prometheus composed
+  then until it is uninstalled through the software API.
 - Uninstalling the Slurm Platform removes the exporter, the Slurm overlay, the Slurm amdgpu
   ordering, and the link; Prometheus, Grafana, and the container runtimes keep their Software
   Assignments until they are uninstalled through the software API.
@@ -154,3 +161,4 @@ moved `omnistat-query` to Grafana's datasource proxy (original text in git histo
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-03: Omnistat became the default and is scraped by the Site Prometheus; the deployment composes only the Platform's Grafana, which reads through Swallow's gateway, and no longer a Prometheus on the controller.
