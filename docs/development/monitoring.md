@@ -9,8 +9,8 @@
 > [monitoring-alerts.md](../../api-server/docs/development/api-contracts/api-server/monitoring-alerts.md)、
 > [discovery-prometheus.md](../../api-server/docs/development/api-contracts/api-server/discovery-prometheus.md)。
 
-> **本文件先於實作寫成**：它描述這一版要達成的設計。實作分階段進行，尚未完成的部分列在 §11；在那之前，
-> 現行行為以契約與各功能規格為準。
+> **現況**：本設計已經實作；與設計還有差距的地方列在 §11。wire 形狀以契約為準，安裝與組入的細節以
+> [software-deployment.md](software-deployment.md)、[platform-deployment.md](platform-deployment.md) 為準。
 
 ---
 
@@ -97,7 +97,7 @@ flowchart LR
   路徑相同的指標前綴，讓同一份 Grafana dashboard 在三個情境都適用。
 - **Slurm**：[Omnistat](glossaries/terms/omnistat.md) 是預設，它除了 GPU，也收集主機與 Slurm job 的指標，所以 CPU-only
   的 Slurm Platform 也適用（沒有 GPU 時只收集主機與 job）；也可以改選 DME（需要至少一台 GPU compute node），或明確
-  選擇不安裝。
+  選擇不安裝。部署精靈預設 Omnistat；API 的請求省略監控功能時不安裝，避免既有 spec 重新部署時被改成獨佔節點。
 - **RDC exporter**：理想上能裝 DME 的地方就能裝 RDC exporter，但它目前不是重點，所以暫時退場，日後以實驗性 feature
   加回。
 
@@ -160,7 +160,8 @@ exporter 則依 §4.2 的情境決定，不再有「誰擁有 exporter」的政�
 ### 6.2 Platform 自己的 Grafana
 
 - **每個 Platform 都可以有自己的 Grafana**：預設開啟，可以關閉；CPU-only 的 Platform 也一樣。開關是 Platform spec 的
-  一部分，部署時決定。
+  `settings.monitoringDashboards`（desired，省略即開啟）。部署後開啟會重新部署 Platform 並裝上 Grafana；部署後關閉還不
+  支援。沒有 Platform Grafana 的 Platform（在這個設計之前部署的，或 Grafana 沒裝成功的）記為關閉，開啟它就會裝上。
 - **dashboard**：一律包含 node-exporter 的 dashboard，再加上監控方案的 dashboard——Kubernetes 開了 GPU Operator 的 DME
   時加上 DME 的，Slurm 加上 Omnistat 或 DME 的。
 - **資料來源**：一律是 Site 的 Prometheus，經 §7 的閘道，只看得到自己成員的資料。
@@ -173,8 +174,9 @@ exporter 則依 §4.2 的情境決定，不再有「誰擁有 exporter」的政�
 
   Kubernetes 用的是 grafana-community 維護的 Helm chart（Grafana 官方的 chart 已在 2026-01-30 移交社群），chart 與
   image 都固定版本。兩種部署方式的 dashboard JSON 與 datasource 設定只維護一份，差別只在交付方式。
-- Platform 的 Grafana 只供檢視：不保存狀態，所有 dashboard 與 datasource 都由部署時的設定產生；以匿名檢視開放給管理
-  網路。
+- Platform 的 Grafana 只供檢視：所有 dashboard 與 datasource 都由部署時的設定產生，以匿名檢視開放給管理網路。
+  Kubernetes 的 Grafana 不保存狀態；Slurm 的 Grafana 是 Managed Software，保留它的 data 目錄，所以先前安裝留下的空資料夾
+  會繼續存在。
 
 ### 6.3 swallow 自己的 Grafana
 
@@ -187,8 +189,8 @@ Prometheus 沒有多租戶的概念，因此引入 [prom-label-proxy](https://gi
 
 - **prom-label-proxy 本身不驗證身分**，所以由 api-server 當閘道：Platform Grafana 的 datasource 指向 api-server 的閘道，
   帶 Platform 專屬的 token；閘道驗證 token 之後，以該 Platform 的 `platform_id` 轉給 prom-label-proxy。
-- **token**：swallow 為每個 Platform 產生，只保存 hash；部署 Grafana 時以 secret 交給它的 datasource，重新部署時輪替，
-  Platform 刪除時失效。
+- **token**：swallow 為每個 Platform 產生，只保存 hash；部署 Grafana 時以 secret 交給它的 datasource。每次受理的部署都
+  會輪替 token，Grafana 隨之重新載入（Kubernetes 的 Pod 會重啟）；Platform 刪除後 token 失效。
 - **閘道只放行讀取**：查詢類的 API 與 `/federate`。`/federate` 預留給日後 Platform 自帶 Prometheus 的情境（§10）。
 - **swallow 自己的查詢不經過 prom-label-proxy**，直接讀 Site 的 Prometheus，看得到全部的資料。
 
@@ -221,9 +223,9 @@ Exporter controller 的安裝進行中或失敗時，health 是 unknown。GPU �
 - **Platform Grafana 的登入**：這一版以匿名檢視開放給管理網路。
 - **RDC exporter** 以實驗性 feature 加回。
 
-## 11. 實作現況
+## 11. 已知的差距
 
-本設計正在實作。以下是目前程式與本設計不同的地方，實作完成時從這裡移除：
+以下是目前程式與本設計還有差距、尚待處理的地方：
 
 - Omnistat 的 exporter 已是 scrape target，但名稱與 port 由 composition root 依 Slurm Platform 的 Omnistat State 列出，
   還不是由模組宣告；GPU Operator 的 DME 由 composition root 依 Kubernetes Platform 的 GPU Operator State 列出（名稱與 port
