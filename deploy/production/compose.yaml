@@ -4,7 +4,7 @@ name: swallow-production
 # HTTP). MongoDB and Temporal stay on the internal `control` network. The API, worker, and
 # Ansible executor also join `egress` so they can reach the co-located MAAS (through
 # host.docker.internal) and the Servers they deploy and configure; Prometheus joins it to scrape
-# the exporters on those Servers.
+# the exporters on those Servers. prom-label-proxy stays on `control`.
 
 x-backend-hosts: &backend-hosts
   extra_hosts:
@@ -291,6 +291,34 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  # Platform tenancy in front of the Site Prometheus (monitoring.md §7): every query is confined to
+  # the series whose platform_id is the X-Swallow-Platform-Id header's value, and a request without
+  # the header is refused. It authenticates nobody, so it is on `control` only and never published;
+  # the api-server reaches it at http://prom-label-proxy:8080, the metrics Integration's
+  # labelProxyUrl setting. It needs Prometheus only per request, so it waits for it to start, not
+  # to be healthy.
+  prom-label-proxy:
+    image: ${SWALLOW_PROM_LABEL_PROXY_IMAGE:?set a digest-pinned SWALLOW_PROM_LABEL_PROXY_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_started
+    command:
+      - --insecure-listen-address=0.0.0.0:8080
+      - --upstream=http://prometheus:9090
+      - --label=platform_id
+      - --header-name=X-Swallow-Platform-Id
+      - --enable-label-apis
+    read_only: true
+    networks: [control]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
 

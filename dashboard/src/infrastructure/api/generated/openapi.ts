@@ -605,6 +605,185 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/platform-metrics/{platformId}/prometheus/api/v1/label/{name}/values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+                /** @description The label name. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Label values through the Platform gateway, limited to the Platform's own series.
+         * @description Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site, which forces every selector to the Platform's platform_id; the response is Prometheus's own (platform-metrics-gateway.md).
+         */
+        get: operations["getPlatformMetricsLabelValues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/platform-metrics/{platformId}/prometheus/api/v1/labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Label names through the Platform gateway, limited to the Platform's own series.
+         * @description Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site, which forces every selector to the Platform's platform_id; the response is Prometheus's own (platform-metrics-gateway.md).
+         */
+        get: operations["getPlatformMetricsLabels"];
+        put?: never;
+        /**
+         * Label names through the Platform gateway, limited to the Platform's own series.
+         * @description Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site, which forces every selector to the Platform's platform_id; the response is Prometheus's own (platform-metrics-gateway.md).
+         */
+        post: operations["postPlatformMetricsLabels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/platform-metrics/{platformId}/prometheus/api/v1/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Instant query through the Platform gateway, limited to the Platform's own series.
+         * @description Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site, which forces every selector to the Platform's platform_id; the response is Prometheus's own (platform-metrics-gateway.md).
+         */
+        get: operations["getPlatformMetricsQuery"];
+        put?: never;
+        /**
+         * Instant query through the Platform gateway, limited to the Platform's own series.
+         * @description Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site, which forces every selector to the Platform's platform_id; the response is Prometheus's own (platform-metrics-gateway.md).
+         */
+        post: operations["postPlatformMetricsQuery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/platform-metrics/{platformId}/prometheus/api/v1/query_exemplars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Exemplars through the Platform gateway, limited to the Platform's own series.
+         * @description Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site, which forces every selector to the Platform's platform_id; the response is Prometheus's own (platform-metrics-gateway.md).
+         */
+        get: operations["getPlatformMetricsQueryExemplars"];
+        put?: never;
+        /**
+         * Exemplars through the Platform gateway, limited to the Platform's own series.
+         * @description Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site, which forces every selector to the Platform's platform_id; the response is Prometheus's own (platform-metrics-gateway.md).
+         */
+        post: operations["postPlatformMetricsQueryExemplars"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/platform-metrics/{platformId}/prometheus/api/v1/query_range": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Range query through the Platform gateway, limited to the Platform's own series.
+         * @description Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site, which forces every selector to the Platform's platform_id; the response is Prometheus's own (platform-metrics-gateway.md).
+         */
+        get: operations["getPlatformMetricsQueryRange"];
+        put?: never;
+        /**
+         * Range query through the Platform gateway, limited to the Platform's own series.
+         * @description Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site, which forces every selector to the Platform's platform_id; the response is Prometheus's own (platform-metrics-gateway.md).
+         */
+        post: operations["postPlatformMetricsQueryRange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/platform-metrics/{platformId}/prometheus/api/v1/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Series through the Platform gateway, limited to the Platform's own series.
+         * @description Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site, which forces every selector to the Platform's platform_id; the response is Prometheus's own (platform-metrics-gateway.md).
+         */
+        get: operations["getPlatformMetricsSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/platform-metrics/{platformId}/prometheus/federate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Federation through the Platform gateway, limited to the Platform's own series.
+         * @description Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site, which forces every selector to the Platform's platform_id; the response is Prometheus's own (platform-metrics-gateway.md).
+         */
+        get: operations["getPlatformMetricsFederate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/platforms": {
         parameters: {
             query?: never;
@@ -6758,6 +6937,8 @@ export interface components {
         DockerContainerId: string;
         /** @description The Server whose Docker Engine is addressed. */
         DockerHostServerId: string;
+        /** @description The Platform whose monitoring token the request carries. */
+        GatewayPlatformId: string;
         /** @description The Kubernetes Application kind; any other value is 400. */
         KubernetesApplicationKind: components["schemas"]["KubernetesApplicationKind"];
         /** @description Include system namespaces (`kube-system`, `kube-public`, `kube-node-lease`) when `namespace` is omitted. Only the literal `true` enables it. */
@@ -8580,6 +8761,558 @@ export interface operations {
                 };
             };
             default: components["responses"]["Error"];
+        };
+    };
+    getPlatformMetricsLabelValues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+                /** @description The label name. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus's response for the Platform's series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description No Platform monitoring token, or not this Platform's current one (unauthorized). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Prometheus's own error response for a rejected query, or the common error envelope. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getPlatformMetricsLabels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus's response for the Platform's series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description No Platform monitoring token, or not this Platform's current one (unauthorized). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Prometheus's own error response for a rejected query, or the common error envelope. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    postPlatformMetricsLabels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus's response for the Platform's series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description No Platform monitoring token, or not this Platform's current one (unauthorized). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Prometheus's own error response for a rejected query, or the common error envelope. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getPlatformMetricsQuery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus's response for the Platform's series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description No Platform monitoring token, or not this Platform's current one (unauthorized). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Prometheus's own error response for a rejected query, or the common error envelope. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    postPlatformMetricsQuery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus's response for the Platform's series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description No Platform monitoring token, or not this Platform's current one (unauthorized). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Prometheus's own error response for a rejected query, or the common error envelope. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getPlatformMetricsQueryExemplars: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus's response for the Platform's series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description No Platform monitoring token, or not this Platform's current one (unauthorized). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Prometheus's own error response for a rejected query, or the common error envelope. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    postPlatformMetricsQueryExemplars: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus's response for the Platform's series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description No Platform monitoring token, or not this Platform's current one (unauthorized). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Prometheus's own error response for a rejected query, or the common error envelope. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getPlatformMetricsQueryRange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus's response for the Platform's series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description No Platform monitoring token, or not this Platform's current one (unauthorized). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Prometheus's own error response for a rejected query, or the common error envelope. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    postPlatformMetricsQueryRange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus's response for the Platform's series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description No Platform monitoring token, or not this Platform's current one (unauthorized). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Prometheus's own error response for a rejected query, or the common error envelope. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getPlatformMetricsSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus's response for the Platform's series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description No Platform monitoring token, or not this Platform's current one (unauthorized). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Prometheus's own error response for a rejected query, or the common error envelope. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getPlatformMetricsFederate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform whose monitoring token the request carries. */
+                platformId: components["parameters"]["GatewayPlatformId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus's response for the Platform's series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description No Platform monitoring token, or not this Platform's current one (unauthorized). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Prometheus's own error response for a rejected query, or the common error envelope. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     listPlatforms: {

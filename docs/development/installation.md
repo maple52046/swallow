@@ -40,7 +40,8 @@ decision 040、
   推導 `SWALLOW_BOOT_MEDIA_BASE_URL`、提供 Nginx 路由，並建立與記錄 virsh 公鑰。
 - MAAS 的 DHCP／PXE 設定：在 installation 之外，由 user 在 MAAS 設定。
 - 監控的設計（exporter 的安裝、label 契約、多租戶）：見 [monitoring.md](monitoring.md)；installation 只部署
-  installation Site 的 Prometheus 並把它登錄為該 Site 的 metrics Integration（§2.2、§2.5）。
+  installation Site 的 Prometheus 與它前面的 prom-label-proxy，並把它們登錄為該 Site 的 metrics Integration
+  （§2.2、§2.5）。
 - 多主機拓樸、TLS、離線（air-gapped）安裝與 native（systemd）安裝：目前都不支援（§2.6、§4.5）。
 
 ---
@@ -66,6 +67,7 @@ decision 040、
 | `worker` | `SWALLOW_API_IMAGE`（command `worker`） | `control`、`egress` | 無 |
 | `ansible-executor` | `SWALLOW_API_IMAGE`（command `ansible-executor`） | `control`、`egress` | 無 |
 | `prometheus` | `SWALLOW_PROMETHEUS_IMAGE` | `control`、`egress` | 無（api-server 以 `http://prometheus:9090` 讀取） |
+| `prom-label-proxy` | `SWALLOW_PROM_LABEL_PROXY_IMAGE` | `control` | 無（api-server 以 `http://prom-label-proxy:8080` 讀取） |
 | `dashboard` | `SWALLOW_DASHBOARD_IMAGE` | `edge`、`control` | `${SWALLOW_HTTP_PORT:-80}` → 容器 8080 |
 
 - `control` 是 `internal` network；MongoDB 與 Temporal 只在這裡。
@@ -95,6 +97,15 @@ decision 040、
     Prometheus 只收集 swallow 自己。`state/` 不在 bundle 中，解壓新 release 不會覆蓋渲染結果。
   - 保留期是 `SWALLOW_PROMETHEUS_RETENTION`（Prometheus duration，預設 `30d`），也是 swallow 能繪製的最長用量歷史。
   - Metrics 存在 volume `prometheus-data`，可丟棄、**不在備份範圍內**（§3.6）。
+- `prom-label-proxy` 在 installation Site 的 Prometheus 前面，讓每個查詢只取得一個 Platform 的資料
+  （[monitoring.md](monitoring.md) §7）：
+  - 參數固定為 `--insecure-listen-address=0.0.0.0:8080`、`--upstream=http://prometheus:9090`、`--label=platform_id`、
+    `--header-name=X-Swallow-Platform-Id`、`--enable-label-apis`。每個查詢（含 label API）都被強制加上
+    `platform_id` 等於 header 值的條件，只取得那個 Platform 的 series；沒有 header 的請求以 `400` 拒絕。
+  - 它不驗證身分，所以只加入 `control`、不發佈到主機，也不加入 `egress`；api-server 經 `control` 以
+    `http://prom-label-proxy:8080` 連到它，這個位址記在 metrics Integration 的 `labelProxyUrl`（§2.5）。
+  - 它只在每個請求時需要 Prometheus，所以只等 `prometheus` 啟動，不等它 healthy。healthcheck 以 image 的
+    busybox `wget` 查詢 `/healthz`。不保存任何狀態，沒有 volume。
 
 ### 2.3 共用的 PostgreSQL instance
 
@@ -154,9 +165,11 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
    會有新的 API key），不改 endpoint，也不重建 Integration 與其 Server 對應。
 4. 把 rack 的 virsh 公鑰記為 Integration 的 `settings.virshSshPublicKey`（與既有 settings 合併）。
 5. 把 installation 的 Prometheus（§2.2）登錄為該 Site 的 metrics Integration（`providerKind` `prometheus`，名稱
-   `site-prometheus`，endpoint `http://prometheus:9090`）。一個 Site 至多一個 metrics Integration（建立第二個是
-   `409 conflict`）：已存在時保留它的 id、名稱與 settings（Alertmanager、Grafana），只在 endpoint 不同時以
-   `PATCH` 改指到這個 Prometheus，從不建立第二個。
+   `site-prometheus`，endpoint `http://prometheus:9090`），setting `labelProxyUrl` 為 installation 的
+   prom-label-proxy（`http://prom-label-proxy:8080`）。一個 Site 至多一個 metrics Integration（建立第二個是
+   `409 conflict`）：已存在時保留它的 id、名稱與其他 settings（Alertmanager、Grafana），只在 endpoint 或
+   `labelProxyUrl` 不同時以一次 `PATCH` 改指到這兩個 service，從不建立第二個。`PATCH` 的 `settings` 會取代整個
+   map，所以 `labelProxyUrl` 合併進目前的 settings 再送出。
 6. Site 沒有 [Automation Configuration](glossaries/terms/automation-configuration.md) 時才寫入預設：
    啟用、`sshPort` 22、沒有 `playbookMappings`，`knownHosts` 為 `SWALLOW_SSH_KNOWN_HOSTS` 或一行註解
    （executor 每次執行時自行掃描 target 的 host key）；不寫 Site credential（automation 一律使用 Deployment
@@ -185,8 +198,9 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 - MongoDB 與 Temporal 不加入 `egress`；對外連線只來自 API、worker、Ansible executor 與 Prometheus（收集
   Server 上的 exporter）。
 - 一個 installation Site 一套 Prometheus，只收集這個 Site 的 exporter；它是該 Site 唯一的 metrics Integration。
+- prom-label-proxy 只在 `control`：它不驗證身分，所以除了 control network 不得有其他入口。
 - 主機是 swallow 與其 provisioner 共同的單一 failure domain。
-- 安裝需要對外連線：GHCR 與 Docker Hub（image）、`images.maas.io`（`ubuntu/noble`）、snap store（MAAS），
+- 安裝需要對外連線：GHCR、Docker Hub 與 Quay（image）、`images.maas.io`（`ubuntu/noble`）、snap store（MAAS），
   以及主機缺 Docker 時的 Docker apt repository。
 
 ### 設計理由
@@ -206,9 +220,10 @@ decision 040。
 
 - **需要 root**：`install`、`upgrade`、`ensure`（production）、`backup`、`restore`、`uninstall`、
   `ntp upstream set|default`。它們安裝主機套件、管理 MAAS snap，而 `secrets/` 由 root 擁有。
-- **`.env` 是 installation 的宣告設定**。release manifest 提供 `SWALLOW_RELEASE_VERSION` 與六個 image
+- **`.env` 是 installation 的宣告設定**。release manifest 提供 `SWALLOW_RELEASE_VERSION` 與七個 image
   參照（`SWALLOW_API_IMAGE`、`SWALLOW_DASHBOARD_IMAGE`、`SWALLOW_MONGO_IMAGE`、`SWALLOW_POSTGRES_IMAGE`、
-  `SWALLOW_TEMPORAL_SERVER_IMAGE`、`SWALLOW_PROMETHEUS_IMAGE`）：從 manifest 寫入時一律覆寫，且優先於 shell
+  `SWALLOW_TEMPORAL_SERVER_IMAGE`、`SWALLOW_PROMETHEUS_IMAGE`、`SWALLOW_PROM_LABEL_PROXY_IMAGE`）：從 manifest
+  寫入時一律覆寫，且優先於 shell
   中殘留的同名值；其餘 user 設定保留。設定的持久化規則見 §5.3。
 - 腳本讀取 `.env` 的優先順序與 Compose 相同：shell environment 優先於 `.env`。
 - **Secrets 只補不換**：`prepare-secrets.sh` 只產生缺少的 secret（隨機值），從不替換既有的（例如替換
@@ -268,7 +283,9 @@ decision 040。
   `deployment-key ensure`、以新 image 啟動 stack、等 `/readyz`、更新 CLI。
 - 重新套用冪等步驟：`local-ntp.sh install` 與 `upstream`；有共置 MAAS 時另有
   `local-maas.sh ensure-virsh-identity`、`bootstrap.sh apply` 與 Prometheus 的 exporter discovery（§3.2 第 11 步）。
-  Prometheus 之前的 installation 在這裡得到它的 metrics Integration 與 `swallow-exporters` job。
+  Prometheus 之前的 installation 在這裡得到它的 metrics Integration 與 `swallow-exporters` job；prom-label-proxy
+  之前的 installation 由 `up -d` 啟動這個 service，並由 `bootstrap.sh apply` 在 metrics Integration 補上
+  `labelProxyUrl`。
 - `doctor`；通過才更新 `state/installed`。
 - 宣告設定的變更（`compose.yaml`、`.env` 的 digest、`secrets/`）只經由 `upgrade` 套用，因為它先備份、
   再 migrate。
@@ -286,11 +303,14 @@ decision 040。
    `ansible-runner` 跑隨附的 `diagnostic-ping` playbook。
 6. Dashboard 與 API 在 HTTP port 回應 `/readyz`。
 7. Prometheus 在 `/-/ready` 回應，且載入了 `swallow-exporters` job（有它的 scrape pool；Site 可能還沒有任何
-   exporter，所以不看 target）。Prometheus 不發佈到主機，這兩項在它的容器內查詢。
+   exporter，所以不看 target）。Prometheus 不發佈到主機，這兩項在它的容器內查詢。prom-label-proxy 回應，且把查詢
+   限制在指定的 `platform_id`：從 Prometheus 的容器經 `control`（api-server 連到它的同一個網路）以一個不屬於任何
+   Platform 的 `platform_id` 查詢 `up`，結果成功且沒有任何 series（Prometheus 收集過 swallow-api 之後一定有 `up`）。
 8. 僅 production：共置 MAAS 回應、有完整的 `ubuntu/noble` amd64 與 virsh SSH identity（`local-maas.sh check`）；
    Control-Plane NTP Server 在 UDP 123 服務且上游為設定值（`local-ntp.sh check`，§6.1）；installation records
    存在（`bootstrap.sh verify`：admin 登入、Deployment Key、可執行的 Site automation、Site 的 metrics Integration
-   指向 `http://prometheus:9090`、MAAS Integration sync 無錯誤、catalog 有 `ubuntu/noble` amd64、Integration 記有
+   指向 `http://prometheus:9090` 且 `labelProxyUrl` 為 `http://prom-label-proxy:8080`、MAAS Integration sync 無錯誤、
+   catalog 有 `ubuntu/noble` amd64、Integration 記有
    virsh 公鑰）；`state/prometheus/swallow-exporters.yml` 是 installation Site 的渲染結果，且 Prometheus 在它寫入之後
    成功載入過設定（§2.2）。
 
@@ -402,19 +422,22 @@ decision 040。
 | --- | --- | --- |
 | `api`、`dashboard`、`cli` | 由本 repository 建置（linux/amd64），推送到 GHCR package `IMAGE_REPO`（預設 `ghcr.io/maple52046/swallow`），tag 為 `<component>-<version>` | `<IMAGE_REPO>@sha256:<推送後的 digest>` |
 | MongoDB、PostgreSQL、Temporal Server、Prometheus | Docker Hub 官方 image `docker.io/library/mongo`、`docker.io/library/postgres`、`docker.io/temporalio/auto-setup`、`docker.io/prom/prometheus`，原樣使用 | `deploy/release/runtime-images.env` 中的上游 index digest，原樣寫入 |
+| prom-label-proxy | Prometheus community 在 Quay 發佈的 `quay.io/prometheuscommunity/prom-label-proxy`，原樣使用 | 同上 |
 
-- GHCR 只放 swallow 建置的 image。第三方 image 不鏡像到 GHCR；installation 直接從 Docker Hub pull。
+- GHCR 只放 swallow 建置的 image。第三方 image 不鏡像到 GHCR；installation 直接從它們上游的 registry（Docker Hub、
+  Quay）pull。
 - `runtime-images.env` 的每一項都必須是 `<registry>/<name>@sha256:<digest>`；發佈前確認每一項都能解析出
   linux/amd64 image。升版是刻意的審查動作；PostgreSQL 必須維持 14 以上，因為它同時承載 MAAS 的資料庫；
   Prometheus 必須支援 `scrape_config_files`（exporter discovery 由它載入，§2.2），且是帶 busybox `wget` 的
-  變體（healthcheck 與 `doctor` 用它查詢）。
+  變體（healthcheck 與 `doctor` 用它查詢，`doctor` 另以它的 `--header` 經 prom-label-proxy 查詢）；prom-label-proxy
+  必須支援 `-header-name`（`platform_id` 取自 header）與 `-enable-label-apis`，且帶 busybox `wget`（healthcheck 用它）。
 - installation 從不使用 tag。
 - GHCR package 必須是 public，否則每台 installation 都要先 `docker login ghcr.io`。
 
 ### 4.3 Release manifest
 
-- `schemaVersion` 為 1，帶 `version` 與 `commit`。`images` 正好有七個 key：`api`、`dashboard`、`cli`、
-  `mongo`、`postgres`、`temporalServer`、`prometheus`，全部是 digest 參照。另有 `platforms`、`schemaVersions`、
+- `schemaVersion` 為 1，帶 `version` 與 `commit`。`images` 正好有八個 key：`api`、`dashboard`、`cli`、
+  `mongo`、`postgres`、`temporalServer`、`prometheus`、`promLabelProxy`，全部是 digest 參照。另有 `platforms`、`schemaVersions`、
   `compatibility`（host `ubuntu-24.04-amd64`、MAAS `3.6`、MongoDB `8.0` 等）、`artifacts`（`composeBundle`、
   `cliBinary`、`thirdPartyMediaManifest`）與 `upgrade`。
 - manifest 不含 Temporal UI image、OCI archive 或 native bundle 的欄位。
@@ -424,10 +447,11 @@ decision 040。
   schema（`CurrentSchemaVersion`），`upgrade.from` 是從 `OldestUpgradableSchemaVersion` 到它之前的每一個版本；
   `schemaVersions.playbookManifest` 取自 `api-server/modules/manifest.json`。`downgradeSupported` 固定為 `false`。
 - `swallowctl` 讀 `version` 與 `images` 中的 `api`、`dashboard`、`mongo`、`postgres`、`temporalServer`、
-  `prometheus`，缺任一項即拒絕；`upgrade` 另讀 `schemaVersions.mongo` 與 `upgrade`（§3.3）。其餘欄位目前沒有 consumer。`cli` image
+  `prometheus`、`promLabelProxy`，缺任一項即拒絕；`upgrade` 另讀 `schemaVersions.mongo` 與 `upgrade`（§3.3）。其餘欄位目前沒有 consumer。`cli` image
   只用於組裝 release 時取出 CLI。
 - `deploy/release/release-manifest.example.json` 是格式範例；`validate.sh` 檢查它的 `images` key 集合與
-  registry 前綴（swallow image 在 GHCR、runtime image 在 `docker.io`），以及 schema 欄位與 `migration.go` 的
+  registry 前綴（swallow image 在 GHCR；runtime image 在 `docker.io`，prom-label-proxy 在 `quay.io`），以及 schema
+  欄位與 `migration.go` 的
   兩個常數一致；另檢查每個 runtime image 都固定在 `runtime-images.env`，且 production `compose.yaml` 要求的每個
   image 變數都由 `swallowctl` 從 manifest 寫入。
 

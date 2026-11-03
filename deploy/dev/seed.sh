@@ -10,8 +10,9 @@
 #   - site automation settings (automation always logs in with the Deployment Key) and an
 #     optional become password, so host automation such as the Node Exporter install that each
 #     OS deployment runs can work,
-#   - the in-compose Prometheus as the Site's metrics integration, the way bootstrap.sh
-#     registers a production installation's Site Prometheus, so the dashboard can read metrics.
+#   - the in-compose Prometheus as the Site's metrics integration, with the in-compose
+#     prom-label-proxy as its labelProxyUrl setting, the way bootstrap.sh registers a production
+#     installation's Site Prometheus, so the dashboard can read metrics.
 #
 # Everything site- or environment-specific (MAAS URL/key, become password, known_hosts) comes from
 # the environment or a .env file, so nothing secret is committed. Values left unset skip
@@ -39,6 +40,7 @@ admin_pass="${SWALLOW_API_BOOTSTRAP_ADMIN_PASSWORD:-admin}"
 
 site_name="${SWALLOW_SEED_SITE_NAME:-dc-east}"
 prometheus_url="${SWALLOW_PROMETHEUS_URL:-http://prometheus:9090}"
+label_proxy_url="${SWALLOW_LABEL_PROXY_URL:-http://prom-label-proxy:8080}"
 grafana_url="${SWALLOW_GRAFANA_URL:-}"
 
 ssh_user="${SWALLOW_SSH_USER:-ubuntu}"
@@ -76,15 +78,14 @@ printf 'site %s (%s)\n' "${site_name}" "${site_id}"
 
 # --- metrics integration -> in-compose Prometheus ---
 # A Site has at most one metrics integration, so an existing one is never duplicated: it keeps its
-# id, name, and settings, and only its endpoint (and grafanaUrl, when SWALLOW_GRAFANA_URL is set)
-# is updated when it differs. An update replaces the whole settings map, so grafanaUrl is merged.
+# id, name, and other settings, and only its endpoint, labelProxyUrl, and grafanaUrl (when
+# SWALLOW_GRAFANA_URL is set) are updated when they differ. An update replaces the whole settings
+# map, so those settings are merged into the current ones.
 metrics="$(curl "${curl_flags[@]}" "${auth[@]}" "${base_url}/integrations?siteId=${site_id}&kind=metrics" |
   jq -c 'first((.items? // .)[]) // empty')"
 if [[ -z "${metrics}" ]]; then
-  settings='{}'
-  if [[ -n "${grafana_url}" ]]; then
-    settings="$(jq -nc --arg g "${grafana_url}" '{grafanaUrl:$g}')"
-  fi
+  settings="$(jq -nc --arg l "${label_proxy_url}" --arg g "${grafana_url}" \
+    '{labelProxyUrl:$l} + (if $g != "" then {grafanaUrl:$g} else {} end)')"
   curl "${curl_flags[@]}" "${auth[@]}" -X POST "${base_url}/integrations" \
     -H 'Content-Type: application/json' \
     --data-binary "$(jq -nc \
@@ -94,10 +95,10 @@ if [[ -z "${metrics}" ]]; then
   printf 'registered metrics integration -> %s\n' "${prometheus_url}"
 else
   metrics_id="$(jq -r '.id' <<<"${metrics}")"
-  patch="$(jq -c --arg endpoint "${prometheus_url}" --arg g "${grafana_url}" '
+  patch="$(jq -c --arg endpoint "${prometheus_url}" --arg l "${label_proxy_url}" --arg g "${grafana_url}" '
+    ((.settings // {}) + {labelProxyUrl: $l} + (if $g != "" then {grafanaUrl: $g} else {} end)) as $settings |
     (if .endpoint != $endpoint then {endpoint: $endpoint} else {} end) +
-    (if $g != "" and (.settings.grafanaUrl // "") != $g
-      then {settings: ((.settings // {}) + {grafanaUrl: $g})} else {} end)' <<<"${metrics}")"
+    (if $settings != (.settings // {}) then {settings: $settings} else {} end)' <<<"${metrics}")"
   if [[ "${patch}" == '{}' ]]; then
     printf 'metrics integration already present (%s)\n' "${metrics_id}"
   else

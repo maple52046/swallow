@@ -14,6 +14,10 @@ Environment=GF_SERVER_HTTP_PORT={{ grafana_port }}
 {% for key, value in grafana_environment | dictsort %}
 Environment={{ key }}={{ value }}
 {% endfor %}
+{% if grafana_datasource_token | length > 0 %}
+# The datasource token (root-only; read by podman, not by the container).
+EnvironmentFile={{ grafana_datasource_env_file }}
+{% endif %}
 Volume={{ grafana_data_dir }}:/var/lib/grafana:Z
 Volume={{ grafana_config_dir }}/provisioning:/etc/grafana/provisioning:ro,z
 Volume={{ grafana_config_dir }}/dashboards:{{ grafana_container_dashboards_dir }}:ro,z

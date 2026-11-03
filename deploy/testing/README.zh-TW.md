@@ -4,7 +4,7 @@
 
 Testing environment 不 build 或 bind-mount source。從 [`publish.sh`](../release/publish.sh)
 產生的 `release-manifest.json` 把 exact image references（API、Dashboard、MongoDB、PostgreSQL、
-Temporal Server 與 Prometheus）複製到 `.env`，再執行：
+Temporal Server、Prometheus 與 prom-label-proxy）複製到 `.env`，再執行：
 
 ```bash
 ./prepare.sh

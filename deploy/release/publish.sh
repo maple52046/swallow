@@ -72,7 +72,8 @@ done
 # shellcheck source=runtime-images.env
 source "${release_dir}/runtime-images.env"
 log 'checking the official runtime images'
-for image in "${MONGO_IMAGE:-}" "${POSTGRES_IMAGE:-}" "${TEMPORAL_SERVER_IMAGE:-}" "${PROMETHEUS_IMAGE:-}"; do
+for image in "${MONGO_IMAGE:-}" "${POSTGRES_IMAGE:-}" "${TEMPORAL_SERVER_IMAGE:-}" "${PROMETHEUS_IMAGE:-}" \
+  "${PROM_LABEL_PROXY_IMAGE:-}"; do
   [[ "${image}" =~ ^[a-z0-9.-]+\.[a-z]+/[^@]+@sha256:[0-9a-f]{64}$ ]] ||
     die "runtime-images.env must pin each image by registry, name, and digest: '${image}'"
   crane digest --platform linux/amd64 "${image}" >/dev/null ||
@@ -105,6 +106,7 @@ RELEASE_VERSION="${version}" OUT_DIR="${out}" IMAGE_REPO="${image_repo}" \
   API_DIGEST="${digests[api]}" DASHBOARD_DIGEST="${digests[dashboard]}" CLI_DIGEST="${digests[cli]}" \
   MONGO_IMAGE="${MONGO_IMAGE}" POSTGRES_IMAGE="${POSTGRES_IMAGE}" \
   TEMPORAL_SERVER_IMAGE="${TEMPORAL_SERVER_IMAGE}" PROMETHEUS_IMAGE="${PROMETHEUS_IMAGE}" \
+  PROM_LABEL_PROXY_IMAGE="${PROM_LABEL_PROXY_IMAGE}" \
   "${release_dir}/assemble-release.sh" "${commit}"
 
 if [[ "${github_release}" == true ]]; then

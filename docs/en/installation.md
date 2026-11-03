@@ -38,8 +38,8 @@ When the installer finishes:
 - A clean Ubuntu 24.04 amd64 VM with `sudo`. A practical starting size is 4 vCPU,
   16 GiB RAM, and 100 GiB disk.
 - Outbound access to `github.com` (the release), `ghcr.io` (swallow's own images), Docker Hub
-  (the official MongoDB, PostgreSQL, Temporal, and Prometheus images), `download.docker.com`,
-  the Snap Store, and `images.maas.io`.
+  (the official MongoDB, PostgreSQL, Temporal, and Prometheus images), `quay.io` (the
+  prom-label-proxy image), `download.docker.com`, the Snap Store, and `images.maas.io`.
 - Free ports: 80 (Dashboard), 5240 (MAAS), and loopback 5432 (PostgreSQL for MAAS). Machines
   reach the VM's NTP on UDP 123.
 - A reachable NTP server for the VM itself. The VM follows `ntp.ubuntu.com` by default; on a

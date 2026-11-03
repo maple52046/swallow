@@ -30,6 +30,7 @@ The local-only bootstrap account is `admin` / `admin`.
 | `worker` | internal | Workflow and activity execution |
 | `ansible-executor` | internal | Idempotent Ansible attempts and events |
 | `prometheus` | 9090 | the Site's Prometheus: swallow's own metrics (`swallow-api`) and the exporters swallow knows are installed (`swallow-exporters`, from swallow discovery) |
+| `prom-label-proxy` | 9091 (loopback only) | the Site Prometheus confined to one Platform's series: the `platform_id` in the `X-Swallow-Platform-Id` header; the API reaches it at `http://prom-label-proxy:8080` |
 
 ## Common commands
 
@@ -164,8 +165,9 @@ script rather than in MAAS by hand.
 
 The idempotent seed script creates the deployment key (`swallow-api deployment-key
 ensure`, the installation step; the API does not create it on start), logs in, creates a Site, registers the in-Compose
-Prometheus as its metrics Integration (as the production bootstrap does, never a second one),
-configures site automation, and optionally registers MAAS when values are present:
+Prometheus as its metrics Integration with the in-Compose prom-label-proxy as its `labelProxyUrl`
+setting (as the production bootstrap does, never a second one), configures site automation, and
+optionally registers MAAS when values are present:
 
 ```bash
 cp .env.example .env

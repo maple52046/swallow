@@ -9,3 +9,9 @@ datasources:
     url: {{ grafana_datasource_url | trim | to_json }}
     isDefault: true
     editable: false
+{% if grafana_datasource_token | length > 0 %}
+    jsonData:
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: "$__env{SWALLOW_DATASOURCE_AUTHORIZATION}"
+{% endif %}

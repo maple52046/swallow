@@ -58,7 +58,8 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
    provisioner Integration with the rack's `virsh` public key as its `virshSshPublicKey`
    setting (swallow authorizes it on a hypervisor when it enrolls that hypervisor's libvirt
    virtual machines), the Site's Prometheus as its metrics Integration (`site-prometheus`,
-   `http://prometheus:9090`; an existing metrics Integration is repointed, never duplicated),
+   `http://prometheus:9090`, with the setting `labelProxyUrl` `http://prom-label-proxy:8080`; an
+   existing metrics Integration is repointed and keeps its other settings, never duplicated),
    Site automation defaults (enabled, Deployment Key, no playbook mappings) when the Site has
    none; then waits for the Integration sync and the `ubuntu/noble` catalog entry;
 8. renders the Prometheus exporter discovery for the Site: the `swallow-exporters` job, from
@@ -79,6 +80,7 @@ It never creates an SSH Access Key: the user adds their own in the Dashboard.
 | MongoDB (single-node replica set `rs0`), Temporal | Compose | internal only |
 | PostgreSQL | Compose | Temporal databases and `maasdb`; `127.0.0.1:${SWALLOW_POSTGRES_HOST_PORT:-5432}` for MAAS |
 | Prometheus (the Site's metrics) | Compose | internal `control` plus `egress` (scrape the Servers' exporters); not published, the API reads `http://prometheus:9090` |
+| prom-label-proxy (one Platform's view of those metrics) | Compose | internal `control` only; not published, the API reads `http://prom-label-proxy:8080` |
 | MAAS 3.6 region+rack | snap on the host | `SWALLOW_MAAS_URL`, which swallow's provisioner Integration uses too |
 | Control-Plane NTP Server (MAAS's chronyd) | snap on the host | UDP 123 on every address, including `SWALLOW_ADDRESS` |
 | Temporal UI | Compose profile `diagnostics` | `127.0.0.1:${SWALLOW_TEMPORAL_UI_PORT:-8233}`, off by default |
@@ -104,6 +106,11 @@ machine token), every 30 seconds. [`prometheus.yml`](prometheus.yml) is shipped;
 job is rendered under `state/`, which a new release does not overwrite. Its metrics are kept for
 `SWALLOW_PROMETHEUS_RETENTION` and are never backed up: losing them loses usage history, not
 swallow state.
+
+prom-label-proxy sits in front of that Prometheus and confines every query, the label APIs
+included, to the series of one Platform: the `platform_id` in the `X-Swallow-Platform-Id` header.
+A request without the header is refused. It authenticates nobody, so it is reachable only on the
+internal `control` network.
 
 ## Settings
 
@@ -135,10 +142,11 @@ sudo ./swallowctl doctor
 queue, and `ansible-runner` executes the shipped `diagnostic-ping` playbook, the MAAS API and its `ubuntu/noble` boot resource,
 the Control-Plane NTP Server (UDP 123 served, MAAS's upstream equals `SWALLOW_NTP_UPSTREAM` or the
 default, and whether it follows that upstream), the admin login, the Deployment Key, Site
-automation, the metrics Integration pointing at the Site's Prometheus, the MAAS Integration sync,
-and the `ubuntu/noble` entry in the OS Image catalog, and that Prometheus is ready and runs the
-`swallow-exporters` job of this Site. It also prints how many Workflows have not reached a terminal status. It deploys
-nothing.
+automation, the metrics Integration pointing at the Site's Prometheus and its prom-label-proxy,
+the MAAS Integration sync, and the `ubuntu/noble` entry in the OS Image catalog, that Prometheus is
+ready and runs the `swallow-exporters` job of this Site, and that prom-label-proxy confines a query
+to the `platform_id` it is given. It also prints how many Workflows have not reached a terminal
+status. It deploys nothing.
 
 ## Recover
 
@@ -150,7 +158,8 @@ The installation's desired state is the contract `doctor` checks:
 4. the Ansible executor process runs, polls the `swallow-ansible` task queue with an activity
    poller, and executes the shipped `diagnostic-ping` playbook;
 5. the Dashboard and API answer `/readyz` on the HTTP port;
-6. Prometheus is ready and runs the `swallow-exporters` job;
+6. Prometheus is ready and runs the `swallow-exporters` job, and prom-label-proxy confines each
+   query to the `platform_id` it is given;
 7. the co-located MAAS answers with a complete `ubuntu/noble` and its virsh SSH identity, the
    Control-Plane NTP Server serves UDP 123 with the configured upstream, the installation
    records (admin login, Deployment Key, Site automation, metrics Integration, MAAS Integration
@@ -212,6 +221,8 @@ docker compose logs -f api-server worker ansible-executor
 sudo ./local-maas.sh check
 sudo ./local-ntp.sh check
 docker compose exec prometheus wget -qO- http://127.0.0.1:9090/api/v1/targets   # Prometheus is not published
+docker compose exec prometheus wget -qO- --header 'X-Swallow-Platform-Id: <platform id>' \
+  'http://prom-label-proxy:8080/api/v1/query?query=up'                          # what one Platform sees
 ```
 
 The Temporal UI is optional and not part of a release. To use it, set

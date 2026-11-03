@@ -53,7 +53,8 @@ lists the components that call it today.
 | [servers-docker.md](servers-docker.md) | Active | `/api/v1/servers/{id}/docker` | Live Docker Host Explorer for a Server where swallow installed Docker CE with `enableApi`: images (pull/remove), containers (create/start/stop/restart/logs/remove), volumes, and networks; nothing persisted. |
 | [server-metrics.md](server-metrics.md) | Active | `GET /api/v1/monitoring/metrics`, `GET /api/v1/monitoring/metrics/range` | Read current metric values and bounded usage history (Servers, Pool, Zone, or Platform; aggregate or per Server) from the metrics backend, and list the fixed metric-name set. |
 | [monitoring-alerts.md](monitoring-alerts.md) | Active | `/api/v1/monitoring/alerts` | List correlated alerts and create Alertmanager silences. |
-| [discovery-prometheus.md](discovery-prometheus.md) | Active | `GET /api/v1/discovery/prometheus`, `GET /api/v1/discovery/ansible` | Prometheus `http_sd` target list with the metrics label contract (`tag` selects one server type), and the dynamic Ansible inventory for diagnostics and external tools. |
+| [discovery-prometheus.md](discovery-prometheus.md) | Active | `GET /api/v1/discovery/prometheus/exporters`, `GET /api/v1/discovery/prometheus`, `GET /api/v1/discovery/ansible` | The Site Prometheus's `http_sd` targets (one per installed exporter) and a port-based list for other scrapers, with the metrics label contract, and the dynamic Ansible inventory for diagnostics and external tools. |
+| [platform-metrics-gateway.md](platform-metrics-gateway.md) | Active | `/api/v1/platform-metrics/{platformId}/prometheus/...` | A Platform's Grafana reads the Site Prometheus with the Platform's monitoring token; every query is confined to the Platform's own series by a label proxy. |
 
 There is **no** `POST /api/v1/servers/`: Servers are produced by reconciling provisioner
 inventory rather than registered by a caller. `DELETE /api/v1/servers/{id}` is the explicit

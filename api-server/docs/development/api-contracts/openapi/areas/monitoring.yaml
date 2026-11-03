@@ -457,6 +457,385 @@ paths:
                 $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
+  /api/v1/platform-metrics/{platformId}/prometheus/api/v1/query:
+    parameters:
+      - $ref: '#/components/parameters/GatewayPlatformId'
+    get:
+      tags: [monitoring]
+      operationId: getPlatformMetricsQuery
+      summary: "Instant query through the Platform gateway, limited to the Platform's own series."
+      description: >-
+        Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site,
+        which forces every selector to the Platform's platform_id; the response is Prometheus's own
+        (platform-metrics-gateway.md).
+      security:
+        - platformMonitoringToken: []
+      responses:
+        '200':
+          description: Prometheus's response for the Platform's series.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: No Platform monitoring token, or not this Platform's current one (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Prometheus's own error response for a rejected query, or the common error envelope.
+    post:
+      tags: [monitoring]
+      operationId: postPlatformMetricsQuery
+      summary: "Instant query through the Platform gateway, limited to the Platform's own series."
+      description: >-
+        Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site,
+        which forces every selector to the Platform's platform_id; the response is Prometheus's own
+        (platform-metrics-gateway.md).
+      security:
+        - platformMonitoringToken: []
+      responses:
+        '200':
+          description: Prometheus's response for the Platform's series.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: No Platform monitoring token, or not this Platform's current one (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Prometheus's own error response for a rejected query, or the common error envelope.
+  /api/v1/platform-metrics/{platformId}/prometheus/api/v1/query_range:
+    parameters:
+      - $ref: '#/components/parameters/GatewayPlatformId'
+    get:
+      tags: [monitoring]
+      operationId: getPlatformMetricsQueryRange
+      summary: "Range query through the Platform gateway, limited to the Platform's own series."
+      description: >-
+        Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site,
+        which forces every selector to the Platform's platform_id; the response is Prometheus's own
+        (platform-metrics-gateway.md).
+      security:
+        - platformMonitoringToken: []
+      responses:
+        '200':
+          description: Prometheus's response for the Platform's series.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: No Platform monitoring token, or not this Platform's current one (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Prometheus's own error response for a rejected query, or the common error envelope.
+    post:
+      tags: [monitoring]
+      operationId: postPlatformMetricsQueryRange
+      summary: "Range query through the Platform gateway, limited to the Platform's own series."
+      description: >-
+        Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site,
+        which forces every selector to the Platform's platform_id; the response is Prometheus's own
+        (platform-metrics-gateway.md).
+      security:
+        - platformMonitoringToken: []
+      responses:
+        '200':
+          description: Prometheus's response for the Platform's series.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: No Platform monitoring token, or not this Platform's current one (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Prometheus's own error response for a rejected query, or the common error envelope.
+  /api/v1/platform-metrics/{platformId}/prometheus/api/v1/query_exemplars:
+    parameters:
+      - $ref: '#/components/parameters/GatewayPlatformId'
+    get:
+      tags: [monitoring]
+      operationId: getPlatformMetricsQueryExemplars
+      summary: "Exemplars through the Platform gateway, limited to the Platform's own series."
+      description: >-
+        Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site,
+        which forces every selector to the Platform's platform_id; the response is Prometheus's own
+        (platform-metrics-gateway.md).
+      security:
+        - platformMonitoringToken: []
+      responses:
+        '200':
+          description: Prometheus's response for the Platform's series.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: No Platform monitoring token, or not this Platform's current one (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Prometheus's own error response for a rejected query, or the common error envelope.
+    post:
+      tags: [monitoring]
+      operationId: postPlatformMetricsQueryExemplars
+      summary: "Exemplars through the Platform gateway, limited to the Platform's own series."
+      description: >-
+        Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site,
+        which forces every selector to the Platform's platform_id; the response is Prometheus's own
+        (platform-metrics-gateway.md).
+      security:
+        - platformMonitoringToken: []
+      responses:
+        '200':
+          description: Prometheus's response for the Platform's series.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: No Platform monitoring token, or not this Platform's current one (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Prometheus's own error response for a rejected query, or the common error envelope.
+  /api/v1/platform-metrics/{platformId}/prometheus/api/v1/series:
+    parameters:
+      - $ref: '#/components/parameters/GatewayPlatformId'
+    get:
+      tags: [monitoring]
+      operationId: getPlatformMetricsSeries
+      summary: "Series through the Platform gateway, limited to the Platform's own series."
+      description: >-
+        Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site,
+        which forces every selector to the Platform's platform_id; the response is Prometheus's own
+        (platform-metrics-gateway.md).
+      security:
+        - platformMonitoringToken: []
+      responses:
+        '200':
+          description: Prometheus's response for the Platform's series.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: No Platform monitoring token, or not this Platform's current one (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Prometheus's own error response for a rejected query, or the common error envelope.
+  /api/v1/platform-metrics/{platformId}/prometheus/api/v1/labels:
+    parameters:
+      - $ref: '#/components/parameters/GatewayPlatformId'
+    get:
+      tags: [monitoring]
+      operationId: getPlatformMetricsLabels
+      summary: "Label names through the Platform gateway, limited to the Platform's own series."
+      description: >-
+        Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site,
+        which forces every selector to the Platform's platform_id; the response is Prometheus's own
+        (platform-metrics-gateway.md).
+      security:
+        - platformMonitoringToken: []
+      responses:
+        '200':
+          description: Prometheus's response for the Platform's series.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: No Platform monitoring token, or not this Platform's current one (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Prometheus's own error response for a rejected query, or the common error envelope.
+    post:
+      tags: [monitoring]
+      operationId: postPlatformMetricsLabels
+      summary: "Label names through the Platform gateway, limited to the Platform's own series."
+      description: >-
+        Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site,
+        which forces every selector to the Platform's platform_id; the response is Prometheus's own
+        (platform-metrics-gateway.md).
+      security:
+        - platformMonitoringToken: []
+      responses:
+        '200':
+          description: Prometheus's response for the Platform's series.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: No Platform monitoring token, or not this Platform's current one (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Prometheus's own error response for a rejected query, or the common error envelope.
+  /api/v1/platform-metrics/{platformId}/prometheus/api/v1/label/{name}/values:
+    parameters:
+      - $ref: '#/components/parameters/GatewayPlatformId'
+      - name: name
+        in: path
+        required: true
+        description: The label name.
+        schema:
+          type: string
+    get:
+      tags: [monitoring]
+      operationId: getPlatformMetricsLabelValues
+      summary: "Label values through the Platform gateway, limited to the Platform's own series."
+      description: >-
+        Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site,
+        which forces every selector to the Platform's platform_id; the response is Prometheus's own
+        (platform-metrics-gateway.md).
+      security:
+        - platformMonitoringToken: []
+      responses:
+        '200':
+          description: Prometheus's response for the Platform's series.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: No Platform monitoring token, or not this Platform's current one (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Prometheus's own error response for a rejected query, or the common error envelope.
+  /api/v1/platform-metrics/{platformId}/prometheus/federate:
+    parameters:
+      - $ref: '#/components/parameters/GatewayPlatformId'
+    get:
+      tags: [monitoring]
+      operationId: getPlatformMetricsFederate
+      summary: "Federation through the Platform gateway, limited to the Platform's own series."
+      description: >-
+        Forwarded unchanged (query string and form body) to the label proxy of the Platform's Site,
+        which forces every selector to the Platform's platform_id; the response is Prometheus's own
+        (platform-metrics-gateway.md).
+      security:
+        - platformMonitoringToken: []
+      responses:
+        '200':
+          description: Prometheus's response for the Platform's series.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: No Platform monitoring token, or not this Platform's current one (unauthorized).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The Platform's Site has no metrics store, or it cannot be reached (provider_unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Prometheus's own error response for a rejected query, or the common error envelope.
   /api/v1/discovery/prometheus/exporters:
     get:
       tags: [monitoring]
@@ -617,6 +996,13 @@ paths:
           $ref: '#/components/responses/Error'
 components:
   parameters:
+    GatewayPlatformId:
+      name: platformId
+      in: path
+      required: true
+      description: The Platform whose monitoring token the request carries.
+      schema:
+        type: string
     MetricNames:
       name: metrics
       in: query

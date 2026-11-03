@@ -13,7 +13,7 @@ the explicit one-release migration notes in those contracts.
 - The production installation targets one Ubuntu 24.04 amd64 VM running swallow on
   Docker Compose plus a co-located MAAS 3.6 region+rack. It consumes immutable image
   digests, generates restricted secrets, and serves plain HTTP on port 80; TLS terminates in
-  front of it when required. It needs outbound access to GHCR, Docker Hub, and
+  front of it when required. It needs outbound access to GHCR, Docker Hub, Quay, and
   `images.maas.io`.
 - The installation synchronizes only the official `ubuntu/noble` amd64 OS Image;
   third-party images and offline MAAS image media are not automated.

@@ -264,6 +264,24 @@ services:
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
 
+  # The dev Site's prom-label-proxy, with the production installation's arguments: every query is
+  # confined to the platform_id in the X-Swallow-Platform-Id header. The api-server reaches it at
+  # http://prom-label-proxy:8080; it is also published on loopback only (PROM_LABEL_PROXY_PORT) for
+  # trying tenancy by hand, because it authenticates nobody.
+  prom-label-proxy:
+    image: ${PROM_LABEL_PROXY_IMAGE:-quay.io/prometheuscommunity/prom-label-proxy:v0.15.1}
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    command:
+      - --insecure-listen-address=0.0.0.0:8080
+      - --upstream=http://prometheus:9090
+      - --label=platform_id
+      - --header-name=X-Swallow-Platform-Id
+      - --enable-label-apis
+    ports:
+      - "127.0.0.1:${PROM_LABEL_PROXY_PORT:-9091}:8080"
+
   dashboard:
     build:
       context: .

@@ -30,6 +30,7 @@ Local-only bootstrap account 是 `admin` / `admin`。
 | `worker` | internal | Workflow／activity execution |
 | `ansible-executor` | internal | Idempotent Ansible attempt 與 event |
 | `prometheus` | 9090 | Site 的 Prometheus：swallow 自己的 metrics（`swallow-api`）與 swallow 確知已安裝的 exporter（`swallow-exporters`，來自 swallow discovery） |
+| `prom-label-proxy` | 9091（只在 loopback） | 只看得到一個 Platform 的 series 的 Site Prometheus：`X-Swallow-Platform-Id` header 中的 `platform_id`；API 以 `http://prom-label-proxy:8080` 連到它 |
 
 ## 常用指令
 
@@ -149,7 +150,8 @@ gateway）不能跑在這台主機上：MAAS 的 chronyd 會追一個用它自�
 ## Seed demonstration Site
 
 Idempotent seed script 會建立 deployment key（`swallow-api deployment-key ensure`，即安裝步驟；API 啟動時不會建立）、login、建立 Site、
-把 in-Compose Prometheus 註冊為它的 metrics Integration（與 production bootstrap 相同，從不建立第二個）、
+把 in-Compose Prometheus 註冊為它的 metrics Integration，並以 in-Compose prom-label-proxy 為它的 `labelProxyUrl`
+setting（與 production bootstrap 相同，從不建立第二個）、
 設定 site automation，並在有提供資料時註冊 MAAS：
 
 ```bash

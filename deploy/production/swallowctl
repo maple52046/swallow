@@ -27,7 +27,8 @@ env_file="${script_dir}/.env"
 maas_marker="${script_dir}/state/local-maas"
 default_manifest="${script_dir}/../release-manifest.json"
 required_images=(SWALLOW_API_IMAGE SWALLOW_DASHBOARD_IMAGE SWALLOW_MONGO_IMAGE
-  SWALLOW_POSTGRES_IMAGE SWALLOW_TEMPORAL_SERVER_IMAGE SWALLOW_PROMETHEUS_IMAGE)
+  SWALLOW_POSTGRES_IMAGE SWALLOW_TEMPORAL_SERVER_IMAGE SWALLOW_PROMETHEUS_IMAGE
+  SWALLOW_PROM_LABEL_PROXY_IMAGE)
 managed_env_keys=(SWALLOW_RELEASE_VERSION "${required_images[@]}")
 required_secrets=(mongo-root-username mongo-root-password mongo-keyfile mongo-uri temporal-db-password
   jwt-secret bootstrap-admin-password credential-key machine-token maas-db-password maas-admin-password)
@@ -75,7 +76,8 @@ write_env_from_manifest() {
   local manifest="$1" tmp key
   [[ -f "${manifest}" ]] || die "release manifest not found: ${manifest}"
   jq -e '.version and .images.api and .images.dashboard and .images.mongo and
-    .images.postgres and .images.temporalServer and .images.prometheus' "${manifest}" >/dev/null ||
+    .images.postgres and .images.temporalServer and .images.prometheus and .images.promLabelProxy' \
+    "${manifest}" >/dev/null ||
     die "not a swallow release manifest: ${manifest}"
   tmp="$(mktemp "${script_dir}/.env.XXXXXX")"
   if [[ -f "${env_file}" ]]; then
@@ -87,7 +89,8 @@ write_env_from_manifest() {
     "SWALLOW_MONGO_IMAGE=\(.images.mongo)",
     "SWALLOW_POSTGRES_IMAGE=\(.images.postgres)",
     "SWALLOW_TEMPORAL_SERVER_IMAGE=\(.images.temporalServer)",
-    "SWALLOW_PROMETHEUS_IMAGE=\(.images.prometheus)"' \
+    "SWALLOW_PROMETHEUS_IMAGE=\(.images.prometheus)",
+    "SWALLOW_PROM_LABEL_PROXY_IMAGE=\(.images.promLabelProxy)"' \
     "${manifest}" >>"${tmp}"
   chmod 0600 "${tmp}"
   mv -- "${tmp}" "${env_file}"
@@ -237,7 +240,7 @@ pull_images() {
     docker image inspect "${image}" >/dev/null 2>&1 && continue
     log "pulling ${image}"
     docker pull --quiet "${image}" >/dev/null ||
-      die "cannot pull ${image}: check access to ${image%%/*} (swallow images come from ghcr.io, the official runtime images from docker.io)"
+      die "cannot pull ${image}: check access to ${image%%/*} (swallow images come from ghcr.io, the official runtime images from docker.io and quay.io)"
   done
 }
 
@@ -692,7 +695,8 @@ EOF
 #   5. the Ansible executor process runs and polls the swallow-ansible task queue with an activity
 #      poller, and the shipped diagnostic-ping playbook runs;
 #   6. the Dashboard and API answer /readyz on the HTTP port;
-#   7. Prometheus is ready and runs the swallow-exporters job;
+#   7. Prometheus is ready and runs the swallow-exporters job, and prom-label-proxy answers in front
+#      of it and confines each query to the platform_id it is given;
 #   8. production only: the co-located MAAS answers with a complete ubuntu/noble and its virsh SSH
 #      identity (local-maas.sh check), the Control-Plane NTP Server serves UDP 123 with the
 #      configured upstream (local-ntp.sh check), the installation records exist
@@ -852,6 +856,16 @@ prometheus_runs_site_file() {
   prometheus_loaded_site_file && prometheus_scrapes_exporters
 }
 
+# label_proxy_confines_queries asks prom-label-proxy for `up` as a platform_id no Platform has. The
+# request crosses the control network from the Prometheus container (its busybox wget), where the
+# api-server reaches the proxy too. A confined query succeeds with no series, although Prometheus
+# always has `up` for swallow-api once it has scraped.
+label_proxy_confines_queries() {
+  "${compose[@]}" exec -T prometheus wget -q -O - --header 'X-Swallow-Platform-Id: swallowctl-doctor' \
+    'http://prom-label-proxy:8080/api/v1/query?query=up' |
+    jq -e '.status == "success" and .data.result == []' >/dev/null
+}
+
 # prometheus_site_current: the rendered exporter discovery names the installation Site, and
 # Prometheus runs it.
 prometheus_site_current() {
@@ -890,6 +904,7 @@ doctor() {
   check 'ansible-runner runs the shipped diagnostic-ping playbook' ansible_runner_works || failed=1
   check 'Prometheus is ready' prometheus_ready || failed=1
   check 'Prometheus runs the swallow-exporters job' prometheus_scrapes_exporters || failed=1
+  check 'prom-label-proxy confines queries to a platform_id' label_proxy_confines_queries || failed=1
   if [[ "${profile}" == production ]]; then
     "${script_dir}/local-maas.sh" check || failed=1
     "${script_dir}/local-ntp.sh" check || failed=1
@@ -1052,6 +1067,7 @@ ensure() {
   converge 'Ansible executor polls the swallow-ansible task queue' ansible_executor_polls_task_queue ansible-executor || true
   converge "Dashboard and API answer on HTTP port $(http_port)" dashboard_ready api-server dashboard || true
   converge 'Prometheus is ready' prometheus_ready prometheus || true
+  converge 'prom-label-proxy confines queries to a platform_id' label_proxy_confines_queries prom-label-proxy || true
   if [[ "${profile}" == production ]]; then
     if [[ -f "${maas_marker}" ]]; then
       converge_local_maas || printf 'FAIL  co-located MAAS did not converge\n'

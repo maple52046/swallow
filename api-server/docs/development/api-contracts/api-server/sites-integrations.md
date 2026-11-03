@@ -127,9 +127,23 @@ has it absent, which means on.
 | --- | --- | --- |
 | `virshSshPublicKey` | An OpenSSH public key line, or absent | The public key the provisioner's rack controller uses for `virsh` power over `qemu+ssh` ([decision 055](../../../../../docs/decisions/055-libvirt-virtual-machine-enrollment.md) (libvirt virtual machine enrollment)). Virtual-machine enrollment authorizes it for the login account on the hypervisor ([server-enrollment.md](server-enrollment.md#virtual-machines-libvirt)). The installation sets it for a co-located MAAS. It is a public key, not a secret. |
 
+## Metrics settings
+
+A `metrics` Integration (provider kind `prometheus`) is its Site's Prometheus; the installation
+registers it ([installation.md](../../../../../docs/development/installation.md) §2.5). Keys it
+recognises:
+
+| Key | Values | Meaning |
+| --- | --- | --- |
+| `timeout` | Go duration, e.g. `"45s"` | Bound on one of swallow's reads; absent means 30 seconds. |
+| `insecureSkipVerify` | `"true"` or absent | Skip TLS verification of the endpoint. |
+| `alertmanagerUrl` | URL, or absent | The Alertmanager swallow reads alerts from and silences on acknowledge; without it alerts are unavailable. |
+| `grafanaUrl` | URL, or absent | A Grafana base address for links from swallow's charts. |
+| `labelProxyUrl` | URL, or absent | The label proxy in front of this Prometheus that the Platform metrics gateway forwards to ([platform-metrics-gateway.md](platform-metrics-gateway.md)); without it no Platform of the Site can read its metrics. |
+
 ## Compatibility Notes
 
-On 2026-11-03 a second `metrics` Integration in a Site became `409 conflict`; a Site has one
+On 2026-11-03 the metrics setting `labelProxyUrl` was added, and a second `metrics` Integration in a Site became `409 conflict`; a Site has one
 Prometheus, which reads every one of its Servers' metrics.
 
 - Since 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases),

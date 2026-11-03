@@ -4,6 +4,8 @@ Environment=GF_SERVER_HTTP_ADDR={{ grafana_listen_address }}
 Environment=GF_SERVER_HTTP_PORT={{ grafana_port }}
 Environment=GF_PATHS_DATA={{ grafana_data_dir }}
 Environment=GF_PATHS_PROVISIONING={{ grafana_config_dir }}/provisioning
+# The datasource token (root-only; read by systemd before Grafana drops privileges).
+EnvironmentFile=-{{ grafana_datasource_env_file }}
 {% for key, value in grafana_environment | dictsort %}
 Environment={{ key }}={{ value }}
 {% endfor %}

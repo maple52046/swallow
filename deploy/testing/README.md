@@ -3,7 +3,7 @@
 [繁體中文](README.zh-TW.md) · [Installation choices](../../docs/en/installation.md)
 
 Testing never builds or bind-mounts source. Copy the exact image references (API,
-Dashboard, MongoDB, PostgreSQL, Temporal Server, and Prometheus) from a `release-manifest.json`
+Dashboard, MongoDB, PostgreSQL, Temporal Server, Prometheus, and prom-label-proxy) from a `release-manifest.json`
 written by [`publish.sh`](../release/publish.sh) into `.env`, then run:
 
 ```bash

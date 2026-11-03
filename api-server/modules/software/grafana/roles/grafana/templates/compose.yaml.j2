@@ -13,6 +13,11 @@ services:
 {% for key, value in grafana_environment | dictsort %}
       {{ key }}: {{ value | string | to_json }}
 {% endfor %}
+{% if grafana_datasource_token | length > 0 %}
+    # The datasource token (root-only; read by Docker Compose, not by the container).
+    env_file:
+      - {{ grafana_datasource_env_file }}
+{% endif %}
     volumes:
       - {{ grafana_data_dir }}:/var/lib/grafana
       - {{ grafana_config_dir }}/provisioning:/etc/grafana/provisioning:ro

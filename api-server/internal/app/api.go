@@ -35,6 +35,7 @@ import (
 	convergencestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/convergence"
 	infrastructurestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/infrastructure"
 	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
+	monitoringstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/monitoring"
 	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
 	provisioningstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/provisioning"
 	serverstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/server"
@@ -578,17 +579,20 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioning:    provisioningHandler,
 		operations:      operationHandler,
 		monitoring:      monitoringHandler,
-		platforms:       platformHandler,
-		software:        softwareHandler,
-		docker:          dockerHandler,
-		registryCreds:   registryCredentialHandler,
-		infrastructure:  infrastructureHandler,
-		discovery:       discoveryHandler,
-		sshKeys:         sshKeyHandler,
-		apiKeys:         apiKeyHandler,
-		changePlans:     convergencedelivery.NewChangePlanHandler(changePlans),
-		moduleList:      moduledelivery.NewModuleHandler(modules.registry),
-		releaseVersion:  releaseVersion,
+		gateway: monitoringdelivery.NewGatewayHandler(
+			monitoringapp.NewPlatformAccess(monitoringstore.NewMongoPlatformTokenStore(db)),
+			platformMetricsUpstream{platforms: platformRepo, integrations: integrationRepo}),
+		platforms:      platformHandler,
+		software:       softwareHandler,
+		docker:         dockerHandler,
+		registryCreds:  registryCredentialHandler,
+		infrastructure: infrastructureHandler,
+		discovery:      discoveryHandler,
+		sshKeys:        sshKeyHandler,
+		apiKeys:        apiKeyHandler,
+		changePlans:    convergencedelivery.NewChangePlanHandler(changePlans),
+		moduleList:     moduledelivery.NewModuleHandler(modules.registry),
+		releaseVersion: releaseVersion,
 		readiness: func(ctx context.Context) error {
 			if err := client.Ping(ctx, nil); err != nil {
 				return err
@@ -642,6 +646,7 @@ type routeDeps struct {
 	provisioning   *provisioningdelivery.ProvisioningHandler
 	operations     *workflowdelivery.ExecutionHandler
 	monitoring     *monitoringdelivery.MonitoringHandler
+	gateway        *monitoringdelivery.GatewayHandler
 	platforms      *platformdelivery.PlatformHandler
 	software       *softwaredelivery.SoftwareHandler
 	docker         *explorerhttp.DockerHandler
@@ -975,6 +980,13 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// Ansible diagnostics. The embedded runner calls the same use case directly.
 	machine := middleware.MachineAuth(deps.jwtSvc, deps.machineToken)
 	app.Get("/metrics", machine, metricsHandler)
+
+	// A Platform's Grafana authenticates with its own monitoring token, not a Session, so the
+	// gateway sits outside the admin-only monitoring group (platform-metrics-gateway.md).
+	gateway := v1.Group("/platform-metrics/:id/prometheus")
+	for _, route := range monitoringdelivery.GatewayRoutes {
+		gateway.Add(route.Method, route.Path, deps.gateway.Forward(route))
+	}
 
 	discovery := v1.Group("/discovery", machine)
 	discovery.Get("/prometheus", deps.discovery.PrometheusTargets)

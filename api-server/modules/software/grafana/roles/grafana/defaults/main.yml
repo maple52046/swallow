@@ -18,6 +18,12 @@ grafana_port: "{{ swallow_grafana_port | default(3000) | int }}"
 # grafana_local_prometheus_endpoint, else the loopback address on its port.
 grafana_prometheus_url: "{{ swallow_grafana_prometheus_url | default('', true) }}"
 grafana_local_prometheus_endpoint: /etc/swallow/prometheus/endpoint
+# A bearer token the datasource sends (a Platform's monitoring token for swallow's gateway), passed
+# as a secret var; empty sends none. It is kept only in a root-only environment file that systemd or
+# the container runtime reads as root, and the datasource names the variable, so Grafana's own
+# files never hold it.
+grafana_datasource_token: "{{ swallow_grafana_datasource_token | default('', true) }}"
+grafana_datasource_env_file: "{{ grafana_config_dir }}/datasource.env"
 grafana_local_prometheus_port: "{{ swallow_grafana_prometheus_port | default(9090) }}"
 grafana_dashboards: "{{ swallow_grafana_dashboards | default([]) }}"
 # Grafana is the read-only UI people open, so it listens on the management address. Every install

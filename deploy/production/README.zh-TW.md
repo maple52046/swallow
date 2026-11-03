@@ -54,8 +54,8 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
 7. 透過已發佈的 API 執行 [`bootstrap.sh`](bootstrap.sh)：建立 Site `default`、MAAS
    provisioner Integration，並把 rack 的 `virsh` 公鑰設為它的 `virshSshPublicKey`（swallow
    納管某台 hypervisor 上的 libvirt 虛擬機時，會把它授權到那台 hypervisor）；把 Site 的 Prometheus
-   註冊為它的 metrics Integration（`site-prometheus`、`http://prometheus:9090`；已有 metrics
-   Integration 時改指到這裡，從不建立第二個）；Site 尚無 automation 設定時寫入預設值（啟用、
+   註冊為它的 metrics Integration（`site-prometheus`、`http://prometheus:9090`，setting `labelProxyUrl` 為
+   `http://prom-label-proxy:8080`；已有 metrics Integration 時改指到這裡並保留它的其他 settings，從不建立第二個）；Site 尚無 automation 設定時寫入預設值（啟用、
    Deployment Key、無 playbook mapping）；再等待 Integration 同步與 catalog 出現 `ubuntu/noble`；
 8. 為 Site 渲染 Prometheus 的 exporter discovery：以 Site 的 id 從
    [`prometheus-exporters.yml.template`](prometheus-exporters.yml.template) 產生 `swallow-exporters` job，
@@ -74,6 +74,7 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
 | MongoDB（single-node replica set `rs0`）、Temporal | Compose | 只在 internal |
 | PostgreSQL | Compose | Temporal databases 與 `maasdb`；MAAS 經 `127.0.0.1:${SWALLOW_POSTGRES_HOST_PORT:-5432}` 連入 |
 | Prometheus（Site 的 metrics） | Compose | internal `control` 加上 `egress`（收集 Server 上的 exporter）；不發佈，API 以 `http://prometheus:9090` 讀取 |
+| prom-label-proxy（一個 Platform 看到的 metrics） | Compose | 只在 internal `control`；不發佈，API 以 `http://prom-label-proxy:8080` 讀取 |
 | MAAS 3.6 region+rack | host 上的 snap | `SWALLOW_MAAS_URL`；swallow 的 provisioner Integration 也用這個位址 |
 | Control-Plane NTP Server（MAAS 的 chronyd） | host 上的 snap | 所有位址（含 `SWALLOW_ADDRESS`）的 UDP 123 |
 | Temporal UI | Compose profile `diagnostics` | `127.0.0.1:${SWALLOW_TEMPORAL_UI_PORT:-8233}`，預設不啟動 |
@@ -93,6 +94,10 @@ Site 的 Prometheus 每 30 秒收集 swallow 自己的 metrics（`swallow-api`�
 Site 的 Server 上的每個 exporter（`swallow-exporters`，以 machine token 從 API 發現）。
 [`prometheus.yml`](prometheus.yml) 隨 bundle 提供；exporter 的 job 渲染在 `state/` 下，新的 release 不會覆蓋它。
 Metrics 保留 `SWALLOW_PROMETHEUS_RETENTION`，且從不備份：遺失只少了用量歷史，不影響 swallow 的狀態。
+
+prom-label-proxy 在這個 Prometheus 前面，把每個查詢（含 label API）限制在一個 Platform 的 series：
+`X-Swallow-Platform-Id` header 中的 `platform_id`。沒有這個 header 的請求會被拒絕。它不驗證身分，所以只能從
+internal 的 `control` network 連到它。
 
 ## 設定
 
@@ -123,10 +128,10 @@ sudo ./swallowctl doctor
 `swallow-operations` task queue、Ansible executor 是否執行、是否 poll `swallow-ansible` task queue，
 且 `ansible-runner` 能跑附帶的 `diagnostic-ping` playbook、MAAS API 與 `ubuntu/noble` boot resource、Control-Plane NTP
 Server（UDP 123 有服務、MAAS 的上游等於 `SWALLOW_NTP_UPSTREAM` 或 default，以及是否跟隨該上游）、
-admin 登入、Deployment Key、Site automation、指向 Site Prometheus 的 metrics Integration、MAAS
-Integration 同步、OS Image catalog 的 `ubuntu/noble`，以及 Prometheus 是否 ready 並執行這個 Site 的
-`swallow-exporters` job，並列出尚未進入 terminal status
-的 Workflow 數量。它不會佈署任何東西。
+admin 登入、Deployment Key、Site automation、指向 Site Prometheus 與它的 prom-label-proxy 的 metrics
+Integration、MAAS Integration 同步、OS Image catalog 的 `ubuntu/noble`、Prometheus 是否 ready 並執行這個
+Site 的 `swallow-exporters` job，以及 prom-label-proxy 是否把查詢限制在指定的 `platform_id`，並列出尚未進入
+terminal status 的 Workflow 數量。它不會佈署任何東西。
 
 ## 恢復
 
@@ -138,7 +143,8 @@ Integration 同步、OS Image catalog 的 `ubuntu/noble`，以及 Prometheus 是
 4. Ansible executor 進程在執行、在 `swallow-ansible` task queue 有 activity poller，且能跑附帶的
    `diagnostic-ping` playbook；
 5. Dashboard 與 API 在 HTTP port 回應 `/readyz`；
-6. Prometheus ready，且執行 `swallow-exporters` job；
+6. Prometheus ready，且執行 `swallow-exporters` job；prom-label-proxy 把每個查詢限制在指定的
+   `platform_id`；
 7. 共置 MAAS 的 API 回應、有 complete 的 `ubuntu/noble` 與 virsh SSH identity，
    Control-Plane NTP Server 以設定的上游提供 UDP 123，安裝紀錄（admin 登入、Deployment
    Key、Site automation、metrics Integration、MAAS Integration 同步、OS Image catalog）存在，且
@@ -192,6 +198,8 @@ docker compose logs -f api-server worker ansible-executor
 sudo ./local-maas.sh check
 sudo ./local-ntp.sh check
 docker compose exec prometheus wget -qO- http://127.0.0.1:9090/api/v1/targets   # Prometheus 不發佈到主機
+docker compose exec prometheus wget -qO- --header 'X-Swallow-Platform-Id: <platform id>' \
+  'http://prom-label-proxy:8080/api/v1/query?query=up'                          # 一個 Platform 看到的資料
 ```
 
 Temporal UI 是選配，不屬於 release。要使用時，在 `.env` 把 `SWALLOW_TEMPORAL_UI_IMAGE` 設成

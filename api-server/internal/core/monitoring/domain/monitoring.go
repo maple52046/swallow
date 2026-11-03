@@ -31,6 +31,23 @@ const (
 	HealthExporter = "node-exporter"
 )
 
+// PlatformTokenStore keeps the hash of each Platform's monitoring token, the credential its Grafana
+// reads the Site Prometheus with through swallow's gateway (decision 003). The token itself is
+// never stored; a Platform has at most one, and saving replaces it.
+type PlatformTokenStore interface {
+	SaveToken(ctx context.Context, platformID string, hash []byte, issuedAt time.Time) error
+	// TokenHash returns ErrPlatformTokenNotFound when the Platform has no token.
+	TokenHash(ctx context.Context, platformID string) ([]byte, error)
+}
+
+// PlatformMetricsUpstream finds where a Platform's metrics are read: the label proxy in front of
+// its Site's Prometheus, which confines every query to the Platform's own series. It returns
+// ErrScopeNotFound when the Platform does not exist and ErrNoMetricsIntegration when its Site has
+// no Prometheus or no label proxy.
+type PlatformMetricsUpstream interface {
+	LabelProxyURL(ctx context.Context, platformID string) (string, error)
+}
+
 // ServerSiteResolver tells which Site each Server belongs to, so a read is sent to that Site's
 // Prometheus. Implementations omit an id they do not know.
 type ServerSiteResolver interface {
@@ -185,6 +202,8 @@ type MonitoringFactory interface {
 }
 
 var (
+	// ErrPlatformTokenNotFound means the Platform has no monitoring token.
+	ErrPlatformTokenNotFound = errors.New("platform monitoring token not found")
 	// ErrNoMetricsIntegration means no metrics store is registered, so health and
 	// metrics are simply unknown rather than failed.
 	ErrNoMetricsIntegration = errors.New("no metrics integration registered")

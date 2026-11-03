@@ -24,6 +24,12 @@ components:
       description: >-
         A Session access token or an API Key secret (always prefixed `swk_`). Both act with the
         owning User's role (conventions.md, Authentication).
+    platformMonitoringToken:
+      type: http
+      scheme: bearer
+      description: >-
+        A Platform's monitoring token, which swallow gives the Platform's Grafana as a secret. It
+        reads only that Platform's series through the gateway (platform-metrics-gateway.md).
     machineToken:
       type: http
       scheme: bearer

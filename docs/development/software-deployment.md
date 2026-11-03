@@ -131,7 +131,10 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
 位址語意一致：Grafana 綁 management address（`ansible_host`）；Prometheus 的 API 沒有驗證，預設只綁
 `127.0.0.1`（`listen: management` 才綁 management address），並把位址寫進
 `/etc/swallow/prometheus/endpoint`，同機 Grafana 的預設 datasource 讀這個檔。Grafana 是唯讀
-（anonymous Viewer、無 login form、無 admin），不持有任何 secret。
+（anonymous Viewer、無 login form、無 admin）。組入 Platform 時，datasource 可以帶 Platform 的 monitoring token
+（secret var `swallow_grafana_datasource_token`，[monitoring.md](monitoring.md) §7）：token 只寫在 root 才能讀的
+environment file，由 systemd、podman 或 Docker Compose 以 root 讀取後交給 Grafana，datasource 檔只引用環境變數，
+所以 Grafana 自己的檔案不持有它。
 
 **AMD Device Metrics Exporter**（[Device Metrics Exporter](glossaries/terms/device-metrics-exporter.md)）：
 standalone 安裝與 Slurm 功能（§5）是同一個 kind、同一支 playbook 與 role（`roles/device_metrics_exporter`），
@@ -241,7 +244,8 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
     `hostvars[id].ansible_host` 解析；inventory 是該 Site 的執行當下快照）
   - Grafana：`swallow_grafana_install_method`、`swallow_grafana_container_runtime`、
     `swallow_grafana_version`、`swallow_grafana_port`（固定 `3000`）、
-    `swallow_grafana_prometheus_url`（空＝同機）、`swallow_grafana_prometheus_port`、`swallow_grafana_dashboards`
+    `swallow_grafana_prometheus_url`（空＝同機）、`swallow_grafana_prometheus_port`、`swallow_grafana_dashboards`；
+    secret var `swallow_grafana_datasource_token`（選用）
   - Device Metrics Exporter：`swallow_device_metrics_exporter_version`、`swallow_device_metrics_exporter_port`
     （固定 `5001`，domain 擁有）、`swallow_device_metrics_exporter_job_attribution`（standalone 為 `none`）。
     Slurm 組入時另疊加 `_job_attribution: slurm`、`_compute_ids`、`_observability_id`、`_cluster_name`、

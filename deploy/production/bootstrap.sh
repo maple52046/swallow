@@ -7,7 +7,8 @@
 #   apply   idempotent: find or create the Site, register (or re-key) the co-located MAAS as
 #           its provisioner Integration with the rack's virsh public key as its
 #           virshSshPublicKey setting, register the installation's Prometheus as the Site's
-#           metrics Integration, write Site automation defaults only when the Site has none,
+#           metrics Integration with the installation's prom-label-proxy as its labelProxyUrl
+#           setting, write Site automation defaults only when the Site has none,
 #           then wait for the Integration to sync and for the official ubuntu/noble amd64 OS
 #           Image to appear complete in the catalog
 #   verify  read-only checks for `swallowctl doctor`
@@ -31,8 +32,10 @@ base_url="http://127.0.0.1:${SWALLOW_HTTP_PORT:-80}/api/v1"
 site_name="${SWALLOW_SITE_NAME:-default}"
 maas_endpoint="${SWALLOW_MAAS_ENDPOINT:-${SWALLOW_MAAS_URL:-http://host.docker.internal:5240/MAAS}}"
 wait_timeout="${SWALLOW_BOOTSTRAP_TIMEOUT:-900}"
-# The Compose service the api-server reads metrics from (compose.yaml).
+# The Compose services the api-server reads metrics from (compose.yaml): the Site Prometheus, and
+# the prom-label-proxy in front of it for queries confined to one Platform.
 prometheus_endpoint="http://prometheus:9090"
+label_proxy_url="http://prom-label-proxy:8080"
 image_id="ubuntu/noble"
 image_arch="amd64"
 token=""
@@ -144,32 +147,42 @@ site_metrics_integration() {
 }
 
 # ensure_metrics_integration registers the installation's Prometheus as the Site's metrics
-# Integration. A Site has at most one, so an existing one (a Prometheus the user registered, for
-# example) is never duplicated: it keeps its id, name, and settings (Alertmanager, Grafana) and
-# only has its endpoint pointed at this Prometheus when it differs.
+# Integration, with the installation's prom-label-proxy as its labelProxyUrl setting. A Site has at
+# most one, so an existing one (a Prometheus the user registered, for example) is never duplicated:
+# it keeps its id, name, and other settings (Alertmanager, Grafana), and only its endpoint and
+# labelProxyUrl are pointed at this installation's services when they differ. An update replaces
+# the whole settings map, so labelProxyUrl is merged into the current settings.
 ensure_metrics_integration() {
-  local site_id="$1" integration integration_id
+  local site_id="$1" integration integration_id patch
   integration="$(site_metrics_integration "${site_id}")"
   if [[ -z "${integration}" ]]; then
     integration_id="$(api POST /integrations --data-binary "$(jq -nc \
-      --arg site "${site_id}" --arg endpoint "${prometheus_endpoint}" \
-      '{siteId:$site,kind:"metrics",providerKind:"prometheus",name:"site-prometheus",endpoint:$endpoint}')" |
+      --arg site "${site_id}" --arg endpoint "${prometheus_endpoint}" --arg labelProxyUrl "${label_proxy_url}" \
+      '{siteId:$site,kind:"metrics",providerKind:"prometheus",name:"site-prometheus",endpoint:$endpoint,
+        settings:{labelProxyUrl:$labelProxyUrl}}')" |
       jq -er '.id')"
-    log "registered the Site Prometheus as the metrics Integration (${integration_id}) -> ${prometheus_endpoint}"
+    log "registered the Site Prometheus as the metrics Integration (${integration_id}) -> ${prometheus_endpoint}, label proxy ${label_proxy_url}"
     return 0
   fi
   integration_id="$(jq -r '.id' <<<"${integration}")"
-  if [[ "$(jq -r '.endpoint' <<<"${integration}")" == "${prometheus_endpoint}" ]]; then
-    log "metrics Integration already reads the Site Prometheus (${integration_id})"
+  patch="$(jq -c --arg endpoint "${prometheus_endpoint}" --arg labelProxyUrl "${label_proxy_url}" '
+    (if .endpoint != $endpoint then {endpoint: $endpoint} else {} end) +
+    (if (.settings // {}).labelProxyUrl != $labelProxyUrl
+      then {settings: ((.settings // {}) + {labelProxyUrl: $labelProxyUrl})} else {} end)' <<<"${integration}")"
+  if [[ "${patch}" == '{}' ]]; then
+    log "metrics Integration already reads the Site Prometheus and its label proxy (${integration_id})"
     return 0
   fi
-  api PATCH "/integrations/${integration_id}" \
-    --data-binary "$(jq -nc --arg endpoint "${prometheus_endpoint}" '{endpoint:$endpoint}')" >/dev/null
-  log "pointed the metrics Integration (${integration_id}) at the Site Prometheus (${prometheus_endpoint})"
+  api PATCH "/integrations/${integration_id}" --data-binary "${patch}" >/dev/null
+  log "pointed the metrics Integration (${integration_id}) at the Site Prometheus (${prometheus_endpoint}) and its label proxy (${label_proxy_url})"
 }
 
 metrics_integration_reads_prometheus() {
   site_metrics_integration "$1" | jq -e --arg endpoint "${prometheus_endpoint}" '.endpoint == $endpoint' >/dev/null
+}
+
+metrics_integration_has_label_proxy() {
+  site_metrics_integration "$1" | jq -e --arg url "${label_proxy_url}" '.settings.labelProxyUrl == $url' >/dev/null
 }
 
 # ensure_automation writes defaults only for a Site with no configuration, so a user's
@@ -272,6 +285,8 @@ verify() {
   report 'Site automation is enabled with an effective SSH key' automation_runnable "${site_id}" || failed=1
   report "metrics Integration reads the Site Prometheus (${prometheus_endpoint})" \
     metrics_integration_reads_prometheus "${site_id}" || failed=1
+  report "metrics Integration names the Site's prom-label-proxy (labelProxyUrl ${label_proxy_url})" \
+    metrics_integration_has_label_proxy "${site_id}" || failed=1
   integration_id="$(find_maas_integration_id "${site_id}")"
   if [[ -z "${integration_id}" ]]; then
     printf 'FAIL  MAAS provisioner Integration is registered\n'

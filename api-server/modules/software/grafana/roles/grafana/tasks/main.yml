@@ -62,6 +62,24 @@
                    if grafana_local_prometheus.content is defined
                    else 'http://127.0.0.1:' ~ grafana_local_prometheus_port) }}
 
+    - name: Keep the datasource token in a root-only environment file
+      ansible.builtin.copy:
+        content: "SWALLOW_DATASOURCE_AUTHORIZATION=Bearer {{ grafana_datasource_token }}\n"
+        dest: "{{ grafana_datasource_env_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      when: grafana_datasource_token | length > 0
+      register: grafana_datasource_env
+
+    - name: Remove the datasource token file when there is no token
+      ansible.builtin.file:
+        path: "{{ grafana_datasource_env_file }}"
+        state: absent
+      when: grafana_datasource_token | length == 0
+      register: grafana_datasource_env_removed
+
     - name: Provision the Prometheus datasource
       ansible.builtin.template:
         src: datasource.yaml.j2
@@ -108,7 +126,9 @@
     - name: Install and start Grafana by its install method
       ansible.builtin.include_tasks: "{{ grafana_method_key }}.yml"
       vars:
-        grafana_provisioning_changed: "{{ grafana_datasource is changed or grafana_providers is changed }}"
+        grafana_provisioning_changed: >-
+          {{ grafana_datasource is changed or grafana_providers is changed
+             or grafana_datasource_env is changed or grafana_datasource_env_removed is changed }}
 
     - name: Wait for Grafana to be healthy
       ansible.builtin.uri:

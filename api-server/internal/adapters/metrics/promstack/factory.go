@@ -27,6 +27,9 @@ const (
 	// SettingGrafanaURL is used to build deep links, so that exploration stays in
 	// Grafana instead of being reimplemented.
 	SettingGrafanaURL = "grafanaUrl"
+	// SettingLabelProxyURL points at the label proxy in front of the Site's Prometheus, through
+	// which a Platform's Grafana reads only its own members' series (decision 003).
+	SettingLabelProxyURL = "labelProxyUrl"
 )
 
 // MonitoringFactory builds monitoring clients from registered integrations.

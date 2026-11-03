@@ -36,8 +36,8 @@ Installer 完成時：
 - 一台可 `sudo` 的乾淨 Ubuntu 24.04 amd64 VM。建議起始規格 4 vCPU、16 GiB RAM、
   100 GiB disk。
 - 能連到 `github.com`（release）、`ghcr.io`（swallow 自己的 images）、Docker Hub（官方
-  MongoDB、PostgreSQL、Temporal 與 Prometheus images）、`download.docker.com`、Snap Store 與
-  `images.maas.io`。
+  MongoDB、PostgreSQL、Temporal 與 Prometheus images）、`quay.io`（prom-label-proxy image）、
+  `download.docker.com`、Snap Store 與 `images.maas.io`。
 - 未被占用的 port：80（Dashboard）、5240（MAAS），以及 loopback 5432（MAAS 用的 PostgreSQL）。
   機器會連 VM 的 UDP 123 對時。
 - VM 本身要連得到一個 NTP server。VM 預設跟隨 `ntp.ubuntu.com`；網路連不到它時，以
