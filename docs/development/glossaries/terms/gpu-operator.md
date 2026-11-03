@@ -17,11 +17,13 @@
   only mirrors that result into its own node label. A Platform whose `gpuStackOwner` is
   `gpu-operator` but that has no swallow-managed GPU Operator has an operator managed outside
   swallow.
+  When its Device Metrics Exporter is on, it is the Platform's GPU monitoring: swallow runs it on
+  each managed node's host network at the Device Metrics Exporter's port `5001`, with the same
+  metric names as every other Device Metrics Exporter, and the Site Prometheus scrapes it there.
 - Disallowed meaning: Not Managed Software — the deploy target is the Platform, not one Server,
   so it is a Platform deployment Job rather than a software kind. Not a GPU driver installation.
-  Not a metrics Integration: the operator's Device Metrics Exporter is never scraped by swallow,
-  whose GPU charts read the RDC exporter's scrape job (swallow does not install the RDC exporter
-  on hosts).
+  Not a metrics Integration: the Site Prometheus scrapes its exporter like any other, and swallow
+  never queries the operator.
 - Synonyms: "AMD GPU Operator" when the vendor matters.
 - Deprecated terms: None.
 - Examples: "Deploy the Platform with the AMD GPU Operator in Device Plugin mode on its three GPU
@@ -31,3 +33,6 @@
 - Change note: Added when swallow started installing the AMD GPU Operator ([decision 062](../../../decisions/062-swallow-managed-gpu-operator.md) (swallow managed gpu operator)). Before
   it, `gpuStackOwner=gpu-operator` was only a policy flag and swallow installed no operator.
   2026-11-03: the GPU charts no longer rely on a host RDC exporter that swallow installs.
+  2026-11-03 ([decision 062](../../../decisions/062-swallow-managed-gpu-operator.md)): the operator's
+  Device Metrics Exporter became the Platform's GPU monitoring, on the host network at port `5001`
+  and scraped by the Site Prometheus, instead of an unscraped pod-network exporter.

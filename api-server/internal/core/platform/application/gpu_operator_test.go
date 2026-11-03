@@ -316,3 +316,39 @@ func TestPlatformPolicyCannotLeaveAManagedGPUOperator(t *testing.T) {
 		t.Errorf("Update(gpuStackOwner=provisioning) error = %v, want ErrGPUOperatorConflict", err)
 	}
 }
+
+// A Kubernetes Platform's own dashboards are on unless the deploy turns them off: helm installs
+// them from the initial controller, users reach them on the workload nodes, and they add the GPU
+// dashboards only when the GPU Operator runs its metrics exporter.
+func TestDeployKubernetesMonitoringDashboards(t *testing.T) {
+	off := false
+	for _, tc := range []struct {
+		name   string
+		modify func(*DeployPlatformInput)
+		want   *platformdomain.MonitoringDashboardsLaunch
+	}{
+		{name: "CPU only", modify: func(*DeployPlatformInput) {},
+			want: &platformdomain.MonitoringDashboardsLaunch{ServerID: "c1", EndpointServerIDs: []string{"w1"}}},
+		{name: "GPU Operator without its exporter", modify: func(input *DeployPlatformInput) {
+			input.GPUStackOwner = ""
+			input.GPUOperator = &platformdomain.GPUOperatorSettings{Enabled: true}
+		}, want: &platformdomain.MonitoringDashboardsLaunch{ServerID: "c1", EndpointServerIDs: []string{"w1"}}},
+		{name: "GPU Operator with its exporter", modify: func(input *DeployPlatformInput) {
+			input.GPUStackOwner = ""
+			input.GPUOperator = &platformdomain.GPUOperatorSettings{Enabled: true, MetricsExporter: true}
+		}, want: &platformdomain.MonitoringDashboardsLaunch{ServerID: "c1", EndpointServerIDs: []string{"w1"}, GPUMetrics: true}},
+		{name: "turned off", modify: func(input *DeployPlatformInput) { input.MonitoringDashboards = &off }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, launcher, _ := newDeployHarness(gpuServers()...)
+			input := validDeployInput()
+			tc.modify(&input)
+			if _, err := service.Deploy(context.Background(), input); err != nil {
+				t.Fatalf("Deploy() error = %v", err)
+			}
+			if got := launcher.launched.MonitoringDashboards; !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("monitoring dashboards = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}

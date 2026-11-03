@@ -168,7 +168,7 @@ export function GPUOperatorOptionsFields({
                 <Switch.Control><Switch.Thumb /></Switch.Control>
                 <Switch.Label>Device Metrics Exporter</Switch.Label>
               </Switch.Root>
-              <Field.HelperText>Runs AMD's Device Metrics Exporter on the pod network. Swallow's GPU charts keep using the host exporter.</Field.HelperText>
+              <Field.HelperText>Runs AMD's Device Metrics Exporter on each GPU node's host network at port 5001, where the Site Prometheus collects it. The Platform Grafana adds its GPU dashboards.</Field.HelperText>
             </Field.Root>
           </div>
 

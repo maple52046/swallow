@@ -134,3 +134,15 @@ func SettingString(spec PlatformSpec, key string) string {
 	value, _ := spec.Settings[key].(string)
 	return value
 }
+
+// SettingMonitoringDashboards is the setting every Platform type keeps that gives the Platform its
+// own monitoring dashboards (MonitoringDashboardsLaunch). It is desired state, on unless set to
+// false.
+const SettingMonitoringDashboards = "monitoringDashboards"
+
+// MonitoringDashboardsWanted reports whether a spec gives the Platform its own monitoring
+// dashboards: an absent or null setting is on, so only an explicit false turns them off.
+func MonitoringDashboardsWanted(spec PlatformSpec) bool {
+	enabled, ok := spec.Settings[SettingMonitoringDashboards].(bool)
+	return !ok || enabled
+}

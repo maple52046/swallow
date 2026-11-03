@@ -20,9 +20,20 @@ func deployBody() map[string]any {
 }
 
 // A deploy request becomes a spec whose members carry the roles, and renders back to the same
-// Kubernetes fields; the Platform's identity fields are not settings.
+// Kubernetes fields; the Platform's identity fields are not settings, the monitoring dashboards
+// setting is.
 func TestSpecRoundTripsThroughTheDeployRequest(t *testing.T) {
-	spec, err := Platform{}.SpecFromDeployRequest(deployBody())
+	withoutDashboards := deployBody()
+	withoutDashboards[platformdomain.SettingMonitoringDashboards] = false
+	spec, err := Platform{}.SpecFromDeployRequest(withoutDashboards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Settings[platformdomain.SettingMonitoringDashboards] != false ||
+		(Platform{}).DeployRequest(spec)[platformdomain.SettingMonitoringDashboards] != false {
+		t.Errorf("monitoringDashboards did not round-trip: spec settings %v", spec.Settings)
+	}
+	spec, err = Platform{}.SpecFromDeployRequest(deployBody())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +78,25 @@ func TestChangesFollowTheClassification(t *testing.T) {
 	desired.Settings["podCidr"] = "10.250.0.0/16"
 	if _, err := (Platform{}).Changes(&applied, desired); !errors.Is(err, platformdomain.ErrImmutableSpecField) {
 		t.Errorf("a new podCidr: err = %v, want ErrImmutableSpecField", err)
+	}
+
+	// The monitoring dashboards are on when the setting is omitted: turning them on converges by
+	// redeploying, turning them off is refused, and an explicit true over an omitted one is no change.
+	withoutDashboards := applied.Clone()
+	withoutDashboards.Settings[platformdomain.SettingMonitoringDashboards] = false
+	changes, _ = Platform{}.Changes(&withoutDashboards, applied)
+	if changes.Destructive() || len(changes.Unsupported) != 0 || changes.Realization != platformdomain.RealizeDeploy ||
+		len(changes.Actions) != 1 || changes.Actions[0].Action != "enable-monitoring-dashboards" {
+		t.Errorf("turn the dashboards on = %+v", changes)
+	}
+	changes, _ = Platform{}.Changes(&applied, withoutDashboards)
+	if changes.Destructive() || !reflect.DeepEqual(changes.Unsupported, []string{"disable-monitoring-dashboards"}) {
+		t.Errorf("turn the dashboards off = %+v; want a non-destructive change swallow cannot carry out", changes)
+	}
+	explicit := applied.Clone()
+	explicit.Settings[platformdomain.SettingMonitoringDashboards] = true
+	if changes, _ = (Platform{}).Changes(&applied, explicit); !changes.Empty() {
+		t.Errorf("an explicit true over an omitted setting = %+v, want no change", changes)
 	}
 
 	created, err := Platform{}.Changes(nil, applied)

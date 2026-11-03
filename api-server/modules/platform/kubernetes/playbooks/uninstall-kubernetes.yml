@@ -107,10 +107,20 @@
         path: /var/run/cdi/k8s.gpu.amd.com-gpu_common.yaml
         state: absent
 
-    - name: Remove the GPU Operator's helm and chart
+    - name: Remove the GPU Operator's chart
       ansible.builtin.file:
         path: /usr/local/lib/swallow/amd-gpu-operator
         state: absent
+
+    - name: Remove the Platform Grafana's chart and the pinned helm
+      # k0s reset removed the Grafana release and its Secrets with the cluster; the files the
+      # controller ran helm with outlive it.
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/local/lib/swallow/platform-grafana
+        - /usr/local/lib/swallow/helm
 
     - name: Read the GPU Operator's amdgpu loader
       ansible.builtin.stat:

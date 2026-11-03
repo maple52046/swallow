@@ -7,11 +7,14 @@ import type { DeployStep, PlatformDeployContext, PlatformDeployForm } from '@/mo
 import { Alert } from '@/presentation/components/ui/alert'
 import { Select } from '@/presentation/components/ui/select'
 import { AdvancedSettings } from '@/presentation/pages/platforms/AdvancedSettings'
+import { PlatformGrafanaFeatureCard } from '@/presentation/pages/platforms/PlatformGrafanaFeatureCard'
 import { EphemeralKubernetesWarning } from './EphemeralKubernetesWarning'
 
 const DEFAULT_K0S_VERSION = 'v1.36.3+k0s.2'
 const DEFAULT_POD_CIDR = '10.244.0.0/16'
 const DEFAULT_SERVICE_CIDR = '10.96.0.0/12'
+/** Where the deployment puts the Platform Grafana (platforms.md "Platform Monitoring Dashboards"). */
+const PLATFORM_GRAFANA_PLACEMENT = 'in the cluster, at node port 30300 of every workload node'
 
 type RoleChoice = 'none' | NodeRole
 type TopologyChoice = 'standalone' | 'multi-node' | 'high-availability'
@@ -46,10 +49,10 @@ function selectedNetworkGuidance(addresses: string[]): string {
 }
 
 /**
- * The Kubernetes (k0s) deploy form: the k0s version, a topology with per-Server roles, and the
- * Platform network step. Machine selection precedes networking because the topology and the
- * selected Servers' observed addresses decide whether a virtual IP exists and give the user
- * concrete allocation context.
+ * The Kubernetes (k0s) deploy form: the k0s version, a topology with per-Server roles, the
+ * Platform Grafana feature, and the Platform network step. Machine selection precedes networking
+ * because the topology and the selected Servers' observed addresses decide whether a virtual IP
+ * exists and give the user concrete allocation context.
  */
 export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployContext): PlatformDeployForm {
   const [k0sVersion, setK0sVersion] = useState(DEFAULT_K0S_VERSION)
@@ -62,6 +65,8 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
   const [serviceCidr, setServiceCidr] = useState(DEFAULT_SERVICE_CIDR)
   const [roles, setRoles] = useState<Record<string, RoleChoice>>({})
   const [workloadControllers, setWorkloadControllers] = useState<Record<string, boolean>>({})
+  // The spec's monitoringDashboards; on by default like the API's omitted value.
+  const [platformGrafana, setPlatformGrafana] = useState(true)
 
   const assignments = useMemo<RoleAssignment[]>(
     () =>
@@ -291,7 +296,20 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
     },
     selectedServerIds: assignments.map((assignment) => assignment.serverId),
     featureContext: { servers, workloadServerIds, platformVersion: k0sVersion },
-    features: { title: 'Kubernetes features', content: null, valid: true },
+    features: {
+      title: 'Kubernetes features',
+      content: (
+        <div className="sw-platform-feature-list">
+          <PlatformGrafanaFeatureCard
+            placement={PLATFORM_GRAFANA_PLACEMENT}
+            dashboards="a Servers dashboard, plus GPU dashboards when the AMD GPU Operator runs its Device Metrics Exporter"
+            checked={platformGrafana}
+            onCheckedChange={setPlatformGrafana}
+          />
+        </div>
+      ),
+      valid: true,
+    },
     extraSteps: (selected) => [networkingStep(selected)],
     reviewGroups: ({ name, site, preparationSummary }) => [
       {
@@ -311,6 +329,13 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
           { label: 'Servers', value: `${assignments.length} selected` },
           { label: 'Roles', value: `${controllers} control-plane, ${workloadCount} workload-capable` },
           { label: 'Operating system', value: preparationSummary },
+        ],
+      },
+      {
+        title: 'Monitoring',
+        stepId: 'deploy-features',
+        items: [
+          { label: 'Platform Grafana', value: platformGrafana ? `In the cluster, at port 30300 of every workload node` : 'Not included' },
         ],
       },
     ],
@@ -340,6 +365,7 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
         : {}),
       podCidr: podCidr.trim(),
       serviceCidr: serviceCidr.trim(),
+      monitoringDashboards: platformGrafana,
       roleAssignments: assignments,
     }),
     reset: () => {
@@ -347,6 +373,7 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
       setWorkloadControllers({})
       setAPIVip('')
       setAPIVipPrefix('')
+      setPlatformGrafana(true)
     },
   }
 }

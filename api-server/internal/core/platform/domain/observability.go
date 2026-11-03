@@ -41,10 +41,18 @@ func normalizeObservabilityInstallMethod(method ObservabilityInstallMethod, inva
 // through swallow's Platform metrics gateway with the Platform's monitoring token, so it sees only
 // the Platform's members. Every Platform may have one, GPU or not; the Platform spec's
 // monitoringDashboards setting turns it off. How it is delivered belongs to the Platform type: a
-// Slurm Platform runs it as Managed Software on ServerID (the primary controller) by InstallMethod.
+// Slurm Platform runs it as Managed Software on ServerID (the primary controller) by InstallMethod;
+// a Kubernetes Platform runs it in the cluster, installed from ServerID (the initial controller) and
+// reached on its EndpointServerIDs, with the GPU dashboards when GPUMetrics is set.
 type MonitoringDashboardsLaunch struct {
 	ServerID      string
 	InstallMethod ObservabilityInstallMethod
+	// EndpointServerIDs are the members users reach the dashboards on, in order, the first being
+	// the one the Monitoring Link names; empty means ServerID itself.
+	EndpointServerIDs []string
+	// GPUMetrics means the Platform runs a GPU exporter its type does not otherwise describe to the
+	// launcher (the GPU Operator's Device Metrics Exporter), so the dashboards include its bundle.
+	GPUMetrics bool
 }
 
 // ErrMonitoringEndpointMissing means a deployment would install monitoring that must reach swallow

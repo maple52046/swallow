@@ -164,7 +164,7 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
                 ? [{ label: 'DRA driver', value: operator.draDriverVersion ?? '-' }]
                 : [{ label: 'Resource naming', value: GPU_RESOURCE_NAMING_LABELS[operator.resourceNaming] }]),
               { label: 'Node Labeller', value: operator.nodeLabeller ? 'On' : 'Off' },
-              { label: 'Device Metrics Exporter', value: operator.metricsExporter ? 'On' : 'Off' },
+              { label: 'Device Metrics Exporter', value: operator.metricsExporter ? 'On, collected by the Site Prometheus at port 5001' : 'Off' },
             ]}
           />
         ) : (

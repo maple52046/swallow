@@ -11,8 +11,8 @@ Active
 ## Consumer Components
 
 - A Platform's own Grafana, which swallow installs with the Platform and configures with this
-  gateway as its Prometheus datasource (a Slurm Platform's, see
-  [platforms.md](platforms.md#platform-monitoring-dashboards))
+  gateway as its Prometheus datasource (a Slurm Platform's on its primary controller, a Kubernetes
+  Platform's in its cluster; see [platforms.md](platforms.md#platform-monitoring-dashboards))
 
 ## Purpose
 
@@ -91,4 +91,5 @@ A query Prometheus or the proxy rejects is answered with their own status and er
 
 ## Compatibility Notes
 
-- Added on 2026-11-03. Since the same day a Slurm Platform's Grafana reads it.
+- Added on 2026-11-03. Since the same day a Slurm Platform's Grafana reads it, and a Kubernetes
+  Platform's Grafana too.

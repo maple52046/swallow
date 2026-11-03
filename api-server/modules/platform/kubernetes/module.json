@@ -5,7 +5,8 @@
   "version": "0.1.0",
   "playbooks": [
     "deploy-kubernetes",
-    "uninstall-kubernetes"
+    "uninstall-kubernetes",
+    "configure-kubernetes-grafana"
   ],
   "workflowKinds": [
     "deploy-kubernetes",

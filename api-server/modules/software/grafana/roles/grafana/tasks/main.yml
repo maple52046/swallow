@@ -1,6 +1,7 @@
 ---
 # Install or remove Grafana by its install method (defaults/main.yml) with a provisioned Prometheus
-# datasource and the requested swallow-shipped dashboard bundles. Idempotent: a converged host
+# datasource and the requested swallow-shipped dashboard bundles, both from the shared
+# grafana_provisioning role. Idempotent: a converged host
 # reruns with no changes; a changed datasource or provider list restarts Grafana (they are read
 # only at start), while dashboard files are picked up by the provider's polling. Switching the
 # method or the container runtime removes the previous one's artifacts first.
@@ -62,9 +63,21 @@
                    if grafana_local_prometheus.content is defined
                    else 'http://127.0.0.1:' ~ grafana_local_prometheus_port) }}
 
+    - name: Provision the datasource and the requested dashboard bundles
+      ansible.builtin.include_role:
+        name: grafana_provisioning
+        tasks_from: files
+        public: true
+      vars:
+        grafana_provisioning_dir: "{{ grafana_config_dir }}"
+        grafana_provisioning_url: "{{ grafana_datasource_url }}"
+        grafana_provisioning_token: "{{ grafana_datasource_token | length > 0 }}"
+        grafana_provisioning_bundles: "{{ grafana_dashboards }}"
+        grafana_provisioning_dashboards_path: "{{ grafana_dashboards_path }}"
+
     - name: Keep the datasource token in a root-only environment file
       ansible.builtin.copy:
-        content: "SWALLOW_DATASOURCE_AUTHORIZATION=Bearer {{ grafana_datasource_token }}\n"
+        content: "{{ grafana_provisioning_token_variable }}=Bearer {{ grafana_datasource_token }}\n"
         dest: "{{ grafana_datasource_env_file }}"
         owner: root
         group: root
@@ -80,54 +93,11 @@
       when: grafana_datasource_token | length == 0
       register: grafana_datasource_env_removed
 
-    - name: Provision the Prometheus datasource
-      ansible.builtin.template:
-        src: datasource.yaml.j2
-        dest: "{{ grafana_config_dir }}/provisioning/datasources/swallow.yaml"
-        owner: root
-        group: root
-        mode: "0644"
-      register: grafana_datasource
-
-    - name: Provision the dashboard providers
-      ansible.builtin.template:
-        src: dashboards.yaml.j2
-        dest: "{{ grafana_config_dir }}/provisioning/dashboards/swallow.yaml"
-        owner: root
-        group: root
-        mode: "0644"
-      register: grafana_providers
-
-    - name: Copy the requested dashboard bundles
-      ansible.builtin.copy:
-        src: "dashboards/{{ item }}/"
-        dest: "{{ grafana_config_dir }}/dashboards/{{ item }}/"
-        owner: root
-        group: root
-        mode: "0644"
-        directory_mode: "0755"
-      loop: "{{ grafana_dashboards }}"
-
-    - name: Find the provisioned dashboard bundles
-      ansible.builtin.find:
-        paths: "{{ grafana_config_dir }}/dashboards"
-        file_type: directory
-      register: grafana_bundle_dirs
-
-    - name: Remove dashboard bundles that are no longer requested
-      ansible.builtin.file:
-        path: "{{ item.path }}"
-        state: absent
-      loop: "{{ grafana_bundle_dirs.files }}"
-      loop_control:
-        label: "{{ item.path | basename }}"
-      when: (item.path | basename) not in grafana_dashboards
-
     - name: Install and start Grafana by its install method
       ansible.builtin.include_tasks: "{{ grafana_method_key }}.yml"
       vars:
         grafana_provisioning_changed: >-
-          {{ grafana_datasource is changed or grafana_providers is changed
+          {{ grafana_provisioning_datasource_file is changed or grafana_provisioning_providers_file is changed
              or grafana_datasource_env is changed or grafana_datasource_env_removed is changed }}
 
     - name: Wait for Grafana to be healthy

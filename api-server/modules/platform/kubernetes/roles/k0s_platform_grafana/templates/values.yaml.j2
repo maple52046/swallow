@@ -1,0 +1,47 @@
+# Rendered by Swallow (monitoring.md §6.2). No secret is in these values: the admin password and
+# the datasource token are Secrets the chart only names.
+image:
+  registry: {{ k0s_platform_grafana_image.registry }}
+  repository: {{ k0s_platform_grafana_image.repository }}
+  tag: "{{ k0s_platform_grafana_image.tag }}"
+  sha: {{ k0s_platform_grafana_image.sha256 }}
+# The chart's helm test pulls another image; the run's own checks replace it.
+testFramework:
+  enabled: false
+# No sidecar watches the cluster, so Grafana needs no Role.
+rbac:
+  create: false
+persistence:
+  enabled: false
+service:
+  type: NodePort
+  nodePort: {{ k0s_platform_grafana_node_port | int }}
+admin:
+  existingSecret: {{ k0s_platform_grafana_admin_secret }}
+  userKey: admin-user
+  passwordKey: admin-password
+envFromSecrets:
+  - name: {{ k0s_platform_grafana_datasource_secret }}
+# The token reaches Grafana only through its environment, which a running Pod never rereads; a new
+# Secret version rolls the Pod.
+podAnnotations:
+  swallow.dev/datasource-secret-version: "{{ k0s_platform_grafana_token_version }}"
+grafana.ini:
+  analytics:
+    reporting_enabled: false
+    check_for_updates: false
+    check_for_plugin_updates: false
+  auth:
+    disable_login_form: true
+  auth.anonymous:
+    enabled: true
+    org_role: Viewer
+  users:
+    allow_sign_up: false
+  news:
+    news_feed_enabled: false
+datasources:
+  datasources.yaml: {{ grafana_provisioning_datasources | to_json }}
+dashboardProviders:
+  dashboardproviders.yaml: {{ grafana_provisioning_providers | to_json }}
+dashboardsConfigMaps: {{ dict(k0s_platform_grafana_bundles | zip(k0s_platform_grafana_bundles | map('regex_replace', '^', k0s_platform_grafana_dashboards_prefix))) | to_json }}

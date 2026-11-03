@@ -3,11 +3,15 @@ package app
 import (
 	"context"
 	"reflect"
+	"slices"
 	"testing"
 
 	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+	"github.com/maple52046/swallow/modules/accelerator/amd"
+	"github.com/maple52046/swallow/modules/platform/kubernetes"
 	"github.com/maple52046/swallow/modules/platform/slurm"
 	nodeexporter "github.com/maple52046/swallow/modules/software/node-exporter"
 )
@@ -101,5 +105,84 @@ func TestInstalledExportersReportsOmnistatOnReadyPlatforms(t *testing.T) {
 	}
 	if gotSet := exporterSet(got); !reflect.DeepEqual(gotSet, want) {
 		t.Errorf("InstalledExporters() = %v, want %v", got, want)
+	}
+}
+
+// listedServers is an exporterServers over fixed Servers that honours the id filter.
+type listedServers []*serverdomain.Server
+
+func (s listedServers) List(_ context.Context, filter serverdomain.ListFilter) (serverdomain.ListResult, error) {
+	var result serverdomain.ListResult
+	for _, server := range s {
+		if filter.IDs == nil || slices.Contains(filter.IDs, server.ID) {
+			result.Servers = append(result.Servers, server)
+		}
+	}
+	return result, nil
+}
+
+// A Kubernetes Platform whose GPU Operator is ready with its metrics exporter on runs the Device
+// Metrics Exporter, as the software module declares it, on the workload members of the spec it
+// realized that list AMD compute GPUs; a dedicated controller, a CPU-only worker, an operator
+// without the exporter or not ready, and a Slurm Platform report none, and a Server a standalone
+// assignment also names is reported once.
+func TestInstalledExportersReportsTheGPUOperatorExporter(t *testing.T) {
+	gpu := []serverdomain.GPU{{Vendor: "Advanced Micro Devices, Inc. [AMD/ATI]", Count: 8, Kind: serverdomain.GPUKindCompute}}
+	servers := listedServers{
+		{ID: "c1", Observed: serverdomain.Observed{GPUs: gpu}},
+		{ID: "cw", Observed: serverdomain.Observed{GPUs: gpu}},
+		{ID: "w1", Observed: serverdomain.Observed{GPUs: gpu}},
+		{ID: "w2"},
+		{ID: "w3", Observed: serverdomain.Observed{GPUs: gpu}},
+		{ID: "w4", Observed: serverdomain.Observed{GPUs: gpu}},
+		{ID: "w5", Observed: serverdomain.Observed{GPUs: gpu}},
+		{ID: "w6", Observed: serverdomain.Observed{GPUs: gpu}},
+	}
+	members := func(ids ...string) *platformdomain.PlatformSpec {
+		spec := &platformdomain.PlatformSpec{Members: []platformdomain.PlatformMember{
+			{ServerID: "c1", Roles: []string{kubernetes.RoleControlPlane}},
+			{ServerID: "cw", Roles: []string{kubernetes.RoleControlPlane, kubernetes.RoleWorkloads}},
+		}}
+		for _, id := range ids {
+			spec.Members = append(spec.Members, platformdomain.PlatformMember{ServerID: id, Roles: []string{kubernetes.RoleWorker}})
+		}
+		return spec
+	}
+	withOperator := func(id string, state platformdomain.GPUOperatorState, exporter bool, spec *platformdomain.PlatformSpec) *platformdomain.Platform {
+		return &platformdomain.Platform{
+			ID: id, Type: platformdomain.PlatformTypeKubernetes, Spec: spec, Status: platformdomain.PlatformStatus{Applied: spec},
+			GPUOperator: &platformdomain.GPUOperator{
+				State: state, Settings: platformdomain.GPUOperatorSettings{Enabled: true, MetricsExporter: exporter},
+			},
+		}
+	}
+	platforms := platformList{
+		withOperator("ready", platformdomain.GPUOperatorReady, true, members("w1", "w2")),
+		withOperator("no-exporter", platformdomain.GPUOperatorReady, false, members("w3")),
+		withOperator("installing", platformdomain.GPUOperatorInstalling, true, members("w4")),
+		withOperator("failed", platformdomain.GPUOperatorFailed, true, members("w5")),
+		{ID: "slurm", Type: platformdomain.PlatformTypeSlurm, Spec: members("w6"),
+			GPUOperator: &platformdomain.GPUOperator{State: platformdomain.GPUOperatorReady, Settings: platformdomain.GPUOperatorSettings{Enabled: true, MetricsExporter: true}}},
+	}
+	assignments := newFakeAssignmentRepo()
+	if err := assignments.Upsert(context.Background(), &softwaredomain.Assignment{
+		ServerID: "w1", Kind: softwaredomain.KindDeviceMetricsExporter, State: softwaredomain.StateInstalled,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	modules := testModules(t)
+	got, err := installedExporters{
+		catalog: modules.software, assignments: assignments, platforms: platforms,
+		servers: servers, accelerator: modules.accelerators[amd.ID],
+	}.InstalledExporters(context.Background())
+	if err != nil {
+		t.Fatalf("InstalledExporters() error = %v", err)
+	}
+	dme := func(id string) discoveryapp.InstalledExporter {
+		return discoveryapp.InstalledExporter{ServerID: id, Name: "device-metrics-exporter", Port: platformdomain.DeviceMetricsExporterPort}
+	}
+	if len(got) != 2 || !reflect.DeepEqual(exporterSet(got), map[discoveryapp.InstalledExporter]bool{dme("cw"): true, dme("w1"): true}) {
+		t.Errorf("InstalledExporters() = %v, want the exporter once on cw and w1", got)
 	}
 }

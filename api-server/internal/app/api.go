@@ -74,6 +74,7 @@ import (
 	"github.com/maple52046/swallow/internal/shared/secret"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 	"github.com/maple52046/swallow/internal/shared/version"
+	"github.com/maple52046/swallow/modules/accelerator/amd"
 	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
 	"github.com/maple52046/swallow/modules/software/docker-ce/dockerengine"
 	"github.com/maple52046/swallow/modules/software/docker-ce/explorer"
@@ -530,7 +531,8 @@ func RunAPI(cfg config.APIConfig) error {
 
 	discoveryUseCase := discoveryapp.NewDiscoveryUseCase(serverRepo)
 	exporterDiscovery := discoveryapp.NewExporterDiscovery(serverRepo,
-		installedExporters{catalog: modules.software, assignments: softwareAssignmentRepo, platforms: platformRepo})
+		installedExporters{catalog: modules.software, assignments: softwareAssignmentRepo, platforms: platformRepo,
+			servers: serverRepo, accelerator: modules.accelerators[amd.ID]})
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(discoveryUseCase, exporterDiscovery)
 	fiberApp := fiber.New(fiber.Config{
 		// OS image upload (POST /provisioning/images) streams a potentially multi-gigabyte

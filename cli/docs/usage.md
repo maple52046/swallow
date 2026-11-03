@@ -644,6 +644,13 @@ spec:
         - { serverId: srvc, interfaceId: "133", subnetId: "1" }
 ```
 
+Unless the settings say `monitoringDashboards: false`, a Kubernetes platform also gets its own
+read-only Grafana in the cluster, at node port `30300` of every workload node, which reads the Site
+Prometheus through swallow and shows only this platform's Servers; the platform gets the
+Monitoring Link `Platform Grafana`. With `gpuOperator.metricsExporter: true` the operator's Device
+Metrics Exporter runs on each GPU node's host network at port `5001`, where the Site Prometheus
+collects it, and the Grafana adds its GPU dashboards.
+
 The run then followed the deployment, switched the operator, removed it, and released the
 Servers:
 

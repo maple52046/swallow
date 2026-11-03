@@ -89,7 +89,7 @@ deployment 一律以這四層表達（完整定義見 glossary：
 - 由 launcher [`platformDeploymentLauncher`](../../api-server/internal/app/platform_deployment_adapter.go)
   組裝，經 `WorkflowService.Create` 受理，由 `workflow-dispatch` 派發給 driver。
 - 分成兩個 Job，依 **cross-Job 依賴序**執行：先 `ensure-os`，後 `configure-k0s`；本次 provision 了 Server 時另有
-  `configure-node-exporter`（§2.2）。每個 Job 都宣告重試粒度 `job`：重試會讓整個 Job 的 Task 以下一個 attempt 重跑。
+  `configure-node-exporter`（§2.2），GPU Operator 與 Platform 的 Grafana 各在最後加一個 Job（§2.3.1、§2.3.3）。每個 Job 都宣告重試粒度 `job`：重試會讓整個 Job 的 Task 以下一個 attempt 重跑。
 
 **拓樸與角色**（[decision 007](../decisions/007-cluster-deployment-ownership.md)（cluster deployment ownership）、
 [decision 011](../decisions/011-flexible-k0s-topologies.md)（flexible k0s topologies））：deploy 請求以 `roleAssignments[]`
@@ -128,6 +128,7 @@ deploy use case 由它推導 [Kubernetes Topology](glossaries/terms/kubernetes-t
 | `configure-node-exporter` | `record-node-exporter-<serverId>` | `record-software-assignment` | `internal` | 單一 Server | `install-node-exporter-<serverId>` | `softwareKind`（`node-exporter`）、`serverIds` |
 | `configure-k0s` | `install-platform` | `ansible-playbook` | `ansible` | 全部 targets | 所有 `provision-*` + `wait-for-ssh` + `configure-ntp-*` | `playbook`、`extraVars`（含時鐘檢查的 `swallow_time_sync_check`） |
 | `configure-k0s` | `validate-platform` | `validate-platform-health` | `internal` | 全部 targets | `install-platform` | — |
+| `configure-platform-grafana`（`monitoringDashboards` 開啟時，§2.3.3） | `install-platform-grafana` | `ansible-playbook` | `ansible` | 全部 targets | `install-gpu-operator`，沒有 GPU Operator 時 `validate-platform` | `playbook`（`configure-kubernetes-grafana`）、`extraVars`（含 `swallow_k0s_grafana_*`）；token 是 sealed secret |
 
 ```mermaid
 flowchart TB
@@ -263,6 +264,7 @@ Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。
 | Workflow | Job | Task | Runner | DependsOn |
 | --- | --- | --- | --- | --- |
 | `deploy-kubernetes`（帶 `gpuOperator.enabled`） | `configure-gpu-operator` | `install-gpu-operator`（`ansible-playbook`，playbook `configure-amd-gpu-operator`） | `ansible` | `validate-platform` |
+| `deploy-kubernetes`（`monitoringDashboards` 開啟，§2.3.3） | `configure-platform-grafana` | `install-platform-grafana`（`ansible-playbook`，playbook `configure-kubernetes-grafana`） | `ansible` | `install-gpu-operator`，沒有 GPU Operator 時 `validate-platform` |
 | `configure-gpu-operator`（部署後調整） | `prepare-hosts` → `configure-gpu-operator` | `wait-for-ssh` → `install-gpu-operator` | `internal` → `ansible` | — → `wait-for-ssh` |
 
 - 兩種 Workflow 的 ansible Task 都以 Platform 的全部 deployment targets 為 targets，playbook 名由 launcher 硬編碼，
@@ -277,9 +279,10 @@ Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。
   `amdgpu_loader`，Slurm GPU GRES 也用同一份；SSH 起來後才
   `modprobe amdgpu`，`TimeoutStartSec=300`），並以 drop-in 讓 `k0scontroller`／`k0sworker` 排在它之後，再啟動它並等
   `/dev/kfd`。不再納管的節點、卸載 operator、`uninstall-kubernetes` 保留主機時都移除 unit 與 drop-in，但不卸載已載入的 driver。
-- helm 在 `swallow_amd_gpu_operator_controller_id`（初始 controller）上執行：playbook 下載固定版本的 helm、核對
-  SHA-256，複製隨發行包附帶的 chart（`roles/amd_gpu_operator/files/`），以 `/var/lib/k0s/pki/admin.conf`
-  `upgrade --install --wait`。k0s 的 Chart CR 已否決：卸載時 helm timeout 為 0，chart 的 pre-delete hook 永遠失敗。
+- helm 在 `swallow_amd_gpu_operator_controller_id`（初始 controller）上執行：共用 role `helm` 下載固定版本的 helm、核對
+  SHA-256（放在 `/usr/local/lib/swallow/helm/<version>/`，Kubernetes 的 Platform Grafana 也用同一份），playbook 複製隨發行包附帶的
+  chart（`roles/amd_gpu_operator/files/`），以 `/var/lib/k0s/pki/admin.conf` `upgrade --install --wait`。k0s 的 Chart CR
+  已否決：卸載時 helm timeout 為 0，chart 的 pre-delete hook 永遠失敗。
 - 納管節點依上面的規範由 chart 附帶的 NFD 判斷：NFD worker 照官方預設跑在所有節點，依 PCI id 把實體 GPU 標成
   `feature.node.kubernetes.io/amd-gpu=true`、SR-IOV VF 標成 `feature.node.kubernetes.io/amd-vgpu=true`。playbook 在
   helm 之後等 NFD 處理完每個節點（每個 node 都有 NFD 的 `nfd.node.kubernetes.io/feature-labels` annotation），
@@ -306,8 +309,20 @@ Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。
   於執行時下載。
 - `gpuStackOwner` 隨功能推導：啟用 operator 即為 `gpu-operator`；swallow 管理 operator 期間（state 不是 `absent`）不能
   改回 `provisioning`。`gpu-operator` 卻沒有 swallow 管理的 operator，表示 operator 由 swallow 以外管理。
-- 監控不變：operator 的 Device Metrics Exporter 為選用、不用 host network，swallow 不 scrape 它，也不佔用保留給
-  RDC exporter 的 host port 5000（[decision 003](../decisions/003-metrics-label-contract.md)（metrics label contract））。
+- 監控（[monitoring.md](monitoring.md) §4.2、§5.2）：operator 的 Device Metrics Exporter 為選用（`metricsExporter`），開啟時就是
+  Platform 的 GPU 監控。DeviceConfig 讓它用 host network、port 5001（`port`，launcher 以 trusted var
+  `swallow_amd_gpu_operator_metrics_exporter_port` 帶入 platform domain 的 exporter port），並以 ConfigMap
+  `kube-amd-gpu/swallow-metrics-exporter`（DeviceConfig 的 `metricsExporter.config.name`，掛成 exporter 的 `config.json`）
+  設成與 standalone 和 Slurm 的 DME 相同的指標前綴 `amd_`、開啟 health 指標、關閉 profiler，所以同一份
+  `device-metrics-exporter` dashboard bundle 三個情境都適用；operator 忽略檔案裡的 `ServerPort`。關閉時 ConfigMap 在
+  DeviceConfig 不再引用它之後刪除。每個納管節點在 DeviceConfig Ready 之後都要在 `http://<ansible_host>:5001/metrics`
+  回應，否則 `[gpu_operator_not_ready]`。Site 的 Prometheus 在 GPU Operator State 為 `ready` 且 `metricsExporter`
+  開啟時，把 applied spec 中 workload 成員裡 GPU inventory 有 AMD 運算 GPU 的 Server 當成 `device-metrics-exporter`
+  target（port 5001）；swallow 不讀 NFD 的結果，所以這是 swallow 所知的納管節點。
+- port 5001 在 Kubernetes 成員上不會被 swallow 的其他 exporter 佔用：standalone 的 DME（同一個 port）拒絕 Kubernetes
+  member 與帶 Platform Claim 的 Server，node-exporter 用 9100，5000 保留給 RDC exporter。但 Server 可能在成為 Platform
+  成員之前就裝了 standalone DME，所以開啟 `metricsExporter` 時 host preflight 在納管節點上發現 AMD 的
+  `amd-metrics-exporter.service` 就以 `[metrics_exporter_port_conflict]` 失敗，而不是讓 operator 的 exporter 起不來。
 - GPU Operator 的安裝是部署成功的一部分：GPU Task 失敗讓部署停在 `requires_attention`，該 Task 可重試。
 - 設計理由：選 Platform Job 而非 Managed Software、否決 k0s Chart CR、直接以 NFD label 選節點、讓使用者勾選 Server
   與第一版採 KMM，見 [decision 062](../decisions/062-swallow-managed-gpu-operator.md)（swallow managed gpu operator）。
@@ -328,6 +343,49 @@ container runtime 與 workload state 全部消失，swallow 不自動復原，us
   的主機為準。
 - 設計理由：否決「繼續拒絕 ephemeral」、「相信 image tag」、「把 k0s 烤進 image」與「當成持久叢集」，見
   [decision 028](../decisions/028-ephemeral-kubernetes-deployment.md) (ephemeral kubernetes deployment)。
+
+### 2.3.3 Platform 的 Grafana（[monitoring.md](monitoring.md) §6.2）
+
+Platform spec 的 `settings.monitoringDashboards`（desired，省略或 `null` 即開啟，CPU-only 也一樣）決定 Kubernetes Platform
+是否有自己的 Grafana，與 Slurm 是同一個設定（§6.3）。差別只在交付方式：Kubernetes 以 grafana-community 的 Helm chart
+裝在叢集內，生命週期跟著叢集，以固定的 NodePort 對外。
+
+- deploy use case 在開啟時於 `DeploymentLaunch.MonitoringDashboards` 帶初始 controller（`ServerID`，helm 在這裡執行）、
+  workload 成員（`EndpointServerIDs`，只有它們是 Kubernetes node、會回應 NodePort），以及 GPU Operator 的
+  `metricsExporter` 是否開啟（`GPUMetrics`）。launcher（`planKubernetesGrafana`）在 `validate-platform` 之後、有
+  GPU Operator 時在 `install-gpu-operator` 之後組入 `configure-platform-grafana` Job（§2.1 的表），playbook 名
+  `configure-kubernetes-grafana` 由 launcher 硬編碼，Task 以全部 deployment targets 為 targets。
+- datasource 與 Slurm 相同：Platform metrics 閘道 `<SWALLOW_API_PUBLIC_URL>/api/v1/platform-metrics/<platformId>/prometheus`，
+  token 在 `PersistDeployment` 以 `PlatformAccess.Issue` 發出（每次受理都輪替），只以 sealed secret var
+  `swallow_grafana_datasource_token` 交給 `install-platform-grafana`。installation 沒有 `SWALLOW_API_PUBLIC_URL` 時在規劃時以
+  `ErrMonitoringEndpointMissing` 拒絕。dashboards 一律有 `node-exporter`，`GPUMetrics` 時加上 `device-metrics-exporter`。
+- playbook 在初始 controller 上以共用 role `helm` 的固定 helm 與 k0s 的 `/var/lib/k0s/pki/admin.conf`，把隨發行包附帶的
+  chart（`roles/k0s_platform_grafana/files/grafana-11.6.1.tgz`，Grafana 12 的最後一條 chart 線；archive 的 SHA-256 在
+  `defaults/` 並於執行時核對）`upgrade --install --wait` 成 namespace `swallow-grafana` 的 release `platform-grafana`
+  （`--labels swallow-managed=true`）。image 是 Grafana Managed Software 的同一個版本（`docker.io/grafana/grafana:12.4.12`），
+  以 digest 固定；chart 的 `testFramework` 關閉，所以不拉其他 image。
+- values（`templates/values.yaml.j2`）：persistence 關閉；anonymous Viewer、無 login form；Service 為 NodePort
+  `30300`（只定義在 role 的 `k0s_platform_grafana_node_port`）；admin 帳密在 role 第一次執行時產生、只存在 Secret
+  `swallow-grafana-admin`（`admin.existingSecret`），之後沿用；token 以 Secret `swallow-grafana-datasource` 的
+  `SWALLOW_DATASOURCE_AUTHORIZATION=Bearer <token>` 經 `envFromSecrets` 交給 Grafana，datasource 只引用環境變數。
+  token Secret 的 resourceVersion 寫在 Pod annotation，所以新的 token 會滾動 Pod，同一個 token 不改變任何東西。兩個
+  Secret 都由 `no_log` 的 task 以 stdin 建立，不進 values、log 或 Workflow。
+- datasource 與 dashboard provider 的設定、dashboard JSON 都來自共用 role `grafana_provisioning`（與 Grafana Managed
+  Software 同一份）：每個 bundle 一個 ConfigMap `swallow-grafana-dashboards-<bundle>`（server-side apply，因為 bundle
+  可能超過 client-side apply 的 annotation 上限），由 chart 的 `dashboardsConfigMaps` 掛到
+  `/var/lib/grafana/dashboards/<bundle>`；不再要求的 bundle 的 ConfigMap 會刪除。
+- 冪等：release 已是 `deployed`、chart 版本相同、`helm get values` 等於這次 render 的 values 時不跑 helm；ConfigMap 只在
+  內容改變或不存在時套用。preflight：另一個 Service 已佔用 NodePort 30300 時以 `[platform_grafana_node_port_in_use]` 失敗。
+  RHEL 家族的 workload 節點在 firewalld 啟用時（deploy-kubernetes 會啟用它）開啟 30300/tcp（runtime 與 permanent，不 reload）。
+- playbook 從 controller 對第一個 workload 成員的 `http://<ansible_host>:30300` 等到 `/api/health` 回應、匿名的
+  `/api/search` 看得到每個 dashboard，才把 `{grafanaUrl}` 寫進 result；`install-platform-grafana` 宣告
+  `platform-grafana-result`，寫入 Monitoring Link `Platform Grafana`。
+- 部署後開啟是非破壞性的（重跑 deploy 收斂），關閉尚未實作（`409`）。`uninstall-kubernetes` 的 `k0s reset` 隨叢集移除
+  release 與 Secret，playbook 另外刪除 controller 上的 `/usr/local/lib/swallow/platform-grafana` 與 `/usr/local/lib/swallow/helm`；
+  uninstall 完成時移除 swallow 寫的 Monitoring Link。
+- 叢集內的 Grafana 是 Platform 的一部分、由 deploy 收斂，不是 Managed Software，沒有 Software Assignment；被外部移除不會被
+  發現，直到下一次 deploy 重跑。在這之前部署的 Kubernetes Platform 沒有 Grafana，下一次 deploy 重跑（例如加入成員）時才會
+  組入。
 
 ### 2.4 Uninstall 的 Job 分組（對稱於 deploy）
 
@@ -545,6 +603,16 @@ client/user **不可偽造**（user 只能提供非 `swallow_` 前綴的變數�
   | `swallow_amd_gpu_operator_node_labeller` / `_metrics_exporter` | 布林 |
   | `swallow_amd_gpu_operator_controller_id` | 執行 helm 的 controller serverId |
   | `swallow_amd_gpu_operator_images` | 該版本固定的 operand image（`devicePlugin`、`nodeLabeller`、`utils`、`metricsExporter`、`draDriver`） |
+  | `swallow_amd_gpu_operator_metrics_exporter_port` | metrics exporter 的 host port（`5001`）；由 launcher 依 platform domain 的 exporter port 填入，與 Site 的 Prometheus 收集的 port 相同 |
+
+  Kubernetes 的 Platform Grafana（§2.3.3）由 launcher 組裝，token 是 sealed secret（§4.3），不在其中：
+
+  | 變數 | 意義 |
+  | --- | --- |
+  | `swallow_k0s_grafana_controller_id` | 執行 helm 的 controller serverId（初始 controller） |
+  | `swallow_k0s_grafana_node_ids` | workload 成員的 serverId；Monitoring Link 以第一台的位址為準，firewalld 在它們上開 NodePort |
+  | `swallow_k0s_grafana_datasource_url` | Platform metrics 閘道的 URL |
+  | `swallow_k0s_grafana_dashboards` | dashboard bundles（`node-exporter`，GPU Operator 的 `metricsExporter` 開啟時加上 `device-metrics-exporter`） |
 
   Slurm 的 GPU GRES 與 Omnistat（§6.3、[decision 063](../decisions/063-omnistat-slurm-observability.md)（omnistat slurm observability））新增：
 
@@ -577,7 +645,7 @@ secret **永不進入** workflow history。流程：launcher 提供 secret 值 �
 加密存入 sealed store，Task 只帶不透明 `SecretRefs` → 執行時 resolve 並與 extra vars 合併
 （secret 覆寫同名 key）。範例：HA 的 `swallow_k0s_vrrp_auth_pass`（keepalived 密碼）、
 provision 的 cloud-init `userData`、Platform Grafana 的 `swallow_grafana_datasource_token`（Platform 的 monitoring
-token，`PersistDeployment` 發出後只封入 `install-grafana`）。platform 專屬 secret 以同機制傳遞，playbook 端當作一般
+token，`PersistDeployment` 發出後只封入 Slurm 的 `install-grafana` 或 Kubernetes 的 `install-platform-grafana`）。platform 專屬 secret 以同機制傳遞，playbook 端當作一般
 extra var 使用。
 
 ### 4.4 Result / credential 契約
@@ -964,7 +1032,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   swallow 先前替同一個 Grafana 寫的 `Omnistat Grafana`、`Device Metrics Exporter Grafana`；uninstall 完成時移除這三個
   名稱（名單由 composition root 交給 `PlatformService`）。部署後開啟是非破壞性的（重跑 deploy 收斂），關閉尚未實作
   （`409`）。installation 沒有 `SWALLOW_API_PUBLIC_URL` 時，launcher 在規劃時以 `ErrMonitoringEndpointMissing` 拒絕
-  （[installation.md](installation.md) §2.7）。Kubernetes 的 spec 可以帶這個設定，但部署尚不讀它。開關是 Platform
+  （[installation.md](installation.md) §2.7）。Kubernetes 以同一個設定在叢集內部署 Grafana（§2.3.3）。開關是 Platform
   的 desired（[desired-state-model.md](desired-state-model.md) §1.1），由 platform controller 以重跑 deploy 收斂；
   主機上的 Grafana 則是組入的 Managed Software，仍是動作：被外部移除或停止不會被發現，assignment 記的是上次安裝的結果，
   Managed Software 遷移到 desired state 後由它的 controller 取代。
@@ -1110,7 +1178,8 @@ API 契約的 "Read Slurm Cluster State"。
 | Device Metrics Exporter 記錄、State 與 GPU identity | `internal/core/platform/domain/device_metrics_exporter.go` |
 | Slurm container runtime 功能 | `internal/core/platform/domain/container_runtime.go` |
 | Slurm 功能的 software Job 組入（runtime、Platform Grafana 與其 token、Omnistat、DME） | `internal/app/slurm_composition_adapter.go`（token 在 `platform_deployment_adapter.go` 的 `PersistDeployment` 發出；投影與結果的 handler 在 `internal/app/workflow_completions.go`） |
-| Omnistat exporter 的 scrape target | `internal/app/exporter_inventory_adapter.go` |
+| Kubernetes 的 Platform Grafana Job 組入 | `internal/app/kubernetes_grafana_adapter.go`（`planKubernetesGrafana`，由 `prepareKubernetes` 呼叫） |
+| Omnistat 與 GPU Operator 的 DME 的 scrape target | `internal/app/exporter_inventory_adapter.go` |
 | Platform spec 的收斂與 Change Plan apply | `internal/core/platform/application/platform_controller.go`、`platform_spec.go` |
 | Platform 模組的 hook（spec 轉換、變更分類、reader、credential） | `modules/platform/<type>/`（`platform.go` 等） |
 | Workflow 組裝（Job/Task） | `internal/app/platform_deployment_adapter.go` |
@@ -1140,14 +1209,14 @@ playbook 使用的內容放在 `shared/`。
 | --- | --- |
 | Playbook manifest（allow-list） | `manifest.json` |
 | 依賴鎖 | `api-server/internal/adapters/hostautomation/ansible/requirements.txt`、`requirements.yml` |
-| Kubernetes 模組 | `platform/kubernetes/`：`deploy-kubernetes.yml`、`uninstall-kubernetes.yml`；roles `k0s_*`（reference 範本：`k0s_host_preflight`、`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`） |
+| Kubernetes 模組 | `platform/kubernetes/`：`deploy-kubernetes.yml`、`uninstall-kubernetes.yml`、`configure-kubernetes-grafana.yml`；roles `k0s_*`（reference 範本：`k0s_host_preflight`、`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`）、`k0s_platform_grafana`（chart 在 `files/`，chart、image digest 與 NodePort 在 `defaults/`） |
 | Slurm 模組 | `platform/slurm/`：`deploy-slurm.yml`、`uninstall-slurm.yml`、`configure-omnistat.yml`；roles `slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、`slurm_cluster_credential`…）、`gpu_probe`、`omnistat` |
-| AMD 模組（GPU Operator） | `accelerator/amd/`：`configure-amd-gpu-operator.yml`；role `amd_gpu_operator`（chart 在 `files/`、helm 版本與 checksum 在 `defaults/`） |
+| AMD 模組（GPU Operator） | `accelerator/amd/`：`configure-amd-gpu-operator.yml`；role `amd_gpu_operator`（chart 在 `files/`；DeviceConfig 與 metrics exporter 的 ConfigMap 在 `templates/`） |
 | DME（Managed Software） | `software/device-metrics-exporter/`：`deploy-device-metrics-exporter.yml`、`uninstall-device-metrics-exporter.yml`；role 是共用的 `device_metrics_exporter` |
-| Prometheus／Grafana（Managed Software） | `software/prometheus/`、`software/grafana/`（dashboard bundles 在 grafana role 的 `files/dashboards/<bundle>`：`node-exporter`、`omnistat`、`device-metrics-exporter`） |
+| Prometheus／Grafana（Managed Software） | `software/prometheus/`、`software/grafana/`（datasource 與 dashboard bundles 在共用 role `grafana_provisioning`） |
 | Node Exporter（Managed Software，OS 部署組入） | `software/node-exporter/`：`deploy-node-exporter.yml`、`uninstall-node-exporter.yml`；role `node_exporter` |
 | 共用 playbook | `shared/playbooks/`：`diagnostic-ping.yml`、`configure-ntp.yml` |
-| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`device_metrics_exporter`（Slurm 與 DME）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`package_maintenance_hold`（decision 073；改套件的 playbook 第一個 play 取得、最後一個 play 釋放）；`docker_runtime` 與 `rdc_exporter` 仍在，但沒有 playbook 使用 |
+| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`device_metrics_exporter`（Slurm 與 DME）、`helm`（固定版本的 helm 與 SHA-256，GPU Operator 與 Kubernetes 的 Platform Grafana）、`grafana_provisioning`（每個 swallow 安裝的 Grafana 共用的 datasource、dashboard provider 與 `files/dashboards/<bundle>`：`node-exporter`、`omnistat`、`device-metrics-exporter`；以檔案交給 Grafana Managed Software，以 Helm values 與 ConfigMap 交給 Kubernetes 的 Platform Grafana）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`package_maintenance_hold`（decision 073；改套件的 playbook 第一個 play 取得、最後一個 play 釋放）；`docker_runtime` 與 `rdc_exporter` 仍在，但沒有 playbook 使用 |
 
 映像：production 於 build 時把 `api-server/modules`（去掉 Go 原始碼）複製到 `/opt/swallow/automation/modules`；`ansible`
 與 API/worker 共用同一映像，以不同 command 啟動。

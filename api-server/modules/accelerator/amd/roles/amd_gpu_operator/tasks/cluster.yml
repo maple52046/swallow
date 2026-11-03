@@ -7,12 +7,15 @@
 # GPU nodes, so they are known only after the release is installed; this play records them as
 # amd_gpu_operator_desired_nodes for the host and apply plays.
 
+- name: Install the pinned helm
+  ansible.builtin.include_role:
+    name: helm
+
 - name: Resolve the run's intent
   ansible.builtin.set_fact:
     amd_gpu_operator_present: "{{ swallow_amd_gpu_operator_state == 'present' }}"
     amd_gpu_operator_desired_nodes: []
-    amd_gpu_operator_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] | default(ansible_architecture) }}"
-    amd_gpu_operator_helm: "{{ amd_gpu_operator_home }}/bin/{{ amd_gpu_operator_helm_version }}/helm"
+    amd_gpu_operator_helm: "{{ helm_binary }}"
     amd_gpu_operator_helm_env:
       KUBECONFIG: "{{ amd_gpu_operator_kubeconfig }}"
 
@@ -24,26 +27,8 @@
     group: root
     mode: "0755"
   loop:
-    - "bin/{{ amd_gpu_operator_helm_version }}"
     - charts
     - config
-
-- name: Download the pinned helm release
-  ansible.builtin.get_url:
-    url: "https://get.helm.sh/helm-{{ amd_gpu_operator_helm_version }}-linux-{{ amd_gpu_operator_arch }}.tar.gz"
-    dest: "{{ amd_gpu_operator_home }}/helm-{{ amd_gpu_operator_helm_version }}-linux-{{ amd_gpu_operator_arch }}.tar.gz"
-    checksum: "sha256:{{ amd_gpu_operator_helm_checksums[amd_gpu_operator_arch] }}"
-    mode: "0644"
-
-- name: Unpack helm
-  ansible.builtin.unarchive:
-    src: "{{ amd_gpu_operator_home }}/helm-{{ amd_gpu_operator_helm_version }}-linux-{{ amd_gpu_operator_arch }}.tar.gz"
-    dest: "{{ amd_gpu_operator_home }}/bin/{{ amd_gpu_operator_helm_version }}"
-    remote_src: true
-    extra_opts:
-      - --strip-components=1
-      - "linux-{{ amd_gpu_operator_arch }}/helm"
-    creates: "{{ amd_gpu_operator_helm }}"
 
 # --- Preflight: things swallow refuses to take over ---------------------------------------------
 

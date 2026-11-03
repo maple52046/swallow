@@ -64,6 +64,8 @@ exporters were installed:
 | Exporter | Port | Installed on |
 | --- | --- | --- |
 | node-exporter | 9100 | every Server swallow deploys (CPU, memory, disk, network), from the OS package: `prometheus-node-exporter` on Debian and Ubuntu, `node_exporter` on the RHEL family (from EPEL) |
+| AMD Device Metrics Exporter | 5001 | AMD GPU Servers: as Managed Software on a single Server, on a Slurm Platform's GPU compute nodes, or by the AMD GPU Operator on a Kubernetes Platform's GPU nodes when its Device Metrics Exporter is on; the same metric names everywhere |
+| Omnistat | 8001 | a Slurm Platform's compute nodes when Omnistat is its job monitoring |
 | [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | swallow neither installs it on hosts nor collects it: the Site's Prometheus collects only the exporters swallow installed |
 
 A Server has one Node Exporter, whatever Platform it belongs to: each OS deployment
@@ -92,20 +94,27 @@ reporting then. Neither is drawn as zero.
 
 ## A Platform's own Grafana
 
-Every Slurm Platform gets its own read-only Grafana on its primary controller unless you turn it
-off when you deploy (the **Platform Grafana** switch in the Slurm workspace's Features step, or
-`monitoringDashboards: false` in the Platform's settings). CPU-only Platforms get one too. It
-reads the same Site Prometheus as swallow, through swallow, and sees only the Platform's own
-Servers. It always has a **Servers** dashboard (CPU, memory, root filesystem, network, and load
-per Server), plus the dashboards of the monitoring exporter you chose. The Platform page links to
-it as **Platform Grafana**; anyone on the management network can view it without a login. It runs
-as a container by default; choose the native install method to install it from Grafana's
-apt/yum repository instead. Each deploy or redeploy gives it a new access credential, so a
-credential copied from an older deployment stops working.
+Every Platform gets its own read-only Grafana unless you turn it off when you deploy (the
+**Platform Grafana** switch in the workspace's Features step, or `monitoringDashboards: false` in
+the Platform's settings). CPU-only Platforms get one too. It reads the same Site Prometheus as
+swallow, through swallow, and sees only the Platform's own Servers. It always has a **Servers**
+dashboard (CPU, memory, root filesystem, network, and load per Server), plus the dashboards of the
+Platform's GPU or job monitoring. The Platform page links to it as **Platform Grafana**; anyone on
+the management network can view it without a login. Each deploy or redeploy gives it a new access
+credential, so a credential copied from an older deployment stops working.
+
+- **Slurm**: Grafana runs on the primary controller, at port 3000. It runs as a container by
+  default; choose the native install method to install it from Grafana's apt/yum repository
+  instead.
+- **Kubernetes**: Grafana runs in the cluster and is reached at port 30300 of every workload node;
+  the link names the first one. It keeps no data of its own, so it loses nothing when its Pod moves.
+  When the AMD GPU Operator runs its Device Metrics Exporter, the Grafana adds the exporter's GPU
+  dashboards. Uninstalling the Platform removes it with the cluster.
 
 Turning the Grafana on later redeploys the Platform; turning it off after deployment is not
-supported yet. A Platform deployed before this keeps its own Prometheus and the Grafana link it
-had until its next deployment.
+supported yet. A Slurm Platform deployed before this keeps its own Prometheus and the Grafana link
+it had until its next deployment; a Kubernetes Platform deployed before this gets its Grafana at
+its next deployment.
 
 ## GPU and job monitoring on Slurm
 
@@ -134,7 +143,8 @@ You can link any other monitoring UI that belongs to a Platform:
 - Keep swallow's exporters running. The Server charts keep working before, during,
   and after the Platform exists, and are the same for every Platform type.
 - Do not bind a runtime's own collectors to port 9100, 5000, 5001, or 8001, which
-  swallow's exporters use.
+  swallow's exporters use, or a Kubernetes Service to node port 30300, which the Platform Grafana
+  uses.
 
 Monitoring Links are set with the Platform update API. With the CLI:
 

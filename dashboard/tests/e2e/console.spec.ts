@@ -852,6 +852,38 @@ test.describe('user interactions', () => {
     await expect(page.getByText('Direct control-plane endpoint')).toBeVisible()
   })
 
+  for (const keep of [true, false]) {
+    test(`Kubernetes wizard proposes the Platform Grafana and submits ${keep ? 'it' : 'its removal'}`, async ({ page }) => {
+      // platforms.md "Platform Monitoring Dashboards": a Kubernetes Platform gets its own Grafana in
+      // the cluster unless the deploy turns it off, CPU-only too; the card says where users reach it.
+      let deployBody: Record<string, unknown> | undefined
+      await installApiFixtures(page, { freePlatformCandidates: true, onPlatformDeploymentRequest: (body) => { deployBody = body } })
+      await page.goto('/platforms/deploy/kubernetes?site=site-a')
+      await page.getByLabel('Platform name').fill('edge-k0s')
+      await page.getByRole('button', { name: 'Next' }).click()
+      await page.getByRole('radio', { name: /Standalone/ }).locator('xpath=following-sibling::*[1]').click()
+      await chooseSingleSelectOption(page, 'Role for gpu-node-04', 'Standalone node')
+      await page.getByRole('button', { name: 'Next' }).click()
+
+      const grafana = page.getByRole('switch', { name: 'Enable Platform Grafana' })
+      await expect(grafana).toBeChecked()
+      await expect(page.getByText(/in the cluster, at node port 30300 of every workload node/)).toBeVisible()
+      await expect(page.getByText('Anyone on the management network can view it without signing in. It can be turned on later, but not off after deployment.')).toBeVisible()
+      if (!keep) {
+        await grafana.locator('xpath=following-sibling::*[1]').click()
+        await expect(grafana).not.toBeChecked()
+      }
+
+      await page.getByRole('button', { name: 'Next' }).click()
+      await page.getByRole('button', { name: 'Next' }).click()
+      await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+      await expect(page.getByText(keep ? 'In the cluster, at port 30300 of every workload node' : 'Not included', { exact: true })).toBeVisible()
+      await page.getByRole('button', { name: 'Deploy Kubernetes Platform' }).click()
+      await approvePlatformInstall(page)
+      expect(deployBody?.monitoringDashboards).toBe(keep)
+    })
+  }
+
   test('Headlamp language is type-aware and Slurm stays neutral', async ({ page }) => {
     await page.goto('/platforms/platform-a?site=site-a')
     const kubernetesStats = page.locator('.sw-metric-grid')

@@ -21,17 +21,7 @@ const (
 // is the slurm object without its nodeAssignments.
 var settingKeys = []string{
 	"gpuStackOwner", "omnistat", "deviceMetricsExporter", "containerRuntime", "gpuDriver", "timeSyncCheck",
-	monitoringDashboardsKey, "slurm",
-}
-
-// monitoringDashboardsKey is the generic setting that gives the Platform its own monitoring
-// dashboards (the Platform Grafana on the primary controller); absent or null is on.
-const monitoringDashboardsKey = "monitoringDashboards"
-
-// monitoringDashboards reports whether a spec gives the Platform its own monitoring dashboards.
-func monitoringDashboards(spec platformdomain.PlatformSpec) bool {
-	enabled, ok := spec.Settings[monitoringDashboardsKey].(bool)
-	return !ok || enabled
+	platformdomain.SettingMonitoringDashboards, "slurm",
 }
 
 // Platform is the Slurm module's platform hook.
@@ -157,7 +147,7 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 		}
 	}
 	// The dashboards only display the Site's metrics, so adding or removing them touches no job.
-	switch was, is := monitoringDashboards(*applied), monitoringDashboards(desired); {
+	switch was, is := platformdomain.MonitoringDashboardsWanted(*applied), platformdomain.MonitoringDashboardsWanted(desired); {
 	case !was && is:
 		add(convergence.PlannedAction{Target: platform, Action: "enable-monitoring-dashboards", To: "enabled", Reason: "the Platform's Grafana is added"}, true)
 	case was && !is:

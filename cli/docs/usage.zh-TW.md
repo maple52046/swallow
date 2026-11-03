@@ -624,6 +624,11 @@ spec:
         - { serverId: srvc, interfaceId: "133", subnetId: "1" }
 ```
 
+除非 settings 寫了 `monitoringDashboards: false`，Kubernetes 平台也會在叢集內有自己的唯讀 Grafana，以每個 workload
+節點的 node port `30300` 開放；它經 swallow 讀 Site 的 Prometheus，只顯示這個平台的 Server，平台會有 Monitoring Link
+`Platform Grafana`。`gpuOperator.metricsExporter: true` 時，operator 的 Device Metrics Exporter 在每個 GPU 節點的 host
+network 上以 port `5001` 執行，由 Site 的 Prometheus 收集，Grafana 也會加上它的 GPU dashboards。
+
 接著追蹤部署、切換 operator、移除 operator，最後 release Server：
 
 ```bash

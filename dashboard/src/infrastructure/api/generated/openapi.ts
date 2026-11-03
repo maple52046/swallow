@@ -4468,7 +4468,10 @@ export interface components {
             draDriverVersion?: string;
             /** @description True installs or changes the operator; false installs nothing or uninstalls it. */
             enabled?: boolean;
-            /** @default false */
+            /**
+             * @description Run AMD's Device Metrics Exporter on the managed nodes' host network at port 5001, where the Site Prometheus scrapes it.
+             * @default false
+             */
             metricsExporter: boolean;
             /** @default true */
             nodeLabeller: boolean;
@@ -4706,6 +4709,11 @@ export interface components {
             gpuStackOwner?: components["schemas"]["GPUStackOwner"];
             /** @description The k0s release to install, for example `v1.36.3+k0s.2`. */
             k0sVersion: string;
+            /**
+             * @description Give the Platform its own read-only Grafana in the cluster, at node port 30300 of the workload nodes, showing only its members' series through the Platform metrics gateway. Turning it on later is carried out; turning it off after deployment is 409.
+             * @default true
+             */
+            monitoringDashboards: boolean;
             /** @default 10.244.0.0/16 */
             podCidr: string;
             /** @default 10.96.0.0/12 */

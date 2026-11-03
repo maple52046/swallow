@@ -235,7 +235,7 @@ type DeployPlatformInput struct {
 	TimeSyncCheck platformdomain.TimeSyncCheck
 	// MonitoringDashboards is the request's monitoringDashboards setting: whether the Platform gets
 	// its own monitoring dashboards (platformdomain.MonitoringDashboardsLaunch). Nil, the omitted
-	// setting, is on. A Slurm deploy reads it; a Kubernetes deploy does not install them.
+	// setting, is on. Both Platform types read it.
 	MonitoringDashboards *bool
 	// PlatformSpec is the request read as the Platform's spec, which the new record stores as
 	// generation 1; nil stores none.
@@ -491,6 +491,15 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 		RequestedBy:     input.RequestedBy, RequestCorrelation: input.RequestCorrelation,
 		MachinePreparation: validated.machinePreparation,
 		TimeSyncCheck:      input.TimeSyncCheck,
+	}
+	// The dashboards run in the cluster: they are installed from the initial controller, and users
+	// reach them on the workload nodes, the only members that serve a node port.
+	if input.MonitoringDashboards == nil || *input.MonitoringDashboards {
+		launch.MonitoringDashboards = &platformdomain.MonitoringDashboardsLaunch{
+			ServerID:          validated.spec.ControlPlaneServerIDs()[0],
+			EndpointServerIDs: validated.spec.WorkloadServerIDs(),
+			GPUMetrics:        gpuOperator != nil && gpuOperator.MetricsExporter,
+		}
 	}
 	return s.prepare(ctx, input, launch, validated.targets, records)
 }

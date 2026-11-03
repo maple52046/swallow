@@ -9615,6 +9615,7 @@ components:
           type: boolean
         metricsExporter:
           default: false
+          description: Run AMD's Device Metrics Exporter on the managed nodes' host network at port 5001, where the Site Prometheus scrapes it.
           type: boolean
         nodeLabeller:
           default: true
@@ -10139,6 +10140,10 @@ components:
         k0sVersion:
           description: The k0s release to install, for example `v1.36.3+k0s.2`.
           type: string
+        monitoringDashboards:
+          default: true
+          description: Give the Platform its own read-only Grafana in the cluster, at node port 30300 of the workload nodes, showing only its members' series through the Platform metrics gateway. Turning it on later is carried out; turning it off after deployment is 409.
+          type: boolean
         podCidr:
           default: 10.244.0.0/16
           type: string

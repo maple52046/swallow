@@ -1,0 +1,34 @@
+---
+# Runs on each workload node: opens the Grafana node port where firewalld is active, which on
+# swallow's images is the RHEL family (deploy-kubernetes enables it there). The runtime and
+# permanent sets are changed directly instead of reloading firewalld, because a reload flushes the
+# rules kube-proxy and kube-router program. A host without an active firewalld changes nothing.
+
+- name: Read whether firewalld is active
+  when: ansible_facts['os_family'] == 'RedHat'
+  ansible.builtin.command:
+    argv: [systemctl, is-active, firewalld]
+  register: k0s_platform_grafana_firewalld_state
+  changed_when: false
+  failed_when: false
+
+- name: Query the Grafana node port in firewalld (runtime and permanent)
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - (k0s_platform_grafana_firewalld_state.stdout | default('')) == 'active'
+  ansible.builtin.command:
+    argv: "{{ ['firewall-cmd'] + item + ['--query-port=' ~ k0s_platform_grafana_node_port ~ '/tcp'] }}"
+  loop:
+    - []
+    - ['--permanent']
+  register: k0s_platform_grafana_firewalld_query
+  changed_when: false
+  failed_when: k0s_platform_grafana_firewalld_query.rc not in [0, 1]
+
+- name: Open the Grafana node port in firewalld
+  # Skipped items carry no rc and are filtered out.
+  when: item.rc == 1
+  ansible.builtin.command:
+    argv: "{{ ['firewall-cmd'] + item.item + ['--add-port=' ~ k0s_platform_grafana_node_port ~ '/tcp'] }}"
+  loop: "{{ k0s_platform_grafana_firewalld_query.results | default([]) | selectattr('rc', 'defined') | list }}"
+  changed_when: true

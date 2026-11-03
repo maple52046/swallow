@@ -4,6 +4,7 @@ import type { ObservabilityInstallMethod, SlurmContainerRuntime } from '@/domain
 import { Alert } from '@/presentation/components/ui/alert'
 import { AdvancedSettings } from '@/presentation/pages/platforms/AdvancedSettings'
 import { FeatureToggleCard } from '@/presentation/pages/platforms/FeatureToggleCard'
+import { PlatformGrafanaFeatureCard } from '@/presentation/pages/platforms/PlatformGrafanaFeatureCard'
 
 type WorkloadStorageMode = 'none' | 'self-hosted' | 'external'
 
@@ -316,34 +317,28 @@ export function SlurmDeploymentFeatures({
         </div>
       </FeatureToggleCard>
 
-      <FeatureToggleCard
-        title="Platform Grafana"
-        description={`A read-only Grafana on ${primaryControllerName} that shows only this Platform's Servers, read from the Site Prometheus. It includes a Servers dashboard and the job monitoring dashboards.`}
+      <PlatformGrafanaFeatureCard
+        placement={`on ${primaryControllerName}`}
+        dashboards="a Servers dashboard and the job monitoring dashboards"
         checked={platformGrafana}
         onCheckedChange={onPlatformGrafanaChange}
-        status={<Badge variant="subtle" colorPalette={platformGrafana ? 'blue' : 'gray'}>{platformGrafana ? 'Included' : 'Not included'}</Badge>}
       >
-        <div className="sw-platform-feature-stack">
-          {monitoringEnabled ? (
-            <ChoiceCards
-              label="Grafana install method"
-              value={grafanaInstallMethod}
-              onChange={onGrafanaInstallMethodChange}
-              options={[
-                { value: 'container', label: 'Container', description: `Run Grafana as a container on ${primaryControllerName}.` },
-                { value: 'native', label: 'Native', description: 'Install Grafana from its official package repository.' },
-              ]}
-            />
-          ) : (
-            <Text color="fg.muted" fontSize="sm">
-              Grafana is installed natively from its official package repository on {primaryControllerName}. Choose a job monitoring exporter to choose its install method.
-            </Text>
-          )}
+        {monitoringEnabled ? (
+          <ChoiceCards
+            label="Grafana install method"
+            value={grafanaInstallMethod}
+            onChange={onGrafanaInstallMethodChange}
+            options={[
+              { value: 'container', label: 'Container', description: `Run Grafana as a container on ${primaryControllerName}.` },
+              { value: 'native', label: 'Native', description: 'Install Grafana from its official package repository.' },
+            ]}
+          />
+        ) : (
           <Text color="fg.muted" fontSize="sm">
-            Anyone on the management network can view it without signing in. It can be turned on later, but not off after deployment.
+            Grafana is installed natively from its official package repository on {primaryControllerName}. Choose a job monitoring exporter to choose its install method.
           </Text>
-        </div>
-      </FeatureToggleCard>
+        )}
+      </PlatformGrafanaFeatureCard>
 
       <FeatureToggleCard
         title="MPI with PMIx"

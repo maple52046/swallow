@@ -220,7 +220,7 @@ architecture spec。找東西時：
 | 三個 process 如何組裝、HTTP 路由在哪裡註冊 | `api-server/internal/app/api.go`、`worker.go`、`ansible_executor.go` |
 | controller 清單 | `api-server/internal/app/worker.go`、`api-server/internal/app/controllers.go` |
 | 編入的模組、provider kind、core 自己規劃的 Workflow kind | `api-server/internal/app/modules.go` |
-| Workflow 的組成（launcher） | `api-server/internal/app/*_adapter.go`（platform deployment、software、GPU Operator、Slurm composition） |
+| Workflow 的組成（launcher） | `api-server/internal/app/*_adapter.go`（platform deployment、software、GPU Operator、Slurm composition、Kubernetes 的 Platform Grafana） |
 | 每個 context 的 domain、use case、HTTP handler | `api-server/internal/core/<context>/` |
 | 外部系統的 adapter | `api-server/internal/adapters/<port>/<adapter>/` |
 | MongoDB 的 repository（列表的篩選與搜尋在這裡） | `api-server/internal/adapters/store/mongodb/<context>/` |

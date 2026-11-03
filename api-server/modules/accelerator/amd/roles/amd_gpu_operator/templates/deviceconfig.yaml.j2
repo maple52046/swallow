@@ -1,5 +1,6 @@
 {% set images = swallow_amd_gpu_operator_images %}
 {% set dra = swallow_amd_gpu_operator_allocation_mode == 'dra' %}
+{% set metrics = swallow_amd_gpu_operator_metrics_exporter | bool %}
 # Rendered by Swallow (decision 062). Exactly one of the device plugin and the DRA driver is on.
 apiVersion: amd.com/v1alpha1
 kind: DeviceConfig
@@ -32,9 +33,14 @@ spec:
     image: {{ images.draDriver }}
 {% endif %}
   metricsExporter:
-    enable: {{ swallow_amd_gpu_operator_metrics_exporter | bool | lower }}
+    enable: {{ metrics | lower }}
     image: {{ images.metricsExporter }}
-    # Pod network only: the host ports 9100 and 5000 belong to Swallow's exporters (decision 003).
-    hostNetwork: false
+    # The Site Prometheus scrapes it on each managed node's address (decision 003).
+    hostNetwork: true
+    port: {{ amd_gpu_operator_metrics_exporter_port }}
     serviceType: ClusterIP
+{% if metrics %}
+    config:
+      name: {{ amd_gpu_operator_metrics_config }}
+{% endif %}
     podResourceAPISocketPath: {{ amd_gpu_operator_pod_resources_socket_dir }}

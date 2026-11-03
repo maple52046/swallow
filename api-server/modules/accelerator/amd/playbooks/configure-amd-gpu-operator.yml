@@ -5,8 +5,9 @@
 # names the nodes to manage: the operator's Node Feature Discovery decides, and the cluster play
 # records its result as amd_gpu_operator_desired_nodes on the controller. The play order is
 # load-bearing: the cluster-level checks pass before anything changes, the old allocation mode is
-# switched off before the DRA links are removed, and the driver and links are ready before the
-# DeviceConfig starts the operands.
+# switched off before the DRA links are removed, the driver and links are ready before the
+# DeviceConfig starts the operands, and with the metrics exporter on every managed node's exporter
+# answers on its address before the run succeeds.
 
 - name: Read every target
   hosts: all
@@ -73,9 +74,22 @@
   hosts: amd_gpu_operator_controller
   gather_facts: false
   become: true
+  any_errors_fatal: true
   tasks:
     - name: Apply the DeviceConfig and wait for the GPUs
       ansible.builtin.include_role:
         name: amd_gpu_operator
         tasks_from: apply
       when: swallow_amd_gpu_operator_state == 'present'
+
+- name: Verify the Device Metrics Exporter on every managed node
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Wait for the exporter the Site Prometheus scrapes
+      ansible.builtin.include_role:
+        name: amd_gpu_operator
+        tasks_from: host_metrics
+      when:
+        - amd_gpu_operator_managed | bool
+        - swallow_amd_gpu_operator_metrics_exporter | bool

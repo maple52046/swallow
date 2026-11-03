@@ -1,0 +1,21 @@
+---
+# Runs on each managed node after the DeviceConfig is Ready, with the metrics exporter on: the
+# exporter must answer on the node's own address, which is where the Site Prometheus scrapes it.
+
+- name: Wait for this node's Device Metrics Exporter to answer
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ amd_gpu_operator_metrics_exporter_port }}/metrics"
+    status_code: 200
+  register: amd_gpu_operator_metrics_probe
+  until: amd_gpu_operator_metrics_probe is succeeded
+  retries: "{{ amd_gpu_operator_wait_retries }}"
+  delay: "{{ amd_gpu_operator_wait_delay }}"
+  failed_when: false
+
+- name: Refuse a managed node whose Device Metrics Exporter does not answer
+  ansible.builtin.fail:
+    msg: >-
+      [gpu_operator_not_ready] the Device Metrics Exporter on {{ amd_gpu_operator_node_name }} did
+      not answer at http://{{ ansible_host }}:{{ amd_gpu_operator_metrics_exporter_port }}/metrics
+      within the timeout: {{ amd_gpu_operator_metrics_probe.msg | default('no response') }}
+  when: amd_gpu_operator_metrics_probe is not succeeded

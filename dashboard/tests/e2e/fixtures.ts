@@ -240,7 +240,10 @@ const platforms = [
         { serverId: 'srv-3', role: 'control-plane', runWorkloads: false },
       ],
     },
-    gpuStackOwner: 'gpu-operator', monitoringLinks: [],
+    gpuStackOwner: 'gpu-operator',
+    // Mirrors platforms.md "Platform Monitoring Dashboards": a Kubernetes Platform's Grafana is linked
+    // at node port 30300 of its first workload node.
+    monitoringLinks: [{ name: 'Platform Grafana', url: 'http://192.168.40.21:30300' }],
     gpuOperator: {
       enabled: true, version: 'v1.5.1', allocationMode: 'device-plugin', draDriverVersion: null,
       resourceNaming: 'single', nodeLabeller: true, metricsExporter: false,

@@ -1,0 +1,9 @@
+---
+# The pinned Helm v3 swallow runs on a Kubernetes controller (the AMD GPU Operator and the
+# Kubernetes Platform Grafana). It is downloaded once per version and verified against the
+# official SHA-256, and it lives under swallow's directory so it never replaces a user's own helm.
+helm_version: v3.22.1
+helm_checksums:
+  amd64: 896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea
+  arm64: 4c29e286b279d170fa048ddfc3e4e83dcd069ca9c52102766ba672d7149e694d
+helm_home: /usr/local/lib/swallow/helm

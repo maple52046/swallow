@@ -118,3 +118,12 @@ test('Platform detail links to its own monitoring UI and to its usage charts', a
   await expect(page.getByRole('combobox', { name: 'Chart platform', exact: true })).toContainText('research-slurm')
   await expect.poll(() => requests.at(-1)?.get('platformId')).toBe('platform-slurm')
 })
+
+test('A Kubernetes Platform links the Grafana it runs in its cluster', async ({ page }) => {
+  await installApiFixtures(page)
+  await page.goto('/platforms/platform-a?site=site-a')
+
+  const grafana = page.getByRole('link', { name: 'Platform Grafana' })
+  await expect(grafana).toHaveAttribute('href', 'http://192.168.40.21:30300')
+  await expect(grafana).toHaveAttribute('target', '_blank')
+})

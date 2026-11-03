@@ -443,8 +443,8 @@ export interface GPUDriverSettings {
  * every compute and login node, and `omnistat` installs Omnistat; `deviceMetricsExporter` installs
  * AMD's Device Metrics Exporter instead (never both, and it needs a compute node with AMD GPUs). All
  * three are Slurm-only and rejected for Kubernetes; the enabled feature's `installMethod` chooses how
- * the Platform's Grafana is installed. `monitoringDashboards` (default on) gives a Slurm Platform its
- * own Grafana on the primary controller.
+ * the Platform's Grafana is installed. `monitoringDashboards` (default on) gives the Platform its own
+ * Grafana: on a Slurm Platform's primary controller, in a Kubernetes Platform's cluster.
  * `gpuDriver` applies to the GPU nodes of either type. `timeSyncCheck` decides what the
  * deployment's time-sync check does with a node whose clock is unsynchronized or too far from the
  * installation's NTP server: `enforce` (the backend default) fails the deployment, `warn` reports it.

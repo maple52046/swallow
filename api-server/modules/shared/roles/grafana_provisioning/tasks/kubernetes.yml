@@ -1,0 +1,40 @@
+---
+# Express the provisioning the way a Grafana Helm chart takes it. The datasource and dashboard
+# provider documents become the facts grafana_provisioning_datasources and
+# grafana_provisioning_providers, which the caller puts in its chart values. Each requested bundle
+# becomes a ConfigMap manifest, grafana_provisioning_manifest_dir/<bundle>.json on this host, named
+# grafana_provisioning_configmap_prefix + bundle, in grafana_provisioning_namespace, with
+# grafana_provisioning_labels; grafana_provisioning_manifests holds the rendering results, so the
+# caller can apply only the ones that changed. grafana_provisioning_dashboard_count is how many
+# dashboards the bundles hold.
+
+- name: Read the datasource and dashboard provider documents
+  ansible.builtin.set_fact:
+    grafana_provisioning_datasources: "{{ lookup('ansible.builtin.template', 'datasources.yaml.j2') | from_yaml }}"
+    grafana_provisioning_providers: "{{ lookup('ansible.builtin.template', 'providers.yaml.j2') | from_yaml }}"
+    grafana_provisioning_dashboard_count: >-
+      {%- set count = namespace(value=0) -%}
+      {%- for bundle in grafana_provisioning_bundles -%}
+      {%- set count.value = count.value + query('ansible.builtin.fileglob', 'dashboards/' ~ bundle ~ '/*.json') | length -%}
+      {%- endfor -%}
+      {{ count.value }}
+
+- name: Create the ConfigMap manifest directory
+  ansible.builtin.file:
+    path: "{{ grafana_provisioning_manifest_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render a ConfigMap manifest for each requested dashboard bundle
+  ansible.builtin.template:
+    src: configmap.json.j2
+    dest: "{{ grafana_provisioning_manifest_dir }}/{{ grafana_provisioning_bundle }}.json"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ grafana_provisioning_bundles }}"
+  loop_control:
+    loop_var: grafana_provisioning_bundle
+  register: grafana_provisioning_manifests

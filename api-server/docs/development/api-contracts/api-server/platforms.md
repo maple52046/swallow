@@ -138,8 +138,8 @@ one on the Platform. `enabled` is the latest requested intent; `state` is exactl
 or last applying it. `draDriverVersion` is `null` unless `allocationMode` is `dra`.
 
 `monitoringLinks` lists the Platform's **Monitoring Links**: links to a monitoring UI that
-belongs to the Platform — for example the Platform's own Grafana swallow installs on a Slurm
-Platform. It is always an array, empty by default. Each link has a `name` (the label a user
+belongs to the Platform — for example the Platform's own Grafana swallow installs on every Platform
+type. It is always an array, empty by default. Each link has a `name` (the label a user
 clicks) and an absolute `http`/`https` `url`. Monitoring Links are swallow-owned display data:
 swallow never connects to, authenticates against, or checks the URL, and they are not a metrics
 Integration — swallow's own usage charts keep reading the Site metrics backend (see
@@ -493,7 +493,8 @@ a `validation_error`. A client that sends `gpuStackOwner=gpu-operator` without `
 records an operator managed outside swallow, and swallow installs nothing. The `gpuOperator`
 validation runs before any Platform or Workflow is created. The Workflow adds a
 `configure-gpu-operator` Job after `validate-platform`; the deployment succeeds only when it
-does.
+does. `monitoringDashboards` (a setting, default `true`) adds the Platform's own Grafana in the
+cluster as the last Job (see [Platform monitoring dashboards](#platform-monitoring-dashboards)).
 
 Success is `202 Accepted` after both records are persisted:
 
@@ -692,14 +693,25 @@ is reported as unverifiable.
 Every Platform may have its own read-only Grafana that shows only its members' series
 ([monitoring.md](../../../../../docs/development/monitoring.md) §6.2). The setting is
 `settings.monitoringDashboards`, a boolean that defaults to `true` (omitted or `null` is on); it
-is desired state the user writes with the spec. It applies to CPU-only Platforms as well. A Slurm
-Platform reads it today; a Kubernetes Platform's spec may carry it, and its deployment does not
-install a Grafana yet.
+is desired state the user writes with the spec. It applies to CPU-only Platforms as well, and both
+Platform types read it. What the two have in common:
 
-On a Slurm Platform with the setting on, the deploy Workflow composes the Managed Software
-`grafana` onto the primary controller after the Slurm install (a `configure-grafana` Job, see
-[software](software.md#composition-into-platform-deployments)), whether or not a monitoring
-feature is chosen:
+- Its datasource is the [Platform metrics gateway](platform-metrics-gateway.md),
+  `<public URL>/api/v1/platform-metrics/<platformId>/prometheus`, where the public URL is the
+  installation's `SWALLOW_API_PUBLIC_URL` (the address the Servers reach swallow at). It
+  authenticates with the Platform's monitoring token: swallow issues a new token each time it
+  accepts such a deployment (so every deploy or redeploy rotates it) and hands it to the Grafana
+  install Task only as a sealed secret; it is never in the Workflow's parameters or its logs.
+- It provisions the `node-exporter` dashboards (CPU, memory, root filesystem, network, and load per
+  Server), plus the GPU or job monitoring dashboards of the Platform's monitoring.
+- Anyone on the management network can view it anonymously; there is no login form.
+- When the install Task succeeds, swallow sets the Monitoring Link `Platform Grafana` to the URL the
+  run reports. An install that reports no URL fails the Task.
+
+On a **Slurm** Platform the deploy Workflow composes the Managed Software `grafana` onto the primary
+controller after the Slurm install (a `configure-grafana` Job, see
+[software](software.md#composition-into-platform-deployments)), whether or not a monitoring feature
+is chosen:
 
 - Its install method is the enabled monitoring feature's `installMethod` (see [Omnistat](#omnistat)
   and [Device Metrics Exporter](#device-metrics-exporter)), and `native` when neither is enabled, so
@@ -707,26 +719,34 @@ feature is chosen:
   method first composes a container runtime onto the primary controller:
   the [container runtime](#container-runtime) the deploy chose, else the runtime already assigned
   to that Server, else Docker CE (with its Engine API off), skipped where it is `installed`.
-- Its datasource is the [Platform metrics gateway](platform-metrics-gateway.md),
-  `<public URL>/api/v1/platform-metrics/<platformId>/prometheus`, where the public URL is the
-  installation's `SWALLOW_API_PUBLIC_URL` (the address the Servers reach swallow at). It
-  authenticates with the Platform's monitoring token: swallow issues a new token each time it
-  accepts such a deployment (so every deploy or redeploy rotates it) and hands it to the Grafana
-  install Task only as a sealed secret; it is never in the Workflow's parameters, its logs, or the
-  Software Assignment's `spec`.
-- It provisions the `node-exporter` dashboards (CPU, memory, root filesystem, network, and load per
-  Server), plus `omnistat` or `device-metrics-exporter` for the enabled feature.
-- When the install Task succeeds, swallow sets the Monitoring Link `Platform Grafana` to the
-  Grafana (`http://<primary address>:3000`, anonymous read-only, no login), replacing a link it
-  wrote for it as `Omnistat Grafana` or `Device Metrics Exporter Grafana`. An install that reports
-  no URL fails the Task.
+- The token is not in the Software Assignment's `spec`. The dashboards add `omnistat` or
+  `device-metrics-exporter` for the enabled feature.
+- The link is `http://<primary address>:3000`, replacing a link swallow wrote for the same Grafana
+  as `Omnistat Grafana` or `Device Metrics Exporter Grafana`.
+
+On a **Kubernetes** Platform the deploy Workflow ends with a `configure-platform-grafana` Job, after
+`validate-platform` and after the [GPU Operator](#manage-the-gpu-operator) when the deploy installs
+one. Its one Task, `install-platform-grafana`, targets every member and installs the pinned
+grafana-community Helm chart in the cluster from the initial controller:
+
+- Grafana runs in namespace `swallow-grafana`, without persistent storage, and is reached at node
+  port `30300` of every workload member; the link is `http://<first workload member's address>:30300`.
+  On a member with an active firewalld the Task opens that port.
+- The dashboards add `device-metrics-exporter` when the GPU Operator's `metricsExporter` is on.
+- The token and a generated admin password are Kubernetes Secrets in that namespace; neither is in
+  the chart values. The admin account exists for cluster administrators who read the Secret; there
+  is still no login form.
+- The Task fails (`ansible_failed`, retryable) with a message that starts with
+  `[platform_grafana_node_port_in_use]` when another Service in the cluster holds node port `30300`,
+  and it succeeds only once Grafana answers at the linked address and serves every dashboard there.
+- Uninstalling the Platform removes the release with the cluster.
 
 An installation without `SWALLOW_API_PUBLIC_URL` cannot plan the Grafana: the deployment is
 refused when the platform controller plans it, and the Platform's `realized` Condition (`failed`)
 names the setting. Turning the setting on for a deployed Platform redeploys it (see
 [Change A Platform](#change-a-platform)); turning it off after deployment is not carried out yet.
-Uninstalling the Platform removes the `Platform Grafana` link and keeps the Grafana's Software
-Assignment until it is uninstalled through the software API.
+Uninstalling the Platform removes the `Platform Grafana` link; on Slurm the Grafana's Software
+Assignment stays until it is uninstalled through the software API.
 
 ## Container Runtime
 
@@ -964,7 +984,7 @@ from that result; it never asks a client to enumerate the nodes to manage.
 | `draDriverVersion` | string | the release's `defaultDraDriverVersion` | used only when `allocationMode` is `dra`; must be one of the release's `draDriverVersions` |
 | `resourceNaming` | `single` \| `mixed` | `single` | device plugin resource names: `single` always uses `amd.com/gpu`; `mixed` names partitioned GPUs per partition type |
 | `nodeLabeller` | boolean | `true` | label nodes with `amd.com/gpu.*` GPU properties |
-| `metricsExporter` | boolean | `false` | run AMD's Device Metrics Exporter (pod network only; swallow does not scrape it) |
+| `metricsExporter` | boolean | `false` | run AMD's Device Metrics Exporter on each managed node's host network at port `5001`, where the Site Prometheus scrapes it (see [What The Workflow Does](#what-the-workflow-does)) |
 
 Enabling the operator requires at least one workload-capable target of the Platform's deployment
 whose GPU inventory has an AMD `compute` GPU; otherwise it is a `validation_error`. This only
@@ -1025,7 +1045,8 @@ or upgraded and before the `DeviceConfig` is applied:
 | `gpu_workloads_present` | the change switches the allocation mode or uninstalls while a Pod requests an AMD GPU resource or a `gpu.amd.com` `ResourceClaim` is allocated |
 | `amd_gpu_not_detected` | Node Feature Discovery marked no node as an AMD GPU node, for example because no node has a GPU the chart supports |
 | `amdgpu_driver_missing` | a managed node's image has no `amdgpu` kernel module, or the driver did not load or exposed no `/dev/kfd` when swallow loaded it |
-| `gpu_operator_not_ready` | the operator did not become Ready, or a managed node did not expose its GPUs, within the timeout |
+| `metrics_exporter_port_conflict` | `metricsExporter` is on and a managed node has AMD's standalone Device Metrics Exporter (`amd-metrics-exporter.service`), which already holds port `5001` |
+| `gpu_operator_not_ready` | the operator did not become Ready, a managed node did not expose its GPUs, or (with `metricsExporter`) a managed node's exporter did not answer at port `5001`, within the timeout |
 
 Applying the settings installs or upgrades the pinned chart with KMM and remediation disabled,
 waits for its Node Feature Discovery to evaluate every node, and labels the nodes it marks as AMD
@@ -1042,7 +1063,13 @@ For `dra` on k0s, the Task links `/var/lib/kubelet/plugins` and `/var/lib/kubele
 to the k0s kubelet directories on managed nodes and removes those exact links when DRA is turned
 off or the operator is uninstalled. The Task succeeds when the `DeviceConfig` is Ready and every
 managed node exposes a positive `amd.com/*` allocatable (`device-plugin`) or a `gpu.amd.com`
-`ResourceSlice` with devices (`dra`). Uninstalling removes the `DeviceConfig`, the Helm release,
+`ResourceSlice` with devices (`dra`) and, with `metricsExporter`, every managed node's exporter
+answers at `http://<node address>:5001/metrics`. The exporter runs on the host network at port
+`5001` with the metric prefix `amd_` of every Device Metrics Exporter swallow manages (its
+configuration is the ConfigMap `swallow-metrics-exporter` in `kube-amd-gpu`, removed when the
+exporter is turned off), so the same dashboards read it; while the GPU Operator is `ready` with
+the exporter on, the Site Prometheus scrapes it on every workload member whose GPU Inventory lists
+AMD compute GPUs ([discovery-prometheus.md](discovery-prometheus.md)). Uninstalling removes the `DeviceConfig`, the Helm release,
 the node labels, the DRA links, and the amdgpu loader; the Platform stays `active`.
 
 `gpuOperator.state` follows the Task: `installing` / `uninstalling` while it waits or runs,
@@ -1070,7 +1097,7 @@ swallow classifies the change against `status.applied` as
 validates the new spec as a deployment:
 
 - A non-destructive change (adding a member, turning on the GPU Operator, a Slurm monitoring
-  feature, a Slurm Platform's `monitoringDashboards`, or a first container runtime or workload
+  feature, a Platform's `monitoringDashboards`, or a first container runtime or workload
   storage) is written and answered `200 OK` with `plan: null`; the platform controller converges
   it. Adding a member runs the type's deploy
   Workflow over every member; members already in the Platform are left as they are.
@@ -1081,7 +1108,7 @@ validates the new spec as a deployment:
   containers, PMIx, `stateSaveLocation`, or `gpuGresType` — the plan carries the blocker
   `swallow cannot carry out <action> yet` and cannot be approved.
 - A non-destructive change swallow cannot carry out yet (turning off or changing a Slurm monitoring
-  feature, or turning off a Slurm Platform's `monitoringDashboards`) is `409 conflict` and writes
+  feature, or turning off a Platform's `monitoringDashboards`) is `409 conflict` and writes
   nothing.
 - An immutable field (`podCidr`, `serviceCidr`, `apiVip`, `apiVipPrefix`, Slurm `clusterName`) is
   `409 conflict`: changing it means deleting the Platform and creating it again.
@@ -1303,6 +1330,13 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-03 a Kubernetes deployment reads `settings.monitoringDashboards` (default on) and
+  installs the Platform's own Grafana in the cluster, so a Kubernetes deploy is refused when it is
+  planned if the installation lacks `SWALLOW_API_PUBLIC_URL`. A Kubernetes Platform deployed before
+  gets its Grafana the next time its deployment runs. The same day the GPU Operator's
+  `metricsExporter` moved from the pod network to each managed node's host network at port `5001`,
+  where the Site Prometheus scrapes it; a Platform whose exporter is on moves the next time its
+  GPU Operator is applied. The request and response shapes are unchanged.
 - Since 2026-11-03 a Slurm deployment composes no Prometheus: the Site Prometheus scrapes Omnistat
   and the Device Metrics Exporter. It composes the Platform's own Grafana whenever
   `settings.monitoringDashboards` is on, which is the default, so a Platform without a monitoring

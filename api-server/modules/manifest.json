@@ -14,6 +14,10 @@
       "path": "platform/kubernetes/playbooks/uninstall-kubernetes.yml"
     },
     {
+      "name": "configure-kubernetes-grafana",
+      "path": "platform/kubernetes/playbooks/configure-kubernetes-grafana.yml"
+    },
+    {
       "name": "configure-amd-gpu-operator",
       "path": "accelerator/amd/playbooks/configure-amd-gpu-operator.yml"
     },

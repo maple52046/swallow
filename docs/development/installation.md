@@ -203,7 +203,7 @@ Platform 自己的 Grafana 與 Omnistat 裝在 Server 上，它們和控制平�
 - 兩者都不是 process 啟動的必要條件。有設定時：URL 必須是絕對的 `http`／`https`，有 host，沒有 path、query 與
   credential（結尾的 `/` 會去掉）；位址必須都是 IP 位址。不符時 process 啟動失敗。
 - 沒有設定時，需要它的 deployment 在規劃時被拒絕，訊息指出要設定的變數：開了 Platform Grafana（預設開啟）的
-  Slurm deployment 需要 URL，開了 Omnistat 的需要位址。拒絕發生在 platform controller 規劃 Workflow 時，所以由
+  Slurm 與 Kubernetes deployment 需要 URL（Kubernetes 的 Grafana 在 Pod 裡，經節點的位址連到它），開了 Omnistat 的需要位址。拒絕發生在 platform controller 規劃 Workflow 時，所以由
   Platform 的 `realized` Condition 回報。
 - Nginx 的 `location /api/` 把 `/api/v1/platform-metrics/` 連同 `Authorization` header 轉送到 api-server，不必另設
   路由。Prometheus 經 `egress` 以主機的位址連到 Servers，所以 `SWALLOW_ADDRESS` 就是它在 Servers 看到的來源位址；

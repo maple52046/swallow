@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -327,7 +328,7 @@ func TestDeploySlurmMonitoringDashboards(t *testing.T) {
 				t.Fatalf("Deploy() error = %v", err)
 			}
 			got := launcher.launched.MonitoringDashboards
-			if (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) {
+			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("monitoring dashboards = %+v, want %+v", got, tc.want)
 			}
 		})

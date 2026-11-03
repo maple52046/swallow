@@ -113,8 +113,18 @@ Plugin and DRA, or uninstalling, is refused while a Pod still uses an AMD GPU; s
 work first. Uninstalling the operator keeps the Platform running. swallow does not take over an operator
 that was installed by hand.
 
-The Device Metrics Exporter is for the cluster's own monitoring; swallow's
-GPU charts read an RDC exporter running on the host, which swallow does not install.
+With **Device Metrics Exporter** on, the operator runs AMD's exporter on each GPU
+node's host network at port 5001, the same port and metric names as every other
+Device Metrics Exporter swallow manages. The Site Prometheus collects it, and the
+Platform Grafana adds its GPU dashboards. A GPU node that already runs AMD's
+standalone exporter package is refused, since both need that port.
+
+### Platform Grafana
+
+The Kubernetes workspace's **Features** step also has the **Platform Grafana**
+switch, on by default, CPU-only Platforms included: a read-only Grafana in the
+cluster, reached at port 30300 of every workload node (see
+[Monitoring](monitoring.md#a-platforms-own-grafana)).
 
 ## Slurm
 

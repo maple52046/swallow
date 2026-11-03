@@ -3,7 +3,8 @@
 # before the DeviceConfig starts any operand. The operator uses the driver the OS image ships
 # (decision 062), so a node whose image has no amdgpu module is refused. Whether the driver is
 # loaded is not checked here: an image may keep amdgpu out of the boot path, and host_driver
-# loads it.
+# loads it. With the metrics exporter on, a node whose host port is already taken by AMD's
+# standalone exporter is refused, since two exporters cannot share it.
 
 - name: Check for the amdgpu kernel module
   ansible.builtin.command:
@@ -20,3 +21,23 @@
       provides; deploy an image with the amdgpu driver, or remove this Server from the managed
       nodes.
   when: amd_gpu_operator_module.rc != 0
+
+- name: Check for AMD's standalone Device Metrics Exporter
+  ansible.builtin.command:
+    argv: [systemctl, show, --property=LoadState, --value, "{{ amd_gpu_operator_metrics_conflicting_unit }}"]
+  register: amd_gpu_operator_standalone_exporter
+  changed_when: false
+  failed_when: false
+  when: swallow_amd_gpu_operator_metrics_exporter | bool
+
+- name: Refuse a node whose standalone exporter holds the metrics port
+  ansible.builtin.fail:
+    msg: >-
+      [metrics_exporter_port_conflict] {{ amd_gpu_operator_node_name }} has AMD's standalone Device
+      Metrics Exporter ({{ amd_gpu_operator_metrics_conflicting_unit }}), which holds port
+      {{ amd_gpu_operator_metrics_exporter_port }} that the operator's exporter takes on the host
+      network. Remove the amdgpu-exporter package from the node, or turn the operator's
+      metricsExporter off.
+  when:
+    - swallow_amd_gpu_operator_metrics_exporter | bool
+    - (amd_gpu_operator_standalone_exporter.stdout | default('') | trim) == 'loaded'

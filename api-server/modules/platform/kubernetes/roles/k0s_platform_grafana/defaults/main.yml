@@ -1,0 +1,51 @@
+---
+# The Kubernetes Platform's own Grafana (monitoring.md §6.2): the grafana-community Helm chart in
+# the cluster, installed with the shared pinned helm on the initial controller. Intent arrives only
+# as trusted swallow_k0s_grafana_* vars and the secret var swallow_grafana_datasource_token; the
+# rest is fixed here. It is read-only by design: anonymous Viewer access, no login form, no
+# persistence, and every datasource and dashboard comes from provisioning, so a reinstall loses
+# nothing.
+
+k0s_platform_grafana_kubectl: /usr/local/bin/k0s kubectl
+# k0s writes the cluster-admin kubeconfig here on every controller; helm reads it.
+k0s_platform_grafana_kubeconfig: /var/lib/k0s/pki/admin.conf
+k0s_platform_grafana_home: /usr/local/lib/swallow/platform-grafana
+k0s_platform_grafana_namespace: swallow-grafana
+k0s_platform_grafana_release: platform-grafana
+k0s_platform_grafana_owner_label: app.kubernetes.io/managed-by
+k0s_platform_grafana_owner_value: swallow
+
+# The chart archive ships with the role (files/grafana-<version>.tgz, pulled from
+# oci://ghcr.io/grafana-community/helm-charts/grafana). 11.6.1 is the last chart line for Grafana 12,
+# the major the Grafana Managed Software installs; the image is that kind's Grafana release, pinned
+# by digest so the cluster never resolves a tag.
+k0s_platform_grafana_chart_version: 11.6.1
+k0s_platform_grafana_chart_sha256: ecea607545115a9f1d189870918613372a98fb47c447adcc612c9a5085d4ff79
+k0s_platform_grafana_image:
+  registry: docker.io
+  repository: grafana/grafana
+  tag: "12.4.12"
+  sha256: 83be3e511ede559bee80e2215bb1987cb1246075461cb961beb515b0341e7aea
+
+# The fixed NodePort users open on any workload node; the link swallow records names the first one.
+k0s_platform_grafana_node_port: 30300
+
+# Secrets the role creates in the namespace. The admin password is generated once and kept; the
+# datasource token is the Platform's monitoring token, replaced by every deploy.
+k0s_platform_grafana_admin_secret: swallow-grafana-admin
+k0s_platform_grafana_datasource_secret: swallow-grafana-datasource
+# Each requested dashboard bundle is a ConfigMap named after it, which the chart mounts under
+# k0s_platform_grafana_dashboards_path/<bundle>.
+k0s_platform_grafana_dashboards_prefix: swallow-grafana-dashboards-
+k0s_platform_grafana_dashboards_label: swallow.dev/grafana-dashboards
+k0s_platform_grafana_dashboards_path: /var/lib/grafana/dashboards
+
+k0s_platform_grafana_node_ids: "{{ swallow_k0s_grafana_node_ids | default([]) }}"
+k0s_platform_grafana_datasource_url: "{{ swallow_k0s_grafana_datasource_url | default('', true) }}"
+k0s_platform_grafana_bundles: "{{ swallow_k0s_grafana_dashboards | default([]) }}"
+k0s_platform_grafana_datasource_token: "{{ swallow_grafana_datasource_token | default('', true) }}"
+
+# Bounded waits (retries x delay seconds).
+k0s_platform_grafana_wait_retries: 60
+k0s_platform_grafana_wait_delay: 5
+k0s_platform_grafana_helm_timeout: 10m

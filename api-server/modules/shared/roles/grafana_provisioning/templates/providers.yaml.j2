@@ -2,16 +2,16 @@
 apiVersion: 1
 
 providers:
-{% for bundle in grafana_dashboards %}
+{% for bundle in grafana_provisioning_bundles %}
   - name: {{ bundle | to_json }}
     orgId: 1
-    folder: {{ grafana_dashboard_folders[bundle] | default(bundle) | to_json }}
+    folder: {{ grafana_provisioning_folders[bundle] | default(bundle) | to_json }}
     type: file
     disableDeletion: true
     allowUiUpdates: false
     updateIntervalSeconds: 30
     options:
-      path: {{ grafana_dashboards_path | trim }}/{{ bundle }}
+      path: {{ grafana_provisioning_dashboards_path | trim }}/{{ bundle }}
       foldersFromFilesStructure: false
 {% else %}
   []

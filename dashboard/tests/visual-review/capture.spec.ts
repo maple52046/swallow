@@ -431,6 +431,47 @@ test.describe('AMD GPU Operator visual review', () => {
 })
 
 /**
+ * Captures the Kubernetes Platform Grafana (monitoring.md §6.2): its card in a CPU-only deploy's
+ * Features step, its line on the Review step, and the Monitoring section of a Kubernetes Platform
+ * that links it. Element captures keep the sticky shell out of the card being inspected.
+ */
+test.describe('Kubernetes Platform Grafana visual review', () => {
+  test('kubernetes-platform-grafana', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { freePlatformCandidates: true })
+    await setAppearance(page, appearance)
+
+    await page.goto('/platforms/deploy/kubernetes?site=site-a')
+    await page.getByLabel('Platform name').fill('cpu-k0s')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+    await page.getByRole('radio', { name: /Standalone/ }).locator('xpath=following-sibling::*[1]').click()
+    await chooseOption(page, 'Role for gpu-node-04', 'Standalone node')
+    await next.click()
+    const card = page.getByRole('region', { name: 'Platform Grafana' })
+    await expect(page.getByRole('switch', { name: 'Enable Platform Grafana' })).toBeChecked()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await card.screenshot({ path: testInfo.outputPath(`kubernetes-grafana-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+
+    await next.click()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'kubernetes-grafana-review')
+
+    await page.goto('/platforms/platform-a?site=site-a')
+    const monitoring = page.getByRole('heading', { name: 'Monitoring', exact: true }).locator('xpath=ancestor::section[1]')
+    await expect(monitoring.getByRole('link', { name: 'Platform Grafana' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await monitoring.screenshot({ path: testInfo.outputPath(`kubernetes-grafana-monitoring-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+  })
+})
+
+/**
 /**
  * Captures the runtime-specific Kubernetes workspace at topology, network, and grouped Review.
  * Desktop runs at 1280px to exercise the compact 13-inch hierarchy; mobile verifies card parity.
@@ -549,6 +590,9 @@ test.describe('Slurm Omnistat visual review', () => {
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'slurm-omnistat-wizard-features')
+    await page.getByRole('region', { name: 'Platform Grafana' }).screenshot({
+      path: testInfo.outputPath(`slurm-grafana-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+    })
     await page.getByText('Advanced GPU settings', { exact: true }).click()
     await page.getByRole('radio', { name: /Custom name/ }).locator('xpath=following-sibling::*[1]').click()
     await page.getByLabel('GRES type name').fill('mi308x_vf')

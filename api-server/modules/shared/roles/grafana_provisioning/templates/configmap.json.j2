@@ -1,0 +1,16 @@
+{#- One dashboard bundle as a ConfigMap: every file of files/dashboards/<bundle> under its own name,
+    the bundle's LICENSE included. -#}
+{%- set data = {} -%}
+{%- for path in query('ansible.builtin.fileglob', 'dashboards/' ~ grafana_provisioning_bundle ~ '/*') | sort -%}
+{%- set _ = data.update({path | basename: lookup('ansible.builtin.file', path, rstrip=false)}) -%}
+{%- endfor -%}
+{{ {
+     'apiVersion': 'v1',
+     'kind': 'ConfigMap',
+     'metadata': {
+       'name': grafana_provisioning_configmap_prefix ~ grafana_provisioning_bundle,
+       'namespace': grafana_provisioning_namespace,
+       'labels': grafana_provisioning_labels,
+     },
+     'data': data,
+   } | to_json(sort_keys=true) }}

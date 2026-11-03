@@ -21,6 +21,7 @@ const (
 // settingKeys are the Kubernetes fields of the deploy request that a spec keeps as settings.
 var settingKeys = []string{
 	"gpuStackOwner", "gpuOperator", "gpuDriver", "k0sVersion", "podCidr", "serviceCidr", "apiVip", "apiVipPrefix", "timeSyncCheck",
+	platformdomain.SettingMonitoringDashboards,
 }
 
 // immutableSettings change the cluster's network identity, so they are fixed at creation
@@ -93,9 +94,10 @@ func (Platform) SpecFromDeployRequest(body map[string]any) (platformdomain.Platf
 }
 
 // Changes classifies a Kubernetes change: creating and uninstalling are destructive; adding a
-// member and enabling the GPU Operator converge directly; removing a member, changing a Node Role,
-// changing the k0s version, the GPU stack owner, or the driver options, and disabling or changing
-// the GPU Operator are destructive. swallow cannot yet remove members, change roles, or upgrade.
+// member, enabling the GPU Operator, and enabling the monitoring dashboards converge directly;
+// removing a member, changing a Node Role, changing the k0s version, the GPU stack owner, or the
+// driver options, and disabling or changing the GPU Operator are destructive. swallow cannot yet
+// remove members, change roles, upgrade, or disable the monitoring dashboards.
 func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdomain.PlatformSpec) (platformdomain.PlatformChanges, error) {
 	platform := convergence.ResourceRef{Kind: "platform"}
 	if desired.Desired == platformdomain.PlatformAbsent {
@@ -154,8 +156,17 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 			add(convergence.PlannedAction{Target: platform, Action: "change-" + key, Destructive: true, Reason: "the GPU stack on the members changes"}, false)
 		}
 	}
+	// The dashboards only display the Site's metrics, so adding or removing them touches no workload.
+	dashboardsWere, dashboardsAre := platformdomain.MonitoringDashboardsWanted(*applied), platformdomain.MonitoringDashboardsWanted(desired)
 	switch {
-	case len(added) > 0:
+	case !dashboardsWere && dashboardsAre:
+		add(convergence.PlannedAction{Target: platform, Action: "enable-monitoring-dashboards", To: "enabled", Reason: "the Platform's Grafana is added"}, true)
+	case dashboardsWere && !dashboardsAre:
+		add(convergence.PlannedAction{Target: platform, Action: "disable-monitoring-dashboards", From: "enabled", To: "disabled", Reason: "the Platform's Grafana is removed"}, false)
+	}
+	switch {
+	case len(added) > 0 || !dashboardsWere && dashboardsAre:
+		// The convergent deploy reruns over every member, and composes the Grafana last.
 		changes.Realization = platformdomain.RealizeDeploy
 	case before || after:
 		if platformdomain.SettingChanged(*applied, desired, "gpuOperator") {

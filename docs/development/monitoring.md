@@ -209,7 +209,7 @@ node-exporter 的 target 時是 unknown，不是 `down`——swallow 沒有在�
 - **內建的 Alertmanager 與 alert rule**。
 - **AI NIC 監控**。
 - **multi-site 的實際部署**（§5.1）。
-- **離線環境**：Kubernetes Grafana 的 chart 與 image 的鏡像（GPU Operator 也有同樣的問題）。
+- **離線環境**：Kubernetes Grafana 的 image 與 helm 的鏡像（chart 隨發行包附帶；GPU Operator 也有同樣的問題）。
 - **Kubernetes Grafana 的 Ingress 或 LoadBalancer**：這一版只提供 NodePort。
 - **Platform Grafana 的登入**：這一版以匿名檢視開放給管理網路。
 - **RDC exporter** 以實驗性 feature 加回。
@@ -221,10 +221,10 @@ node-exporter 的 target 時是 unknown，不是 `down`——swallow 沒有在�
 - 在本設計之前部署的 Server 沒有 node-exporter 的 Software Assignment，所以不是 scrape target，health 為 unknown；
   node-exporter 成為 desired state 之後（§4.1）才會自動補裝。
 - Omnistat 的 exporter 已是 scrape target，但名稱與 port 由 composition root 依 Slurm Platform 的 Omnistat State 列出，
-  還不是由模組宣告；GPU Operator 的 DME 還不在 scrape target 裡。
-- GPU Operator 的 DME 只在 Pod 網路上，沒有人收集。
-- Kubernetes 還沒有 Platform 的 Grafana：開關（Platform spec 的 `monitoringDashboards`）已在，但 Kubernetes 的部署
-  尚不讀它，也不發出 token。
+  還不是由模組宣告；GPU Operator 的 DME 由 composition root 依 Kubernetes Platform 的 GPU Operator State 列出（名稱與 port
+  取自 DME 模組的宣告），成員是 swallow 從 GPU inventory 推得的納管節點，不是 NFD 的結果。
+- 啟用 firewalld 的主機（RHEL 家族的 Kubernetes 成員一定啟用）沒有替 Site 的 Prometheus 開 exporter 的 port（node-exporter
+  9100、DME 5001），所以它們收集不到；只有 Kubernetes 的 Platform Grafana 的 NodePort 有開。
 - swallow 的 metrics API 仍有 GPU 指標（只認得 DCGM 與 RDC 的指標名稱），dashboard 仍顯示 GPU 圖；基礎監控仍在實驗性
   開關後面。
 - node-exporter 尚未成為 desired state：安裝之後被移除或停止不會被發現。

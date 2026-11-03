@@ -112,7 +112,8 @@ type platformTokenIssuer interface {
 
 // preparedPlatformDeployment is the plan the platform launchers' prepare steps return
 // (platformdomain.PreparedWorkflow): the complete durable Workflow, with the Software Assignments
-// a Slurm deployment composes. Only the launcher that prepared it persists it.
+// a Slurm deployment composes and the Tasks of either type that receive the Platform's monitoring
+// token. Only the launcher that prepared it persists it.
 type preparedPlatformDeployment struct {
 	workflow workflowapp.CreateWorkflowInput
 	composed composedPlan
@@ -139,11 +140,11 @@ func (l platformDeploymentLauncher) PrepareDeployment(ctx context.Context, launc
 // PersistDeployment writes a plan from PrepareDeployment: the Workflow (with its sealed secrets
 // and first event), the Software Assignments a Slurm deployment composes, and the initial
 // deployment projection of every Server it provisions. A deployment that installs the Platform's
-// Grafana first issues the Platform's monitoring token and seals it into that Grafana's install
-// Task, so each accepted deploy rotates the token and a refused one leaves the current token
-// working. The caller runs it inside the store transaction that also writes the Platform and its
-// claims, so every failure here is returned rather than logged: any one of them rolls the whole
-// deployment back.
+// Grafana, of either Platform type, first issues the Platform's monitoring token and seals it into
+// that Grafana's install Task, so each accepted deploy rotates the token and a refused one leaves
+// the current token working. The caller runs it inside the store transaction that also writes the
+// Platform and its claims, so every failure here is returned rather than logged: any one of them
+// rolls the whole deployment back.
 func (l platformDeploymentLauncher) PersistDeployment(ctx context.Context, prepared platformdomain.PreparedWorkflow) (string, error) {
 	plan, ok := prepared.(*preparedPlatformDeployment)
 	if !ok || plan == nil {
@@ -181,7 +182,8 @@ func (l platformDeploymentLauncher) PersistDeployment(ctx context.Context, prepa
 }
 
 // prepareKubernetes plans the k0s deployment: the ensure-os Job, the install and health-validation
-// Tasks, and the optional GPU Operator Job, under the Workflow id the deploy use case preassigned.
+// Tasks, the optional GPU Operator Job, and the Platform Grafana Job when the Platform has its own
+// monitoring dashboards, under the Workflow id the deploy use case preassigned.
 func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launch platformdomain.DeploymentLaunch) (*preparedPlatformDeployment, error) {
 	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
 	launch.TrustedVars = l.ntp.withCheckVars(launch.TrustedVars, launch.TimeSyncCheck)
@@ -228,19 +230,27 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 		Executor: workflowdomain.RunnerKindInternal, DependsOn: []string{installPlatformStepID},
 		Targets: prepared.Targets,
 	})
+	last := []string{"validate-platform"}
 	if gpuPrepared != nil {
 		// The operator is installed only on a validated cluster, so its Job depends on the
 		// health gate and the deployment succeeds only when the operator does (decision 062).
 		steps = append(steps, gpuOperatorTask(gpuPrepared, launch.Platform.ID, operationID,
-			[]string{"validate-platform"}, "Install AMD GPU Operator"))
+			last, "Install AMD GPU Operator"))
+		last = []string{gpuOperatorStepID}
 	}
+	// The Platform Grafana comes last: it shows the GPU Operator's exporter when there is one.
+	composed, err := l.planKubernetesGrafana(ctx, launch, operationID, provisionFirst, last)
+	if err != nil {
+		return nil, err
+	}
+	steps = append(steps, composed.steps...)
 
 	workflow, err := l.deploymentWorkflowInput(ctx, operationID, workflowdomain.WorkflowKindDeployKubernetes,
 		"Deploy k0s Platform "+launch.Platform.Name, launch, prepared, steps, ensure)
 	if err != nil {
 		return nil, err
 	}
-	return &preparedPlatformDeployment{workflow: workflow, exporters: ensure.exporters}, nil
+	return &preparedPlatformDeployment{workflow: workflow, composed: composed, exporters: ensure.exporters}, nil
 }
 
 // prepareSlurm plans the durable Slurm deployment Operation. It reuses the ensure-os Job to

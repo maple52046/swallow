@@ -91,8 +91,14 @@ GPU workload 重啟，所以會先提成 Change Plan 待核准。仍有 Pod 使�
 與 DRA 或卸載都會被拒絕，請先停止那些工作。卸載 operator 不會影響 Platform 本身。swallow 不會
 接管手動安裝的 operator。
 
-Device Metrics Exporter 供叢集自己的監控使用；swallow 的 GPU 圖表讀取主機上執行中的 RDC exporter，
-swallow 不會安裝它。
+開啟 **Device Metrics Exporter** 時，operator 在每個 GPU 節點的 host network 上以 port 5001 執行 AMD 的 exporter，
+port 與指標名稱都和 swallow 管理的其他 Device Metrics Exporter 相同。Site 的 Prometheus 收集它，Platform Grafana 也會
+加上它的 GPU dashboards。已經裝了 AMD standalone exporter 套件的 GPU 節點會被拒絕，因為兩者都需要這個 port。
+
+### Platform Grafana
+
+Kubernetes workspace 的 **Features** step 也有 **Platform Grafana** 開關，預設開啟，CPU-only 的 Platform 也一樣：
+叢集內的唯讀 Grafana，以每個 workload 節點的 port 30300 開放（見[監控](monitoring.md#platform-自己的-grafana)）。
 
 ## Slurm
 

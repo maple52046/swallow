@@ -1,0 +1,19 @@
+{#- Rendered by Swallow (decision 062). The Device Metrics Exporter's configuration: the metric
+    prefix and health metrics of every swallow-managed exporter, every field AMD exports (an empty
+    field list), and hardware profiler counters off, because the hardware serves one profiler at a
+    time and users' rocprof needs it. -#}
+{%- set config = {
+      'ServerPort': amd_gpu_operator_metrics_exporter_port | int,
+      'CommonConfig': {'MetricsFieldPrefix': amd_gpu_operator_metrics_prefix, 'HealthService': {'Enable': true}},
+      'GPUConfig': {'Labels': amd_gpu_operator_metrics_labels, 'ProfilerMetrics': {'all': false}},
+    } -%}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ amd_gpu_operator_metrics_config }}
+  namespace: {{ amd_gpu_operator_namespace }}
+  labels:
+    {{ amd_gpu_operator_owner_label }}: {{ amd_gpu_operator_owner_value }}
+data:
+  config.json: |
+    {{ config | to_nice_json(indent=2) | indent(4) }}

@@ -41,10 +41,10 @@ func TestOmnistatQueryReadsPrometheusThroughGrafana(t *testing.T) {
 		t.Errorf("omnistat-query prometheus_url = %q, want Grafana's datasource proxy %q", url, want)
 	}
 
-	omnistat, grafana := readRoleDefaults(t, "omnistat"), readRoleDefaults(t, "grafana")
-	if omnistat["omnistat_grafana_datasource_uid"] != grafana["grafana_datasource_uid"] {
+	omnistat, provisioning := readRoleDefaults(t, "omnistat"), readRoleDefaults(t, "grafana_provisioning")
+	if omnistat["omnistat_grafana_datasource_uid"] != provisioning["grafana_provisioning_datasource_uid"] {
 		t.Errorf("omnistat datasource UID %v, grafana provisions %v; they must match",
-			omnistat["omnistat_grafana_datasource_uid"], grafana["grafana_datasource_uid"])
+			omnistat["omnistat_grafana_datasource_uid"], provisioning["grafana_provisioning_datasource_uid"])
 	}
 }
 

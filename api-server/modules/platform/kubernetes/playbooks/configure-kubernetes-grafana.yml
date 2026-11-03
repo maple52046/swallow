@@ -1,0 +1,50 @@
+---
+# Install the Kubernetes Platform's own Grafana (monitoring.md §6.2): the pinned grafana-community
+# chart in the cluster, reached at a fixed NodePort on the workload nodes, whose datasource reads
+# the Site Prometheus through swallow's Platform metrics gateway. Intent arrives only through
+# trusted variables:
+#   swallow_k0s_grafana_controller_id  the controller helm runs on (the initial controller)
+#   swallow_k0s_grafana_node_ids       the workload nodes; the first one's address is the link
+#   swallow_k0s_grafana_datasource_url the Platform metrics gateway URL
+#   swallow_k0s_grafana_dashboards     the dashboard bundles to provision
+# and, as a secret var, swallow_grafana_datasource_token: the Platform's monitoring token. The
+# inventory is the Platform's deployment targets. The run writes {grafanaUrl} to its result file
+# once Grafana serves every provisioned dashboard. Idempotent: a converged cluster reruns with no
+# changes.
+
+- name: Read every target
+  hosts: all
+  gather_facts: true
+  become: true
+  tasks:
+    - name: Refuse a run whose helm controller is not a target
+      ansible.builtin.assert:
+        that:
+          - swallow_k0s_grafana_controller_id in ansible_play_hosts_all
+        fail_msg: >-
+          the Platform Grafana controller {{ swallow_k0s_grafana_controller_id }} is not among this
+          run's reachable targets
+      run_once: true
+
+    - name: Group the helm controller
+      ansible.builtin.group_by:
+        key: "{{ 'k0s_platform_grafana_controller' if inventory_hostname == swallow_k0s_grafana_controller_id else 'k0s_platform_grafana_member' }}"
+      changed_when: false
+
+- name: Open the Grafana node port on the workload nodes
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Let users reach the node port through the host firewall
+      ansible.builtin.include_role:
+        name: k0s_platform_grafana
+        tasks_from: firewall
+      when: inventory_hostname in swallow_k0s_grafana_node_ids
+
+- name: Install the Platform Grafana in the cluster
+  hosts: k0s_platform_grafana_controller
+  gather_facts: false
+  become: true
+  roles:
+    - role: k0s_platform_grafana

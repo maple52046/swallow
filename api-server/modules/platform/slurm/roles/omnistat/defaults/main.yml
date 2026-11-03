@@ -35,7 +35,8 @@ omnistat_scrape_addresses: "{{ swallow_omnistat_scrape_addresses | default([]) }
 omnistat_observability_id: "{{ swallow_omnistat_observability_id }}"
 omnistat_observability_address: "{{ hostvars[omnistat_observability_id].ansible_host }}"
 omnistat_grafana_port: "{{ swallow_omnistat_grafana_port | default(3000) | int }}"
-# The UID of that Grafana's datasource (grafana_datasource_uid in roles/grafana).
+# The UID of that Grafana's datasource (grafana_provisioning_datasource_uid in the shared
+# grafana_provisioning role).
 omnistat_grafana_datasource_uid: prometheus
 # A GPU compute node collects through AMD SMI and starts after the shared amdgpu loader.
 omnistat_gpu: "{{ inventory_hostname in (swallow_slurm_gpu_compute_ids | default([])) }}"

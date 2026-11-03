@@ -289,7 +289,8 @@ function MonitoringFeatureSummary({
 
 /**
  * Where to watch this Platform: swallow's own usage charts for its members, and the monitoring UIs
- * registered as Monitoring Links (for example the Platform Grafana swallow installs on Slurm).
+ * registered as Monitoring Links (for example the Platform Grafana swallow installs on a Slurm controller
+ * or in a Kubernetes cluster).
  *
  * The chart entry links to the Monitoring console with this Platform preselected and is shown
  * only while the experimental `monitoring` console is enabled. Monitoring Links are Platform

@@ -1,0 +1,49 @@
+---
+# Write the provisioning as the files a Grafana process reads under grafana_provisioning_dir: the
+# datasource and the dashboard providers below provisioning/, and exactly the requested bundles
+# below dashboards/. Grafana reads the datasource and the provider list only when it starts, so
+# grafana_provisioning_datasource_file and grafana_provisioning_providers_file tell the caller
+# whether to restart it; the provider polls the bundle files itself. The directories exist already.
+
+- name: Provision the Prometheus datasource
+  ansible.builtin.template:
+    src: datasources.yaml.j2
+    dest: "{{ grafana_provisioning_dir }}/provisioning/datasources/swallow.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: grafana_provisioning_datasource_file
+
+- name: Provision the dashboard providers
+  ansible.builtin.template:
+    src: providers.yaml.j2
+    dest: "{{ grafana_provisioning_dir }}/provisioning/dashboards/swallow.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: grafana_provisioning_providers_file
+
+- name: Copy the requested dashboard bundles
+  ansible.builtin.copy:
+    src: "dashboards/{{ item }}/"
+    dest: "{{ grafana_provisioning_dir }}/dashboards/{{ item }}/"
+    owner: root
+    group: root
+    mode: "0644"
+    directory_mode: "0755"
+  loop: "{{ grafana_provisioning_bundles }}"
+
+- name: Find the provisioned dashboard bundles
+  ansible.builtin.find:
+    paths: "{{ grafana_provisioning_dir }}/dashboards"
+    file_type: directory
+  register: grafana_provisioning_bundle_dirs
+
+- name: Remove dashboard bundles that are no longer requested
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ grafana_provisioning_bundle_dirs.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when: (item.path | basename) not in grafana_provisioning_bundles

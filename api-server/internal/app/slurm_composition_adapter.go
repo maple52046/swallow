@@ -145,9 +145,10 @@ func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring 
 	}
 }
 
-// composedPlan is the composed part of a Slurm deployment: the Tasks to append after
-// install-platform, the software installs whose pending assignments are written once the Workflow
-// exists, and the install Tasks that receive the Platform's monitoring token as a secret.
+// composedPlan is the composed part of a deployment: the Tasks to append after the Platform's own
+// install, the software installs whose pending assignments are written once the Workflow exists (a
+// Slurm deployment's), and the install Tasks that receive the Platform's monitoring token as a
+// secret (either type's Platform Grafana).
 type composedPlan struct {
 	steps    []workflowdomain.Task
 	installs []softwareapp.ComposedInstall

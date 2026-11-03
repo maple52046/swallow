@@ -55,6 +55,8 @@ swallow 使用固定 port，因此 Server 的 scrape target 不會因為 exporte
 | Exporter | Port | 安裝對象 |
 | --- | --- | --- |
 | node-exporter | 9100 | 每台由 swallow 佈署的 Server（CPU、memory、disk、network），安裝 OS 套件：Debian 與 Ubuntu 為 `prometheus-node-exporter`，RHEL 家族為 `node_exporter`（來自 EPEL） |
+| AMD Device Metrics Exporter | 5001 | 有 AMD GPU 的 Server：單台以 Managed Software 安裝、Slurm Platform 的 GPU compute node，或 Kubernetes Platform 開啟 Device Metrics Exporter 時由 AMD GPU Operator 裝在 GPU 節點上；三者的指標名稱相同 |
+| Omnistat | 8001 | 作業監控選 Omnistat 的 Slurm Platform 的 compute node |
 | [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | swallow 不在主機上安裝，也不收集：Site 的 Prometheus 只收集 swallow 安裝的 exporter |
 
 每台 Server 只有一個 Node Exporter，不論它屬於哪個 Platform：每次 OS 佈署都會在佈署的 Server
@@ -76,16 +78,21 @@ GPU 圖表。線條中斷代表該 Server 當時沒有回報。兩者都不會�
 
 ## Platform 自己的 Grafana
 
-每個 Slurm Platform 的 primary controller 上都有一個它自己的唯讀 Grafana，除非部署時關閉（Slurm workspace
-Features step 的 **Platform Grafana** 開關，或在 Platform 的 settings 寫 `monitoringDashboards: false`）。CPU-only
-的 Platform 也一樣。它和 swallow 讀同一套 Site 的 Prometheus，經過 swallow 讀取，只看得到這個 Platform 自己的
-Server。它一律有 **Servers** dashboard（每台 Server 的 CPU、memory、root filesystem、network 與 load），再加上你選的
-監控 exporter 的 dashboards。Platform 頁面以 **Platform Grafana** 連到它；管理網路上的人不必登入就能檢視。它預設以
-container 執行；也可選擇 native 安裝方法，改由 Grafana 的 apt／yum repository 安裝。每次部署或重新部署都會給它新的存取
-憑證，從舊部署複製出來的憑證會失效。
+每個 Platform 都有一個它自己的唯讀 Grafana，除非部署時關閉（workspace Features step 的 **Platform Grafana** 開關，
+或在 Platform 的 settings 寫 `monitoringDashboards: false`）。CPU-only 的 Platform 也一樣。它和 swallow 讀同一套 Site 的
+Prometheus，經過 swallow 讀取，只看得到這個 Platform 自己的 Server。它一律有 **Servers** dashboard（每台 Server 的
+CPU、memory、root filesystem、network 與 load），再加上 Platform 的 GPU 或作業監控的 dashboards。Platform 頁面以
+**Platform Grafana** 連到它；管理網路上的人不必登入就能檢視。每次部署或重新部署都會給它新的存取憑證，從舊部署複製
+出來的憑證會失效。
 
-之後才開啟 Grafana 會重新部署 Platform；部署後關閉目前還不支援。在這之前部署的 Platform 會保留它自己的 Prometheus
-與原本的 Grafana 連結，直到下一次部署。
+- **Slurm**：Grafana 在 primary controller 上，port 3000。預設以 container 執行；也可選擇 native 安裝方法，改由
+  Grafana 的 apt／yum repository 安裝。
+- **Kubernetes**：Grafana 在叢集內，以每個 workload 節點的 port 30300 開放，連結指向第一個。它不保存自己的資料，
+  Pod 換節點也不會遺失任何東西。AMD GPU Operator 執行它的 Device Metrics Exporter 時，Grafana 會加上 exporter 的 GPU
+  dashboards。uninstall Platform 時隨叢集一起移除。
+
+之後才開啟 Grafana 會重新部署 Platform；部署後關閉目前還不支援。在這之前部署的 Slurm Platform 會保留它自己的
+Prometheus 與原本的 Grafana 連結，直到下一次部署；在這之前部署的 Kubernetes Platform 在下一次部署時才會有 Grafana。
 
 ## Slurm 的 GPU 與作業監控
 
@@ -110,7 +117,8 @@ Site 的 Prometheus 像收集其他 exporter 一樣收集選定的 exporter；Pl
   swallow 內該 Platform 用量圖表的捷徑。
 - 保留 swallow 的 exporters。Server 圖表在 Platform 建立前、存在期間與移除後都持續可用，
   且所有 Platform 類型都一樣。
-- 不要讓 runtime 自己的 collector 綁定 9100、5000、5001 或 8001，這些是 swallow 的 exporters 使用的 port。
+- 不要讓 runtime 自己的 collector 綁定 9100、5000、5001 或 8001，這些是 swallow 的 exporters 使用的 port；也不要讓
+  Kubernetes 的 Service 使用 node port 30300，那是 Platform Grafana 的 port。
 
 Monitoring Link 透過 Platform update API 設定。使用 CLI：
 

@@ -25,6 +25,7 @@ func workflowJobLabels(software *softwaredomain.Catalog) map[string]string {
 		jobConfigureK0s:             "Configure Kubernetes",
 		jobConfigureSlurm:           "Configure Slurm",
 		jobConfigureGPUOperator:     "Configure AMD GPU Operator",
+		jobConfigurePlatformGrafana: "Configure Platform Grafana",
 		jobConfigureOmnistat:        "Configure Omnistat",
 		jobUninstallPlatform:        "Remove Platform Software",
 		jobReleaseServers:           "Release Servers",

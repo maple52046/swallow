@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
@@ -17,6 +18,9 @@ const (
 	jobConfigureGPUOperator = "configure-gpu-operator"
 	gpuOperatorStepID       = "install-gpu-operator"
 	gpuOperatorPlaybook     = "configure-amd-gpu-operator"
+	// gpuOperatorMetricsPortVar is the host port the operator's Device Metrics Exporter listens on:
+	// the platform domain's exporter port, which the Site metrics store scrapes it at.
+	gpuOperatorMetricsPortVar = "swallow_amd_gpu_operator_metrics_exporter_port"
 )
 
 // gpuOperatorTask builds the ansible Task that applies GPU Operator settings. Its gpu-operator-state
@@ -45,7 +49,9 @@ func gpuOperatorTask(
 
 // prepareGPUOperatorStep resolves the playbook, targets, and extra vars of the GPU Operator Task
 // with the operation layer's catalog, credential, policy, and lock checks. provisionFirst lets a
-// deploy's preceding provision-os Tasks satisfy the deployed-state requirement.
+// deploy's preceding provision-os Tasks satisfy the deployed-state requirement. The exporter port is
+// added here, beside the use case's settings, so the playbook and the exporter inventory read one
+// constant.
 func prepareGPUOperatorStep(
 	ctx context.Context,
 	operations *workflowapp.ExecutionService,
@@ -55,6 +61,11 @@ func prepareGPUOperatorStep(
 	requestedBy string,
 	provisionFirst bool,
 ) (*workflowapp.PreparedAnsibleStep, error) {
+	trustedVars = maps.Clone(trustedVars)
+	if trustedVars == nil {
+		trustedVars = map[string]any{}
+	}
+	trustedVars[gpuOperatorMetricsPortVar] = platformdomain.DeviceMetricsExporterPort
 	return operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: string(workflowdomain.WorkflowKindConfigureGPUOperator), PlaybookName: gpuOperatorPlaybook,
 		Intent: intent, TargetServerIDs: targets, PlatformID: platformID,

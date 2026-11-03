@@ -1,0 +1,294 @@
+---
+# Runs on the initial controller: installs or upgrades the Platform's Grafana release and waits
+# until it serves every provisioned dashboard at the address swallow links. Idempotent: the Secrets
+# and ConfigMaps change only when their content does, and helm runs only when the release is not
+# deployed at the pinned chart with exactly these values. Removing the Platform's cluster removes
+# the release with it.
+
+- name: Refuse a run without the datasource, its token, or a node to link
+  ansible.builtin.assert:
+    that:
+      - k0s_platform_grafana_datasource_url | length > 0
+      - k0s_platform_grafana_datasource_token | length > 0
+      - k0s_platform_grafana_bundles | length > 0
+      - k0s_platform_grafana_node_ids | length > 0
+      - k0s_platform_grafana_node_ids[0] in hostvars
+    fail_msg: >-
+      [platform_grafana_invalid] the Platform Grafana needs the metrics gateway URL, the Platform's
+      monitoring token, at least one dashboard bundle, and a workload node among the targets
+    quiet: true
+
+- name: Install the pinned helm
+  ansible.builtin.include_role:
+    name: helm
+
+- name: Resolve the run's paths and the address swallow links
+  ansible.builtin.set_fact:
+    k0s_platform_grafana_helm: "{{ helm_binary }}"
+    k0s_platform_grafana_helm_env:
+      KUBECONFIG: "{{ k0s_platform_grafana_kubeconfig }}"
+    k0s_platform_grafana_chart: "{{ k0s_platform_grafana_home }}/charts/grafana-{{ k0s_platform_grafana_chart_version }}.tgz"
+    k0s_platform_grafana_url: >-
+      http://{{ hostvars[k0s_platform_grafana_node_ids[0]].ansible_host }}:{{ k0s_platform_grafana_node_port }}
+
+- name: Create Swallow's Platform Grafana directories
+  ansible.builtin.file:
+    path: "{{ k0s_platform_grafana_home }}/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - charts
+    - config
+
+- name: Copy the bundled chart
+  ansible.builtin.copy:
+    src: "grafana-{{ k0s_platform_grafana_chart_version }}.tgz"
+    dest: "{{ k0s_platform_grafana_chart }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Read the chart's checksum
+  ansible.builtin.stat:
+    path: "{{ k0s_platform_grafana_chart }}"
+    checksum_algorithm: sha256
+  register: k0s_platform_grafana_chart_stat
+
+- name: Refuse a chart archive that is not the pinned one
+  ansible.builtin.fail:
+    msg: >-
+      [platform_grafana_chart_mismatch] {{ k0s_platform_grafana_chart }} has SHA-256
+      {{ k0s_platform_grafana_chart_stat.stat.checksum }}, not the pinned
+      {{ k0s_platform_grafana_chart_sha256 }}
+  when: k0s_platform_grafana_chart_stat.stat.checksum != k0s_platform_grafana_chart_sha256
+
+# --- Preflight -----------------------------------------------------------------------------------
+
+- name: List the Services that hold a node port
+  ansible.builtin.command:
+    cmd: "{{ k0s_platform_grafana_kubectl }} get services -A -o json"
+  register: k0s_platform_grafana_services
+  changed_when: false
+
+- name: Refuse a node port another Service holds
+  ansible.builtin.fail:
+    msg: >-
+      [platform_grafana_node_port_in_use] the Service {{ k0s_platform_grafana_port_holders | join(', ') }}
+      already holds node port {{ k0s_platform_grafana_node_port }}, which the Platform Grafana is
+      reached at. Move that Service to another node port, or turn monitoringDashboards off.
+  vars:
+    k0s_platform_grafana_port_holders: >-
+      {%- set found = [] -%}
+      {%- for service in (k0s_platform_grafana_services.stdout | from_json)['items'] -%}
+      {%- set ours = service.metadata.namespace == k0s_platform_grafana_namespace
+             and service.metadata.name == k0s_platform_grafana_release -%}
+      {%- for port in service.spec.ports | default([]) if not ours
+             and port.nodePort | default(0) | int == k0s_platform_grafana_node_port | int -%}
+      {%- set _ = found.append(service.metadata.namespace ~ '/' ~ service.metadata.name) -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {{ found | unique }}
+  when: k0s_platform_grafana_port_holders | length > 0
+
+# --- Namespace and Secrets -----------------------------------------------------------------------
+
+- name: Render the Platform Grafana namespace
+  ansible.builtin.template:
+    src: namespace.yaml.j2
+    dest: "{{ k0s_platform_grafana_home }}/config/namespace.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Apply the Platform Grafana namespace
+  ansible.builtin.command:
+    cmd: "{{ k0s_platform_grafana_kubectl }} apply -f {{ k0s_platform_grafana_home }}/config/namespace.yaml"
+  register: k0s_platform_grafana_namespace_apply
+  changed_when: "'unchanged' not in k0s_platform_grafana_namespace_apply.stdout"
+
+- name: Read the admin Secret
+  ansible.builtin.command:
+    cmd: >-
+      {{ k0s_platform_grafana_kubectl }} -n {{ k0s_platform_grafana_namespace }} get secret
+      {{ k0s_platform_grafana_admin_secret }} --ignore-not-found -o name
+  register: k0s_platform_grafana_admin_read
+  changed_when: false
+
+- name: Create the admin Secret with a generated password
+  # The password is generated here, once, and lives only in the Secret: never in the values, the
+  # Workflow, or the run's output. Login stays off for people; it serves cluster administrators
+  # who read the Secret.
+  ansible.builtin.command:
+    cmd: "{{ k0s_platform_grafana_kubectl }} create -f -"
+    stdin: >-
+      {{ {'apiVersion': 'v1', 'kind': 'Secret', 'type': 'Opaque',
+          'metadata': {'name': k0s_platform_grafana_admin_secret, 'namespace': k0s_platform_grafana_namespace,
+                       'labels': {k0s_platform_grafana_owner_label: k0s_platform_grafana_owner_value}},
+          'data': {'admin-user': 'admin' | b64encode,
+                   'admin-password': lookup('ansible.builtin.password', '/dev/null', length=40,
+                                            chars=['ascii_letters', 'digits']) | b64encode}} | to_json }}
+  no_log: true
+  changed_when: true
+  when: k0s_platform_grafana_admin_read.stdout | trim | length == 0
+
+# --- Provisioning --------------------------------------------------------------------------------
+
+- name: Express the datasource and the dashboard bundles for the chart
+  ansible.builtin.include_role:
+    name: grafana_provisioning
+    tasks_from: kubernetes
+    public: true
+  vars:
+    grafana_provisioning_url: "{{ k0s_platform_grafana_datasource_url }}"
+    grafana_provisioning_token: true
+    grafana_provisioning_bundles: "{{ k0s_platform_grafana_bundles }}"
+    grafana_provisioning_dashboards_path: "{{ k0s_platform_grafana_dashboards_path }}"
+    grafana_provisioning_manifest_dir: "{{ k0s_platform_grafana_home }}/dashboards"
+    grafana_provisioning_namespace: "{{ k0s_platform_grafana_namespace }}"
+    grafana_provisioning_configmap_prefix: "{{ k0s_platform_grafana_dashboards_prefix }}"
+    grafana_provisioning_labels:
+      "{{ {k0s_platform_grafana_owner_label: k0s_platform_grafana_owner_value, k0s_platform_grafana_dashboards_label: 'true'} }}"
+
+- name: List the dashboard ConfigMaps in the cluster
+  ansible.builtin.command:
+    cmd: >-
+      {{ k0s_platform_grafana_kubectl }} -n {{ k0s_platform_grafana_namespace }} get configmaps
+      -l {{ k0s_platform_grafana_dashboards_label }}=true -o jsonpath={.items[*].metadata.name}
+  register: k0s_platform_grafana_dashboard_maps
+  changed_when: false
+
+- name: Apply the dashboard ConfigMaps that changed or are missing
+  # Server-side apply: a bundle can exceed the size client-side apply records in an annotation.
+  ansible.builtin.command:
+    cmd: >-
+      {{ k0s_platform_grafana_kubectl }} apply --server-side --field-manager=swallow --force-conflicts
+      -f {{ item.dest }}
+  loop: "{{ grafana_provisioning_manifests.results }}"
+  loop_control:
+    label: "{{ item.grafana_provisioning_bundle }}"
+  when: >-
+    item is changed
+    or (k0s_platform_grafana_dashboards_prefix ~ item.grafana_provisioning_bundle)
+       not in k0s_platform_grafana_dashboard_maps.stdout.split()
+  changed_when: true
+
+- name: Remove the dashboard ConfigMaps of bundles no longer requested
+  ansible.builtin.command:
+    cmd: "{{ k0s_platform_grafana_kubectl }} -n {{ k0s_platform_grafana_namespace }} delete configmap {{ item }} --ignore-not-found"
+  loop: >-
+    {{ k0s_platform_grafana_dashboard_maps.stdout.split()
+       | difference(k0s_platform_grafana_bundles | map('regex_replace', '^', k0s_platform_grafana_dashboards_prefix)) }}
+  changed_when: true
+
+- name: Read the datasource token Secret's version
+  ansible.builtin.command:
+    cmd: >-
+      {{ k0s_platform_grafana_kubectl }} -n {{ k0s_platform_grafana_namespace }} get secret
+      {{ k0s_platform_grafana_datasource_secret }} --ignore-not-found -o jsonpath={.metadata.resourceVersion}
+  register: k0s_platform_grafana_token_before
+  changed_when: false
+
+- name: Apply the datasource token Secret
+  # Grafana reads it as the environment variable the shared datasource names. An unchanged token
+  # leaves the Secret, and so its version, as it is.
+  ansible.builtin.command:
+    cmd: >-
+      {{ k0s_platform_grafana_kubectl }} apply --server-side --field-manager=swallow --force-conflicts
+      -o jsonpath={.metadata.resourceVersion} -f -
+    stdin: >-
+      {{ {'apiVersion': 'v1', 'kind': 'Secret', 'type': 'Opaque',
+          'metadata': {'name': k0s_platform_grafana_datasource_secret, 'namespace': k0s_platform_grafana_namespace,
+                       'labels': {k0s_platform_grafana_owner_label: k0s_platform_grafana_owner_value}},
+          'data': {grafana_provisioning_token_variable: ('Bearer ' ~ k0s_platform_grafana_datasource_token) | b64encode}}
+         | to_json }}
+  no_log: true
+  register: k0s_platform_grafana_token_secret
+  changed_when: k0s_platform_grafana_token_secret.stdout | trim != k0s_platform_grafana_token_before.stdout | trim
+
+- name: Remember the token Secret's version
+  ansible.builtin.set_fact:
+    k0s_platform_grafana_token_version: "{{ k0s_platform_grafana_token_secret.stdout | trim }}"
+
+# --- Release -------------------------------------------------------------------------------------
+
+- name: Render the chart values
+  ansible.builtin.template:
+    src: values.yaml.j2
+    dest: "{{ k0s_platform_grafana_home }}/config/values.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Read the deployed release
+  # A namespace without the release answers non-zero, which means it must be installed.
+  ansible.builtin.command:
+    cmd: "{{ k0s_platform_grafana_helm }} get metadata {{ k0s_platform_grafana_release }} -n {{ k0s_platform_grafana_namespace }} -o json"
+  environment: "{{ k0s_platform_grafana_helm_env }}"
+  register: k0s_platform_grafana_release_metadata
+  changed_when: false
+  failed_when: false
+
+- name: Read the deployed values
+  ansible.builtin.command:
+    cmd: "{{ k0s_platform_grafana_helm }} get values {{ k0s_platform_grafana_release }} -n {{ k0s_platform_grafana_namespace }} -o json"
+  environment: "{{ k0s_platform_grafana_helm_env }}"
+  register: k0s_platform_grafana_release_values
+  changed_when: false
+  failed_when: false
+  when: k0s_platform_grafana_release_metadata.rc == 0
+
+- name: Decide whether the release must be installed or upgraded
+  ansible.builtin.set_fact:
+    k0s_platform_grafana_release_current: >-
+      {{ k0s_platform_grafana_release_metadata.rc == 0
+         and (k0s_platform_grafana_release_metadata.stdout | from_json).status | default('') == 'deployed'
+         and (k0s_platform_grafana_release_metadata.stdout | from_json).version | default('') == k0s_platform_grafana_chart_version
+         and (k0s_platform_grafana_release_values.stdout | default('{}', true) | from_json)
+             == (lookup('ansible.builtin.template', 'values.yaml.j2') | from_yaml) }}
+
+- name: Install or upgrade the Platform Grafana release
+  ansible.builtin.command:
+    cmd: >-
+      {{ k0s_platform_grafana_helm }} upgrade --install {{ k0s_platform_grafana_release }}
+      {{ k0s_platform_grafana_chart }} -n {{ k0s_platform_grafana_namespace }}
+      --version {{ k0s_platform_grafana_chart_version }} -f {{ k0s_platform_grafana_home }}/config/values.yaml
+      --labels swallow-managed=true --wait --timeout {{ k0s_platform_grafana_helm_timeout }}
+  environment: "{{ k0s_platform_grafana_helm_env }}"
+  changed_when: true
+  when: not k0s_platform_grafana_release_current | bool
+
+# --- Verify and report ---------------------------------------------------------------------------
+
+- name: Wait for Grafana to answer at the address swallow links
+  ansible.builtin.uri:
+    url: "{{ k0s_platform_grafana_url | trim }}/api/health"
+    status_code: 200
+  register: k0s_platform_grafana_health
+  until: k0s_platform_grafana_health is succeeded
+  retries: "{{ k0s_platform_grafana_wait_retries }}"
+  delay: "{{ k0s_platform_grafana_wait_delay }}"
+
+- name: Wait for Grafana to serve every provisioned dashboard
+  # Anonymous Viewers may search, so this proves the dashboards are visible without a login. A
+  # ConfigMap reaches the Pod within the kubelet's sync period, which this wait covers.
+  ansible.builtin.uri:
+    url: "{{ k0s_platform_grafana_url | trim }}/api/search?type=dash-db"
+    return_content: true
+  register: k0s_platform_grafana_search
+  until: >-
+    k0s_platform_grafana_search is succeeded
+    and (k0s_platform_grafana_search.json | default([]) | length) >= grafana_provisioning_dashboard_count | int
+  retries: "{{ k0s_platform_grafana_wait_retries }}"
+  delay: "{{ k0s_platform_grafana_wait_delay }}"
+
+- name: Report the Grafana URL to Swallow
+  ansible.builtin.copy:
+    dest: "{{ swallow_result_path }}"
+    content: "{{ {'grafanaUrl': k0s_platform_grafana_url | trim} | to_json }}"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  when: swallow_result_path | default('') | length > 0

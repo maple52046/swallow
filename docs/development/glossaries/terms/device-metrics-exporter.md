@@ -37,8 +37,10 @@
   change may move the state or the identity. Uninstall removes the exporter from every Server of
   the Platform and marks their Software Assignments `absent`.
 - Disallowed meaning: Not the Device Metrics Exporter the GPU Operator runs on a Kubernetes
-  Platform (that is the GPU Operator's `metricsExporter` setting, which swallow never scrapes). Not
-  a metrics Integration — swallow never queries the exporter — and not the RDC
+  Platform: that is the GPU Operator's `metricsExporter` setting, with no Software Assignment and
+  no Device Metrics Exporter State, although it is the same exporter on the same port `5001` with
+  the same metric names, so the Site Prometheus scrapes it the same way and the same dashboards
+  read it. Not a metrics Integration — swallow never queries the exporter — and not the RDC
   exporter (port `5000`), which swallow's RDC scrape job reads on hosts that run one. Not Omnistat: the two are mutually exclusive on
   a Platform, and the exporter keeps jobs sharing nodes while Omnistat needs whole nodes. Not GPU
   GRES, which swallow configures either way.
@@ -62,4 +64,7 @@
   Slurm feature composes that kind instead of carrying its own install. 2026-11-03: swallow does
   not install the RDC exporter on hosts; port `5000` stays reserved for it. 2026-11-03
   ([decision 068](../../../decisions/068-device-metrics-exporter-managed-software.md) (device metrics exporter managed software)): the Site Prometheus scrapes it, no Prometheus is composed
-  for it, and the Platform Grafana's own install records the Monitoring Link.
+  for it, and the Platform Grafana's own install records the Monitoring Link. 2026-11-03
+  ([decision 062](../../../decisions/062-swallow-managed-gpu-operator.md)): the GPU Operator's
+  exporter moved to the host network at the same port and metric names, so it is distinguished
+  from this term by who installs it, not by how it is scraped.

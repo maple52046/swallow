@@ -1,0 +1,24 @@
+---
+# The provisioning every swallow-installed Grafana shares (monitoring.md §6.2): one Prometheus
+# datasource and the dashboard bundles a release ships (files/dashboards/<bundle>). The Grafana
+# Managed Software role delivers them as provisioning files (tasks/files.yml) and the Kubernetes
+# Platform Grafana as Helm values and ConfigMaps (tasks/kubernetes.yml); both read this one copy.
+#
+# Inputs, set by the including role:
+#   grafana_provisioning_url              the datasource URL
+#   grafana_provisioning_token            whether the datasource sends a bearer token, which the
+#                                         Grafana process reads from grafana_provisioning_token_variable
+#   grafana_provisioning_bundles          the dashboard bundles to provision
+#   grafana_provisioning_dashboards_path  where Grafana reads the bundle directories
+grafana_provisioning_token: false
+grafana_provisioning_bundles: []
+# Every shipped bundle reads its datasource by this uid (Omnistat's through its ${source} variable).
+grafana_provisioning_datasource_uid: prometheus
+# The environment variable holding "Bearer <token>"; the datasource names it, so no provisioning
+# file or Kubernetes object other than the token's own Secret holds the token.
+grafana_provisioning_token_variable: SWALLOW_DATASOURCE_AUTHORIZATION
+# Folder each shipped bundle is provisioned into.
+grafana_provisioning_folders:
+  omnistat: Omnistat RMS
+  device-metrics-exporter: Device Metrics Exporter
+  node-exporter: Servers

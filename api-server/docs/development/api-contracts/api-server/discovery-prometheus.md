@@ -87,10 +87,13 @@ and exporter:
 - An exporter is listed while swallow records it as installed: a Managed Software kind that
   declares an exporter (`node-exporter` on port 9100, `device-metrics-exporter` on port 5001), for
   each Server whose Software Assignment of that kind is `installed` or `uninstalling`; and a
-  Platform feature's exporter, `omnistat` on port 8001, on every compute member of a Slurm
-  Platform whose `omnistat.state` is `ready` (the members of the spec its last successful Workflow
-  realized). A `pending` or `failed` assignment, and an Omnistat that is `installing` (a redeploy
-  included), `failed`, or `absent`, is not listed, since nothing may be listening.
+  Platform feature's exporter: `omnistat` on port 8001 on every compute member of a Slurm
+  Platform whose `omnistat.state` is `ready`, and `device-metrics-exporter` on port 5001 on every
+  workload member of a Kubernetes Platform whose GPU Operator is `ready` with `metricsExporter` on
+  and whose GPU Inventory lists AMD compute GPUs (in both cases the members of the spec its last
+  successful Workflow realized). A `pending` or `failed` assignment, and a feature that is
+  `installing` (a redeploy included), `failed`, or `absent`, is not listed, since nothing may be
+  listening. A Server and exporter two sources name is listed once.
 - A Server with no exporter is not a target, so its health stays unknown rather than down; an
   absent Server, or one with no known address, is omitted.
 - `platform_id` is the Platform of the Server's Platform Claim, present only when it has one.
@@ -215,7 +218,9 @@ authentication section; `500 internal_error` for an unexpected failure.
 ## Compatibility Notes
 
 - Since 2026-11-03 the exporters route also lists the `omnistat` exporter of a Slurm Platform's
-  compute members while its Omnistat is `ready` (additive).
+  compute members while its Omnistat is `ready`, and the `device-metrics-exporter` of a Kubernetes
+  Platform's AMD GPU workload members while its GPU Operator is `ready` with `metricsExporter` on
+  (additive).
 - Since 2026-11-03 the exporters route lists the Site Prometheus's targets, and `platform_id`, on
   both routes, is the Platform of the Server's Platform Claim rather than its observed membership:
   a Server claimed by a Platform but not yet a member now carries it, and a member whose claim was

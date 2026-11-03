@@ -82,7 +82,7 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
 Installation 提供 plain HTTP。要開放到受信任的管理網路之外前，請在 port 80 前面加上
 TLS terminator。佈署出去的 Server 會連 UDP 123 對時，若主機有防火牆，必須對機器網路開放。
 
-Server 上的 Platform Grafana 經 `http://<SWALLOW_ADDRESS>:<SWALLOW_HTTP_PORT>` 的 API 讀取 Site 的
+Platform Grafana（Slurm 的在 controller 上，Kubernetes 的在叢集內）經 `http://<SWALLOW_ADDRESS>:<SWALLOW_HTTP_PORT>` 的 API 讀取 Site 的
 Prometheus（Compose 以 `SWALLOW_API_PUBLIC_URL` 交給 api-server），Omnistat 只允許從 `SWALLOW_ADDRESS`
 收集的 Prometheus（`SWALLOW_API_MONITORING_SCRAPE_ADDRESSES`），所以 machine 網路也要連得到這台主機的 HTTP port。
 

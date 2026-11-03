@@ -1748,6 +1748,13 @@ components:
           allOf:
             - $ref: '#/components/schemas/TimeSyncCheck'
           default: enforce
+        monitoringDashboards:
+          type: boolean
+          default: true
+          description: >-
+            Give the Platform its own read-only Grafana in the cluster, at node port 30300 of the
+            workload nodes, showing only its members' series through the Platform metrics gateway.
+            Turning it on later is carried out; turning it off after deployment is 409.
     SlurmPlatformSettings:
       type: object
       description: >-
@@ -1952,6 +1959,9 @@ components:
         metricsExporter:
           type: boolean
           default: false
+          description: >-
+            Run AMD's Device Metrics Exporter on the managed nodes' host network at port 5001,
+            where the Site Prometheus scrapes it.
     GPUOperatorReleaseCatalog:
       type: object
       required: [items]

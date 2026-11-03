@@ -1,7 +1,26 @@
 ---
 # Runs on the controller after the DRA links are converged (state present). It applies the
 # desired DeviceConfig, waits for the operator's verdict on exactly that generation, and accepts
-# the change only when every managed node exposes its GPUs in the requested allocation mode.
+# the change only when every managed node exposes its GPUs in the requested allocation mode. The
+# Device Metrics Exporter's configuration exists before a DeviceConfig names it and is removed
+# only after the DeviceConfig stops naming it.
+
+- name: Render the Device Metrics Exporter configuration
+  ansible.builtin.template:
+    src: metrics-config.yaml.j2
+    dest: "{{ amd_gpu_operator_home }}/config/metrics-config.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: swallow_amd_gpu_operator_metrics_exporter | bool
+
+- name: Apply the Device Metrics Exporter configuration
+  # The exporter watches its configuration directory, so a changed file needs no restart.
+  ansible.builtin.command:
+    cmd: "{{ amd_gpu_operator_kubectl }} apply -f {{ amd_gpu_operator_home }}/config/metrics-config.yaml"
+  register: amd_gpu_operator_metrics_apply
+  changed_when: "'unchanged' not in amd_gpu_operator_metrics_apply.stdout"
+  when: swallow_amd_gpu_operator_metrics_exporter | bool
 
 - name: Render the DeviceConfig
   ansible.builtin.template:
@@ -82,6 +101,15 @@
   retries: "{{ amd_gpu_operator_wait_retries }}"
   delay: "{{ amd_gpu_operator_wait_delay }}"
   when: swallow_amd_gpu_operator_allocation_mode == 'dra'
+
+- name: Remove the Device Metrics Exporter configuration nothing names
+  ansible.builtin.command:
+    cmd: >-
+      {{ amd_gpu_operator_kubectl }} -n {{ amd_gpu_operator_namespace }} delete configmap
+      {{ amd_gpu_operator_metrics_config }} --ignore-not-found
+  register: amd_gpu_operator_metrics_removed
+  changed_when: "'deleted' in amd_gpu_operator_metrics_removed.stdout"
+  when: not swallow_amd_gpu_operator_metrics_exporter | bool
 
 - name: Remove the node labeller's labels it no longer maintains
   when: not swallow_amd_gpu_operator_node_labeller | bool

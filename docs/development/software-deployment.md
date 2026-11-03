@@ -138,7 +138,10 @@ environment file，由 systemd、podman 或 Docker Compose 以 root 讀取後交
 `{grafanaUrl}`（`http://<management address>:3000`）寫進 run 的 result 檔；Platform 組入的 Grafana 以它記錄
 Monitoring Link。
 
-**dashboard bundles**（grafana role 的 `files/dashboards/<bundle>/`，全部以 datasource UID `prometheus` 讀取）：
+**dashboard bundles**（共用 role `grafana_provisioning` 的 `files/dashboards/<bundle>/`，全部以 datasource UID `prometheus` 讀取）：
+datasource、dashboard provider 與 bundles 是每個 swallow 安裝的 Grafana 共用的一份：grafana role 以 `tasks_from: files`
+把它們寫成 provisioning 檔，Kubernetes 的 Platform Grafana 以 `tasks_from: kubernetes` 取得 Helm values 與每個 bundle 的
+ConfigMap（[platform-deployment.md](platform-deployment.md) §2.3.3）。模組之間不讀彼此的檔案，所以兩者都不自帶副本。
 
 | bundle | 內容 | 來源 |
 | --- | --- | --- |
@@ -146,8 +149,8 @@ Monitoring Link。
 | `omnistat` | Omnistat 的 RMS global、node、job | 上游 Omnistat，固定版本 |
 | `device-metrics-exporter` | DME 的 Slurm overview、GPU、node、job | 上游 DME，固定版本 |
 
-新增 bundle 時，同時在 `internal/core/software/domain/observability.go` 的 bundle 清單與 role 的
-`grafana_dashboard_folders` 登錄（`grafana_role_test.go` 檢查兩邊一致）。
+新增 bundle 時，同時在 `internal/core/software/domain/observability.go` 的 bundle 清單與 `grafana_provisioning` 的
+`grafana_provisioning_folders` 登錄（`grafana_role_test.go` 檢查兩邊一致）。
 
 **AMD Device Metrics Exporter**（[Device Metrics Exporter](glossaries/terms/device-metrics-exporter.md)）：
 standalone 安裝與 Slurm 功能（§5）是同一個 kind、同一支 playbook 與 role（`roles/device_metrics_exporter`），
@@ -158,7 +161,7 @@ standalone 安裝與 Slurm 功能（§5）是同一個 kind、同一支 playbook
 standalone 為 `none`（`-enable-slurm-scl=false`），Slurm 組入時為 `slurm`。
 
 - **目標資格**（建立 Workflow 前檢查，不符為 `409 conflict`）：[GPU Inventory](glossaries/terms/gpu-inventory.md)
-  須列出 AMD compute GPU；拒絕 Kubernetes member（GPU Operator 自己跑 exporter）；拒絕帶
+  須列出 AMD compute GPU；拒絕 Kubernetes member（GPU Operator 自己跑 exporter，也在 host 的 port 5001）；拒絕帶
   [Platform Claim](glossaries/terms/platform-claim.md) 的 Server，install 與 uninstall 皆然（Platform 節點上的
   exporter 由該 Platform 安裝與移除）。
 - **OS**：只支援 Ubuntu 24.04。Server projection 對 custom image 只報 `osSystem` `custom`，分辨不出發行版，
@@ -452,7 +455,7 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
 | 失敗標記（`software-assignment-failure` 完成行為） | `api-server/internal/app/workflow_completions.go`、`api-server/internal/app/software_assignment_failure.go` |
 | OS 被拿走時標 `absent`（`server-deployment-cleared` 完成行為；reconcile） | `api-server/internal/app/workflow_completions.go`（`clearSoftwareAssignments`）；`api-server/internal/core/provisioning/application/reconcile.go`（`clearStaleOSState`） |
 | Node Exporter（catalog entry、組入 OS 部署） | `api-server/modules/software/node-exporter/module.go`；組入：`api-server/internal/app/node_exporter_planner.go` |
-| Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`、`node_exporter`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用）與 `amdgpu_loader`；撰寫規則見[模組撰寫指南](module-authoring.md) |
+| Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`、`node_exporter`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用）、`amdgpu_loader` 與 `grafana_provisioning`（Grafana 的 datasource 與 dashboard bundles）；撰寫規則見[模組撰寫指南](module-authoring.md) |
 | Docker Host Explorer（view types、use case、Engine client、handler 與路由） | 全部在 docker-ce 模組：`api-server/modules/software/docker-ce/explorer/`（view types、`DockerExplorerUseCase`）、`explorerhttp/`（handler 與 `RegisterRoutes`）、`dockerengine/`（Engine client）；`EngineAPIPort`、`SpecEnableAPI` 與 `APIEnabled` 在 root package `api-server/modules/software/docker-ce/module.go` |
 | Registry Credential（registry 正規化與解析、service、sealed Mongo repo、handler） | `api-server/internal/core/software/domain/registry.go`、`application/registry_credentials.go`、`delivery/registry_credential_handler.go`、`api-server/internal/adapters/store/mongodb/software/mongo_registry_credential_repo.go` |
 | Device Metrics Exporter（pinned version、port、job attribution） | `api-server/internal/core/software/domain/device_metrics_exporter.go`；Slurm 組入：`api-server/internal/app/slurm_composition_adapter.go` |

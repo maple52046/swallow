@@ -1,18 +1,23 @@
 package ansible
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 )
 
 // TestAMDGPUOperatorPlaybookHonoursTheTrustedContract pins the parts of the GPU Operator playbook
 // that the Go launcher and decision 062 depend on: every trusted variable is consumed, the managed
 // nodes come from the operator's Node Feature Discovery and never from a node list, the play
 // order converges the amdgpu loader and DRA links between the cluster and apply plays, and the
-// safety rules (no KMM, no host networking for the metrics exporter, exact-link removal, workload
-// refusal, a post-boot driver load that k0s is ordered after) stay in place.
+// safety rules (no KMM, exact-link removal, workload refusal, a post-boot driver load that k0s is
+// ordered after) stay in place. The metrics exporter runs on the host network, where the Site
+// Prometheus scrapes it, and every managed node's exporter must answer.
 func TestAMDGPUOperatorPlaybookHonoursTheTrustedContract(t *testing.T) {
 	role := filepath.Join("roles", "amd_gpu_operator")
 	cases := []struct {
@@ -48,13 +53,33 @@ func TestAMDGPUOperatorPlaybookHonoursTheTrustedContract(t *testing.T) {
 				"--labels swallow-managed=true",
 				"swallow_amd_gpu_operator_version",
 				"swallow_amd_gpu_operator_allocation_mode",
-				"amd_gpu_operator_helm_checksums[amd_gpu_operator_arch]",
+				// helm is the shared pinned binary, never one this role downloads itself.
+				"name: helm",
+				"amd_gpu_operator_helm: \"{{ helm_binary }}\"",
 				"Turn the previous allocation mode off first",
+			},
+			forbidden: []string{"get.helm.sh"},
+		},
+		{
+			path: filepath.Join("roles", "helm", "tasks", "main.yml"),
+			required: []string{
+				"checksum: \"sha256:{{ helm_checksums[helm_arch] }}\"",
+				"helm_binary: \"{{ helm_home }}/{{ helm_version }}/helm\"",
 			},
 		},
 		{
-			path:     filepath.Join(role, "tasks", "host_preflight.yml"),
-			required: []string{"[amdgpu_driver_missing]", "/sbin/modinfo, -F, filename, amdgpu"},
+			path: filepath.Join(role, "tasks", "host_preflight.yml"),
+			required: []string{
+				"[amdgpu_driver_missing]", "/sbin/modinfo, -F, filename, amdgpu",
+				"[metrics_exporter_port_conflict]", "amd_gpu_operator_metrics_conflicting_unit",
+			},
+		},
+		{
+			path: filepath.Join(role, "tasks", "host_metrics.yml"),
+			required: []string{
+				"http://{{ ansible_host }}:{{ amd_gpu_operator_metrics_exporter_port }}/metrics",
+				"[gpu_operator_not_ready]",
+			},
 		},
 		{
 			path: filepath.Join(role, "tasks", "host_driver.yml"),
@@ -131,8 +156,18 @@ func TestAMDGPUOperatorPlaybookHonoursTheTrustedContract(t *testing.T) {
 				"swallow_amd_gpu_operator_images",
 				"swallow_amd_gpu_operator_resource_naming",
 				"swallow_amd_gpu_operator_metrics_exporter",
-				"hostNetwork: false",
+				"hostNetwork: true",
+				"port: {{ amd_gpu_operator_metrics_exporter_port }}",
+				"name: {{ amd_gpu_operator_metrics_config }}",
 				"enable: false",
+			},
+		},
+		{
+			path: filepath.Join(role, "templates", "metrics-config.yaml.j2"),
+			required: []string{
+				"'MetricsFieldPrefix': amd_gpu_operator_metrics_prefix",
+				"'ProfilerMetrics': {'all': false}",
+				"config.json: |",
 			},
 		},
 		{
@@ -170,5 +205,29 @@ func TestAMDGPUOperatorPlaybookHonoursTheTrustedContract(t *testing.T) {
 				t.Errorf("%s contains %q", tc.path, forbidden)
 			}
 		}
+	}
+}
+
+// The operator's Device Metrics Exporter serves the same metric names, on the same port, as the
+// standalone and Slurm exporter, so one dashboard bundle and one scrape target shape serve all three
+// (decision 062). Its port default is the one the software domain scrapes at, and the launcher
+// passes the platform domain's, which equals it.
+func TestGPUOperatorMetricsExporterMatchesTheStandaloneExporter(t *testing.T) {
+	operator := readRoleDefaults(t, "amd_gpu_operator")
+	standalone, err := os.ReadFile(filepath.Join(roleDir(t, "device_metrics_exporter"), "templates", "config.json.j2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix, _ := operator["amd_gpu_operator_metrics_prefix"].(string)
+	if prefix == "" || !strings.Contains(string(standalone), "'MetricsFieldPrefix': '"+prefix+"'") {
+		t.Errorf("operator metric prefix %q is not the standalone exporter's", prefix)
+	}
+	port := fmt.Sprint(softwaredomain.DeviceMetricsExporterPort)
+	if got := fmt.Sprint(operator["amd_gpu_operator_metrics_exporter_port"]); !strings.Contains(got, "default("+port+")") {
+		t.Errorf("amd_gpu_operator_metrics_exporter_port = %s, want the default %s", got, port)
+	}
+	if platformdomain.DeviceMetricsExporterPort != softwaredomain.DeviceMetricsExporterPort {
+		t.Errorf("platform domain port %d differs from the software domain's %d",
+			platformdomain.DeviceMetricsExporterPort, softwaredomain.DeviceMetricsExporterPort)
 	}
 }

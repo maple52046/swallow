@@ -25,12 +25,7 @@ amd_gpu_operator_node_label_value: managed
 amd_gpu_operator_owner_label: app.kubernetes.io/managed-by
 amd_gpu_operator_owner_value: swallow
 
-# Pinned Helm v3 used only by this role. It is downloaded once and verified against the official
-# SHA-256; it lives under swallow's directory so it never replaces a user's own helm.
-amd_gpu_operator_helm_version: v3.22.1
-amd_gpu_operator_helm_checksums:
-  amd64: 896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea
-  arm64: 4c29e286b279d170fa048ddfc3e4e83dcd069ca9c52102766ba672d7149e694d
+# The chart and the rendered manifests; helm itself is the shared role's pinned binary.
 amd_gpu_operator_home: /usr/local/lib/swallow/amd-gpu-operator
 
 # DRA on k0s: the v1.5.1 DRA DaemonSet mounts the upstream kubelet plugin paths, while k0s keeps
@@ -43,6 +38,39 @@ amd_gpu_operator_dra_links:
 # The CDI spec the DRA driver writes for every node; removed only after DRA is off on the node.
 amd_gpu_operator_dra_common_cdi: /var/run/cdi/k8s.gpu.amd.com-gpu_common.yaml
 amd_gpu_operator_pod_resources_socket_dir: /var/lib/k0s/kubelet/pod-resources
+
+# The operator's Device Metrics Exporter is the Platform's GPU exporter (decision 062): it runs on
+# the host network at the port of every other Device Metrics Exporter swallow manages, so the Site
+# Prometheus scrapes it on the node's address like any other exporter. Its configuration, a ConfigMap the
+# DeviceConfig names, gives it the metric prefix of the standalone and Slurm exporters, so one
+# dashboard bundle reads all three; the operator ignores the file's ServerPort and takes the port
+# from the DeviceConfig.
+amd_gpu_operator_metrics_exporter_port: "{{ swallow_amd_gpu_operator_metrics_exporter_port | default(5001) | int }}"
+amd_gpu_operator_metrics_config: swallow-metrics-exporter
+amd_gpu_operator_metrics_prefix: amd_
+# The exporter of AMD's standalone package, which already holds the port on a host that has it.
+amd_gpu_operator_metrics_conflicting_unit: amd-metrics-exporter.service
+# Labels on every GPU metric besides the ones the exporter always sets (the GPU id, serial number,
+# model, host name, partition, deployment mode, and the Pod, namespace, and container of the GPU's
+# workload). GPU_UUID is what the shipped dashboards select a GPU by.
+amd_gpu_operator_metrics_labels:
+  - GPU_UUID
+  - SERIAL_NUMBER
+  - GPU_ID
+  - POD
+  - NAMESPACE
+  - CONTAINER
+  - CARD_SERIES
+  - CARD_MODEL
+  - CARD_VENDOR
+  - DRIVER_VERSION
+  - VBIOS_VERSION
+  - HOSTNAME
+  - GPU_PARTITION_ID
+  - GPU_COMPUTE_PARTITION_TYPE
+  - GPU_MEMORY_PARTITION_TYPE
+  - KFD_PROCESS_ID
+  - DEPLOYMENT_MODE
 
 # Every managed node gets the shared post-boot amdgpu loader (role amdgpu_loader), and the k0s
 # units on it are ordered after it with the drop-in, so a node whose image keeps amdgpu out of the
