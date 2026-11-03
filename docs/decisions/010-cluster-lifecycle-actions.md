@@ -50,8 +50,7 @@ A Platform is a desired-state resource, and uninstalling it is a destructive cha
   Integration signature both match.
 - **The Node Exporter outlives the Platform.** An uninstall never removes it. When the hosts are
   kept, the uninstall Workflow installs it on the kept Servers in a Job after the platform-software
-  uninstall, whatever the Platform's Exporter Ownership, so every kept Server ends with one; the
-  install is idempotent, so a Server that has it is unchanged. The cleanup is done when that uninstall succeeds, so the Job's failure
+  uninstall, so every kept Server ends with one; the install is idempotent, so a Server that has it is unchanged. The cleanup is done when that uninstall succeeds, so the Job's failure
   does not change the uninstall.
 - **Lifecycle is a backend read model.** The API derives `origin`, `lifecycleState`, and
   `lifecycleOperationId` from the durable deployment and uninstall Workflows; clients do not infer
@@ -98,3 +97,4 @@ A Platform is a desired-state resource, and uninstalling it is a destructive cha
 - 2026-11-02: merged decision 010 into this ADR; the body states the current decision.
 - 2026-11-03: exporter restoration became a Node Exporter Job in the uninstall Workflow instead of a separate exporter Workflow queued after it.
 - 2026-11-03: every kept-hosts uninstall installs the Node Exporter on the kept Servers, not only one whose exporters Kubernetes owned; the uninstall never removes it.
+- 2026-11-03: the per-Platform exporter owner was retired (decision 003), so the kept-hosts Node Exporter Job no longer depends on it; the decision is unchanged.

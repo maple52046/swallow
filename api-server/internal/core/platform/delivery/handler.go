@@ -421,7 +421,6 @@ func (h *PlatformHandler) Get(c *fiber.Ctx) error {
 type updatePlatformRequest struct {
 	Name            *string                           `json:"name"`
 	GPUStackOwner   *string                           `json:"gpuStackOwner"`
-	ExporterOwner   *string                           `json:"exporterOwner"`
 	MonitoringLinks *[]application.MonitoringLinkItem `json:"monitoringLinks"`
 }
 
@@ -434,7 +433,6 @@ func (h *PlatformHandler) Update(c *fiber.Ctx) error {
 	item, err := h.platforms.Update(c.Context(), c.Params("id"), application.UpdatePlatformInput{
 		Name:            req.Name,
 		GPUStackOwner:   req.GPUStackOwner,
-		ExporterOwner:   req.ExporterOwner,
 		MonitoringLinks: req.MonitoringLinks,
 	})
 	if err != nil {

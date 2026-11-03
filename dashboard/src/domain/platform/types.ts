@@ -207,9 +207,6 @@ export interface GPUOperatorRelease {
   defaultDraDriverVersion: string;
 }
 
-/** Which subsystem installs this platform's Prometheus exporters. Defaults to `ansible`. */
-export type ExporterOwner = "ansible" | "k8s";
-
 /**
  * A Monitoring Link (glossary): a user-registered name and absolute http(s) URL pointing at
  * the runtime's own monitoring UI, such as the Grafana Omnistat brings for Slurm. swallow never
@@ -317,8 +314,6 @@ export interface Platform {
   gpuStackOwner: GPUStackOwner;
   /** The swallow-managed GPU Operator; null when swallow never managed one on this Platform. */
   gpuOperator: PlatformGPUOperator | null;
-  /** Which subsystem installs this platform's exporters; `ansible` unless set to `k8s`. */
-  exporterOwner: ExporterOwner;
   /** User-registered links to the runtime's own monitoring UI; always an array. */
   monitoringLinks: MonitoringLink[];
   /** The swallow-managed Omnistat of a Slurm Platform; null when swallow never installed it. */

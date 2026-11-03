@@ -78,7 +78,7 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
 | `prometheus` | 無 role；`installMethod`；`containerRuntime` | `installMethod`（`container` 預設／`native`）、`containerRuntime`（container method：`docker-ce`／`podman`）、`version`（release 版本 `x.y.z`，預設 `3.15.0`）、`listen`（`loopback` 預設／`management`）、`retention`（Prometheus duration，預設 `15d`）、`scrapeJob`、`scrapeTargets`（`host:port`）、`scrapeServerIds` + `scrapePort`（同 Site 的 Server，每次執行時以 inventory 解析成當下的 primary address） | container method 需 runtime 已 `installed` |
 | `grafana` | 無 role；`installMethod`；`containerRuntime` | `installMethod`、`containerRuntime`、`version`（預設 `12.4.12`）、`prometheusUrl`（省略＝同機 Prometheus）、`dashboards`（bundle：`omnistat`、`device-metrics-exporter`） | container method 需 runtime 已 `installed` |
 | `device-metrics-exporter` | 無 role；只有 native 一種安裝路徑 | 無（版本固定 `1.5.3`，assignment spec 記錄 `version`） | GPU Inventory 須有 AMD compute GPU；拒絕 Kubernetes member 與帶 Platform Claim 的 Server（`refusedForClaimedServers`，install 與 uninstall 皆拒）；OS 限 Ubuntu 24.04（playbook 檢查） |
-| `node-exporter` | 無 role；只有 OS 套件一種安裝路徑 | 無（版本由 OS 套件決定） | standalone install 拒絕 Exporter Ownership 不是 `ansible` 的 Server；OS 限 Debian／Ubuntu 與 RHEL 家族（playbook 檢查） |
+| `node-exporter` | 無 role；只有 OS 套件一種安裝路徑 | 無（版本由 OS 套件決定） | 可與 Platform 共存；OS 限 Debian／Ubuntu 與 RHEL 家族（playbook 檢查） |
 
 catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴充新 kind（未來 PostgreSQL、LDAP client）
 就是新增一個 Software 模組，前提是仍只依賴本文件的契約：
@@ -167,10 +167,9 @@ port `9100`。主機不安裝也不需要 Docker 或任何 container。
 - **組入 OS 部署**：每個 OS 部署都在它 provision 的每台 Server 上安裝 Node Exporter（§5），因此 swallow 部署的
   Server 都有它的 Software Assignment。swallow 沒有部署的 Server（existing-OS enrollment 或匯入、直接在 MAAS 部署、
   OS image verification 留下的 Server）不會自動安裝，由 user 以 Managed Software 安裝。
-- **目標資格**（建立 Workflow 前檢查，不符為 `409 conflict`）：standalone install 只接受
-  [Exporter Ownership](glossaries/terms/exporter-ownership.md) 為 `ansible` 的 Server；Kubernetes Platform 的
-  `exporterOwner` 為 `k8s`（它的 DaemonSet 使用同一個 port）或 Server locked 時拒絕。組入的安裝由編排它的
-  Workflow 決定 exporter 的擁有者，不做這項檢查。請求不接受任何 spec 欄位。
+- **目標資格**：沒有這個 kind 自己的規則。OS provisioning 在每台部署的 Server 上帶入 Node Exporter，主機上永遠
+  只有一個 node exporter，所以任何 Platform 的成員都與其他 deployed Server 一樣接受；locked 的 Server 由每個 install
+  共同的 lock 檢查拒絕（`409 conflict`）。請求不接受任何 spec 欄位。
 - **OS**：playbook 依 OS 家族選套件；其他 OS 家族以 `node_exporter_unsupported_os` 失敗，repository 沒有該套件
   （例如 RHEL 家族未啟用 EPEL）以 `node_exporter_package_unavailable` 失敗。
 - **舊的 container unit**：安裝前先停止並移除 swallow 舊的 containerised node-exporter（systemd unit
@@ -386,10 +385,10 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
   （internal `record-software-assignment`）；Workflow 受理時寫入 pending assignment，安裝失敗由
   `software-assignment-failure` 標 `failed`。這兩個 Task 是葉節點，沒有 Task 依賴它們，因此 exporter 失敗不會擋住
   OS，但 Workflow 會停在 `requires_attention` 直到 user 重試。Platform 部署的 `ensure-os` 對它 provision 的 Server
-  做同樣的事（獨立的 `configure-node-exporter` Job，`install-platform` 不等它），Platform 的 `exporterOwner` 為
-  `k8s` 時不組入。Platform uninstall 不移除 Node Exporter；保留主機的 uninstall 不論 `exporterOwner`，都在
-  `uninstall-platform` 之後為保留的 Server 組入同一個 Job，確保它們最後都有 Node Exporter（[platform-deployment.md](platform-deployment.md) §2.1、§2.4）。組入的安裝不檢查
-  Exporter Ownership；`ensure-os` 重用或已有 OS 的 Server 不重新安裝。
+  做同樣的事（獨立的 `configure-node-exporter` Job，`install-platform` 不等它），不分 Platform 類型。Platform
+  uninstall 不移除 Node Exporter；保留主機的 uninstall 都在 `uninstall-platform` 之後為保留的 Server 組入同一個 Job，
+  確保它們最後都有 Node Exporter（[platform-deployment.md](platform-deployment.md) §2.1、§2.4）。`ensure-os` 重用或
+  已有 OS 的 Server 不重新安裝。
 - **禁止** `ExecuteChildWorkflow` 一個完整的獨立 software Workflow（會重複 `wait-for-ssh`、搶同一
   Server 的資源所有權、retry/cancel 歸屬混亂、出現兩個 user-visible Workflow）。
 - **禁止**只用 ansible `include_role` 當唯一連動（會抹掉 Job 邊界與 dashboard 分組）。playbook 內部

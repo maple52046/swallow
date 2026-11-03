@@ -50,21 +50,16 @@ GET /api/v1/discovery/prometheus/exporters?siteId=<site>
 
 ## Exporters
 
-swallow 使用固定 port，因此 Server 的 scrape target 不會因為由誰安裝 exporters 而改變：
+swallow 使用固定 port，因此 Server 的 scrape target 不會因為 exporters 的安裝方式而改變：
 
 | Exporter | Port | 安裝對象 |
 | --- | --- | --- |
 | node-exporter | 9100 | 每台由 swallow 佈署的 Server（CPU、memory、disk、network），安裝 OS 套件：Debian 與 Ubuntu 為 `prometheus-node-exporter`，RHEL 家族為 `node_exporter`（來自 EPEL） |
 | [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | swallow 不在主機上安裝，也不收集：Site 的 Prometheus 只收集 swallow 安裝的 exporter |
 
-每台 Server 的 exporters 只會有一個 owner 負責安裝：
-
-- 不屬於任何 Platform 的 Server 由 swallow 負責：每次 OS 佈署都會安裝 Node Exporter；不是由
-  swallow 佈署的 Server 可以用 Managed Software 安裝；
-- Kubernetes Platform 的成員依該 Platform 的 `exporterOwner`（`ansible`——由 swallow
-  安裝 Node Exporter——或 `k8s`——在相同 port 上以 DaemonSet 執行）。修改 `exporterOwner`
-  只記錄這個選擇，不會安裝或移除 exporters；
-- locked Server 為 unmanaged：swallow 不安裝也不移除任何東西。
+每台 Server 只有一個 Node Exporter，不論它屬於哪個 Platform：每次 OS 佈署都會在佈署的 Server
+上安裝它，uninstall Platform 會保留它（保留的 Server 若沒有則補裝），不是由 swallow 佈署的 Server
+可以用 Managed Software 安裝。locked Server 維持原狀：swallow 不在上面安裝也不移除任何東西。
 
 ## 用量圖表
 

@@ -240,7 +240,7 @@ const platforms = [
         { serverId: 'srv-3', role: 'control-plane', runWorkloads: false },
       ],
     },
-    gpuStackOwner: 'gpu-operator', exporterOwner: 'k8s', monitoringLinks: [],
+    gpuStackOwner: 'gpu-operator', monitoringLinks: [],
     gpuOperator: {
       enabled: true, version: 'v1.5.1', allocationMode: 'device-plugin', draDriverVersion: null,
       resourceNaming: 'single', nodeLabeller: true, metricsExporter: false,
@@ -259,7 +259,7 @@ const platforms = [
         { serverId: 'srv-4', role: 'control-plane', runWorkloads: true },
       ],
     },
-    gpuStackOwner: 'provisioning', exporterOwner: 'ansible', monitoringLinks: [], gpuOperator: null,
+    gpuStackOwner: 'provisioning', monitoringLinks: [], gpuOperator: null,
     sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null, memberCount: 0, matchedCount: 0 },
     createdAt: '2026-08-20T00:00:00Z', updatedAt: now,
   },
@@ -267,7 +267,7 @@ const platforms = [
     id: 'platform-slurm', siteId: 'site-a', name: 'research-slurm', type: 'slurm',
     integrationId: 'slurm-a', origin: 'registered', lifecycleState: 'registered',
     lifecycleOperationId: null, deployment: null,
-    gpuStackOwner: 'provisioning', exporterOwner: 'ansible', gpuOperator: null,
+    gpuStackOwner: 'provisioning', gpuOperator: null,
     monitoringLinks: [{ name: 'Omnistat Grafana', url: 'https://omnistat.example/grafana' }],
     omnistat: {
       enabled: true, version: '1.15.0', installMethod: 'container', observabilityServerId: 'srv-1', state: 'ready',
@@ -1490,7 +1490,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           { serverId: 'slurm-cpt-2', role: 'worker', runWorkloads: false },
         ],
       },
-      gpuStackOwner: 'provisioning', exporterOwner: 'ansible', monitoringLinks: [], gpuOperator: null,
+      gpuStackOwner: 'provisioning', monitoringLinks: [], gpuOperator: null,
       sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 2, matchedCount: 2 },
       createdAt: now, updatedAt: now,
     })
@@ -3063,7 +3063,6 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           lifecycleOperationId: operationId,
           deployment: null,
           gpuStackOwner: body.gpuStackOwner ?? 'provisioning',
-          exporterOwner: 'ansible',
           monitoringLinks: [],
           gpuOperator: null,
           // Mirrors platforms.md "Omnistat": an enabled request records Omnistat as installing.
@@ -3130,7 +3129,6 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         lifecycleOperationId: operationId,
         deployment: { topology, roleAssignments },
         gpuStackOwner: body.gpuOperator?.enabled ? 'gpu-operator' : body.gpuStackOwner ?? 'provisioning',
-        exporterOwner: 'ansible',
         monitoringLinks: [],
         gpuOperator: body.gpuOperator?.enabled
           ? {

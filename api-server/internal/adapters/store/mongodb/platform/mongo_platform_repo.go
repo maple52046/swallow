@@ -20,9 +20,6 @@ type platformDoc struct {
 	IntegrationID      string `bson:"integrationId,omitempty"`
 	OwnedIntegrationID string `bson:"ownedIntegrationId,omitempty"`
 	GPUStackOwner      string `bson:"gpuStackOwner"`
-	// ExporterOwner is omitempty so a document written before this field existed
-	// decodes as empty and is defaulted to ansible on read.
-	ExporterOwner string `bson:"exporterOwner,omitempty"`
 	// MonitoringLinks is omitempty so documents written before the field existed — and
 	// platforms that never had links — decode as nil, which toPlatform turns into [].
 	MonitoringLinks []monitoringLinkDoc `bson:"monitoringLinks,omitempty"`
@@ -216,7 +213,6 @@ func (r *MongoPlatformRepo) Update(ctx context.Context, platform *platformdomain
 			"integrationId":      platform.IntegrationID,
 			"ownedIntegrationId": platform.OwnedIntegrationID,
 			"gpuStackOwner":      string(platform.GPUStackOwner),
-			"exporterOwner":      string(platform.ExporterOwner),
 			"monitoringLinks":    toMonitoringLinkDocs(platform.MonitoringLinks),
 			"containerRuntime":   string(platform.ContainerRuntime),
 			"gpuDriver":          toGPUDriverDoc(platform.GPUDriver),
@@ -522,7 +518,6 @@ func toDoc(platform *platformdomain.Platform) *platformDoc {
 		IntegrationID:         platform.IntegrationID,
 		OwnedIntegrationID:    platform.OwnedIntegrationID,
 		GPUStackOwner:         string(platform.GPUStackOwner),
-		ExporterOwner:         string(platform.ExporterOwner),
 		MonitoringLinks:       toMonitoringLinkDocs(platform.MonitoringLinks),
 		GPUOperator:           optionalGPUOperatorDoc(platform.GPUOperator),
 		Omnistat:              toOmnistatDoc(platform.Omnistat),
@@ -545,12 +540,6 @@ func toDoc(platform *platformdomain.Platform) *platformDoc {
 }
 
 func toPlatform(doc *platformDoc) *platformdomain.Platform {
-	// A platform stored before exporterOwner existed decodes as empty; treat that as the
-	// default ansible owner rather than an invalid empty value.
-	exporterOwner := platformdomain.ExporterOwner(doc.ExporterOwner)
-	if exporterOwner == "" {
-		exporterOwner = platformdomain.ExporterOwnerAnsible
-	}
 	return &platformdomain.Platform{
 		ID:                    doc.ID,
 		SiteID:                doc.SiteID,
@@ -562,7 +551,6 @@ func toPlatform(doc *platformDoc) *platformdomain.Platform {
 		IntegrationID:         doc.IntegrationID,
 		OwnedIntegrationID:    doc.OwnedIntegrationID,
 		GPUStackOwner:         platformdomain.GPUStackOwner(doc.GPUStackOwner),
-		ExporterOwner:         exporterOwner,
 		MonitoringLinks:       toMonitoringLinks(doc.MonitoringLinks),
 		GPUOperator:           toGPUOperator(doc.GPUOperator),
 		Omnistat:              toOmnistat(doc.Omnistat),

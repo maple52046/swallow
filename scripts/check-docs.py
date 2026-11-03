@@ -73,9 +73,14 @@ RETIRED_TERMS = {
         "a Workflow that removes a Server's OS, or reconcile, marks its Software Assignments absent"
     ),
     "OS Image overlay": "the swallow-owned overrides are OS Image metadata (decision 071)",
+    "Exporter Ownership": (
+        "OS provisioning installs the Node Exporter on every Server; GPU exporters follow their"
+        " context (monitoring.md §4)"
+    ),
+    "exporterOwner": "Platforms have no exporter owner policy (monitoring.md §4.3)",
 }
-# Documents whose purpose is to record the retirement itself: a contract change note or the
-# public compatibility page.
+# Documents whose purpose is to record the retirement itself: a contract change note, the public
+# compatibility page, or the decision and spec section that state a mechanism is retired.
 RETIRED_TERM_RECORDS = {
     ("api-server/docs/development/api-contracts/api-server/overview.md", "indeterminate"),
     ("api-server/docs/development/api-contracts/api-server/workflows.md", "/api/v1/operations"),
@@ -87,6 +92,11 @@ RETIRED_TERM_RECORDS = {
     ("api-server/docs/development/api-contracts/api-server/provisioning.md", "OS Image overlay"),
     ("docs/development/glossaries/outline.md", "OS Image overlay"),
     ("docs/development/glossaries/terms/provider-data-overlay.md", "OS Image overlay"),
+    ("docs/decisions/003-metrics-label-contract.md", "Exporter Ownership"),
+    ("docs/development/monitoring.md", "Exporter Ownership"),
+    ("docs/development/monitoring.md", "exporterOwner"),
+    ("api-server/docs/development/api-contracts/api-server/platforms.md", "exporterOwner"),
+    ("api-server/docs/development/api-contracts/api-server/software.md", "exporterOwner"),
 }
 
 # Architecture-review tracking codes are defined only in uncommitted plan drafts, so a committed
@@ -120,6 +130,9 @@ def markdown_files() -> list[Path]:
         if any(part in SKIP_PARTS for part in path.parts):
             continue
         if path.parts[:2] == ("docs", "plans"):
+            continue
+        # A tracked file deleted in the working tree is still listed until the deletion is staged.
+        if not (ROOT / path).is_file():
             continue
         files.append(path)
     return sorted(set(files))

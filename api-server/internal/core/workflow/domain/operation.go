@@ -52,14 +52,6 @@ const (
 	// WorkflowKindUninstallSlurm removes the Slurm configuration and daemons swallow
 	// deployed while preserving the host operating system and the image-supplied packages.
 	WorkflowKindUninstallSlurm WorkflowKind = "uninstall-slurm"
-	// WorkflowKindDeployK8sExporters applies the exporter DaemonSets (node-exporter and
-	// the RDC exporter) plus the AMD GPU device-plugin to a Kubernetes platform, run on a
-	// control-plane target. The DaemonSets use hostNetwork on the same fixed ports, so
-	// swallow's http_sd scrape and server_id join are unchanged.
-	WorkflowKindDeployK8sExporters WorkflowKind = "deploy-k8s-exporters"
-	// WorkflowKindRemoveK8sExporters deletes those DaemonSets, freeing the fixed ports so
-	// the host can return to an Ansible-installed exporter.
-	WorkflowKindRemoveK8sExporters WorkflowKind = "remove-k8s-exporters"
 	// WorkflowKindCustom runs a named playbook with no swallow-side expectations
 	// about what it does, which is the escape hatch for anything not yet modelled.
 	WorkflowKindCustom WorkflowKind = "custom"
@@ -95,8 +87,6 @@ var builtInWorkflowKinds = map[WorkflowKind]string{
 	WorkflowKindConfigureGPUOperator:  "deployed",
 	WorkflowKindConfigureSlurm:        "deployed",
 	WorkflowKindUninstallSlurm:        "",
-	WorkflowKindDeployK8sExporters:    "deployed",
-	WorkflowKindRemoveK8sExporters:    "",
 	WorkflowKindConfigureOmnistat:     "deployed",
 	// configure-ntp reaches the host over SSH; the preceding provision-os Task satisfies this
 	// (PrepareAnsibleStep provisionFirst).

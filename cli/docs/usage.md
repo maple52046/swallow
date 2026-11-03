@@ -560,7 +560,7 @@ swallow platforms get plat1
 swallow platforms create -f platform-k8s.yaml        # prints the platform and its install Change Plan
 swallow plans approve <planId>                        # the platform controller then builds it
 swallow platforms set-spec plat1 -f spec-change.yaml  # { generation, spec }; a new member converges at once
-swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, exporterOwner, monitoringLinks
+swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, monitoringLinks
 swallow platforms delete plat1                        # proposes the uninstall (software only)
 swallow platforms delete plat1 --release-servers --erase   # the uninstall also releases the members
 swallow platforms delete plat1 --cancel-active-workflows   # also cancel a failed or running deployment holding the servers

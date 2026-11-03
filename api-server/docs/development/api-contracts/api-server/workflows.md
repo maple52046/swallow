@@ -112,6 +112,12 @@ kind enum still lists them. The Node Exporter is Managed Software, installed and
 A Task accepted under the old playbook names can still be retried: the release manifest keeps
 `install-exporters` and `uninstall-exporters` as names of the Node Exporter's playbooks.
 
+`deploy-k8s-exporters` and `remove-k8s-exporters` are retired kinds too: create refuses them with
+`400 validation_error`, and they appear only on Workflows an earlier release created. The
+Kubernetes exporter DaemonSets they applied and deleted were retired, because OS provisioning
+installs the Node Exporter on every Server it deploys. Their playbooks are no longer in the release
+manifest, so such a Workflow cannot run again.
+
 The `202` body of create is the accepted Workflow, the projection below with `status` `pending`,
 `startState` `pending`, and `leases` `null` (it owns nothing until it starts).
 
@@ -424,3 +430,7 @@ a client no longer derives Job titles or groups from Task ids. Additive: no fiel
 On 2026-11-03 the kinds `configure-node-exporter` and `uninstall-node-exporter` were added, and
 create began refusing `install-exporters` and `uninstall-exporters` with `400 validation_error`
 (breaking); Workflows of those kinds that an earlier release created are still listed and read.
+
+Also on 2026-11-03 create began refusing `deploy-k8s-exporters` and `remove-k8s-exporters` with
+`400 validation_error` (breaking), and their playbooks left the release manifest; Workflows of
+those kinds that an earlier release created are still listed and read.

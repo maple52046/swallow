@@ -34,7 +34,6 @@ identical inventory through the same use case without calling HTTP.
 - [Server Type](../../../../../docs/development/glossaries/terms/server-type.md)
 - [Server Status](../../../../../docs/development/glossaries/terms/server-status.md)
 - [Server Lock](../../../../../docs/development/glossaries/terms/server-lock.md)
-- [Exporter Ownership](../../../../../docs/development/glossaries/terms/exporter-ownership.md)
 
 See also [decision 003](../../../../../docs/decisions/003-metrics-label-contract.md) (metrics label contract) for the
 label contract and monitoring topology.
@@ -134,8 +133,7 @@ entry is one target with its labels already attached:
   to that server.
 - A locked machine remains in discovery when it otherwise matches the query. Lock blocks
   exporter installation, removal, and reconfiguration; it does not disable an exporter
-  already running or turn observability into a mutation. Its effective Exporter Ownership
-  is still `unmanaged`.
+  already running or turn observability into a mutation.
 - The result is never paginated: a scrape target list must be complete.
 - Label names are the canonical join keys from
   [decision 003](../../../../../docs/decisions/003-metrics-label-contract.md); do not add

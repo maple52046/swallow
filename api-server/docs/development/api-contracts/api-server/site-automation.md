@@ -45,9 +45,7 @@ PUT /api/v1/sites/{id}/automation/credential
   "sshPort": 22,
   "knownHosts": "host ssh-ed25519 AAAA...",
   "playbookMappings": {
-    "deploy-kubernetes": "deploy-kubernetes",
-    "deploy-k8s-exporters": "deploy-k8s-exporters",
-    "remove-k8s-exporters": "remove-k8s-exporters"
+    "deploy-kubernetes": "deploy-kubernetes"
   }
 }
 ```
@@ -67,15 +65,10 @@ the effective default user of the OS Image the Server is deployed with
 it exclusively. Only a Server without one tries `sshUser` (when set) and then the built-in
 candidates `cloud-user` and `ubuntu`, using the first that authenticates.
 
-`install-exporters` and `uninstall-exporters` are not accepted as mapped kinds
-(`400 validation_error`). The host exporter is the Node Exporter, installed as Managed Software
-([software.md](software.md#node-exporter)), and like every software kind its playbooks are named by
-the release, not by a Site mapping.
-
-The `deploy-k8s-exporters` / `remove-k8s-exporters` mappings are the Kubernetes side of
-exporter ownership: they apply or delete the exporter DaemonSets on a platform (run on a
-control-plane target). Switching a platform's `exporterOwner` only records the policy
-([platforms.md](platforms.md)); it runs neither Workflow.
+`install-exporters`, `uninstall-exporters`, `deploy-k8s-exporters`, and `remove-k8s-exporters` are
+not accepted as mapped kinds (`400 validation_error`). The host exporter is the Node Exporter,
+installed as Managed Software ([software.md](software.md#node-exporter)), and like every software
+kind its playbooks are named by the release, not by a Site mapping.
 
 `uninstall-kubernetes` is selected explicitly by the Platform uninstall use case from the
 release manifest. It needs no Site mapping, so existing automation configurations remain
@@ -155,3 +148,9 @@ Since 2026-11-03 (breaking) the `install-exporters` and `uninstall-exporters` ma
 with `400 validation_error`: the host exporter is the Node Exporter's Managed Software. The
 schema v11 migration removes both keys from every stored configuration, so a configuration that
 had them reads and saves without them.
+
+Since 2026-11-03 (breaking) the `deploy-k8s-exporters` and `remove-k8s-exporters` mappings are
+refused with `400 validation_error`: the Kubernetes exporter DaemonSets they applied were retired,
+because OS provisioning installs the Node Exporter on every Server. The schema v12 migration removes
+both keys from every stored configuration, so a configuration that had them reads and saves
+without them.

@@ -27,8 +27,7 @@
 - Examples: "Deploy the Platform with the AMD GPU Operator in Device Plugin mode on its three GPU
   nodes." / "Switching the GPU Operator to DRA is refused while a Pod still uses an AMD GPU." /
   "Uninstalling the GPU Operator leaves the Platform active and its nodes Ready."
-- Related terms: Platform, GPU Allocation Mode, GPU Operator State, GPU Inventory, Exporter
-  Ownership, Workflow.
+- Related terms: Platform, GPU Allocation Mode, GPU Operator State, GPU Inventory, Workflow.
 - Change note: Added when swallow started installing the AMD GPU Operator ([decision 062](../../../decisions/062-swallow-managed-gpu-operator.md) (swallow managed gpu operator)). Before
   it, `gpuStackOwner=gpu-operator` was only a policy flag and swallow installed no operator.
   2026-11-03: the GPU charts no longer rely on a host RDC exporter that swallow installs.

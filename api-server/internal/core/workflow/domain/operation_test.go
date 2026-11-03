@@ -5,10 +5,11 @@ import (
 	"testing"
 )
 
-// The host exporters are Managed Software (the Node Exporter module), so the core no longer accepts
-// the kinds that installed them as plain playbooks.
+// The host exporters are Managed Software (the Node Exporter module) and OS provisioning installs
+// the Node Exporter on every Server, so the core no longer accepts the kinds that installed them as
+// plain playbooks or as Kubernetes DaemonSets.
 func TestRetiredExporterKindsAreNotAccepted(t *testing.T) {
-	for _, kind := range []WorkflowKind{"install-exporters", "uninstall-exporters"} {
+	for _, kind := range []WorkflowKind{"install-exporters", "uninstall-exporters", "deploy-k8s-exporters", "remove-k8s-exporters"} {
 		if (WorkflowKinds{}).Valid(kind) {
 			t.Errorf("%s is a retired kind and must not be accepted", kind)
 		}

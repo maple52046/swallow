@@ -36,8 +36,8 @@ Concretely:
   a `platform` Integration is created only by a successful deployment's completion hook,
   which calls the repository directly and is unaffected.
 - `PATCH /api/v1/platforms/{id}` no longer accepts `integrationId`, so a user cannot
-  point a Platform at a user-owned Integration as a registration back door. Name,
-  `gpuStackOwner`, and `exporterOwner` remain editable.
+  point a Platform at a user-owned Integration as a registration back door. Name and
+  `gpuStackOwner` remain editable.
 - Existing `origin=registered` records keep working for one release: readable and deletable,
   never uninstallable, and never eligible for the cluster explorer. No new `registered`
   record can be produced through the public API.
@@ -117,3 +117,4 @@ for the explorer) is deliberately deferred.
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-03: `exporterOwner` is no longer a Platform field (decision 003 retired the exporter owner), so it left the editable fields; the decision is unchanged.

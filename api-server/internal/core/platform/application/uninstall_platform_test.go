@@ -117,8 +117,7 @@ func newUninstallHarness(
 ) (*UninstallService, *recordingUninstallLauncher, *deployFakeServerRepo, *platformdomain.Platform) {
 	platform := &platformdomain.Platform{
 		ID: "platform-1", SiteID: "site-1", Name: "lab",
-		Type:          platformdomain.PlatformTypeKubernetes,
-		ExporterOwner: platformdomain.ExporterOwnerK8s,
+		Type: platformdomain.PlatformTypeKubernetes,
 	}
 	platforms := &deployFakePlatformRepo{
 		platforms: map[string]*platformdomain.Platform{platform.ID: platform},

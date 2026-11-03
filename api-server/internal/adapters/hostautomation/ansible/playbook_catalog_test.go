@@ -102,10 +102,23 @@ func TestShippedManifestResolvesExporterPlaybooks(t *testing.T) {
 	for _, name := range []string{
 		"uninstall-kubernetes",
 		"install-exporters", "uninstall-exporters",
-		"deploy-k8s-exporters", "remove-k8s-exporters",
 	} {
 		if _, err := catalog.Resolve(name); err != nil {
 			t.Errorf("shipped manifest must register %q: %v", name, err)
+		}
+	}
+}
+
+// The Kubernetes exporter DaemonSets are retired, so their playbooks must not be registered: a
+// Workflow of those kinds that an earlier release created must not run again.
+func TestShippedManifestOmitsRetiredKubernetesExporterPlaybooks(t *testing.T) {
+	catalog, err := LoadManifestCatalog(shippedManifest, modulesRoot)
+	if err != nil {
+		t.Fatalf("load shipped manifest: %v", err)
+	}
+	for _, name := range []string{"deploy-k8s-exporters", "remove-k8s-exporters"} {
+		if _, err := catalog.Resolve(name); !errors.Is(err, workflowdomain.ErrPlaybookNotAllowed) {
+			t.Errorf("Resolve(%q) error = %v, want ErrPlaybookNotAllowed", name, err)
 		}
 	}
 }

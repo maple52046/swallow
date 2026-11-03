@@ -4261,11 +4261,6 @@ export interface components {
             };
         };
         /**
-         * @description Which subsystem installs the Platform's host Prometheus exporters.
-         * @enum {string}
-         */
-        ExporterOwner: "ansible" | "k8s";
-        /**
          * @description How the GPU Operator exposes GPUs.
          * @enum {string}
          */
@@ -5114,7 +5109,6 @@ export interface components {
             deployment: components["schemas"]["PlatformDeploymentIntent"] | null;
             /** @description The swallow-managed Device Metrics Exporter; null when never installed (always for Kubernetes). */
             deviceMetricsExporter: components["schemas"]["PlatformDeviceMetricsExporter"] | null;
-            exporterOwner: components["schemas"]["ExporterOwner"];
             /**
              * Format: int64
              * @description The spec generation; 0 before the Platform has a spec.
@@ -5379,7 +5373,6 @@ export interface components {
         PlatformType: "kubernetes" | "slurm";
         /** @description The mutable Platform fields; omitted (or null) fields do not change. There is no `integrationId`: a Platform's credential Integration is set only by its deployment. */
         PlatformUpdate: {
-            exporterOwner?: components["schemas"]["ExporterOwner"];
             gpuStackOwner?: components["schemas"]["GPUStackOwner"];
             /** @description Replaces the whole list; `[]` clears it. */
             monitoringLinks?: components["schemas"]["PlatformMonitoringLink"][];
@@ -6424,7 +6417,7 @@ export interface components {
             retry: "task" | "job";
         };
         /**
-         * @description What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings. `install-exporters` and `uninstall-exporters` are no longer accepted; they appear only on Workflows created by an earlier release (the Node Exporter is Managed Software, `configure-node-exporter` and `uninstall-node-exporter`).
+         * @description What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings. `install-exporters` and `uninstall-exporters` are no longer accepted; they appear only on Workflows created by an earlier release (the Node Exporter is Managed Software, `configure-node-exporter` and `uninstall-node-exporter`). `deploy-k8s-exporters` and `remove-k8s-exporters` are no longer accepted either; they appear only on Workflows created by an earlier release (the Kubernetes exporter DaemonSets were retired).
          * @enum {string}
          */
         WorkflowKind: "deploy-os" | "release-os" | "recover-server" | "verify-os-image" | "inspect-hardware" | "enroll-virtual-machines" | "install-gpu-driver" | "deploy-kubernetes" | "uninstall-kubernetes" | "configure-gpu-operator" | "configure-slurm" | "uninstall-slurm" | "install-exporters" | "uninstall-exporters" | "deploy-k8s-exporters" | "remove-k8s-exporters" | "configure-docker-ce" | "uninstall-docker-ce" | "configure-podman" | "uninstall-podman" | "configure-nfs" | "uninstall-nfs" | "configure-prometheus" | "uninstall-prometheus" | "configure-grafana" | "uninstall-grafana" | "configure-omnistat" | "configure-device-metrics-exporter" | "uninstall-device-metrics-exporter" | "configure-node-exporter" | "uninstall-node-exporter" | "configure-ntp" | "custom";

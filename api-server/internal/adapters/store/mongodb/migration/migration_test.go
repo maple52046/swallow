@@ -573,7 +573,58 @@ func TestMigrateV10ToV11_RemovesRetiredPlaybookMappings(t *testing.T) {
 	if got := count(t, ctx, db.Collection("automation_configurations"), bson.M{"_id": "site-2", "playbookMappings": bson.M{"$exists": true}}); got != 0 {
 		t.Errorf("site-2 gained playbookMappings")
 	}
-	if got := schemaVersion(t, ctx, db); got != 11 {
-		t.Errorf("schema version = %d, want 11", got)
+	if got := schemaVersion(t, ctx, db); got != CurrentSchemaVersion {
+		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)
+	}
+}
+
+// TestMigrateV11ToV12_RetiresTheExporterOwner verifies v12 unsets exporterOwner on every Platform,
+// drops only the retired Kubernetes exporter kinds' mappings, and needs no backup confirmation.
+func TestMigrateV11ToV12_RetiresTheExporterOwner(t *testing.T) {
+	db := testDatabase(t)
+	ctx := ctxFor(t)
+	if _, err := db.Collection("platforms").InsertMany(ctx, []any{
+		bson.M{"_id": "platform-1", "name": "k8s", "gpuStackOwner": "provisioning", "exporterOwner": "k8s"},
+		bson.M{"_id": "platform-2", "name": "slurm", "gpuStackOwner": "provisioning"},
+	}); err != nil {
+		t.Fatalf("seed platforms: %v", err)
+	}
+	if _, err := db.Collection("automation_configurations").InsertMany(ctx, []any{
+		bson.M{"_id": "site-1", "playbookMappings": bson.M{
+			"deploy-k8s-exporters": "deploy-k8s-exporters", "remove-k8s-exporters": "remove-k8s-exporters",
+			"deploy-kubernetes": "deploy-kubernetes",
+		}},
+		bson.M{"_id": "site-2", "enabled": true},
+	}); err != nil {
+		t.Fatalf("seed automation configurations: %v", err)
+	}
+	if _, err := db.Collection("schema_metadata").InsertOne(ctx, bson.M{
+		"_id": "database", "version": 11, "updatedAt": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed schema marker: %v", err)
+	}
+
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if got := count(t, ctx, db.Collection("platforms"), bson.M{"exporterOwner": bson.M{"$exists": true}}); got != 0 {
+		t.Errorf("%d platforms still have exporterOwner", got)
+	}
+	if got := count(t, ctx, db.Collection("platforms"), bson.M{"gpuStackOwner": "provisioning"}); got != 2 {
+		t.Errorf("platforms with gpuStackOwner = %d, want both kept", got)
+	}
+	var site bson.M
+	if err := db.Collection("automation_configurations").FindOne(ctx, bson.M{"_id": "site-1"}).Decode(&site); err != nil {
+		t.Fatalf("read site-1: %v", err)
+	}
+	mappings, _ := site["playbookMappings"].(bson.M)
+	if len(mappings) != 1 || mappings["deploy-kubernetes"] != "deploy-kubernetes" {
+		t.Errorf("playbookMappings = %v, want only deploy-kubernetes", mappings)
+	}
+	if got := count(t, ctx, db.Collection("automation_configurations"), bson.M{"_id": "site-2", "playbookMappings": bson.M{"$exists": true}}); got != 0 {
+		t.Errorf("site-2 gained playbookMappings")
+	}
+	if got := schemaVersion(t, ctx, db); got != CurrentSchemaVersion {
+		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)
 	}
 }

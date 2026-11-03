@@ -175,7 +175,8 @@ bash seed.sh
 
 Without MAAS or SSH inputs, those steps are skipped with guidance. Each OS
 deployment installs the Node Exporter on the Servers it deploys; install it as
-Managed Software on a Server swallow did not deploy. Locked Servers remain unmanaged.
+Managed Software on a Server swallow did not deploy. swallow installs nothing on a
+locked Server.
 
 To enroll libvirt virtual machines with a local MAAS snap, give its rack the SSH
 identity the production installation creates (`local-maas.sh ensure-virsh-identity`

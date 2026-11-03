@@ -36,7 +36,6 @@ behavior semantics.
 - [Server Status](../../../../../docs/development/glossaries/terms/server-status.md)
 - [Docker Host Explorer](../../../../../docs/development/glossaries/terms/docker-host-explorer.md)
 - [Device Metrics Exporter](../../../../../docs/development/glossaries/terms/device-metrics-exporter.md)
-- [Exporter Ownership](../../../../../docs/development/glossaries/terms/exporter-ownership.md)
 - [Platform Claim](../../../../../docs/development/glossaries/terms/platform-claim.md)
 
 ## Endpoints
@@ -405,10 +404,8 @@ on Servers swallow did not deploy.
 ```
 
 - The request takes no `spec` fields; any field is `400 validation_error`.
-- A target whose [Exporter Ownership](../../../../../docs/development/glossaries/terms/exporter-ownership.md)
-  is not `ansible` is `409 conflict`: a member of a Kubernetes Platform whose `exporterOwner` is
-  `k8s` (its DaemonSet serves the same port), or a locked Server. An install that an OS or
-  Platform deployment composes is not subject to this check.
+- The kind has no install rule of its own: a member of any Platform is accepted like any other
+  deployed Server, and a locked Server is refused by the lock check every install has.
 - The install Task fails with `node_exporter_unsupported_os` on an OS family other than Debian or
   the RHEL family, and with `node_exporter_package_unavailable` when the host's repositories lack
   the package (on the RHEL family, when EPEL is not enabled).
@@ -428,7 +425,7 @@ In addition to the shared codes in [conventions](conventions.md):
 | --- | ---: | --- |
 | `validation_error` | 400 | The body is not valid JSON; unknown kind; no target, a target without `serverId`, or a duplicate target; missing/invalid roles for the kind; a missing, malformed, or wrong-typed spec field, or one the kind does not accept; or the targets belong to more than one Site. |
 | `not_found` | 404 | A target Server, or a Prometheus `scrapeServerIds` entry, does not exist. |
-| `conflict` | 409 | A mutually exclusive software kind is already installed on a target, the `container` method's runtime is not `installed` on a target, a target is already a Kubernetes Platform member for a kind that refuses members, a target has a Platform Claim for a kind that refuses claimed Servers, a target lacks the AMD compute GPUs the Device Metrics Exporter needs, or a Node Exporter target's Exporter Ownership is not `ansible`. |
+| `conflict` | 409 | A mutually exclusive software kind is already installed on a target, the `container` method's runtime is not `installed` on a target, a target is already a Kubernetes Platform member for a kind that refuses members, a target has a Platform Claim for a kind that refuses claimed Servers, or a target lacks the AMD compute GPUs the Device Metrics Exporter needs. |
 | `conflict` | 409 | A target Server is absent or not in provisioning state `deployed`, checked first and re-checked when the Workflow is created; or, when the Workflow is created, a target already has an active durable Workflow or is locked. |
 | `provider_unavailable` | 503 | The targets' Site cannot run the Workflow's Ansible automation (no automation configuration, automation disabled, automation not logging in with the Deployment Key, or a playbook outside the release manifest), or the Server Lock state of a target cannot be confirmed. |
 
@@ -489,6 +486,10 @@ On success the response is `202 Accepted`:
 - 2026-11-03: added the `node-exporter` kind, which every OS deployment composes. A Server's
   assignments are marked `absent` by the Workflow Task that removed its OS or by reconciliation,
   no longer whenever the Server leaves `deployed`, so a Server in `rescue` or `broken` keeps them.
+- 2026-11-03, looser: a standalone `node-exporter` install is no longer refused with
+  `409 conflict` on a member of a Kubernetes Platform whose `exporterOwner` was `k8s`; the field
+  and its exporter DaemonSets were retired ([platforms](platforms.md)). A locked target is still
+  `409 conflict`.
 
 ## Composition Into Platform Deployments
 
@@ -511,8 +512,8 @@ composes:
 
 OS deployments compose `node-exporter` the same way onto every Server they provision (see
 [provisioning](provisioning.md#durable-os-workflows)), and so does a Platform deployment's
-`ensure-os` unless the Platform's `exporterOwner` is `k8s`; a kept-servers uninstall composes it
-onto the kept Servers whatever the `exporterOwner` (see [platforms](platforms.md)).
+`ensure-os`; a kept-servers uninstall composes it onto the kept Servers (see
+[platforms](platforms.md)).
 
 A composed runtime skips a Server where it is already `installed`, so a user's own runtime
 spec is never reverted. Composition adds no endpoint. A Slurm Platform's uninstall removes the

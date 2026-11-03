@@ -94,9 +94,8 @@ container runtime. It has no settings.
 
 Every OS deployment installs it on the Servers it deploys, so you install it here
 only on Servers swallow did not deploy, for example one enrolled with its OS kept.
-It is refused on a member of a Kubernetes Platform whose exporters Kubernetes owns
-(`exporterOwner: k8s`), because that Platform's DaemonSet uses the same port.
-Installing it first removes swallow's older containerised node-exporter
+A member of any Platform accepts it like any other deployed Server. Installing it first
+removes swallow's older containerised node-exporter
 (`swallow-node-exporter.service`) if the host still runs it; Docker and any RDC
 exporter container are left alone.
 

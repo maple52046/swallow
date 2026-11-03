@@ -14,9 +14,6 @@ import (
 
 // seedPlatform inserts a platform record directly through the repository, standing in for a
 // deployment-created record so membership and lifecycle reads have something to project.
-//
-// ExporterOwner is set because the in-memory repository does not apply the Mongo adapter's
-// default (an empty owner reads as ansible), and the contract never allows an empty owner.
 func seedPlatform(t *testing.T, f *platformFixture, id, name, gpuStackOwner string) *platformdomain.Platform {
 	t.Helper()
 	now := time.Now().UTC()
@@ -27,7 +24,6 @@ func seedPlatform(t *testing.T, f *platformFixture, id, name, gpuStackOwner stri
 		Type:          platformdomain.PlatformTypeKubernetes,
 		IntegrationID: "integration-k8s",
 		GPUStackOwner: platformdomain.GPUStackOwner(gpuStackOwner),
-		ExporterOwner: platformdomain.ExporterOwnerAnsible,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -256,6 +252,26 @@ func TestUpdatePlatform_RejectsUnknownGPUStackOwner(t *testing.T) {
 		map[string]any{"gpuStackOwner": &owner}, f.adminAuth(t))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+// exporterOwner is no longer a Platform field: a PATCH that still sends it is answered as if it were
+// absent, and the response does not carry it.
+func TestUpdatePlatform_IgnoresRemovedExporterOwner(t *testing.T) {
+	f := setupPlatform(t)
+	seedPlatform(t, f, "platform-1", "prod-k8s", "provisioning")
+
+	resp := doRequest(t, f.app, "PATCH", "/api/v1/platforms/platform-1",
+		map[string]any{"name": "prod-k8s-2", "exporterOwner": "k8s"}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	body := parseBody(t, resp)
+	if body["name"] != "prod-k8s-2" {
+		t.Errorf("name = %v, want prod-k8s-2", body["name"])
+	}
+	if _, ok := body["exporterOwner"]; ok {
+		t.Errorf("response carries exporterOwner = %v, want no such field", body["exporterOwner"])
 	}
 }
 

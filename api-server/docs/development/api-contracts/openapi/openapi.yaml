@@ -9192,12 +9192,6 @@ components:
       required:
         - error
       type: object
-    ExporterOwner:
-      description: Which subsystem installs the Platform's host Prometheus exporters.
-      enum:
-        - ansible
-        - k8s
-      type: string
     GPUAllocationMode:
       description: How the GPU Operator exposes GPUs.
       enum:
@@ -11167,8 +11161,6 @@ components:
             - $ref: '#/components/schemas/PlatformDeviceMetricsExporter'
           description: The swallow-managed Device Metrics Exporter; null when never installed (always for Kubernetes).
           nullable: true
-        exporterOwner:
-          $ref: '#/components/schemas/ExporterOwner'
         generation:
           description: The spec generation; 0 before the Platform has a spec.
           format: int64
@@ -11251,7 +11243,6 @@ components:
         - lifecycleOperationId
         - deployment
         - gpuStackOwner
-        - exporterOwner
         - monitoringLinks
         - gpuOperator
         - omnistat
@@ -11757,8 +11748,6 @@ components:
     PlatformUpdate:
       description: 'The mutable Platform fields; omitted (or null) fields do not change. There is no `integrationId`: a Platform''s credential Integration is set only by its deployment.'
       properties:
-        exporterOwner:
-          $ref: '#/components/schemas/ExporterOwner'
         gpuStackOwner:
           $ref: '#/components/schemas/GPUStackOwner'
         monitoringLinks:
@@ -14053,7 +14042,7 @@ components:
         - retry
       type: object
     WorkflowKind:
-      description: What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings. `install-exporters` and `uninstall-exporters` are no longer accepted; they appear only on Workflows created by an earlier release (the Node Exporter is Managed Software, `configure-node-exporter` and `uninstall-node-exporter`).
+      description: What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings. `install-exporters` and `uninstall-exporters` are no longer accepted; they appear only on Workflows created by an earlier release (the Node Exporter is Managed Software, `configure-node-exporter` and `uninstall-node-exporter`). `deploy-k8s-exporters` and `remove-k8s-exporters` are no longer accepted either; they appear only on Workflows created by an earlier release (the Kubernetes exporter DaemonSets were retired).
       enum:
         - deploy-os
         - release-os

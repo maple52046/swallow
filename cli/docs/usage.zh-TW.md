@@ -544,7 +544,7 @@ swallow platforms get plat1
 swallow platforms create -f platform-k8s.yaml        # 輸出平台與安裝它的 Change Plan
 swallow plans approve <planId>                        # 核准後 platform controller 開始建置
 swallow platforms set-spec plat1 -f spec-change.yaml  # { generation, spec }；加入成員會直接收斂
-swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, exporterOwner, monitoringLinks
+swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, monitoringLinks
 swallow platforms delete plat1                        # 提出 uninstall（只移除 software）
 swallow platforms delete plat1 --release-servers --erase   # uninstall 時一併 release 成員
 swallow platforms delete plat1 --cancel-active-workflows   # 一併取消佔著 Server 的失敗或進行中部署

@@ -159,7 +159,8 @@ bash seed.sh
 ```
 
 未提供 MAAS／SSH input 時會略過並顯示提示。每次 OS 佈署都會在佈署的 Server 上安裝
-Node Exporter；不是由 swallow 佈署的 Server 請以 Managed Software 安裝。locked Server 保持 unmanaged。
+Node Exporter；不是由 swallow 佈署的 Server 請以 Managed Software 安裝。swallow 不會在 locked
+Server 上安裝任何東西。
 
 若要以本機 MAAS snap 納管 libvirt 虛擬機，先給它的 rack 與 production 安裝相同的 SSH
 身分（已安裝的主機上 `local-maas.sh ensure-virsh-identity` 做的就是這件事），再 seed 它的公鑰：

@@ -99,9 +99,11 @@ flowchart LR
 
 ### 4.3 退場的做法：Exporter Ownership
 
-過去 Kubernetes Platform 可以把 exporter 交給叢集內的 DaemonSet（[Exporter Ownership](glossaries/terms/exporter-ownership.md)
-`k8s`）。node-exporter 改由 OS provisioning 一律帶入之後，主機上永遠只有一個 node-exporter，這個選項與那些
-DaemonSet 都不再需要，一起退場。GPU 的 exporter 則依 §4.2 的情境決定，不再有「誰擁有 exporter」的政策。
+過去 Kubernetes Platform 可以把 exporter 交給叢集內的 DaemonSet（Exporter Ownership 的 `k8s`，即 Platform 的
+`exporterOwner`）。node-exporter 改由 OS provisioning 一律帶入之後，主機上永遠只有一個 node-exporter，這個選項與那些
+DaemonSet 都不再需要，一起退場：Platform 沒有 `exporterOwner`（schema v12 移除既有的值），standalone 安裝
+node-exporter 不再檢查擁有者，`deploy-k8s-exporters` 與 `remove-k8s-exporters` 也不再是受理的 Workflow kind。GPU 的
+exporter 則依 §4.2 的情境決定，不再有「誰擁有 exporter」的政策。
 
 ## 5. 資料怎麼收集
 
@@ -219,7 +221,6 @@ node-exporter 的 target 時是 unknown，不是 `down`——swallow 沒有在�
 - 在本設計之前部署的 Server 沒有 node-exporter 的 Software Assignment，所以不是 scrape target，health 為 unknown；
   node-exporter 成為 desired state 之後（§4.1）才會自動補裝。
 - Platform 功能的 exporter（Omnistat、GPU Operator 的 DME）尚未由模組宣告，所以還不在 scrape target 裡。
-- Exporter Ownership（`exporterOwner`）與 Kubernetes 的 exporter DaemonSet 仍在。
 - Slurm 的 Omnistat 與 DME 仍在 controller 上組入 Prometheus；Omnistat 只允許那一套 Prometheus 收集。
 - GPU Operator 的 DME 只在 Pod 網路上，沒有人收集。
 - 沒有 Platform Grafana 的開關，也沒有 Kubernetes 的 Grafana；沒有 prom-label-proxy 與閘道。

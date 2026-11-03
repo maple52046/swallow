@@ -81,10 +81,9 @@ Ubuntu 為 `prometheus-node-exporter`，RHEL 家族為 `node_exporter`（來自 
 container runtime，也沒有可設定的選項。
 
 每次 OS 佈署都會在佈署的 Server 上安裝它，因此只有不是由 swallow 佈署的 Server（例如保留原有
-OS 納管的 Server）才需要在這裡安裝。Kubernetes Platform 擁有 exporters（`exporterOwner: k8s`）
-時，該 Platform 的成員會拒絕安裝，因為它的 DaemonSet 使用同一個 port。安裝前會先移除主機上仍在
-執行的 swallow 舊版 containerised node-exporter（`swallow-node-exporter.service`）；Docker 與
-RDC exporter container 不受影響。
+OS 納管的 Server）才需要在這裡安裝。任何 Platform 的成員都與其他已佈署的 Server 一樣可以安裝。
+安裝前會先移除主機上仍在執行的 swallow 舊版 containerised node-exporter
+（`swallow-node-exporter.service`）；Docker 與 RDC exporter container 不受影響。
 
 ## docker group
 

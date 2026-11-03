@@ -19,7 +19,7 @@ var manifest []byte
 const Kind softwaredomain.Kind = "node-exporter"
 
 // Port is the host port the exporter listens on. swallow's Prometheus discovery scrapes it on every
-// Server, whichever subsystem owns the host's exporters, so it must not change.
+// Server that has the exporter, so it must not change.
 const Port = 9100
 
 // Module returns the Node Exporter Software module declared by module.json.
@@ -30,16 +30,14 @@ func Module() (moduledomain.Module, error) {
 // Software is the Node Exporter's Software hook.
 type Software struct{}
 
-// Entry is the exporter's catalog entry: no spec, and installed only on Servers whose exporters
-// swallow's host automation owns, because a Kubernetes Platform that owns them runs its own
-// exporter on the same port.
+// Entry is the exporter's catalog entry: no spec and no install restriction of its own. OS
+// provisioning composes it on every Server it deploys, so a host never runs a second node exporter.
 func (Software) Entry() softwaredomain.CatalogEntry {
 	return softwaredomain.CatalogEntry{
-		Kind:         Kind,
-		Label:        "Node Exporter",
-		HostExporter: true,
-		Exporter:     &softwaredomain.Exporter{Name: string(Kind), Port: Port},
-		SpecFields:   []string{},
+		Kind:       Kind,
+		Label:      "Node Exporter",
+		Exporter:   &softwaredomain.Exporter{Name: string(Kind), Port: Port},
+		SpecFields: []string{},
 	}
 }
 

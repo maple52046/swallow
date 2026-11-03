@@ -7,5 +7,5 @@
 - Synonyms: Label; manual tag (a tag swallow owns), automatic tag (a tag the provisioner computes).
 - Deprecated terms: Effective tags (the former union of provider tags and swallow-owned fallback tags).
 - Examples: "Adding the `amd-gpu` tag makes a Server an AMD GPU server, so it appears in the RDC exporter's scrape job." / "Someone removes `rack-a` from a machine in the MAAS UI; the Server shows `drifted` until the next resync puts it back."
-- Related terms: Server, Server Type, Controller, Condition, Drift, OS Provisioning Provider, Exporter Ownership, OS Image.
+- Related terms: Server, Server Type, Controller, Condition, Drift, OS Provisioning Provider, OS Image.
 - Change note: Added 2026-09-15 for Server tag editing (single and batch), with the capability-first, swallow-owned-fallback ownership of [decision 069](../../../decisions/069-swallow-owns-desired-state.md) (swallow owns desired state). On 2026-10-31 (decision 071) swallow took ownership of every manual tag through the Server spec, the edit stopped driving the provisioner directly, and the swallow-owned fallback was retired. 2026-11-03: swallow does not install the RDC exporter on hosts, so `amd-gpu` selects only the RDC scrape job.

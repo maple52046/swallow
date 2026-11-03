@@ -46,7 +46,7 @@ func TestPlatformLifecycleReaderBatchesAndDerivesLatestOperation(t *testing.T) {
 		},
 		{
 			ID: "verify-1", PlatformID: "platform-deployed",
-			Kind:        workflowdomain.WorkflowKindDeployK8sExporters,
+			Kind:        workflowdomain.WorkflowKindConfigureGPUOperator,
 			Status:      workflowdomain.WorkflowRunning,
 			RequestedAt: uninstalledAt.Add(time.Minute),
 		},

@@ -124,7 +124,7 @@ deploy use case 由它推導 [Kubernetes Topology](glossaries/terms/kubernetes-t
 | `ensure-os` | `provision-<serverId>`（每台需裝 OS 者一個） | `provision-os` | `provisioner` | 單一 Server | —（Job 內並行；啟用 Boot Media 者依賴其 `ensure-boot-media-<serverId>`） | `request`（凍結的 per-Server 佈署輸入）；啟用 Boot Media 者另有 `bootMediaIsoUrl` |
 | `ensure-os` | `wait-for-ssh` | `wait-for-ssh` | `internal` | 已 `deployed` 的 targets | — | — |
 | `ensure-os` | `configure-ntp-<serverId>`（每台本次 provision 的 Server 一個，[decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)（control plane ntp and post provision time sync）） | `ansible-playbook` | `ansible` | 單一 Server | `provision-<serverId>` | `playbook`（`configure-ntp`）、`extraVars`（含 `swallow_ntp_servers`） |
-| `configure-node-exporter` | `install-node-exporter-<serverId>`（每台本次 provision 的 Server 一個；`exporterOwner` 為 `k8s` 時不加） | `ansible-playbook` | `ansible` | 單一 Server | `configure-ntp-<serverId>` | `playbook`（`deploy-node-exporter`）、`extraVars` |
+| `configure-node-exporter` | `install-node-exporter-<serverId>`（每台本次 provision 的 Server 一個） | `ansible-playbook` | `ansible` | 單一 Server | `configure-ntp-<serverId>` | `playbook`（`deploy-node-exporter`）、`extraVars` |
 | `configure-node-exporter` | `record-node-exporter-<serverId>` | `record-software-assignment` | `internal` | 單一 Server | `install-node-exporter-<serverId>` | `softwareKind`（`node-exporter`）、`serverIds` |
 | `configure-k0s` | `install-platform` | `ansible-playbook` | `ansible` | 全部 targets | 所有 `provision-*` + `wait-for-ssh` + `configure-ntp-*` | `playbook`、`extraVars`（含時鐘檢查的 `swallow_time_sync_check`） |
 | `configure-k0s` | `validate-platform` | `validate-platform-health` | `internal` | 全部 targets | `install-platform` | — |
@@ -191,7 +191,7 @@ flowchart TB
 
 Node Exporter 同樣在 OS 佈署時安裝（[software-deployment.md](software-deployment.md) §5）：`provision_os` 模式中，
 每台本次 provision 的 Server 在 `configure-ntp-<serverId>` 之後由 `configure-node-exporter` Job 以 Managed Software
-安裝它，與 Deploy OS 相同；Platform 的 `exporterOwner` 為 `k8s` 時不加（它的 DaemonSet 擁有 exporter）。沒有 Task
+安裝它，與 Deploy OS 相同，不分 Platform 類型。沒有 Task
 依賴這個 Job，`install-platform` 不等它，因此安裝失敗不會擋住 Platform，但 Workflow 會停在 `requires_attention`
 直到 user 重試。沿用的 `deployed` Server 與 `existing_os` 的 targets 不安裝。
 
@@ -375,9 +375,9 @@ platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-co
   冪等），期間 Platform 維持 `uninstall_failed`。Platform 紀錄與 Workflow 歷史保留，供診斷與重試。
 - **成功後的清理**（`CompleteUninstall`）：清 membership、釋放 Platform Claim（§2.6）、只刪證明為 swallow 擁有的 credential
   Integration（新部署會記錄自己擁有的 Integration id；legacy 紀錄要 deploy provenance 與完整的自動產生 Integration 簽章
-  都相符才刪），並清 integration／sync 投影。uninstall 不移除 Node Exporter；保留主機時，不論 `exporterOwner`，同一個
+  都相符才刪），並清 integration／sync 投影。uninstall 不移除 Node Exporter；保留主機時，同一個
   uninstall Workflow 在 `uninstall-platform` 之後另有 `configure-node-exporter` Job（§2.4），為受理時 present、deployed、
-  unlocked 的 target 安裝 Node Exporter（已有的不變，Kubernetes 擁有 exporter 的補上）；清理在 `uninstall-platform` 成功時就已完成，這個 Job 失敗不回滾 uninstall。
+  unlocked 的 target 安裝 Node Exporter（已有的不變，沒有的補上）；清理在 `uninstall-platform` 成功時就已完成，這個 Job 失敗不回滾 uninstall。
 - **Delete**（`DELETE /platforms/{id}`）把 spec 標為 absent（帶 release 等選擇），uninstall 經 Change Plan 核准後由
   platform controller 啟動；uninstall 成功時在清理的最後刪除紀錄，刪除的紀錄與投影與只刪紀錄相同，但不取消 Workflow，
   因為正在完成的 uninstall 就是持有 target 的 Workflow。失敗或取消時保留紀錄（`uninstall_failed`）。
@@ -1114,7 +1114,7 @@ playbook 使用的內容放在 `shared/`。
 | --- | --- |
 | Playbook manifest（allow-list） | `manifest.json` |
 | 依賴鎖 | `api-server/internal/adapters/hostautomation/ansible/requirements.txt`、`requirements.yml` |
-| Kubernetes 模組 | `platform/kubernetes/`：`deploy-kubernetes.yml`、`uninstall-kubernetes.yml`、`deploy-k8s-exporters.yml`、`remove-k8s-exporters.yml`；roles `k0s_*`（reference 範本：`k0s_host_preflight`、`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`）與 `k8s_exporters` |
+| Kubernetes 模組 | `platform/kubernetes/`：`deploy-kubernetes.yml`、`uninstall-kubernetes.yml`；roles `k0s_*`（reference 範本：`k0s_host_preflight`、`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`） |
 | Slurm 模組 | `platform/slurm/`：`deploy-slurm.yml`、`uninstall-slurm.yml`、`configure-omnistat.yml`；roles `slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、`slurm_cluster_credential`…）、`gpu_probe`、`omnistat` |
 | AMD 模組（GPU Operator） | `accelerator/amd/`：`configure-amd-gpu-operator.yml`；role `amd_gpu_operator`（chart 在 `files/`、helm 版本與 checksum 在 `defaults/`） |
 | DME（Managed Software） | `software/device-metrics-exporter/`：`deploy-device-metrics-exporter.yml`、`uninstall-device-metrics-exporter.yml`；role 是共用的 `device_metrics_exporter` |

@@ -153,17 +153,9 @@ func testAccelerators() platformdomain.Accelerators {
 	return modules.accelerators
 }
 
-// ownedExporters answers every Server's Exporter Ownership with one value: true when swallow's host
-// automation owns its exporters.
-type ownedExporters bool
-
-func (o ownedExporters) HostAutomationOwnsExporters(context.Context, *serverdomain.Server) (bool, error) {
-	return bool(o), nil
-}
-
 func newTestService(servers map[string]*serverdomain.Server, membership map[string]bool) (*softwareapp.SoftwareService, *fakeAssignmentRepo, *fakeLauncher) {
 	repo := newFakeAssignmentRepo()
-	service := softwareapp.NewSoftwareService(&storetest.Transactor{}, testSoftwareCatalog(), testAccelerators(), repo, &fakeServerRepo{servers: servers}, fakeMembership{kubernetes: membership}, ownedExporters(true))
+	service := softwareapp.NewSoftwareService(&storetest.Transactor{}, testSoftwareCatalog(), testAccelerators(), repo, &fakeServerRepo{servers: servers}, fakeMembership{kubernetes: membership})
 	launcher := &fakeLauncher{}
 	service.AttachLauncher(launcher)
 	return service, repo, launcher
@@ -244,26 +236,17 @@ func TestInstallRefusesKubernetesMemberForDocker(t *testing.T) {
 	}
 }
 
-// The Node Exporter is a host exporter: a standalone install refuses a Server whose exporters
-// swallow's host automation does not own, while a composing Workflow, which decides ownership
-// itself, is not refused.
-func TestNodeExporterInstallRequiresHostAutomationOwnership(t *testing.T) {
-	servers := &fakeServerRepo{servers: map[string]*serverdomain.Server{"a": deployedServer("a")}}
-	for _, owned := range []bool{true, false} {
-		service := softwareapp.NewSoftwareService(&storetest.Transactor{}, testSoftwareCatalog(), testAccelerators(),
-			newFakeAssignmentRepo(), servers, fakeMembership{}, ownedExporters(owned))
-		service.AttachLauncher(&fakeLauncher{})
-		input := softwareapp.InstallInput{Kind: nodeexporter.Kind, Targets: []softwareapp.InstallTarget{{ServerID: "a"}}}
-		_, err := service.Install(context.Background(), input)
-		if owned && err != nil {
-			t.Errorf("Install() on an owned Server = %v, want accepted", err)
-		}
-		if !owned && !errors.Is(err, softwaredomain.ErrTargetIneligible) {
-			t.Errorf("Install() on a Server whose exporters Kubernetes owns = %v, want ErrTargetIneligible", err)
-		}
-		if _, err := service.PlanComposedInstall(context.Background(), input); err != nil {
-			t.Errorf("PlanComposedInstall(owned=%v) = %v, want accepted", owned, err)
-		}
+// A Kubernetes Platform member runs no exporter of its own on the Node Exporter's port, so a
+// standalone Node Exporter install is accepted there as on any deployed Server, and so is a
+// composed one.
+func TestNodeExporterInstallAcceptsKubernetesMembers(t *testing.T) {
+	service, _, _ := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, map[string]bool{"a": true})
+	input := softwareapp.InstallInput{Kind: nodeexporter.Kind, Targets: []softwareapp.InstallTarget{{ServerID: "a"}}}
+	if _, err := service.Install(context.Background(), input); err != nil {
+		t.Errorf("Install() on a Kubernetes member = %v, want accepted", err)
+	}
+	if _, err := service.PlanComposedInstall(context.Background(), input); err != nil {
+		t.Errorf("PlanComposedInstall() on a Kubernetes member = %v, want accepted", err)
 	}
 }
 
@@ -510,7 +493,7 @@ func TestUninstallRejectsMissingAssignment(t *testing.T) {
 func TestInstallWritesTheWorkflowAndAssignmentsInOneTransaction(t *testing.T) {
 	repo, launcher, tx := newFakeAssignmentRepo(), &fakeLauncher{}, &storetest.Transactor{}
 	service := softwareapp.NewSoftwareService(tx, testSoftwareCatalog(), testAccelerators(), repo,
-		&fakeServerRepo{servers: map[string]*serverdomain.Server{"a": deployedServer("a")}}, fakeMembership{}, ownedExporters(true))
+		&fakeServerRepo{servers: map[string]*serverdomain.Server{"a": deployedServer("a")}}, fakeMembership{})
 	service.AttachLauncher(launcher)
 
 	workflowID, err := service.Install(context.Background(), softwareapp.InstallInput{

@@ -378,7 +378,6 @@ function PlatformConfiguration({ platform }: { platform: Platform }) {
   const driverOptions = formatGPUDriverModuleOptions(platform.gpuDriver?.moduleOptions)
   const items = [
     { label: 'GPU stack', value: platform.gpuStackOwner },
-    { label: 'Exporters', value: platform.exporterOwner },
     ...(platform.type === 'slurm'
       ? [{
           label: 'Container runtime',

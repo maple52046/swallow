@@ -1144,10 +1144,6 @@ components:
       type: string
       description: Which subsystem installs GPU drivers on the Platform's hosts.
       enum: [provisioning, gpu-operator]
-    ExporterOwner:
-      type: string
-      description: Which subsystem installs the Platform's host Prometheus exporters.
-      enum: [ansible, k8s]
     GPUAllocationMode:
       type: string
       description: How the GPU Operator exposes GPUs.
@@ -1203,7 +1199,6 @@ components:
         - lifecycleOperationId
         - deployment
         - gpuStackOwner
-        - exporterOwner
         - monitoringLinks
         - gpuOperator
         - omnistat
@@ -1255,8 +1250,6 @@ components:
             - $ref: '#/components/schemas/PlatformDeploymentIntent'
         gpuStackOwner:
           $ref: '#/components/schemas/GPUStackOwner'
-        exporterOwner:
-          $ref: '#/components/schemas/ExporterOwner'
         monitoringLinks:
           type: array
           description: User-registered Monitoring Links; always an array.
@@ -1681,8 +1674,6 @@ components:
           description: Trimmed; must not be empty.
         gpuStackOwner:
           $ref: '#/components/schemas/GPUStackOwner'
-        exporterOwner:
-          $ref: '#/components/schemas/ExporterOwner'
         monitoringLinks:
           type: array
           description: Replaces the whole list; `[]` clears it.

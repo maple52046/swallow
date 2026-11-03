@@ -129,8 +129,7 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 		return nil, err
 	}
 	steps = append(steps, ntpTasks...)
-	// Then the Node Exporter, as Managed Software. A Server deploy-os accepts is `ready`, so it is no
-	// Platform's member and swallow's host automation owns its exporters.
+	// Then the Node Exporter, as Managed Software, on every provisioned Server.
 	exporters, err := l.nodeExporter.installTasks(ctx, operationID, requestedBy, "", input.ServerIDs, afterTimeSync(input.ServerIDs, ntpTasks))
 	if err != nil {
 		return nil, err

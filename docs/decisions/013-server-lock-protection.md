@@ -28,8 +28,8 @@ capability; every other lifecycle state is refused before a provider write. Lock
 is also refused while an Operation or Provisioning Task is active. Unlock does
 not resume or create work. Cluster Delete remains
 available because it removes Swallow records only. Monitoring and other reads
-remain available, and a locked Server has `unmanaged` exporter ownership so
-Swallow never changes its exporter installation.
+remain available. Installing or removing an exporter is a host mutation like any
+other, so Swallow never changes a locked Server's exporter installation.
 
 ## Alternatives considered
 
@@ -52,3 +52,4 @@ remain the anticorruption boundary for lock execution and live observation.
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-03: a locked Server's exporters are protected by the mutation guard itself, not by an `unmanaged` exporter owner, which decision 003 retired; the decision is unchanged.

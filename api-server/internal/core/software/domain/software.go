@@ -92,11 +92,6 @@ type CatalogEntry struct {
 	// with a Platform Claim (decision 067), because that Platform manages the kind on its Servers
 	// (decision 068). A Platform's own composition of the kind is not subject to it.
 	RefusedForClaimedServers bool
-	// HostExporter marks one of a host's Prometheus exporters. A standalone install accepts only a
-	// Server whose exporters swallow's host automation owns (Exporter Ownership): a Kubernetes
-	// Platform that owns them runs its own exporter on the same port, and a locked Server is left
-	// alone. A composing Workflow decides ownership itself and is not subject to it.
-	HostExporter bool
 	// Exporter is the Prometheus exporter this kind runs on each Server it is installed on, nil for a
 	// kind that runs none. The Site Prometheus scrapes it from the moment the Server's assignment is
 	// installed until it is not.

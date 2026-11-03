@@ -471,6 +471,9 @@ components:
         appear here in listings. `install-exporters` and `uninstall-exporters` are no longer
         accepted; they appear only on Workflows created by an earlier release (the Node Exporter
         is Managed Software, `configure-node-exporter` and `uninstall-node-exporter`).
+        `deploy-k8s-exporters` and `remove-k8s-exporters` are no longer accepted either; they
+        appear only on Workflows created by an earlier release (the Kubernetes exporter DaemonSets
+        were retired).
       enum:
         - deploy-os
         - release-os

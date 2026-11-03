@@ -92,8 +92,7 @@ type platformDeploymentLauncher struct {
 	// variables to the install step (decision 065). Its zero value adds no Task.
 	ntp ntpStepPlanner
 	// nodeExporter installs the Node Exporter on each Server the deployment provisions, after its
-	// time Task, unless the Platform's exporters are owned by Kubernetes, and on each Server an
-	// uninstall keeps. Its zero value adds no Task.
+	// time Task, and on each Server an uninstall keeps. Its zero value adds no Task.
 	nodeExporter nodeExporterPlanner
 }
 
@@ -296,7 +295,7 @@ type ensureOSPlan struct {
 // by its own configure-ntp-<serverId>, exactly as in a Deploy OS Workflow, and the install step
 // depends on it; reused and existing_os Servers are not reconfigured. The clock check belongs to
 // each platform's install playbook, not to this Job. The same provisioned Servers then get the Node
-// Exporter (nodeExporterPlanner) unless Kubernetes owns the Platform's exporters.
+// Exporter (nodeExporterPlanner), as in a Deploy OS Workflow.
 func (l platformDeploymentLauncher) buildEnsureOS(
 	ctx context.Context,
 	launch platformdomain.DeploymentLaunch,
@@ -324,14 +323,12 @@ func (l platformDeploymentLauncher) buildEnsureOS(
 	}
 	// The Node Exporter follows each provisioned Server's time Task in its own Job, which nothing
 	// depends on, so the install step never waits for it.
-	if launch.Platform == nil || launch.Platform.ExporterOwner != platformdomain.ExporterOwnerK8s {
-		plan.exporters, err = l.nodeExporter.installTasks(ctx, operationID, launch.RequestedBy,
-			softwareConfigureJob(nodeexporter.Kind), provisioned, afterTimeSync(provisioned, ntpTasks))
-		if err != nil {
-			return ensureOSPlan{}, err
-		}
-		plan.steps = append(plan.steps, plan.exporters.tasks...)
+	plan.exporters, err = l.nodeExporter.installTasks(ctx, operationID, launch.RequestedBy,
+		softwareConfigureJob(nodeexporter.Kind), provisioned, afterTimeSync(provisioned, ntpTasks))
+	if err != nil {
+		return ensureOSPlan{}, err
 	}
+	plan.steps = append(plan.steps, plan.exporters.tasks...)
 	return plan, nil
 }
 
@@ -698,10 +695,10 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 
 // uninstallNodeExporter makes sure each Server an uninstall keeps ends with the Node Exporter. The
 // uninstall does not remove it; the plan installs it again after the uninstall-platform step, in a
-// Job of its own, whatever the Platform's Exporter Ownership was, so a Server that never had it
-// (its exporters were Kubernetes') gets it and one that has it is left as it is (the install is
-// idempotent). Its failure leaves the uninstall done. Releasing Servers wipes them, so a releasing
-// uninstall composes nothing.
+// Job of its own, so a monitoring feature's uninstall cannot leave a Server without it, a Server
+// that never had it gets it, and one that has it is left as it is (the install is idempotent). Its
+// failure leaves the uninstall done. Releasing Servers wipes them, so a releasing uninstall
+// composes nothing.
 func (l platformDeploymentLauncher) uninstallNodeExporter(
 	ctx context.Context, operationID string, launch platformdomain.UninstallLaunch,
 ) (nodeExporterInstall, error) {

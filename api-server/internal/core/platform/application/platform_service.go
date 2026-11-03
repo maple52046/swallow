@@ -166,9 +166,6 @@ type PlatformItem struct {
 	// GPUStackOwner decides which subsystem installs GPU drivers. swallow refuses
 	// operations that contradict it.
 	GPUStackOwner string `json:"gpuStackOwner"`
-	// ExporterOwner decides which subsystem installs this platform's Prometheus
-	// exporters: "ansible" (default) or "k8s".
-	ExporterOwner string `json:"exporterOwner"`
 	// MonitoringLinks are the user-registered links to the runtime's own monitoring UI.
 	// Always an array (empty when none), so clients never branch on null.
 	MonitoringLinks []MonitoringLinkItem `json:"monitoringLinks"`
@@ -303,8 +300,6 @@ type CreatePlatformInput struct {
 	Name          string
 	Type          string
 	GPUStackOwner string
-	// ExporterOwner is optional; empty defaults to ansible.
-	ExporterOwner string
 	// ContainerRuntime is the Slurm container runtime feature, empty when off. The deploy use case
 	// validates it.
 	ContainerRuntime platformdomain.ContainerRuntime
@@ -352,14 +347,6 @@ func (s *PlatformService) newPlatform(ctx context.Context, input CreatePlatformI
 		return nil, fmt.Errorf("%w: gpuStackOwner must be one of %v", ErrInvalidPlatform, platformdomain.ValidGPUStackOwners)
 	}
 
-	exporterOwner := platformdomain.ExporterOwner(strings.TrimSpace(input.ExporterOwner))
-	if exporterOwner == "" {
-		exporterOwner = platformdomain.ExporterOwnerAnsible
-	}
-	if !exporterOwner.Valid() {
-		return nil, fmt.Errorf("%w: exporterOwner must be one of %v", ErrInvalidPlatform, platformdomain.ValidExporterOwners)
-	}
-
 	if _, err := s.sites.FindByID(ctx, input.SiteID); err != nil {
 		return nil, err
 	}
@@ -367,8 +354,8 @@ func (s *PlatformService) newPlatform(ctx context.Context, input CreatePlatformI
 	now := time.Now().UTC()
 	platform := &platformdomain.Platform{
 		ID: uuid.NewString(), SiteID: input.SiteID, Name: strings.TrimSpace(input.Name),
-		Type:          platformType,
-		GPUStackOwner: owner, ExporterOwner: exporterOwner,
+		Type:             platformType,
+		GPUStackOwner:    owner,
 		ContainerRuntime: input.ContainerRuntime, GPUDriver: input.GPUDriver, GPUGresType: input.GPUGresType,
 		OCIContainers: input.OCIContainers, PMIx: input.PMIx,
 		CreatedAt: now, UpdatedAt: now,
@@ -414,7 +401,6 @@ func (s *PlatformService) Get(ctx context.Context, id string) (*PlatformItem, er
 type UpdatePlatformInput struct {
 	Name          *string
 	GPUStackOwner *string
-	ExporterOwner *string
 	// MonitoringLinks replaces the whole list when non-nil; a pointer to an empty slice clears
 	// it, and nil leaves it unchanged.
 	MonitoringLinks *[]MonitoringLinkItem
@@ -446,14 +432,6 @@ func (s *PlatformService) Update(ctx context.Context, id string, input UpdatePla
 				platformdomain.ErrGPUOperatorConflict)
 		}
 		platform.GPUStackOwner = owner
-	}
-	if input.ExporterOwner != nil {
-		exporterOwner := platformdomain.ExporterOwner(strings.TrimSpace(*input.ExporterOwner))
-		if !exporterOwner.Valid() {
-			return nil, fmt.Errorf("%w: exporterOwner must be one of %v",
-				ErrInvalidPlatform, platformdomain.ValidExporterOwners)
-		}
-		platform.ExporterOwner = exporterOwner
 	}
 	if input.MonitoringLinks != nil {
 		requested := make([]platformdomain.MonitoringLink, len(*input.MonitoringLinks))
@@ -704,9 +682,9 @@ func toPlatformItem(platform *platformdomain.Platform, lifecycle platformdomain.
 		ID: platform.ID, SiteID: platform.SiteID, Name: platform.Name,
 		Type: string(platform.Type), IntegrationID: wire.String(platform.IntegrationID),
 		Origin: string(lifecycle.Origin), LifecycleState: string(lifecycle.State),
-		LifecycleOperationID: wire.String(lifecycle.OperationID),
-		Deployment:           toPlatformDeploymentItem(lifecycle.Deployment),
-		GPUStackOwner:        string(platform.GPUStackOwner), ExporterOwner: string(platform.ExporterOwner),
+		LifecycleOperationID:  wire.String(lifecycle.OperationID),
+		Deployment:            toPlatformDeploymentItem(lifecycle.Deployment),
+		GPUStackOwner:         string(platform.GPUStackOwner),
 		MonitoringLinks:       toMonitoringLinkItems(platform.MonitoringLinks),
 		GPUOperator:           toGPUOperatorItem(platform.GPUOperator),
 		Omnistat:              toOmnistatItem(platform.Omnistat),

@@ -65,7 +65,7 @@ func workerPlatformOperations(
 	operations := workflowapp.NewExecutionService(deps.servers, deps.automation, catalog, modules.workflowKinds, runner, events,
 		platformapp.NewPolicyChecker(deps.platforms, deps.servers), protection, orchestrations)
 	software := softwareapp.NewSoftwareService(transactor, modules.software, modules.accelerators, deps.software, deps.servers,
-		kubernetesMembershipChecker{servers: deps.servers, platforms: deps.platforms}, exporterOwnerResolver{platforms: deps.platforms})
+		kubernetesMembershipChecker{servers: deps.servers, platforms: deps.platforms})
 	software.AttachLauncher(softwareDeploymentLauncher{operations: operations, orchestrations: orchestrations, modules: modules.registry})
 	software.AttachPlatformNames(platformNameReader{platforms: deps.platforms})
 	return buildPlatformOperations(platformOperationDeps{

@@ -58,23 +58,19 @@ with hostname or address joins.
 
 ## Exporters
 
-swallow uses fixed ports, so the scrape target of a Server never depends on who
-installed its exporters:
+swallow uses fixed ports, so the scrape target of a Server never depends on how its
+exporters were installed:
 
 | Exporter | Port | Installed on |
 | --- | --- | --- |
 | node-exporter | 9100 | every Server swallow deploys (CPU, memory, disk, network), from the OS package: `prometheus-node-exporter` on Debian and Ubuntu, `node_exporter` on the RHEL family (from EPEL) |
 | [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | swallow neither installs it on hosts nor collects it: the Site's Prometheus collects only the exporters swallow installed |
 
-Exactly one owner installs each Server's exporters:
-
-- a Server in no Platform is owned by swallow: each OS deployment installs the Node
-  Exporter, and you can install it as Managed Software on a Server swallow did not deploy;
-- a member of a Kubernetes Platform follows the Platform's `exporterOwner`
-  (`ansible` — swallow installs the Node Exporter — or `k8s` — a DaemonSet on the same
-  ports). Changing `exporterOwner` only records the choice; it does not install or remove
-  exporters;
-- a locked Server is unmanaged: swallow neither installs nor removes anything.
+A Server has one Node Exporter, whatever Platform it belongs to: each OS deployment
+installs it on the Servers it deploys, uninstalling a Platform keeps it (and installs it on
+kept Servers that lack it), and you can install it as Managed Software on a Server swallow
+did not deploy. A locked Server is left as it is: swallow neither installs nor removes
+anything on it.
 
 ## Usage charts
 

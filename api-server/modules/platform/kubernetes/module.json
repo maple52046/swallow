@@ -5,15 +5,11 @@
   "version": "0.1.0",
   "playbooks": [
     "deploy-kubernetes",
-    "uninstall-kubernetes",
-    "deploy-k8s-exporters",
-    "remove-k8s-exporters"
+    "uninstall-kubernetes"
   ],
   "workflowKinds": [
     "deploy-kubernetes",
-    "uninstall-kubernetes",
-    "deploy-k8s-exporters",
-    "remove-k8s-exporters"
+    "uninstall-kubernetes"
   ],
   "taskKinds": [],
   "completions": [

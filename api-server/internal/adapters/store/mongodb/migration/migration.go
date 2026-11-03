@@ -77,7 +77,11 @@ import (
 // v11 removes the retired install-exporters and uninstall-exporters kinds from the Sites'
 // playbookMappings: the host exporters are the Node Exporter's Managed Software, and a mapping of
 // a kind the release no longer accepts would refuse every later save of the configuration.
-const CurrentSchemaVersion = 11
+//
+// v12 retires the per-Platform exporter owner: every Platform loses `exporterOwner`, and the
+// retired deploy-k8s-exporters and remove-k8s-exporters kinds are removed from the Sites'
+// playbookMappings for the same reason as v11.
+const CurrentSchemaVersion = 12
 
 // OldestUpgradableSchemaVersion is the oldest schema Migrate upgrades from; an older database
 // has no supported upgrade path. A release's manifest lists every schema from this one up to
@@ -223,6 +227,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v10 to v11: %w", err)
 			}
 			state.Version = 11
+		case 11:
+			if err := migrateV11ToV12(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v11 to v12: %w", err)
+			}
+			state.Version = 12
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}

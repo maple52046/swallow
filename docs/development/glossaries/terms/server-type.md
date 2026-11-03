@@ -16,8 +16,7 @@
   Only `cpu` and `amd-gpu` are implemented. The type decides scrape targeting: every server
   is a node-exporter target; an `amd-gpu` server is also a target of the RDC exporter job,
   which returns GPU series only where an RDC exporter runs. swallow does not install the RDC
-  exporter on hosts; the Kubernetes exporter DaemonSet runs it on a Platform whose exporters
-  Kubernetes owns.
+  exporter anywhere.
 - Disallowed meaning: Not a hardware inventory of GPUs (that is the server's observed
   `gpus`), and not a status. A machine that physically has a GPU but is not tagged is
   still treated as `cpu` for exporter targeting, because targeting follows the tag, not a
@@ -28,9 +27,10 @@
 - Examples: "gpu-node-07.maas carries the `amd-gpu` tag, so it is an AMD GPU server and the
   RDC exporter job targets it alongside node-exporter." / "A `lab-` VM has no GPU tag, so it
   is a CPU server and only the node-exporter job targets it."
-- Related terms: Server, Tag, Exporter Ownership, Server Status.
+- Related terms: Server, Tag, Server Status.
 - Change note: Added for the Prometheus monitoring integration, which installs node-exporter
   on every server and the AMD RDC exporter on `amd-gpu`-tagged servers. NVIDIA is listed as
   reserved because the first iteration implements CPU and AMD GPU only. 2026-11-03: swallow
   does not install the RDC exporter on hosts, so `amd-gpu` selects the RDC scrape job rather
-  than an exporter swallow runs.
+  than an exporter swallow runs. Same day: the Kubernetes exporter DaemonSet that could run it on a
+  Platform was retired with the per-Platform exporter owner.

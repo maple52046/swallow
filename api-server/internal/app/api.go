@@ -435,7 +435,6 @@ func RunAPI(cfg config.APIConfig) error {
 	softwareService := softwareapp.NewSoftwareService(
 		transactor, modules.software, modules.accelerators, softwareAssignmentRepo, serverRepo,
 		kubernetesMembershipChecker{servers: serverRepo, platforms: platformRepo},
-		exporterOwnerResolver{platforms: platformRepo},
 	)
 	softwareService.AttachLauncher(softwareDeploymentLauncher{
 		operations: operationService, orchestrations: orchestrationService, modules: modules.registry,

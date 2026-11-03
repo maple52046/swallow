@@ -181,7 +181,7 @@ func platformsSetSpecCmd() *cobra.Command {
 func platformsUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <platformId>",
-		Short: "Update name, gpuStackOwner, exporterOwner, or monitoringLinks from a JSON/YAML body",
+		Short: "Update name, gpuStackOwner, or monitoringLinks from a JSON/YAML body",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body, err := requireBodyFile(cmd)
@@ -193,7 +193,7 @@ func platformsUpdateCmd() *cobra.Command {
 	}
 	// gpuStackOwner cannot be set back to provisioning while swallow manages a GPU Operator; use
 	// `platforms gpu-operator uninstall` instead.
-	addFileFlag(cmd, "changed platform fields (name, gpuStackOwner, exporterOwner, monitoringLinks)")
+	addFileFlag(cmd, "changed platform fields (name, gpuStackOwner, monitoringLinks)")
 	return cmd
 }
 
