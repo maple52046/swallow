@@ -157,6 +157,24 @@
       delay: 2
       when: grafana_dashboards | length > 0
 
+    - name: Remember where Grafana serves
+      ansible.builtin.set_fact:
+        grafana_url: "http://{{ grafana_listen_address }}:{{ grafana_port }}"
+
+    - name: Report the Grafana URL to Swallow
+      # A run's result file holds one URL, so only a run on one Server reports it; a Platform's own
+      # Grafana always is. It is written once every provisioned dashboard is served.
+      ansible.builtin.copy:
+        dest: "{{ swallow_result_path }}"
+        content: "{{ {'grafanaUrl': grafana_url} | to_json }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      when:
+        - swallow_result_path | default('') | length > 0
+        - ansible_play_hosts_all | length == 1
+
 - name: Remove Grafana
   when: grafana_state == 'absent'
   become: true

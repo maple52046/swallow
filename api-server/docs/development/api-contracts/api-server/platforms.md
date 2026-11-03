@@ -104,7 +104,7 @@ behavior.
     "updatedAt": "2026-10-20T00:00:00Z"
   },
   "monitoringLinks": [
-    { "name": "Omnistat Grafana", "url": "https://omnistat.example.internal/grafana" }
+    { "name": "Runbook", "url": "https://wiki.example.internal/lab-k0s" }
   ],
   "omnistat": null,
   "deviceMetricsExporter": null,
@@ -137,17 +137,17 @@ one on the Platform. `enabled` is the latest requested intent; `state` is exactl
 `installing | ready | failed | uninstalling | absent`; `lastWorkflowId` is the Workflow applying
 or last applying it. `draDriverVersion` is `null` unless `allocationMode` is `dra`.
 
-`monitoringLinks` lists the Platform's **Monitoring Links**: user-registered links to an
-external monitoring UI that belongs to the runtime itself — for example the Grafana that Omnistat
-brings for a Slurm Platform. It is always an array, empty by default. Each link has a `name`
-(the label a user clicks) and an absolute `http`/`https` `url`. Monitoring Links are
-swallow-owned display data: swallow never connects to, authenticates against, or checks the
-URL, and they are not a metrics Integration — swallow's own usage charts keep reading the Site
-metrics backend (see [server-metrics.md](server-metrics.md)). They are set with `PATCH`.
-swallow itself replaces (or adds) only the link named `Omnistat Grafana` when it installs
-Omnistat, or `Device Metrics Exporter Grafana` when it installs the Device Metrics Exporter, and
-removes only that link when the Platform is uninstalled (see [Omnistat](#omnistat) and
-[Device Metrics Exporter](#device-metrics-exporter)).
+`monitoringLinks` lists the Platform's **Monitoring Links**: links to a monitoring UI that
+belongs to the Platform — for example the Platform's own Grafana swallow installs on a Slurm
+Platform. It is always an array, empty by default. Each link has a `name` (the label a user
+clicks) and an absolute `http`/`https` `url`. Monitoring Links are swallow-owned display data:
+swallow never connects to, authenticates against, or checks the URL, and they are not a metrics
+Integration — swallow's own usage charts keep reading the Site metrics backend (see
+[server-metrics.md](server-metrics.md)). They are set with `PATCH`. swallow itself replaces (or
+adds) only the link named `Platform Grafana` when it installs the Platform's Grafana (see
+[Platform monitoring dashboards](#platform-monitoring-dashboards)), and removes only the links it
+writes when the Platform is uninstalled: `Platform Grafana`, and `Omnistat Grafana` and
+`Device Metrics Exporter Grafana`, the names it wrote for the same Grafana before.
 
 `omnistat` is the swallow-managed Omnistat of a Slurm Platform (see [Omnistat](#omnistat)). It is
 `null` when swallow never installed Omnistat on the Platform (always for Kubernetes).
@@ -539,7 +539,8 @@ member's roles are per daemon because a Server may run the controller daemon (`s
         },
         "ociContainers": false,
         "pmix": false
-      }
+      },
+      "monitoringDashboards": true
     },
     "machinePreparation": {
       "mode": "provision_os",
@@ -575,7 +576,9 @@ responsibility.
 
 `ociContainers` (default `false`) sets up native OCI containers (see
 [Native OCI Containers](#native-oci-containers)); `pmix` (default `false`) installs the host MPI
-stack (see [MPI (PMIx)](#mpi-pmix)).
+stack (see [MPI (PMIx)](#mpi-pmix)). `monitoringDashboards` (a setting beside `slurm`, default
+`true`) gives the Platform its own Grafana (see
+[Platform monitoring dashboards](#platform-monitoring-dashboards)).
 
 ### Node sharing, memory, and job hooks
 
@@ -684,6 +687,47 @@ is reported as unverifiable.
 | `amdgpu_option_not_applied` | a known option did not take effect, for example because the initramfs loaded the driver |
 | `amdgpu_driver_missing` | the driver did not load or exposed no `/dev/kfd` |
 
+## Platform Monitoring Dashboards
+
+Every Platform may have its own read-only Grafana that shows only its members' series
+([monitoring.md](../../../../../docs/development/monitoring.md) §6.2). The setting is
+`settings.monitoringDashboards`, a boolean that defaults to `true` (omitted or `null` is on); it
+is desired state the user writes with the spec. It applies to CPU-only Platforms as well. A Slurm
+Platform reads it today; a Kubernetes Platform's spec may carry it, and its deployment does not
+install a Grafana yet.
+
+On a Slurm Platform with the setting on, the deploy Workflow composes the Managed Software
+`grafana` onto the primary controller after the Slurm install (a `configure-grafana` Job, see
+[software](software.md#composition-into-platform-deployments)), whether or not a monitoring
+feature is chosen:
+
+- Its install method is the enabled monitoring feature's `installMethod` (see [Omnistat](#omnistat)
+  and [Device Metrics Exporter](#device-metrics-exporter)), and `native` when neither is enabled, so
+  a Platform without monitoring gets no container runtime only for its Grafana. The `container`
+  method first composes a container runtime onto the primary controller:
+  the [container runtime](#container-runtime) the deploy chose, else the runtime already assigned
+  to that Server, else Docker CE (with its Engine API off), skipped where it is `installed`.
+- Its datasource is the [Platform metrics gateway](platform-metrics-gateway.md),
+  `<public URL>/api/v1/platform-metrics/<platformId>/prometheus`, where the public URL is the
+  installation's `SWALLOW_API_PUBLIC_URL` (the address the Servers reach swallow at). It
+  authenticates with the Platform's monitoring token: swallow issues a new token each time it
+  accepts such a deployment (so every deploy or redeploy rotates it) and hands it to the Grafana
+  install Task only as a sealed secret; it is never in the Workflow's parameters, its logs, or the
+  Software Assignment's `spec`.
+- It provisions the `node-exporter` dashboards (CPU, memory, root filesystem, network, and load per
+  Server), plus `omnistat` or `device-metrics-exporter` for the enabled feature.
+- When the install Task succeeds, swallow sets the Monitoring Link `Platform Grafana` to the
+  Grafana (`http://<primary address>:3000`, anonymous read-only, no login), replacing a link it
+  wrote for it as `Omnistat Grafana` or `Device Metrics Exporter Grafana`. An install that reports
+  no URL fails the Task.
+
+An installation without `SWALLOW_API_PUBLIC_URL` cannot plan the Grafana: the deployment is
+refused when the platform controller plans it, and the Platform's `realized` Condition (`failed`)
+names the setting. Turning the setting on for a deployed Platform redeploys it (see
+[Change A Platform](#change-a-platform)); turning it off after deployment is not carried out yet.
+Uninstalling the Platform removes the `Platform Grafana` link and keeps the Grafana's Software
+Assignment until it is uninstalled through the software API.
+
 ## Container Runtime
 
 Slurm runs no containers itself, but its workloads (AI ones especially) usually do, so a Slurm
@@ -730,18 +774,21 @@ AMD's Slurm-aware GPU monitoring, in the same Workflow
 }
 ```
 
-Omitting `omnistat`, or `enabled: false`, installs nothing. `omnistat` on a Kubernetes deploy is a
-`validation_error`. `installMethod` is how the Prometheus and Grafana Omnistat uses are installed,
-`container` (default) or `native` (see
+Omitting `omnistat`, or `enabled: false`, installs nothing: the API enables a monitoring feature
+only when the request does (the dashboard's deploy wizard proposes Omnistat, which also suits a
+CPU-only Platform). `omnistat` on a Kubernetes deploy is a `validation_error`. `installMethod` is
+how the Platform's Grafana is installed, `container` (default) or `native` (see
+[Platform monitoring dashboards](#platform-monitoring-dashboards) and
 [software](software.md#prometheus-and-grafana-spec)); another value is a `validation_error`. The
-primary controller (the first `controller` member) becomes the observability Server.
-After the Slurm install the Workflow composes Managed Software Jobs onto it (see
-[software](software.md#composition-into-platform-deployments)): with the `container` method a
-container runtime Job first — the [container runtime](#container-runtime) the deploy chose, or
-else the runtime already assigned to the observability Server, or Docker CE — then
-`configure-prometheus` and `configure-grafana`, and finally a `configure-omnistat` Job that
-installs Omnistat `1.15.0` on every compute node (exporter on port `8001`, reachable only from the
-node itself and the observability Server). The Slurm side is part of the Slurm install: a
+primary controller (the first `controller` member) becomes the observability Server, which hosts
+the Platform's Grafana. After the Slurm install, and after the Grafana when the Platform has one,
+the Workflow runs a `configure-omnistat` Job that installs Omnistat `1.15.0` on every compute node:
+the exporter listens on port `8001` and answers only the node itself and the addresses the Site
+Prometheus scrapes from (the installation's `SWALLOW_API_MONITORING_SCRAPE_ADDRESSES`; an
+installation without them cannot plan Omnistat and the deployment is refused when it is planned,
+like a missing public URL). The Site Prometheus scrapes it once Omnistat is `ready`
+([discovery-prometheus.md](discovery-prometheus.md)); no Prometheus is installed on the Platform.
+The Slurm side is part of the Slurm install: a
 job hook of the Prolog/Epilog dispatcher records each job for Omnistat, `PrologFlags=Alloc,Contain`, and the `main`
 partition is `OverSubscribe=EXCLUSIVE`, because Omnistat attributes a whole node to one job. The
 deployment succeeds only when every composed Job does. Omnistat and the
@@ -764,21 +811,19 @@ The Platform then reports:
 ```
 
 `state` is the Omnistat State, exactly `installing | ready | failed | absent`: `installing` from
-acceptance until the Omnistat Task finishes, `ready` when it succeeded (every exporter is scraped
-and the dashboards are provisioned), `failed` when it failed or never ran because an earlier Job
-failed, and `absent` after the Platform was uninstalled. Only `lastWorkflowId` may move it. On
-success swallow also sets the Monitoring Link `Omnistat Grafana` to the observability Server's
-Grafana (`http://<primary address>:3000`, read-only, no login). Omnistat's Prometheus listens only
-on the observability Server's loopback address (`listen: loopback`, see
-[software](software.md#prometheus-and-grafana-spec)), so only that Grafana reads it, and swallow
-never queries it. `omnistat-query` on a compute node reads it through that Grafana's read-only
-datasource proxy (`http://<primary address>:3000/api/datasources/proxy/uid/prometheus`), which
-serves the same data the anonymous dashboards already show. Omnistat 1.15.0's report needs GPU
-utilization, so on GPUs that do not report it (for example SR-IOV virtual functions, which expose
-only memory) `omnistat-query` cannot build one; the Grafana job dashboards still show memory per
-job. Uninstalling the Platform removes the exporter and the Slurm side, marks the state
-`absent`, and removes the link; the container runtime, Prometheus, and Grafana Software
-Assignments stay until they are uninstalled through the software API.
+acceptance until the Omnistat Task finishes, `ready` when it succeeded (every compute node's
+exporter answers on the node), `failed` when it failed or never ran because an earlier Job failed,
+and `absent` after the Platform was uninstalled. Only `lastWorkflowId` may move it. The Monitoring
+Link is the Platform Grafana's, recorded by its own install. swallow never queries Omnistat.
+`omnistat-query` on a compute node reads the Site Prometheus through the Platform Grafana's
+read-only datasource proxy (`http://<primary address>:3000/api/datasources/proxy/uid/prometheus`),
+which serves the same data the anonymous dashboards already show, so it needs
+`monitoringDashboards` on. Omnistat 1.15.0's report needs GPU utilization, so on GPUs that do not
+report it (for example SR-IOV virtual functions, which expose only memory) `omnistat-query` cannot
+build one; the Grafana job dashboards still show memory per job. Uninstalling the Platform removes
+the exporter and the Slurm side and marks the state `absent`; the container runtime and Grafana
+Software Assignments (and a Prometheus an earlier deployment composed) stay until they are
+uninstalled through the software API.
 
 ## Device Metrics Exporter
 
@@ -801,11 +846,10 @@ with Slurm job attribution, in the same Workflow
 Omitting `deviceMetricsExporter`, or `enabled: false`, installs nothing. It is a `validation_error`
 on a Kubernetes deploy (the GPU Operator's `metricsExporter` runs it there), together with an
 enabled `omnistat`, when no compute Server lists AMD `compute` GPUs in its GPU Inventory, or with an
-`installMethod` other than `container` (default) or `native`. Like Omnistat, the primary controller
-becomes the observability Server and the Workflow composes, after the Slurm install, the container
-runtime (container method), `configure-prometheus` (`listen: loopback`, job
-`device-metrics-exporter`, the GPU compute nodes on port `5001`), and `configure-grafana`
-(dashboards `device-metrics-exporter`), and finally the Managed Software
+`installMethod` other than `container` (default) or `native`; like Omnistat's, `installMethod` is
+how the Platform's Grafana is installed. Like Omnistat, the primary controller becomes the
+observability Server, and the Workflow composes, after the Slurm install and the Platform's
+Grafana (with the `device-metrics-exporter` dashboards), the Managed Software
 [`device-metrics-exporter`](software.md#device-metrics-exporter) on every GPU compute node, as a
 `configure-device-metrics-exporter` Job ([decision 068](../../../../../docs/decisions/068-device-metrics-exporter-managed-software.md) (device metrics exporter managed software)).
 Each GPU compute node gets an ordinary Software Assignment, `installed` by the Job's record Task.
@@ -818,8 +862,10 @@ install and uninstall refuse them, so the exporter there stays the Platform's. T
 part of the Slurm install: the
 `20-device-metrics-exporter` job hook writes `/run/exporter/<GRES index>` for every GPU a job is
 allocated and removes it at the job's end only while it still names that job, and jobs keep
-sharing nodes (`OverSubscribe=NO`). An exporter that serves no GPU health metrics fails the Task
-(`device_metrics_exporter_no_metrics`).
+sharing nodes (`OverSubscribe=NO`). Each GPU node checks that its own exporter answers on its
+address; an exporter that serves no GPU health metrics fails the Task
+(`device_metrics_exporter_no_metrics`). The Site Prometheus scrapes the exporters through their
+Software Assignments ([discovery-prometheus.md](discovery-prometheus.md)).
 
 The Platform then reports:
 
@@ -837,9 +883,8 @@ The Platform then reports:
 ```
 
 `state` is the Device Metrics Exporter State, exactly `installing | ready | failed | absent`, with
-the same meaning and fence (`lastWorkflowId`) as the Omnistat State. On success swallow sets the
-Monitoring Link `Device Metrics Exporter Grafana` (`http://<primary address>:3000`, read-only, no
-login) and records `gpuIdentity`:
+the same meaning and fence (`lastWorkflowId`) as the Omnistat State (`ready`: every GPU node's
+exporter answers and serves GPU health metrics). On success swallow records `gpuIdentity`:
 
 | Value | Meaning |
 | --- | --- |
@@ -848,11 +893,11 @@ login) and records `gpuIdentity`:
 
 `gpuIdentity` is `null` until an install succeeded. A collapsed identity does not fail the
 deployment; clients must show it rather than present per-job GPU panels as reliable. swallow never
-queries the exporter's Prometheus. Uninstalling the Platform removes the package, its
-configuration, and the job hook from every target, marks the state `absent`, removes the link, and
-marks the Servers' `device-metrics-exporter` Software Assignments `absent`; the container runtime,
-Prometheus, and Grafana Software Assignments stay until they are uninstalled through the software
-API.
+queries the exporters. Uninstalling the Platform removes the package, its configuration, and the
+job hook from every target, marks the state `absent`, and marks the Servers'
+`device-metrics-exporter` Software Assignments `absent`; the container runtime and Grafana Software
+Assignments (and a Prometheus an earlier deployment composed) stay until they are uninstalled
+through the software API.
 
 ## Native OCI Containers
 
@@ -1025,8 +1070,9 @@ swallow classifies the change against `status.applied` as
 validates the new spec as a deployment:
 
 - A non-destructive change (adding a member, turning on the GPU Operator, a Slurm monitoring
-  feature, or a first container runtime or workload storage) is written and answered `200 OK` with
-  `plan: null`; the platform controller converges it. Adding a member runs the type's deploy
+  feature, a Slurm Platform's `monitoringDashboards`, or a first container runtime or workload
+  storage) is written and answered `200 OK` with `plan: null`; the platform controller converges
+  it. Adding a member runs the type's deploy
   Workflow over every member; members already in the Platform are left as they are.
 - A destructive change (changing or turning off the GPU Operator, and the changes below) is written
   together with a Change Plan and answered `202 Accepted`. When swallow cannot carry the change out
@@ -1035,7 +1081,8 @@ validates the new spec as a deployment:
   containers, PMIx, `stateSaveLocation`, or `gpuGresType` — the plan carries the blocker
   `swallow cannot carry out <action> yet` and cannot be approved.
 - A non-destructive change swallow cannot carry out yet (turning off or changing a Slurm monitoring
-  feature) is `409 conflict` and writes nothing.
+  feature, or turning off a Slurm Platform's `monitoringDashboards`) is `409 conflict` and writes
+  nothing.
 - An immutable field (`podCidr`, `serviceCidr`, `apiVip`, `apiVipPrefix`, Slurm `clusterName`) is
   `409 conflict`: changing it means deleting the Platform and creating it again.
 
@@ -1150,7 +1197,7 @@ Each `url` is trimmed, at most 2048 characters, and must be an absolute `http` o
 with a host. Any violation is `validation_error` and changes nothing.
 
 ```json
-{ "monitoringLinks": [{ "name": "Omnistat Grafana", "url": "https://omnistat.example.internal/grafana" }] }
+{ "monitoringLinks": [{ "name": "Runbook", "url": "https://wiki.example.internal/lab-slurm" }] }
 ```
 
 `PATCH` does not accept `integrationId`: a Platform's credential
@@ -1256,6 +1303,19 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-03 a Slurm deployment composes no Prometheus: the Site Prometheus scrapes Omnistat
+  and the Device Metrics Exporter. It composes the Platform's own Grafana whenever
+  `settings.monitoringDashboards` is on, which is the default, so a Platform without a monitoring
+  feature gets one too, on the `container` method (with a container runtime on the primary
+  controller) unless a feature's `installMethod` says otherwise; `installMethod` now chooses only
+  the Grafana's method. A Platform deployed before keeps its composed Prometheus Software
+  Assignment until it is uninstalled through the software API, and keeps its `Omnistat Grafana` or
+  `Device Metrics Exporter Grafana` link until its next deploy replaces it with `Platform Grafana`.
+  Omnistat's exporter now admits the Site Prometheus's scrape addresses instead of the primary
+  controller, and its `ready` state means every exporter answers on its node. A Slurm deploy is
+  refused when it is planned if the installation lacks `SWALLOW_API_PUBLIC_URL` (with the Grafana
+  on) or `SWALLOW_API_MONITORING_SCRAPE_ADDRESSES` (with Omnistat). Omitting both monitoring
+  features still installs neither.
 - `exporterOwner` was removed on 2026-11-03 (breaking). Platform responses no longer carry it, and
   `PATCH` no longer reads it: a request that still sends it is answered as if it were absent, like
   any other unknown field. OS provisioning installs the Node Exporter on every Server, so a host never

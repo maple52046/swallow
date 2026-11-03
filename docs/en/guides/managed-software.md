@@ -73,9 +73,9 @@ Server's address at port 5001. It needs a Server with AMD compute GPUs running
 Ubuntu 24.04, and it has no settings. Installing it also installs swallow's
 amdgpu driver loader when the Server has none.
 
-It installs only the exporter. To graph the metrics, install **Prometheus**
-scraping those Servers on port 5001, and **Grafana** with the Device Metrics
-Exporter dashboards.
+It installs only the exporter. swallow's Site Prometheus collects it once it is
+installed; to graph the metrics, install **Grafana** with the Device Metrics
+Exporter dashboards and a datasource that reads that Prometheus.
 
 A Slurm Platform deployed with the Device Metrics Exporter installs the same
 software on its GPU nodes, with Slurm job attribution. While a Platform owns a
@@ -83,6 +83,13 @@ Server, the exporter there is managed through the Platform: the Software page
 does not install or uninstall it on that Server, and uninstalling the Platform
 removes it. A Kubernetes Platform's GPU Operator runs its own exporter, so this
 software is not offered on Kubernetes nodes.
+
+A Slurm Platform's own Grafana is **Grafana** on its primary controller, listed here
+like any other installation, with the container runtime it runs on. Both stay when
+the Platform is uninstalled, until you uninstall them here. A Slurm Platform deployed
+before the Site Prometheus collected its exporters also has a **Prometheus** there;
+swallow no longer uses it and never removes it, so uninstall it here when you no
+longer need its history.
 
 ## Node Exporter
 

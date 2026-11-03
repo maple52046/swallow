@@ -22,9 +22,9 @@ func readRoleDefaults(t *testing.T, role string) map[string]any {
 	return defaults
 }
 
-// Prometheus listens on the observability Server's loopback only, so omnistat-query on a compute
-// node reads it through Grafana's read-only datasource proxy, which already serves the same data
-// to anonymous viewers; the proxy UID must be the one the grafana role provisions.
+// omnistat-query on a compute node reads the Site Prometheus through the Platform Grafana's
+// read-only datasource proxy, which reaches it through swallow's gateway and already serves the
+// same data to anonymous viewers; the proxy UID must be the one the grafana role provisions.
 func TestOmnistatQueryReadsPrometheusThroughGrafana(t *testing.T) {
 	template, err := os.ReadFile(filepath.Join(roleDir(t, "omnistat"), "templates", "omnistat.conf.j2"))
 	if err != nil {
@@ -45,6 +45,38 @@ func TestOmnistatQueryReadsPrometheusThroughGrafana(t *testing.T) {
 	if omnistat["omnistat_grafana_datasource_uid"] != grafana["grafana_datasource_uid"] {
 		t.Errorf("omnistat datasource UID %v, grafana provisions %v; they must match",
 			omnistat["omnistat_grafana_datasource_uid"], grafana["grafana_datasource_uid"])
+	}
+}
+
+// The Site Prometheus scrapes the exporter, so it admits the node itself and the installation's
+// scrape addresses, and the playbook proves each exporter on its own node instead of waiting on a
+// Prometheus; it still reports the Grafana URL omnistat-query reads.
+func TestOmnistatAdmitsTheSitePrometheus(t *testing.T) {
+	template, err := os.ReadFile(filepath.Join(roleDir(t, "omnistat"), "templates", "omnistat.conf.j2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "allowed_ips = {{ (['127.0.0.1'] + omnistat_scrape_addresses) | unique | join(', ') }}"; !strings.Contains(string(template), want) {
+		t.Errorf("omnistat.conf.j2 does not render allowed_ips as %q", want)
+	}
+	if got := readRoleDefaults(t, "omnistat")["omnistat_scrape_addresses"]; got != "{{ swallow_omnistat_scrape_addresses | default([]) }}" {
+		t.Errorf("omnistat_scrape_addresses = %v, want the trusted scrape addresses", got)
+	}
+	tasks, err := os.ReadFile(filepath.Join(roleDir(t, "omnistat"), "tasks", "main.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(tasks), `url: "http://127.0.0.1:{{ omnistat_port }}/metrics"`) {
+		t.Error("the omnistat role does not check its own exporter on the loopback address")
+	}
+	playbook := slurmPlaybookFile(t, "configure-omnistat.yml")
+	for _, gone := range []string{"/api/v1/targets", "prometheus/endpoint", "swallow_omnistat_prometheus_port"} {
+		if strings.Contains(playbook, gone) {
+			t.Errorf("configure-omnistat.yml still contains %q", gone)
+		}
+	}
+	if !strings.Contains(playbook, "{'grafanaUrl': omnistat_grafana_url}") {
+		t.Error("configure-omnistat.yml no longer reports the Grafana URL")
 	}
 }
 

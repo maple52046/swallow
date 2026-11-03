@@ -1,21 +1,22 @@
 package domain
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
 
-// ObservabilityInstallMethod is how a Slurm deployment installs the Prometheus and Grafana its
-// monitoring feature uses (Omnistat, decision 063, or the Device Metrics Exporter, decision 066):
-// the Managed Software install method of both kinds. The features are mutually exclusive, so a
-// deployment has at most one.
+// ObservabilityInstallMethod is how a Slurm deployment installs its Platform's own Grafana (the
+// Managed Software install method of that kind). The Slurm monitoring features (Omnistat, decision
+// 063, and the Device Metrics Exporter, decision 066) carry it; without either, the Grafana takes
+// the container method.
 type ObservabilityInstallMethod string
 
 const (
-	// ObservabilityInstallContainer runs both as containers on the observability Server's container
+	// ObservabilityInstallContainer runs it as a container on the primary controller's container
 	// runtime. It is the default.
 	ObservabilityInstallContainer ObservabilityInstallMethod = "container"
-	// ObservabilityInstallNative installs both from their official release and package repository.
+	// ObservabilityInstallNative installs it from its official package repository.
 	ObservabilityInstallNative ObservabilityInstallMethod = "native"
 )
 
@@ -34,3 +35,20 @@ func normalizeObservabilityInstallMethod(method ObservabilityInstallMethod, inva
 			ObservabilityInstallContainer, ObservabilityInstallNative, method)
 	}
 }
+
+// MonitoringDashboardsLaunch gives a deployment's Platform its own monitoring dashboards
+// (monitoring.md §6.2): a read-only dashboard server whose datasource reads the Site metrics store
+// through swallow's Platform metrics gateway with the Platform's monitoring token, so it sees only
+// the Platform's members. Every Platform may have one, GPU or not; the Platform spec's
+// monitoringDashboards setting turns it off. How it is delivered belongs to the Platform type: a
+// Slurm Platform runs it as Managed Software on ServerID (the primary controller) by InstallMethod.
+type MonitoringDashboardsLaunch struct {
+	ServerID      string
+	InstallMethod ObservabilityInstallMethod
+}
+
+// ErrMonitoringEndpointMissing means a deployment would install monitoring that must reach swallow
+// or be reached by the Site metrics store — a Platform's dashboards read the metrics gateway at the
+// installation's public URL, and an exporter with an allowlist admits the store's scrape addresses —
+// but the installation has not configured that address. The wrapped message names the setting.
+var ErrMonitoringEndpointMissing = errors.New("the installation has not configured how its Servers and its Site metrics store reach each other")

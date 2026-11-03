@@ -5010,7 +5010,7 @@ export interface components {
          */
         OSProvisioningState: "new" | "inspecting" | "ready" | "allocated" | "deploying" | "deployed" | "releasing" | "testing" | "rescue" | "broken" | "failed" | "retired" | "unknown";
         /**
-         * @description How the Prometheus and Grafana a Slurm monitoring feature uses are installed.
+         * @description How a Slurm deploy installs the Platform's Grafana on the primary controller: `container` on its container runtime, or `native` from Grafana's package repository.
          * @enum {string}
          */
         ObservabilityInstallMethod: "container" | "native";
@@ -5354,7 +5354,7 @@ export interface components {
             installMethod: components["schemas"]["ObservabilityInstallMethod"];
             /** @description The only Workflow that may move `state`. */
             lastWorkflowId: string | null;
-            /** @description The primary controller, which runs Prometheus and Grafana. */
+            /** @description The primary controller, which hosts the Platform's Grafana. */
             observabilityServerId: string;
             state: components["schemas"]["DeviceMetricsExporterState"];
             updatedAt: components["schemas"]["Timestamp"];
@@ -5467,7 +5467,7 @@ export interface components {
             installMethod: components["schemas"]["ObservabilityInstallMethod"];
             /** @description The only Workflow that may move `state`. */
             lastWorkflowId: string | null;
-            /** @description The primary controller, which runs Prometheus and Grafana. */
+            /** @description The primary controller, which hosts the Platform's Grafana. */
             observabilityServerId: string;
             state: components["schemas"]["OmnistatState"];
             updatedAt: components["schemas"]["Timestamp"];
@@ -6260,7 +6260,10 @@ export interface components {
         SlurmMonitoringFeature: {
             /** @default false */
             enabled: boolean;
-            /** @default container */
+            /**
+             * @description How the Platform's Grafana is installed; without an enabled feature it uses `container`.
+             * @default container
+             */
             installMethod: components["schemas"]["ObservabilityInstallMethod"];
         };
         SlurmNode: {
@@ -6291,6 +6294,11 @@ export interface components {
             gpuDriver?: components["schemas"]["PlatformGPUDriver"];
             /** @default provisioning */
             gpuStackOwner: components["schemas"]["GPUStackOwner"];
+            /**
+             * @description Give the Platform its own read-only Grafana on the primary controller, showing only its members' series through the Platform metrics gateway. Turning it on later is carried out; turning it off after deployment is 409.
+             * @default true
+             */
+            monitoringDashboards: boolean;
             /** @description Install Omnistat; mutually exclusive with an enabled `deviceMetricsExporter`. */
             omnistat?: components["schemas"]["SlurmMonitoringFeature"];
             slurm?: components["schemas"]["SlurmSettings"];

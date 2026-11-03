@@ -121,7 +121,9 @@ GPU charts read an RDC exporter running on the host, which swallow does not inst
 The Slurm workspace assigns controller, compute, and login roles independently,
 then derives state-server and workload-storage responsibilities from the selected
 topology and features. Its Features step uses separate Switches for shared workload
-storage, a container runtime, and Omnistat; AMD GPU GRES is included automatically
+storage, a container runtime, job monitoring (Omnistat by default, the AMD Device Metrics
+Exporter, or none), and the Platform Grafana (on by default; see
+[Monitoring](monitoring.md#a-platforms-own-grafana)); AMD GPU GRES is included automatically
 on eligible compute nodes.
 
 Before a GPU node joins, swallow proves every GPU works by allocating and freeing

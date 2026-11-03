@@ -35,7 +35,6 @@ import (
 	convergencestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/convergence"
 	infrastructurestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/infrastructure"
 	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
-	monitoringstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/monitoring"
 	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
 	provisioningstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/provisioning"
 	serverstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/server"
@@ -479,7 +478,10 @@ func RunAPI(cfg config.APIConfig) error {
 	overviewHandler := overviewdelivery.NewHandler(
 		overviewapp.NewService(overviewReader, overviewapp.SystemClock{}))
 
-	// Platform lifecycle adapters keep durable operations outside the platform context.
+	// Platform lifecycle adapters keep durable operations outside the platform context. A Platform's
+	// monitoring token is issued by the deployments here and verified by the metrics gateway below,
+	// over the same store.
+	platformAccess := newPlatformTokenIssuer(db)
 	platformOps, err := buildPlatformOperations(platformOperationDeps{
 		transactor: transactor, modules: modules, platformService: platformService, platforms: platformRepo,
 		servers: serverRepo, claims: serverRepo, lifecycle: lifecycleReader,
@@ -487,6 +489,7 @@ func RunAPI(cfg config.APIConfig) error {
 		bootMedia: bootMediaPlan, software: softwareService, ntp: ntpPlan, nodeExporter: nodeExporterPlan,
 		protection: serverProtection,
 		networks:   networkService, requirements: requirementRepo, keys: sshKeyService,
+		monitoring: newPlatformMonitoringAccess(cfg), monitoringTokens: platformAccess,
 	})
 	if err != nil {
 		return err
@@ -527,7 +530,7 @@ func RunAPI(cfg config.APIConfig) error {
 
 	discoveryUseCase := discoveryapp.NewDiscoveryUseCase(serverRepo)
 	exporterDiscovery := discoveryapp.NewExporterDiscovery(serverRepo,
-		installedExporters{catalog: modules.software, assignments: softwareAssignmentRepo})
+		installedExporters{catalog: modules.software, assignments: softwareAssignmentRepo, platforms: platformRepo})
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(discoveryUseCase, exporterDiscovery)
 	fiberApp := fiber.New(fiber.Config{
 		// OS image upload (POST /provisioning/images) streams a potentially multi-gigabyte
@@ -579,8 +582,7 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioning:    provisioningHandler,
 		operations:      operationHandler,
 		monitoring:      monitoringHandler,
-		gateway: monitoringdelivery.NewGatewayHandler(
-			monitoringapp.NewPlatformAccess(monitoringstore.NewMongoPlatformTokenStore(db)),
+		gateway: monitoringdelivery.NewGatewayHandler(platformAccess,
 			platformMetricsUpstream{platforms: platformRepo, integrations: integrationRepo}),
 		platforms:      platformHandler,
 		software:       softwareHandler,

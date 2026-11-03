@@ -1,18 +1,20 @@
 ---
 # Install Omnistat on a swallow-deployed Slurm Platform (decision 063). It runs as the last Job of
 # a configure-slurm Workflow, after deploy-slurm (which renders the Slurm side: Prolog/Epilog,
-# PrologFlags=Alloc, exclusive partition) and after Docker CE, Prometheus, and Grafana were
-# composed onto the observability Server. Topology arrives only through trusted variables:
+# PrologFlags=Alloc, exclusive partition) and after the Platform's Grafana, when it has one, was
+# composed onto the primary controller. Topology arrives only through trusted variables:
 #   swallow_omnistat_version          pinned Omnistat release
 #   swallow_omnistat_port             exporter port on every compute node
 #   swallow_omnistat_compute_ids      compute nodes (serverIds) that run the exporter
-#   swallow_omnistat_observability_id Server running Prometheus and Grafana (primary controller)
-#   swallow_omnistat_prometheus_port / swallow_omnistat_grafana_port   their ports
+#   swallow_omnistat_scrape_addresses addresses the Site Prometheus scrapes from; with the node
+#                                     itself, the only ones the exporter answers
+#   swallow_omnistat_observability_id primary controller, whose Grafana omnistat-query reads
+#   swallow_omnistat_grafana_port     that Grafana's port
 #   swallow_omnistat_system_name      label for omnistat-query reports
 #   swallow_slurm_gpu_compute_ids     compute nodes with AMD GPUs (AMD SMI collection)
-# On success it writes {grafanaUrl} to the run's result file; swallow records it as the Platform's
-# "Omnistat Grafana" Monitoring Link. Prometheus listens only on the observability Server's loopback
-# address, so the check runs there. Idempotent.
+# The Site Prometheus scrapes the exporters, so each compute node proves only that its own exporter
+# answers on the loopback address. On success it writes {grafanaUrl} to the run's result file.
+# Idempotent.
 
 - name: Hold the OS's automatic package maintenance
   hosts: all
@@ -33,50 +35,19 @@
         key: "omnistat_{{ 'observability' if inventory_hostname == swallow_omnistat_observability_id else 'member' }}"
 
 - name: Install the Omnistat exporter on every compute node
+  # The role ends by waiting until the node's own exporter serves metrics on 127.0.0.1.
   hosts: omnistat_exporter
   gather_facts: false
   become: true
   roles:
     - role: omnistat
 
-- name: Verify Prometheus scrapes every exporter and record the Grafana URL
+- name: Record the Grafana URL
   hosts: omnistat_observability
   gather_facts: false
   vars:
     omnistat_grafana_url: "http://{{ ansible_host }}:{{ swallow_omnistat_grafana_port | default(3000) }}"
-    omnistat_expected_targets: >-
-      {{ swallow_omnistat_compute_ids | map('extract', hostvars, 'ansible_host')
-         | map('regex_replace', '$', ':' ~ (swallow_omnistat_port | default(8001) | string)) | list }}
   tasks:
-    - name: Read where Prometheus listens on this Server
-      # Omnistat's Prometheus listens on the loopback address; its role records the address.
-      ansible.builtin.slurp:
-        src: /etc/swallow/prometheus/endpoint
-      register: omnistat_prometheus_endpoint
-      failed_when: false
-
-    - name: Remember the Prometheus address
-      ansible.builtin.set_fact:
-        omnistat_prometheus_url: >-
-          {{ (omnistat_prometheus_endpoint.content | b64decode | trim)
-             if omnistat_prometheus_endpoint.content is defined
-             else 'http://127.0.0.1:' ~ (swallow_omnistat_prometheus_port | default(9090)) }}
-
-    - name: Wait until Prometheus reports every exporter up
-      ansible.builtin.uri:
-        url: "{{ omnistat_prometheus_url }}/api/v1/targets?state=active"
-        return_content: true
-      register: omnistat_targets
-      until: >-
-        omnistat_targets.status == 200 and
-        (omnistat_expected_targets
-         | difference(omnistat_targets.json.data.activeTargets
-                      | selectattr('health', 'equalto', 'up')
-                      | map(attribute='labels.instance') | list)
-         | length) == 0
-      retries: 30
-      delay: 5
-
     - name: Write the Omnistat result for Swallow
       ansible.builtin.copy:
         dest: "{{ swallow_result_path }}"

@@ -74,32 +74,53 @@ swallow 使用固定 port，因此 Server 的 scrape target 不會因為 exporte
 Backend 沒有該 metric 的資料時，圖表顯示「No data」——例如沒有 GPU exporter 的 Server 的
 GPU 圖表。線條中斷代表該 Server 當時沒有回報。兩者都不會畫成 0。
 
-## 自帶監控的 Platform
+## Platform 自己的 Grafana
 
-有些 runtime 自帶完整監控方案——例如 Slurm Platform 上的
-[Omnistat](https://github.com/ROCm/omnistat)，有自己的 Prometheus 與 Grafana。部署 Slurm Platform 時
-可以讓 swallow 代為安裝 Omnistat（在 Slurm workspace 開啟 **Features → Omnistat GPU monitoring** Switch，或在部署檔
-加上 `omnistat: { enabled: true }`）：primary controller 會裝 Prometheus（API 沒有登入機制，因此只在
-該主機的 loopback 位址回應）與帶有 Omnistat job dashboards 的唯讀 Grafana，每台 compute node 裝
-exporter 與 Omnistat 的作業報告工具 `omnistat-query`（透過該 Grafana 查詢 Prometheus；報告需要 GPU 使用率，
-SR-IOV virtual function 不提供，這類 GPU 請改看 Grafana 的 job dashboard），Platform 頁面會顯示 Omnistat 狀態與
-`Omnistat Grafana` 連結。Prometheus 與 Grafana 預設以 container 執行；也可選擇 native 安裝方法，改由
-官方 release 與 apt／yum repository 安裝。swallow 不會 scrape 或查詢這類方案，而是：
+每個 Slurm Platform 的 primary controller 上都有一個它自己的唯讀 Grafana，除非部署時關閉（Slurm workspace
+Features step 的 **Platform Grafana** 開關，或在 Platform 的 settings 寫 `monitoringDashboards: false`）。CPU-only
+的 Platform 也一樣。它和 swallow 讀同一套 Site 的 Prometheus，經過 swallow 讀取，只看得到這個 Platform 自己的
+Server。它一律有 **Servers** dashboard（每台 Server 的 CPU、memory、root filesystem、network 與 load），再加上你選的
+監控 exporter 的 dashboards。Platform 頁面以 **Platform Grafana** 連到它；管理網路上的人不必登入就能檢視。它預設以
+container 執行；也可選擇 native 安裝方法，改由 Grafana 的 apt／yum repository 安裝。每次部署或重新部署都會給它新的存取
+憑證，從舊部署複製出來的憑證會失效。
 
-- 把它的 UI 登記為 Platform 的 **Monitoring Link**。Platform 頁面會顯示它，旁邊並有前往
+之後才開啟 Grafana 會重新部署 Platform；部署後關閉目前還不支援。在這之前部署的 Platform 會保留它自己的 Prometheus
+與原本的 Grafana 連結，直到下一次部署。
+
+## Slurm 的 GPU 與作業監控
+
+在 Slurm workspace 的 Features step 選擇監控 exporter：
+
+- **Omnistat**（預設建議）在每台 compute node 收集主機與 Slurm 作業的 metrics，有 AMD GPU 時也收集 GPU 的
+  metrics，所以 CPU-only 的 Platform 也適用。每台 compute node 一次只跑一個作業。compute node 上 Omnistat 的作業報告工具
+  `omnistat-query` 經 Platform 的 Grafana 讀取 metrics，要使用它就保留 Grafana（報告需要 GPU 使用率，SR-IOV virtual
+  function 不提供，這類 GPU 請改看 job dashboard）。
+- **AMD Device Metrics Exporter** 收集每張 GPU 的 metrics，並標上該 GPU 上的作業，作業可繼續共用節點。需要至少一台有
+  AMD GPU 的 compute node。
+- **None** 兩者都不安裝。
+
+Site 的 Prometheus 像收集其他 exporter 一樣收集選定的 exporter；Platform 頁面顯示它的狀態。在部署檔中以
+`omnistat: { enabled: true }` 或 `deviceMetricsExporter: { enabled: true }` 選擇其一；兩者都省略時都不安裝。
+
+## 其他監控介面
+
+屬於某個 Platform 的其他監控介面也可以連結：
+
+- 把它登記為 Platform 的 **Monitoring Link**。Platform 頁面會顯示它，旁邊並有前往
   swallow 內該 Platform 用量圖表的捷徑。
 - 保留 swallow 的 exporters。Server 圖表在 Platform 建立前、存在期間與移除後都持續可用，
   且所有 Platform 類型都一樣。
-- 不要讓 runtime 自己的 collector 綁定 9100 或 5000。Omnistat 的 collector 預設使用自己的
-  port；請維持如此，避免與 swallow 的 exporters 衝突。
+- 不要讓 runtime 自己的 collector 綁定 9100、5000、5001 或 8001，這些是 swallow 的 exporters 使用的 port。
 
 Monitoring Link 透過 Platform update API 設定。使用 CLI：
 
 ```yaml
 # patch.yaml
 monitoringLinks:
-  - name: Omnistat Grafana
-    url: https://omnistat.example.internal/grafana
+  - name: Platform Grafana
+    url: http://10.0.0.11:3000
+  - name: Runbook
+    url: https://wiki.example.internal/research-slurm
 ```
 
 ```bash
@@ -107,7 +128,7 @@ swallow platforms update plat1 -f patch.yaml
 ```
 
 空清單（`monitoringLinks: []`）會移除所有連結。swallow 從不連線 Monitoring Link；它只是
-給使用者的捷徑。
+給使用者的捷徑。swallow 自己只在安裝 Platform 的 Grafana 時設定 `Platform Grafana` 這個連結。
 
 ## Alert 與 acknowledgement
 

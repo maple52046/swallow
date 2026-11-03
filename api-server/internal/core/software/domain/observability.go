@@ -13,8 +13,8 @@ import (
 // container (Docker CE or Podman) or natively from the vendor's official releases. Grafana listens
 // on the Server's management address; Prometheus, whose API has no authentication, listens on the
 // loopback address unless the spec asks for the management address. Their ports are owned here and
-// passed to the playbooks as trusted variables so a composing platform (Omnistat) and the
-// playbooks cannot disagree.
+// passed to the playbooks as trusted variables so a composing platform (Slurm) and the playbooks
+// cannot disagree.
 const (
 	// PrometheusPort is where Prometheus listens on the Server's address.
 	PrometheusPort = 9090
@@ -98,16 +98,22 @@ const (
 	SpecDashboards = "dashboards"
 )
 
-// GrafanaDashboardOmnistat is the bundle of Omnistat's RMS dashboards (global, node, job) pinned
-// to the Omnistat release swallow installs.
-const GrafanaDashboardOmnistat = "omnistat"
+// The dashboard bundles a release ships for the Grafana kind, each a directory of dashboards the
+// Grafana role provisions. Every bundle reads its datasource by the role's fixed datasource uid.
+const (
+	// DashboardBundleOmnistat is Omnistat's RMS dashboards (global, node, job) pinned to the
+	// Omnistat release swallow installs.
+	DashboardBundleOmnistat = "omnistat"
+	// DashboardBundleDeviceMetricsExporter is the Device Metrics Exporter's Slurm dashboards
+	// (overview, GPU, node, job) pinned to the exporter release swallow installs.
+	DashboardBundleDeviceMetricsExporter = "device-metrics-exporter"
+	// DashboardBundleNodeExporter is swallow's own basic-monitoring dashboard over the Node
+	// Exporter's metrics (CPU, memory, root filesystem, network, load), selected by server_id.
+	DashboardBundleNodeExporter = "node-exporter"
+)
 
-// GrafanaDashboardDeviceMetricsExporter is the bundle of the Device Metrics Exporter's Slurm
-// dashboards (overview, GPU, node, job) pinned to the exporter release swallow installs.
-const GrafanaDashboardDeviceMetricsExporter = "device-metrics-exporter"
-
-// grafanaDashboardBundles lists the dashboard bundles a release ships.
-var grafanaDashboardBundles = []string{GrafanaDashboardOmnistat, GrafanaDashboardDeviceMetricsExporter}
+// dashboardBundles lists the dashboard bundles a release ships.
+var dashboardBundles = []string{DashboardBundleOmnistat, DashboardBundleDeviceMetricsExporter, DashboardBundleNodeExporter}
 
 // releaseVersionPattern is a plain major.minor.patch release. It keeps a version usable both as a
 // container image tag and in an official download URL or package pin, and keeps it from smuggling
@@ -165,10 +171,10 @@ func ValidatePrometheusURL(raw string) error {
 
 // ValidateDashboardBundle checks that a release ships the named Grafana dashboard bundle.
 func ValidateDashboardBundle(name string) error {
-	for _, bundle := range grafanaDashboardBundles {
+	for _, bundle := range dashboardBundles {
 		if bundle == name {
 			return nil
 		}
 	}
-	return fmt.Errorf("%w: spec.%s %q is not a shipped dashboard bundle (%s)", ErrSpecInvalid, SpecDashboards, name, strings.Join(grafanaDashboardBundles, ", "))
+	return fmt.Errorf("%w: spec.%s %q is not a shipped dashboard bundle (%s)", ErrSpecInvalid, SpecDashboards, name, strings.Join(dashboardBundles, ", "))
 }

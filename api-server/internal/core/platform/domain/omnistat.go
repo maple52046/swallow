@@ -3,12 +3,13 @@ package domain
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 )
 
 // Omnistat on a swallow-deployed Slurm Platform (decision 063, glossary Omnistat). The exporter and
-// the Slurm job attribution belong to the Platform; Prometheus and Grafana are Managed Software the
-// same deployment composes onto the observability Server (the primary controller).
+// the Slurm job attribution belong to the Platform; the Site metrics store scrapes the exporters
+// (decision 003), and the Platform's own dashboards, when it has them, show them.
 const (
 	// OmnistatVersion is the Omnistat release swallow installs. The playbook pins its source archive,
 	// SR-IOV compatibility patch, and Python dependency set per version.
@@ -16,10 +17,7 @@ const (
 	// OmnistatExporterPort is where every compute node's exporter listens. It must not be one of the
 	// host exporter ports swallow scrapes (9100 node, 5000 RDC), decision 003.
 	OmnistatExporterPort = 8001
-	// OmnistatGrafanaLinkName is the Monitoring Link a successful install registers and an
-	// uninstall removes; other links stay user-owned.
-	OmnistatGrafanaLinkName = "Omnistat Grafana"
-	// OmnistatScrapeJob is the Prometheus job name of the exporters.
+	// OmnistatScrapeJob is the exporter's name in the scrape targets (the exporter label).
 	OmnistatScrapeJob = "omnistat"
 	// OmnistatDashboardBundle is the Grafana dashboard bundle with Omnistat's RMS dashboards.
 	OmnistatDashboardBundle = "omnistat"
@@ -37,8 +35,8 @@ const (
 	OmnistatAbsent OmnistatState = "absent"
 )
 
-// OmnistatSettings is the user's Omnistat intent in a Slurm deploy request. An empty
-// InstallMethod is the container method.
+// OmnistatSettings is the user's Omnistat intent in a Slurm deploy request. InstallMethod chooses
+// how the Platform's own dashboards are installed; empty is the container method.
 type OmnistatSettings struct {
 	Enabled       bool
 	InstallMethod ObservabilityInstallMethod
@@ -54,9 +52,9 @@ func NormalizeOmnistatSettings(settings OmnistatSettings) (OmnistatSettings, err
 }
 
 // Omnistat is the Platform's swallow-managed Omnistat record. ObservabilityServerID names the
-// Server running Prometheus and Grafana, installed by InstallMethod. LastWorkflowID is the fence:
-// only that Workflow's Task may move the State. Written only through OmnistatRecorder, never by a
-// Platform Update.
+// primary controller, which hosts the Platform's own dashboards (installed by InstallMethod) and
+// is where omnistat-query reads them. LastWorkflowID is the fence: only that Workflow's Task may
+// move the State. Written only through OmnistatRecorder, never by a Platform Update.
 type Omnistat struct {
 	Enabled               bool
 	Version               string
@@ -73,10 +71,11 @@ func (o *Omnistat) Managed() bool {
 	return o != nil && o.State != OmnistatAbsent
 }
 
-// OmnistatLaunch adds Omnistat to a Slurm deployment Workflow: Prometheus and Grafana composed onto
-// ObservabilityServerID by InstallMethod (the container method also composes that Server's
-// container runtime), then the exporter on every ComputeServerIDs node. TrustedVars are the
-// configure-omnistat playbook's swallow_omnistat_* variables.
+// OmnistatLaunch adds Omnistat to a Slurm deployment Workflow: the exporter on every
+// ComputeServerIDs node, admitting only the node itself and the Site metrics store.
+// ObservabilityServerID is the primary controller, whose dashboards omnistat-query reads, and
+// InstallMethod how those dashboards are installed. TrustedVars are the configure-omnistat
+// playbook's swallow_omnistat_* variables the deploy use case owns.
 type OmnistatLaunch struct {
 	ObservabilityServerID string
 	ComputeServerIDs      []string
@@ -117,11 +116,11 @@ func UpsertMonitoringLink(links []MonitoringLink, link MonitoringLink) []Monitor
 	return out
 }
 
-// RemoveMonitoringLink returns links without the link named name.
-func RemoveMonitoringLink(links []MonitoringLink, name string) []MonitoringLink {
+// RemoveMonitoringLinks returns links without the links named in names.
+func RemoveMonitoringLinks(links []MonitoringLink, names ...string) []MonitoringLink {
 	out := make([]MonitoringLink, 0, len(links))
 	for _, existing := range links {
-		if existing.Name != name {
+		if !slices.Contains(names, existing.Name) {
 			out = append(out, existing)
 		}
 	}

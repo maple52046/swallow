@@ -27,11 +27,15 @@ omnistat_rocm_path: /opt/rocm
 # The node-wide job file the Slurm Prolog writes and the Epilog removes.
 omnistat_job_file: /tmp/omni_rmsjobinfo
 omnistat_system_name: "{{ swallow_omnistat_system_name | default('slurm', true) }}"
-# The observability Server runs Prometheus; it is the only remote address the exporter answers.
+# The Site Prometheus scrapes the exporter from these addresses (as this node sees them); with the
+# node itself they are the only addresses the exporter answers.
+omnistat_scrape_addresses: "{{ swallow_omnistat_scrape_addresses | default([]) }}"
+# The observability Server (the primary controller) hosts the Platform's Grafana, whose read-only
+# datasource proxy omnistat-query reads the Site Prometheus through.
 omnistat_observability_id: "{{ swallow_omnistat_observability_id }}"
 omnistat_observability_address: "{{ hostvars[omnistat_observability_id].ansible_host }}"
 omnistat_grafana_port: "{{ swallow_omnistat_grafana_port | default(3000) | int }}"
-# The UID of the Grafana datasource for that Prometheus (grafana_datasource_uid in roles/grafana).
+# The UID of that Grafana's datasource (grafana_datasource_uid in roles/grafana).
 omnistat_grafana_datasource_uid: prometheus
 # A GPU compute node collects through AMD SMI and starts after the shared amdgpu loader.
 omnistat_gpu: "{{ inventory_hostname in (swallow_slurm_gpu_compute_ids | default([])) }}"

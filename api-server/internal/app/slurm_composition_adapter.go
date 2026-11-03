@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
@@ -19,52 +20,80 @@ import (
 // plus the record Task that marks its Software Assignments installed:
 //
 //  1. the container runtime, on the compute and login nodes when the containerRuntime feature is
-//     on, and on the observability Server when the monitoring feature uses the container method;
-//  2. Prometheus, then Grafana, on the observability Server when a monitoring feature is on;
+//     on, and on the primary controller when the Platform's Grafana uses the container method;
+//  2. the Platform's Grafana on the primary controller when the Platform has its own monitoring
+//     dashboards: its datasource reads the Platform metrics gateway with the Platform's monitoring
+//     token, and its completion records the Platform Grafana Monitoring Link;
 //  3. with the Device Metrics Exporter feature, the Managed Software device-metrics-exporter on
 //     every GPU compute node, its install Task also carrying the Platform's owner and record ids
 //     and the Slurm side's variables;
 //
 // or, with Omnistat, finally the feature's own configure-omnistat Job (the exporter on every
-// compute node); a deployment has at most one of the two features. Each Job depends on the previous
-// one's record Task, so Prometheus never starts before its runtime is recorded. This is decision
-// 038's composition rule: no nested software Workflow, the same playbooks and roles as a standalone
+// compute node); a deployment has at most one of the two features. The Site metrics store scrapes
+// the exporters (decision 003), so no Prometheus is composed. Each Job depends on the previous one's
+// record Task, so Grafana never starts before its runtime is recorded. This is decision 038's
+// composition rule: no nested software Workflow, the same playbooks and roles as a standalone
 // install.
 const (
 	jobConfigureOmnistat = "configure-omnistat"
 	omnistatStepID       = "install-omnistat"
 	omnistatPlaybook     = "configure-omnistat"
-	// omnistatResultGrafanaURL is the configure-omnistat result field swallow records as the
-	// Platform's Omnistat Grafana Monitoring Link.
-	omnistatResultGrafanaURL = "grafanaUrl"
+	// omnistatScrapeAddressesVar lists the addresses besides the node itself that the Omnistat
+	// exporter admits: the Site metrics store's scrape addresses.
+	omnistatScrapeAddressesVar = "swallow_omnistat_scrape_addresses"
 
 	// deviceMetricsExporterStepID is the composed device-metrics-exporter install Task:
 	// appendComposedInstall names it install-<kind>, as the feature's Task was named before the
 	// exporter was Managed Software (decision 068).
 	deviceMetricsExporterStepID = "install-" + string(softwaredomain.KindDeviceMetricsExporter)
-	// The Slurm run's deploy-device-metrics-exporter result: the Grafana URL swallow records as the
-	// Platform's Device Metrics Exporter Grafana Monitoring Link, and the GPU identity it found.
-	deviceMetricsExporterResultGrafanaURL  = "grafanaUrl"
+	// deviceMetricsExporterResultGPUIdentity is the Slurm run's deploy-device-metrics-exporter result
+	// field with the GPU identity it found.
 	deviceMetricsExporterResultGPUIdentity = "gpuIdentity"
+
+	// grafanaResultURL is the result field a single-Server Grafana install (and configure-omnistat)
+	// reports its Grafana URL in.
+	grafanaResultURL = "grafanaUrl"
+	// grafanaDatasourceTokenVar is the secret var the Grafana role hands its datasource as a bearer
+	// token. It carries the Platform's monitoring token only as a sealed Task secret, never in
+	// trusted vars, Task parameters, or a Software Assignment's spec.
+	grafanaDatasourceTokenVar = "swallow_grafana_datasource_token"
+	// platformGrafanaLinkName is the Monitoring Link swallow records for a Platform's own Grafana.
+	platformGrafanaLinkName = "Platform Grafana"
 )
 
-// monitoringComposedSoftware is the order a monitoring feature's observability software is
-// composed in.
-var monitoringComposedSoftware = []softwaredomain.Kind{softwaredomain.KindPrometheus, softwaredomain.KindGrafana}
+// legacyGrafanaLinkNames are the Monitoring Links swallow recorded for a Slurm monitoring feature's
+// Grafana before the Platform had its own. Recording the Platform Grafana link replaces them, and
+// an uninstall removes them, since they point at the same Grafana.
+var legacyGrafanaLinkNames = []string{"Omnistat Grafana", "Device Metrics Exporter Grafana"}
+
+// ownedMonitoringLinks are every Monitoring Link name swallow writes itself; the platform service
+// removes them when a Platform's uninstall completes.
+var ownedMonitoringLinks = append([]string{platformGrafanaLinkName}, legacyGrafanaLinkNames...)
+
+// platformMetricsGatewayURL is the Prometheus URL a Platform's Grafana reads: the Platform metrics
+// gateway (platform-metrics-gateway.md) at the installation's public URL.
+func platformMetricsGatewayURL(publicURL, platformID string) string {
+	return publicURL + "/api/v1/platform-metrics/" + platformID + "/prometheus"
+}
+
+// platformMonitoringAccess is how the Servers a deployment configures and the Site metrics store
+// reach each other (config PublicURL and MonitoringScrapeAddresses). A deployment that needs an
+// empty one is refused with platformdomain.ErrMonitoringEndpointMissing when it is planned.
+type platformMonitoringAccess struct {
+	// publicURL is where the deployed Servers reach this API, without a trailing slash.
+	publicURL string
+	// scrapeAddresses are the addresses the Site metrics store scrapes from, as the Servers see them.
+	scrapeAddresses []string
+}
 
 // slurmMonitoring is what the composition needs from the Slurm monitoring feature a deployment
-// carries (Omnistat or the Device Metrics Exporter): where Prometheus and Grafana go and how they
-// are installed, what Prometheus scrapes, which dashboards Grafana provisions, and the feature's own
-// install Task. It is a translation of the domain launch, so the composition is written once.
+// carries (Omnistat or the Device Metrics Exporter): the dashboards the Platform's Grafana adds for
+// it and the feature's own install Task. It is a translation of the domain launch, so the
+// composition is written once.
 type slurmMonitoring struct {
-	label                 string
-	observabilityServerID string
-	installMethod         platformdomain.ObservabilityInstallMethod
-	scrapeJob             string
-	scrapeServerIDs       []string
-	scrapePort            int
-	dashboardBundle       string
-	trustedVars           map[string]any
+	label           string
+	dashboardBundle string
+	trustedVars     map[string]any
 	// composedKind, when set, is the Managed Software the feature installs on composedServerIDs
 	// (the Device Metrics Exporter); otherwise the feature has its own install Task below.
 	composedKind      softwaredomain.Kind
@@ -72,50 +101,44 @@ type slurmMonitoring struct {
 	// The feature's own install Task (Omnistat).
 	stepID, stepName, job, playbook string
 	workflowKind                    workflowdomain.WorkflowKind
-	// stateCompletion and resultCompletion are the feature's declared completions: its State
-	// projection and the recording of the Grafana URL its playbook returns.
+	// stateCompletion is the feature's State projection; resultCompletion, when set, records what
+	// its playbook returned.
 	stateCompletion, resultCompletion string
-	// portVars names the playbook variables the software domain's Prometheus and Grafana ports go in.
-	prometheusPortVar, grafanaPortVar string
+	// grafanaPortVar names the playbook variable the software domain's Grafana port goes in, for the
+	// URL omnistat-query reads and the run reports.
+	grafanaPortVar string
 }
 
-// slurmMonitoringOf returns the deployment's monitoring feature, or nil when it has none. The
-// deploy use case never sets both features.
 // completions declares the feature Task's State projection and result recording, fenced on the
 // Platform and the record of this Workflow; like the GPU Operator's, the record survives a rerun
 // that copies the Task under a new Workflow id.
 func (m *slurmMonitoring) completions(platformID, recordID string) []workflowdomain.Completion {
-	return []workflowdomain.Completion{
-		featureState(m.stateCompletion, platformID, recordID),
-		{Type: m.resultCompletion, Params: map[string]any{completionParamRecord: recordID}},
+	completions := []workflowdomain.Completion{featureState(m.stateCompletion, platformID, recordID)}
+	if m.resultCompletion != "" {
+		completions = append(completions, workflowdomain.Completion{Type: m.resultCompletion, Params: map[string]any{completionParamRecord: recordID}})
 	}
+	return completions
 }
 
+// slurmMonitoringOf returns the deployment's monitoring feature, or nil when it has none. The
+// deploy use case never sets both features.
 func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring {
 	switch {
 	case launch.Omnistat != nil:
 		omnistat := launch.Omnistat
 		return &slurmMonitoring{
-			label: "Omnistat", observabilityServerID: omnistat.ObservabilityServerID,
-			installMethod: omnistat.InstallMethod, scrapeJob: platformdomain.OmnistatScrapeJob,
-			scrapeServerIDs: omnistat.ComputeServerIDs, scrapePort: platformdomain.OmnistatExporterPort,
-			dashboardBundle: platformdomain.OmnistatDashboardBundle, trustedVars: omnistat.TrustedVars,
+			label: "Omnistat", dashboardBundle: softwaredomain.DashboardBundleOmnistat, trustedVars: omnistat.TrustedVars,
 			stepID: omnistatStepID, stepName: "Install Omnistat", job: jobConfigureOmnistat,
 			playbook: omnistatPlaybook, workflowKind: workflowdomain.WorkflowKindConfigureOmnistat,
-			stateCompletion: completionOmnistatState, resultCompletion: completionOmnistatResult,
-			prometheusPortVar: "swallow_omnistat_prometheus_port", grafanaPortVar: "swallow_omnistat_grafana_port",
+			stateCompletion: completionOmnistatState, grafanaPortVar: "swallow_omnistat_grafana_port",
 		}
 	case launch.DeviceMetricsExporter != nil:
 		exporter := launch.DeviceMetricsExporter
 		return &slurmMonitoring{
-			label: "the Device Metrics Exporter", observabilityServerID: exporter.ObservabilityServerID,
-			installMethod: exporter.InstallMethod, scrapeJob: platformdomain.DeviceMetricsExporterScrapeJob,
-			scrapeServerIDs: exporter.GPUComputeServerIDs, scrapePort: platformdomain.DeviceMetricsExporterPort,
-			dashboardBundle: platformdomain.DeviceMetricsExporterDashboardBundle, trustedVars: exporter.TrustedVars,
+			label: "the Device Metrics Exporter", dashboardBundle: softwaredomain.DashboardBundleDeviceMetricsExporter,
+			trustedVars:  exporter.TrustedVars,
 			composedKind: softwaredomain.KindDeviceMetricsExporter, composedServerIDs: exporter.GPUComputeServerIDs,
 			stateCompletion: completionDeviceMetricsExporterState, resultCompletion: completionDeviceMetricsExporterResult,
-			prometheusPortVar: "swallow_device_metrics_exporter_prometheus_port",
-			grafanaPortVar:    "swallow_device_metrics_exporter_grafana_port",
 		}
 	default:
 		return nil
@@ -123,18 +146,22 @@ func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring 
 }
 
 // composedPlan is the composed part of a Slurm deployment: the Tasks to append after
-// install-platform and the software installs whose pending assignments are written once the
-// Workflow exists.
+// install-platform, the software installs whose pending assignments are written once the Workflow
+// exists, and the install Tasks that receive the Platform's monitoring token as a secret.
 type composedPlan struct {
 	steps    []workflowdomain.Task
 	installs []softwareapp.ComposedInstall
+	// tokenSteps receive the Platform's monitoring token as grafanaDatasourceTokenVar. The token is
+	// issued when the Workflow is persisted, in the accepting transaction, so planning writes nothing.
+	tokenSteps []string
 }
 
-// planSlurmComposition validates and builds the container runtime and monitoring feature Jobs. provisionFirst
-// lets the deployment's provision-os Tasks satisfy the deployed-state requirement of every composed
-// ansible Task. A composed install the software policy refuses (for example Podman where Docker CE
-// is installed, the two being mutually exclusive) is reported as ErrComposedSoftwareConflict before
-// anything is created.
+// planSlurmComposition validates and builds the container runtime, Platform Grafana, and monitoring
+// feature Jobs. provisionFirst lets the deployment's provision-os Tasks satisfy the deployed-state
+// requirement of every composed ansible Task. A composed install the software policy refuses (for
+// example Podman where Docker CE is installed, the two being mutually exclusive) is reported as
+// ErrComposedSoftwareConflict, and an installation without the monitoring addresses a Job needs as
+// ErrMonitoringEndpointMissing, before anything is created.
 func (l platformDeploymentLauncher) planSlurmComposition(
 	ctx context.Context,
 	launch platformdomain.DeploymentLaunch,
@@ -143,7 +170,8 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 ) (composedPlan, error) {
 	plan := composedPlan{}
 	monitoring := slurmMonitoringOf(launch)
-	if launch.ContainerRuntime == nil && monitoring == nil {
+	dashboards := launch.MonitoringDashboards
+	if launch.ContainerRuntime == nil && monitoring == nil && dashboards == nil {
 		return plan, nil
 	}
 	if l.software == nil {
@@ -152,8 +180,20 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 			return plan, fmt.Errorf("%w: software composition is unavailable", platformdomain.ErrInvalidOmnistat)
 		case launch.DeviceMetricsExporter != nil:
 			return plan, fmt.Errorf("%w: software composition is unavailable", platformdomain.ErrInvalidDeviceMetricsExporter)
+		case launch.ContainerRuntime != nil:
+			return plan, fmt.Errorf("%w: software composition is unavailable", platformdomain.ErrInvalidContainerRuntime)
 		}
-		return plan, fmt.Errorf("%w: software composition is unavailable", platformdomain.ErrInvalidContainerRuntime)
+		return plan, fmt.Errorf("%w: software composition is unavailable", platformdomain.ErrInvalidDeployment)
+	}
+	if dashboards != nil && l.monitoring.publicURL == "" {
+		return plan, fmt.Errorf("%w: the Platform's Grafana reads swallow's metrics gateway, so set SWALLOW_API_PUBLIC_URL "+
+			"to the URL the Servers reach swallow at (swallowctl sets it from SWALLOW_ADDRESS), or turn monitoringDashboards off",
+			platformdomain.ErrMonitoringEndpointMissing)
+	}
+	if launch.Omnistat != nil && len(l.monitoring.scrapeAddresses) == 0 {
+		return plan, fmt.Errorf("%w: the Omnistat exporter admits only the Site's Prometheus, so set "+
+			"SWALLOW_API_MONITORING_SCRAPE_ADDRESSES to the addresses it scrapes from (swallowctl sets SWALLOW_ADDRESS)",
+			platformdomain.ErrMonitoringEndpointMissing)
 	}
 	previous := installPlatformStepID
 
@@ -170,39 +210,40 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 		}
 	}
 
-	if monitoring == nil {
-		return plan, nil
-	}
-	observability := []string{monitoring.observabilityServerID}
-	for _, kind := range monitoringComposedSoftware {
+	if dashboards != nil {
 		previous, err = l.appendComposedInstall(ctx, &plan, launch, operationID, provisionFirst, previous,
-			kind, observability, monitoringSoftwareSpec(kind, monitoring, runtime),
-			"Install "+l.software.Label(kind)+" for "+monitoring.label+" on "+launch.Platform.Name, composedInstallExtras{})
+			softwaredomain.KindGrafana, []string{dashboards.ServerID},
+			platformGrafanaSpec(launch, runtime, l.monitoring.publicURL),
+			"Install the Platform Grafana on "+launch.Platform.Name,
+			composedInstallExtras{
+				platformToken: true,
+				completions:   []workflowdomain.Completion{{Type: completionPlatformGrafanaResult}},
+			})
 		if err != nil {
 			return plan, err
 		}
 	}
 
-	trustedVars := make(map[string]any, len(monitoring.trustedVars)+2)
-	for key, value := range monitoring.trustedVars {
-		trustedVars[key] = value
+	if monitoring == nil {
+		return plan, nil
 	}
-	// The software domain owns the Prometheus and Grafana ports; the exporter allowlist and the
-	// result URLs must use the same ones.
-	trustedVars[monitoring.prometheusPortVar] = softwaredomain.PrometheusPort
-	trustedVars[monitoring.grafanaPortVar] = softwaredomain.GrafanaPort
+	trustedVars := maps.Clone(monitoring.trustedVars)
+	if trustedVars == nil {
+		trustedVars = map[string]any{}
+	}
+	if monitoring.grafanaPortVar != "" {
+		// The software domain owns the Grafana port; the URL the feature reports must use the same one.
+		trustedVars[monitoring.grafanaPortVar] = softwaredomain.GrafanaPort
+	}
 	if monitoring.composedKind != "" {
-		// The software install with the Slurm side laid over it. Its inventory is every target, like
-		// the feature Task it replaced, because the scrape check runs on the observability Server.
+		// The software install with the Slurm side laid over it.
 		_, err = l.appendComposedInstall(ctx, &plan, launch, operationID, provisionFirst, previous,
 			monitoring.composedKind, monitoring.composedServerIDs, map[string]any{},
 			"Install "+l.software.Label(monitoring.composedKind)+" on "+launch.Platform.Name,
-			composedInstallExtras{
-				ansibleTargetIDs: launch.TargetServerIDs, trustedVars: trustedVars,
-				completions: monitoring.completions(launch.Platform.ID, operationID),
-			})
+			composedInstallExtras{trustedVars: trustedVars, completions: monitoring.completions(launch.Platform.ID, operationID)})
 		return plan, err
 	}
+	trustedVars[omnistatScrapeAddressesVar] = slices.Clone(l.monitoring.scrapeAddresses)
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: string(monitoring.workflowKind), PlaybookName: monitoring.playbook,
 		Intent:          "Install " + monitoring.label + " on " + launch.Platform.Name,
@@ -223,17 +264,16 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	return plan, nil
 }
 
-// composedInstallExtras is what a feature that owns a composed software install adds to it (the
-// Device Metrics Exporter). The zero value adds nothing.
+// composedInstallExtras is what a deployment adds to a composed software install beyond the
+// software's own variables. The zero value adds nothing.
 type composedInstallExtras struct {
-	// ansibleTargetIDs is the install Task's inventory when the playbook must reach more Servers
-	// than it installs on; nil is the install targets. Software Assignments are still written for
-	// the install targets only.
-	ansibleTargetIDs []string
 	// trustedVars are laid over the software install's own trusted variables.
 	trustedVars map[string]any
 	// completions are added to the install Task's declared completions.
 	completions []workflowdomain.Completion
+	// platformToken gives the install Task the Platform's monitoring token as the sealed secret var
+	// grafanaDatasourceTokenVar (composedPlan.tokenSteps).
+	platformToken bool
 }
 
 // appendComposedInstall plans one composed software install on serverIDs and appends its Job (the
@@ -266,21 +306,15 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 	mapping := installPlaybook(kind)
 	trustedVars := install.TrustedVars
 	if len(extras.trustedVars) > 0 {
-		trustedVars = make(map[string]any, len(install.TrustedVars)+len(extras.trustedVars))
-		for key, value := range install.TrustedVars {
-			trustedVars[key] = value
+		trustedVars = maps.Clone(install.TrustedVars)
+		if trustedVars == nil {
+			trustedVars = map[string]any{}
 		}
-		for key, value := range extras.trustedVars {
-			trustedVars[key] = value
-		}
-	}
-	ansibleTargets := install.ServerIDs
-	if extras.ansibleTargetIDs != nil {
-		ansibleTargets = extras.ansibleTargetIDs
+		maps.Copy(trustedVars, extras.trustedVars)
 	}
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: string(mapping.workflowKind), PlaybookName: mapping.playbook,
-		Intent: intent, TargetServerIDs: ansibleTargets, PlatformID: launch.Platform.ID,
+		Intent: intent, TargetServerIDs: install.ServerIDs, PlatformID: launch.Platform.ID,
 		TrustedVars: trustedVars, RequestedBy: launch.RequestedBy,
 	}, operationID, provisionFirst)
 	if err != nil {
@@ -309,16 +343,20 @@ func (l platformDeploymentLauncher) appendComposedInstall(
 			Completion: []workflowdomain.Completion{softwareFailure(kind, install.ServerIDs)},
 		},
 	)
+	if extras.platformToken {
+		plan.tokenSteps = append(plan.tokenSteps, installID)
+	}
 	plan.installs = append(plan.installs, install)
 	return recordID, nil
 }
 
 // composedContainerRuntime returns the container runtime the deployment composes and the Servers
 // that still need it. The containerRuntime feature names the runtime and puts it on the compute
-// and login nodes; a monitoring feature's container method adds the observability Server and,
-// without the feature, runs on the runtime already assigned there (Docker CE when none is). A Server whose
-// runtime is already installed is left alone, so a user's own runtime settings (an enabled
-// Docker Engine API, for example) are never reverted. The kind is "" when no runtime is needed.
+// and login nodes; a Platform Grafana installed by the container method adds its Server (the
+// primary controller) and, without the feature, runs on the runtime already assigned there (Docker
+// CE when none is). A Server whose runtime is already installed is left alone, so a user's own
+// runtime settings (an enabled Docker Engine API, for example) are never reverted. The kind is ""
+// when no runtime is needed.
 func (l platformDeploymentLauncher) composedContainerRuntime(
 	ctx context.Context,
 	launch platformdomain.DeploymentLaunch,
@@ -329,16 +367,16 @@ func (l platformDeploymentLauncher) composedContainerRuntime(
 		kind = softwaredomain.Kind(launch.ContainerRuntime.Kind)
 		serverIDs = append(serverIDs, launch.ContainerRuntime.ServerIDs...)
 	}
-	if monitoring := slurmMonitoringOf(launch); monitoring != nil && monitoring.installMethod != platformdomain.ObservabilityInstallNative {
+	if dashboards := launch.MonitoringDashboards; dashboards != nil && dashboards.InstallMethod != platformdomain.ObservabilityInstallNative {
 		if kind == "" {
-			assigned, err := l.assignedContainerRuntime(ctx, monitoring.observabilityServerID)
+			assigned, err := l.assignedContainerRuntime(ctx, dashboards.ServerID)
 			if err != nil {
 				return "", nil, err
 			}
 			kind = assigned
 		}
-		if !slices.Contains(serverIDs, monitoring.observabilityServerID) {
-			serverIDs = append(serverIDs, monitoring.observabilityServerID)
+		if !slices.Contains(serverIDs, dashboards.ServerID) {
+			serverIDs = append(serverIDs, dashboards.ServerID)
 		}
 	}
 	if kind == "" {
@@ -375,7 +413,7 @@ func (l platformDeploymentLauncher) assignedContainerRuntime(ctx context.Context
 }
 
 // containerRuntimeSpec is a composed runtime's spec. Docker CE leaves the unauthenticated Engine
-// API off: neither Slurm workloads nor Omnistat need it.
+// API off: neither Slurm workloads nor the Platform's Grafana need it.
 func containerRuntimeSpec(kind softwaredomain.Kind) map[string]any {
 	if kind == softwaredomain.KindDockerCE {
 		return map[string]any{dockerce.SpecEnableAPI: false}
@@ -383,29 +421,41 @@ func containerRuntimeSpec(kind softwaredomain.Kind) map[string]any {
 	return map[string]any{}
 }
 
-// monitoringSoftwareSpec builds Prometheus's and Grafana's specs for a monitoring feature: its
-// install method, on the composed runtime when it is the container method. Prometheus scrapes every
-// exporter node by Server id (resolved to its current address on each run, so a provision_os deploy
-// whose addresses are not known yet still converges); Grafana reads that Prometheus and provisions
-// the feature's dashboards.
-func monitoringSoftwareSpec(kind softwaredomain.Kind, monitoring *slurmMonitoring, runtime softwaredomain.Kind) map[string]any {
+// platformGrafanaSpec builds the Platform Grafana's spec: its install method, on the composed
+// runtime when it is the container method; the Platform metrics gateway as its datasource, so it
+// reads only the Platform's members; and the basic-monitoring dashboards plus the monitoring
+// feature's. The spec holds no secret: the gateway token reaches the Task only as a sealed secret.
+func platformGrafanaSpec(launch platformdomain.DeploymentLaunch, runtime softwaredomain.Kind, publicURL string) map[string]any {
 	spec := map[string]any{softwaredomain.SpecInstallMethod: string(softwaredomain.InstallMethodNative)}
-	if monitoring.installMethod != platformdomain.ObservabilityInstallNative {
+	if launch.MonitoringDashboards.InstallMethod != platformdomain.ObservabilityInstallNative {
 		spec[softwaredomain.SpecInstallMethod] = string(softwaredomain.InstallMethodContainer)
 		spec[softwaredomain.SpecContainerRuntime] = string(runtime)
 	}
-	switch kind {
-	case softwaredomain.KindPrometheus:
-		// Only Grafana on the same Server reads the feature's Prometheus, and its API has no
-		// authentication, so it never listens beyond the loopback address.
-		spec[softwaredomain.SpecListen] = string(softwaredomain.PrometheusListenLoopback)
-		spec[softwaredomain.SpecScrapeJob] = monitoring.scrapeJob
-		spec[softwaredomain.SpecScrapeServerIDs] = monitoring.scrapeServerIDs
-		spec[softwaredomain.SpecScrapePort] = monitoring.scrapePort
-	case softwaredomain.KindGrafana:
-		spec[softwaredomain.SpecDashboards] = []string{monitoring.dashboardBundle}
+	spec[softwaredomain.SpecPrometheusURL] = platformMetricsGatewayURL(publicURL, launch.Platform.ID)
+	bundles := []string{softwaredomain.DashboardBundleNodeExporter}
+	if monitoring := slurmMonitoringOf(launch); monitoring != nil {
+		bundles = append(bundles, monitoring.dashboardBundle)
 	}
+	spec[softwaredomain.SpecDashboards] = bundles
 	return spec
+}
+
+// withPlatformToken returns workflow with token added, as grafanaDatasourceTokenVar, to the sealed
+// secrets of every step in steps. It copies the secret maps rather than changing the plan's, so a
+// transaction that runs the persist again starts from the plan as prepared.
+func withPlatformToken(workflow workflowapp.CreateWorkflowInput, steps []string, token string) workflowapp.CreateWorkflowInput {
+	secrets := make(map[string]map[string]any, len(workflow.StepSecretValues)+len(steps))
+	for step, values := range workflow.StepSecretValues {
+		secrets[step] = maps.Clone(values)
+	}
+	for _, step := range steps {
+		if secrets[step] == nil {
+			secrets[step] = map[string]any{}
+		}
+		secrets[step][grafanaDatasourceTokenVar] = token
+	}
+	workflow.StepSecretValues = secrets
+	return workflow
 }
 
 // recordComposedInstalls writes the composed installs' pending Software Assignments once the

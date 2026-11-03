@@ -190,6 +190,25 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
   terminator 終結；Nginx 原樣轉送前端帶來的 `X-Forwarded-Proto`（沒有時用自己的 scheme）。
 - 沒有 TLS terminator 時，admin 登入在網路上是明文。
 
+### 2.7 部署出去的監控與控制平面互相連到的位址
+
+Platform 自己的 Grafana 與 Omnistat 裝在 Server 上，它們和控制平面互相連線（[monitoring.md](monitoring.md)
+§6.2、§7），所以規劃 Platform deployment 的 process（API 與 worker）需要兩個 installation 設定：
+
+| 設定 | config | 用途 | production Compose 的值 |
+| --- | --- | --- | --- |
+| `SWALLOW_API_PUBLIC_URL` | `api.publicURL` | Servers 經 installation 的入口（dashboard 的 Nginx）連到這個 API 的 URL；Platform 的 Grafana 以 `<URL>/api/v1/platform-metrics/<platformId>/prometheus` 讀取 Platform metrics 閘道 | `http://<SWALLOW_ADDRESS>:<SWALLOW_HTTP_PORT>`（port 一律寫出，80 也是；`SWALLOW_ADDRESS` 是空的時不設定） |
+| `SWALLOW_API_MONITORING_SCRAPE_ADDRESSES` | `api.monitoringScrapeAddresses` | Site 的 Prometheus 收集 exporter 時的來源位址，以 Servers 看到的為準，逗號分隔；Omnistat 的 `allowed_ips` 只允許 node 自己與這些位址 | `SWALLOW_ADDRESS` |
+
+- 兩者都不是 process 啟動的必要條件。有設定時：URL 必須是絕對的 `http`／`https`，有 host，沒有 path、query 與
+  credential（結尾的 `/` 會去掉）；位址必須都是 IP 位址。不符時 process 啟動失敗。
+- 沒有設定時，需要它的 deployment 在規劃時被拒絕，訊息指出要設定的變數：開了 Platform Grafana（預設開啟）的
+  Slurm deployment 需要 URL，開了 Omnistat 的需要位址。拒絕發生在 platform controller 規劃 Workflow 時，所以由
+  Platform 的 `realized` Condition 回報。
+- Nginx 的 `location /api/` 把 `/api/v1/platform-metrics/` 連同 `Authorization` header 轉送到 api-server，不必另設
+  路由。Prometheus 經 `egress` 以主機的位址連到 Servers，所以 `SWALLOW_ADDRESS` 就是它在 Servers 看到的來源位址；
+  NAT 或多張網卡讓來源不同時，覆寫 `SWALLOW_API_MONITORING_SCRAPE_ADDRESSES`。
+
 ### 不變式
 
 - 一台主機、一個 Compose project、一個由 swallowctl 安裝的 MAAS。
@@ -532,7 +551,8 @@ decision 040。
 | `SWALLOW_BOOT_MEDIA_BASE_URL` | `http://<SWALLOW_ADDRESS>`；`SWALLOW_HTTP_PORT` 不是 80 時加上 `:<port>` |
 
 - `SWALLOW_ADDRESS` 是 machines 與 BMC 連到這台主機的位址。Compose 以它作為 api-server 與 worker 的
-  `SWALLOW_API_NTP_SERVER`（§6.3）。
+  `SWALLOW_API_NTP_SERVER`（§6.3）與 `SWALLOW_API_MONITORING_SCRAPE_ADDRESSES`，並由它與 `SWALLOW_HTTP_PORT`
+  組出 `SWALLOW_API_PUBLIC_URL`（§2.7）。
 - 第一次安裝後**不支援變更位址**：MAAS 保留第一次初始化時的 URL。
 
 ### 5.4 共置 MAAS 的 Integration endpoint
@@ -696,6 +716,14 @@ lab 事故）。
 | Workflow kind `configure-ntp` | `internal/core/workflow/domain/operation.go` |
 | Playbook 與 role | `modules/shared/playbooks/configure-ntp.yml`、`modules/shared/roles/ntp_client`（client 順序在 `vars/`、等待預算在 `defaults/`、設定 template 在 `templates/`） |
 | Schema migration（`swallow-api migrate`） | `cmd/swallow-api/migrate.go`、`internal/adapters/store/mongodb/migration/` |
+
+### 部署出去的監控位址（`api-server`）
+
+| 職責 | 路徑 |
+| --- | --- |
+| `SWALLOW_API_PUBLIC_URL`（`api.publicURL`）、`SWALLOW_API_MONITORING_SCRAPE_ADDRESSES`（`api.monitoringScrapeAddresses`）與驗證 | `config/config.go`、`config/env.go`、`config/validate.go` |
+| 交給 Platform deployment 的規劃（API 與 worker） | `internal/app/platform_operations.go`、`internal/app/slurm_composition_adapter.go` |
+| `ErrMonitoringEndpointMissing` 與其 409 對應 | `internal/core/platform/domain/observability.go`、`internal/core/platform/delivery/handler.go` |
 
 ---
 

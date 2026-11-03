@@ -17,9 +17,9 @@ const CONTAINER_ENGINES: ReadonlyArray<{ value: SlurmContainerRuntime; label: st
 export type GPUGresTypeMode = 'automatic' | 'custom'
 
 /**
- * The wizard's GPU monitoring choice. The API has one request object per feature (`omnistat`,
+ * The wizard's job monitoring choice. The API has one request object per feature (`omnistat`,
  * `deviceMetricsExporter`) and refuses both together, so the form keeps a single choice and the
- * page maps it to at most one object.
+ * page maps it to at most one object; `none` sends neither.
  */
 export type SlurmMonitoringChoice = 'none' | 'device-metrics-exporter' | 'omnistat'
 
@@ -40,8 +40,12 @@ interface SlurmDeploymentFeaturesProps {
   onContainerRuntimeChange: (runtime: SlurmContainerRuntime | '') => void
   monitoring: SlurmMonitoringChoice
   onMonitoringChange: (choice: SlurmMonitoringChoice) => void
-  monitoringInstallMethod: ObservabilityInstallMethod
-  onMonitoringInstallMethodChange: (method: ObservabilityInstallMethod) => void
+  /** Whether the Platform gets its own Grafana (the spec's `monitoringDashboards`). */
+  platformGrafana: boolean
+  onPlatformGrafanaChange: (enabled: boolean) => void
+  /** How that Grafana is installed; the API reads it only with a monitoring feature chosen. */
+  grafanaInstallMethod: ObservabilityInstallMethod
+  onGrafanaInstallMethodChange: (method: ObservabilityInstallMethod) => void
   /** Whether a selected compute Server lists AMD compute GPUs; the exporter needs one. */
   hasGPUComputeNode: boolean
   ociContainers: boolean
@@ -131,9 +135,11 @@ function ChoiceCards<T extends string>({ label, value, onChange, options, column
 /**
  * Slurm-only deployment features. Each optional capability is independently enabled, while
  * mode-specific settings expand inside the same card so the user sees consequences before
- * choosing implementation details. GPU monitoring is one switch with a stack choice because the API
- * refuses the Device Metrics Exporter and Omnistat together; the exporter's card warns, without
- * blocking here (the page blocks the step), when no selected compute node has AMD GPUs. The
+ * choosing implementation details. Job monitoring is one switch with an exporter choice because the
+ * API refuses the Device Metrics Exporter and Omnistat together; the exporter's card warns, without
+ * blocking here (the page blocks the step), when no selected compute node has AMD GPUs. The Platform
+ * Grafana is its own switch, on by default, with its install method; without a monitoring exporter
+ * the API installs it as a container, so the card says so instead of offering a choice it ignores. The
  * Container runtime card holds two independent choices, both sent only while the card is on and
  * separated by a vertical rule: at most one container engine (the Docker CE and Podman cards,
  * Managed Software; `containerRuntime`) and native OCI (Slurm runs it inside the job's allocation;
@@ -158,8 +164,10 @@ export function SlurmDeploymentFeatures({
   onContainerRuntimeChange,
   monitoring,
   onMonitoringChange,
-  monitoringInstallMethod,
-  onMonitoringInstallMethodChange,
+  platformGrafana,
+  onPlatformGrafanaChange,
+  grafanaInstallMethod,
+  onGrafanaInstallMethodChange,
   hasGPUComputeNode,
   ociContainers,
   onOCIContainersChange,
@@ -271,27 +279,27 @@ export function SlurmDeploymentFeatures({
       </FeatureToggleCard>
 
       <FeatureToggleCard
-        title="GPU monitoring"
-        description={`Collect GPU metrics attributed to Slurm jobs, with Prometheus and a read-only Grafana on ${primaryControllerName}.`}
+        title="Job monitoring"
+        description="Collect metrics attributed to Slurm jobs on the compute nodes. The Site Prometheus scrapes them."
         checked={monitoringEnabled}
-        onCheckedChange={(enabled) => onMonitoringChange(enabled ? 'device-metrics-exporter' : 'none')}
+        onCheckedChange={(enabled) => onMonitoringChange(enabled ? 'omnistat' : 'none')}
         status={<Badge variant="subtle" colorPalette={monitoringEnabled ? 'blue' : 'gray'}>{monitoringEnabled ? 'Included' : 'Not included'}</Badge>}
       >
         <div className="sw-platform-feature-stack">
           <ChoiceCards
-            label="Monitoring stack"
-            value={monitoring === 'none' ? 'device-metrics-exporter' : monitoring}
+            label="Monitoring exporter"
+            value={monitoring === 'none' ? 'omnistat' : monitoring}
             onChange={onMonitoringChange}
             options={[
+              {
+                value: 'omnistat',
+                label: 'Omnistat',
+                description: 'Host and job metrics, with GPU metrics where there are AMD GPUs. Each compute node runs one job at a time.',
+              },
               {
                 value: 'device-metrics-exporter',
                 label: 'AMD Device Metrics Exporter',
                 description: 'Per-GPU metrics labelled with the job on each GPU. Jobs keep sharing nodes.',
-              },
-              {
-                value: 'omnistat',
-                label: 'Omnistat',
-                description: 'Node-level job metrics and reports. Each compute node runs one job at a time.',
               },
             ]}
           />
@@ -300,19 +308,39 @@ export function SlurmDeploymentFeatures({
               The Device Metrics Exporter runs on GPU compute nodes. Select a compute Server whose GPU inventory lists AMD compute GPUs, or choose Omnistat.
             </Alert>
           )}
-          <ChoiceCards
-            label="Prometheus and Grafana installation"
-            value={monitoringInstallMethod}
-            onChange={onMonitoringInstallMethodChange}
-            options={[
-              { value: 'container', label: 'Containers', description: `Run both as containers on ${primaryControllerName}.` },
-              { value: 'native', label: 'Native', description: 'Use the official Prometheus release and Grafana package repository.' },
-            ]}
-          />
           <Text color="fg.muted" fontSize="sm">
-            {monitoring === 'omnistat'
-              ? 'Each compute node runs one job at a time so Omnistat metrics map to a single job.'
-              : 'Hardware profiler counters stay off. Where GPUs report the same id (for example MI308X virtual functions), the Platform reports the GPU identity as collapsed: metrics flow, but per-job GPU attribution is not reliable.'}
+            {monitoring === 'device-metrics-exporter'
+              ? 'Hardware profiler counters stay off. Where GPUs report the same id (for example MI308X virtual functions), the Platform reports the GPU identity as collapsed: metrics flow, but per-job GPU attribution is not reliable.'
+              : 'Each compute node runs one job at a time so Omnistat metrics map to a single job. Its job report tool reads the metrics through the Platform Grafana.'}
+          </Text>
+        </div>
+      </FeatureToggleCard>
+
+      <FeatureToggleCard
+        title="Platform Grafana"
+        description={`A read-only Grafana on ${primaryControllerName} that shows only this Platform's Servers, read from the Site Prometheus. It includes a Servers dashboard and the job monitoring dashboards.`}
+        checked={platformGrafana}
+        onCheckedChange={onPlatformGrafanaChange}
+        status={<Badge variant="subtle" colorPalette={platformGrafana ? 'blue' : 'gray'}>{platformGrafana ? 'Included' : 'Not included'}</Badge>}
+      >
+        <div className="sw-platform-feature-stack">
+          {monitoringEnabled ? (
+            <ChoiceCards
+              label="Grafana install method"
+              value={grafanaInstallMethod}
+              onChange={onGrafanaInstallMethodChange}
+              options={[
+                { value: 'container', label: 'Container', description: `Run Grafana as a container on ${primaryControllerName}.` },
+                { value: 'native', label: 'Native', description: 'Install Grafana from its official package repository.' },
+              ]}
+            />
+          ) : (
+            <Text color="fg.muted" fontSize="sm">
+              Grafana is installed natively from its official package repository on {primaryControllerName}. Choose a job monitoring exporter to choose its install method.
+            </Text>
+          )}
+          <Text color="fg.muted" fontSize="sm">
+            Anyone on the management network can view it without signing in. It can be turned on later, but not off after deployment.
           </Text>
         </div>
       </FeatureToggleCard>

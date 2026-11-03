@@ -130,6 +130,12 @@ services:
       # The NTP server every provisioned Server is pointed at (decision 065): the address machines
       # reach this host by. Empty refuses OS deployments until it is set in .env.
       SWALLOW_API_NTP_SERVER: "${SWALLOW_API_NTP_SERVER:-}"
+      # How deployed Servers and the Site Prometheus reach each other (monitoring.md §6.2, §7): the
+      # URL a Platform's Grafana reads the metrics gateway at, and the addresses the Prometheus
+      # scrapes from as the Servers see them. Empty refuses a Slurm deployment's Grafana and
+      # Omnistat until they are set in .env.
+      SWALLOW_API_PUBLIC_URL: "${SWALLOW_API_PUBLIC_URL:-}"
+      SWALLOW_API_MONITORING_SCRAPE_ADDRESSES: "${SWALLOW_API_MONITORING_SCRAPE_ADDRESSES:-}"
       # Server Enrollment (decision 053) serves the CLI at /downloads/swallow. Build it into
       # ./bin first: `cd cli && CGO_ENABLED=0 go build -o ../deploy/dev/bin/swallow ./cmd/swallow`.
       SWALLOW_API_CLI_BINARY: "/usr/local/share/swallow/bin/swallow"
@@ -193,6 +199,12 @@ services:
       # The NTP server every provisioned Server is pointed at (decision 065): the address machines
       # reach this host by. Empty refuses OS deployments until it is set in .env.
       SWALLOW_API_NTP_SERVER: "${SWALLOW_API_NTP_SERVER:-}"
+      # How deployed Servers and the Site Prometheus reach each other (monitoring.md §6.2, §7): the
+      # URL a Platform's Grafana reads the metrics gateway at, and the addresses the Prometheus
+      # scrapes from as the Servers see them. Empty refuses a Slurm deployment's Grafana and
+      # Omnistat until they are set in .env.
+      SWALLOW_API_PUBLIC_URL: "${SWALLOW_API_PUBLIC_URL:-}"
+      SWALLOW_API_MONITORING_SCRAPE_ADDRESSES: "${SWALLOW_API_MONITORING_SCRAPE_ADDRESSES:-}"
     volumes:
       - ../../api-server:/app
       - ./air-worker.toml:/etc/swallow/air.toml:ro

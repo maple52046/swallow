@@ -101,11 +101,15 @@ func TestDeploySlurmWithTheDeviceMetricsExporter(t *testing.T) {
 	}
 	vars := exporter.TrustedVars
 	if vars[varDeviceMetricsExporterPort] != 5001 || vars[varDeviceMetricsExporterVersion] != "1.5.3" ||
-		vars[varDeviceMetricsExporterObservabilityID] != "s1" || vars[varDeviceMetricsExporterClusterName] != "lab-slurm" {
+		vars[varDeviceMetricsExporterClusterName] != "lab-slurm" {
 		t.Errorf("exporter vars = %v", vars)
 	}
 	if computes, _ := vars[varDeviceMetricsExporterComputeIDs].([]string); !slices.Equal(computes, []string{"s3"}) {
 		t.Errorf("%s = %v, want [s3]", varDeviceMetricsExporterComputeIDs, vars[varDeviceMetricsExporterComputeIDs])
+	}
+	if dashboards := launch.MonitoringDashboards; dashboards == nil || dashboards.ServerID != "s1" ||
+		dashboards.InstallMethod != platformdomain.ObservabilityInstallContainer {
+		t.Errorf("monitoring dashboards = %+v, want the container method on the primary controller s1", dashboards)
 	}
 }
 
@@ -191,14 +195,18 @@ func TestDeploySlurmOCIContainersAndPMIx(t *testing.T) {
 	}
 }
 
-// A successful install records its Grafana link and, fenced on the record's Workflow, the GPU
-// identity it found; the uninstall completion marks the exporter absent and removes only its link.
+// A successful install records, fenced on the record's Workflow, the GPU identity it found; the
+// Platform's Grafana link replaces the one recorded under an earlier name; the uninstall completion
+// marks the exporter absent and removes only the links swallow owns.
 func TestPlatformServiceRecordsAndRetiresTheDeviceMetricsExporter(t *testing.T) {
 	platforms := &deployFakePlatformRepo{platforms: map[string]*platformdomain.Platform{}}
 	recorder := &fakeDeviceMetricsExporterRecorder{platforms: platforms}
 	platforms.platforms["p1"] = &platformdomain.Platform{
 		ID: "p1", Type: platformdomain.PlatformTypeSlurm,
-		MonitoringLinks: []platformdomain.MonitoringLink{{Name: "Runbook", URL: "https://wiki/runbook"}},
+		MonitoringLinks: []platformdomain.MonitoringLink{
+			{Name: "Runbook", URL: "https://wiki/runbook"},
+			{Name: testLegacyLinkName, URL: "http://10.0.0.1:3000"},
+		},
 		DeviceMetricsExporter: &platformdomain.DeviceMetricsExporter{
 			Enabled: true, State: platformdomain.DeviceMetricsExporterInstalling, LastWorkflowID: "deploy-1",
 		},
@@ -208,9 +216,12 @@ func TestPlatformServiceRecordsAndRetiresTheDeviceMetricsExporter(t *testing.T) 
 	service := mustPlatformService(deps)
 	ctx := context.Background()
 
-	if err := service.RecordDeviceMetricsExporterResult(ctx, "p1", "deploy-1", "http://10.0.0.1:3000",
-		platformdomain.GPUIdentityCollapsed); err != nil {
-		t.Fatalf("RecordDeviceMetricsExporterResult() error = %v", err)
+	if err := service.RecordDeviceMetricsExporterGPUIdentity(ctx, "p1", "deploy-1", platformdomain.GPUIdentityCollapsed); err != nil {
+		t.Fatalf("RecordDeviceMetricsExporterGPUIdentity() error = %v", err)
+	}
+	if err := service.RecordMonitoringLink(ctx, "p1", platformdomain.MonitoringLink{Name: testOwnedLinkName, URL: "http://10.0.0.1:3000"},
+		[]string{testLegacyLinkName}); err != nil {
+		t.Fatalf("RecordMonitoringLink() error = %v", err)
 	}
 	platform := platforms.platforms["p1"]
 	if platform.DeviceMetricsExporter.GPUIdentity != platformdomain.GPUIdentityCollapsed {
@@ -218,14 +229,13 @@ func TestPlatformServiceRecordsAndRetiresTheDeviceMetricsExporter(t *testing.T) 
 	}
 	wantLinks := []platformdomain.MonitoringLink{
 		{Name: "Runbook", URL: "https://wiki/runbook"},
-		{Name: platformdomain.DeviceMetricsExporterGrafanaLinkName, URL: "http://10.0.0.1:3000"},
+		{Name: testOwnedLinkName, URL: "http://10.0.0.1:3000"},
 	}
 	if !slices.Equal(platform.MonitoringLinks, wantLinks) {
 		t.Errorf("links = %v, want %v", platform.MonitoringLinks, wantLinks)
 	}
-	if err := service.RecordDeviceMetricsExporterResult(ctx, "p1", "superseded", "http://10.0.0.9:3000",
-		platformdomain.GPUIdentityDistinct); err != nil {
-		t.Fatalf("RecordDeviceMetricsExporterResult(superseded) error = %v", err)
+	if err := service.RecordDeviceMetricsExporterGPUIdentity(ctx, "p1", "superseded", platformdomain.GPUIdentityDistinct); err != nil {
+		t.Fatalf("RecordDeviceMetricsExporterGPUIdentity(superseded) error = %v", err)
 	}
 	if platform := platforms.platforms["p1"]; platform.DeviceMetricsExporter.GPUIdentity != platformdomain.GPUIdentityCollapsed {
 		t.Errorf("a superseded Workflow's identity was recorded: %q", platform.DeviceMetricsExporter.GPUIdentity)
@@ -239,7 +249,7 @@ func TestPlatformServiceRecordsAndRetiresTheDeviceMetricsExporter(t *testing.T) 
 		t.Errorf("exporter after uninstall = %+v, want absent", platform.DeviceMetricsExporter)
 	}
 	if !slices.Equal(platform.MonitoringLinks, wantLinks[:1]) {
-		t.Errorf("links after uninstall = %v, want only the operator's %v", platform.MonitoringLinks, wantLinks[:1])
+		t.Errorf("links after uninstall = %v, want only the user's %v", platform.MonitoringLinks, wantLinks[:1])
 	}
 }
 

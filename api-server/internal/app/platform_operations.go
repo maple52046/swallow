@@ -3,6 +3,11 @@ package app
 import (
 	"fmt"
 
+	"go.mongodb.org/mongo-driver/mongo"
+
+	"github.com/maple52046/swallow/config"
+	monitoringstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/monitoring"
+	monitoringapp "github.com/maple52046/swallow/internal/core/monitoring/application"
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
 	platformdelivery "github.com/maple52046/swallow/internal/core/platform/delivery"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
@@ -47,6 +52,24 @@ type platformOperationDeps struct {
 	networks        *provisioningapp.NetworkConfigurationService
 	requirements    platformdomain.DeploymentRequirementReader
 	keys            platformdomain.DeploymentKeyChecker
+	// monitoring is the installation's monitoring addresses a Slurm deployment configures its
+	// Platform Grafana and Omnistat with.
+	monitoring platformMonitoringAccess
+	// monitoringTokens issues a Platform's monitoring token when a deployment that installs its
+	// Grafana is accepted. Required: buildPlatformOperations refuses nil.
+	monitoringTokens platformTokenIssuer
+}
+
+// newPlatformMonitoringAccess reads the installation's monitoring addresses from the process's
+// configuration, which config.Validate has normalized.
+func newPlatformMonitoringAccess(cfg config.APIConfig) platformMonitoringAccess {
+	return platformMonitoringAccess{publicURL: cfg.PublicURL, scrapeAddresses: cfg.ScrapeAddresses()}
+}
+
+// newPlatformTokenIssuer is the Platform monitoring token service over the Mongo token store, the
+// one the API's metrics gateway verifies against.
+func newPlatformTokenIssuer(db *mongo.Database) *monitoringapp.PlatformAccess {
+	return monitoringapp.NewPlatformAccess(monitoringstore.NewMongoPlatformTokenStore(db))
 }
 
 // platformRecords is the Platform store the operations write: the repository and the feature
@@ -89,7 +112,8 @@ func newPlatformService(
 		// Device Metrics Exporter records (decision 068).
 		Claims:       servers,
 		GPUOperators: platforms, Omnistats: platforms, DeviceMetricsExporters: platforms,
-		ExporterAssignments: deviceMetricsExporterAssignments{assignments: assignments},
+		ExporterAssignments:  deviceMetricsExporterAssignments{assignments: assignments},
+		OwnedMonitoringLinks: ownedMonitoringLinks,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compose the platform service: %w", err)
@@ -101,9 +125,13 @@ func newPlatformService(
 // It fails when a required dependency is missing, so the process does not start with an
 // acceptance check left out.
 func buildPlatformOperations(deps platformOperationDeps) (platformOperations, error) {
+	if deps.monitoringTokens == nil {
+		return platformOperations{}, fmt.Errorf("compose the platform operations: no Platform monitoring token issuer")
+	}
 	launcher := platformDeploymentLauncher{
 		operations: deps.operations, orchestrations: deps.orchestrations, deployments: deps.deployments, servers: deps.servers,
 		bootMedia: deps.bootMedia, software: deps.software, ntp: deps.ntp, nodeExporter: deps.nodeExporter,
+		monitoring: deps.monitoring, monitoringTokens: deps.monitoringTokens,
 	}
 	// The GPU Operator and the Device Metrics Exporter are the AMD Accelerator module's Platform
 	// features, so they serve its GPUs.

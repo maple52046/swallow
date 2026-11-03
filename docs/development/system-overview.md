@@ -182,7 +182,7 @@ collection 可能由多個 process 寫入，但每個欄位只有一個寫入者
 | workflow | `ansible_task_events`、`automation_configurations` | Ansible 的即時事件；Site automation 設定 | ansible-executor（事件與它們的 retention）；api（設定） |
 | convergence | `change_plans`、`convergence_requests`、`convergence_events` | Change Plan；要求 controller 立即收斂；controller 的 timeline | api（提出、核准、要求）；worker（apply、過期、事件） |
 | convergence | `controller_leases`、`change_feed_checkpoints` | controller 與 periodic pass 的單一 instance lease；change stream 的 resume token | worker |
-| monitoring | `platform_monitoring_tokens` | 每個 Platform 的 monitoring token 的 hash（token 本身不保存） | 發出 token 的 process（安裝 Platform 的 Grafana 時） |
+| monitoring | `platform_monitoring_tokens` | 每個 Platform 的 monitoring token 的 hash（token 本身不保存） | 受理會安裝 Platform Grafana 的 deployment 的 process（API 或 worker，在受理的 transaction 內） |
 | migration | `schema_metadata` | schema 版本 | migrate |
 
 ## 6. 入門名詞

@@ -65,13 +65,18 @@ AMD Device Metrics Exporter 在 Server 位址的 port 5001 提供 per-GPU 的 Pr
 metrics。目標須有 AMD compute GPU 且執行 Ubuntu 24.04，沒有可設定的選項。若 Server 還沒有
 swallow 的 amdgpu driver loader，安裝時會一併裝上。
 
-它只安裝 exporter。要看圖時，另外安裝會 scrape 這些 Server 的 port 5001 的
-**Prometheus**，以及帶 Device Metrics Exporter dashboard 的 **Grafana**。
+它只安裝 exporter。安裝完成後 swallow 的 Site Prometheus 就會收集它；要看圖時，另外安裝帶 Device Metrics
+Exporter dashboard、datasource 讀那套 Prometheus 的 **Grafana**。
 
 以 Device Metrics Exporter 部署的 Slurm Platform 會在其 GPU node 安裝同一個 software，
 並開啟 Slurm job attribution。Server 屬於某個 Platform 期間，其上的 exporter 由該 Platform
 管理：Software 頁面不會在那台 Server 上安裝或解除安裝它，uninstall 該 Platform 時會一併移除。
 Kubernetes Platform 的 GPU Operator 有自己的 exporter，因此 Kubernetes node 不提供此 software。
+
+Slurm Platform 自己的 Grafana 就是它 primary controller 上的 **Grafana**，和其他安裝一樣列在這裡，連同它使用的
+container runtime。uninstall 該 Platform 時兩者都會保留，直到在這裡解除安裝。在 Site 的 Prometheus 收集它的
+exporter 之前部署的 Slurm Platform，那台主機上還有一個 **Prometheus**；swallow 已不再使用它，也不會移除它，
+不需要它的歷史資料時請在這裡解除安裝。
 
 ## Node Exporter
 

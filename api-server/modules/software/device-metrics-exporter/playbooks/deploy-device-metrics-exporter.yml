@@ -3,26 +3,23 @@
 # (decision 068). One playbook serves both callers:
 #   - a standalone software install on its targets, with no job attribution; and
 #   - a swallow-deployed Slurm Platform, as the last Job of its configure-slurm Workflow, after
-#     deploy-slurm (which installs the job hook that records each job on its GPUs) and after
-#     Prometheus and Grafana were composed onto the observability Server.
+#     deploy-slurm (which installs the job hook that records each job on its GPUs).
 # Intent arrives only through trusted variables:
 #   swallow_device_metrics_exporter_version           pinned exporter release
 #   swallow_device_metrics_exporter_port              exporter port on every exporter host
 #   swallow_device_metrics_exporter_job_attribution   none (standalone) or slurm
 # and, from a Slurm deployment only:
 #   swallow_device_metrics_exporter_compute_ids       GPU compute nodes (serverIds) that run it
-#   swallow_device_metrics_exporter_observability_id  Server running Prometheus and Grafana
-#   swallow_device_metrics_exporter_grafana_port      Grafana's port
 #   swallow_device_metrics_exporter_cluster_name      the Slurm cluster name, the cluster_name label
 # Without compute ids every target runs the exporter. A run accepted before decision 068 carries
 # compute ids but no job attribution, which the role reads as slurm.
 #
 # A standalone run also installs swallow's post-boot amdgpu loader, which gpuagent needs; inside a
-# Slurm deployment the Slurm GPU role owns it. A Slurm run writes {grafanaUrl, gpuIdentity, nodes}
-# to the run's result file once Prometheus scrapes every exporter. gpuIdentity is "distinct" only
-# when every node's exporter tells its GPUs apart (see dme-identity-check); "collapsed" still
-# succeeds, because the endpoint works, but job attribution per GPU does not. Prometheus listens
-# only on the observability Server's loopback address, so the scrape check runs there. Idempotent.
+# Slurm deployment the Slurm GPU role owns it. The Site Prometheus scrapes the exporters, so each
+# node proves only that its own exporter answers on its bind address. A Slurm run writes
+# {gpuIdentity, nodes} to the run's result file. gpuIdentity is "distinct" only when every node's
+# exporter tells its GPUs apart (see dme-identity-check); "collapsed" still succeeds, because the
+# endpoint works, but job attribution per GPU does not. Idempotent.
 
 - name: Hold the OS's automatic package maintenance
   hosts: all
@@ -37,11 +34,6 @@
     - name: Group the exporter hosts
       ansible.builtin.group_by:
         key: "dme_{{ 'exporter' if inventory_hostname in (swallow_device_metrics_exporter_compute_ids | default(ansible_play_hosts_all)) else 'other' }}"
-      changed_when: false
-
-    - name: Group the observability host
-      ansible.builtin.group_by:
-        key: "dme_{{ 'observability' if inventory_hostname == (swallow_device_metrics_exporter_observability_id | default('')) else 'member' }}"
       changed_when: false
 
 - name: Load the amdgpu driver on a standalone exporter host
@@ -78,12 +70,23 @@
   hosts: dme_exporter
   gather_facts: false
   become: true
+  vars:
+    dme_metrics_url: "http://{{ ansible_host }}:{{ swallow_device_metrics_exporter_port | default(5001) }}/metrics"
   tasks:
+    - name: Wait until this node's exporter answers on its bind address
+      ansible.builtin.uri:
+        url: "{{ dme_metrics_url }}"
+        return_content: false
+      register: dme_metrics
+      until: dme_metrics.status == 200
+      retries: 30
+      delay: 4
+
     - name: Compare the KFD GPUs with the GPU identities the exporter reports
       ansible.builtin.command:
         argv:
           - "{{ device_metrics_exporter_identity_check | default('/usr/local/libexec/swallow/dme-identity-check') }}"
-          - "--url=http://{{ ansible_host }}:{{ swallow_device_metrics_exporter_port | default(5001) }}/metrics"
+          - "--url={{ dme_metrics_url }}"
       register: dme_identity_run
       changed_when: false
       failed_when: false
@@ -111,45 +114,11 @@
           ({{ dme_identity.deploymentModes }}); per-GPU attribution is not reliable on this node.
       when: dme_identity.identity != 'distinct'
 
-- name: Verify Prometheus scrapes every exporter and record the result
-  # Only a Slurm deployment names an observability Server; a standalone install has no such host.
-  hosts: dme_observability
+- name: Record the result of a Slurm run
+  # Only a Slurm deployment reads a result; one exporter host writes it for every node.
+  hosts: dme_exporter
   gather_facts: false
-  vars:
-    dme_grafana_url: "http://{{ ansible_host }}:{{ swallow_device_metrics_exporter_grafana_port | default(3000) }}"
-    dme_expected_targets: >-
-      {{ swallow_device_metrics_exporter_compute_ids | map('extract', hostvars, 'ansible_host')
-         | map('regex_replace', '$', ':' ~ (swallow_device_metrics_exporter_port | default(5001) | string)) | list }}
   tasks:
-    - name: Read where Prometheus listens on this Server
-      # The Prometheus composed for the exporter listens on the loopback address; its role records it.
-      ansible.builtin.slurp:
-        src: /etc/swallow/prometheus/endpoint
-      register: dme_prometheus_endpoint
-      failed_when: false
-
-    - name: Remember the Prometheus address
-      ansible.builtin.set_fact:
-        dme_prometheus_url: >-
-          {{ (dme_prometheus_endpoint.content | b64decode | trim)
-             if dme_prometheus_endpoint.content is defined
-             else 'http://127.0.0.1:' ~ (swallow_device_metrics_exporter_prometheus_port | default(9090)) }}
-
-    - name: Wait until Prometheus reports every exporter up
-      ansible.builtin.uri:
-        url: "{{ dme_prometheus_url }}/api/v1/targets?state=active"
-        return_content: true
-      register: dme_targets
-      until: >-
-        dme_targets.status == 200 and
-        (dme_expected_targets
-         | difference(dme_targets.json.data.activeTargets
-                      | selectattr('health', 'equalto', 'up')
-                      | map(attribute='labels.instance') | list)
-         | length) == 0
-      retries: 30
-      delay: 5
-
     - name: Write the Device Metrics Exporter result for Swallow
       vars:
         dme_nodes: >-
@@ -158,14 +127,16 @@
       ansible.builtin.copy:
         dest: "{{ swallow_result_path }}"
         content: >-
-          {{ {'grafanaUrl': dme_grafana_url,
-              'gpuIdentity': ('distinct' if (dme_nodes.values() | map(attribute='identity') | unique | list) == ['distinct']
+          {{ {'gpuIdentity': ('distinct' if (dme_nodes.values() | map(attribute='identity') | unique | list) == ['distinct']
                               else 'collapsed'),
               'nodes': dme_nodes} | to_json }}
         mode: "0600"
       delegate_to: localhost
+      run_once: true
       changed_when: false
-      when: swallow_result_path is defined and swallow_result_path | length > 0
+      when:
+        - swallow_device_metrics_exporter_compute_ids is defined
+        - swallow_result_path is defined and swallow_result_path | length > 0
 
 - name: Release the OS's automatic package maintenance
   hosts: all

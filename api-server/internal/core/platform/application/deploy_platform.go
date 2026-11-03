@@ -97,9 +97,9 @@ const (
 	varGPUDriverModuleOptions = "swallow_gpu_driver_module_options"
 )
 
-// Trusted extra-var names of the configure-omnistat playbook (decision 063). The Prometheus and
-// Grafana ports (swallow_omnistat_prometheus_port / _grafana_port) are added by the launcher from
-// the software domain, which owns them.
+// Trusted extra-var names of the configure-omnistat playbook (decision 063). The Grafana port
+// (swallow_omnistat_grafana_port) and the scrape addresses the exporter admits
+// (swallow_omnistat_scrape_addresses) are added by the launcher, which has them.
 const (
 	varOmnistatVersion         = "swallow_omnistat_version"
 	varOmnistatPort            = "swallow_omnistat_port"
@@ -109,19 +109,15 @@ const (
 )
 
 // Trusted extra-var names the Slurm side lays over the composed device-metrics-exporter install
-// (decisions 066 and 068), read by the deploy-device-metrics-exporter playbook. The Prometheus and
-// Grafana ports are added by the launcher from the software domain, which owns them. The record id
-// is the Workflow the Platform's record names, which the install's completion fences the GPU
-// identity on; it survives a rerun that copies the Task under a new Workflow id.
+// (decisions 066 and 068), read by the deploy-device-metrics-exporter playbook.
 const (
 	varDeviceMetricsExporterVersion = "swallow_device_metrics_exporter_version"
 	varDeviceMetricsExporterPort    = "swallow_device_metrics_exporter_port"
 	// varDeviceMetricsExporterJobAttribution turns on Slurm job attribution; a standalone install
 	// sends none.
-	varDeviceMetricsExporterJobAttribution  = "swallow_device_metrics_exporter_job_attribution"
-	varDeviceMetricsExporterComputeIDs      = "swallow_device_metrics_exporter_compute_ids"
-	varDeviceMetricsExporterObservabilityID = "swallow_device_metrics_exporter_observability_id"
-	varDeviceMetricsExporterClusterName     = "swallow_device_metrics_exporter_cluster_name"
+	varDeviceMetricsExporterJobAttribution = "swallow_device_metrics_exporter_job_attribution"
+	varDeviceMetricsExporterComputeIDs     = "swallow_device_metrics_exporter_compute_ids"
+	varDeviceMetricsExporterClusterName    = "swallow_device_metrics_exporter_cluster_name"
 )
 
 // DeployService owns the intent to build a platform: it validates the topology, creates the
@@ -214,11 +210,10 @@ func NewDeployService(deps DeployServiceDeps) (*DeployService, error) {
 // GPUOperator, when non-nil and enabled, installs the AMD GPU Operator in the same Workflow
 // (Kubernetes only). GPUStackOwner may then be empty and is derived from it. ContainerRuntime,
 // when set, installs that container runtime on every compute and login node, and Omnistat, when
-// non-nil and enabled, installs Omnistat with Prometheus and Grafana, both in the same Workflow
-// (Slurm only, decision 063). DeviceMetricsExporter, when non-nil and enabled, installs AMD's Device
-// Metrics Exporter the same way instead (Slurm only, decision 066); it and Omnistat are mutually
-// exclusive. GPUDriver, when non-nil, carries the user's amdgpu module options for the
-// Platform's GPU nodes (either type).
+// non-nil and enabled, installs Omnistat, both in the same Workflow (Slurm only, decision 063).
+// DeviceMetricsExporter, when non-nil and enabled, installs AMD's Device Metrics Exporter instead
+// (Slurm only, decision 066); it and Omnistat are mutually exclusive. GPUDriver, when non-nil,
+// carries the user's amdgpu module options for the Platform's GPU nodes (either type).
 type DeployPlatformInput struct {
 	SiteID           string
 	Name             string
@@ -238,6 +233,10 @@ type DeployPlatformInput struct {
 	// TimeSyncCheck is the request's timeSyncCheck as sent; Deploy normalizes it (empty is enforce)
 	// before any record is created and hands it to the launcher.
 	TimeSyncCheck platformdomain.TimeSyncCheck
+	// MonitoringDashboards is the request's monitoringDashboards setting: whether the Platform gets
+	// its own monitoring dashboards (platformdomain.MonitoringDashboardsLaunch). Nil, the omitted
+	// setting, is on. A Slurm deploy reads it; a Kubernetes deploy does not install them.
+	MonitoringDashboards *bool
 	// PlatformSpec is the request read as the Platform's spec, which the new record stores as
 	// generation 1; nil stores none.
 	PlatformSpec *platformdomain.PlatformSpec
@@ -669,9 +668,13 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 			ServerIDs: slurmContainerRuntimeIDs(validated.slurmSpec),
 		}
 	}
+	// The primary controller hosts the Platform's Grafana, and the enabled monitoring feature's
+	// install method chooses how it is installed. Without a feature it is installed natively, so a
+	// Platform without monitoring does not get a container runtime only for its Grafana.
+	observability := validated.slurmSpec.PrimaryControllerID()
+	dashboardsMethod := platformdomain.ObservabilityInstallNative
 	var records []featureRecord
 	if omnistatEnabled {
-		observability := validated.slurmSpec.PrimaryControllerID()
 		record := &platformdomain.Omnistat{
 			Enabled: true, Version: platformdomain.OmnistatVersion, InstallMethod: omnistat.InstallMethod,
 			ObservabilityServerID: observability, State: platformdomain.OmnistatInstalling,
@@ -684,12 +687,12 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		launch.Omnistat = &platformdomain.OmnistatLaunch{
 			ObservabilityServerID: observability,
 			ComputeServerIDs:      validated.slurmSpec.ComputeServerIDs(),
-			InstallMethod:         omnistat.InstallMethod,
+			InstallMethod:         record.InstallMethod,
 			TrustedVars:           buildOmnistatVars(platform, validated.slurmSpec, observability, gpuComputeIDs),
 		}
+		dashboardsMethod = record.InstallMethod
 	}
 	if exporterEnabled {
-		observability := validated.slurmSpec.PrimaryControllerID()
 		record := &platformdomain.DeviceMetricsExporter{
 			Enabled: true, Version: platformdomain.DeviceMetricsExporterVersion, InstallMethod: exporter.InstallMethod,
 			ObservabilityServerID: observability, State: platformdomain.DeviceMetricsExporterInstalling,
@@ -703,9 +706,12 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 			ObservabilityServerID: observability,
 			GPUComputeServerIDs:   gpuComputeIDs,
 			InstallMethod:         exporter.InstallMethod,
-			TrustedVars: buildDeviceMetricsExporterVars(platform, validated.slurmSpec, observability,
-				gpuComputeIDs),
+			TrustedVars:           buildDeviceMetricsExporterVars(platform, validated.slurmSpec, gpuComputeIDs),
 		}
+		dashboardsMethod = record.InstallMethod
+	}
+	if input.MonitoringDashboards == nil || *input.MonitoringDashboards {
+		launch.MonitoringDashboards = &platformdomain.MonitoringDashboardsLaunch{ServerID: observability, InstallMethod: dashboardsMethod}
 	}
 	return s.prepare(ctx, input, launch, validated.targets, records)
 }
@@ -1281,8 +1287,9 @@ func addSlurmWorkloadVars(vars map[string]any, spec platformdomain.SlurmDeployme
 
 // buildOmnistatVars translates the Slurm topology into the configure-omnistat playbook's trusted
 // variables: every compute node runs the exporter, and the observability Server (the primary
-// controller, which runs Prometheus and Grafana) is the only remote address the exporter answers
-// and the source of the result URLs. GPU compute nodes collect through AMD SMI.
+// controller, which hosts the Platform's dashboards) is where omnistat-query reads and the source
+// of the result URL. GPU compute nodes collect through AMD SMI. The addresses the exporter admits
+// besides the node itself are the installation's, added by the launcher.
 func buildOmnistatVars(
 	platform *platformdomain.Platform,
 	spec platformdomain.SlurmDeploymentSpec,
@@ -1301,22 +1308,19 @@ func buildOmnistatVars(
 
 // buildDeviceMetricsExporterVars translates the Slurm topology into the variables the Slurm side
 // lays over the composed device-metrics-exporter install: Slurm job attribution, every GPU compute
-// node running the exporter (it reports only GPUs), the observability Server (the primary
-// controller) that runs Prometheus and Grafana and is the source of the result URL, and the Slurm
-// cluster name as the exporter's cluster_name label the dashboards select on.
+// node running the exporter (it reports only GPUs), and the Slurm cluster name as the exporter's
+// cluster_name label the dashboards select on.
 func buildDeviceMetricsExporterVars(
 	platform *platformdomain.Platform,
 	spec platformdomain.SlurmDeploymentSpec,
-	observabilityID string,
 	gpuComputeIDs []string,
 ) map[string]any {
 	return map[string]any{
-		varDeviceMetricsExporterVersion:         platformdomain.DeviceMetricsExporterVersion,
-		varDeviceMetricsExporterPort:            platformdomain.DeviceMetricsExporterPort,
-		varDeviceMetricsExporterJobAttribution:  "slurm",
-		varDeviceMetricsExporterComputeIDs:      gpuComputeIDs,
-		varDeviceMetricsExporterObservabilityID: observabilityID,
-		varDeviceMetricsExporterClusterName:     slurmClusterName(spec.ClusterName, platform.Name),
+		varDeviceMetricsExporterVersion:        platformdomain.DeviceMetricsExporterVersion,
+		varDeviceMetricsExporterPort:           platformdomain.DeviceMetricsExporterPort,
+		varDeviceMetricsExporterJobAttribution: "slurm",
+		varDeviceMetricsExporterComputeIDs:     gpuComputeIDs,
+		varDeviceMetricsExporterClusterName:    slurmClusterName(spec.ClusterName, platform.Name),
 	}
 }
 

@@ -66,6 +66,25 @@ func TestChangesFollowTheClassification(t *testing.T) {
 		t.Errorf("new roles = %+v", changes)
 	}
 
+	// The monitoring dashboards are on when the setting is omitted: turning them on converges by
+	// redeploying, turning them off is refused.
+	withoutDashboards := applied.Clone()
+	withoutDashboards.Settings["monitoringDashboards"] = false
+	changes, _ = Platform{}.Changes(&withoutDashboards, applied)
+	if changes.Destructive() || len(changes.Unsupported) != 0 || changes.Realization != platformdomain.RealizeDeploy ||
+		len(changes.Actions) != 1 || changes.Actions[0].Action != "enable-monitoring-dashboards" {
+		t.Errorf("turn the dashboards on = %+v", changes)
+	}
+	changes, _ = Platform{}.Changes(&applied, withoutDashboards)
+	if changes.Destructive() || !reflect.DeepEqual(changes.Unsupported, []string{"disable-monitoring-dashboards"}) {
+		t.Errorf("turn the dashboards off = %+v; want a non-destructive change swallow cannot carry out", changes)
+	}
+	explicit := applied.Clone()
+	explicit.Settings["monitoringDashboards"] = true
+	if changes, _ = (Platform{}).Changes(&applied, explicit); !changes.Empty() {
+		t.Errorf("an explicit true over an omitted setting = %+v, want no change", changes)
+	}
+
 	desired = applied.Clone()
 	slurm := map[string]any{"clusterName": "other"}
 	desired.Settings["slurm"] = slurm

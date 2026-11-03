@@ -1160,7 +1160,9 @@ components:
       enum: [installing, ready, failed, uninstalling, absent]
     ObservabilityInstallMethod:
       type: string
-      description: How the Prometheus and Grafana a Slurm monitoring feature uses are installed.
+      description: >-
+        How a Slurm deploy installs the Platform's Grafana on the primary controller: `container`
+        on its container runtime, or `native` from Grafana's package repository.
       enum: [container, native]
     OmnistatState:
       type: string
@@ -1554,7 +1556,7 @@ components:
           $ref: '#/components/schemas/ObservabilityInstallMethod'
         observabilityServerId:
           type: string
-          description: The primary controller, which runs Prometheus and Grafana.
+          description: The primary controller, which hosts the Platform's Grafana.
         state:
           $ref: '#/components/schemas/OmnistatState'
         lastWorkflowId:
@@ -1584,7 +1586,7 @@ components:
           $ref: '#/components/schemas/ObservabilityInstallMethod'
         observabilityServerId:
           type: string
-          description: The primary controller, which runs Prometheus and Grafana.
+          description: The primary controller, which hosts the Platform's Grafana.
         state:
           $ref: '#/components/schemas/DeviceMetricsExporterState'
         gpuIdentity:
@@ -1776,6 +1778,13 @@ components:
           allOf:
             - $ref: '#/components/schemas/TimeSyncCheck'
           default: enforce
+        monitoringDashboards:
+          type: boolean
+          default: true
+          description: >-
+            Give the Platform its own read-only Grafana on the primary controller, showing only its
+            members' series through the Platform metrics gateway. Turning it on later is carried
+            out; turning it off after deployment is 409.
     SlurmSettings:
       type: object
       description: >-
@@ -1843,6 +1852,8 @@ components:
           allOf:
             - $ref: '#/components/schemas/ObservabilityInstallMethod'
           default: container
+          description: >-
+            How the Platform's Grafana is installed; without an enabled feature it uses `container`.
     SlurmContainerRuntime:
       type: object
       description: The container runtime for every compute and login node; omitted installs none.

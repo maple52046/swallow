@@ -187,7 +187,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		Transactor: &storetest.Transactor{}, Platforms: platformRepo, Sites: sites, Servers: servers,
 		Lifecycle: lifecycle, Integrations: platformCleanup, Canceler: platformCleanup, Claims: claims,
 		GPUOperators: features, Omnistats: features, DeviceMetricsExporters: features,
-		ExporterAssignments: platformCleanup,
+		ExporterAssignments: platformCleanup, OwnedMonitoringLinks: []string{"Platform Grafana"},
 	})
 	if err != nil {
 		t.Fatalf("NewPlatformService() error = %v", err)

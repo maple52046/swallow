@@ -25,7 +25,7 @@ const PLATFORM_CATALOG: readonly PlatformCatalogEntry[] = [
     label: 'Slurm',
     description: 'Build a GPU-aware HPC scheduler with explicit controller, compute, and login-node placement.',
     icon: Cpu,
-    capabilities: ['HPC scheduling', 'GPU GRES', 'Optional Omnistat'],
+    capabilities: ['HPC scheduling', 'GPU GRES', 'Platform Grafana'],
   },
 ]
 

@@ -50,8 +50,8 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   Omnistat's job file is node-wide) is rendered by `deploy-slurm`, the single owner of
   `slurm.conf`, so a redeploy re-applies it; attribution succeeds as a no-op until the exporter
   exists, so the order of Jobs never drains a node. A separate playbook installs the pinned exporter
-  (with the patches Swallow maintains under [decision 064](064-upstream-patches-are-the-exception.md))
-  and returns the Grafana URL, which Swallow records as a Monitoring Link.
+  (with the patches Swallow maintains under [decision 064](064-upstream-patches-are-the-exception.md));
+  the Platform's Grafana install records its own URL as the Platform's Monitoring Link.
   ([ADR 066](066-slurm-job-hooks-and-device-metrics-exporter.md) later moved the attribution into a
   Prolog/Epilog dispatcher hook.)
 - **Grafana is Managed Software composed as a Job; the Site Prometheus collects.** Omnistat is the
@@ -162,3 +162,4 @@ moved `omnistat-query` to Grafana's datasource proxy (original text in git histo
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
 - 2026-11-03: Omnistat became the default and is scraped by the Site Prometheus; the deployment composes only the Platform's Grafana, which reads through Swallow's gateway, and no longer a Prometheus on the controller.
+- 2026-11-03: the Monitoring Link is recorded by the Platform's Grafana install rather than from the Omnistat run's result.

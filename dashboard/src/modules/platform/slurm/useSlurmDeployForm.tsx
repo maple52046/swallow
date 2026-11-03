@@ -46,11 +46,15 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
   const [containersEnabled, setContainersEnabled] = useState(false)
   const [containerRuntime, setContainerRuntime] = useState<SlurmContainerRuntime | ''>('')
   const [ociContainers, setOCIContainers] = useState(false)
-  // Optional GPU monitoring (decisions 063 and 066): the Device Metrics Exporter (per-GPU, jobs share
-  // nodes) or Omnistat (one job per node), never both, each with Prometheus and Grafana on the
-  // primary controller by the chosen install method. Off by default because it adds software there.
-  const [monitoring, setMonitoring] = useState<SlurmMonitoringChoice>('none')
-  const [monitoringInstallMethod, setMonitoringInstallMethod] = useState<ObservabilityInstallMethod>('container')
+  // Job monitoring (decisions 063 and 066): Omnistat (one job per node, CPU-only included) or the
+  // Device Metrics Exporter (per-GPU, jobs share nodes), never both; the Site Prometheus scrapes it.
+  // Omnistat is proposed because it suits every Slurm Platform; "none" stays an explicit choice.
+  const [monitoring, setMonitoring] = useState<SlurmMonitoringChoice>('omnistat')
+  // The Platform's own Grafana on the primary controller (platforms.md "Platform Monitoring
+  // Dashboards"), on by default like the API's monitoringDashboards. Its install method travels in
+  // the monitoring feature's object, so without a feature the API installs it as a container.
+  const [platformGrafana, setPlatformGrafana] = useState(true)
+  const [grafanaInstallMethod, setGrafanaInstallMethod] = useState<ObservabilityInstallMethod>('container')
   // Optional host MPI (decision 066); off by default because it installs packages on every compute
   // and login node.
   const [pmix, setPMIx] = useState(false)
@@ -92,13 +96,16 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
     return Boolean(server && hasAMDComputeGPU(server.status.gpus))
   })
   const monitoringValid = monitoring !== 'device-metrics-exporter' || hasGPUComputeNode
+  // The API takes the Grafana's install method from the monitoring feature, so without one it is
+  // always the native method; the form shows and sends what the API will do.
+  const effectiveGrafanaInstallMethod: ObservabilityInstallMethod = monitoring === 'none' ? 'native' : grafanaInstallMethod
   // What the Container runtime card sends: nothing while it is off, its choices while it is on. On with
   // nothing chosen is incomplete rather than silently off, so the step asks for a choice.
   const engine = containersEnabled ? containerRuntime : ''
   const ociRequested = containersEnabled && ociContainers
   const containersEmpty = containersEnabled && !ociContainers && containerRuntime === ''
   // The backend makes the first controller in nodeAssignments (which follow selectedIds) the
-  // primary; with a GPU monitoring feature it also hosts Prometheus and Grafana.
+  // primary; it also hosts the Platform's Grafana.
   const primaryController = servers.find((server) => server.id === controllerIds[0])
   const primaryControllerName = primaryController ? serverDisplayName(primaryController) : 'the primary controller'
 
@@ -225,8 +232,10 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
           onContainerRuntimeChange={setContainerRuntime}
           monitoring={monitoring}
           onMonitoringChange={setMonitoring}
-          monitoringInstallMethod={monitoringInstallMethod}
-          onMonitoringInstallMethodChange={setMonitoringInstallMethod}
+          platformGrafana={platformGrafana}
+          onPlatformGrafanaChange={setPlatformGrafana}
+          grafanaInstallMethod={grafanaInstallMethod}
+          onGrafanaInstallMethodChange={setGrafanaInstallMethod}
           hasGPUComputeNode={hasGPUComputeNode}
           ociContainers={ociContainers}
           onOCIContainersChange={setOCIContainers}
@@ -306,14 +315,20 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
         items: [{ label: 'MPI with PMIx', value: pmix ? 'OpenMPI with srun --mpi=pmix_v5' : 'Not included' }],
       },
       {
-        title: 'GPU monitoring and scheduling',
+        title: 'Monitoring and GPU scheduling',
         stepId: 'deploy-features',
         items: [
           {
-            label: 'GPU monitoring',
+            label: 'Job monitoring',
             value: monitoring === 'none'
               ? 'Not included'
-              : `${monitoring === 'omnistat' ? 'Omnistat' : 'AMD Device Metrics Exporter'}; Prometheus and Grafana on ${primaryControllerName} as ${monitoringInstallMethod === 'native' ? 'native packages' : 'containers'}`,
+              : `${monitoring === 'omnistat' ? 'Omnistat' : 'AMD Device Metrics Exporter'}, collected by the Site Prometheus`,
+          },
+          {
+            label: 'Platform Grafana',
+            value: platformGrafana
+              ? `On ${primaryControllerName} as ${effectiveGrafanaInstallMethod === 'native' ? 'a native package' : 'a container'}`
+              : 'Not included',
           },
           {
             label: 'GPU GRES',
@@ -333,10 +348,11 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
     input: () => ({
       gpuStackOwner: 'provisioning',
       ...(engine ? { containerRuntime: { kind: engine } } : {}),
-      ...(monitoring === 'omnistat' ? { omnistat: { enabled: true, installMethod: monitoringInstallMethod } } : {}),
+      ...(monitoring === 'omnistat' ? { omnistat: { enabled: true, installMethod: effectiveGrafanaInstallMethod } } : {}),
       ...(monitoring === 'device-metrics-exporter'
-        ? { deviceMetricsExporter: { enabled: true, installMethod: monitoringInstallMethod } }
+        ? { deviceMetricsExporter: { enabled: true, installMethod: effectiveGrafanaInstallMethod } }
         : {}),
+      monitoringDashboards: platformGrafana,
       ...(Object.keys(gpuDriverOptions.options).length > 0 ? { gpuDriver: { moduleOptions: gpuDriverOptions.options } } : {}),
       slurm: {
         ...(gresTypeMode === 'custom' ? { gpuGresType: gresType.trim() } : {}),
@@ -370,7 +386,9 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
       setWorkloadNfsUrl('')
       setContainersEnabled(false)
       setContainerRuntime('')
-      setMonitoring('none')
+      setMonitoring('omnistat')
+      setPlatformGrafana(true)
+      setGrafanaInstallMethod('container')
       setOCIContainers(false)
       setPMIx(false)
     },

@@ -683,13 +683,15 @@ A Slurm deploy schedules the AMD GPUs of its compute nodes as GRES on its own
 Slurm, or the node is drained and the deploy fails. Driver module options are derived from each
 node's GPU topology (for example `pcie_p2p=0` where the ROCm thunk would corrupt the heap); add
 `gpuDriver.moduleOptions` to set or override one. Add `containerRuntime` to install Docker CE or
-Podman on every compute and login node for containerized workloads. To also install Omnistat, add
-`omnistat`: the primary controller (the first controller) gets Prometheus (on its loopback
-address) and a read-only Grafana with Omnistat's dashboards, every compute node gets the exporter,
-and the platform gets the Monitoring Link `Omnistat Grafana`. `installMethod: container` (the
-default) runs Prometheus and Grafana as containers on the primary controller's runtime (the
-`containerRuntime` above, else Docker CE); `native` installs them from their official release and
-apt/yum repository instead. This `platform-slurm-omnistat.yaml` is the file of a lab run:
+Podman on every compute and login node for containerized workloads. Unless the settings say
+`monitoringDashboards: false`, the primary controller (the first controller) gets the Platform's
+own read-only Grafana, which reads the Site Prometheus through swallow and shows only this
+platform's Servers, and the platform gets the Monitoring Link `Platform Grafana`. To also install
+Omnistat, add `omnistat`: every compute node gets the exporter, which the Site Prometheus scrapes,
+and the Grafana gets Omnistat's dashboards. `installMethod: container` (the default) runs Grafana
+as a container on the primary controller's runtime (the `containerRuntime` above, else Docker CE);
+`native` installs it from Grafana's apt/yum repository instead. This `platform-slurm-omnistat.yaml`
+is the file of a lab run:
 
 ```yaml
 siteId: site1
@@ -725,12 +727,12 @@ spec:
 ```bash
 swallow platforms create -f platform-slurm-omnistat.yaml
 swallow plans approve <planId>
-swallow workflows get <workflowId>    # ensure-os, configure-slurm, configure-podman, configure-prometheus/-grafana, configure-omnistat
-swallow platforms get <platformId>    # containerRuntime, omnistat.state, then the Omnistat Grafana link in monitoringLinks
+swallow workflows get <workflowId>    # ensure-os, configure-slurm, configure-podman, configure-grafana, configure-omnistat
+swallow platforms get <platformId>    # containerRuntime, omnistat.state, then the Platform Grafana link in monitoringLinks
 ```
 
 Instead of Omnistat (never both), `deviceMetricsExporter` installs AMD's Device Metrics Exporter on
-every GPU compute node, with the same Prometheus and Grafana composition and `installMethod`. Jobs
+every GPU compute node, with the same Grafana and `installMethod`. Jobs
 keep sharing nodes, and each job's GPUs are labelled with its job id. After a successful install
 `deviceMetricsExporter.gpuIdentity` says whether the exporters tell the GPUs apart: `collapsed`
 (for example on MI308X virtual functions) means the metrics flow but per-job GPU attribution is
@@ -756,7 +758,7 @@ spec:
 ```
 
 ```bash
-swallow workflows get <workflowId>    # ..., configure-prometheus/-grafana, configure-device-metrics-exporter
+swallow workflows get <workflowId>    # ..., configure-grafana, configure-device-metrics-exporter
 swallow platforms get <platformId>    # deviceMetricsExporter.state and .gpuIdentity, ociContainers, pmix
 ```
 

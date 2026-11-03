@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
@@ -110,5 +111,30 @@ func Validate(cfg *Config) error {
 			return fmt.Errorf("api.bootMedia.baseURL must be an absolute http(s) URL without path, query, or credentials")
 		}
 	}
+	// Both are written into what deployed hosts run (a Grafana datasource URL, an exporter's
+	// allowlist), so a malformed value is refused at startup rather than on a host.
+	if base := strings.TrimSpace(cfg.API.PublicURL); base != "" {
+		base = strings.TrimRight(base, "/")
+		if parsed, err := url.Parse(base); err != nil ||
+			(parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" ||
+			parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" {
+			return fmt.Errorf("api.publicURL must be an absolute http(s) URL without path, query, or credentials, got %q", cfg.API.PublicURL)
+		}
+		cfg.API.PublicURL = base
+	} else {
+		cfg.API.PublicURL = ""
+	}
+	var addresses []string
+	for _, address := range strings.Split(cfg.API.MonitoringScrapeAddresses, ",") {
+		address = strings.TrimSpace(address)
+		if address == "" {
+			continue
+		}
+		if _, err := netip.ParseAddr(address); err != nil {
+			return fmt.Errorf("api.monitoringScrapeAddresses must be comma-separated IP addresses, got %q", address)
+		}
+		addresses = append(addresses, address)
+	}
+	cfg.API.MonitoringScrapeAddresses = strings.Join(addresses, ",")
 	return nil
 }

@@ -489,7 +489,7 @@ test.describe('Slurm Device Metrics Exporter visual review', () => {
     await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
     await next.click()
-    await page.getByRole('switch', { name: 'Enable GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('radio', { name: /AMD Device Metrics Exporter/ }).locator('xpath=following-sibling::*[1]').click()
     await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
     await page.getByRole('checkbox', { name: /Docker CE/ }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByRole('checkbox', { name: /Docker CE/ })).toBeChecked()
@@ -520,10 +520,10 @@ test.describe('Slurm Device Metrics Exporter visual review', () => {
 })
 
 /**
- * Captures the Slurm deploy wizard's Features step with Podman as the container runtime and
- * Omnistat chosen as the GPU monitoring stack (decision 063): the runtime choice, the monitoring
- * toggle with its stack and install-method choices naming the primary controller, and the automatic
- * GPU GRES notice.
+ * Captures the Slurm deploy wizard's Features step with Podman as the container runtime and the
+ * proposed Omnistat job monitoring (decision 063): the runtime choice, the monitoring toggle with its
+ * exporter choice, the Platform Grafana toggle with its install-method choice naming the primary
+ * controller, and the automatic GPU GRES notice.
  */
 test.describe('Slurm Omnistat visual review', () => {
   test('slurm-omnistat', async ({ page }, testInfo) => {
@@ -542,10 +542,10 @@ test.describe('Slurm Omnistat visual review', () => {
     await next.click()
     await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
     await page.getByRole('checkbox', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
-    await page.getByRole('switch', { name: 'Enable GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
-    await expect(page.getByRole('switch', { name: 'Enable GPU monitoring' })).toBeChecked()
-    await page.getByRole('radio', { name: /Omnistat/ }).locator('xpath=following-sibling::*[1]').click()
-    await expect(page.getByText('Run both as containers on gpu-node-01.')).toBeVisible()
+    await expect(page.getByRole('switch', { name: 'Enable Job monitoring' })).toBeChecked()
+    await expect(page.getByRole('radio', { name: /Omnistat/ })).toBeChecked()
+    await expect(page.getByRole('switch', { name: 'Enable Platform Grafana' })).toBeChecked()
+    await expect(page.getByText('Run Grafana as a container on gpu-node-01.')).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'slurm-omnistat-wizard-features')

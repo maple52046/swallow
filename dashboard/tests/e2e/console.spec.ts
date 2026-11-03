@@ -599,8 +599,8 @@ test.describe('user interactions', () => {
     await next.click()
 
     // Optional features follow the machine choice: the container runtime goes to the compute and
-    // login nodes, and the GPU monitoring stack's Prometheus and Grafana run on the primary
-    // controller just picked. The Device Metrics Exporter is the default stack; Omnistat is chosen.
+    // login nodes, and the Platform Grafana runs on the primary controller just picked. Omnistat is
+    // the proposed job monitoring and the Platform Grafana is on before anything is touched.
     await expect(page.getByRole('heading', { name: 'Slurm features' })).toBeVisible()
     // The Container runtime card starts with native OCI only; this run uses Podman alone.
     await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
@@ -611,13 +611,13 @@ test.describe('user interactions', () => {
     await page.getByRole('checkbox', { name: /Native OCI/ }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByRole('checkbox', { name: /Native OCI/ })).not.toBeChecked()
     await expect(page.getByRole('checkbox', { name: /Podman/ })).toBeChecked()
-    await page.getByRole('switch', { name: 'Enable GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
-    await expect(page.getByRole('radio', { name: /AMD Device Metrics Exporter/ })).toBeChecked()
-    await page.getByRole('radio', { name: /Omnistat/ }).locator('xpath=following-sibling::*[1]').click()
-    await expect(page.getByText('Each compute node runs one job at a time so Omnistat metrics map to a single job.')).toBeVisible()
-    await expect(page.getByText('Run both as containers on gpu-node-01.')).toBeVisible()
-    await page.getByRole('radio', { name: /Native/ }).locator('xpath=following-sibling::*[1]').click()
-    await expect(page.getByText(/official Prometheus release and Grafana package repository/)).toBeVisible()
+    await expect(page.getByRole('switch', { name: 'Enable Job monitoring' })).toBeChecked()
+    await expect(page.getByRole('radio', { name: /Omnistat/ })).toBeChecked()
+    await expect(page.getByText(/Its job report tool reads the metrics through the Platform Grafana/)).toBeVisible()
+    await expect(page.getByRole('switch', { name: 'Enable Platform Grafana' })).toBeChecked()
+    await expect(page.getByText('Run Grafana as a container on gpu-node-01.')).toBeVisible()
+    await page.getByRole('radio', { name: /^Native/ }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByRole('radio', { name: /^Native/ })).toBeChecked()
 
     // GPU settings are optional overrides: a custom GRES type and driver options are validated
     // with the API grammar before the step can be left.
@@ -639,7 +639,8 @@ test.describe('user interactions', () => {
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
     await expect(page.getByText('Controllers')).toBeVisible()
     await expect(page.getByText('Podman on compute and login nodes')).toBeVisible()
-    await expect(page.getByText('Omnistat; Prometheus and Grafana on gpu-node-01 as native packages')).toBeVisible()
+    await expect(page.getByText('Omnistat, collected by the Site Prometheus')).toBeVisible()
+    await expect(page.getByText('On gpu-node-01 as a native package')).toBeVisible()
     await expect(page.getByText('Included automatically for AMD GPU compute nodes as type mi308x_vf')).toBeVisible()
     await expect(page.getByText('pcie_p2p=0', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
@@ -649,6 +650,7 @@ test.describe('user interactions', () => {
     expect((deployBody?.slurm as { ociContainers?: boolean } | undefined)?.ociContainers).toBeUndefined()
     expect(deployBody?.omnistat).toEqual({ enabled: true, installMethod: 'native' })
     expect(deployBody?.deviceMetricsExporter).toBeUndefined()
+    expect(deployBody?.monitoringDashboards).toBe(true)
     expect(deployBody?.gpuDriver).toEqual({ moduleOptions: { pcie_p2p: '0' } })
     expect((deployBody?.slurm as { gpuGresType?: string } | undefined)?.gpuGresType).toBe('mi308x_vf')
     await expect(page.getByLabel('Omnistat')).toContainText('Installing')
@@ -672,10 +674,13 @@ test.describe('user interactions', () => {
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
     await next.click()
 
-    // The exporter is the default monitoring stack; it and Omnistat are one choice, never both.
-    await page.getByRole('switch', { name: 'Enable GPU monitoring' }).locator('xpath=following-sibling::*[1]').click()
+    // The exporter replaces the proposed Omnistat; the two are one choice, never both. This Platform
+    // goes without its own Grafana, so no install method is sent beyond the feature's default.
+    await page.getByRole('radio', { name: /AMD Device Metrics Exporter/ }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByRole('radio', { name: /AMD Device Metrics Exporter/ })).toBeChecked()
     await expect(page.getByText(/Platform reports the GPU identity as collapsed/)).toBeVisible()
+    await page.getByRole('switch', { name: 'Enable Platform Grafana' }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByRole('switch', { name: 'Enable Platform Grafana' })).not.toBeChecked()
     // Native OCI and a container engine are independent choices of one card, and a card with nothing
     // chosen blocks the step.
     // Choosing Podman replaces Docker CE: the engines are at most one.
@@ -694,7 +699,8 @@ test.describe('user interactions', () => {
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
-    await expect(page.getByText('AMD Device Metrics Exporter; Prometheus and Grafana on gpu-node-01 as containers')).toBeVisible()
+    await expect(page.getByText('AMD Device Metrics Exporter, collected by the Site Prometheus')).toBeVisible()
+    await expect(page.getByText('Platform Grafana', { exact: true })).toBeVisible()
     await expect(page.getByText('crun with srun --container on compute nodes')).toBeVisible()
     await expect(page.getByText('Docker CE on compute and login nodes')).toBeVisible()
     await expect(page.getByText('OpenMPI with srun --mpi=pmix_v5')).toBeVisible()
@@ -703,10 +709,12 @@ test.describe('user interactions', () => {
     expect(deployBody?.containerRuntime).toEqual({ kind: 'docker-ce' })
     expect(deployBody?.deviceMetricsExporter).toEqual({ enabled: true, installMethod: 'container' })
     expect(deployBody?.omnistat).toBeUndefined()
+    expect(deployBody?.monitoringDashboards).toBe(false)
     const slurm = deployBody?.slurm as { ociContainers?: boolean; pmix?: boolean } | undefined
     expect(slurm?.ociContainers).toBe(true)
     expect(slurm?.pmix).toBe(true)
     await expect(page.getByLabel('Device Metrics Exporter')).toContainText('Installing')
+    await expect(page.getByLabel('Device Metrics Exporter')).not.toContainText('Platform Grafana')
     await expect(page.getByText('Native OCI (srun --container); Docker CE on compute and login nodes', { exact: true })).toBeVisible()
   })
 
@@ -718,7 +726,7 @@ test.describe('user interactions', () => {
     await expect(exporter).toContainText('Ready')
     await expect(exporter).toContainText('installed natively')
     await expect(exporter.getByText('GPU identity collapsed')).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Device Metrics Exporter Grafana' })).toHaveAttribute('href', 'https://dme.example/grafana')
+    await expect(page.getByRole('link', { name: 'Platform Grafana' })).toHaveAttribute('href', 'http://10.0.0.21:3000')
     await expect(page.getByText('OpenMPI with srun --mpi=pmix_v5', { exact: true })).toBeVisible()
   })
 

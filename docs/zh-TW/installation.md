@@ -39,7 +39,7 @@ Installer 完成時：
   MongoDB、PostgreSQL、Temporal 與 Prometheus images）、`quay.io`（prom-label-proxy image）、
   `download.docker.com`、Snap Store 與 `images.maas.io`。
 - 未被占用的 port：80（Dashboard）、5240（MAAS），以及 loopback 5432（MAAS 用的 PostgreSQL）。
-  機器會連 VM 的 UDP 123 對時。
+  機器會連 VM 的 UDP 123 對時，也會連 port 80：Platform 自己的 Grafana 經 swallow 在那裡讀取 metrics。
 - VM 本身要連得到一個 NTP server。VM 預設跟隨 `ntp.ubuntu.com`；網路連不到它時，以
   `SWALLOW_NTP_UPSTREAM` 指定其他 server，例如
   `curl … | sudo SWALLOW_NTP_UPSTREAM=10.0.0.123 bash`，或之後以

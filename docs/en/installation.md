@@ -41,7 +41,8 @@ When the installer finishes:
   (the official MongoDB, PostgreSQL, Temporal, and Prometheus images), `quay.io` (the
   prom-label-proxy image), `download.docker.com`, the Snap Store, and `images.maas.io`.
 - Free ports: 80 (Dashboard), 5240 (MAAS), and loopback 5432 (PostgreSQL for MAAS). Machines
-  reach the VM's NTP on UDP 123.
+  reach the VM's NTP on UDP 123, and port 80, where a Platform's own Grafana reads its metrics
+  through swallow.
 - A reachable NTP server for the VM itself. The VM follows `ntp.ubuntu.com` by default; on a
   network that cannot reach it, pass another one with `SWALLOW_NTP_UPSTREAM`, for example
   `curl … | sudo SWALLOW_NTP_UPSTREAM=10.0.0.123 bash`, or change it later with

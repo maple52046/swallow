@@ -100,7 +100,7 @@ const PRESENTATION: Record<SoftwareKind, SoftwareCatalogPresentation> = {
     description: 'Run a read-only Grafana with a provisioned Prometheus datasource and optional dashboard bundles, as a container or from the official package repository.',
     icon: LayoutDashboard,
     order: 20,
-    capabilities: ['Anonymous read-only access', 'Omnistat dashboards', 'Container or native install'],
+    capabilities: ['Anonymous read-only access', 'Shipped dashboard bundles', 'Container or native install'],
     hasSettings: false,
   },
   'device-metrics-exporter': {

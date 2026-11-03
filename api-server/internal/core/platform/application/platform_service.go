@@ -37,6 +37,7 @@ type PlatformService struct {
 	deviceMetricsExporters platformdomain.DeviceMetricsExporterRecorder
 	claims                 serverdomain.PlatformClaimStore
 	exporterAssignments    platformdomain.DeviceMetricsExporterAssignments
+	ownedLinks             []string
 }
 
 // PlatformServiceDeps is what a PlatformService is built from. Every field is required, in every
@@ -65,8 +66,8 @@ type PlatformServiceDeps struct {
 	// GPUOperators lets a completed uninstall mark a managed GPU Operator absent, because removing
 	// k0s removed the operator with it.
 	GPUOperators platformdomain.GPUOperatorRecorder
-	// Omnistats lets a completed uninstall mark a managed Omnistat absent and remove its Monitoring
-	// Link, because uninstall-slurm removed the exporter.
+	// Omnistats lets a completed uninstall mark a managed Omnistat absent, because uninstall-slurm
+	// removed the exporter.
 	Omnistats platformdomain.OmnistatRecorder
 	// DeviceMetricsExporters does the same for a managed Device Metrics Exporter, and records the
 	// GPU identity an install's completion found.
@@ -74,6 +75,11 @@ type PlatformServiceDeps struct {
 	// ExporterAssignments marks the device-metrics-exporter Software Assignments of a Slurm
 	// Platform's claimed Servers absent once its uninstall removed the exporter (decision 068).
 	ExporterAssignments platformdomain.DeviceMetricsExporterAssignments
+	// OwnedMonitoringLinks names the Monitoring Links swallow registers itself for the monitoring
+	// UIs it installs (RecordMonitoringLink). A completed uninstall removes them and keeps every
+	// other link, which stays user-owned. The composition root owns the names, because which UIs a
+	// Platform gets is the Platform type's; an empty list removes none.
+	OwnedMonitoringLinks []string
 }
 
 // NewPlatformService constructs the platform application service. It returns an error naming
@@ -86,14 +92,15 @@ func NewPlatformService(deps PlatformServiceDeps) (*PlatformService, error) {
 		transactor: deps.Transactor, platforms: deps.Platforms, sites: deps.Sites, servers: deps.Servers,
 		lifecycle: deps.Lifecycle, integrations: deps.Integrations, canceler: deps.Canceler, claims: deps.Claims,
 		gpuOperators: deps.GPUOperators, omnistats: deps.Omnistats, deviceMetricsExporters: deps.DeviceMetricsExporters,
-		exporterAssignments: deps.ExporterAssignments,
+		exporterAssignments: deps.ExporterAssignments, ownedLinks: deps.OwnedMonitoringLinks,
 	}, nil
 }
 
 // requireDependencies returns an error naming, in declaration order, every nil field of deps, or
 // nil when there is none; service names the constructor in the message. deps must be a struct whose
-// fields are all interfaces, pointers, or funcs, so that a field added to it later is required as
-// soon as it exists instead of being skipped by a list kept by hand.
+// fields are all interfaces, pointers, funcs, or slices (a nil slice is missing; an empty one is
+// not), so that a field added to it later is required as soon as it exists instead of being
+// skipped by a list kept by hand.
 func requireDependencies(service string, deps any) error {
 	value := reflect.ValueOf(deps)
 	var missing []string
@@ -108,40 +115,32 @@ func requireDependencies(service string, deps any) error {
 	return fmt.Errorf("%s: missing required dependencies: %s", service, strings.Join(missing, ", "))
 }
 
-// RecordOmnistatGrafana registers the Grafana a successful Omnistat install reported as the
-// Platform's `Omnistat Grafana` Monitoring Link (see recordFeatureGrafana).
-func (s *PlatformService) RecordOmnistatGrafana(ctx context.Context, platformID, grafanaURL string) error {
-	return s.recordFeatureGrafana(ctx, platformID, platformdomain.OmnistatGrafanaLinkName, grafanaURL)
-}
-
-// RecordDeviceMetricsExporterResult records what a successful Device Metrics Exporter install
-// reported: its Grafana as the Platform's `Device Metrics Exporter Grafana` Monitoring Link, and the
-// GPU identity it found, fenced on recordID (the Workflow the record names) so a superseded
-// Workflow's late result changes nothing. Like the link, a write failure fails the install Task.
-func (s *PlatformService) RecordDeviceMetricsExporterResult(
+// RecordDeviceMetricsExporterGPUIdentity records the GPU identity a successful Device Metrics
+// Exporter install found, fenced on recordID (the Workflow the record names) so a superseded
+// Workflow's late result changes nothing. It is called from the install Task's completion, so a
+// write failure fails that Task.
+func (s *PlatformService) RecordDeviceMetricsExporterGPUIdentity(
 	ctx context.Context,
-	platformID, recordID, grafanaURL string,
+	platformID, recordID string,
 	identity platformdomain.GPUIdentity,
 ) error {
-	if err := s.recordFeatureGrafana(ctx, platformID, platformdomain.DeviceMetricsExporterGrafanaLinkName, grafanaURL); err != nil {
-		return err
-	}
 	_, err := s.deviceMetricsExporters.UpdateDeviceMetricsExporterGPUIdentity(ctx, platformID, recordID, identity, time.Now().UTC())
 	return err
 }
 
-// recordFeatureGrafana registers the Grafana a successful Slurm monitoring feature install reported
-// as the Monitoring Link named linkName, replacing a previous link of that name and keeping every
-// other link (glossary Monitoring Link). It is called from the install Task's completion, so a write
-// failure fails that Task and its retry records the link again. A Platform that already holds the
-// maximum number of other links cannot take it and returns ErrInvalidMonitoringLink.
-func (s *PlatformService) recordFeatureGrafana(ctx context.Context, platformID, linkName, grafanaURL string) error {
+// RecordMonitoringLink registers a monitoring UI swallow installed for the Platform as a
+// Monitoring Link: it replaces the link of the same name, removes the links named in replaces
+// (other names swallow registered for the same UI), and keeps every other link (glossary Monitoring
+// Link). It is called from the install Task's completion, so a write failure fails that Task and
+// its retry records the link again. A Platform that already holds the maximum number of other
+// links cannot take it and returns ErrInvalidMonitoringLink.
+func (s *PlatformService) RecordMonitoringLink(ctx context.Context, platformID string, link platformdomain.MonitoringLink, replaces []string) error {
 	platform, err := s.platforms.FindByID(ctx, platformID)
 	if err != nil {
 		return err
 	}
-	links, err := platformdomain.NormalizeMonitoringLinks(platformdomain.UpsertMonitoringLink(platform.MonitoringLinks,
-		platformdomain.MonitoringLink{Name: linkName, URL: grafanaURL}))
+	kept := platformdomain.RemoveMonitoringLinks(platform.MonitoringLinks, replaces...)
+	links, err := platformdomain.NormalizeMonitoringLinks(platformdomain.UpsertMonitoringLink(kept, link))
 	if err != nil {
 		return err
 	}
@@ -553,16 +552,11 @@ func (s *PlatformService) completeUninstall(ctx context.Context, id string, dele
 	platform.OwnedIntegrationID = ""
 	platform.Sync = platformdomain.SyncState{}
 	platform.UpdatedAt = time.Now().UTC()
+	// The monitoring UIs swallow installed for the Platform left with it, so their shortcuts go too;
+	// other links stay user-owned.
+	platform.MonitoringLinks = platformdomain.RemoveMonitoringLinks(platform.MonitoringLinks, s.ownedLinks...)
 	omnistatManaged := platform.Omnistat.Managed()
-	if omnistatManaged {
-		// The exporter left with the Platform, so its Grafana shortcut goes too; other links stay.
-		platform.MonitoringLinks = platformdomain.RemoveMonitoringLink(platform.MonitoringLinks, platformdomain.OmnistatGrafanaLinkName)
-	}
 	exporterManaged := platform.DeviceMetricsExporter.Managed()
-	if exporterManaged {
-		platform.MonitoringLinks = platformdomain.RemoveMonitoringLink(platform.MonitoringLinks,
-			platformdomain.DeviceMetricsExporterGrafanaLinkName)
-	}
 	if err := s.platforms.Update(ctx, platform); err != nil {
 		return err
 	}

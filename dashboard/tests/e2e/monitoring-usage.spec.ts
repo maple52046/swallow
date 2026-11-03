@@ -109,9 +109,9 @@ test('Platform detail links to its own monitoring UI and to its usage charts', a
   await installApiFixtures(page, { onMetricRangeRequest: (params) => requests.push(params) })
   await page.goto('/platforms/platform-slurm?site=site-a')
 
-  const omnistat = page.getByRole('link', { name: 'Omnistat Grafana' })
-  await expect(omnistat).toHaveAttribute('href', 'https://omnistat.example/grafana')
-  await expect(omnistat).toHaveAttribute('target', '_blank')
+  const grafana = page.getByRole('link', { name: 'Platform Grafana' })
+  await expect(grafana).toHaveAttribute('href', 'http://10.0.0.11:3000')
+  await expect(grafana).toHaveAttribute('target', '_blank')
 
   await page.getByRole('link', { name: 'View usage charts' }).click()
   await expect(page).toHaveURL(/\/monitoring\?.*chartScope=platform/)

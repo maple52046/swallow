@@ -84,9 +84,9 @@ type platformDeploymentLauncher struct {
 	// bootMedia inserts ensure-boot-media into the ensure-os Job before each provision-os Task of
 	// a Server with Boot Media enabled (decision 047). Its zero value adds nothing.
 	bootMedia bootMediaPlanner
-	// software plans and records the Managed Software a Slurm deployment composes for its
-	// container runtime and Omnistat features (decision 063). Nil refuses such a deployment
-	// rather than skipping the feature.
+	// software plans and records the Managed Software a Slurm deployment composes: its container
+	// runtime, the Platform's Grafana, and the Device Metrics Exporter (decisions 063 and 068). Nil
+	// refuses such a deployment rather than skipping the feature.
 	software *softwareapp.SoftwareService
 	// ntp adds configure-ntp after each provision-os Task of the ensure-os Job and the clock-check
 	// variables to the install step (decision 065). Its zero value adds no Task.
@@ -94,6 +94,20 @@ type platformDeploymentLauncher struct {
 	// nodeExporter installs the Node Exporter on each Server the deployment provisions, after its
 	// time Task, and on each Server an uninstall keeps. Its zero value adds no Task.
 	nodeExporter nodeExporterPlanner
+	// monitoring is how the configured Servers and the Site metrics store reach each other; a
+	// deployment whose Platform Grafana or Omnistat needs an empty part of it is refused.
+	monitoring platformMonitoringAccess
+	// monitoringTokens issues the Platform's monitoring token for its Grafana when a deployment that
+	// composes one is persisted. Required wherever deployments are persisted (buildPlatformOperations).
+	monitoringTokens platformTokenIssuer
+}
+
+// platformTokenIssuer issues a Platform's monitoring token (monitoringapp.PlatformAccess.Issue):
+// it stores only the token's hash, so the previous token stops working, and returns the token,
+// which the caller seals as a Task secret and never keeps. Called inside the accepting store
+// transaction, it must make no call outside the store.
+type platformTokenIssuer interface {
+	Issue(ctx context.Context, platformID string) (string, error)
 }
 
 // preparedPlatformDeployment is the plan the platform launchers' prepare steps return
@@ -124,15 +138,29 @@ func (l platformDeploymentLauncher) PrepareDeployment(ctx context.Context, launc
 
 // PersistDeployment writes a plan from PrepareDeployment: the Workflow (with its sealed secrets
 // and first event), the Software Assignments a Slurm deployment composes, and the initial
-// deployment projection of every Server it provisions. The caller runs it inside the store
-// transaction that also writes the Platform and its claims, so every failure here is returned
-// rather than logged: any one of them rolls the whole deployment back.
+// deployment projection of every Server it provisions. A deployment that installs the Platform's
+// Grafana first issues the Platform's monitoring token and seals it into that Grafana's install
+// Task, so each accepted deploy rotates the token and a refused one leaves the current token
+// working. The caller runs it inside the store transaction that also writes the Platform and its
+// claims, so every failure here is returned rather than logged: any one of them rolls the whole
+// deployment back.
 func (l platformDeploymentLauncher) PersistDeployment(ctx context.Context, prepared platformdomain.PreparedWorkflow) (string, error) {
 	plan, ok := prepared.(*preparedPlatformDeployment)
 	if !ok || plan == nil {
 		return "", fmt.Errorf("persist platform deployment: plan %T was not prepared by this launcher", prepared)
 	}
-	created, err := l.orchestrations.Create(ctx, plan.workflow)
+	workflow := plan.workflow
+	if steps := plan.composed.tokenSteps; len(steps) > 0 {
+		if l.monitoringTokens == nil {
+			return "", fmt.Errorf("persist platform deployment: the Platform's monitoring token cannot be issued in this process")
+		}
+		token, err := l.monitoringTokens.Issue(ctx, workflow.PlatformID)
+		if err != nil {
+			return "", fmt.Errorf("issue the Platform's monitoring token: %w", err)
+		}
+		workflow = withPlatformToken(workflow, steps, token)
+	}
+	created, err := l.orchestrations.Create(ctx, workflow)
 	if err != nil {
 		return "", err
 	}
@@ -814,50 +842,42 @@ func uninstallChoiceOf(completion workflowdomain.Completion) uninstallChoice {
 	return uninstallChoice{deleteRecord: deleteRecord}
 }
 
-// completeOmnistat records the Grafana URL a successful configure-omnistat run wrote to its result
-// file as the Platform's `Omnistat Grafana` Monitoring Link. A missing URL fails the Task, because
-// the playbook writes it only after Prometheus reported every exporter up; the Omnistat State
-// itself is projected by the omnistat-state completion.
-func (o platformDeploymentObserver) completeOmnistat(
-	ctx context.Context,
-	platformID string,
-	result workflowdomain.RunnerResult,
-) error {
+// recordPlatformGrafana records the Grafana URL a successful run reported in its result file
+// (grafanaUrl) as the Platform's `Platform Grafana` Monitoring Link, replacing the links swallow
+// recorded for the same Grafana under its earlier names. The composed Grafana install's
+// platform-grafana-result completion calls it, and so does the omnistat-result completion a
+// configure-omnistat Task may still declare. A missing URL fails the Task, because the playbook
+// writes it only once Grafana serves every provisioned dashboard.
+func (o platformDeploymentObserver) recordPlatformGrafana(ctx context.Context, platformID string, result workflowdomain.RunnerResult) error {
 	grafanaURL := ""
 	if result.Data != nil {
-		grafanaURL = stringField(result.Data, omnistatResultGrafanaURL)
+		grafanaURL = stringField(result.Data, grafanaResultURL)
 	}
 	if grafanaURL == "" {
-		return fmt.Errorf("omnistat installation returned no Grafana URL")
+		return fmt.Errorf("the Platform's Grafana installation returned no Grafana URL")
 	}
-	return o.platforms.RecordOmnistatGrafana(ctx, platformID, grafanaURL)
+	return o.platforms.RecordMonitoringLink(ctx, platformID,
+		platformdomain.MonitoringLink{Name: platformGrafanaLinkName, URL: grafanaURL}, legacyGrafanaLinkNames)
 }
 
-// completeDeviceMetricsExporter records what a successful Slurm run of deploy-device-metrics-exporter
-// wrote to its result file: the Grafana URL as the Platform's `Device Metrics Exporter Grafana`
-// Monitoring Link, and the GPU identity the exporters showed. A missing URL fails the Task, because
-// the playbook writes it only after Prometheus reported every exporter up; a missing or unknown
-// identity is recorded as collapsed, never as distinct. The identity is fenced on the record id the
-// result completion declares (the same id the State is fenced on), falling back to this Workflow;
-// the State itself is projected by the device-metrics-exporter-state completion.
+// completeDeviceMetricsExporter records the GPU identity a successful Slurm run of
+// deploy-device-metrics-exporter wrote to its result file. A missing or unknown identity is recorded
+// as collapsed, never as distinct. The identity is fenced on the record id the result completion
+// declares (the same id the State is fenced on), falling back to this Workflow; the State itself is
+// projected by the device-metrics-exporter-state completion.
 func (o platformDeploymentObserver) completeDeviceMetricsExporter(
 	ctx context.Context,
 	platformID, workflowID, recordID string,
 	result workflowdomain.RunnerResult,
 ) error {
-	grafanaURL, identity := "", ""
+	identity := ""
 	if result.Data != nil {
-		grafanaURL = stringField(result.Data, deviceMetricsExporterResultGrafanaURL)
 		identity = stringField(result.Data, deviceMetricsExporterResultGPUIdentity)
-	}
-	if grafanaURL == "" {
-		return fmt.Errorf("device metrics exporter installation returned no Grafana URL")
 	}
 	if recordID == "" {
 		recordID = workflowID
 	}
-	return o.platforms.RecordDeviceMetricsExporterResult(ctx, platformID, recordID, grafanaURL,
-		platformdomain.ParseGPUIdentity(identity))
+	return o.platforms.RecordDeviceMetricsExporterGPUIdentity(ctx, platformID, recordID, platformdomain.ParseGPUIdentity(identity))
 }
 
 func stringField(data map[string]any, key string) string {

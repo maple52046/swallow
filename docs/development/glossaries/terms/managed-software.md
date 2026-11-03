@@ -18,14 +18,15 @@
   be installed) or `native` (the official release binary or the official apt/yum package); the
   method and the runtime are variants of the same software. `device-metrics-exporter` (AMD's
   per-GPU exporter) has one native install path and needs AMD compute GPUs. `node-exporter` (the
-  Prometheus host exporter, from the OS package) is installed standalone only where Exporter
-  Ownership is `ansible`. A kind may refuse a
+  Prometheus host exporter, from the OS package) is installed standalone on Servers swallow did not
+  deploy. A kind may refuse a
   Server with a Platform Claim, whose Platform then manages that kind on it. The same software
   kind can also be composed as a Job into a platform deployment, sharing the same Ansible roles
   and recording the same Software Assignment — a Slurm deploy composes its container runtime onto
-  its compute and login nodes, with Omnistat or the Device Metrics Exporter composes `prometheus`
-  and `grafana` (plus their runtime, for the `container` method) onto its primary controller, and
-  with the Device Metrics Exporter composes `device-metrics-exporter` onto its GPU compute nodes.
+  its compute and login nodes, composes `grafana` (plus its runtime, for the `container` method) onto
+  its primary controller as the Platform's own Grafana, and with the Device Metrics Exporter
+  composes `device-metrics-exporter` onto its GPU compute nodes; no deployment composes
+  `prometheus`, which the Site's own Prometheus replaces.
   Every OS deployment likewise composes `node-exporter` onto each Server it provisions.
   Docker CE and Podman are distinct kinds and are mutually exclusive on one Server.
 - Disallowed meaning: Not a Platform — the target is a single software, not a multi-component
@@ -40,9 +41,9 @@
 - Examples: "Installing Docker CE on three deployed Servers is one Managed Software
   Workflow." / "An NFS install can make one Server a `server` and others `client` in a single
   Workflow; each Server still gets its own Software Assignment." / "A Slurm deploy with Podman as
-  its container runtime and Omnistat by the `container` method composes `podman`, `prometheus`,
-  and `grafana` as Jobs rather than duplicating their playbooks; the primary controller ends up
-  with three ordinary Software Assignments." / "Grafana installed by the `native` method comes
+  its container runtime and Omnistat by the `container` method composes `podman` and `grafana` as
+  Jobs rather than duplicating their playbooks; the primary controller ends up with two ordinary
+  Software Assignments." / "Grafana installed by the `native` method comes
   from Grafana's apt repository and needs no container runtime."
 - Related terms: Software Assignment, Software Module, Docker Host Explorer, Device Metrics
   Exporter, Platform, Platform Claim, Workflow, Job, Task, Runner, Server.
@@ -59,4 +60,4 @@
   `device-metrics-exporter`, the first kind that refuses Platform-claimed Servers. 2026-10-30
   ([decision 070](../../../decisions/070-core-providers-and-extensions.md) (core providers and extensions)): each kind is
   provided by a Software Module; the meaning of Managed Software is unchanged. 2026-11-03: added
-  `node-exporter`, the first kind an OS deployment composes.
+  `node-exporter`, the first kind an OS deployment composes. 2026-11-03: a Slurm deploy composes `grafana` as the Platform's own Grafana and no longer composes `prometheus`.

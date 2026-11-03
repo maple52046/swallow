@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +105,70 @@ func TestValidate_NTPServer(t *testing.T) {
 			}
 			if err == nil && cfg.API.NTPServer != strings.TrimSpace(tc.server) {
 				t.Errorf("Validate(ntpServer=%q) left %q, want it trimmed", tc.server, cfg.API.NTPServer)
+			}
+		})
+	}
+}
+
+// The public URL becomes a Platform Grafana's datasource URL with the gateway path appended, so it
+// must be a bare absolute http(s) origin; a trailing slash is dropped.
+func TestValidate_PublicURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		want    string
+		wantErr bool
+	}{
+		{name: "unset", url: ""},
+		{name: "http address", url: " http://10.170.168.20 ", want: "http://10.170.168.20"},
+		{name: "https with port and slash", url: "https://swallow.lab:8443/", want: "https://swallow.lab:8443"},
+		{name: "path", url: "http://10.170.168.20/swallow", wantErr: true},
+		{name: "query", url: "http://10.170.168.20?x=1", wantErr: true},
+		{name: "credentials", url: "http://user:pass@10.170.168.20", wantErr: true},
+		{name: "scheme", url: "ftp://10.170.168.20", wantErr: true},
+		{name: "relative", url: "10.170.168.20", wantErr: true},
+		{name: "no host", url: "http://:80", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.API.PublicURL = tc.url
+			err := Validate(cfg)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Validate(publicURL=%q) = %v, wantErr %t", tc.url, err, tc.wantErr)
+			}
+			if err == nil && cfg.API.PublicURL != tc.want {
+				t.Errorf("Validate(publicURL=%q) left %q, want %q", tc.url, cfg.API.PublicURL, tc.want)
+			}
+		})
+	}
+}
+
+// Scrape addresses go into an exporter's IP allowlist, so each entry must be an IP address; blanks
+// and surrounding spaces are dropped.
+func TestValidate_MonitoringScrapeAddresses(t *testing.T) {
+	tests := []struct {
+		name      string
+		addresses string
+		want      []string
+		wantErr   bool
+	}{
+		{name: "unset", addresses: ""},
+		{name: "two", addresses: " 10.170.168.20, 192.168.100.1 ,", want: []string{"10.170.168.20", "192.168.100.1"}},
+		{name: "IPv6", addresses: "fd00::20", want: []string{"fd00::20"}},
+		{name: "name", addresses: "swallow.lab", wantErr: true},
+		{name: "CIDR", addresses: "10.0.0.0/24", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.API.MonitoringScrapeAddresses = tc.addresses
+			err := Validate(cfg)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Validate(monitoringScrapeAddresses=%q) = %v, wantErr %t", tc.addresses, err, tc.wantErr)
+			}
+			if err == nil && !slices.Equal(cfg.API.ScrapeAddresses(), tc.want) {
+				t.Errorf("ScrapeAddresses() = %v, want %v", cfg.API.ScrapeAddresses(), tc.want)
 			}
 		})
 	}

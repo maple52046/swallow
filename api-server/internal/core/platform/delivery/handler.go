@@ -232,10 +232,10 @@ type deployPlatformRequest struct {
 	GPUStackOwner string `json:"gpuStackOwner"`
 	// GPUOperator optionally installs the AMD GPU Operator with a Kubernetes deploy.
 	GPUOperator *gpuOperatorRequest `json:"gpuOperator"`
-	// Omnistat optionally installs Omnistat (with Prometheus and Grafana) with a Slurm deploy.
+	// Omnistat optionally installs Omnistat with a Slurm deploy.
 	Omnistat *monitoringFeatureRequest `json:"omnistat"`
-	// DeviceMetricsExporter optionally installs AMD's Device Metrics Exporter (with Prometheus and
-	// Grafana) with a Slurm deploy; it and Omnistat are mutually exclusive.
+	// DeviceMetricsExporter optionally installs AMD's Device Metrics Exporter with a Slurm deploy;
+	// it and Omnistat are mutually exclusive.
 	DeviceMetricsExporter *monitoringFeatureRequest `json:"deviceMetricsExporter"`
 	// ContainerRuntime optionally installs a container runtime on a Slurm Platform's compute and
 	// login nodes.
@@ -255,6 +255,9 @@ type deployPlatformRequest struct {
 	MachinePreparation machinePreparationRequest `json:"machinePreparation"`
 	// TimeSyncCheck is "enforce" (default when omitted) or "warn" (platforms.md, "Time sync check").
 	TimeSyncCheck string `json:"timeSyncCheck"`
+	// MonitoringDashboards turns the Platform's own monitoring dashboards off when false; omitted
+	// (nil) keeps them on (platforms.md, "Platform monitoring dashboards").
+	MonitoringDashboards *bool `json:"monitoringDashboards"`
 }
 
 // monitoringFeatureRequest is the deploy body's optional intent for a Slurm monitoring feature: the
@@ -391,9 +394,10 @@ func DeployInputFromRequest(raw []byte) (application.DeployPlatformInput, error)
 			APIVIPPrefix:    req.APIVIPPrefix,
 			RoleAssignments: assignments,
 		},
-		SlurmSpec:          slurmSpecFromRequest(req.Slurm),
-		MachinePreparation: preparation,
-		TimeSyncCheck:      platformdomain.TimeSyncCheck(req.TimeSyncCheck),
+		SlurmSpec:            slurmSpecFromRequest(req.Slurm),
+		MachinePreparation:   preparation,
+		TimeSyncCheck:        platformdomain.TimeSyncCheck(req.TimeSyncCheck),
+		MonitoringDashboards: req.MonitoringDashboards,
 	}, nil
 }
 
@@ -603,6 +607,9 @@ func respondError(c *fiber.Ctx, err error) error {
 		// A provision_os deploy points each provisioned Server at the installation's NTP server
 		// (decision 065), so an installation without one is refused like a missing key.
 		errors.Is(err, provisioningdomain.ErrNTPServerMissing),
+		// The Platform's dashboards and an allowlisted exporter need the installation's monitoring
+		// addresses; an installation without them is refused the same way.
+		errors.Is(err, platformdomain.ErrMonitoringEndpointMissing),
 		// A target cannot take the Managed Software the deployment composes (decision 063).
 		errors.Is(err, platformdomain.ErrComposedSoftwareConflict),
 		errors.Is(err, serverdomain.ErrServerLocked):

@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Operation } from '@/domain/operation/types'
 import { formatGPUDriverModuleOptions } from '@/domain/platform/gpuDriver'
+import { wantsPlatformGrafana } from '@/domain/platform/monitoring'
 import type { DeviceMetricsExporterState, ObservabilityInstallMethod, OmnistatState, Platform } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -238,6 +239,8 @@ interface MonitoringFeatureSummaryProps {
   state: OmnistatState | DeviceMetricsExporterState
   installMethod: ObservabilityInstallMethod
   observabilityServerId: string
+  /** Whether the Platform's spec gives it its own Grafana, whose install method the feature carries. */
+  platformGrafana: boolean
   lastWorkflowId: string | null
   /** Extra facts about this feature shown under the row, such as a GPU identity warning. */
   children?: ReactNode
@@ -245,9 +248,9 @@ interface MonitoringFeatureSummaryProps {
 
 /**
  * One Slurm monitoring feature's status row (Omnistat or the Device Metrics Exporter): the recorded
- * state from the installing Workflow (not a live probe), how its Prometheus and Grafana were
- * installed and on which Server, and a link to the Workflow until it is ready. Both features use
- * this one row so they read the same on the page.
+ * state from the installing Workflow (not a live probe), that the Site Prometheus collects it, how
+ * the Platform's Grafana is installed and on which Server when the spec asks for one, and a link to
+ * the Workflow until it is ready. Both features use this one row so they read the same on the page.
  */
 function MonitoringFeatureSummary({
   name,
@@ -255,6 +258,7 @@ function MonitoringFeatureSummary({
   state,
   installMethod,
   observabilityServerId,
+  platformGrafana,
   lastWorkflowId,
   children,
 }: MonitoringFeatureSummaryProps) {
@@ -266,8 +270,13 @@ function MonitoringFeatureSummary({
         <Text fontSize="sm" fontWeight="medium">{name} {version}</Text>
         <Badge colorPalette={presentation.palette} variant="subtle">{presentation.label}</Badge>
         <Text fontSize="sm" color="fg.muted">
-          Prometheus and Grafana {installMethod === 'native' ? 'installed natively' : 'as containers'} on{' '}
-          <Link to={scopedHref(`/servers/${observabilityServerId}`)}>the primary controller</Link>
+          Collected by the Site Prometheus
+          {platformGrafana && (
+            <>
+              ; Platform Grafana {installMethod === 'native' ? 'installed natively' : 'as a container'} on{' '}
+              <Link to={scopedHref(`/servers/${observabilityServerId}`)}>the primary controller</Link>
+            </>
+          )}
         </Text>
         {lastWorkflowId && state !== 'ready' && (
           <Link to={scopedHref(`/workflows/${lastWorkflowId}`)}>Open workflow</Link>
@@ -279,8 +288,8 @@ function MonitoringFeatureSummary({
 }
 
 /**
- * Where to watch this Platform: swallow's own usage charts for its members, and the runtime's own
- * monitoring UIs registered as Monitoring Links (for example Omnistat's Grafana on Slurm).
+ * Where to watch this Platform: swallow's own usage charts for its members, and the monitoring UIs
+ * registered as Monitoring Links (for example the Platform Grafana swallow installs on Slurm).
  *
  * The chart entry links to the Monitoring console with this Platform preselected and is shown
  * only while the experimental `monitoring` console is enabled. Monitoring Links are Platform
@@ -296,6 +305,7 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
   const links = platform.monitoringLinks
   const omnistat = platform.omnistat ?? null
   const exporter = platform.deviceMetricsExporter ?? null
+  const platformGrafana = wantsPlatformGrafana(platform.spec)
   const chartsHref = scopedHref(`/monitoring?${new URLSearchParams({ chartScope: 'platform', chartScopeId: platform.id }).toString()}`)
 
   return (
@@ -320,6 +330,7 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
             state={omnistat.state}
             installMethod={omnistat.installMethod}
             observabilityServerId={omnistat.observabilityServerId}
+            platformGrafana={platformGrafana}
             lastWorkflowId={omnistat.lastWorkflowId}
           />
         )}
@@ -330,6 +341,7 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
             state={exporter.state}
             installMethod={exporter.installMethod}
             observabilityServerId={exporter.observabilityServerId}
+            platformGrafana={platformGrafana}
             lastWorkflowId={exporter.lastWorkflowId}
           >
             {exporter.gpuIdentity === 'collapsed' && exporter.state !== 'absent' && (
@@ -343,7 +355,7 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
         )}
         {links.length === 0 ? (
           <Text color="fg.muted" fontSize="sm">
-            No monitoring links. Add the runtime's own dashboards (for example Omnistat's Grafana) with{' '}
+            No monitoring links. swallow adds the Platform Grafana link once it installs one; add other dashboards with{' '}
             <code>swallow platforms update {platform.id} -f patch.yaml</code> and a <code>monitoringLinks</code> list.
           </Text>
         ) : (

@@ -12,8 +12,8 @@ enable_host_metrics = True
 enable_kernel_trace = False
 enable_external = False
 rocm_path = {{ omnistat_rocm_path }}
-# Only this node and the observability Server's Prometheus may scrape the exporter.
-allowed_ips = 127.0.0.1, {{ omnistat_observability_address }}
+# Only this node and the Site Prometheus may scrape the exporter.
+allowed_ips = {{ (['127.0.0.1'] + omnistat_scrape_addresses) | unique | join(', ') }}
 
 [omnistat.collectors.rms]
 enable_annotations = True
@@ -25,8 +25,8 @@ enable_proc_io_stats = False
 cpu_load_sampling_interval = 0.05
 
 [omnistat.query]
-# omnistat-query reads Prometheus through Grafana's read-only datasource proxy: Prometheus listens on
-# the observability Server's loopback only, and Grafana already serves the same data to anonymous
-# viewers.
+# omnistat-query reads the Site Prometheus through the Platform Grafana's read-only datasource proxy,
+# which reaches it through swallow's gateway with the Platform's token and already serves the same
+# data to anonymous viewers.
 prometheus_url = http://{{ omnistat_observability_address }}:{{ omnistat_grafana_port }}/api/datasources/proxy/uid/{{ omnistat_grafana_datasource_uid }}
 system_name = {{ omnistat_system_name }}

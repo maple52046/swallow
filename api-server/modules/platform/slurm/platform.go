@@ -20,7 +20,18 @@ const (
 // settingKeys are the Slurm fields of the deploy request that a spec keeps as settings; "slurm"
 // is the slurm object without its nodeAssignments.
 var settingKeys = []string{
-	"gpuStackOwner", "omnistat", "deviceMetricsExporter", "containerRuntime", "gpuDriver", "timeSyncCheck", "slurm",
+	"gpuStackOwner", "omnistat", "deviceMetricsExporter", "containerRuntime", "gpuDriver", "timeSyncCheck",
+	monitoringDashboardsKey, "slurm",
+}
+
+// monitoringDashboardsKey is the generic setting that gives the Platform its own monitoring
+// dashboards (the Platform Grafana on the primary controller); absent or null is on.
+const monitoringDashboardsKey = "monitoringDashboards"
+
+// monitoringDashboards reports whether a spec gives the Platform its own monitoring dashboards.
+func monitoringDashboards(spec platformdomain.PlatformSpec) bool {
+	enabled, ok := spec.Settings[monitoringDashboardsKey].(bool)
+	return !ok || enabled
 }
 
 // Platform is the Slurm module's platform hook.
@@ -88,11 +99,12 @@ func (Platform) SpecFromDeployRequest(body map[string]any) (platformdomain.Platf
 }
 
 // Changes classifies a Slurm change: creating and uninstalling are destructive; adding a member,
-// enabling a monitoring feature, and first enabling the workload storage, a container runtime,
-// native OCI containers, or PMIx converge directly by rerunning the convergent deploy; removing a
-// member, changing roles, changing or disabling the storage or a runtime, and changing the state
-// save location, the GRES type, the GPU stack owner, or the driver options are destructive.
-// swallow cannot yet remove members, change roles, disable features, or reconfigure them.
+// enabling a monitoring feature or the monitoring dashboards, and first enabling the workload
+// storage, a container runtime, native OCI containers, or PMIx converge directly by rerunning the
+// convergent deploy; removing a member, changing roles, changing or disabling the storage or a
+// runtime, and changing the state save location, the GRES type, the GPU stack owner, or the driver
+// options are destructive. swallow cannot yet remove members, change roles, disable features (the
+// monitoring dashboards included), or reconfigure them.
 func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdomain.PlatformSpec) (platformdomain.PlatformChanges, error) {
 	platform := convergence.ResourceRef{Kind: "platform"}
 	if desired.Desired == platformdomain.PlatformAbsent {
@@ -143,6 +155,13 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 		case was && is && platformdomain.SettingChanged(*applied, desired, feature):
 			add(convergence.PlannedAction{Target: platform, Action: "change-" + feature, Reason: "monitoring components are reconfigured"}, false)
 		}
+	}
+	// The dashboards only display the Site's metrics, so adding or removing them touches no job.
+	switch was, is := monitoringDashboards(*applied), monitoringDashboards(desired); {
+	case !was && is:
+		add(convergence.PlannedAction{Target: platform, Action: "enable-monitoring-dashboards", To: "enabled", Reason: "the Platform's Grafana is added"}, true)
+	case was && !is:
+		add(convergence.PlannedAction{Target: platform, Action: "disable-monitoring-dashboards", From: "enabled", To: "disabled", Reason: "the Platform's Grafana is removed"}, false)
 	}
 	firstEnable := func(name string, was, is bool, wasValue, isValue any) {
 		switch {

@@ -8,7 +8,10 @@
 // redeploy. See docs/decisions/001-system-ownership-boundaries.md.
 package config
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Config is the top-level runtime configuration.
 // Populated by merging: defaults → config file → CLI flags → env vars.
@@ -133,6 +136,31 @@ type APIConfig struct {
 	// production installation sets it to SWALLOW_ADDRESS. Optional for the process to start, but
 	// without it every OS deployment is refused at acceptance with the setting to fix.
 	NTPServer string `yaml:"ntpServer"`
+	// PublicURL is the absolute http(s) URL, without path, at which the Servers swallow deploys
+	// reach this API through the installation's edge (for example http://10.170.168.20). A
+	// Platform's own Grafana reads the Platform metrics gateway at
+	// <PublicURL>/api/v1/platform-metrics/<platformId>/prometheus, so the processes that plan
+	// Platform deployments (the API and the worker) need it. Optional for the process to start, but
+	// without it a deployment that installs a Platform's Grafana is refused when it is planned.
+	PublicURL string `yaml:"publicURL"`
+	// MonitoringScrapeAddresses is the comma-separated list of IP addresses the Site Prometheus
+	// scrapes exporters from, as the deployed Servers see them (the production installation sets
+	// SWALLOW_ADDRESS). An exporter that admits only listed addresses, such as Omnistat's
+	// allowed_ips, is configured with them. Optional for the process to start, but without it a
+	// deployment that installs such an exporter is refused when it is planned.
+	MonitoringScrapeAddresses string `yaml:"monitoringScrapeAddresses"`
+}
+
+// ScrapeAddresses returns MonitoringScrapeAddresses as a list, empty when none is set. Validate
+// has already checked and trimmed each entry.
+func (c APIConfig) ScrapeAddresses() []string {
+	var addresses []string
+	for _, address := range strings.Split(c.MonitoringScrapeAddresses, ",") {
+		if address = strings.TrimSpace(address); address != "" {
+			addresses = append(addresses, address)
+		}
+	}
+	return addresses
 }
 
 // BootMediaConfig locates the Boot ISOs the API process builds and serves (decision 047) and the

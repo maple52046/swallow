@@ -285,16 +285,51 @@ func TestDeployRefusesOmnistatItCannotApply(t *testing.T) {
 
 func TestMonitoringLinkUpsertAndRemove(t *testing.T) {
 	links := []platformdomain.MonitoringLink{{Name: "Runbook", URL: "https://wiki/runbook"}}
-	links = platformdomain.UpsertMonitoringLink(links, platformdomain.MonitoringLink{Name: platformdomain.OmnistatGrafanaLinkName, URL: "http://10.0.0.1:3000"})
-	links = platformdomain.UpsertMonitoringLink(links, platformdomain.MonitoringLink{Name: platformdomain.OmnistatGrafanaLinkName, URL: "http://10.0.0.2:3000"})
+	links = platformdomain.UpsertMonitoringLink(links, platformdomain.MonitoringLink{Name: testOwnedLinkName, URL: "http://10.0.0.1:3000"})
+	links = platformdomain.UpsertMonitoringLink(links, platformdomain.MonitoringLink{Name: testOwnedLinkName, URL: "http://10.0.0.2:3000"})
 	want := []platformdomain.MonitoringLink{
 		{Name: "Runbook", URL: "https://wiki/runbook"},
-		{Name: platformdomain.OmnistatGrafanaLinkName, URL: "http://10.0.0.2:3000"},
+		{Name: testOwnedLinkName, URL: "http://10.0.0.2:3000"},
 	}
 	if !slices.Equal(links, want) {
 		t.Errorf("upserted links = %v, want %v", links, want)
 	}
-	if got := platformdomain.RemoveMonitoringLink(links, platformdomain.OmnistatGrafanaLinkName); !slices.Equal(got, want[:1]) {
+	if got := platformdomain.RemoveMonitoringLinks(links, testOwnedLinkName, testLegacyLinkName); !slices.Equal(got, want[:1]) {
 		t.Errorf("removed links = %v, want %v", got, want[:1])
+	}
+}
+
+// The Platform's own dashboards are on unless the deploy turns them off; they go on the primary
+// controller and take the monitoring feature's install method, or the native method without one.
+func TestDeploySlurmMonitoringDashboards(t *testing.T) {
+	off := false
+	for _, tc := range []struct {
+		name  string
+		input func() DeployPlatformInput
+		want  *platformdomain.MonitoringDashboardsLaunch
+	}{
+		{name: "no feature", input: validSlurmInput,
+			want: &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative}},
+		{name: "Omnistat native", input: func() DeployPlatformInput {
+			input := omnistatSlurmInput()
+			input.Omnistat.InstallMethod = platformdomain.ObservabilityInstallNative
+			return input
+		}, want: &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative}},
+		{name: "turned off", input: func() DeployPlatformInput {
+			input := omnistatSlurmInput()
+			input.MonitoringDashboards = &off
+			return input
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, launcher, _ := newDeployHarness(slurmServers()...)
+			if _, err := service.Deploy(context.Background(), tc.input()); err != nil {
+				t.Fatalf("Deploy() error = %v", err)
+			}
+			got := launcher.launched.MonitoringDashboards
+			if (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) {
+				t.Errorf("monitoring dashboards = %+v, want %+v", got, tc.want)
+			}
+		})
 	}
 }

@@ -27,9 +27,10 @@ func TestShippedManifestResolvesDeviceMetricsExporterPlaybooks(t *testing.T) {
 	}
 }
 
-// A standalone install has no compute ids, no observability Server, and no Slurm attribution, so
-// every target runs the exporter, gets swallow's amdgpu loader, and skips the Slurm scrape check;
-// a run with compute ids but no attribution (accepted before decision 068) stays a Slurm run.
+// A standalone install has no compute ids and no Slurm attribution, so every target runs the
+// exporter, gets swallow's amdgpu loader, and writes no result; a run with compute ids but no
+// attribution (accepted before decision 068) stays a Slurm run. Each node checks only its own
+// exporter: the Site Prometheus scrapes it, so no step reads a Prometheus.
 func TestDeviceMetricsExporterPlaybookServesStandaloneAndSlurm(t *testing.T) {
 	for _, tc := range []struct {
 		path     string
@@ -39,7 +40,9 @@ func TestDeviceMetricsExporterPlaybookServesStandaloneAndSlurm(t *testing.T) {
 			path: "deploy-device-metrics-exporter.yml",
 			required: []string{
 				"swallow_device_metrics_exporter_compute_ids | default(ansible_play_hosts_all)",
-				"swallow_device_metrics_exporter_observability_id | default('')",
+				"name: Wait until this node's exporter answers on its bind address",
+				"- swallow_device_metrics_exporter_compute_ids is defined",
+				"run_once: true",
 				"tasks_from: preflight",
 				"name: amdgpu_loader",
 				"when: dme_job_attribution | trim == 'none'",
@@ -69,6 +72,12 @@ func TestDeviceMetricsExporterPlaybookServesStandaloneAndSlurm(t *testing.T) {
 			if !strings.Contains(content, want) {
 				t.Errorf("%s does not contain %q", tc.path, want)
 			}
+		}
+	}
+	playbook := slurmPlaybookFile(t, "deploy-device-metrics-exporter.yml")
+	for _, gone := range []string{"/api/v1/targets", "prometheus/endpoint", "observability", "grafanaUrl"} {
+		if strings.Contains(playbook, gone) {
+			t.Errorf("deploy-device-metrics-exporter.yml still contains %q", gone)
 		}
 	}
 }

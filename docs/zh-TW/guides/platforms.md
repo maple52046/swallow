@@ -98,7 +98,8 @@ swallow 不會安裝它。
 
 Slurm workspace 可獨立指派 controller、compute 與 login roles，並依 topology 與 feature
 決定 state-server 與 workload storage responsibility。Features step 分別以 Switch 啟用
-shared workload storage、container runtime 與 Omnistat；符合條件的 compute node 會自動
+shared workload storage、container runtime、作業監控（預設 Omnistat，也可選 AMD Device Metrics Exporter 或不安裝）
+與 Platform Grafana（預設開啟，見[監控](monitoring.md#platform-自己的-grafana)）；符合條件的 compute node 會自動
 包含 AMD GPU GRES，不提供沒有實際語意的開關。
 
 GPU node 加入前，swallow 會透過 HIP runtime 在每張 GPU 上配置並釋放記憶體來證明 GPU 可用，節點上直接

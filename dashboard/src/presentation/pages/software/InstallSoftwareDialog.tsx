@@ -687,8 +687,8 @@ function SoftwareSpecFields({
         </Field.Root>
         <Field.Root>
           <Field.Label>Dashboard bundles</Field.Label>
-          <Input value={value('dashboards')} onChange={(event) => onChange('dashboards', event.target.value)} placeholder="omnistat" />
-          <Field.HelperText>Swallow-shipped bundles to provision; the only bundle is omnistat.</Field.HelperText>
+          <Input value={value('dashboards')} onChange={(event) => onChange('dashboards', event.target.value)} placeholder="node-exporter" />
+          <Field.HelperText>Swallow-shipped bundles to provision: node-exporter, omnistat, or device-metrics-exporter.</Field.HelperText>
         </Field.Root>
       </Stack>
     )

@@ -268,7 +268,7 @@ const platforms = [
     integrationId: 'slurm-a', origin: 'registered', lifecycleState: 'registered',
     lifecycleOperationId: null, deployment: null,
     gpuStackOwner: 'provisioning', gpuOperator: null,
-    monitoringLinks: [{ name: 'Omnistat Grafana', url: 'https://omnistat.example/grafana' }],
+    monitoringLinks: [{ name: 'Platform Grafana', url: 'http://10.0.0.11:3000' }],
     omnistat: {
       enabled: true, version: '1.15.0', installMethod: 'container', observabilityServerId: 'srv-1', state: 'ready',
       lastWorkflowId: 'op-slurm-omnistat', updatedAt: now,
@@ -1434,7 +1434,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     ...(options.slurmDeviceMetricsExporter && platform.id === 'platform-slurm'
       ? {
           omnistat: null,
-          monitoringLinks: [{ name: 'Device Metrics Exporter Grafana', url: 'https://dme.example/grafana' }],
+          monitoringLinks: [{ name: 'Platform Grafana', url: 'http://10.0.0.21:3000' }],
           deviceMetricsExporter: {
             enabled: true, version: '1.5.3', installMethod: 'native', observabilityServerId: 'srv-1',
             state: 'ready', gpuIdentity: 'collapsed', lastWorkflowId: 'op-slurm-dme', updatedAt: now,

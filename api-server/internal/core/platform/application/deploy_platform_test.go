@@ -330,8 +330,15 @@ func testPlatformServiceDeps(platforms *deployFakePlatformRepo, servers claiming
 		GPUOperators: &fakeGPUOperatorRecorder{platforms: platforms}, Omnistats: &fakeOmnistatRecorder{platforms: platforms},
 		DeviceMetricsExporters: &fakeDeviceMetricsExporterRecorder{platforms: platforms},
 		ExporterAssignments:    &recordingExporterAssignments{},
+		OwnedMonitoringLinks:   []string{testOwnedLinkName, testLegacyLinkName},
 	}
 }
+
+// testOwnedLinkName and testLegacyLinkName are the Monitoring Links the test platform service owns.
+const (
+	testOwnedLinkName  = "Platform dashboards"
+	testLegacyLinkName = "Feature dashboards"
+)
 
 // testDeployServiceDeps returns DeployServiceDeps whose every field is an in-memory fake that lets
 // a valid deployment through: a Deployment Key exists, no target is locked beyond its stored flag,
@@ -407,6 +414,7 @@ func TestNewPlatformServiceRefusesAMissingDependency(t *testing.T) {
 		"Omnistats":              func(d *PlatformServiceDeps) { d.Omnistats = nil },
 		"DeviceMetricsExporters": func(d *PlatformServiceDeps) { d.DeviceMetricsExporters = nil },
 		"ExporterAssignments":    func(d *PlatformServiceDeps) { d.ExporterAssignments = nil },
+		"OwnedMonitoringLinks":   func(d *PlatformServiceDeps) { d.OwnedMonitoringLinks = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			deps := testPlatformServiceDeps(&deployFakePlatformRepo{platforms: map[string]*platformdomain.Platform{}},

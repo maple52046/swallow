@@ -29,6 +29,9 @@ const (
 	completionOmnistatResult              = "omnistat-result"
 	completionDeviceMetricsExporterResult = "device-metrics-exporter-result"
 	completionPlatformUninstall           = "platform-uninstall"
+	// completionPlatformGrafanaResult records the Grafana URL a Platform's own Grafana install
+	// reported as the Platform's Platform Grafana Monitoring Link.
+	completionPlatformGrafanaResult = "platform-grafana-result"
 )
 
 // Completion parameter names.
@@ -52,7 +55,7 @@ func completionClasses() map[string]workflowdomain.CompletionClass {
 		completionOmnistatState: projection, completionDeviceMetricsExporterState: projection,
 		kubeapi.CredentialCompletion: result, slurmapi.CredentialCompletion: result,
 		completionOmnistatResult: result, completionDeviceMetricsExporterResult: result,
-		completionPlatformUninstall: result,
+		completionPlatformUninstall: result, completionPlatformGrafanaResult: result,
 	}
 }
 
@@ -213,8 +216,13 @@ func featureIdentity(t workflowapp.TaskTransition) (string, string) {
 // module's credential reader handles the credential completion its deploy Task declares.
 func workflowResults(observer platformDeploymentObserver, credentials ...platformdomain.CredentialReader) map[string]workflowapp.ResultHandler {
 	handlers := map[string]workflowapp.ResultHandler{
+		completionPlatformGrafanaResult: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {
+			return observer.recordPlatformGrafana(ctx, r.Workflow.PlatformID, workflowdomain.RunnerResult{Data: r.Data})
+		}),
+		// A configure-omnistat Task planned while its Grafana had no completion of its own declares
+		// this; its run reports the same Grafana.
 		completionOmnistatResult: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {
-			return observer.completeOmnistat(ctx, r.Workflow.PlatformID, workflowdomain.RunnerResult{Data: r.Data})
+			return observer.recordPlatformGrafana(ctx, r.Workflow.PlatformID, workflowdomain.RunnerResult{Data: r.Data})
 		}),
 		completionDeviceMetricsExporterResult: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {
 			recordID, _ := r.Completion.Params[completionParamRecord].(string)

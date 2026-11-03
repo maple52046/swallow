@@ -90,37 +90,61 @@ A chart reads "No data" when the backend has nothing for that metric — for exa
 GPU chart on a Server without a GPU exporter. A gap in a line means the Server was not
 reporting then. Neither is drawn as zero.
 
-## Platforms with their own monitoring
+## A Platform's own Grafana
 
-Some runtimes bring a complete monitoring stack of their own — for example
-[Omnistat](https://github.com/ROCm/omnistat) on a Slurm Platform, with its own
-Prometheus and Grafana. When you deploy a Slurm Platform you can let swallow install
-Omnistat for you (turn on **Features → Omnistat GPU monitoring** in the Slurm workspace, or
-`omnistat: { enabled: true }` in the deploy file): the primary controller gets Prometheus, which
-answers only on that host's loopback address because its API has no login, and a read-only
-Grafana with Omnistat's job dashboards; every compute node gets the exporter and Omnistat's
-`omnistat-query` job report tool, which reads Prometheus through that Grafana (its report needs
-GPU utilization, which SR-IOV virtual functions do not report, so on those GPUs use the job
-dashboards instead), and the
-Platform page shows the Omnistat state and an `Omnistat Grafana` link. Prometheus and Grafana run
-as containers by default; choose the native install method to install them from their official
-release and apt/yum repository instead. swallow does not scrape or query such a stack. Instead:
+Every Slurm Platform gets its own read-only Grafana on its primary controller unless you turn it
+off when you deploy (the **Platform Grafana** switch in the Slurm workspace's Features step, or
+`monitoringDashboards: false` in the Platform's settings). CPU-only Platforms get one too. It
+reads the same Site Prometheus as swallow, through swallow, and sees only the Platform's own
+Servers. It always has a **Servers** dashboard (CPU, memory, root filesystem, network, and load
+per Server), plus the dashboards of the monitoring exporter you chose. The Platform page links to
+it as **Platform Grafana**; anyone on the management network can view it without a login. It runs
+as a container by default; choose the native install method to install it from Grafana's
+apt/yum repository instead. Each deploy or redeploy gives it a new access credential, so a
+credential copied from an older deployment stops working.
 
-- Register its UI as a **Monitoring Link** on the Platform. The Platform page shows
+Turning the Grafana on later redeploys the Platform; turning it off after deployment is not
+supported yet. A Platform deployed before this keeps its own Prometheus and the Grafana link it
+had until its next deployment.
+
+## GPU and job monitoring on Slurm
+
+Choose the monitoring exporter in the Slurm workspace's Features step:
+
+- **Omnistat** (proposed by default) collects host and Slurm job metrics on every compute node,
+  and GPU metrics where there are AMD GPUs, so it also suits a CPU-only Platform. Each compute node
+  runs one job at a time. Omnistat's `omnistat-query` job report tool on the compute nodes reads
+  the metrics through the Platform's Grafana, so keep the Grafana on to use it (its report needs
+  GPU utilization, which SR-IOV virtual functions do not report; on those GPUs use the job
+  dashboards instead).
+- **AMD Device Metrics Exporter** collects per-GPU metrics labelled with the job on each GPU, and
+  jobs keep sharing nodes. It needs a compute node with AMD GPUs.
+- **None** installs neither.
+
+The Site Prometheus collects the chosen exporter like any other; the Platform page shows its
+state. In a deploy file, `omnistat: { enabled: true }` or `deviceMetricsExporter: { enabled: true }`
+chooses one; omitting both installs neither.
+
+## Other monitoring UIs
+
+You can link any other monitoring UI that belongs to a Platform:
+
+- Register it as a **Monitoring Link** on the Platform. The Platform page shows
   it next to a shortcut to the Platform's usage charts in swallow.
 - Keep swallow's exporters running. The Server charts keep working before, during,
   and after the Platform exists, and are the same for every Platform type.
-- Do not bind the runtime's own collectors to port 9100 or 5000. Omnistat's collector
-  listens on its own port by default; keep it that way so it never contends with
-  swallow's exporters.
+- Do not bind a runtime's own collectors to port 9100, 5000, 5001, or 8001, which
+  swallow's exporters use.
 
 Monitoring Links are set with the Platform update API. With the CLI:
 
 ```yaml
 # patch.yaml
 monitoringLinks:
-  - name: Omnistat Grafana
-    url: https://omnistat.example.internal/grafana
+  - name: Platform Grafana
+    url: http://10.0.0.11:3000
+  - name: Runbook
+    url: https://wiki.example.internal/research-slurm
 ```
 
 ```bash
@@ -128,7 +152,8 @@ swallow platforms update plat1 -f patch.yaml
 ```
 
 An empty list (`monitoringLinks: []`) removes the links. swallow never connects to a
-Monitoring Link; it is a shortcut for users.
+Monitoring Link; it is a shortcut for users. swallow itself sets only the
+`Platform Grafana` link, when it installs the Platform's Grafana.
 
 ## Alerts and acknowledgements
 

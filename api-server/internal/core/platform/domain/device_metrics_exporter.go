@@ -9,10 +9,9 @@ import (
 // The Device Metrics Exporter feature of a swallow-deployed Slurm Platform (decisions 066 and 068,
 // glossary Device Metrics Exporter): AMD's per-GPU-node exporter plus the Slurm job attribution (a
 // job hook of the Prolog/Epilog dispatcher). The exporter itself is the Managed Software kind
-// device-metrics-exporter, which the deployment composes onto its GPU compute nodes together with
-// Prometheus and Grafana on the observability Server (the primary controller); the feature's state,
-// GPU identity, and Monitoring Link belong to the Platform. Omnistat and this feature are mutually
-// exclusive on a Platform.
+// device-metrics-exporter, which the deployment composes onto its GPU compute nodes and the Site
+// metrics store scrapes like any installed exporter (decision 003); the feature's state and GPU
+// identity belong to the Platform. Omnistat and this feature are mutually exclusive on a Platform.
 const (
 	// DeviceMetricsExporterVersion is the exporter release swallow installs. The playbook pins its
 	// native package and that package's SHA-256 per version.
@@ -20,11 +19,6 @@ const (
 	// DeviceMetricsExporterPort is where every GPU node's exporter listens. AMD's default, 5000, is
 	// the RDC exporter port swallow scrapes on a host (decision 003), so it must never be used here.
 	DeviceMetricsExporterPort = 5001
-	// DeviceMetricsExporterGrafanaLinkName is the Monitoring Link a successful install registers and
-	// an uninstall removes; other links stay user-owned.
-	DeviceMetricsExporterGrafanaLinkName = "Device Metrics Exporter Grafana"
-	// DeviceMetricsExporterScrapeJob is the Prometheus job name of the exporters.
-	DeviceMetricsExporterScrapeJob = "device-metrics-exporter"
 	// DeviceMetricsExporterDashboardBundle is the Grafana dashboard bundle with the exporter's Slurm
 	// dashboards (overview, GPU, node, job).
 	DeviceMetricsExporterDashboardBundle = "device-metrics-exporter"
@@ -69,7 +63,8 @@ func ParseGPUIdentity(value string) GPUIdentity {
 }
 
 // DeviceMetricsExporterSettings is the user's Device Metrics Exporter intent in a Slurm deploy
-// request. An empty InstallMethod is the container method.
+// request. InstallMethod chooses how the Platform's own dashboards are installed; empty is the
+// container method.
 type DeviceMetricsExporterSettings struct {
 	Enabled       bool
 	InstallMethod ObservabilityInstallMethod
@@ -85,8 +80,9 @@ func NormalizeDeviceMetricsExporterSettings(settings DeviceMetricsExporterSettin
 }
 
 // DeviceMetricsExporter is the Platform's swallow-managed Device Metrics Exporter record.
-// ObservabilityServerID names the Server running Prometheus and Grafana, installed by InstallMethod.
-// GPUIdentity is what the latest successful install found. LastWorkflowID is the fence: only that
+// ObservabilityServerID names the primary controller, which hosts the Platform's own dashboards
+// (installed by InstallMethod). GPUIdentity is what the latest successful install found.
+// LastWorkflowID is the fence: only that
 // Workflow's Task may move the State. Written only through DeviceMetricsExporterRecorder, never by a
 // Platform Update.
 type DeviceMetricsExporter struct {
@@ -106,12 +102,11 @@ func (e *DeviceMetricsExporter) Managed() bool {
 	return e != nil && e.State != DeviceMetricsExporterAbsent
 }
 
-// DeviceMetricsExporterLaunch adds the Device Metrics Exporter to a Slurm deployment Workflow:
-// Prometheus and Grafana composed onto ObservabilityServerID by InstallMethod (the container method
-// also composes that Server's container runtime), then the Managed Software device-metrics-exporter
-// composed onto every GPUComputeServerIDs node. TrustedVars are the Slurm side's
-// swallow_device_metrics_exporter_* variables (job attribution, topology, record id), laid over the
-// software install's own.
+// DeviceMetricsExporterLaunch adds the Device Metrics Exporter to a Slurm deployment Workflow: the
+// Managed Software device-metrics-exporter composed onto every GPUComputeServerIDs node.
+// ObservabilityServerID is the primary controller and InstallMethod how the Platform's own
+// dashboards are installed there. TrustedVars are the Slurm side's swallow_device_metrics_exporter_*
+// variables (job attribution, topology), laid over the software install's own.
 type DeviceMetricsExporterLaunch struct {
 	ObservabilityServerID string
 	GPUComputeServerIDs   []string

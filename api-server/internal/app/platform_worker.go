@@ -77,6 +77,7 @@ func workerPlatformOperations(
 		nodeExporter: nodeExporterPlanner{software: software, operations: operations},
 		networks:     provisioningapp.NewNetworkConfigurationService(deps.servers, deps.providers),
 		requirements: platformstore.NewMongoDeploymentRequirementRepo(db), keys: deps.keys,
+		monitoring: newPlatformMonitoringAccess(cfg), monitoringTokens: newPlatformTokenIssuer(db),
 	})
 }
 

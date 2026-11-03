@@ -144,6 +144,11 @@ services:
       # Every provisioned Server is pointed at the Control-Plane NTP Server on this host, at the
       # address machines reach it by (decision 065).
       SWALLOW_API_NTP_SERVER: ${SWALLOW_ADDRESS:-}
+      # A Platform's Grafana reads the Platform metrics gateway through the dashboard's port at this
+      # URL, and Omnistat admits the Site Prometheus, which scrapes from this host's address
+      # (monitoring.md §6.2, §7). Both are planned into Platform deployments.
+      SWALLOW_API_PUBLIC_URL: ${SWALLOW_ADDRESS:+http://${SWALLOW_ADDRESS}:${SWALLOW_HTTP_PORT:-80}}
+      SWALLOW_API_MONITORING_SCRAPE_ADDRESSES: ${SWALLOW_ADDRESS:-}
       # Server Enrollment (decision 053): hosts that keep their OS download the bundled CLI from
       # /downloads/swallow, so the bundle's bin/ is mounted read-only.
       SWALLOW_API_CLI_BINARY: /usr/local/share/swallow/bin/swallow
@@ -201,6 +206,11 @@ services:
       # Every provisioned Server is pointed at the Control-Plane NTP Server on this host, at the
       # address machines reach it by (decision 065).
       SWALLOW_API_NTP_SERVER: ${SWALLOW_ADDRESS:-}
+      # A Platform's Grafana reads the Platform metrics gateway through the dashboard's port at this
+      # URL, and Omnistat admits the Site Prometheus, which scrapes from this host's address
+      # (monitoring.md §6.2, §7). Both are planned into Platform deployments.
+      SWALLOW_API_PUBLIC_URL: ${SWALLOW_ADDRESS:+http://${SWALLOW_ADDRESS}:${SWALLOW_HTTP_PORT:-80}}
+      SWALLOW_API_MONITORING_SCRAPE_ADDRESSES: ${SWALLOW_ADDRESS:-}
     secrets:
       - mongo_uri
       - jwt_secret

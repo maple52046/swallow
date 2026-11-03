@@ -31,12 +31,14 @@ grafana_dashboards: "{{ swallow_grafana_dashboards | default([]) }}"
 grafana_listen_address: "{{ ansible_host }}"
 grafana_config_dir: /etc/swallow/grafana
 grafana_data_dir: /var/lib/swallow/grafana
-# The datasource UID Omnistat's dashboards reference through their ${source} variable.
+# The datasource UID every shipped dashboard bundle references (Omnistat's through its ${source}
+# variable).
 grafana_datasource_uid: prometheus
 # Folder each shipped dashboard bundle (files/dashboards/<bundle>) is provisioned into.
 grafana_dashboard_folders:
   omnistat: Omnistat RMS
   device-metrics-exporter: Device Metrics Exporter
+  node-exporter: Servers
 # Settings every install method applies; the address, port, and paths are added per method.
 grafana_environment:
   GF_AUTH_ANONYMOUS_ENABLED: "true"

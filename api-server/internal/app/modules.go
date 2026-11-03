@@ -286,5 +286,5 @@ var coreWorkflowKinds = []string{
 // exactly one module.
 var coreCompletions = []string{
 	completionServerDeployment, completionServerDeploymentCleared, completionSoftwareFailure,
-	completionPlatformUninstall,
+	completionPlatformUninstall, completionPlatformGrafanaResult,
 }

@@ -659,12 +659,12 @@ Slurm 部署會自動把 compute node 的 AMD GPU 設成 GRES（以 `--gres=gpu:
 直接跑一次、透過 Slurm 再跑一次），否則節點會被 drain、部署失敗。driver module option 會依每台節點的 GPU
 topology 推導（例如在 ROCm thunk 會破壞 heap 的情況下加上 `pcie_p2p=0`）；要指定或覆寫時加上
 `gpuDriver.moduleOptions`。加上 `containerRuntime` 可在每台 compute 與 login node 安裝 Docker CE 或
-Podman，供容器化 workload 使用。若要一併安裝 Omnistat，加上 `omnistat`：primary controller（第一個
-controller）會裝 Prometheus（只綁 loopback）與帶有 Omnistat dashboards 的唯讀 Grafana，每台 compute node 裝
-exporter，platform 也會多一個 Monitoring Link `Omnistat Grafana`。`installMethod: container`（預設）讓
-Prometheus 與 Grafana 以 container 跑在 primary controller 的 runtime 上（即上面的 `containerRuntime`，否則為
-Docker CE）；`native` 則改由官方 release 與 apt／yum repository 安裝。以下 `platform-slurm-omnistat.yaml` 是
-實跑的檔案：
+Podman，供容器化 workload 使用。除非 settings 寫 `monitoringDashboards: false`，primary controller（第一個
+controller）會裝 Platform 自己的唯讀 Grafana：它經 swallow 讀取 Site 的 Prometheus，只顯示這個 platform 的 Server，
+platform 也會多一個 Monitoring Link `Platform Grafana`。若要一併安裝 Omnistat，加上 `omnistat`：每台 compute node
+裝 exporter，由 Site 的 Prometheus 收集，Grafana 加上 Omnistat 的 dashboards。`installMethod: container`（預設）讓
+Grafana 以 container 跑在 primary controller 的 runtime 上（即上面的 `containerRuntime`，否則為 Docker CE）；
+`native` 則改由 Grafana 的 apt／yum repository 安裝。以下 `platform-slurm-omnistat.yaml` 是實跑的檔案：
 
 ```yaml
 siteId: site1
@@ -700,12 +700,12 @@ spec:
 ```bash
 swallow platforms create -f platform-slurm-omnistat.yaml
 swallow plans approve <planId>
-swallow workflows get <workflowId>    # ensure-os、configure-slurm、configure-podman、configure-prometheus/-grafana、configure-omnistat
-swallow platforms get <platformId>    # containerRuntime、omnistat.state，以及 monitoringLinks 中的 Omnistat Grafana
+swallow workflows get <workflowId>    # ensure-os、configure-slurm、configure-podman、configure-grafana、configure-omnistat
+swallow platforms get <platformId>    # containerRuntime、omnistat.state，以及 monitoringLinks 中的 Platform Grafana
 ```
 
 若不用 Omnistat（兩者不可同時開啟），`deviceMetricsExporter` 會在每台 GPU compute node 安裝 AMD 的 Device
-Metrics Exporter，Prometheus 與 Grafana 的組入方式與 `installMethod` 與 Omnistat 相同。作業仍可共用節點，每個作業的
+Metrics Exporter，Grafana 與 `installMethod` 與 Omnistat 相同。作業仍可共用節點，每個作業的
 GPU 會帶上 job id 標籤。安裝成功後，`deviceMetricsExporter.gpuIdentity` 說明 exporter 是否分得出各張 GPU：
 `collapsed`（例如 MI308X virtual function）表示 metrics 照常收集，但至少有一台節點的逐作業 GPU 歸屬是錯的。
 `slurm.ociContainers: true` 設定 native OCI container（`srun --container=<bundle>`，bundle 必須在每台節點的相同路徑；
@@ -728,7 +728,7 @@ spec:
 ```
 
 ```bash
-swallow workflows get <workflowId>    # ...、configure-prometheus/-grafana、configure-device-metrics-exporter
+swallow workflows get <workflowId>    # ...、configure-grafana、configure-device-metrics-exporter
 swallow platforms get <platformId>    # deviceMetricsExporter.state 與 .gpuIdentity、ociContainers、pmix
 ```
 

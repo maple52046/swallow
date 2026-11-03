@@ -208,9 +208,10 @@ export interface GPUOperatorRelease {
 }
 
 /**
- * A Monitoring Link (glossary): a user-registered name and absolute http(s) URL pointing at
- * the runtime's own monitoring UI, such as the Grafana Omnistat brings for Slurm. swallow never
- * queries it; it is a shortcut, not a metrics source. Set through the API/CLI `PATCH`.
+ * A Monitoring Link (glossary): a name and absolute http(s) URL pointing at a monitoring UI that
+ * belongs to the Platform, such as the `Platform Grafana` swallow installs on a Slurm Platform and
+ * links itself. swallow never queries it; it is a shortcut, not a metrics source. Users set theirs
+ * through the API/CLI `PATCH`.
  */
 export interface MonitoringLink {
   name: string;
@@ -224,9 +225,10 @@ export interface MonitoringLink {
 export type OmnistatState = "installing" | "ready" | "failed" | "absent";
 
 /**
- * How a Slurm deploy installs the Prometheus and Grafana its monitoring feature uses (platforms.md
- * "Omnistat" and "Device Metrics Exporter"): `container` (default) on the primary controller's
- * container runtime, or `native` from the official release and package repository.
+ * How a Slurm deploy installs the Platform's own Grafana on the primary controller (platforms.md
+ * "Platform Monitoring Dashboards"): `container` (default) on its container runtime, or `native`
+ * from Grafana's package repository. The monitoring feature's `installMethod` carries it; without a
+ * feature the Grafana takes `container`.
  */
 export type ObservabilityInstallMethod = "container" | "native";
 
@@ -253,10 +255,10 @@ export type GPUIdentity = "distinct" | "collapsed";
 export type SlurmContainerRuntime = "docker-ce" | "podman";
 
 /**
- * The swallow-managed Omnistat of a Slurm Platform: AMD's Slurm-aware GPU monitoring, with its
- * exporter on every compute node and Prometheus and Grafana on `observabilityServerId` (the
- * primary controller), installed by `installMethod`. The Grafana itself is reached through the
- * `Omnistat Grafana` Monitoring Link swallow registers on success; swallow never queries Omnistat.
+ * The swallow-managed Omnistat of a Slurm Platform: AMD's Slurm-aware monitoring, with its exporter
+ * on every compute node, scraped by the Site Prometheus. `observabilityServerId` is the primary
+ * controller, which hosts the Platform's Grafana installed by `installMethod`; that Grafana is
+ * reached through the `Platform Grafana` Monitoring Link. swallow never queries Omnistat.
  */
 export interface PlatformOmnistat {
   enabled: boolean;
@@ -270,10 +272,9 @@ export interface PlatformOmnistat {
 
 /**
  * The swallow-managed Device Metrics Exporter of a Slurm Platform: AMD's per-GPU exporter on every
- * GPU compute node with Slurm job attribution, and Prometheus and Grafana on
- * `observabilityServerId` (the primary controller), installed by `installMethod`. The Grafana is
- * reached through the `Device Metrics Exporter Grafana` Monitoring Link swallow registers on
- * success. `gpuIdentity` is null until an install succeeded.
+ * GPU compute node with Slurm job attribution, scraped by the Site Prometheus.
+ * `observabilityServerId` is the primary controller, which hosts the Platform's Grafana installed by
+ * `installMethod`. `gpuIdentity` is null until an install succeeded.
  */
 export interface PlatformDeviceMetricsExporter {
   enabled: boolean;
@@ -439,10 +440,11 @@ export interface GPUDriverSettings {
  * available control plane; one-control-plane deployments use that Server's observed address.
  * `gpuOperator` installs the AMD GPU Operator with a Kubernetes deploy; `gpuStackOwner` is then
  * derived by the backend and may be omitted. `containerRuntime` installs Docker CE or Podman on
- * every compute and login node, and `omnistat` installs Omnistat (with Prometheus and Grafana on
- * the primary controller, by `installMethod`); `deviceMetricsExporter` installs AMD's Device Metrics
- * Exporter the same way instead (never both, and it needs a compute node with AMD GPUs). All three
- * are Slurm-only and rejected for Kubernetes.
+ * every compute and login node, and `omnistat` installs Omnistat; `deviceMetricsExporter` installs
+ * AMD's Device Metrics Exporter instead (never both, and it needs a compute node with AMD GPUs). All
+ * three are Slurm-only and rejected for Kubernetes; the enabled feature's `installMethod` chooses how
+ * the Platform's Grafana is installed. `monitoringDashboards` (default on) gives a Slurm Platform its
+ * own Grafana on the primary controller.
  * `gpuDriver` applies to the GPU nodes of either type. `timeSyncCheck` decides what the
  * deployment's time-sync check does with a node whose clock is unsynchronized or too far from the
  * installation's NTP server: `enforce` (the backend default) fails the deployment, `warn` reports it.
@@ -466,6 +468,7 @@ export interface DeployPlatformInput {
   slurm?: SlurmDeploymentSpec;
   machinePreparation?: PlatformMachinePreparation;
   timeSyncCheck?: TimeSyncCheck;
+  monitoringDashboards?: boolean;
 }
 
 /**

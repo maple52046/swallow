@@ -89,6 +89,11 @@ The installation serves plain HTTP. Put a TLS terminator in front of port 80 bef
 it beyond a trusted management network. Deployed Servers reach the NTP server on UDP 123, so a
 host firewall must allow it from the machine networks.
 
+A Platform's own Grafana on a Server reads the Site Prometheus through the API at
+`http://<SWALLOW_ADDRESS>:<SWALLOW_HTTP_PORT>` (Compose passes it as `SWALLOW_API_PUBLIC_URL`), and
+Omnistat admits the Prometheus scraping from `SWALLOW_ADDRESS` (`SWALLOW_API_MONITORING_SCRAPE_ADDRESSES`),
+so the machine networks must reach this host's HTTP port too.
+
 Every Server swallow provisions is pointed at this NTP server once SSH comes up
 (`configure-ntp` Task): Compose hands the api-server `SWALLOW_ADDRESS` as `SWALLOW_API_NTP_SERVER`.
 Each Platform's install playbook checks every node's clock before installing. On a network

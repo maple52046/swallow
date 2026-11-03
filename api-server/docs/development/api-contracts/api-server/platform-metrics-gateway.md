@@ -11,7 +11,8 @@ Active
 ## Consumer Components
 
 - A Platform's own Grafana, which swallow installs with the Platform and configures with this
-  gateway as its Prometheus datasource
+  gateway as its Prometheus datasource (a Slurm Platform's, see
+  [platforms.md](platforms.md#platform-monitoring-dashboards))
 
 ## Purpose
 
@@ -57,9 +58,10 @@ Any other path below the base is `404`. The wire shape is published in
 Authorization: Bearer <the Platform's monitoring token>
 ```
 
-- A Platform has one monitoring token at a time. swallow issues it when it installs the Platform's
-  Grafana, hands it to that Grafana as a secret, and stores only its hash; installing the Grafana
-  again issues a new one, and the previous one stops working.
+- A Platform has one monitoring token at a time. swallow issues it when it accepts a deployment
+  that installs the Platform's Grafana, hands it to that Grafana's install Task as a sealed secret,
+  and stores only its hash. Every accepted deploy or redeploy of such a Platform issues a new one,
+  and the previous one stops working; a refused deployment issues none.
 - A missing token, another Platform's token, a replaced token, an unknown Platform, or any other
   credential (a Session or an API Key) is `401 unauthorized`, with the same message in every case.
 - The token grants only these reads, only for its Platform.
@@ -89,4 +91,4 @@ A query Prometheus or the proxy rejects is answered with their own status and er
 
 ## Compatibility Notes
 
-- Added on 2026-11-03.
+- Added on 2026-11-03. Since the same day a Slurm Platform's Grafana reads it.

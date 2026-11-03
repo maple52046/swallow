@@ -10889,7 +10889,7 @@ components:
         - unknown
       type: string
     ObservabilityInstallMethod:
-      description: How the Prometheus and Grafana a Slurm monitoring feature uses are installed.
+      description: 'How a Slurm deploy installs the Platform''s Grafana on the primary controller: `container` on its container runtime, or `native` from Grafana''s package repository.'
       enum:
         - container
         - native
@@ -11679,7 +11679,7 @@ components:
           nullable: true
           type: string
         observabilityServerId:
-          description: The primary controller, which runs Prometheus and Grafana.
+          description: The primary controller, which hosts the Platform's Grafana.
           type: string
         state:
           $ref: '#/components/schemas/DeviceMetricsExporterState'
@@ -11927,7 +11927,7 @@ components:
           nullable: true
           type: string
         observabilityServerId:
-          description: The primary controller, which runs Prometheus and Grafana.
+          description: The primary controller, which hosts the Platform's Grafana.
           type: string
         state:
           $ref: '#/components/schemas/OmnistatState'
@@ -13713,6 +13713,7 @@ components:
           allOf:
             - $ref: '#/components/schemas/ObservabilityInstallMethod'
           default: container
+          description: How the Platform's Grafana is installed; without an enabled feature it uses `container`.
       type: object
     SlurmNode:
       properties:
@@ -13777,6 +13778,10 @@ components:
           allOf:
             - $ref: '#/components/schemas/GPUStackOwner'
           default: provisioning
+        monitoringDashboards:
+          default: true
+          description: Give the Platform its own read-only Grafana on the primary controller, showing only its members' series through the Platform metrics gateway. Turning it on later is carried out; turning it off after deployment is 409.
+          type: boolean
         omnistat:
           allOf:
             - $ref: '#/components/schemas/SlurmMonitoringFeature'

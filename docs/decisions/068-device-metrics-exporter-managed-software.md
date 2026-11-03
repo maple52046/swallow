@@ -38,9 +38,9 @@ feature's `installMethod` only chooses how the Platform's Grafana runs on the pr
   `device-metrics-exporter` onto its GPU compute nodes, and the Platform's Grafana onto the primary
   controller. The install
   Task carries the software identity (so the assignments turn `failed` with it) and the Platform's
-  owner and record ids; Slurm job attribution and the scrape check are the Slurm run's extra
-  trusted variables. The Platform's Device Metrics Exporter State, GPU identity, and Monitoring
-  Link are recorded exactly as before.
+  owner and record ids; Slurm job attribution is the Slurm run's extra trusted variable, and each
+  node checks only its own exporter. The Platform's Device Metrics Exporter State and GPU identity
+  are recorded exactly as before; the Monitoring Link is the Platform Grafana's.
 - **Slurm uninstall.** It keeps removing the exporter from every target, and a successful Slurm
   uninstall marks the `device-metrics-exporter` assignments of the Platform's Servers `absent`, so
   the record never outlives the package.
@@ -68,3 +68,4 @@ feature's `installMethod` only chooses how the Platform's Grafana runs on the pr
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
 - 2026-11-03: the Site Prometheus scrapes the exporter, standalone or composed by Slurm; no Prometheus is composed for it.
+- 2026-11-03: the scrape check on the primary controller became a check of each node's own exporter, and the Monitoring Link moved to the Platform Grafana's install.

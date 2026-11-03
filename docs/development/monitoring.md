@@ -220,11 +220,11 @@ node-exporter 的 target 時是 unknown，不是 `down`——swallow 沒有在�
 
 - 在本設計之前部署的 Server 沒有 node-exporter 的 Software Assignment，所以不是 scrape target，health 為 unknown；
   node-exporter 成為 desired state 之後（§4.1）才會自動補裝。
-- Platform 功能的 exporter（Omnistat、GPU Operator 的 DME）尚未由模組宣告，所以還不在 scrape target 裡。
-- Slurm 的 Omnistat 與 DME 仍在 controller 上組入 Prometheus；Omnistat 只允許那一套 Prometheus 收集。
+- Omnistat 的 exporter 已是 scrape target，但名稱與 port 由 composition root 依 Slurm Platform 的 Omnistat State 列出，
+  還不是由模組宣告；GPU Operator 的 DME 還不在 scrape target 裡。
 - GPU Operator 的 DME 只在 Pod 網路上，沒有人收集。
-- 閘道、Platform 的 monitoring token 與 prom-label-proxy 已就位，但還沒有 Platform 的 Grafana 使用它們：沒有 Platform
-  Grafana 的開關，也沒有 Kubernetes 的 Grafana，部署時不會發出 token。
+- Kubernetes 還沒有 Platform 的 Grafana：開關（Platform spec 的 `monitoringDashboards`）已在，但 Kubernetes 的部署
+  尚不讀它，也不發出 token。
 - swallow 的 metrics API 仍有 GPU 指標（只認得 DCGM 與 RDC 的指標名稱），dashboard 仍顯示 GPU 圖；基礎監控仍在實驗性
   開關後面。
 - node-exporter 尚未成為 desired state：安裝之後被移除或停止不會被發現。

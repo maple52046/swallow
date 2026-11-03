@@ -147,6 +147,18 @@ gateway）不能跑在這台主機上：MAAS 的 chronyd 會追一個用它自�
 時間。`local-ntp.sh upstream`
 也會在與上游差超過一秒時先 step 一次，所以請用這支 script 設定上游，不要手動改 MAAS。
 
+## Platform 監控位址
+
+Slurm Platform 的 Grafana 經 API 的 Platform metrics 閘道讀取 Site Prometheus，而 Omnistat 只允許那套
+Prometheus 收集時的來源位址。兩者都在 `.env` 設定：`SWALLOW_API_PUBLIC_URL` 是 Servers 連到這個 API 的 URL
+（API 要發布在那裡，例如用 `BOOT_MEDIA_HTTP_PUBLISH`），`SWALLOW_API_MONITORING_SCRAPE_ADDRESSES` 列出
+Servers 看到的這台主機的位址。任一個是空的時候，需要它的 Slurm 部署會在規劃時被拒絕。lab 的設定：
+
+```bash
+printf 'SWALLOW_API_PUBLIC_URL=http://10.170.168.20\nSWALLOW_API_MONITORING_SCRAPE_ADDRESSES=10.170.168.20,192.168.100.1\n' >> .env
+docker compose up -d api-server worker
+```
+
 ## Seed demonstration Site
 
 Idempotent seed script 會建立 deployment key（`swallow-api deployment-key ensure`，即安裝步驟；API 啟動時不會建立）、login、建立 Site、

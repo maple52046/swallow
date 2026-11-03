@@ -9,6 +9,9 @@
 #   swallow_grafana_prometheus_url    datasource URL; empty reads the Prometheus on this Server
 #   swallow_grafana_prometheus_port   that Prometheus's port, used for the empty-URL default
 #   swallow_grafana_dashboards        swallow-shipped dashboard bundles to provision
+# and, as a secret var, swallow_grafana_datasource_token: the bearer token the datasource sends (a
+# Platform's monitoring token for swallow's metrics gateway). A run on one Server writes
+# {grafanaUrl} to the run's result file once Grafana serves every provisioned dashboard.
 # Idempotent: a converged host reruns with no changes.
 
 - name: Hold the OS's automatic package maintenance

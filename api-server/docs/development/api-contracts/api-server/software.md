@@ -329,7 +329,7 @@ for a container and a native process. Each is installed by one of two methods:
 | `prometheus` | `scrapePort` | integer | — | Port of every `scrapeServerIds` Server (1–65535); required with, and only valid with, `scrapeServerIds`. |
 | `grafana` | `version` | string | `12.4.12` | Release version (`x.y.z`; a leading `v` is accepted and dropped): the image tag or the package version. |
 | `grafana` | `prometheusUrl` | string | Prometheus on the same Server (where it listens) | Absolute `http`/`https` URL of the datasource (UID `prometheus`). |
-| `grafana` | `dashboards` | string[] | `[]` | swallow-shipped dashboard bundles to provision: `omnistat` (Omnistat's RMS global, node, and job dashboards) and `device-metrics-exporter` (the Device Metrics Exporter's overview, GPU, node, and job dashboards). |
+| `grafana` | `dashboards` | string[] | `[]` | swallow-shipped dashboard bundles to provision: `node-exporter` (swallow's Servers dashboard over the Node Exporter: CPU, memory, root filesystem, network, and load per `server_id`), `omnistat` (Omnistat's RMS global, node, and job dashboards), and `device-metrics-exporter` (the Device Metrics Exporter's overview, GPU, node, and job dashboards). |
 
 - Prometheus listens on port `9090` (loopback by default) and Grafana on port `3000` of the
   Server's primary address. Prometheus has no authentication; Grafana is read-only: anonymous
@@ -345,6 +345,10 @@ for a container and a native process. Each is installed by one of two methods:
 - The recorded `spec` always carries the applied `installMethod`, `containerRuntime` (container
   method only), `version`, Prometheus's `listen` and `retention`, the `scrapeJob`, and the lists as
   arrays; Grafana's `prometheusUrl` is recorded as given (empty means the local Prometheus).
+- A Grafana a Platform deployment composes sends the Platform's monitoring token to its datasource
+  as a bearer token (see [Composition Into Platform Deployments](#composition-into-platform-deployments)).
+  The token is not a `spec` field and never appears in the assignment; a standalone install sends
+  none.
 - Re-installing with another method or runtime replaces the previous one on the Server and keeps
   Prometheus's data.
 - Uninstall removes the instance whichever method placed it (container, Quadlet unit, or native
@@ -358,9 +362,10 @@ on each target: AMD's pinned native package (`amdgpu-exporter 1.5.3~24.04`, SHA-
 with `gpuagent` started after swallow's post-boot amdgpu loader (`swallow-amdgpu-load.service`,
 installed when the Server has none). The exporter serves per-GPU Prometheus metrics on the
 Server's primary address at port `5001` (`5000` stays reserved for the RDC exporter),
-with Slurm job attribution and the hardware profiler off. It installs only the exporter: to graph
-it, install `prometheus` with `scrapeServerIds` naming these Servers and `scrapePort: 5001`, and
-`grafana` with the `device-metrics-exporter` dashboard bundle.
+with Slurm job attribution and the hardware profiler off. It installs only the exporter: the Site
+Prometheus scrapes it once its assignment is `installed`
+([discovery-prometheus.md](discovery-prometheus.md)), and `grafana` with the
+`device-metrics-exporter` dashboard bundle graphs it from a datasource that reads that Prometheus.
 
 ```json
 {
@@ -490,6 +495,9 @@ On success the response is `202 Accepted`:
   `409 conflict` on a member of a Kubernetes Platform whose `exporterOwner` was `k8s`; the field
   and its exporter DaemonSets were retired ([platforms](platforms.md)). A locked target is still
   `409 conflict`.
+- 2026-11-03, additive: the `grafana` kind accepts the `node-exporter` dashboard bundle. A Slurm
+  deployment no longer composes `prometheus`, and composes `grafana` whenever the Platform has its
+  own dashboards (see [Composition Into Platform Deployments](#composition-into-platform-deployments)).
 
 ## Composition Into Platform Deployments
 
@@ -501,14 +509,19 @@ composes:
 
 - with the container runtime feature, `docker-ce` (`enableApi: false`) or `podman` onto its
   compute and login nodes (see [platforms](platforms.md#container-runtime));
-- with Omnistat, `prometheus` (`listen: loopback`, job `omnistat`, `scrapeServerIds` = the compute nodes,
-  `scrapePort` = `8001`) and `grafana` (dashboards `omnistat`) onto its primary controller by
-  Omnistat's install method; the `container` method also composes the runtime onto the primary
-  controller (see [platforms](platforms.md#omnistat));
-- with the Device Metrics Exporter, the same two kinds the same way, with job
-  `device-metrics-exporter`, `scrapeServerIds` = the GPU compute nodes, `scrapePort` = `5001`, and
-  dashboards `device-metrics-exporter`, and then `device-metrics-exporter` itself onto the GPU
-  compute nodes with Slurm job attribution on (see [platforms](platforms.md#device-metrics-exporter)).
+- with the Platform's own Grafana (`monitoringDashboards`, on by default), `grafana` onto its
+  primary controller by the monitoring feature's install method (`container` without one), with
+  `prometheusUrl` = the [Platform metrics gateway](platform-metrics-gateway.md) and dashboards
+  `node-exporter` plus `omnistat` or `device-metrics-exporter` for the feature; the `container`
+  method also composes the runtime onto the primary controller (see
+  [platforms](platforms.md#platform-monitoring-dashboards)). The Platform's monitoring token reaches
+  the install Task only as a sealed secret, never in the assignment's `spec`;
+- with the Device Metrics Exporter, `device-metrics-exporter` itself onto the GPU compute nodes
+  with Slurm job attribution on (see [platforms](platforms.md#device-metrics-exporter)).
+
+No deployment composes `prometheus`: the Site Prometheus scrapes every exporter. A Platform
+deployed when Omnistat or the Device Metrics Exporter composed a `prometheus` keeps that
+assignment until it is uninstalled through this surface; nothing removes it.
 
 OS deployments compose `node-exporter` the same way onto every Server they provision (see
 [provisioning](provisioning.md#durable-os-workflows)), and so does a Platform deployment's
@@ -518,8 +531,8 @@ OS deployments compose `node-exporter` the same way onto every Server they provi
 A composed runtime skips a Server where it is already `installed`, so a user's own runtime
 spec is never reverted. Composition adds no endpoint. A Slurm Platform's uninstall removes the
 Device Metrics Exporter from its Servers, and a successful one marks their
-`device-metrics-exporter` assignments `absent`; the composed Prometheus, Grafana, and runtime stay
-for the software uninstall.
+`device-metrics-exporter` assignments `absent`; the composed Grafana and runtime (and a Prometheus
+an earlier deployment composed) stay for the software uninstall.
 
 Slurm's embedded NFS (HA state and workload storage) is still not the generic `nfs` software
 above; extracting it into the shared `configure-nfs` Job is deferred. Until then, generic NFS and

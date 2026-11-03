@@ -76,7 +76,7 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
 | `podman` | 無 role；選用 `version` | `version`（選用） | 與 `docker-ce` 互斥；拒絕已是 Kubernetes member 的 Server |
 | `nfs` | `server` / `client`（可同時） | server：`exportPath`、`exportOptions`；client：`source`（`host:/path`）、`mountPath`、`mountOptions` | 可與 Platform 共存 |
 | `prometheus` | 無 role；`installMethod`；`containerRuntime` | `installMethod`（`container` 預設／`native`）、`containerRuntime`（container method：`docker-ce`／`podman`）、`version`（release 版本 `x.y.z`，預設 `3.15.0`）、`listen`（`loopback` 預設／`management`）、`retention`（Prometheus duration，預設 `15d`）、`scrapeJob`、`scrapeTargets`（`host:port`）、`scrapeServerIds` + `scrapePort`（同 Site 的 Server，每次執行時以 inventory 解析成當下的 primary address） | container method 需 runtime 已 `installed` |
-| `grafana` | 無 role；`installMethod`；`containerRuntime` | `installMethod`、`containerRuntime`、`version`（預設 `12.4.12`）、`prometheusUrl`（省略＝同機 Prometheus）、`dashboards`（bundle：`omnistat`、`device-metrics-exporter`） | container method 需 runtime 已 `installed` |
+| `grafana` | 無 role；`installMethod`；`containerRuntime` | `installMethod`、`containerRuntime`、`version`（預設 `12.4.12`）、`prometheusUrl`（省略＝同機 Prometheus）、`dashboards`（bundle：`node-exporter`、`omnistat`、`device-metrics-exporter`） | container method 需 runtime 已 `installed` |
 | `device-metrics-exporter` | 無 role；只有 native 一種安裝路徑 | 無（版本固定 `1.5.3`，assignment spec 記錄 `version`） | GPU Inventory 須有 AMD compute GPU；拒絕 Kubernetes member 與帶 Platform Claim 的 Server（`refusedForClaimedServers`，install 與 uninstall 皆拒）；OS 限 Ubuntu 24.04（playbook 檢查） |
 | `node-exporter` | 無 role；只有 OS 套件一種安裝路徑 | 無（版本由 OS 套件決定） | 可與 Platform 共存；OS 限 Debian／Ubuntu 與 RHEL 家族（playbook 檢查） |
 
@@ -134,7 +134,20 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
 （anonymous Viewer、無 login form、無 admin）。組入 Platform 時，datasource 可以帶 Platform 的 monitoring token
 （secret var `swallow_grafana_datasource_token`，[monitoring.md](monitoring.md) §7）：token 只寫在 root 才能讀的
 environment file，由 systemd、podman 或 Docker Compose 以 root 讀取後交給 Grafana，datasource 檔只引用環境變數，
-所以 Grafana 自己的檔案不持有它。
+所以 Grafana 自己的檔案不持有它。只在一台 Server 上執行的 install 在所有 dashboard 都能讀到之後，把
+`{grafanaUrl}`（`http://<management address>:3000`）寫進 run 的 result 檔；Platform 組入的 Grafana 以它記錄
+Monitoring Link。
+
+**dashboard bundles**（grafana role 的 `files/dashboards/<bundle>/`，全部以 datasource UID `prometheus` 讀取）：
+
+| bundle | 內容 | 來源 |
+| --- | --- | --- |
+| `node-exporter` | Servers：CPU、memory、root filesystem 使用率、network 收送 bytes/s、load average；以 `server_id` 變數（`label_values(node_uname_info, server_id)`）選 Server，圖例以 `nodename` 標示 | swallow 自己撰寫 |
+| `omnistat` | Omnistat 的 RMS global、node、job | 上游 Omnistat，固定版本 |
+| `device-metrics-exporter` | DME 的 Slurm overview、GPU、node、job | 上游 DME，固定版本 |
+
+新增 bundle 時，同時在 `internal/core/software/domain/observability.go` 的 bundle 清單與 role 的
+`grafana_dashboard_folders` 登錄（`grafana_role_test.go` 檢查兩邊一致）。
 
 **AMD Device Metrics Exporter**（[Device Metrics Exporter](glossaries/terms/device-metrics-exporter.md)）：
 standalone 安裝與 Slurm 功能（§5）是同一個 kind、同一支 playbook 與 role（`roles/device_metrics_exporter`），
@@ -155,8 +168,10 @@ standalone 為 `none`（`-enable-slurm-scl=false`），Slurm 組入時為 `slurm
   時才移除 loader；Slurm 組入時 loader 由 `slurm_gpu` 管。
 - **驗證**：兩種模式都跑 identity check：exporter 沒有 GPU health metrics 即以
   `device_metrics_exporter_no_metrics` 失敗；distinct `gpu_id` 少於 GPU 數（collapsed，例如 MI308X SR-IOV VF）
-  只記錄在 Task output，不使安裝失敗。Prometheus 抓取驗證與 result 檔只在帶 observability id（Slurm）時執行。
-- Standalone 只提供 exporter，要看圖時另裝 Prometheus（`scrapeServerIds` + `scrapePort: 5001`）與 Grafana
+  只記錄在 Task output，不使安裝失敗。每台 exporter host 先確認自己的 exporter 在 bind address 回應；Site 的
+  Prometheus 依 Software Assignment 收集它（[monitoring.md](monitoring.md) §5.2），所以不檢查任何 Prometheus。result 檔
+  `{gpuIdentity, nodes}` 只在 Slurm 組入（帶 compute ids）時寫。
+- Standalone 只提供 exporter；Site 的 Prometheus 已經收集它，要看圖時另裝讀那套 Prometheus 的 Grafana
   （`device-metrics-exporter` bundle）。
 
 設計理由（為何是 Managed Software 而不只共用 role、為何沒有 container method、為何 standalone 不一併裝
@@ -248,9 +263,8 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
     secret var `swallow_grafana_datasource_token`（選用）
   - Device Metrics Exporter：`swallow_device_metrics_exporter_version`、`swallow_device_metrics_exporter_port`
     （固定 `5001`，domain 擁有）、`swallow_device_metrics_exporter_job_attribution`（standalone 為 `none`）。
-    Slurm 組入時另疊加 `_job_attribution: slurm`、`_compute_ids`、`_observability_id`、`_cluster_name`、
-    `_prometheus_port`、`_grafana_port`、`_record_id`（缺 `_job_attribution` 而有 `_compute_ids` 時，
-    playbook 視為 `slurm`，相容 068 之前的 run）
+    Slurm 組入時另疊加 `_job_attribution: slurm`、`_compute_ids`、`_cluster_name`（缺 `_job_attribution` 而有
+    `_compute_ids` 時，playbook 視為 `slurm`，相容 068 之前的 run）
 
 ### 4.3 record / failure 契約
 
@@ -366,17 +380,25 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
 - **首個實作**（[decision 063](../decisions/063-omnistat-slurm-observability.md)）：Slurm deploy 在
   `install-platform` 之後依序組入：
   1. container runtime Job（`configure-docker-ce` 或 `configure-podman`）：`containerRuntime` 功能的
-     compute＋login node，加上 Omnistat `container` method 的 primary controller（無功能時採該機已
-     assign 的 runtime，否則 Docker CE）；已 `installed` 的 Server 跳過，不覆蓋 user 的 spec；
-  2. Omnistat 或 Device Metrics Exporter 開啟時 `configure-prometheus`、`configure-grafana`（目標＝
-     primary controller，spec 帶該功能的 `installMethod` 與 runtime）；
+     compute＋login node，加上 Platform Grafana 以 `container` method 安裝時的 primary controller（採該機
+     已 assign 的 runtime，否則 Docker CE）；已 `installed` 的 Server 跳過，不覆蓋 user 的 spec；
+  2. Platform 的 `monitoringDashboards` 開啟時（預設，CPU-only 與沒有監控功能的 Platform 也一樣）
+     `configure-grafana`：目標＝primary controller，spec 帶監控功能的 `installMethod`（沒有功能時 `native`）與
+     runtime、`prometheusUrl`＝Platform metrics 閘道、dashboards `node-exporter` 加上功能的 bundle。Platform 的
+     monitoring token 在 Workflow 受理時發出，只以 sealed secret var `swallow_grafana_datasource_token` 交給
+     `install-grafana`，assignment 的 spec 不含它；`install-grafana` 的結果類完成行為 `platform-grafana-result` 寫入
+     Monitoring Link `Platform Grafana`（[platform-deployment.md](platform-deployment.md) §6.3）；
   3. Device Metrics Exporter 開啟時 `configure-device-metrics-exporter`（目標＝GPU compute nodes 的
      `device-metrics-exporter`，[decision 068](../decisions/068-device-metrics-exporter-managed-software.md)）。
      其 `install-device-metrics-exporter` Task 同時帶 software 參數（因此安裝失敗時 assignment 隨之標
-     `failed`）與 Platform 的 owner／record 參數，Platform 的 DME State、GPU identity、Monitoring Link 照舊由
-     該 Task 宣告的投影類與結果類完成行為記錄；Slurm 專屬 trusted vars（job attribution、cluster name label、observability
-     Server 上的抓取驗證，見 §4.2）疊加在 software vars 上。Slurm uninstall 照舊在每個 target 移除 DME，成功時把
-     該 Platform 各 Server 的 `device-metrics-exporter` assignment 標為 `absent`，紀錄不會比套件活得久。
+     `failed`）與 Platform 的 owner／record 參數，Platform 的 DME State 與 GPU identity 照舊由該 Task 宣告的投影類與
+     結果類完成行為記錄；Slurm 專屬 trusted vars（job attribution、cluster name label，見 §4.2）疊加在 software vars
+     上。Slurm uninstall 照舊在每個 target 移除 DME，成功時把該 Platform 各 Server 的 `device-metrics-exporter`
+     assignment 標為 `absent`，紀錄不會比套件活得久。
+
+  不組入 Prometheus：Site 的 Prometheus 收集每個 exporter（[monitoring.md](monitoring.md) §5）。在這之前部署、當時
+  組入了 Prometheus 的 Platform 保留那筆 `prometheus` Software Assignment，沒有任何東西會移除它，要移除時經
+  software API uninstall。
 
   每個 Job 是「該 kind 的 ansible Task（`install-<kind>`，帶 `softwareKind`／`serverIds`／
   `softwareMode=install`）＋ `record-<kind>` internal record Task」，下一個 Job 依賴上一個的 record

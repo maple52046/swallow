@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,46 +82,58 @@ func TestOmnistatObserverIgnoresOtherTasksAndPending(t *testing.T) {
 	}
 }
 
-// Inside a configure-slurm Workflow every ansible execution carries the Workflow's kind. The
-// composed software Tasks must not run the Slurm credential completion, and the Omnistat Task
-// must fail without a Grafana URL rather than leave the Platform without its link.
-func TestOmnistatResultNeedsTheGrafanaURL(t *testing.T) {
-	result := workflowResults(platformDeploymentObserver{})[completionOmnistatResult]
-	if err := result.Complete(context.Background(), workflowapp.TaskResult{
-		Workflow: &workflowdomain.Workflow{ID: "op-1", PlatformID: "plat-1"},
-	}); err == nil {
-		t.Error("an Omnistat run without a Grafana URL must fail its Task")
+// A Grafana run that reports no URL fails its Task rather than leave the Platform without its
+// link, through the composed Grafana's completion and the one a configure-omnistat Task declares.
+func TestPlatformGrafanaResultNeedsTheGrafanaURL(t *testing.T) {
+	for _, completion := range []string{completionPlatformGrafanaResult, completionOmnistatResult} {
+		result := workflowResults(platformDeploymentObserver{})[completion]
+		if err := result.Complete(context.Background(), workflowapp.TaskResult{
+			Workflow: &workflowdomain.Workflow{ID: "op-1", PlatformID: "plat-1"},
+		}); err == nil {
+			t.Errorf("%s without a Grafana URL must fail its Task", completion)
+		}
 	}
 }
 
-// Prometheus scrapes the compute nodes by Server id on the exporter port, so the addresses are
-// resolved when the Task runs; Grafana provisions the Omnistat dashboards. Both carry Omnistat's
-// install method, and the container method names the composed runtime.
-func TestOmnistatSoftwareSpecs(t *testing.T) {
-	omnistat := &platformdomain.OmnistatLaunch{
-		ObservabilityServerID: "s1", ComputeServerIDs: []string{"s2", "s3"},
-		InstallMethod: platformdomain.ObservabilityInstallContainer,
+// The Platform Grafana reads the Platform metrics gateway at the public URL and provisions the
+// basic-monitoring dashboards plus the monitoring feature's; the container method names the
+// composed runtime and the native method none.
+func TestPlatformGrafanaSpec(t *testing.T) {
+	platform := &platformdomain.Platform{ID: "plat-1"}
+	container := &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallContainer}
+	native := &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative}
+	tests := []struct {
+		name        string
+		launch      platformdomain.DeploymentLaunch
+		runtime     softwaredomain.Kind
+		wantMethod  string
+		wantRuntime any
+		wantBundles []string
+	}{
+		{name: "no feature", launch: platformdomain.DeploymentLaunch{Platform: platform, MonitoringDashboards: container},
+			runtime: softwaredomain.KindPodman, wantMethod: "container", wantRuntime: "podman", wantBundles: []string{"node-exporter"}},
+		{name: "Omnistat native", launch: platformdomain.DeploymentLaunch{Platform: platform, MonitoringDashboards: native,
+			Omnistat: &platformdomain.OmnistatLaunch{ObservabilityServerID: "s1"}},
+			wantMethod: "native", wantBundles: []string{"node-exporter", "omnistat"}},
+		{name: "Device Metrics Exporter", launch: platformdomain.DeploymentLaunch{Platform: platform, MonitoringDashboards: container,
+			DeviceMetricsExporter: &platformdomain.DeviceMetricsExporterLaunch{ObservabilityServerID: "s1"}},
+			runtime: softwaredomain.KindDockerCE, wantMethod: "container", wantRuntime: "docker-ce",
+			wantBundles: []string{"node-exporter", "device-metrics-exporter"}},
 	}
-
-	prometheus := monitoringSoftwareSpec(softwaredomain.KindPrometheus,
-		slurmMonitoringOf(platformdomain.DeploymentLaunch{Omnistat: omnistat}), softwaredomain.KindPodman)
-	if prometheus[softwaredomain.SpecScrapeJob] != platformdomain.OmnistatScrapeJob ||
-		prometheus[softwaredomain.SpecScrapePort] != platformdomain.OmnistatExporterPort ||
-		prometheus[softwaredomain.SpecInstallMethod] != "container" || prometheus[softwaredomain.SpecContainerRuntime] != "podman" ||
-		prometheus[softwaredomain.SpecListen] != "loopback" {
-		t.Errorf("prometheus spec = %v", prometheus)
-	}
-	if ids, _ := prometheus[softwaredomain.SpecScrapeServerIDs].([]string); !slices.Equal(ids, []string{"s2", "s3"}) {
-		t.Errorf("scrapeServerIds = %v, want [s2 s3]", prometheus[softwaredomain.SpecScrapeServerIDs])
-	}
-
-	omnistat.InstallMethod = platformdomain.ObservabilityInstallNative
-	grafana := monitoringSoftwareSpec(softwaredomain.KindGrafana, slurmMonitoringOf(platformdomain.DeploymentLaunch{Omnistat: omnistat}), "")
-	if bundles, _ := grafana[softwaredomain.SpecDashboards].([]string); !slices.Equal(bundles, []string{"omnistat"}) {
-		t.Errorf("grafana dashboards = %v, want [omnistat]", grafana[softwaredomain.SpecDashboards])
-	}
-	if _, present := grafana[softwaredomain.SpecContainerRuntime]; present || grafana[softwaredomain.SpecInstallMethod] != "native" {
-		t.Errorf("grafana spec = %v, want native without a runtime", grafana)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := platformGrafanaSpec(tc.launch, tc.runtime, "http://10.170.168.20")
+			if spec[softwaredomain.SpecInstallMethod] != tc.wantMethod || spec[softwaredomain.SpecContainerRuntime] != tc.wantRuntime {
+				t.Errorf("method %v on %v, want %s on %v", spec[softwaredomain.SpecInstallMethod],
+					spec[softwaredomain.SpecContainerRuntime], tc.wantMethod, tc.wantRuntime)
+			}
+			if got := spec[softwaredomain.SpecPrometheusURL]; got != "http://10.170.168.20/api/v1/platform-metrics/plat-1/prometheus" {
+				t.Errorf("prometheusUrl = %v, want the Platform metrics gateway", got)
+			}
+			if bundles, _ := spec[softwaredomain.SpecDashboards].([]string); !slices.Equal(bundles, tc.wantBundles) {
+				t.Errorf("dashboards = %v, want %v", spec[softwaredomain.SpecDashboards], tc.wantBundles)
+			}
+		})
 	}
 }
 
@@ -151,14 +165,14 @@ func (a assignmentList) SetState(context.Context, string, softwaredomain.Kind, s
 	return nil
 }
 
-// The containerRuntime feature names the runtime and its compute and login nodes; Omnistat's
-// container method adds the observability Server and, without the feature, follows the runtime
+// The containerRuntime feature names the runtime and its compute and login nodes; a Platform
+// Grafana by the container method adds its Server and, without the feature, follows the runtime
 // already assigned there (Docker CE when none). A Server whose runtime is installed is skipped.
 func TestComposedContainerRuntime(t *testing.T) {
 	podmanOnS1 := assignmentList{{ServerID: "s1", Kind: softwaredomain.KindPodman, State: softwaredomain.StateInstalled}}
 	dockerOnS2 := assignmentList{{ServerID: "s2", Kind: softwaredomain.KindDockerCE, State: softwaredomain.StateInstalled}}
-	container := &platformdomain.OmnistatLaunch{ObservabilityServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallContainer}
-	native := &platformdomain.OmnistatLaunch{ObservabilityServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative}
+	container := &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallContainer}
+	native := &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative}
 	feature := &platformdomain.ContainerRuntimeLaunch{Kind: platformdomain.ContainerRuntimeDockerCE, ServerIDs: []string{"s2", "s3"}}
 
 	tests := []struct {
@@ -168,16 +182,16 @@ func TestComposedContainerRuntime(t *testing.T) {
 		wantKind    softwaredomain.Kind
 		wantServers []string
 	}{
-		{name: "nothing composed", launch: platformdomain.DeploymentLaunch{Omnistat: native}},
+		{name: "nothing composed", launch: platformdomain.DeploymentLaunch{MonitoringDashboards: native}},
 		{name: "feature only", launch: platformdomain.DeploymentLaunch{ContainerRuntime: feature},
 			wantKind: softwaredomain.KindDockerCE, wantServers: []string{"s2", "s3"}},
 		{name: "feature skips an installed runtime", assignments: dockerOnS2, launch: platformdomain.DeploymentLaunch{ContainerRuntime: feature},
 			wantKind: softwaredomain.KindDockerCE, wantServers: []string{"s3"}},
-		{name: "feature with Omnistat container", launch: platformdomain.DeploymentLaunch{ContainerRuntime: feature, Omnistat: container},
+		{name: "feature with a container Grafana", launch: platformdomain.DeploymentLaunch{ContainerRuntime: feature, MonitoringDashboards: container},
 			wantKind: softwaredomain.KindDockerCE, wantServers: []string{"s2", "s3", "s1"}},
-		{name: "Omnistat container defaults to Docker CE", launch: platformdomain.DeploymentLaunch{Omnistat: container},
+		{name: "container Grafana defaults to Docker CE", launch: platformdomain.DeploymentLaunch{MonitoringDashboards: container},
 			wantKind: softwaredomain.KindDockerCE, wantServers: []string{"s1"}},
-		{name: "Omnistat container follows the installed runtime", assignments: podmanOnS1, launch: platformdomain.DeploymentLaunch{Omnistat: container},
+		{name: "container Grafana follows the installed runtime", assignments: podmanOnS1, launch: platformdomain.DeploymentLaunch{MonitoringDashboards: container},
 			wantKind: softwaredomain.KindPodman, wantServers: []string{}},
 	}
 	for _, tc := range tests {
@@ -257,57 +271,24 @@ func TestDeviceMetricsExporterObserverProjectsItsTaskOnly(t *testing.T) {
 	}
 }
 
-// The exporter's Prometheus scrapes the GPU compute nodes on port 5001 (never the RDC exporter's
-// 5000) under its own job, and Grafana provisions the exporter's dashboards.
-func TestDeviceMetricsExporterSoftwareSpecs(t *testing.T) {
+// The exporter itself is the composed Managed Software (decision 068), whose install Task id is the
+// one the Platform's step observer and completion select; its Grafana dashboards are the
+// exporter's bundle.
+func TestDeviceMetricsExporterMonitoring(t *testing.T) {
 	launch := platformdomain.DeploymentLaunch{DeviceMetricsExporter: &platformdomain.DeviceMetricsExporterLaunch{
 		ObservabilityServerID: "s1", GPUComputeServerIDs: []string{"s3"},
 		InstallMethod: platformdomain.ObservabilityInstallNative,
 	}}
 	monitoring := slurmMonitoringOf(launch)
-	prometheus := monitoringSoftwareSpec(softwaredomain.KindPrometheus, monitoring, "")
-	if prometheus[softwaredomain.SpecScrapeJob] != "device-metrics-exporter" || prometheus[softwaredomain.SpecScrapePort] != 5001 ||
-		prometheus[softwaredomain.SpecInstallMethod] != "native" || prometheus[softwaredomain.SpecListen] != "loopback" {
-		t.Errorf("prometheus spec = %v", prometheus)
-	}
-	if ids, _ := prometheus[softwaredomain.SpecScrapeServerIDs].([]string); !slices.Equal(ids, []string{"s3"}) {
-		t.Errorf("scrapeServerIds = %v, want the GPU compute node [s3]", prometheus[softwaredomain.SpecScrapeServerIDs])
-	}
-	grafana := monitoringSoftwareSpec(softwaredomain.KindGrafana, monitoring, "")
-	if bundles, _ := grafana[softwaredomain.SpecDashboards].([]string); !slices.Equal(bundles, []string{"device-metrics-exporter"}) {
-		t.Errorf("grafana dashboards = %v, want [device-metrics-exporter]", grafana[softwaredomain.SpecDashboards])
-	}
-	// The exporter itself is the composed Managed Software (decision 068), whose install Task id is
-	// the one the Platform's step observer and completion select.
 	if monitoring.composedKind != softwaredomain.KindDeviceMetricsExporter || !slices.Equal(monitoring.composedServerIDs, []string{"s3"}) {
 		t.Errorf("composed exporter = %s on %v, want device-metrics-exporter on the GPU compute node [s3]",
 			monitoring.composedKind, monitoring.composedServerIDs)
 	}
+	if monitoring.dashboardBundle != "device-metrics-exporter" {
+		t.Errorf("dashboard bundle = %q, want device-metrics-exporter", monitoring.dashboardBundle)
+	}
 	if deviceMetricsExporterStepID != "install-device-metrics-exporter" {
 		t.Errorf("deviceMetricsExporterStepID = %q", deviceMetricsExporterStepID)
-	}
-}
-
-// The exporter's container method composes the observability Server's runtime like Omnistat's.
-func TestComposedContainerRuntimeForTheDeviceMetricsExporter(t *testing.T) {
-	launcher := platformDeploymentLauncher{software: softwareapp.NewSoftwareService(&storetest.Transactor{}, testModules(t).software, testModules(t).accelerators, assignmentList{}, nil, nil)}
-	launch := platformdomain.DeploymentLaunch{DeviceMetricsExporter: &platformdomain.DeviceMetricsExporterLaunch{
-		ObservabilityServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallContainer,
-	}}
-	kind, servers, err := launcher.composedContainerRuntime(context.Background(), launch)
-	if err != nil || kind != softwaredomain.KindDockerCE || !slices.Equal(servers, []string{"s1"}) {
-		t.Errorf("composedContainerRuntime() = %q %v %v, want docker-ce [s1]", kind, servers, err)
-	}
-}
-
-// The exporter's Task must report a Grafana URL; without one it fails instead of leaving the
-// Platform without its link.
-func TestDeviceMetricsExporterCompletionNeedsTheGrafanaURL(t *testing.T) {
-	result := workflowResults(platformDeploymentObserver{})[completionDeviceMetricsExporterResult]
-	if err := result.Complete(context.Background(), workflowapp.TaskResult{
-		Workflow: &workflowdomain.Workflow{ID: "op-1", PlatformID: "plat-1"},
-	}); err == nil {
-		t.Error("a Device Metrics Exporter run without a Grafana URL must fail its Task")
 	}
 }
 
@@ -335,17 +316,25 @@ type slurmTestCatalog struct{}
 
 func (slurmTestCatalog) Resolve(name string) (string, error) { return name + ".yml", nil }
 
-// The Device Metrics Exporter feature composes the Managed Software device-metrics-exporter after
-// Prometheus and Grafana (decision 068): its install Task is the one the Platform's observer and
-// completion select, carries both the software identity (for the assignments) and the Platform's
-// owner and record ids, reaches every target for the scrape check, and has the Slurm side's
-// variables laid over the software install's; a record Task then marks the GPU nodes installed.
-func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
-	servers := slurmTestServers{gpus: map[string]bool{"s2": true, "s3": true}}
-	launcher := platformDeploymentLauncher{
+// slurmCompositionLauncher is a launcher over deployed test Servers (GPUs on gpus) that knows the
+// installation's monitoring addresses.
+func slurmCompositionLauncher(t *testing.T, gpus map[string]bool) platformDeploymentLauncher {
+	t.Helper()
+	servers := slurmTestServers{gpus: gpus}
+	return platformDeploymentLauncher{
 		operations: newTestExecutionService(servers, ntpTestAutomation{}, slurmTestCatalog{}, testModules(t).workflowKinds),
 		software:   softwareapp.NewSoftwareService(&storetest.Transactor{}, testModules(t).software, testModules(t).accelerators, assignmentList{}, servers, nil),
+		monitoring: platformMonitoringAccess{publicURL: "http://10.170.168.20", scrapeAddresses: []string{"10.170.168.20", "192.168.100.1"}},
 	}
+}
+
+// The Device Metrics Exporter feature composes the Managed Software device-metrics-exporter after
+// the Platform's Grafana (decision 068): its install Task is the one the Platform's observer and
+// completion select, carries both the software identity (for the assignments) and the Platform's
+// owner and record ids, reaches only the GPU nodes it installs on, and has the Slurm side's
+// variables laid over the software install's; a record Task then marks the GPU nodes installed.
+func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
+	launcher := slurmCompositionLauncher(t, map[string]bool{"s2": true, "s3": true})
 	launch := platformdomain.DeploymentLaunch{
 		Platform:        &platformdomain.Platform{ID: "plat-1", Name: "lab", Type: platformdomain.PlatformTypeSlurm},
 		TargetServerIDs: []string{"s1", "s2", "s3"},
@@ -358,20 +347,20 @@ func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
 				"swallow_device_metrics_exporter_compute_ids":     []string{"s2", "s3"},
 			},
 		},
+		MonitoringDashboards: &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative},
 	}
 	plan, err := launcher.planSlurmComposition(context.Background(), launch, "op-1", false)
 	if err != nil {
 		t.Fatalf("planSlurmComposition() error = %v", err)
 	}
 	if got := taskIDs(plan.steps); !slices.Equal(got, []string{
-		"install-prometheus", "record-prometheus", "install-grafana", "record-grafana",
-		deviceMetricsExporterStepID, "record-device-metrics-exporter",
+		"install-grafana", "record-grafana", deviceMetricsExporterStepID, "record-device-metrics-exporter",
 	}) {
 		t.Fatalf("composed Tasks = %v", got)
 	}
-	install, record := plan.steps[4], plan.steps[5]
+	install, record := plan.steps[2], plan.steps[3]
 	if install.Job != "configure-device-metrics-exporter" || !slices.Equal(install.DependsOn, []string{"record-grafana"}) ||
-		!slices.Equal(install.Targets, serverRefs("s1", "s2", "s3")) {
+		!slices.Equal(install.Targets, serverRefs("s2", "s3")) {
 		t.Errorf("install Task = Job %s DependsOn %v Targets %v", install.Job, install.DependsOn, install.Targets)
 	}
 	if install.Parameters["playbook"] != "deploy-device-metrics-exporter" {
@@ -387,8 +376,7 @@ func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
 	}
 	vars := extraVars(t, install)
 	if vars["swallow_device_metrics_exporter_job_attribution"] != "slurm" || vars["swallow_software_kind"] != string(softwaredomain.KindDeviceMetricsExporter) ||
-		vars["swallow_device_metrics_exporter_port"] != softwaredomain.DeviceMetricsExporterPort ||
-		vars["swallow_device_metrics_exporter_grafana_port"] != softwaredomain.GrafanaPort {
+		vars["swallow_device_metrics_exporter_port"] != softwaredomain.DeviceMetricsExporterPort {
 		t.Errorf("install Task extraVars = %v, want the Slurm side over the software install", vars)
 	}
 	if record.Kind != softwareStepKindRecord || !slices.Equal(record.DependsOn, []string{deviceMetricsExporterStepID}) ||
@@ -398,6 +386,156 @@ func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
 	if last := plan.installs[len(plan.installs)-1]; last.Kind != softwaredomain.KindDeviceMetricsExporter ||
 		!slices.Equal(last.ServerIDs, []string{"s2", "s3"}) {
 		t.Errorf("last composed install = %s on %v, want the exporter on the GPU nodes", last.Kind, last.ServerIDs)
+	}
+}
+
+// Without a monitoring feature the Platform still gets its Grafana on the primary controller, after
+// the runtime its container method needs: the install Task records the Platform Grafana link, reads
+// the gateway, and is the one Task that receives the monitoring token, which no plan field carries.
+// No Prometheus is composed.
+func TestSlurmCompositionComposesThePlatformGrafana(t *testing.T) {
+	launcher := slurmCompositionLauncher(t, nil)
+	launch := platformdomain.DeploymentLaunch{
+		Platform:             &platformdomain.Platform{ID: "plat-1", Name: "lab", Type: platformdomain.PlatformTypeSlurm},
+		TargetServerIDs:      []string{"s1", "s2"},
+		RequestedBy:          "admin",
+		MonitoringDashboards: &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallContainer},
+	}
+	plan, err := launcher.planSlurmComposition(context.Background(), launch, "op-1", false)
+	if err != nil {
+		t.Fatalf("planSlurmComposition() error = %v", err)
+	}
+	if got := taskIDs(plan.steps); !slices.Equal(got, []string{"install-docker-ce", "record-docker-ce", "install-grafana", "record-grafana"}) {
+		t.Fatalf("composed Tasks = %v", got)
+	}
+	grafana := plan.steps[2]
+	if !slices.Equal(grafana.Targets, serverRefs("s1")) || !slices.Equal(grafana.DependsOn, []string{"record-docker-ce"}) {
+		t.Errorf("Grafana Task targets %v depends on %v", grafana.Targets, grafana.DependsOn)
+	}
+	if !slices.ContainsFunc(grafana.Completion, func(c workflowdomain.Completion) bool { return c.Type == completionPlatformGrafanaResult }) {
+		t.Errorf("Grafana Task completion = %v, want %s", grafana.Completion, completionPlatformGrafanaResult)
+	}
+	vars := extraVars(t, grafana)
+	if vars["swallow_grafana_prometheus_url"] != "http://10.170.168.20/api/v1/platform-metrics/plat-1/prometheus" {
+		t.Errorf("swallow_grafana_prometheus_url = %v, want the gateway", vars["swallow_grafana_prometheus_url"])
+	}
+	if dashboards, _ := vars["swallow_grafana_dashboards"].([]string); !slices.Equal(dashboards, []string{"node-exporter"}) {
+		t.Errorf("swallow_grafana_dashboards = %v, want [node-exporter]", vars["swallow_grafana_dashboards"])
+	}
+	if _, leaked := vars[grafanaDatasourceTokenVar]; leaked {
+		t.Error("the monitoring token must not be a trusted variable")
+	}
+	if !slices.Equal(plan.tokenSteps, []string{"install-grafana"}) {
+		t.Errorf("token steps = %v, want [install-grafana]", plan.tokenSteps)
+	}
+	for _, install := range plan.installs {
+		if install.Kind == softwaredomain.KindPrometheus {
+			t.Error("a Slurm deployment must not compose Prometheus")
+		}
+	}
+
+	launch.MonitoringDashboards = nil
+	if plan, err = launcher.planSlurmComposition(context.Background(), launch, "op-1", false); err != nil || len(plan.steps) != 0 {
+		t.Errorf("without dashboards: steps %v, err %v; want none", taskIDs(plan.steps), err)
+	}
+}
+
+// Omnistat's exporter admits the node itself and the Site Prometheus's scrape addresses; its Task
+// records only its State, because the Platform Grafana's own install records the link.
+func TestSlurmCompositionComposesOmnistat(t *testing.T) {
+	launcher := slurmCompositionLauncher(t, nil)
+	launch := platformdomain.DeploymentLaunch{
+		Platform:        &platformdomain.Platform{ID: "plat-1", Name: "lab", Type: platformdomain.PlatformTypeSlurm},
+		TargetServerIDs: []string{"s1", "s2"},
+		RequestedBy:     "admin",
+		Omnistat: &platformdomain.OmnistatLaunch{
+			ObservabilityServerID: "s1", ComputeServerIDs: []string{"s2"}, InstallMethod: platformdomain.ObservabilityInstallNative,
+			TrustedVars: map[string]any{"swallow_omnistat_compute_ids": []string{"s2"}},
+		},
+		MonitoringDashboards: &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative},
+	}
+	plan, err := launcher.planSlurmComposition(context.Background(), launch, "op-1", false)
+	if err != nil {
+		t.Fatalf("planSlurmComposition() error = %v", err)
+	}
+	if got := taskIDs(plan.steps); !slices.Equal(got, []string{"install-grafana", "record-grafana", omnistatStepID}) {
+		t.Fatalf("composed Tasks = %v", got)
+	}
+	omnistat := plan.steps[2]
+	if want := []workflowdomain.Completion{featureState(completionOmnistatState, "plat-1", "op-1")}; !reflect.DeepEqual(omnistat.Completion, want) {
+		t.Errorf("Omnistat Task completion = %v, want %v", omnistat.Completion, want)
+	}
+	vars := extraVars(t, omnistat)
+	if addresses, _ := vars[omnistatScrapeAddressesVar].([]string); !slices.Equal(addresses, []string{"10.170.168.20", "192.168.100.1"}) {
+		t.Errorf("%s = %v", omnistatScrapeAddressesVar, vars[omnistatScrapeAddressesVar])
+	}
+	if vars["swallow_omnistat_grafana_port"] != softwaredomain.GrafanaPort {
+		t.Errorf("swallow_omnistat_grafana_port = %v", vars["swallow_omnistat_grafana_port"])
+	}
+	if !slices.Equal(omnistat.Targets, serverRefs("s1", "s2")) {
+		t.Errorf("Omnistat Task targets = %v, want every target", omnistat.Targets)
+	}
+}
+
+// An installation without the address a Job needs refuses the deployment when it is planned and
+// names the setting.
+func TestSlurmCompositionNeedsTheMonitoringAddresses(t *testing.T) {
+	platform := &platformdomain.Platform{ID: "plat-1", Name: "lab", Type: platformdomain.PlatformTypeSlurm}
+	dashboards := &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative}
+	omnistat := &platformdomain.OmnistatLaunch{ObservabilityServerID: "s1", ComputeServerIDs: []string{"s2"}}
+	tests := []struct {
+		name    string
+		access  platformMonitoringAccess
+		launch  platformdomain.DeploymentLaunch
+		setting string
+	}{
+		{name: "Grafana without the public URL", access: platformMonitoringAccess{scrapeAddresses: []string{"10.0.0.1"}},
+			launch: platformdomain.DeploymentLaunch{Platform: platform, MonitoringDashboards: dashboards}, setting: "SWALLOW_API_PUBLIC_URL"},
+		{name: "Omnistat without scrape addresses", access: platformMonitoringAccess{publicURL: "http://10.0.0.1"},
+			launch: platformdomain.DeploymentLaunch{Platform: platform, Omnistat: omnistat}, setting: "SWALLOW_API_MONITORING_SCRAPE_ADDRESSES"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			launcher := slurmCompositionLauncher(t, nil)
+			launcher.monitoring = tc.access
+			_, err := launcher.planSlurmComposition(context.Background(), tc.launch, "op-1", false)
+			if !errors.Is(err, platformdomain.ErrMonitoringEndpointMissing) || !strings.Contains(err.Error(), tc.setting) {
+				t.Errorf("planSlurmComposition() error = %v, want ErrMonitoringEndpointMissing naming %s", err, tc.setting)
+			}
+		})
+	}
+}
+
+// failingTokenIssuer records the Platform it was asked for and refuses.
+type failingTokenIssuer struct{ platformIDs *[]string }
+
+func (f failingTokenIssuer) Issue(_ context.Context, platformID string) (string, error) {
+	*f.platformIDs = append(*f.platformIDs, platformID)
+	return "", errors.New("token store unavailable")
+}
+
+// Persisting a deployment that installs the Platform's Grafana issues the Platform's token first; a
+// failure fails the persist, and the token lands only in the named Tasks' sealed secrets, without
+// changing the prepared plan.
+func TestPersistDeploymentIssuesThePlatformToken(t *testing.T) {
+	var asked []string
+	launcher := platformDeploymentLauncher{monitoringTokens: failingTokenIssuer{platformIDs: &asked}}
+	prepared := &preparedPlatformDeployment{
+		workflow: workflowapp.CreateWorkflowInput{ID: "op-1", PlatformID: "plat-1"},
+		composed: composedPlan{tokenSteps: []string{"install-grafana"}},
+	}
+	if _, err := launcher.PersistDeployment(context.Background(), prepared); err == nil || !slices.Equal(asked, []string{"plat-1"}) {
+		t.Errorf("PersistDeployment() error = %v, issued for %v; want the issuer's failure for plat-1", err, asked)
+	}
+
+	plan := workflowapp.CreateWorkflowInput{StepSecretValues: map[string]map[string]any{"install-platform": {"swallow_k0s_vrrp_auth_pass": "x"}}}
+	sealed := withPlatformToken(plan, []string{"install-grafana"}, "swpm_token")
+	if sealed.StepSecretValues["install-grafana"][grafanaDatasourceTokenVar] != "swpm_token" ||
+		sealed.StepSecretValues["install-platform"]["swallow_k0s_vrrp_auth_pass"] != "x" {
+		t.Errorf("sealed secrets = %v", sealed.StepSecretValues)
+	}
+	if _, changed := plan.StepSecretValues["install-grafana"]; changed {
+		t.Error("withPlatformToken changed the prepared plan")
 	}
 }
 

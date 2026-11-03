@@ -287,7 +287,9 @@ func (s SlurmDeploymentSpec) HighlyAvailable() bool {
 // after the Platform validates; nil installs no GPU Operator. ContainerRuntime and Omnistat, when
 // non-nil, add the container runtime and Omnistat Jobs to a Slurm deployment (decision 063); nil
 // installs neither. DeviceMetricsExporter, when non-nil, adds the Device Metrics Exporter's Jobs
-// (decision 066); it and Omnistat are never both set.
+// (decision 066); it and Omnistat are never both set. MonitoringDashboards, when non-nil, gives the
+// Platform its own monitoring dashboards; the launcher issues the Platform's monitoring token for
+// them when it persists the Workflow, so a deployment that is refused rotates nothing.
 type DeploymentLaunch struct {
 	Platform              *Platform
 	OperationID           string
@@ -298,6 +300,7 @@ type DeploymentLaunch struct {
 	ContainerRuntime      *ContainerRuntimeLaunch
 	Omnistat              *OmnistatLaunch
 	DeviceMetricsExporter *DeviceMetricsExporterLaunch
+	MonitoringDashboards  *MonitoringDashboardsLaunch
 	RequestedBy           string
 	RequestCorrelation    string
 	MachinePreparation    MachinePreparation

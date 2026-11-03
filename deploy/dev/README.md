@@ -161,6 +161,20 @@ together. `local-ntp.sh upstream` also
 steps the clock once when it is more than a second off the upstream, so set the upstream with the
 script rather than in MAAS by hand.
 
+## Platform monitoring addresses
+
+A Slurm Platform's Grafana reads the Site Prometheus through the API's Platform metrics gateway,
+and Omnistat admits only the addresses that Prometheus scrapes from. Set both in `.env`:
+`SWALLOW_API_PUBLIC_URL` is the URL the Servers reach this API at (publish the API there, for
+example with `BOOT_MEDIA_HTTP_PUBLISH`), and `SWALLOW_API_MONITORING_SCRAPE_ADDRESSES` lists this
+host's addresses as the Servers see them. While either is empty, a Slurm deployment that needs it
+is refused when it is planned. For the lab:
+
+```bash
+printf 'SWALLOW_API_PUBLIC_URL=http://10.170.168.20\nSWALLOW_API_MONITORING_SCRAPE_ADDRESSES=10.170.168.20,192.168.100.1\n' >> .env
+docker compose up -d api-server worker
+```
+
 ## Seed a demonstration Site
 
 The idempotent seed script creates the deployment key (`swallow-api deployment-key
