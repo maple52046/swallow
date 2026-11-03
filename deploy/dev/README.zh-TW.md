@@ -159,6 +159,18 @@ printf 'SWALLOW_API_PUBLIC_URL=http://10.170.168.20\nSWALLOW_API_MONITORING_SCRA
 docker compose up -d api-server worker
 ```
 
+## Node Exporter controller
+
+在 production，worker 會讓每個啟用 automation 的 Site 中每台已部署、未 lock 的 Server 都保有 Node Exporter：
+它自己啟動 `configure-node-exporter` Workflow，requestedBy 是 `swallow:node-exporter-controller`。這個
+stack 與 lab 共用機器，所以這裡預設關閉（`compose.yaml` 中 `SWALLOW_WORKER_NODE_EXPORTER_ENSURE` 的預設是
+`false`），worker 的 log 會說明它沒有註冊。只有在某次 lab 測試確實要讓它在那些機器上安裝時才打開，並重建
+worker（它在 container 啟動時讀取這個變數）：
+
+```bash
+echo SWALLOW_WORKER_NODE_EXPORTER_ENSURE=true >> .env && docker compose up -d worker
+```
+
 ## Seed demonstration Site
 
 Idempotent seed script 會建立 deployment key（`swallow-api deployment-key ensure`，即安裝步驟；API 啟動時不會建立）、login、建立 Site、
@@ -173,7 +185,8 @@ bash seed.sh
 ```
 
 未提供 MAAS／SSH input 時會略過並顯示提示。每次 OS 佈署都會在佈署的 Server 上安裝
-Node Exporter；不是由 swallow 佈署的 Server 請以 Managed Software 安裝。swallow 不會在 locked
+Node Exporter；[Node Exporter controller](#node-exporter-controller) 關閉時，不是由 swallow 佈署的 Server
+請以 Managed Software 安裝。swallow 不會在 locked
 Server 上安裝任何東西。
 
 若要以本機 MAAS snap 納管 libvirt 虛擬機，先給它的 rack 與 production 安裝相同的 SSH

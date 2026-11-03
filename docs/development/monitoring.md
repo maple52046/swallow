@@ -59,7 +59,7 @@ flowchart LR
 
 | 層級 | 內容 | 安裝在哪裡 |
 | --- | --- | --- |
-| 基礎監控 | node-exporter：CPU、memory、disk、network | 每台 swallow 部署 OS 的 Server |
+| 基礎監控 | node-exporter：CPU、memory、disk、network | 每台 `deployed` 且由 swallow 自動化的 Server（§4.1） |
 | GPU 監控 | DME 或 Omnistat：GPU 的使用率、溫度、功耗、記憶體等 | 只在有 GPU 的地方，依情境選擇（§4.2） |
 | AI NIC 監控 | 之後的 NIC exporter | 這一版不做；形狀會與 GPU 監控相同 |
 
@@ -76,9 +76,13 @@ flowchart LR
 - **Platform 不擁有它**：uninstall Platform 不移除 node-exporter。為了避免監控方案（GPU Operator、Omnistat）的移除
   連帶影響它，保留主機的 uninstall 結束後一律再安裝一次（安裝是冪等的，已經在的不會改變）；uninstall 同時 release
   Server 時不安裝，因為 release 會清空主機。
-- **成為 desired state**：每台符合條件的 Server「應該有 node-exporter」。controller 以 Site Prometheus 的觀察結果
-  判斷它是否在運作，不在時重新安裝（[desired-state-model.md](desired-state-model.md) §1.1）。OS 部署與 uninstall 之後
-  的安裝仍保留，讓 Server 一部署好就有監控；controller 負責之後的變化，例如套件被外部移除或 service 停止。
+- **是 desired state**：每台存在、provisioning 為 `deployed`（disk 或 RAM）、沒有 lock、所屬 Site 的 automation 已啟用
+  的 Server「應該有 node-exporter」。這是由政策推導的 desired（[desired-state-model.md](desired-state-model.md) §3.2），
+  沒有 spec 欄位。worker 的 Node Exporter controller 以 Software Assignment 與 Site Prometheus 對它的 `up` 為 observed：
+  沒有 assignment 或 absent 時安裝；`failed` 時依退避重試；`installed` 但 10 分鐘內每次收集都失敗時重新安裝；Site
+  沒有 Prometheus 或讀取失敗時只依 assignment 動作。它不卸載不再受涵蓋的 Server 上的 node-exporter。完整規則、
+  auto-correct 的理由與退避見 [software-deployment.md](software-deployment.md) 的 Node Exporter。OS 部署與 uninstall
+  之後的安裝仍保留，讓 Server 一部署好就有監控；controller 負責之後的變化，例如套件被外部移除或 service 停止。
 
 ### 4.2 GPU 監控：依情境安裝
 
@@ -192,7 +196,8 @@ Prometheus 沒有多租戶的概念，因此引入 [prom-label-proxy](https://gi
 
 Server 的 health（`up`／`down`）只看它的 node-exporter：node-exporter 被收集到時是 `up`，收集失敗時是 `down`；沒有
 node-exporter 的 target 時是 unknown，不是 `down`——swallow 沒有在監控它，就不知道它的狀況
-（[Server Status](glossaries/terms/server-status.md)）。GPU 與其他 exporter 的狀態不影響 health。
+（[Server Status](glossaries/terms/server-status.md)）。assignment 為 `pending` 或 `failed` 時也沒有 target，所以 Node
+Exporter controller 的安裝進行中或失敗時，health 是 unknown。GPU 與其他 exporter 的狀態不影響 health。
 
 ## 9. 相關的做法
 
@@ -220,14 +225,12 @@ node-exporter 的 target 時是 unknown，不是 `down`——swallow 沒有在�
 
 本設計正在實作。以下是目前程式與本設計不同的地方，實作完成時從這裡移除：
 
-- 在本設計之前部署的 Server 沒有 node-exporter 的 Software Assignment，所以不是 scrape target，health 為 unknown；
-  node-exporter 成為 desired state 之後（§4.1）才會自動補裝。
 - Omnistat 的 exporter 已是 scrape target，但名稱與 port 由 composition root 依 Slurm Platform 的 Omnistat State 列出，
   還不是由模組宣告；GPU Operator 的 DME 由 composition root 依 Kubernetes Platform 的 GPU Operator State 列出（名稱與 port
   取自 DME 模組的宣告），成員是 swallow 從 GPU inventory 推得的納管節點，不是 NFD 的結果。
 - 啟用 firewalld 的主機（RHEL 家族的 Kubernetes 成員一定啟用）沒有替 Site 的 Prometheus 開 exporter 的 port（node-exporter
-  9100、DME 5001），所以它們收集不到；只有 Kubernetes 的 Platform Grafana 的 NodePort 有開。
-- node-exporter 尚未成為 desired state：安裝之後被移除或停止不會被發現。
+  9100、DME 5001），所以它們收集不到；只有 Kubernetes 的 Platform Grafana 的 NodePort 有開。node-exporter 的 `up` 因此一直
+  是 0，Node Exporter controller 會依退避重新安裝（最後每天一次），直到 port 開啟。
 
 ## 12. 相關文件
 

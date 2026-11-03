@@ -81,6 +81,13 @@ api:
   # Env: SWALLOW_API_WORKFLOW_RESYNC_INTERVAL.
   workflowResyncInterval: "30s"
 
+  # The worker's Node Exporter controller: keeps the Node Exporter installed on every deployed,
+  # unlocked Server of a Site with automation enabled, starting configure-node-exporter Workflows
+  # on its own. Turn it off only on an installation that shares machines it must not install on
+  # (the development stack on a lab). Env: SWALLOW_WORKER_NODE_EXPORTER_ENSURE (true or false; any
+  # other value stops the process from starting).
+  nodeExporterEnsure: true
+
   # Boot Media (decision 047): Boot ISOs are built on the dashboard's Provisioning page,
   # written under dir (one subdirectory each), and served unauthenticated at
   # <baseURL>/boot-media/ipxe/<isoId>/swallow-ipxe.iso for BMCs to mount as virtual media.

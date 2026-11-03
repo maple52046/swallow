@@ -20,6 +20,7 @@ import (
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
 	"github.com/maple52046/swallow/internal/adapters/hostaccess/sshaccess"
 	"github.com/maple52046/swallow/internal/adapters/hypervisor/libvirt"
+	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	convergencestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/convergence"
@@ -316,6 +317,22 @@ func RunWorker(cfg config.APIConfig) error {
 		}),
 		convergence.NewChangePlanExpiryController(changePlans),
 		platformController,
+	}
+	// The Node Exporter controller starts installs on its own, so an installation sharing machines
+	// it was not asked to manage turns it off (config.APIConfig.NodeExporterEnsure).
+	nodeExporterController, err := newNodeExporterController(nodeExporterControllerDeps{
+		catalog: modules.software, software: platformOps.software, servers: servers, assignments: softwareAssignments,
+		automation: automationRepo, workflows: operations, canceler: workflows,
+		metrics: promstack.NewMonitoringFactory(integrations),
+	})
+	if err != nil {
+		return err
+	}
+	if cfg.NodeExporterEnsure {
+		controllers = append(controllers, nodeExporterController)
+		slog.Info("Node Exporter controller enabled", "controller", nodeExporterController.Name())
+	} else {
+		slog.Info("Node Exporter controller disabled (nodeExporterEnsure, SWALLOW_WORKER_NODE_EXPORTER_ENSURE, is false); it is not registered")
 	}
 	controllersDone := make(chan struct{})
 	go func() {

@@ -119,8 +119,10 @@ Platform 佈署不會更改時間設定。它在安裝 platform 前會檢查每�
 讓 Server 上線後就有用量圖表（[Monitoring](monitoring.md)）；Platform 佈署所 provision 的每台 Server
 也一樣，除非該 Platform 的 exporters 由 Kubernetes 擁有。Server 的 Software 清單會把它列為已安裝的
 Managed Software。安裝失敗不影響 OS：Server 仍是 deployed，但 Workflow 會等待處理，直到你 retry
-**Install Node Exporter** step（例如在 RHEL 家族的 image 啟用 EPEL 之後）。Release 或 Recover
-Server 會清除它的 Software Assignment，因為軟體隨 OS 一起消失。
+**Install Node Exporter** step（例如在 RHEL 家族的 image 啟用 EPEL 之後），或取消它，之後 swallow 會
+自己再安裝。從那之後 swallow 會讓 Server 一直保有 Node Exporter
+（[Monitoring](monitoring.md#node-exporter-會一直保持安裝)）。Release 或 Recover Server 會清除它的
+Software Assignment，因為軟體隨 OS 一起消失。
 
 ## 沒有 provisioner DHCP 的網路：Boot Media
 

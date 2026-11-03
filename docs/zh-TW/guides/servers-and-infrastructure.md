@@ -40,8 +40,9 @@ curl -fsSL 'https://swallow.example.com/downloads/swallow-enroll.sh' \
 Script 會從你的 installation 下載 swallow CLI，再執行 `swallow servers enroll`，它包裝
 MAAS `maas-run-scripts register-machine` 與 `report-results`。主機需要 `curl`、
 `python3`，並能以 HTTP 連到 swallow 與 MAAS（Ubuntu、x86_64）。之後不會自動檢視（檢視
-會重新開機），swallow 也不會在它上面安裝 Node Exporter：要看用量圖表時，請以 Managed Software
-安裝 **Node Exporter**。指令含有 provisioner 的 API key，這是 MAAS 所需；只在可信任的主機執行，
+會重新開機）。它一旦是已佈署、未 lock，且 Site 的 automation 能登入，swallow 就會在上面安裝 Node
+Exporter，不需要額外步驟就有用量圖表（[Monitoring](monitoring.md#node-exporter-會一直保持安裝)）。指令含有
+provisioner 的 API key，這是 MAAS 所需；只在可信任的主機執行，
 否則請在 MAAS 更換該 key。
 
 ## libvirt virtual machine

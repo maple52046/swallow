@@ -175,6 +175,19 @@ printf 'SWALLOW_API_PUBLIC_URL=http://10.170.168.20\nSWALLOW_API_MONITORING_SCRA
 docker compose up -d api-server worker
 ```
 
+## Node Exporter controller
+
+In production the worker keeps the Node Exporter installed on every deployed, unlocked Server of a
+Site with automation enabled: it starts `configure-node-exporter` Workflows on its own, requested by
+`swallow:node-exporter-controller`. This stack shares lab machines, so the controller is off here
+(`SWALLOW_WORKER_NODE_EXPORTER_ENSURE` defaults to `false` in `compose.yaml`) and the worker logs
+that it is not registered. Turn it on only for a lab run that is meant to install on those
+machines, and recreate the worker, which reads the variable when its container starts:
+
+```bash
+echo SWALLOW_WORKER_NODE_EXPORTER_ENSURE=true >> .env && docker compose up -d worker
+```
+
 ## Seed a demonstration Site
 
 The idempotent seed script creates the deployment key (`swallow-api deployment-key
@@ -190,8 +203,9 @@ bash seed.sh
 ```
 
 Without MAAS or SSH inputs, those steps are skipped with guidance. Each OS
-deployment installs the Node Exporter on the Servers it deploys; install it as
-Managed Software on a Server swallow did not deploy. swallow installs nothing on a
+deployment installs the Node Exporter on the Servers it deploys; with the
+[Node Exporter controller](#node-exporter-controller) off, install it as Managed Software on a
+Server swallow did not deploy. swallow installs nothing on a
 locked Server.
 
 To enroll libvirt virtual machines with a local MAAS snap, give its rack the SSH

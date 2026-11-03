@@ -111,7 +111,8 @@ Core Domain 是價值的劃分，core 是架構的邊界，兩者不同：core �
 - desired state 與收斂（原則 1、2）：由 provisioner 實現的資源（遷移第一段）與 Platform 已遷移
   （[`desired-state-model.md`](desired-state-model.md) §4.4、§5.2）。Platform 的破壞性變更產生 Change Plan，核准後才執行
   （[decision 076](../decisions/076-change-plans.md)（change plans））；Server 的破壞性動作（Release、Recover 等）仍由 user 直接要求，以
-  Workflow 執行。Server 的 OS 部署與 Managed Software 尚未遷移：deployment 的新行為依
+  Workflow 執行。Node Exporter 的 desired 由政策推導，由 controller 收斂；Server 的 OS 部署與其他 Managed Software
+  尚未遷移：deployment 的新行為依
   [`desired-state-model.md`](desired-state-model.md) §1.1 先設計成 desired 與收斂，暫時做不到時才沿用動作，並在功能規格中
   寫明。
 - core 與廠商無關（原則 3）：provider 與 plugin 已依配置分開（`api-server/internal/adapters/`、`api-server/modules/`）。

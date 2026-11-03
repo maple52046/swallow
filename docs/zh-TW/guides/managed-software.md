@@ -16,8 +16,8 @@ Managed Software 會在已 deployed 的 Server 安裝或移除一個 host-level 
   Docker CE 或 Podman 以 container 執行，或從原廠的官方 release／套件以 native 安裝。
 - **AMD Device Metrics Exporter：** 在 AMD GPU Server 上以 native 方式安裝 AMD 的
   per-GPU metrics exporter；見下文。
-- **Node Exporter：** 從 OS 套件安裝 Prometheus 的 host exporter。每次 OS 佈署都會自動安裝；
-  見下文。
+- **Node Exporter：** 從 OS 套件安裝 Prometheus 的 host exporter。swallow 會自動安裝，並讓它
+  自動化的每台已佈署 Server 一直保有它；見下文。
 
 Shipped automation manifest 是 allowlist。Software kind／variant 沒有出現在 active
 API contract 與 manifest 時，就不是 supported capability。
@@ -85,8 +85,11 @@ Prometheus discovery 在每台 Server 上 scrape 這個 port。它安裝 OS 發�
 Ubuntu 為 `prometheus-node-exporter`，RHEL 家族為 `node_exporter`（來自 EPEL）——不需要
 container runtime，也沒有可設定的選項。
 
-每次 OS 佈署都會在佈署的 Server 上安裝它，因此只有不是由 swallow 佈署的 Server（例如保留原有
-OS 納管的 Server）才需要在這裡安裝。任何 Platform 的成員都與其他已佈署的 Server 一樣可以安裝。
+每次 OS 佈署都會在佈署的 Server 上安裝它，而且 swallow 會讓每個啟用 automation 的 Site 中每台已佈署、
+未 lock 的 Server 一直保有它，包括不是由 swallow 佈署的 Server：缺少時安裝、失敗時重試，Site 的
+Prometheus 收集不到時再安裝一次（見 [Monitoring](monitoring.md#node-exporter-會一直保持安裝)）。所以很少
+需要在這裡安裝；在這種 Server 上 uninstall 會在下一次檢查時被補回，要讓某台 Server 不裝 Node Exporter，
+請 lock 它。任何 Platform 的成員都與其他已佈署的 Server 一樣可以安裝。
 安裝前會先移除主機上仍在執行的 swallow 舊版 containerised node-exporter
 （`swallow-node-exporter.service`）；Docker 與 RDC exporter container 不受影響。
 

@@ -74,6 +74,15 @@ type APIConfig struct {
 	// WorkflowResyncInterval is how often the workflow-dispatch controller resyncs: it confirms
 	// every unfinished Workflow still has a run and resumes one that lost it (decision 072).
 	WorkflowResyncInterval time.Duration `yaml:"workflowResyncInterval"`
+	// NodeExporterEnsure runs the worker's Node Exporter controller (software-deployment.md, Node
+	// Exporter): it starts configure-node-exporter Workflows on its own, on every deployed,
+	// unlocked Server of a Site with automation enabled that lacks a working Node Exporter. On by
+	// default, because a production installation's monitoring depends on it. A stack that shares
+	// machines it was not asked to manage (the development stack on the lab) turns it off; off,
+	// the worker does not register the controller, and only OS deployments and Platform
+	// uninstalls install the Node Exporter. Env: SWALLOW_WORKER_NODE_EXPORTER_ENSURE, whose
+	// value must parse as a boolean, so a typo never leaves the controller on by accident.
+	NodeExporterEnsure bool `yaml:"nodeExporterEnsure"`
 	// OperationMaxParallelism bounds how many Steps a durable Operation runs at once,
 	// protecting the provider, PXE, image mirror, and Temporal history from unbounded
 	// fan-out. It is a per-Operation ceiling, not a global worker limit.

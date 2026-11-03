@@ -1468,6 +1468,19 @@ func (q *fakeQuerier) ExporterUp(
 	return q.up[exporter], nil
 }
 
+// ExporterUpWithin answers like ExporterUp: the fake has no scrape history, so a test that needs a
+// windowed answer sets it in up.
+func (q *fakeQuerier) ExporterUpWithin(
+	_ context.Context, exporter string, servers monitoringdomain.ServerSet, window time.Duration,
+) ([]monitoringdomain.Sample, error) {
+	q.upReads = append(q.upReads, fakeMetricRead{name: exporter, servers: servers.IDs(),
+		window: monitoringdomain.TimeRange{Start: time.Now().Add(-window), End: time.Now()}})
+	if q.err != nil {
+		return nil, q.err
+	}
+	return q.up[exporter], nil
+}
+
 // fakeScopeResolver stands in for the composition-root adapter that resolves Pools, Zones, and
 // Platforms to Servers. members is keyed by "<kind>/<id>"; an unknown key is ErrScopeNotFound.
 type fakeScopeResolver struct {

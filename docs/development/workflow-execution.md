@@ -93,7 +93,9 @@ glossary [Task](glossaries/terms/task.md)。終態是 `succeeded`、`failed`、`
 
 1. **受理**。功能的 launcher（platform deploy／uninstall、OS 佈署、Release、Recover、software、inspection…）
    或通用的 `POST /workflows/` 先完成自己的檢查（Site、provisioning 狀態、Platform policy、Server Lock 等），
-   再把凍結的計畫交給 `WorkflowService.Create`。
+   再把凍結的計畫交給 `WorkflowService.Create`。worker 的 controller 經同樣的 launcher 受理自己的收斂：platform
+   controller 的 Platform Workflow、`auto-inspect` 的 `inspect-hardware`、Node Exporter controller 的
+   `configure-node-exporter`（`requestedBy` 為 `swallow:node-exporter-controller`）。
 2. **驗證整份計畫**（Create）：kind 有效；有 definition 與 definition version；有 `siteId`；至少一個 Task；每個
    Task 有 id、kind、name 且 id 不重複；`DependsOn` 只指向同一 Workflow 的其他 Task，且沒有環；Task kind 已登錄、
    Runner 與該 kind 相符；宣告的完成行為與取消補償都已登錄；每個具名的 Job 都宣告了重試粒度（§12）。launcher 可
@@ -398,6 +400,10 @@ decision 072。
 - **Platform controller**：新的 spec 取代實現失敗的舊 generation 時，controller 對仍未結束（停在
   `requires_attention`）的那次 realization 寫入取消命令，等它結束後才啟動新的 Workflow，不經 `cancelActiveWorkflows`
   （[desired-state-model.md](desired-state-model.md) §5.2）。
+- **Node Exporter controller**：自己啟動的 `configure-node-exporter` 停在 `requires_attention`（或 install Task 已失敗）
+  時，對它寫入取消命令（原因 `The Node Exporter install failed; swallow retries it later.`），讓 Server 被釋放、assignment
+  轉為 `failed`，之後依退避再安裝；它不取消任何別人啟動的 Workflow，有未結束的 Workflow 佔用 Server 時只等待
+  （[software-deployment.md](software-deployment.md) 的 Node Exporter）。
 - **Platform 的刪除**：帶旗標時 lifecycle 為 `deploying` 的 Platform 也可以 uninstall；對仍在執行的 Workflow 被拒的
   取消由 Platform 的 `realized` Condition 回報。platform 專屬規則見 [platform-deployment.md](platform-deployment.md)
   §4.8 最後一段。

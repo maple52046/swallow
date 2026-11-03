@@ -119,6 +119,11 @@ type MetricsQuerier interface {
 	// succeeded: a value above zero is up, zero is down. A Server with no target for that exporter
 	// has no sample, which is unknown rather than down.
 	ExporterUp(ctx context.Context, exporter string, servers ServerSet) ([]Sample, error)
+	// ExporterUpWithin reports, per Server, whether any scrape of the named exporter on it in the
+	// window ending now succeeded: a value above zero means at least one did, zero means every
+	// scrape in the window failed. A Server the store did not scrape in the window has no sample,
+	// which is unknown. window must be at least one second.
+	ExporterUpWithin(ctx context.Context, exporter string, servers ServerSet, window time.Duration) ([]Sample, error)
 }
 
 // ScopeKind names what a metrics scope groups Servers by.

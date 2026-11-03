@@ -12,7 +12,11 @@ import (
 // Legacy variable names (without prefix) are also read for backward compatibility;
 // when a legacy variable is found, a deprecation notice is printed to stderr.
 // SWALLOW_-prefixed variables take precedence over legacy names.
-func applyEnv(cfg *Config) {
+//
+// A malformed duration or number is ignored and keeps the earlier value. A switch that turns on
+// work against machines is the exception: its malformed value is an error, so the process does
+// not start with the switch on when the operator meant it off.
+func applyEnv(cfg *Config) error {
 	if v := os.Getenv("SWALLOW_API_RELEASE_VERSION"); v != "" {
 		cfg.API.ReleaseVersion = v
 	}
@@ -95,6 +99,13 @@ func applyEnv(cfg *Config) {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.API.WorkflowResyncInterval = d
 		}
+	}
+	if v := os.Getenv("SWALLOW_WORKER_NODE_EXPORTER_ENSURE"); v != "" {
+		enabled, err := strconv.ParseBool(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("SWALLOW_WORKER_NODE_EXPORTER_ENSURE must be true or false, got %q", v)
+		}
+		cfg.API.NodeExporterEnsure = enabled
 	}
 
 	if v := os.Getenv("SWALLOW_API_OPERATION_MAX_PARALLELISM"); v != "" {
@@ -179,6 +190,7 @@ func applyEnv(cfg *Config) {
 			cfg.API.RedfishProbeMaxAge = d
 		}
 	}
+	return nil
 }
 
 // getSecretEnv supports Compose secrets and root-only systemd credential files.

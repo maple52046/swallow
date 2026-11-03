@@ -109,6 +109,12 @@ retired: `POST /api/v1/workflows` and a Site's `playbookMappings` refuse them wi
 [Managed Software contract](../../../api-server/docs/development/api-contracts/api-server/software.md)
 (kind `node-exporter`).
 
+Since 2026-11-04 swallow also keeps the Node Exporter installed by itself on every deployed,
+unlocked Server of a Site with automation enabled. A client sees `configure-node-exporter`
+Workflows whose `requestedBy` is `swallow:node-exporter-controller`; swallow cancels such a
+Workflow itself when it stops in `requires_attention`, and never cancels any other. Uninstalling
+`node-exporter` from such a Server is followed by a new install.
+
 ## Contract directory
 
 Start with:

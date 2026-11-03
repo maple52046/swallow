@@ -24,6 +24,7 @@ func DefaultConfig() Config {
 			ControllerResyncInterval: 10 * time.Minute,
 			ChangePlanTTL:            24 * time.Hour,
 			WorkflowResyncInterval:   30 * time.Second,
+			NodeExporterEnsure:       true,
 			OperationMaxParallelism:  4,
 			TemporalAddress:          "localhost:7233",
 			TemporalNamespace:        "default",

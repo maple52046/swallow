@@ -3,6 +3,7 @@ package promstack
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
 )
@@ -73,4 +74,13 @@ func exporterUpExpression(exporter string, servers monitoringdomain.ServerSet) s
 	return fmt.Sprintf(`max by (%s) (up{%s=%q, %s=~"%s"})`,
 		monitoringdomain.LabelServerID, monitoringdomain.LabelExporter, exporter,
 		monitoringdomain.LabelServerID, serverMatcher(servers))
+}
+
+// exporterUpWithinExpression is the best scrape result of one exporter per Server over the window:
+// 1 when any scrape in it succeeded, 0 when every one failed. The window is whole seconds, rounded
+// down, which is how Prometheus range selectors are written.
+func exporterUpWithinExpression(exporter string, servers monitoringdomain.ServerSet, window time.Duration) string {
+	return fmt.Sprintf(`max by (%s) (max_over_time(up{%s=%q, %s=~"%s"}[%ds]))`,
+		monitoringdomain.LabelServerID, monitoringdomain.LabelExporter, exporter,
+		monitoringdomain.LabelServerID, serverMatcher(servers), int64(window/time.Second))
 }

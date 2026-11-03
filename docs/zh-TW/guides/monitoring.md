@@ -22,9 +22,8 @@ query。Platform 完整的監控（包括 GPU 的 metrics）在它自己的
 2. **其他 Site。** 這一版只有 installation 的 Site 有 Prometheus。其他 Site 的圖表會說明尚未設定
    metrics backend——不會把它的 Server 回報成 down。
 3. **照常佈署 Server。** 每次 OS 佈署都會在佈署的 Server 上安裝 Node Exporter（見
-   [Exporters](#exporters)）；幾分鐘後，Server 的 **Monitoring** 分頁就會顯示用量歷史。不是由
-   swallow 佈署的 Server（例如保留原有 OS 納管的 Server），請以 Managed Software 安裝
-   **Node Exporter**。
+   [Exporters](#exporters)）；幾分鐘後，Server 的 **Monitoring** 分頁就會顯示用量歷史。swallow
+   也會讓它自動化的其他已佈署 Server（例如保留原有 OS 納管的 Server）一直保有它，不需要手動安裝。
 
 ## 設定 integration
 
@@ -55,14 +54,33 @@ swallow 使用固定 port，因此 Server 的 scrape target 不會因為 exporte
 
 | Exporter | Port | 安裝對象 |
 | --- | --- | --- |
-| node-exporter | 9100 | 每台由 swallow 佈署的 Server（CPU、memory、disk、network），安裝 OS 套件：Debian 與 Ubuntu 為 `prometheus-node-exporter`，RHEL 家族為 `node_exporter`（來自 EPEL） |
+| node-exporter | 9100 | 每台由 swallow 自動化的已佈署 Server（CPU、memory、disk、network），安裝 OS 套件：Debian 與 Ubuntu 為 `prometheus-node-exporter`，RHEL 家族為 `node_exporter`（來自 EPEL） |
 | AMD Device Metrics Exporter | 5001 | 有 AMD GPU 的 Server：單台以 Managed Software 安裝、Slurm Platform 的 GPU compute node，或 Kubernetes Platform 開啟 Device Metrics Exporter 時由 AMD GPU Operator 裝在 GPU 節點上；三者的指標名稱相同 |
 | Omnistat | 8001 | 作業監控選 Omnistat 的 Slurm Platform 的 compute node |
 | [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | swallow 不在主機上安裝，也不收集：Site 的 Prometheus 只收集 swallow 安裝的 exporter |
 
 每台 Server 只有一個 Node Exporter，不論它屬於哪個 Platform：每次 OS 佈署都會在佈署的 Server
-上安裝它，uninstall Platform 會保留它（保留的 Server 若沒有則補裝），不是由 swallow 佈署的 Server
-可以用 Managed Software 安裝。locked Server 維持原狀：swallow 不在上面安裝也不移除任何東西。
+上安裝它，uninstall Platform 會保留它（保留的 Server 若沒有則補裝）。
+
+### Node Exporter 會一直保持安裝
+
+swallow 讓每個啟用 automation 的 Site 中，每台已佈署、未 lock 的 Server 都保有 Node Exporter，包括不是由
+swallow 佈署的 Server。worker 大約每十分鐘檢查每台 Server 一次，Server 或它的 Node Exporter 紀錄改變時則
+立即檢查：
+
+- Server 沒有 Node Exporter，或它被 uninstall 時，swallow 安裝它。
+- 安裝失敗時，swallow 在 15 分鐘、1 小時、6 小時後再試，之後每天一次，所以 OS 沒有這個套件的 Server 不會
+  陷入安裝迴圈。
+- Site 的 Prometheus 連續 10 分鐘都收集不到它（例如套件被移除或 service 停止）時，swallow 再安裝一次。
+  provisioner 回報關機的 Server 不受影響。
+
+這些安裝是一般的 **Install Node Exporter** Workflow，requestedBy 為 `swallow:node-exporter-controller`。
+其中一個失敗時，swallow 會以「The Node Exporter install failed; swallow retries it later.」為原因取消它，讓
+Server 可以做其他工作；它從不取消別人啟動的 Workflow，有其他工作佔用 Server 時則等待。swallow 從不自行移除
+Node Exporter。locked Server 維持原狀：swallow 不在上面安裝也不移除任何東西。要讓某台 Server 不裝 Node
+Exporter，請 lock 它；在 swallow 會保持安裝的 Server 上 uninstall，只會維持到下一次檢查。
+
+安裝進行中或失敗之後，這台 Server 不會被收集，所以它的 health 顯示為 unknown，而不是 down。
 
 ## 用量圖表
 

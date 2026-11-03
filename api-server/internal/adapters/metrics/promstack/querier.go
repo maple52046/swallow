@@ -73,6 +73,24 @@ func (q *Querier) ExporterUp(
 	return q.query(ctx, exporterUpExpression(exporter, servers))
 }
 
+// ExporterUpWithin reads the best scrape result of exporter on each Server over the window ending
+// now. An empty set asks nothing; a window shorter than a second is an error, because Prometheus
+// has no narrower range selector.
+func (q *Querier) ExporterUpWithin(
+	ctx context.Context,
+	exporter string,
+	servers monitoringdomain.ServerSet,
+	window time.Duration,
+) ([]monitoringdomain.Sample, error) {
+	if len(servers.IDs()) == 0 {
+		return nil, nil
+	}
+	if window < time.Second {
+		return nil, fmt.Errorf("exporter up window %s is shorter than one second", window)
+	}
+	return q.query(ctx, exporterUpWithinExpression(exporter, servers, window))
+}
+
 // queryResponse is the Prometheus instant-query envelope.
 //
 // Value is [unix_seconds, "sample_value"] — the value is a string because Prometheus

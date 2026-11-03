@@ -18,8 +18,10 @@
   be installed) or `native` (the official release binary or the official apt/yum package); the
   method and the runtime are variants of the same software. `device-metrics-exporter` (AMD's
   per-GPU exporter) has one native install path and needs AMD compute GPUs. `node-exporter` (the
-  Prometheus host exporter, from the OS package) is installed standalone on Servers swallow did not
-  deploy. A kind may refuse a
+  Prometheus host exporter, from the OS package) is the one kind swallow keeps installed by itself:
+  its desired state is derived by policy (every present, deployed, unlocked Server of a Site with
+  automation enabled should have it), and a Controller installs it where it is missing, failed, or
+  no longer scraped, through the same install Workflow a user's install runs. A kind may refuse a
   Server with a Platform Claim, whose Platform then manages that kind on it. The same software
   kind can also be composed as a Job into a platform deployment, sharing the same Ansible roles
   and recording the same Software Assignment — a Slurm deploy composes its container runtime onto
@@ -61,3 +63,6 @@
   ([decision 070](../../../decisions/070-core-providers-and-extensions.md) (core providers and extensions)): each kind is
   provided by a Software Module; the meaning of Managed Software is unchanged. 2026-11-03: added
   `node-exporter`, the first kind an OS deployment composes. 2026-11-03: a Slurm deploy composes `grafana` as the Platform's own Grafana and no longer composes `prometheus`.
+  2026-11-04: `node-exporter` became desired state derived by policy and converged by a Controller
+  (software-deployment.md, Node Exporter); it is no longer installed by hand only on Servers swallow
+  did not deploy.

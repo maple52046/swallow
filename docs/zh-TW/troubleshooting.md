@@ -171,8 +171,10 @@ swallow servers inspect server1
   以及是否為 installation 的 Site 執行 `swallow-exporters` job。
 - 確認 exporter 已安裝，且 discovered target 可連線：OS 佈署會在
   `install-node-exporter-<serverId>` Task 安裝 Node Exporter（安裝失敗時佈署 Workflow 會停下等待
-  處理，請重試該 Task）。不是由 swallow 佈署的 Server 與 locked Server 不會安裝；請在未 locked 的
-  Server 上以 Managed Software 安裝 **Node Exporter**。
+  處理，請重試該 Task）。之後 swallow 會讓每個啟用 automation 的 Site 中每台已佈署、未 lock 的
+  Server 一直保有它，以 requestedBy 為 `swallow:node-exporter-controller` 的 **Install Node Exporter**
+  Workflow 安裝；看最新一個的失敗 Task 就知道 exporter 為什麼不在。locked Server，或 automation 關閉
+  的 Site 的 Server，不會安裝。
 - Server 的圖表顯示「No data」，通常代表它的 Node Exporter 沒有執行或連不到，因為 swallow
   的每張圖表都來自它。swallow 不提供 GPU 圖表；GPU 的 metrics 在 Platform 自己的 Grafana。
   Site 的 Prometheus 只收集 swallow 安裝的 exporter，所以你自己執行的 exporter（例如 RDC

@@ -29,9 +29,9 @@
 ### 1.1 deployment 以 desired state 開發
 
 deployment（把 OS、Platform 或軟體放到主機上，或把它們移除）以 desired state 的方式開發：user 或政策宣告主機應該
-是什麼樣子，controller 依 desired 與 observed 收斂，主機上的內容是宣告式、冪等的 ensure。Platform 已經是這樣
-（§4.4）；Server 的 OS 部署（deploy、release、recover）與 Managed Software（install、uninstall）尚未遷移，仍是由 user
-或計畫觸發、以 Workflow 執行的動作。在它們遷移之前：
+是什麼樣子，controller 依 desired 與 observed 收斂，主機上的內容是宣告式、冪等的 ensure。Platform 與 Node Exporter
+已經是這樣（§4.4）；Server 的 OS 部署（deploy、release、recover）與其他 Managed Software 的 install、uninstall 尚未
+遷移，仍是由 user 或計畫觸發、以 Workflow 執行的動作。在它們遷移之前：
 
 - **新行為先設計成 desired 與收斂**：說明它的 desired、observed（來源與觀察時間）與收斂方式，能放進既有資源的 spec
   就擴充 spec，不新增另一條由動作觸發的路徑。
@@ -86,6 +86,9 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 - 只由 API 寫入，或由擁有它的上層資源寫入。例如 Platform 的 spec 決定其 Server 的角色；這時該欄位的寫入者
   是 Platform，Server 自己的 API 不得再寫它。
 - secret 也是 desired：以封存的形式保存，只寫不讀（write-only），不進入 Workflow history 或 log。
+- desired 也可以由政策推導而不儲存：功能規格宣告一條政策，從其他 desired 與 observed 的事實得出資源應該是什麼
+  樣子（目前只有 Node Exporter，見 [software-deployment.md](software-deployment.md)）。推導的 desired 沒有欄位，所以
+  沒有寫入者、`generation` 與 conditions；改變政策是規格變更，要經過審查。
 - 不是每個 observed 欄位都有 desired 對應：硬體 inventory、GPU inventory、provider 自動計算的 tag 只有
   observed。
 
@@ -139,7 +142,7 @@ decision 069 相同）：
 | --- | --- | --- | --- |
 | Server | OS 部署意圖（OS Image、Deploy Target、網路意圖、Deployment Template 參照）、Zone／Pool placement、user 指派的 tag、Boot Media 設定、Server Default User、Power Configuration | OS Provisioning State、硬體與 GPU inventory、位址、power 狀態、membership、health、provider 自動計算的 tag | tag 與 Zone／Pool placement 已遷移（§4.4）；Power Configuration 目前在 capable provider 上由 provider 擁有；power on／off 是 desired power 狀態還是保留為動作：待定；Server Lock 改為 swallow 的 hold 還是維持 provider 擁有：待定 |
 | Platform | type、拓樸、各 Server 的 Node Role、功能開關（GPU Operator、Omnistat、Device Metrics Exporter 等）與版本 | 叢集 membership、連線狀態、各功能的狀態讀回 | Platform Lifecycle State 改由 conditions 與 Workflow 推導；Platform Claim 是由 spec 的 target 推導的欄位，與 spec 在同一個 transaction 寫入 |
-| Managed Software（Software Assignment） | kind、variant 或 role、版本 | 已套用的狀態與版本 | 現行的 Software Assignment 記錄最後一次安裝的 spec 與結果（last-applied），安裝由 user 或計畫觸發，沒有 controller 依 observed 收斂（§1.1） |
+| Managed Software（Software Assignment） | kind、variant 或 role、版本 | 已套用的狀態與版本 | 現行的 Software Assignment 記錄最後一次安裝的 spec 與結果（last-applied），安裝由 user 或計畫觸發，沒有 controller 依 observed 收斂（§1.1）；Node Exporter 已遷移（§4.4） |
 | Zone／Pool | 存在與否、名稱、說明 | provisioner 中的實現狀態 | 已遷移（§4.4） |
 | SSH Key | 公鑰與用途 | 各 provisioner 的同步狀態 | 已遷移（§4.4） |
 | OS Image | swallow 的命名與 `defaultUser` 等 metadata | provider 擁有的 artifact 本身 | 已遷移（§4.4）；Provider Data Overlay 隨之淘汰 |
@@ -163,11 +166,12 @@ Power Configuration 這類欄位的 drift 只回報。已遷移的資源與其�
 | SSH Key | 要登錄的金鑰（名稱、用途、公鑰材料） | SSH Key controller：每個 provisioner 一次同步，只移除 swallow 登錄過的金鑰；resync 補回被刪除的金鑰 | glossary [SSH Key](glossaries/terms/ssh-key.md)、[access-and-credentials.md](access-and-credentials.md) §5 |
 | OS Image metadata | 每個 provider image 的名稱、OS、release、tags 與 `defaultUser` | 無：不需要 provider 實現，所以沒有 controller、generation 與 conditions；讀取時合併到 live catalog | glossary [OS Image](glossaries/terms/os-image.md)、[os-provisioning.md](os-provisioning.md) §4.1 |
 | Platform | type、拓樸、各 Server 的 Node Role、功能開關與版本（type 模組定義 schema） | Platform controller：接管最近一次部署的紀錄；非破壞性變更以 Workflow 收斂，破壞性變更產生 Change Plan（§5.2） | glossary [Platform](glossaries/terms/platform.md)、[platform-deployment.md](platform-deployment.md)、[platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md) |
+| Node Exporter（Managed Software） | 無：desired 由政策推導（§3.2），存在、`deployed`、沒有 lock、Site 啟用 automation 的 Server 應該有它 | Node Exporter controller：缺少或 `absent` 時以 Workflow 安裝，`failed` 依退避重試，`installed` 但 Site Prometheus 持續收集不到時重新安裝（auto-correct），不卸載 | [software-deployment.md](software-deployment.md) 的 Node Exporter、[monitoring.md](monitoring.md) §4.1、[software.md](../../api-server/docs/development/api-contracts/api-server/software.md#node-exporter) |
 
-遷移第一段的資源都已遷移；Platform 不屬於這兩段，另依 §5.2 遷移。遷移第二段的資源（Power Configuration、Server Default
-User、Boot Media）尚未遷移，維持現行行為。
+遷移第一段的資源都已遷移；Platform 與 Node Exporter 不屬於這兩段，Platform 另依 §5.2 遷移，Node Exporter 是第一個由政策
+推導 desired 的資源。遷移第二段的資源（Power Configuration、Server Default User、Boot Media）尚未遷移，維持現行行為。
 
-遷移後的資源共同遵守：
+遷移後有 spec 的資源共同遵守（由政策推導 desired 的資源沒有 spec，不適用前兩點）：
 
 - API 以 spec／status 呈現（§11.1），遷移前的欄位在同一個變更中移除。
 - 第一次觀察即接管（§6.5）。
@@ -444,6 +448,8 @@ store 規則與資料庫引擎無關：
   （HTTP Proxy、Subnet DNS）、`internal/core/infrastructure/application/catalog_controller.go`（Zone、Pool）、
   `internal/core/sshkey/application/controller.go`。
 - 有破壞性變更與 Change Plan 的資源：`internal/core/platform/application/platform_controller.go`。
+- 由政策推導 desired、以 Workflow 收斂並依觀察 auto-correct 的資源：`internal/core/software/application/ensure_controller.go`
+  （Node Exporter）。
 
 
 - [ ] 列出每個欄位，並標明 desired、observed 或 derived（§3）。

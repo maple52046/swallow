@@ -136,7 +136,9 @@ work once it is up ([Monitoring](monitoring.md)); so does each Server a Platform
 deployment provisions, unless Kubernetes owns that Platform's exporters. The Server's
 Software list shows it as installed Managed Software. A failed install does not affect
 the OS: the Server is deployed, but the Workflow needs attention until you retry the
-**Install Node Exporter** step, for example after enabling EPEL on a RHEL-family image.
+**Install Node Exporter** step, for example after enabling EPEL on a RHEL-family image, or
+cancel it, after which swallow retries the install on its own. From then on swallow keeps
+the Node Exporter installed ([Monitoring](monitoring.md#the-node-exporter-is-kept-installed)).
 Releasing or recovering a Server clears its Software Assignments, because the software
 went with the OS.
 

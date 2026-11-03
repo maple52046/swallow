@@ -98,6 +98,11 @@ Workflow，不再是單一 provider 呼叫。`202` response 保留 provisioning 
 [Managed Software contract](../../../api-server/docs/development/api-contracts/api-server/software.md)
 安裝 Node Exporter（kind `node-exporter`）。
 
+自 2026-11-04 起，swallow 也會自己讓每個啟用 automation 的 Site 中每台已佈署、未 lock 的 Server 一直保有
+Node Exporter。client 會看到 `requestedBy` 為 `swallow:node-exporter-controller` 的
+`configure-node-exporter` Workflow；這種 Workflow 停在 `requires_attention` 時 swallow 會自己取消它，從不取消
+其他 Workflow。在這種 Server 上 uninstall `node-exporter` 之後會再被安裝。
+
 ## Contract directory
 
 依序閱讀：

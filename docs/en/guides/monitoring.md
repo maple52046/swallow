@@ -29,9 +29,9 @@ one when you want exploration beyond the basic charts.
    report its Servers as down.
 3. **Deploy Servers as usual.** Every OS deployment installs the Node Exporter on the
    Servers it deploys (see [Exporters](#exporters)); a few minutes later the Server's
-   **Monitoring** tab shows its usage history. A Server swallow did not deploy (for
-   example one enrolled with its OS kept) gets it when you install the **Node Exporter**
-   as Managed Software.
+   **Monitoring** tab shows its usage history. swallow also keeps it installed on every
+   other deployed Server it automates (for example one enrolled with its OS kept), so you
+   do not install it by hand.
 
 ## Configure the integration
 
@@ -66,16 +66,38 @@ exporters were installed:
 
 | Exporter | Port | Installed on |
 | --- | --- | --- |
-| node-exporter | 9100 | every Server swallow deploys (CPU, memory, disk, network), from the OS package: `prometheus-node-exporter` on Debian and Ubuntu, `node_exporter` on the RHEL family (from EPEL) |
+| node-exporter | 9100 | every deployed Server swallow automates (CPU, memory, disk, network), from the OS package: `prometheus-node-exporter` on Debian and Ubuntu, `node_exporter` on the RHEL family (from EPEL) |
 | AMD Device Metrics Exporter | 5001 | AMD GPU Servers: as Managed Software on a single Server, on a Slurm Platform's GPU compute nodes, or by the AMD GPU Operator on a Kubernetes Platform's GPU nodes when its Device Metrics Exporter is on; the same metric names everywhere |
 | Omnistat | 8001 | a Slurm Platform's compute nodes when Omnistat is its job monitoring |
 | [rdc-exporter](https://github.com/maple52046/rdc-exporter) | 5000 | swallow neither installs it on hosts nor collects it: the Site's Prometheus collects only the exporters swallow installed |
 
 A Server has one Node Exporter, whatever Platform it belongs to: each OS deployment
-installs it on the Servers it deploys, uninstalling a Platform keeps it (and installs it on
-kept Servers that lack it), and you can install it as Managed Software on a Server swallow
-did not deploy. A locked Server is left as it is: swallow neither installs nor removes
-anything on it.
+installs it on the Servers it deploys, and uninstalling a Platform keeps it (and installs it
+on kept Servers that lack it).
+
+### The Node Exporter is kept installed
+
+swallow keeps the Node Exporter installed on every deployed, unlocked Server of a Site whose
+automation is enabled, including Servers it did not deploy. The worker checks every Server
+about every ten minutes, and straight away when a Server or its Node Exporter record changes:
+
+- When the Server has no Node Exporter, or it was uninstalled, swallow installs it.
+- When an install failed, swallow tries again after 15 minutes, 1 hour, 6 hours, and then
+  once a day, so a Server whose OS lacks the package does not get an install loop.
+- When the Site's Prometheus could not scrape it for 10 minutes, for example because the
+  package was removed or its service stopped, swallow installs it again. A Server its
+  provisioner reports powered off is left alone.
+
+These installs show up as ordinary **Install Node Exporter** Workflows requested by
+`swallow:node-exporter-controller`. When one of them fails, swallow cancels it with the reason
+"The Node Exporter install failed; swallow retries it later." so the Server is free for other
+work; it never cancels a Workflow anyone else started, and it waits while other work holds the
+Server. swallow never removes the Node Exporter by itself. A locked Server is left as it is:
+swallow neither installs nor removes anything on it. To keep the Node Exporter off one Server,
+lock it; uninstalling it from a Server swallow keeps it on only lasts until the next check.
+
+While an install is pending or after it failed, the Server is not scraped, so its health shows
+as unknown rather than down.
 
 ## Usage charts
 

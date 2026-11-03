@@ -205,6 +205,10 @@ services:
       # Omnistat until they are set in .env.
       SWALLOW_API_PUBLIC_URL: "${SWALLOW_API_PUBLIC_URL:-}"
       SWALLOW_API_MONITORING_SCRAPE_ADDRESSES: "${SWALLOW_API_MONITORING_SCRAPE_ADDRESSES:-}"
+      # The Node Exporter controller installs the Node Exporter on every deployed Server of a Site
+      # with automation enabled (software-deployment.md, Node Exporter). The dev stack shares lab
+      # machines, so it is off unless .env turns it on.
+      SWALLOW_WORKER_NODE_EXPORTER_ENSURE: "${SWALLOW_WORKER_NODE_EXPORTER_ENSURE:-false}"
     volumes:
       - ../../api-server:/app
       - ./air-worker.toml:/etc/swallow/air.toml:ro

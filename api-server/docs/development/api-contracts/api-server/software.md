@@ -398,8 +398,25 @@ container runtime is installed or needed. Before installing, the playbook remove
 earlier containerised node-exporter (the systemd unit `swallow-node-exporter.service` and its
 container), which held the same port; Docker itself and any RDC exporter container are left
 alone. Every OS deployment installs this kind on the Servers it provisions
-([provisioning.md](provisioning.md#durable-os-workflows)), so a client installs it directly only
-on Servers swallow did not deploy.
+([provisioning.md](provisioning.md#durable-os-workflows)), and swallow keeps it installed by itself
+afterwards, so a client rarely needs to install it:
+
+- Every present Server in provisioning state `deployed` that is not locked, at a Site whose
+  automation is enabled, should have it. On such a Server, with no unfinished Workflow holding it,
+  the worker starts an install when the Server has no `node-exporter` assignment or it is
+  `absent`, retries a `failed` one after 15 minutes, 1 hour, 6 hours, and then every 24 hours, and
+  installs again when the assignment is `installed` but the Site's Prometheus failed every scrape
+  of it for 10 minutes. These installs are ordinary `configure-node-exporter` Workflows whose
+  `requestedBy` is `swallow:node-exporter-controller`, and they write the assignment as any install
+  does.
+- When one of those Workflows stops in `requires_attention`, swallow cancels it with the reason
+  `The Node Exporter install failed; swallow retries it later.`, so the Server is released and the
+  assignment becomes `failed`. Workflows with any other `requestedBy` are never canceled.
+- Uninstalling `node-exporter` from such a Server is followed by a new install. Locking the
+  Server, or turning its Site's automation off, keeps swallow from installing it; swallow never
+  uninstalls it by itself.
+- An installation can turn this off (`SWALLOW_WORKER_NODE_EXPORTER_ENSURE=false`); then only OS
+  deployments, Platform deployments, and kept-servers Platform uninstalls install the kind.
 
 ```json
 {
@@ -498,6 +515,10 @@ On success the response is `202 Accepted`:
 - 2026-11-03, additive: the `grafana` kind accepts the `node-exporter` dashboard bundle. A Slurm
   deployment no longer composes `prometheus`, and composes `grafana` whenever the Platform has its
   own dashboards (see [Composition Into Platform Deployments](#composition-into-platform-deployments)).
+- 2026-11-04, behavior only (no wire change): swallow keeps `node-exporter` installed on every
+  deployed, unlocked Server of a Site with automation enabled (see [Node Exporter](#node-exporter)).
+  Clients see `configure-node-exporter` Workflows requested by `swallow:node-exporter-controller`
+  that no user started, and an uninstalled `node-exporter` on such a Server comes back.
 
 ## Composition Into Platform Deployments
 

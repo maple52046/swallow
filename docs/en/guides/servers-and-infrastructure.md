@@ -44,8 +44,9 @@ The script downloads the swallow CLI from your installation and runs
 `swallow servers enroll`, which wraps MAAS `maas-run-scripts register-machine` and
 `report-results`. The host needs `curl`, `python3`, and HTTP access to
 swallow and MAAS (Ubuntu, x86_64). It is never followed by automatic inspection,
-which would reboot the host, and swallow does not install the Node Exporter on it:
-install the **Node Exporter** as Managed Software to see its usage charts. The
+which would reboot the host. swallow installs the Node Exporter on it once it is deployed,
+unlocked, and its Site's automation can log in, so its usage charts appear without an extra
+step ([Monitoring](monitoring.md#the-node-exporter-is-kept-installed)). The
 command contains the provisioner's API key, which
 MAAS requires; run it only on trusted hosts and rotate the key in MAAS otherwise.
 

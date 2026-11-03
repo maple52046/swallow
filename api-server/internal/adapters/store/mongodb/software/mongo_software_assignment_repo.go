@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
@@ -76,6 +77,25 @@ func (r *MongoAssignmentRepo) Upsert(ctx context.Context, assignment *softwaredo
 func (r *MongoAssignmentRepo) FindByServerAndKind(ctx context.Context, serverID string, kind softwaredomain.Kind) (*softwaredomain.Assignment, error) {
 	var doc assignmentDoc
 	err := r.col.FindOne(ctx, assignmentKey(serverID, kind)).Decode(&doc)
+	if err == mongo.ErrNoDocuments {
+		return nil, softwaredomain.ErrAssignmentNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return toAssignment(&doc), nil
+}
+
+// FindByRecordKey returns the assignment whose record the change feed names by key, the record's
+// _id as the feed renders it (the hex of the ObjectID Upsert creates), or ErrAssignmentNotFound
+// when no record has that key, for example after it was deleted.
+func (r *MongoAssignmentRepo) FindByRecordKey(ctx context.Context, key string) (*softwaredomain.Assignment, error) {
+	var id any = key
+	if objectID, err := primitive.ObjectIDFromHex(key); err == nil {
+		id = objectID
+	}
+	var doc assignmentDoc
+	err := r.col.FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
 	if err == mongo.ErrNoDocuments {
 		return nil, softwaredomain.ErrAssignmentNotFound
 	}

@@ -225,7 +225,8 @@ Server 存在、`ready`、未鎖定、屬於 image 的 Integration、架構相�
 - 取消 `verify-os-image` 時，Workflow 以 best-effort 執行自己的 `recover-server` Task（上限 30 分鐘、忽略錯誤），
   而不是一般部署的 `return-canceled-deployment`。
 - 驗證不設定時間、也不安裝 Node Exporter（不加 `configure-ntp-<serverId>` 與 Node Exporter 的 Task），因為 Server
-  隨即歸還；`keepServer: true` 留下的 Server 因此沒有 Node Exporter，需要時由 user 以 Managed Software 安裝。
+  隨即歸還；`keepServer: true` 留下的 Server 之後由 Node Exporter controller 安裝（[software-deployment.md](software-deployment.md)
+  的 Node Exporter）。
 - `return-<serverId>` 成功時以 `server-deployment-cleared` 完成行為清除 deployment 投影，並把該 Server 的 Software
   Assignment 標為 `absent`（§11.4）。
 - OS Images 列表只把仍在進行（pending／running／waiting）的 verify Workflow 顯示為 verifying；
@@ -432,7 +433,8 @@ durable 路徑另外要求 installation 已設定 NTP server（否則 `409`）�
 （[software-deployment.md](software-deployment.md) §2、§5）：Workflow 受理時寫入該 Server 的 `node-exporter`
 pending Software Assignment，`record-node-exporter-<serverId>` 把它標為 `installed`，安裝失敗由
 `software-assignment-failure` 標為 `failed`。這兩個 Task 是葉節點，沒有 Task 依賴它們，因此 exporter 失敗不會擋住
-OS，但 Workflow 會停在 `requires_attention` 直到 user 重試。RAM（`ram` Deploy Target）部署的組成相同。
+OS，但 Workflow 會停在 `requires_attention` 直到 user 重試或取消；Node Exporter controller 不取消它，等它結束後依
+退避重試（[software-deployment.md](software-deployment.md) 的 Node Exporter）。RAM（`ram` Deploy Target）部署的組成相同。
 
 Task 的 retry、cancel、rerun 與 lease 語意見 [workflow-execution.md](workflow-execution.md) 與
 [workflows.md](../../api-server/docs/development/api-contracts/api-server/workflows.md)。cloud-init 從 intent

@@ -14,7 +14,9 @@
   fact, updated by the install/uninstall Workflow's internal record step — including the record
   step of a software Job composed into a platform deployment (Prometheus and Grafana of a Slurm
   deploy with Omnistat, or the Device Metrics Exporter on its GPU compute nodes) and of the Node
-  Exporter that every OS deployment installs on the Servers it provisions. A Slurm
+  Exporter that every OS deployment installs on the Servers it provisions. The Node Exporter's
+  Controller reads its assignments as observed state and starts installs that write them like any
+  other. A Slurm
   Platform's successful uninstall marks its Servers' `device-metrics-exporter` assignments
   `absent`, because the uninstall removes that exporter from the hosts.
 - Disallowed meaning: Not a fourth Server status axis — the three axes
@@ -45,3 +47,5 @@
   2026-11-03: every OS deployment records a `node-exporter` assignment, and a Server's
   assignments are cleared by the Task that removed its OS or by reconcile rather than by a
   periodic pass over Servers that left `deployed`, so a Server in `rescue` or `broken` keeps them.
+  2026-11-04: the Node Exporter's Controller observes its assignments and installs where one is
+  missing, `absent`, or `failed`; the record itself is unchanged.

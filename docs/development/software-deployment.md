@@ -16,9 +16,10 @@ component 組成的 runtime；software deployment 佈署單一軟體及其變體
 > **模組**：每個 Managed Software kind 由一個 **Software 模組**提供（[decision 070](../decisions/070-core-providers-and-extensions.md)（core providers and extensions）、
 > [decision 075](../decisions/075-module-contract-v1.md)（module contract v1），見 [core-and-extensions.md](core-and-extensions.md)）。core 不認得任何
 > kind：catalog 由各模組的 `software` hook 組成（§2）。kind 專屬的產品常數（版本、port）仍在 core，之後隨 Platform
-> 模組一起搬出。Managed Software 尚未遷移到 [desired-state-model.md](desired-state-model.md)：install 與 uninstall 是
-> 由 user 或計畫觸發的動作，Software Assignment 記錄最後一次安裝的 spec 與結果；主機上被外部移除或停止不會被發現。
-> 新行為依該文件 §1.1 先設計成 desired 與收斂。
+> 模組一起搬出。Managed Software 中只有 Node Exporter 已遷移到 [desired-state-model.md](desired-state-model.md)：
+> 它的 desired 由政策推導，由 worker 的 Node Exporter controller 收斂（§2 的 Node Exporter）。其他 kind 的 install 與
+> uninstall 仍是由 user 或計畫觸發的動作，Software Assignment 記錄最後一次安裝的 spec 與結果，主機上被外部移除或
+> 停止不會被發現；新行為依該文件 §1.1 先設計成 desired 與收斂。
 
 ## 0. 權威分界：佈署對象，不是 OS 管線
 
@@ -185,9 +186,9 @@ Prometheus／Grafana、為何不從 projection 判斷 OS）見
 `prometheus-node-exporter`；RHEL 家族以 dnf 安裝 `node_exporter`，來自 EPEL），由套件自己的 systemd service 執行，
 port `9100`。主機不安裝也不需要 Docker 或任何 container。
 
-- **組入 OS 部署**：每個 OS 部署都在它 provision 的每台 Server 上安裝 Node Exporter（§5），因此 swallow 部署的
-  Server 都有它的 Software Assignment。swallow 沒有部署的 Server（existing-OS enrollment 或匯入、直接在 MAAS 部署、
-  OS image verification 留下的 Server）不會自動安裝，由 user 以 Managed Software 安裝。
+- **組入 OS 部署**：每個 OS 部署都在它 provision 的每台 Server 上安裝 Node Exporter（§5），讓 Server 一部署好就有
+  監控。之後的變化，以及 swallow 沒有部署的 Server（existing-OS enrollment 或匯入、直接在 MAAS 部署、OS image
+  verification 留下的 Server），由下面的 desired state 與 controller 負責。
 - **目標資格**：沒有這個 kind 自己的規則。OS provisioning 在每台部署的 Server 上帶入 Node Exporter，主機上永遠
   只有一個 node exporter，所以任何 Platform 的成員都與其他 deployed Server 一樣接受；locked 的 Server 由每個 install
   共同的 lock 檢查拒絕（`409 conflict`）。請求不接受任何 spec 欄位。
@@ -196,10 +197,56 @@ port `9100`。主機不安裝也不需要 Docker 或任何 container。
 - **舊的 container unit**：安裝前先停止並移除 swallow 舊的 containerised node-exporter（systemd unit
   `swallow-node-exporter.service` 與它的 container，佔用 port 9100）；Docker 本身與主機上已有的 RDC container 不動。
 - uninstall 停止 service 並移除套件。
-- **仍是動作**（[desired-state-model.md](desired-state-model.md) §1.1）：安裝只在 OS 部署、保留主機的 Platform
-  uninstall 與 user 的 install 時發生，assignment 記錄的是那次安裝的結果。主機上被外部移除、service 停止或開機後
-  起不來都不會被發現，assignment 仍是 `installed`；一次被中斷的安裝會把仍在運作的 Node Exporter 標成 `failed`。
-  遷移後改由「Server 應有 Node Exporter」的 desired 與以監控資料為 observed 的 controller 取代計畫中的組入。
+
+Node Exporter 是 desired state，由 worker 的 Node Exporter controller 收斂：
+
+- **desired（由政策推導）**：每台存在（不是 absent）、provisioning 為 `deployed`（disk 與 RAM 部署都算）、沒有 lock，
+  而且所屬 Site 的 automation 已啟用（Site 的 Automation Configuration）的 Server，都應該有 Node Exporter。這是推導出的
+  desired（[desired-state-model.md](desired-state-model.md) §3.2）：沒有 spec 欄位、沒有寫入者，也沒有 `generation` 與
+  conditions；政策本身是本規格的一部分。不符合條件的 Server 不受管：controller 不安裝，也不卸載，因為卸載是破壞性的
+  （desired-state-model.md §5.2）。
+- **observed**：該 Server 的 `node-exporter` Software Assignment 的 state，以及它的 Site Prometheus 對該 Server
+  node-exporter target 的 `up`（[monitoring.md](monitoring.md) §5.2；讀取時查詢，不保存）。Site 沒有 Prometheus、target
+  在這段時間沒有被收集，或讀取失敗時，結果是 unknown：controller 只依 assignment 動作，從不依 unknown 的觀察動作。
+- **收斂**（worker 的 `node-exporter` controller，desired-state-model.md §7）：以 Server 為 key，由 `servers` 與
+  `software_assignments` 的 change feed 喚醒，定期 resync（`controllerResyncInterval`，預設 10 分鐘）時看每台 `deployed`
+  的 Server。對受政策涵蓋、沒有未結束的 Workflow 佔用的 Server：
+  - 沒有 assignment 或 assignment 為 `absent`：安裝。
+  - `failed`：resync 時依退避重試，從 assignment 轉為 `failed` 起算 15 分鐘、1 小時、6 小時，之後每 24 小時，依
+    controller 自己連續未成功的安裝次數決定等多久。
+  - `installed`：resync 時讀 Site Prometheus。過去 10 分鐘（寬限時間）的每一次 scrape 都失敗、assignment 已
+    `installed` 超過寬限時間，而且 provisioner 沒有回報主機關機時，再安裝一次（role 是 ensure：套件存在、service
+    enabled 並啟動）。再安裝之後 exporter 仍一次都沒有被成功收集時，同樣依上面的退避等待下一次。
+  - `pending`、`uninstalling`，或有任何未結束的 Workflow 佔用 Server（[workflow-execution.md](workflow-execution.md)
+    §4）：現在不動作。
+  - 「連續未成功的安裝」是 controller 自己啟動的最近幾次 install 中，失敗、被取消，或成功之後 exporter 一次都沒有被
+    成功收集的那些；遇到別人在這台 Server 上的任何 Workflow，或 48 小時以前結束的安裝，就停止計算，退避重新開始。
+    所以 OS 不支援、repository 沒有套件或 port 收集不到的 Server 最多每天一次 install，不會形成迴圈。
+  - change feed 觸發時只依 assignment 的 state 動作（安裝缺少的、取消自己停住的 install）；讀 Prometheus 與重試失敗
+    的安裝只在 resync，因為 reconcile 每一輪都會改寫每台 Server。安裝在受理時被拒（例如 Site 的 automation 還無法
+    登入）的 Server，10 分鐘內不會因 change 再試，下一次 resync 照常再試。
+- **安裝的路徑**：與 user 的 install 相同（`SoftwareService.Install`：同樣的檢查，在一個 transaction 中寫入 Workflow 與
+  `pending` assignment）。Workflow 是一般的 `configure-node-exporter`，`requestedBy` 為
+  `swallow:node-exporter-controller`，所以 assignment、Workflow 與 timeline 都和任何 install 一樣。
+- **不留下停住的 install**：install 的 Ansible Task 失敗時 Workflow 停在 `requires_attention`，仍佔著 Server。controller
+  取消自己啟動、已經停住（或 install Task 已失敗、還沒停住）的 install，原因為
+  `The Node Exporter install failed; swallow retries it later.`；被取消的 install 與 record Task 經
+  `software-assignment-failure` 把 assignment 標為 `failed`（§4.3），Server 被釋放，之後依退避重試。它只取消
+  `requestedBy` 是自己的 `configure-node-exporter` Workflow，從不取消 user、OS 部署、Platform 或其他 controller 的
+  Workflow。
+- **auto-correct**（desired-state-model.md §6.2）：Node Exporter 被外部移除、service 停止或開機後起不來，是 controller
+  自動修正的 drift。理由：監控涵蓋率是 swallow 自己的事（Server 的 health 與基礎監控都依賴它，monitoring.md §8），
+  而安裝是冪等、非破壞性的 ensure，只確保套件存在、service enabled 並啟動，不動 workload，也不重開機。修正在 resync
+  時發生（§6.2 的時機），每次修正都是一個看得到的 Workflow。
+- **組入照舊**：OS 部署、Platform 部署的 `ensure-os` 與保留主機的 Platform uninstall 仍組入安裝（§5），讓 Server 一部署
+  好、uninstall 一結束就有 Node Exporter；controller 負責之後的變化。
+- **user 的 uninstall**：受政策涵蓋的 Server 被 uninstall 後 assignment 為 `absent`，controller 會再安裝。要讓某台
+  Server 不裝 Node Exporter，lock 它，或關閉該 Site 的 automation。
+- **設定**：`SWALLOW_WORKER_NODE_EXPORTER_ENSURE`（config `nodeExporterEnsure`，預設 `true`，值必須是布林，否則 process
+  不啟動）。`false` 時 worker 不註冊這個 controller，只剩組入的安裝；開發環境預設關閉，因為它與 lab 共用機器。
+- **已知限制**：assignment 為 `pending` 或 `failed` 時 Site Prometheus 不收集它（monitoring.md §5.2）。主機當機、provisioner 卻仍
+  回報開機時，再安裝的 `wait-for-ssh` 失敗，controller 取消它，assignment 轉為 `failed`，這台 Server 的 health 就從
+  `down` 變成 unknown，直到某次重試成功。
 
 ## 3. Software Assignment（durable record）
 
@@ -417,7 +464,7 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
   做同樣的事（獨立的 `configure-node-exporter` Job，`install-platform` 不等它），不分 Platform 類型。Platform
   uninstall 不移除 Node Exporter；保留主機的 uninstall 都在 `uninstall-platform` 之後為保留的 Server 組入同一個 Job，
   確保它們最後都有 Node Exporter（[platform-deployment.md](platform-deployment.md) §2.1、§2.4）。`ensure-os` 重用或
-  已有 OS 的 Server 不重新安裝。
+  已有 OS 的 Server 不重新安裝。組入之外的安裝由 Node Exporter controller 負責（§2 的 Node Exporter）。
 - **禁止** `ExecuteChildWorkflow` 一個完整的獨立 software Workflow（會重複 `wait-for-ssh`、搶同一
   Server 的資源所有權、retry/cancel 歸屬混亂、出現兩個 user-visible Workflow）。
 - **禁止**只用 ansible `include_role` 當唯一連動（會抹掉 Job 邊界與 dashboard 分組）。playbook 內部
@@ -455,6 +502,7 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
 | 失敗標記（`software-assignment-failure` 完成行為） | `api-server/internal/app/workflow_completions.go`、`api-server/internal/app/software_assignment_failure.go` |
 | OS 被拿走時標 `absent`（`server-deployment-cleared` 完成行為；reconcile） | `api-server/internal/app/workflow_completions.go`（`clearSoftwareAssignments`）；`api-server/internal/core/provisioning/application/reconcile.go`（`clearStaleOSState`） |
 | Node Exporter（catalog entry、組入 OS 部署） | `api-server/modules/software/node-exporter/module.go`；組入：`api-server/internal/app/node_exporter_planner.go` |
+| Node Exporter controller（政策、退避、取消自己停住的 install；與 kind 無關的 ensure controller）與它在 worker 的組裝、Site Prometheus 的讀取 | `api-server/internal/core/software/application/ensure_controller.go`；`api-server/internal/app/node_exporter_controller.go`、`api-server/internal/app/worker.go` |
 | Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`、`node_exporter`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用）、`amdgpu_loader` 與 `grafana_provisioning`（Grafana 的 datasource 與 dashboard bundles）；撰寫規則見[模組撰寫指南](module-authoring.md) |
 | Docker Host Explorer（view types、use case、Engine client、handler 與路由） | 全部在 docker-ce 模組：`api-server/modules/software/docker-ce/explorer/`（view types、`DockerExplorerUseCase`）、`explorerhttp/`（handler 與 `RegisterRoutes`）、`dockerengine/`（Engine client）；`EngineAPIPort`、`SpecEnableAPI` 與 `APIEnabled` 在 root package `api-server/modules/software/docker-ce/module.go` |
 | Registry Credential（registry 正規化與解析、service、sealed Mongo repo、handler） | `api-server/internal/core/software/domain/registry.go`、`application/registry_credentials.go`、`delivery/registry_credential_handler.go`、`api-server/internal/adapters/store/mongodb/software/mongo_registry_credential_repo.go` |

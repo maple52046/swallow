@@ -24,8 +24,9 @@ type LoadOptions struct {
 //  4. Environment variables (SWALLOW_-prefixed; highest priority)
 //  5. Validation
 //
-// If ConfigFile is non-empty but cannot be read or parsed, Load returns an
-// error immediately so that misconfiguration is never silently ignored.
+// If ConfigFile is non-empty but cannot be read or parsed, or an environment switch has a value
+// that is not a boolean, Load returns an error immediately so that misconfiguration is never
+// silently ignored.
 func Load(opts LoadOptions) (*Config, error) {
 	cfg := DefaultConfig()
 
@@ -39,7 +40,9 @@ func Load(opts LoadOptions) (*Config, error) {
 		applyAPIFlagOverlay(&cfg, opts.FlagOverlay)
 	}
 
-	applyEnv(&cfg)
+	if err := applyEnv(&cfg); err != nil {
+		return nil, err
+	}
 
 	if strings.TrimSpace(cfg.API.BootMedia.ISOPath) != "" {
 		fmt.Fprintln(os.Stderr, "warning: api.bootMedia.isoPath (SWALLOW_API_BOOT_MEDIA_ISO_PATH) is retired and ignored; build Boot ISOs on the dashboard's Provisioning page")

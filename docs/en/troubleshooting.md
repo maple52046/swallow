@@ -194,9 +194,11 @@ swallow servers inspect server1
   is ready and runs its `swallow-exporters` job for the installation's Site.
 - Confirm exporters are installed and reachable at the discovered targets: an OS
   deployment installs the Node Exporter in its `install-node-exporter-<serverId>` Task (a
-  failed install leaves the deployment Workflow needing attention; retry that Task). A
-  Server swallow did not deploy, or a locked one, gets none; install the **Node Exporter**
-  as Managed Software on an unlocked Server.
+  failed install leaves the deployment Workflow needing attention; retry that Task). After
+  that swallow keeps it installed on every deployed, unlocked Server of a Site with
+  automation enabled, with **Install Node Exporter** Workflows requested by
+  `swallow:node-exporter-controller`; read the newest one's failed Task to see why the
+  exporter is missing. A locked Server, or one at a Site with automation disabled, gets none.
 - Charts that read "No data" for a Server usually mean its Node Exporter is not running or
   not reachable, since every swallow chart comes from it. swallow shows no GPU charts; GPU
   metrics are in the Platform's own Grafana. The Site's Prometheus collects only the

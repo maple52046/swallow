@@ -30,6 +30,9 @@ type platformOperations struct {
 	uninstall    *platformapp.UninstallService
 	gpuOperators *platformapp.GPUOperatorService
 	planner      *platformapp.PlatformPlanner
+	// software is the Managed Software service the operations compose installs through, over the
+	// same acceptance checks; the worker's Node Exporter controller starts its installs with it.
+	software *softwareapp.SoftwareService
 }
 
 // platformOperationDeps is what the Platform operations are built from.
@@ -157,6 +160,7 @@ func buildPlatformOperations(deps platformOperationDeps) (platformOperations, er
 	)
 	return platformOperations{
 		deploy: deploy, uninstall: uninstall, gpuOperators: gpuOperators,
-		planner: platformapp.NewPlatformPlanner(deps.platforms, deps.lifecycle, deploy, uninstall, gpuOperators, deps.modules.platforms),
+		planner:  platformapp.NewPlatformPlanner(deps.platforms, deps.lifecycle, deploy, uninstall, gpuOperators, deps.modules.platforms),
+		software: deps.software,
 	}, nil
 }

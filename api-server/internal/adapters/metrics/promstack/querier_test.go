@@ -229,6 +229,32 @@ func TestExporterUpExpression(t *testing.T) {
 	}
 }
 
+// The windowed read takes the best scrape result over whole seconds of the window, so zero means
+// every scrape in it failed.
+func TestExporterUpWithinExpression(t *testing.T) {
+	got := exporterUpWithinExpression(monitoringdomain.HealthExporter, mustServerSet(t, "srv-1"), 10*time.Minute+500*time.Millisecond)
+	want := `max by (server_id) (max_over_time(up{exporter="node-exporter", server_id=~"srv-1"}[600s]))`
+	if got != want {
+		t.Errorf("exporterUpWithinExpression = %q, want %q", got, want)
+	}
+}
+
+// A window shorter than a second has no range selector, so it is refused without a store request.
+func TestQuerier_ExporterUpWithinRefusesSubSecondWindow(t *testing.T) {
+	requests := 0
+	querier := newTestQuerier(t, func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+	})
+	if _, err := querier.ExporterUpWithin(context.Background(), monitoringdomain.HealthExporter,
+		mustServerSet(t, "srv-1"), 500*time.Millisecond); err == nil {
+		t.Error("ExporterUpWithin(500ms) error = nil, want an error")
+	}
+	if requests != 0 {
+		t.Errorf("store requests = %d, want 0", requests)
+	}
+}
+
 // The structured reads send the named expressions: instant reads as GET, history as a POST with the
 // combined expression in aggregate mode.
 func TestQuerier_SendsTheNamedExpressions(t *testing.T) {
@@ -254,6 +280,9 @@ func TestQuerier_SendsTheNamedExpressions(t *testing.T) {
 	if _, err := querier.ExporterUp(ctx, monitoringdomain.HealthExporter, servers); err != nil {
 		t.Fatalf("ExporterUp: %v", err)
 	}
+	if _, err := querier.ExporterUpWithin(ctx, monitoringdomain.HealthExporter, servers, 10*time.Minute); err != nil {
+		t.Fatalf("ExporterUpWithin: %v", err)
+	}
 
 	perServer, _ := metricExpression(cpu, servers, false)
 	combined, _ := metricExpression(cpu, servers, true)
@@ -261,6 +290,7 @@ func TestQuerier_SendsTheNamedExpressions(t *testing.T) {
 		"GET /api/v1/query " + perServer,
 		"POST /api/v1/query_range " + combined,
 		"GET /api/v1/query " + exporterUpExpression(monitoringdomain.HealthExporter, servers),
+		"GET /api/v1/query " + exporterUpWithinExpression(monitoringdomain.HealthExporter, servers, 10*time.Minute),
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("requests =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -287,6 +317,9 @@ func TestQuerier_EmptyServerSetAsksNothing(t *testing.T) {
 	}
 	if samples, err := querier.ExporterUp(ctx, monitoringdomain.HealthExporter, empty); err != nil || samples != nil {
 		t.Errorf("ExporterUp(empty) = %v, %v, want no samples", samples, err)
+	}
+	if samples, err := querier.ExporterUpWithin(ctx, monitoringdomain.HealthExporter, empty, time.Minute); err != nil || samples != nil {
+		t.Errorf("ExporterUpWithin(empty) = %v, %v, want no samples", samples, err)
 	}
 	if requests != 0 {
 		t.Errorf("store requests = %d, want 0", requests)
