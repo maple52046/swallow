@@ -204,7 +204,7 @@ Monitoring Links are set with the Platform update API. With the CLI:
 # patch.yaml
 monitoringLinks:
   - name: Platform Grafana
-    url: http://10.0.0.11:3000/d/edqnz7pce7togc-rms
+    url: http://10.0.0.11:3000/d/edqnz7pce7togc-rms/global-rms
   - name: Runbook
     url: https://wiki.example.internal/research-slurm
 ```

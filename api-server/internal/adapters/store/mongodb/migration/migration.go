@@ -85,7 +85,11 @@ import (
 // v13 turns the monitoring dashboards off, in the desired and the applied spec, on every Platform
 // that has no Platform Grafana: the setting is on when omitted, so those Platforms read as having a
 // Grafana they never got, and turning it on installed nothing.
-const CurrentSchemaVersion = 13
+//
+// v14 points every Platform Grafana Monitoring Link that still opens the Grafana root at the
+// landing dashboard of the bundles that Grafana carries (/d/<uid>/<slug>), the page a deploy from
+// this release on records, so earlier Platforms need no new deploy for it.
+const CurrentSchemaVersion = 14
 
 // OldestUpgradableSchemaVersion is the oldest schema Migrate upgrades from; an older database
 // has no supported upgrade path. A release's manifest lists every schema from this one up to
@@ -241,6 +245,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v12 to v13: %w", err)
 			}
 			state.Version = 13
+		case 13:
+			if err := migrateV13ToV14(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v13 to v14: %w", err)
+			}
+			state.Version = 14
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}

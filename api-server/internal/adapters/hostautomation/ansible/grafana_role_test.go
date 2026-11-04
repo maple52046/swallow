@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -99,9 +101,10 @@ func TestNodeExporterDashboardReadsTheProvisionedDatasource(t *testing.T) {
 }
 
 // Every shipped bundle names the dashboard a Grafana provisioned with it opens on, by the uid one of
-// the bundle's own dashboards carries, so the /d/<uid> link swallow records stays valid; and the
-// bundles rank in the order a Grafana with several of them picks from: the GPU or job monitoring a
-// Platform has before the Servers every Platform Grafana carries.
+// the bundle's own dashboards carries and the slug Grafana derives from that dashboard's title, so
+// the /d/<uid>/<slug> link swallow records is the dashboard's own address; and the bundles rank in
+// the order a Grafana with several of them picks from: the GPU or job monitoring a Platform has
+// before the Servers every Platform Grafana carries.
 func TestGrafanaBundlesNameTheirLandingDashboard(t *testing.T) {
 	defaults := readRoleDefaults(t, provisioningRole)
 	landing, _ := defaults["grafana_provisioning_landing_dashboards"].(map[string]any)
@@ -110,9 +113,17 @@ func TestGrafanaBundlesNameTheirLandingDashboard(t *testing.T) {
 		softwaredomain.DashboardBundleDeviceMetricsExporter, softwaredomain.DashboardBundleOmnistat, softwaredomain.DashboardBundleNodeExporter,
 	}
 	for _, bundle := range wantOrder {
-		uid, _ := landing[bundle].(string)
-		if uids := bundleDashboardUIDs(t, filepath.Join(root, bundle)); uid == "" || !slices.Contains(uids, uid) {
-			t.Errorf("bundle %s lands on uid %q, want one of its dashboards' uids %v", bundle, uid, uids)
+		dashboard, _ := landing[bundle].(map[string]any)
+		uid, _ := dashboard["uid"].(string)
+		slug, _ := dashboard["slug"].(string)
+		titles := bundleDashboardTitles(t, filepath.Join(root, bundle))
+		title, shipped := titles[uid]
+		if !shipped {
+			t.Errorf("bundle %s lands on uid %q, want one of its dashboards' uids %v", bundle, uid, slices.Sorted(maps.Keys(titles)))
+			continue
+		}
+		if want := grafanaSlug(title); slug != want {
+			t.Errorf("bundle %s lands on slug %q, want %q, the slug of its dashboard %q", bundle, slug, want, title)
 		}
 	}
 	order, _ := defaults["grafana_provisioning_landing_order"].([]any)
@@ -138,10 +149,10 @@ func TestGrafanaLandingPathFollowsTheBundleOrder(t *testing.T) {
 		want    string
 	}{
 		{name: "no bundle keeps the root", bundles: []string{}, want: ""},
-		{name: "Servers alone", bundles: []string{servers}, want: "/d/swallow-node-exporter"},
-		{name: "Omnistat over the Servers", bundles: []string{servers, omnistat}, want: "/d/edqnz7pce7togc-rms"},
-		{name: "Device Metrics Exporter over the Servers", bundles: []string{servers, dme}, want: "/d/fe0ayyeeoxvy8f"},
-		{name: "Device Metrics Exporter over Omnistat", bundles: []string{omnistat, servers, dme}, want: "/d/fe0ayyeeoxvy8f"},
+		{name: "Servers alone", bundles: []string{servers}, want: "/d/swallow-node-exporter/servers"},
+		{name: "Omnistat over the Servers", bundles: []string{servers, omnistat}, want: "/d/edqnz7pce7togc-rms/global-rms"},
+		{name: "Device Metrics Exporter over the Servers", bundles: []string{servers, dme}, want: "/d/fe0ayyeeoxvy8f/overview"},
+		{name: "Device Metrics Exporter over Omnistat", bundles: []string{omnistat, servers, dme}, want: "/d/fe0ayyeeoxvy8f/overview"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -255,28 +266,36 @@ func findNamedTask(tasks []any, name string) map[string]any {
 	return nil
 }
 
-// bundleDashboardUIDs returns the uids of the dashboards a shipped bundle directory holds.
-func bundleDashboardUIDs(t *testing.T, dir string) []string {
+// bundleDashboardTitles returns the title of each dashboard a shipped bundle directory holds, by the
+// dashboard's uid.
+func bundleDashboardTitles(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	files, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var uids []string
+	titles := map[string]string{}
 	for _, file := range files {
 		content, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var dashboard struct {
-			UID string `json:"uid"`
+			UID   string `json:"uid"`
+			Title string `json:"title"`
 		}
 		if err := json.Unmarshal(content, &dashboard); err != nil {
 			t.Fatalf("%s: %v", file, err)
 		}
-		uids = append(uids, dashboard.UID)
+		titles[dashboard.UID] = dashboard.Title
 	}
-	return uids
+	return titles
+}
+
+// grafanaSlug is the slug Grafana puts in a dashboard's address for an ASCII title: lower case, each
+// run of other characters one hyphen, none at either end ("Global - RMS" is "global-rms").
+func grafanaSlug(title string) string {
+	return strings.Trim(regexp.MustCompile(`[^a-z0-9]+`).ReplaceAllString(strings.ToLower(title), "-"), "-")
 }
 
 // requireJinja returns the python3 that renderJinja runs, skipping the test where python3 or its

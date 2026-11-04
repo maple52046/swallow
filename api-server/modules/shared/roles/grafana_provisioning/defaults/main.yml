@@ -25,20 +25,24 @@ grafana_provisioning_folders:
   omnistat: Omnistat RMS
   device-metrics-exporter: Device Metrics Exporter
   node-exporter: Servers
-# The dashboard a Grafana opens on for each shipped bundle, by the uid fixed in the bundle's JSON,
-# so /d/<uid> stays valid across releases: Device Metrics Exporter's Overview, Omnistat's
-# Global - RMS overview, and swallow's Servers. A changed uid in a bundle changes it here too.
+# The dashboard a Grafana opens on for each shipped bundle: the uid fixed in the bundle's JSON, so
+# the address stays valid across releases and restarts, and the slug Grafana derives from that
+# dashboard's title, so the link is the dashboard's own address rather than one Grafana redirects:
+# Device Metrics Exporter's Overview, Omnistat's Global - RMS, and swallow's Servers. A changed uid
+# or title in a bundle changes it here too (grafana_role_test.go checks both against the JSON).
 grafana_provisioning_landing_dashboards:
-  device-metrics-exporter: fe0ayyeeoxvy8f
-  omnistat: edqnz7pce7togc-rms
-  node-exporter: swallow-node-exporter
+  device-metrics-exporter: {uid: fe0ayyeeoxvy8f, slug: overview}
+  omnistat: {uid: edqnz7pce7togc-rms, slug: global-rms}
+  node-exporter: {uid: swallow-node-exporter, slug: servers}
 # With several bundles, the first one in this order is the landing one: the GPU or job monitoring
 # a Platform has (the Device Metrics Exporter before Omnistat) before the Servers every Platform
 # Grafana carries.
 grafana_provisioning_landing_order: [device-metrics-exporter, omnistat, node-exporter]
-# The landing dashboard's path below the Grafana root, /d/<uid>, for grafana_provisioning_bundles;
-# empty, so the root, when no bundle is provisioned. The including role appends it to the root in
-# the URL it reports as the Platform Grafana Monitoring Link; its health checks keep the root.
+# The landing dashboard's path below the Grafana root, /d/<uid>/<slug>, for
+# grafana_provisioning_bundles; empty, so the root, when no bundle is provisioned. The including
+# role appends it to the root in the URL it reports as the Platform Grafana Monitoring Link; its
+# health checks keep the root.
 grafana_provisioning_landing_path: >-
   {%- set landing = grafana_provisioning_landing_order | select('in', grafana_provisioning_bundles) | first | default('') -%}
-  {{ ('/d/' ~ grafana_provisioning_landing_dashboards[landing]) if landing else '' }}
+  {%- set dashboard = grafana_provisioning_landing_dashboards[landing] if landing else {} -%}
+  {{ ('/d/' ~ dashboard.uid ~ '/' ~ dashboard.slug) if landing else '' }}

@@ -165,7 +165,7 @@ test('Platform detail links to its own monitoring UI and to its usage charts', a
   await page.goto('/platforms/platform-slurm?site=site-a')
 
   const grafana = page.getByRole('link', { name: 'Platform Grafana' })
-  await expect(grafana).toHaveAttribute('href', 'http://10.0.0.11:3000/d/edqnz7pce7togc-rms')
+  await expect(grafana).toHaveAttribute('href', 'http://10.0.0.11:3000/d/edqnz7pce7togc-rms/global-rms')
   await expect(grafana).toHaveAttribute('target', '_blank')
 
   await page.getByRole('link', { name: 'View usage charts' }).click()
@@ -179,6 +179,6 @@ test('A Kubernetes Platform links the Grafana it runs in its cluster', async ({ 
   await page.goto('/platforms/platform-a?site=site-a')
 
   const grafana = page.getByRole('link', { name: 'Platform Grafana' })
-  await expect(grafana).toHaveAttribute('href', 'http://192.168.40.21:30300/d/swallow-node-exporter')
+  await expect(grafana).toHaveAttribute('href', 'http://192.168.40.21:30300/d/swallow-node-exporter/servers')
   await expect(grafana).toHaveAttribute('target', '_blank')
 })

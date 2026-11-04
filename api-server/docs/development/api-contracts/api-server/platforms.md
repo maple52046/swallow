@@ -722,11 +722,12 @@ have in common:
 - Anyone on the management network can view it anonymously; there is no login form.
 - When the install Task succeeds, swallow sets the Monitoring Link `Platform Grafana` to the URL the
   run reports. An install that reports no URL fails the Task.
-- That URL opens the Grafana's landing dashboard: the Grafana address followed by `/d/<uid>`,
-  chosen from the dashboards it provisions. It is the Device Metrics Exporter's Overview
-  (`fe0ayyeeoxvy8f`) when it has the `device-metrics-exporter` dashboards, else Omnistat's
-  Global - RMS (`edqnz7pce7togc-rms`) when it has `omnistat`, else Servers
-  (`swallow-node-exporter`). The install checks Grafana at the Grafana address itself.
+- That URL opens the Grafana's landing dashboard: the Grafana address followed by
+  `/d/<uid>/<slug>`, the dashboard's own address, chosen from the dashboards it provisions. It is
+  the Device Metrics Exporter's Overview (`/d/fe0ayyeeoxvy8f/overview`) when it has the
+  `device-metrics-exporter` dashboards, else Omnistat's Global - RMS
+  (`/d/edqnz7pce7togc-rms/global-rms`) when it has `omnistat`, else Servers
+  (`/d/swallow-node-exporter/servers`). The install checks Grafana at the Grafana address itself.
 
 On a **Slurm** Platform the deploy Workflow composes the Managed Software `grafana` onto the primary
 controller after the Slurm install (a `configure-grafana` Job, see
@@ -742,7 +743,7 @@ is chosen:
 - The token is not in the Software Assignment's `spec`. The dashboards add `omnistat` or
   `device-metrics-exporter` for the enabled feature.
 - The Grafana address is `http://<primary address>:3000`, so the link is
-  `http://<primary address>:3000/d/<landing uid>`: Omnistat's or the Device Metrics Exporter's
+  `http://<primary address>:3000/d/<uid>/<slug>`: Omnistat's or the Device Metrics Exporter's
   overview with that feature, Servers without one. It replaces a link swallow wrote for the same
   Grafana as `Omnistat Grafana` or `Device Metrics Exporter Grafana`.
 
@@ -1367,9 +1368,10 @@ transport/auth failures return `provider_unavailable`; provider rejection return
   all deployed to RAM gets the memory-backed-root handling, which it used to miss. The request and
   response shapes are unchanged.
 - Since 2026-11-04 the `Platform Grafana` link swallow writes opens the Grafana's landing dashboard
-  (`/d/<uid>`, see [Platform monitoring dashboards](#platform-monitoring-dashboards)) instead of the
-  Grafana root. A Platform deployed before keeps its root link until its next deploy runs the
-  Grafana install again. The response shape is unchanged.
+  (`/d/<uid>/<slug>`, see [Platform monitoring dashboards](#platform-monitoring-dashboards)) instead
+  of the Grafana root. Schema v14 points the `Platform Grafana` link of every Platform deployed
+  before at the same landing dashboard, from its applied settings, unless a user pointed it at
+  another page. The response shape is unchanged.
 - Since 2026-11-04 (schema v13) every Platform without the Monitoring Link `Platform Grafana`
   has `settings.monitoringDashboards: false` in its spec and applied spec; turn it on to install
   the Platform's Grafana with a new deployment. Writing `true` on such a Platform used to be no

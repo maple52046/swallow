@@ -170,7 +170,7 @@ Monitoring Link 透過 Platform update API 設定。使用 CLI：
 # patch.yaml
 monitoringLinks:
   - name: Platform Grafana
-    url: http://10.0.0.11:3000/d/edqnz7pce7togc-rms
+    url: http://10.0.0.11:3000/d/edqnz7pce7togc-rms/global-rms
   - name: Runbook
     url: https://wiki.example.internal/research-slurm
 ```

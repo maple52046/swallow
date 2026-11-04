@@ -693,3 +693,75 @@ func TestMigrateV12ToV13_TurnsOffDashboardsNoPlatformHas(t *testing.T) {
 		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)
 	}
 }
+
+// A Platform Grafana link that still opens the Grafana root, or a landing dashboard without its
+// slug, opens the landing dashboard of the bundles its Platform's applied settings give it; a link a
+// user pointed at another page, the other links, and a Platform of another type keep their URLs.
+func TestMigrateV13ToV14_PointsPlatformGrafanaAtItsLandingDashboard(t *testing.T) {
+	db := testDatabase(t)
+	ctx := ctxFor(t)
+	grafana := func(url string) []any {
+		return []any{bson.M{"name": "Runbook", "url": "https://wiki.example/x"}, bson.M{"name": "Platform Grafana", "url": url}}
+	}
+	if _, err := db.Collection("platforms").InsertMany(ctx, []any{
+		bson.M{"_id": "k8s-dme", "type": "kubernetes", "monitoringLinks": grafana("http://10.0.0.2:30300"),
+			"spec":   bson.M{"settings": `{"gpuOperator":{"enabled":true,"metricsExporter":false}}`},
+			"status": bson.M{"applied": bson.M{"settings": `{"gpuOperator":{"enabled":true,"metricsExporter":true}}`}}},
+		bson.M{"_id": "k8s-cpu", "type": "kubernetes", "monitoringLinks": grafana("http://10.0.0.3:30300/"),
+			"spec": bson.M{"settings": `{"k0sVersion":"v1"}`}},
+		bson.M{"_id": "slurm-omnistat", "type": "slurm", "monitoringLinks": grafana("http://10.0.0.4:3000/d/edqnz7pce7togc-rms"),
+			"status": bson.M{"applied": bson.M{"settings": `{"omnistat":{"enabled":true}}`}}},
+		bson.M{"_id": "slurm-dme", "type": "slurm", "monitoringLinks": grafana("http://10.0.0.5:3000"),
+			"status": bson.M{"applied": bson.M{"settings": `{"deviceMetricsExporter":{"enabled":true}}`}}},
+		bson.M{"_id": "user-page", "type": "kubernetes", "monitoringLinks": grafana("http://10.0.0.6:30300/d/custom/mine"),
+			"status": bson.M{"applied": bson.M{"settings": `{}`}}},
+		bson.M{"_id": "other-type", "type": "docker-swarm", "monitoringLinks": grafana("http://10.0.0.7:3000")},
+	}); err != nil {
+		t.Fatalf("seed platforms: %v", err)
+	}
+	if _, err := db.Collection("schema_metadata").InsertOne(ctx, bson.M{
+		"_id": "database", "version": 13, "updatedAt": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed schema marker: %v", err)
+	}
+
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	links := func(id string) map[string]string {
+		var doc struct {
+			Links []struct {
+				Name string `bson:"name"`
+				URL  string `bson:"url"`
+			} `bson:"monitoringLinks"`
+		}
+		if err := db.Collection("platforms").FindOne(ctx, bson.M{"_id": id}).Decode(&doc); err != nil {
+			t.Fatalf("read %s: %v", id, err)
+		}
+		out := map[string]string{}
+		for _, link := range doc.Links {
+			out[link.Name] = link.URL
+		}
+		return out
+	}
+	want := map[string]string{
+		"k8s-dme":        "http://10.0.0.2:30300/d/fe0ayyeeoxvy8f/overview",
+		"k8s-cpu":        "http://10.0.0.3:30300/d/swallow-node-exporter/servers",
+		"slurm-omnistat": "http://10.0.0.4:3000/d/edqnz7pce7togc-rms/global-rms",
+		"slurm-dme":      "http://10.0.0.5:3000/d/fe0ayyeeoxvy8f/overview",
+		"user-page":      "http://10.0.0.6:30300/d/custom/mine",
+		"other-type":     "http://10.0.0.7:3000",
+	}
+	for id, url := range want {
+		got := links(id)
+		if got["Platform Grafana"] != url {
+			t.Errorf("%s Platform Grafana = %q, want %q", id, got["Platform Grafana"], url)
+		}
+		if got["Runbook"] != "https://wiki.example/x" {
+			t.Errorf("%s Runbook = %q, want it unchanged", id, got["Runbook"])
+		}
+	}
+	if got := schemaVersion(t, ctx, db); got != CurrentSchemaVersion {
+		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)
+	}
+}

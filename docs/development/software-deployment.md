@@ -136,7 +136,7 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
 （secret var `swallow_grafana_datasource_token`，[monitoring.md](monitoring.md) §7）：token 只寫在 root 才能讀的
 environment file，由 systemd、podman 或 Docker Compose 以 root 讀取後交給 Grafana，datasource 檔只引用環境變數，
 所以 Grafana 自己的檔案不持有它。只在一台 Server 上執行的 install 在所有 dashboard 都能讀到之後，把
-`{grafanaUrl}`（`http://<management address>:3000` 加上首頁 dashboard 的 `/d/<uid>`，見下方的 dashboard bundles；
+`{grafanaUrl}`（`http://<management address>:3000` 加上首頁 dashboard 的 `/d/<uid>/<slug>`，見下方的 dashboard bundles；
 沒有 bundle 時就是這個位址）寫進 run 的 result 檔；Platform 組入的 Grafana 以它記錄 Monitoring Link。
 
 **dashboard bundles**（共用 role `grafana_provisioning` 的 `files/dashboards/<bundle>/`，全部以 datasource UID `prometheus` 讀取）：
@@ -150,17 +150,18 @@ ConfigMap（[platform-deployment.md](platform-deployment.md) §2.3.3）。模組
 | `omnistat` | Omnistat 的 RMS global、node、job | 上游 Omnistat，固定版本 |
 | `device-metrics-exporter` | DME 的 Slurm overview、GPU、node、job | 上游 DME，固定版本 |
 
-**首頁 dashboard**：swallow 記錄的 `Platform Grafana` 連結直接開啟 Grafana 的首頁 dashboard。每個 bundle 的首頁以
-JSON 裡固定的 uid 登錄在 `grafana_provisioning` 的 `grafana_provisioning_landing_dashboards`，所以 `/d/<uid>` 跨版本
-不變：`device-metrics-exporter` 是 Overview（`fe0ayyeeoxvy8f`）、`omnistat` 是 Global - RMS（`edqnz7pce7togc-rms`）、
-`node-exporter` 是 Servers（`swallow-node-exporter`）。Grafana 有多個 bundle 時取 `grafana_provisioning_landing_order`
-的第一個（`device-metrics-exporter`、`omnistat`、`node-exporter`）。共用 role 的
-`grafana_provisioning_landing_path` 由 `grafana_provisioning_bundles` 算出 `/d/<uid>`，沒有 bundle 時為空；grafana role
-與 Kubernetes 的 Platform Grafana 只在回報的 task 把它接在 Grafana 位址之後，health 與 dashboard 的等待仍打 Grafana
-位址。include 的 vars 在 include 結束後失效，所以回報的 task 以自己 role 的 bundle 清單重設 `grafana_provisioning_bundles`。
+**首頁 dashboard**：swallow 記錄的 `Platform Grafana` 連結直接開啟 Grafana 的首頁 dashboard，網址是該 dashboard
+自己的 `/d/<uid>/<slug>`。每個 bundle 的首頁以 JSON 裡固定的 uid 與 Grafana 由它的標題算出的 slug 登錄在
+`grafana_provisioning` 的 `grafana_provisioning_landing_dashboards`（`grafana_role_test.go` 對照 JSON 檢查兩者），所以網址
+跨版本、跨重啟不變：`device-metrics-exporter` 是 Overview（`/d/fe0ayyeeoxvy8f/overview`）、`omnistat` 是 Global - RMS
+（`/d/edqnz7pce7togc-rms/global-rms`）、`node-exporter` 是 Servers（`/d/swallow-node-exporter/servers`）。Grafana 有多個
+bundle 時取 `grafana_provisioning_landing_order` 的第一個（`device-metrics-exporter`、`omnistat`、`node-exporter`）。共用
+role 的 `grafana_provisioning_landing_path` 由 `grafana_provisioning_bundles` 算出 `/d/<uid>/<slug>`，沒有 bundle 時為空；
+grafana role 與 Kubernetes 的 Platform Grafana 只在回報的 task 把它接在 Grafana 位址之後，health 與 dashboard 的等待仍打
+Grafana 位址。include 的 vars 在 include 結束後失效，所以回報的 task 以自己 role 的 bundle 清單重設 `grafana_provisioning_bundles`。
 
 新增 bundle 時，同時在 `internal/core/software/domain/observability.go` 的 bundle 清單與 `grafana_provisioning` 的
-`grafana_provisioning_folders` 登錄（`grafana_role_test.go` 檢查兩邊一致）；它要能成為首頁時，也登錄首頁 uid 並決定在
+`grafana_provisioning_folders` 登錄（`grafana_role_test.go` 檢查兩邊一致）；它要能成為首頁時，也登錄首頁的 uid 與 slug 並決定在
 `grafana_provisioning_landing_order` 的位置。
 
 **AMD Device Metrics Exporter**（[Device Metrics Exporter](glossaries/terms/device-metrics-exporter.md)）：
