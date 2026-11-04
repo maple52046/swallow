@@ -207,8 +207,30 @@ test.describe('dashboard visual review', () => {
       if (visualCase.name === 'server-detail-inspection-required') {
         await expect(page.getByRole('button', { name: 'Inspect hardware' })).toBeVisible()
       }
+      // Plan cards are titled by name once the Platform and Server reads answer; the expired plan's
+      // deleted Platform keeps its id.
+      if (visualCase.name === 'change-plans') {
+        await expect(page.getByRole('article', { name: 'Change Plan for Platform research-slurm' })).toContainText('gpu-node-03')
+        await expect(page.getByRole('article', { name: 'Change Plan for Platform platform-retired' })).toBeVisible()
+      }
       if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
       await capture(page, testInfo, visualCase.name)
+      // The first plan card at its real scale (names, ids, copy buttons), then the approval
+      // confirmation, opened on Cancel, with its singular-or-plural destructive count.
+      if (visualCase.name === 'change-plans') {
+        // A page clip rather than an element capture, so the sticky shell does not cover the card.
+        const box = await page.getByRole('article', { name: 'Change Plan for Platform research-slurm' }).boundingBox()
+        const viewport = page.viewportSize()
+        if (box && viewport) {
+          await page.screenshot({
+            path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+            fullPage: true, clip: { x: 0, y: box.y, width: viewport.width, height: Math.min(box.height, viewport.height) },
+          })
+        }
+        await page.getByRole('article', { name: 'Change Plan for Platform research-slurm' }).getByRole('button', { name: 'Approve plan' }).click()
+        await expect(page.getByRole('alertdialog', { name: 'Approve Change Plan' }).getByRole('button', { name: 'Cancel' })).toBeFocused()
+        await capture(page, testInfo, `${visualCase.name}-approve-dialog`, false)
+      }
       // The Health column appears only when the table has room (87rem), which the 1440 baseline does
       // not give it, so the desktop runs also capture the table at a wide viewport with its badges.
       if (visualCase.name === 'servers' && testInfo.project.name.startsWith('desktop-')) {

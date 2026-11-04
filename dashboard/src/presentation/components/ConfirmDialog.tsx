@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { Button } from '@chakra-ui/react'
 import { Modal } from '@/presentation/components/ui/modal'
 
@@ -16,15 +16,19 @@ interface ConfirmDialogProps {
 }
 
 /**
- * Confirmation dialog for a destructive explorer action (Kubernetes namespaces, Docker images,
- * containers, volumes, networks).
+ * Confirmation dialog for a destructive or irreversible action: explorer deletions (Kubernetes
+ * namespaces, Docker images, containers, volumes, networks), Boot ISO rebuild and delete, Change
+ * Plan approval and rejection, and discarding an unsaved draft, among others.
  *
  * Rendered as an `alertdialog` so assistive tech announces it as requiring a decision; the body must
- * name the target and the consequence. Cancel is first in the footer and dismissal is blocked while
- * `busy`, so a slow action cannot be abandoned mid-flight or confirmed twice. Renders nothing when
- * closed so the caller can keep it mounted.
+ * name the target and the consequence. It opens with focus on Cancel, the safe choice, so a stray
+ * Enter or Space dismisses rather than confirms and keyboard users reach the red button only on
+ * purpose. Cancel is first in the footer and dismissal is blocked while `busy`, so a slow action
+ * cannot be abandoned mid-flight or confirmed twice. Renders nothing when closed so the caller can
+ * keep it mounted.
  */
 export function ConfirmDialog({ open, title, confirmLabel, onConfirm, onCancel, busy = false, children }: ConfirmDialogProps) {
+  const cancelRef = useRef<HTMLButtonElement>(null)
   if (!open) return null
   return (
     <Modal
@@ -33,9 +37,10 @@ export function ConfirmDialog({ open, title, confirmLabel, onConfirm, onCancel, 
       closeOnInteractOutside={!busy}
       title={title}
       role="alertdialog"
+      initialFocusEl={() => cancelRef.current}
       footer={
         <>
-          <Button variant="ghost" onClick={onCancel} disabled={busy}>
+          <Button ref={cancelRef} variant="ghost" onClick={onCancel} disabled={busy}>
             Cancel
           </Button>
           <Button colorPalette="red" onClick={onConfirm} loading={busy} disabled={busy}>

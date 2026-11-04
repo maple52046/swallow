@@ -3,8 +3,9 @@ import { Button, Field, Input, Stack } from '@chakra-ui/react'
 import type { Platform } from '@/domain/platform/types'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
+import { plural } from '@/shared/utils/plural'
 import { PlatformBulkFailures, PlatformNameList } from './PlatformBulkLists'
-import { PLATFORM_BULK_RECORD_DELETE_CONSEQUENCE, plural } from './platformRemovalCopy'
+import { PLATFORM_BULK_RECORD_DELETE_CONSEQUENCE } from './platformRemovalCopy'
 import { usePlatformBulkActions, type PlatformBulkOutcome } from './usePlatformBulkActions'
 
 interface PlatformBulkDeleteDialogProps {

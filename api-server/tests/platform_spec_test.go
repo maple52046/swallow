@@ -140,8 +140,10 @@ func TestDeletePlatformProposesItsUninstall(t *testing.T) {
 	body := parseBody(t, resp)
 	plan := body["plan"].(map[string]any)
 	actions := plan["actions"].([]any)
-	if actions[0].(map[string]any)["action"] != "uninstall" || len(plan["effects"].([]any)) != 1 {
-		t.Errorf("plan = %v, want an uninstall that names the release", plan)
+	wantEffect := "1 member is released to the provisioner, which removes its operating system; " +
+		"its disks are erased and its static IP bindings are kept. The Platform record is deleted once the release succeeds."
+	if effects := plan["effects"].([]any); actions[0].(map[string]any)["action"] != "uninstall" || len(effects) != 1 || effects[0] != wantEffect {
+		t.Errorf("plan = %v, want an uninstall whose effect is %q", plan, wantEffect)
 	}
 	spec := body["platform"].(map[string]any)["spec"].(map[string]any)
 	if spec["desired"] != "absent" || spec["removal"].(map[string]any)["erase"] != true {

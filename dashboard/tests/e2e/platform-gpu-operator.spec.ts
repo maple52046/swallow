@@ -134,7 +134,7 @@ test('a Platform shows its GPU Operator and proposes changing the allocation mod
   // Changing a running operator restarts GPU workloads, so it waits on a Change Plan.
   await expect(page).toHaveURL('/change-plans?site=site-a')
   await expect(page.getByText('GPU Operator change proposed')).toBeVisible()
-  await expect(page.getByRole('article', { name: 'Change Plan for Platform platform-a' }).first()).toContainText('change-gpu-operator')
+  await expect(page.getByRole('article', { name: 'Change Plan for Platform production-k0s' }).first()).toContainText('change-gpu-operator')
 })
 
 test('a refused GPU Operator change stays in the dialog with the reason', async ({ page }) => {
@@ -161,7 +161,7 @@ test('uninstalling the GPU Operator asks first and proposes enabled false', asyn
   await confirm.getByRole('button', { name: 'Uninstall GPU Operator' }).click()
   await expect(page).toHaveURL('/change-plans?site=site-a')
   expect(requests).toEqual([{ enabled: false }])
-  await expect(page.getByRole('article', { name: 'Change Plan for Platform platform-a' }).first()).toContainText('disable-gpu-operator')
+  await expect(page.getByRole('article', { name: 'Change Plan for Platform production-k0s' }).first()).toContainText('disable-gpu-operator')
 })
 
 test('a Platform without a GPU Operator offers to install it', async ({ page }) => {

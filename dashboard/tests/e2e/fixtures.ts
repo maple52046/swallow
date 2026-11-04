@@ -381,6 +381,12 @@ export interface FixtureOptions {
   /** Whether GET /api/v1/modules fails, so a generated settings form cannot load. */
   modulesUnavailable?: boolean
   /**
+   * Whether an approved Change Plan is applied the way its controller would apply it: the first
+   * list read after approval still answers `approved`, and a later one answers `applied` with the
+   * Workflow it produced (`op-<planId>`).
+   */
+  applyApprovedChangePlans?: boolean
+  /**
    * Whether the browser starts with a Session (as if the HttpOnly refresh cookie were present), so
    * the app's startup refresh succeeds. Defaults to true; sign-in specs pass false. Login and logout
    * fixtures then flip it for the rest of the page, like the real cookie.
@@ -787,6 +793,17 @@ function changePlan(id: string, platformId: string, state: string, overrides: Re
   }
 }
 
+/**
+ * The effect the API gives an uninstall that releases its `members` (platforms.md "Delete A
+ * Platform"), from the DELETE body's `releaseOptions`, so fixture plans read like real ones.
+ */
+function releaseEffect(members: number, options: Record<string, unknown>) {
+  const [subject, their, systems] = members === 1 ? ['1 member is', 'its', 'operating system'] : [`${members} members are`, 'their', 'operating systems']
+  const disks = options.erase || options.secureErase || options.quickErase ? 'are erased' : 'are not erased'
+  const bindings = options.unbindStaticIps ? 'are removed' : 'are kept'
+  return `${subject} released to the provisioner, which removes ${their} ${systems}; ${their} disks ${disks} and ${their} static IP bindings ${bindings}. The Platform record is deleted once the release succeeds.`
+}
+
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 }
@@ -858,7 +875,9 @@ const nfsSpecSchema = {
 export async function approvePlatformInstall(page: Page, platformId = 'platform-new') {
   await expect(page).toHaveURL('/change-plans?site=site-a')
   // The newest plan is listed first; a page that created the Platform twice approves the latest.
-  const plan = page.getByRole('article', { name: `Change Plan for Platform ${platformId}` }).first()
+  // The card is titled by the Platform's name once it loads and keeps the id in its text either way,
+  // so it is found by the id without waiting for the name.
+  const plan = page.getByRole('article', { name: /^Change Plan for Platform / }).filter({ hasText: platformId }).first()
   await plan.getByRole('button', { name: 'Approve plan' }).click()
   await page.getByRole('alertdialog', { name: 'Approve Change Plan' }).getByRole('button', { name: 'Approve plan' }).click()
   await expect(page.getByText('Change Plan approved')).toBeVisible()
@@ -892,7 +911,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   ]
   // The deploy Workflow of a Platform created on this page, started when its install is approved.
   const pendingPlatformDeploys = new Map<string, (typeof operations)[number]>()
-  // Per-page Change Plan state (change-plans.md): one plan to decide, one blocked, one applied.
+  // Per-page Change Plan state (change-plans.md): one plan to decide, one blocked, one applied, and
+  // an expired one whose Platform and Server were deleted since, so only their ids are known.
   let changePlanItems = [
     changePlan('plan-uninstall', 'platform-slurm', 'pending_approval', {
       actions: [
@@ -909,7 +929,14 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       actions: [{ target: { kind: 'server', id: 'srv-2' }, action: 'remove-member', from: 'worker', to: '', destructive: true, reason: 'srv-2 was removed from the spec.' }],
       decidedBy: 'admin', decidedAt: '2026-08-26T09:00:00Z', workflowId: 'op-remove-member',
     }),
+    changePlan('plan-retired', 'platform-retired', 'expired', {
+      actions: [{ target: { kind: 'server', id: 'srv-retired' }, action: 'remove-member', from: 'worker', to: '', destructive: true, reason: 'srv-retired was removed from the spec.' }],
+      stateReason: 'Nobody decided the plan before it expired.',
+      createdAt: '2026-08-20T02:00:00Z', expiresAt: '2026-08-21T02:00:00Z', updatedAt: '2026-08-21T02:00:00Z',
+    }),
   ]
+  // List reads each approved plan has seen since its approval, for `applyApprovedChangePlans`.
+  const approvedPlanReads = new Map<string, number>()
   let sshKeyItems = [
     sshKey('deploy-1', 'swallow-deployment', 'deployment', 'ssh-ed25519 AAAADEPLOY swallow-deployment'),
     sshKey('key-laptop', 'work-laptop', 'access', 'ssh-ed25519 AAAALAPTOP alice@laptop'),
@@ -1840,6 +1867,16 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       return route.fulfill({ status: 204 })
     }
     if (path === '/api/v1/change-plans' && request.method() === 'GET') {
+      if (options.applyApprovedChangePlans) {
+        changePlanItems = changePlanItems.map((item) => {
+          const reads = approvedPlanReads.get(item.id)
+          if (item.state !== 'approved' || reads === undefined) return item
+          approvedPlanReads.set(item.id, reads + 1)
+          if (reads < 1) return item
+          approvedPlanReads.delete(item.id)
+          return { ...item, state: 'applied', workflowId: `op-${item.id}`, updatedAt: now }
+        })
+      }
       const states = url.searchParams.getAll('state')
       return json(route, { items: changePlanItems.filter((plan) => states.length === 0 || states.includes(plan.state)) })
     }
@@ -1854,6 +1891,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
       const decided = { ...plan, state: decision === 'approve' ? 'approved' : 'rejected', decidedBy: 'admin', decidedAt: now }
       changePlanItems = changePlanItems.map((item) => (item.id === plan.id ? decided : item))
+      if (decision === 'approve') approvedPlanReads.set(plan.id, 0)
       // Approving a created Platform's install starts its deploy Workflow, as the controller does.
       const deploy = decision === 'approve' ? pendingPlatformDeploys.get(plan.resource.id) : undefined
       const installing = platformItems.find((item) => item.id === plan.resource.id)
@@ -3304,8 +3342,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       removed.spec = { ...removed.spec, desired: 'absent' }
       const plan = changePlan(`plan-uninstall-${removed.id}`, removed.id, 'pending_approval', {
         expiresAt: '2099-01-01T00:00:00Z', generation: removed.generation,
-        actions: [{ target: { kind: 'platform', id: '' }, action: 'uninstall', from: 'installed', to: 'uninstalled', destructive: true, reason: 'the Platform is marked absent' }],
-        effects: body?.releaseServers ? ['every member is released to the provisioner'] : [],
+        actions: [{ target: { kind: 'platform', id: removed.id }, action: 'uninstall', from: 'installed', to: 'uninstalled', destructive: true, reason: 'the Platform is marked absent' }],
+        effects: body?.releaseServers ? [releaseEffect(targets.length, (body.releaseOptions ?? {}) as Record<string, unknown>)] : [],
       })
       changePlanItems = [plan, ...changePlanItems.filter((item) => !(item.resource.id === removed.id && item.state === 'pending_approval'))]
       return json(route, { platform: removed, plan }, 202)

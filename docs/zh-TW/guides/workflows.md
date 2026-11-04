@@ -72,7 +72,8 @@ static IP 綁定、不清磁碟）。該 Task 的時間軸會說明 Server 是�
 Plan：列出它要做的每個動作、哪些是破壞性的、預期影響，以及阻擋事項。admin 在 **Change Plans**
 頁面或以 `swallow plans approve`／`swallow plans reject` 整份核准或拒絕。核准後 swallow 會再檢查一次並
 啟動 Workflow；期間若變更又被修改，或 plan 要做的事已經不同，plan 會變成 superseded，需要新的
-plan。沒有人決定的 plan 在 24 小時後到期。詳見
+plan。沒有人決定的 plan 在 24 小時後到期。頁面以名稱顯示 plan 提到的每個 Platform 與 Server，旁邊附上
+它的 ID，plan 的 ID 也有複製按鈕。plan 已核准時，頁面會自動重新讀取，直到 plan 套用或被 superseded。詳見
 [Change Plans contract](../../../api-server/docs/development/api-contracts/api-server/change-plans.md)。
 
 State transition 與 supported control 請見 active

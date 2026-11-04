@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Stack, Text } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { ChangePlan } from '@/domain/convergence/changePlan'
@@ -10,8 +10,10 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionSurface } from '@/presentation/components/ConsolePrimitives'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { useSettlingRefresh } from '@/presentation/hooks/useSettlingRefresh'
 import { ChangePlanCard } from './ChangePlanCard'
-import { changePlanResourceLabel, destructiveActionCount, groupChangePlans } from './changePlanPresentation'
+import { changePlanApprovalScope, changePlanResourceLabel, groupChangePlans, type ChangePlanNames } from './changePlanPresentation'
+import { useChangePlanNames } from './useChangePlanNames'
 
 type PageState =
   | { status: 'loading' }
@@ -21,17 +23,25 @@ type PageState =
 /** The decision being confirmed; at most one at a time. */
 type Decision = { kind: 'approve' | 'reject'; plan: ChangePlan } | null
 
+const NO_PLANS: ChangePlan[] = []
+
 /**
  * The Change Plans workspace (route `/change-plans`, decision 076): destructive changes wait here
  * until an admin approves or rejects them as a whole.
  *
- * Data comes from the `change-plans.md` contract through the ChangePlanRepository port, read once
- * per visit and after each decision; the page shows what the API computed and derives nothing.
- * Plans are grouped as waiting for approval, approved (waiting for their controller, which may
- * still supersede them or wait out a hold), and recent final plans. Approving or rejecting always
- * goes through a confirmation that names the resource and the consequence; a `conflict` from the
- * API (for example a plan that expired meanwhile) is shown as a toast and the list re-read. Every
- * endpoint requires `admin`; a non-admin sees the API's error state.
+ * Data comes from the `change-plans.md` contract through the ChangePlanRepository port, read on
+ * each visit and after each decision; the page shows what the API computed and derives nothing.
+ * While any plan is `approved` — waiting for its controller to apply or supersede it — the list is
+ * re-read every few seconds (`useSettlingRefresh`) in place, without returning to the loading
+ * state, so the plan moves on to its end state without a manual reload; a failed re-read keeps
+ * what is shown. Platform and Server ids are shown by name through `useChangePlanNames`, falling
+ * back to the id.
+ *
+ * Plans are grouped as waiting for approval, approved, and recent final plans. Approving or
+ * rejecting always goes through a confirmation that names the resource and the consequence and
+ * opens on Cancel; a `conflict` from the API (for example a plan that expired meanwhile) is shown
+ * as a toast and the list re-read. Every endpoint requires `admin`; a non-admin sees the API's
+ * error state.
  */
 export function ChangePlansPage() {
   const { changePlans } = useApp()
@@ -42,23 +52,36 @@ export function ChangePlansPage() {
   const [reloadNonce, setReloadNonce] = useState(0)
   // Captured with each read rather than during render, so rendering stays pure.
   const [readAt, setReadAt] = useState(0)
+  // Every read takes the next ticket and only the newest ticket may publish, so a slow poll can
+  // never overwrite a newer read, and a read whose effect was cleaned up is dropped.
+  const readTicket = useRef(0)
 
-  // The `cancelled` flag drops a slower, older response so it cannot overwrite a newer one.
+  const plans = state.status === 'ready' ? state.plans : NO_PLANS
+  const names = useChangePlanNames(plans)
+
+  /** Re-reads the list and shows it in place; rejects with the read's failure for the caller to handle. */
+  const refresh = useCallback(async () => {
+    const ticket = ++readTicket.current
+    const next = await changePlans.listChangePlans()
+    if (ticket !== readTicket.current) return
+    setReadAt(Date.now())
+    setState({ status: 'ready', plans: next })
+  }, [changePlans])
+
+  // The visit's first read, and the re-read after a decision or a retry. Its failure is shown only
+  // while it is still the newest read; `refresh` takes this ticket synchronously.
   useEffect(() => {
-    let cancelled = false
-    void changePlans.listChangePlans()
-      .then((plans) => {
-        if (cancelled) return
-        setReadAt(Date.now())
-        setState({ status: 'ready', plans })
-      })
-      .catch((caught: unknown) => {
-        if (!cancelled) setState({ status: 'error', ...failureOf(caught, 'Could not load Change Plans.') })
-      })
+    const ticket = readTicket.current + 1
+    refresh().catch((caught: unknown) => {
+      if (ticket === readTicket.current) setState({ status: 'error', ...failureOf(caught, 'Could not load Change Plans.') })
+    })
     return () => {
-      cancelled = true
+      readTicket.current += 1
     }
-  }, [changePlans, reloadNonce])
+  }, [refresh, reloadNonce])
+
+  // An approved plan waits for its controller, so re-read until none is left approved.
+  useSettlingRefresh(plans.some((plan) => plan.state === 'approved'), refresh)
 
   const reload = useCallback(() => {
     setState({ status: 'loading' })
@@ -74,7 +97,7 @@ export function ChangePlansPage() {
       showToast({
         tone: 'success',
         title: decision.kind === 'approve' ? 'Change Plan approved' : 'Change Plan rejected',
-        description: changePlanResourceLabel(decision.plan.resource),
+        description: changePlanResourceLabel(decision.plan.resource, names),
       })
     } catch (caught: unknown) {
       showToast({ tone: 'error', title: 'The decision was not recorded', description: failureText(failureOf(caught, '')) })
@@ -97,6 +120,7 @@ export function ChangePlansPage() {
       {state.status === 'ready' && (
         <ChangePlanSections
           plans={state.plans}
+          names={names}
           now={readAt}
           onApprove={(plan) => setDecision({ kind: 'approve', plan })}
           onReject={(plan) => setDecision({ kind: 'reject', plan })}
@@ -113,10 +137,7 @@ export function ChangePlansPage() {
       >
         {decision && (
           <Stack gap="2">
-            <Text>
-              Swallow will carry out every action of this plan for {changePlanResourceLabel(decision.plan.resource)},
-              including {destructiveActionCount(decision.plan)} destructive action(s).
-            </Text>
+            <Text>{changePlanApprovalScope(decision.plan, names)}</Text>
             <Text>
               An approved plan cannot be changed. Once its Workflow runs, destructive actions cannot be undone; if the spec
               changes first, the plan is superseded instead.
@@ -134,7 +155,8 @@ export function ChangePlansPage() {
       >
         {decision && (
           <Text>
-            Nothing in this plan for {changePlanResourceLabel(decision.plan.resource)} will be carried out. Change the spec again to get a new plan.
+            Nothing in this plan for {changePlanResourceLabel(decision.plan.resource, names)} will be carried out. Change the
+            spec again to get a new plan.
           </Text>
         )}
       </ConfirmDialog>
@@ -143,8 +165,9 @@ export function ChangePlansPage() {
 }
 
 /** The three plan sections; an empty installation shows one explanatory empty state. */
-function ChangePlanSections({ plans, now, onApprove, onReject }: {
+function ChangePlanSections({ plans, names, now, onApprove, onReject }: {
   plans: ChangePlan[]
+  names: ChangePlanNames
   now: number
   onApprove: (plan: ChangePlan) => void
   onReject: (plan: ChangePlan) => void
@@ -163,14 +186,20 @@ function ChangePlanSections({ plans, now, onApprove, onReject }: {
   const section = (title: string, description: string, items: ChangePlan[]) => items.length > 0 && (
     <SectionSurface title={title} description={description}>
       <Stack gap="4">
-        {items.map((plan) => <ChangePlanCard key={plan.id} plan={plan} now={now} onApprove={onApprove} onReject={onReject} />)}
+        {items.map((plan) => (
+          <ChangePlanCard key={plan.id} plan={plan} names={names} now={now} onApprove={onApprove} onReject={onReject} />
+        ))}
       </Stack>
     </SectionSurface>
   )
   return (
     <Stack gap="6">
       {section('Waiting for approval', 'Review each action and its effect before approving the plan as a whole.', groups.pending)}
-      {section('Approved', 'Each resource’s controller recomputes the plan and applies it, or supersedes it if the spec or observed state changed.', groups.approved)}
+      {section(
+        'Approved',
+        'Each resource’s controller recomputes the plan and applies it, or supersedes it if the spec or observed state changed. This list refreshes on its own until then.',
+        groups.approved,
+      )}
       {section('Recent plans', 'Applied, rejected, superseded, and expired plans.', groups.finished)}
     </Stack>
   )

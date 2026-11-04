@@ -1168,7 +1168,10 @@ return the member servers to the provider in the same Workflow, send:
 }
 ```
 
-The choices are stored as `spec.removal`; the plan's effects name a release and erase.
+The choices are stored as `spec.removal`. When `releaseServers` is true, the plan's effects say how
+many members are released to the provisioner, that releasing removes their operating system,
+whether their disks are erased and their static IP bindings removed or kept, and that the Platform
+record is deleted once the release succeeds.
 
 When `releaseServers` is true, swallow releases each member server directly instead of
 uninstalling the platform software first: releasing wipes the operating system, so the

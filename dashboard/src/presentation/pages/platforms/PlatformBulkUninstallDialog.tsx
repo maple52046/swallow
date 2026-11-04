@@ -5,13 +5,13 @@ import { emptyReleaseOptions, type ReleaseOptionsValue } from '@/presentation/co
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { useServerActiveOperations } from '@/presentation/hooks/useServerActiveOperations'
+import { plural } from '@/shared/utils/plural'
 import { PlatformBulkFailures, PlatformNameList } from './PlatformBulkLists'
 import { PlatformUninstallChoices } from './PlatformUninstallChoices'
 import {
   platformBulkUninstallConfirmLabel,
   platformUninstallConsequence,
   platformUninstallDeleteHint,
-  plural,
 } from './platformRemovalCopy'
 import { platformUninstallOptions } from './platformUninstallRequest'
 import { usePlatformBulkActions, type PlatformBulkOutcome } from './usePlatformBulkActions'

@@ -86,7 +86,9 @@ Plans** page or with `swallow plans approve` / `swallow plans reject`. After
 approval, swallow checks the plan again and starts its Workflow; if the change
 was edited again or what the plan would do changed in the meantime, the plan is
 superseded and a new one is needed. A plan nobody decides expires after 24 hours.
-See the
+The page names each Platform and Server a plan refers to, with its ID beside it,
+and shows the plan's ID with a copy button. While a plan is approved, the page
+refreshes on its own until the plan is applied or superseded. See the
 [Change Plans contract](../../../api-server/docs/development/api-contracts/api-server/change-plans.md).
 
 See the active

@@ -570,8 +570,78 @@ func TestDeleteDeclaresThePlatformAbsent(t *testing.T) {
 	if h.uninstalls.launch == nil || !h.uninstalls.launch.DeleteRecord || !h.uninstalls.launch.ReleaseServers {
 		t.Fatalf("uninstall launch = %+v, want one that releases the members and deletes the record", h.uninstalls.launch)
 	}
-	if len(result.Plan.Effects) != 1 {
-		t.Errorf("plan effects = %v, want the release named", result.Plan.Effects)
+	wantEffects := []string{"4 members are released to the provisioner, which removes their operating systems; " +
+		"their disks are not erased and their static IP bindings are kept. The Platform record is deleted once the release succeeds."}
+	if !slices.Equal(result.Plan.Effects, wantEffects) {
+		t.Errorf("plan effects = %q, want %q", result.Plan.Effects, wantEffects)
+	}
+}
+
+// An uninstall that releases its members says, before approval, how many are released, that their
+// operating system goes, what happens to their disks and static IP bindings, and that the record is
+// deleted; an uninstall that keeps its members names no release.
+func TestUninstallPlanEffectsDescribeTheRelease(t *testing.T) {
+	members := func(ids ...string) []platformdomain.PlatformMember {
+		out := make([]platformdomain.PlatformMember, len(ids))
+		for i, id := range ids {
+			out[i] = platformdomain.PlatformMember{ServerID: id, Roles: []string{"worker"}}
+		}
+		return out
+	}
+	tests := []struct {
+		name    string
+		members []platformdomain.PlatformMember
+		removal *platformdomain.PlatformRemoval
+		want    []string
+	}{
+		{
+			name:    "kept members name no release",
+			members: members("s1", "s2"),
+			removal: &platformdomain.PlatformRemoval{},
+			want:    nil,
+		},
+		{
+			name:    "a released member keeps its disks and static IP bindings by default",
+			members: members("s1"),
+			removal: &platformdomain.PlatformRemoval{ReleaseServers: true},
+			want: []string{"1 member is released to the provisioner, which removes its operating system; " +
+				"its disks are not erased and its static IP bindings are kept. The Platform record is deleted once the release succeeds."},
+		},
+		{
+			name:    "released members with erase and unbind",
+			members: members("s1", "s2", "s3"),
+			removal: &platformdomain.PlatformRemoval{ReleaseServers: true, ReleaseOptions: platformdomain.ServerReleaseOptions{
+				Erase: true, QuickErase: true, UnbindStaticIPs: true,
+			}},
+			want: []string{"3 members are released to the provisioner, which removes their operating systems; " +
+				"their disks are erased and their static IP bindings are removed. The Platform record is deleted once the release succeeds."},
+		},
+		{
+			name:    "a secure erase alone erases",
+			members: members("s1", "s2"),
+			removal: &platformdomain.PlatformRemoval{ReleaseServers: true, ReleaseOptions: platformdomain.ServerReleaseOptions{SecureErase: true}},
+			want: []string{"2 members are released to the provisioner, which removes their operating systems; " +
+				"their disks are erased and their static IP bindings are kept. The Platform record is deleted once the release succeeds."},
+		},
+		{
+			name:    "canceling Workflows follows the release",
+			members: members("s1", "s2"),
+			removal: &platformdomain.PlatformRemoval{ReleaseServers: true, CancelActiveWorkflows: true},
+			want: []string{
+				"2 members are released to the provisioner, which removes their operating systems; " +
+					"their disks are not erased and their static IP bindings are kept. The Platform record is deleted once the release succeeds.",
+				"unfinished Workflows holding the members are canceled first",
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := platformdomain.PlatformSpec{Desired: platformdomain.PlatformAbsent, Members: tc.members, Removal: tc.removal}
+			got := platformDraft("p1", 2, time.Now(), spec, platformdomain.PlatformChanges{}, nil).Effects
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("platformDraft(removal %+v, %d members).Effects = %q, want %q", *tc.removal, len(tc.members), got, tc.want)
+			}
+		})
 	}
 }
 

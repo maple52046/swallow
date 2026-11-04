@@ -1245,7 +1245,7 @@ test.describe('user interactions', () => {
 
     await expect(page).toHaveURL('/change-plans?site=site-a')
     // The new plan leads the waiting plans; the fixture's applied plan for platform-a is further down.
-    const plan = page.getByRole('article', { name: 'Change Plan for Platform platform-a' }).first()
+    const plan = page.getByRole('article', { name: 'Change Plan for Platform production-k0s' }).first()
     await expect(plan).toContainText('uninstall')
     await expect(plan.getByRole('button', { name: 'Approve plan' })).toBeEnabled()
     expect(uninstalls).toEqual([{
@@ -1312,6 +1312,10 @@ test.describe('user interactions', () => {
 
     await expect(page).toHaveURL('/change-plans?site=site-a')
     await expect(page.getByText('Server release proposed')).toBeVisible()
+    // The plan's effect states what the release does before anyone approves it.
+    await expect(page.getByRole('article', { name: 'Change Plan for Platform production-k0s' }).first()).toContainText(
+      '3 members are released to the provisioner, which removes their operating systems; their disks are erased and their static IP bindings are removed.',
+    )
     await expect.poll(() => uninstalls.length).toBe(1)
     expect(uninstalls[0]).toEqual({
       platformId: 'platform-a',

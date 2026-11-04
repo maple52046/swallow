@@ -338,11 +338,7 @@ func (s *PlatformSpecService) specified(ctx context.Context, platformID string) 
 func platformDraft(platformID string, generation int64, observedAt time.Time, spec platformdomain.PlatformSpec, changes platformdomain.PlatformChanges, blocking []string) convergence.PlanDraft {
 	draft := convergence.PlanDraft{Generation: generation, ObservedAt: observedAt}
 	if removal := spec.Removal; spec.Desired == platformdomain.PlatformAbsent && removal != nil && removal.ReleaseServers {
-		effect := "every member is released to the provisioner"
-		if removal.ReleaseOptions.Erase || removal.ReleaseOptions.SecureErase || removal.ReleaseOptions.QuickErase {
-			effect += " and its disks are erased"
-		}
-		draft.Effects = append(draft.Effects, effect)
+		draft.Effects = append(draft.Effects, releaseEffect(len(spec.Members), removal.ReleaseOptions))
 	}
 	if removal := spec.Removal; spec.Desired == platformdomain.PlatformAbsent && removal != nil && removal.CancelActiveWorkflows {
 		draft.Effects = append(draft.Effects, "unfinished Workflows holding the members are canceled first")
@@ -360,6 +356,29 @@ func platformDraft(platformID string, generation int64, observedAt time.Time, sp
 		draft.Blockers = append(draft.Blockers, unsupportedBlocker(action))
 	}
 	return draft
+}
+
+// releaseEffect is the effect an uninstall that releases its members carries, written for the admin
+// who approves it: how many members go back to the provisioner, that releasing removes their
+// operating system, whether their disks are erased and their static IP bindings removed, and that the
+// Platform record goes once the release succeeds (an approved uninstall always deletes the record).
+// members is the number of members the spec names. Recomputing a plan compares actions, not effects,
+// so rewording this text never supersedes an approved plan.
+func releaseEffect(members int, options platformdomain.ServerReleaseOptions) string {
+	subject, their, systems := fmt.Sprintf("%d members are", members), "their", "operating systems"
+	if members == 1 {
+		subject, their, systems = "1 member is", "its", "operating system"
+	}
+	disks := "are not erased"
+	if options.Erase || options.SecureErase || options.QuickErase {
+		disks = "are erased"
+	}
+	bindings := "are kept"
+	if options.UnbindStaticIPs {
+		bindings = "are removed"
+	}
+	return fmt.Sprintf("%s released to the provisioner, which removes %s %s; %s disks %s and %s static IP bindings %s. "+
+		"The Platform record is deleted once the release succeeds.", subject, their, systems, their, disks, their, bindings)
 }
 
 func platformRef(platformID string) convergence.ResourceRef {

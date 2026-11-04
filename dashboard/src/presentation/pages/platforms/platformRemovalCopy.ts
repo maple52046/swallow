@@ -8,6 +8,8 @@
  * removes only the swallow record. "Forget" is a deprecated term and is never used.
  */
 
+import { plural } from '@/shared/utils/plural'
+
 /** The choice that changes what an uninstall does. */
 export interface PlatformUninstallChoice {
   /** Release every target to the provider instead of uninstalling the platform software. */
@@ -158,9 +160,4 @@ export function platformBulkDeleteToast(accepted: number): { title: string; part
     partialTitle: 'Platform records partially deleted',
     description: `${accepted} Swallow ${plural(accepted, 'record')} and owned projections were removed. Hosts were not changed.`,
   }
-}
-
-/** `word` pluralised with a trailing "s" for any count other than one. */
-export function plural(count: number, word: string): string {
-  return count === 1 ? word : `${word}s`
 }
