@@ -436,8 +436,9 @@ test.describe('Platform Claim visual review', () => {
 
 /**
  * Captures the AMD GPU Operator feature (decision 062): the deploy wizard's Features step with the
- * options expanded in DRA mode, the Platform's GPU Operator section, its Configure dialog, and the
- * Cluster tab's GPU column.
+ * proposed operator expanded in DRA mode, the Review step listing its settings and GPU monitoring,
+ * the Platform's GPU Operator section, its Configure dialog, the Cluster tab's GPU column, and the
+ * Install dialog of a Platform without an operator.
  */
 test.describe('AMD GPU Operator visual review', () => {
   test('gpu-operator', async ({ page }, testInfo) => {
@@ -455,12 +456,22 @@ test.describe('AMD GPU Operator visual review', () => {
     await chooseOption(page, 'Role for gpu-node-02', 'Worker')
     await chooseOption(page, 'Role for gpu-node-03', 'Worker')
     await next.click()
-    await page.getByRole('switch', { name: 'Enable AMD GPU Operator' }).locator('xpath=following-sibling::*[1]').click()
+    // The AMD workers make the wizard propose the operator with its Device Metrics Exporter.
+    await expect(page.getByRole('switch', { name: 'Enable AMD GPU Operator' })).toBeChecked()
+    await expect(page.getByRole('switch', { name: 'Device Metrics Exporter' })).toBeChecked()
     await chooseOption(page, 'GPU allocation mode', 'DRA')
     await expect(page.getByRole('combobox', { name: 'DRA driver version' })).toContainText('v1.0.1')
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'gpu-operator-wizard-features')
+
+    await next.click()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await expect(page.getByText('Device Metrics Exporter, collected by the Site Prometheus', { exact: true })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'gpu-operator-wizard-review')
 
     await page.goto('/platforms/platform-a?site=site-a')
     const section = page.getByRole('region', { name: 'AMD GPU Operator' })
@@ -481,6 +492,21 @@ test.describe('AMD GPU Operator visual review', () => {
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'gpu-operator-cluster-nodes')
+  })
+
+  test('gpu-operator-install-dialog', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { withoutPlatformGPUOperator: true })
+    await setAppearance(page, appearance)
+
+    await page.goto('/platforms/platform-a?site=site-a')
+    const section = page.getByRole('region', { name: 'AMD GPU Operator' })
+    await section.getByRole('button', { name: 'Install' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Install AMD GPU Operator' })
+    await expect(dialog.getByRole('combobox', { name: 'GPU Operator version' })).toContainText('v1.5.1')
+    await expect(dialog.getByRole('switch', { name: 'Device Metrics Exporter' })).toBeChecked()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'gpu-operator-install-dialog', false)
   })
 })
 

@@ -42,7 +42,8 @@ test('fixed Slurm route survives refresh and does not expose Kubernetes settings
   await expect(page.getByRole('link', { name: 'Change platform' })).toHaveAttribute('href', '/platforms/deploy?site=site-a')
 })
 
-test('feature enablement expands settings only after its Switch is enabled', async ({ page }) => {
+// gpu-node-02 has AMD compute GPUs, so the GPU Operator starts proposed; its settings follow the Switch.
+test('feature settings are shown only while its Switch is on', async ({ page }) => {
   await page.goto('/platforms/deploy/kubernetes?site=site-a')
   await page.getByLabel('Platform name').fill('feature-switches')
   await page.getByRole('button', { name: 'Next' }).click()
@@ -57,6 +58,9 @@ test('feature enablement expands settings only after its Switch is enabled', asy
   await page.getByRole('button', { name: 'Next' }).click()
 
   const feature = page.getByRole('switch', { name: 'Enable AMD GPU Operator' })
+  await expect(feature).toBeChecked()
+  await expect(page.getByRole('combobox', { name: 'GPU allocation mode' })).toBeVisible()
+  await feature.locator('xpath=following-sibling::*[1]').click()
   await expect(feature).not.toBeChecked()
   await expect(page.getByRole('combobox', { name: 'GPU allocation mode' })).toHaveCount(0)
   await feature.locator('xpath=following-sibling::*[1]').click()

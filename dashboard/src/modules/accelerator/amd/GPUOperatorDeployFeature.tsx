@@ -15,7 +15,9 @@ interface GPUOperatorDeployFeatureProps {
 /**
  * The AMD GPU Operator card of a Kubernetes deploy's Features step. The GPU Operator is a Platform
  * feature of the AMD Accelerator module rather than Managed Software, so its enablement and settings
- * stay together in one expandable card.
+ * stay together in one expandable card. `value.enabled` may be the wizard's proposal rather than a
+ * click (useGPUOperatorDeployFeature), so the description says when it is proposed; every change
+ * goes through `onChange`, which is what records the user's own choice.
  */
 export function GPUOperatorDeployFeature({
   value,
@@ -29,7 +31,7 @@ export function GPUOperatorDeployFeature({
     <div className="sw-platform-feature-list">
       <FeatureToggleCard
         title="AMD GPU Operator"
-        description="Make the selected workload nodes' AMD GPUs schedulable in Kubernetes by using the driver already provided by the OS image."
+        description="Make the selected workload nodes' AMD GPUs schedulable in Kubernetes by using the driver already provided by the OS image. Proposed, with GPU monitoring, while a selected workload Server has an AMD compute GPU."
         checked={value.enabled}
         disabled={!hasAMDGPUWorkload && !value.enabled}
         disabledReason={!hasAMDGPUWorkload ? 'None of the selected workload Servers has an AMD compute GPU.' : undefined}

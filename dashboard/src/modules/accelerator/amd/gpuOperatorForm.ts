@@ -23,7 +23,19 @@ export interface GPUOperatorFormValue {
   metricsExporter: boolean
 }
 
-/** The documented defaults: Device Plugin, single naming, labeller on, exporter off. */
+/**
+ * The options a new GPU Operator starts from, in the deploy wizard and in the dialog of a Platform
+ * without one: the catalog's default release, Device Plugin, single naming, labeller on, and the
+ * Device Metrics Exporter on.
+ *
+ * - `enabled` is false so nothing is installed unless proposed or chosen: the deploy wizard proposes
+ *   the operator itself when a selected workload Server has an AMD compute GPU
+ *   (useGPUOperatorDeployFeature), and the dialog starts enabled because opening it is the choice.
+ * - `metricsExporter` is on although the API's omitted value is off (platforms.md "Settings"): the
+ *   operator's exporter is a Kubernetes Platform's GPU monitoring (monitoring.md §4.2), proposed as
+ *   the Slurm wizard proposes Omnistat. gpuOperatorFormSettings always sends the field, so the
+ *   API's default never applies to a dashboard request.
+ */
 export const DEFAULT_GPU_OPERATOR_FORM: GPUOperatorFormValue = {
   enabled: false,
   version: '',
@@ -31,12 +43,13 @@ export const DEFAULT_GPU_OPERATOR_FORM: GPUOperatorFormValue = {
   draDriverVersion: '',
   resourceNaming: 'single',
   nodeLabeller: true,
-  metricsExporter: false,
+  metricsExporter: true,
 }
 
 /**
  * Starts the dialog form from the Platform's recorded settings so a change edits what is there.
- * A Platform without a recorded operator starts from the defaults, enabled.
+ * A Platform without a recorded operator starts from DEFAULT_GPU_OPERATOR_FORM, enabled, so an
+ * install proposes the Device Metrics Exporter on.
  */
 export function gpuOperatorFormFromPlatform(operator: PlatformGPUOperator | null): GPUOperatorFormValue {
   if (!operator) return { ...DEFAULT_GPU_OPERATOR_FORM, enabled: true }

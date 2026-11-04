@@ -70,12 +70,17 @@ API virtual IP。Standalone deployment 仍是一個 Kubernetes Platform。Provid
 ### AMD GPU Operator
 
 Kubernetes workspace 的 **Features** 步驟可以在佈署 Platform 時一併安裝 AMD GPU Operator。
-開啟 **AMD GPU Operator** Switch 後才會展開選項：
+選取的 workload 節點有 AMD GPU 時，**AMD GPU Operator** 預設開啟，並開啟 **Device Metrics Exporter**
+作為 Platform 的 GPU 監控；關掉它就不安裝。一旦調整過這個 Switch 或任何選項，之後再更換選取的 Server
+也會保留你的選擇；在那之前它跟著選取的 Server 走，沒有 workload 節點有 AMD GPU 時就關閉。開啟時會展開選項：
 
 - **Allocation mode**：**Device Plugin**（Pod 以 `amd.com/gpu` 請求 GPU）或 **DRA**
   （Pod 透過 ResourceClaim 取得 GPU，需要 Kubernetes 1.34 以上）。
 - **GPU Operator version**，選 DRA 時另有 **DRA driver version**，都來自 swallow 驗證過的版本。
-- Device Plugin 的 **Resource naming**、**Node Labeller** 與 **Device Metrics Exporter**。
+- Device Plugin 的 **Resource naming**、**Node Labeller**（開啟）與 **Device Metrics Exporter**（開啟）。
+
+**Review** 步驟會列出 operator 的版本與 allocation mode、resource naming（或 DRA driver）、Node Labeller
+是否開啟，以及它的 **GPU monitoring**。
 
 不需要挑選節點。operator 附帶的 Node Feature Discovery 會找出所有有支援 AMD GPU 的節點（實體 GPU 或
 SR-IOV VF），operator 全部納管；之後加入叢集的節點，會在下一次調整 operator 時納入。
@@ -87,7 +92,8 @@ GPU 之後，佈署才算成功。選取的 workload 節點都沒有 AMD GPU 時
 文字原因。
 
 佈署完成後，Platform Overview 的 **AMD GPU Operator** 區塊會顯示狀態與設定，並提供
-**Install**、**Configure** 與 **Uninstall**。安裝會直接開始；調整或卸載運作中的 operator 會讓
+**Install**、**Configure** 與 **Uninstall**。**Install** 從與 workspace 相同的選項開始，Device Metrics Exporter
+開啟；**Configure** 從 operator 目前的設定開始。安裝會直接開始；調整或卸載運作中的 operator 會讓
 GPU workload 重啟，所以會先提成 Change Plan 待核准。仍有 Pod 使用 AMD GPU 時，切換 Device Plugin
 與 DRA 或卸載都會被拒絕，請先停止那些工作。卸載 operator 不會影響 Platform 本身。swallow 不會
 接管手動安裝的 operator。

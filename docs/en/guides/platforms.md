@@ -85,14 +85,21 @@ exposes.
 ### AMD GPU Operator
 
 The Kubernetes workspace's **Features** step can install the AMD GPU Operator with the
-Platform. Turn on **AMD GPU Operator** to see its options:
+Platform. When a selected workload node has an AMD GPU, **AMD GPU Operator** starts on,
+with its **Device Metrics Exporter** on as the Platform's GPU monitoring. Turn it off to
+deploy without it. Once you change the switch or any option, your choice stays when you
+change the selected Servers later; until then it follows them, and turns off when no workload
+node has an AMD GPU. While it is on, it shows its options:
 
 - **Allocation mode**: **Device Plugin** (Pods request `amd.com/gpu`) or **DRA**
   (Pods claim GPUs through a ResourceClaim; Kubernetes 1.34 or later).
 - **GPU Operator version** and, for DRA, the **DRA driver version**, from the
   releases swallow has verified.
-- **Resource naming** for the Device Plugin, **Node Labeller**, and
-  **Device Metrics Exporter**.
+- **Resource naming** for the Device Plugin, **Node Labeller** (on), and
+  **Device Metrics Exporter** (on).
+
+The **Review** step lists the operator's version and allocation mode, its resource naming
+(or DRA driver), whether the Node Labeller is on, and its **GPU monitoring**.
 
 You do not pick nodes. The operator's Node Feature Discovery finds every node
 with a supported AMD GPU, physical or SR-IOV virtual function, and the operator
@@ -109,7 +116,8 @@ when no selected workload node has an AMD GPU.
 
 After deployment, the **AMD GPU Operator** section of the Platform Overview shows
 its state and settings and offers **Install**, **Configure**, and **Uninstall**.
-Installing starts at once. Configuring or uninstalling a running operator restarts GPU
+**Install** starts from the same options as the workspace, Device Metrics Exporter on;
+**Configure** starts from the operator's current settings. Installing starts at once. Configuring or uninstalling a running operator restarts GPU
 workloads, so it is proposed as a Change Plan to approve first. Switching between Device
 Plugin and DRA, or uninstalling, is refused while a Pod still uses an AMD GPU; stop that
 work first. Uninstalling the operator keeps the Platform running. swallow does not take over an operator
