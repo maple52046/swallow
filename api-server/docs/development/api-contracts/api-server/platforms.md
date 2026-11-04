@@ -389,6 +389,18 @@ for a memory-backed root, because an `overlayfs` snapshotter cannot reliably nes
 MAAS overlay root. MAAS custom `root.tgz` boots may expose `/` as either overlayfs or tmpfs;
 both are volatile and leave physical disks untouched.
 
+The Kubernetes automation applies this memory-backed-root handling to every node of a run, so a
+Kubernetes Platform's members must all run from RAM or all from disk. A Server the deploy
+provisions runs from the requested `deployTarget` (omitted is `disk`); a Server that is already
+`deployed` (reused in `provision_os`, or any target in `existing_os`) runs from the root it was
+deployed with, its observed `provisioning.ephemeral` ([servers-list.md](servers-list.md)). Members
+that would not share one root are a `400 validation_error` before anything is created, whose message
+lists the RAM and the disk Servers. The rule holds wherever a Kubernetes deployment is validated:
+creating a Platform, a spec that adds a member ([Change A Platform](#change-a-platform)), and the
+deploy the platform controller starts. An `existing_os` deploy whose members were all deployed to
+RAM gets the memory-backed-root handling as well. Slurm has no such rule; its automation detects
+the root on each node.
+
 ### Time sync check
 
 A Platform deployment checks time; it does not set it
@@ -1335,13 +1347,22 @@ wired, is `not_found`. `slurmrestd` transport/auth failures return `provider_una
 Unknown Platform, Site, or Integration returns `not_found`; an unknown deployment target Server is
 `validation_error`. Duplicate names and uninstall
 eligibility/target conflicts return `conflict`. Invalid resource values or deployment
-topology return `validation_error`. Missing/disabled automation, missing automation
+topology, including Kubernetes members that would not all run from RAM or all from disk, return
+`validation_error`. Missing/disabled automation, missing automation
 credential, or unavailable release playbook returns `provider_unavailable`. Platform API
 transport/auth failures return `provider_unavailable`; provider rejection returns
 `validation_error`.
 
 ## Compatibility Notes
 
+- Since 2026-11-04 a Kubernetes deployment whose members would not all run from RAM or all from
+  disk (see [Create A Platform](#create-a-platform)) is a `400 validation_error` when it is
+  accepted: creating the Platform, writing a spec that adds such a member, or the controller's
+  redeploy. Such a deployment used to be accepted and then fail late: its disk nodes in
+  `install-platform`, its RAM nodes on unreliable pod mounts. This is not breaking for a request
+  that forms a working cluster. Since the same day an `existing_os` deploy over members
+  all deployed to RAM gets the memory-backed-root handling, which it used to miss. The request and
+  response shapes are unchanged.
 - Since 2026-11-04 the `Platform Grafana` link swallow writes opens the Grafana's landing dashboard
   (`/d/<uid>`, see [Platform monitoring dashboards](#platform-monitoring-dashboards)) instead of the
   Grafana root. A Platform deployed before keeps its root link until its next deploy runs the

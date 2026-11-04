@@ -528,6 +528,9 @@ func TestDeploySucceedsAndBuildsTrustedVars(t *testing.T) {
 	if _, ok := launcher.launched.SecretVars[varK0sVRRPAuthPass].(string); !ok {
 		t.Errorf("expected a generated VRRP password in secret vars")
 	}
+	if got, ok := vars[varK0sEphemeralRoot]; ok {
+		t.Errorf("TrustedVars[%s] = %#v over disk-deployed members, want it omitted", varK0sEphemeralRoot, got)
+	}
 }
 
 // A deploy that carries its request as a spec stores it on the new Platform as generation 1, so the
@@ -677,6 +680,9 @@ func TestDeployProvisionOSAcceptsMixedReadyAndDeployed(t *testing.T) {
 			t.Errorf("unexpected server preflighted for OS provisioning: %s", id)
 		}
 	}
+	if got, ok := launcher.launched.TrustedVars[varK0sEphemeralRoot]; ok {
+		t.Errorf("TrustedVars[%s] = %#v for a disk deploy, want it omitted", varK0sEphemeralRoot, got)
+	}
 }
 
 // TestDeployProvisionOSRejectsUnconvergeableState confirms a target that is neither ready
@@ -693,10 +699,10 @@ func TestDeployProvisionOSRejectsUnconvergeableState(t *testing.T) {
 }
 
 // TestDeployProvisionOSAcceptsEphemeral verifies that volatile OS intent reaches the launcher
-// unchanged. Host compatibility is checked later by the k0s preflight role, where the actual
-// booted kernel and image are available.
+// unchanged, here with the reused members already deployed to RAM. Host compatibility is checked
+// later by the k0s preflight role, where the actual booted kernel and image are available.
 func TestDeployProvisionOSAcceptsEphemeral(t *testing.T) {
-	servers := haServers()
+	servers := ramDeployed(haServers())
 	servers[1].Provisioning.State = "ready"
 	service, launcher, platforms := newDeployHarness(servers...)
 	prep := &stubMachinePrep{}
@@ -723,6 +729,96 @@ func TestDeployProvisionOSAcceptsEphemeral(t *testing.T) {
 	}
 	if _, ok := platforms.platforms[result.PlatformID]; !ok {
 		t.Error("platform was not created")
+	}
+}
+
+// ramDeployed marks servers as already deployed to RAM, the root their provisioner reports.
+func ramDeployed(servers []*serverdomain.Server) []*serverdomain.Server {
+	for _, server := range servers {
+		server.Provisioning.Ephemeral = true
+	}
+	return servers
+}
+
+// k0s applies its ephemeral handling to every host of a run, so a Kubernetes deployment whose
+// members would not all run from the same root is refused at acceptance, naming the RAM and the
+// disk Servers, instead of failing in install-platform. A Server provisioned by the deployment
+// takes the requested Deploy Target; a deployed one keeps the root it was deployed with.
+func TestDeployRefusesMembersThatDoNotShareARoot(t *testing.T) {
+	ram, disk := true, false
+	for _, tc := range []struct {
+		name    string
+		prepare func(servers []*serverdomain.Server, input *DeployPlatformInput)
+		// wantRAM and wantDisk are the display names the refusal lists on each side.
+		wantRAM, wantDisk string
+	}{
+		{
+			name: "provision_os to RAM reusing disk-deployed Servers",
+			prepare: func(servers []*serverdomain.Server, input *DeployPlatformInput) {
+				servers[1].Provisioning.State = "ready"
+				*input = provisionOSInput()
+				input.MachinePreparation.Ephemeral = &ram
+			},
+			wantRAM: "RAM: lab-control-2;", wantDisk: "disk: lab-control-1, lab-control-3, lab-compute-1 ",
+		},
+		{
+			name: "provision_os to disk reusing a RAM-deployed Server",
+			prepare: func(servers []*serverdomain.Server, input *DeployPlatformInput) {
+				servers[1].Provisioning.State = "ready"
+				servers[3].Provisioning.Ephemeral = true
+				*input = provisionOSInput()
+				input.MachinePreparation.Ephemeral = &disk
+			},
+			wantRAM: "RAM: lab-compute-1;", wantDisk: "disk: lab-control-1, lab-control-2, lab-control-3 ",
+		},
+		{
+			name: "provision_os without a Deploy Target reusing a RAM-deployed Server",
+			prepare: func(servers []*serverdomain.Server, input *DeployPlatformInput) {
+				servers[1].Provisioning.State = "ready"
+				servers[3].Provisioning.Ephemeral = true
+				*input = provisionOSInput()
+			},
+			wantRAM: "RAM: lab-compute-1;", wantDisk: "disk: lab-control-1, lab-control-2, lab-control-3 ",
+		},
+		{
+			name: "existing_os over RAM- and disk-deployed Servers",
+			prepare: func(servers []*serverdomain.Server, _ *DeployPlatformInput) {
+				servers[0].Provisioning.Ephemeral = true
+				servers[3].Provisioning.Ephemeral = true
+			},
+			wantRAM: "RAM: lab-control-1, lab-compute-1;", wantDisk: "disk: lab-control-2, lab-control-3 ",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			servers := haServers()
+			input := validDeployInput()
+			tc.prepare(servers, &input)
+			service, launcher, platforms := newDeployHarness(servers...)
+
+			_, err := service.Deploy(context.Background(), input)
+			if !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+				t.Fatalf("Deploy() error = %v, want ErrInvalidDeployment", err)
+			}
+			if !strings.Contains(err.Error(), tc.wantRAM) || !strings.Contains(err.Error(), tc.wantDisk) {
+				t.Errorf("Deploy() error = %q, want it to list %q and %q", err, tc.wantRAM, tc.wantDisk)
+			}
+			if len(platforms.platforms) != 0 || launcher.launched != nil {
+				t.Errorf("a refused deploy left %d Platforms and launched %v, want neither", len(platforms.platforms), launcher.launched)
+			}
+		})
+	}
+}
+
+// An existing_os deployment over members that were all deployed to RAM earlier runs them with the
+// ephemeral handling, although the request itself names no Deploy Target.
+func TestDeployExistingOSOverRAMDeployedMembersSetsTheEphemeralRoot(t *testing.T) {
+	service, launcher, _ := newDeployHarness(ramDeployed(haServers())...)
+
+	if _, err := service.Deploy(context.Background(), validDeployInput()); err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+	if got, ok := launcher.launched.TrustedVars[varK0sEphemeralRoot].(bool); !ok || !got {
+		t.Errorf("TrustedVars[%s] = %#v, want true", varK0sEphemeralRoot, launcher.launched.TrustedVars[varK0sEphemeralRoot])
 	}
 }
 

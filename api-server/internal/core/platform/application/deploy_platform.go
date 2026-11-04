@@ -266,6 +266,9 @@ type validatedDeployment struct {
 	targets            []*serverdomain.Server
 	apiAddress         string
 	machinePreparation platformdomain.MachinePreparation
+	// ephemeralRoot reports that every Kubernetes member runs from a memory-backed root (see
+	// sharedEphemeralRoot). A Slurm deployment leaves it false: its roles detect the root per host.
+	ephemeralRoot bool
 }
 
 // deploymentTargetAvailability names the Platforms a target can be taken by: the one its stored
@@ -475,10 +478,10 @@ func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatfo
 	}
 
 	trustedVars := buildDeploymentVars(platform, validated.spec, validated.apiAddress)
-	if validated.machinePreparation.Mode == platformdomain.MachinePreparationProvisionOS &&
-		validated.machinePreparation.Ephemeral != nil && *validated.machinePreparation.Ephemeral {
-		// An overlayfs containerd snapshotter cannot reliably nest inside MAAS overlayroot.
-		// Pass only the derived, trusted boolean; clients cannot inject playbook variables.
+	if validated.ephemeralRoot {
+		// An overlayfs containerd snapshotter cannot reliably nest inside MAAS overlayroot. The
+		// playbook applies the var to every host, so it relies on validate refusing a mix of RAM and
+		// disk members. Pass only the derived, trusted boolean; clients cannot inject playbook variables.
 		trustedVars[varK0sEphemeralRoot] = true
 	}
 	launch := platformdomain.DeploymentLaunch{
@@ -856,9 +859,9 @@ func isNFSURL(value string) bool {
 	return found && strings.TrimSpace(host) != "" && strings.HasPrefix(path, "/")
 }
 
-// validate resolves and checks topology, targets, and networks before any record exists.
-// It returns a normalized spec and an API address derived from either the HA VIP or the
-// initial control-plane Server observation.
+// validate resolves and checks topology, targets, members' roots, and networks before any record
+// exists. It returns a normalized spec, an API address derived from either the HA VIP or the
+// initial control-plane Server observation, and whether the members share a memory-backed root.
 func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput) (validatedDeployment, error) {
 	var invalid validatedDeployment
 	spec := input.Spec
@@ -885,6 +888,10 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 		targetIDs = append(targetIDs, assignment.ServerID)
 	}
 	targets, err := s.checkTargets(ctx, input.SiteID, input.PlatformID, targetIDs, preparation, nil)
+	if err != nil {
+		return invalid, err
+	}
+	ephemeralRoot, err := sharedEphemeralRoot(targets, preparation)
 	if err != nil {
 		return invalid, err
 	}
@@ -954,7 +961,47 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 		}
 	}
 
-	return validatedDeployment{spec: spec, targets: targets, apiAddress: apiAddress, machinePreparation: preparation}, nil
+	return validatedDeployment{
+		spec: spec, targets: targets, apiAddress: apiAddress, machinePreparation: preparation, ephemeralRoot: ephemeralRoot,
+	}, nil
+}
+
+// sharedEphemeralRoot reports whether the members of a Kubernetes deployment run from a
+// memory-backed (RAM) root, and refuses members that do not share one root. k0s's ephemeral
+// handling is Platform-wide: swallow_k0s_ephemeral_root makes k0s_host_preflight assert an overlay
+// or tmpfs root and switch containerd to the native snapshotter on every host, so in one run a
+// disk member fails that assertion and a RAM member without it nests overlayfs inside its overlay
+// root (EINVAL), both late in install-platform. Refusing the mix here moves that failure to
+// acceptance, for a new Platform, a spec that adds a member, and a controller redeploy alike.
+//
+// A member's effective root is the one it will run from: a Server this deployment provisions
+// (ready under provision_os) takes the requested Deploy Target, nil meaning disk; a Server already
+// deployed (reused under provision_os, or any target under existing_os) keeps the root it was
+// deployed with, its observed Provisioning.Ephemeral. A request that names only a Deployment
+// Template leaves the Deploy Target nil; the provisioner then uses the template's, which this
+// layer cannot read, so such a request counts as disk here. targets must have passed checkTargets,
+// which guarantees each one a Provisioning state. A mix is ErrInvalidDeployment naming the RAM and
+// the disk Servers. Slurm does not call it: its roles detect the root per host.
+func sharedEphemeralRoot(targets []*serverdomain.Server, preparation platformdomain.MachinePreparation) (bool, error) {
+	requested := preparation.Ephemeral != nil && *preparation.Ephemeral
+	var ram, disk []string
+	for _, server := range targets {
+		ephemeral := server.Provisioning.Ephemeral
+		if preparation.Mode == platformdomain.MachinePreparationProvisionOS && server.Provisioning.State == "ready" {
+			ephemeral = requested
+		}
+		if ephemeral {
+			ram = append(ram, server.DisplayName())
+		} else {
+			disk = append(disk, server.DisplayName())
+		}
+	}
+	if len(ram) > 0 && len(disk) > 0 {
+		return false, fmt.Errorf("%w: the members must all run from RAM or all from disk, but RAM: %s; disk: %s "+
+			"(a Server that is already deployed keeps the root it was deployed with)",
+			platformdomain.ErrInvalidDeployment, strings.Join(ram, ", "), strings.Join(disk, ", "))
+	}
+	return len(ram) > 0, nil
 }
 
 // normalizedPreparation defaults a deploy's machine preparation to existing_os and refuses an

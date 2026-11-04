@@ -166,7 +166,8 @@ flowchart TB
 
 - **`provision_os`**：對仍需 OS 的 Server 產生 `provision-<serverId>`（`provisioner` Runner 佈署
   OS 並等待就緒）；對**同一批中已 `deployed`** 的 Server 只加一個 `wait-for-ssh`（不重裝）。
-  這就是 convergent deploy——一次佈署可**混合** `ready` 與 `deployed` 的 Server。
+  這就是 convergent deploy——一次佈署可**混合** `ready` 與 `deployed` 的 Server（Kubernetes 的成員仍須全在 RAM
+  或全在 disk 上執行，見 §2.3.2）。
 - **`existing_os`**：不佈署，只以單一 `wait-for-ssh` 確認全部 targets 的 SSH 就緒。
 
 時間（[decision 065](../decisions/065-control-plane-ntp-and-post-provision-time-sync.md)）在 OS
@@ -333,9 +334,16 @@ Kubernetes deploy 以 `machinePreparation.settings.deployTarget: "ram"`（[Deplo
 deprecated 的 `settings.ephemeral: true` 同義）選擇 RAM：provider 以 memory-backed root 開機、不碰磁碟。這是刻意 volatile 的契約：節點重開後 OS、etcd、
 container runtime 與 workload state 全部消失，swallow 不自動復原，user 需重建或重新部署 Platform。
 
-- 本次以 RAM provision 時，launcher 帶 trusted var `swallow_k0s_ephemeral_root`；`k0s_host_preflight` 斷言 `/` 為
+- 成員都在 RAM 上執行時，launcher 帶 trusted var `swallow_k0s_ephemeral_root`；`k0s_host_preflight` 在每台主機斷言 `/` 為
   `overlay`（MAAS overlayroot）或 `tmpfs`（custom `root.tgz`），並把 containerd 改用 `native` snapshotter
   （overlayroot 上 nested overlayfs 會造成不穩定的 `EINVAL` pod mount）。
+- 這個處理是整個 Platform 共用的，所以一個 Kubernetes Platform 的成員必須**全在 RAM 或全在 disk** 上執行：混合時 disk
+  主機過不了斷言，沒有 var 的 RAM 主機則 nested overlayfs。每個成員的有效 root：本次 provision 的 Server（`provision_os`
+  下的 `ready`）取要求的 Deploy Target（省略為 disk）；已 `deployed` 的 Server（`provision_os` 沿用的，或 `existing_os`
+  的全部 targets）取觀察到的 `Provisioning.Ephemeral`，也就是它當初部署的方式。有效 root 不一致時，Kubernetes 的
+  `validate` 在受理時以 `ErrInvalidDeployment`（`400 validation_error`）拒絕，訊息列出 RAM 與 disk 的 Server；建立
+  Platform、spec 加成員與 controller 的 redeploy 都經過這個 validation，所以不會等到 `install-platform` 才失敗。var 由
+  成員共同的有效 root 決定，因此成員全以 RAM 部署的 `existing_os` 也帶它。Slurm 沒有這條規則：它的 role 逐台偵測 root。
 - 每個 k0s 部署（不限 ephemeral）都在 k0s binary 安裝後、任何 controller／worker 啟動前 fail-closed 檢查實際開機的
   主機：必要指令、cgroup v2、必要 kernel modules，並執行與版本相符的 `k0s sysinfo` 記錄報告。相容性失敗因此發生在
   叢集狀態建立之前，保留的 Ansible stdout 就是診斷依據。
@@ -577,7 +585,7 @@ client/user **不可偽造**（user 只能提供非 `swallow_` 前綴的變數�
   | `swallow_k0s_controller_ids` / `swallow_k0s_worker_ids` | 角色成員清單 |
   | `swallow_k0s_workload_ids` / `swallow_k0s_workload_controller_ids` | 可跑 workload 的節點 |
   | `swallow_k0s_initial_controller_id` | 第一個 bootstrap 的 controller |
-  | `swallow_k0s_ephemeral_root` | 本次以 RAM Deploy Target provision（§2.3.2）；只在為 true 時送出 |
+  | `swallow_k0s_ephemeral_root` | 全部成員都在 RAM 上執行：本次以 `ram` Deploy Target provision，或沿用已以 RAM 部署的 Server（§2.3.2，成員不得混合 RAM 與 disk）；只在為 true 時送出 |
 
   HA 的 keepalived 密碼 `swallow_k0s_vrrp_auth_pass` 是 sealed secret（§4.3），不在 trusted vars 內。
 

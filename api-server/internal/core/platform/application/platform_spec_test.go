@@ -453,6 +453,31 @@ func TestAddingAMemberConvergesWithoutAPlan(t *testing.T) {
 	}
 }
 
+// A spec write is validated as a deployment, so adding a member that runs from RAM to a Platform
+// whose members run from disk is refused before anything is written or claimed: the convergent
+// redeploy would otherwise fail in install-platform.
+func TestAddingARAMDeployedMemberToADiskPlatformIsRefused(t *testing.T) {
+	h := newSpecHarness(nil)
+	platform := h.installed(t)
+	h.servers.servers["w2"].Provisioning.Ephemeral = true
+	spec := platform.Spec.Clone()
+	spec.Members = append(spec.Members, platformdomain.PlatformMember{ServerID: "w2", Roles: []string{"worker"}})
+
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, spec); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+		t.Fatalf("UpdateSpec() error = %v, want ErrInvalidDeployment", err)
+	}
+	if got := h.platforms.platforms[platform.ID].Generation; got != 1 {
+		t.Errorf("generation = %d, want the refused spec not written", got)
+	}
+	if got := heldBy(h.servers, "w2"); got != "" {
+		t.Errorf("w2 claim = %q, want none", got)
+	}
+	h.reconcile(t, platform.ID)
+	if h.launcher.launches != 1 {
+		t.Errorf("launches = %d, want only the install", h.launcher.launches)
+	}
+}
+
 // A spec is read without its inline user data, so writing it back with the same mode and no value
 // keeps the stored user data.
 func TestSpecWriteKeepsStoredUserData(t *testing.T) {
