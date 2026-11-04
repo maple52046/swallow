@@ -50,7 +50,7 @@ func TestInstalledExportersReportsDeclaredExportersOfInstalledAssignments(t *tes
 	}
 
 	got, err := installedExporters{catalog: testModules(t).software, assignments: assignments, platforms: platformList{}}.
-		InstalledExporters(context.Background())
+		InstalledExporters(context.Background(), discoveryapp.ExporterFilter{})
 	if err != nil {
 		t.Fatalf("InstalledExporters() error = %v", err)
 	}
@@ -95,7 +95,7 @@ func TestInstalledExportersReportsOmnistatOnReadyPlatforms(t *testing.T) {
 	}
 
 	got, err := installedExporters{catalog: testModules(t).software, assignments: newFakeAssignmentRepo(), platforms: platforms}.
-		InstalledExporters(context.Background())
+		InstalledExporters(context.Background(), discoveryapp.ExporterFilter{})
 	if err != nil {
 		t.Fatalf("InstalledExporters() error = %v", err)
 	}
@@ -105,6 +105,57 @@ func TestInstalledExportersReportsOmnistatOnReadyPlatforms(t *testing.T) {
 	}
 	if gotSet := exporterSet(got); !reflect.DeepEqual(gotSet, want) {
 		t.Errorf("InstalledExporters() = %v, want %v", got, want)
+	}
+}
+
+// failingPlatforms is an exporterPlatforms that fails the test when it is read.
+type failingPlatforms struct{ t *testing.T }
+
+func (p failingPlatforms) List(context.Context, string) ([]*platformdomain.Platform, error) {
+	p.t.Helper()
+	p.t.Error("the Platforms were read for an exporter no Platform feature runs")
+	return nil, nil
+}
+
+// A filter only narrows: the health exporter reads only its own kind's assignments and never the
+// Platforms, and a Server narrows the listing to that Server, each answering exactly what the
+// unfiltered listing says about it.
+func TestInstalledExportersNarrowsToTheFilter(t *testing.T) {
+	assignments := newFakeAssignmentRepo()
+	for _, a := range []*softwaredomain.Assignment{
+		{ServerID: "s1", Kind: nodeexporter.Kind, State: softwaredomain.StateInstalled},
+		{ServerID: "s2", Kind: nodeexporter.Kind, State: softwaredomain.StateUninstalling},
+		{ServerID: "s3", Kind: nodeexporter.Kind, State: softwaredomain.StateFailed},
+		{ServerID: "s1", Kind: softwaredomain.KindDeviceMetricsExporter, State: softwaredomain.StateInstalled},
+	} {
+		if err := assignments.Upsert(context.Background(), a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nodeExporter := func(id string) discoveryapp.InstalledExporter {
+		return discoveryapp.InstalledExporter{ServerID: id, Name: "node-exporter", Port: nodeexporter.Port}
+	}
+	inventory := installedExporters{catalog: testModules(t).software, assignments: assignments, platforms: failingPlatforms{t: t}}
+
+	tests := []struct {
+		name   string
+		filter discoveryapp.ExporterFilter
+		want   []discoveryapp.InstalledExporter
+	}{
+		{"every server", discoveryapp.ExporterFilter{Name: "node-exporter"}, []discoveryapp.InstalledExporter{nodeExporter("s1"), nodeExporter("s2")}},
+		{"one installed server", discoveryapp.ExporterFilter{Name: "node-exporter", ServerID: "s1"}, []discoveryapp.InstalledExporter{nodeExporter("s1")}},
+		{"one failed install", discoveryapp.ExporterFilter{Name: "node-exporter", ServerID: "s3"}, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := inventory.InstalledExporters(context.Background(), tc.filter)
+			if err != nil {
+				t.Fatalf("InstalledExporters(%+v) error = %v", tc.filter, err)
+			}
+			if !reflect.DeepEqual(exporterSet(got), exporterSet(tc.want)) {
+				t.Errorf("InstalledExporters(%+v) = %v, want %v", tc.filter, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -175,7 +226,7 @@ func TestInstalledExportersReportsTheGPUOperatorExporter(t *testing.T) {
 	got, err := installedExporters{
 		catalog: modules.software, assignments: assignments, platforms: platforms,
 		servers: servers, accelerator: modules.accelerators[amd.ID],
-	}.InstalledExporters(context.Background())
+	}.InstalledExporters(context.Background(), discoveryapp.ExporterFilter{})
 	if err != nil {
 		t.Fatalf("InstalledExporters() error = %v", err)
 	}

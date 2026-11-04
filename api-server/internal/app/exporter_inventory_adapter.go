@@ -52,14 +52,17 @@ type exporterServers interface {
 }
 
 // InstalledExporters lists the declared exporters of every installed assignment and ready
-// Platform feature.
-func (e installedExporters) InstalledExporters(ctx context.Context) ([]discoveryapp.InstalledExporter, error) {
+// Platform feature that the filter keeps. The filter also narrows the reads: a named exporter
+// skips the assignments of every kind that declares another one, and the Platforms entirely when
+// no Platform feature runs an exporter of that name, so the health exporter (only ever Managed
+// Software) costs one assignment read; a Server narrows the assignment read to its records.
+func (e installedExporters) InstalledExporters(ctx context.Context, filter discoveryapp.ExporterFilter) ([]discoveryapp.InstalledExporter, error) {
 	var exporters []discoveryapp.InstalledExporter
 	for _, entry := range e.catalog.Entries() {
-		if entry.Exporter == nil {
+		if entry.Exporter == nil || (filter.Name != "" && entry.Exporter.Name != filter.Name) {
 			continue
 		}
-		assignments, err := e.assignments.List(ctx, softwaredomain.AssignmentFilter{Kind: entry.Kind})
+		assignments, err := e.assignments.List(ctx, softwaredomain.AssignmentFilter{Kind: entry.Kind, ServerID: filter.ServerID})
 		if err != nil {
 			return nil, fmt.Errorf("list the %s assignments: %w", entry.Kind, err)
 		}
@@ -72,10 +75,25 @@ func (e installedExporters) InstalledExporters(ctx context.Context) ([]discovery
 			})
 		}
 	}
+	if e.platformFeatureRuns(filter.Name) {
+		platformExporters, err := e.platformExporters(ctx)
+		if err != nil {
+			return nil, err
+		}
+		exporters = append(exporters, platformExporters...)
+	}
+	return uniqueExporters(keepFiltered(exporters, filter)), nil
+}
+
+// platformExporters lists the exporters of every ready Platform feature: Omnistat on a Slurm
+// Platform's compute members, and the GPU Operator's Device Metrics Exporter on a Kubernetes
+// Platform's eligible workload members.
+func (e installedExporters) platformExporters(ctx context.Context) ([]discoveryapp.InstalledExporter, error) {
 	platforms, err := e.platforms.List(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("list the Platforms: %w", err)
 	}
+	var exporters []discoveryapp.InstalledExporter
 	var gpuCandidates []string
 	for _, platform := range platforms {
 		for _, serverID := range omnistatExporterServers(platform) {
@@ -89,7 +107,28 @@ func (e installedExporters) InstalledExporters(ctx context.Context) ([]discovery
 	if err != nil {
 		return nil, err
 	}
-	return uniqueExporters(append(exporters, operatorExporters...)), nil
+	return append(exporters, operatorExporters...), nil
+}
+
+// platformFeatureRuns reports whether a Platform feature may run the named exporter: any name does
+// for an unnamed listing; otherwise only Omnistat's and the Device Metrics Exporter's names do.
+func (e installedExporters) platformFeatureRuns(name string) bool {
+	if name == "" || name == platformdomain.OmnistatScrapeJob {
+		return true
+	}
+	software, ok := e.catalog.Lookup(softwaredomain.KindDeviceMetricsExporter)
+	return ok && software.Entry().Exporter != nil && software.Entry().Exporter.Name == name
+}
+
+// keepFiltered drops the exporters the filter excludes, in place.
+func keepFiltered(exporters []discoveryapp.InstalledExporter, filter discoveryapp.ExporterFilter) []discoveryapp.InstalledExporter {
+	kept := exporters[:0]
+	for _, exporter := range exporters {
+		if (filter.Name == "" || exporter.Name == filter.Name) && (filter.ServerID == "" || exporter.ServerID == filter.ServerID) {
+			kept = append(kept, exporter)
+		}
+	}
+	return kept
 }
 
 // gpuOperatorExporters returns the Device Metrics Exporter on each candidate whose GPU Inventory

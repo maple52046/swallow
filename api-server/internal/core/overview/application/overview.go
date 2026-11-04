@@ -73,7 +73,9 @@ type Integration struct {
 	LastError       string
 }
 
-// Server carries the independent inventory facts used by platform-level counts.
+// Server carries the independent inventory facts used by platform-level counts. HealthState is the
+// Server's classified health axis (servers-list.md, Health), one of up, down, unknown, and
+// not_applicable; the Source classifies it exactly as a Server read does.
 type Server struct {
 	Absent            bool
 	ProvisioningState string
@@ -135,11 +137,14 @@ type InventorySummary struct {
 	Health     HealthSummary
 }
 
-// HealthSummary counts observed up/down states and treats every missing answer as unknown.
+// HealthSummary counts every scoped Server once by its health state, so the four counts add up to
+// the Server count. NotApplicable is the not_applicable state: Servers swallow does not monitor,
+// absent ones included.
 type HealthSummary struct {
-	Up      int
-	Down    int
-	Unknown int
+	Up            int
+	Down          int
+	Unknown       int
+	NotApplicable int
 }
 
 // IntegrationSummary retains all scoped integrations so freshness is inspectable.
@@ -301,11 +306,14 @@ func summarizeInventory(sites []Site, servers []Server, siteID string) Inventory
 			summary.Platformed++
 		}
 		summary.GPUDevices += server.GPUDevices
+		// A state outside the four is counted unknown: it is no answer, and never a failure.
 		switch strings.ToLower(server.HealthState) {
 		case "up":
 			summary.Health.Up++
 		case "down":
 			summary.Health.Down++
+		case "not_applicable":
+			summary.Health.NotApplicable++
 		default:
 			summary.Health.Unknown++
 		}

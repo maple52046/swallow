@@ -217,18 +217,10 @@ func RunAPI(cfg config.APIConfig) error {
 	apiKeyHandler := apikeydelivery.NewHandler(apiKeyService)
 	authenticator := middleware.NewAuthenticator(jwtSvc, apiKeyService)
 
-	// The health axis is resolved from the metrics store at query time and never
-	// persisted. With no metrics integration registered the resolver returns nothing,
-	// which reads as "not known" rather than as anything about the machine.
 	monitoringFactory := promstack.NewMonitoringFactory(integrationRepo)
 	alertService := monitoringapp.NewAlertService(monitoringFactory, siteExistence{sites: siteRepo})
 	metricSites := serverSites{servers: serverRepo}
-	healthResolver := monitoringapp.NewHealthResolver(monitoringFactory, metricSites)
 
-	serverHandler := serverdelivery.NewServerHandler(
-		serverapp.NewListServersUseCase(serverRepo, healthResolver),
-		serverapp.NewGetServerUseCase(serverRepo, healthResolver),
-	)
 	// The SSE stream pushes Server projection changes so the dashboard patches rows live
 	// instead of re-reading the whole list.
 	serverStreamHandler := serverdelivery.NewServerStreamHandler(serverEventBroker)
@@ -473,12 +465,6 @@ func RunAPI(cfg config.APIConfig) error {
 	})
 	operationHandler := workflowdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
 
-	overviewReader := NewOverviewReader(
-		siteRepo, integrationRepo, serverRepo, healthResolver, platformRepo, orchestrationRepo, alertService,
-	)
-	overviewHandler := overviewdelivery.NewHandler(
-		overviewapp.NewService(overviewReader, overviewapp.SystemClock{}))
-
 	// Platform lifecycle adapters keep durable operations outside the platform context. A Platform's
 	// monitoring token is issued by the deployments here and verified by the metrics gateway below,
 	// over the same store.
@@ -534,6 +520,25 @@ func RunAPI(cfg config.APIConfig) error {
 		installedExporters{catalog: modules.software, assignments: softwareAssignmentRepo, platforms: platformRepo,
 			servers: serverRepo, accelerator: modules.accelerators[amd.ID]})
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(discoveryUseCase, exporterDiscovery)
+
+	// The health axis is classified each time a Server is read and never persisted
+	// (servers-list.md, Health). The monitoring context owns the rule; the Node Exporter targets
+	// come from the same exporter discovery the Site Prometheus scrapes, and the coverage from the
+	// same policy the worker's Node Exporter controller applies (whether or not the worker runs it),
+	// so a Server is monitored, and read, by one definition. The Server reads and the overview
+	// share the one resolver.
+	healthResolver := monitoringapp.NewHealthResolver(monitoringFactory, exporterDiscovery,
+		softwareapp.NewEnsureCoverage(automationRepo))
+	serverHandler := serverdelivery.NewServerHandler(
+		serverapp.NewListServersUseCase(serverRepo, healthResolver),
+		serverapp.NewGetServerUseCase(serverRepo, healthResolver),
+	)
+	overviewReader := NewOverviewReader(
+		siteRepo, integrationRepo, serverRepo, healthResolver, platformRepo, orchestrationRepo, alertService,
+	)
+	overviewHandler := overviewdelivery.NewHandler(
+		overviewapp.NewService(overviewReader, overviewapp.SystemClock{}))
+
 	fiberApp := fiber.New(fiber.Config{
 		// OS image upload (POST /provisioning/images) streams a potentially multi-gigabyte
 		// artifact, so the body is read as a stream and the limit is raised well past the 4 MiB

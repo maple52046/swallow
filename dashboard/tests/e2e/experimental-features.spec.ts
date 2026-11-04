@@ -40,7 +40,7 @@ test('Experimental features are on in development and switch live from the accou
   await expect(alertsCard).toContainText('Not available in this release')
   // Basic monitoring is released: switching alerts off leaves it in place.
   await expect(nav.getByRole('link', { name: 'Monitoring' })).toBeVisible()
-  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('3 / 4')
+  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('3 / 5')
 
   // The choice is remembered per browser.
   await page.reload()
@@ -61,7 +61,7 @@ test('A stored opt-out for a switch that is no longer listed hides nothing and i
   await installApiFixtures(page)
   await page.goto('/?site=site-a')
   await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Monitoring' })).toBeVisible()
-  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('3 / 4')
+  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('3 / 5')
   await expect(page.locator('.sw-metric-card').filter({ hasText: 'Alerts' })).toContainText('1 critical')
 
   await page.getByRole('button', { name: 'Account menu' }).click()
@@ -90,16 +90,17 @@ test.describe('with every in-development feature hidden (the release view)', () 
 
     await page.goto('/?site=site-a')
     await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Monitoring' })).toBeVisible()
-    await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('3 / 4')
+    await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('3 / 5')
     await expect(page.locator('.sw-metric-card').filter({ hasText: 'Alerts' })).toContainText('Not available in this release')
-    // Firing alerts no longer raise attention items; a down Server still does.
+    // Firing alerts no longer raise attention items; down and unknown health still do.
     await expect(page.getByText('gpu-node-04 stopped reporting')).toHaveCount(0)
     await expect(page.getByRole('link', { name: /1 server down/ })).toBeVisible()
+    await expect(page.getByRole('link', { name: /1 server with unknown health/ })).toBeVisible()
 
     await page.goto('/monitoring?site=site-a')
     await expect(page.getByRole('heading', { name: 'Usage charts', exact: true })).toBeVisible()
     await expect(page.getByRole('table', { name: 'Server metrics' })).toBeVisible()
-    await expect(page.locator('.sw-metric-card').filter({ hasText: 'Health down' })).toBeVisible()
+    await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('1 down')
     await expect(page.getByRole('heading', { name: 'Alerts', exact: true })).toHaveCount(0)
     await expect(page.getByRole('list', { name: 'Monitoring alerts' })).toHaveCount(0)
     await expect(page.locator('.sw-metric-card').filter({ hasText: /Critical alerts|Warning alerts/ })).toHaveCount(0)

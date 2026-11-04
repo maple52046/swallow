@@ -120,8 +120,15 @@ test.describe('dashboard visual review', () => {
 
       await installApiFixtures(page, {
         signedIn: visualCase.authenticated,
+        // One Server in each health state: srv-1 N/A, srv-2 up, srv-3 unknown, srv-4 down.
         ...(visualCase.name === 'servers'
-          ? { ephemeralServerIds: ['srv-1'], lockedServerIds: ['srv-1'], serverSync: { 'srv-2': 'drifted', 'srv-3': 'requires_attention' } }
+          ? {
+              ephemeralServerIds: ['srv-1'], lockedServerIds: ['srv-1'], serverSync: { 'srv-2': 'drifted' as const, 'srv-3': 'requires_attention' as const },
+              serverHealth: { 'srv-1': 'not_applicable' as const, 'srv-3': 'unknown' as const },
+            }
+          : {}),
+        ...(visualCase.name.startsWith('monitoring')
+          ? { serverHealth: { 'srv-2': 'unknown' as const, 'srv-3': 'not_applicable' as const } }
           : {}),
         ...(visualCase.name === 'server-activity' ? { serverActivityItemCount: 12 } : {}),
         // Alertmanager is optional: a Site without one is a quiet card state, a failing one warns.
@@ -202,6 +209,16 @@ test.describe('dashboard visual review', () => {
       }
       if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
       await capture(page, testInfo, visualCase.name)
+      // The Health column appears only when the table has room (87rem), which the 1440 baseline does
+      // not give it, so the desktop runs also capture the table at a wide viewport with its badges.
+      if (visualCase.name === 'servers' && testInfo.project.name.startsWith('desktop-')) {
+        await page.setViewportSize({ width: 1800, height: 900 })
+        const table = page.getByRole('table', { name: 'Servers' })
+        await expect(table.getByRole('columnheader', { name: 'Health', exact: true })).toBeVisible()
+        await table.screenshot({
+          path: testInfo.outputPath(`${visualCase.name}-health-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+        })
+      }
       // The full mobile page is too long to read at its own scale; the changed card is captured too.
       if (visualCase.name === 'server-detail-vm-boot-media') {
         await page.getByRole('region', { name: 'Power control' }).screenshot({

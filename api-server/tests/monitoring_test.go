@@ -10,48 +10,134 @@ import (
 	"testing"
 	"time"
 
+	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
 	monitoringapp "github.com/maple52046/swallow/internal/core/monitoring/application"
 	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 )
 
-// --- health axis resolution ---
+// --- health axis classification ---
 
-func TestHealthResolver_MapsUpMetricToHealthAxis(t *testing.T) {
-	factory := newFakeMonitoringFactory()
-	factory.querier.up["node-exporter"] = []monitoringdomain.Sample{
-		{Labels: map[string]string{"server_id": "srv-1"}, Value: 1, Timestamp: time.Now().UTC()},
-		{Labels: map[string]string{"server_id": "srv-2"}, Value: 0, Timestamp: time.Now().UTC()},
-	}
-	resolver := monitoringapp.NewHealthResolver(factory, everyServerInSite{siteID: testSiteID})
+// newHealthResolver composes the health classification as internal/app does: the real rule over
+// the exporter discovery (with a fake inventory) and the real Node Exporter policy (with a fake
+// Site automation), reading the given fake metrics store.
+func newHealthResolver(factory monitoringdomain.MonitoringFactory, inventory *fakeExporterInventory, automation *fakeSiteAutomation) *monitoringapp.HealthResolver {
+	return monitoringapp.NewHealthResolver(factory,
+		discoveryapp.NewExporterDiscovery(newFakeServerRepo(), inventory), softwareapp.NewEnsureCoverage(automation))
+}
 
-	health, err := resolver.ResolveHealth(context.Background(), []string{"srv-1", "srv-2", "srv-3"})
-	if err != nil {
-		t.Fatalf("ResolveHealth: %v", err)
+// healthServer is a present, deployed, unlocked Server with an address at the test Site: the
+// Node Exporter policy covers it whenever the Site's automation is on.
+func healthServer(id string, mutate func(*serverdomain.Server)) *serverdomain.Server {
+	server := &serverdomain.Server{
+		ID:           id,
+		Source:       serverdomain.Source{SiteID: testSiteID, IntegrationID: testIntegrationID},
+		Observed:     serverdomain.Observed{Addresses: []string{"10.0.1.10"}},
+		Provisioning: &serverdomain.ProvisioningStatus{State: "deployed", PowerState: "on"},
 	}
+	if mutate != nil {
+		mutate(server)
+	}
+	return server
+}
 
-	if health["srv-1"] == nil || health["srv-1"].State != serverdomain.HealthUp {
-		t.Errorf("srv-1 should be up, got %+v", health["srv-1"])
+// Health follows swallow's monitoring policy, in order: a Node Exporter target is up or down by its
+// Site Prometheus's latest sample and unknown without one; a Server the Node Exporter policy covers
+// without a target is unknown; every other Server is not_applicable, whatever the Prometheus still
+// holds for it.
+func TestHealthResolver_ClassifiesByTheMonitoringPolicy(t *testing.T) {
+	sampledAt := time.Date(2026, 11, 4, 8, 0, 0, 0, time.UTC)
+	up := []monitoringdomain.Sample{{Labels: map[string]string{"server_id": "srv-1"}, Value: 1, Timestamp: sampledAt}}
+	down := []monitoringdomain.Sample{{Labels: map[string]string{"server_id": "srv-1"}, Value: 0, Timestamp: sampledAt}}
+
+	tests := []struct {
+		name       string
+		mutate     func(*serverdomain.Server)
+		installed  bool
+		automation map[string]bool
+		samples    []monitoringdomain.Sample
+		querierErr error
+		readErr    error
+		want       string
+	}{
+		{name: "target that answers", installed: true, samples: up, want: serverdomain.HealthUp},
+		{name: "target whose scrape failed", installed: true, samples: down, want: serverdomain.HealthDown},
+		{name: "target without a sample", installed: true, want: serverdomain.HealthUnknown},
+		{name: "target at a Site with no Prometheus", installed: true, samples: up,
+			querierErr: monitoringdomain.ErrNoMetricsIntegration, want: serverdomain.HealthUnknown},
+		{name: "target whose metrics read fails", installed: true, samples: up, readErr: errTestMetricsDown,
+			want: serverdomain.HealthUnknown},
+		{name: "target that is locked keeps its answer", installed: true, samples: down,
+			mutate: func(s *serverdomain.Server) { s.Provisioning.Locked = true }, want: serverdomain.HealthDown},
+		{name: "covered without a target", automation: map[string]bool{testSiteID: true}, want: serverdomain.HealthUnknown},
+		{name: "covered and installed but without an address", installed: true, samples: up,
+			automation: map[string]bool{testSiteID: true},
+			mutate:     func(s *serverdomain.Server) { s.Observed.Addresses = nil }, want: serverdomain.HealthUnknown},
+		{name: "locked without a target", automation: map[string]bool{testSiteID: true},
+			mutate: func(s *serverdomain.Server) { s.Provisioning.Locked = true }, want: serverdomain.HealthNotApplicable},
+		{name: "not deployed", automation: map[string]bool{testSiteID: true}, samples: up,
+			mutate: func(s *serverdomain.Server) { s.Provisioning.State = "ready" }, want: serverdomain.HealthNotApplicable},
+		{name: "never observed by its provisioner", automation: map[string]bool{testSiteID: true},
+			mutate: func(s *serverdomain.Server) { s.Provisioning = nil }, want: serverdomain.HealthNotApplicable},
+		{name: "absent with its last series still held", installed: true, samples: up,
+			automation: map[string]bool{testSiteID: true},
+			mutate:     func(s *serverdomain.Server) { s.Absent = true }, want: serverdomain.HealthNotApplicable},
+		{name: "Site automation off", automation: map[string]bool{testSiteID: false}, want: serverdomain.HealthNotApplicable},
+		{name: "Site without an automation configuration", want: serverdomain.HealthNotApplicable},
 	}
-	if health["srv-2"] == nil || health["srv-2"].State != serverdomain.HealthDown {
-		t.Errorf("srv-2 should be down, got %+v", health["srv-2"])
-	}
-	// A server the store said nothing about is unknown. Reporting it as down would be
-	// a claim nobody made.
-	if _, present := health["srv-3"]; present {
-		t.Error("a server with no sample must be absent from the result, not down")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			factory := newFakeMonitoringFactory()
+			factory.querierErr = tc.querierErr
+			factory.querier.err = tc.readErr
+			factory.querier.up["node-exporter"] = tc.samples
+			inventory := &fakeExporterInventory{}
+			if tc.installed {
+				inventory.installNodeExporter("srv-1")
+			}
+			automation := &fakeSiteAutomation{enabled: tc.automation}
+			if automation.enabled == nil {
+				automation.enabled = map[string]bool{}
+			}
+
+			health, err := newHealthResolver(factory, inventory, automation).
+				ResolveHealth(context.Background(), []*serverdomain.Server{healthServer("srv-1", tc.mutate)})
+			if err != nil {
+				t.Fatalf("ResolveHealth() error = %v", err)
+			}
+			got, ok := health["srv-1"]
+			if !ok {
+				t.Fatalf("ResolveHealth() = %v, want an answer for srv-1", health)
+			}
+			if got.State != tc.want {
+				t.Errorf("ResolveHealth() state = %q, want %q", got.State, tc.want)
+			}
+			sampled := tc.want == serverdomain.HealthUp || tc.want == serverdomain.HealthDown
+			switch {
+			case sampled && (got.ObservedAt == nil || !got.ObservedAt.Equal(sampledAt)):
+				t.Errorf("ResolveHealth() observedAt = %v, want the sample's %v", got.ObservedAt, sampledAt)
+			case !sampled && got.ObservedAt != nil:
+				t.Errorf("ResolveHealth() observedAt = %v, want nil for %s", got.ObservedAt, tc.want)
+			}
+		})
 	}
 }
 
-// Health is the Node Exporter's up only: a GPU exporter that answers does not make a Server up.
-func TestHealthResolver_ReadsTheNodeExporterOnly(t *testing.T) {
+// Health is the Node Exporter's up only, read for the targets only: a GPU exporter that answers
+// does not make a Server up, and a Server that is not a target is never asked about.
+func TestHealthResolver_ReadsTheNodeExporterOfTargetsOnly(t *testing.T) {
 	factory := newFakeMonitoringFactory()
-	resolver := monitoringapp.NewHealthResolver(factory, everyServerInSite{siteID: testSiteID})
+	inventory := &fakeExporterInventory{installed: []discoveryapp.InstalledExporter{
+		{ServerID: "srv-2", Name: "device-metrics-exporter", Port: 5001},
+	}}
+	inventory.installNodeExporter("srv-1")
+	resolver := newHealthResolver(factory, inventory, &fakeSiteAutomation{enabled: map[string]bool{}})
 
-	if _, err := resolver.ResolveHealth(context.Background(), []string{"srv-1"}); err != nil {
-		t.Fatalf("ResolveHealth: %v", err)
+	health, err := resolver.ResolveHealth(context.Background(), []*serverdomain.Server{healthServer("srv-1", nil), healthServer("srv-2", nil)})
+	if err != nil {
+		t.Fatalf("ResolveHealth() error = %v", err)
 	}
-
 	reads := factory.querier.upReads
 	if len(reads) != 1 || reads[0].name != "node-exporter" || !slices.Equal(reads[0].servers, []string{"srv-1"}) {
 		t.Errorf("up reads = %+v, want one node-exporter read for srv-1", reads)
@@ -59,61 +145,91 @@ func TestHealthResolver_ReadsTheNodeExporterOnly(t *testing.T) {
 	if len(factory.querier.currentReads) != 0 {
 		t.Errorf("metric reads = %+v, want none: health reads only the exporter's up", factory.querier.currentReads)
 	}
-}
-
-// With no metrics store registered, health is simply unknown. It is not an error and
-// must not fail the caller.
-func TestHealthResolver_NoIntegrationIsNotAnError(t *testing.T) {
-	factory := newFakeMonitoringFactory()
-	factory.querierErr = monitoringdomain.ErrNoMetricsIntegration
-	resolver := monitoringapp.NewHealthResolver(factory, everyServerInSite{siteID: testSiteID})
-
-	health, err := resolver.ResolveHealth(context.Background(), []string{"srv-1"})
-	if err != nil {
-		t.Fatalf("a missing metrics integration must not be an error: %v", err)
-	}
-	if len(health) != 0 {
-		t.Errorf("expected no health, got %v", health)
+	if health["srv-2"].State != serverdomain.HealthNotApplicable {
+		t.Errorf("srv-2 health = %+v, want not_applicable: only the Node Exporter makes a Server monitored", health["srv-2"])
 	}
 }
 
-// Each Server's health comes from its own Site's Prometheus; a Server whose Site has none, or that
-// the Server projection does not know, is unknown.
+// Each target's health comes from its own Site's Prometheus, in one read per Site; a target whose
+// Site has none is unknown. The coverage policy reads each Site's automation once.
 func TestHealthResolver_AsksEachServersSite(t *testing.T) {
 	east, west := newFakeQuerier(), newFakeQuerier()
 	east.up["node-exporter"] = []monitoringdomain.Sample{{Labels: map[string]string{"server_id": "srv-e"}, Value: 1, Timestamp: time.Now().UTC()}}
 	west.up["node-exporter"] = []monitoringdomain.Sample{{Labels: map[string]string{"server_id": "srv-w"}, Value: 0, Timestamp: time.Now().UTC()}}
-	resolver := monitoringapp.NewHealthResolver(perSiteMonitoringFactory{"east": east, "west": west},
-		fixedServerSites{"srv-e": "east", "srv-w": "west", "srv-n": "north"})
+	inventory := &fakeExporterInventory{}
+	inventory.installNodeExporter("srv-e", "srv-w", "srv-n")
+	automation := &fakeSiteAutomation{enabled: map[string]bool{"east": true}}
+	resolver := newHealthResolver(perSiteMonitoringFactory{"east": east, "west": west}, inventory, automation)
+	inSite := func(siteID string) func(*serverdomain.Server) {
+		return func(s *serverdomain.Server) { s.Source.SiteID = siteID }
+	}
+	servers := []*serverdomain.Server{
+		healthServer("srv-e", inSite("east")), healthServer("srv-w", inSite("west")),
+		healthServer("srv-n", inSite("north")), healthServer("srv-c1", inSite("east")), healthServer("srv-c2", inSite("east")),
+	}
 
-	health, err := resolver.ResolveHealth(context.Background(), []string{"srv-e", "srv-w", "srv-n", "srv-unknown"})
+	health, err := resolver.ResolveHealth(context.Background(), servers)
 	if err != nil {
-		t.Fatalf("ResolveHealth: %v", err)
+		t.Fatalf("ResolveHealth() error = %v", err)
 	}
-	if health["srv-e"] == nil || health["srv-e"].State != serverdomain.HealthUp ||
-		health["srv-w"] == nil || health["srv-w"].State != serverdomain.HealthDown {
-		t.Errorf("health = %+v, want srv-e up from east and srv-w down from west", health)
+	want := map[string]string{
+		"srv-e": serverdomain.HealthUp, "srv-w": serverdomain.HealthDown, "srv-n": serverdomain.HealthUnknown,
+		"srv-c1": serverdomain.HealthUnknown, "srv-c2": serverdomain.HealthUnknown,
 	}
-	if _, ok := health["srv-n"]; ok {
-		t.Error("a Server whose Site has no Prometheus must be unknown")
+	for id, state := range want {
+		if health[id].State != state {
+			t.Errorf("health[%s] = %+v, want %s", id, health[id], state)
+		}
 	}
 	if len(east.upReads) != 1 || !slices.Equal(east.upReads[0].servers, []string{"srv-e"}) {
 		t.Errorf("east up reads = %+v, want only srv-e", east.upReads)
 	}
+	if !slices.Equal(automation.reads, []string{"east"}) {
+		t.Errorf("automation reads = %v, want one read of east for its two covered Servers", automation.reads)
+	}
 }
 
 // Identifiers are validated rather than escaped: anything outside the swallow identifier
-// character set did not come from swallow and must not be interpolated into a query.
+// character set did not come from swallow and must not be interpolated into a query. Its Site is
+// not read, so the target is unknown.
 func TestHealthResolver_RejectsUnsafeServerID(t *testing.T) {
 	factory := newFakeMonitoringFactory()
-	resolver := monitoringapp.NewHealthResolver(factory, everyServerInSite{siteID: testSiteID})
+	unsafe := `srv-1"} or up{`
+	inventory := &fakeExporterInventory{}
+	inventory.installNodeExporter(unsafe)
+	resolver := newHealthResolver(factory, inventory, &fakeSiteAutomation{enabled: map[string]bool{}})
 
-	_, err := resolver.ResolveHealth(context.Background(), []string{`srv-1"} or up{`})
-	if err == nil {
-		t.Fatal("expected an unsafe identifier to be rejected")
+	health, err := resolver.ResolveHealth(context.Background(), []*serverdomain.Server{healthServer(unsafe, nil)})
+	if err != nil {
+		t.Fatalf("ResolveHealth() error = %v, want the unsafe target left unknown", err)
+	}
+	if health[unsafe].State != serverdomain.HealthUnknown {
+		t.Errorf("health = %+v, want unknown", health[unsafe])
 	}
 	if len(factory.querier.upReads) != 0 {
 		t.Error("no query should have been issued")
+	}
+}
+
+// The target list and the coverage policy read swallow's own records; when either read fails there
+// is no classification, and the error says so instead of a guessed state.
+func TestHealthResolver_RecordReadFailureIsAnError(t *testing.T) {
+	errStore := errors.New("store unreachable")
+	tests := []struct {
+		name       string
+		inventory  *fakeExporterInventory
+		automation *fakeSiteAutomation
+	}{
+		{"exporter inventory", &fakeExporterInventory{err: errStore}, &fakeSiteAutomation{enabled: map[string]bool{}}},
+		{"site automation", &fakeExporterInventory{}, &fakeSiteAutomation{err: errStore}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := newHealthResolver(newFakeMonitoringFactory(), tc.inventory, tc.automation)
+			if _, err := resolver.ResolveHealth(context.Background(), []*serverdomain.Server{healthServer("srv-1", nil)}); !errors.Is(err, errStore) {
+				t.Errorf("ResolveHealth() error = %v, want %v", err, errStore)
+			}
+		})
 	}
 }
 

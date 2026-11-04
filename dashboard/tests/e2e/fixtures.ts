@@ -1,10 +1,14 @@
 import { expect, type Page, type Route } from 'playwright/test'
-import type { Server } from '@/domain/server/types'
+import type { HealthState, Server, ServerHealthCounts } from '@/domain/server/types'
 import type { SoftwareAssignment } from '@/domain/software/types'
 
 const now = '2026-08-27T03:00:00Z'
 
-/** Builds fleet fixtures; Server four deliberately models an unobserved inventory. */
+/**
+ * Builds fleet fixtures; Server four deliberately models an unobserved inventory. The stored
+ * `health` is what the Site Prometheus answers for a monitored Server (srv-4's scrape fails); the
+ * API fixture classifies it at read time (see `classifiedServer` in `installApiFixtures`).
+ */
 function makeServer(index: number): Server {
   const ordinal = index + 1
   const named = ordinal <= 4
@@ -397,7 +401,14 @@ export interface FixtureOptions {
   deployingStatusReason?: string
   deploymentAttentionServerIds?: string[]
   absentServerIds?: string[]
-  unobservedHealthServerIds?: string[]
+  /**
+   * Overrides the health the list and detail reads classify for these Servers (`observedAt` is set
+   * only for `up` and `down`). Without one, an absent Server or one not `deployed` reads
+   * `not_applicable` and a deployed one reads its stored scrape answer, like the API's policy.
+   */
+  serverHealth?: Record<string, HealthState>
+  /** Replaces the Overview aggregate's `inventory.health`; `inventory.servers` follows its total. */
+  overviewHealth?: ServerHealthCounts
   cpuOnlyServerIds?: string[]
   multiGpuServerIds?: string[]
   /** Replaces inventory with a management/display GPU and no compute accelerator. */
@@ -1130,10 +1141,18 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     const server = fleet.find((item) => item.id === serverId)
     if (server) server.status.absent = true
   }
-  for (const serverId of options.unobservedHealthServerIds ?? []) {
-    const server = fleet.find((item) => item.id === serverId)
-    if (server) server.status.health = null
+  // Health is classified when a Server is read, never stored (servers-list.md "Health"), so the
+  // fixture works it out from the Server's current record on every list and detail read: an
+  // explicit `serverHealth` wins; otherwise swallow does not monitor an absent or not-deployed
+  // Server (N/A), and a deployed one reads its stored scrape answer. A release in a journey thus
+  // turns a Server N/A on its next read, as it does against the API.
+  const classifiedHealth = (server: Server): Server['status']['health'] => {
+    const override = options.serverHealth?.[server.id]
+    if (override) return { state: override, observedAt: override === 'up' || override === 'down' ? now : null }
+    if (server.status.absent || server.status.provisioning?.state !== 'deployed') return { state: 'not_applicable', observedAt: null }
+    return server.status.health
   }
+  const classifiedServer = (server: Server): Server => ({ ...server, status: { ...server.status, health: classifiedHealth(server) } })
   for (const serverId of options.cpuOnlyServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
     if (server) server.status.gpus = []
@@ -1468,7 +1487,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           membership: member
             ? { platformId: 'platform-slurm-ha', nodeName: hostname, role: 'main', state: 'idle', observedAt: now }
             : null,
-          // The cluster has no exporter coverage, so the health axis reads "down" for every node.
+          // Every node's Node Exporter fails its scrape, so the health axis reads "down" for each.
           // Controllers must not surface that monitoring "down" as their operational state.
           health: { state: 'down', observedAt: now },
         },
@@ -2544,9 +2563,14 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
 
     if (path === '/api/v1/overview') {
       const siteId = url.searchParams.get('siteId')
+      // One Server in each health state by default (a down one, an imported one whose Node
+      // Exporter is not installed yet, a ready one swallow does not monitor), so the Fleet health
+      // card and both health attention items render.
+      const health = options.overviewHealth ?? { up: 3, down: 1, unknown: 1, notApplicable: 1 }
+      const servers = health.up + health.down + health.unknown + health.notApplicable
       return json(route, {
         generatedAt: now, scope: { siteId },
-        inventory: { sites: siteId ? 1 : 2, servers: 4, absent: 0, deployed: 4, platformed: 4, gpuDevices: 24, health: { up: 3, down: 1, unknown: 0 } },
+        inventory: { sites: siteId ? 1 : 2, servers, absent: 0, deployed: servers - health.notApplicable, platformed: 4, gpuDevices: 24, health },
         integrations: { total: integrationItems.length, failing: 1, items: integrationItems.map((item) => ({ id: item.id, siteId: item.siteId, name: item.name, kind: item.kind, providerKind: item.providerKind, enabled: item.enabled, lastSucceededAt: item.sync.lastSucceededAt, lastError: item.sync.lastError })) },
         platforms: { total: 2, unreachable: 1, unmatchedMembers: 1 }, operations: { active: 1, failedLast24Hours: 1, recent: operations },
         monitoring: options.overviewAlertSource === 'not-configured'
@@ -2576,7 +2600,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (provisioningState) items = items.filter((item) => item.status.provisioning?.state === provisioningState)
       if (keyword) items = items.filter((item) => [item.status.hostname, item.status.fqdn, item.id, ...item.status.addresses].some((value) => value?.toLowerCase().includes(keyword)))
       const pageNumber = Number(url.searchParams.get('page') ?? 1); const pageSize = Number(url.searchParams.get('pageSize') ?? 100); const start = (pageNumber - 1) * pageSize
-      return json(route, { items: items.slice(start, start + pageSize), total: items.length, page: pageNumber, pageSize })
+      return json(route, { items: items.slice(start, start + pageSize).map(classifiedServer), total: items.length, page: pageNumber, pageSize })
     }
     const serverEventsMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/events$/)
     if (serverEventsMatch && request.method() === 'GET') {
@@ -2870,7 +2894,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         fleet.splice(index, 1)
         return route.fulfill({ status: 204 })
       }
-      return index >= 0 ? json(route, fleet[index]) : json(route, { error: { code: 'not_found', message: 'Server not found' } }, 404)
+      return index >= 0 ? json(route, classifiedServer(fleet[index])) : json(route, { error: { code: 'not_found', message: 'Server not found' } }, 404)
     }
 
     if (path === '/api/v1/monitoring/alerts' && request.method() === 'GET') {

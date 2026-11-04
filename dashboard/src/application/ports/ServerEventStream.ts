@@ -1,13 +1,25 @@
-import type { Server } from '@/domain/server/types'
+import type { HealthAxis, Server, ServerStatus } from '@/domain/server/types'
+
+/**
+ * A Server as a stream `upsert` carries it (servers-stream.md): the complete Server, except that
+ * the stream never classifies health. Its `status.health` is `null`, which means "not resolved in
+ * this event", never a health state, so a consumer must not show it or let it overwrite the health
+ * it last read. Use `withKnownHealth` to complete it and `streamChangeMayMoveHealth` to decide
+ * whether the Server should be re-read (`serverStreamPatch.ts`). A non-null value is accepted so a
+ * future stream that does classify health is used as is.
+ */
+export interface StreamedServer extends Omit<Server, 'status'> {
+  readonly status: Omit<ServerStatus, 'health'> & { readonly health: HealthAxis | null }
+}
 
 /**
  * One live change to a Server projection, delivered by {@link ServerEventStream}. `upsert`
- * carries the full projection so a list can replace or insert the row; `removed` carries only
- * the id so the list can drop it. The union is discriminated on `kind` so a consumer handles
- * each case exhaustively.
+ * carries the full projection (with unresolved health) so a list can replace or insert the row;
+ * `removed` carries only the id so the list can drop it. The union is discriminated on `kind` so a
+ * consumer handles each case exhaustively.
  */
 export type ServerStreamEvent =
-  | { readonly kind: 'upsert'; readonly server: Server }
+  | { readonly kind: 'upsert'; readonly server: StreamedServer }
   | { readonly kind: 'removed'; readonly id: string }
 
 /** Scopes a subscription. `siteId` narrows the stream to one Site, matching the list scope. */

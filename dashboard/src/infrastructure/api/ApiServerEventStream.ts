@@ -3,20 +3,21 @@ import type {
   ServerStreamEvent,
   ServerStreamHandlers,
   ServerStreamQuery,
+  StreamedServer,
 } from '@/application/ports/ServerEventStream'
-import type { Server } from '@/domain/server/types'
 import { API_BASE_URL } from './baseUrl'
 import { accessTokenExpiresSoon, currentAccessToken, notifySessionEnded, refreshSession } from './session'
 
 /**
- * The stream frame shape, matching the servers-stream contract. `server` is the same object
- * shape as a servers-list item, which maps 1:1 onto the domain {@link Server}, so no reshape
- * is needed — mirroring {@link ApiServerRepository}.
+ * The stream frame shape, matching the servers-stream contract. `server` is a servers-list item
+ * whose `status.health` is always `null` (the stream does not classify health), which is exactly
+ * the port's {@link StreamedServer}, so no reshape is needed — mirroring `ApiServerRepository`.
+ * The consumer, not this adapter, keeps the previously read health.
  */
 interface ServerStreamMessageDTO {
   type: string
   id: string
-  server?: Server
+  server?: StreamedServer
 }
 
 /** Reconnect backoff after the browser gives up on the stream: 1s, 2s, 4s, … capped at 30s. */

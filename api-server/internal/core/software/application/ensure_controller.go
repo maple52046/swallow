@@ -127,11 +127,12 @@ type EnsureControllerDeps struct {
 
 // EnsureController keeps one Managed Software kind installed on every Server its policy covers
 // (software-deployment.md, Node Exporter). The desired state is derived, not written by anyone: a
-// Server is covered when it is present, in provisioning state `deployed` (disk or RAM), not locked,
-// and its Site's automation is enabled. The observed state is the Server's Software Assignment of
-// the kind and, at resync, its Site Prometheus's scrapes of the kind's exporter. Installing is
-// non-destructive and the kind's playbook is an idempotent ensure, so the controller corrects drift
-// itself (desired-state-model.md §6.2) and never removes the kind from a Server it stops covering.
+// Server is covered by EnsureCoverage when it is present, in provisioning state `deployed` (disk or
+// RAM), not locked, and its Site's automation is enabled. The observed state is the Server's
+// Software Assignment of the kind and, at resync, its Site Prometheus's scrapes of the kind's
+// exporter. Installing is non-destructive and the kind's playbook is an idempotent ensure, so the
+// controller corrects drift itself (desired-state-model.md §6.2) and never removes the kind from a
+// Server it stops covering.
 //
 // For a covered Server that no unfinished Workflow holds, it installs when there is no assignment
 // or it is absent; again with ensureRetryBackoff when it failed; and, at resync, when it is
@@ -153,7 +154,7 @@ type EnsureController struct {
 	installer   SoftwareInstaller
 	servers     EnsureServers
 	assignments EnsureAssignments
-	automation  SiteAutomation
+	coverage    EnsureCoverage
 	workflows   WorkflowLister
 	canceler    WorkflowCanceler
 	scrapes     ExporterScrapes
@@ -174,7 +175,7 @@ func NewEnsureController(deps EnsureControllerDeps) (*EnsureController, error) {
 	controller := &EnsureController{
 		kind: deps.Entry.Kind, label: deps.Entry.Label, requester: EnsureRequester(deps.Entry.Kind),
 		installer: deps.Installer, servers: deps.Servers, assignments: deps.Assignments,
-		automation: deps.Automation, workflows: deps.Workflows, canceler: deps.Canceler, scrapes: deps.Scrapes,
+		coverage: NewEnsureCoverage(deps.Automation), workflows: deps.Workflows, canceler: deps.Canceler, scrapes: deps.Scrapes,
 		now: time.Now, refused: map[string]time.Time{},
 	}
 	if deps.Entry.Exporter != nil {
@@ -258,7 +259,7 @@ func (c *EnsureController) Reconcile(ctx context.Context, request convergence.Re
 			return err
 		}
 	}
-	covered, err := c.covers(ctx, server)
+	covered, err := c.coverage.Covers(ctx, server)
 	if err != nil || !covered {
 		return err
 	}
@@ -285,23 +286,6 @@ func assignmentState(assignment *softwaredomain.Assignment) softwaredomain.Assig
 		return ""
 	}
 	return assignment.State
-}
-
-// covers applies the policy: the Server is present, `deployed`, not locked (as projected; the
-// install re-checks the live lock), and its Site's automation is enabled.
-func (c *EnsureController) covers(ctx context.Context, server *serverdomain.Server) (bool, error) {
-	if server.Absent || server.Provisioning == nil || server.Provisioning.Locked ||
-		server.Provisioning.State != softwaredomain.RequiredProvisioningState {
-		return false, nil
-	}
-	configuration, err := c.automation.FindBySiteID(ctx, server.Source.SiteID)
-	if errors.Is(err, workflowdomain.ErrAutomationConfigNotFound) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return configuration.Enabled, nil
 }
 
 // releaseOwnParked cancels the controller's own unfinished installs on the Server that stopped for

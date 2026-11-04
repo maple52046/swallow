@@ -244,9 +244,12 @@ Node Exporter 是 desired state，由 worker 的 Node Exporter controller 收斂
   Server 不裝 Node Exporter，lock 它，或關閉該 Site 的 automation。
 - **設定**：`SWALLOW_WORKER_NODE_EXPORTER_ENSURE`（config `nodeExporterEnsure`，預設 `true`，值必須是布林，否則 process
   不啟動）。`false` 時 worker 不註冊這個 controller，只剩組入的安裝；開發環境預設關閉，因為它與 lab 共用機器。
+- **涵蓋也決定 health**：這個政策（程式中的 `EnsureCoverage`）同時是 Server health 的「受涵蓋」判斷
+  （monitoring.md §8）：受涵蓋、但 assignment 不是 `installed` 或 `uninstalling` 的 Server，health 是 `unknown`；不受
+  涵蓋、也不是 target 的 Server 是 `not_applicable`。controller 關閉時這個判斷不變。
 - **已知限制**：assignment 為 `pending` 或 `failed` 時 Site Prometheus 不收集它（monitoring.md §5.2）。主機當機、provisioner 卻仍
   回報開機時，再安裝的 `wait-for-ssh` 失敗，controller 取消它，assignment 轉為 `failed`，這台 Server 的 health 就從
-  `down` 變成 unknown，直到某次重試成功。
+  `down` 變成 `unknown`，直到某次重試成功。
 
 ## 3. Software Assignment（durable record）
 

@@ -196,10 +196,39 @@ Prometheus 沒有多租戶的概念，因此引入 [prom-label-proxy](https://gi
 
 ## 8. health
 
-Server 的 health（`up`／`down`）只看它的 node-exporter：node-exporter 被收集到時是 `up`，收集失敗時是 `down`；沒有
-node-exporter 的 target 時是 unknown，不是 `down`——swallow 沒有在監控它，就不知道它的狀況
-（[Server Status](glossaries/terms/server-status.md)）。assignment 為 `pending` 或 `failed` 時也沒有 target，所以 Node
-Exporter controller 的安裝進行中或失敗時，health 是 unknown。GPU 與其他 exporter 的狀態不影響 health。
+Server 的 health 是 swallow 依自己的監控政策做的分類，不是等觀察結果出現才有的值：每次讀取 Server 時算出、不保存，
+而且一定有值（[Server Status](glossaries/terms/server-status.md)；wire 形狀見
+[servers-list.md](../../api-server/docs/development/api-contracts/api-server/servers-list.md) 的 Health）。依序判斷：
+
+1. **是 node-exporter 的 target**：exporters 端點（§5.2）為這台 Server 列出 `node-exporter` 的 target——Server 存在、
+   有位址，而且它的 node-exporter Software Assignment 是 `installed` 或 `uninstalling`。Site Prometheus 對這個 target
+   最新的 `up` 決定：大於 0 是 `up`，等於 0 是 `down`；還沒有 sample、Site 沒有 Prometheus，或讀取 metrics 失敗時是
+   `unknown`。
+2. **受 Node Exporter 政策涵蓋，但不是 target**：政策（§4.1：存在、`deployed`、沒有 lock、所屬 Site 的 automation
+   已啟用）說它應該有 node-exporter，但 swallow 還沒有它的 target，例如 node-exporter 尚未安裝的 imported Server，或
+   安裝進行中、失敗。這是 `unknown`，屬於警示：swallow 預期監控它，卻沒有答案。
+3. **其他**都是 `not_applicable`：swallow 不監控它，例如 `ready`、`releasing`、absent、被 lock，或所屬 Site 的
+   automation 關閉。這不代表機器有任何問題。
+
+設計上的取捨：
+
+- **target 的判斷與 discovery 同一套**：health 讀 Prometheus 的條件，就是 exporters 端點列出 target 的條件，資料來源
+  也相同（Software Assignment）。swallow 沒有叫 Prometheus 收集的 Server，就不會從 Prometheus 的資料得出 `up` 或
+  `down`。所以 release 之後（assignment 在同一個 transaction 內轉為 `absent`）Server 立刻是 `not_applicable`，即使
+  Prometheus 還留著它最後一條 series，不再短暫顯示為 `down`。
+- **涵蓋與 controller 同一套**：「應該有 node-exporter」的政策只有一份，Node Exporter controller 與 health 都用它；
+  worker 沒有執行 controller（`SWALLOW_WORKER_NODE_EXPORTER_ENSURE=false`，開發環境的預設）時政策照樣成立，受涵蓋卻沒有
+  node-exporter 的 Server 就停在 `unknown`。
+- **第一條優先**：仍是 target 的 Server 被 lock 後仍依 Prometheus 是 `up` 或 `down`；lock 不停止已在執行的監控
+  （discovery 照常列出它）。
+- **讀取失敗的語意**：讀 Prometheus 是 best-effort，失敗只讓讀不到的 target 變成 `unknown`，不讓 request 失敗；
+  Software Assignment 與 Site automation 是 swallow 自己的紀錄，讀不到時 request 失敗，不顯示沒有算出來的 health。
+- **只看 node-exporter**：GPU 與其他 exporter 的狀態不影響 health。
+- **Server 的 SSE stream 不分類 health**：事件中的 health 是 null（未解析），consumer 保留先前讀到的值，需要時重新讀取
+  Server（[servers-stream.md](../../api-server/docs/development/api-contracts/api-server/servers-stream.md)）。
+
+程式位置：規則在 monitoring context 的 `HealthResolver`；target 的判斷在 discovery 的 `ExporterDiscovery`，涵蓋在
+software 的 `EnsureCoverage`，兩者由 `internal/app` 組合給它；Server 的讀取與 overview 共用同一個 resolver。
 
 ## 9. 相關的做法
 

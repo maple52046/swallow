@@ -25,7 +25,7 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
     lockedServerIds: ['srv-2'],
     failedServerIds: ['srv-3'],
     absentServerIds: ['srv-4'],
-    unobservedHealthServerIds: ['srv-3'],
+    serverHealth: { 'srv-3': 'unknown' },
     deploymentAttentionServerIds: ['srv-3'],
     multiGpuServerIds: ['srv-3'],
     extraTags: { 'srv-1': ['east', 'training'] },
@@ -39,6 +39,12 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   await expect(overview.locator('[aria-label="OS deployment"]')).toContainText('Verified0')
   await expect(overview.locator('[aria-label="OS deployment"]')).toContainText('Active1')
   await expect(overview.locator('[aria-label="OS deployment"]')).toContainText('Attention1')
+  // Health counts every Server in scope: the ready, inspecting, and absent ones are N/A (swallow does
+  // not monitor them), so the four add up to the total. Unknown is a warning, not a failure.
+  for (const count of ['Up0', 'Down0', 'Unknown1', 'N/A3']) {
+    await expect(overview.locator('[aria-label="Health"]')).toContainText(count)
+  }
+  await expect(overview).toHaveAttribute('data-tone', 'attention')
   await expect(page.getByText('Showing 1–3 of 3 servers')).toBeVisible()
   await expect(page.getByText('Live', { exact: true })).toBeVisible()
 
@@ -580,6 +586,150 @@ test('live updates reconnect with the current access token after the browser clo
     sources?.at(-1)?.emitOpen()
   })
   await expect(page.getByText('Live', { exact: true })).toBeVisible()
+})
+
+test('health reads Up, Down, Unknown, and N/A in badges, the fleet summary, and the shareable filter', async ({ page }) => {
+  // srv-1 is ready (not monitored: N/A), srv-2 up, srv-3 monitored without an answer, srv-4 down.
+  await installApiFixtures(page, { readyServerCount: 1, serverHealth: { 'srv-3': 'unknown' } })
+  await page.setViewportSize({ width: 1800, height: 900 })
+  await page.goto('/servers?site=site-a')
+
+  const overview = page.locator('.sw-server-fleet-overview')
+  for (const count of ['Up1', 'Down1', 'Unknown1', 'N/A1']) {
+    await expect(overview.locator('[aria-label="Health"]')).toContainText(count)
+  }
+  // A Down Server outranks the warning that Unknown raises.
+  await expect(overview).toHaveAttribute('data-tone', 'critical')
+
+  const table = page.getByRole('table', { name: 'Servers' })
+  const healthCell = (name: string) => table.getByRole('row').filter({ hasText: name }).first().locator('.sw-server-col--health')
+  // The badge's visible text is the label; a visually hidden prefix names the axis.
+  const expected = [['gpu-node-01', 'N/A'], ['gpu-node-02', 'Up'], ['gpu-node-03', 'Unknown'], ['gpu-node-04', 'Down']] as const
+  for (const [name, label] of expected) await expect(healthCell(name)).toHaveText(`Health ${label}`)
+  // Colour supplements the text: each state has its own tone, and Unknown is not Down's red.
+  const colors = await Promise.all(expected.map(([name]) => healthCell(name).locator('.chakra-badge').evaluate((badge) => getComputedStyle(badge).color)))
+  expect(new Set(colors).size).toBe(4)
+
+  // The previous tooltip lingers while it closes, so each one is found by its own text.
+  await healthCell('gpu-node-03').locator('.chakra-badge').hover()
+  await expect(page.getByRole('tooltip', { name: 'Swallow expects to monitor this Server but has no answer from its Node Exporter.', exact: true })).toBeVisible()
+  await healthCell('gpu-node-01').locator('.chakra-badge').hover()
+  await expect(page.getByRole('tooltip', { name: "Swallow does not monitor this Server (not deployed, locked, or its Site's automation is off).", exact: true })).toBeVisible()
+  await healthCell('gpu-node-02').locator('.chakra-badge').hover()
+  await expect(page.getByRole('tooltip', { name: /^Its Node Exporter answered the latest scrape\. Observed / })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Show details for gpu-node-01' }).click()
+  const details = table.getByRole('row').filter({ hasText: 'SN0001' })
+  const fact = (label: RegExp) => details.locator('dl > div').filter({ has: page.locator('dt', { hasText: label }) }).locator('dd')
+  await expect(fact(/^Health$/)).toHaveText('N/A')
+  await expect(fact(/^Health observed$/)).toHaveText('—')
+  await expect(details).not.toContainText('Unobserved')
+
+  await page.getByRole('button', { name: /Filters/ }).click()
+  await chooseSelectOption(page, 'Filter Server health', 'Unknown')
+  await page.keyboard.press('Escape')
+  await expect(page).toHaveURL('/servers?site=site-a&health=unknown')
+  await expect(table.getByText('gpu-node-03', { exact: true })).toBeVisible()
+  await expect(page.getByText('Showing 1–1 of 1 server')).toBeVisible()
+
+  await page.getByRole('button', { name: /Filters/ }).click()
+  await chooseSelectOption(page, 'Filter Server health', 'N/A')
+  await page.keyboard.press('Escape')
+  await expect(page).toHaveURL('/servers?site=site-a&health=not-applicable')
+  await expect(table.getByText('gpu-node-01', { exact: true })).toBeVisible()
+  await expect(table.getByText('gpu-node-03', { exact: true })).toHaveCount(0)
+
+  // A bookmark from before health was classified keeps working: unobserved now means Unknown.
+  await page.goto('/servers?site=site-a&health=unobserved')
+  await expect(page).toHaveURL('/servers?site=site-a&health=unknown')
+  await expect(table.getByText('gpu-node-03', { exact: true })).toBeVisible()
+  await expect(table.getByText('gpu-node-02', { exact: true })).toHaveCount(0)
+})
+
+test('a live change re-reads only the Server whose health it can move', async ({ page }) => {
+  await installApiFixtures(page)
+  await page.setViewportSize({ width: 1800, height: 900 })
+  await page.goto('/servers?site=site-a')
+  await expect(page.getByText('Live', { exact: true })).toBeVisible()
+  const table = page.getByRole('table', { name: 'Servers' })
+  const row = (name: string) => table.getByRole('row').filter({ hasText: name }).first()
+  const healthCell = (name: string) => row(name).locator('.sw-server-col--health')
+  await expect(healthCell('gpu-node-01')).toHaveText('Health Up')
+
+  // Read the Servers as the API shows them before counting the re-reads the page makes itself.
+  const [srv1, srv2] = await page.evaluate(() => Promise.all(['srv-1', 'srv-2'].map((id) => fetch(`/api/v1/servers/${id}`).then((response) => response.json()))))
+  // After a release the API reads srv-1 ready and no longer monitored.
+  const released = {
+    ...srv1,
+    status: { ...srv1.status, deployment: null, provisioning: { ...srv1.status.provisioning, state: 'ready', providerState: 'Ready' }, health: { state: 'not_applicable', observedAt: null } },
+  }
+  // A Server the page has not seen yet, monitored but without an answer.
+  const joined = {
+    ...srv2,
+    id: 'srv-9',
+    status: { ...srv2.status, hostname: 'gpu-node-09', fqdn: 'gpu-node-09.lab.example', health: { state: 'unknown', observedAt: null } },
+  }
+  const reads: string[] = []
+  await page.route('**/api/v1/servers/*', async (route) => {
+    const id = new URL(route.request().url()).pathname.split('/').pop() ?? ''
+    if (route.request().method() !== 'GET') return route.fallback()
+    reads.push(id)
+    if (id === 'srv-1') return route.fulfill({ json: released })
+    if (id === 'srv-9') return route.fulfill({ json: joined })
+    return route.fallback()
+  })
+  // The stream never classifies health: every upsert carries `status.health: null`.
+  const emitUpsert = (server: { status: Record<string, unknown> }) => page.evaluate((frame) => {
+    const sources = (window as typeof window & { __serverEventSources?: Array<{ emitMessage: (data: string) => void }> }).__serverEventSources
+    sources?.at(-1)?.emitMessage(frame)
+  }, JSON.stringify({ type: 'upsert', server: { ...server, status: { ...server.status, health: null } } }))
+
+  // A change that cannot move health patches the row, keeps its health, and reads nothing.
+  await emitUpsert({ ...srv2, status: { ...srv2.status, provisioning: { ...srv2.status.provisioning, deployedImageName: 'Ubuntu 24.04 LTS (renamed)' } } })
+  await expect(row('gpu-node-02')).toContainText('Ubuntu 24.04 LTS (renamed)')
+  await expect(healthCell('gpu-node-02')).toHaveText('Health Up')
+  expect(reads).toEqual([])
+
+  // A release changes the provisioning state, so that one Server is re-read and turns N/A.
+  await emitUpsert(released)
+  await expect(row('gpu-node-01').getByText('Ready', { exact: true })).toBeVisible()
+  await expect(healthCell('gpu-node-01')).toHaveText('Health N/A')
+  expect(reads).toEqual(['srv-1'])
+  await expect(page.locator('.sw-server-fleet-overview [aria-label="Health"]')).toContainText('N/A1')
+
+  // A new Server joins with the health its re-read classifies.
+  await emitUpsert(joined)
+  await expect(healthCell('gpu-node-09')).toHaveText('Health Unknown')
+  expect(reads).toEqual(['srv-1', 'srv-9'])
+})
+
+test('the Server detail re-reads only its projection when a live change can move its health', async ({ page }) => {
+  const detailReads: string[] = []
+  await installApiFixtures(page)
+  await page.route('**/api/v1/servers/srv-1/provisioner-detail', async (route) => {
+    detailReads.push(route.request().url())
+    await route.fallback()
+  })
+  await page.goto('/servers/srv-1/summary?site=site-a')
+  // The header and the Current state card both show the badge.
+  await expect(page.getByText('Health Up', { exact: true })).toHaveCount(2)
+  await expect.poll(() => detailReads.length).toBe(1)
+
+  const srv1 = await page.evaluate(() => fetch('/api/v1/servers/srv-1').then((response) => response.json()))
+  const locked = { ...srv1, status: { ...srv1.status, provisioning: { ...srv1.status.provisioning, locked: true }, health: { state: 'not_applicable', observedAt: null } } }
+  let projectionReads = 0
+  await page.route('**/api/v1/servers/srv-1', async (route) => {
+    projectionReads += 1
+    await route.fulfill({ json: locked })
+  })
+  await page.evaluate((frame) => {
+    const sources = (window as typeof window & { __serverEventSources?: Array<{ emitMessage: (data: string) => void }> }).__serverEventSources
+    sources?.at(-1)?.emitMessage(frame)
+  }, JSON.stringify({ type: 'upsert', server: { ...locked, status: { ...locked.status, health: null } } }))
+
+  await expect(page.getByText('Health N/A', { exact: true })).toHaveCount(2)
+  expect(projectionReads).toBe(1)
+  expect(detailReads).toHaveLength(1)
 })
 
 test('mobile cards preserve operational and hardware facts without horizontal overflow', async ({ page }) => {

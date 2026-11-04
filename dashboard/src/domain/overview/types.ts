@@ -1,4 +1,5 @@
 import type { Operation } from '@/domain/operation/types'
+import type { ServerHealthCounts } from '@/domain/server/types'
 
 /** One integration row in the overview. */
 export interface OverviewIntegration {
@@ -38,7 +39,11 @@ export interface Overview {
     deployed: number
     platformed: number
     gpuDevices: number
-    health: { up: number; down: number; unknown: number }
+    /**
+     * Every scoped Server counted once by its health state, classified as on the Server itself
+     * (overview.md); absent Servers count as `notApplicable`, so the four add up to `servers`.
+     */
+    health: ServerHealthCounts
   }
   integrations: {
     total: number

@@ -68,8 +68,9 @@ func TestServiceExecuteBuildsBoundedOverview(t *testing.T) {
 		},
 		servers: []Server{
 			{ProvisioningState: "deployed", PlatformID: "platform-a", GPUDevices: 8, HealthState: "up"},
-			{Absent: true, ProvisioningState: "ready", HealthState: "down"},
-			{ProvisioningState: "deployed"},
+			{ProvisioningState: "deployed", HealthState: "down"},
+			{Absent: true, ProvisioningState: "ready", HealthState: "not_applicable"},
+			{ProvisioningState: "deployed", HealthState: "unknown"},
 		},
 		platforms: []Platform{
 			{MemberCount: 5, MatchedCount: 3},
@@ -116,13 +117,13 @@ func TestServiceExecuteBuildsBoundedOverview(t *testing.T) {
 		t.Fatalf("Execute() error = %v, want nil", err)
 	}
 
-	if result.Inventory.Sites != 2 || result.Inventory.Servers != 3 ||
-		result.Inventory.Absent != 1 || result.Inventory.Deployed != 2 ||
+	if result.Inventory.Sites != 2 || result.Inventory.Servers != 4 ||
+		result.Inventory.Absent != 1 || result.Inventory.Deployed != 3 ||
 		result.Inventory.Platformed != 1 || result.Inventory.GPUDevices != 8 {
 		t.Errorf("Execute() inventory = %+v, want complete platform counts", result.Inventory)
 	}
-	if result.Inventory.Health != (HealthSummary{Up: 1, Down: 1, Unknown: 1}) {
-		t.Errorf("Execute() health = %+v, want up=1 down=1 unknown=1", result.Inventory.Health)
+	if result.Inventory.Health != (HealthSummary{Up: 1, Down: 1, Unknown: 1, NotApplicable: 1}) {
+		t.Errorf("Execute() health = %+v, want up=1 down=1 unknown=1 notApplicable=1", result.Inventory.Health)
 	}
 	if result.Integrations.Total != 2 || result.Integrations.Failing != 1 {
 		t.Errorf("Execute() integrations = %+v, want total=2 failing=1", result.Integrations)

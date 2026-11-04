@@ -1250,8 +1250,10 @@ components:
           allOf:
             - $ref: '#/components/schemas/ServerMembershipAxis'
         health:
-          nullable: true
-          description: Resolved at query time from the metrics backend; null when unknown.
+          description: >-
+            swallow's monitoring classification, worked out when the Server is read (servers-list.md,
+            Health); always present on the list and the detail. A stream event is the exception: its
+            `status.health` is null because the stream does not classify health (`ServerChange`).
           allOf:
             - $ref: '#/components/schemas/ServerHealthAxis'
         platformClaim:
@@ -1443,13 +1445,21 @@ components:
           $ref: '#/components/schemas/Timestamp'
     ServerHealthAxis:
       type: object
+      description: >-
+        swallow's monitoring answer for the Server (servers-list.md, Health). `up` and `down` are the
+        Site Prometheus's latest scrape of a Node Exporter target swallow lists for the Server;
+        `unknown` means swallow monitors the Server but has no answer; `not_applicable` means swallow
+        does not monitor it.
       required: [state, observedAt]
       properties:
         state:
           type: string
-          enum: [up, down]
+          enum: [up, down, unknown, not_applicable]
         observedAt:
-          $ref: '#/components/schemas/Timestamp'
+          nullable: true
+          description: The time of the sample behind `up` or `down`; null for `unknown` and `not_applicable`.
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
     ServerPlatformClaim:
       type: object
       description: The Platform whose accepted deployment targets this Server (Platform Claim).
@@ -1486,7 +1496,12 @@ components:
           type: string
           description: The Server ID.
         server:
-          $ref: '#/components/schemas/Server'
+          description: >-
+            The changed Server in the `Server` shape, except that `status.health` is always null: the
+            stream does not classify health, so null means "not resolved in this event", never a health
+            state (servers-stream.md).
+          allOf:
+            - $ref: '#/components/schemas/Server'
     ServerProvisioningSnapshot:
       type: object
       description: >-

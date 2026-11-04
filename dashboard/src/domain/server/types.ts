@@ -187,10 +187,59 @@ export interface PlatformClaim {
   claimedAt: string
 }
 
-/** Liveness, owned by the metrics store. Resolved at query time, never stored. */
+/**
+ * swallow's monitoring answer for a Server (glossary Server Status, servers-list.md "Health"):
+ *
+ * - `up` / `down`: the Site Prometheus's latest scrape of the Server's Node Exporter answered or
+ *   failed.
+ * - `unknown`: swallow monitors the Server but has no answer for it (no sample yet, an exporter
+ *   that is not installed yet, or no metrics Integration). A warning, never a failure.
+ * - `not_applicable`: swallow does not monitor the Server (not deployed, absent, locked, or its
+ *   Site's automation is off). Neutral: it says nothing about the machine, good or bad.
+ *
+ * The UI labels are Up, Down, Unknown, and N/A; the domain value is what flows through filters.
+ */
+export type HealthState = 'up' | 'down' | 'unknown' | 'not_applicable'
+
+/**
+ * The health axis as the list and the detail read it. swallow classifies it each time the Server
+ * is read and never stores it, so it is always present on a read; only a live stream event leaves
+ * it unresolved (see `StreamedServer` in the Server event stream port).
+ */
 export interface HealthAxis {
-  state: 'up' | 'down'
-  observedAt: string
+  state: HealthState
+  /** The time of the Site Prometheus sample behind `up` or `down`; null for the other states. */
+  observedAt: string | null
+}
+
+/**
+ * Servers counted once each by health state. The shape the Overview aggregate sends
+ * (`inventory.health`, where absent Servers count as `notApplicable`) and the one the dashboard
+ * computes for a loaded working set, so both surfaces present the same four numbers.
+ */
+export interface ServerHealthCounts {
+  up: number
+  down: number
+  unknown: number
+  notApplicable: number
+}
+
+/**
+ * Counts `servers` by {@link HealthState}; the four counts add up to `servers.length`. A state a
+ * newer API might add counts as `notApplicable`, so it is neither a failure nor healthy and the sum
+ * still matches the scope.
+ */
+export function countServerHealth(servers: readonly Server[]): ServerHealthCounts {
+  const counts: ServerHealthCounts = { up: 0, down: 0, unknown: 0, notApplicable: 0 }
+  for (const server of servers) {
+    switch (server.status.health.state) {
+      case 'up': counts.up += 1; break
+      case 'down': counts.down += 1; break
+      case 'unknown': counts.unknown += 1; break
+      default: counts.notApplicable += 1
+    }
+  }
+  return counts
 }
 
 /**
@@ -506,7 +555,8 @@ export interface ServerStatus {
   deployment: DeploymentAxis | null
   provisioning: ProvisioningAxis | null
   membership: MembershipAxis | null
-  health: HealthAxis | null
+  /** Always classified on a read; see {@link HealthAxis}. */
+  health: HealthAxis
   /**
    * The Platform whose deployment claims this Server, or null when none does. Optional so a
    * Server value built without it reads as unclaimed; the API always sends it.
@@ -529,7 +579,8 @@ export interface ServerStatus {
 
 /**
  * A Server as the API returns it: a migrated resource (docs/decisions/071) with its identity, its
- * spec, and its status. The list, the detail, and the live stream all carry this same shape.
+ * spec, and its status. The list and the detail carry this shape; the live stream carries it with
+ * `status.health` unresolved (`StreamedServer` in the Server event stream port).
  */
 export interface Server {
   /** The only identifier to reference a server by. */

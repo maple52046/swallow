@@ -417,6 +417,9 @@ afterwards, so a client rarely needs to install it:
   uninstalls it by itself.
 - An installation can turn this off (`SWALLOW_WORKER_NODE_EXPORTER_ENSURE=false`); then only OS
   deployments, Platform deployments, and kept-servers Platform uninstalls install the kind.
+- The same coverage decides a Server's health ([servers-list.md](servers-list.md#health)), whether
+  or not the installation turned the installs off: a covered Server whose assignment is not
+  `installed` or `uninstalling` reads `unknown`.
 
 ```json
 {

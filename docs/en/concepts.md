@@ -32,7 +32,7 @@ Server status has independent axes:
 | --- | --- | --- |
 | Provisioning | Provisioner | ready, inspecting, deploying, releasing, failed |
 | Membership | Platform runtime | member role or no observed membership |
-| Health | Metrics backend | current observed health or unknown |
+| Health | Metrics backend, within swallow's monitoring policy | up, down, unknown, or not applicable |
 
 The provisioning axis uses swallow's provider-neutral
 [`provisioning.state`](../development/glossaries/terms/os-provisioning-state.md)
@@ -40,8 +40,23 @@ value set. Each provisioner adapter maps its own lifecycle to those values. A
 provider's own wording, such as MAAS *Commissioning*, appears only in the
 display-only `providerState`; clients must not branch on it.
 
-`null` means unknown, not unhealthy. Each observation can have its own
-`observedAt`.
+An axis that has not been observed is `null`, which means unknown, not unhealthy.
+Each observation can have its own `observedAt`.
+
+Health is the exception: it is always present, because swallow classifies it from
+its own monitoring policy rather than waiting for an observation.
+
+- `up` and `down`: swallow has the Site's Prometheus scrape the Server's Node
+  Exporter, and the latest scrape succeeded or failed.
+- `unknown`: swallow monitors the Server but has no answer yet, for example
+  because its Node Exporter is not installed yet or the Site's Prometheus cannot
+  be read. Treat it as a warning, not as a failure.
+- `not_applicable`: swallow does not monitor the Server, for example because it is
+  not deployed, it is locked, or its Site's automation is off. It says nothing
+  about the machine.
+
+Health carries an `observedAt` only for `up` and `down`. See
+[Server health](guides/monitoring.md#server-health).
 
 ## Desired and observed state
 

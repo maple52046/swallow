@@ -6,8 +6,10 @@ import { loadFleetMetrics, type FleetMetricsResult } from '@/application/usecase
 import { loadServerWorkingSet } from '@/application/usecases/servers/loadServerWorkingSet'
 import { useApp } from '@/di/AppProvider'
 import { type MonitoringAlert, type MonitoringAlertState, type ServerMetrics } from '@/domain/monitoring/types'
-import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
+import { countServerHealth, serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
+import { HealthBadge } from '@/presentation/components/AxisBadge'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { fleetHealthMetric } from '@/presentation/components/serverHealthPresentation'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { DataToolbar, SectionHeader, MetricGrid, StickyTableFrame, type MetricItem } from '@/presentation/components/ConsolePrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
@@ -145,8 +147,6 @@ export function MonitoringPage() {
   }, [fleetState, serverQuery])
   const alerts = alertsState.status === 'ready' ? alertsState.alerts : []
   const fleet = fleetState.status === 'ready' ? fleetState.servers : []
-  const healthUp = fleet.filter((server) => server.status.health?.state === 'up').length
-  const healthDown = fleet.filter((server) => server.status.health?.state === 'down').length
   const metricsByServer = fleetState.status === 'ready' ? new Map(fleetState.metrics.items.map((item) => [item.serverId, item])) : new Map<string, ServerMetrics>()
   const grafana = fleetState.status === 'ready' ? fleetState.metrics.grafana : null
   // Servers ticked for the usage charts. URL-owned so a charted selection is shareable; ticking a
@@ -230,8 +230,12 @@ export function MonitoringPage() {
         }
       />
       <MetricGrid items={[
-        { label: 'Fleet servers', value: fleetState.status === 'ready' ? fleet.length : 'Unavailable', detail: `${healthUp} reporting up`, icon: <ServerIcon size={18} /> },
-        { label: 'Health down', value: fleetState.status === 'ready' ? healthDown : 'Unavailable', detail: `${Math.max(0, fleet.length - healthUp - healthDown)} unknown`, tone: healthDown ? 'critical' : 'neutral', icon: <Activity size={18} /> },
+        { label: 'Fleet servers', value: fleetState.status === 'ready' ? fleet.length : 'Unavailable', detail: 'Absent Servers excluded', icon: <ServerIcon size={18} /> },
+        // The same Fleet health card as the Overview, counted from the loaded Servers. Until they
+        // load it says so instead of showing zero counts that would read as "nothing monitored".
+        fleetState.status === 'ready'
+          ? fleetHealthMetric(countServerHealth(fleet), <Activity size={18} />)
+          : { label: 'Fleet health', value: 'Unavailable', icon: <Activity size={18} /> },
         ...(showAlerts ? [
           { label: 'Critical alerts', value: alertsState.status === 'ready' ? alerts.filter((alert) => alert.severity.toLowerCase() === 'critical' && alert.state === 'firing').length : 'Unavailable', tone: alerts.some((alert) => alert.severity.toLowerCase() === 'critical' && alert.state === 'firing') ? 'critical' : 'neutral', icon: <ShieldAlert size={18} /> },
           { label: 'Warning alerts', value: alertsState.status === 'ready' ? alerts.filter((alert) => alert.severity.toLowerCase() === 'warning' && alert.state === 'firing').length : 'Unavailable', tone: alerts.some((alert) => alert.severity.toLowerCase() === 'warning' && alert.state === 'firing') ? 'warning' : 'neutral', icon: <TriangleAlert size={18} /> },
@@ -406,7 +410,7 @@ export function MonitoringPage() {
                           <Link to={scopedHref(`/servers/${server.id}/monitoring`)}><strong>{serverDisplayName(server)}</strong></Link>
                           <Text as="small" display="block" color="fg.muted">{serverPrimaryAddress(server) ?? server.id}</Text>
                         </Table.Cell>
-                        <Table.Cell><StatusBadge status={server.status.health?.state ?? 'unknown'} /></Table.Cell>
+                        <Table.Cell><HealthBadge axis={server.status.health} /></Table.Cell>
                         <Table.Cell><CompactMeter value={metricPercent(item, 'cpuUsagePercent')} label={`CPU usage for ${serverDisplayName(server)}`} /></Table.Cell>
                         <Table.Cell><CompactMeter value={metricPercent(item, 'memoryUsedPercent')} label={`Memory used for ${serverDisplayName(server)}`} /></Table.Cell>
                       </Table.Row>
@@ -425,7 +429,7 @@ export function MonitoringPage() {
                         key={server.id}
                         title={<Link to={scopedHref(`/servers/${server.id}/monitoring`)}>{serverDisplayName(server)}</Link>}
                         description={serverPrimaryAddress(server) ?? server.id}
-                        status={<StatusBadge status={server.status.health?.state ?? 'unknown'} />}
+                        status={<HealthBadge axis={server.status.health} />}
                         actions={
                           <Checkbox checked={chartServerSet.has(server.id)} onCheckedChange={(checked) => toggleChartServer(server.id, checked)}>
                             Chart this server

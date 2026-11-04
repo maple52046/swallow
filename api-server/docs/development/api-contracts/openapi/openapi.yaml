@@ -11302,11 +11302,15 @@ components:
           description: GPU Inventory items of kind `compute` only; display controllers do not count.
           type: integer
         health:
+          description: Every scoped Server counted once by its health state (servers-list.md, Health); the four counts add up to `servers`.
           properties:
             down:
               type: integer
+            notApplicable:
+              description: Servers swallow does not monitor (state `not_applicable`), absent ones included.
+              type: integer
             unknown:
-              description: Servers with no observed health answer.
+              description: Servers swallow monitors but has no health answer for.
               type: integer
             up:
               type: integer
@@ -11314,6 +11318,7 @@ components:
             - up
             - down
             - unknown
+            - notApplicable
           type: object
         platformed:
           description: Servers whose membership axis names a Platform.
@@ -12879,7 +12884,9 @@ components:
           description: The Server ID.
           type: string
         server:
-          $ref: '#/components/schemas/Server'
+          allOf:
+            - $ref: '#/components/schemas/Server'
+          description: 'The changed Server in the `Server` shape, except that `status.health` is always null: the stream does not classify health, so null means "not resolved in this event", never a health state (servers-stream.md).'
         type:
           enum:
             - upsert
@@ -13045,13 +13052,19 @@ components:
         - macAddresses
       type: object
     ServerHealthAxis:
+      description: swallow's monitoring answer for the Server (servers-list.md, Health). `up` and `down` are the Site Prometheus's latest scrape of a Node Exporter target swallow lists for the Server; `unknown` means swallow monitors the Server but has no answer; `not_applicable` means swallow does not monitor it.
       properties:
         observedAt:
-          $ref: '#/components/schemas/Timestamp'
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          description: The time of the sample behind `up` or `down`; null for `unknown` and `not_applicable`.
+          nullable: true
         state:
           enum:
             - up
             - down
+            - unknown
+            - not_applicable
           type: string
       required:
         - state
@@ -13456,8 +13469,7 @@ components:
         health:
           allOf:
             - $ref: '#/components/schemas/ServerHealthAxis'
-          description: Resolved at query time from the metrics backend; null when unknown.
-          nullable: true
+          description: 'swallow''s monitoring classification, worked out when the Server is read (servers-list.md, Health); always present on the list and the detail. A stream event is the exception: its `status.health` is null because the stream does not classify health (`ServerChange`).'
         hostname:
           nullable: true
           type: string

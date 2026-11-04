@@ -31,7 +31,9 @@ Overview 是一份唯讀、point-in-time 的摘要，彙整其他 context 擁有
 產生的時間。
 
 - **Fleet health**、**Capacity** 與 **Workflows** 摘要 Server reachability、compute GPU 與
-  deployment 數量，以及 active／近期失敗工作。Development build 啟用 Alerts 時，**Alerts**
+  deployment 數量，以及 active／近期失敗工作。Fleet health 把每台 Server 計入一次：Up、Down、
+  Unknown（swallow 監控它但沒有答案）或 N/A（swallow 不監控它，包含 absent Server）；見
+  [Server health](monitoring.md#server-health)。Development build 啟用 Alerts 時，**Alerts**
   也會摘要選用的 Alertmanager source。沒有 Alertmanager 時顯示 **Not configured**；已設定但
   讀不到時顯示 **Unavailable**。Release build 保留 Alerts card 的位置，但標示為 unavailable。
 - **Needs attention** 最多顯示十項 Integration sync failure、unreachable Platform、
@@ -93,6 +95,8 @@ ISO 的 card。**Build Boot ISO** 會從所選 Integration endpoint 建議 MAAS 
   state，**Unknown** 則不是。Spinner 表示工作正在進行；將滑鼠停在 state 上可查看
   細節。見 [Server 與 infrastructure](servers-and-infrastructure.md#判讀-deployment-欄位)。
 - Unknown 保持 unknown，不會被 UI 呈現為 failure。
+- Health 顯示為 **Up**、**Down**（收集失敗，以故障呈現）、**Unknown**（警示：swallow 預期監控這台 Server
+  但沒有答案）或 **N/A**（中性：swallow 不監控這台 Server）。見 [Server health](monitoring.md#server-health)。
 - 信任 cached value 前檢查 integration sync error 與 observation timestamp。
 - Destructive action 送出前會顯示 state 與 lock gate。
 

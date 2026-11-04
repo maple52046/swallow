@@ -1107,7 +1107,10 @@ components:
           description: GPU Inventory items of kind `compute` only; display controllers do not count.
         health:
           type: object
-          required: [up, down, unknown]
+          description: >-
+            Every scoped Server counted once by its health state (servers-list.md, Health); the four
+            counts add up to `servers`.
+          required: [up, down, unknown, notApplicable]
           properties:
             up:
               type: integer
@@ -1115,7 +1118,10 @@ components:
               type: integer
             unknown:
               type: integer
-              description: Servers with no observed health answer.
+              description: Servers swallow monitors but has no health answer for.
+            notApplicable:
+              type: integer
+              description: Servers swallow does not monitor (state `not_applicable`), absent ones included.
     OverviewIntegration:
       type: object
       description: >-

@@ -603,6 +603,8 @@ test('Server updates do not reload the image catalog and manual refresh keeps th
 
   await page.evaluate(async () => {
     const server = await fetch('/api/v1/servers/srv-1').then((response) => response.json())
+    // Like the real stream, the frame leaves health unresolved (servers-stream.md).
+    server.status.health = null
     const sources = (window as typeof window & {
       __serverEventSources?: Array<{ emitMessage: (data: string) => void }>
     }).__serverEventSources ?? []

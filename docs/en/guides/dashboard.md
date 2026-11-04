@@ -32,7 +32,10 @@ a Site to scope it, or clear the Site selection for the swallow-wide view. The
 **Updated** time says when the aggregate was generated.
 
 - **Fleet health**, **Capacity**, and **Workflows** summarize Server reachability,
-  compute GPU and deployment counts, and active and recently failed work. With
+  compute GPU and deployment counts, and active and recently failed work. Fleet
+  health counts every Server once as Up, Down, Unknown (swallow monitors it but
+  has no answer), or N/A (swallow does not monitor it, absent Servers included);
+  see [Server health](monitoring.md#server-health). With
   Alerts enabled in a development build, **Alerts** also summarizes the optional
   Alertmanager source. A missing Alertmanager reads **Not configured**; an
   unreadable configured source reads **Unavailable**. Release builds keep the
@@ -110,6 +113,10 @@ result arrives as a notification.
   progress, and hovering the state shows details. See
   [Servers and infrastructure](servers-and-infrastructure.md#read-the-deployment-column).
 - Unknown values remain unknown; the UI does not render them as failure.
+- Health reads **Up**, **Down** (a failed scrape, shown as a failure), **Unknown**
+  (a warning: swallow expects to monitor the Server but has no answer), or **N/A**
+  (neutral: swallow does not monitor the Server). See
+  [Server health](monitoring.md#server-health).
 - Check integration sync errors and observation timestamps before trusting
   cached values.
 - Destructive actions show state and lock gates before submission.

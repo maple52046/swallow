@@ -165,8 +165,8 @@ other exporter. `gpuStackOwner` follows the GPU Operator feature
 ## Consequences
 
 - swallow implements one Prometheus `http_sd` endpoint for the exporters it knows are installed, with
-  the four labels attached; a Server without an exporter is no target, so its health is unknown
-  rather than down.
+  the four labels attached; a Server without a Node Exporter target is never `down`: its health is
+  `unknown` when swallow's Node Exporter policy covers it and `not_applicable` otherwise.
 - Each Site's Prometheus is part of what swallow installs and upgrades, alongside prom-label-proxy.
 - swallow stores no metrics. GPU inventory comes from the provisioner and telemetry from the Site
   Prometheus.
@@ -222,3 +222,4 @@ visibility and couple the dashboard to Grafana's authentication and version.
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
 - 2026-11-03: the `ansible` owner's host exporter became the Node Exporter package installed as Managed Software, changing the owner policy installs or removes nothing, and swallow stopped installing the RDC exporter on hosts.
 - 2026-11-03: monitoring v2: one swallow-managed Prometheus per Site collects every exporter swallow knows is installed, `platform_id` from the Platform Claim with prom-label-proxy tenancy for Platform Grafanas, three monitoring tiers with GPU monitoring per context, and exporter ownership retired; the central store is left to the multi-site design.
+- 2026-11-04: a Server without a Node Exporter target reads health `unknown` when the Node Exporter policy covers it and `not_applicable` otherwise; the label contract and topology are unchanged.

@@ -97,7 +97,27 @@ swallow neither installs nor removes anything on it. To keep the Node Exporter o
 lock it; uninstalling it from a Server swallow keeps it on only lasts until the next check.
 
 While an install is pending or after it failed, the Server is not scraped, so its health shows
-as unknown rather than down.
+as Unknown rather than Down.
+
+## Server health
+
+Every Server has one of four health values, worked out from swallow's own monitoring policy
+each time you look at it. The Dashboard labels them **Up**, **Down**, **Unknown**, and
+**N/A**; the API values are `up`, `down`, `unknown`, and `not_applicable`.
+
+| Health | Meaning |
+| --- | --- |
+| **Up** | swallow has the Site's Prometheus scrape the Server's Node Exporter, and the latest scrape succeeded. |
+| **Down** | The latest scrape of the Server's Node Exporter failed: the host, its network, or the exporter is not answering. This is a failure. |
+| **Unknown** | swallow expects to monitor the Server but has no answer: the Node Exporter install is pending or failed, an imported Server has not got it yet, or the Site's Prometheus has no sample for it or cannot be read. This is a warning, not a failure. |
+| **N/A** | swallow does not monitor the Server, for example because it is not deployed (ready, releasing), it is locked, it is absent, or its Site's automation is off. This says nothing about the machine. |
+
+- Only the Node Exporter decides health; GPU exporters do not.
+- When swallow releases a Server, its health turns N/A at once, even though the Site's
+  Prometheus keeps the Server's last data for a while.
+- A locked Server that swallow already scrapes keeps showing Up or Down.
+- With no Prometheus for the Site, a monitored Server shows Unknown; it is never shown as
+  Down for that reason.
 
 ## Usage charts
 

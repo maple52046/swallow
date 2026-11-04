@@ -167,7 +167,9 @@ default (`1` and `20`) instead of being refused.
 
 This is the same complete Server representation returned by the detail endpoint.
 Optional observations use `null`; an unavailable axis is not assigned a default
-state. No BMC, SSH, integration, or automation credential is returned.
+state. `health` is the exception: it is always present, because swallow classifies it by its
+own monitoring policy (see [Health](#health)). No BMC, SSH, integration, or automation
+credential is returned.
 
 ### Spec and status
 
@@ -263,6 +265,47 @@ own record, not the provider's transition time, so its precision is the observat
 how long a Server has been in its state, for example the running time of `releasing`. It is
 omitted when unknown, which includes a projection stored before the field existed until its
 state is observed again.
+
+### Health
+
+`health` is swallow's monitoring answer for the Server. It is worked out each time the Server is
+read, never stored, and it is always present: `{"state": ..., "observedAt": ...}`.
+
+| `state` | Meaning |
+| --- | --- |
+| `up` | The Site Prometheus's latest scrape of the Server's Node Exporter succeeded. |
+| `down` | The Site Prometheus's latest scrape of the Server's Node Exporter failed. |
+| `unknown` | swallow monitors the Server but has no answer for it. A warning: something swallow expects is missing. |
+| `not_applicable` | swallow does not monitor the Server. Neutral: it says nothing about the machine. |
+
+`observedAt` is the time of the Site Prometheus sample behind `up` or `down`, and `null` for
+`unknown` and `not_applicable`, which no sample stands behind.
+
+swallow decides the state from its monitoring policy, in this order:
+
+1. **The Server is a Node Exporter target.** The exporters route
+   ([discovery-prometheus.md](discovery-prometheus.md#exporter-targets)) lists a `node-exporter`
+   target for it: the Server is present, has a known address, and its `node-exporter` Software
+   Assignment is `installed` or `uninstalling` ([software.md](software.md)). The Site Prometheus's
+   latest `up` sample of that target decides: above zero is `up`, zero is `down`. No sample yet, a
+   Site with no metrics Integration, or a metrics read that fails is `unknown`.
+2. **The Node Exporter policy covers the Server, but it is not a target.** The policy covers a
+   Server that is present, in provisioning state `deployed` (disk or RAM), not locked, and at a Site
+   whose automation is enabled; swallow keeps the Node Exporter installed on such a Server. It is
+   `unknown`: for example an imported Server whose Node Exporter is not installed yet, or one whose
+   install is pending or failed.
+3. **Otherwise** it is `not_applicable`: swallow does not monitor the Server, for example one that is
+   `ready`, `inspecting`, or `releasing`, absent, locked, or at a Site whose automation is off.
+
+The first rule wins, so a Server that is still a target keeps `up` or `down` after it is locked.
+Only the Node Exporter decides health; GPU and other exporters do not. A Server whose OS swallow
+takes away (a release, for example) has its Software Assignments marked `absent`, so it stops being a
+target at once and reads `not_applicable`, even while the Site Prometheus still holds its last
+series. Neither `unknown` nor `not_applicable` means the Server is down.
+
+A metrics read never fails the request: it leaves the targets it could not read `unknown`. The
+Software Assignments and Site automation the classification reads are swallow's own records; when
+they cannot be read, the request fails like any other store failure ([conventions.md](conventions.md)).
 
 ### Platform Claim
 
@@ -391,6 +434,14 @@ Following the Cluster to Platform rename
 aliases of `platformId` — the `clusterId` query parameter and the membership `clusterId` field —
 were removed on 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases)),
 which is breaking.
+
+On 2026-11-04 `status.health` became always present with four states (`up`, `down`, `unknown`,
+`not_applicable`; see [Health](#health)), and `health.observedAt` became `null` for `unknown` and
+`not_applicable`. This is a breaking change with no alias: `health` was `null` for every Server
+without an answer, so a client that read `null` as unknown must now read the state, and a client
+must accept a `null` `observedAt`. Health also follows swallow's monitoring policy instead of any
+sample the Site Prometheus holds, so a Server released by swallow no longer reads `down` from its
+last series.
 
 ## Implementation Notes
 

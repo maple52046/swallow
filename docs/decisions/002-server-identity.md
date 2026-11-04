@@ -130,7 +130,11 @@ wanted later, it is additive.
 | `health` | Central TSDB | Is it up, is it hot, are there ECC errors | Query time |
 
 Each axis carries `observedAt` and the integration it came from. An axis that has never
-been observed is absent, not defaulted.
+been observed is absent, not defaulted. `health` is the one exception: whether swallow
+monitors a Server is swallow's own policy, so a read always classifies it (`up`, `down`,
+`unknown` for a Server swallow monitors without an answer, `not_applicable` for one it does
+not monitor), and only `up` and `down` carry an `observedAt`
+([Server Status](../development/glossaries/terms/server-status.md)).
 
 ### Unknown is not a status value
 
@@ -222,3 +226,4 @@ redesign than before it. The existing naming rule was right.
 - unrecorded: decided the three identity layers and the three independent status axes of a Server.
 - 2026-10-31: [decision 071](071-provisioner-realized-desired-state.md) (provisioner-realized desired state) added the Server's origin and reports a missing machine as a condition.
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-04: the `health` axis became always classified by swallow's monitoring policy (`up`, `down`, `unknown`, `not_applicable`) instead of absent until observed, so a Server swallow expects to monitor is told apart from one it does not.

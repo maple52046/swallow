@@ -31,7 +31,7 @@ Server status 有互相獨立的軸：
 | --- | --- | --- |
 | Provisioning | Provisioner | ready、inspecting、deploying、releasing、failed |
 | Membership | Platform runtime | member role 或尚未觀察到 membership |
-| Health | Metrics backend | 目前 health 或 unknown |
+| Health | Metrics backend，依 swallow 的監控政策 | up、down、unknown 或 not applicable |
 
 Provisioning axis 使用 swallow 定義、與 provider 無關的
 [`provisioning.state`](../development/glossaries/terms/os-provisioning-state.md)
@@ -39,7 +39,17 @@ Provisioning axis 使用 swallow 定義、與 provider 無關的
 自己的用語（例如 MAAS 的 *Commissioning*）只會出現在 display-only
 `providerState`；client 不得據此分支。
 
-`null` 表示 unknown，不是 unhealthy。每次 observation 都可有自己的 `observedAt`。
+尚未觀察到的 axis 是 `null`，表示 unknown，不是 unhealthy。每次 observation 都可有自己的 `observedAt`。
+
+Health 是例外：它一定有值，因為 swallow 依自己的監控政策分類它，而不是等觀察結果出現。
+
+- `up` 與 `down`：swallow 讓 Site 的 Prometheus 收集這台 Server 的 Node Exporter，而且最近一次收集成功或失敗。
+- `unknown`：swallow 監控這台 Server，但還沒有答案，例如它的 Node Exporter 還沒安裝，或讀不到 Site 的
+  Prometheus。請當成警示，而不是故障。
+- `not_applicable`：swallow 不監控這台 Server，例如它沒有佈署、被 lock，或所屬 Site 的 automation 關閉。
+  這不代表機器有任何問題。
+
+Health 只有在 `up` 與 `down` 時帶 `observedAt`。見 [Server health](guides/monitoring.md#server-health)。
 
 ## Desired state 與 observed state
 

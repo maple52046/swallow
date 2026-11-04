@@ -1,10 +1,13 @@
 package tests
 
 import (
+	"errors"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
+	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
@@ -76,8 +79,58 @@ func TestListServers_ShapeAndAxes(t *testing.T) {
 	if serverStatusOf(item)["membership"] != nil {
 		t.Errorf("membership must be null when never observed, got %v", serverStatusOf(item)["membership"])
 	}
-	if serverStatusOf(item)["health"] != nil {
-		t.Errorf("health must be null with no metrics integration, got %v", serverStatusOf(item)["health"])
+	// Health is the exception: swallow always classifies it. Nothing monitors this Server (its
+	// Site has no automation and it has no Node Exporter), so there is nothing to answer.
+	health, ok := serverStatusOf(item)["health"].(map[string]any)
+	if !ok {
+		t.Fatalf("health must always be present, got %v", serverStatusOf(item)["health"])
+	}
+	if health["state"] != "not_applicable" || health["observedAt"] != nil {
+		t.Errorf("health = %v, want not_applicable with a null observedAt", health)
+	}
+}
+
+// Every listed Server is classified by the monitoring policy in one pass over the page: a Node
+// Exporter target by its sample, a covered Server without one as unknown, and the rest as
+// not_applicable.
+func TestListServers_ClassifiesHealth(t *testing.T) {
+	f := setupPlatform(t)
+	f.automation.enabled[testSiteID] = true
+	f.seedServer("srv-up", "gpu-node-01", "10.0.1.10", nil)
+	f.seedServer("srv-pending", "gpu-node-02", "10.0.1.11", nil)
+	f.seedServer("srv-ready", "gpu-node-03", "10.0.1.12", func(s *serverdomain.Server) { s.Provisioning.State = "ready" })
+	f.exporters.installNodeExporter("srv-up")
+	f.monitoring.querier.up["node-exporter"] = []monitoringdomain.Sample{
+		{Labels: map[string]string{"server_id": "srv-up"}, Value: 1, Timestamp: time.Now().UTC()},
+		// A ready Server's series lingers after its release; it is no longer a target.
+		{Labels: map[string]string{"server_id": "srv-ready"}, Value: 0, Timestamp: time.Now().UTC()},
+	}
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	got := map[string]any{}
+	for _, raw := range parseBody(t, resp)["items"].([]any) {
+		item := raw.(map[string]any)
+		got[item["id"].(string)] = serverStatusOf(item)["health"].(map[string]any)["state"]
+	}
+	want := map[string]any{"srv-up": "up", "srv-pending": "unknown", "srv-ready": "not_applicable"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("health by server = %v, want %v", got, want)
+	}
+}
+
+// When swallow cannot read the records the classification needs, the list fails rather than show
+// a health nobody worked out.
+func TestListServers_HealthRecordFailureFailsTheRead(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
+	f.exporters.err = errors.New("software assignments unreachable")
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.StatusCode)
 	}
 }
 
@@ -183,8 +236,10 @@ func TestListServers_FiltersAndPagination(t *testing.T) {
 func TestGetServer_ResolvesHealthAxis(t *testing.T) {
 	f := setupPlatform(t)
 	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
-	f.health.health["srv-1"] = &serverdomain.HealthStatus{
-		State: serverdomain.HealthUp, ObservedAt: time.Now().UTC(),
+	f.exporters.installNodeExporter("srv-1")
+	sampledAt := time.Date(2026, 11, 4, 8, 0, 0, 0, time.UTC)
+	f.monitoring.querier.up["node-exporter"] = []monitoringdomain.Sample{
+		{Labels: map[string]string{"server_id": "srv-1"}, Value: 1, Timestamp: sampledAt},
 	}
 
 	resp := doRequest(t, f.app, "GET", "/api/v1/servers/srv-1", nil, f.adminAuth(t))
@@ -196,24 +251,26 @@ func TestGetServer_ResolvesHealthAxis(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected a health axis, got %v", serverStatusOf(parseBody(t, resp))["health"])
 	}
-	if health["state"] != "up" {
-		t.Errorf("health state: got %v", health["state"])
+	if health["state"] != "up" || health["observedAt"] != "2026-11-04T08:00:00Z" {
+		t.Errorf("health = %v, want up observed at the sample time", health)
 	}
 }
 
-// An unreachable metrics store must leave health unknown, not make the request fail and
+// An unreachable metrics store must leave a target's health unknown, not make the request fail and
 // not make the server look down.
-func TestGetServer_MetricsFailureLeavesHealthNull(t *testing.T) {
+func TestGetServer_MetricsFailureLeavesHealthUnknown(t *testing.T) {
 	f := setupPlatform(t)
 	f.seedServer("srv-1", "gpu-node-01", "10.0.1.10", nil)
-	f.health.err = errTestMetricsDown
+	f.exporters.installNodeExporter("srv-1")
+	f.monitoring.querier.err = errTestMetricsDown
 
 	resp := doRequest(t, f.app, "GET", "/api/v1/servers/srv-1", nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("a metrics outage must not fail the request, got %d", resp.StatusCode)
 	}
-	if serverStatusOf(parseBody(t, resp))["health"] != nil {
-		t.Error("health must be null rather than reporting a state nobody observed")
+	health, _ := serverStatusOf(parseBody(t, resp))["health"].(map[string]any)
+	if health["state"] != "unknown" || health["observedAt"] != nil {
+		t.Errorf("health = %v, want unknown with a null observedAt rather than a state nobody observed", health)
 	}
 }
 

@@ -94,8 +94,10 @@ and exporter:
   successful Workflow realized). A `pending` or `failed` assignment, and a feature that is
   `installing` (a redeploy included), `failed`, or `absent`, is not listed, since nothing may be
   listening. A Server and exporter two sources name is listed once.
-- A Server with no exporter is not a target, so its health stays unknown rather than down; an
-  absent Server, or one with no known address, is omitted.
+- A Server with no listed `node-exporter` is not a health target, so its health is never `down`:
+  it is `unknown` when swallow's Node Exporter policy covers the Server and `not_applicable`
+  otherwise ([servers-list.md](servers-list.md#health)). An absent Server, or one with no known
+  address, is omitted.
 - `platform_id` is the Platform of the Server's Platform Claim, present only when it has one.
 - The result is never paginated, and locked Servers stay listed, as on the port route.
 

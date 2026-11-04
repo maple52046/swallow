@@ -20,6 +20,23 @@ func (r overviewServerRepository) List(_ context.Context, _ serverdomain.ListFil
 	return r.result, nil
 }
 
+// overviewHealth answers a fixed health state per Server ID, or err for every call.
+type overviewHealth struct {
+	states map[string]string
+	err    error
+}
+
+func (h overviewHealth) ResolveHealth(_ context.Context, servers []*serverdomain.Server) (map[string]serverdomain.HealthStatus, error) {
+	if h.err != nil {
+		return nil, h.err
+	}
+	health := map[string]serverdomain.HealthStatus{}
+	for _, server := range servers {
+		health[server.ID] = serverdomain.HealthStatus{State: h.states[server.ID]}
+	}
+	return health, nil
+}
+
 // Overview capacity must not count a BMC graphics controller as workload acceleration.
 func TestReaderListServersCountsOnlyComputeGPUs(t *testing.T) {
 	repository := overviewServerRepository{result: serverdomain.ListResult{Servers: []*serverdomain.Server{
@@ -28,7 +45,7 @@ func TestReaderListServersCountsOnlyComputeGPUs(t *testing.T) {
 			{Vendor: "ASPEED", Model: "Graphics Family", Count: 1, Kind: serverdomain.GPUKindDisplay},
 		}}},
 	}}}
-	reader := &OverviewReader{servers: repository}
+	reader := &OverviewReader{servers: repository, health: overviewHealth{}}
 
 	servers, err := reader.ListServers(context.Background(), "site-a")
 	if err != nil {
@@ -39,6 +56,30 @@ func TestReaderListServersCountsOnlyComputeGPUs(t *testing.T) {
 	}
 	if servers[0].GPUDevices != 8 {
 		t.Errorf("GPUDevices = %d, want 8 compute GPUs", servers[0].GPUDevices)
+	}
+}
+
+// Every Server carries the state the shared resolver classified, absent ones included, and a
+// failure to classify fails the overview rather than counting Servers nobody classified.
+func TestReaderListServersCarriesClassifiedHealth(t *testing.T) {
+	repository := overviewServerRepository{result: serverdomain.ListResult{Servers: []*serverdomain.Server{
+		{ID: "up"}, {ID: "gone", Absent: true},
+	}}}
+	reader := &OverviewReader{servers: repository, health: overviewHealth{states: map[string]string{
+		"up": serverdomain.HealthUp, "gone": serverdomain.HealthNotApplicable,
+	}}}
+
+	servers, err := reader.ListServers(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ListServers: %v", err)
+	}
+	if len(servers) != 2 || servers[0].HealthState != serverdomain.HealthUp || servers[1].HealthState != serverdomain.HealthNotApplicable {
+		t.Errorf("ListServers() = %+v, want up and not_applicable", servers)
+	}
+
+	failing := &OverviewReader{servers: repository, health: overviewHealth{err: errors.New("store down")}}
+	if _, err := failing.ListServers(context.Background(), ""); err == nil {
+		t.Error("ListServers() error = nil, want the classification failure")
 	}
 }
 

@@ -96,9 +96,15 @@ first, see [auth-refresh.md](auth-refresh.md)).
   inventory); only `id` is set and the client drops the row.
 - Comment lines (`: ping`) are heartbeats and carry no data.
 
-The `health` axis is resolved at list-query time from the metrics backend and is not part of
-this stream; an `upsert` may carry `status.health: null`. A consumer SHOULD preserve the row's
-previously known health when patching from an `upsert`.
+The stream does not classify health. In an `upsert`, `status.health` is always `null`, which
+means "not resolved in this event", never a health state: health is worked out only when a Server
+is read through [`servers-list.md`](servers-list.md#health) or the detail endpoint, where it is
+always present. A consumer SHOULD keep the row's previously known health when patching from an
+`upsert`, and MAY re-read the Server to refresh it, for example when the event changed its
+provisioning state, its lock, or its `absent` flag, any of which can move it between a monitored
+state and `not_applicable`. A health change that does not touch the Server record, such as its
+Node Exporter install finishing or its exporter's scrape failing, emits no frame; the next read of
+the list or the detail shows it.
 
 Unchanged projections are suppressed server-side: re-observing a Server with no UI-relevant
 change (only its observation timestamps advanced) emits no frame.
@@ -130,6 +136,11 @@ together.
 On 2026-11-03 delivery moved to the store's change feed: another process's write no longer waits
 for a reconcile pass, and the server may also end a stream when its change feed reopens. The
 wire shape did not change.
+
+On 2026-11-04 the list and the detail started to classify `status.health` into four states that
+are always present ([servers-list.md](servers-list.md#health)). The stream is unchanged and still
+sends `status.health: null`; a consumer must not read that `null` as a health state, nor overwrite
+a classified health with it.
 
 A dropped or reconnecting client MUST treat the stream as best-effort delivery: on reconnect
 it re-reads [`servers-list.md`](servers-list.md) once to resync any changes missed while

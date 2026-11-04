@@ -60,10 +60,13 @@ type inventoryResponse struct {
 	Health     healthResponse `json:"health"`
 }
 
+// healthResponse is inventory.health (overview.md): every scoped Server counted once by its health
+// state, so the four counts add up to inventory.servers.
 type healthResponse struct {
-	Up      int `json:"up"`
-	Down    int `json:"down"`
-	Unknown int `json:"unknown"`
+	Up            int `json:"up"`
+	Down          int `json:"down"`
+	Unknown       int `json:"unknown"`
+	NotApplicable int `json:"notApplicable"`
 }
 
 type integrationsResponse struct {
@@ -203,7 +206,7 @@ func toResponse(result overviewapp.Result) response {
 			Platformed: result.Inventory.Platformed, GPUDevices: result.Inventory.GPUDevices,
 			Health: healthResponse{
 				Up: result.Inventory.Health.Up, Down: result.Inventory.Health.Down,
-				Unknown: result.Inventory.Health.Unknown,
+				Unknown: result.Inventory.Health.Unknown, NotApplicable: result.Inventory.Health.NotApplicable,
 			},
 		},
 		Integrations: integrationsResponse{

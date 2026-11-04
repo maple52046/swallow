@@ -24,7 +24,7 @@ import { useApp } from '@/di/AppProvider'
 import { refreshServerProjections } from '@/application/usecases/servers/refreshServerProjections'
 import { INSPECT_HARDWARE_WORKFLOW_KIND } from '@/domain/operation/types'
 import type { Integration, Site } from '@/domain/site/types'
-import type { ReleaseServerInput, Server } from '@/domain/server/types'
+import type { HealthState, ReleaseServerInput, Server } from '@/domain/server/types'
 import { serverDisplayName, serverPrimaryAddress } from '@/domain/server/types'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { InventorySurface, SelectionToolbar, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
@@ -40,6 +40,7 @@ import {
   PowerBadge,
 } from '@/presentation/components/AxisBadge'
 import { powerStateLabel } from '@/presentation/components/axisBadgeUtils'
+import { healthPresentation } from '@/presentation/components/serverHealthPresentation'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
@@ -85,6 +86,8 @@ import {
   serverRowTone,
   sortedServerTags,
   type ServerContextAction,
+  type ServerFleetFacts,
+  type ServerHealthFilter,
   type ServerInventoryDirection,
   type ServerInventoryGroup,
   type ServerInventoryQuery,
@@ -129,6 +132,18 @@ interface ServerSelectionState {
   filterKey: string
   ids: ReadonlySet<string>
 }
+
+/**
+ * The health filter's choices, worded with the shared health labels so the filter, the badges, and
+ * the fleet summary name each state identically. Values are the URL spelling (`ServerHealthFilter`).
+ */
+const HEALTH_FILTER_OPTIONS: ReadonlyArray<{ value: ServerHealthFilter; label: string }> = [
+  { value: 'any', label: 'Any health' },
+  { value: 'up', label: healthPresentation('up').label },
+  { value: 'down', label: healthPresentation('down').label },
+  { value: 'unknown', label: healthPresentation('unknown').label },
+  { value: 'not-applicable', label: healthPresentation('not_applicable').label },
+]
 
 const DEFAULT_PAGE_SIZE = 50
 const EMPTY_SERVERS: Server[] = []
@@ -328,7 +343,7 @@ function serverDetailFacts(
       title: 'Operational context',
       facts: [
         { label: 'Power', value: powerStateLabel(provisioning?.powerState ?? null) },
-        { label: 'Health', value: server.status.health?.state ?? 'Unobserved' },
+        { label: 'Health', value: healthPresentation(server.status.health.state).label },
         { label: 'Platform ID', value: textOrDash(server.status.membership?.platformId) },
         { label: 'Platform node', value: textOrDash(server.status.membership?.nodeName) },
         { label: 'Platform role', value: textOrDash(server.status.membership?.role) },
@@ -341,7 +356,8 @@ function serverDetailFacts(
         { label: 'Last seen', value: server.status.lastSeenAt ? formatDateTime(server.status.lastSeenAt) : 'Never' },
         { label: 'Provisioning observed', value: provisioning?.observedAt ? formatDateTime(provisioning.observedAt) : 'Unobserved' },
         { label: 'Membership observed', value: server.status.membership?.observedAt ? formatDateTime(server.status.membership.observedAt) : 'Unobserved' },
-        { label: 'Health observed', value: server.status.health?.observedAt ? formatDateTime(server.status.health.observedAt) : 'Unobserved' },
+        // Only Up and Down have a sample behind them; Unknown and N/A have no time to show.
+        { label: 'Health observed', value: server.status.health.observedAt ? formatDateTime(server.status.health.observedAt) : '—' },
       ],
     },
   ]
@@ -354,22 +370,43 @@ interface FleetAxisGroup {
 }
 
 /**
- * Scope-wide fleet summary that stays independent from inventory discovery filters. Deployment
- * attention and down Servers raise the attention tone; unobserved health does not, because an
- * unscraped Server is unknown rather than down.
+ * The fleet summary's `data-tone` (styled in `src/index.css`), most severe first: a Down Server is
+ * `critical`; a deployment needing review, or a Server swallow expects to monitor but has no answer
+ * for (Unknown), is `attention`, the orange warning tone; N/A raises nothing, because a Server swallow
+ * does not monitor is not a problem.
+ */
+function fleetOverviewTone(facts: ServerFleetFacts): 'critical' | 'attention' | 'normal' {
+  if (facts.health.down > 0) return 'critical'
+  if (facts.deploymentAttention > 0 || facts.health.unknown > 0) return 'attention'
+  return 'normal'
+}
+
+/**
+ * Scope-wide fleet summary that stays independent from inventory discovery filters. The Health axis
+ * counts all four states with the shared labels (Up, Down, Unknown, N/A), so they add up to the
+ * total; the tone ({@link fleetOverviewTone}) only adds a cue to those visible counts.
  */
 function ServerFleetOverview({ servers }: { servers: readonly Server[] }) {
   const facts = serverFleetFacts(servers)
-  const hasAttention = facts.deploymentAttention > 0 || facts.healthDown > 0
+  const tone = fleetOverviewTone(facts)
+  const healthCount = (state: HealthState, count: number) => [healthPresentation(state).label, count] as const
   const groups: FleetAxisGroup[] = [
     { label: 'Inventory', values: [['Total', facts.total], ['Absent', facts.absent]] },
     { label: 'OS deployment', values: [['Verified', facts.deploymentVerified], ['Active', facts.deploymentActive], ['Attention', facts.deploymentAttention]] },
     { label: 'Membership', values: [['Assigned', facts.assigned], ['Unassigned', facts.unassigned]] },
-    { label: 'Health', values: [['Up', facts.healthUp], ['Down', facts.healthDown], ['Unobserved', facts.healthUnobserved]] },
+    {
+      label: 'Health',
+      values: [
+        healthCount('up', facts.health.up),
+        healthCount('down', facts.health.down),
+        healthCount('unknown', facts.health.unknown),
+        healthCount('not_applicable', facts.health.notApplicable),
+      ],
+    },
   ]
-  const OverviewIcon = hasAttention ? TriangleAlert : CircleCheckBig
+  const OverviewIcon = tone === 'normal' ? CircleCheckBig : TriangleAlert
   return (
-    <Box as="section" className="sw-server-fleet-overview" data-tone={hasAttention ? 'attention' : 'normal'} aria-labelledby="server-fleet-title">
+    <Box as="section" className="sw-server-fleet-overview" data-tone={tone} aria-labelledby="server-fleet-title">
       <div className="sw-server-fleet-overview__lead">
         <span className="sw-server-fleet-overview__icon" aria-hidden><OverviewIcon size={20} /></span>
         <div>
@@ -1225,12 +1262,7 @@ function ServerFilterPanel({
       <div className="sw-server-filter-panel__selects">
         <fieldset className="sw-filter-group">
           <legend>Health</legend>
-          <Select value={query.health} aria-label="Filter Server health" size="sm" onChange={(value) => onSingle('health', value)} options={[
-            { value: 'any', label: 'Any health' },
-            { value: 'up', label: 'Up' },
-            { value: 'down', label: 'Down' },
-            { value: 'unobserved', label: 'Unobserved' },
-          ]} />
+          <Select value={query.health} aria-label="Filter Server health" size="sm" onChange={(value) => onSingle('health', value)} options={HEALTH_FILTER_OPTIONS} />
         </fieldset>
         <fieldset className="sw-filter-group">
           <legend>Membership</legend>

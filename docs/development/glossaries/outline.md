@@ -56,7 +56,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 ### Compute Resource
 
 - [Server](terms/server.md): swallow's primary managed compute unit, projected from a provisioner's inventory, identified by a swallow-issued `serverId` (not by hostname or IP, which are observed and non-unique).
-- [Server Status](terms/server-status.md): Not a single value but three independent status axes — `provisioning`, `membership`, and `health` — each reported by a different system and absent until observed.
+- [Server Status](terms/server-status.md): Not a single value but three independent status axes — `provisioning`, `membership`, and `health` — each reported by a different system; `provisioning` and `membership` are absent until observed, while `health` (`up | down | unknown | not_applicable`) is always classified by swallow's monitoring policy.
 - [Server Lock](terms/server-lock.md): A provider-side protection that blocks Server, provisioner, and host mutations without hiding the Server or stopping monitoring.
 - [Server Origin](terms/server-origin.md): How a Server arrived — `discovered`, `enrolled`, or `imported`; display only.
 - [Server Default User](terms/server-default-user.md): The OS account automation logs in as with the Deployment Key — set on the Server (verified, optionally installing the key with a one-time password) or else the deployed OS Image's default user; Docker CE adds it to `docker`.

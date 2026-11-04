@@ -3420,6 +3420,13 @@ tbody .sw-sticky-selection { z-index: 2; }
   box-shadow: 0 10px 24px color-mix(in srgb, var(--chakra-colors-orange-solid) 12%, transparent);
 }
 
+/* A Down Server outranks the orange attention tone; the counts beside the icon carry the meaning. */
+.sw-server-fleet-overview[data-tone='critical'] .sw-server-fleet-overview__icon {
+  color: var(--chakra-colors-red-fg);
+  background: var(--chakra-colors-red-subtle);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--chakra-colors-red-solid) 12%, transparent);
+}
+
 .sw-server-fleet-overview__axes {
   position: relative;
   z-index: 1;

@@ -26,7 +26,7 @@ test('Release builds hide in-development features and offer no switch', async ({
   await page.goto('/?site=site-a')
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Monitoring' })).toBeVisible()
-  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('3 / 4')
+  await expect(page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })).toContainText('3 / 5')
   await expect(page.locator('.sw-metric-card').filter({ hasText: 'Alerts' })).toContainText('Not available in this release')
   await expect(page.getByText('gpu-node-04 stopped reporting')).toHaveCount(0)
 

@@ -15,9 +15,12 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-// HealthResolver is the server context's best-effort, non-persisted health boundary.
+// HealthResolver classifies the non-persisted health axis exactly as a Server read does
+// (servers-list.md, Health), so the overview counts and the Servers it counts never disagree. It is
+// the server context's port; a metrics outage leaves Servers unknown, and an error means swallow's
+// own records could not be read.
 type HealthResolver interface {
-	ResolveHealth(ctx context.Context, serverIDs []string) (map[string]*serverdomain.HealthStatus, error)
+	ResolveHealth(ctx context.Context, servers []*serverdomain.Server) (map[string]serverdomain.HealthStatus, error)
 }
 
 // OverviewReader projects repository-owned records into overview-owned summaries. It never writes
@@ -32,7 +35,8 @@ type OverviewReader struct {
 	alerts         *monitoringapp.AlertService
 }
 
-// NewOverviewReader wires the existing context repositories into the overview read boundary.
+// NewOverviewReader wires the existing context repositories into the overview read boundary. health
+// is required: it is the same resolver the Server reads use.
 func NewOverviewReader(
 	sites sitedomain.SiteRepository,
 	integrations sitedomain.IntegrationRepository,
@@ -79,22 +83,20 @@ func (r *OverviewReader) ListIntegrations(ctx context.Context, siteID string) ([
 	return items, nil
 }
 
-// ListServers returns all scoped projections because counts must not inherit API pagination.
-// Health is best-effort: an unavailable metrics store leaves states unknown, matching the
-// Server list contract instead of failing durable inventory.
+// ListServers returns all scoped projections, absent ones included, because counts must not
+// inherit API pagination. Health is classified for the whole batch in one resolver call: an
+// unavailable metrics store leaves Servers unknown, matching the Server list contract, while a
+// failure to read swallow's own records fails the overview like any durable inventory failure.
 func (r *OverviewReader) ListServers(ctx context.Context, siteID string) ([]overviewapp.Server, error) {
 	result, err := r.servers.List(ctx, serverdomain.ListFilter{SiteID: siteID, IncludeAbsent: true})
 	if err != nil {
 		return nil, fmt.Errorf("list overview servers: %w", err)
 	}
-	healthByID := map[string]*serverdomain.HealthStatus{}
-	if r.health != nil && len(result.Servers) > 0 {
-		ids := make([]string, len(result.Servers))
-		for i, server := range result.Servers {
-			ids[i] = server.ID
-		}
-		if resolved, resolveErr := r.health.ResolveHealth(ctx, ids); resolveErr == nil {
-			healthByID = resolved
+	var healthByID map[string]serverdomain.HealthStatus
+	if len(result.Servers) > 0 {
+		healthByID, err = r.health.ResolveHealth(ctx, result.Servers)
+		if err != nil {
+			return nil, fmt.Errorf("classify overview server health: %w", err)
 		}
 	}
 
@@ -108,8 +110,8 @@ func (r *OverviewReader) ListServers(ctx context.Context, siteID string) ([]over
 			item.PlatformID = server.Membership.PlatformID
 		}
 		item.GPUDevices = serverdomain.GPUCountByKind(server.Observed.GPUs, serverdomain.GPUKindCompute)
-		if health := healthByID[server.ID]; health != nil {
-			item.HealthState = string(health.State)
+		if health, ok := healthByID[server.ID]; ok {
+			item.HealthState = health.State
 		}
 		items[i] = item
 	}

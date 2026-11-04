@@ -29,7 +29,9 @@ import (
 	siteapp "github.com/maple52046/swallow/internal/core/site/application"
 	sitedelivery "github.com/maple52046/swallow/internal/core/site/delivery"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
+	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 	"github.com/maple52046/swallow/internal/core/store/storetest"
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 	"github.com/maple52046/swallow/internal/shared/jwt"
 	"github.com/maple52046/swallow/internal/shared/middleware"
@@ -40,23 +42,25 @@ import (
 	"github.com/maple52046/swallow/modules/platform/slurm/slurmapi"
 )
 
-// testHealthResolver stands in for the metrics integration.
-type testHealthResolver struct {
-	health map[string]*serverdomain.HealthStatus
-	err    error
+// fakeSiteAutomation stands in for the Sites' Automation Configurations that the Node Exporter
+// policy reads: enabled says whether a Site's automation is on, and a Site it does not list has no
+// configuration. err, when set, fails every read; reads records the Site of each read.
+type fakeSiteAutomation struct {
+	enabled map[string]bool
+	err     error
+	reads   []string
 }
 
-func (r *testHealthResolver) ResolveHealth(_ context.Context, serverIDs []string) (map[string]*serverdomain.HealthStatus, error) {
-	if r.err != nil {
-		return nil, r.err
+func (a *fakeSiteAutomation) FindBySiteID(_ context.Context, siteID string) (*workflowdomain.AutomationConfiguration, error) {
+	a.reads = append(a.reads, siteID)
+	if a.err != nil {
+		return nil, a.err
 	}
-	resolved := map[string]*serverdomain.HealthStatus{}
-	for _, id := range serverIDs {
-		if h, ok := r.health[id]; ok {
-			resolved[id] = h
-		}
+	enabled, ok := a.enabled[siteID]
+	if !ok {
+		return nil, workflowdomain.ErrAutomationConfigNotFound
 	}
-	return resolved, nil
+	return &workflowdomain.AutomationConfiguration{SiteID: siteID, Enabled: enabled}, nil
 }
 
 type platformFixture struct {
@@ -68,7 +72,7 @@ type platformFixture struct {
 	templates    *fakeDeploymentTemplateRepo
 	provider     *fakeProvider
 	factory      *fakeProviderFactory
-	health       *testHealthResolver
+	automation   *fakeSiteAutomation
 	activeWork   *fakeActiveServerWorkReader
 
 	launcher          *executingLauncher
@@ -84,13 +88,32 @@ type platformFixture struct {
 	exporters         *fakeExporterInventory
 }
 
-// fakeExporterInventory reports the exporters a test says are installed.
+// fakeExporterInventory reports the exporters a test says are installed, narrowed to the filter as
+// the real inventory is. err, when set, fails every listing.
 type fakeExporterInventory struct {
 	installed []discoveryapp.InstalledExporter
+	err       error
 }
 
-func (f *fakeExporterInventory) InstalledExporters(context.Context) ([]discoveryapp.InstalledExporter, error) {
-	return append([]discoveryapp.InstalledExporter(nil), f.installed...), nil
+func (f *fakeExporterInventory) InstalledExporters(_ context.Context, filter discoveryapp.ExporterFilter) ([]discoveryapp.InstalledExporter, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var kept []discoveryapp.InstalledExporter
+	for _, exporter := range f.installed {
+		if (filter.Name == "" || exporter.Name == filter.Name) && (filter.ServerID == "" || exporter.ServerID == filter.ServerID) {
+			kept = append(kept, exporter)
+		}
+	}
+	return kept, nil
+}
+
+// installNodeExporter records the Node Exporter as installed on the Servers, which makes each one
+// with an address a health target.
+func (f *fakeExporterInventory) installNodeExporter(serverIDs ...string) {
+	for _, id := range serverIDs {
+		f.installed = append(f.installed, discoveryapp.InstalledExporter{ServerID: id, Name: "node-exporter", Port: 9100})
+	}
 }
 
 // setupPlatform wires the routes exactly as internal/app does, so that route shape and
@@ -107,7 +130,9 @@ func setupPlatform(t *testing.T) *platformFixture {
 	provider := newFakeProvider()
 	factory := newFakeProviderFactory()
 	factory.providers[testIntegrationID] = provider
-	health := &testHealthResolver{health: map[string]*serverdomain.HealthStatus{}}
+	// No Site has an Automation Configuration until a test gives it one, so no Server is covered
+	// by the Node Exporter policy by default.
+	automation := &fakeSiteAutomation{enabled: map[string]bool{}}
 	activeWork := &fakeActiveServerWorkReader{work: map[string]provisioningapp.ActiveServerWork{}}
 
 	jwtSvc := jwt.NewService("test-secret", time.Hour)
@@ -120,10 +145,6 @@ func setupPlatform(t *testing.T) *platformFixture {
 			sitedomain.IntegrationKindMetrics:     {promstack.ProviderKind},
 			sitedomain.IntegrationKindPlatform:    {kubeapi.ProviderKind, slurmapi.ProviderKind},
 		}, &storetest.Transactor{}, integrationDeps),
-	)
-	serverHandler := serverdelivery.NewServerHandler(
-		serverapp.NewListServersUseCase(servers, health),
-		serverapp.NewGetServerUseCase(servers, health),
 	)
 	// The reconcile use case is also the DeployedImageNameRefresher, so the metadata edit and the
 	// handler share one instance and a rename propagates to server projections through the same
@@ -159,12 +180,20 @@ func setupPlatform(t *testing.T) *platformFixture {
 	)
 	provisioningHandler.AttachDurableOperations(launcher)
 	exporters := &fakeExporterInventory{}
+	exporterDiscovery := discoveryapp.NewExporterDiscovery(servers, exporters)
 	discoveryHandler := discoverydelivery.NewDiscoveryHandler(
 		discoveryapp.NewDiscoveryUseCase(servers),
-		discoveryapp.NewExporterDiscovery(servers, exporters),
+		exporterDiscovery,
 	)
 
 	monitoringFactory := newFakeMonitoringFactory()
+	// Health is classified by the real rule over the same exporter discovery and the real Node
+	// Exporter policy, as internal/app composes it.
+	health := monitoringapp.NewHealthResolver(monitoringFactory, exporterDiscovery, softwareapp.NewEnsureCoverage(automation))
+	serverHandler := serverdelivery.NewServerHandler(
+		serverapp.NewListServersUseCase(servers, health),
+		serverapp.NewGetServerUseCase(servers, health),
+	)
 	scopeResolver := &fakeScopeResolver{members: map[string][]string{}}
 	monitoringHandler := monitoringdelivery.NewMonitoringHandler(
 		monitoringapp.NewAlertService(monitoringFactory, fakeSiteLookup{sites: sites}),
@@ -338,7 +367,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		templates:         templates,
 		provider:          provider,
 		factory:           factory,
-		health:            health,
+		automation:        automation,
 		activeWork:        activeWork,
 		launcher:          launcher,
 		monitoring:        monitoringFactory,

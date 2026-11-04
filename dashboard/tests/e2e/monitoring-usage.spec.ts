@@ -108,6 +108,57 @@ test('Overview warns only when a configured Alertmanager cannot be read', async 
   await expect(page.locator('.sw-metric-card').filter({ hasText: 'Alerts' })).toContainText('Unavailable')
 })
 
+test('Overview counts four health states and raises Down and Unknown, not N/A, as attention', async ({ page }) => {
+  // The default aggregate has one down, one unknown, and one N/A Server beside three up ones.
+  await installApiFixtures(page)
+  await page.goto('/?site=site-a')
+
+  const fleetHealth = page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })
+  // Up of the Servers swallow monitors; N/A ones are named in the caption, not in the denominator.
+  await expect(fleetHealth).toContainText('3 / 5')
+  await expect(fleetHealth).toContainText('1 down · 1 unknown · 1 N/A')
+  await expect(fleetHealth).toHaveAttribute('data-tone', 'critical')
+
+  const down = page.getByRole('link', { name: /1 server down/ })
+  const unknown = page.getByRole('link', { name: /1 server with unknown health/ })
+  // Both open the Servers list filtered to that state, in the current Site scope.
+  await expect(down).toHaveAttribute('href', '/servers?health=down&site=site-a')
+  await expect(unknown).toHaveAttribute('href', '/servers?health=unknown&site=site-a')
+  await expect(unknown).toContainText('Swallow expects to monitor them but has no answer from their Node Exporter')
+  // Down is critical and Unknown a warning: same kind label, different tone.
+  const [downColor, unknownColor] = await Promise.all([down, unknown].map((item) => item.locator('.chakra-badge').evaluate((badge) => getComputedStyle(badge).color)))
+  expect(downColor).not.toBe(unknownColor)
+  await expect(page.locator('.sw-attention-row').filter({ hasText: /N\/A|not monitor/ })).toHaveCount(0)
+
+  await unknown.click()
+  await expect(page).toHaveURL('/servers?health=unknown&site=site-a')
+  await page.getByRole('button', { name: /Filters/ }).click()
+  await expect(page.getByRole('combobox', { name: 'Filter Server health', exact: true })).toContainText('Unknown')
+
+  // Without a down Server, Unknown alone gives the card the warning tone and no down item.
+  await page.unroute('**/api/v1/**')
+  await installApiFixtures(page, { overviewHealth: { up: 4, down: 0, unknown: 2, notApplicable: 0 } })
+  await page.goto('/?site=site-a')
+  await expect(fleetHealth).toContainText('4 / 6')
+  await expect(fleetHealth).toHaveAttribute('data-tone', 'warning')
+  await expect(page.getByRole('link', { name: /2 servers with unknown health/ })).toBeVisible()
+  await expect(page.getByRole('link', { name: /\d+ servers? down/ })).toHaveCount(0)
+})
+
+test('Monitoring counts the fleet by health and labels each Server with the shared badge', async ({ page }) => {
+  await installApiFixtures(page, { serverHealth: { 'srv-2': 'unknown', 'srv-3': 'not_applicable' } })
+  await page.goto('/monitoring?site=site-a')
+
+  const fleetHealth = page.locator('.sw-metric-card').filter({ hasText: 'Fleet health' })
+  await expect(fleetHealth).toContainText('1 / 3')
+  await expect(fleetHealth).toContainText('1 down · 1 unknown · 1 N/A')
+  await expect(fleetHealth).toHaveAttribute('data-tone', 'critical')
+  const table = page.getByRole('table', { name: 'Server metrics' })
+  for (const [name, label] of [['gpu-node-01', 'Up'], ['gpu-node-02', 'Unknown'], ['gpu-node-03', 'N/A'], ['gpu-node-04', 'Down']]) {
+    await expect(table.getByRole('row').filter({ hasText: name }).getByText(`Health ${label}`, { exact: true })).toBeVisible()
+  }
+})
+
 test('Platform detail links to its own monitoring UI and to its usage charts', async ({ page }) => {
   const requests: URLSearchParams[] = []
   await installApiFixtures(page, { onMetricRangeRequest: (params) => requests.push(params) })

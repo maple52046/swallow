@@ -395,19 +395,32 @@ type MembershipStatus struct {
 	ObservedAt time.Time
 }
 
-// HealthStatus is the axis owned by the metrics store.
+// HealthStatus is the health axis: swallow's monitoring answer for the Server (Server Status;
+// servers-list.md, Health). Unlike the other axes it is a classification by swallow's monitoring
+// policy, not an observation that stays absent until it arrives: State is always one of the
+// Health* values once the axis is classified, and only up and down rest on a metrics sample.
 //
-// It is never persisted. It is filled in at query time by whoever asked, which is why
-// a server loaded from the repository always has a nil Health.
+// It is never persisted. A read of the Server through the API classifies it, which is why a
+// Server loaded from the repository, or carried by the Server stream, has a nil Health.
 type HealthStatus struct {
-	State      string
-	ObservedAt time.Time
+	State string
+	// ObservedAt is the time of the Site metrics store's sample behind HealthUp or HealthDown,
+	// and nil for HealthUnknown and HealthNotApplicable, which no sample stands behind.
+	ObservedAt *time.Time
 }
 
-// Health axis values.
+// Health axis values, the published language of the health axis (servers-list.md, Health).
+// Renaming one is a breaking API change.
 const (
-	HealthUp   = "up"
+	// HealthUp: the latest scrape of the Server's Node Exporter target succeeded.
+	HealthUp = "up"
+	// HealthDown: the latest scrape of the Server's Node Exporter target failed.
 	HealthDown = "down"
+	// HealthUnknown: swallow monitors the Server (it lists a Node Exporter target, or its Node
+	// Exporter policy covers the Server) but has no answer. A warning, never a failure.
+	HealthUnknown = "unknown"
+	// HealthNotApplicable: swallow does not monitor the Server, so there is nothing to answer.
+	HealthNotApplicable = "not_applicable"
 )
 
 // Server is a physical machine swallow manages.
@@ -452,8 +465,9 @@ type Server struct {
 	Libvirt        *LibvirtCapability
 	BootMediaApply *BootMediaApply
 
-	// The three externally owned status axes. Each is nil until its owner has been
-	// observed: absent means "not known", not a default state.
+	// The three externally owned status axes. Provisioning and Membership are nil until their
+	// owner has been observed: absent means "not known", not a default state. Health is never
+	// stored and is nil until a read classifies it (HealthStatus).
 	Provisioning *ProvisioningStatus
 	Membership   *MembershipStatus
 	Health       *HealthStatus

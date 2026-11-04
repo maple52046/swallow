@@ -5207,9 +5207,12 @@ export interface components {
             deployed: number;
             /** @description GPU Inventory items of kind `compute` only; display controllers do not count. */
             gpuDevices: number;
+            /** @description Every scoped Server counted once by its health state (servers-list.md, Health); the four counts add up to `servers`. */
             health: {
                 down: number;
-                /** @description Servers with no observed health answer. */
+                /** @description Servers swallow does not monitor (state `not_applicable`), absent ones included. */
+                notApplicable: number;
+                /** @description Servers swallow monitors but has no health answer for. */
                 unknown: number;
                 up: number;
             };
@@ -5896,6 +5899,7 @@ export interface components {
         ServerChange: {
             /** @description The Server ID. */
             id: string;
+            /** @description The changed Server in the `Server` shape, except that `status.health` is always null: the stream does not classify health, so null means "not resolved in this event", never a health state (servers-stream.md). */
             server?: components["schemas"]["Server"];
             /** @enum {string} */
             type: "upsert" | "removed";
@@ -5970,10 +5974,12 @@ export interface components {
             serialNumber: string | null;
             systemUuid: string | null;
         };
+        /** @description swallow's monitoring answer for the Server (servers-list.md, Health). `up` and `down` are the Site Prometheus's latest scrape of a Node Exporter target swallow lists for the Server; `unknown` means swallow monitors the Server but has no answer; `not_applicable` means swallow does not monitor it. */
         ServerHealthAxis: {
-            observedAt: components["schemas"]["Timestamp"];
+            /** @description The time of the sample behind `up` or `down`; null for `unknown` and `not_applicable`. */
+            observedAt: components["schemas"]["Timestamp"] | null;
             /** @enum {string} */
-            state: "up" | "down";
+            state: "up" | "down" | "unknown" | "not_applicable";
         };
         /** @description The Server's provisioning snapshot as stored when the inspection was accepted (inspection has not started yet), plus the Workflow that runs it. */
         ServerInspectionAccepted: {
@@ -6156,8 +6162,8 @@ export interface components {
             /** @description The complete GPU Inventory, grouped by vendor, model, and kind. */
             gpus: components["schemas"]["ServerGPUGroup"][];
             hardware: components["schemas"]["ServerHardware"];
-            /** @description Resolved at query time from the metrics backend; null when unknown. */
-            health: components["schemas"]["ServerHealthAxis"] | null;
+            /** @description swallow's monitoring classification, worked out when the Server is read (servers-list.md, Health); always present on the list and the detail. A stream event is the exception: its `status.health` is null because the stream does not classify health (`ServerChange`). */
+            health: components["schemas"]["ServerHealthAxis"];
             hostname: string | null;
             lastSeenAt: components["schemas"]["Timestamp"] | null;
             membership: components["schemas"]["ServerMembershipAxis"] | null;

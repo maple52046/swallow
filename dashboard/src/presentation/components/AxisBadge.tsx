@@ -1,4 +1,4 @@
-import { Badge, Box, HStack } from '@chakra-ui/react'
+import { Badge, Box, HStack, VisuallyHidden } from '@chakra-ui/react'
 import { Lock, MemoryStick } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { DeploymentAxis, HealthAxis, MembershipAxis, ProvisioningAxis } from '@/domain/server/types'
@@ -6,6 +6,7 @@ import { POWER_PRESENTATION } from './axisBadgeUtils'
 import { resolveDeploymentPhase, type AxisColor } from './deploymentPhase'
 import { ElapsedTime } from './ElapsedTime'
 import { InProgressSpinner } from './InProgressSpinner'
+import { healthPresentation, healthTooltip } from './serverHealthPresentation'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 
 const PROVISIONING_COLORS: Record<string, AxisColor> = {
@@ -334,14 +335,22 @@ export function MembershipBadge({ axis }: { axis: MembershipAxis | null }) {
 }
 
 /**
- * Metrics-owned liveness state resolved at query time rather than persisted. A Server whose
- * Node Exporter is not scraped has no health, which reads as unknown, never as down.
+ * swallow's monitoring answer for a Server (servers-list.md "Health"), classified by the API each
+ * time the Server is read. Every surface that shows one Server's health uses this badge — the
+ * Servers list, the Server detail header and Current state card, and the Monitoring table — so the
+ * vocabulary of `HEALTH_PRESENTATION` (Up, Down, Unknown, N/A) reads the same everywhere.
+ *
+ * The label is always visible text and the colour only supplements it; the tooltip explains the
+ * value, with the sample time for Up and Down. A visually hidden "Health" prefix names the axis for
+ * assistive technology, because the detail header and Current state card show the badge without a
+ * visible label. Unknown is a warning and N/A neutral: neither is presented as down.
  */
-export function HealthBadge({ axis }: { axis: HealthAxis | null }) {
-  if (!axis) return <UnknownBadge tooltip="Health has never been observed" />
+export function HealthBadge({ axis }: { axis: HealthAxis }) {
+  const { label, color } = healthPresentation(axis.state)
   return (
-    <AxisLabel color={axis.state === 'up' ? 'green' : 'red'} tooltip={observedAtLabel(axis.observedAt)}>
-      {axis.state}
+    <AxisLabel color={color} tooltip={healthTooltip(axis)}>
+      <VisuallyHidden>Health </VisuallyHidden>
+      {label}
     </AxisLabel>
   )
 }

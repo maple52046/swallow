@@ -80,7 +80,24 @@ Server 可以做其他工作；它從不取消別人啟動的 Workflow，有其�
 Node Exporter。locked Server 維持原狀：swallow 不在上面安裝也不移除任何東西。要讓某台 Server 不裝 Node
 Exporter，請 lock 它；在 swallow 會保持安裝的 Server 上 uninstall，只會維持到下一次檢查。
 
-安裝進行中或失敗之後，這台 Server 不會被收集，所以它的 health 顯示為 unknown，而不是 down。
+安裝進行中或失敗之後，這台 Server 不會被收集，所以它的 health 顯示為 Unknown，而不是 Down。
+
+## Server health
+
+每台 Server 的 health 都是四個值之一，每次查看時依 swallow 自己的監控政策算出。Dashboard 顯示為 **Up**、
+**Down**、**Unknown** 與 **N/A**；API 的值是 `up`、`down`、`unknown` 與 `not_applicable`。
+
+| Health | 意義 |
+| --- | --- |
+| **Up** | swallow 讓 Site 的 Prometheus 收集這台 Server 的 Node Exporter，而且最近一次收集成功。 |
+| **Down** | 最近一次收集這台 Server 的 Node Exporter 失敗：主機、它的網路或 exporter 沒有回應。這是故障。 |
+| **Unknown** | swallow 預期監控這台 Server，但沒有答案：Node Exporter 安裝進行中或失敗、imported Server 還沒裝上，或 Site 的 Prometheus 沒有它的資料、讀取失敗。這是警示，不是故障。 |
+| **N/A** | swallow 不監控這台 Server，例如它沒有佈署（ready、releasing）、被 lock、absent，或所屬 Site 的 automation 關閉。這不代表機器有任何問題。 |
+
+- 只有 Node Exporter 決定 health，GPU exporter 不影響。
+- swallow release 一台 Server 後，它的 health 立刻變成 N/A，即使 Site 的 Prometheus 還會保留它最後的資料一段時間。
+- swallow 已經在收集的 Server 被 lock 後，仍顯示 Up 或 Down。
+- Site 沒有 Prometheus 時，受監控的 Server 顯示 Unknown，不會因此顯示為 Down。
 
 ## 用量圖表
 

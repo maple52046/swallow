@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
+import { streamChangeMayMoveHealth, withKnownHealth } from '@/application/usecases/servers/serverStreamPatch'
 import type { ProvisionerDetail, Server } from '@/domain/server/types'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import type { ServerDockerAssignment } from './useServerDockerAssignment'
+import { useServerReread } from './useServerReread'
 
 /** The server projection plus its live provisioner detail, shared by the detail tabs. */
 export interface ServerDetailData {
@@ -33,6 +35,10 @@ export type ServerDetailState =
  * provisioner detail is a live proxy that may fail independently, so a detail failure
  * degrades to `detailError` rather than failing the whole page. A stale-guard drops
  * out-of-order responses. `reload` (exposed on ready data) refetches after an action.
+ *
+ * Once loaded, it patches the projection from the Site's live stream and, when a patch can change
+ * the Server's health, re-reads just the projection (`useServerReread`); both stop when the id
+ * changes or the page unmounts.
  */
 export function useServerDetail(id: string | undefined): ServerDetailState {
   const { servers, serverEvents } = useApp()
@@ -91,12 +97,37 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
     }
   }, [servers, id, nonce, reload])
 
+  // The latest state, read by the stream callback (never during render) to compare an upsert with
+  // the Server shown before its patch is applied.
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  })
+
+  // A health re-read replaces only the projection; the provisioner detail is a live proxy that a
+  // health change does not affect, so it is not fetched again. A failed or `null` answer (the
+  // Server was deleted meanwhile) keeps what the page shows, like an ignored `removed` frame.
+  const { reread, isRereading } = useServerReread(id ?? '', {
+    onRead: (_, server) => {
+      if (!server) return
+      setState((current) => (
+        current.status === 'ready' && current.data.server.id === server.id
+          ? { status: 'ready', data: { ...current.data, server } }
+          : current
+      ))
+    },
+  })
+
   // Reflect live projection changes for this server without a manual page refresh — for example
   // an OS Image rename re-mirrored onto its deployed-image name, or a provisioning transition. The
   // stream is Site-scoped server-side, so it only subscribes once the server has loaded and its
   // Site is known; deriving siteId from the loaded server (not from every patch) keeps the
   // subscription stable across patches. onReset refetches once after a reconnect to resync any
   // events missed while disconnected.
+  //
+  // The stream never classifies health, so a patch keeps the health last read; when the upsert
+  // changes the provisioning state, lock, or `absent` flag, the Server is re-read so its health
+  // (for example N/A after a release) updates in place.
   const siteId = state.status === 'ready' ? state.data.server.status.source.siteId : undefined
   useEffect(() => {
     if (!id || !siteId) return
@@ -105,22 +136,21 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
       {
         onEvent: (event) => {
           if (event.kind === 'removed' || event.server.id !== id) return
+          const shown = stateRef.current
+          if (shown.status !== 'ready' || shown.data.server.id !== id) return
+          const incoming = event.server
           setState((current) => {
             if (current.status !== 'ready' || current.data.server.id !== id) return current
-            const incoming = event.server
-            // Health is resolved at read time and not carried on the stream, so keep the
-            // last-known value rather than blanking it until the next full reload.
-            const server =
-              !incoming.status.health && current.data.server.status.health
-                ? { ...incoming, health: current.data.server.status.health }
-                : incoming
+            const server = withKnownHealth(incoming, current.data.server.status.health)
             return { status: 'ready', data: { ...current.data, server } }
           })
+          // An unfinished re-read is restarted too, so the answer that lands postdates this event.
+          if (streamChangeMayMoveHealth(shown.data.server, incoming) || isRereading(id)) reread(id)
         },
         onReset: reload,
       },
     )
-  }, [serverEvents, siteId, id, reload])
+  }, [serverEvents, siteId, id, reload, reread, isRereading])
 
   return state
 }

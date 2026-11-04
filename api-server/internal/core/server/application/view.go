@@ -63,7 +63,9 @@ type ServerStatusItem struct {
 	Deployment   *DeploymentAxisItem   `json:"deployment"`
 	Provisioning *ProvisioningAxisItem `json:"provisioning"`
 	Membership   *MembershipAxisItem   `json:"membership"`
-	Health       *HealthAxisItem       `json:"health"`
+	// Health is always set by the list and detail reads, which classify it (servers-list.md,
+	// Health); it is null only in a stream event, which does not (servers-stream.md).
+	Health *HealthAxisItem `json:"health"`
 
 	// PlatformClaim is the Platform whose accepted deployment targets this Server (decision 067),
 	// null when none does. It is swallow-owned intent, unlike the observed membership axis, and it
@@ -165,9 +167,12 @@ type MembershipAxisItem struct {
 	ObservedAt string `json:"observedAt"`
 }
 
+// HealthAxisItem is the published health axis (servers-list.md, Health): State is one of the
+// serverdomain.Health* values, and ObservedAt is the time of the metrics sample behind up or down,
+// null for unknown and not_applicable.
 type HealthAxisItem struct {
-	State      string `json:"state"`
-	ObservedAt string `json:"observedAt"`
+	State      string  `json:"state"`
+	ObservedAt *string `json:"observedAt"`
 }
 
 // PlatformClaimItem is the published shape of a Platform Claim: the claiming Platform and when
@@ -305,7 +310,7 @@ func toServerStatusItem(s *serverdomain.Server) ServerStatusItem {
 	if h := s.Health; h != nil {
 		item.Health = &HealthAxisItem{
 			State:      h.State,
-			ObservedAt: wire.Time(h.ObservedAt),
+			ObservedAt: wire.OptionalTime(h.ObservedAt),
 		}
 	}
 

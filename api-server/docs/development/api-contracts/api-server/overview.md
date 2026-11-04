@@ -59,7 +59,7 @@ An unknown `siteId` returns `not_found` rather than an empty overview.
     "deployed": 40,
     "platformed": 32,
     "gpuDevices": 64,
-    "health": { "up": 45, "down": 2, "unknown": 1 }
+    "health": { "up": 37, "down": 1, "unknown": 2, "notApplicable": 8 }
   },
   "integrations": { "total": 4, "failing": 1, "items": [] },
   "platforms": { "total": 3, "unreachable": 1, "unmatchedMembers": 2 },
@@ -76,6 +76,12 @@ An unknown `siteId` returns `not_found` rather than an empty overview.
 `inventory.gpuDevices` counts only GPU Inventory items whose kind is `compute`. Display
 controllers remain visible on their Server projections but do not contribute accelerator
 capacity to the overview.
+
+`inventory.health` counts every scoped Server once by its health state, classified exactly as
+on the Server itself ([servers-list.md](servers-list.md#health)): `up`, `down`, `unknown`, and
+`notApplicable` (the `not_applicable` state). Absent Servers count as `notApplicable`, so the four
+counts add up to `inventory.servers`. A metrics read that fails leaves the Servers it could not
+read `unknown` and does not fail the overview.
 
 `scope.siteId` is `null` for the swallow-wide view.
 
@@ -149,3 +155,10 @@ Operation records no longer appear among recent operations, and no status is `in
 On 2026-10-31 `operations.active` began counting every unfinished operation. It counted
 only `pending` and `running`, so waiting, canceling, and `requires_attention` work, which still
 holds Servers, was missing. This is a semantic change; the field and its type are unchanged.
+
+On 2026-11-04 `inventory.health` gained the required `notApplicable` count, and `unknown`
+narrowed to Servers swallow monitors but has no answer for. A Server swallow does not monitor
+(for example `ready`, locked, absent, or at a Site whose automation is off) moved from `unknown`
+to `notApplicable`, and a Server released by swallow is no longer counted `down` from its last
+series. This is a breaking semantic change for a consumer that read `unknown` as every Server
+without an answer.

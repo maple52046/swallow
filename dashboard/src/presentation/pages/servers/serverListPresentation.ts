@@ -1,9 +1,12 @@
 import {
+  countServerHealth,
   isProvisioningInProgress,
   type DeploymentAxis,
+  type HealthState,
   type ProvisioningAxis,
   type ProvisioningState,
   type Server,
+  type ServerHealthCounts,
 } from '@/domain/server/types'
 import { gpuInventoryCount, preferredServerGPUs } from '@/domain/server/gpu'
 import { describeConvergence, type ConvergenceSummary } from '@/presentation/components/convergence/convergencePresentation'
@@ -42,7 +45,12 @@ export type ServerInventorySort =
   | 'pool'
 
 export type ServerInventoryDirection = 'asc' | 'desc'
-export type ServerHealthFilter = 'any' | 'up' | 'down' | 'unobserved'
+/**
+ * The URL `health` facet: one {@link HealthState} or `any`. `not-applicable` is the URL spelling
+ * of `not_applicable`. The retired `unobserved` (health that had no answer, before the API
+ * classified health) parses as `unknown` so an old bookmark keeps a meaning close to its own.
+ */
+export type ServerHealthFilter = 'any' | 'up' | 'down' | 'unknown' | 'not-applicable'
 export type ServerMembershipFilter = 'any' | 'assigned' | 'unassigned'
 export type ServerGpuFilter = 'any' | 'present' | 'none'
 export type ServerLockFilter = 'any' | 'locked' | 'unlocked'
@@ -87,9 +95,11 @@ export interface ServerFleetFacts {
   deploymentAttention: number
   assigned: number
   unassigned: number
-  healthUp: number
-  healthDown: number
-  healthUnobserved: number
+  /**
+   * Every Server in scope by health state, absent ones included: the API classifies an absent
+   * Server `not_applicable`, so the four counts add up to `total`, as on the Overview.
+   */
+  health: ServerHealthCounts
 }
 
 /**
@@ -123,7 +133,16 @@ const PROVISIONING_STATES: readonly ProvisioningState[] = [
 const PROVISIONING_STATE_SET = new Set<string>(PROVISIONING_STATES)
 const ISSUE_PROVIDER_STATES = new Set<ProvisioningState>(['failed', 'broken', 'rescue'])
 const VIEWS = new Set<ServerView>(['all', 'ready', 'changing', 'issues'])
-const HEALTH_FILTERS = new Set<ServerHealthFilter>(['any', 'up', 'down', 'unobserved'])
+const HEALTH_FILTERS = new Set<ServerHealthFilter>(['any', 'up', 'down', 'unknown', 'not-applicable'])
+/** The health filter value a retired URL spelling now means. */
+const LEGACY_HEALTH_FILTERS: Readonly<Record<string, ServerHealthFilter>> = { unobserved: 'unknown' }
+/** The domain value each health filter matches. */
+const HEALTH_FILTER_STATES: Readonly<Record<Exclude<ServerHealthFilter, 'any'>, HealthState>> = {
+  up: 'up',
+  down: 'down',
+  unknown: 'unknown',
+  'not-applicable': 'not_applicable',
+}
 const MEMBERSHIP_FILTERS = new Set<ServerMembershipFilter>(['any', 'assigned', 'unassigned'])
 const GPU_FILTERS = new Set<ServerGpuFilter>(['any', 'present', 'none'])
 const LOCK_FILTERS = new Set<ServerLockFilter>(['any', 'locked', 'unlocked'])
@@ -155,6 +174,11 @@ function enumValue<T extends string>(value: string | null, values: ReadonlySet<T
   return value !== null && values.has(value as T) ? value as T : fallback
 }
 
+/** Reads the URL `health` value, mapping a retired spelling to its current filter. */
+function healthFilterParam(value: string | null): string | null {
+  return value !== null && Object.hasOwn(LEGACY_HEALTH_FILTERS, value) ? LEGACY_HEALTH_FILTERS[value] : value
+}
+
 function distinctValues(params: URLSearchParams, key: string): string[] {
   return [...new Set(params.getAll(key).map((value) => value.trim()).filter(Boolean))]
 }
@@ -172,7 +196,7 @@ export function parseServerInventoryQuery(params: URLSearchParams): ServerInvent
     q: params.get('q') ?? '',
     view,
     provisioning,
-    health: enumValue(params.get('health'), HEALTH_FILTERS, 'any'),
+    health: enumValue(healthFilterParam(params.get('health')), HEALTH_FILTERS, 'any'),
     membership: enumValue(params.get('membership'), MEMBERSHIP_FILTERS, 'any'),
     gpu: enumValue(params.get('gpu'), GPU_FILTERS, 'any'),
     gpuVendors: distinctValues(params, 'gpuVendor'),
@@ -212,6 +236,10 @@ export function normalizeServerInventoryParams(params: URLSearchParams): URLSear
   const provisioning = next.getAll('provisioning').filter((value) => PROVISIONING_STATE_SET.has(value))
   next.delete('provisioning')
   if (view === 'all') provisioning.forEach((value) => next.append('provisioning', value))
+
+  // A retired spelling is rewritten to the filter it parses as, so the URL shows what is applied.
+  const health = healthFilterParam(next.get('health'))
+  if (health !== null && health !== next.get('health')) next.set('health', health)
 
   const singleEnums: ReadonlyArray<[string, ReadonlySet<string>, string]> = [
     ['health', HEALTH_FILTERS, 'any'],
@@ -367,8 +395,7 @@ export function matchesServerInventoryQuery(server: Server, query: ServerInvento
   if (query.view === 'changing' && !isServerChanging(server)) return false
   if (query.view === 'issues' && !hasServerProvisioningIssue(server)) return false
   if (query.provisioning.length > 0 && (!server.status.provisioning || !query.provisioning.includes(server.status.provisioning.state))) return false
-  if (query.health === 'unobserved' && server.status.health !== null) return false
-  if ((query.health === 'up' || query.health === 'down') && server.status.health?.state !== query.health) return false
+  if (query.health !== 'any' && server.status.health.state !== HEALTH_FILTER_STATES[query.health]) return false
   if (query.membership === 'assigned' && server.status.membership === null) return false
   if (query.membership === 'unassigned' && server.status.membership !== null) return false
   if (query.gpu === 'present' && server.status.gpus.length === 0) return false
@@ -486,7 +513,11 @@ export function compareServerInventory(
   return result || displayName(left).localeCompare(displayName(right))
 }
 
-/** Computes scope-wide facts; absent projections are excluded from live external axes. */
+/**
+ * Computes scope-wide facts. Absent projections are excluded from the observed deployment and
+ * membership axes, whose last observation is stale; health counts every Server, because the API
+ * already classifies an absent one N/A.
+ */
 export function serverFleetFacts(servers: readonly Server[]): ServerFleetFacts {
   const observed = servers.filter((server) => !server.status.absent)
   return {
@@ -497,9 +528,7 @@ export function serverFleetFacts(servers: readonly Server[]): ServerFleetFacts {
     deploymentAttention: observed.filter(hasServerProvisioningIssue).length,
     assigned: observed.filter((server) => server.status.membership !== null).length,
     unassigned: observed.filter((server) => server.status.membership === null).length,
-    healthUp: observed.filter((server) => server.status.health?.state === 'up').length,
-    healthDown: observed.filter((server) => server.status.health?.state === 'down').length,
-    healthUnobserved: observed.filter((server) => server.status.health === null).length,
+    health: countServerHealth(servers),
   }
 }
 

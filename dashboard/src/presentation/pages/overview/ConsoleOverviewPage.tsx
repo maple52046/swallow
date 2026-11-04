@@ -14,6 +14,7 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { NOT_AVAILABLE_IN_RELEASE } from '@/presentation/components/releaseAvailability'
+import { fleetHealthMetric } from '@/presentation/components/serverHealthPresentation'
 import { formatRelative } from '@/shared/utils/time'
 
 type OverviewState =
@@ -34,7 +35,11 @@ interface AttentionItem {
 /**
  * Builds one severity-ordered action queue without inventing state outside the overview aggregate.
  * Firing alerts are left out while alerts are in development (always, in release builds); down
- * Servers, integrations, platforms, and workflows are always included.
+ * Servers, Servers with unknown health, integrations, platforms, and workflows are always included.
+ * Down is critical (priority 1). Unknown is a warning (priority 2): swallow expects to monitor
+ * those Servers but has no answer. N/A raises nothing, because swallow does not monitor those
+ * Servers. Both health items open the Servers list filtered to that state; the caller keeps the
+ * Site scope with `scopedHref`.
  */
 function attentionItems(data: Overview, showAlerts: boolean): AttentionItem[] {
   const alerts = showAlerts ? data.monitoring.firing.items : []
@@ -82,14 +87,26 @@ function attentionItems(data: Overview, showAlerts: boolean): AttentionItem[] {
       action: 'Review',
     })
   }
-  if (data.inventory.health.down) {
+  const { down, unknown } = data.inventory.health
+  if (down) {
     items.push({
       key: 'servers-down',
       priority: 1,
       kind: 'health',
-      title: `${data.inventory.health.down} server${data.inventory.health.down === 1 ? '' : 's'} down`,
-      detail: 'Metrics report unavailable hosts',
-      href: '/servers',
+      title: `${down} server${down === 1 ? '' : 's'} down`,
+      detail: 'Their Node Exporter did not answer the latest scrape',
+      href: '/servers?health=down',
+      action: 'Open servers',
+    })
+  }
+  if (unknown) {
+    items.push({
+      key: 'servers-health-unknown',
+      priority: 2,
+      kind: 'health',
+      title: `${unknown} server${unknown === 1 ? '' : 's'} with unknown health`,
+      detail: 'Swallow expects to monitor them but has no answer from their Node Exporter',
+      href: '/servers?health=unknown',
       action: 'Open servers',
     })
   }
@@ -191,13 +208,7 @@ export function ConsoleOverviewPage() {
         </Alert>
       )}
       <MetricGrid items={[
-        {
-          label: 'Fleet health',
-          value: `${data.inventory.health.up} / ${data.inventory.servers}`,
-          detail: `${data.inventory.health.down} down · ${data.inventory.health.unknown} unknown · ${data.inventory.absent} absent`,
-          tone: data.inventory.health.down ? 'critical' : 'success',
-          icon: <Server size={16} />,
-        },
+        fleetHealthMetric(data.inventory.health, <Server size={16} />),
         {
           label: 'Capacity',
           value: `${data.inventory.gpuDevices} GPUs`,
