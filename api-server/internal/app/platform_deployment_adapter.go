@@ -398,6 +398,8 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 	}
 	dependencies := make([]string, 0, len(launch.TargetServerIDs))
 	readyIDs := make([]string, 0, len(launch.TargetServerIDs))
+	// The Servers read here also name their provision-os Tasks.
+	readyServers := make([]*serverdomain.Server, 0, len(launch.TargetServerIDs))
 	deployedTargets := make([]workflowdomain.ResourceReference, 0, len(launch.TargetServerIDs))
 	for _, serverID := range launch.TargetServerIDs {
 		server, err := l.servers.FindByID(ctx, serverID)
@@ -409,6 +411,7 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 			continue
 		}
 		readyIDs = append(readyIDs, serverID)
+		readyServers = append(readyServers, server)
 	}
 	if len(readyIDs) > 0 {
 		batch, resolvedUserData, resolveErr := l.deployments.ResolveOperationInput(
@@ -420,7 +423,8 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 		}
 		plan.frozen = &batch
 		plan.userData = resolvedUserData
-		for _, serverID := range readyIDs {
+		for _, server := range readyServers {
+			serverID := server.ID
 			stepID := "provision-" + serverID
 			targetRequest := batch
 			targetRequest.ServerIDs = []string{serverID}
@@ -435,7 +439,7 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 				targetRequest.Network = &network
 			}
 			plan.steps = append(plan.steps, workflowdomain.Task{
-				ID: stepID, Kind: "provision-os", Name: "Provision and verify operating system on " + serverID,
+				ID: stepID, Kind: "provision-os", Name: provisionOSTaskName(server),
 				Job:        jobEnsureOS,
 				Executor:   workflowdomain.RunnerKindProvisioner,
 				Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: serverID}},

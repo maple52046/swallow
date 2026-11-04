@@ -91,15 +91,20 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 	if err := l.protection.RequireUnlocked(ctx, input.ServerIDs); err != nil {
 		return nil, err
 	}
-	first, err := l.servers.FindByID(ctx, input.ServerIDs[0])
-	if err != nil {
-		return nil, err
-	}
 	// Preassigned so the configure-ntp Tasks' trusted variables name the Workflow they run in.
 	operationID := uuid.NewString()
 	steps := make([]workflowdomain.Task, len(input.ServerIDs))
 	secretStepIDs := make([]string, 0, len(input.ServerIDs))
+	var first *serverdomain.Server
 	for index, serverID := range input.ServerIDs {
+		// Read for the Task's name; the first target also gives the Workflow its Site.
+		server, err := l.servers.FindByID(ctx, serverID)
+		if err != nil {
+			return nil, err
+		}
+		if first == nil {
+			first = server
+		}
 		targetInput := input
 		targetInput.ServerIDs = []string{serverID}
 		if input.Network != nil {
@@ -114,7 +119,7 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 		}
 		stepID := "provision-" + serverID
 		steps[index] = workflowdomain.Task{
-			ID: stepID, Kind: "provision-os", Name: "Provision and verify operating system on " + serverID,
+			ID: stepID, Kind: "provision-os", Name: provisionOSTaskName(server),
 			Executor:   workflowdomain.RunnerKindProvisioner,
 			Targets:    []workflowdomain.ResourceReference{{Kind: "server", ID: serverID}},
 			Parameters: map[string]any{"request": structToMap(targetInput)},
@@ -156,6 +161,15 @@ func (l durableProvisioningLauncher) LaunchDeployment(ctx context.Context, input
 	l.nodeExporter.record(ctx, exporters, created.ID)
 	materializeInitialDeployments(ctx, l.servers, created.ID, steps)
 	return &provisioningapp.OperationReference{OperationID: created.ID}, nil
+}
+
+// provisionOSTaskName is the name of the provision-os Task that deploys server, in a Deploy OS
+// Workflow and in a Platform's ensure-os Job alike. It uses the Server's display name, like the other
+// Tasks that act on one Server (Release, Recover, Ensure Boot Media), so a Workflow reads by host
+// rather than by opaque id; the id stays in the Task's id and target. Callers pass the Server they
+// already read for the Task.
+func provisionOSTaskName(server *serverdomain.Server) string {
+	return "Provision and verify operating system on " + server.DisplayName()
 }
 
 // afterTimeSync maps each provisioned Server to the Task the steps after its OS wait for: its
