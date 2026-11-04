@@ -68,6 +68,31 @@ test('the deploy wizard installs the AMD GPU Operator only when it is chosen', a
   await expect(section.getByText('Installing', { exact: true })).toBeVisible()
 })
 
+// The exporter is the Kubernetes Platform's GPU monitoring (monitoring.md §4.2), so a pointer user
+// must be able to turn it on; the labeller's switch shares the same markup.
+test('a click turns on the GPU Operator metrics exporter and turns off its node labeller', async ({ page }) => {
+  let submitted: Record<string, unknown> | undefined
+  await installApiFixtures(page, { freePlatformCandidates: true, onPlatformDeploymentRequest: (body) => { submitted = body } })
+  await startKubernetesDeploy(page, ['gpu-node-02', 'gpu-node-03'])
+
+  await page.getByRole('switch', { name: 'Enable AMD GPU Operator' }).locator('xpath=following-sibling::*[1]').click()
+  const exporter = page.getByRole('switch', { name: 'Device Metrics Exporter' })
+  const labeller = page.getByRole('switch', { name: 'Node Labeller' })
+  await exporter.locator('xpath=following-sibling::*[1]').click()
+  await labeller.locator('xpath=following-sibling::*[1]').click()
+  await expect(exporter).toBeChecked()
+  await expect(labeller).not.toBeChecked()
+
+  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: 'Deploy Kubernetes Platform' }).click()
+  await approvePlatformInstall(page)
+  expect(submitted?.gpuOperator).toEqual({
+    enabled: true, allocationMode: 'device-plugin', resourceNaming: 'single',
+    nodeLabeller: false, metricsExporter: true,
+  })
+})
+
 test('the GPU Operator cannot be chosen without an AMD workload node', async ({ page }) => {
   let submitted: Record<string, unknown> | undefined
   await installApiFixtures(page, { freePlatformCandidates: true, onPlatformDeploymentRequest: (body) => { submitted = body } })

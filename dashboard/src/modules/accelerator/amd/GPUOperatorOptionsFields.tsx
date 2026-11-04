@@ -146,13 +146,15 @@ export function GPUOperatorOptionsFields({
                 <Field.HelperText>Mixed names partitioned GPUs by partition type instead of one amd.com/gpu resource.</Field.HelperText>
               </Field.Root>
             )}
+            {/* Switch.Root is the <label> for the input id the switch generates, so the hidden inputs
+                keep that id: overriding it detaches the label and a click no longer toggles. */}
             <Field.Root>
               <Switch.Root
                 checked={value.nodeLabeller}
                 colorPalette="brand"
                 onCheckedChange={(details) => update({ nodeLabeller: details.checked === true })}
               >
-                <Switch.HiddenInput id={`${idPrefix}-labeller`} role="switch" />
+                <Switch.HiddenInput role="switch" />
                 <Switch.Control><Switch.Thumb /></Switch.Control>
                 <Switch.Label>Node Labeller</Switch.Label>
               </Switch.Root>
@@ -164,7 +166,7 @@ export function GPUOperatorOptionsFields({
                 colorPalette="brand"
                 onCheckedChange={(details) => update({ metricsExporter: details.checked === true })}
               >
-                <Switch.HiddenInput id={`${idPrefix}-metrics`} role="switch" />
+                <Switch.HiddenInput role="switch" />
                 <Switch.Control><Switch.Thumb /></Switch.Control>
                 <Switch.Label>Device Metrics Exporter</Switch.Label>
               </Switch.Root>
