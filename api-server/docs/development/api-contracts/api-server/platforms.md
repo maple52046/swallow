@@ -710,6 +710,11 @@ have in common:
 - Anyone on the management network can view it anonymously; there is no login form.
 - When the install Task succeeds, swallow sets the Monitoring Link `Platform Grafana` to the URL the
   run reports. An install that reports no URL fails the Task.
+- That URL opens the Grafana's landing dashboard: the Grafana address followed by `/d/<uid>`,
+  chosen from the dashboards it provisions. It is the Device Metrics Exporter's Overview
+  (`fe0ayyeeoxvy8f`) when it has the `device-metrics-exporter` dashboards, else Omnistat's
+  Global - RMS (`edqnz7pce7togc-rms`) when it has `omnistat`, else Servers
+  (`swallow-node-exporter`). The install checks Grafana at the Grafana address itself.
 
 On a **Slurm** Platform the deploy Workflow composes the Managed Software `grafana` onto the primary
 controller after the Slurm install (a `configure-grafana` Job, see
@@ -724,8 +729,10 @@ is chosen:
   to that Server, else Docker CE (with its Engine API off), skipped where it is `installed`.
 - The token is not in the Software Assignment's `spec`. The dashboards add `omnistat` or
   `device-metrics-exporter` for the enabled feature.
-- The link is `http://<primary address>:3000`, replacing a link swallow wrote for the same Grafana
-  as `Omnistat Grafana` or `Device Metrics Exporter Grafana`.
+- The Grafana address is `http://<primary address>:3000`, so the link is
+  `http://<primary address>:3000/d/<landing uid>`: Omnistat's or the Device Metrics Exporter's
+  overview with that feature, Servers without one. It replaces a link swallow wrote for the same
+  Grafana as `Omnistat Grafana` or `Device Metrics Exporter Grafana`.
 
 On a **Kubernetes** Platform the deploy Workflow ends with a `configure-platform-grafana` Job, after
 `validate-platform` and after the [GPU Operator](#manage-the-gpu-operator) when the deploy installs
@@ -733,7 +740,9 @@ one. Its one Task, `install-platform-grafana`, targets every member and installs
 grafana-community Helm chart in the cluster from the initial controller:
 
 - Grafana runs in namespace `swallow-grafana`, without persistent storage, and is reached at node
-  port `30300` of every workload member; the link is `http://<first workload member's address>:30300`.
+  port `30300` of every workload member; the Grafana address is
+  `http://<first workload member's address>:30300`, so the link opens the Device Metrics Exporter's
+  Overview there when the GPU Operator's `metricsExporter` is on, and Servers otherwise.
   On a member with an active firewalld the Task opens that port.
 - The dashboards add `device-metrics-exporter` when the GPU Operator's `metricsExporter` is on.
 - The token and a generated admin password are Kubernetes Secrets in that namespace; neither is in
@@ -741,7 +750,7 @@ grafana-community Helm chart in the cluster from the initial controller:
   is still no login form.
 - The Task fails (`ansible_failed`, retryable) with a message that starts with
   `[platform_grafana_node_port_in_use]` when another Service in the cluster holds node port `30300`,
-  and it succeeds only once Grafana answers at the linked address and serves every dashboard there.
+  and it succeeds only once Grafana answers at the Grafana address and serves every dashboard there.
 - Uninstalling the Platform removes the release with the cluster.
 
 An installation without `SWALLOW_API_PUBLIC_URL` cannot plan the Grafana: the deployment is
@@ -1333,6 +1342,10 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-04 the `Platform Grafana` link swallow writes opens the Grafana's landing dashboard
+  (`/d/<uid>`, see [Platform monitoring dashboards](#platform-monitoring-dashboards)) instead of the
+  Grafana root. A Platform deployed before keeps its root link until its next deploy runs the
+  Grafana install again. The response shape is unchanged.
 - Since 2026-11-04 (schema v13) every Platform without the Monitoring Link `Platform Grafana`
   has `settings.monitoringDashboards: false` in its spec and applied spec; turn it on to install
   the Platform's Grafana with a new deployment. Writing `true` on such a Platform used to be no

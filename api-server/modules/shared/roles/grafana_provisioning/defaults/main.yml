@@ -10,6 +10,9 @@
 #                                         Grafana process reads from grafana_provisioning_token_variable
 #   grafana_provisioning_bundles          the dashboard bundles to provision
 #   grafana_provisioning_dashboards_path  where Grafana reads the bundle directories
+# The including role reads grafana_provisioning_landing_path (below) after the include, for the URL
+# it reports; the include's vars end with the include, so that task sets
+# grafana_provisioning_bundles again from the role's own bundle list.
 grafana_provisioning_token: false
 grafana_provisioning_bundles: []
 # Every shipped bundle reads its datasource by this uid (Omnistat's through its ${source} variable).
@@ -22,3 +25,20 @@ grafana_provisioning_folders:
   omnistat: Omnistat RMS
   device-metrics-exporter: Device Metrics Exporter
   node-exporter: Servers
+# The dashboard a Grafana opens on for each shipped bundle, by the uid fixed in the bundle's JSON,
+# so /d/<uid> stays valid across releases: Device Metrics Exporter's Overview, Omnistat's
+# Global - RMS overview, and swallow's Servers. A changed uid in a bundle changes it here too.
+grafana_provisioning_landing_dashboards:
+  device-metrics-exporter: fe0ayyeeoxvy8f
+  omnistat: edqnz7pce7togc-rms
+  node-exporter: swallow-node-exporter
+# With several bundles, the first one in this order is the landing one: the GPU or job monitoring
+# a Platform has (the Device Metrics Exporter before Omnistat) before the Servers every Platform
+# Grafana carries.
+grafana_provisioning_landing_order: [device-metrics-exporter, omnistat, node-exporter]
+# The landing dashboard's path below the Grafana root, /d/<uid>, for grafana_provisioning_bundles;
+# empty, so the root, when no bundle is provisioned. The including role appends it to the root in
+# the URL it reports as the Platform Grafana Monitoring Link; its health checks keep the root.
+grafana_provisioning_landing_path: >-
+  {%- set landing = grafana_provisioning_landing_order | select('in', grafana_provisioning_bundles) | first | default('') -%}
+  {{ ('/d/' ~ grafana_provisioning_landing_dashboards[landing]) if landing else '' }}

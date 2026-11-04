@@ -146,22 +146,25 @@ Every Platform gets its own read-only Grafana unless you turn it off when you de
 the Platform's settings). CPU-only Platforms get one too. It reads the same Site Prometheus as
 swallow, through swallow, and sees only the Platform's own Servers. It always has a **Servers**
 dashboard (CPU, memory, root filesystem, network, and load per Server), plus the dashboards of the
-Platform's GPU or job monitoring. The Platform page links to it as **Platform Grafana**; anyone on
-the management network can view it without a login. Each deploy or redeploy gives it a new access
+Platform's GPU or job monitoring. The Platform page links to it as **Platform Grafana**, which
+opens its main dashboard directly: the Device Metrics Exporter's **Overview** or Omnistat's
+**Global - RMS** when the Platform has that monitoring, otherwise **Servers**. Anyone on the
+management network can view it without a login. Each deploy or redeploy gives it a new access
 credential, so a credential copied from an older deployment stops working.
 
 - **Slurm**: Grafana runs on the primary controller, at port 3000. It runs as a container by
   default; choose the native install method to install it from Grafana's apt/yum repository
   instead.
 - **Kubernetes**: Grafana runs in the cluster and is reached at port 30300 of every workload node;
-  the link names the first one. It keeps no data of its own, so it loses nothing when its Pod moves.
+  the link opens it on the first one. It keeps no data of its own, so it loses nothing when its Pod moves.
   When the AMD GPU Operator runs its Device Metrics Exporter, the Grafana adds the exporter's GPU
   dashboards. Uninstalling the Platform removes it with the cluster.
 
 Turning the Grafana on later redeploys the Platform; turning it off after deployment is not
 supported yet. A Platform deployed before this has the Grafana turned off: turn it on to redeploy
 the Platform with its Grafana. Until then a Slurm Platform keeps its own Prometheus and the Grafana
-link it had, and a Kubernetes Platform has no Grafana.
+link it had, and a Kubernetes Platform has no Grafana. A **Platform Grafana** link that still opens
+Grafana's home page switches to the main dashboard on the Platform's next deploy.
 
 ## GPU and job monitoring on Slurm
 
@@ -199,7 +202,7 @@ Monitoring Links are set with the Platform update API. With the CLI:
 # patch.yaml
 monitoringLinks:
   - name: Platform Grafana
-    url: http://10.0.0.11:3000
+    url: http://10.0.0.11:3000/d/edqnz7pce7togc-rms
   - name: Runbook
     url: https://wiki.example.internal/research-slurm
 ```

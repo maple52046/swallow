@@ -284,10 +284,13 @@
   delay: "{{ k0s_platform_grafana_wait_delay }}"
 
 - name: Report the Grafana URL to Swallow
+  # The link opens the requested bundles' landing dashboard at the address the waits above checked.
   ansible.builtin.copy:
     dest: "{{ swallow_result_path }}"
-    content: "{{ {'grafanaUrl': k0s_platform_grafana_url | trim} | to_json }}"
+    content: "{{ {'grafanaUrl': (k0s_platform_grafana_url | trim) ~ grafana_provisioning_landing_path} | to_json }}"
     mode: "0600"
+  vars:
+    grafana_provisioning_bundles: "{{ k0s_platform_grafana_bundles }}"
   delegate_to: localhost
   become: false
   changed_when: false

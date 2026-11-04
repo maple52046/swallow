@@ -19,7 +19,8 @@ import (
 
 // The Kubernetes Platform Grafana (monitoring.md §6.2) reads only its trusted variables and the
 // sealed token, keeps the token and the admin password in Secrets the chart only names, provisions
-// from the shared role, and reports its URL only once every dashboard is served at that address.
+// from the shared role, and reports its landing dashboard only once every dashboard is served at
+// the root of that address.
 func TestKubernetesPlatformGrafanaPlaybookHonoursTheContract(t *testing.T) {
 	role := filepath.Join("roles", "k0s_platform_grafana")
 	cases := []struct {
@@ -58,8 +59,8 @@ func TestKubernetesPlatformGrafanaPlaybookHonoursTheContract(t *testing.T) {
 				"--labels swallow-managed=true",
 				"--wait --timeout",
 				"(lookup('ansible.builtin.template', 'values.yaml.j2') | from_yaml)",
-				"/api/search?type=dash-db",
-				"{'grafanaUrl': k0s_platform_grafana_url | trim}",
+				"{{ k0s_platform_grafana_url | trim }}/api/health",
+				"{{ k0s_platform_grafana_url | trim }}/api/search?type=dash-db",
 			},
 		},
 		{
@@ -107,6 +108,9 @@ func TestKubernetesPlatformGrafanaPlaybookHonoursTheContract(t *testing.T) {
 			}
 		}
 	}
+
+	checkReportsTheLandingDashboard(t, shippedFile(t, filepath.Join(role, "tasks", "main.yml")),
+		"(k0s_platform_grafana_url | trim)", "k0s_platform_grafana_bundles")
 
 	// Every task that touches the token or the generated password hides its arguments and output.
 	tasks, err := os.ReadFile(shippedFile(t, filepath.Join(role, "tasks", "main.yml")))

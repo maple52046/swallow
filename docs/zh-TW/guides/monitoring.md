@@ -122,18 +122,20 @@ Backend 沒有該 metric 的資料時，圖表顯示「No data」——例如剛
 或在 Platform 的 settings 寫 `monitoringDashboards: false`）。CPU-only 的 Platform 也一樣。它和 swallow 讀同一套 Site 的
 Prometheus，經過 swallow 讀取，只看得到這個 Platform 自己的 Server。它一律有 **Servers** dashboard（每台 Server 的
 CPU、memory、root filesystem、network 與 load），再加上 Platform 的 GPU 或作業監控的 dashboards。Platform 頁面以
-**Platform Grafana** 連到它；管理網路上的人不必登入就能檢視。每次部署或重新部署都會給它新的存取憑證，從舊部署複製
-出來的憑證會失效。
+**Platform Grafana** 連到它，直接開啟主要的 dashboard：Platform 有 Device Metrics Exporter 或 Omnistat 監控時是
+Device Metrics Exporter 的 **Overview** 或 Omnistat 的 **Global - RMS**，否則是 **Servers**。管理網路上的人不必登入
+就能檢視。每次部署或重新部署都會給它新的存取憑證，從舊部署複製出來的憑證會失效。
 
 - **Slurm**：Grafana 在 primary controller 上，port 3000。預設以 container 執行；也可選擇 native 安裝方法，改由
   Grafana 的 apt／yum repository 安裝。
-- **Kubernetes**：Grafana 在叢集內，以每個 workload 節點的 port 30300 開放，連結指向第一個。它不保存自己的資料，
+- **Kubernetes**：Grafana 在叢集內，以每個 workload 節點的 port 30300 開放，連結開啟第一個節點上的 Grafana。它不保存自己的資料，
   Pod 換節點也不會遺失任何東西。AMD GPU Operator 執行它的 Device Metrics Exporter 時，Grafana 會加上 exporter 的 GPU
   dashboards。uninstall Platform 時隨叢集一起移除。
 
 之後才開啟 Grafana 會重新部署 Platform；部署後關閉目前還不支援。在這之前部署的 Platform，Grafana 是關閉的：開啟它，
 Platform 就會帶著 Grafana 重新部署。在那之前，Slurm Platform 保留它自己的 Prometheus 與原本的 Grafana 連結，Kubernetes
-Platform 則沒有 Grafana。
+Platform 則沒有 Grafana。仍開啟 Grafana 首頁的 **Platform Grafana** 連結，會在 Platform 下一次部署時改為開啟主要的
+dashboard。
 
 ## Slurm 的 GPU 與作業監控
 
@@ -167,7 +169,7 @@ Monitoring Link 透過 Platform update API 設定。使用 CLI：
 # patch.yaml
 monitoringLinks:
   - name: Platform Grafana
-    url: http://10.0.0.11:3000
+    url: http://10.0.0.11:3000/d/edqnz7pce7togc-rms
   - name: Runbook
     url: https://wiki.example.internal/research-slurm
 ```

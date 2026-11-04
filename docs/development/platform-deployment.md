@@ -378,8 +378,9 @@ Platform spec 的 `settings.monitoringDashboards`（desired，省略或 `null` �
   內容改變或不存在時套用。preflight：另一個 Service 已佔用 NodePort 30300 時以 `[platform_grafana_node_port_in_use]` 失敗。
   RHEL 家族的 workload 節點在 firewalld 啟用時（deploy-kubernetes 會啟用它）開啟 30300/tcp（runtime 與 permanent，不 reload）。
 - playbook 從 controller 對第一個 workload 成員的 `http://<ansible_host>:30300` 等到 `/api/health` 回應、匿名的
-  `/api/search` 看得到每個 dashboard，才把 `{grafanaUrl}` 寫進 result；`install-platform-grafana` 宣告
-  `platform-grafana-result`，寫入 Monitoring Link `Platform Grafana`。
+  `/api/search` 看得到每個 dashboard，才把 `{grafanaUrl}` 寫進 result：同一個位址加上首頁 dashboard 的 `/d/<uid>`
+  （`GPUMetrics` 時是 DME 的 Overview，否則是 Servers；選法見 [software-deployment.md](software-deployment.md) §2 的
+  首頁 dashboard）。`install-platform-grafana` 宣告 `platform-grafana-result`，寫入 Monitoring Link `Platform Grafana`。
 - 部署後開啟是非破壞性的（重跑 deploy 收斂），關閉尚未實作（`409`）。`uninstall-kubernetes` 的 `k0s reset` 隨叢集移除
   release 與 Secret，playbook 另外刪除 controller 上的 `/usr/local/lib/swallow/platform-grafana` 與 `/usr/local/lib/swallow/helm`；
   uninstall 完成時移除 swallow 寫的 Monitoring Link。
@@ -610,7 +611,7 @@ client/user **不可偽造**（user 只能提供非 `swallow_` 前綴的變數�
   | 變數 | 意義 |
   | --- | --- |
   | `swallow_k0s_grafana_controller_id` | 執行 helm 的 controller serverId（初始 controller） |
-  | `swallow_k0s_grafana_node_ids` | workload 成員的 serverId；Monitoring Link 以第一台的位址為準，firewalld 在它們上開 NodePort |
+  | `swallow_k0s_grafana_node_ids` | workload 成員的 serverId；Monitoring Link 開啟第一台位址上的首頁 dashboard，firewalld 在它們上開 NodePort |
   | `swallow_k0s_grafana_datasource_url` | Platform metrics 閘道的 URL |
   | `swallow_k0s_grafana_dashboards` | dashboard bundles（`node-exporter`，GPU Operator 的 `metricsExporter` 開啟時加上 `device-metrics-exporter`） |
 
@@ -1028,7 +1029,9 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `PersistDeployment`（受理的 transaction 內）以 `PlatformAccess.Issue` 發出，所以每次受理的 deploy 或重佈都輪替它、
   被拒的不動它；token 只以 sealed secret var `swallow_grafana_datasource_token` 交給 `install-grafana`，不進 trusted
   vars、Task 參數、log 或 Software Assignment 的 spec。`install-grafana` 宣告結果類完成行為 `platform-grafana-result`
-  （core 擁有），讀 role 在單一 Server 的 run 寫的 `{grafanaUrl}`，寫入 Monitoring Link `Platform Grafana`，並移除
+  （core 擁有），讀 role 在單一 Server 的 run 寫的 `{grafanaUrl}`（`http://<primary address>:3000` 加上首頁 dashboard
+  的 `/d/<uid>`：Omnistat 或 DME 的 overview，沒有監控功能時是 Servers，選法見
+  [software-deployment.md](software-deployment.md) §2 的首頁 dashboard），寫入 Monitoring Link `Platform Grafana`，並移除
   swallow 先前替同一個 Grafana 寫的 `Omnistat Grafana`、`Device Metrics Exporter Grafana`；uninstall 完成時移除這三個
   名稱（名單由 composition root 交給 `PlatformService`）。部署後開啟是非破壞性的（重跑 deploy 收斂），關閉尚未實作
   （`409`）。installation 沒有 `SWALLOW_API_PUBLIC_URL` 時，launcher 在規劃時以 `ErrMonitoringEndpointMissing` 拒絕
@@ -1086,8 +1089,9 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
 
   `install-omnistat` 宣告投影類完成行為 `omnistat-state`，把狀態投影成 Omnistat State（fence＝record id）。
   結果類完成行為 `omnistat-result` 仍登錄，讓仍宣告它的 Task 能完成：它和 `platform-grafana-result` 一樣寫入
-  `Platform Grafana`。完成行為由 launcher 宣告在各 Task 上（只有 `install-platform` 宣告 `slurm-credential`，產
-  slurmrestd credential），不再依 Workflow kind 或 Task id 分流（decision 072）。uninstall 移除 exporter、overlay、
+  `Platform Grafana`，但 `configure-omnistat` 回報的是 Grafana 的位址，不是首頁 dashboard。完成行為由 launcher
+  宣告在各 Task 上（只有 `install-platform` 宣告 `slurm-credential`，產 slurmrestd credential），不再依 Workflow
+  kind 或 Task id 分流（decision 072）。uninstall 移除 exporter、overlay、
   dispatcher 與 hook、DME 套件與設定、OCI 與 PMIx 的 swallow 產物、Slurm 的 amdgpu loader 與 udev 規則，state →
   `absent` 並移除 swallow 寫的 Monitoring Link；成功時把該 Platform 各 Server 的 `device-metrics-exporter` assignment
   標為 `absent`（`CompleteUninstall`，於釋放 claim 之前讀出 claimed Servers）；container runtime、Grafana（以及先前組入的

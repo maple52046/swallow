@@ -246,8 +246,9 @@ const platforms = [
     },
     gpuStackOwner: 'gpu-operator',
     // Mirrors platforms.md "Platform Monitoring Dashboards": a Kubernetes Platform's Grafana is linked
-    // at node port 30300 of its first workload node.
-    monitoringLinks: [{ name: 'Platform Grafana', url: 'http://192.168.40.21:30300' }],
+    // at node port 30300 of its first workload node, on its landing dashboard (Servers, since the GPU
+    // Operator's metricsExporter is off).
+    monitoringLinks: [{ name: 'Platform Grafana', url: 'http://192.168.40.21:30300/d/swallow-node-exporter' }],
     gpuOperator: {
       enabled: true, version: 'v1.5.1', allocationMode: 'device-plugin', draDriverVersion: null,
       resourceNaming: 'single', nodeLabeller: true, metricsExporter: false,
@@ -275,7 +276,7 @@ const platforms = [
     integrationId: 'slurm-a', origin: 'registered', lifecycleState: 'registered',
     lifecycleOperationId: null, deployment: null,
     gpuStackOwner: 'provisioning', gpuOperator: null,
-    monitoringLinks: [{ name: 'Platform Grafana', url: 'http://10.0.0.11:3000' }],
+    monitoringLinks: [{ name: 'Platform Grafana', url: 'http://10.0.0.11:3000/d/edqnz7pce7togc-rms' }],
     omnistat: {
       enabled: true, version: '1.15.0', installMethod: 'container', observabilityServerId: 'srv-1', state: 'ready',
       lastWorkflowId: 'op-slurm-omnistat', updatedAt: now,
@@ -1456,7 +1457,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     ...(options.slurmDeviceMetricsExporter && platform.id === 'platform-slurm'
       ? {
           omnistat: null,
-          monitoringLinks: [{ name: 'Platform Grafana', url: 'http://10.0.0.21:3000' }],
+          monitoringLinks: [{ name: 'Platform Grafana', url: 'http://10.0.0.21:3000/d/fe0ayyeeoxvy8f' }],
           deviceMetricsExporter: {
             enabled: true, version: '1.5.3', installMethod: 'native', observabilityServerId: 'srv-1',
             state: 'ready', gpuIdentity: 'collapsed', lastWorkflowId: 'op-slurm-dme', updatedAt: now,

@@ -8,9 +8,9 @@
 #   swallow_k0s_grafana_datasource_url the Platform metrics gateway URL
 #   swallow_k0s_grafana_dashboards     the dashboard bundles to provision
 # and, as a secret var, swallow_grafana_datasource_token: the Platform's monitoring token. The
-# inventory is the Platform's deployment targets. The run writes {grafanaUrl} to its result file
-# once Grafana serves every provisioned dashboard. Idempotent: a converged cluster reruns with no
-# changes.
+# inventory is the Platform's deployment targets. The run writes {grafanaUrl}, the requested
+# bundles' landing dashboard, to its result file once Grafana serves every provisioned dashboard.
+# Idempotent: a converged cluster reruns with no changes.
 
 - name: Read every target
   hosts: all

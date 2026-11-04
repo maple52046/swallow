@@ -730,7 +730,7 @@ test.describe('user interactions', () => {
     await expect(exporter).toContainText('Ready')
     await expect(exporter).toContainText('installed natively')
     await expect(exporter.getByText('GPU identity collapsed')).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Platform Grafana' })).toHaveAttribute('href', 'http://10.0.0.21:3000')
+    await expect(page.getByRole('link', { name: 'Platform Grafana' })).toHaveAttribute('href', 'http://10.0.0.21:3000/d/fe0ayyeeoxvy8f')
     await expect(page.getByText('OpenMPI with srun --mpi=pmix_v5', { exact: true })).toBeVisible()
   })
 

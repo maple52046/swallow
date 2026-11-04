@@ -133,11 +133,14 @@
 
     - name: Report the Grafana URL to Swallow
       # A run's result file holds one URL, so only a run on one Server reports it; a Platform's own
-      # Grafana always is. It is written once every provisioned dashboard is served.
+      # Grafana always is. It is written once every provisioned dashboard is served, and opens the
+      # requested bundles' landing dashboard, or the root when there is none.
       ansible.builtin.copy:
         dest: "{{ swallow_result_path }}"
-        content: "{{ {'grafanaUrl': grafana_url} | to_json }}"
+        content: "{{ {'grafanaUrl': grafana_url ~ grafana_provisioning_landing_path} | to_json }}"
         mode: "0600"
+      vars:
+        grafana_provisioning_bundles: "{{ grafana_dashboards }}"
       delegate_to: localhost
       become: false
       changed_when: false
