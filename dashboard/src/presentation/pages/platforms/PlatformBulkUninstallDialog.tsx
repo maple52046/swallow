@@ -23,10 +23,11 @@ interface PlatformBulkUninstallDialogProps {
   eligibility: PlatformUninstallEligibility
   onClose: () => void
   /**
-   * Called with the ids whose request was accepted once at least one was, so the page reloads and
-   * keeps only skipped and failed Platforms selected for a follow-up action.
+   * Called with the accepted outcomes once at least one request was accepted. Each carries the
+   * Change Plan it proposed, if any, so the page can follow the plans to Change Plans, or else
+   * reload and keep only skipped and failed Platforms selected for a follow-up action.
    */
-  onDone: (acceptedIds: readonly string[]) => void
+  onDone: (accepted: readonly PlatformBulkOutcome[]) => void
 }
 
 /**
@@ -82,7 +83,7 @@ export function PlatformBulkUninstallDialog({ eligibility, onClose, onDone }: Pl
       setFailures(outcomes)
       return
     }
-    onDone(accepted.map((outcome) => outcome.platformId))
+    onDone(accepted)
   }
 
   const consequence = platformUninstallConsequence(releaseServers, 'bulk')

@@ -1553,7 +1553,11 @@ test.describe('user interactions', () => {
     await expect(dialog).toBeHidden()
     expect(uninstalls).toEqual([{ platformId: 'platform-b', body: expect.objectContaining({ releaseServers: false, cancelActiveWorkflows: true }) }])
     expect(uninstalls[0].body).not.toHaveProperty('deleteRecord')
+    // Nothing changes until the plan is approved, so the list goes on to Change Plans like the
+    // Platform page's Uninstall does.
+    await expect(page).toHaveURL('/change-plans?site=site-a')
     await expect(page.getByText('Bulk uninstall proposed')).toBeVisible()
+    await expect(page.getByRole('article', { name: 'Change Plan for Platform edge-staging' })).toBeVisible()
   })
 
   test('Bulk removal of a mixed selection uninstalls the eligible Platforms and deletes records separately', async ({ page }) => {
@@ -1594,12 +1598,13 @@ test.describe('user interactions', () => {
     await expect(dialog).toBeHidden()
     expect(uninstalls).toEqual([{ platformId: 'platform-b', body: expect.objectContaining({ cancelActiveWorkflows: true }) }])
     expect(deletes).toEqual([])
+    await expect(page).toHaveURL('/change-plans?site=site-a')
     await expect(page.getByText('Bulk uninstall proposed')).toBeVisible()
 
-    // The accepted Platform left the selection; the skipped one stays for a follow-up Delete,
-    // which is now the only removal left, so it is a single button without a chevron.
-    await expect(table.getByLabel('Select research-slurm')).toBeChecked()
-    await expect(table.getByLabel('Select edge-staging')).not.toBeChecked()
+    // Back on the list, the skipped Platform takes the follow-up Delete, which is now the only
+    // removal its selection offers, so it is a single button without a chevron.
+    await page.goto('/platforms?site=site-a')
+    await table.getByLabel('Select research-slurm').locator('..').click()
     await expect(page.getByRole('button', { name: 'More removal options' })).toHaveCount(0)
     await page.getByRole('button', { name: 'Delete selected', exact: true }).click()
     await expect(deleteDialog.getByRole('list', { name: 'Platform records to delete' })).toHaveText('research-slurm')

@@ -183,22 +183,36 @@ export const PLATFORM_BULK_RECORD_DELETE_CONSEQUENCE: PlatformRemovalConsequence
 }
 
 /**
- * Toast title and description after every bulk uninstall was proposed, or the partial-failure
- * title when some were refused. Each platform gets its own Change Plan.
+ * Toast title and description after a bulk uninstall, or the partial-failure title when some
+ * requests were refused. `proposed` Platforms each got their own Change Plan; `deletedAtOnce`
+ * Platforms had an install that was never approved, so the API deleted them without a plan and no
+ * host changed. The copy names only what happened, so a run that proposed no plan does not send
+ * the user to approve one.
  */
-export function platformBulkUninstallToast(choice: PlatformUninstallChoice, accepted: number): { title: string; partialTitle: string; description: string } {
-  const plans = plural(accepted, 'Change Plan')
-  return choice.releaseServers
+export function platformBulkUninstallToast(
+  choice: PlatformUninstallChoice,
+  proposed: number,
+  deletedAtOnce: number,
+): { title: string; partialTitle: string; description: string } {
+  const deletedNote = deletedAtOnce > 0
+    ? `${deletedAtOnce} ${plural(deletedAtOnce, 'Platform')} whose install was never approved ${deletedAtOnce === 1 ? 'was' : 'were'} deleted at once; no host was changed.`
+    : ''
+  if (proposed === 0) {
+    return { title: 'Platforms deleted', partialTitle: 'Platforms partially deleted', description: deletedNote }
+  }
+  const plans = plural(proposed, 'Change Plan')
+  const proposal = choice.releaseServers
     ? {
         title: 'Bulk server release proposed',
         partialTitle: 'Bulk server release partially proposed',
-        description: `${accepted} ${plans} proposed. Approve each in Change Plans to release its servers; each record is deleted after its release succeeds.`,
+        description: `${proposed} ${plans} proposed. Approve each in Change Plans to release its servers; each record is deleted after its release succeeds.`,
       }
     : {
         title: 'Bulk uninstall proposed',
         partialTitle: 'Bulk uninstall partially proposed',
-        description: `${accepted} ${plans} proposed. Approve each in Change Plans to remove its platform software; each record is deleted after its uninstall succeeds.`,
+        description: `${proposed} ${plans} proposed. Approve each in Change Plans to remove its platform software; each record is deleted after its uninstall succeeds.`,
       }
+  return deletedNote ? { ...proposal, description: `${proposal.description} ${deletedNote}` } : proposal
 }
 
 /** Toast copy after a bulk record-only Delete with `accepted` removed records. */

@@ -27,6 +27,7 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
 import { PlatformBulkDeleteDialog } from './PlatformBulkDeleteDialog'
 import { PlatformBulkUninstallDialog } from './PlatformBulkUninstallDialog'
+import type { PlatformBulkOutcome } from './usePlatformBulkActions'
 import { PlatformLifecycleBadge } from './PlatformLifecycleBadge'
 import { PlatformRemovalSplitButton } from './PlatformRemovalSplitButton'
 import { usePlatforms } from './usePlatforms'
@@ -402,6 +403,16 @@ export function PlatformsPage() {
     updateSelection((current) => new Set([...current].filter((id) => !acceptedIds.includes(id))))
     reload()
   }
+  // An uninstall that proposed a Change Plan goes on to Change Plans, as the Platform page's
+  // Uninstall does, because nothing changes until the plan is approved. One that only deleted
+  // never-approved Platforms has nothing to approve, so the list stays.
+  const onBulkUninstallDone = (accepted: readonly PlatformBulkOutcome[]) => {
+    if (accepted.some((outcome) => outcome.planId)) {
+      navigate(scopedHref('/change-plans'))
+      return
+    }
+    onBulkDone(accepted.map((outcome) => outcome.platformId))
+  }
 
   return (
     <div className="console-page sw-platforms-page">
@@ -611,7 +622,7 @@ export function PlatformsPage() {
       )}
 
       {bulkDialog === 'uninstall' && (
-        <PlatformBulkUninstallDialog eligibility={uninstallEligibility} onClose={() => setBulkDialog(null)} onDone={onBulkDone} />
+        <PlatformBulkUninstallDialog eligibility={uninstallEligibility} onClose={() => setBulkDialog(null)} onDone={onBulkUninstallDone} />
       )}
       {bulkDialog === 'delete' && (
         <PlatformBulkDeleteDialog platforms={selectedPlatforms} onClose={() => setBulkDialog(null)} onDone={onBulkDone} />
