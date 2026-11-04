@@ -1034,26 +1034,31 @@ test.describe('user interactions', () => {
     await expect(page.getByText(/Kubernetes/)).toHaveCount(0)
   })
 
-  test('Platform detail keeps configuration inside Overview and Activity separate', async ({ page }) => {
+  test('Platform detail keeps its details inside Overview and Activity separate', async ({ page }) => {
     await page.goto('/platforms/platform-a?site=site-a')
 
     const tabList = page.getByRole('tablist')
-    const configuration = page.getByRole('heading', { name: 'Configuration', exact: true })
+    const details = page.getByRole('heading', { name: 'Platform details', exact: true })
     await expect(tabList).toBeVisible()
-    await expect(configuration).toBeVisible()
+    await expect(details).toBeVisible()
+    // The details card leads the Overview content, before the module's summary and members.
+    await expect(page.getByRole('heading', { name: 'Members', exact: true })).toBeVisible()
 
     const tabBounds = await tabList.boundingBox()
-    const configurationBounds = await configuration.boundingBox()
+    const detailsBounds = await details.boundingBox()
+    const membersBounds = await page.getByRole('heading', { name: 'Members', exact: true }).boundingBox()
     expect(tabBounds).not.toBeNull()
-    expect(configurationBounds).not.toBeNull()
-    expect(tabBounds!.y).toBeLessThan(configurationBounds!.y)
+    expect(detailsBounds).not.toBeNull()
+    expect(membersBounds).not.toBeNull()
+    expect(tabBounds!.y).toBeLessThan(detailsBounds!.y)
+    expect(detailsBounds!.y).toBeLessThan(membersBounds!.y)
 
     await page.getByRole('tab', { name: 'Activity' }).click()
-    await expect(configuration).toBeHidden()
+    await expect(details).toBeHidden()
     await expect(page.getByRole('heading', { name: 'Related workflows', exact: true })).toBeVisible()
 
     await page.getByRole('tab', { name: 'Overview' }).click()
-    await expect(configuration).toBeVisible()
+    await expect(details).toBeVisible()
 
     await page.setViewportSize({ width: 390, height: 844 })
     const memberCard = page.locator('.sw-resource-card').filter({ hasText: 'gpu-node-01' })
@@ -2288,7 +2293,8 @@ test.describe('user interactions', () => {
     await expect(page.getByRole('tab', { name: 'Sites' })).toHaveAttribute('aria-selected', 'true')
     const taipei = page.getByRole('row', { name: /Taipei Lab/ })
     await expect(taipei).toContainText('Primary accelerator lab')
-    await expect(taipei.getByRole('cell', { name: '2', exact: true })).toBeVisible()
+    // MAAS Taipei, Prometheus Taipei, and the credential Integration production-k0s's deployment created.
+    await expect(taipei.getByRole('cell', { name: '3', exact: true })).toBeVisible()
     await taipei.getByRole('button', { name: 'Delete' }).click()
     await page.getByLabel('Site name confirmation').fill('Taipei Lab')
     await page.getByRole('alertdialog').getByRole('button', { name: 'Delete site' }).click()

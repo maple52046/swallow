@@ -173,6 +173,28 @@ root filesystem.
 Platform detail reads live Slurm state through the Platform API and correlates
 nodes back to Server IDs.
 
+## Platform details
+
+A Platform's **Overview** opens, below any lifecycle notice, with **Platform details**:
+
+- **General**: type, lifecycle, Site, when the Platform was created, and when its last
+  successful deployment finished, with **View deployment workflow** to open that Workflow
+  (**Not deployed yet** before the first one). **Spec state** says whether the current spec
+  generation is applied, converging, waiting for its Change Plan's approval, or failed, and
+  names any drift.
+- **Deployment**: topology, the number of member Servers, and how their OS was prepared:
+  **Provision OS** with its image and deploy mode, or **Existing OS**.
+- **Kubernetes**: the k0s version, the Pod and Service CIDRs, and the API endpoint (the
+  virtual IP of a high-availability Platform, otherwise the direct control-plane endpoint).
+- **Slurm**: the cluster name, the slurmrestd API version, the container runtime, and MPI. The
+  container runtime includes the engine a containerized Platform Grafana put on the primary
+  controller (Docker CE when no engine was chosen for the compute nodes).
+- **Integration and GPU**: the Platform's Integration, the GPU stack owner, and the GRES type
+  and GPU driver options when you set them.
+
+The facts describe the applied spec; a newer spec that is not applied yet shows in
+**Spec state**.
+
 ## Lifecycle
 
 - **Sync** refreshes observed Platform membership/state.

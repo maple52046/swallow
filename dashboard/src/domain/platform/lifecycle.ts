@@ -1,3 +1,4 @@
+import { operationStatus, type Operation } from '@/domain/operation/types'
 import type { Platform, PlatformLifecycleState } from './types'
 
 const LABELS: Record<PlatformLifecycleState, string> = {
@@ -22,6 +23,50 @@ export function platformLifecycleLabel(state: PlatformLifecycleState): string {
  */
 export function isPlatformLifecycleInProgress(state: PlatformLifecycleState): boolean {
   return state === 'deploying' || state === 'uninstalling'
+}
+
+/**
+ * The Workflow kinds that deploy a Platform: platforms.md ("Platform Resource") derives a Platform's
+ * `deployment` projection and lifecycle from its `deploy-kubernetes` or `configure-slurm` Workflows.
+ * Uninstall, GPU Operator, and other Workflows that name the Platform are not deployments.
+ */
+const PLATFORM_DEPLOYMENT_WORKFLOW_KINDS: ReadonlySet<string> = new Set(['deploy-kubernetes', 'configure-slurm'])
+
+/** Whether a Workflow deploys (or redeploys) a Platform, whatever the Platform's type. */
+export function isPlatformDeploymentWorkflow(operation: Operation): boolean {
+  return PLATFORM_DEPLOYMENT_WORKFLOW_KINDS.has(operation.kind)
+}
+
+/**
+ * When a Workflow ended: its own `finishedAt`, else the compatibility `execution.finishedAt` that
+ * every Workflow response carries (workflows.md "Response"); null while it runs.
+ */
+export function workflowFinishedAt(operation: Operation): string | null {
+  return operation.finishedAt ?? operation.execution.finishedAt ?? null
+}
+
+/**
+ * The Platform's last successful deployment: the `succeeded` deployment Workflow that finished
+ * last among `operations`, or undefined when none did.
+ *
+ * It sees only the Workflows it is given (the Platform detail page loads one page of related
+ * Workflows), so undefined means "none among these", not proof that the Platform was never
+ * deployed; a caller decides how to word that from the Platform's lifecycle. A succeeded Workflow
+ * without a finish time sorts before every timed one.
+ */
+export function latestSucceededDeployment(operations: readonly Operation[]): Operation | undefined {
+  let latest: Operation | undefined
+  let latestFinishedAt = Number.NEGATIVE_INFINITY
+  for (const operation of operations) {
+    if (!isPlatformDeploymentWorkflow(operation) || operationStatus(operation) !== 'succeeded') continue
+    const finishedAt = Date.parse(workflowFinishedAt(operation) ?? '')
+    const time = Number.isNaN(finishedAt) ? Number.NEGATIVE_INFINITY : finishedAt
+    if (!latest || time > latestFinishedAt) {
+      latest = operation
+      latestFinishedAt = time
+    }
+  }
+  return latest
 }
 
 /** Shared semantic status family for lifecycle labels. */

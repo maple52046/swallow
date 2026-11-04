@@ -8,6 +8,7 @@ export type {
   PlatformDeployFeature,
   PlatformDeployFeatureContext,
   PlatformDeployFeatureContribution,
+  PlatformFact,
   PlatformModuleUI,
 } from './types'
 

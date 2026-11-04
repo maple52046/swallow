@@ -23,6 +23,7 @@ const visualCases = [
   { name: 'monitoring-pool-charts', path: '/monitoring?site=site-a&chartScope=pool&chartScopeId=pool-research', heading: 'Monitoring', authenticated: true, representative: false },
   { name: 'server-monitoring', path: '/servers/srv-1/monitoring?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'platform-detail-slurm', path: '/platforms/platform-slurm?site=site-a', heading: 'research-slurm', authenticated: true, representative: false },
+  { name: 'platform-detail-slurm-deployed', path: '/platforms/platform-slurm-ha?site=site-a', heading: 'lab-slurm-ha', authenticated: true, representative: false },
   { name: 'server-detail', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: true },
   { name: 'server-detail-vm-power', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
   { name: 'server-detail-vm-boot-media', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
@@ -181,6 +182,10 @@ test.describe('dashboard visual review', () => {
         ...(visualCase.name === 'workflow-list' ? { controllerWorkflow: 'succeeded' as const } : {}),
         // A deployed Slurm Platform with controller-only nodes, counted as members.
         ...(visualCase.name === 'platform-list' ? { slurmDeployed: true } : {}),
+        // Platform details name the last deployment, so the deployed Platforms get their succeeded
+        // deployment Workflows; the HA Slurm Platform's container Grafana brought Docker CE.
+        ...(visualCase.name === 'platform-detail' ? { platformDeploymentWorkflows: true } : {}),
+        ...(visualCase.name === 'platform-detail-slurm-deployed' ? { slurmDeployed: true, platformDeploymentWorkflows: true } : {}),
       })
       await setAppearance(page, appearance)
       // The release view of basic monitoring: alerts are the one monitoring surface still in
@@ -270,19 +275,23 @@ test.describe('dashboard visual review', () => {
         })
       }
       // Usage charts are long on a phone; one viewport from the section's top shows the header,
-      // window picker, scope pickers, and the first charts at their real scale.
+      // window picker, scope pickers, and the first charts at their real scale. The Platform details
+      // card is clipped whole instead, so every group can be read at its real scale.
+      const detailsCard = visualCase.name === 'platform-detail' || visualCase.name === 'platform-detail-slurm-deployed'
       const crop = visualCase.name === 'server-monitoring' || visualCase.name === 'monitoring-pool-charts'
         ? page.locator('.sw-usage-charts')
         : visualCase.name === 'platform-detail-slurm'
           ? page.locator('section.sw-section').filter({ has: page.getByRole('heading', { name: 'Monitoring', exact: true }) })
-          : null
+          : detailsCard
+            ? page.getByRole('region', { name: 'Platform details' })
+            : null
       if (crop) {
         const box = await crop.boundingBox()
         const viewport = page.viewportSize()
         if (box && viewport) {
           await page.screenshot({
             path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
-            fullPage: true, clip: { x: 0, y: box.y, width: viewport.width, height: Math.min(box.height, viewport.height) },
+            fullPage: true, clip: { x: 0, y: box.y, width: viewport.width, height: detailsCard ? box.height : Math.min(box.height, viewport.height) },
           })
         }
       }

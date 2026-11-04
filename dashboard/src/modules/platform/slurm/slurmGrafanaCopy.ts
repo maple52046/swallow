@@ -7,7 +7,8 @@ export function slurmContainerRuntimeLabel(runtime: SlurmContainerRuntime): stri
 
 /**
  * Copy for the Platform Grafana's `container` install method, shared by the Slurm Features card and
- * the review card so both name the same host change.
+ * the review card so both name the same host change (`platformGrafanaContainerHostFact` states it
+ * once the Platform is deployed).
  *
  * Per platforms.md ("Platform Monitoring Dashboards"), that method first puts a container runtime on
  * the primary controller: the container engine the deploy requests (`engine`, what the request's
@@ -30,4 +31,17 @@ export function platformGrafanaContainerCopy(
     option: `Run Grafana in a container on ${primaryControllerName}, installing Docker CE there unless it already has a container engine.`,
     review: `In a container on ${primaryControllerName}, which gets Docker CE to run it unless it already has a container engine`,
   }
+}
+
+/**
+ * The Platform details card's counterpart of `platformGrafanaContainerCopy`, in the past tense: the
+ * container engine a deployed Slurm Platform's container Grafana put on its primary controller.
+ * `engine` is the Platform's recorded `containerRuntime`; without one the deployment brought Docker
+ * CE, unless the Server already had an engine, which the Platform record cannot tell, so the
+ * wording keeps that case open exactly as the wizard does.
+ */
+export function platformGrafanaContainerHostFact(engine: SlurmContainerRuntime | null): string {
+  return engine
+    ? `${slurmContainerRuntimeLabel(engine)} on the primary controller for the Platform Grafana`
+    : 'Docker CE on the primary controller for the Platform Grafana, unless it already had a container engine'
 }

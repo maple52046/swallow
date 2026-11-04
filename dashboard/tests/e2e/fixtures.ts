@@ -297,6 +297,10 @@ const integrations = [
   { id: 'maas-a', siteId: 'site-a', kind: 'provisioner', providerKind: 'maas', name: 'MAAS Taipei', endpoint: 'https://maas.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now },
   { id: 'maas-b', siteId: 'site-b', kind: 'provisioner', providerKind: 'maas', name: 'MAAS Edge', endpoint: 'https://maas-edge.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now },
   { id: 'prom-a', siteId: 'site-a', kind: 'metrics', providerKind: 'prometheus', name: 'Prometheus Taipei', endpoint: 'https://prom.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: 'Alertmanager timeout' }, createdAt: now, updatedAt: now },
+  // The credential Integration a successful deployment of production-k0s created (sites-integrations.md,
+  // kind `platform`). research-slurm's legacy reader Integration `slurm-a` is deliberately absent, so
+  // its Platform page shows the Integration id it cannot resolve.
+  { id: 'k8s-a', siteId: 'site-a', kind: 'platform', providerKind: 'kubernetes', name: 'production-k0s (deployed)', endpoint: 'https://192.168.40.200:6443', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: '2026-08-10T00:42:00Z', updatedAt: now },
 ]
 /** The provider-observed facts and swallow metadata of one fixture OS image catalog entry. */
 export interface CatalogImageFixture {
@@ -464,8 +468,11 @@ export interface FixtureOptions {
   inspectionRequiredServerIds?: string[]
   /** Called for every per-Server provisioner action POST (inspect, power-on, lock, ...). */
   onServerActionRequest?: (serverId: string, action: string) => void
-  /** Overrides a seeded Platform's lifecycle state by id, e.g. `{ 'platform-a': 'deploying' }`. */
-  platformLifecycleStates?: Record<string, 'deploying' | 'uninstalling' | 'active' | 'deploy_failed' | 'uninstall_failed' | 'uninstalled'>
+  /**
+   * Overrides a seeded Platform's lifecycle state by id, e.g. `{ 'platform-a': 'deploying' }`; its
+   * status follows (`fixturePlatformStatus`), so `planned` awaits approval with nothing applied.
+   */
+  platformLifecycleStates?: Record<string, 'planned' | 'deploying' | 'uninstalling' | 'active' | 'deploy_failed' | 'uninstall_failed' | 'uninstalled'>
   /** Removes platform-a's seeded GPU Operator, modelling a Platform that never had one. */
   withoutPlatformGPUOperator?: boolean
   /**
@@ -587,6 +594,13 @@ export interface FixtureOptions {
    * managers and the controller merge in the member list. Opt-in so other tests are unaffected.
    */
   slurmDeployed?: boolean
+  /**
+   * Seeds the succeeded deployment Workflow of each deployed Platform: production-k0s's
+   * `deploy-kubernetes` (op-k0s-deploy), and with `slurmDeployed` lab-slurm-ha's `configure-slurm`
+   * (op-slurm-ha-deploy), so the Platform details card can name and link the last deployment.
+   * Opt-in because the Workflow list and Server Activity tests count the seeded Workflows.
+   */
+  platformDeploymentWorkflows?: boolean
   /**
    * Docker CE Software Assignments by serverId (decision 043): `enabled` records `enableApi: true`
    * and serves the Docker Host Explorer routes; `disabled` models an installation without the API
@@ -746,10 +760,28 @@ const defaultVirtualMachines: Record<string, VirtualMachineFixture[]> = {
 }
 
 /**
+ * The type settings and OS preparation a seeded Platform's spec carries beyond its k0s version
+ * (platforms.md "Create A Platform"), keyed by Platform id. production-k0s is HA behind a virtual IP
+ * with a custom Pod range and the default Service range, provisioned to disk; lab-slurm-ha pins its
+ * cluster name and slurmrestd version, provisioned to RAM. Other Platforms keep the bare settings.
+ */
+const fixturePlatformSpecExtras: Record<string, { settings: Record<string, unknown>; machinePreparation: Record<string, unknown> }> = {
+  'platform-a': {
+    settings: { podCidr: '10.32.0.0/16', apiVip: '192.168.40.200', apiVipPrefix: 24 },
+    machinePreparation: { mode: 'provision_os', settings: { imageId: 'ubuntu/noble', deployTarget: 'disk' }, userData: { mode: 'inherit' }, network: { mode: 'automatic' } },
+  },
+  'platform-slurm-ha': {
+    settings: { slurm: { clusterName: 'lab-ha', apiVersion: 'v0.0.42', pmix: true }, monitoringDashboards: true, omnistat: { enabled: true, installMethod: 'container' } },
+    machinePreparation: { mode: 'provision_os', settings: { imageId: 'ubuntu-24.04-rocm', deployTarget: 'ram' }, userData: { mode: 'inherit' }, network: { mode: 'automatic' } },
+  },
+}
+
+/**
  * The spec a fixture Platform reads with (platforms.md "Spec and status"): its role assignments as
- * members, a k0s version, and its GPU Operator settings.
+ * members, a k0s version, its GPU Operator settings, and its `fixturePlatformSpecExtras`.
  */
 function fixturePlatformSpec(platform: {
+  id: string
   type: string
   lifecycleState: string
   deployment: { roleAssignments: Array<{ serverId: string; role: string; runWorkloads?: boolean }> } | null
@@ -759,7 +791,11 @@ function fixturePlatformSpec(platform: {
     serverId: assignment.serverId,
     roles: assignment.role === 'control-plane' ? ['control-plane', ...(assignment.runWorkloads ? ['workloads'] : [])] : ['worker'],
   }))
-  const settings: Record<string, unknown> = platform.type === 'kubernetes' ? { k0sVersion: 'v1.36.3+k0s.2' } : { slurm: {} }
+  const extras = fixturePlatformSpecExtras[platform.id]
+  const settings: Record<string, unknown> = {
+    ...(platform.type === 'kubernetes' ? { k0sVersion: 'v1.36.3+k0s.2' } : { slurm: {} }),
+    ...structuredClone(extras?.settings ?? {}),
+  }
   const operator = platform.gpuOperator
   if (operator && operator.enabled) {
     settings.gpuOperator = {
@@ -767,7 +803,40 @@ function fixturePlatformSpec(platform: {
       nodeLabeller: operator.nodeLabeller, metricsExporter: operator.metricsExporter,
     }
   }
-  return { desired: platform.lifecycleState === 'uninstalled' ? 'absent' : 'present', members, settings, machinePreparation: null, removal: null }
+  return {
+    desired: platform.lifecycleState === 'uninstalled' ? 'absent' : 'present', members, settings,
+    machinePreparation: extras ? structuredClone(extras.machinePreparation) : null, removal: null,
+  }
+}
+
+/** A Platform's shared `realized` and `drifted` Conditions (platforms.md "Spec And Status") at `generation`. */
+function platformConditions(realized: 'converged' | 'awaiting_approval' | 'converging' | 'failed', generation: number, message = '') {
+  const condition = (type: string, status: 'true' | 'false', reason: string, text = '') =>
+    ({ type, status, reason, message: text, lastTransitionTime: now, observedGeneration: generation })
+  return [
+    condition('realized', realized === 'converged' ? 'true' : 'false', realized, message),
+    condition('drifted', 'false', 'in_sync'),
+  ]
+}
+
+/**
+ * The status a seeded Platform's lifecycle implies at generation 1: nothing applied while its install
+ * waits on its Change Plan, runs, or failed (with the matching `realized` reason), and the spec
+ * applied once it was deployed.
+ */
+function fixturePlatformStatus(lifecycleState: string, spec: ReturnType<typeof fixturePlatformSpec>) {
+  const pending = (reason: 'awaiting_approval' | 'converging' | 'failed', message: string) =>
+    ({ observedGeneration: 0, conditions: platformConditions(reason, 1, message), applied: null, realizingWorkflowId: null })
+  switch (lifecycleState) {
+    case 'planned':
+      return pending('awaiting_approval', 'The install waits for its Change Plan to be approved.')
+    case 'deploying':
+      return pending('converging', 'A deployment Workflow carries out generation 1.')
+    case 'deploy_failed':
+      return pending('failed', 'The deployment Workflow failed.')
+    default:
+      return { observedGeneration: 1, conditions: platformConditions('converged', 1), applied: spec, realizingWorkflowId: null }
+  }
 }
 
 /** The legacy deploy-shaped body a spec create stands for, which the mock's creation code reads. */
@@ -1510,7 +1579,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       : {}),
   })).map((platform) => {
     const spec = fixturePlatformSpec(platform)
-    return { ...platform, generation: 1, spec, status: { observedGeneration: 1, conditions: [], applied: spec, realizingWorkflowId: null } }
+    return { ...platform, generation: 1, spec, status: fixturePlatformStatus(platform.lifecycleState, spec) }
   })
   if (options.slurmDeployed) {
     // Controller-only nodes carry no membership (they are not slurmd scheduler nodes); compute
@@ -1542,7 +1611,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       makeSlurmNode('slurm-cpt-1', 'slurm-cpt-01', 21, true),
       makeSlurmNode('slurm-cpt-2', 'slurm-cpt-02', 22, true),
     )
-    platformItems.push({
+    // Deployed with Omnistat, whose `container` install method runs the Platform Grafana in a
+    // container on the primary controller; no container engine was chosen for the compute nodes, so
+    // that Grafana brought Docker CE (platforms.md "Platform Monitoring Dashboards"). MPI is set up.
+    const slurmHa = {
       id: 'platform-slurm-ha', siteId: 'site-a', name: 'lab-slurm-ha', type: 'slurm',
       integrationId: 'slurm-ha', origin: 'deployed', lifecycleState: 'active',
       lifecycleOperationId: 'op-slurm-ha-deploy',
@@ -1555,9 +1627,22 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           { serverId: 'slurm-cpt-2', role: 'worker', runWorkloads: false },
         ],
       },
-      gpuStackOwner: 'provisioning', monitoringLinks: [], gpuOperator: null,
+      gpuStackOwner: 'provisioning', gpuOperator: null,
+      monitoringLinks: [{ name: 'Platform Grafana', url: 'http://192.168.60.11:3000/d/edqnz7pce7togc-rms' }],
+      omnistat: {
+        enabled: true, version: '1.15.0', installMethod: 'container', observabilityServerId: 'slurm-ctl-1', state: 'ready',
+        lastWorkflowId: 'op-slurm-ha-deploy', updatedAt: now,
+      },
+      deviceMetricsExporter: null, containerRuntime: null, gpuDriver: null, gpuGresType: null, ociContainers: false, pmix: true,
       sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null, memberCount: 2, matchedCount: 2 },
-      createdAt: now, updatedAt: now,
+      createdAt: '2026-08-18T00:00:00Z', updatedAt: now,
+    }
+    const slurmHaSpec = fixturePlatformSpec(slurmHa)
+    platformItems.push({ ...slurmHa, generation: 1, spec: slurmHaSpec, status: fixturePlatformStatus(slurmHa.lifecycleState, slurmHaSpec) } as (typeof platformItems)[number])
+    integrationItems.push({
+      id: 'slurm-ha', siteId: 'site-a', kind: 'platform', providerKind: 'slurm', name: 'lab-slurm-ha (deployed)',
+      endpoint: 'http://192.168.60.11:6820', enabled: true, settings: {}, hasCredential: true,
+      sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: '2026-08-18T01:10:00Z', updatedAt: now,
     })
   }
   // Platform Claim (decision 067): a deployed Platform claims its targets from deploy acceptance
@@ -1624,6 +1709,36 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         updatedAt: now,
       }
       operationItems.push(operation as unknown as (typeof operationItems)[number])
+    }
+  }
+  // The succeeded deployment Workflows of the deployed Platforms (platforms.md "Create A Platform"):
+  // production-k0s's deploy-kubernetes, and lab-slurm-ha's configure-slurm when it is seeded. They
+  // were requested before every other seeded Workflow, so list order and lifecycle links stay as
+  // they are.
+  if (options.platformDeploymentWorkflows) {
+    const succeededDeployment = (id: string, kind: string, platformId: string, intent: string, targetServerIds: string[], at: { requestedAt: string; finishedAt: string }) => {
+      const base = structuredClone(operations[0])
+      return {
+        ...base, id, kind, intent, platformId, status: 'succeeded', targetServerIds,
+        targetResources: [{ kind: 'platform', id: platformId }, ...targetServerIds.map((serverId) => ({ kind: 'server', id: serverId }))],
+        temporal: { workflowId: `swallow-operation/${id}`, runId: `run-${id}` },
+        steps: base.steps.map((step) => ({
+          ...step, name: kind === 'configure-slurm' ? 'Install Slurm Platform' : step.name,
+          status: 'succeeded', progress: 100, startedAt: at.requestedAt, finishedAt: at.finishedAt,
+        })),
+        execution: { ...base.execution, runId: `run-${id}`, status: 'succeeded', startedAt: at.requestedAt, finishedAt: at.finishedAt },
+        requestedAt: at.requestedAt, startedAt: at.requestedAt, finishedAt: at.finishedAt, updatedAt: at.finishedAt,
+      } as (typeof operationItems)[number]
+    }
+    operationItems.push(succeededDeployment(
+      'op-k0s-deploy', 'deploy-kubernetes', 'platform-a', 'Deploy production k0s platform', ['srv-1', 'srv-2', 'srv-3'],
+      { requestedAt: '2026-08-10T00:05:00Z', finishedAt: '2026-08-10T00:41:00Z' },
+    ))
+    if (options.slurmDeployed) {
+      operationItems.push(succeededDeployment(
+        'op-slurm-ha-deploy', 'configure-slurm', 'platform-slurm-ha', 'Deploy lab-slurm-ha', ['slurm-ctl-1', 'slurm-ctl-2', 'slurm-cpt-1', 'slurm-cpt-2'],
+        { requestedAt: '2026-08-18T00:10:00Z', finishedAt: '2026-08-18T01:08:00Z' },
+      ))
     }
   }
   // inspect-hardware Workflows waiting for attention (server-enrollment.md): the inspect Task ran
@@ -1947,7 +2062,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         operationItems.unshift(deploy)
         installing.lifecycleState = 'deploying'
         installing.lifecycleOperationId = deploy.id
-        installing.status = { ...installing.status, realizingWorkflowId: deploy.id }
+        installing.status = {
+          ...installing.status, realizingWorkflowId: deploy.id,
+          conditions: platformConditions('converging', 1, `Workflow ${deploy.id} carries out generation 1`),
+        }
       }
       return json(route, decided)
     }
@@ -3127,7 +3245,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       })
       const planned = (platform: Record<string, unknown>) => {
         const spec = { desired: 'present', members: created.spec.members, settings: created.spec.settings, machinePreparation: null, removal: null }
-        return { ...platform, lifecycleState: 'planned', lifecycleOperationId: null, generation: 1, spec, status: { observedGeneration: 0, conditions: [], applied: null, realizingWorkflowId: null } }
+        return {
+          ...platform, lifecycleState: 'planned', lifecycleOperationId: null, generation: 1, spec,
+          status: { observedGeneration: 0, conditions: platformConditions('awaiting_approval', 1, 'The install waits for its Change Plan to be approved.'), applied: null, realizingWorkflowId: null },
+        }
       }
       const body = rawBody as {
         name: string

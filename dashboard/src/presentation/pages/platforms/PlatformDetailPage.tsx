@@ -4,7 +4,7 @@ import { ChartLine, ExternalLink, RefreshCw } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Operation } from '@/domain/operation/types'
-import { formatGPUDriverModuleOptions } from '@/domain/platform/gpuDriver'
+import { isPlatformDeploymentWorkflow } from '@/domain/platform/lifecycle'
 import { wantsPlatformGrafana } from '@/domain/platform/monitoring'
 import type { DeviceMetricsExporterState, ObservabilityInstallMethod, OmnistatState, Platform } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -20,6 +20,7 @@ import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { platformModuleUI, platformSections } from '@/modules/registry'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
+import { PlatformDetailsCard } from './PlatformDetailsCard'
 import { PlatformLifecycleActions } from './PlatformLifecycleActions'
 import { PlatformLifecycleBadge } from './PlatformLifecycleBadge'
 import { usePlatformDetail } from './usePlatformDetail'
@@ -32,6 +33,10 @@ import { usePlatformDetail } from './usePlatformDetail'
  * module that owns the Platform's type, plus the sections other modules contribute to that type
  * (architecture spec "Module UI"). The shell finds them in the module registry and never branches
  * on a type name, so no type inherits another's vocabulary or state model.
+ *
+ * The Overview opens, after the lifecycle and sync notices, with the Platform details card (when it
+ * was created and last deployed, its spec state, deployment, the module's facts, Integration, and
+ * GPU settings), then the module's Overview body, the contributed sections, and Monitoring.
  */
 export function PlatformDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -91,7 +96,7 @@ export function PlatformDetailPage() {
   const sections = platformSections(platform.type)
   const lifecycleOperation =
     operations.find((operation) => operation.id === platform.lifecycleOperationId) ??
-    operations.find((operation) => operation.kind === 'deploy-kubernetes' || operation.kind === 'configure-slurm')
+    operations.find(isPlatformDeploymentWorkflow)
   const targetServerIds = lifecycleOperation?.targetServerIds
   const openServer = (serverId: string) => navigate(scopedHref(`/servers/${serverId}`))
 
@@ -137,6 +142,7 @@ export function PlatformDetailPage() {
                 {platform.sync.lastError}. The member list may be stale; last success {formatRelative(platform.sync.lastSucceededAt ?? undefined)}.
               </Alert>
             )}
+            <PlatformDetailsCard platform={platform} operations={operations} module={module} />
             {module && (
               <module.Overview platform={platform} members={members} loginNodes={loginNodes} onSelectServer={(server) => openServer(server.id)} />
             )}
@@ -150,7 +156,6 @@ export function PlatformDetailPage() {
               />
             ))}
             <PlatformMonitoring platform={platform} />
-            <PlatformConfiguration platform={platform} />
           </div>
         </Tabs.Content>
         {tabs.map(({ value, Content }) => (
@@ -372,53 +377,6 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
           </HStack>
         )}
       </div>
-    </section>
-  )
-}
-
-/**
- * Secondary platform settings shown after operational state and membership.
- * Type already appears beside the page title, so this group keeps only the
- * configuration facts a user may need while investigating the platform.
- * A Slurm Platform also states its containers in one fact, as the deploy wizard groups them: native
- * OCI containers and the container engine (or that it has neither); each Server's engine install
- * state lives in its Software Assignment, not here. MPI is stated either way. GPU driver options and the GRES type appear only when the user
- * set them; derived values are a node fact.
- */
-function PlatformConfiguration({ platform }: { platform: Platform }) {
-  const driverOptions = formatGPUDriverModuleOptions(platform.gpuDriver?.moduleOptions)
-  const items = [
-    { label: 'GPU stack', value: platform.gpuStackOwner },
-    ...(platform.type === 'slurm'
-      ? [{
-          label: 'Container runtime',
-          value: [
-            ...(platform.ociContainers ? ['Native OCI (srun --container)'] : []),
-            ...(platform.containerRuntime
-              ? [`${platform.containerRuntime === 'podman' ? 'Podman' : 'Docker CE'} on compute and login nodes`]
-              : []),
-          ].join('; ') || 'None',
-        }, {
-          label: 'MPI',
-          value: platform.pmix ? 'OpenMPI with srun --mpi=pmix_v5' : 'Not set up',
-        }]
-      : []),
-    ...(platform.gpuGresType ? [{ label: 'GPU GRES type', value: platform.gpuGresType }] : []),
-    ...(driverOptions ? [{ label: 'GPU driver options', value: driverOptions }] : []),
-    { label: 'Integration', value: platform.integrationId || 'Not connected' },
-  ]
-
-  return (
-    <section className="sw-section">
-      <SectionHeader title="Configuration" />
-      <dl className="sw-platform-facts">
-        {items.map((item) => (
-          <div key={item.label}>
-            <dt>{item.label}</dt>
-            <dd>{item.value}</dd>
-          </div>
-        ))}
-      </dl>
     </section>
   )
 }

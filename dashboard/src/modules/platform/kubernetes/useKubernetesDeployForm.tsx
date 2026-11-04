@@ -9,10 +9,9 @@ import { Select } from '@/presentation/components/ui/select'
 import { AdvancedSettings } from '@/presentation/pages/platforms/AdvancedSettings'
 import { PlatformGrafanaFeatureCard } from '@/presentation/pages/platforms/PlatformGrafanaFeatureCard'
 import { EphemeralKubernetesWarning } from './EphemeralKubernetesWarning'
+import { DEFAULT_POD_CIDR, DEFAULT_SERVICE_CIDR } from './kubernetesDefaults'
 
 const DEFAULT_K0S_VERSION = 'v1.36.3+k0s.2'
-const DEFAULT_POD_CIDR = '10.244.0.0/16'
-const DEFAULT_SERVICE_CIDR = '10.96.0.0/12'
 /** Where the deployment puts the Platform Grafana (platforms.md "Platform Monitoring Dashboards"). */
 const PLATFORM_GRAFANA_PLACEMENT = 'in the cluster, at node port 30300 of every workload node'
 

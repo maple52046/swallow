@@ -1,6 +1,7 @@
 import { Boxes } from 'lucide-react'
 import type { PlatformModuleUI } from '@/modules/types'
 import { KubernetesApplicationsTab, KubernetesClusterTab, KubernetesNamespacesTab } from './KubernetesExplorer'
+import { kubernetesPlatformFacts } from './kubernetesFacts'
 import { KubernetesOverview } from './KubernetesOverview'
 import { useKubernetesDeployForm } from './useKubernetesDeployForm'
 
@@ -12,7 +13,10 @@ import { useKubernetesDeployForm } from './useKubernetesDeployForm'
 const explorerAvailable = (platform: { origin: string; integrationId: string | null }) =>
   platform.origin === 'deployed' && Boolean(platform.integrationId)
 
-/** The Kubernetes module's UI: the k0s deploy form, the k0s Overview, and the live cluster explorer tabs. */
+/**
+ * The Kubernetes module's UI: the k0s deploy form, the k0s Overview, the live cluster explorer tabs,
+ * and the k0s facts of the Platform details card.
+ */
 export const kubernetesModule: PlatformModuleUI = {
   kind: 'platform',
   id: 'kubernetes',
@@ -25,4 +29,5 @@ export const kubernetesModule: PlatformModuleUI = {
     { value: 'cluster', label: 'Cluster', available: explorerAvailable, Content: KubernetesClusterTab },
   ],
   deploy: { icon: Boxes, namePlaceholder: 'lab-k0s', useForm: useKubernetesDeployForm },
+  facts: kubernetesPlatformFacts,
 }

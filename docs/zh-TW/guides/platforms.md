@@ -133,6 +133,26 @@ scheduler capacity，也不保證 OS image 能放進 ephemeral root filesystem�
 
 Platform detail 透過 Platform API 讀取 live Slurm state，並把 node 關聯回 Server ID。
 
+## Platform details
+
+Platform 的 **Overview** 在 lifecycle 提示之下，先顯示 **Platform details**：
+
+- **General**：類型、lifecycle、Site、Platform 建立的時間，以及最近一次成功佈署完成的時間，
+  並以 **View deployment workflow** 開啟那個 Workflow（第一次佈署前顯示 **Not deployed yet**）。
+  **Spec state** 說明目前的 spec generation 已套用、正在收斂、等待 Change Plan 核准或失敗，
+  並列出 drift。
+- **Deployment**：topology、成員 Server 的數量，以及它們的 OS 如何準備：**Provision OS** 與其
+  image、deploy mode，或 **Existing OS**。
+- **Kubernetes**：k0s version、Pod 與 Service CIDR，以及 API endpoint（high availability
+  Platform 的 virtual IP，其他則是直連 control plane 的 endpoint）。
+- **Slurm**：cluster name、slurmrestd API version、container runtime 與 MPI。Container runtime
+  也包含以 container 執行的 Platform Grafana 在 primary controller 安裝的 engine（沒有為 compute
+  node 選擇 engine 時是 Docker CE）。
+- **Integration and GPU**：Platform 的 Integration、GPU stack owner，以及你設定的 GRES type
+  與 GPU driver options。
+
+這些資訊描述已套用的 spec；尚未套用的較新 spec 會顯示在 **Spec state**。
+
 ## Lifecycle
 
 - **Sync** refresh observed Platform membership／state。

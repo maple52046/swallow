@@ -37,6 +37,16 @@ export interface PlatformModuleTab {
   Content: ComponentType<PlatformTabProps>
 }
 
+/**
+ * One labelled fact about a Platform in the shell's Platform details card (a `<dt>`/`<dd>` pair).
+ * `label` is unique within the module's facts and names the fact for assistive technology; `value`
+ * is short text, worded so it reads correctly without colour or an icon.
+ */
+export interface PlatformFact {
+  label: string
+  value: ReactNode
+}
+
 /** What a section another module contributes to a Platform's Overview receives. */
 export interface PlatformSectionProps {
   platform: Platform
@@ -179,6 +189,15 @@ export interface PlatformModuleUI {
   Overview: ComponentType<PlatformOverviewProps>
   tabs: PlatformModuleTab[]
   deploy: PlatformDeployUI
+  /**
+   * The type's own facts for the Platform details card, which the shell shows in a group titled
+   * with `label`, after its type-neutral General and Deployment facts (for example the k0s version
+   * and CIDRs, or the Slurm cluster name and container runtime). They are read from the Platform
+   * record alone, the applied spec before the desired one (`platformCurrentSpec`), so they never
+   * fetch. A plain function, not a hook: the shell calls it while rendering, so it must be pure.
+   * An empty list, or no function, leaves the group out.
+   */
+  facts?: (platform: Platform) => PlatformFact[]
 }
 
 /** The manifest of an Accelerator module (AMD): the Platform features it brings. */
