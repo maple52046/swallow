@@ -10,17 +10,13 @@ import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { AdvancedSettings } from '@/presentation/pages/platforms/AdvancedSettings'
+import { platformGrafanaContainerCopy, slurmContainerRuntimeLabel } from './slurmGrafanaCopy'
 import { SlurmDeploymentFeatures, type GPUGresTypeMode, type SlurmMonitoringChoice } from './SlurmDeploymentFeatures'
 import { useSlurmDeploymentRequirement } from './useSlurmDeploymentRequirement'
 
 type SlurmDaemon = 'controller' | 'compute' | 'login'
 
 const NO_DAEMONS = { controller: false, compute: false, login: false }
-
-/** Display name of a Slurm container runtime choice; the domain value is what the request sends. */
-function slurmContainerRuntimeLabel(runtime: SlurmContainerRuntime): string {
-  return runtime === 'podman' ? 'Podman' : 'Docker CE'
-}
 
 /**
  * The Slurm deploy form: per-node daemons gated by the global minimum-resource policy, the optional
@@ -52,7 +48,7 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
   const [monitoring, setMonitoring] = useState<SlurmMonitoringChoice>('omnistat')
   // The Platform's own Grafana on the primary controller (platforms.md "Platform Monitoring
   // Dashboards"), on by default like the API's monitoringDashboards. Its install method travels in
-  // the monitoring feature's object, so without a feature the API installs it as a container.
+  // the monitoring feature's object, so without a feature the API installs it natively.
   const [platformGrafana, setPlatformGrafana] = useState(true)
   const [grafanaInstallMethod, setGrafanaInstallMethod] = useState<ObservabilityInstallMethod>('container')
   // Optional host MPI (decision 066); off by default because it installs packages on every compute
@@ -326,9 +322,11 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
           },
           {
             label: 'Platform Grafana',
-            value: platformGrafana
-              ? `On ${primaryControllerName} as ${effectiveGrafanaInstallMethod === 'native' ? 'a native package' : 'a container'}`
-              : 'Not included',
+            value: !platformGrafana
+              ? 'Not included'
+              : effectiveGrafanaInstallMethod === 'native'
+                ? `On ${primaryControllerName} as a native package`
+                : platformGrafanaContainerCopy(engine, primaryControllerName).review,
           },
           {
             label: 'GPU GRES',

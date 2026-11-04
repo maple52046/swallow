@@ -5,6 +5,7 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { AdvancedSettings } from '@/presentation/pages/platforms/AdvancedSettings'
 import { FeatureToggleCard } from '@/presentation/pages/platforms/FeatureToggleCard'
 import { PlatformGrafanaFeatureCard } from '@/presentation/pages/platforms/PlatformGrafanaFeatureCard'
+import { platformGrafanaContainerCopy } from './slurmGrafanaCopy'
 
 type WorkloadStorageMode = 'none' | 'self-hosted' | 'external'
 
@@ -140,7 +141,9 @@ function ChoiceCards<T extends string>({ label, value, onChange, options, column
  * API refuses the Device Metrics Exporter and Omnistat together; the exporter's card warns, without
  * blocking here (the page blocks the step), when no selected compute node has AMD GPUs. The Platform
  * Grafana is its own switch, on by default, with its install method; without a monitoring exporter
- * the API installs it as a container, so the card says so instead of offering a choice it ignores. The
+ * the API installs it natively, so the card says so instead of offering a choice it ignores. The
+ * Container method names the container engine it installs on the primary controller, because that
+ * is a host change the user did not otherwise ask for. The
  * Container runtime card holds two independent choices, both sent only while the card is on and
  * separated by a vertical rule: at most one container engine (the Docker CE and Podman cards,
  * Managed Software; `containerRuntime`) and native OCI (Slurm runs it inside the job's allocation;
@@ -187,6 +190,8 @@ export function SlurmDeploymentFeatures({
 }: SlurmDeploymentFeaturesProps) {
   const storageEnabled = workloadMode !== 'none'
   const monitoringEnabled = monitoring !== 'none'
+  // The engine the request sends, which the Grafana container reuses on the primary controller.
+  const grafanaContainer = platformGrafanaContainerCopy(containersEnabled ? containerRuntime : '', primaryControllerName)
   // Opens on return to this step when a setting is in effect, but never collapses while editing.
   const [advancedInitiallyOpen] = useState(() => gresTypeMode === 'custom' || driverOptionsText.trim() !== '')
 
@@ -329,7 +334,7 @@ export function SlurmDeploymentFeatures({
             value={grafanaInstallMethod}
             onChange={onGrafanaInstallMethodChange}
             options={[
-              { value: 'container', label: 'Container', description: `Run Grafana as a container on ${primaryControllerName}.` },
+              { value: 'container', label: 'Container', description: grafanaContainer.option },
               { value: 'native', label: 'Native', description: 'Install Grafana from its official package repository.' },
             ]}
           />

@@ -12,6 +12,11 @@ interface ReleaseOptionsFieldsProps {
   supportsReleaseOptions?: boolean
   /** When false static-IP cleanup is not offered and the unbind control is disabled. */
   supportsNetworkConfiguration?: boolean
+  /**
+   * Disables every control, on top of each control's own condition, while the caller's request is
+   * in flight, so the submitted choice cannot change under it. The explanations stay readable.
+   */
+  disabled?: boolean
 }
 
 /** Human explanation of the current erase choice; status is never conveyed by colour alone. */
@@ -38,7 +43,7 @@ function eraseExplanation(value: ReleaseOptionsValue): string {
  * both the Server Release dialog and the platform uninstall dialog. Turning erase
  * off also clears the erase modes so a caller cannot submit an inconsistent
  * combination. Each choice is mirrored by an inline explanation, so the effect is
- * always described in text.
+ * always described in text. `disabled` locks every control while the caller submits.
  */
 export function ReleaseOptionsFields({
   idPrefix,
@@ -46,6 +51,7 @@ export function ReleaseOptionsFields({
   onChange,
   supportsReleaseOptions = true,
   supportsNetworkConfiguration = true,
+  disabled = false,
 }: ReleaseOptionsFieldsProps) {
   const changeErase = (checked: boolean) =>
     onChange(
@@ -58,14 +64,14 @@ export function ReleaseOptionsFields({
     <Stack gap="4">
       {supportsReleaseOptions ? (
         <>
-          <Checkbox id={`${idPrefix}-erase-disks`} checked={value.erase} onCheckedChange={changeErase}>
+          <Checkbox id={`${idPrefix}-erase-disks`} checked={value.erase} disabled={disabled} onCheckedChange={changeErase}>
             Erase disks before release
           </Checkbox>
           <Stack gap="3" ps="6">
             <Checkbox
               id={`${idPrefix}-secure-erase`}
               checked={value.secureErase}
-              disabled={!value.erase}
+              disabled={disabled || !value.erase}
               onCheckedChange={(checked) => onChange({ ...value, secureErase: checked })}
             >
               Use secure erase when supported
@@ -73,7 +79,7 @@ export function ReleaseOptionsFields({
             <Checkbox
               id={`${idPrefix}-quick-erase`}
               checked={value.quickErase}
-              disabled={!value.erase}
+              disabled={disabled || !value.erase}
               onCheckedChange={(checked) => onChange({ ...value, quickErase: checked })}
             >
               {value.secureErase ? 'Use quick erase if secure erase is unavailable' : 'Use quick erase'}
@@ -94,7 +100,7 @@ export function ReleaseOptionsFields({
       <Checkbox
         id={`${idPrefix}-unbind-static-ips`}
         checked={value.unbindStaticIPs}
-        disabled={!supportsNetworkConfiguration}
+        disabled={disabled || !supportsNetworkConfiguration}
         onCheckedChange={(checked) => onChange({ ...value, unbindStaticIPs: checked })}
       >
         Remove static IP bindings after release

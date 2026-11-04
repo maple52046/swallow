@@ -1,7 +1,8 @@
 /**
  * User-facing copy for the Platform removal actions (decision 010, 2026-10-29 amendment),
  * shared by the detail dialogs (`PlatformLifecycleActions`), the bulk dialogs, and the bulk toast
- * summary (`usePlatformBulkActions`) so they never describe the same choice differently.
+ * summary (`usePlatformBulkActions`) so they never describe the same choice differently. Every piece
+ * of Uninstall copy follows the release choice, from the dialog title to the toast.
  *
  * The wording keeps the glossary distinction visible: Uninstall changes the original deployment
  * targets and waits on a Change Plan, after which the record is deleted, while "Delete only"
@@ -54,6 +55,53 @@ export function platformUninstallDeleteHint(releaseServers: boolean, scope: 'sin
   return scope === 'bulk'
     ? `Each platform’s ${step} waits on a Change Plan you approve in Change Plans. Each Swallow record is deleted once that platform’s ${step} succeeds; a failed ${step} keeps it.`
     : `The ${step} waits on a Change Plan you approve in Change Plans. The Swallow record is deleted once the ${step} succeeds; a failed ${step} keeps it.`
+}
+
+/** Heading and introduction of an Uninstall dialog. */
+export interface PlatformUninstallDialogCopy {
+  title: string
+  description: string
+}
+
+/** The bulk dialog's copy: its heading and intro, and the label of the list of targeted Platforms. */
+export interface PlatformBulkUninstallDialogCopy extends PlatformUninstallDialogCopy {
+  listLabel: string
+}
+
+/**
+ * Title and intro of the single-Platform Uninstall dialog for `platformName`. Checking "Release all
+ * servers instead of uninstalling platform software" makes the proposed action a release of every
+ * original deployment target (platforms.md "Delete A Platform": the software removal is skipped), so
+ * the heading and intro then describe a release rather than a software uninstall.
+ */
+export function platformUninstallDialogCopy(choice: PlatformUninstallChoice, platformName: string): PlatformUninstallDialogCopy {
+  return choice.releaseServers
+    ? {
+        title: 'Release platform servers',
+        description: `Propose releasing every server of “${platformName}” to its provisioner instead of uninstalling platform software. Once you approve the Change Plan the original deployment targets are released, and the Swallow record is deleted after the release succeeds.`,
+      }
+    : {
+        title: 'Uninstall platform',
+        description: `Propose removing Swallow-managed platform software from “${platformName}”. Once you approve the Change Plan it acts on the original deployment targets, and the Swallow record is deleted after it succeeds.`,
+      }
+}
+
+/**
+ * Title, intro, and target-list label of the bulk Uninstall dialog; the release choice changes them
+ * as in the single dialog. The list label is also the list's accessible name.
+ */
+export function platformBulkUninstallDialogCopy(choice: PlatformUninstallChoice): PlatformBulkUninstallDialogCopy {
+  return choice.releaseServers
+    ? {
+        title: 'Release servers of selected platforms',
+        description: 'Propose releasing the servers of selected Platforms that are currently eligible to their provisioner instead of uninstalling platform software; each waits on its own Change Plan. Ineligible selections will be skipped.',
+        listLabel: 'Platforms whose servers are released',
+      }
+    : {
+        title: 'Uninstall selected platforms',
+        description: 'Propose uninstalling platform software from selected Platforms that are currently eligible; each waits on its own Change Plan. Ineligible selections will be skipped.',
+        listLabel: 'Platforms to uninstall',
+      }
 }
 
 /** Submit label of the single-Platform Uninstall dialog. */

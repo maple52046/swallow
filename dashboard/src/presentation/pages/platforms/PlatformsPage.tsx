@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom'
 import { isPlatformLifecycleInProgress, platformPrimaryRemovalAction } from '@/domain/platform/lifecycle'
+import { platformMemberCounts } from '@/domain/platform/membership'
 import type { Platform, PlatformLifecycleState, PlatformType } from '@/domain/platform/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -161,13 +162,18 @@ function PlatformConnectivity({ platform }: { platform: Platform }) {
   return <StatusBadge status="connected" label="Connected" />
 }
 
-/** Membership exposes both the observed total and any members swallow cannot match. */
+/**
+ * Membership shows matched over total members and flags members swallow cannot match. The counts
+ * come from `platformMemberCounts`, so a deployment controller the Platform's API does not report (a
+ * controller-only Slurm node) still counts, as it does on the Platform detail page.
+ */
 function PlatformMembership({ platform }: { platform: Platform }) {
   if (!platform.integrationId) return <Text as="span" color="fg.muted">Not available</Text>
   const unmatched = unmatchedMembers(platform)
+  const counts = platformMemberCounts(platform)
   return (
     <div className="sw-platform-membership">
-      <span>{platform.sync.matchedCount} / {platform.sync.memberCount}</span>
+      <span>{counts.matched} / {counts.total}</span>
       {unmatched > 0 && (
         <Badge colorPalette="orange" variant="subtle">{unmatched} unmatched</Badge>
       )}

@@ -50,6 +50,7 @@ import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { usePlatformNames } from '@/presentation/hooks/usePlatformNames'
+import { formatQuantity } from '@/shared/utils/quantity'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { actionLabel, isRamDeploy, serverActionAvailability, type ServerMenuAction } from './serverActions'
 import { ServerLockDialog } from './ServerLockDialog'
@@ -218,11 +219,6 @@ function textOrDash(value: string | null | undefined): string {
   return value?.trim() || '—'
 }
 
-function quantityOrDash(value: number, unit = '', divisor = 1): string {
-  if (!Number.isFinite(value) || value <= 0) return '—'
-  const quantity = Math.round(value / divisor)
-  return unit ? `${quantity} ${unit}` : String(quantity)
-}
 /** Encodes arbitrary provider facts into stable, whitespace-free control ids. */
 function controlId(value: string): string {
   return encodeURIComponent(value).replaceAll('%', '-')
@@ -313,10 +309,10 @@ function serverDetailFacts(
       facts: [
         { label: 'GPU inventory', value: serverGpuProfile(server) },
         { label: 'Architecture', value: textOrDash(server.status.architecture) },
-        { label: 'CPU cores', value: quantityOrDash(server.status.cpuCores) },
+        { label: 'CPU cores', value: formatQuantity(server.status.cpuCores) },
         { label: 'CPU model', value: textOrDash(server.status.cpuModel) },
-        { label: 'Memory', value: quantityOrDash(server.status.memoryMiB, 'GiB', 1024) },
-        { label: 'Storage', value: quantityOrDash(server.status.storageGB, 'GB') },
+        { label: 'Memory', value: formatQuantity(server.status.memoryMiB, 'GiB', 1024) },
+        { label: 'Storage', value: formatQuantity(server.status.storageGB, 'GB') },
         { label: 'System vendor', value: textOrDash(server.status.systemVendor) },
         { label: 'System product', value: textOrDash(server.status.systemProduct) },
       ],
@@ -705,7 +701,7 @@ export function ServersPage() {
       return
     }
     if (action === 'recover') {
-      await bulk.recover(actionTargets)
+      await bulk.recover(actionTargets, availability.eligible[0]?.status.source.siteId)
       clearSelection()
       setFollowedServers({ siteKey, ids: eligibleIds })
       reload()
@@ -728,11 +724,14 @@ export function ServersPage() {
   const confirmRelease = useCallback(async (input: ReleaseServerInput) => {
     if (!releaseTargets?.length) return
     const releasedIds = releaseTargets.map((target) => target.serverId)
-    await bulk.release(releaseTargets, input)
+    // A release batch is single-Site (the API refuses a cross-Site one), so the first target's
+    // Site scopes the toast's Workflow link.
+    const releaseSiteId = workingSet.find((server) => server.id === releasedIds[0])?.status.source.siteId
+    await bulk.release(releaseTargets, input, releaseSiteId)
     clearSelection()
     setFollowedServers({ siteKey, ids: releasedIds })
     reload()
-  }, [bulk, clearSelection, releaseTargets, reload, siteKey])
+  }, [bulk, clearSelection, releaseTargets, reload, siteKey, workingSet])
 
   const setLens = (view: ServerView) => {
     updateParams((next) => {
@@ -1700,7 +1699,7 @@ function ServerHardware({ server }: { server: Server }) {
   const hasGPU = Boolean(compactProfile)
   const cpuModel = server.status.cpuModel.trim()
   const cpuCores = server.status.cpuCores > 0 ? server.status.cpuCores.toLocaleString() : null
-  const memory = server.status.memoryMiB > 0 ? quantityOrDash(server.status.memoryMiB, 'GiB', 1024) : null
+  const memory = server.status.memoryMiB > 0 ? formatQuantity(server.status.memoryMiB, 'GiB', 1024) : null
   const hasHardwareInventory = hasGPU || Boolean(cpuModel) || Boolean(cpuCores) || Boolean(memory)
 
   if (!hasHardwareInventory) {

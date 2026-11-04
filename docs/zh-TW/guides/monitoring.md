@@ -126,8 +126,9 @@ CPU、memory、root filesystem、network 與 load），再加上 Platform 的 GP
 Device Metrics Exporter 的 **Overview** 或 Omnistat 的 **Global - RMS**，否則是 **Servers**。管理網路上的人不必登入
 就能檢視。每次部署或重新部署都會給它新的存取憑證，從舊部署複製出來的憑證會失效。
 
-- **Slurm**：Grafana 在 primary controller 上，port 3000。預設以 container 執行；也可選擇 native 安裝方法，改由
-  Grafana 的 apt／yum repository 安裝。
+- **Slurm**：Grafana 在 primary controller 上，port 3000。預設以 container 執行，因此部署會先在 primary controller
+  安裝 container engine：部署在 **Container runtime** 要求的那一個，否則是 Docker CE；該 Server 已有 container engine
+  時沿用它。也可選擇 native 安裝方法，改由 Grafana 的 apt／yum repository 安裝。
 - **Kubernetes**：Grafana 在叢集內，以每個 workload 節點的 port 30300 開放，連結開啟第一個節點上的 Grafana。它不保存自己的資料，
   Pod 換節點也不會遺失任何東西。AMD GPU Operator 執行它的 Device Metrics Exporter 時，Grafana 會加上 exporter 的 GPU
   dashboards。uninstall Platform 時隨叢集一起移除。

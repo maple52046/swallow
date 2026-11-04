@@ -167,7 +167,8 @@ transition time；其精確度約等於 inventory reconcile 或 targeted Server 
 即時。起始時間未知時不會顯示執行時間。
 
 Release 接受後可留在 list：provider 執行期間該列會變成 **Releasing**，Server
-回到 pool 後再變成 **Ready**。
+回到 pool 後再變成 **Ready**。Release 或 Recover 的成功通知會提供 **View workflow**，
+連到執行它的 Workflow。
 
 仍被執行中 Workflow 佔用的 Server 無法 release。Release 對話框會列出這些工作；勾選
 **Cancel running operations before releasing** 會由 swallow 取消它們。Release 會立刻被

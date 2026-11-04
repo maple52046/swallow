@@ -1547,6 +1547,16 @@ tbody .sw-sticky-selection { z-index: 2; }
   backdrop-filter: blur(12px);
 }
 
+/* The sticky action bar covers the bottom of the viewport while a long step scrolls. Keep a field
+   that receives focus or is scrolled into view above the bar instead of underneath it; 7rem fits
+   the bar with a two-line blocked reason on a phone. */
+html:has(.sw-wizard) {
+  scroll-padding-block-end: 7rem;
+}
+.sw-wizard__content :is(input, textarea, select, button, [tabindex]) {
+  scroll-margin-block-end: 7rem;
+}
+
 .sw-wizard__blocked-reason {
   color: var(--chakra-colors-orange-fg);
   font-size: var(--chakra-font-sizes-sm);
@@ -3221,10 +3231,23 @@ tbody .sw-sticky-selection { z-index: 2; }
   text-underline-offset: 0.2em;
 }
 
-.sw-workflow-requested,
 .sw-workflow-timing {
   min-width: 5.5rem;
   white-space: nowrap;
+}
+
+/* Stays inside its table column or card field: a long requester truncates instead of overlapping
+   Timing, and inline-size containment keeps its length from widening a mobile card's field grid. */
+.sw-workflow-requested {
+  width: 100%;
+  white-space: nowrap;
+  contain: inline-size;
+}
+
+.sw-workflow-requested__by {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sw-workflow-table__action {
@@ -3257,6 +3280,12 @@ tbody .sw-sticky-selection { z-index: 2; }
 
 .sw-workflow-runtime-card[data-tone='attention'] .sw-resource-card {
   box-shadow: inset 3px 0 0 var(--chakra-colors-orange-solid), var(--sw-shadow);
+}
+
+/* A grid item may shrink below its content, so a uuid Workflow id or a long requester truncates
+   inside the card instead of widening every card past the phone screen. */
+.sw-workflow-runtime-card {
+  min-width: 0;
 }
 
 .sw-workflow-runtime-card .sw-workflow-identity {
@@ -3317,6 +3346,17 @@ tbody .sw-sticky-selection { z-index: 2; }
 
   .sw-workflow-runtime-card .sw-resource-card > :first-child > :last-child {
     align-self: flex-start;
+  }
+
+  /* The stacked title would otherwise size to its content, so a uuid Workflow id could not truncate. */
+  .sw-workflow-runtime-card .sw-resource-card > :first-child > :first-child {
+    max-width: 100%;
+  }
+
+  /* A half-width card field fits less than a table cell, so the activity summary gets two lines. */
+  .sw-workflow-runtime-card .sw-workflow-activity-copy > span {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
   }
 
   .sw-workflow-runtime-card .sw-resource-card__actions {

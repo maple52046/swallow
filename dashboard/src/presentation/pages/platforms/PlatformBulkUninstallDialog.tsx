@@ -10,6 +10,7 @@ import { PlatformBulkFailures, PlatformNameList } from './PlatformBulkLists'
 import { PlatformUninstallChoices } from './PlatformUninstallChoices'
 import {
   platformBulkUninstallConfirmLabel,
+  platformBulkUninstallDialogCopy,
   platformUninstallConsequence,
   platformUninstallDeleteHint,
 } from './platformRemovalCopy'
@@ -33,7 +34,8 @@ interface PlatformBulkUninstallDialogProps {
  * skipped ones with their reason (not deployed by swallow, already uninstalling or uninstalled, a
  * locked or unreadable target). It offers the same choices as the single dialog: release the
  * servers instead, and, through the variant behind the submit chevron, delete each record after its
- * own operation succeeds (`deleteRecord`).
+ * own operation succeeds (`deleteRecord`). With the release choice checked the title, intro, and
+ * target list describe a release of the servers, not a software uninstall.
  *
  * Bulk destructive actions cannot ask a user to type every platform name, so the gate is
  * typing `uninstall`; the record choice is then the explicit submit variant. The dialog lists the
@@ -84,6 +86,7 @@ export function PlatformBulkUninstallDialog({ eligibility, onClose, onDone }: Pl
   }
 
   const consequence = platformUninstallConsequence(releaseServers, 'bulk')
+  const dialogCopy = platformBulkUninstallDialogCopy({ releaseServers })
 
   return (
     <Modal
@@ -92,8 +95,8 @@ export function PlatformBulkUninstallDialog({ eligibility, onClose, onDone }: Pl
       size="lg"
       closeOnInteractOutside={!running}
       dismissDisabled={running}
-      title="Uninstall selected platforms"
-      description="Propose uninstalling platform software from selected Platforms that are currently eligible; each waits on its own Change Plan. Ineligible selections will be skipped."
+      title={dialogCopy.title}
+      description={dialogCopy.description}
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
@@ -113,7 +116,7 @@ export function PlatformBulkUninstallDialog({ eligibility, onClose, onDone }: Pl
         <PlatformBulkFailures failures={failures} />
         {/* Polite so a screen reader hears the new consequence when a choice changes. */}
         <Stack gap="3" aria-live="polite">
-          <PlatformNameList label="Platforms to uninstall" platforms={eligible} />
+          <PlatformNameList label={dialogCopy.listLabel} platforms={eligible} />
           <Alert status={consequence.status} title={consequence.title}>
             {consequence.body}
           </Alert>

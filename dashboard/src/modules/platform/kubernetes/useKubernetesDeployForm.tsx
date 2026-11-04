@@ -19,6 +19,13 @@ const PLATFORM_GRAFANA_PLACEMENT = 'in the cluster, at node port 30300 of every 
 type RoleChoice = 'none' | NodeRole
 type TopologyChoice = 'standalone' | 'multi-node' | 'high-availability'
 
+/**
+ * The topology a new deploy (and a Site change) starts with: one control plane plus workers. It needs
+ * the fewest decisions that still give a usable cluster; high availability asks for three or more
+ * controllers and an unused virtual IP, which a user should choose deliberately.
+ */
+const DEFAULT_TOPOLOGY: TopologyChoice = 'multi-node'
+
 /** Human labels and risk language for the three supported placement shapes. */
 function topologyPresentation(topology: TopologyChoice) {
   switch (topology) {
@@ -49,14 +56,15 @@ function selectedNetworkGuidance(addresses: string[]): string {
 }
 
 /**
- * The Kubernetes (k0s) deploy form: the k0s version, a topology with per-Server roles, the
- * Platform Grafana feature, and the Platform network step. Machine selection precedes networking
+ * The Kubernetes (k0s) deploy form: the k0s version, a topology with per-Server roles (starting,
+ * and reset on a Site change, at `DEFAULT_TOPOLOGY`), the Platform Grafana feature, and the
+ * Platform network step. Machine selection precedes networking
  * because the topology and the selected Servers' observed addresses decide whether a virtual IP
  * exists and give the user concrete allocation context.
  */
 export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployContext): PlatformDeployForm {
   const [k0sVersion, setK0sVersion] = useState(DEFAULT_K0S_VERSION)
-  const [topology, setTopology] = useState<TopologyChoice>('high-availability')
+  const [topology, setTopology] = useState<TopologyChoice>(DEFAULT_TOPOLOGY)
   const [apiVip, setAPIVip] = useState('')
   // Empty means the backend takes the prefix of the control plane's subnet, which is the only
   // prefix it accepts when it can read that subnet.
@@ -369,6 +377,7 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
       roleAssignments: assignments,
     }),
     reset: () => {
+      setTopology(DEFAULT_TOPOLOGY)
       setRoles({})
       setWorkloadControllers({})
       setAPIVip('')

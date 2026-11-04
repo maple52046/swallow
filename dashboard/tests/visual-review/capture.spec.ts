@@ -1,6 +1,6 @@
 import { expect, test, type Page, type TestInfo } from 'playwright/test'
 import type { SoftwareAssignment } from '@/domain/software/types'
-import { approvePlatformInstall, installApiFixtures } from '../e2e/fixtures'
+import { approvePlatformInstall, CONTROLLER_WORKFLOW_ID, installApiFixtures } from '../e2e/fixtures'
 
 const visualCases = [
   { name: 'login', path: '/login', heading: 'Sign in', authenticated: false, representative: true },
@@ -177,6 +177,10 @@ test.describe('dashboard visual review', () => {
         ...(visualCase.name.startsWith('software-')
           ? { fleetSize: 5, softwareAssignments: visualSoftwareAssignments }
           : {}),
+        // A controller-requested Workflow whose long requester must truncate inside its column.
+        ...(visualCase.name === 'workflow-list' ? { controllerWorkflow: 'succeeded' as const } : {}),
+        // A deployed Slurm Platform with controller-only nodes, counted as members.
+        ...(visualCase.name === 'platform-list' ? { slurmDeployed: true } : {}),
       })
       await setAppearance(page, appearance)
       // The release view of basic monitoring: alerts are the one monitoring surface still in
@@ -361,8 +365,10 @@ test.describe('Platform removal plan visual review', () => {
 
     await page.goto('/platforms/platform-a?site=site-a')
     await page.getByRole('button', { name: 'Uninstall platform', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
-    await dialog.getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
+    await page.getByRole('dialog', { name: 'Uninstall platform' })
+      .getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
+    // Releasing the servers retitles the dialog.
+    const dialog = page.getByRole('dialog', { name: 'Release platform servers' })
     await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
     await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
     await expect(dialog.getByRole('button', { name: 'Propose server release' })).toBeEnabled()
@@ -529,13 +535,20 @@ test.describe('Kubernetes deployment studio visual review', () => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
     const mobile = testInfo.project.name.startsWith('mobile-')
     if (!mobile) await page.setViewportSize({ width: 1280, height: 800 })
-    await installApiFixtures(page, { freePlatformCandidates: true })
+    // gpu-node-01 reports the unrounded storage a provider can; the table rounds it.
+    await installApiFixtures(page, { freePlatformCandidates: true, serverStorageGB: { 'srv-1': 2000.398934016 } })
     await setAppearance(page, appearance)
 
     await page.goto('/platforms/deploy/kubernetes?site=site-a')
     await page.getByLabel('Platform name').fill('studio-k0s')
     const next = page.getByRole('button', { name: 'Next' })
     await next.click()
+    // A new deploy starts multi-node (non-HA); the capture shows that default before HA is chosen.
+    await expect(page.getByRole('radio', { name: /Multi-node \(non-HA\)/ })).toBeChecked()
+    await prepareCapture(page, appearance)
+    await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'kubernetes-wizard-topology-default')
+    await page.getByRole('radio', { name: /High availability/ }).locator('xpath=following-sibling::*[1]').click()
     for (const server of ['gpu-node-01', 'gpu-node-02', 'gpu-node-03']) {
       await chooseOption(page, `Role for ${server}`, 'Control-plane')
     }
@@ -629,12 +642,18 @@ test.describe('Slurm Omnistat visual review', () => {
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
     await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-03' }).locator('..').click()
     await next.click()
+    // Without a requested engine the Grafana container brings Docker CE to the primary controller.
+    await expect(page.getByText('Run Grafana in a container on gpu-node-01, installing Docker CE there unless it already has a container engine.')).toBeVisible()
+    await prepareCapture(page, appearance)
+    await page.getByRole('region', { name: 'Platform Grafana' }).screenshot({
+      path: testInfo.outputPath(`slurm-grafana-card-docker-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+    })
     await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
     await page.getByRole('checkbox', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByRole('switch', { name: 'Enable Job monitoring' })).toBeChecked()
     await expect(page.getByRole('radio', { name: /Omnistat/ })).toBeChecked()
     await expect(page.getByRole('switch', { name: 'Enable Platform Grafana' })).toBeChecked()
-    await expect(page.getByText('Run Grafana as a container on gpu-node-01.')).toBeVisible()
+    await expect(page.getByText('Run Grafana in a container on gpu-node-01, installing Podman there, the container engine chosen above.')).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'slurm-omnistat-wizard-features')
@@ -787,12 +806,46 @@ test.describe('Platform removal visual review', () => {
     await prepareCapture(page, appearance)
     await capture(page, testInfo, 'platform-uninstall-dialog', false)
     await dialog.getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
-    await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
-    await dialog.getByLabel('Platform name confirmation').fill('edge-staging')
-    await expect(dialog.getByRole('button', { name: 'Propose server release' })).toBeEnabled()
+    const releaseDialog = page.getByRole('dialog', { name: 'Release platform servers' })
+    // The retitled heading and intro, before the dialog scrolls to the later controls.
+    await releaseDialog.getByRole('heading', { name: 'Release platform servers' }).scrollIntoViewIfNeeded()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'platform-uninstall-release-title', false)
+    await releaseDialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
+    await releaseDialog.getByLabel('Platform name confirmation').fill('edge-staging')
+    await expect(releaseDialog.getByRole('button', { name: 'Propose server release' })).toBeEnabled()
     await prepareCapture(page, appearance)
     if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'platform-uninstall-release-servers', false)
+    // The proposal in flight: every choice, the release options included, is locked.
+    await page.route('**/api/v1/platforms/platform-b', async (route) => {
+      if (route.request().method() === 'DELETE') await new Promise<void>(() => {})
+      await route.fallback()
+    })
+    await releaseDialog.getByLabel('Erase disks before release').locator('..').click()
+    await releaseDialog.getByRole('button', { name: 'Propose server release' }).click()
+    await expect(releaseDialog.getByLabel('Erase disks before release')).toBeDisabled()
+    await capture(page, testInfo, 'platform-uninstall-release-submitting', false)
+  })
+
+  test('bulk uninstall dialog with release checked', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page)
+    await setAppearance(page, appearance)
+    await page.goto('/platforms?site=site-a')
+    const scope = mobile ? page.locator('.sw-platform-runtime-card').filter({ hasText: 'edge-staging' }) : page.getByRole('table', { name: 'Platforms' })
+    await scope.getByLabel('Select edge-staging').check({ force: true })
+    // Phone-width docks drop the qualifier from the button.
+    await page.getByRole('button', { name: mobile ? 'Uninstall' : 'Uninstall selected', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Uninstall selected platforms' })
+      .getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
+    const dialog = page.getByRole('dialog', { name: 'Release servers of selected platforms' })
+    await expect(dialog.getByLabel('Erase disks before release')).toBeVisible()
+    await dialog.getByRole('heading', { name: 'Release servers of selected platforms' }).scrollIntoViewIfNeeded()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-bulk-uninstall-release', false)
   })
 
   test('split button while an uninstall runs', async ({ page }, testInfo) => {
@@ -862,6 +915,49 @@ test.describe('Workflow detail visual review', () => {
     await prepareCapture(page, appearance)
     if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'workflow-detail-jobs', false)
+  })
+
+  // A controller-requested Workflow with a uuid id: the header stacks its commands on a phone and
+  // truncates the id breadcrumb; the details say the ended Workflow released its resources, and a
+  // Workflow not started yet has none yet.
+  for (const state of ['succeeded', 'pending'] as const) {
+    test(`workflow-detail-header-${state}`, async ({ page }, testInfo) => {
+      const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+      await installApiFixtures(page, { controllerWorkflow: state })
+      await setAppearance(page, appearance)
+      await page.goto(`/workflows/${CONTROLLER_WORKFLOW_ID}?site=site-a`)
+      await expect(page.getByRole('heading', { level: 1, name: 'Install the Node Exporter on gpu-node-02' })).toBeVisible()
+      await expect(page.getByText(state === 'succeeded' ? 'Released when the Workflow ended' : 'None yet; the Workflow takes them when it starts')).toBeVisible()
+      await prepareCapture(page, appearance)
+      if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+      await capture(page, testInfo, `workflow-detail-header-${state}`, false)
+    })
+  }
+})
+
+/**
+ * Captures the Server Release dialog while its request is in flight: every choice, the comment
+ * included, is disabled.
+ */
+test.describe('Server release dialog visual review', () => {
+  test('server-release-dialog-submitting', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { withoutPlatformClaims: true })
+    await page.route('**/api/v1/provisioning/release-operations', async () => {
+      await new Promise<void>(() => {})
+    })
+    await setAppearance(page, appearance)
+    await page.goto('/servers/srv-1/summary?site=site-a')
+    await page.getByRole('button', { name: 'Take action' }).click()
+    await page.getByRole('menuitem', { name: 'Release', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Release server', exact: true })
+    await dialog.getByLabel('Erase disks before release').locator('..').click()
+    await dialog.getByLabel('Provider event comment (optional)').fill('Return to the ready pool')
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'server-release-dialog', false)
+    await dialog.getByRole('button', { name: 'Release server', exact: true }).click()
+    await expect(dialog.getByLabel('Provider event comment (optional)')).toBeDisabled()
+    await capture(page, testInfo, 'server-release-dialog-submitting', false)
   })
 })
 
@@ -1250,5 +1346,14 @@ test.describe('OS deployment flow visual review', () => {
 
     await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
     await capture(page, testInfo, 'platform-os-networking-step', false)
+
+    // The Review cards, each with its named Edit button.
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Platform network' })).toBeVisible()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-wizard-review')
   })
 })

@@ -238,6 +238,7 @@ export function ServerDetailPage() {
       {server.status.provisioning && ['failed', 'broken', 'rescue'].includes(server.status.provisioning.state) && (
         <ProviderFailureAlert
           serverId={server.id}
+          siteId={server.status.source.siteId}
           provisioning={server.status.provisioning}
           onRecoverStarted={() => {
             reload()

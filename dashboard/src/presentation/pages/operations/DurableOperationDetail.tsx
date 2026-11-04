@@ -9,6 +9,7 @@ import {
   type Operation,
   type OperationArtifact,
   type OperationEvents,
+  type OperationStatus,
   type OperationStep,
   type OperationStepStatus,
   type OperationTimelineEvent,
@@ -42,7 +43,13 @@ interface DurableOperationDetailProps {
   refreshError?: string
 }
 
-/** Unified, Step-first debugger for schema-v3 Operations. */
+/**
+ * Step-first debugger for one schema-v3 Workflow on its detail route: its details (including the
+ * resources it owns, which the API lists only while it runs), Steps grouped by Job, the selected
+ * Step's diagnostics, and the timeline. Cancel and Step retry are the only commands; a background
+ * refresh failure keeps the last-good Workflow on screen with a warning. On a phone the header
+ * stacks its commands under the title and truncates the Workflow id breadcrumb.
+ */
 export function DurableOperationDetail({ operation, reload, refreshError }: DurableOperationDetailProps) {
   const { operations } = useApp()
   const { scopedHref } = useSiteScope()
@@ -132,7 +139,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
           ))}
         </HStack>
       ) : (
-        'None'
+        ownedResourcesEmptyText(operation, status)
       ),
     },
     { label: 'Updated', value: formatDateTime(operation.updatedAt) },
@@ -221,11 +228,13 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
         title={workflowDisplayIntent(operation)}
         breadcrumbs={[{ label: 'Workflows', href: scopedHref('/workflows') }, { label: operation.id }]}
         metadata={
-          <HStack gap="2">
+          <HStack gap="2" wrap="wrap" minW="0">
             <StatusBadge status={status} label={workflowDisplayStatus(operation)} />
             {operation.statusReason && <Text as="span" color="fg.muted">{operation.statusReason}</Text>}
           </HStack>
         }
+        // Refresh and Cancel no longer fit beside a long Workflow title on a phone.
+        stackActionsOnMobile
         actions={
           <>
             <Button variant="outline" onClick={reload}>
@@ -438,6 +447,19 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
       </Modal>
     </div>
   )
+}
+
+/**
+ * The Owned resources value when the Workflow holds no lease. Per workflows.md ("Response") `leases`
+ * is empty both before a Workflow first starts and after it ends, so a bare "None" would read as if
+ * the Workflow never held its targets; the text says which of the two it is. A started, unfinished
+ * Workflow that holds nothing (including one parked in `requires_attention`, which keeps its leases
+ * when it has any) is plainly "None".
+ */
+function ownedResourcesEmptyText(operation: Operation, status: OperationStatus): string {
+  if (isTerminalStatus(status)) return 'Released when the Workflow ended'
+  if (operation.startState === 'pending') return 'None yet; the Workflow takes them when it starts'
+  return 'None'
 }
 
 /**

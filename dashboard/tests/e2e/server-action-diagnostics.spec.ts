@@ -168,7 +168,7 @@ test('Release hands canceling the running operations to the backend and closes a
   expect(releases).toEqual([{ serverId: 'srv-1', body: expect.objectContaining({ cancelActiveWorkflows: true }) }])
   expect(superseded).toContain('op-running')
   expect(browserCancels).toEqual([])
-  await expect(page.getByText('The running operations are being canceled; the Release of 1 Server starts once they end.')).toBeVisible()
+  await expect(page.getByText('The workflows holding them are being canceled; the release of 1 Server starts once they end.')).toBeVisible()
   // Releasing stays on the Server list rather than navigating to the Operation.
   await expect(page).toHaveURL(/\/servers(\?|$)/)
 })
@@ -272,6 +272,33 @@ test('Server detail follows Release until the projection becomes ready', async (
   await expect(page).toHaveURL(/\/servers\/srv-1\/summary/)
   await expect(page.getByText('ready', { exact: true }).first()).toBeVisible({ timeout: 7_000 })
   await expect(page.getByText('Updating...', { exact: true })).toBeHidden({ timeout: 7_000 })
+})
+
+test('Server detail Release locks its choices while submitting and links the started Workflow', async ({ page }) => {
+  await installApiFixtures(page, { withoutPlatformClaims: true })
+  let releaseAccepted = () => {}
+  const releaseGate = new Promise<void>((resolve) => { releaseAccepted = resolve })
+  await page.route('**/api/v1/provisioning/release-operations', async (route) => {
+    await releaseGate
+    await route.fallback()
+  })
+  await page.goto('/servers/srv-1/summary?site=site-a')
+  await page.getByRole('button', { name: 'Take action' }).click()
+  await chooseMenuItem(page, 'Release')
+
+  const release = page.getByRole('dialog', { name: 'Release server', exact: true })
+  await release.getByLabel('Erase disks before release').locator('..').click()
+  await release.getByRole('button', { name: 'Release server', exact: true }).click()
+  // In flight, every choice is locked so what is submitted is what the dialog shows.
+  for (const control of ['Erase disks before release', 'Use secure erase when supported', 'Use quick erase', 'Remove static IP bindings after release', 'Provider event comment (optional)']) {
+    await expect(release.getByLabel(control, { exact: true })).toBeDisabled()
+  }
+  releaseAccepted()
+
+  await expect(release).toBeHidden()
+  await expect(page.getByText('Release started', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'View workflow' }).click()
+  await expect(page).toHaveURL(/\/workflows\/op-release-os-\d+\?site=site-a$/)
 })
 
 test('Release static cleanup is opt-in, durable, and retries cleanup without another Release', async ({ page }) => {

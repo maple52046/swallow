@@ -153,8 +153,10 @@ management network can view it without a login. Each deploy or redeploy gives it
 credential, so a credential copied from an older deployment stops working.
 
 - **Slurm**: Grafana runs on the primary controller, at port 3000. It runs as a container by
-  default; choose the native install method to install it from Grafana's apt/yum repository
-  instead.
+  default, so the deploy installs a container engine on the primary controller first: the one
+  the deploy requests under **Container runtime**, otherwise Docker CE, unless that Server
+  already has one. Choose the native install method to install it from Grafana's apt/yum
+  repository instead.
 - **Kubernetes**: Grafana runs in the cluster and is reached at port 30300 of every workload node;
   the link opens it on the first one. It keeps no data of its own, so it loses nothing when its Pod moves.
   When the AMD GPU Operator runs its Device Metrics Exporter, the Grafana adds the exporter's GPU

@@ -40,8 +40,9 @@ Features 步驟的 **Require synchronized clocks** Switch 預設開啟。此時�
 
 ## Kubernetes
 
-選擇 supported topology，指派 control-plane 與 worker role。Standalone deployment
-仍是一個 Kubernetes Platform。Provider／image combination 支援時，deployment
+選擇 supported topology，指派 control-plane 與 worker role。Workspace 預設為
+**Multi-node (non-HA)**；**High availability** 需要至少三個且為奇數的 control plane，以及一個未使用的
+API virtual IP。Standalone deployment 仍是一個 Kubernetes Platform。Provider／image combination 支援時，deployment
 也可要求 ephemeral OS target。
 
 佈署完成後，Platform detail 會提供 live Kubernetes explorer：

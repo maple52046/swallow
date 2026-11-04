@@ -4,6 +4,9 @@ import type { SoftwareAssignment } from '@/domain/software/types'
 
 const now = '2026-08-27T03:00:00Z'
 
+/** The id of the Workflow `controllerWorkflow` seeds; uuid-shaped like the ids the API assigns. */
+export const CONTROLLER_WORKFLOW_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7'
+
 /**
  * Builds fleet fixtures; Server four deliberately models an unobserved inventory. The stored
  * `health` is what the Site Prometheus answers for a monitored Server (srv-4's scrape fails); the
@@ -420,6 +423,14 @@ export interface FixtureOptions {
   multiGpuServerIds?: string[]
   /** Replaces inventory with a management/display GPU and no compute accelerator. */
   displayOnlyServerIds?: string[]
+  /** Overrides observed storage in GB, e.g. a provider's unrounded `2000.398934016`. */
+  serverStorageGB?: Record<string, number>
+  /**
+   * Seeds one Workflow a swallow controller requested (`requestedBy` `swallow:node-exporter-controller`)
+   * with a uuid-style id, `CONTROLLER_WORKFLOW_ID`: `succeeded` (ended, so it owns nothing anymore) or
+   * `pending` (accepted but not started yet). Long requester and id values exercise truncation.
+   */
+  controllerWorkflow?: 'succeeded' | 'pending'
   /** Replaces compute inventory with a provider-generic AMD model plus an ASPEED controller. */
   genericComputeServerIds?: string[]
   /** Replaces inventory with a Cirrus Logic GD 5446 display controller. */
@@ -1193,6 +1204,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       { vendor: 'ASPEED Technology, Inc.', model: 'ASPEED Graphics Family', count: 16, kind: 'display' },
     ]
   }
+  for (const [serverId, storageGB] of Object.entries(options.serverStorageGB ?? {})) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.status.storageGB = storageGB
+  }
   for (const serverId of options.displayOnlyServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
     if (server) server.status.gpus = [
@@ -1673,6 +1688,38 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       requestedBy: 'system', requestedAt: now, updatedAt: now,
     }
     operationItems.push(inspection as unknown as (typeof operationItems)[number])
+  }
+  if (options.controllerWorkflow) {
+    const pending = options.controllerWorkflow === 'pending'
+    const status = pending ? 'pending' : 'succeeded'
+    const target = [{ kind: 'server', id: 'srv-2' }]
+    const controllerWorkflow = {
+      id: CONTROLLER_WORKFLOW_ID, schemaVersion: 3, kind: 'configure-node-exporter',
+      intent: 'Install the Node Exporter on gpu-node-02', intentSnapshot: {},
+      definition: 'software-install', definitionVersion: 1,
+      status, statusReason: null,
+      startState: pending ? 'pending' : 'started',
+      temporal: { workflowId: `swallow-operation/${CONTROLLER_WORKFLOW_ID}`, runId: pending ? '' : 'run-node-exporter' },
+      siteId: 'site-a', platformId: null,
+      targetResources: target, targetServerIds: ['srv-2'], retryOfOperationId: null,
+      steps: [
+        {
+          id: 'install-node-exporter-srv-2', kind: 'ansible-playbook', name: 'Install the Node Exporter on gpu-node-02',
+          executor: 'ansible', dependsOn: [], targets: target, status, attempt: pending ? 0 : 1, progress: pending ? 0 : 100,
+          error: null, externalExecution: null, artifacts: [],
+          startedAt: pending ? null : '2026-08-27T02:40:00Z', finishedAt: pending ? null : '2026-08-27T02:42:00Z',
+        },
+      ],
+      leases: [], requestCorrelation: null,
+      execution: {
+        runId: pending ? '' : 'run-node-exporter', playbook: 'ansible-playbook', status, statusReason: null,
+        startedAt: pending ? null : '2026-08-27T02:40:00Z', finishedAt: pending ? null : '2026-08-27T02:42:00Z',
+      },
+      requestedBy: 'swallow:node-exporter-controller', requestedAt: '2026-08-27T02:39:00Z',
+      startedAt: pending ? null : '2026-08-27T02:40:00Z', finishedAt: pending ? null : '2026-08-27T02:42:00Z',
+      updatedAt: pending ? '2026-08-27T02:39:00Z' : '2026-08-27T02:42:00Z',
+    }
+    operationItems.push(controllerWorkflow as unknown as (typeof operationItems)[number])
   }
   for (const [serverId, status] of Object.entries(options.releaseWorkflows ?? {})) {
     if (status === null) {

@@ -34,6 +34,25 @@ test('a failed Server offers Recover and Release, but Mark fixed is gated to Bro
   await page.getByRole('menuitem', { name: /^Recover/ }).click()
   await expect.poll(() => recovered.map((entry) => entry.serverId)).toContain('srv-1')
   await expect(page).toHaveURL(/\/servers(\?|$)/)
+  // The toast names the started Recover and links its Workflow in the Server's Site.
+  await expect(page.getByText('Recover started', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'View workflow' }).click()
+  await expect(page).toHaveURL(/\/workflows\/op-recover-server-\d+\?site=site-a$/)
+})
+
+// The Servers page can act in the all-Sites view; the toast's Workflow link still opens in the
+// Servers' Site.
+test('a bulk Release from the all-Sites view links its Workflow in the Servers\' Site', async ({ page }) => {
+  await installApiFixtures(page, { withoutPlatformClaims: true })
+  await page.goto('/servers')
+  await page.getByLabel('Select gpu-node-01').check()
+  await page.getByRole('button', { name: 'Take action' }).click()
+  await page.getByRole('menuitem', { name: 'Release', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Release server', exact: true }).getByRole('button', { name: 'Release server', exact: true }).click()
+  await expect(page.getByText('Release started', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Operation created/)).toHaveCount(0)
+  await page.getByRole('button', { name: 'View workflow' }).click()
+  await expect(page).toHaveURL(/\/workflows\/op-release-os-\d+\?site=site-a$/)
 })
 
 // A failed Server held by an unfinished deployment must point the user at that Workflow, where
@@ -69,7 +88,10 @@ test('Cancel blocking Operations and Recover hands the cancel to the backend', a
 
   await expect.poll(() => recovered).toEqual([{ serverId: 'srv-1', body: expect.objectContaining({ cancelActiveWorkflows: true }) }])
   expect(superseded).toContain('op-running')
-  await expect(page.getByText('The blocking operations are being canceled; Swallow returns the Server to the ready pool once they end.')).toBeVisible()
+  await expect(page.getByText('Recover started', { exact: true })).toBeVisible()
+  await expect(page.getByText('The blocking workflows are being canceled; Swallow returns the Server to the ready pool once they end.')).toBeVisible()
+  await page.getByRole('button', { name: 'View workflow' }).click()
+  await expect(page).toHaveURL(/\/workflows\/op-recover-server-\d+\?site=site-a$/)
 })
 
 test('the detail page explains recovery for failed and rescue Servers', async ({ page }) => {

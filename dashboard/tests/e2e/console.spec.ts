@@ -1,5 +1,5 @@
 import { expect, test } from 'playwright/test'
-import { installApiFixtures, approvePlatformInstall } from './fixtures'
+import { CONTROLLER_WORKFLOW_ID, installApiFixtures, approvePlatformInstall } from './fixtures'
 
 const visibleAppearance = (page: import('playwright/test').Page) => page.locator('button[aria-label^="Appearance:"]:visible')
 const visibleSiteScope = (page: import('playwright/test').Page) => page.locator('button[aria-label^="Site scope:"]:visible')
@@ -559,6 +559,10 @@ test.describe('user interactions', () => {
     await page.getByLabel('Platform name').fill('compute-k0s')
     await next.click()
     await expect(page.getByRole('heading', { name: 'Topology and machines' })).toBeVisible()
+    // A new deploy starts multi-node (non-HA); high availability is a deliberate choice.
+    await expect(page.getByRole('radio', { name: /Multi-node \(non-HA\)/ })).toBeChecked()
+    await page.getByRole('radio', { name: /High availability/ }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByRole('radio', { name: /High availability/ })).toBeChecked()
     for (const server of ['gpu-node-01', 'gpu-node-02', 'gpu-node-03']) {
       await chooseSingleSelectOption(page, `Role for ${server}`, 'Control-plane')
     }
@@ -611,6 +615,8 @@ test.describe('user interactions', () => {
     await expect(page.getByRole('checkbox', { name: /Native OCI/ })).toBeChecked()
     await expect(page.getByRole('checkbox', { name: /Docker CE/ })).not.toBeChecked()
     await expect(page.getByRole('checkbox', { name: /Podman/ })).not.toBeChecked()
+    // With no container engine requested, the Grafana container brings Docker CE to the primary controller.
+    await expect(page.getByText('Run Grafana in a container on gpu-node-01, installing Docker CE there unless it already has a container engine.')).toBeVisible()
     await page.getByRole('checkbox', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
     await page.getByRole('checkbox', { name: /Native OCI/ }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByRole('checkbox', { name: /Native OCI/ })).not.toBeChecked()
@@ -619,7 +625,7 @@ test.describe('user interactions', () => {
     await expect(page.getByRole('radio', { name: /Omnistat/ })).toBeChecked()
     await expect(page.getByText(/Its job report tool reads the metrics through the Platform Grafana/)).toBeVisible()
     await expect(page.getByRole('switch', { name: 'Enable Platform Grafana' })).toBeChecked()
-    await expect(page.getByText('Run Grafana as a container on gpu-node-01.')).toBeVisible()
+    await expect(page.getByText('Run Grafana in a container on gpu-node-01, installing Podman there, the container engine chosen above.')).toBeVisible()
     await page.getByRole('radio', { name: /^Native/ }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByRole('radio', { name: /^Native/ })).toBeChecked()
 
@@ -854,6 +860,124 @@ test.describe('user interactions', () => {
     await page.getByRole('button', { name: 'Next' }).click()
     await expect(page.getByLabel('API virtual IP')).toHaveCount(0)
     await expect(page.getByText('Direct control-plane endpoint')).toBeVisible()
+  })
+
+  test('Kubernetes wizard starts multi-node and returns to it when the Site changes', async ({ page }) => {
+    await installApiFixtures(page, { freePlatformCandidates: true })
+    await page.goto('/platforms/deploy/kubernetes?site=site-a')
+    await page.getByLabel('Platform name').fill('default-k0s')
+    await page.getByRole('button', { name: 'Next' }).click()
+    const multiNode = page.getByRole('radio', { name: /Multi-node \(non-HA\)/ })
+    await expect(multiNode).toBeChecked()
+    await page.getByRole('radio', { name: /High availability/ }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByRole('radio', { name: /High availability/ })).toBeChecked()
+
+    // A Site change resets the Site-specific choices, the topology included.
+    await page.getByRole('button', { name: 'Back' }).click()
+    await chooseSingleSelectOption(page, 'Site', 'Hsinchu Edge')
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expect(multiNode).toBeChecked()
+  })
+
+  test('Platform wizard shell shows rounded hardware facts, one OS scope banner, named Edit buttons, and a quiet submit', async ({ page }) => {
+    // gpu-node-01 reports unrounded storage and, like every named fixture Server, an ASPEED display
+    // controller beside eight MI300X compute GPUs.
+    await installApiFixtures(page, { freePlatformCandidates: true, readyServerCount: 2, serverStorageGB: { 'srv-1': 2000.398934016 } })
+    let releaseSubmit = () => {}
+    const submitGate = new Promise<void>((resolve) => { releaseSubmit = resolve })
+    await page.route((url) => url.pathname.replace(/\/$/, '') === '/api/v1/platforms', async (route) => {
+      if (route.request().method() === 'POST') await submitGate
+      await route.fallback()
+    })
+    await page.goto('/platforms/deploy/slurm?site=site-a')
+    await page.getByLabel('Platform name').fill('shell-slurm')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+
+    // Storage is rounded like the Servers page, and only compute GPUs are listed.
+    const candidate = page.getByRole('table', { name: 'Deployable Servers' }).getByRole('row', { name: /gpu-node-01/ })
+    await expect(candidate).toContainText('64 cores · 512 GiB · 2000 GB · 8 × AMD MI300X')
+    await expect(candidate).not.toContainText('2000.398934016')
+    await expect(candidate).not.toContainText('2 GPU')
+
+    await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Slurm features' })).toBeVisible()
+    await next.click()
+
+    // The three OS sections share one step, so the scope banner is shown once, above them.
+    const banner = page.getByText('Preparing 2 Servers that still need an operating system', { exact: true })
+    await expect(banner).toHaveCount(1)
+    await chooseOSImage(page, 'Ubuntu 24.04 LTS')
+    await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
+    await expect(banner).toHaveCount(1)
+    const bannerBox = await banner.boundingBox()
+    const osHeadingBox = await page.getByRole('heading', { name: 'Operating system', exact: true }).boundingBox()
+    expect(bannerBox && osHeadingBox && bannerBox.y < osHeadingBox.y).toBe(true)
+    await next.click()
+
+    // Every review card's Edit button is named after its card and returns to that card's step.
+    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Edit Nodes and roles', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Edit Operating system', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
+    await next.click()
+
+    // While the proposal is submitted, nothing tells the user to return to an incomplete step.
+    const deploy = page.getByRole('button', { name: 'Deploy Slurm Platform' })
+    await deploy.click()
+    await expect(deploy).toBeDisabled()
+    await expect(page.getByText('Return to the incomplete deployment step before submitting.')).toHaveCount(0)
+    releaseSubmit()
+    await expect(page).toHaveURL('/change-plans?site=site-a')
+  })
+
+  test('Slurm wizard names the container engine the Platform Grafana container installs', async ({ page }) => {
+    await installApiFixtures(page, { freePlatformCandidates: true })
+    await page.goto('/platforms/deploy/slurm?site=site-a')
+    await page.getByLabel('Platform name').fill('grafana-slurm')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+    await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
+    await next.click()
+
+    await expect(page.getByRole('radio', { name: /^Container/ })).toBeChecked()
+    await expect(page.getByText('Run Grafana in a container on gpu-node-01, installing Docker CE there unless it already has a container engine.')).toBeVisible()
+    await next.click()
+    await expect(page.getByText('In a container on gpu-node-01, which gets Docker CE to run it unless it already has a container engine', { exact: true })).toBeVisible()
+
+    // A container engine the deploy requests is the one the Grafana container uses.
+    await page.getByRole('button', { name: 'Edit Monitoring and GPU scheduling', exact: true }).click()
+    await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByRole('checkbox', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
+    await expect(page.getByText('Run Grafana in a container on gpu-node-01, installing Podman there, the container engine chosen above.')).toBeVisible()
+    await next.click()
+    await expect(page.getByText('In a container on gpu-node-01, which gets Podman to run it', { exact: true })).toBeVisible()
+  })
+
+  test('A wizard field scrolled into view stays above the sticky action bar', async ({ page }) => {
+    await installApiFixtures(page, { freePlatformCandidates: true })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/platforms/deploy/slurm?site=site-a')
+    await page.getByLabel('Platform name').fill('scroll-slurm')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+    await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
+    await next.click()
+    await page.getByText('Advanced GPU settings', { exact: true }).click()
+    // Find-in-page, validation, and keyboard focus scroll a field just into view; it must land above
+    // the action bar rather than underneath it.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    const pmix = page.getByRole('switch', { name: 'Enable MPI with PMIx' })
+    await pmix.evaluate((element) => element.scrollIntoView({ block: 'nearest' }))
+    const card = await pmix.locator('xpath=ancestor::label[1]').boundingBox()
+    const actions = await page.getByRole('button', { name: 'Back' }).locator('xpath=..').boundingBox()
+    expect(card && actions && card.y + card.height <= actions.y).toBe(true)
   })
 
   for (const keep of [true, false]) {
@@ -1098,6 +1222,16 @@ test.describe('user interactions', () => {
     await expect(deleteDialog.getByLabel('Platform name confirmation')).toBeFocused()
   })
 
+  test('Platform list counts controller-only Slurm nodes as members, like the Platform page', async ({ page }) => {
+    await installApiFixtures(page, { slurmDeployed: true })
+    await page.goto('/platforms?site=site-a')
+    const table = page.getByRole('table', { name: 'Platforms' })
+    // slurmrestd reports only the two compute nodes; the two controller-only nodes still count.
+    await expect(table.getByRole('row', { name: /lab-slurm-ha/ })).toContainText('4 / 4')
+    // k0s reports its controllers itself, so nothing is added to its counts.
+    await expect(table.getByRole('row', { name: /production-k0s/ })).toContainText('4 / 5')
+  })
+
   test('failed Platform repairs from its detail workflow and remains in lifecycle progress', async ({ page }) => {
     await page.goto('/platforms/platform-b?site=site-a')
     await expect(page.getByText('Platform deployment failed')).toBeVisible()
@@ -1300,15 +1434,29 @@ test.describe('user interactions', () => {
     // Release is an alternative execution path, and its options stay hidden until selected.
     await expect(dialog.getByLabel('Erase disks before release')).toHaveCount(0)
     await dialog.getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
-    await expect(dialog.getByText('Servers will be released', { exact: true })).toBeVisible()
-    await expect(dialog.getByText(/directly to its provider instead of uninstalling platform software\. Releasing removes each deployed operating system/)).toBeVisible()
-    await expect(dialog.getByText(/leaves this platform|host exporters/)).toHaveCount(0)
-    await dialog.getByLabel('Erase disks before release').locator('..').click()
-    await dialog.getByLabel('Use secure erase when supported').locator('..').click()
-    await dialog.getByLabel('Remove static IP bindings after release').locator('..').click()
-    await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
-    await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
-    await dialog.getByRole('button', { name: 'Propose server release' }).click()
+    // The dialog now proposes a release, so its title and intro say so instead of "uninstall".
+    const releaseDialog = page.getByRole('dialog', { name: 'Release platform servers' })
+    await expect(releaseDialog.getByText('Propose releasing every server of “production-k0s” to its provisioner instead of uninstalling platform software.', { exact: false })).toBeVisible()
+    await expect(releaseDialog.getByText('Servers will be released', { exact: true })).toBeVisible()
+    await expect(releaseDialog.getByText(/directly to its provider instead of uninstalling platform software\. Releasing removes each deployed operating system/)).toBeVisible()
+    await expect(releaseDialog.getByText(/leaves this platform|host exporters/)).toHaveCount(0)
+    await releaseDialog.getByLabel('Erase disks before release').locator('..').click()
+    await releaseDialog.getByLabel('Use secure erase when supported').locator('..').click()
+    await releaseDialog.getByLabel('Remove static IP bindings after release').locator('..').click()
+    await releaseDialog.getByLabel('Platform name confirmation').fill('production-k0s')
+    await releaseDialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
+    // Hold the proposal so the in-flight state can be checked: the release options lock with the rest.
+    let releaseProposal = () => {}
+    const proposalGate = new Promise<void>((resolve) => { releaseProposal = resolve })
+    await page.route('**/api/v1/platforms/platform-a', async (route) => {
+      if (route.request().method() === 'DELETE') await proposalGate
+      await route.fallback()
+    })
+    await releaseDialog.getByRole('button', { name: 'Propose server release' }).click()
+    for (const option of ['Erase disks before release', 'Use secure erase when supported', 'Use quick erase if secure erase is unavailable', 'Remove static IP bindings after release']) {
+      await expect(releaseDialog.getByLabel(option)).toBeDisabled()
+    }
+    releaseProposal()
 
     await expect(page).toHaveURL('/change-plans?site=site-a')
     await expect(page.getByText('Server release proposed')).toBeVisible()
@@ -1348,13 +1496,14 @@ test.describe('user interactions', () => {
     const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
     await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy edge-staging k0s platform')
     await dialog.getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
-    await dialog.getByLabel('Platform name confirmation').fill('edge-staging')
-    const release = dialog.getByRole('button', { name: 'Propose server release' })
+    const releaseDialog = page.getByRole('dialog', { name: 'Release platform servers' })
+    await releaseDialog.getByLabel('Platform name confirmation').fill('edge-staging')
+    const release = releaseDialog.getByRole('button', { name: 'Propose server release' })
     await expect(release).toBeDisabled()
-    await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
+    await releaseDialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
     await release.click()
 
-    await expect(dialog).toBeHidden({ timeout: 2_000 })
+    await expect(releaseDialog).toBeHidden({ timeout: 2_000 })
     await expect(page).toHaveURL('/change-plans?site=site-a')
     expect(uninstalls).toEqual([{ platformId: 'platform-b', body: expect.objectContaining({ releaseServers: true, cancelActiveWorkflows: true }) }])
     expect(superseded).toEqual(['op-deploy-failed'])
@@ -1383,6 +1532,14 @@ test.describe('user interactions', () => {
     const dialog = page.getByRole('dialog', { name: 'Uninstall selected platforms' })
     await expect(dialog.getByRole('list', { name: 'Platforms to uninstall' })).toHaveText('edge-staging')
     await expect(dialog.getByRole('list', { name: "Workflows holding the selected platforms' servers" })).toContainText('Deploy edge-staging k0s platform')
+    // Releasing the servers instead retitles the dialog as a release; turning it off restores it.
+    const releaseChoice = 'Release all servers instead of uninstalling platform software'
+    await dialog.getByLabel(releaseChoice).locator('..').click()
+    const releaseDialog = page.getByRole('dialog', { name: 'Release servers of selected platforms' })
+    await expect(releaseDialog.getByText(/^Propose releasing the servers of selected Platforms that are currently eligible to their provisioner instead of uninstalling platform software/)).toBeVisible()
+    await expect(releaseDialog.getByRole('list', { name: 'Platforms whose servers are released' })).toHaveText('edge-staging')
+    await releaseDialog.getByLabel(releaseChoice).locator('..').click()
+    await expect(dialog).toBeVisible()
     await dialog.getByLabel('Type uninstall to confirm').fill('uninstall')
     const submit = dialog.getByRole('button', { name: 'Propose uninstall for 1 platform' })
     await expect(submit).toBeDisabled()
@@ -1542,6 +1699,50 @@ test.describe('user interactions', () => {
     const cards = page.locator('.sw-workflow-runtime-card')
     await expect(cards).toHaveCount(4)
     await expect(cards.first().getByRole('link', { name: 'View workflow' })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+
+  test('Workflow list truncates a long requester inside its cell and keeps the full name', async ({ page }) => {
+    await installApiFixtures(page, { controllerWorkflow: 'succeeded' })
+    await page.goto('/workflows?site=site-a')
+    const row = page.getByRole('table', { name: 'Workflows' }).getByRole('row', { name: /Install the Node Exporter on gpu-node-02/ })
+    const requester = row.getByTitle('swallow:node-exporter-controller')
+    await expect(requester).toHaveText('swallow:node-exporter-controller')
+    // The name ends inside the Requested cell instead of running into Timing.
+    const nameBox = await requester.boundingBox()
+    const cellBox = await requester.locator('xpath=ancestor::td[1]').boundingBox()
+    expect(nameBox && cellBox && nameBox.x + nameBox.width <= cellBox.x + cellBox.width).toBe(true)
+  })
+
+  test('Workflow detail says when its owned resources were released or are still to be taken', async ({ page }) => {
+    const ownedResources = page.locator('.sw-key-value-grid > div').filter({ has: page.locator('dt', { hasText: /^Owned resources$/ }) }).locator('dd')
+    await installApiFixtures(page, { controllerWorkflow: 'succeeded' })
+    await page.goto(`/workflows/${CONTROLLER_WORKFLOW_ID}?site=site-a`)
+    await expect(ownedResources).toHaveText('Released when the Workflow ended')
+
+    await installApiFixtures(page, { controllerWorkflow: 'pending' })
+    await page.goto(`/workflows/${CONTROLLER_WORKFLOW_ID}?site=site-a`)
+    await expect(ownedResources).toHaveText('None yet; the Workflow takes them when it starts')
+
+    // A started, unfinished Workflow that holds nothing still reads plainly.
+    await page.goto('/workflows/op-running?site=site-a')
+    await expect(ownedResources).toHaveText('None')
+  })
+
+  test('Workflow detail header fits a phone: commands stack and the id breadcrumb keeps its full value', async ({ page }) => {
+    await installApiFixtures(page, { controllerWorkflow: 'succeeded' })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(`/workflows/${CONTROLLER_WORKFLOW_ID}?site=site-a`)
+    const heading = page.getByRole('heading', { level: 1, name: 'Install the Node Exporter on gpu-node-02' })
+    await expect(heading).toBeVisible()
+    const crumb = page.getByRole('navigation', { name: 'breadcrumb' }).locator('[aria-current="page"]')
+    await expect(crumb).toHaveText(CONTROLLER_WORKFLOW_ID)
+    await expect(crumb).toHaveAttribute('title', CONTROLLER_WORKFLOW_ID)
+    expect(await crumb.evaluate((element) => getComputedStyle(element).textOverflow)).toBe('ellipsis')
+    const refresh = page.getByRole('button', { name: 'Refresh', exact: true }).first()
+    const headingBox = await heading.boundingBox()
+    const refreshBox = await refresh.boundingBox()
+    expect(headingBox && refreshBox && refreshBox.y >= headingBox.y + headingBox.height).toBe(true)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 

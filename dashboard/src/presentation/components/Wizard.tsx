@@ -27,7 +27,10 @@ interface WizardProps {
   /** Invoked when the user confirms the final step. */
   onFinish: () => void
   finishLabel?: string
-  /** Reflects an in-flight submit on the final step. */
+  /**
+   * Reflects an in-flight submit on the final step: Finish shows its busy state and stays disabled,
+   * and the step's blocked reason is hidden because nothing is incomplete.
+   */
   finishing?: boolean
   /** Optional controlled active step, used by review actions that return to an earlier section. */
   activeStep?: number
@@ -40,7 +43,8 @@ interface WizardProps {
  *
  * A horizontal, scrollable step bar keeps the whole deployment sequence above the active
  * workspace at every viewport. Forward movement is gated by the active step, while completed
- * steps remain available for backward navigation.
+ * steps remain available for backward navigation. The action bar is sticky at the bottom of the
+ * viewport; the stylesheet keeps focused or scrolled-to fields clear of it.
  */
 export function Wizard({
   steps,
@@ -59,6 +63,9 @@ export function Wizard({
   const step = steps[current]
   const isLast = current === steps.length - 1
   const canProceed = step.canProceed !== false
+  // While the final step submits, the Finish button already shows its busy state; a blocked reason
+  // there would tell the user to fix a step that is not incomplete.
+  const showBlockedReason = !canProceed && Boolean(step.blockedReason) && !(isLast && finishing)
   const updateCurrent = (next: number | ((value: number) => number)) => {
     const value = typeof next === 'function' ? next(current) : next
     const bounded = Math.max(0, Math.min(steps.length - 1, value))
@@ -119,7 +126,7 @@ export function Wizard({
             Back
           </Button>
           <Box display="grid" justifyItems="end" gap="1" maxW={{ base: '65%', md: '34rem' }}>
-            {!canProceed && step.blockedReason && (
+            {showBlockedReason && (
               <Text className="sw-wizard__blocked-reason" role="status" textAlign="right">{step.blockedReason}</Text>
             )}
             {isLast ? (

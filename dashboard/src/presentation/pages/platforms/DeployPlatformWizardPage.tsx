@@ -9,6 +9,7 @@ import { formatGiB } from '@/domain/platform/resourceEligibility'
 import type { Platform, PlatformMachinePreparation, PlatformType } from '@/domain/platform/types'
 import type { DeploymentNetworkMode, DeploymentTemplate, DeployTarget, NetworkInspectionResult } from '@/domain/provisioning/types'
 import type { Integration, OSImage } from '@/domain/site/types'
+import { serverGPUsByKind } from '@/domain/server/gpu'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import {
   platformDeployFeatures,
@@ -26,6 +27,7 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
+import { gpuInventoryProfile } from '@/presentation/components/serverGpuPresentation'
 import { Wizard, type WizardStepDef } from '@/presentation/components/Wizard'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
@@ -48,6 +50,7 @@ import { Select } from '@/presentation/components/ui/select'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
+import { formatQuantity } from '@/shared/utils/quantity'
 import { useDeployableServers } from './useDeployableServers'
 import { AdvancedSettings } from './AdvancedSettings'
 import { TimeSyncCheckToggle } from './TimeSyncCheckToggle'
@@ -101,6 +104,25 @@ function existingPlatformAssignment(server: Server, platforms: Platform[]): Exis
   }
 }
 
+/**
+ * One-line hardware facts for a deploy candidate, shared by the table and the mobile cards. Storage
+ * is rounded like the Servers page (`formatQuantity`), and only compute GPUs are listed: GPU Inventory
+ * also holds display controllers (for example a VM's virtual display), which no Platform schedules.
+ * A fact the provider has not reported (zero) is left out rather than shown as 0, and a Server with
+ * none reads "Not reported", as on the Servers page.
+ */
+function candidateHardwareSummary(server: Server): string {
+  const { cpuCores, memoryMiB, storageGB } = server.status
+  const computeGPUs = serverGPUsByKind(server, 'compute')
+  const facts = [
+    ...(cpuCores > 0 ? [`${cpuCores} cores`] : []),
+    ...(memoryMiB > 0 ? [`${formatGiB(memoryMiB)} GiB`] : []),
+    ...(storageGB > 0 ? [formatQuantity(storageGB, 'GB')] : []),
+    ...(computeGPUs.length > 0 ? [gpuInventoryProfile(computeGPUs)] : []),
+  ]
+  return facts.length > 0 ? facts.join(' · ') : 'Not reported'
+}
+
 /** Keeps every wizard step on the same compact vertical rhythm. */
 function WizardSection({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -118,14 +140,18 @@ interface ReviewGroupProps {
   onEdit: () => void
 }
 
-/** One review section with a direct return path to its owning deployment step. */
+/**
+ * One review section with a direct return path to its owning deployment step. Every card has an
+ * Edit button, so each is named after its card (`Edit Platform`, `Edit Monitoring`) to stay
+ * distinguishable in a screen reader's list of buttons.
+ */
 function ReviewGroup({ title, items, onEdit }: ReviewGroupProps) {
   return (
     <Card.Root size="sm" className="sw-platform-review-card">
       <Card.Body gap="3">
         <HStack justify="space-between" align="center" gap="3">
           <Heading as="h3" size="sm">{title}</Heading>
-          <Button size="xs" variant="plain" colorPalette="brand" onClick={onEdit}>Edit</Button>
+          <Button size="xs" variant="plain" colorPalette="brand" aria-label={`Edit ${title}`} onClick={onEdit}>Edit</Button>
         </HStack>
         <DescriptionList items={items} />
       </Card.Body>
@@ -643,9 +669,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
                             '-'
                           )}
                         </Table.Cell>
-                        <Table.Cell>
-                          {server.status.cpuCores} cores · {formatGiB(server.status.memoryMiB)} GiB · {server.status.storageGB} GB{server.status.gpus.length > 0 ? ` · ${server.status.gpus.length} GPU` : ''}
-                        </Table.Cell>
+                        <Table.Cell>{candidateHardwareSummary(server)}</Table.Cell>
                         {eligibility && (
                           <Table.Cell>
                             <EligibilityValue eligibility={serverEligibility} />
@@ -681,10 +705,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
                         status={status}
                         selected={willProvision}
                       >
-                        <ResourceCardField label="Hardware">
-                          {server.status.cpuCores} cores · {formatGiB(server.status.memoryMiB)} GiB · {server.status.storageGB} GB
-                          {server.status.gpus.length > 0 ? ` · ${server.status.gpus.length} GPU` : ''}
-                        </ResourceCardField>
+                        <ResourceCardField label="Hardware">{candidateHardwareSummary(server)}</ResourceCardField>
                         <ResourceCardField label="Current assignment">
                           {existing ? (
                             <span className="sw-cell-inline">
@@ -728,9 +749,9 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
 
     if (needsProvisioning) {
       const preparationScopeTitle =
-        'Preparing ' + readySelectedServers.length + ' Server' +
-        (readySelectedServers.length === 1 ? '' : 's') +
-        ' that still need an operating system'
+        'Preparing ' + readySelectedServers.length +
+        (readySelectedServers.length === 1 ? ' Server that still needs' : ' Servers that still need') +
+        ' an operating system'
       const preparationScopeMessage = deployedSelectedServers.length > 0
         ? deployedSelectedServers.length + ' already-deployed Server' +
           (deployedSelectedServers.length === 1 ? '' : 's') +
@@ -782,10 +803,6 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
                   .map((template) => ({ value: template.id, label: template.name })),
               ],
             } : undefined}
-            scopeNotice={{
-              title: preparationScopeTitle,
-              message: preparationScopeMessage,
-            }}
           />
         ),
       })
@@ -797,7 +814,6 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
         blockedReason: 'Choose an OS image before configuring its installation mode.',
         content: (
           <WizardSection title="OS installation">
-            {preparationScope}
             <div className="sw-form-grid">
               <DeployTargetField
                 value={effectiveDeployTarget}
@@ -848,7 +864,6 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
         blockedReason: provisioningErrorText || 'Complete the network interface and addressing assignment for every Server being provisioned.',
         content: (
           <WizardSection title="OS networking">
-            {preparationScope}
             {provisioningError && (
               <Alert status="error" title="Provisioning data is unavailable">
                 <FailureMessage failure={provisioningError} />
@@ -912,6 +927,8 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
         ),
       })
 
+      // The three preparation sections share one wizard step, so the scope banner that says which
+      // Servers they apply to is rendered once, above all three.
       const preparationSteps = steps.splice(-3, 3)
       steps.push({
         id: 'deploy-server-preparation',
@@ -922,6 +939,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
           : 'Choose an OS image for the Servers that need provisioning.'),
         content: (
           <div className="sw-platform-preparation-stack">
+            {preparationScope}
             {preparationSteps.map((step) => <div key={step.id}>{step.content}</div>)}
           </div>
         ),
@@ -971,7 +989,9 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
     steps.push({
       id: 'deploy-review',
       name: 'Review',
-      canProceed: basicsValid && machinesValid && featuresValid && osConfigurationValid && extraStepsValid && !submitting,
+      // Submitting is not a reason to block: the Wizard disables Finish through `finishing` and
+      // hides this reason meanwhile, so it only ever names an incomplete step.
+      canProceed: basicsValid && machinesValid && featuresValid && osConfigurationValid && extraStepsValid,
       blockedReason: 'Return to the incomplete deployment step before submitting.',
       content: (
         <WizardSection title="Review deployment">

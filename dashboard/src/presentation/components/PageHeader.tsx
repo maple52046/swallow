@@ -26,6 +26,10 @@ interface PageHeaderProps {
  * The component deliberately has no enclosing divider: page identity is separated
  * through spacing and type hierarchy, leaving bordered surfaces for actionable
  * content. Breadcrumbs stay native router links and actions keep source order.
+ * The breadcrumb trail stays on one line: the current item (often an opaque id
+ * such as a Workflow id) truncates with an ellipsis instead of widening a narrow
+ * viewport, while its full text stays in the DOM for assistive technology and in
+ * `title` for pointer users.
  */
 export function PageHeader({ title, subtitle, breadcrumbs, metadata, actions, stackActionsOnMobile = false }: PageHeaderProps) {
   return (
@@ -40,16 +44,18 @@ export function PageHeader({ title, subtitle, breadcrumbs, metadata, actions, st
         <Box minW="0" flex="1">
           {breadcrumbs && breadcrumbs.length > 0 && (
             <Breadcrumb.Root mb="1.5" fontSize="sm">
-              <Breadcrumb.List>
+              <Breadcrumb.List flexWrap="nowrap" minW="0">
                 {breadcrumbs.map((item, index) => (
                   <Box as="span" display="contents" key={`${item.label}-${index}`}>
-                    <Breadcrumb.Item>
+                    <Breadcrumb.Item minW={item.href ? undefined : '0'} flexShrink={item.href ? 0 : 1}>
                       {item.href ? (
                         <Breadcrumb.Link asChild>
                           <RouterLink to={item.href}>{item.label}</RouterLink>
                         </Breadcrumb.Link>
                       ) : (
-                        <Breadcrumb.CurrentLink>{item.label}</Breadcrumb.CurrentLink>
+                        <Breadcrumb.CurrentLink display="block" truncate title={item.label}>
+                          {item.label}
+                        </Breadcrumb.CurrentLink>
                       )}
                     </Breadcrumb.Item>
                     {index < breadcrumbs.length - 1 && <Breadcrumb.Separator />}

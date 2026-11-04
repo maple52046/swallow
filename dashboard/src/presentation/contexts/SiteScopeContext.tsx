@@ -21,7 +21,11 @@ interface SiteScopeValue {
   /** Reloads the registry after management mutations so header scope choices stay current. */
   refreshSites: () => Promise<void>
   setSite: (siteId?: string) => void
-  scopedHref: (path: string) => string
+  /**
+   * Builds an in-app link that keeps a Site scope: `siteId` when the caller knows the Site the target
+   * belongs to (so a link made in the all-Sites view still opens scoped), otherwise the current scope.
+   */
+  scopedHref: (path: string, siteId?: string) => string
 }
 
 const SiteScopeContext = createContext<SiteScopeValue | null>(null)
@@ -120,10 +124,11 @@ export function SiteScopeProvider({ children }: { children: ReactNode }) {
   )
 
   const scopedHref = useCallback(
-    (path: string) => {
-      if (!siteId) return path
+    (path: string, targetSiteId?: string) => {
+      const scope = targetSiteId ?? siteId
+      if (!scope) return path
       const target = new URL(path, window.location.origin)
-      target.searchParams.set('site', siteId)
+      target.searchParams.set('site', scope)
       return `${target.pathname}${target.search}${target.hash}`
     },
     [siteId],

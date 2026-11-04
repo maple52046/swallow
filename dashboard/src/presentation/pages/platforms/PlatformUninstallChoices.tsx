@@ -18,7 +18,7 @@ interface PlatformUninstallChoicesProps {
   blockingWorkflows: readonly ActiveOperationSummary[]
   cancelBlocking: boolean
   onCancelBlockingChange: (checked: boolean) => void
-  /** Disables every control while the request is in flight. */
+  /** Disables every control, the shared release options included, while the request is in flight. */
   disabled?: boolean
 }
 
@@ -51,7 +51,7 @@ export function PlatformUninstallChoices({
         Release all servers instead of uninstalling platform software
       </Checkbox>
       {releaseServers && (
-        <ReleaseOptionsFields idPrefix={`${idPrefix}-release`} value={releaseOptions} onChange={onReleaseOptionsChange} />
+        <ReleaseOptionsFields idPrefix={`${idPrefix}-release`} value={releaseOptions} onChange={onReleaseOptionsChange} disabled={disabled} />
       )}
       <BlockingWorkflowsNotice
         operations={blockingWorkflows}

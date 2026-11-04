@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { useApp } from "@/di/AppProvider";
 import { useToast } from "@/presentation/components/toast/toastContext";
+import { useViewWorkflowToastAction } from "@/presentation/hooks/useViewWorkflowToastAction";
 import type { ReleaseServerInput, ServerAction } from "@/domain/server/types";
 import { actionLabel } from "./serverActions";
 import {
@@ -14,15 +15,18 @@ import {
 
 /**
  * Runs a provisioner action across many Servers by fanning out over the per-Server API; Release
- * and Recover are one durable Operation for the whole batch instead.
+ * and Recover are one durable Workflow for the whole batch instead.
  *
  * swallow exposes no bulk action endpoint, so failures are collected per target instead
  * of aborting the remaining independent calls. The complete result is returned for the
- * persistent details UI; the toast is only a concise immediate summary.
+ * persistent details UI; the toast is only a concise immediate summary. The Release and Recover
+ * toasts link to the accepted Workflow; `siteId` is the batch's Site (the API refuses a cross-Site
+ * batch), so the link stays scoped even from the all-Sites view.
  */
 export function useServerBulkActions() {
   const { servers, provisioning } = useApp();
   const { showToast } = useToast();
+  const viewWorkflow = useViewWorkflowToastAction();
   const [running, setRunning] = useState(false);
 
   const run = useCallback(
@@ -80,6 +84,7 @@ export function useServerBulkActions() {
     async (
       targets: readonly ServerActionTarget[],
       input: ReleaseServerInput,
+      siteId?: string,
     ) => {
       setRunning(true);
       try {
@@ -89,24 +94,25 @@ export function useServerBulkActions() {
         });
         showToast({
           tone: "success",
-          title: "Release Operation created",
+          title: "Release started",
           description: input.cancelActiveWorkflows
-            ? `The running operations are being canceled; the Release of ${targets.length} Server${targets.length === 1 ? "" : "s"} starts once they end.`
+            ? `The workflows holding them are being canceled; the release of ${targets.length} Server${targets.length === 1 ? "" : "s"} starts once they end.`
             : `Swallow is tracking ${targets.length} Server${targets.length === 1 ? "" : "s"}.`,
+          ...viewWorkflow(operation.operationId, siteId),
         });
         return operation;
       } finally {
         setRunning(false);
       }
     },
-    [provisioning, showToast],
+    [provisioning, showToast, viewWorkflow],
   );
 
-  // Recover mirrors release: it starts one durable "Return to Ready" Operation for the batch
+  // Recover mirrors release: it starts one durable "Return to Ready" Workflow for the batch
   // and returns immediately so the list can follow the targets. Recover carries no erase
   // options, so unlike release it needs no confirmation dialog.
   const recover = useCallback(
-    async (targets: readonly ServerActionTarget[]) => {
+    async (targets: readonly ServerActionTarget[], siteId?: string) => {
       setRunning(true);
       try {
         const operation = await provisioning.createRecoverOperation({
@@ -114,15 +120,16 @@ export function useServerBulkActions() {
         });
         showToast({
           tone: "success",
-          title: "Recover Operation created",
+          title: "Recover started",
           description: `Swallow is returning ${targets.length} Server${targets.length === 1 ? "" : "s"} to Ready.`,
+          ...viewWorkflow(operation.operationId, siteId),
         });
         return operation;
       } finally {
         setRunning(false);
       }
     },
-    [provisioning, showToast],
+    [provisioning, showToast, viewWorkflow],
   );
 
   return { run, release, recover, running };

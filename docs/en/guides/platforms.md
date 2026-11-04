@@ -50,7 +50,9 @@ the Switch off to report such nodes and continue anyway.
 
 ## Kubernetes
 
-Choose a supported topology and assign control-plane and worker roles. A
+Choose a supported topology and assign control-plane and worker roles. The
+workspace starts with **Multi-node (non-HA)**; **High availability** needs an odd
+number of at least three control planes and an unused API virtual IP. A
 standalone deployment is still one Kubernetes Platform. Deployment can also
 request ephemeral OS targets when the selected image/provider combination
 supports them.

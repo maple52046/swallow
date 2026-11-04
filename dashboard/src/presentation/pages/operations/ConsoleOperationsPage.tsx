@@ -178,6 +178,22 @@ function WorkflowTargets({ operation, platformHref }: { operation: Operation; pl
   )
 }
 
+/**
+ * Who requested the Workflow and when, shared by desktop rows and mobile cards. A requester can be a
+ * long principal such as `swallow:node-exporter-controller`, so the name truncates inside its cell
+ * instead of spilling into Timing; the full name stays in the DOM text, which assistive technology
+ * reads whole, and in `title` for pointer users.
+ */
+function WorkflowRequested({ operation }: { operation: Operation }) {
+  const requester = operation.requestedBy || 'system'
+  return (
+    <div className="sw-workflow-requested">
+      <span className="sw-workflow-requested__by" title={requester}>{requester}</span>
+      <Text as="span" color="fg.muted" fontSize="xs">{formatRelative(operation.requestedAt)}</Text>
+    </div>
+  )
+}
+
 /** Request and elapsed-time facts shared by desktop and mobile renderers. */
 function WorkflowTiming({ operation }: { operation: Operation }) {
   return (
@@ -228,12 +244,7 @@ function WorkflowRuntimeCard({ operation, workflowHref, platformHref }: Workflow
         <ResourceCardField label="Targets">
           <WorkflowTargets operation={operation} platformHref={platformHref} />
         </ResourceCardField>
-        <ResourceCardField label="Requested">
-          <div className="sw-workflow-requested">
-            <span>{operation.requestedBy || 'system'}</span>
-            <Text as="span" color="fg.muted" fontSize="xs">{formatRelative(operation.requestedAt)}</Text>
-          </div>
-        </ResourceCardField>
+        <ResourceCardField label="Requested"><WorkflowRequested operation={operation} /></ResourceCardField>
         <ResourceCardField label="Timing"><WorkflowTiming operation={operation} /></ResourceCardField>
       </ResourceCard>
     </div>
@@ -512,14 +523,7 @@ export function ConsoleOperationsPage() {
                             <Table.Cell>
                               <WorkflowTargets operation={operation} platformHref={platformHref} />
                             </Table.Cell>
-                            <Table.Cell>
-                              <div className="sw-workflow-requested">
-                                <span>{operation.requestedBy || 'system'}</span>
-                                <Text as="span" color="fg.muted" fontSize="xs">
-                                  {formatRelative(operation.requestedAt)}
-                                </Text>
-                              </div>
-                            </Table.Cell>
+                            <Table.Cell><WorkflowRequested operation={operation} /></Table.Cell>
                             <Table.Cell><WorkflowTiming operation={operation} /></Table.Cell>
                             <Table.Cell className="sw-workflow-table__action">
                               <Button

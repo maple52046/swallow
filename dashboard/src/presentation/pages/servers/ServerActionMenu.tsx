@@ -10,6 +10,7 @@ import { failureOf, failureText } from '@/presentation/components/failure'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { usePlatformNames } from '@/presentation/hooks/usePlatformNames'
+import { useViewWorkflowToastAction } from '@/presentation/hooks/useViewWorkflowToastAction'
 import { ServerSoftwareInstallDialog } from '@/presentation/pages/software/ServerSoftwareInstallDialog'
 import { softwareInstallBlockerReason } from '@/presentation/pages/software/softwarePresentation'
 import { DeployOSDialog } from '@/presentation/pages/provisioning/DeployOSDialog'
@@ -37,6 +38,8 @@ import {
  * commands keep their existing confirmation, diagnostics, and refresh contracts. Install
  * software opens the shared install dialog with this Server as the fixed target, gated by the
  * same install-target rule as the Software page, and follows the accepted Workflow like it.
+ * An accepted Release or Recover stays on the page to follow the Server in place; its toast links
+ * to the Workflow the API returned, scoped to the Server's Site.
  */
 export function ServerActionMenu({
   server,
@@ -68,7 +71,9 @@ export function ServerActionMenu({
   const { showToast } = useToast()
   const navigate = useNavigate()
   const { scopedHref } = useSiteScope()
-  const platformNames = usePlatformNames(server.status.source.siteId, [server])
+  const viewWorkflow = useViewWorkflowToastAction()
+  const siteId = server.status.source.siteId
+  const platformNames = usePlatformNames(siteId, [server])
   const [busy, setBusy] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [releaseOpen, setReleaseOpen] = useState(false)
@@ -103,26 +108,28 @@ export function ServerActionMenu({
     setBusy(true)
     try {
       if (action === 'release') {
-        await provisioning.createReleaseOperation({ serverIds: [serverId], ...releaseInput })
+        const accepted = await provisioning.createReleaseOperation({ serverIds: [serverId], ...releaseInput })
         showToast({
           tone: 'success',
-          title: 'Release Operation created',
+          title: 'Release started',
           description: releaseInput?.cancelActiveWorkflows
-            ? 'The running operations are being canceled; the Release starts once they end.'
+            ? 'The workflows holding this Server are being canceled; the release starts once they end.'
             : 'Swallow will observe the provider until the Server is ready.',
+          ...viewWorkflow(accepted.operationId, siteId),
         })
         onActed(action, releaseInput)
         return
       }
       if (action === 'recover') {
-        // Recover is a swallow-owned durable Operation, not a single provider action: it
+        // Recover is a swallow-owned durable Workflow, not a single provider action: it
         // chooses the primitive by state (Mark fixed / exit rescue / Release) and converges to
         // Ready. It reuses the same accepted-and-followed contract as Release.
-        await provisioning.createRecoverOperation({ serverIds: [serverId] })
+        const accepted = await provisioning.createRecoverOperation({ serverIds: [serverId] })
         showToast({
           tone: 'success',
-          title: 'Recover Operation created',
+          title: 'Recover started',
           description: 'Swallow will return the Server to the ready pool.',
+          ...viewWorkflow(accepted.operationId, siteId),
         })
         onActed(action, releaseInput)
         return

@@ -24,6 +24,7 @@ import {
   platformUninstallConfirmLabel,
   platformUninstallConsequence,
   platformUninstallDeleteHint,
+  platformUninstallDialogCopy,
   type PlatformRecordDeleteContext,
 } from './platformRemovalCopy'
 import { platformUninstallOptions } from './platformUninstallRequest'
@@ -68,7 +69,7 @@ interface PlatformLifecycleActionsProps {
  * The Uninstall dialog lists the unfinished Workflows still holding the deployment targets (a
  * failed deployment parked for attention, or one still running) and requires the user to
  * confirm that the backend cancels them (`cancelActiveWorkflows`, decision 061) before the
- * uninstall starts.
+ * uninstall starts. Choosing to release the servers instead retitles the dialog as a release.
  */
 export function PlatformLifecycleActions({ platform, operation, targetServerIds, onRepairStarted }: PlatformLifecycleActionsProps) {
   const { platforms, operations } = useApp()
@@ -229,6 +230,9 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
   }
 
   const consequence = dialog === 'uninstall' ? platformUninstallConsequence(releaseServers, 'single') : platformRecordDeleteConsequence(recordDeleteContext)
+  const dialogCopy = dialog === 'uninstall'
+    ? platformUninstallDialogCopy({ releaseServers }, platform.name)
+    : { title: 'Delete platform record', description: `Permanently delete the Swallow record for “${platform.name}”. This never changes hosts.` }
 
   return (
     <>
@@ -309,10 +313,8 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         closeOnInteractOutside={!submitting}
         dismissDisabled={submitting}
         initialFocusEl={() => confirmationRef.current}
-        title={dialog === 'uninstall' ? 'Uninstall platform' : 'Delete platform record'}
-        description={dialog === 'uninstall'
-          ? `Propose removing Swallow-managed platform software from “${platform.name}”. Once you approve the Change Plan it acts on the original deployment targets, and the Swallow record is deleted after it succeeds.`
-          : `Permanently delete the Swallow record for “${platform.name}”. This never changes hosts.`}
+        title={dialogCopy.title}
+        description={dialogCopy.description}
         onSubmit={(event) => {
           event.preventDefault()
           void submit()

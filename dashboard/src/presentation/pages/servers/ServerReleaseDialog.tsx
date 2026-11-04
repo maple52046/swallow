@@ -29,7 +29,8 @@ interface ServerReleaseDialogProps {
  * once and starts by itself after the canceled work ends, so the dialog closes within the request
  * instead of polling for minutes with every control disabled. Leaving the box unchecked releases
  * exactly as before and surfaces the backend's conflict message; a cancel the backend refuses is
- * shown the same way.
+ * shown the same way. While the request is in flight every choice, the comment included, is locked
+ * so what is submitted is what the dialog shows.
  */
 export function ServerReleaseDialog({
   targets,
@@ -133,9 +134,10 @@ export function ServerReleaseDialog({
           onChange={setOptions}
           supportsReleaseOptions={supportsReleaseOptions}
           supportsNetworkConfiguration={supportsNetworkConfiguration}
+          disabled={submitting}
         />
         {supportsReleaseOptions && (
-          <Field.Root>
+          <Field.Root disabled={submitting}>
             <Field.Label>Provider event comment (optional)</Field.Label>
             <Textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} />
           </Field.Root>

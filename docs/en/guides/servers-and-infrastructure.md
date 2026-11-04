@@ -189,7 +189,8 @@ time is shown.
 
 After Release is accepted, stay on the list: the row changes to **Releasing**
 while the provider works and then to **Ready** when the Server returns to the
-pool.
+pool. The success notification of a Release or Recover offers **View workflow**
+for the Workflow that carries it out.
 
 A Server that a running Workflow still holds cannot be released. The Release
 dialog lists that work; check **Cancel running operations before releasing** to

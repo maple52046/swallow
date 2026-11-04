@@ -36,6 +36,7 @@ import { DescriptionList } from '@/presentation/components/ui/description-list'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
+import { useViewWorkflowToastAction } from '@/presentation/hooks/useViewWorkflowToastAction'
 import { useServerWorkingSet } from '@/presentation/pages/servers/useServerWorkingSet'
 import { AddressingModeField } from './AddressingModeField'
 import { NetworkAssignmentsEditor } from './NetworkAssignmentsEditor'
@@ -222,6 +223,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
   const { provisioning, sites: siteRepository } = useApp()
   const navigate = useNavigate()
   const { showToast } = useToast()
+  const viewWorkflow = useViewWorkflowToastAction()
   const templatesEnabled = useExperimentalFeature('deploymentTemplates')
   const workingSet = useServerWorkingSet({ siteId: context.siteId, includeAbsent: true })
   const [resourceNonce, setResourceNonce] = useState(0)
@@ -599,17 +601,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
         tone: 'success',
         title: 'OS deployment started',
         description: 'Server status will update automatically.',
-        duration: 12_000,
-        action: {
-          label: 'View workflow',
-          onClick: () =>
-            navigate(
-              siteHref(
-                `/workflows/${encodeURIComponent(response.operationId)}`,
-                context.siteId,
-              ),
-            ),
-        },
+        ...viewWorkflow(response.operationId, context.siteId),
       })
       onLaunched(response.operationId, configuration.serverIds)
     } catch (error) {

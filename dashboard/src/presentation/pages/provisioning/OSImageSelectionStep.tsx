@@ -2,7 +2,6 @@ import { Button, Field, Heading, Text } from '@chakra-ui/react'
 import { RefreshCw } from 'lucide-react'
 import type { OSImage } from '@/domain/site/types'
 import type { DisplayedFailure } from '@/presentation/components/failure'
-import { Alert } from '@/presentation/components/ui/alert'
 import { Select, type SelectOption } from '@/presentation/components/ui/select'
 import { OSImagePicker } from './OSImagePicker'
 
@@ -14,11 +13,6 @@ export interface OSImageConfigurationSource {
     customized: boolean
     onToggle: () => void
   }
-}
-
-export interface OSImageSelectionNotice {
-  title: string
-  message: string
 }
 
 interface OSImageSelectionStepProps {
@@ -33,7 +27,6 @@ interface OSImageSelectionStepProps {
   onChange: (imageId: string) => void
   onRefresh: () => void
   configurationSource?: OSImageConfigurationSource
-  scopeNotice?: OSImageSelectionNotice
 }
 
 /**
@@ -51,7 +44,6 @@ export function OSImageSelectionStep({
   onChange,
   onRefresh,
   configurationSource,
-  scopeNotice,
 }: OSImageSelectionStepProps) {
   const customization = configurationSource?.value
     ? configurationSource.customization
@@ -72,12 +64,6 @@ export function OSImageSelectionStep({
           Refresh
         </Button>
       </div>
-
-      {scopeNotice && (
-        <Alert status="info" title={scopeNotice.title}>
-          {scopeNotice.message}
-        </Alert>
-      )}
 
       <Text className="sw-os-image-selection-step__description" color="fg.muted" fontSize="sm">
         Choose an OS family, then compare the deployable images in that family. Architecture,
