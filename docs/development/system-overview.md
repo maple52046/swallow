@@ -117,14 +117,16 @@ flowchart LR
    （[server-enrollment-and-boot-media.md](server-enrollment-and-boot-media.md)）。
 3. **建立 Platform**：選 Kubernetes、成員與角色（control-plane 為 1 台或 3 台以上的奇數，HA 需要 `apiVip`）、
    `provision_os`；`ready` 的 Server 會先部署 OS（[platform-deployment.md](platform-deployment.md) §2）。
-4. **核准 Change Plan**，Workflow 依序部署 OS、設定時間同步、等 SSH、安裝與驗證 k0s；成功後 Platform 可用。
+4. **Change Plan 隨送出核准**（精靈確認後以 `approve=true` 送出；安全開關打開時改在 Change Plans 核准），Workflow
+   依序部署 OS、設定時間同步、等 SSH、安裝與驗證 k0s；成功後 Platform 可用。
 
 下面的循序圖是第 3、4 步在系統內部的樣子。
 
 ## 4. 一次 Platform 部署
 
 以 Kubernetes、`provision_os`（先部署 OS）為例。建立 Platform 是一次 spec 寫入：API 不直接開始部署，而是產生 Change
-Plan，核准後由 worker 的 platform controller 建立 Workflow。
+Plan，核准後由 worker 的 platform controller 建立 Workflow。下圖是請求帶 `approve=true`、Change Plan 政策允許送出即核准的
+情況；plan 等待核准時，核准改由 `POST /api/v1/change-plans/{id}/approve` 發出，之後相同。
 
 ```mermaid
 sequenceDiagram
@@ -137,11 +139,10 @@ sequenceDiagram
     participant MAAS
     participant Hosts as Servers
 
-    User->>API: POST /api/v1/platforms (spec)
-    API->>DB: transaction: Platform claims, Platform (generation 1), Change Plan
-    API-->>User: 202 platform + plan
-    User->>API: POST /api/v1/change-plans/{id}/approve
-    API->>DB: plan approved, convergence request
+    User->>API: POST /api/v1/platforms?approve=true (spec)
+    API->>DB: transaction: Platform claims, Platform (generation 1), Change Plan (approved)
+    API->>DB: convergence request
+    API-->>User: 202 platform + approved plan
     W->>DB: platform controller: transaction: Workflow, plan applied
     W->>T: workflow-dispatch starts the driver run
     T->>W: provision-<server> (provisioner Runner)
@@ -182,7 +183,7 @@ collection 可能由多個 process 寫入，但每個欄位只有一個寫入者
 | workflow | `workflows`、`workflow_events`、`workflow_secrets` | Workflow 的計畫與執行狀態、timeline、封存的 secret | api（受理、命令）；worker 與 ansible-executor（經 Workflow service 的狀態轉換） |
 | workflow | `resource_leases` | Workflow 擁有的資源（沒有 TTL） | worker |
 | workflow | `ansible_task_events`、`automation_configurations` | Ansible 的即時事件；Site automation 設定 | ansible-executor（事件與它們的 retention）；api（設定） |
-| convergence | `change_plans`、`convergence_requests`、`convergence_events` | Change Plan；要求 controller 立即收斂；controller 的 timeline | api（提出、核准、要求）；worker（apply、過期、事件） |
+| convergence | `change_plans`、`change_plan_policy`、`convergence_requests`、`convergence_events` | Change Plan；Change Plan 政策（是否送出即核准）；要求 controller 立即收斂；controller 的 timeline | api（提出、核准、政策、要求）；worker（apply、重算後提出新的 plan、過期、事件） |
 | convergence | `controller_leases`、`change_feed_checkpoints` | controller 與 periodic pass 的單一 instance lease；change stream 的 resume token | worker |
 | monitoring | `platform_monitoring_tokens` | 每個 Platform 的 monitoring token 的 hash（token 本身不保存） | 受理會安裝 Platform Grafana 的 deployment 的 process（API 或 worker，在受理的 transaction 內） |
 | migration | `schema_metadata` | schema 版本 | migrate |

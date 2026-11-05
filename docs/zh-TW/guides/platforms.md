@@ -22,8 +22,9 @@ deployment workspace。兩者只共用 Server discovery 與 OS provisioning cont
 validation、features 與 review 仍依 Platform 類型設計。Optional capability 使用 Switch，
 topology 與 implementation mode 使用明確的 radio choice，Slurm node roles 則可各自複選。
 
-送出 wizard 會建立 Platform，並把安裝提成 [Change Plan](workflows.md#change-plans)：要在
-**Change Plans** 核准後才會安裝，在那之前 Platform 顯示 **Awaiting approval**。刪除這個狀態的
+送出 wizard 會建立 Platform，並把安裝記成由你核准的 [Change Plan](workflows.md#change-plans)，
+所以安裝會立即開始，wizard 會開啟新的 Platform。[安全開關](workflows.md#change-plans)打開時，安裝改在
+**Change Plans** 等待，wizard 會開啟該頁並說明原因。安裝開始前 Platform 顯示 **Planned**；刪除這個狀態的
 Platform 會撤回 plan，不會動到任何主機。
 
 ## 時鐘檢查
@@ -94,7 +95,8 @@ GPU 之後，佈署才算成功。選取的 workload 節點都沒有 AMD GPU 時
 佈署完成後，Platform Overview 的 **AMD GPU Operator** 區塊會顯示狀態與設定，並提供
 **Install**、**Configure** 與 **Uninstall**。**Install** 從與 workspace 相同的選項開始，Device Metrics Exporter
 開啟；**Configure** 從 operator 目前的設定開始。安裝會直接開始；調整或卸載運作中的 operator 會讓
-GPU workload 重啟，所以會先提成 Change Plan 待核准。仍有 Pod 使用 AMD GPU 時，切換 Device Plugin
+GPU workload 重啟，所以是一份 Change Plan：確認對話框就核准它、變更立即開始，除非安全開關讓它在
+**Change Plans** 等待。仍有 Pod 使用 AMD GPU 時，切換 Device Plugin
 與 DRA 或卸載都會被拒絕，請先停止那些工作。卸載 operator 不會影響 Platform 本身。swallow 不會
 接管手動安裝的 operator。
 
@@ -156,8 +158,9 @@ Platform 的 **Overview** 在 lifecycle 提示之下，先顯示 **Platform deta
 ## Lifecycle
 
 - **Sync** refresh observed Platform membership／state。
-- **Uninstall** 把從原始 target 移除 swallow-deployed runtime 提成 Change Plan。核准後 swallow
-  執行 uninstall，成功後刪除 Platform record；uninstall 失敗時保留 record 供診斷。若仍有 workflow
+- **Uninstall** 透過 Change Plan 從原始 target 移除 swallow-deployed runtime，確認對話框就核准它：
+  uninstall 立即開始，Platform 頁面顯示它正在執行（安全開關打開時改在 **Change Plans** 等待）。uninstall
+  成功後 swallow 刪除 Platform record；uninstall 失敗時保留 record 供診斷。若仍有 workflow
   佔著 Platform 的 Server（停在等待處理的失敗部署，或仍在進行的部署），對話框會列出它，並請你確認
   在 uninstall 開始前由 swallow 取消它。
 - **Delete only** 只移除 swallow record／projection，不等於 host-side uninstall。

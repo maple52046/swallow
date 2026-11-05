@@ -15,7 +15,7 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | Platforms | Kubernetes／Slurm deployment、lifecycle、settings 與 runtime view |
 | Software | 分類呈現 catalog（Docker CE、Podman、NFS、Prometheus、Grafana、AMD Device Metrics Exporter、Node Exporter）、各 software deployment 與多 Server 安裝 |
 | Workflows | Durable execution、Job、Task、event、log、cancel、rerun 與 retry |
-| Change Plans | 等待核准或拒絕的 Platform 破壞性變更計畫 |
+| Change Plans | Platform 破壞性變更的計畫：等待核准或拒絕的 plan、已核准 plan 的紀錄，以及安全開關 |
 | Monitoring | Fleet health、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、選用的 Grafana link，以及（開發中的）alert 與 silence |
 | Infrastructure | Site、Integration、Zone、Pool、credential 與 automation settings |
 | SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |

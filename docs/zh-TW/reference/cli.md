@@ -87,7 +87,8 @@ usage manual。
   Slurm（`slurm`）、管理 `slurm-requirements` 與 `gpu-operator`，並以 nested `kubernetes`
   explorer 管理 node、namespace、application、Pod、related resource、log 與 YAML apply。
 - [`plans`](../../../cli/docs/usage.zh-TW.md#plans)：`list`、`get`、`approve`、`reject`
-  Change Plan。
+  Change Plan，以及讀取或設定 Change Plan `policy`（安全開關）。Platform 的寫入加上 `--approve` 時
+  一併核准它的 plan。
 - [`workflows`](../../../cli/docs/usage.zh-TW.md#workflows)：提供 `list`、`get`、
   `create`、`cancel`、`rerun`、`timeline`；
   `task retry|logs|stderr|events|artifacts` 可診斷與控制 individual Task。

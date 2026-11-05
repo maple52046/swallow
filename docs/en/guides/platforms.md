@@ -27,10 +27,13 @@ and OS-provisioning controls, but keep their own steps, validation, features, an
 review. Optional capabilities use Switches; topology and implementation modes remain
 explicit radio choices, and Slurm node roles remain independently selectable.
 
-Submitting the wizard creates the Platform and proposes its install as a
-[Change Plan](workflows.md#change-plans): nothing is installed until you approve it on
-**Change Plans**, and until then the Platform reads **Awaiting approval**. Deleting a
-Platform in that state withdraws the plan; no host was changed.
+Submitting the wizard creates the Platform and its install as a
+[Change Plan](workflows.md#change-plans) approved by you, so the install starts at once and
+the wizard opens the new Platform. When the
+[safety switch](workflows.md#change-plans) is on, the install waits on **Change Plans**
+instead, and the wizard opens that page and says why. Until its install starts the Platform
+reads **Planned**; deleting a Platform in that state withdraws the plan, and no host was
+changed.
 
 ## Clock check
 
@@ -118,7 +121,8 @@ After deployment, the **AMD GPU Operator** section of the Platform Overview show
 its state and settings and offers **Install**, **Configure**, and **Uninstall**.
 **Install** starts from the same options as the workspace, Device Metrics Exporter on;
 **Configure** starts from the operator's current settings. Installing starts at once. Configuring or uninstalling a running operator restarts GPU
-workloads, so it is proposed as a Change Plan to approve first. Switching between Device
+workloads, so it is a Change Plan; confirming the dialog approves it and the change starts,
+unless the safety switch makes it wait on **Change Plans**. Switching between Device
 Plugin and DRA, or uninstalling, is refused while a Pod still uses an AMD GPU; stop that
 work first. Uninstalling the operator keeps the Platform running. swallow does not take over an operator
 that was installed by hand.
@@ -198,9 +202,11 @@ The facts describe the applied spec; a newer spec that is not applied yet shows 
 ## Lifecycle
 
 - **Sync** refreshes observed Platform membership/state.
-- **Uninstall** proposes removing the swallow-deployed runtime from its original
-  targets as a Change Plan. Once you approve it, swallow runs the uninstall and then
-  deletes the Platform record; a failed uninstall keeps the record for diagnosis.
+- **Uninstall** removes the swallow-deployed runtime from its original targets through a
+  Change Plan, which confirming the dialog approves: the uninstall starts at once and the
+  Platform page shows it running (with the safety switch on, it waits on **Change Plans**
+  instead). swallow deletes the Platform record once the uninstall succeeds; a failed
+  uninstall keeps the record for diagnosis.
   When a workflow still holds the Platform's servers (a failed deployment waiting
   for attention, or one still running), the dialog lists it and asks you to confirm
   that swallow cancels it before the uninstall starts.

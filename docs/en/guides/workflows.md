@@ -78,14 +78,28 @@ recovered with Recover.
 
 ## Change Plans
 
-A destructive change, such as uninstalling a Platform, does not start a Workflow
-right away. swallow records the change and shows a Change Plan: every action it
-will take, which actions are destructive, the expected effects, and anything
-blocking it. An admin approves or rejects the plan as a whole on the **Change
-Plans** page or with `swallow plans approve` / `swallow plans reject`. After
-approval, swallow checks the plan again and starts its Workflow; if the change
-was edited again or what the plan would do changed in the meantime, the plan is
-superseded and a new one is needed. A plan nobody decides expires after 24 hours.
+A destructive change, such as uninstalling a Platform, goes through a Change Plan:
+every action swallow will take, which actions are destructive, the expected effects,
+and anything blocking it. The dialog you confirm in the dashboard shows the same
+consequences, and confirming it approves the plan, so the change starts at once; the
+CLI does the same when you add `--approve`. The plan stays on the **Change Plans**
+page as the record of what was decided, by whom, and which Workflow carried it out.
+
+A plan waits on **Change Plans** for an admin to approve or reject it as a whole
+(there, or with `swallow plans approve` / `swallow plans reject`) when it was sent
+without approval (for example by the CLI without `--approve`), when it has blockers,
+when swallow proposed it on its own, or while the safety switch is on. Each waiting
+plan says why it waits. After approval, swallow checks the plan again and starts its
+Workflow; if the change was edited again in the meantime the plan is superseded, and
+if what the plan would do changed, a new plan waits for approval. A plan nobody
+decides expires after 24 hours.
+
+The **Approval of confirmed changes** card at the top of the page is the safety
+switch. Turning on **Require a separate approval for every Change Plan** makes every
+destructive change wait there, even one you confirmed; turning it off again affects
+only the changes submitted afterwards. The CLI reads and sets it with
+`swallow plans policy`.
+
 The page names each Platform and Server a plan refers to, with its ID beside it,
 and shows the plan's ID with a copy button. While a plan is approved, the page
 refreshes on its own until the plan is applied or superseded. See the

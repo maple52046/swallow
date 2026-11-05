@@ -90,7 +90,8 @@ and follow each link into the complete usage manual.
   `kubernetes` explorer for nodes, namespaces, applications, Pods, related
   resources, logs, and YAML apply.
 - [`plans`](../../../cli/docs/usage.md#plans) — `list`, `get`, `approve`, and
-  `reject` Change Plans.
+  `reject` Change Plans, and read or set the Change Plan `policy` (the safety switch).
+  Platform writes approve their plan with `--approve`.
 - [`workflows`](../../../cli/docs/usage.md#workflows) — `list`, `get`, `create`,
   `cancel`, `rerun`, and `timeline`; `task retry|logs|stderr|events|artifacts`
   diagnoses and controls individual Tasks.

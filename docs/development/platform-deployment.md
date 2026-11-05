@@ -252,7 +252,7 @@ cluster 內混合 OS」不在目前範圍。
 ### 2.3.1 選用功能：AMD GPU Operator（decision 062）
 
 Kubernetes Platform 的 spec 可帶 `gpuOperator` 設定，在 deploy Workflow 中安裝 AMD GPU Operator；之後改 spec 的
-`gpuOperator` 由另一個 Workflow 調整或卸載：啟用直接收斂，調整或停用要經 Change Plan（契約見
+`gpuOperator` 由另一個 Workflow 調整或卸載：啟用直接收斂，調整或停用要經 Change Plan（dashboard 確認後隨送出核准；契約見
 [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md#manage-the-gpu-operator)）。
 它是 platform 的元件（deploy target 是 Platform），不是 Managed Software。
 
@@ -458,7 +458,9 @@ platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-co
   membership 或 `integrationId` 推論。
 - **Dashboard**：移除是單一紅色控制項。仍可 uninstall 時是 split button，主要部分開 Uninstall，選單內是「Delete only」；
   已 `uninstalled`、`planned` 或永遠不能 uninstall 時只剩 Delete（`planned` 的 Delete 經 spec 刪除，一併撤回安裝的 plan）。
-  Uninstall 對話框送出的是 Change Plan，核准後才執行，成功後刪除紀錄。讓 runtime 留在主機上的動作永遠不是最顯眼的那個。
+  Uninstall 對話框列出破壞性的影響，確認後以 `approve=true` 送出，Change Plan 隨送出核准、uninstall 立即開始，成功後刪除
+  紀錄；Change Plan 政策要求另外核准或 plan 有阻擋事項時，plan 停在 Change Plans 等核准，畫面說明原因。讓 runtime 留在主機上的
+  動作永遠不是最顯眼的那個。
   不要在 uninstall 執行中只刪紀錄來達到同樣效果：只刪紀錄會先取消那個 uninstall。
 - 設計理由：Delete 不做 k0s reset、不以 membership 推導 target、不刪所有連結的 Integration、uninstall 後不移除紀錄、
   不加 Force／Forget 指令，以及 dashboard 不在 uninstall 後自行送 Delete，見 decision 010。

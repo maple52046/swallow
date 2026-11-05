@@ -16,7 +16,7 @@ current session in the browser.
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
 | Software | Grouped catalog (Docker CE, Podman, NFS, Prometheus, Grafana, AMD Device Metrics Exporter, Node Exporter), per-software deployments, and multi-Server installation |
 | Workflows | Durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry |
-| Change Plans | Plans for destructive Platform changes, waiting for approval or rejection |
+| Change Plans | Plans for destructive Platform changes: the ones waiting for approval or rejection, the record of approved ones, and the safety switch |
 | Monitoring | Fleet health, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, optional Grafana links, and (in development) alerts and silences |
 | Infrastructure | Sites, Integrations, Zones, Pools, credentials, and automation settings |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
