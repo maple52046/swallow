@@ -91,10 +91,14 @@ type IntegrationItem struct {
 	Settings     map[string]string `json:"settings"`
 	// HasCredential reports whether a credential is stored, which a user needs
 	// to know without the value being readable.
-	HasCredential bool          `json:"hasCredential"`
-	Sync          SyncStateItem `json:"sync"`
-	CreatedAt     string        `json:"createdAt"`
-	UpdatedAt     string        `json:"updatedAt"`
+	HasCredential bool `json:"hasCredential"`
+	// HasOperatorCredential reports whether the Integration also stores an operator credential,
+	// so a user can tell a Platform whose runtime changes still go through its one credential
+	// (sites-integrations.md). It is the store's presence flag; the value is never read for it.
+	HasOperatorCredential bool          `json:"hasOperatorCredential"`
+	Sync                  SyncStateItem `json:"sync"`
+	CreatedAt             string        `json:"createdAt"`
+	UpdatedAt             string        `json:"updatedAt"`
 }
 
 // SyncStateItem exposes freshness as part of the API. A caller must be able to tell
@@ -314,15 +318,16 @@ func toIntegrationItem(integration *sitedomain.Integration, hasCredential bool) 
 	}
 
 	return IntegrationItem{
-		ID:            integration.ID,
-		SiteID:        integration.SiteID,
-		Kind:          string(integration.Kind),
-		ProviderKind:  integration.ProviderKind,
-		Name:          integration.Name,
-		Endpoint:      integration.Endpoint,
-		Enabled:       integration.Enabled,
-		Settings:      settings,
-		HasCredential: hasCredential,
+		ID:                    integration.ID,
+		SiteID:                integration.SiteID,
+		Kind:                  string(integration.Kind),
+		ProviderKind:          integration.ProviderKind,
+		Name:                  integration.Name,
+		Endpoint:              integration.Endpoint,
+		Enabled:               integration.Enabled,
+		Settings:              settings,
+		HasCredential:         hasCredential,
+		HasOperatorCredential: integration.HasOperatorCredential,
 		Sync: SyncStateItem{
 			LastStartedAt:   timePtr(integration.Sync.LastStartedAt),
 			LastSucceededAt: timePtr(integration.Sync.LastSucceededAt),

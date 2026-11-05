@@ -37,10 +37,16 @@ func NewKubernetesExplorerUseCase(
 	return &KubernetesExplorerUseCase{platforms: platforms, lifecycle: lifecycle, clients: clients, servers: servers}
 }
 
-// Client resolves a Platform into a live Kubernetes explorer client, enforcing eligibility.
-// Callers use the returned client for every read/write; it is the only entry point.
-func (uc *KubernetesExplorerUseCase) Client(ctx context.Context, platformID string) (platformdomain.KubernetesClusterClient, error) {
-	client, _, err := uc.resolve(ctx, platformID)
+// Client resolves a Platform into a live Kubernetes explorer client for access, enforcing
+// eligibility; it is the only entry point, and eligibility is the same for either access.
+//
+// access decides the credential the client authenticates with (clientForAccess): a caller asks
+// for ConnectionRead for every read and ConnectionOperate only for an admin's request that changes
+// the cluster or reads what the read credential is denied by design (the Secret list). A Platform
+// whose Integration holds no operator credential gets a ConnectionOperate client on its read
+// credential (platformdomain.OperatorConnectionSource), so it keeps working until it is redeployed.
+func (uc *KubernetesExplorerUseCase) Client(ctx context.Context, platformID string, access platformdomain.ConnectionAccess) (platformdomain.KubernetesClusterClient, error) {
+	client, _, err := uc.resolve(ctx, platformID, access)
 	return client, err
 }
 
@@ -49,7 +55,7 @@ func (uc *KubernetesExplorerUseCase) Client(ctx context.Context, platformID stri
 // membership sync uses. Correlation failure for one node leaves its ServerID empty rather than
 // failing the whole read.
 func (uc *KubernetesExplorerUseCase) Nodes(ctx context.Context, platformID string) ([]platformdomain.KubernetesNode, error) {
-	client, platform, err := uc.resolve(ctx, platformID)
+	client, platform, err := uc.resolve(ctx, platformID, platformdomain.ConnectionRead)
 	if err != nil {
 		return nil, err
 	}
@@ -72,8 +78,9 @@ func (uc *KubernetesExplorerUseCase) Nodes(ctx context.Context, platformID strin
 	return nodes, nil
 }
 
-// resolve loads the Platform, enforces the explorer eligibility rules, and builds the client.
-func (uc *KubernetesExplorerUseCase) resolve(ctx context.Context, platformID string) (platformdomain.KubernetesClusterClient, *platformdomain.Platform, error) {
+// resolve loads the Platform, enforces the explorer eligibility rules, and builds the client for
+// access. No credential is read before the Platform proves eligible.
+func (uc *KubernetesExplorerUseCase) resolve(ctx context.Context, platformID string, access platformdomain.ConnectionAccess) (platformdomain.KubernetesClusterClient, *platformdomain.Platform, error) {
 	platform, err := uc.platforms.FindByID(ctx, platformID)
 	if err != nil {
 		return nil, nil, err
@@ -99,7 +106,7 @@ func (uc *KubernetesExplorerUseCase) resolve(ctx context.Context, platformID str
 		return nil, nil, platformdomain.ErrClusterExplorerUnavailable
 	}
 
-	client, err := uc.clients.For(ctx, platform)
+	client, err := clientForAccess(ctx, uc.clients, platform, access)
 	if err != nil {
 		return nil, nil, err
 	}

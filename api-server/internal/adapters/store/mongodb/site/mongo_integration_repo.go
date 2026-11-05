@@ -28,6 +28,10 @@ type integrationDoc struct {
 
 	// SealedCredential is AES-GCM ciphertext, base64 encoded.
 	SealedCredential string `bson:"sealedCredential,omitempty"`
+	// SealedOperatorCredential is the optional operator credential, sealed like SealedCredential.
+	// It is absent from every document written before it existed and from those without one, so
+	// no migration adds it; only ReplaceOperatorCredential writes it.
+	SealedOperatorCredential string `bson:"sealedOperatorCredential,omitempty"`
 
 	Sync syncDoc `bson:"sync"`
 
@@ -45,6 +49,11 @@ type MongoIntegrationRepo struct {
 	col    *mongo.Collection
 	sealer *secret.Sealer
 }
+
+var (
+	_ sitedomain.IntegrationRepository        = (*MongoIntegrationRepo)(nil)
+	_ sitedomain.OperatorCredentialRepository = (*MongoIntegrationRepo)(nil)
+)
 
 func NewMongoIntegrationRepo(db *mongo.Database, sealer *secret.Sealer) (*MongoIntegrationRepo, error) {
 	col := db.Collection("integrations")
@@ -202,6 +211,51 @@ func (r *MongoIntegrationRepo) Credential(ctx context.Context, id string) (strin
 	return r.sealer.Open(doc.SealedCredential)
 }
 
+// ReplaceOperatorCredential seals credential into sealedOperatorCredential, or unsets the field
+// when credential is empty, so a document never keeps an operator credential its latest writer did
+// not give it. It is one conditional update, so it is safe inside a transaction, and it touches
+// neither sealedCredential nor the sync state.
+func (r *MongoIntegrationRepo) ReplaceOperatorCredential(ctx context.Context, id, credential string) error {
+	update := bson.M{
+		"$unset": bson.M{"sealedOperatorCredential": ""},
+		"$set":   bson.M{"updatedAt": time.Now().UTC()},
+	}
+	if credential != "" {
+		sealed, err := r.sealer.Seal(credential)
+		if err != nil {
+			return err
+		}
+		update = bson.M{"$set": bson.M{"sealedOperatorCredential": sealed, "updatedAt": time.Now().UTC()}}
+	}
+
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return sitedomain.ErrIntegrationNotFound
+	}
+	return nil
+}
+
+// OperatorCredential opens sealedOperatorCredential. The projection reads only that field, so the
+// read credential is never decoded with it.
+func (r *MongoIntegrationRepo) OperatorCredential(ctx context.Context, id string) (string, error) {
+	var doc integrationDoc
+	err := r.col.FindOne(ctx, bson.M{"_id": id},
+		options.FindOne().SetProjection(bson.M{"sealedOperatorCredential": 1})).Decode(&doc)
+	if err == mongo.ErrNoDocuments {
+		return "", sitedomain.ErrIntegrationNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if doc.SealedOperatorCredential == "" {
+		return "", sitedomain.ErrCredentialNotSet
+	}
+	return r.sealer.Open(doc.SealedOperatorCredential)
+}
+
 func (r *MongoIntegrationRepo) UpdateSyncState(ctx context.Context, id string, state sitedomain.SyncState) error {
 	result, err := r.col.UpdateOne(ctx,
 		bson.M{"_id": id},
@@ -231,6 +285,9 @@ func (r *MongoIntegrationRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// toIntegration maps a stored document to the domain Integration. Neither sealed field crosses:
+// the operator credential becomes only its presence, and that is read from the field being set,
+// never by opening it, so a ciphertext the key cannot open still reports true.
 func toIntegration(doc *integrationDoc) *sitedomain.Integration {
 	return &sitedomain.Integration{
 		ID:           doc.ID,
@@ -246,7 +303,8 @@ func toIntegration(doc *integrationDoc) *sitedomain.Integration {
 			LastSucceededAt: doc.Sync.LastSucceededAt,
 			LastError:       doc.Sync.LastError,
 		},
-		CreatedAt: doc.CreatedAt,
-		UpdatedAt: doc.UpdatedAt,
+		HasOperatorCredential: doc.SealedOperatorCredential != "",
+		CreatedAt:             doc.CreatedAt,
+		UpdatedAt:             doc.UpdatedAt,
 	}
 }

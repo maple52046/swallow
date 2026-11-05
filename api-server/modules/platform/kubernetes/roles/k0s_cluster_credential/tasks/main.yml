@@ -1,18 +1,24 @@
 ---
-# Mint the bearer token swallow reads the cluster with, then return it and the cluster CA the API
-# certificate is verified against only through the run's private result file. Every task touching
-# the token remains no_log.
+# Mint swallow's two cluster credentials, the read-only reader token and the cluster-admin operator
+# token (defaults/main.yml), then return them and the cluster CA the API certificate is verified
+# against only through the run's private result file. Every task touching a token remains no_log.
 
-- name: Render the Swallow reader objects
+- name: Render the Swallow credential objects
   ansible.builtin.template:
-    src: swallow-reader.yaml.j2
-    dest: /etc/k0s/swallow-reader.yaml
+    src: "{{ item }}.yaml.j2"
+    dest: "/etc/k0s/{{ item }}.yaml"
     mode: "0600"
+  loop:
+    - swallow-reader
+    - swallow-operator
   become: true
 
-- name: Apply the Swallow reader objects
+- name: Apply the Swallow credential objects
   ansible.builtin.command:
-    cmd: /usr/local/bin/k0s kubectl apply -f /etc/k0s/swallow-reader.yaml
+    cmd: "/usr/local/bin/k0s kubectl apply -f /etc/k0s/{{ item }}.yaml"
+  loop:
+    - swallow-reader
+    - swallow-operator
   become: true
   changed_when: true
 
@@ -27,18 +33,43 @@
   retries: 12
   delay: 5
 
-- name: Extract the reader token and the cluster CA
+- name: Read the operator token secret
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k0s kubectl -n kube-system get secret swallow-operator-token -o json
+  become: true
+  register: k0s_operator_secret
+  no_log: true
+  changed_when: false
+  until: (k0s_operator_secret.stdout | from_json).data.token is defined
+  retries: 12
+  delay: 5
+
+- name: Extract the tokens and the cluster CA
   ansible.builtin.set_fact:
     k0s_reader_token: "{{ (k0s_reader_secret.stdout | from_json).data.token | b64decode }}"
+    k0s_operator_token: "{{ (k0s_operator_secret.stdout | from_json).data.token | b64decode }}"
     k0s_cluster_ca: "{{ ((k0s_reader_secret.stdout | from_json).data['ca.crt'] | default('')) | b64decode }}"
   no_log: true
+
+# Last, after both reads: a run that cannot mint the operator token leaves an earlier deployment's
+# single token as broad as it was. Once this runs, a Platform recorded with only that token can no
+# longer write through it until a deployment succeeds and swallow records both tokens.
+- name: Remove the reader's cluster-admin binding of earlier deployments
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/k0s kubectl delete clusterrolebinding
+      {{ k0s_cluster_credential_legacy_reader_binding }} --ignore-not-found
+  become: true
+  register: k0s_legacy_reader_binding
+  changed_when: "'deleted' in k0s_legacy_reader_binding.stdout"
 
 - name: Write the deployment result for Swallow
   ansible.builtin.copy:
     dest: "{{ swallow_result_path }}"
     content: >-
       {{ {'apiEndpoint': 'https://' ~ (swallow_k0s_api_address | default(hostvars[swallow_k0s_initial_controller_id].ansible_host, true)) ~ ':6443',
-          'token': k0s_reader_token, 'caCertificate': k0s_cluster_ca} | to_json }}
+          'token': k0s_reader_token, 'operatorToken': k0s_operator_token,
+          'caCertificate': k0s_cluster_ca} | to_json }}
     mode: "0600"
   delegate_to: localhost
   no_log: true

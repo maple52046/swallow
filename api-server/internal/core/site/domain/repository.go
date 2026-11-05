@@ -23,6 +23,8 @@ type IntegrationFilter struct {
 // Credentials are deliberately not part of the Integration struct: they are written as
 // a separate argument and read only through Credential. A caller that wants a
 // credential has to ask for one, which makes every such read visible in review.
+// FindByID and List fill Integration.HasOperatorCredential from the stored record without
+// opening the operator credential; Create and Update never write it.
 type IntegrationRepository interface {
 	// Create stores the integration and seals credential. An empty credential is
 	// allowed for adapters that do not need one.
@@ -39,4 +41,24 @@ type IntegrationRepository interface {
 	// UpdateSyncState records the outcome of a reconcile attempt.
 	UpdateSyncState(ctx context.Context, id string, state SyncState) error
 	Delete(ctx context.Context, id string) error
+}
+
+// OperatorCredentialRepository persists an Integration's optional operator credential: a second
+// secret, beside the one ReplaceCredential and Credential handle, that authorizes what the
+// Integration's credential must not (for a deployed Platform, changing its runtime).
+//
+// It follows the credential's rules: the value is sealed at rest with the same key, is never part
+// of the Integration struct or any API response, and is read only through OperatorCredential, so
+// every read is visible in review. It is optional per Integration: one written before it existed
+// simply has none, with no migration. Deleting the Integration deletes it, and replacing the
+// credential leaves it alone. A caller that writes both credentials of one Integration does so in
+// one transaction, so the two always come from the same writer.
+type OperatorCredentialRepository interface {
+	// ReplaceOperatorCredential seals and stores credential as the Integration's operator
+	// credential, or removes the stored one when credential is empty. It returns
+	// ErrIntegrationNotFound when no Integration has id.
+	ReplaceOperatorCredential(ctx context.Context, id, credential string) error
+	// OperatorCredential returns the unsealed operator credential, ErrCredentialNotSet when the
+	// Integration holds none, or ErrIntegrationNotFound when no Integration has id.
+	OperatorCredential(ctx context.Context, id string) (string, error)
 }

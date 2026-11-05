@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
+	"github.com/maple52046/swallow/modules/platform/kubernetes/kubeapi"
 )
 
 func createSite(t *testing.T, f *platformFixture, name string) string {
@@ -245,6 +247,59 @@ func TestIntegration_CredentialIsNeverReturned(t *testing.T) {
 			if strings.Contains(body, part) {
 				t.Errorf("%s leaked %q", path, part)
 			}
+		}
+	}
+}
+
+// hasOperatorCredential is on every read path and reports presence only: an Integration created
+// through the API never has an operator credential, and a deployed Platform's reports what its
+// stored record holds, so a client can tell one that still uses its single credential.
+func TestIntegration_ReportsOperatorCredentialPresence(t *testing.T) {
+	f := setupPlatform(t)
+	siteID := createSite(t, f, "dc-east")
+
+	resp := doRequest(t, f.app, "POST", "/api/v1/integrations/", map[string]any{
+		"siteId":       siteID,
+		"kind":         "provisioner",
+		"providerKind": "maas",
+		"name":         "maas-east",
+		"endpoint":     "http://maas:5240/MAAS",
+		"credential":   "ck:tk:ts",
+	}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create provisioner: expected 201, got %d", resp.StatusCode)
+	}
+	if got := parseBody(t, resp)["hasOperatorCredential"]; got != false {
+		t.Errorf("created provisioner hasOperatorCredential = %v, want false", got)
+	}
+
+	// The store fills the flag on read; the fake keeps the one each seeded record carries.
+	want := map[string]bool{"k8s-split": true, "k8s-single": false}
+	now := time.Now().UTC()
+	for id, stored := range want {
+		if err := f.integrations.Create(context.Background(), &sitedomain.Integration{
+			ID: id, SiteID: siteID, Kind: sitedomain.IntegrationKindPlatform, ProviderKind: kubeapi.ProviderKind,
+			Name: id + " (deployed)", Endpoint: "https://10.0.0.1:6443", Enabled: true,
+			HasOperatorCredential: stored, CreatedAt: now, UpdatedAt: now,
+		}, "reader-token"); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+
+	for id, stored := range want {
+		body := parseBody(t, doRequest(t, f.app, "GET", "/api/v1/integrations/"+id, nil, f.adminAuth(t)))
+		if body["hasOperatorCredential"] != stored {
+			t.Errorf("GET %s hasOperatorCredential = %v, want %v", id, body["hasOperatorCredential"], stored)
+		}
+	}
+	listed := parseArrayBody(t, doRequest(t, f.app, "GET", "/api/v1/integrations/?kind=platform", nil, f.adminAuth(t)))
+	if len(listed) != len(want) {
+		t.Fatalf("listed %d platform Integrations, want %d", len(listed), len(want))
+	}
+	for _, item := range listed {
+		id, _ := item["id"].(string)
+		if item["hasOperatorCredential"] != want[id] {
+			t.Errorf("list %s hasOperatorCredential = %v, want %v", id, item["hasOperatorCredential"], want[id])
 		}
 	}
 }

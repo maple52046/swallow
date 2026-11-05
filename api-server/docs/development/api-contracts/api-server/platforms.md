@@ -1436,6 +1436,13 @@ transport/auth failures return `provider_unavailable`; provider rejection return
   Before, such a `network` was dropped whole: its interface, subnet, and static IP choices were
   ignored, and a Static template was refused for missing static IPs. This is a bug fix; a request
   that names `mode` is unaffected, and the request and response shapes are unchanged.
+- Since 2026-11-05 a Kubernetes deployment records two cluster credentials on the Platform's
+  `platform` Integration: a read-only one that membership sync and the explorer's reads use, and a
+  separate `cluster-admin` operator credential that only the explorer's writes and its Secret list
+  use, on an admin's request ([Cluster Credentials](platforms-kubernetes.md#cluster-credentials)).
+  Before, one `cluster-admin` credential served both. No request or response shape changed. A
+  Platform deployed before keeps its one credential for every read and write until a deployment
+  Workflow on it succeeds again, which narrows that credential to read-only in place.
 - Since 2026-11-05 a non-HA Kubernetes deployment whose `provision_os` provisions the initial
   control plane with `automatic` or `dhcp` addressing records the address that Server has once
   provisioned as the Integration's `apiEndpoint`. It used to record the address observed before

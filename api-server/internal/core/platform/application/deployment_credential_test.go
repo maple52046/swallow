@@ -11,15 +11,43 @@ import (
 	"github.com/maple52046/swallow/internal/core/store/storetest"
 )
 
-// credentialIntegrations stores Integrations in memory with their credential.
+// credentialIntegrations stores Integrations in memory with their credential and operator
+// credential. operatorErr, when set, is what every operator credential read fails with.
 type credentialIntegrations struct {
 	sitedomain.IntegrationRepository
 	items       map[string]*sitedomain.Integration
 	credentials map[string]string
+	operators   map[string]string
+	operatorErr error
 }
 
 func newCredentialIntegrations() *credentialIntegrations {
-	return &credentialIntegrations{items: map[string]*sitedomain.Integration{}, credentials: map[string]string{}}
+	return &credentialIntegrations{
+		items: map[string]*sitedomain.Integration{}, credentials: map[string]string{}, operators: map[string]string{},
+	}
+}
+
+func (r *credentialIntegrations) ReplaceOperatorCredential(_ context.Context, id, credential string) error {
+	if _, ok := r.items[id]; !ok {
+		return sitedomain.ErrIntegrationNotFound
+	}
+	if credential == "" {
+		delete(r.operators, id)
+		return nil
+	}
+	r.operators[id] = credential
+	return nil
+}
+
+func (r *credentialIntegrations) OperatorCredential(_ context.Context, id string) (string, error) {
+	if r.operatorErr != nil {
+		return "", r.operatorErr
+	}
+	credential, ok := r.operators[id]
+	if !ok {
+		return "", sitedomain.ErrCredentialNotSet
+	}
+	return credential, nil
 }
 
 func (r *credentialIntegrations) Create(_ context.Context, integration *sitedomain.Integration, credential string) error {
@@ -110,5 +138,78 @@ func TestRecordRefreshesTheOwnedIntegrationOnARerun(t *testing.T) {
 	refreshed := integrations.items[owned]
 	if refreshed.Endpoint != "http://b:6820" || refreshed.Settings["v"] != "2" || integrations.credentials[owned] != "new" {
 		t.Errorf("refreshed = %+v, credential %q", refreshed, integrations.credentials[owned])
+	}
+}
+
+// A deployment that returns an operator token gets it sealed as the same Integration's operator
+// credential, apart from the read credential; one that returns none (a Slurm Platform, or a
+// whitespace token) records no operator credential.
+func TestRecordStoresTheOperatorCredentialBesideTheReadCredential(t *testing.T) {
+	cases := []struct {
+		name         string
+		operator     string
+		wantOperator string
+	}{
+		{name: "operator token returned", operator: "operator", wantOperator: "operator"},
+		{name: "no operator token", operator: ""},
+		{name: "blank operator token", operator: "  "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			platforms := &deployFakePlatformRepo{platforms: map[string]*platformdomain.Platform{
+				"p1": {ID: "p1", SiteID: "site-1", Name: "lab", Type: platformdomain.PlatformTypeKubernetes},
+			}}
+			integrations := newCredentialIntegrations()
+			service := NewDeploymentCredentialService(&storetest.Transactor{}, platforms, integrations,
+				NewMembershipSyncUseCase(platforms, nil, unreachableReaders{}))
+			err := service.Record(context.Background(), "p1", platformdomain.Credential{
+				Endpoint: "https://10.0.0.1:6443", Token: "reader", OperatorToken: tc.operator,
+			})
+			if err != nil {
+				t.Fatalf("Record: %v", err)
+			}
+			id := platforms.platforms["p1"].IntegrationID
+			operator, ok := integrations.operators[id]
+			if integrations.credentials[id] != "reader" || operator != tc.wantOperator || ok != (tc.wantOperator != "") {
+				t.Errorf("credential %q, operator credential %q (stored %v); want reader and %q",
+					integrations.credentials[id], operator, ok, tc.wantOperator)
+			}
+		})
+	}
+}
+
+// A rerun records both credentials from its own result: a new operator token replaces the stored
+// one, and a result without one removes it, so the Integration never pairs a read credential with
+// an operator credential from an earlier run (which may belong to a cluster since reinstalled).
+func TestRecordRefreshKeepsBothCredentialsFromOneDeployment(t *testing.T) {
+	platforms := &deployFakePlatformRepo{platforms: map[string]*platformdomain.Platform{
+		"p1": {ID: "p1", SiteID: "site-1", Name: "lab", Type: platformdomain.PlatformTypeKubernetes},
+	}}
+	integrations := newCredentialIntegrations()
+	service := NewDeploymentCredentialService(&storetest.Transactor{}, platforms, integrations,
+		NewMembershipSyncUseCase(platforms, nil, unreachableReaders{}))
+	ctx := context.Background()
+	record := func(token, operator string) {
+		t.Helper()
+		if err := service.Record(ctx, "p1", platformdomain.Credential{Endpoint: "https://a:6443", Token: token, OperatorToken: operator}); err != nil {
+			t.Fatalf("Record(%q, %q): %v", token, operator, err)
+		}
+	}
+	record("reader-1", "operator-1")
+	owned := platforms.platforms["p1"].OwnedIntegrationID
+
+	record("reader-2", "operator-2")
+	if integrations.credentials[owned] != "reader-2" || integrations.operators[owned] != "operator-2" {
+		t.Errorf("after a rerun: credential %q, operator credential %q; want reader-2 and operator-2",
+			integrations.credentials[owned], integrations.operators[owned])
+	}
+
+	record("reader-3", "")
+	if _, stale := integrations.operators[owned]; stale || integrations.credentials[owned] != "reader-3" {
+		t.Errorf("after a rerun without an operator token: credential %q, operator credential %q; want reader-3 and none",
+			integrations.credentials[owned], integrations.operators[owned])
+	}
+	if len(integrations.items) != 1 {
+		t.Errorf("integrations = %d, want the one owned Integration refreshed", len(integrations.items))
 	}
 }

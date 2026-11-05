@@ -90,6 +90,37 @@ credential:
   carries the cluster's reason, which tells a cluster-reported 404 or 409 apart from the
   eligibility answers above.
 
+## Cluster Credentials
+
+The explorer reaches the cluster with the credentials the Platform's deployment recorded on its
+`platform` Integration. No route returns either credential, and neither changes what any route
+accepts or answers. A Platform deployed since 2026-11-05 has two, from two ServiceAccounts in
+`kube-system`:
+
+- The **read credential** (`swallow-reader`) may only `get`, `list`, and `watch` what swallow
+  reads: nodes, namespaces, Pods and their logs, Deployments, DaemonSets, StatefulSets, Services,
+  Ingresses, ConfigMaps, PersistentVolumeClaims, Leases, DRA ResourceSlices, and `/version`. It
+  cannot read Secrets, whose list carries their values, and cannot write. Membership sync and every
+  explorer route not listed below use it.
+- The **operator credential** (`swallow-operator`, bound to `cluster-admin` because `apply` accepts
+  RBAC objects) is used only by the routes that change the cluster — cordon and uncordon, namespace
+  create and delete, Application delete, scale, and restart, Pod delete, and `apply`, a dry run
+  included — and by the Secret list. Every explorer route requires the `admin` role, so it is used
+  only on an admin's request; no background work uses it.
+
+A Platform deployed before 2026-11-05 has only the one credential its deployment recorded, which
+that deployment bound to `cluster-admin`; the routes above use it in place of the operator
+credential, so the explorer works as before. The Platform's next deployment Workflow that
+succeeds records both credentials and narrows that credential to the read credential in place. A
+deployment that narrows it and then fails before swallow records both (for example in its
+verification step) leaves the routes above answering `503 provider_unavailable`, the credential
+rejected, until a deployment succeeds; the reads keep working.
+
+A client tells these apart by the Platform's Integration (`integrationId`): its
+`hasOperatorCredential` ([sites-integrations.md](sites-integrations.md)) is `true` once a
+deployment recorded the operator credential, and while it is `false` the routes above use the single
+credential.
+
 ## Cluster Summary
 
 `GET /api/v1/platforms/{platformId}/kubernetes` returns a small live summary:
@@ -356,6 +387,11 @@ Beyond the [shared envelope](conventions.md) and the eligibility rules above:
 
 ## Compatibility Notes
 
+- Since 2026-11-05 a Kubernetes Platform's deployment records two credentials, and the explorer
+  reads with a read-only one and writes, and lists Secrets, with a separate `cluster-admin` one (see
+  [Cluster Credentials](#cluster-credentials)); before, one `cluster-admin` credential served every
+  route and membership sync. No route, request, or response changed. A Platform deployed before
+  keeps its single credential for every route until a deployment Workflow on it succeeds again.
 - Since 2026-10-31 an object the cluster API reports missing is `404 not_found` and one it
   reports already existing is `409 conflict`; both were `400 validation_error`. The
   eligibility answers keep their codes, so a client that degrades the whole explorer on 404 or

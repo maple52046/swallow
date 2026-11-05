@@ -56,7 +56,8 @@ plain array，會由個別 contract 明確說明。
 - 保守處理 unknown enum value。
 - 保留 `null` 的 unknown 語意。
 - 以 cached provider data 決策前先讀 sync／observation timestamp。
-- Credential 是 write-only；使用 `hasCredential`，不要期待 redacted value。
+- Credential 是 write-only；使用 `hasCredential`（Kubernetes Platform 的 Integration 另有
+  `hasOperatorCredential`），不要期待 redacted value。
 
 ## OS provisioning compatibility
 

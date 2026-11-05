@@ -73,12 +73,14 @@
   roles:
     - role: k0s_worker_join
 
-- name: Record Swallow's read credential and verify the cluster
+- name: Verify the cluster and record Swallow's cluster credentials
   hosts: k0s_initial_controller
   gather_facts: false
+  # Verify first: the credential role deletes an earlier reader binding, so a cluster that fails
+  # verification keeps the credential it had.
   roles:
-    - role: k0s_cluster_credential
     - role: k0s_verify
+    - role: k0s_cluster_credential
 
 - name: Release the OS's automatic package maintenance
   hosts: all

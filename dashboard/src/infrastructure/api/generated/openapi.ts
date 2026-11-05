@@ -4610,7 +4610,7 @@ export interface components {
             provisioners: components["schemas"]["GroupRealization"][];
             updatedAt: components["schemas"]["Timestamp"];
         };
-        /** @description swallow's registration of one external system for one Site (glossary Integration). It has no credential field of any kind; `hasCredential` only reports whether one is stored. */
+        /** @description swallow's registration of one external system for one Site (glossary Integration). It has no credential field of any kind; `hasCredential` and `hasOperatorCredential` only report whether one is stored. */
         Integration: {
             createdAt: components["schemas"]["Timestamp"];
             /** @description `false` pauses the Integration without losing its configuration. */
@@ -4618,6 +4618,8 @@ export interface components {
             endpoint: string;
             /** @description Whether a credential is stored; the value itself is never readable. */
             hasCredential: boolean;
+            /** @description Whether an operator credential is stored, the second credential a Kubernetes Platform's deployment records for the cluster explorer's writes (sites-integrations.md); the value itself is never readable. `false` for every other Integration, including a Kubernetes Platform's that still has the single credential of a deployment before 2026-11-05. */
+            hasOperatorCredential: boolean;
             /** @description The opaque, stable `integrationId`. */
             id: string;
             /**

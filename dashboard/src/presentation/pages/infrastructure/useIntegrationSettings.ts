@@ -50,9 +50,10 @@ export type IntegrationLoadState =
  * `replace` swaps in a value the API already returned so a save needs no second request. A stale
  * response for a previous id (or a superseded reload) is dropped. An unknown id is `not-found`.
  *
- * The Platform details card also uses it to name a Platform's credential Integration. It reads once
- * per id (not on every Platform poll), and with no id it reads nothing and keeps its last state, so
- * a caller compares the loaded Integration's id with the id it asked for.
+ * The Platform details card also uses it to name a Platform's credential Integration, and a Platform
+ * module's Overview access section to read whether it has an operator credential. It reads
+ * once per id (not on every Platform poll), and with no id it reads nothing and keeps its last state,
+ * so a caller compares the loaded Integration's id with the id it asked for.
  */
 export function useIntegration(id: string | undefined): {
   state: IntegrationLoadState

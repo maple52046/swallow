@@ -1426,7 +1426,8 @@ components:
       type: object
       description: >-
         swallow's registration of one external system for one Site (glossary Integration). It has
-        no credential field of any kind; `hasCredential` only reports whether one is stored.
+        no credential field of any kind; `hasCredential` and `hasOperatorCredential` only report
+        whether one is stored.
       required:
         - id
         - siteId
@@ -1437,6 +1438,7 @@ components:
         - enabled
         - settings
         - hasCredential
+        - hasOperatorCredential
         - sync
         - createdAt
         - updatedAt
@@ -1471,6 +1473,13 @@ components:
         hasCredential:
           type: boolean
           description: Whether a credential is stored; the value itself is never readable.
+        hasOperatorCredential:
+          type: boolean
+          description: >-
+            Whether an operator credential is stored, the second credential a Kubernetes Platform's
+            deployment records for the cluster explorer's writes (sites-integrations.md); the value
+            itself is never readable. `false` for every other Integration, including a Kubernetes
+            Platform's that still has the single credential of a deployment before 2026-11-05.
         sync:
           $ref: '#/components/schemas/IntegrationSyncState'
         createdAt:

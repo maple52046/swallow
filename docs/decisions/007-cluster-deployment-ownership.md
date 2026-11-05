@@ -40,8 +40,9 @@ dedicated k0s controllers with co-located etcd, plus workers.
   k0s controller leases for controllers. The cluster remains authoritative about its own
   membership, as decision 002 requires. Lease-based discovery is enabled per integration, because
   the lease naming is a k0s implementation detail.
-- On success the playbook provisions a ServiceAccount token in the new cluster and returns it
-  through the run's private directory; Swallow stores it as an encrypted integration. The
+- On success the playbook provisions two ServiceAccount tokens in the new cluster, a read-only
+  reader and a `cluster-admin` operator (decision 032), and returns them through the run's private
+  directory; Swallow stores them as an encrypted integration. The
   credential never passes through run output or retained artifacts, and the VRRP password is held
   in the same encrypted store rather than in the operation's persisted variables.
 - Failed deployments are retried only when a user asks. The playbook treats an existing k0s
@@ -86,3 +87,4 @@ dedicated k0s controllers with co-located etcd, plus workers.
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-05: the deployment returns two ServiceAccount tokens instead of one (decision 032); the decision is unchanged.

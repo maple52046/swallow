@@ -68,6 +68,18 @@ API virtual IP。Standalone deployment 仍是一個 Kubernetes Platform。Provid
 這些 view 會 live query Kubernetes API，不會在 swallow 建立 in-cluster state
 的 durable copy。Cluster 頁籤也會顯示每個節點提供的 AMD GPU。
 
+### 叢集 credential
+
+Kubernetes Platform 的部署會為叢集記下兩個 credential，swallow 都不會顯示。Membership sync
+與這些 view 的所有讀取都使用唯讀 token，它無法讀取 Secret。你在這裡做的變更（cordon、namespace
+與 workload 的變更、刪除 Pod，以及 **Apply YAML**，含 dry run）與 Secret 清單，則使用另一個
+cluster-admin token，而且只在 admin 要求時使用。
+
+在 swallow 分開這兩者之前最後一次部署的 Platform，讀寫仍共用一個 cluster-admin token；它的
+Overview 會在 **Cluster access** 說明：*Cluster credentials are not separated yet*。Explorer 照常運作。
+該 Platform 下一次成功的部署 Workflow 會把那個 token 收窄為唯讀，並記下另一個 cluster-admin token。
+若部署在收窄 token 之後失敗，變更會被拒絕，直到部署成功；讀取不受影響。
+
 ### AMD GPU Operator
 
 Kubernetes workspace 的 **Features** 步驟可以在佈署 Platform 時一併安裝 AMD GPU Operator。

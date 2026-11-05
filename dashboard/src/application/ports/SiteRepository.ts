@@ -39,7 +39,7 @@ export interface UpdateIntegrationInput {
  * Admin registry port for the Site-to-Integration hierarchy.
  *
  * Credentials cross this boundary only on create or explicit replacement. Read methods
- * expose presence through `hasCredential`, never secret material.
+ * expose presence through `hasCredential` and `hasOperatorCredential`, never secret material.
  */
 export interface SiteRepository {
   listSites(): Promise<Site[]>

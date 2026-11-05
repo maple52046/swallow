@@ -25,3 +25,23 @@ func TestCredentialRecordsTheClusterCA(t *testing.T) {
 		t.Error("a result without a token is no credential, and the cluster needs one")
 	}
 }
+
+// The reader token and the operator token of the current role become the Credential's two tokens;
+// a result of an earlier role, which minted only the one token, is still a credential, with no
+// operator token, and an operator token alone is no credential.
+func TestCredentialReadsTheOperatorTokenApartFromTheReaderToken(t *testing.T) {
+	reader := CredentialReader{}
+	both, ok := reader.Credential(map[string]any{
+		"apiEndpoint": "https://10.0.0.1:6443", "token": "reader", "operatorToken": " operator\n",
+	})
+	if !ok || both.Token != "reader" || both.OperatorToken != "operator" {
+		t.Errorf("current role: Token %q, OperatorToken %q, ok %v; want reader and operator", both.Token, both.OperatorToken, ok)
+	}
+	earlier, ok := reader.Credential(map[string]any{"apiEndpoint": "https://10.0.0.1:6443", "token": "only"})
+	if !ok || earlier.Token != "only" || earlier.OperatorToken != "" {
+		t.Errorf("earlier role: Token %q, OperatorToken %q, ok %v; want only and none", earlier.Token, earlier.OperatorToken, ok)
+	}
+	if _, ok := reader.Credential(map[string]any{"apiEndpoint": "https://10.0.0.1:6443", "operatorToken": "operator"}); ok {
+		t.Error("a result with only an operator token must not be a credential: background reads need the reader token")
+	}
+}

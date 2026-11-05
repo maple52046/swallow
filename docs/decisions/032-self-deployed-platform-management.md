@@ -59,11 +59,12 @@ Workflows. This is on-demand and separate from membership sync: it never writes 
 membership axis, never touches the sync counters, and never runs on the reconcile interval,
 consistent with [ADR 021](021-platform-type-specific-management.md).
 
-**The explorer reuses the deployment credential.** The token a deployment provisions is a
-`cluster-admin` ServiceAccount token stored as a Swallow-owned `platform` Integration. The
-explorer authenticates with the same token; its role is therefore upgraded from
-membership-read to cluster management. A least-privilege split (a separate, narrower token
-for the explorer) is deliberately deferred.
+**The explorer uses the deployment's credentials, split by privilege.** A deployment provisions two
+ServiceAccount tokens, both stored on the Swallow-owned `platform` Integration and sealed with the
+integration-credential key: a read-only token (get/list/watch on what Swallow reads, never Secrets)
+that membership sync and every explorer read use, and a `cluster-admin` operator token that only the
+explorer's writes and its Secret list use, each on an admin's request. A Platform deployed before the
+split keeps its single `cluster-admin` token for both until a deployment on it succeeds again.
 
 ## Alternatives considered
 
@@ -78,9 +79,10 @@ for the explorer) is deliberately deferred.
   state are owned by the Kubernetes API; ADR 069 requires a live read, not a mirror.
 - **Import kubeconfig / agent (Portainer):** rejected — Swallow already holds a deployment
   credential; an import wizard exists only to attach foreign clusters, which are out of scope.
-- **Mint a separate least-privilege explorer token now:** rejected for the first wave — the
-  deployment already yields a `cluster-admin` token; a narrower token is a later refinement,
-  not a blocker for the console.
+- **One `cluster-admin` token for reads and writes:** the first wave's choice, replaced on
+  2026-11-05 — every background membership read carried full cluster control.
+- **A narrower operator token:** rejected — `apply` accepts RBAC objects, and Kubernetes lets a
+  subject grant only permissions it holds, so less than `cluster-admin` cannot do what the explorer offers.
 
 ## Consequences
 
@@ -91,9 +93,9 @@ for the explorer) is deliberately deferred.
 - A deployed Kubernetes Platform gains an in-cluster management console (namespaces,
   applications, pods/logs, apply, node cordon), correlating nodes to Server identity — the
   differentiator a generic tool cannot provide.
-- The `cluster-admin` deployment token now authorizes cluster writes. Its backup and rotation
-  posture (already covered by integration-credential handling) now also covers cluster
-  management, until a least-privilege split lands.
+- The operator token authorizes cluster writes and is decrypted only for an admin's explorer
+  request; background reads carry only the read-only token. The integration-credential key's backup
+  and rotation posture covers both.
 - Day-2 lifecycle (scale nodes, upgrade k0s, etcd snapshot) is explicitly out of the first
   wave but bounded here as lifecycle-plane Workflows, not explorer RPCs, so it is not built
   ad hoc later.
@@ -118,3 +120,4 @@ for the explorer) is deliberately deferred.
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
 - 2026-11-03: `exporterOwner` is no longer a Platform field (decision 003 retired the exporter owner), so it left the editable fields; the decision is unchanged.
+- 2026-11-05: split the deployment credential into a read-only token for background and explorer reads and a `cluster-admin` operator token for the explorer's writes and Secret list; Platforms deployed earlier keep their single token until redeployed.

@@ -60,7 +60,8 @@ contracts state when a bounded collection returns a plain array instead.
 - Preserve `null` as unknown.
 - Read sync and observation timestamps before making a decision from cached
   provider data.
-- Credentials are write-only; use `hasCredential` rather than expecting a
+- Credentials are write-only; use `hasCredential` (and, on a Kubernetes
+  Platform's Integration, `hasOperatorCredential`) rather than expecting a
   redacted value.
 
 ## OS provisioning compatibility

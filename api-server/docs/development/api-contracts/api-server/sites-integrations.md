@@ -38,9 +38,20 @@ DELETE /api/v1/integrations/{id}
 
 A Site response contains `id`, `name`, `description`, `createdAt`, and
 `updatedAt`. An Integration response contains `id`, `siteId`, `kind`,
-`providerKind`, `name`, `endpoint`, `settings`, `enabled`, `hasCredential`, `sync`,
-`createdAt`, and `updatedAt`; `settings` is `{}` when none are set. Credentials are write-only
-and never appear in a response; `hasCredential` only reports whether one is stored.
+`providerKind`, `name`, `endpoint`, `settings`, `enabled`, `hasCredential`,
+`hasOperatorCredential`, `sync`, `createdAt`, and `updatedAt`; `settings` is `{}` when none are
+set. Credentials are write-only and never appear in a response; `hasCredential` only reports
+whether one is stored.
+
+`hasOperatorCredential` only reports whether the Integration stores an operator credential: the
+second credential a Kubernetes Platform's deployment records on its `platform` Integration for the
+cluster explorer's writes ([platforms-kubernetes.md](platforms-kubernetes.md#cluster-credentials)).
+swallow reads it from the stored record without opening the credential, so it says nothing else
+about it. It is `false` for every other Integration: a `provisioner` or `metrics` Integration, a
+Slurm Platform's, and a Kubernetes Platform's whose latest successful deployment ran before
+2026-11-05 and recorded one credential. No route writes it: `PUT .../credential` replaces only the
+credential, and a later successful deployment of the Platform records or removes the operator
+credential.
 
 `sync` reports provider freshness so a reader can tell "last synced 14 minutes ago" from
 "up to date":
@@ -146,6 +157,8 @@ recognises:
 On 2026-11-03 the metrics setting `labelProxyUrl` was added, and a second `metrics` Integration in a Site became `409 conflict`; a Site has one
 Prometheus, which reads every one of its Servers' metrics.
 
+- Since 2026-11-05 every Integration response carries `hasOperatorCredential`. The field is
+  additive; a client that ignores it reads every other field as before.
 - Since 2026-10-31 ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md) (retire schema v2 and deprecated aliases),
   breaking) `kind=cluster` is no longer read as `platform`: a list filter returns what any other
   unknown kind returns, and a create is refused as an unknown kind.

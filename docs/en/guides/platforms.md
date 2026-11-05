@@ -85,6 +85,23 @@ These views query the Kubernetes API live and do not create a durable copy of
 in-cluster state in swallow. The Cluster tab also shows the AMD GPUs each node
 exposes.
 
+### Cluster credentials
+
+A Kubernetes Platform's deployment records two credentials for its cluster, and
+swallow never shows either. Membership sync and every read in these views use a
+read-only token, which cannot read Secrets. The changes you make here (cordon,
+namespace and workload changes, Pod deletion, and **Apply YAML**, dry run
+included) and the Secret list use a separate cluster-admin token, only when an
+admin asks for them.
+
+A Platform last deployed before swallow separated the two still has one
+cluster-admin token for both reads and writes. Its Overview says so under
+**Cluster access**: *Cluster credentials are not separated yet*. The explorer
+keeps working. The next deployment Workflow on the Platform that succeeds
+narrows that token to read-only and records the separate cluster-admin token.
+If a deployment fails after narrowing the token, changes are refused until a
+deployment succeeds; reads keep working.
+
 ### AMD GPU Operator
 
 The Kubernetes workspace's **Features** step can install the AMD GPU Operator with the

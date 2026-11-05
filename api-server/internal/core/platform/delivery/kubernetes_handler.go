@@ -24,12 +24,18 @@ const (
 // explorerClient resolves the eligible cluster client for the path's platform, mapping every
 // eligibility failure through the shared error responder. Returns nil when it already wrote an
 // error response, so callers return immediately on a nil client.
-func (h *PlatformHandler) explorerClient(c *fiber.Ctx) platformdomain.KubernetesClusterClient {
+//
+// access is each route's own declaration of the credential it needs (platforms-kubernetes.md,
+// Cluster Credentials): a route that only reads asks for platformdomain.ConnectionRead, and one
+// that changes the cluster or lists Secrets asks for platformdomain.ConnectionOperate, so the
+// operator credential is never sent on a plain read. Every explorer route is admin-only, so the
+// operator credential is used only on an admin's request.
+func (h *PlatformHandler) explorerClient(c *fiber.Ctx, access platformdomain.ConnectionAccess) platformdomain.KubernetesClusterClient {
 	if h.kubernetes == nil {
 		_ = apierror.Respond(c, apierror.New(apierror.CodeNotFound, "The Kubernetes cluster explorer is unavailable."))
 		return nil
 	}
-	client, err := h.kubernetes.Client(c.Context(), c.Params("id"))
+	client, err := h.kubernetes.Client(c.Context(), c.Params("id"), access)
 	if err != nil {
 		_ = respondError(c, err)
 		return nil
@@ -156,7 +162,7 @@ func applicationResponse(app platformdomain.KubernetesApplication, withPods bool
 
 // GetKubernetesCluster returns the live cluster summary for a deployed Kubernetes Platform.
 func (h *PlatformHandler) GetKubernetesCluster(c *fiber.Ctx) error {
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionRead)
 	if client == nil {
 		return nil
 	}
@@ -199,7 +205,7 @@ func (h *PlatformHandler) UncordonKubernetesNode(c *fiber.Ctx) error {
 }
 
 func (h *PlatformHandler) setNodeSchedulable(c *fiber.Ctx, schedulable bool) error {
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionOperate)
 	if client == nil {
 		return nil
 	}
@@ -215,7 +221,7 @@ func (h *PlatformHandler) setNodeSchedulable(c *fiber.Ctx, schedulable bool) err
 // ListKubernetesNamespaces returns the cluster's namespaces; system namespaces are flagged so a
 // client can hide them by default.
 func (h *PlatformHandler) ListKubernetesNamespaces(c *fiber.Ctx) error {
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionRead)
 	if client == nil {
 		return nil
 	}
@@ -243,7 +249,7 @@ func (h *PlatformHandler) CreateKubernetesNamespace(c *fiber.Ctx) error {
 	if strings.TrimSpace(req.Name) == "" {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "name is required."))
 	}
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionOperate)
 	if client == nil {
 		return nil
 	}
@@ -261,7 +267,7 @@ func (h *PlatformHandler) DeleteKubernetesNamespace(c *fiber.Ctx) error {
 	if platformdomain.IsSystemNamespace(name) {
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, "A system namespace cannot be deleted."))
 	}
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionOperate)
 	if client == nil {
 		return nil
 	}
@@ -291,7 +297,7 @@ func applicationKind(c *fiber.Ctx) (string, bool) {
 
 // ListKubernetesApplications returns the aggregated workloads in an optional namespace scope.
 func (h *PlatformHandler) ListKubernetesApplications(c *fiber.Ctx) error {
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionRead)
 	if client == nil {
 		return nil
 	}
@@ -313,7 +319,7 @@ func (h *PlatformHandler) GetKubernetesApplication(c *fiber.Ctx) error {
 	if !ok {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Unsupported application kind."))
 	}
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionRead)
 	if client == nil {
 		return nil
 	}
@@ -330,7 +336,7 @@ func (h *PlatformHandler) DeleteKubernetesApplication(c *fiber.Ctx) error {
 	if !ok {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Unsupported application kind."))
 	}
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionOperate)
 	if client == nil {
 		return nil
 	}
@@ -358,7 +364,7 @@ func (h *PlatformHandler) ScaleKubernetesApplication(c *fiber.Ctx) error {
 	if req.Replicas == nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "replicas is required."))
 	}
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionOperate)
 	if client == nil {
 		return nil
 	}
@@ -376,7 +382,7 @@ func (h *PlatformHandler) RestartKubernetesApplication(c *fiber.Ctx) error {
 	if !ok {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Unsupported application kind."))
 	}
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionOperate)
 	if client == nil {
 		return nil
 	}
@@ -390,7 +396,7 @@ func (h *PlatformHandler) RestartKubernetesApplication(c *fiber.Ctx) error {
 
 // ListKubernetesPods returns pods in an optional namespace scope.
 func (h *PlatformHandler) ListKubernetesPods(c *fiber.Ctx) error {
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionRead)
 	if client == nil {
 		return nil
 	}
@@ -419,7 +425,7 @@ func (h *PlatformHandler) GetKubernetesPodLogs(c *fiber.Ctx) error {
 	if tailLines > maxPodLogTailLines {
 		tailLines = maxPodLogTailLines
 	}
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionRead)
 	if client == nil {
 		return nil
 	}
@@ -432,7 +438,7 @@ func (h *PlatformHandler) GetKubernetesPodLogs(c *fiber.Ctx) error {
 
 // DeleteKubernetesPod deletes a pod; a controller recreates it.
 func (h *PlatformHandler) DeleteKubernetesPod(c *fiber.Ctx) error {
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionOperate)
 	if client == nil {
 		return nil
 	}
@@ -446,7 +452,7 @@ func (h *PlatformHandler) DeleteKubernetesPod(c *fiber.Ctx) error {
 
 // ListKubernetesServices returns the read-only Service list in an optional namespace scope.
 func (h *PlatformHandler) ListKubernetesServices(c *fiber.Ctx) error {
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionRead)
 	if client == nil {
 		return nil
 	}
@@ -467,7 +473,7 @@ func (h *PlatformHandler) ListKubernetesServices(c *fiber.Ctx) error {
 
 // ListKubernetesIngresses returns the read-only Ingress list in an optional namespace scope.
 func (h *PlatformHandler) ListKubernetesIngresses(c *fiber.Ctx) error {
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionRead)
 	if client == nil {
 		return nil
 	}
@@ -488,28 +494,31 @@ func (h *PlatformHandler) ListKubernetesIngresses(c *fiber.Ctx) error {
 
 // ListKubernetesConfigMaps returns the read-only ConfigMap list (data key names only).
 func (h *PlatformHandler) ListKubernetesConfigMaps(c *fiber.Ctx) error {
-	h.listConfigResources(c, func(client platformdomain.KubernetesClusterClient, namespace string, system bool) ([]platformdomain.KubernetesConfigResource, error) {
+	h.listConfigResources(c, platformdomain.ConnectionRead, func(client platformdomain.KubernetesClusterClient, namespace string, system bool) ([]platformdomain.KubernetesConfigResource, error) {
 		return client.ListConfigMaps(c.Context(), namespace, system)
 	})
 	return nil
 }
 
 // ListKubernetesSecrets returns the read-only Secret list. Only data key names are returned;
-// Secret values are never exposed by this surface.
+// Secret values are never exposed by this surface. It needs the operator credential: the cluster
+// answers a Secret list with the values, so the read credential is denied it by design.
 func (h *PlatformHandler) ListKubernetesSecrets(c *fiber.Ctx) error {
-	h.listConfigResources(c, func(client platformdomain.KubernetesClusterClient, namespace string, system bool) ([]platformdomain.KubernetesConfigResource, error) {
+	h.listConfigResources(c, platformdomain.ConnectionOperate, func(client platformdomain.KubernetesClusterClient, namespace string, system bool) ([]platformdomain.KubernetesConfigResource, error) {
 		return client.ListSecrets(c.Context(), namespace, system)
 	})
 	return nil
 }
 
-// listConfigResources shares the ConfigMap and Secret list shape. Secret values are never
-// included by the client, only key names, so this response cannot leak a secret.
+// listConfigResources shares the ConfigMap and Secret list shape, with the client for access.
+// Secret values are never included by the client, only key names, so this response cannot leak a
+// secret.
 func (h *PlatformHandler) listConfigResources(
 	c *fiber.Ctx,
+	access platformdomain.ConnectionAccess,
 	read func(client platformdomain.KubernetesClusterClient, namespace string, system bool) ([]platformdomain.KubernetesConfigResource, error),
 ) {
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, access)
 	if client == nil {
 		return
 	}
@@ -530,7 +539,7 @@ func (h *PlatformHandler) listConfigResources(
 
 // ListKubernetesPersistentVolumeClaims returns the read-only PVC list in an optional namespace scope.
 func (h *PlatformHandler) ListKubernetesPersistentVolumeClaims(c *fiber.Ctx) error {
-	client := h.explorerClient(c)
+	client := h.explorerClient(c, platformdomain.ConnectionRead)
 	if client == nil {
 		return nil
 	}
@@ -566,7 +575,8 @@ func (h *PlatformHandler) ApplyKubernetesManifest(c *fiber.Ctx) error {
 	if strings.TrimSpace(req.Manifest) == "" {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "manifest is required."))
 	}
-	client := h.explorerClient(c)
+	// A dry run needs the same access as the apply: the cluster authorizes it like the real write.
+	client := h.explorerClient(c, platformdomain.ConnectionOperate)
 	if client == nil {
 		return nil
 	}

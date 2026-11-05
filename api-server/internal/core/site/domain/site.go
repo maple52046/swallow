@@ -86,7 +86,8 @@ func (p IntegrationProviders) Allows(kind IntegrationKind, providerKind string) 
 //
 // It carries no credential field. A credential is written through
 // IntegrationRepository and read back only by an explicit Credential call, so that no
-// serialization path can leak one by accident.
+// serialization path can leak one by accident; the optional operator credential follows the
+// same rule through OperatorCredentialRepository, and only its presence is carried here.
 type Integration struct {
 	// ID is persisted in every server source, so it must never be reissued to
 	// refer to a different system.
@@ -104,6 +105,11 @@ type Integration struct {
 	// Kept as a string map so that adding an adapter option is not a schema change.
 	Settings map[string]string
 	Sync     SyncState
+	// HasOperatorCredential reports whether an operator credential is stored, and nothing else
+	// about it, so it is safe on every read path. The repository fills it on read from the stored
+	// record without opening the credential; Create and Update ignore it, so only
+	// OperatorCredentialRepository.ReplaceOperatorCredential changes what it reports.
+	HasOperatorCredential bool
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

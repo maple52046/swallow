@@ -46,6 +46,7 @@ const visualCases = [
   { name: 'platform-detail-kubernetes-configuration', path: '/platforms/platform-a/configuration?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-detail-kubernetes-monitoring', path: '/platforms/platform-a/monitoring?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-detail-kubernetes-cluster', path: '/platforms/platform-a/cluster?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
+  { name: 'platform-detail-kubernetes-single-credential', path: '/platforms/platform-a/overview?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-detail-uninstall-waiting', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-detail-uninstall-plan-required', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-detail-uninstall-starting', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
@@ -206,6 +207,8 @@ test.describe('dashboard visual review', () => {
         ...(visualCase.name === 'platform-detail-uninstall-plan-required' ? { platformRemovals: { 'platform-a': 'plan_required' as const } } : {}),
         ...(visualCase.name === 'platform-detail-uninstall-starting' ? { platformRemovals: { 'platform-a': 'converging' as const } } : {}),
         ...(visualCase.name.startsWith('platform-detail-slurm-') && visualCase.name !== 'platform-detail-slurm' ? { slurmDeployed: true, platformDeploymentWorkflows: true } : {}),
+        // A Kubernetes Platform last deployed before the credential split: Cluster access says so.
+        ...(visualCase.name === 'platform-detail-kubernetes-single-credential' ? { singleClusterCredential: true } : {}),
       })
       await setAppearance(page, appearance)
       // The release view of basic monitoring: alerts are the one monitoring surface still in
@@ -235,6 +238,9 @@ test.describe('dashboard visual review', () => {
       }
       if (visualCase.name === 'server-detail-inspection-required') {
         await expect(page.getByRole('button', { name: 'Inspect hardware' })).toBeVisible()
+      }
+      if (visualCase.name === 'platform-detail-kubernetes-single-credential') {
+        await expect(page.getByText('Cluster credentials are not separated yet')).toBeVisible()
       }
       // Plan cards are titled by name once the Platform and Server reads answer; the expired plan's
       // deleted Platform keeps its id.

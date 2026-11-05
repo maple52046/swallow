@@ -1,3 +1,7 @@
+# swallow's read-only ServiceAccount. Its token authenticates every background read (membership,
+# controller leases) and every explorer read, so the rules are exactly those reads (kubeapi's Reader
+# and Client): get/list/watch, never Secrets and never a write. A new read adds its resource here,
+# and k0s_topology_playbook_test.go holds the rules to that.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -5,13 +9,47 @@ metadata:
   namespace: kube-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: ClusterRole
 metadata:
   name: swallow-reader
+rules:
+  # Membership and the explorer's node, namespace, Pod, and subsidiary resource lists.
+  - apiGroups: [""]
+    resources: [nodes, namespaces, pods, services, configmaps, persistentvolumeclaims]
+    verbs: [get, list, watch]
+  # The explorer's Pod log snapshot.
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  # The workloads the explorer aggregates into Applications.
+  - apiGroups: [apps]
+    resources: [deployments, daemonsets, statefulsets]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  # Dedicated controllers are not nodes; membership reads their kube-node-lease Leases.
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch]
+  # The DRA GPU devices on the explorer's node list.
+  - apiGroups: [resource.k8s.io]
+    resources: [resourceslices]
+    verbs: [get, list, watch]
+  # The cluster summary's version.
+  - nonResourceURLs: [/version]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  # Not swallow-reader: earlier deployments bound that name to cluster-admin, and a binding's roleRef
+  # cannot change, so tasks/main.yml deletes that one instead.
+  name: swallow-reader-read-only
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ swallow_k0s_reader_clusterrole }}
+  name: swallow-reader
 subjects:
   - kind: ServiceAccount
     name: swallow-reader

@@ -12,12 +12,12 @@ import (
 // it silently drops the setting from every existing one.
 const SettingControllerLeaseDiscovery = "controllerLeaseDiscovery"
 
-// CredentialCompletion is the completion type of the deploy Task whose result is the cluster's read
-// credential. It is persisted on Tasks, so it stays stable.
+// CredentialCompletion is the completion type of the deploy Task whose result is the cluster's
+// credentials. It is persisted on Tasks, so it stays stable.
 const CredentialCompletion = "kubernetes-credential"
 
 // CredentialReader is the Kubernetes module's platform-credential hook: the k0s credential role's
-// result is the API endpoint, the reader token, and the cluster CA.
+// result is the API endpoint, the reader token, the operator token, and the cluster CA.
 type CredentialReader struct{}
 
 // PlatformType is kubernetes.
@@ -31,10 +31,17 @@ func (CredentialReader) Completion() string { return CredentialCompletion }
 // Required is true: without a credential swallow cannot read the cluster it deployed.
 func (CredentialReader) Required() bool { return true }
 
-// Credential reads apiEndpoint, token, and caCertificate. Controller lease discovery is on because
-// any supported topology may use dedicated control-plane Servers that do not register as nodes. The
-// CA is recorded so the API certificate is verified against it; only a result without one
-// (an earlier role) is recorded with insecureSkipVerify.
+// Credential reads apiEndpoint, token, operatorToken, and caCertificate. Controller lease discovery
+// is on because any supported topology may use dedicated control-plane Servers that do not register
+// as nodes. The CA is recorded so the API certificate is verified against it; only a result without
+// one (an earlier role) is recorded with insecureSkipVerify.
+//
+// token is the read-only swallow-reader ServiceAccount's and becomes the Credential's Token;
+// operatorToken is the cluster-admin swallow-operator ServiceAccount's and becomes its
+// OperatorToken. A result of a role that minted only the one token (then bound to cluster-admin) has
+// no operatorToken and is still a credential, with OperatorToken empty, so the explorer's writes
+// use that token until the Platform is redeployed. Neither token is logged or kept anywhere but the
+// returned Credential.
 func (CredentialReader) Credential(data map[string]any) (platformdomain.Credential, bool) {
 	endpoint, token := stringField(data, "apiEndpoint"), stringField(data, "token")
 	if endpoint == "" || token == "" {
@@ -46,7 +53,12 @@ func (CredentialReader) Credential(data map[string]any) (platformdomain.Credenti
 	} else {
 		settings[platformdomain.SettingInsecureSkipVerify] = "true"
 	}
-	return platformdomain.Credential{Endpoint: endpoint, Token: token, Settings: settings}, true
+	return platformdomain.Credential{
+		Endpoint:      endpoint,
+		Token:         token,
+		OperatorToken: stringField(data, "operatorToken"),
+		Settings:      settings,
+	}, true
 }
 
 func stringField(data map[string]any, key string) string {

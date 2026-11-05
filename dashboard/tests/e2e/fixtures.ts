@@ -294,13 +294,13 @@ const sites = [
   { id: 'site-b', name: 'Hsinchu Edge', description: 'Edge validation', createdAt: now, updatedAt: now },
 ]
 const integrations = [
-  { id: 'maas-a', siteId: 'site-a', kind: 'provisioner', providerKind: 'maas', name: 'MAAS Taipei', endpoint: 'https://maas.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now },
-  { id: 'maas-b', siteId: 'site-b', kind: 'provisioner', providerKind: 'maas', name: 'MAAS Edge', endpoint: 'https://maas-edge.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now },
-  { id: 'prom-a', siteId: 'site-a', kind: 'metrics', providerKind: 'prometheus', name: 'Prometheus Taipei', endpoint: 'https://prom.example', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: 'Alertmanager timeout' }, createdAt: now, updatedAt: now },
+  { id: 'maas-a', siteId: 'site-a', kind: 'provisioner', providerKind: 'maas', name: 'MAAS Taipei', endpoint: 'https://maas.example', enabled: true, settings: {}, hasCredential: true, hasOperatorCredential: false, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now },
+  { id: 'maas-b', siteId: 'site-b', kind: 'provisioner', providerKind: 'maas', name: 'MAAS Edge', endpoint: 'https://maas-edge.example', enabled: true, settings: {}, hasCredential: true, hasOperatorCredential: false, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now },
+  { id: 'prom-a', siteId: 'site-a', kind: 'metrics', providerKind: 'prometheus', name: 'Prometheus Taipei', endpoint: 'https://prom.example', enabled: true, settings: {}, hasCredential: true, hasOperatorCredential: false, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: 'Alertmanager timeout' }, createdAt: now, updatedAt: now },
   // The credential Integration a successful deployment of production-k0s created (sites-integrations.md,
   // kind `platform`). research-slurm's legacy reader Integration `slurm-a` is deliberately absent, so
   // its Platform page shows the Integration id it cannot resolve.
-  { id: 'k8s-a', siteId: 'site-a', kind: 'platform', providerKind: 'kubernetes', name: 'production-k0s (deployed)', endpoint: 'https://192.168.40.200:6443', enabled: true, settings: {}, hasCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: '2026-08-10T00:42:00Z', updatedAt: now },
+  { id: 'k8s-a', siteId: 'site-a', kind: 'platform', providerKind: 'kubernetes', name: 'production-k0s (deployed)', endpoint: 'https://192.168.40.200:6443', enabled: true, settings: {}, hasCredential: true, hasOperatorCredential: true, sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: '2026-08-10T00:42:00Z', updatedAt: now },
 ]
 /** The provider-observed facts and swallow metadata of one fixture OS image catalog entry. */
 export interface CatalogImageFixture {
@@ -699,6 +699,13 @@ export interface FixtureOptions {
   provisionerEndpoints?: Record<string, string>
   /** Disables site-a's only provisioner. */
   disabledProvisioner?: boolean
+  /**
+   * Gives production-k0s's credential Integration (`k8s-a`) no operator credential
+   * (`hasOperatorCredential: false`), as a Kubernetes Platform last deployed successfully before
+   * 2026-11-05 still has its single cluster-admin token (platforms-kubernetes.md "Cluster
+   * Credentials"). By default it has both credentials.
+   */
+  singleClusterCredential?: boolean
   /** Limits the installation to site-a so global deployment can auto-select it. */
   singleSite?: boolean
   /** Servers whose inspect-hardware Workflow waits in `requires_attention` (decision 053). */
@@ -1494,6 +1501,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         options.disabledProvisioner && integration.id === 'maas-a'
           ? false
           : integration.enabled,
+      hasOperatorCredential: options.singleClusterCredential && integration.id === 'k8s-a' ? false : integration.hasOperatorCredential,
       settings: { ...integration.settings },
       sync: { ...integration.sync },
     }))
@@ -1745,7 +1753,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     platformItems.push({ ...slurmHa, generation: 1, spec: slurmHaSpec, status: fixturePlatformStatus(slurmHa.lifecycleState, slurmHaSpec) } as (typeof platformItems)[number])
     integrationItems.push({
       id: 'slurm-ha', siteId: 'site-a', kind: 'platform', providerKind: 'slurm', name: 'lab-slurm-ha (deployed)',
-      endpoint: 'http://192.168.60.11:6820', enabled: true, settings: {}, hasCredential: true,
+      endpoint: 'http://192.168.60.11:6820', enabled: true, settings: {}, hasCredential: true, hasOperatorCredential: false,
       sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: '2026-08-18T01:10:00Z', updatedAt: now,
     })
   }
@@ -2551,6 +2559,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         enabled: body.enabled,
         settings: body.settings,
         hasCredential: Boolean(body.credential),
+        hasOperatorCredential: false,
         sync: { lastStartedAt: null, lastSucceededAt: null, lastError: null },
         createdAt: now,
         updatedAt: now,

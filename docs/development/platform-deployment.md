@@ -681,16 +681,33 @@ playbook 若需回傳結果（例如叢集 credential），寫入 runner 提供�
 （該次 run private dir 的 `result.json`）；credential 因此不經過 run output 或保留的 artifacts，碰到 token 的 task 皆
 `no_log`。無 credential 需求的 platform 可不寫。
 
-- **k0s**（[decision 007](../decisions/007-cluster-deployment-ownership.md)）：`k0s_cluster_credential` 在新叢集建立
-  ServiceAccount `swallow-reader`（`kube-system`，綁定 `swallow_k0s_reader_clusterrole`，預設 `cluster-admin`）與它的
-  token Secret，寫入 `{ "apiEndpoint": "https://<API 位址>:6443", "token": "...", "caCertificate": "<PEM>" }`（CA 取自
-  同一個 token Secret 的 `ca.crt`；API 位址是 HA VIP，或非 HA 的初始
-  controller 位址）。成功後 Kubernetes 模組的 `platform-credential` hook 把 result 讀成 Credential，`DeploymentCredentialService.Record` 建立 sealed 的
-  `platform` kind Integration（與其他 Integration credential 同一把加密金鑰，所以該金鑰的備份與輪替也涵蓋叢集存取），
-  記為該 Platform 擁有的 Integration，並立即讀一次 membership。在此之前 Platform 沒有 Integration（`integrationId` 為
-  `null`）。Integration 以設定 `caCertificate` 記下這個 CA，Kubernetes reader 與 explorer client 只信任它來驗證 API
-  的憑證（k0s 的憑證 SAN 已包含 API 位址）；在這個 role 之前部署、沒有 CA 的 Platform 仍是 `insecureSkipVerify`，
-  重新部署後才會驗證。k0s 的
+- **k0s**（[decision 007](../decisions/007-cluster-deployment-ownership.md)、[decision 032](../decisions/032-self-deployed-platform-management.md)）：
+  `k0s_cluster_credential` 在叢集的 `kube-system` 建立兩個 ServiceAccount，各有自己的 token Secret：
+  - `swallow-reader` 以 ClusterRoleBinding `swallow-reader-read-only` 綁定唯讀的 ClusterRole `swallow-reader`：只有 swallow
+    讀取用到的 `get`／`list`／`watch`（nodes、namespaces、pods 與 `pods/log`、services、configmaps、persistentvolumeclaims、
+    deployments／daemonsets／statefulsets、ingresses、leases、resourceslices 與 `/version`），不含 Secrets，也不能寫入。
+  - `swallow-operator` 綁定 `cluster-admin`：`apply` 接受 RBAC 物件，而 Kubernetes 只讓主體授予自己擁有的權限。
+
+  兩個 token 都讀到後，role 刪除較早版本以 `swallow-reader` 為名綁到 `cluster-admin` 的 ClusterRoleBinding（不存在也可以；
+  roleRef 不能修改，所以唯讀的 binding 用新名字），重新部署的叢集因此就地收窄原本的 token。role 寫入
+  `{ "apiEndpoint": "https://<API 位址>:6443", "token": "<reader>", "operatorToken": "<operator>", "caCertificate": "<PEM>" }`
+  （CA 取自 reader token Secret 的 `ca.crt`；API 位址是 HA VIP，或非 HA 的初始 controller 部署後的位址，見 §2）。
+
+  成功後 Kubernetes 模組的 `platform-credential` hook 把 result 讀成 Credential，`DeploymentCredentialService.Record` 在同一個
+  transaction 內建立 `platform` kind Integration：reader token 存為 sealed credential，operator token 存為 sealed operator
+  credential（與其他 Integration credential 同一把加密金鑰，所以該金鑰的備份與輪替也涵蓋叢集存取；兩者都不經任何 API 回傳），
+  記為該 Platform 擁有的 Integration，並立即讀一次 membership。重跑部署時兩者一起取代；result 沒有 operator token 時移除已存
+  的那一個，所以兩者永遠來自同一次部署。在此之前 Platform 沒有 Integration（`integrationId` 為 `null`）。
+
+  membership、controller lease 與 explorer 的讀取只用 reader token；explorer 的寫入（cordon／uncordon、namespace 建立與刪除、
+  Application 刪除／scale／restart、Pod 刪除、`apply` 含 dry run）與 Secret 清單只用 operator token，且只在 admin 的 request
+  上（[platforms-kubernetes](../../api-server/docs/development/api-contracts/api-server/platforms-kubernetes.md) 的 Cluster
+  Credentials）。2026-11-05 之前部署的 Platform 只有一個 token（當時綁定 `cluster-admin`），explorer 的寫入就用它，直到下一次
+  成功的部署記下兩個 token。role 在 `k0s_verify` 之後才跑，所以沒通過驗證的重新部署不會刪掉舊 binding；刪掉之後部署才失敗
+  （例如 hook 沒記下 credential）時，舊 token 的寫入會被叢集拒絕，直到部署成功。
+
+  Integration 以設定 `caCertificate` 記下這個 CA，Kubernetes reader 與 explorer client 只信任它來驗證 API 的憑證（k0s 的憑證
+  SAN 已包含 API 位址）；在這個 role 之前部署、沒有 CA 的 Platform 仍是 `insecureSkipVerify`，重新部署後才會驗證。k0s 的
   credential 是必要的，Slurm 的是選用（§6.3）。
 - **k0s membership 來源**：worker 與帶 `--enable-worker` 的 controller 從 `/api/v1/nodes` 讀，只回報一次；dedicated
   controller 不是 node，改從 `kube-node-lease` 的 `k0s-ctrl-*` Lease 讀。Lease 讀取是 per-Integration 設定

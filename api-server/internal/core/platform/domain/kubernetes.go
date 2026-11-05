@@ -206,7 +206,9 @@ type KubernetesClusterClient interface {
 }
 
 // KubernetesClientFactory resolves a deployed Kubernetes Platform into a cluster client using
-// its swallow-owned credential Integration.
+// its swallow-owned credential Integration. For authenticates with the Integration's read
+// credential, so its client is for reads; a factory that also implements
+// OperatorClientFactory[KubernetesClusterClient] builds the client for ConnectionOperate requests.
 type KubernetesClientFactory interface {
 	For(ctx context.Context, platform *Platform) (KubernetesClusterClient, error)
 }

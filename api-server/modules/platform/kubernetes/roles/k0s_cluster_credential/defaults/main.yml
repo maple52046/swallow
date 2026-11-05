@@ -1,5 +1,20 @@
 ---
-# The ClusterRole bound to swallow's read ServiceAccount. cluster-admin matches the access
-# level chosen for deployed clusters; narrowing it to a read-only role is a one-line change
-# here and needs no code change.
-swallow_k0s_reader_clusterrole: cluster-admin
+# swallow reaches the cluster it deployed with two ServiceAccounts in kube-system, each with its own
+# long-lived token Secret, and this role returns both tokens in the run's private result file:
+#
+# - swallow-reader (templates/swallow-reader.yaml.j2) is bound to the read-only ClusterRole
+#   swallow-reader: get/list/watch on exactly what swallow's membership, controller lease, and
+#   explorer reads use, never Secrets (a list returns their values) and never a write. Its token is
+#   the Integration's credential, used by every background read.
+# - swallow-operator (templates/swallow-operator.yaml.j2) is bound to cluster-admin. Its token is the
+#   Integration's operator credential, which swallow uses only for an admin's explorer writes and
+#   Secret lists.
+#
+# Neither binding's role is a variable: a ClusterRoleBinding's roleRef cannot change, so pointing an
+# existing binding at another role fails every redeploy instead of taking effect. What the reader may
+# read is the reader ClusterRole's rules, which kubectl apply updates in place on a redeploy.
+
+# The binding earlier versions of this role bound swallow-reader to cluster-admin with. Every run
+# deletes it (absent is fine) once both tokens are read, which narrows the reader token of a
+# redeployed cluster in place; it is never applied.
+k0s_cluster_credential_legacy_reader_binding: swallow-reader

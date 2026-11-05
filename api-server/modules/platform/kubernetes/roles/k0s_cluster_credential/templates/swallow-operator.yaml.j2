@@ -1,0 +1,32 @@
+# swallow's operator ServiceAccount. Its token is the Integration's operator credential: only the
+# explorer's writes (apply, namespace create and delete, Application delete, scale, and restart,
+# cordon, Pod delete) and its Secret list use it, each on an admin's request; no background read
+# does. It is cluster-admin because apply accepts RBAC objects and Kubernetes lets a subject grant
+# only the permissions it holds itself.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: swallow-operator
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: swallow-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: swallow-operator
+    namespace: kube-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: swallow-operator-token
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: swallow-operator
+type: kubernetes.io/service-account-token

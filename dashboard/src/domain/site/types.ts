@@ -42,6 +42,13 @@ export interface Integration {
    * endpoint, in any form.
    */
   hasCredential: boolean
+  /**
+   * Whether the Integration also stores an operator credential: a Kubernetes Platform's deployment
+   * records it for the cluster explorer's writes (sites-integrations.md). Like `hasCredential` it
+   * reports presence only. `false` for every other Integration, including a Kubernetes Platform's
+   * that still has the single credential of a deployment before 2026-11-05.
+   */
+  hasOperatorCredential: boolean
   sync: SyncState
   createdAt: string
   updatedAt: string
