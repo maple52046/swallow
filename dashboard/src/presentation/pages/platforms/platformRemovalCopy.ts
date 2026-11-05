@@ -202,30 +202,39 @@ export interface PlatformBulkUninstallCounts {
   started: number
   /** Uninstalls whose Change Plan waits for a separate approval (the policy or a blocker). */
   waiting: number
-  /** Platforms whose install was never approved, which the API deleted without a plan. */
+  /** Platforms with nothing installed (their install never started), which the API deleted at once. */
   deletedAtOnce: number
+  /** Platforms whose uninstall was already running, so the request changed nothing. */
+  alreadyRunning: number
 }
 
 /**
  * Toast title and description after a bulk uninstall, or the partial-failure title when some
  * requests were refused. The copy names only what happened: uninstalls that started, plans that
- * wait in Change Plans (and that the user is sent there for them), and Platforms deleted at once,
- * so a run where nothing waits does not send the user to approve anything.
+ * wait in Change Plans (and that the user is sent there for them), Platforms deleted at once, and
+ * Platforms whose uninstall was already running, so a run where nothing waits does not send the
+ * user to approve anything.
  */
 export function platformBulkUninstallToast(
   choice: PlatformUninstallChoice,
   counts: PlatformBulkUninstallCounts,
 ): { title: string; partialTitle: string; description: string } {
-  const { started, waiting, deletedAtOnce } = counts
+  const { started, waiting, deletedAtOnce, alreadyRunning } = counts
   const step = choice.releaseServers ? 'release' : 'uninstall'
   const notes = [
     started > 0 ? `${started} ${plural(started, step)} started; each record is deleted after its ${step} succeeds.` : '',
     waiting > 0 ? `${waiting} ${plural(waiting, step)} ${waiting === 1 ? 'waits' : 'wait'} for approval in Change Plans.` : '',
     deletedAtOnce > 0
-      ? `${deletedAtOnce} ${plural(deletedAtOnce, 'Platform')} whose install was never approved ${deletedAtOnce === 1 ? 'was' : 'were'} deleted at once; no host was changed.`
+      ? `${deletedAtOnce} ${plural(deletedAtOnce, 'Platform')} whose install never started ${deletedAtOnce === 1 ? 'was' : 'were'} deleted at once; no host was changed.`
+      : '',
+    alreadyRunning > 0
+      ? `${alreadyRunning} ${plural(alreadyRunning, 'Platform')} ${alreadyRunning === 1 ? 'was' : 'were'} already being uninstalled; nothing changed for ${alreadyRunning === 1 ? 'it' : 'them'}.`
       : '',
   ].filter(Boolean)
   const description = notes.join(' ')
+  if (started === 0 && waiting === 0 && deletedAtOnce === 0) {
+    return { title: 'Uninstall already running', partialTitle: 'Uninstall partially requested', description }
+  }
   if (started === 0 && waiting === 0) {
     return { title: 'Platforms deleted', partialTitle: 'Platforms partially deleted', description }
   }

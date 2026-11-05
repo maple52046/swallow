@@ -1750,7 +1750,8 @@ func (r *fakeChangePlanRepo) FindUnfinished(_ context.Context, resource converge
 func (r *fakeChangePlanRepo) List(_ context.Context, filter convergence.ChangePlanFilter) ([]*convergence.ChangePlan, error) {
 	var out []*convergence.ChangePlan
 	for _, plan := range r.plans {
-		if (filter.Resource == convergence.ResourceRef{} || plan.Resource == filter.Resource) &&
+		if (filter.Resource.Kind == "" || plan.Resource.Kind == filter.Resource.Kind) &&
+			(filter.Resource.ID == "" || plan.Resource.ID == filter.Resource.ID) &&
 			(len(filter.States) == 0 || slices.Contains(filter.States, plan.State)) {
 			copied := *plan
 			out = append(out, &copied)

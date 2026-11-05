@@ -132,9 +132,9 @@ func (h *PlatformHandler) PutSpec(c *fiber.Ctx) error {
 }
 
 // Delete handles DELETE /platforms/{id}. By default it declares the Platform absent: 202 with the
-// Change Plan that uninstalls it (approved with the request under approve=true), or 204 when it was
-// never installed and is gone already. With recordOnly=true it removes only the record and its
-// claims and leaves the hosts as they are.
+// Change Plan that uninstalls it (approved with the request under approve=true), 200 without a plan
+// while its uninstall runs, or 204 when nothing was installed and it is gone already. With
+// recordOnly=true it removes only the record and its claims and leaves the hosts as they are.
 func (h *PlatformHandler) Delete(c *fiber.Ctx) error {
 	if c.Query("recordOnly") == "true" {
 		if err := h.platforms.Delete(c.Context(), c.Params("id")); err != nil {

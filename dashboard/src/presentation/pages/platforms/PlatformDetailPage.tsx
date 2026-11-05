@@ -23,7 +23,7 @@ import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { PlatformDetailsCard } from './PlatformDetailsCard'
 import { PlatformLifecycleActions } from './PlatformLifecycleActions'
 import { PlatformLifecycleBadge } from './PlatformLifecycleBadge'
-import { plannedInstallNotice } from './platformSpecState'
+import { pendingUninstallNotice, plannedInstallNotice, type PlatformChangeNotice } from './platformSpecState'
 import { usePlatformDetail } from './usePlatformDetail'
 
 /**
@@ -385,8 +385,9 @@ function PlatformMonitoring({ platform }: { platform: Platform }) {
 
 /**
  * Explains lifecycle in Platform language and keeps raw automation detail a secondary action.
- * Shared by both platform types; it reads only lifecycle state and the failed Step, neither of
- * which is type-specific.
+ * Shared by both platform types; it reads only lifecycle state, the spec's `realized` Condition,
+ * and the failed Step, none of which is type-specific. An uninstall that has not started yet
+ * (`pendingUninstallNotice`) takes precedence over the lifecycle, which still shows the deployment.
  */
 function LifecycleNotice({
   platform,
@@ -397,7 +398,7 @@ function LifecycleNotice({
   platform: Platform
   operation?: Operation
   onOpenOperation: (operationId: string) => void
-  /** Opens Change Plans, for a `planned` Platform whose install waits for a user there. */
+  /** Opens Change Plans, for an install or uninstall that waits for a user there. */
   onOpenChangePlans: () => void
 }) {
   const operationId = platform.lifecycleOperationId
@@ -407,21 +408,25 @@ function LifecycleNotice({
       View automation details
     </Button>
   ) : null
+  const changeNotice = (notice: PlatformChangeNotice) => (
+    <Alert status={notice.status} title={notice.title}>
+      {notice.body}{' '}
+      {notice.linksChangePlans && (
+        <Button variant="plain" size="sm" px="0" h="auto" colorPalette="brand" onClick={onOpenChangePlans}>
+          Open Change Plans
+        </Button>
+      )}
+    </Alert>
+  )
+
+  // A Platform marked absent whose uninstall has not started says what it waits for, whatever its
+  // lifecycle still shows (an active or failed deployment).
+  const uninstall = pendingUninstallNotice(platform)
+  if (uninstall) return changeNotice(uninstall)
 
   switch (platform.lifecycleState) {
-    case 'planned': {
-      const notice = plannedInstallNotice(platform)
-      return (
-        <Alert status={notice.status} title={notice.title}>
-          {notice.body}{' '}
-          {notice.linksChangePlans && (
-            <Button variant="plain" size="sm" px="0" h="auto" colorPalette="brand" onClick={onOpenChangePlans}>
-              Open Change Plans
-            </Button>
-          )}
-        </Alert>
-      )
-    }
+    case 'planned':
+      return changeNotice(plannedInstallNotice(platform))
     case 'deploying':
       return (
         <Alert status="info" title="Platform deployment is running">
@@ -444,7 +449,7 @@ function LifecycleNotice({
     case 'uninstall_failed':
       return (
         <Alert status="error" title="Platform uninstall failed">
-          Hosts may be in mixed states. Inspect the automation output before retrying. {details}
+          Hosts may be in mixed states. Inspect the automation output, then choose Uninstall platform to try again. {details}
         </Alert>
       )
     case 'uninstalled':

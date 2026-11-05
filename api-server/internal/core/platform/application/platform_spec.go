@@ -194,37 +194,55 @@ func (s *PlatformSpecService) UpdateSpec(ctx context.Context, platformID string,
 	return s.write(ctx, platform, expectedGeneration, spec, changes, blocking, approvedBy)
 }
 
-// Delete declares a Platform absent, removed as removal says. A Platform never deployed (its install
-// still waits for approval) is deleted at once, since no machine was touched; otherwise its
-// uninstall is proposed as a Change Plan, approved with the request when approvedBy names its user
-// and the Change Plan policy allows it, and the record is deleted once the uninstall succeeds.
-// Deleting a Platform already marked absent returns its unfinished plan, ignoring removal; a
-// non-empty approvedBy approves that plan when it waits and could have been approved on submit.
+// Delete declares a Platform absent, removed as removal says, and its result says what the request
+// did:
+//   - A Platform with nothing of swallow's left on its members is deleted at once and its plan
+//     withdrawn: its install never started (no deployment Workflow, nothing applied), or its
+//     uninstall already succeeded. The result has no Platform.
+//   - Otherwise its uninstall is proposed as a Change Plan, approved with the request when approvedBy
+//     names its user and the Change Plan policy allows it, and the record is deleted once the
+//     uninstall succeeds. A deployment that still runs or failed counts: it may have changed the
+//     members, so it is uninstalled too.
+//   - For a Platform already marked absent whose plan still waits, the same removal returns that
+//     plan, which a non-empty approvedBy approves when it could have been approved on submit; a
+//     different removal proposes the uninstall again, which supersedes the plan.
+//   - While its uninstall runs, nothing changes: the result is the Platform and its waiting plan, if
+//     any.
+//   - One marked absent with no plan waiting (rejected, expired, or applied as an uninstall that
+//     failed) has its uninstall proposed again at a new generation; the platform controller cancels
+//     a failed uninstall that still holds its targets before the new one starts.
+//
+// A Platform without a spec is ErrPlatformNotAdopted; a spec write that raced this one is
+// platformdomain.ErrGenerationConflict, and nothing is written.
 func (s *PlatformSpecService) Delete(ctx context.Context, platformID string, removal *platformdomain.PlatformRemoval, approvedBy string) (*SpecWriteResult, error) {
 	platform, module, err := s.specified(ctx, platformID)
 	if err != nil {
 		return nil, err
 	}
-	if platform.Status.Applied == nil {
-		if err := s.withdraw(ctx, platform.ID, "the Platform was deleted before it was installed"); err != nil {
+	lifecycle, err := s.records.readLifecycle(ctx, platform.ID)
+	if err != nil {
+		return nil, err
+	}
+	if nothingInstalled(platform, lifecycle) {
+		if err := s.withdraw(ctx, platform.ID, "the Platform was deleted with nothing installed"); err != nil {
 			return nil, err
 		}
 		return &SpecWriteResult{}, s.records.Delete(ctx, platform.ID)
 	}
 	if platform.Spec.Desired == platformdomain.PlatformAbsent {
-		plan, err := s.plans.List(ctx, convergence.ChangePlanFilter{
-			Resource: platformRef(platform.ID), States: []convergence.ChangePlanState{convergence.PlanPendingApproval, convergence.PlanApproved},
-		})
+		plan, err := s.waitingPlan(ctx, platform.ID)
 		if err != nil {
 			return nil, err
 		}
-		result := &SpecWriteResult{Platform: platform}
-		if len(plan) > 0 {
-			if result.Plan, err = s.plans.ApproveResubmitted(ctx, plan[0], approvedBy); err != nil {
+		switch {
+		case lifecycle.State == platformdomain.PlatformLifecycleUninstalling:
+			return &SpecWriteResult{Platform: platform, Plan: plan}, nil
+		case plan != nil && sameRemoval(platform.Spec.Removal, removal):
+			if plan, err = s.plans.ApproveResubmitted(ctx, plan, approvedBy); err != nil {
 				return nil, err
 			}
+			return &SpecWriteResult{Platform: platform, Plan: plan}, nil
 		}
-		return result, nil
 	}
 	spec := platform.Spec.Clone()
 	spec.Desired, spec.Removal = platformdomain.PlatformAbsent, removal
@@ -322,6 +340,53 @@ func (s *PlatformSpecService) claim(ctx context.Context, platformID string, spec
 
 func (s *PlatformSpecService) withdraw(ctx context.Context, platformID, reason string) error {
 	return s.plans.Withdraw(ctx, platformRef(platformID), reason)
+}
+
+// waitingPlan is the Platform's unfinished Change Plan, or nil when it has none still within its
+// validity period: a plan past its time is as good as expired (the expiry controller ends it), and
+// proposing a new one supersedes it.
+func (s *PlatformSpecService) waitingPlan(ctx context.Context, platformID string) (*convergence.ChangePlan, error) {
+	plans, err := s.plans.List(ctx, convergence.ChangePlanFilter{Resource: platformRef(platformID), States: unfinishedPlanStates})
+	if err != nil {
+		return nil, err
+	}
+	if len(plans) == 0 || !s.now().Before(plans[0].ExpiresAt) {
+		return nil, nil
+	}
+	return plans[0], nil
+}
+
+// unfinishedPlanStates are the states of a Change Plan that may still be carried out.
+var unfinishedPlanStates = []convergence.ChangePlanState{convergence.PlanPendingApproval, convergence.PlanApproved}
+
+// nothingInstalled reports whether nothing swallow installed for the Platform can be left on its
+// members, so deleting it needs no uninstall: no deployment Workflow was ever started and no spec was
+// applied (its install waits for approval, or was approved and not started yet), or its uninstall
+// succeeded. A deployment that runs or failed may have changed the members, so it does not count.
+func nothingInstalled(platform *platformdomain.Platform, lifecycle platformdomain.LifecycleSnapshot) bool {
+	if lifecycle.State == platformdomain.PlatformLifecycleUninstalled {
+		return true
+	}
+	return lifecycle.Deployment == nil && platform.Status.Applied == nil && platform.Status.Realizing == nil
+}
+
+// sameRemoval reports whether two removal choices remove a Platform the same way. No choices remove
+// the software only, as the zero choices do, and the release options mean nothing unless the members
+// are released.
+func sameRemoval(a, b *platformdomain.PlatformRemoval) bool {
+	return effectiveRemoval(a) == effectiveRemoval(b)
+}
+
+// effectiveRemoval is removal as the uninstall would carry it out, the form sameRemoval compares.
+func effectiveRemoval(removal *platformdomain.PlatformRemoval) platformdomain.PlatformRemoval {
+	if removal == nil {
+		return platformdomain.PlatformRemoval{}
+	}
+	effective := *removal
+	if !effective.ReleaseServers {
+		effective.ReleaseOptions = platformdomain.ServerReleaseOptions{}
+	}
+	return effective
 }
 
 func (s *PlatformSpecService) draft(platformID string, generation int64, spec platformdomain.PlatformSpec, changes platformdomain.PlatformChanges, blocking []string) convergence.PlanDraft {

@@ -164,6 +164,49 @@ func TestReplacePlatformSpec(t *testing.T) {
 	}
 }
 
+// A Platform whose deployment started is uninstalled rather than deleted at once: DELETE answers 202
+// with the uninstall's plan and the record stays. Deleting an absent Platform while its uninstall runs
+// changes nothing and answers 200 without a plan.
+func TestDeletePlatformWhoseDeploymentStarted(t *testing.T) {
+	f := setupPlatform(t)
+	f.seedServer("srv-1", "node-1", "10.0.1.10", nil)
+	platform := seedInstalledPlatform(t, f)
+	platform.Status = platformdomain.PlatformStatus{}
+	deployment := f.platformLifecycle.snapshots[platform.ID].Deployment
+	deployment.Status = "running"
+	f.platformLifecycle.snapshots[platform.ID] = platformdomain.LifecycleSnapshot{
+		Origin: platformdomain.PlatformOriginDeployed, State: platformdomain.PlatformLifecycleDeploying, OperationID: deployment.ID, Deployment: deployment,
+	}
+
+	resp := doRequest(t, f.app, "DELETE", "/api/v1/platforms/platform-1", map[string]any{"cancelActiveWorkflows": true}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("deploying status = %d, want 202: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	if plan, _ := parseBody(t, resp)["plan"].(map[string]any); plan == nil || plan["actions"].([]any)[0].(map[string]any)["action"] != "uninstall" {
+		t.Errorf("deploying plan = %v, want the uninstall", plan)
+	}
+	if _, err := f.platformRepo.FindByID(context.Background(), platform.ID); err != nil {
+		t.Fatalf("the record was deleted before its uninstall: %v", err)
+	}
+
+	f2 := setupPlatform(t)
+	f2.seedServer("srv-1", "node-1", "10.0.1.10", nil)
+	absent := seedInstalledPlatform(t, f2)
+	absent.Spec.Desired = platformdomain.PlatformAbsent
+	snapshot := f2.platformLifecycle.snapshots[absent.ID]
+	snapshot.State = platformdomain.PlatformLifecycleUninstalling
+	snapshot.Uninstall = &platformdomain.LifecycleOperation{ID: "uninstall-1", Status: "running", RequestedAt: snapshot.Deployment.RequestedAt.Add(time.Minute)}
+	f2.platformLifecycle.snapshots[absent.ID] = snapshot
+	resp = doRequest(t, f2.app, "DELETE", "/api/v1/platforms/platform-1", map[string]any{"releaseServers": true}, f2.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("uninstalling status = %d, want 200: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	body := parseBody(t, resp)
+	if body["plan"] != nil || body["platform"].(map[string]any)["generation"] != float64(1) {
+		t.Errorf("uninstalling response = %v, want the Platform unchanged without a plan", body)
+	}
+}
+
 // DELETE /platforms/{id} proposes the uninstall with the removal choices as a Change Plan; only an
 // admin may ask; recordOnly=true removes only the record.
 func TestDeletePlatformProposesItsUninstall(t *testing.T) {

@@ -33,6 +33,9 @@ const visualCases = [
   { name: 'server-detail-inspection-required', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-activity-releasing', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'platform-detail', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
+  { name: 'platform-detail-uninstall-waiting', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
+  { name: 'platform-detail-uninstall-plan-required', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
+  { name: 'platform-detail-uninstall-starting', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-selector', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
   { name: 'infrastructure', path: '/infrastructure/sites?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
 ] as const
@@ -185,6 +188,10 @@ test.describe('dashboard visual review', () => {
         // Platform details name the last deployment, so the deployed Platforms get their succeeded
         // deployment Workflows; the HA Slurm Platform's container Grafana brought Docker CE.
         ...(visualCase.name === 'platform-detail' ? { platformDeploymentWorkflows: true } : {}),
+        // An uninstall that has not started: waiting under the safety switch, rejected, or approved.
+        ...(visualCase.name === 'platform-detail-uninstall-waiting' ? { platformRemovals: { 'platform-a': 'awaiting_approval' as const } } : {}),
+        ...(visualCase.name === 'platform-detail-uninstall-plan-required' ? { platformRemovals: { 'platform-a': 'plan_required' as const } } : {}),
+        ...(visualCase.name === 'platform-detail-uninstall-starting' ? { platformRemovals: { 'platform-a': 'converging' as const } } : {}),
         ...(visualCase.name === 'platform-detail-slurm-deployed' ? { slurmDeployed: true, platformDeploymentWorkflows: true } : {}),
       })
       await setAppearance(page, appearance)
@@ -253,6 +260,12 @@ test.describe('dashboard visual review', () => {
       // The full mobile page is too long to read at its own scale; the changed card is captured too.
       if (visualCase.name === 'server-detail-vm-boot-media') {
         await page.getByRole('region', { name: 'Power control' }).screenshot({
+          path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+        })
+      }
+      // The uninstall notice is the first thing in the Overview; it is read at its real scale.
+      if (visualCase.name.startsWith('platform-detail-uninstall-')) {
+        await page.locator('.sw-platform-overview > :first-child').first().screenshot({
           path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
         })
       }

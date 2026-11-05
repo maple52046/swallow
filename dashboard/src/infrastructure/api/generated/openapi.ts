@@ -851,7 +851,7 @@ export interface paths {
         post?: never;
         /**
          * Declare a Platform absent, proposing its uninstall as a Change Plan.
-         * @description Requires the `admin` role. Marks the spec absent with the optional removal choices and proposes the uninstall as a Change Plan, approved with the request when it sends `approve=true` and the policy allows it; the record is deleted once the uninstall succeeds (platforms.md, Delete A Platform). Deleting a Platform already marked absent returns the plan it waits on, approving it when the request sends `approve=true`. A Platform whose install was never approved is deleted at once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled, then membership, Platform Claims, and a swallow-owned credential Integration are cleared, and hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no spec yet.
+         * @description Requires the `admin` role. Marks the spec absent with the optional removal choices and proposes the uninstall as a Change Plan, approved with the request when it sends `approve=true` and the policy allows it; the record is deleted once the uninstall succeeds (platforms.md, Delete A Platform). A Platform whose deployment runs or failed is uninstalled the same way. Deleting a Platform already marked absent returns the plan it waits on when the removal choices are the same, approving it when the request sends `approve=true`; different choices, or no plan waiting (it was rejected or expired, or the uninstall failed), propose the uninstall again. While the uninstall runs, the request changes nothing (200). A Platform with nothing installed (its install never started, or its uninstall succeeded) is deleted at once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled, then membership, Platform Claims, and a swallow-owned credential Integration are cleared, and hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no spec yet.
          */
         delete: operations["deletePlatform"];
         options?: never;
@@ -9532,6 +9532,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description The Platform, already marked absent, whose uninstall runs; nothing changed and `plan` is null. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSpecWrite"];
+                };
+            };
             /** @description The Platform marked absent and the Change Plan that uninstalls it. */
             202: {
                 headers: {

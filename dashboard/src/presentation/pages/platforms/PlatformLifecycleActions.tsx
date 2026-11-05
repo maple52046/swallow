@@ -65,7 +65,10 @@ interface PlatformLifecycleActionsProps {
  * as a Change Plan approved by that confirmation (decision 076): the page stays and reloads to show
  * the uninstall starting, and the record is deleted once the uninstall succeeds. When the Change
  * Plan policy or a blocker keeps the plan waiting, the toast says why and the page opens Change
- * Plans instead. A running uninstall or a locked target disables only the header's Uninstall part, with
+ * Plans instead. Uninstalling again proposes the uninstall again when its plan was rejected or
+ * expired, or the uninstall failed, and replaces a waiting plan whose options differ; only a
+ * Platform whose install never started is deleted at once (the result's `deleted`), and one whose
+ * uninstall started meanwhile is left as it is. A running uninstall or a locked target disables only the header's Uninstall part, with
  * its reason; record-only Delete never mutates hosts, so it stays available. Once the Platform is
  * `uninstalled`, or was never deployed by swallow, the control is a single "Delete platform" button.
  *
@@ -161,9 +164,16 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         const proposed = await platforms.deletePlatform(platform.id, platformUninstallOptions({
           releaseServers, releaseOptions, cancelActiveWorkflows: blocked && cancelBlocking,
         }))
-        if (!proposed.planId) {
-          showToast({ tone: 'success', title: 'Platform deleted', description: 'Its install was never approved, so no host was changed.' })
+        if (proposed.deleted) {
+          showToast({ tone: 'success', title: 'Platform deleted', description: 'Its install never started, so no host was changed.' })
           navigate(scopedHref('/platforms'), { replace: true })
+          return
+        }
+        if (!proposed.planId) {
+          // The uninstall started elsewhere since this page loaded; the request changed nothing.
+          showToast({ tone: 'info', title: 'Uninstall is already running', description: 'Nothing changed. This page shows its progress.' })
+          setDialog(null)
+          onChanged()
           return
         }
         const toast = platformUninstallAcceptedToast({ releaseServers }, targetLabel, proposed)

@@ -160,8 +160,8 @@ export function ChangePlansPage() {
       >
         {decision && (
           <Text>
-            Nothing in this plan for {changePlanResourceLabel(decision.plan.resource, names)} will be carried out. Change the
-            spec again to get a new plan.
+            Nothing in this plan for {changePlanResourceLabel(decision.plan.resource, names)} will be carried out. Make the
+            change again, for example Uninstall again, to get a new plan.
           </Text>
         )}
       </ConfirmDialog>

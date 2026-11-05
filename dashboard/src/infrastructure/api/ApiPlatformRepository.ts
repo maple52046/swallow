@@ -226,8 +226,11 @@ export class ApiPlatformRepository implements PlatformRepository {
       `/api/v1/platforms/${encodeURIComponent(id)}?${APPROVE_WITH_WRITE}`,
       options ? { method: 'DELETE', body: JSON.stringify(options) } : { method: 'DELETE' },
     )
-    // 204: a platform whose install was never approved is gone at once.
-    return written ? toChangeResult(written) : { platformId: id, planId: null, awaitingApproval: false, waitReason: '', blocked: false }
+    // 204: nothing was installed, so the platform is gone at once. A 200 (its uninstall already
+    // runs) and a 202 (the uninstall's plan) both carry the Platform.
+    return written
+      ? toChangeResult(written)
+      : { platformId: id, planId: null, deleted: true, awaitingApproval: false, waitReason: '', blocked: false }
   }
 
   async deletePlatformRecord(id: string): Promise<void> {
@@ -287,6 +290,7 @@ function toChangeResult(written: PlatformSpecWrite): PlatformChangeResult {
   return {
     platformId: written.platform.id,
     planId: plan?.id ?? null,
+    deleted: false,
     awaitingApproval,
     waitReason: awaitingApproval ? plan.stateReason : '',
     blocked: awaitingApproval && plan.blockers.length > 0,

@@ -531,9 +531,16 @@ export interface PlatformChangeResult {
   platformId: string;
   /**
    * The Change Plan the write proposed; null when the platform controller converges the change
-   * without one, or when a Platform whose install never started was deleted at once.
+   * without one, when the Platform was deleted at once (`deleted`), or when a delete found its
+   * uninstall already running and changed nothing.
    */
   planId: string | null;
+  /**
+   * The delete removed the Platform at once (the API's `204`), because nothing was installed: its
+   * install never started, or its uninstall had already succeeded. Only a delete sets it; a missing
+   * plan alone does not mean the Platform is gone.
+   */
+  deleted: boolean;
   /**
    * Whether that plan waits for a separate approval in Change Plans; false when it was approved
    * with the write (the change starts on its own) or there is no plan.

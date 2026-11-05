@@ -163,7 +163,8 @@ func (r *memoryPlans) List(_ context.Context, filter convergence.ChangePlanFilte
 	var out []*convergence.ChangePlan
 	for i := len(r.plans) - 1; i >= 0; i-- {
 		plan := r.plans[i]
-		if (filter.Resource == convergence.ResourceRef{} || plan.Resource == filter.Resource) &&
+		if (filter.Resource.Kind == "" || plan.Resource.Kind == filter.Resource.Kind) &&
+			(filter.Resource.ID == "" || plan.Resource.ID == filter.Resource.ID) &&
 			(len(filter.States) == 0 || slices.Contains(filter.States, plan.State)) {
 			copied := *plan
 			out = append(out, &copied)
@@ -281,6 +282,7 @@ func newSpecHarness(record *platformdomain.DeploymentRecord) specHarness {
 	deploy, launcher, platforms, serverRepo := newClaimingDeployHarness(servers...)
 	launcher.launchIDs = true
 	lifecycle := &deployFakeLifecycleReader{snapshots: map[string]platformdomain.LifecycleSnapshot{}}
+	deploy.platformService.lifecycle = lifecycle
 	modules := map[platformdomain.PlatformType]platformdomain.PlatformModule{platformdomain.PlatformTypeKubernetes: testPlatformModule{}}
 	uninstalls := &recordingUninstallLauncher{}
 	uninstall := NewUninstallService(platforms, serverRepo, lifecycle, uninstalls, storedLockGuard{servers: serverRepo})
@@ -477,7 +479,7 @@ func TestTheSafetySwitchKeepsAnApprovedCreateWaiting(t *testing.T) {
 }
 
 // An uninstall its user approved starts at the next reconcile. An uninstall left waiting is approved
-// by repeating the delete with approval, which leaves the stored removal as it was.
+// by repeating the delete with the same removal and approval.
 func TestDeleteApprovedWithTheRequestStartsTheUninstall(t *testing.T) {
 	t.Run("approved with the delete", func(t *testing.T) {
 		h := newSpecHarness(nil)
@@ -501,16 +503,20 @@ func TestDeleteApprovedWithTheRequestStartsTheUninstall(t *testing.T) {
 		if err != nil || first.Plan.State != convergence.PlanPendingApproval {
 			t.Fatalf("Delete() = %+v, %v; want a waiting uninstall", first, err)
 		}
+		generation := first.Platform.Generation
 		h.reconcile(t, platform.ID)
 		if h.uninstalls.launch != nil {
 			t.Fatalf("an uninstall nobody approved was launched")
 		}
-		again, err := h.specs.Delete(context.Background(), platform.ID, nil, "admin")
+		again, err := h.specs.Delete(context.Background(), platform.ID, &platformdomain.PlatformRemoval{ReleaseServers: true}, "admin")
 		if err != nil {
 			t.Fatalf("Delete(again) error = %v", err)
 		}
 		if again.Plan.ID != first.Plan.ID || again.Plan.State != convergence.PlanApproved {
 			t.Fatalf("Delete(again) plan = %s %s, want %s approved", again.Plan.ID, again.Plan.State, first.Plan.ID)
+		}
+		if got := h.platforms.platforms[platform.ID].Generation; got != generation {
+			t.Errorf("generation = %d, want %d: approving the waiting plan writes no spec", got, generation)
 		}
 		h.reconcile(t, platform.ID)
 		if h.uninstalls.launch == nil || !h.uninstalls.launch.ReleaseServers {
@@ -656,7 +662,7 @@ func TestSpecWritesSwallowCannotCarryOut(t *testing.T) {
 	}
 }
 
-// Deleting a Platform whose install was never approved removes it at once and frees its members;
+// Deleting a Platform whose install never started removes it at once and frees its members;
 // deleting an installed one proposes its uninstall, which the approved plan launches.
 func TestDeleteDeclaresThePlatformAbsent(t *testing.T) {
 	h := newSpecHarness(nil)
@@ -695,6 +701,254 @@ func TestDeleteDeclaresThePlatformAbsent(t *testing.T) {
 		"their disks are not erased and their static IP bindings are kept. The Platform record is deleted once the release succeeds."}
 	if !slices.Equal(result.Plan.Effects, wantEffects) {
 		t.Errorf("plan effects = %q, want %q", result.Plan.Effects, wantEffects)
+	}
+}
+
+// A Platform whose deployment started may have changed its members, so deleting it proposes its
+// uninstall instead of deleting the record, whether the deployment still runs or failed. The approved
+// plan uninstalls over a running deployment its user agreed to cancel, and supersedes a failed one.
+func TestDeleteUninstallsAPlatformWhoseDeploymentStarted(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status string
+		state  platformdomain.PlatformLifecycleState
+	}{
+		{name: "deploying", status: "running", state: platformdomain.PlatformLifecycleDeploying},
+		{name: "deploy failed", status: operationFailed, state: platformdomain.PlatformLifecycleDeployFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newSpecHarness(nil)
+			created, err := h.specs.Create(context.Background(), CreatePlatformSpecInput{
+				SiteID: "site-1", Name: "lab-k0s", Type: platformdomain.PlatformTypeKubernetes, Spec: labSpec(), RequestedBy: "admin", ApprovedBy: "admin",
+			})
+			if err != nil {
+				t.Fatalf("Create() error = %v", err)
+			}
+			id := created.Platform.ID
+			h.reconcile(t, id)
+			realizing := h.platforms.platforms[id].Status.Realizing
+			if realizing == nil {
+				t.Fatal("the approved install did not start")
+			}
+			h.lifecycle.snapshots[id] = platformdomain.LifecycleSnapshot{
+				Origin: platformdomain.PlatformOriginDeployed, State: tc.state,
+				Deployment: &platformdomain.LifecycleOperation{
+					ID: realizing.WorkflowID, Status: tc.status, RequestedAt: realizing.StartedAt, TargetServerIDs: realizing.Spec.MemberIDs(),
+				},
+			}
+
+			removal := &platformdomain.PlatformRemoval{ReleaseServers: true, CancelActiveWorkflows: true}
+			result, err := h.specs.Delete(context.Background(), id, removal, "admin")
+			if err != nil {
+				t.Fatalf("Delete() error = %v", err)
+			}
+			if result.Platform == nil || result.Plan == nil || result.Plan.Actions[0].Action != "uninstall" || result.Plan.State != convergence.PlanApproved {
+				t.Fatalf("Delete() = %+v, want the Platform with its uninstall approved", result)
+			}
+			if _, ok := h.platforms.platforms[id]; !ok {
+				t.Fatal("the record was deleted before its uninstall")
+			}
+			h.reconcile(t, id)
+			if launch := h.uninstalls.launch; launch == nil || !launch.CancelActiveWorkflows || !launch.ReleaseServers || !launch.DeleteRecord {
+				t.Errorf("uninstall launch = %+v, want one that cancels the deployment, releases the members, and deletes the record", launch)
+			}
+		})
+	}
+}
+
+// uninstallReports records the Platform's realizing uninstall in its lifecycle with status, after
+// the deployment that installed it, as the lifecycle reader would.
+func (h specHarness) uninstallReports(t *testing.T, platformID, status string, state platformdomain.PlatformLifecycleState) {
+	t.Helper()
+	realizing := h.platforms.platforms[platformID].Status.Realizing
+	if realizing == nil {
+		t.Fatal("no uninstall is realizing the spec")
+	}
+	snapshot := h.lifecycle.snapshots[platformID]
+	snapshot.State = state
+	snapshot.Uninstall = &platformdomain.LifecycleOperation{
+		ID: realizing.WorkflowID, Status: status, RequestedAt: snapshot.Deployment.RequestedAt.Add(time.Minute),
+	}
+	h.lifecycle.snapshots[platformID] = snapshot
+}
+
+// Deleting a Platform already marked absent: the same removal returns the waiting plan, and a
+// different one proposes the uninstall again with it. With no plan waiting, because it was rejected or
+// its uninstall failed, the uninstall is proposed again; while the uninstall runs nothing changes; and
+// a Platform whose uninstall succeeded is deleted at once.
+func TestDeletingAnAbsentPlatformAgain(t *testing.T) {
+	ctx := context.Background()
+	t.Run("the same removal returns the waiting plan", func(t *testing.T) {
+		h := newSpecHarness(nil)
+		platform := h.installed(t)
+		first, err := h.specs.Delete(ctx, platform.ID, nil, "")
+		if err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+		generation := platform.Generation
+		// Release options mean nothing unless the members are released.
+		again, err := h.specs.Delete(ctx, platform.ID, &platformdomain.PlatformRemoval{ReleaseOptions: platformdomain.ServerReleaseOptions{Erase: true}}, "")
+		if err != nil {
+			t.Fatalf("Delete(again) error = %v", err)
+		}
+		if again.Plan == nil || again.Plan.ID != first.Plan.ID || platform.Generation != generation {
+			t.Errorf("Delete(again) plan %+v at generation %d, want %s at generation %d", again.Plan, platform.Generation, first.Plan.ID, generation)
+		}
+	})
+	t.Run("a different removal replaces the waiting plan", func(t *testing.T) {
+		h := newSpecHarness(nil)
+		platform := h.installed(t)
+		first, err := h.specs.Delete(ctx, platform.ID, nil, "")
+		if err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+		second, err := h.specs.Delete(ctx, platform.ID, &platformdomain.PlatformRemoval{ReleaseServers: true}, "")
+		if err != nil {
+			t.Fatalf("Delete(release) error = %v", err)
+		}
+		if second.Plan == nil || second.Plan.ID == first.Plan.ID || second.Plan.Generation != first.Plan.Generation+1 {
+			t.Fatalf("Delete(release) plan = %+v, want a new plan at generation %d", second.Plan, first.Plan.Generation+1)
+		}
+		if len(second.Plan.Effects) == 0 || !strings.Contains(second.Plan.Effects[0], "released to the provisioner") {
+			t.Errorf("new plan effects = %q, want the release", second.Plan.Effects)
+		}
+		if old, _ := h.plans.Get(ctx, first.Plan.ID); old.State != convergence.PlanSuperseded {
+			t.Errorf("first plan state = %s, want superseded", old.State)
+		}
+		if removal := platform.Spec.Removal; removal == nil || !removal.ReleaseServers {
+			t.Errorf("stored removal = %+v, want the release", removal)
+		}
+	})
+	t.Run("a rejected uninstall is proposed again", func(t *testing.T) {
+		h := newSpecHarness(nil)
+		platform := h.installed(t)
+		first, err := h.specs.Delete(ctx, platform.ID, nil, "")
+		if err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+		if _, err := h.plans.Reject(ctx, first.Plan.ID, "admin"); err != nil {
+			t.Fatalf("Reject() error = %v", err)
+		}
+		h.reconcile(t, platform.ID)
+		realized, _ := convergence.FindCondition(platform.Status.Conditions, convergence.ConditionRealized)
+		if realized.Reason != ReasonPlanRequired || !strings.Contains(realized.Message, "delete the Platform again") {
+			t.Errorf("realized = %q %q, want plan_required telling the user to delete again", realized.Reason, realized.Message)
+		}
+		again, err := h.specs.Delete(ctx, platform.ID, nil, "admin")
+		if err != nil {
+			t.Fatalf("Delete(again) error = %v", err)
+		}
+		if again.Plan == nil || again.Plan.ID == first.Plan.ID || again.Plan.State != convergence.PlanApproved {
+			t.Fatalf("Delete(again) plan = %+v, want a new plan approved with the request", again.Plan)
+		}
+		h.reconcile(t, platform.ID)
+		if h.uninstalls.launch == nil {
+			t.Error("the uninstall proposed again was not launched")
+		}
+	})
+	t.Run("a failed uninstall is proposed again and replaces it", func(t *testing.T) {
+		h := newSpecHarness(nil)
+		platform := h.installed(t)
+		if _, err := h.specs.Delete(ctx, platform.ID, nil, "admin"); err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+		h.reconcile(t, platform.ID)
+		failed := platform.Status.Realizing
+		if failed == nil || h.uninstalls.launch == nil {
+			t.Fatal("the approved uninstall did not start")
+		}
+		h.uninstallReports(t, platform.ID, operationRequiresAttention, platformdomain.PlatformLifecycleUninstallFailed)
+		h.canceler.unfinished[failed.WorkflowID] = true
+		h.reconcile(t, platform.ID)
+		h.uninstalls.launch = nil
+
+		again, err := h.specs.Delete(ctx, platform.ID, nil, "admin")
+		if err != nil {
+			t.Fatalf("Delete(again) error = %v", err)
+		}
+		if again.Plan == nil || again.Plan.State != convergence.PlanApproved || again.Plan.Generation != failed.Generation+1 {
+			t.Fatalf("Delete(again) plan = %+v, want an approved plan at generation %d", again.Plan, failed.Generation+1)
+		}
+		h.reconcile(t, platform.ID)
+		if !slices.Equal(h.canceler.canceled, []string{failed.WorkflowID}) || h.uninstalls.launch != nil {
+			t.Fatalf("canceled %v launch %+v, want the failed uninstall canceled before a new one", h.canceler.canceled, h.uninstalls.launch)
+		}
+		h.canceler.unfinished[failed.WorkflowID] = false
+		h.reconcile(t, platform.ID)
+		if launch := h.uninstalls.launch; launch == nil || launch.RetryOfOperationID != failed.WorkflowID {
+			t.Errorf("uninstall launch = %+v, want a retry of %s", launch, failed.WorkflowID)
+		}
+	})
+	t.Run("a running uninstall is left as it is", func(t *testing.T) {
+		h := newSpecHarness(nil)
+		platform := h.installed(t)
+		if _, err := h.specs.Delete(ctx, platform.ID, nil, "admin"); err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+		h.reconcile(t, platform.ID)
+		h.uninstallReports(t, platform.ID, "running", platformdomain.PlatformLifecycleUninstalling)
+		generation := platform.Generation
+		result, err := h.specs.Delete(ctx, platform.ID, &platformdomain.PlatformRemoval{ReleaseServers: true}, "admin")
+		if err != nil {
+			t.Fatalf("Delete(again) error = %v", err)
+		}
+		if result.Platform == nil || result.Plan != nil {
+			t.Fatalf("Delete(again) = %+v, want the Platform without a plan", result)
+		}
+		if platform.Generation != generation || platform.Spec.Removal != nil {
+			t.Errorf("generation %d removal %+v, want generation %d unchanged", platform.Generation, platform.Spec.Removal, generation)
+		}
+	})
+	t.Run("an uninstalled Platform is deleted at once", func(t *testing.T) {
+		h := newSpecHarness(nil)
+		platform := &platformdomain.Platform{
+			ID: "legacy", SiteID: "site-1", Name: "legacy", Type: platformdomain.PlatformTypeKubernetes, Generation: 1,
+			Spec: &platformdomain.PlatformSpec{Desired: platformdomain.PlatformAbsent, Members: labSpec().Members},
+		}
+		h.platforms.platforms[platform.ID] = platform
+		at := time.Now().UTC()
+		h.lifecycle.snapshots[platform.ID] = platformdomain.LifecycleSnapshot{
+			Origin: platformdomain.PlatformOriginDeployed, State: platformdomain.PlatformLifecycleUninstalled,
+			Deployment: &platformdomain.LifecycleOperation{ID: "deploy-1", Status: operationSucceeded, RequestedAt: at},
+			Uninstall:  &platformdomain.LifecycleOperation{ID: "uninstall-1", Status: operationSucceeded, RequestedAt: at.Add(time.Minute)},
+		}
+		result, err := h.specs.Delete(ctx, platform.ID, nil, "admin")
+		if err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+		if _, ok := h.platforms.platforms[platform.ID]; ok || result.Platform != nil || result.Plan != nil {
+			t.Errorf("Delete() = %+v, want the record deleted without a plan", result)
+		}
+	})
+}
+
+// A record deleted while the controller did not see it go (the worker was down, or its change stream
+// was reset) still has its waiting plan withdrawn at the next resync, since Keys names the Platform of
+// every unfinished plan.
+func TestResyncWithdrawsThePlanOfADeletedRecord(t *testing.T) {
+	ctx := context.Background()
+	h := newSpecHarness(nil)
+	created, err := h.specs.Create(ctx, CreatePlatformSpecInput{
+		SiteID: "site-1", Name: "draft", Type: platformdomain.PlatformTypeKubernetes, Spec: labSpec(),
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	id := created.Platform.ID
+	if err := h.platforms.Delete(ctx, id); err != nil {
+		t.Fatalf("delete the record: %v", err)
+	}
+	if err := h.servers.ReleasePlatformClaims(ctx, id); err != nil {
+		t.Fatalf("release the claims: %v", err)
+	}
+
+	keys, err := h.controller.Keys(ctx)
+	if err != nil || !slices.Contains(keys, id) {
+		t.Fatalf("Keys() = %v, %v; want the deleted Platform that still has a plan", keys, err)
+	}
+	h.reconcile(t, id)
+	if plan, _ := h.plans.Get(ctx, created.Plan.ID); plan.State != convergence.PlanSuperseded {
+		t.Errorf("plan state = %s, want superseded once the controller saw the record gone", plan.State)
 	}
 }
 
@@ -793,6 +1047,32 @@ func TestControllerAdoptsADeployedPlatform(t *testing.T) {
 	h.reconcile(t, platform.ID)
 	if heldBy(h.servers, "c1") != platform.ID || heldBy(h.servers, "w1") != platform.ID {
 		t.Errorf("adopted members are not claimed")
+	}
+}
+
+// An uninstalled Platform whose record remains has realized its absent spec, so it reads converged
+// instead of waiting for a Change Plan nothing needs.
+func TestAnUninstalledPlatformIsConverged(t *testing.T) {
+	record := &platformdomain.DeploymentRecord{Request: map[string]any{
+		"k0sVersion":      "v1.36.3+k0s.2",
+		"roleAssignments": []any{map[string]any{"serverId": "c1", "role": "control-plane"}},
+	}}
+	h := newSpecHarness(record)
+	platform := &platformdomain.Platform{ID: "legacy", SiteID: "site-1", Name: "legacy", Type: platformdomain.PlatformTypeKubernetes}
+	h.platforms.platforms[platform.ID] = platform
+	at := time.Now().UTC()
+	h.lifecycle.snapshots[platform.ID] = platformdomain.LifecycleSnapshot{
+		Origin: platformdomain.PlatformOriginDeployed, State: platformdomain.PlatformLifecycleUninstalled,
+		Deployment: &platformdomain.LifecycleOperation{ID: "deploy-1", Status: operationSucceeded, RequestedAt: at},
+		Uninstall:  &platformdomain.LifecycleOperation{ID: "uninstall-1", Status: operationSucceeded, RequestedAt: at.Add(time.Minute)},
+	}
+	h.reconcile(t, platform.ID)
+	h.reconcile(t, platform.ID)
+	if platform.Spec == nil || platform.Spec.Desired != platformdomain.PlatformAbsent {
+		t.Fatalf("adopted spec = %+v, want absent", platform.Spec)
+	}
+	if realized, _ := convergence.FindCondition(platform.Status.Conditions, convergence.ConditionRealized); realized.Reason != convergence.ReasonConverged {
+		t.Errorf("realized = %q %q, want converged", realized.Reason, realized.Message)
 	}
 }
 

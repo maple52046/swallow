@@ -569,7 +569,11 @@ swallow platforms gpu-operator uninstall plat1 --approve                 # 移�
 平台以 spec 描述：成員與它們的角色、該類型的設定，以及成員如何取得作業系統。建立平台與破壞性變更（調整或移除
 GPU Operator、刪除平台）會回傳 Change Plan。加上 `--approve` 時 plan 隨寫入核准、變更立即開始，除非 Change Plan
 政策要求另外核准（`swallow plans policy`）；沒有加時，要等 `swallow plans approve` 核准才會動手。加入成員則直接收斂。
-`platform-k8s.yaml`（見 [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md)）：
+
+`platforms delete` 會 uninstall 任何已開始部署的平台，包括仍在部署中（加上 `--cancel-active-workflows`）或部署失敗的；
+只有安裝從未開始的平台會直接刪除。對 uninstall 還在等待的平台再執行一次時，flag 相同就回傳同一份 Change Plan
+（加 `--approve` 即核准），flag 不同則提出新的。plan 被拒絕或過期、或 uninstall 失敗之後再執行一次，會重新提出
+uninstall；uninstall 執行中則什麼都不變。`platform-k8s.yaml`（見 [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md)）：
 
 ```yaml
 siteId: site1

@@ -159,10 +159,13 @@ Platform 的 **Overview** 在 lifecycle 提示之下，先顯示 **Platform deta
 
 - **Sync** refresh observed Platform membership／state。
 - **Uninstall** 透過 Change Plan 從原始 target 移除 swallow-deployed runtime，確認對話框就核准它：
-  uninstall 立即開始，Platform 頁面顯示它正在執行（安全開關打開時改在 **Change Plans** 等待）。uninstall
-  成功後 swallow 刪除 Platform record；uninstall 失敗時保留 record 供診斷。若仍有 workflow
-  佔著 Platform 的 Server（停在等待處理的失敗部署，或仍在進行的部署），對話框會列出它，並請你確認
-  在 uninstall 開始前由 swallow 取消它。
+  uninstall 立即開始，Platform 頁面顯示它正在執行（安全開關打開時改在 **Change Plans** 等待，Platform
+  頁面也會說明並附上連結）。uninstall 成功後 swallow 刪除 Platform record；uninstall 失敗時保留 record
+  供診斷。若仍有 workflow 佔著 Platform 的 Server（停在等待處理的失敗部署，或仍在進行的部署），對話框會
+  列出它，並請你確認在 uninstall 開始前由 swallow 取消它。部署進行中或失敗的 Platform 也會 uninstall，
+  因為部署可能已經改過它的 Server；只有安裝從未開始的 Platform 會直接刪除。
+- uninstall 的 Change Plan 被拒絕或過期，或 uninstall 失敗時，再按一次 **Uninstall**：會以這次選擇的選項
+  重新提出 uninstall。uninstall 還在等核准時改選其他選項，會取代等待中的 plan。
 - **Delete only** 只移除 swallow record／projection，不等於 host-side uninstall。
 - Bulk action 仍受每個 Platform 的 lifecycle gate 限制。
 

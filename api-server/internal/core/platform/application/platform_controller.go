@@ -16,7 +16,8 @@ import (
 )
 
 // ReasonPlanRequired is the Platform reason for a destructive change that has no Change Plan waiting
-// any more (it was rejected or expired); writing the spec again proposes a new one.
+// any more (it was rejected or expired); writing the spec again proposes a new one, as deleting the
+// Platform again does for an uninstall.
 const ReasonPlanRequired = "plan_required"
 
 // controllerRequester is who the Workflows the platform controller starts are requested by.
@@ -133,7 +134,10 @@ func (c *PlatformController) KeysForChange(ctx context.Context, change store.Cha
 	return nil, nil
 }
 
-// Keys are every Platform, and every Platform id a claim still names.
+// Keys are every Platform, and every Platform id a claim or an unfinished Change Plan still names.
+// A record deleted while its change did not reach the controller (the worker was down, or its
+// change stream was reset) is still reconciled at the next resync: its claims are released and its
+// plan withdrawn.
 func (c *PlatformController) Keys(ctx context.Context) ([]string, error) {
 	platforms, err := c.platforms.List(ctx, "")
 	if err != nil {
@@ -141,18 +145,30 @@ func (c *PlatformController) Keys(ctx context.Context) ([]string, error) {
 	}
 	seen := map[string]bool{}
 	keys := make([]string, 0, len(platforms))
+	add := func(id string) {
+		if !seen[id] {
+			seen[id] = true
+			keys = append(keys, id)
+		}
+	}
 	for _, platform := range platforms {
-		seen[platform.ID] = true
-		keys = append(keys, platform.ID)
+		add(platform.ID)
 	}
 	claiming, err := c.claims.ClaimingPlatformIDs(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, id := range claiming {
-		if !seen[id] {
-			keys = append(keys, id)
-		}
+		add(id)
+	}
+	plans, err := c.plans.List(ctx, convergence.ChangePlanFilter{
+		Resource: convergence.ResourceRef{Kind: PlatformResourceKind}, States: unfinishedPlanStates,
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, plan := range plans {
+		add(plan.Resource.ID)
 	}
 	return keys, nil
 }
@@ -336,12 +352,18 @@ func (c *PlatformController) judge(
 		realized.Message = fmt.Sprintf("Workflow %s carries out generation %d", realizing.WorkflowID, realizing.Generation)
 	default:
 		realized.Status, realized.Reason = convergence.ConditionTrue, convergence.ReasonConverged
+		if platform.Spec.Desired == platformdomain.PlatformAbsent && snapshot.State == platformdomain.PlatformLifecycleUninstalled {
+			// The uninstall succeeded and only the record remains, so the absent spec is realized; a
+			// module classifies any absent spec as an uninstall, which would read as a missing plan.
+			break
+		}
 		if changes, err := module.Changes(status.Applied, *platform.Spec); err != nil || !changes.Empty() {
 			realized.Status, realized.Reason = convergence.ConditionFalse, ReasonPlanRequired
 			realized.Message = "the change needs an approved Change Plan; write the spec again to propose one"
-			plans, listErr := c.plans.List(ctx, convergence.ChangePlanFilter{
-				Resource: platformRef(platform.ID), States: []convergence.ChangePlanState{convergence.PlanPendingApproval, convergence.PlanApproved},
-			})
+			if platform.Spec.Desired == platformdomain.PlatformAbsent {
+				realized.Message = "the uninstall needs an approved Change Plan; delete the Platform again to propose one"
+			}
+			plans, listErr := c.plans.List(ctx, convergence.ChangePlanFilter{Resource: platformRef(platform.ID), States: unfinishedPlanStates})
 			if listErr == nil && len(plans) > 0 {
 				plan := plans[0]
 				switch {

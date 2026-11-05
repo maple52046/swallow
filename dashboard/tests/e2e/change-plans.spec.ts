@@ -187,6 +187,7 @@ test('Rejecting a plan moves it to the recent plans', async ({ page }) => {
   const dialog = page.getByRole('alertdialog', { name: 'Reject Change Plan' })
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   await expect(dialog).toContainText('Nothing in this plan for Platform research-slurm')
+  await expect(dialog).toContainText('Make the change again, for example Uninstall again, to get a new plan.')
   await dialog.getByRole('button', { name: 'Reject plan' }).click()
   await expect(page.getByText('Change Plan rejected')).toBeVisible()
   await expect(page.getByRole('article', { name: 'Change Plan for Platform research-slurm' })).toContainText('Rejected by admin')

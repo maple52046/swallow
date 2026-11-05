@@ -487,6 +487,11 @@ export interface FixtureOptions {
    * status follows (`fixturePlatformStatus`), so `planned` awaits approval with nothing applied.
    */
   platformLifecycleStates?: Record<string, 'planned' | 'deploying' | 'uninstalling' | 'active' | 'deploy_failed' | 'uninstall_failed' | 'uninstalled'>
+  /**
+   * Marks a seeded Platform absent at generation 2 with its uninstall not started yet, judged with
+   * the given `realized` reason (`pendingRemoval`), e.g. `{ 'platform-a': 'plan_required' }`.
+   */
+  platformRemovals?: Record<string, PendingRemovalReason>
   /** Removes platform-a's seeded GPU Operator, modelling a Platform that never had one. */
   withoutPlatformGPUOperator?: boolean
   /**
@@ -819,12 +824,12 @@ function fixturePlatformSpec(platform: {
   }
   return {
     desired: platform.lifecycleState === 'uninstalled' ? 'absent' : 'present', members, settings,
-    machinePreparation: extras ? structuredClone(extras.machinePreparation) : null, removal: null,
+    machinePreparation: extras ? structuredClone(extras.machinePreparation) : null, removal: null as ReturnType<typeof removalChoice>,
   }
 }
 
 /** A Platform's shared `realized` and `drifted` Conditions (platforms.md "Spec And Status") at `generation`. */
-function platformConditions(realized: 'converged' | 'awaiting_approval' | 'converging' | 'failed', generation: number, message = '') {
+function platformConditions(realized: 'converged' | 'awaiting_approval' | 'converging' | 'failed' | 'plan_required', generation: number, message = '') {
   const condition = (type: string, status: 'true' | 'false', reason: string, text = '') =>
     ({ type, status, reason, message: text, lastTransitionTime: now, observedGeneration: generation })
   return [
@@ -896,6 +901,47 @@ function releaseEffect(members: number, options: Record<string, unknown>) {
   const disks = options.erase || options.secureErase || options.quickErase ? 'are erased' : 'are not erased'
   const bindings = options.unbindStaticIps ? 'are removed' : 'are kept'
   return `${subject} released to the provisioner, which removes ${their} ${systems}; ${their} disks ${disks} and ${their} static IP bindings ${bindings}. The Platform record is deleted once the release succeeds.`
+}
+
+/** How the controller judged an absent Platform whose uninstall has not started (`platformRemovals`). */
+type PendingRemovalReason = 'awaiting_approval' | 'plan_required' | 'converging'
+
+/**
+ * A seeded Platform marked absent at generation 2 whose uninstall has not started (platforms.md
+ * "Delete A Platform"), with the `realized` Condition the controller gives it: its plan waits for
+ * approval under the safety switch, was rejected, or is approved and about to start.
+ */
+function pendingRemoval<T extends { id: string; spec: ReturnType<typeof fixturePlatformSpec>; status: ReturnType<typeof fixturePlatformStatus> }>(
+  platform: T,
+  reason: PendingRemovalReason,
+): T & { generation: number } {
+  const planId = `plan-uninstall-${platform.id}-2`
+  const message = {
+    awaiting_approval: `Change Plan ${planId} waits for approval: the Change Plan policy requires a separate approval`,
+    plan_required: 'the uninstall needs an approved Change Plan; delete the Platform again to propose one',
+    converging: `Change Plan ${planId} is approved and is carried out next`,
+  }[reason]
+  return {
+    ...platform, generation: 2,
+    spec: { ...platform.spec, desired: 'absent' },
+    status: { ...platform.status, conditions: platformConditions(reason, 2, message) },
+  }
+}
+
+/**
+ * The `spec.removal` a DELETE body stores (platforms.md "Delete A Platform"), in a form two
+ * requests compare by: null keeps the members and cancels nothing, and the release options count
+ * only when the members are released.
+ */
+function removalChoice(body: Record<string, unknown> | null) {
+  if (!body?.releaseServers && !body?.cancelActiveWorkflows) return null
+  const released = Boolean(body.releaseServers)
+  const options = (released ? body.releaseOptions ?? {} : {}) as Record<string, unknown>
+  return {
+    releaseServers: released, erase: Boolean(options.erase), secureErase: Boolean(options.secureErase),
+    quickErase: Boolean(options.quickErase), unbindStaticIps: Boolean(options.unbindStaticIps),
+    cancelActiveWorkflows: Boolean(body.cancelActiveWorkflows),
+  }
 }
 
 function json(route: Route, body: unknown, status = 200) {
@@ -1622,7 +1668,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       : {}),
   })).map((platform) => {
     const spec = fixturePlatformSpec(platform)
-    return { ...platform, generation: 1, spec, status: fixturePlatformStatus(platform.lifecycleState, spec) }
+    const seeded = { ...platform, generation: 1, spec, status: fixturePlatformStatus(platform.lifecycleState, spec) }
+    const removal = options.platformRemovals?.[platform.id]
+    return removal ? pendingRemoval(seeded, removal) : seeded
   })
   if (options.slurmDeployed) {
     // Controller-only nodes carry no membership (they are not slurmd scheduler nodes); compute
@@ -2134,6 +2182,14 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         approvedPlanReads.set(plan.id, 0)
         // Approving a created Platform's install starts its deploy Workflow, as the controller does.
         startPlatformInstall(plan.resource.id)
+      }
+      const absent = platformItems.find((item) => item.id === plan.resource.id && item.spec?.desired === 'absent')
+      if (decision === 'reject' && absent) {
+        // A rejected uninstall leaves the Platform absent with no plan waiting, as the controller judges it.
+        absent.status = {
+          ...absent.status,
+          conditions: platformConditions('plan_required', absent.generation, 'the uninstall needs an approved Change Plan; delete the Platform again to propose one'),
+        }
       }
       return json(route, decided)
     }
@@ -3592,7 +3648,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const index = platformItems.findIndex((platform) => platform.id === platformMatch[1])
       if (index < 0) return json(route, { error: { code: 'not_found', message: 'Platform not found' } }, 404)
       const removed = platformItems[index]
-      // Record-only delete, and a planned Platform whose install was never approved, go at once.
+      // Record-only delete, and a planned Platform (its install never started), go at once.
       if (url.searchParams.get('recordOnly') === 'true' || removed.lifecycleState === 'planned') {
         platformItems.splice(index, 1)
         releasePlatformClaims(platformMatch[1])
@@ -3601,34 +3657,55 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
       // Delete (platforms.md "Delete A Platform"): the spec is marked absent and the uninstall is a
       // Change Plan, carried out at once when the delete approved it and waiting otherwise;
-      // cancelActiveWorkflows supersedes the Workflows holding the targets (061).
+      // cancelActiveWorkflows supersedes the Workflows holding the targets (061). A running or
+      // failed deployment is uninstalled the same way.
       const body = (request.postDataJSON() as Record<string, unknown> | null) ?? null
       options.onPlatformUninstallRequest?.(platformMatch[1], body)
+      const requested = removalChoice(body)
+      const unfinished = (item: (typeof changePlanItems)[number]) => item.resource.id === removed.id && (item.state === 'pending_approval' || item.state === 'approved')
+      // Deleting an absent Platform again: nothing changes while its uninstall runs, and the same
+      // choices return the plan that waits, approved when the request may approve it. Different
+      // choices, or no plan waiting (rejected, expired, or a failed uninstall), propose it again.
+      if (removed.spec.desired === 'absent') {
+        if (removed.lifecycleState === 'uninstalling') return json(route, { platform: removed, plan: null })
+        const waiting = changePlanItems.find(unfinished)
+        if (waiting && JSON.stringify(removed.spec.removal) === JSON.stringify(requested)) {
+          if (waiting.state !== 'pending_approval' || waiting.blockers.length > 0 || submittedPlan(url).state !== 'approved') {
+            return json(route, { platform: removed, plan: waiting }, 202)
+          }
+          const approved = { ...waiting, ...submittedPlan(url) }
+          const workflowId = startPlatformUninstall(removed)
+          changePlanItems = changePlanItems.map((item) => (item.id === waiting.id ? { ...approved, state: 'applied', workflowId } : item))
+          return json(route, { platform: removed, plan: approved }, 202)
+        }
+      }
       const targets = operationItems.find((item) => item.id === removed.lifecycleOperationId)?.targetServerIds ?? []
       if (body?.cancelActiveWorkflows) {
         const refused = supersedeActiveOperations(targets)
         if (refused) return json(route, { error: { code: 'conflict', message: refused, requestId: 'req-uninstall-busy' } }, 409)
       }
       removed.generation += 1
-      removed.spec = { ...removed.spec, desired: 'absent' }
-      const plan = changePlan(`plan-uninstall-${removed.id}`, removed.id, 'pending_approval', {
+      removed.spec = { ...removed.spec, desired: 'absent', removal: requested }
+      const plan = changePlan(`plan-uninstall-${removed.id}-${removed.generation}`, removed.id, 'pending_approval', {
         expiresAt: '2099-01-01T00:00:00Z', generation: removed.generation,
         actions: [{ target: { kind: 'platform', id: removed.id }, action: 'uninstall', from: 'installed', to: 'uninstalled', destructive: true, reason: 'the Platform is marked absent' }],
         effects: body?.releaseServers ? [releaseEffect(targets.length, (body.releaseOptions ?? {}) as Record<string, unknown>)] : [],
         ...submittedPlan(url),
       })
-      const earlier = (item: (typeof changePlanItems)[number]) => item.resource.id === removed.id && (item.state === 'pending_approval' || item.state === 'approved')
+      const superseded = (item: (typeof changePlanItems)[number]) => (unfinished(item)
+        ? { ...item, state: 'superseded', stateReason: `the spec changed to generation ${removed.generation}` }
+        : item)
       if (plan.state === 'approved' && options.controllerLagReads) {
         // The controller has not acted yet: the Platform reads as it did while its plan waited.
         removed.status = { ...removed.status, conditions: platformConditions('awaiting_approval', removed.generation, waitingMessage(plan)) }
-        changePlanItems = [plan, ...changePlanItems.filter((item) => !earlier(item))]
+        changePlanItems = [plan, ...changePlanItems.map(superseded)]
         laggingUninstalls.set(removed.id, { reads: options.controllerLagReads, planId: plan.id })
       } else if (plan.state === 'approved') {
         const workflowId = startPlatformUninstall(removed)
-        changePlanItems = [{ ...plan, state: 'applied', workflowId }, ...changePlanItems.filter((item) => !earlier(item))]
+        changePlanItems = [{ ...plan, state: 'applied', workflowId }, ...changePlanItems.map(superseded)]
       } else {
         removed.status = { ...removed.status, conditions: platformConditions('awaiting_approval', removed.generation, waitingMessage(plan)) }
-        changePlanItems = [plan, ...changePlanItems.filter((item) => !earlier(item))]
+        changePlanItems = [plan, ...changePlanItems.map(superseded)]
       }
       return json(route, { platform: removed, plan }, 202)
     }

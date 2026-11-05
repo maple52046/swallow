@@ -248,9 +248,11 @@ Every Platform response also carries `generation`, `spec`, and `status`:
 - `status.conditions` are the shared `realized` and `drifted` Conditions. `realized` is
   `converging` while a Workflow runs or an approved Change Plan is about to start one,
   `awaiting_approval` while a Change Plan waits for approval (its message names the plan), `plan_required`
-  when a destructive change has no plan waiting (it was rejected or expired; write the spec again),
-  and `failed` when the Workflow failed (it is not started again for the same generation: rerun it
-  or write a new spec). `drifted` lists members the Platform does not report and Servers that
+  when a destructive change has no plan waiting (it was rejected or expired; write the spec again,
+  or for an uninstall delete the Platform again), and `failed` when the Workflow failed (it is not
+  started again for the same generation: rerun it or write a new spec, or delete the Platform again
+  for a failed uninstall). An `uninstalled` Platform whose record remains has realized its absent
+  spec and reads `converged`. `drifted` lists members the Platform does not report and Servers that
   report membership without being members.
 
 A Platform deployed before specs existed is adopted by the platform controller at its first
@@ -1159,10 +1161,29 @@ until the change removing it is carried out.
 Change Plan (`202 Accepted`, with the Platform and the plan); with `?approve=true` the plan is
 approved with the request as in [Create A Platform](#create-a-platform). Once the plan is approved
 the platform controller starts an `uninstall-kubernetes` or `uninstall-slurm` Workflow, and the
-record is deleted when the uninstall succeeds. A Platform whose install was never approved touched
-no machine, so it is deleted at once (`204 No Content`). Deleting a Platform already marked absent
-returns the plan it waits on, and ignores the body; with `?approve=true` it approves that plan when
-the plan is `pending_approval`, has no blockers, and the policy allows approving on submit.
+record is deleted when the uninstall succeeds. A Platform whose deployment Workflow runs or failed
+may have changed its members, so it is uninstalled the same way (a running deployment needs
+`cancelActiveWorkflows`, below).
+
+A Platform with nothing installed is deleted at once (`204 No Content`) and its plan withdrawn: one
+whose install never started (no deployment Workflow and no applied spec, so its install still waits
+for approval or was approved but not started yet), or one whose uninstall already succeeded.
+
+Deleting a Platform already marked absent depends on its uninstall:
+
+| The Platform | The request |
+| --- | --- |
+| has a plan waiting, and the request sends the same removal choices | returns that plan (`202`); with `?approve=true` it approves the plan when it is `pending_approval`, has no blockers, and the policy allows approving on submit |
+| has a plan waiting, and the request sends different removal choices | proposes the uninstall again with the new choices (`202`); the waiting plan is superseded |
+| has no plan waiting: it was rejected or expired, or it was applied and the uninstall failed | proposes the uninstall again (`202`), approved with `?approve=true` as above |
+| is being uninstalled (lifecycle `uninstalling`) | changes nothing and answers `200 OK` with the Platform and `plan: null` |
+
+The removal choices compare as stored: an absent body is the same as one that keeps the servers,
+and `releaseOptions` count only when `releaseServers` is true. An uninstall proposed again after a
+failed uninstall is a new generation: the platform controller cancels the failed Workflow when it
+still waits for the user and holds the targets, and the new uninstall Workflow names the failed one
+with `retryOfOperationId`. A Platform whose plan was rejected or expired reports the `realized`
+reason `plan_required` until it is deleted again.
 
 The request body is optional. An absent or empty body removes the platform software only. To also
 return the member servers to the provider in the same Workflow, send:
@@ -1218,8 +1239,9 @@ orchestration topology, like `releaseServers`.
 
 A missing, absent, locked, or busy target (without `cancelActiveWorkflows`) keeps the plan from
 starting the uninstall; the controller reports it with the `realized` Condition and retries. A
-failed or canceled uninstall is rerun as a Workflow; the Platform stays `uninstall_failed` and its
-record remains until an uninstall succeeds.
+failed or canceled uninstall is rerun as a Workflow, or proposed again by deleting the Platform
+again (above); the Platform stays `uninstall_failed` and its record remains until an uninstall
+succeeds.
 
 When servers are kept, the release-owned playbook stops k0s services, runs `k0s reset`,
 removes swallow-created k0s state, units, join token, installer, and binary, and the GPU
@@ -1370,6 +1392,17 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-05 `DELETE /platforms/{id}` uninstalls a Platform whose deployment runs or failed
+  (`202` with the uninstall's plan) instead of deleting the record at once (`204`) and leaving what
+  the deployment installed on the hosts; this makes the implementation do what this contract said,
+  that only a Platform whose install touched no machine is deleted at once. The same day, deleting a
+  Platform already marked absent proposes the uninstall again when its plan was rejected or expired
+  or its uninstall failed, or when the request sends different removal choices; it used to return
+  `200` with `plan: null` (or the stale plan) and change nothing. The `200` answer, which the route
+  already returned without listing it, now means only that the uninstall runs. A Platform whose
+  uninstall succeeded and whose record remains is still deleted at once, and its `realized`
+  Condition reads `converged` instead of `plan_required`. The request and response shapes are
+  unchanged.
 - Since 2026-11-05 `POST /platforms`, `PUT /platforms/{id}/spec`, and `DELETE /platforms/{id}` take
   `?approve=true`, which approves the proposed Change Plan with the write
   ([Approval On Submit](change-plans.md#approval-on-submit)). This is additive: without it a

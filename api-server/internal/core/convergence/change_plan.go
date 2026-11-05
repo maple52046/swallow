@@ -103,7 +103,8 @@ func (p *ChangePlan) SameActions(draft PlanDraft) bool {
 		slices.EqualFunc(p.Actions, draft.Actions, func(a, b PlannedAction) bool { return a.sameAs(b) })
 }
 
-// ChangePlanFilter narrows a listing; empty fields match everything.
+// ChangePlanFilter narrows a listing; empty fields match everything, so a Resource with only a Kind
+// matches every resource of that kind.
 type ChangePlanFilter struct {
 	Resource ResourceRef
 	States   []ChangePlanState

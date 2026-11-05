@@ -17,12 +17,15 @@ function asSentence(message: string, fallback: string): string {
   return /[.!?]$/.test(text) ? text : `${text}.`
 }
 
-/** The Platform page's notice for a `planned` Platform: its tone, words, and whether it links to Change Plans. */
-export interface PlannedInstallNotice {
+/**
+ * The Platform page's notice for an install or uninstall that has not started yet: its tone, words,
+ * and whether it links to Change Plans.
+ */
+export interface PlatformChangeNotice {
   status: 'info' | 'warning'
   title: string
   body: string
-  /** The install's Change Plan waits for a user, so the notice offers the way to Change Plans. */
+  /** The change's Change Plan waits for a user, or was ended by one, so the notice offers the way to Change Plans. */
   linksChangePlans: boolean
 }
 
@@ -34,7 +37,7 @@ export interface PlannedInstallNotice {
  * the controller judged the generation the notice only says that nothing started, since the
  * dashboard cannot tell which it is.
  */
-export function plannedInstallNotice(platform: Platform): PlannedInstallNotice {
+export function plannedInstallNotice(platform: Platform): PlatformChangeNotice {
   const realized = findCondition(platform.status.conditions, ConditionTypes.realized)
   const judged = realized !== undefined && realized.observedGeneration >= platform.generation
   if (judged && realized.reason === 'awaiting_approval') {
@@ -65,6 +68,73 @@ export function plannedInstallNotice(platform: Platform): PlannedInstallNotice {
     status: 'info',
     title: 'Install has not started',
     body: `Nothing is installed yet. This page updates when Swallow starts building ${platform.name} or when its Change Plan needs approval.`,
+    linksChangePlans: false,
+  }
+}
+
+/**
+ * Words for a Platform marked absent whose uninstall has not started (platforms.md "Delete A
+ * Platform"), from its `realized` Condition for the current generation, or null when there is
+ * nothing to say here: the spec is present, or the uninstall runs, failed, or succeeded, which the
+ * lifecycle notice explains.
+ *
+ * - `awaiting_approval`: the Change Plan policy or a blocker kept the confirmed uninstall waiting;
+ *   the message says which, and the notice links to Change Plans.
+ * - `plan_required`: the plan was rejected or expired, so the user chooses Uninstall again, which
+ *   proposes a new one.
+ * - `converging`: approved with its request and about to start, or held until a deployment that
+ *   still runs ends.
+ * - `failed` before any uninstall Workflow ran: the approved plan could not start it (a target is
+ *   locked, missing, or busy); the controller keeps trying.
+ *
+ * Before the controller judged the generation the notice only says that nothing started, since the
+ * dashboard cannot tell which it is.
+ */
+export function pendingUninstallNotice(platform: Platform): PlatformChangeNotice | null {
+  const state = platform.lifecycleState
+  if (platform.spec?.desired !== 'absent' || state === 'uninstalling' || state === 'uninstall_failed' || state === 'uninstalled') {
+    return null
+  }
+  const realized = findCondition(platform.status.conditions, ConditionTypes.realized)
+  const judged = realized !== undefined && realized.observedGeneration >= platform.generation
+  if (judged && realized.reason === 'awaiting_approval') {
+    return {
+      status: 'warning',
+      title: 'Uninstall waits for approval',
+      body: `Nothing was removed yet. ${asSentence(realized.message, 'Its Change Plan waits for approval.')} Approve it in Change Plans to uninstall ${platform.name}.`,
+      linksChangePlans: true,
+    }
+  }
+  if (judged && realized.reason === 'plan_required') {
+    return {
+      status: 'warning',
+      title: 'Uninstall needs a new Change Plan',
+      body: 'Nothing was removed. Its Change Plan was rejected or expired. Choose Uninstall platform again to propose a new one.',
+      linksChangePlans: true,
+    }
+  }
+  if (judged && realized.reason === 'converging') {
+    return {
+      status: 'info',
+      title: 'Uninstall is starting',
+      body: state === 'deploying'
+        ? `Its Change Plan is approved. Swallow uninstalls ${platform.name} once its deployment ends; this page updates on its own.`
+        : `Its Change Plan is approved. Swallow starts removing ${platform.name} in a moment; this page updates on its own.`,
+      linksChangePlans: false,
+    }
+  }
+  if (judged && realized.reason === 'failed') {
+    return {
+      status: 'warning',
+      title: 'Uninstall cannot start yet',
+      body: `${asSentence(realized.message, 'Swallow could not start the uninstall.')} Swallow keeps trying; resolve the cause, or choose Uninstall platform again with other options.`,
+      linksChangePlans: false,
+    }
+  }
+  return {
+    status: 'info',
+    title: 'Uninstall has not started',
+    body: `Nothing was removed yet. This page updates when Swallow starts removing ${platform.name} or when its Change Plan needs approval.`,
     linksChangePlans: false,
   }
 }

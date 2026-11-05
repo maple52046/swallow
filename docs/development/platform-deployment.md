@@ -448,7 +448,12 @@ platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-co
 - **Delete**（`DELETE /platforms/{id}`）把 spec 標為 absent（帶 release 等選擇），uninstall 經 Change Plan 核准後由
   platform controller 啟動；uninstall 成功時在清理的最後刪除紀錄，刪除的紀錄與投影與只刪紀錄相同，但不取消 Workflow，
   因為正在完成的 uninstall 就是持有 target 的 Workflow。失敗或取消時保留紀錄（`uninstall_failed`）。
-  清理把已不存在的紀錄視為成功，所以重試是安全的。從未核准安裝的 Platform 沒有動過任何機器，直接刪除。
+  清理把已不存在的紀錄視為成功，所以重試是安全的。只有沒有裝任何東西的 Platform 直接刪除並撤回 plan：安裝從未開始
+  （沒有 deploy Workflow、沒有 applied spec），或 uninstall 已成功；deploy 正在跑或失敗的 Platform 可能已改過主機，
+  一樣提出 uninstall（正在跑的要 `cancelActiveWorkflows`）。對已是 absent 的 Platform 再 Delete：有等待中的 plan 且
+  移除選擇相同時回傳那份 plan（`approve=true` 時核准）；選擇不同、或沒有等待中的 plan（被拒絕、過期，或 uninstall
+  失敗）時以這次的選擇重新提出，失敗的 uninstall 由新 generation 取代（controller 先取消仍持有 target 的舊 Workflow，
+  新的以 `retryOfOperationId` 指向它）；uninstall 執行中則什麼都不變（200、沒有 plan）。
 - **只刪紀錄**（`DELETE /platforms/{id}?recordOnly=true`）只移除紀錄與 swallow 擁有的投影：先對該 Platform 未完成的 Workflow 寫入取消命令（它們在取消
   路徑結束時釋放所有權；寫不進去就拒絕 Delete、保留紀錄），再清 membership、Platform Claim 與 swallow 擁有的 credential Integration，最後刪紀錄。它永不執行
   automation、不改主機、不等 uninstall、不還原 exporter，target locked 時仍可執行。Platform 刪除後，已結束的
@@ -459,8 +464,9 @@ platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-co
 - **Dashboard**：移除是單一紅色控制項。仍可 uninstall 時是 split button，主要部分開 Uninstall，選單內是「Delete only」；
   已 `uninstalled`、`planned` 或永遠不能 uninstall 時只剩 Delete（`planned` 的 Delete 經 spec 刪除，一併撤回安裝的 plan）。
   Uninstall 對話框列出破壞性的影響，確認後以 `approve=true` 送出，Change Plan 隨送出核准、uninstall 立即開始，成功後刪除
-  紀錄；Change Plan 政策要求另外核准或 plan 有阻擋事項時，plan 停在 Change Plans 等核准，畫面說明原因。讓 runtime 留在主機上的
-  動作永遠不是最顯眼的那個。
+  紀錄；Change Plan 政策要求另外核准或 plan 有阻擋事項時，plan 停在 Change Plans 等核准，畫面說明原因。spec 為 absent、
+  uninstall 還沒開始時，Platform 頁頁首說明它在等什麼：等核准（連到 Change Plans）、需要新的 Change Plan（plan 被拒絕或
+  過期，再按 Uninstall 即重新提出），或即將開始。讓 runtime 留在主機上的動作永遠不是最顯眼的那個。
   不要在 uninstall 執行中只刪紀錄來達到同樣效果：只刪紀錄會先取消那個 uninstall。
 - 設計理由：Delete 不做 k0s reset、不以 membership 推導 target、不刪所有連結的 Integration、uninstall 後不移除紀錄、
   不加 Force／Forget 指令，以及 dashboard 不在 uninstall 後自行送 Delete，見 decision 010。

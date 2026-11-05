@@ -213,8 +213,10 @@ func platformsDeleteCmd() *cobra.Command {
 		Long: "Delete a platform. Its spec is marked absent and its uninstall is the returned Change Plan;\n" +
 			"the record is deleted once the uninstall succeeds. With --approve the plan is approved with\n" +
 			"the request and the uninstall starts at once, unless the Change Plan policy requires a\n" +
-			"separate approval; deleting a platform already marked absent with --approve approves the\n" +
-			"plan it waits on. A platform whose install was never approved is deleted at once.\n" +
+			"separate approval. Deleting a platform already marked absent with the same flags returns\n" +
+			"the plan it waits on, approving it with --approve; different flags, or a plan that was\n" +
+			"rejected or expired, or an uninstall that failed, propose the uninstall again. While the\n" +
+			"uninstall runs nothing changes. A platform whose install never started is deleted at once.\n" +
 			"--release-servers also releases the members (with the erase flags), and\n" +
 			"--cancel-active-workflows cancels the Workflows holding them first. --record-only deletes\n" +
 			"only the record and leaves the hosts as they are.",

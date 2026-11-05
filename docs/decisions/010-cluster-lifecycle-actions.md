@@ -28,7 +28,8 @@ A Platform is a desired-state resource, and uninstalling it is a destructive cha
   Change Plan. Once a user approves it, the platform controller starts the type's uninstall Workflow,
   which removes swallow-installed platform state from the hosts. The record and swallow's projections
   are removed only when the uninstall succeeds; a failed or canceled uninstall keeps the record and is
-  rerun. A Platform whose install was never approved touched no machine and is deleted at once.
+  rerun, or proposed again by deleting the Platform again. A Platform whose install never started
+  touched no machine and is deleted at once; one whose deployment runs or failed is uninstalled.
 - **Delete only the record** (`recordOnly`) removes the record and swallow's own projections:
   membership, the Platform Claims, and a credential Integration proven to be swallow-owned. It never
   runs automation, changes hosts, waits for an uninstall, or installs the Node Exporter, and it stays
@@ -98,3 +99,4 @@ A Platform is a desired-state resource, and uninstalling it is a destructive cha
 - 2026-11-03: exporter restoration became a Node Exporter Job in the uninstall Workflow instead of a separate exporter Workflow queued after it.
 - 2026-11-03: every kept-hosts uninstall installs the Node Exporter on the kept Servers, not only one whose exporters Kubernetes owned; the uninstall never removes it.
 - 2026-11-03: the per-Platform exporter owner was retired (decision 003), so the kept-hosts Node Exporter Job no longer depends on it; the decision is unchanged.
+- 2026-11-05: only a Platform whose install never started is deleted at once, so one whose deployment runs or failed is uninstalled; a rejected, expired, or failed uninstall is proposed again by deleting the Platform again.

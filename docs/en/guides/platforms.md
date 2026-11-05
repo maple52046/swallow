@@ -205,11 +205,17 @@ The facts describe the applied spec; a newer spec that is not applied yet shows 
 - **Uninstall** removes the swallow-deployed runtime from its original targets through a
   Change Plan, which confirming the dialog approves: the uninstall starts at once and the
   Platform page shows it running (with the safety switch on, it waits on **Change Plans**
-  instead). swallow deletes the Platform record once the uninstall succeeds; a failed
-  uninstall keeps the record for diagnosis.
+  instead, and the Platform page says so with a link there). swallow deletes the Platform
+  record once the uninstall succeeds; a failed uninstall keeps the record for diagnosis.
   When a workflow still holds the Platform's servers (a failed deployment waiting
   for attention, or one still running), the dialog lists it and asks you to confirm
-  that swallow cancels it before the uninstall starts.
+  that swallow cancels it before the uninstall starts. A Platform whose deployment is
+  running or failed is uninstalled too, because the deployment may already have changed
+  its servers; only a Platform whose install never started is deleted at once.
+- If the uninstall's Change Plan was rejected or expired, or the uninstall failed, press
+  **Uninstall** again: it proposes a new uninstall with the options you choose this time.
+  Choosing different options while the uninstall still waits for approval replaces the
+  waiting plan.
 - **Delete only** removes only the swallow record/projections and must not be
   confused with host-side uninstall.
 - Bulk actions remain subject to each Platform's lifecycle gate.

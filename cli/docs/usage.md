@@ -589,7 +589,14 @@ get an operating system. Creating a platform and destructive changes (changing o
 Operator, deleting the platform) answer with a Change Plan. With `--approve` the plan is approved
 with the write and the change starts at once, unless the Change Plan policy requires a separate
 approval (`swallow plans policy`); without it nothing changes until `swallow plans approve`
-approves it. Adding a member converges at once. `platform-k8s.yaml` (see
+approves it. Adding a member converges at once.
+
+`platforms delete` uninstalls any platform whose deployment started, even one still deploying
+(add `--cancel-active-workflows`) or whose deployment failed; only a platform whose install never
+started is deleted at once. Running it again on a platform whose uninstall waits returns the same
+Change Plan when the flags are the same (`--approve` approves it) and proposes a new one when they
+differ. After the plan was rejected or expired, or the uninstall failed, running it again proposes
+the uninstall again; while the uninstall runs it changes nothing. `platform-k8s.yaml` (see
 [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md)):
 
 ```yaml

@@ -48,9 +48,12 @@ export interface PlatformRepository {
   /**
    * Delete a platform: its spec is marked absent and its uninstall is the returned Change Plan,
    * approved with the request unless it waits; the record is deleted once the uninstall succeeds.
-   * A platform whose install was never approved is deleted at once (`planId` null). Deleting a
-   * platform already marked absent approves the plan it waits on when the policy allows. `options`
-   * chooses whether the uninstall releases the members.
+   * A platform with nothing installed (its install never started) is deleted at once (`deleted`).
+   * Deleting a platform already marked absent returns the plan it waits on, approved when the
+   * policy allows, when `options` are the stored ones; different options, or no plan waiting (it
+   * was rejected or expired, or the uninstall failed), propose the uninstall again. While the
+   * uninstall runs the result has no plan and is not `deleted`. `options` chooses whether the
+   * uninstall releases the members and cancels the Workflows holding them.
    */
   deletePlatform(id: string, options?: UninstallPlatformOptions): Promise<PlatformChangeResult>
   /** Delete only the swallow record and owned projections; hosts are untouched. */
