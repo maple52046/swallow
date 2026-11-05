@@ -26,6 +26,8 @@ decision 072).
 - [Workflow](../../../../../docs/development/glossaries/terms/workflow.md)
 - [Job](../../../../../docs/development/glossaries/terms/job.md)
 - [Task](../../../../../docs/development/glossaries/terms/task.md)
+- [Task Diagnostic](../../../../../docs/development/glossaries/terms/task-diagnostic.md)
+- [Failure Class](../../../../../docs/development/glossaries/terms/failure-class.md)
 - [Runner](../../../../../docs/development/glossaries/terms/runner.md)
 - [Automation Configuration](../../../../../docs/development/glossaries/terms/automation-configuration.md)
 - [Server Lock](../../../../../docs/development/glossaries/terms/server-lock.md)
@@ -169,6 +171,7 @@ example shows one of the Workflow's Tasks):
         "skipped": 2,
         "updatedAt": "2026-09-03T00:01:20Z"
       },
+      "waiting": null,
       "artifacts": [],
       "startedAt": "2026-09-03T00:01:00Z",
       "finishedAt": null
@@ -222,7 +225,7 @@ dispatched or resumed), and `updatedAt` is when ownership was taken. `startState
 the Workflow is first dispatched and `started` after; `temporal.runId` is the current run. `targetResources`,
 `targetServerIds`, and `steps` are `null`, not `[]`, when the Workflow has none. A Task's `job`,
 `continueOn`, `waitingReason`, and `live` are omitted when unset, while its `error`,
-`externalExecution`, `startedAt`, and `finishedAt` are present as `null`.
+`externalExecution`, `waiting`, `startedAt`, and `finishedAt` are present as `null`.
 
 `jobs` lists every Job the Tasks name in `steps[].job`, in plan order, with the user-facing
 `label` a client titles that group of Tasks with and its `retry` granularity (`task` or `job`, see
@@ -241,6 +244,52 @@ the run starts and after the Task reaches a terminal state (the authoritative ou
 and `error`). There is no percentage: Ansible's total task count is not known up front. Only the
 Ansible Runner populates `live`.
 
+### Task errors and diagnostics
+
+A Task's `error` is its latest normalized error: `code` (machine-readable; the only field a client
+branches on, with `retryable`), `message` (what happened, for the user), `retryable`, an optional
+`stage`, and `diagnostic`, the structured explanation of the failure
+([Task Diagnostic](../../../../../docs/development/glossaries/terms/task-diagnostic.md)). `diagnostic` is
+always present and is `null` when the Runner recorded none — every error stored before 2026-11-05,
+and errors of Runners that do not explain their failures yet. It has two layers:
+
+- **User layer** — with the error's `message`, `target` (the Server or Platform the failure affects,
+  by `kind` and `id`, when the Runner knows which of the Task's targets it is) and `remediation` (the
+  next step, in the user's terms). A client shows this layer first; it must be actionable alone.
+- **Admin layer** — `failureClass`, always present; `endpoint` (the address the failing call went
+  to), `operation` (the provider or platform call that failed), `cause` (the causal chain as text, at
+  most 2000 characters), `attempts`, `elapsedSeconds` and `budgetSeconds` of the wait that gave up,
+  its last `observation` and `observedAt`, and `providerEvents` (what the provider recorded about the
+  target around the failure, oldest first, at most 20, each with `type`, `description`, and an
+  optional `at`). Each of these is omitted when the Runner did not record it; a zero count or
+  duration is omitted too.
+
+`failureClass` is `transient` (the condition is expected to clear by itself; waiting or retrying
+can succeed without a change), `permanent` (it repeats until something changes; a wait that sees
+it fails at once), or `unknown` (not classified, including an outcome that cannot be proven, such
+as `executor_outcome_unknown`)
+([Failure Class](../../../../../docs/development/glossaries/terms/failure-class.md)). It informs the
+user; whether a Task retry may be requested is still only `retryable`.
+
+Redaction removes secrets without erasing the cause. Before an error is stored, swallow masks, in
+`message` and every diagnostic text, URL userinfo, bearer tokens and JSON Web Tokens, Authorization
+header values, credential key-value pairs (`password=`, `token:`, `"secret": ...` and similar), and
+PEM private key blocks, each replaced by `[REDACTED]` (a private key by `[REDACTED PRIVATE KEY]`);
+the surrounding text is kept. `endpoint` additionally never carries userinfo, query values (each
+replaced by `[REDACTED]`, keys kept), or a fragment. Redaction is by shape: a client must still treat
+diagnostic text as admin-only detail, and every Workflow route requires the `admin` role.
+
+The diagnostic is durable: it is stored with the Task and served on every read of the Workflow. The
+Task keeps only its latest error; the timeline keeps each earlier attempt's (see below).
+
+`waiting` is what a running Task waits for, as its Runner last published it during a long wait:
+`observation` (the latest observed state of what it waits for, redacted), `observedAt`, `attempts`
+(observations so far in this wait), `elapsedSeconds`, and `budgetSeconds` (how long the wait may run
+before the Task fails; omitted for a wait without a budget). It is advisory, like `live`: it is
+`null` before a Runner publishes, for Runners that do not publish, and once the attempt ends, is
+retried, or is canceled; the authoritative outcome is `status` and `error`. When a wait gives up, its
+last observation, attempts, elapsed time, and budget move into the error's `diagnostic`.
+
 ## List Query
 
 Optional filters are `siteId`, `platformId`, `serverId`, `kind`,
@@ -252,9 +301,11 @@ Optional filters are `siteId`, `platformId`, `serverId`, `kind`,
 `GET /timeline` returns normalized immutable events ordered by `createdAt` and ID, naming
 Workflow and Task state transitions with no secret material. A Task status event
 (`type` `step_status`) is recorded once per status per attempt; its `details` carry `status`
-and `attempt`, and, when the Task has a normalized error, that error's `code`, `message`,
-`stage`, and `retryable`. The Task itself keeps only its latest error, so these events are
-where an earlier attempt's failure remains readable after a retry. A cancel that interrupted a
+and `attempt`, and, when the Task has a normalized error, that error's `code`, `message`
+(redacted, as stored), `stage`, and `retryable`, and, when the error has a diagnostic, its
+`failureClass` and (when it has one) `endpoint`. The Task itself keeps only its latest error, so
+these events are where an earlier attempt's failure remains readable after a retry. Events
+recorded before 2026-11-05 carry no `failureClass`. A cancel that interrupted a
 `provision-os` records, on that Task's `stepId`, what happened to its Server (see Cancel):
 `canceled_deployment_returned_to_ready`, `canceled_deployment_left_as_is`, or
 `canceled_deployment_return_failed`, with a user-facing `message` and `details.attempt`. Task logs are UTF-8
@@ -262,7 +313,8 @@ where an earlier attempt's failure remains readable after a retry. A cancel that
 /tasks/{taskId}/stderr` returns an error-only UTF-8 `text/plain` report for an Ansible Task —
 one block per failed or unreachable task (task, host, message, return code, and its captured
 stderr/stdout) — and an empty body when the Task recorded no failure or is not an Ansible
-Task; it is the focused counterpart to `logs` (the full runner output).
+Task; it is the focused counterpart to `logs` (the full runner output). Secrets in the report are
+masked as in Task errors, including Ansible's `*_pass` variables; the rest of each block is kept.
 
 `GET /tasks/{taskId}/events` returns an Ansible Task's per-task results, and an empty list for
 other Runners. The events stream **during** the run — new results appear as the runner completes
@@ -434,3 +486,14 @@ create began refusing `install-exporters` and `uninstall-exporters` with `400 va
 Also on 2026-11-03 create began refusing `deploy-k8s-exporters` and `remove-k8s-exporters` with
 `400 validation_error` (breaking), and their playbooks left the release manifest; Workflows of
 those kinds that an earlier release created are still listed and read.
+
+On 2026-11-05 ([decision 077](../../../../../docs/decisions/077-task-diagnostics-and-wait-policy.md) (Task
+diagnostics and wait policy)) a Task's `error` gained `diagnostic`, the two-layer structured
+explanation of the failure (`null` when there is none, including every error stored before), and each
+Task gained `waiting`, what a running Task waits for (`null` when it reports nothing), and
+`step_status` timeline details gained `failureClass` and `endpoint`. Additive: no field, status, or
+error code changed meaning, and clients that ignore the new fields see the old shape. Error
+`message`s are now stored redacted, so a message that used to echo a credential shows `[REDACTED]`
+in its place. The same day the `stderr` report and the `ansible_failed` message began masking
+secrets in task output (`[REDACTED]`), and an `ansible_failed` error carries a `diagnostic`
+(`failureClass` `unknown`; `operation` and `target` when one task or one Server failed).

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -180,7 +181,8 @@ type AdvanceResult struct {
 }
 
 // Outcome is what a Runner reports for one attempt. Data is the Runner's result data for result
-// completions; it is never stored.
+// completions; it is never stored. Error carries the failure's Task Diagnostic when the Runner
+// built one (Error.Diagnostic); Record redacts and bounds the whole error before storing it.
 type Outcome struct {
 	Status            workflowdomain.TaskStatus
 	Progress          int
@@ -281,15 +283,17 @@ func (e *Engine) ReleaseStaleOwnership(ctx context.Context) error {
 // Workflow's resources, applies retry commands, resumes Tasks an earlier dispatch left running,
 // skips Tasks that can never run, begins Tasks the sliding window has room for, and records the
 // Workflow's resulting status — finishing it, and releasing its resources, when nothing is left
-// to run.
+// to run. The Tasks it skips or hands to the user are logged once the transaction committed.
 func (e *Engine) Advance(ctx context.Context, request AdvanceRequest) (AdvanceResult, error) {
 	var result AdvanceResult
+	var ended endedTasks
 	err := e.transactor.InTransaction(ctx, func(ctx context.Context) error {
 		result = AdvanceResult{}
 		w, err := e.workflows.FindByID(ctx, request.WorkflowID)
 		if err != nil {
 			return err
 		}
+		ended.reset(w)
 		if w.Dispatch.Generation != request.Generation {
 			result.Action = AdvanceFenced
 			return nil
@@ -328,7 +332,7 @@ func (e *Engine) Advance(ctx context.Context, request AdvanceRequest) (AdvanceRe
 		if err := e.applyRetries(ctx, w); err != nil {
 			return err
 		}
-		starts, err := e.resume(ctx, w, request)
+		starts, err := e.resume(ctx, w, request, &ended)
 		if err != nil {
 			return err
 		}
@@ -346,6 +350,7 @@ func (e *Engine) Advance(ctx context.Context, request AdvanceRequest) (AdvanceRe
 			if err := e.transition(ctx, w, index); err != nil {
 				return err
 			}
+			ended.add(*task)
 		}
 		for _, index := range schedule.Ready {
 			task := &w.Steps[index]
@@ -356,6 +361,7 @@ func (e *Engine) Advance(ctx context.Context, request AdvanceRequest) (AdvanceRe
 			task.Generation = request.Generation
 			task.Resumed = false
 			task.Live = nil
+			task.Waiting = nil
 			if err := e.transition(ctx, w, index); err != nil {
 				return err
 			}
@@ -378,6 +384,9 @@ func (e *Engine) Advance(ctx context.Context, request AdvanceRequest) (AdvanceRe
 			return e.finish(ctx, w, status, schedule.Reason)
 		}
 	})
+	if err == nil {
+		ended.log(ctx)
+	}
 	return result, err
 }
 
@@ -410,6 +419,7 @@ func (e *Engine) applyRetries(ctx context.Context, w *workflowdomain.Workflow) e
 			task.Progress = 0
 			task.WaitingReason = ""
 			task.Live = nil
+			task.Waiting = nil
 			task.Resumed = false
 			if err := e.transition(ctx, w, i); err != nil {
 				return err
@@ -422,8 +432,9 @@ func (e *Engine) applyRetries(ctx context.Context, w *workflowdomain.Workflow) e
 
 // resume hands back the Tasks this run must execute without beginning them again: running Tasks
 // of this generation the run is not executing (a retried Advance), and running Tasks an earlier
-// generation left, which are resumed or handed to the user by their kind's ResumePolicy.
-func (e *Engine) resume(ctx context.Context, w *workflowdomain.Workflow, request AdvanceRequest) ([]TaskStart, error) {
+// generation left, which are resumed or handed to the user by their kind's ResumePolicy. A Task
+// handed to the user is added to ended.
+func (e *Engine) resume(ctx context.Context, w *workflowdomain.Workflow, request AdvanceRequest, ended *endedTasks) ([]TaskStart, error) {
 	executing := map[string]bool{}
 	for _, id := range request.Running {
 		executing[id] = true
@@ -445,14 +456,17 @@ func (e *Engine) resume(ctx context.Context, w *workflowdomain.Workflow, request
 			task.Status = workflowdomain.TaskRequiresAttention
 			task.FinishedAt = &now
 			task.Live = nil
+			task.Waiting = nil
 			task.Error = &workflowdomain.NormalizedError{
-				Code:      "executor_outcome_unknown",
-				Message:   "The Task's executor stopped before recording an outcome; retry the Task to run it again.",
-				Retryable: true,
+				Code:       "executor_outcome_unknown",
+				Message:    "The Task's executor stopped before recording an outcome; retry the Task to run it again.",
+				Retryable:  true,
+				Diagnostic: outcomeUnknownDiagnostic("The executor process stopped while the attempt ran, and its Runner cannot observe the work it started."),
 			}
 			if err := e.transition(ctx, w, index); err != nil {
 				return nil, err
 			}
+			ended.add(*task)
 			continue
 		}
 		task.Status = workflowdomain.TaskRunning
@@ -531,9 +545,13 @@ func (e *Engine) Complete(ctx context.Context, ref TaskRef, outcome Outcome) err
 				return fmt.Errorf("no handler for result completion %q", completion.Type)
 			}
 			if err := handler.Complete(ctx, TaskResult{Workflow: w, Task: w.Steps[index], Completion: completion, Data: outcome.Data}); err != nil {
+				diagnostic := workflowdomain.NewTaskDiagnostic(workflowdomain.FailureUnknown, err)
+				diagnostic.Operation = "record result " + completion.Type
+				diagnostic.Remediation = "The Task's work finished, but swallow could not record its result. Retry the Task; it runs again and records the result."
 				outcome.Status = workflowdomain.TaskFailed
 				outcome.Error = &workflowdomain.NormalizedError{
 					Code: "completion_failed", Message: "Recording the Task's result failed: " + err.Error(), Retryable: true,
+					Diagnostic: diagnostic,
 				}
 				break
 			}
@@ -544,16 +562,20 @@ func (e *Engine) Complete(ctx context.Context, ref TaskRef, outcome Outcome) err
 
 // Record stores the outcome of one attempt. A write for a Task no longer running at that attempt
 // (canceled, or already recorded) fails with ErrTaskNotRunning and changes nothing, which keeps a
-// recorded outcome from being rewritten.
+// recorded outcome from being rewritten. The error is stored redacted and bounded
+// (NormalizedError.Redacted), whatever the Runner passed, and the attempt's Waiting is cleared.
+// Once the transition committed, the outcome is logged (endedTasks.log).
 func (e *Engine) Record(ctx context.Context, ref TaskRef, outcome Outcome) error {
 	if outcome.Status == "" {
 		outcome.Status = workflowdomain.TaskSucceeded
 	}
-	return e.transactor.InTransaction(ctx, func(ctx context.Context) error {
+	var ended endedTasks
+	err := e.transactor.InTransaction(ctx, func(ctx context.Context) error {
 		w, err := e.workflows.FindByID(ctx, ref.WorkflowID)
 		if err != nil {
 			return err
 		}
+		ended.reset(w)
 		index, err := runningTask(w, ref)
 		if err != nil {
 			return err
@@ -563,7 +585,11 @@ func (e *Engine) Record(ctx context.Context, ref TaskRef, outcome Outcome) error
 		task.Status = outcome.Status
 		task.Progress = outcome.Progress
 		task.WaitingReason = outcome.WaitingReason
-		task.Error = outcome.Error
+		task.Error = nil
+		if outcome.Error != nil {
+			stored := outcome.Error.Redacted()
+			task.Error = &stored
+		}
 		if outcome.ExternalExecution != nil {
 			task.ExternalExecution = outcome.ExternalExecution
 		}
@@ -572,17 +598,33 @@ func (e *Engine) Record(ctx context.Context, ref TaskRef, outcome Outcome) error
 		}
 		task.FinishedAt = &now
 		task.Live = nil
+		task.Waiting = nil
 		task.Resumed = false
 		if err := e.transition(ctx, w, index); err != nil {
 			return err
 		}
+		ended.add(*task)
 		return e.workflows.Save(ctx, w)
 	})
+	if err == nil {
+		ended.log(ctx)
+	}
+	return err
 }
 
 // UpdateLive records a running attempt's live fields; see WorkflowRepository.UpdateTaskLive.
 func (e *Engine) UpdateLive(ctx context.Context, ref TaskRef, external *workflowdomain.ExternalExecutionReference, startedAt *time.Time, live *workflowdomain.TaskLive) error {
 	return e.workflows.UpdateTaskLive(ctx, ref.WorkflowID, ref.Generation, ref.TaskID, ref.Attempt, external, startedAt, live)
+}
+
+// UpdateWaiting records what a running attempt waits for (Task.Waiting), redacted and bounded
+// (TaskWaiting.Redacted), with one targeted write; see WorkflowRepository.UpdateTaskWaiting. It
+// fails with ErrDispatchFenced once ref's generation was superseded, and with ErrTaskNotRunning
+// once the attempt ended; a Runner treats the second as nothing to do. The write is advisory, so a
+// Runner must not fail its Task because it could not publish. Safe for concurrent use.
+func (e *Engine) UpdateWaiting(ctx context.Context, ref TaskRef, waiting workflowdomain.TaskWaiting) error {
+	stored := waiting.Redacted()
+	return e.workflows.UpdateTaskWaiting(ctx, ref.WorkflowID, ref.Generation, ref.TaskID, ref.Attempt, &stored)
 }
 
 // BeginCancel records the Workflow canceling and returns the compensations its Tasks declare: the
@@ -626,13 +668,15 @@ func (e *Engine) BeginCancel(ctx context.Context, workflowID string, generation 
 // FinishCanceled records the Workflow canceled: every unfinished Task (running, parked, or never
 // started) becomes canceled with its projections, the Workflow becomes canceled with its cancel
 // command's reason, and its resources are released — all in one transaction. Tasks that reached
-// an outcome keep it.
+// an outcome keep it. Each Task it cancels is logged once the transaction committed.
 func (e *Engine) FinishCanceled(ctx context.Context, workflowID string, generation int64) error {
-	return e.transactor.InTransaction(ctx, func(ctx context.Context) error {
+	var ended endedTasks
+	err := e.transactor.InTransaction(ctx, func(ctx context.Context) error {
 		w, err := e.workflows.FindByID(ctx, workflowID)
 		if err != nil {
 			return err
 		}
+		ended.reset(w)
 		if w.Dispatch.Generation != generation {
 			return workflowdomain.ErrDispatchFenced
 		}
@@ -648,10 +692,12 @@ func (e *Engine) FinishCanceled(ctx context.Context, workflowID string, generati
 				task.Status = workflowdomain.TaskCanceled
 				task.FinishedAt = &now
 				task.Live = nil
+				task.Waiting = nil
 				task.Resumed = false
 				if err := e.transition(ctx, w, index); err != nil {
 					return err
 				}
+				ended.add(*task)
 			}
 		}
 		reason := workflowdomain.CanceledByUserReason
@@ -660,6 +706,10 @@ func (e *Engine) FinishCanceled(ctx context.Context, workflowID string, generati
 		}
 		return e.finish(ctx, w, workflowdomain.WorkflowCanceled, reason)
 	})
+	if err == nil {
+		ended.log(ctx)
+	}
+	return err
 }
 
 // RecordCompensation adds the timeline event a cancel compensation of a Task produced. Its ID is
@@ -706,7 +756,9 @@ func (e *Engine) setStatus(ctx context.Context, w *workflowdomain.Workflow, stat
 }
 
 // transition records one Task transition: its timeline event and its declared projections, inside
-// the caller's transaction.
+// the caller's transaction. The step_status event keeps the attempt's failure — code, message,
+// stage, retryability, and its diagnostic's failure class and endpoint — because the Task itself
+// keeps only its latest error; the event's text is the Task's, already redacted when recorded.
 func (e *Engine) transition(ctx context.Context, w *workflowdomain.Workflow, index int) error {
 	task := w.Steps[index]
 	details := map[string]any{"status": string(task.Status), "attempt": task.Attempt}
@@ -715,6 +767,12 @@ func (e *Engine) transition(ctx context.Context, w *workflowdomain.Workflow, ind
 		details["message"] = failure.Message
 		details["stage"] = failure.Stage
 		details["retryable"] = failure.Retryable
+		if diagnostic := failure.Diagnostic; diagnostic != nil {
+			details["failureClass"] = string(diagnostic.FailureClass)
+			if diagnostic.Endpoint != "" {
+				details["endpoint"] = diagnostic.Endpoint
+			}
+		}
 	}
 	if err := e.workflows.AppendEvent(ctx, workflowdomain.TimelineEvent{
 		ID: fmt.Sprintf("%s/step/%s/%s/%d", w.ID, task.ID, task.Status, task.Attempt), OperationID: w.ID, StepID: task.ID,
@@ -732,6 +790,68 @@ func (e *Engine) transition(ctx context.Context, w *workflowdomain.Workflow, ind
 		}
 	}
 	return nil
+}
+
+// endedTasks collects the Task outcomes one transition stores, so they are logged only after its
+// transaction committed: a transaction the store retries resets the collection with its fresh
+// read, so an outcome is never logged twice or for a write that rolled back. The zero value is
+// ready to use; it belongs to one call and is not safe for concurrent use.
+type endedTasks struct {
+	workflowID  string
+	correlation string
+	tasks       []workflowdomain.Task
+}
+
+// reset starts the collection over for w, the Workflow a transaction attempt just read.
+func (t *endedTasks) reset(w *workflowdomain.Workflow) {
+	t.workflowID, t.correlation, t.tasks = w.ID, w.RequestCorrelation, nil
+}
+
+// add records one Task as it was stored by the transition.
+func (t *endedTasks) add(task workflowdomain.Task) {
+	t.tasks = append(t.tasks, task)
+}
+
+// log writes one structured line per collected outcome, so a Task's outcome correlates with the
+// API request that accepted its Workflow (requestCorrelation is the request ID) and with the
+// Runner's own logs: workflowId, taskId, attempt, kind, runner, status, and for a failure its
+// code, retryability, failure class, and endpoint. A success, skip, or cancel is Info; a failure
+// or a Task left for the user is Warn. Every value is already redacted, and no message or cause is
+// logged: the store holds them.
+func (t *endedTasks) log(ctx context.Context) {
+	for _, task := range t.tasks {
+		attrs := []any{
+			"workflowId", t.workflowID, "taskId", task.ID, "attempt", task.Attempt, "kind", task.Kind,
+			"runner", string(task.Executor), "status", string(task.Status),
+		}
+		if t.correlation != "" {
+			attrs = append(attrs, "requestCorrelation", t.correlation)
+		}
+		level := slog.LevelInfo
+		if task.Status == workflowdomain.TaskFailed || task.Status == workflowdomain.TaskRequiresAttention {
+			level = slog.LevelWarn
+		}
+		if failure := task.Error; failure != nil {
+			attrs = append(attrs, "code", failure.Code, "retryable", failure.Retryable)
+			if diagnostic := failure.Diagnostic; diagnostic != nil {
+				attrs = append(attrs, "failureClass", string(diagnostic.FailureClass))
+				if diagnostic.Endpoint != "" {
+					attrs = append(attrs, "endpoint", diagnostic.Endpoint)
+				}
+			}
+		}
+		slog.Log(ctx, level, "workflow task outcome", attrs...)
+	}
+}
+
+// outcomeUnknownDiagnostic explains an attempt whose outcome cannot be proven: what happened is in
+// cause, and the user decides whether to run it again.
+func outcomeUnknownDiagnostic(cause string) *workflowdomain.TaskDiagnostic {
+	return &workflowdomain.TaskDiagnostic{
+		FailureClass: workflowdomain.FailureUnknown,
+		Cause:        cause,
+		Remediation:  "Check whether the Task's work happened on its targets, then retry the Task to run it again or cancel the Workflow.",
+	}
 }
 
 func runningTask(w *workflowdomain.Workflow, ref TaskRef) (int, error) {

@@ -6773,6 +6773,8 @@ export interface components {
             startedAt: components["schemas"]["Timestamp"] | null;
             status: components["schemas"]["WorkflowTaskStatus"];
             targets: components["schemas"]["WorkflowResourceReference"][];
+            /** @description What the running attempt waits for, as its Runner last published it; null when the Task is not waiting on anything it reports. */
+            waiting: components["schemas"]["WorkflowTaskWaiting"] | null;
             /** @description Why the Task is waiting; absent when it is not. */
             waitingReason?: string;
         };
@@ -6785,10 +6787,47 @@ export interface components {
             /** Format: int64 */
             sizeBytes: number;
         };
+        /** @description The structured, redacted explanation of a Task failure, in two layers: the user layer (`target`, `remediation`, with the error's `message`) and the admin layer (the rest). Every text is redacted, not erased: secrets are masked and the cause is kept. */
+        WorkflowTaskDiagnostic: {
+            /** @description How many observations or calls the failing wait made; absent when not counted. */
+            attempts?: number;
+            /**
+             * Format: int64
+             * @description How long the failing wait was allowed to run; absent for a wait without a budget.
+             */
+            budgetSeconds?: number;
+            /** @description The causal chain of the failure for an administrator; redacted, at most 2000 characters. */
+            cause?: string;
+            /**
+             * Format: int64
+             * @description How long the failing wait ran; absent when not measured or shorter than a second.
+             */
+            elapsedSeconds?: number;
+            /** @description The address the failing call went to, without userinfo, query values, or fragment; absent when the failure involved no remote endpoint. */
+            endpoint?: string;
+            /**
+             * @description Whether the same attempt can succeed later without a change (`transient`), repeats until something changes (`permanent`), or could not be classified (`unknown`).
+             * @enum {string}
+             */
+            failureClass: "transient" | "permanent" | "unknown";
+            /** @description The last thing the failing wait observed; absent when the failure came from no wait. */
+            observation?: string;
+            observedAt?: components["schemas"]["Timestamp"];
+            /** @description The provider or platform call that failed, for example `read cluster nodes`; absent when not recorded. */
+            operation?: string;
+            /** @description Events the provider recorded about the target around the failure, oldest first, at most 20; absent when none were read. */
+            providerEvents?: components["schemas"]["WorkflowTaskProviderEvent"][];
+            /** @description The next step for the user; absent when the Runner has none to suggest. */
+            remediation?: string;
+            target?: components["schemas"]["WorkflowResourceReference"];
+        };
         /** @description The stable, user-facing diagnostic of a Task failure. */
         WorkflowTaskError: {
             /** @description Machine-readable failure code, for example `ansible_failed`. */
             code: string;
+            /** @description The structured explanation of the failure; null when the Runner recorded none. */
+            diagnostic: components["schemas"]["WorkflowTaskDiagnostic"] | null;
+            /** @description What happened, for the user; redacted. Must not be parsed. */
             message: string;
             /** @description Whether a Task retry may be requested. */
             retryable: boolean;
@@ -6838,6 +6877,14 @@ export interface components {
             unreachable: number;
             updatedAt: components["schemas"]["Timestamp"];
         };
+        /** @description One event a provider recorded about a Task's target, copied into a diagnostic as evidence. */
+        WorkflowTaskProviderEvent: {
+            at?: components["schemas"]["Timestamp"];
+            /** @description The provider's description of the event; redacted. */
+            description: string;
+            /** @description The provider's event type. */
+            type: string;
+        };
         /** @description Acknowledges a stored Task retry. */
         WorkflowTaskRetryAccepted: {
             taskId: string;
@@ -6848,6 +6895,24 @@ export interface components {
          * @enum {string}
          */
         WorkflowTaskStatus: "pending" | "running" | "waiting_external" | "waiting_dependency" | "succeeded" | "failed" | "canceled" | "skipped" | "requires_attention";
+        /** @description Advisory progress of a running Task that waits on something slow, published by its Runner while it waits; the authoritative outcome is the Task's `status` and `error`. */
+        WorkflowTaskWaiting: {
+            /** @description Observations made so far in this wait. */
+            attempts: number;
+            /**
+             * Format: int64
+             * @description How long the wait may run before the Task fails; absent for a wait without a budget.
+             */
+            budgetSeconds?: number;
+            /**
+             * Format: int64
+             * @description How long the wait has run.
+             */
+            elapsedSeconds: number;
+            /** @description The latest observed state of what the Task waits for; redacted. */
+            observation: string;
+            observedAt: components["schemas"]["Timestamp"];
+        };
         /** @description Correlation with the durable Temporal execution. */
         WorkflowTemporalReference: {
             /** @description The Temporal run ID; absent until the execution starts. */
@@ -6858,7 +6923,7 @@ export interface components {
         /** @description One immutable, secret-free event in a Workflow's timeline. Known types include `operation_requested`, `operation_status`, `step_status` (once per Task status per attempt), and the cancel outcomes `canceled_deployment_returned_to_ready`, `canceled_deployment_left_as_is`, and `canceled_deployment_return_failed`. */
         WorkflowTimelineEvent: {
             createdAt: components["schemas"]["Timestamp"];
-            /** @description Type-specific structured data; absent when the event has none. A `step_status` event carries `status` and `attempt` and, when the Task had a normalized error, its `code`, `message`, `stage`, and `retryable`. */
+            /** @description Type-specific structured data; absent when the event has none. A `step_status` event carries `status` and `attempt` and, when the Task had a normalized error, its `code`, `message`, `stage`, and `retryable`, plus its diagnostic's `failureClass` and, when the diagnostic has one, `endpoint`. */
             details?: {
                 [key: string]: unknown;
             };

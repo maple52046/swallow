@@ -118,7 +118,7 @@ func (r *Reader) ListMembers(ctx context.Context) ([]platformdomain.Member, erro
 
 	var out nodeListJSON
 	if err := httpjson.Do(r.httpClient, req, &out); err != nil {
-		return nil, translateError(err)
+		return nil, translateError(err, r.baseURL, "list nodes")
 	}
 
 	members := make([]platformdomain.Member, 0, len(out.Items))
@@ -200,7 +200,7 @@ func (r *Reader) controllerMembers(ctx context.Context) ([]platformdomain.Member
 
 	var out leaseListJSON
 	if err := httpjson.Do(r.httpClient, req, &out); err != nil {
-		return nil, translateError(err)
+		return nil, translateError(err, r.baseURL, "list controller leases")
 	}
 
 	now := time.Now()

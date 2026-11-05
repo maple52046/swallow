@@ -204,7 +204,8 @@ decision 072。
 - provider 與 internal Runner 的 activity：單次最長 7 天；worker 遺失時，Temporal 在 7 天
   的 schedule-to-close 內無上限重試（間隔 1 秒起、最長 30 秒）。這是 infrastructure retry，Task 的 attempt 不變。
 - **worker graceful stop** 只中止本地等待（`worker_shutdown`），不 abort MAAS、不 cancel Ansible；下一次 activity
-  attempt 以同一 idempotency key 接續觀察同一個外部工作。只有真正的 Workflow cancel 才取消外部工作。
+  attempt 以同一 idempotency key 接續觀察同一個外部工作。被較新的派發世代 fence 的 run（§4 的 Runner fencing）
+  也一樣只停止本地等待，由新世代的 run 接續。只有真正的 Workflow cancel 才取消外部工作。
 - **ansible executor 遺失**：Ansible activity 只執行一次（MaximumAttempts 1），heartbeat timeout 10 秒。executor
   停止時 activity 逾時，Task 記為 `requires_attention`（`executor_outcome_unknown`），不自動重跑；由 user
   明確重試。結果無法證明時不報成功、也不自動重跑。
@@ -223,12 +224,80 @@ decision 072。
 - **沒有自動重試**：任何 Task 都只在 user 要求時重試。
 - 不可重試的失敗（例如 `dispatch_fenced`、`executor_unavailable`）直接是 `failed`，不提供 retry。
 
+### 5.5 失敗診斷與等待中的觀察
+
+- **Task Diagnostic**：Runner 回報失敗時，normalized error 可帶 [Task Diagnostic](glossaries/terms/task-diagnostic.md)
+  （user 層：受影響的 target、下一步；admin 層：[Failure Class](glossaries/terms/failure-class.md)、endpoint、
+  operation、cause、等待的次數／經過時間／預算、最後的觀察、provider 事件）。欄位、null 與遮蔽的保證以
+  workflows 契約的「Task errors and diagnostics」為準。
+- **單一寫入者負責遮蔽**：engine 在記錄結果前把 error（message 與整個 diagnostic）經
+  `internal/shared/redact` 遮蔽並限制長度，Runner 漏了也不會存入 secret；`step_status` 事件保留每個 attempt
+  的 code、message、Failure Class 與 endpoint。
+- **等待中的觀察（`Task.waiting`）**：執行 Task 的 activity 把綁定該 attempt（Workflow、世代、Task、attempt）
+  的 `WaitingPublisher` 放在 Runner 的輸入中；Runner 每次觀察後經 core 以 targeted update 寫入，fencing 與
+  `Task.Live` 相同。Task 結束、重試、開始或取消時清除。它是 advisory，發佈失敗不讓 Task 失敗。
+- **關聯**：每個 Task 結果在 transition commit 後記一行結構化 log（`workflow task outcome`：workflowId、
+  taskId、attempt、kind、runner、status、`requestCorrelation`，失敗時加 code、retryable、failureClass、
+  endpoint）；成功、略過與取消是 Info，失敗與 `requires_attention` 是 Warn。
+
+### 5.6 等待與 timeout
+
+每個等待宣告它觀察什麼、怎麼分類，以及預算（[decision 077](../decisions/077-task-diagnostics-and-wait-policy.md)）：
+`permanent` 的觀察立即結束等待，`transient` 在預算內繼續等，`unknown` 比照 `transient` 等待、以 `unknown` 回報；
+預算用完時 Task 的 diagnostic 帶等待的次數、經過時間、預算與最後的觀察。下表是超過一分鐘的等待（以及
+`validate-platform-health`）的現況；「讀取失敗」指觀察來源本身讀不到，不是被等待的東西的狀態。
+
+| 等待 | 觀察什麼 | 分類 | 預算 | 預算用完或 permanent 時 |
+| --- | --- | --- | --- | --- |
+| `validate-platform-health`（internal） | 經 Platform API 同步 membership，再讀每台 target 是否帶這個 Platform 的 membership；每次觀察發佈 `Task.waiting` | permanent：API 拒絕 credential、TLS 失敗、API 拒絕請求（其他 4xx）、沒有 Integration 或 credential、Platform 已不存在。transient：請求沒有回應（refused、timeout、DNS、其他）、API 回報不可用、membership 還缺 target。unknown：其他（例如 store 錯誤） | 30 秒，從 Task 開始計、所有 transient 共用；至少觀察兩次，因為單次 API 呼叫最長是 Integration 的 timeout（預設 30 秒） | `failed`（可重試）：`platform_api_unreachable`、`platform_membership_incomplete`、`platform_health_timeout`（unknown）；permanent 為 `platform_api_auth`、`platform_api_tls`、`platform_api_rejected`、`platform_integration_missing`、`platform_credential_missing`，`platform_not_found` 不可重試。target 是 Platform。endpoint 的 IP 不再是 API Server（Task 參數 `apiServerId`：非 HA 叢集的初始 controller）的現有位址時，訊息點名兩個位址並說明紀錄的 endpoint 已過期，下一步是重新部署 Platform |
+| `wait-for-ssh`（internal） | 每台 target 的位址與 deployed 狀態，以及用 Deployment Key 完成 SSH 認證 | 沒有位址、尚未 deployed、連不上：繼續等。認證被拒超過 45 秒：立即失敗。repository 錯誤：立即失敗 | 20 分鐘 | `failed`（可重試）：`ssh_readiness_timeout`、`ssh_authentication_failed`。不發佈 `Task.waiting`、不帶 diagnostic |
+| `provision-os` 的部署觀察（provisioner） | 每 5 秒 refresh provider 的 machine 狀態，Deploying 時另讀 event stream；每次觀察發佈 `Task.waiting` | 見下面幾列 | 整體 2 小時 | `requires_attention` `provider_observation_timeout`（transient） |
+| ↳ provider 回報 `failed`／`broken` | machine 狀態 | permanent | 立即 | `failed` `deployment_failed`（可重試）；cause 是 provider 的錯誤說明與本次 attempt 安裝 log 的錯誤行，並帶 provider 在本次 attempt 記錄的 event |
+| ↳ 已受理、停在 `allocated` | machine 狀態 | transient | 10 分鐘 | `requires_attention` `deployment_reserved_not_started`，帶 event |
+| ↳ Deploying 而 live power 為 off | machine 狀態與 live power | permanent | 10 分鐘 | `requires_attention` `deployment_power_on_timeout`，帶 event |
+| ↳ 安裝階段沒有新 event | event stream | transient | 25 分鐘 | `requires_attention` `deployment_provider_stage_stall`，帶 event（[os-provisioning.md](os-provisioning.md) §10） |
+| ↳ 安裝完成後的 SSH 就緒 | Server 位址與 SSH port | 沒有位址、連不上：繼續等 | 20 分鐘 | `failed`（可重試）`deployment_address_unavailable`／`deployment_ssh_unreachable`；不帶 diagnostic |
+| `release-os` 的 Release 觀察（provisioner） | machine 狀態；每次觀察發佈 `Task.waiting` | `failed`／`broken`：permanent | 2 小時 | `requires_attention` `provider_observation_timeout`；`failed`／`broken` 立即 `failed` `release_failed`（可重試），訊息帶 provider 的錯誤說明，diagnostic 帶 event |
+| Release 的 static IP 清理（provisioner） | 清理 task 的狀態與 phase，由 Task 自己推進 | 未完成：transient | 30 分鐘：每一步是一次 provisioner 呼叫，這麼久沒完成就是卡住 | `requires_attention` `network_cleanup_timeout`，帶清理最後的 phase |
+| `recover-server` 與明確 Retry 的回復（provisioner） | machine 狀態；每次觀察發佈 `Task.waiting` | primitive 的上限見 [os-provisioning.md](os-provisioning.md) §11.2 | 2 小時 | `requires_attention` `provider_observation_timeout` 或 §11.2 的 `recover_*_unsettled` |
+| 上面三個觀察與 hardware inspection 的讀取失敗 | provider 讀取的錯誤 | permanent：credential 被拒或 Integration 沒有 credential、Integration 不存在或不是 provisioner、machine 已不存在、provider 拒絕請求。transient：provider 無法連線。unknown：其他 | permanent 立即；其他連續失敗 10 分鐘（provider 重啟要幾分鐘；一次成功的讀取就重新計算） | `requires_attention`（可重試）：permanent 為 `provider_auth`／`provider_observation_failed`，其他為 `provider_unavailable`；diagnostic 帶最後的錯誤、endpoint 與 operation。是 `requires_attention` 而不是 `failed`：provider 上的工作仍在進行，結果尚未證明 |
+| `inspect-hardware` 的 `wait-enrollment-settled`（provisioner） | 每 15 秒讀 enrollment，連續兩次 settled 才算 | 讀取失敗只重置計數 | 20 分鐘 | `requires_attention` `enrollment_not_settled`；不發佈 `Task.waiting` |
+| `inspect-hardware` 的 `inspect`（provisioner） | machine 狀態與 event stream；每次觀察發佈 `Task.waiting` | 有 event stream 時 15 分鐘沒有進度即 stall，abort 後最多等 3 分鐘 | 最多 3 次，每次 45 分鐘 | `requires_attention` `inspect_pxe_unreached`／`inspect_failed`／`inspect_abort_unsettled` |
+| 取消時回收被中斷的部署（`return-canceled-deployment` 補償，§8.3） | machine 狀態 | 讀取失敗不分類 | abort 後 10 分鐘；整個補償 30 分鐘（activity 的 StartToClose） | timeline 事件 `canceled_deployment_return_failed`；activity 每 3 秒 heartbeat，取消路徑等補償結束才釋放所有權 |
+| `ansible-playbook`（ansible executor） | playbook 自己的等待（role 的 `until` 迴圈） | swallow 不分類 | swallow 端沒有 timeout；activity 上限 7 天（heartbeat timeout 10 秒） | executor 遺失時 `requires_attention` `executor_outcome_unknown`（§5.3）；playbook 失敗時以 Ansible 的結果回報 |
+| `waiting_dependency`（§4） | 每 5 秒重新取得資源所有權 | — | 沒有上限 | 等到擁有資源的 Workflow 結束或自己被取消 |
+| `requires_attention`（§6） | 等 user 的重試或取消 | — | 沒有上限，期間持有全部資源 | — |
+
+規則：
+
+- postcondition（確認前一個 Task 產生的狀態成立，例如 Platform 部署後的健康）用短預算；它不成立是要回報的失敗，
+  不是要等待的進度。
+- 讀取失敗不是被等待的東西的觀察：它用同樣的分類，permanent 立即結束，其他在自己的預算內容忍，一次成功的讀取就
+  重新計算。
+- Failure Class 與 `retryable` 各自獨立：`permanent` 的失敗通常仍可重試，user 修好原因後重試即可；只有重試不可能
+  成功的情況（例如 Platform 已不存在）才不可重試。
+- 等待中每次觀察發佈一次 `Task.waiting`；發佈回報 `ErrDispatchFenced`（run 已被取代）時，Runner 在下一個副作用之前
+  停止，也不寫入任何投影，由取代它的 run 重新觀察。其他發佈失敗只記 log。
+
+尚未處理的等待：
+
+- Ansible role 的 `until` 迴圈（例如 k0s 套件安裝 120×5 秒、controller readyz 30×10 秒、每個 node Ready
+  10×(120+15) 秒）不分類、不發佈 `Task.waiting`，只在 playbook 失敗時以 Ansible 的訊息回報。
+- package maintenance hold 最長等 45 分鐘（`package_maintenance_hold_wait_seconds`）。
+- GPU Operator 的等待（每個資源 60×10 秒、helm `--timeout 10m`、driver 載入 300 秒）。
+- 沒有 Workflow 層級的總預算：各 Task 的預算加上停等時間沒有上限。
+- `requires_attention` 與 `waiting_dependency` 沒有上限；停在 `requires_attention` 的 Workflow 持有資源，等它資源的
+  Workflow 就一直 `waiting_dependency`。
+- `wait-for-ssh`、部署後的 SSH 就緒與 `wait-enrollment-settled` 不發佈 `Task.waiting`、不帶 diagnostic；回收被中斷部署的
+  補償不分類讀取錯誤；部署觀察的 2 小時整體上限沒有改變。
+
 ### 設計理由
 
 不自動重試、user 重試遞增 attempt 見 decision 072；
 Job 與 ensure Task 見 decision 072；重試粒度與單一路徑見
 decision 072；「結果無法證明就交給 user」源自
-decision 072。
+decision 072。失敗診斷、遮蔽而不抹除、等待觀察的發佈、log 關聯，以及等待的分類、預算與讀取失敗的容忍見
+[decision 077](../decisions/077-task-diagnostics-and-wait-policy.md)（Task diagnostics and wait policy）。
 
 ---
 
@@ -316,7 +385,7 @@ decision 072。
   dispatcher 把它送到目前的 run（Temporal cancel）；execution 已不存在或 Workflow 還沒派發時，重新派發，新的 run
   第一輪就走取消路徑。
 - **執行中的 Runner** 收到取消時 best-effort 停止外部工作（MAAS abort、對 `ansible-runner` 送出中斷）；worker
-  drain 造成的 context 結束不算取消（§5.3）。driver 等這些 activity 結束。
+  drain 與派發世代的 fencing 造成的 context 結束不算取消（§5.3）。driver 等這些 activity 結束。
 - **取消路徑**（driver 在 disconnected context 上執行，因為已取消的 workflow context 不會再送出 activity）：
   1. Workflow 投影為 `canceling`（reason `Canceling active work.`）。
   2. 依 Task 宣告的取消補償執行（§12），期間仍擁有資源：
@@ -343,7 +412,8 @@ Task 不會產生 `canceled` 投影。舊世代、舊 attempt 對已定案 Task 
 - 對每個在取消抵達時正在執行、且宣告 `return-canceled-deployment` 的 `provision-os`（一般部署都宣告；
   `verify-os-image` 不宣告，由它的 `recover-server` 歸還 Server），取消路徑在**仍擁有資源**時執行回收。回收不是
   Workflow 的 Task（因此不會改寫 `provision-os` 的投影），由該 Task 的 Runner（`provisioner`）執行。
-- 每台 Server 並行執行、只執行一次、各自上限 30 分鐘，best-effort。
+- 每台 Server 並行執行、只執行一次、各自上限 30 分鐘，best-effort。補償的 activity 執行中每 3 秒 heartbeat
+  （heartbeat timeout 30 秒），所以等 provider 的幾分鐘不會讓 Temporal 判定 activity 逾時，取消路徑一定等補償結束。
 - 依 provider 觀察到的狀態：
   - Deploying：abort，並等它離開 Deploying（最多 10 分鐘，逾時為 `canceled_deployment_still_in_progress`）；
     Releasing 時繼續觀察。
@@ -563,6 +633,7 @@ decision 072；deployment 以宣告式定義開發的方向見
 | 排程（pure function） | `internal/core/workflow/domain/schedule.go` |
 | `WorkflowService`：Create（驗證整份計畫、busy check、secret 封存）、命令、Rerun 與 Task 複製規則 | `internal/core/workflow/application/orchestration.go` |
 | 狀態轉換（單一寫入者）、完成行為的呼叫 | `internal/core/workflow/application/engine.go` |
+| Task Diagnostic、Failure Class、`Task.waiting` 與 `WaitProgress`；等待觀察的發佈（`WaitingPublisher`）；遮蔽 | `internal/core/workflow/domain/diagnostic.go`、`internal/core/workflow/application/waiting.go`、`internal/shared/redact/` |
 | 完成行為的 handler（投影類與結果類） | `internal/app/workflow_completions.go` |
 | `workflow-dispatch` controller 與 executor port | `internal/core/workflow/application/dispatcher.go` |
 | driver workflow、activities、executor adapter | `internal/adapters/executor/temporalworkflow/` |
@@ -573,6 +644,7 @@ decision 072；deployment 以宣告式定義開發的方向見
 | Platform uninstall 的受理與取代 | `internal/app/platform_deployment_adapter.go`、`internal/core/platform/application/uninstall_platform.go` |
 | Server deployment 投影 | `internal/app/server_deployment_projection.go` |
 | `return-canceled-deployment` 與 `release-os` 的先觀察；續跑的 attempt 只觀察（`resumedStep`） | `internal/app/provider_step_executor.go` |
+| 等待的分類與預算（§5.6）：provider 的觀察與讀取失敗（`providerWait`）、inspection、`validate-platform-health` | `internal/app/provider_step_executor.go`、`internal/app/inspection_steps.go`、`internal/app/platform_workflow_step_executor.go` |
 | Platform lifecycle 推導 | `internal/app/platform_lifecycle_adapter.go` |
 | worker 與 executor 的接線 | `internal/app/worker.go`、`internal/app/ansible_executor.go` |
 | Ansible activity（串流、`Task.Live`、fencing、結果類完成行為） | `internal/core/workflow/application/ansible_task.go` |

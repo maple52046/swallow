@@ -473,7 +473,7 @@ snapshot 移除，改存為加密的 opaque secret reference。
 
 | Code | 情況 | 可重試 | 明確 Retry 的行為 |
 | --- | --- | --- | --- |
-| `deployment_failed` | provider 回報 `failed`／`broken`；訊息帶 provider 原因與安裝 log 的錯誤行（[decision 047](../decisions/047-redfish-boot-media.md)（redfish boot media） 的修訂） | 是 | 先 Recover 再重新部署（§11.3） |
+| `deployment_failed` | provider 回報 `failed`／`broken`；訊息帶 provider 原因與安裝 log 的錯誤行（[decision 047](../decisions/047-redfish-boot-media.md)（redfish boot media） 的修訂）；diagnostic 帶本次 attempt 的 provider event | 是 | 先 Recover 再重新部署（§11.3） |
 | `deployment_address_unavailable` | 已安裝凍結的 image，但 provider 沒有位址 | 是 | Release、等 Ready、以同一份凍結意圖重新部署 |
 | `deployment_ssh_unreachable` | 有位址但 SSH 不通 | 是 | 只觀察，不丟棄已安裝的 OS |
 | `deployment_preflight_rejected` | swallow 自己的 preflight 在任何 provider 寫入前拒絕（target 不是 ready、image 未 staged 或未驗證、網路衝突） | 否 | —（Workflow 結束並釋放 Server） |
@@ -505,6 +505,11 @@ provider 回報 Deploying 時，`provision-os` 每次觀察都讀 provider 的 m
   - 受理的部署停在 `allocated` 超過 10 分鐘（已保留但沒開始安裝）→ `deployment_reserved_not_started`
     （`requires_attention`）。
   - 整體觀察上限 2 小時 → `provider_observation_timeout`。
+  - 讀取 provider 失敗：credential 被拒、Integration 或 machine 不存在時立即 `requires_attention`（`provider_auth`／
+    `provider_observation_failed`）；其他錯誤連續 10 分鐘才 `requires_attention` `provider_unavailable`
+    （[workflow-execution.md](workflow-execution.md) §5.6）。接續的 attempt 讀取失敗時同樣繼續讀，不會因讀不到而再送一次部署。
+  - stall 類的 `requires_attention` 與 `deployment_failed` 的 diagnostic 帶 provider 在本次 attempt 記錄的 event（最多
+    20 筆）。
 - Boot Media Server 的部署開機監看（重新掛載 ISO、經 Redfish 重啟一次）見
   [server-enrollment-and-boot-media.md](server-enrollment-and-boot-media.md)；重啟後 stall 計時從重啟開始。
 - 部署前不做 package source 的 preflight：swallow 無法得知每個 image 實際使用的 repository，無法安裝的套件來源仍只在
@@ -564,7 +569,8 @@ State Actions and Provider Recovery。
 - `failed`、`deployed`、`allocated` → Release（不清磁碟）。Release 本身失敗、Machine 仍為 failed（典型是無法完成的
   disk erase）時，一次性升級為 Mark broken → Mark fixed；仍未生效 → `recover_release_unsettled`。
 - `releasing` → 跟著既有的 Release 到 Ready，沿用同一套 static IP 清理契約。
-- 成功條件是觀察到 `ready`，成功後清除 Server 的 deployment 投影；上限 2 小時（`provider_observation_timeout`）。
+- 成功條件是觀察到 `ready`，成功後清除 Server 的 deployment 投影；上限 2 小時（`provider_observation_timeout`）；讀取
+  provider 失敗的容忍同 §10。
 
 ### 11.3 重試失敗的部署
 

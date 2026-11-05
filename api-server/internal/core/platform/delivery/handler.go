@@ -3,7 +3,7 @@ package delivery
 import (
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -15,6 +15,7 @@ import (
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
+	"github.com/maple52046/swallow/internal/shared/redact"
 )
 
 // PlatformHandler serves the Platform routes (platforms.md).
@@ -656,10 +657,10 @@ func respondError(c *fiber.Ctx, err error) error {
 		case platformdomain.ReaderErrorRejected:
 			return apierror.Respond(c, apierror.New(apierror.CodeValidation, readerErr.Detail))
 		}
-		log.Printf("platform api %s: %v", readerErr.Kind, readerErr.Err)
+		slog.Warn("platform API call failed", "kind", string(readerErr.Kind), "error", readerErr.Error())
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, readerErr.Detail))
 	}
 
-	log.Printf("platform: unhandled error: %v", err)
+	slog.Error("platform request failed with an unhandled error", "error", redact.Error(err))
 	return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
 }

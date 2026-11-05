@@ -1,4 +1,10 @@
-import { expect, test, type Page, type TestInfo } from 'playwright/test'
+import { expect, test, type Locator, type Page, type TestInfo } from 'playwright/test'
+import type {
+  OperationNormalizedError,
+  OperationStepWaiting,
+  OperationTaskDiagnostic,
+  OperationTimelineEvent,
+} from '@/domain/operation/types'
 import type { SoftwareAssignment } from '@/domain/software/types'
 import { CONTROLLER_WORKFLOW_ID, expectPlatformInstallStarted, installApiFixtures } from '../e2e/fixtures'
 
@@ -1055,6 +1061,279 @@ test.describe('Workflow detail visual review', () => {
       await capture(page, testInfo, `workflow-detail-header-${state}`, false)
     })
   }
+})
+
+// Dated just before setAppearance's frozen clock (2026-08-27T03:05:00Z), so a running Task's
+// duration and a wait's remaining budget read as they would live.
+const stalledDiagnostic: OperationTaskDiagnostic = {
+  failureClass: 'transient',
+  target: { kind: 'server', id: 'srv-1' },
+  endpoint: 'https://provisioner.lab:5240/api/2.0/machines/abc123/',
+  operation: 'read machine status',
+  cause: 'GET https://provisioner.lab:5240/api/2.0/machines/abc123/: still Deploying after 12 polls\nAuthorization: [REDACTED]',
+  remediation: 'Open the Server console to see where the installer stopped, then retry the Task.',
+  observation: 'srv-1 is Deploying (installing the OS)',
+  observedAt: '2026-08-27T02:59:30Z',
+  attempts: 12,
+  elapsedSeconds: 1800,
+  budgetSeconds: 1800,
+  providerEvents: [
+    { type: 'Deploying', description: 'Started deploying the machine', at: '2026-08-27T02:30:00Z' },
+    { type: 'Node changed status', description: 'From Allocated to Deploying' },
+  ],
+}
+
+const stalledError: OperationNormalizedError = {
+  code: 'deployment_stalled',
+  message: 'The OS deployment of srv-1 did not finish within its budget.\nThe provider still reports Deploying.',
+  retryable: true,
+  stage: 'deploying',
+  diagnostic: stalledDiagnostic,
+}
+
+const longProvisionerEndpoint =
+  'https://maas-region-controller-01.taipei-datacenter.lab.example.internal:5240/MAAS/api/2.0/machines/4y3h7p-gpu-node-01-rack-07-u12/?op=[REDACTED]&include_power_parameters=[REDACTED]'
+
+// Evidence that is hard to wrap on a phone: an endpoint that breaks only at its punctuation, a
+// multi-line cause with unbroken device paths, and provider events with long descriptions, one
+// of them without a time.
+const longStalledError: OperationNormalizedError = {
+  ...stalledError,
+  diagnostic: {
+    ...stalledDiagnostic,
+    endpoint: longProvisionerEndpoint,
+    cause: [
+      `read machine status: GET ${longProvisionerEndpoint}: still Deploying after 12 polls over 30m0s`,
+      'caused by: the machine has not reported back since curtin started writing the root filesystem to /dev/disk/by-id/nvme-SAMSUNG_MZQL23T8HCLS-00A07_S64HNE0T512345-part2',
+      'caused by: the last rack controller message was "cloud-init did not reach its final stage"; Authorization: [REDACTED]',
+    ].join('\n'),
+    providerEvents: [
+      { type: 'Deploying', description: 'Started deploying the machine', at: '2026-08-27T02:30:00Z' },
+      { type: 'Node changed status', description: 'From Allocated to Deploying', at: '2026-08-27T02:30:02Z' },
+      { type: 'PXE Request', description: 'Machine powered on and requested a boot image over PXE from rack controller rack-07 (192.168.40.2)', at: '2026-08-27T02:31:10Z' },
+      { type: 'Loading ephemeral', description: 'Loading the ephemeral environment ubuntu/noble/amd64/ga-24.04/stable', at: '2026-08-27T02:32:40Z' },
+      { type: 'Installation', description: 'curtin: writing the root filesystem to /dev/disk/by-id/nvme-SAMSUNG_MZQL23T8HCLS-00A07_S64HNE0T512345-part2', at: '2026-08-27T02:36:05Z' },
+      { type: 'Node status event', description: 'cloud-init: modules-config stage started' },
+    ],
+  },
+}
+
+/** srv-1's `provision-os` Task as the workflows contract returns it: failed on its first attempt unless overridden. */
+function diagnosticTask(overrides: Record<string, unknown>) {
+  return {
+    id: 'provision-srv-1', kind: 'provision-os', name: 'Provision OS on srv-1', executor: 'maas', dependsOn: [],
+    targets: [{ kind: 'server', id: 'srv-1' }], status: 'failed', attempt: 1, progress: 0,
+    error: null, externalExecution: null, waiting: null, artifacts: [],
+    startedAt: '2026-08-27T02:29:00Z', finishedAt: '2026-08-27T03:00:00Z',
+    ...overrides,
+  }
+}
+
+/** A one-Server OS deployment Workflow holding `tasks`, as `GET /workflows/{id}` returns it. */
+function diagnosticWorkflow(id: string, status: string, tasks: Array<Record<string, unknown>>) {
+  return {
+    id, schemaVersion: 3, kind: 'deploy-os', intent: 'Deploy Ubuntu on srv-1', intentSnapshot: {},
+    definition: 'deploy-os', definitionVersion: 1, status, statusReason: null,
+    startState: 'started', temporal: { workflowId: `swallow-operation/${id}` }, siteId: 'site-a', platformId: null,
+    targetResources: [{ kind: 'server', id: 'srv-1' }], targetServerIds: ['srv-1'], retryOfOperationId: null,
+    steps: tasks, jobs: [], leases: [], requestCorrelation: 'req-diagnostics',
+    execution: { runId: '', playbook: 'provision-os', status, statusReason: null, startedAt: '2026-08-27T02:28:30Z', finishedAt: null },
+    requestedBy: 'admin', requestedAt: '2026-08-27T02:28:00Z', startedAt: '2026-08-27T02:28:30Z', finishedAt: null, updatedAt: '2026-08-27T03:00:00Z',
+  }
+}
+
+function diagnosticRequestedEvent(workflowId: string, createdAt: string): OperationTimelineEvent {
+  return {
+    id: `${workflowId}/requested`, operationId: workflowId, type: 'operation_requested',
+    message: 'Operation accepted and waiting for durable workflow start.', createdAt,
+  }
+}
+
+/**
+ * A `step_status` event of srv-1's Task. An attempt that ended with `error` records its code,
+ * message, stage, and retryable, and its diagnostic's failure class and endpoint when it has one,
+ * as the workflows contract's Timeline section describes.
+ */
+function diagnosticTaskEvent(
+  workflowId: string, status: string, attempt: number, createdAt: string, error?: OperationNormalizedError,
+): OperationTimelineEvent {
+  const failure = error
+    ? {
+        code: error.code, message: error.message, stage: error.stage ?? '', retryable: error.retryable,
+        ...(error.diagnostic ? { failureClass: error.diagnostic.failureClass, endpoint: error.diagnostic.endpoint } : {}),
+      }
+    : {}
+  return {
+    id: `${workflowId}/step/provision-srv-1/${status}/${attempt}`, operationId: workflowId, stepId: 'provision-srv-1',
+    type: 'step_status', message: `Provision OS on srv-1 changed to ${status}.`, createdAt, details: { status, attempt, ...failure },
+  }
+}
+
+/** The timeline of a Workflow whose Task failed on its first attempt with `error`. */
+function failedOnceTimeline(workflowId: string, error: OperationNormalizedError): OperationTimelineEvent[] {
+  return [
+    diagnosticRequestedEvent(workflowId, '2026-08-27T02:28:00Z'),
+    diagnosticTaskEvent(workflowId, 'running', 1, '2026-08-27T02:29:00Z'),
+    diagnosticTaskEvent(workflowId, 'failed', 1, '2026-08-27T03:00:00Z', error),
+  ]
+}
+
+/**
+ * Opens `workflow`'s detail page with `timeline` served for it; every other request falls back to
+ * the shared fixtures. Resolves once the heading and the timeline have rendered.
+ */
+async function openDiagnosticWorkflow(
+  page: Page, appearance: 'dark' | 'light', workflow: ReturnType<typeof diagnosticWorkflow>, timeline: OperationTimelineEvent[],
+) {
+  await installApiFixtures(page)
+  await setAppearance(page, appearance)
+  await page.route(`**/api/v1/workflows/${workflow.id}**`, async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path === `/api/v1/workflows/${workflow.id}` && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(workflow) })
+    }
+    if (path === `/api/v1/workflows/${workflow.id}/timeline`) {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(timeline) })
+    }
+    return route.fallback()
+  })
+  await page.goto(`/workflows/${workflow.id}?site=site-a`)
+  await expect(page.getByRole('heading', { level: 1, name: workflow.intent })).toBeVisible()
+  await expect(page.locator('ol.sw-timeline')).toBeVisible()
+}
+
+/**
+ * Captures the whole Workflow page, then the block under review at its real scale as a page clip:
+ * both start from the top of the page so the sticky shell never covers the block, and the clip
+ * keeps all of a block taller than a phone screen.
+ */
+async function captureDiagnosticCase(page: Page, testInfo: TestInfo, name: string, block: Locator) {
+  await page.evaluate(() => window.scrollTo(0, 0))
+  if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+  await capture(page, testInfo, name)
+  const box = await block.boundingBox()
+  const viewport = page.viewportSize()
+  if (!box || !viewport) throw new Error(`${name}: the block under review is not rendered`)
+  await page.screenshot({
+    path: testInfo.outputPath(`${name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+    fullPage: true, clip: { x: 0, y: box.y, width: viewport.width, height: box.height },
+  })
+}
+
+/**
+ * Captures Task Diagnostics on the Workflow detail page (workflows contract, "Task errors and
+ * diagnostics"): a failed Task's summary with its details closed, the same details open with long
+ * evidence, a running Task's waiting notice, earlier attempts' failures on the timeline, and an
+ * older error without a diagnostic. `--grep workflow-diagnostics` selects all five.
+ */
+test.describe('Workflow diagnostics visual review', () => {
+  test('workflow-diagnostics-failed-collapsed', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await openDiagnosticWorkflow(
+      page, appearance,
+      diagnosticWorkflow('op-diagnostic', 'failed', [diagnosticTask({ error: stalledError })]),
+      failedOnceTimeline('op-diagnostic', stalledError),
+    )
+    const debuggerSection = page.locator('section.sw-operation-debugger')
+    await expect(debuggerSection).toContainText('Next step: Open the Server console to see where the installer stopped, then retry the Task.')
+    await expect(debuggerSection.getByRole('button', { name: 'Show diagnostic details' })).toHaveAttribute('aria-expanded', 'false')
+    await prepareCapture(page, appearance)
+    await captureDiagnosticCase(page, testInfo, 'workflow-diagnostics-failed-collapsed', debuggerSection)
+  })
+
+  test('workflow-diagnostics-failed-expanded', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await openDiagnosticWorkflow(
+      page, appearance,
+      diagnosticWorkflow('op-diagnostic-long', 'failed', [diagnosticTask({ error: longStalledError })]),
+      failedOnceTimeline('op-diagnostic-long', longStalledError),
+    )
+    const debuggerSection = page.locator('section.sw-operation-debugger')
+    await debuggerSection.getByRole('button', { name: 'Show diagnostic details' }).click()
+    const details = page.getByRole('region', { name: 'Failure diagnostic details' })
+    await expect(details).toContainText(longProvisionerEndpoint)
+    // Six provider events and the header row.
+    await expect(details.getByRole('table', { name: 'Provider events around the failure' }).getByRole('row')).toHaveCount(7)
+    await prepareCapture(page, appearance)
+    await captureDiagnosticCase(page, testInfo, 'workflow-diagnostics-failed-expanded', debuggerSection)
+  })
+
+  test('workflow-diagnostics-waiting', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const waiting: OperationStepWaiting = {
+      observation: 'srv-1 is Deploying (installing the OS)', observedAt: '2026-08-27T03:04:30Z',
+      attempts: 4, elapsedSeconds: 125, budgetSeconds: 1800,
+    }
+    await openDiagnosticWorkflow(
+      page, appearance,
+      diagnosticWorkflow('op-waiting', 'waiting_external', [
+        diagnosticTask({ status: 'running', startedAt: '2026-08-27T03:02:25Z', finishedAt: null, waiting }),
+      ]),
+      [
+        diagnosticRequestedEvent('op-waiting', '2026-08-27T03:02:00Z'),
+        diagnosticTaskEvent('op-waiting', 'running', 1, '2026-08-27T03:02:25Z'),
+      ],
+    )
+    const debuggerSection = page.locator('section.sw-operation-debugger')
+    await expect(debuggerSection).toContainText('Waited 2m 5s of a 30m 0s budget (27m 55s left) · 4 observations')
+    await prepareCapture(page, appearance)
+    await captureDiagnosticCase(page, testInfo, 'workflow-diagnostics-waiting', debuggerSection)
+  })
+
+  // A transient first attempt with a long endpoint and a permanent second one without an endpoint,
+  // both retried; the Task itself now carries only its running third attempt.
+  test('workflow-diagnostics-timeline-attempts', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const unreachable: OperationNormalizedError = {
+      code: 'provider_unreachable', message: 'The provisioner API did not answer.\nGET timed out.', retryable: true, stage: '',
+      diagnostic: { failureClass: 'transient', endpoint: 'https://maas-region-controller-01.taipei-datacenter.lab.example.internal:5240/MAAS/api/2.0/' },
+    }
+    const missingImage: OperationNormalizedError = {
+      code: 'deployment_failed', message: 'The provider reported Failed deployment: ubuntu/noble has no amd64 boot resource.\nSync the image, then retry.',
+      retryable: true, stage: 'deployment', diagnostic: { failureClass: 'permanent' },
+    }
+    await openDiagnosticWorkflow(
+      page, appearance,
+      diagnosticWorkflow('op-retried', 'waiting_external', [
+        diagnosticTask({ status: 'running', attempt: 3, startedAt: '2026-08-27T02:58:00Z', finishedAt: null }),
+      ]),
+      [
+        diagnosticRequestedEvent('op-retried', '2026-08-27T02:20:00Z'),
+        diagnosticTaskEvent('op-retried', 'running', 1, '2026-08-27T02:20:30Z'),
+        diagnosticTaskEvent('op-retried', 'failed', 1, '2026-08-27T02:26:00Z', unreachable),
+        diagnosticTaskEvent('op-retried', 'running', 2, '2026-08-27T02:40:00Z'),
+        diagnosticTaskEvent('op-retried', 'failed', 2, '2026-08-27T02:52:00Z', missingImage),
+        diagnosticTaskEvent('op-retried', 'running', 3, '2026-08-27T02:58:00Z'),
+      ],
+    )
+    const timeline = page.locator('ol.sw-timeline')
+    await expect(timeline).toContainText('Attempt 1 · provider_unreachable · Transient failure')
+    await expect(timeline).toContainText('Attempt 2 · deployment_failed · Permanent failure')
+    await prepareCapture(page, appearance)
+    await captureDiagnosticCase(page, testInfo, 'workflow-diagnostics-timeline-attempts', timeline)
+  })
+
+  // An error stored before diagnostics existed: no affected target, next step, or disclosure, and a
+  // timeline event without a failure class.
+  test('workflow-diagnostics-without-diagnostic', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const legacyError: OperationNormalizedError = {
+      code: 'deployment_failed',
+      message: 'The provider reported Failed deployment.\nMAAS: Installation failed (refer to the installation log for more information).',
+      retryable: false,
+      diagnostic: null,
+    }
+    await openDiagnosticWorkflow(
+      page, appearance,
+      diagnosticWorkflow('op-plain-error', 'failed', [diagnosticTask({ error: legacyError })]),
+      failedOnceTimeline('op-plain-error', legacyError),
+    )
+    const debuggerSection = page.locator('section.sw-operation-debugger')
+    await expect(debuggerSection).toContainText('The provider reported Failed deployment.')
+    await expect(debuggerSection.getByRole('button', { name: /diagnostic details/ })).toHaveCount(0)
+    await prepareCapture(page, appearance)
+    await captureDiagnosticCase(page, testInfo, 'workflow-diagnostics-without-diagnostic', debuggerSection)
+  })
 })
 
 /**

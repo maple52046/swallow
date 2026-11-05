@@ -14762,6 +14762,11 @@ components:
           items:
             $ref: '#/components/schemas/WorkflowResourceReference'
           type: array
+        waiting:
+          allOf:
+            - $ref: '#/components/schemas/WorkflowTaskWaiting'
+          description: What the running attempt waits for, as its Runner last published it; null when the Task is not waiting on anything it reports.
+          nullable: true
         waitingReason:
           description: Why the Task is waiting; absent when it is not.
           type: string
@@ -14777,6 +14782,7 @@ components:
         - progress
         - error
         - externalExecution
+        - waiting
         - artifacts
         - startedAt
         - finishedAt
@@ -14802,13 +14808,67 @@ components:
         - sizeBytes
         - createdAt
       type: object
+    WorkflowTaskDiagnostic:
+      description: 'The structured, redacted explanation of a Task failure, in two layers: the user layer (`target`, `remediation`, with the error''s `message`) and the admin layer (the rest). Every text is redacted, not erased: secrets are masked and the cause is kept.'
+      properties:
+        attempts:
+          description: How many observations or calls the failing wait made; absent when not counted.
+          type: integer
+        budgetSeconds:
+          description: How long the failing wait was allowed to run; absent for a wait without a budget.
+          format: int64
+          type: integer
+        cause:
+          description: The causal chain of the failure for an administrator; redacted, at most 2000 characters.
+          type: string
+        elapsedSeconds:
+          description: How long the failing wait ran; absent when not measured or shorter than a second.
+          format: int64
+          type: integer
+        endpoint:
+          description: The address the failing call went to, without userinfo, query values, or fragment; absent when the failure involved no remote endpoint.
+          type: string
+        failureClass:
+          description: Whether the same attempt can succeed later without a change (`transient`), repeats until something changes (`permanent`), or could not be classified (`unknown`).
+          enum:
+            - transient
+            - permanent
+            - unknown
+          type: string
+        observation:
+          description: The last thing the failing wait observed; absent when the failure came from no wait.
+          type: string
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+        operation:
+          description: The provider or platform call that failed, for example `read cluster nodes`; absent when not recorded.
+          type: string
+        providerEvents:
+          description: Events the provider recorded about the target around the failure, oldest first, at most 20; absent when none were read.
+          items:
+            $ref: '#/components/schemas/WorkflowTaskProviderEvent'
+          type: array
+        remediation:
+          description: The next step for the user; absent when the Runner has none to suggest.
+          type: string
+        target:
+          $ref: '#/components/schemas/WorkflowResourceReference'
+      required:
+        - failureClass
+      type: object
     WorkflowTaskError:
       description: The stable, user-facing diagnostic of a Task failure.
       properties:
         code:
           description: Machine-readable failure code, for example `ansible_failed`.
           type: string
+        diagnostic:
+          allOf:
+            - $ref: '#/components/schemas/WorkflowTaskDiagnostic'
+          description: The structured explanation of the failure; null when the Runner recorded none.
+          nullable: true
         message:
+          description: What happened, for the user; redacted. Must not be parsed.
           type: string
         retryable:
           description: Whether a Task retry may be requested.
@@ -14820,6 +14880,7 @@ components:
         - code
         - message
         - retryable
+        - diagnostic
       type: object
     WorkflowTaskEvents:
       description: The per-host Ansible results of one run, with counts derived from the list so the two never disagree. Task output is never included.
@@ -14917,6 +14978,21 @@ components:
         - skipped
         - updatedAt
       type: object
+    WorkflowTaskProviderEvent:
+      description: One event a provider recorded about a Task's target, copied into a diagnostic as evidence.
+      properties:
+        at:
+          $ref: '#/components/schemas/Timestamp'
+        description:
+          description: The provider's description of the event; redacted.
+          type: string
+        type:
+          description: The provider's event type.
+          type: string
+      required:
+        - type
+        - description
+      type: object
     WorkflowTaskRetryAccepted:
       description: Acknowledges a stored Task retry.
       properties:
@@ -14941,6 +15017,31 @@ components:
         - skipped
         - requires_attention
       type: string
+    WorkflowTaskWaiting:
+      description: Advisory progress of a running Task that waits on something slow, published by its Runner while it waits; the authoritative outcome is the Task's `status` and `error`.
+      properties:
+        attempts:
+          description: Observations made so far in this wait.
+          type: integer
+        budgetSeconds:
+          description: How long the wait may run before the Task fails; absent for a wait without a budget.
+          format: int64
+          type: integer
+        elapsedSeconds:
+          description: How long the wait has run.
+          format: int64
+          type: integer
+        observation:
+          description: The latest observed state of what the Task waits for; redacted.
+          type: string
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+      required:
+        - observation
+        - observedAt
+        - attempts
+        - elapsedSeconds
+      type: object
     WorkflowTemporalReference:
       description: Correlation with the durable Temporal execution.
       properties:
@@ -14960,7 +15061,7 @@ components:
           $ref: '#/components/schemas/Timestamp'
         details:
           additionalProperties: true
-          description: Type-specific structured data; absent when the event has none. A `step_status` event carries `status` and `attempt` and, when the Task had a normalized error, its `code`, `message`, `stage`, and `retryable`.
+          description: Type-specific structured data; absent when the event has none. A `step_status` event carries `status` and `attempt` and, when the Task had a normalized error, its `code`, `message`, `stage`, and `retryable`, plus its diagnostic's `failureClass` and, when the diagnostic has one, `endpoint`.
           type: object
         id:
           type: string

@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -10,14 +11,16 @@ import (
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
-// fakeAnsibleRunner runs a fake playbook: it records the input, reports one streamed event, and
-// either returns result data, fails, or waits until canceled.
+// fakeAnsibleRunner runs a fake playbook: it records the input, reports its streamed events (one
+// changed result unless events is set), and either returns result data, fails, or waits until
+// canceled.
 type fakeAnsibleRunner struct {
 	mu      sync.Mutex
 	input   workflowdomain.RunnerInput
 	fail    error
 	block   bool
 	data    map[string]any
+	events  []workflowdomain.TaskEvent
 	started chan struct{}
 }
 
@@ -36,6 +39,13 @@ func (r *fakeAnsibleRunner) Run(ctx context.Context, input workflowdomain.Runner
 }
 
 func (r *fakeAnsibleRunner) EventsSince(string, int) (workflowdomain.RunProgressDelta, error) {
+	if r.events != nil {
+		streamed := make([]workflowdomain.StreamedTaskEvent, len(r.events))
+		for i, event := range r.events {
+			streamed[i] = workflowdomain.StreamedTaskEvent{Seq: i + 1, TaskEvent: event}
+		}
+		return workflowdomain.RunProgressDelta{LastSeq: len(streamed), Events: streamed}, nil
+	}
 	return workflowdomain.RunProgressDelta{
 		LastSeq: 1, CurrentTask: "install",
 		Events: []workflowdomain.StreamedTaskEvent{{TaskEvent: workflowdomain.TaskEvent{Status: "ok", Changed: true}}},
@@ -175,6 +185,55 @@ func TestAnsibleTaskFailures(t *testing.T) {
 	if outcome := failed.Run(context.Background(), resumed); outcome.Status != workflowdomain.TaskRequiresAttention ||
 		outcome.Error.Code != "executor_outcome_unknown" {
 		t.Errorf("a resumed attempt = %+v, want executor_outcome_unknown", outcome)
+	}
+}
+
+// A failed run keeps its message and explains itself: an unknown class, the redacted summary as
+// the cause, and the failing task and Server when the streamed results name exactly one.
+func TestAnsibleTaskFailureCarriesADiagnostic(t *testing.T) {
+	summary := `- s1: task "Join the cluster" failed: token=hunter2 rejected | rc=1`
+	failed := func(host, task, status string) workflowdomain.TaskEvent {
+		return workflowdomain.TaskEvent{Host: host, Task: task, Status: status}
+	}
+	cases := []struct {
+		name      string
+		events    []workflowdomain.TaskEvent
+		operation string
+		target    *workflowdomain.ResourceReference
+	}{
+		{"one Server failed", []workflowdomain.TaskEvent{
+			failed("s1", "Install packages", "ok"), failed("s1", "Probe the port", "failed"), failed("s1", "Join the cluster", "failed"),
+		}, "Join the cluster", &workflowdomain.ResourceReference{Kind: "server", ID: "s1"}},
+		{"hosts failed in different tasks", []workflowdomain.TaskEvent{
+			failed("s1", "Join the cluster", "failed"), failed("s2", "Gathering Facts", "unreachable"),
+		}, "", nil},
+		{"hosts failed in the same task", []workflowdomain.TaskEvent{
+			failed("s1", "Join the cluster", "failed"), failed("s2", "Join the cluster", "failed"),
+		}, "Join the cluster", nil},
+		{"a host that is not a target", []workflowdomain.TaskEvent{failed("localhost", "Render the config", "failed")}, "Render the config", nil},
+		{"no failed result", []workflowdomain.TaskEvent{}, "", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tasks, _, _ := newAnsibleTaskFixture(t, &fakeAnsibleRunner{fail: errors.New(summary), events: tc.events}, stubGuard{})
+			outcome := tasks.Run(context.Background(), ansibleInput())
+			if outcome.Error == nil || outcome.Error.Code != "ansible_failed" || outcome.Error.Message != summary {
+				t.Fatalf("error = %+v, want ansible_failed with the runner's summary as the message", outcome.Error)
+			}
+			diagnostic := outcome.Error.Diagnostic
+			if diagnostic == nil {
+				t.Fatal("a failed run recorded no diagnostic")
+			}
+			if diagnostic.FailureClass != workflowdomain.FailureUnknown || diagnostic.Operation != tc.operation {
+				t.Errorf("class, operation = %q, %q, want unknown, %q", diagnostic.FailureClass, diagnostic.Operation, tc.operation)
+			}
+			if (diagnostic.Target == nil) != (tc.target == nil) || (tc.target != nil && *diagnostic.Target != *tc.target) {
+				t.Errorf("target = %+v, want %+v", diagnostic.Target, tc.target)
+			}
+			if !strings.Contains(diagnostic.Cause, `task "Join the cluster" failed: token=[REDACTED] rejected`) {
+				t.Errorf("cause = %q, want the redacted summary", diagnostic.Cause)
+			}
+		})
 	}
 }
 

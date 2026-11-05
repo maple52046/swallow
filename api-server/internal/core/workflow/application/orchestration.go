@@ -618,6 +618,7 @@ func (s *WorkflowService) cloneStepsForRerun(source []workflowdomain.Task, refer
 			clone.FinishedAt = nil
 			clone.ExternalExecution = nil
 			clone.Live = nil
+			clone.Waiting = nil
 		}
 		steps[index] = clone
 	}

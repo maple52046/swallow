@@ -205,6 +205,54 @@ func TestEngineRedispatchKeepsOwnershipAndTheSweepFreesStaleOwners(t *testing.T)
 	}
 }
 
+// A published wait is a guarded, targeted write that the Workflow reads back, and the outcome that
+// ends the attempt clears it and stores its diagnostic under the store's default keys, redacted.
+func TestWorkflowRepoWaitingAndDiagnosticRoundTrip(t *testing.T) {
+	s := newEngineStore(t)
+	s.create(t, "w1", "s1")
+	gen := s.start(t, "w1")
+	ctx := context.Background()
+	ref := application.TaskRef{WorkflowID: "w1", Generation: gen, TaskID: "deploy", Attempt: 1}
+	observedAt := time.Now().UTC().Truncate(time.Millisecond)
+
+	if err := s.engine.UpdateWaiting(ctx, ref, workflowdomain.TaskWaiting{
+		Observation: "s1 is Deploying", ObservedAt: observedAt, Attempts: 2, ElapsedSeconds: 10, BudgetSeconds: 600,
+	}); err != nil {
+		t.Fatalf("UpdateWaiting: %v", err)
+	}
+	w, _ := s.workflows.FindByID(ctx, "w1")
+	if got := w.Steps[0].Waiting; got == nil || got.Observation != "s1 is Deploying" || !got.ObservedAt.Equal(observedAt) || got.BudgetSeconds != 600 {
+		t.Fatalf("stored waiting = %+v, want the published observation", got)
+	}
+	if err := s.workflows.UpdateTaskWaiting(ctx, "w1", gen-1, "deploy", 1, nil); !errors.Is(err, workflowdomain.ErrDispatchFenced) {
+		t.Fatalf("UpdateTaskWaiting with an old generation = %v, want ErrDispatchFenced", err)
+	}
+
+	if err := s.engine.Record(ctx, ref, application.Outcome{Status: workflowdomain.TaskFailed, Error: &workflowdomain.NormalizedError{
+		Code: "deployment_stalled", Message: "The deployment did not finish.", Retryable: true,
+		Diagnostic: &workflowdomain.TaskDiagnostic{
+			FailureClass: workflowdomain.FailureTransient, Endpoint: "https://u:p@provider.lab/api",
+			Target: &workflowdomain.ResourceReference{Kind: "server", ID: "s1"}, Attempts: 2,
+			ProviderEvents: []workflowdomain.ProviderEvent{{Type: "status", Description: "Deploying"}},
+		},
+	}}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	w, _ = s.workflows.FindByID(ctx, "w1")
+	task := w.Steps[0]
+	if task.Waiting != nil {
+		t.Errorf("waiting after the outcome = %+v, want nil", task.Waiting)
+	}
+	d := task.Error.Diagnostic
+	if d == nil || d.FailureClass != workflowdomain.FailureTransient || d.Endpoint != "https://provider.lab/api" ||
+		d.Target == nil || d.Target.ID != "s1" || d.Attempts != 2 || len(d.ProviderEvents) != 1 {
+		t.Errorf("stored diagnostic = %+v, want it read back redacted", d)
+	}
+	if err := s.workflows.UpdateTaskWaiting(ctx, "w1", gen, "deploy", 1, &workflowdomain.TaskWaiting{}); !errors.Is(err, workflowdomain.ErrTaskNotRunning) {
+		t.Errorf("UpdateTaskWaiting after the outcome = %v, want ErrTaskNotRunning", err)
+	}
+}
+
 // Live progress is fenced by the dispatch generation, and commands are refused once a Workflow
 // finished.
 func TestWorkflowRepoLiveFencingAndCommands(t *testing.T) {

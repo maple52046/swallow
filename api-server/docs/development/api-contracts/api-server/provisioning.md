@@ -750,10 +750,19 @@ when the provisioner can explain it:
 The description is the Server's `provisioning.errorDescription`; the installation error is the
 most specific line of the provider's newest failed installation log that started after the
 Task attempt started (for MAAS: the curtin handler error, else the exception that ended its
-traceback, else the first failed stage), at most 300 characters, with URL credentials removed
-and any line that mentions a password, token, or secret never used. Each part is omitted when
+traceback, else the first failed stage), at most 300 characters, with secrets masked as in Task
+errors ([workflows.md](workflows.md#task-errors-and-diagnostics)) and, for MAAS, its API key and
+OAuth consumer key and signature too; the rest of the line is kept. Each part is omitted when
 unavailable, down to `The provisioner reported that OS deployment failed.`; reading the
-installation log never changes the Task outcome. Lost provider responses enter observation
+installation log never changes the Task outcome. The Task's diagnostic carries the same
+explanation as its cause and the provider events recorded since the attempt started.
+
+While a deployment, Release, or Recover is observed, a read the provisioner rejects for its
+credential makes the Task `requires_attention` with `provider_auth` at once, and a missing
+Integration or machine with `provider_observation_failed`; any other failed read is tolerated
+and makes the Task `requires_attention` with `provider_unavailable` only after 10 minutes of
+consecutive failures. A resumed attempt whose read fails keeps reading under the same rule
+rather than submitting the deployment again. Lost provider responses enter observation
 first; swallow does not immediately submit a second deployment. An unknown outcome becomes
 `requires_attention`. A deployment swallow's own preflight refuses before any provider
 write (for example a target that is not ready, an image that is not staged or verified, or
@@ -781,7 +790,12 @@ Server. A Task succeeds only after Ready is observed. When static cleanup is req
 the same Task then runs its durable Provisioning Task to completion under the Workflow's
 resource lease; Task Retry after a cleanup failure retries cleanup only and never sends
 Release again. Provider cancellation is
-best-effort and confirmed prior effects are preserved.
+best-effort and confirmed prior effects are preserved. A provider-reported release failure
+(`failed` or `broken`) fails the Task with `release_failed` (stage `release`, retryable); its
+message names the provider's error description when there is one
+(`The provisioner reported that release failed: <description>.`) and its diagnostic carries the
+provider events of the attempt. A static cleanup still unfinished 30 minutes after Ready makes
+the Task `requires_attention` with `network_cleanup_timeout` (stage `network_cleanup`).
 
 Every attempt of a `release-os` Task reads the Server first. A Server already `releasing` is
 followed to Ready, and one already `ready` meets the Task's goal without a provider Release.
@@ -1002,6 +1016,15 @@ answers `200`, and the same message is recorded as the Integration's last sync e
 unknown Integration is `404 not_found` and a non-provisioner Integration `400 validation_error`.
 
 ## Compatibility Notes
+
+On 2026-11-05 the installation error in a `deployment_failed` message began masking secrets
+instead of skipping every line that mentions a password, token, or secret: such a line can now be
+the one shown, with its secret values reading `[REDACTED]`, and URL userinfo reads `[REDACTED]@`
+instead of being removed. The same day observation stopped ignoring failed provisioner reads
+(`provider_auth`, `provider_observation_failed`, `provider_unavailable`), `release_failed` began
+naming the provider's error description, and a static cleanup gained its 30-minute
+`network_cleanup_timeout`. Failed and attention Tasks carry a `diagnostic` (the Workflows
+contract). The request and response shapes are unchanged.
 
 On 2026-11-05 a deployment with a template whose `network` has no `mode` began keeping the
 template's mode, as [Multi-Server Deployment](#multi-server-deployment) says. It used to resolve to

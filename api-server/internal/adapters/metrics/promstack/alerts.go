@@ -41,7 +41,7 @@ func (a *AlertSource) ListAlerts(ctx context.Context) ([]*monitoringdomain.Alert
 
 	var out []alertJSON
 	if err := a.client.get(ctx, "/api/v2/alerts", query, &out); err != nil {
-		return nil, translateError(err)
+		return nil, translateCallError(err, a.client.baseURL, "GET /api/v2/alerts")
 	}
 
 	alerts := make([]*monitoringdomain.Alert, 0, len(out))
@@ -121,7 +121,7 @@ func (a *AlertSource) Silence(ctx context.Context, req monitoringdomain.SilenceR
 
 	var out silenceResponseJSON
 	if err := a.client.postJSON(ctx, "/api/v2/silences", payload, &out); err != nil {
-		return "", translateError(err)
+		return "", translateCallError(err, a.client.baseURL, "POST /api/v2/silences")
 	}
 	return out.SilenceID, nil
 }

@@ -575,7 +575,8 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
   （Retry 與 Recover 的完整規則見 [os-provisioning.md](os-provisioning.md)）。
 - **失敗的部署指出原因**：`deployment_failed` 的訊息帶 provisioner 的錯誤描述，以及該次 attempt 安裝 log 中最
   具體的一行（optional capability `InstallationFailureReader`；MAAS 讀 Task attempt 開始後最新的失敗安裝結果，只
-  下載它的 `install.log`，該行最多 300 字元、移除 URL 帳密，提到 password、token 或 secret 的行一律不用）。讀不到
+  下載它的 `install.log`，該行最多 300 字元；其中的 secret 以 `internal/shared/redact` 遮蔽為 `[REDACTED]`，MAAS
+  的 API key 與 OAuth consumer key、signature 由 adapter 另外遮蔽，其餘內容保留）。讀不到
   時省略，且讀 log 從不改變 Task 結果。訊息格式見
   [provisioning.md](../../api-server/docs/development/api-contracts/api-server/provisioning.md)。
 

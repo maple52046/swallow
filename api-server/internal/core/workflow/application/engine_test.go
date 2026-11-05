@@ -388,6 +388,9 @@ func TestEngine_ResumesTasksAnEarlierDispatchLeftRunning(t *testing.T) {
 	if playbook.Status != workflowdomain.TaskRequiresAttention || playbook.Error == nil || playbook.Error.Code != "executor_outcome_unknown" {
 		t.Fatalf("the Ansible Task = %s %+v, want requires_attention with executor_outcome_unknown", playbook.Status, playbook.Error)
 	}
+	if d := playbook.Error.Diagnostic; d == nil || d.FailureClass != workflowdomain.FailureUnknown || d.Remediation == "" {
+		t.Errorf("the Ansible Task's diagnostic = %+v, want an unknown outcome with a next step", d)
+	}
 	if again := f.advance(t, "w", second, "deploy"); len(again.Start) != 0 {
 		t.Errorf("a repeated Advance started %v again", startIDs(again))
 	}

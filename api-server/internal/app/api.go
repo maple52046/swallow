@@ -86,6 +86,35 @@ const shutdownTimeout = 10 * time.Second
 
 var httpRequestCount atomic.Uint64
 
+// requestLog counts every request and logs it once, after it was answered, with its request ID,
+// method, path, status, and duration. It must be registered after requestid (so the ID is set) and
+// before every other middleware and route, so it sees each of their errors.
+//
+// A handler or middleware that returns an error has not written its response yet: Fiber's error
+// handler does that only after the whole chain returned. So when the chain fails, requestLog runs
+// the app's error handler itself — the status it logs is the one the client receives (a 404 for no
+// route, 405, 413, 500) instead of the 200 the response held before — and returns nil, so the error
+// handler does not answer the request a second time. When the error handler itself fails, the
+// request is answered and logged 500, as Fiber does.
+func requestLog(logger *slog.Logger) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		started := time.Now()
+		if err := c.Next(); err != nil {
+			if handlerErr := c.App().ErrorHandler(c, err); handlerErr != nil {
+				// SendStatus fails only when the response cannot be written at all, which leaves
+				// nothing else to answer with; the 500 is still what gets logged.
+				_ = c.SendStatus(fiber.StatusInternalServerError)
+			}
+		}
+		httpRequestCount.Add(1)
+		logger.Info("http request",
+			"requestId", c.GetRespHeader(fiber.HeaderXRequestID),
+			"method", c.Method(), "path", c.Path(), "status", c.Response().StatusCode(),
+			"durationMs", time.Since(started).Milliseconds())
+		return nil
+	}
+}
+
 // RunAPI starts the HTTP API server and blocks until interrupted. It runs no background loop:
 // the worker observes external systems, and only the Server event relay runs beside the HTTP server.
 func RunAPI(cfg config.APIConfig) error {
@@ -565,16 +594,7 @@ func RunAPI(cfg config.APIConfig) error {
 		ErrorHandler:                 httpErrorHandler,
 	})
 	fiberApp.Use(requestid.New())
-	fiberApp.Use(func(c *fiber.Ctx) error {
-		started := time.Now()
-		err := c.Next()
-		httpRequestCount.Add(1)
-		slog.Info("http request",
-			"requestId", c.GetRespHeader(fiber.HeaderXRequestID),
-			"method", c.Method(), "path", c.Path(), "status", c.Response().StatusCode(),
-			"durationMs", time.Since(started).Milliseconds())
-		return err
-	})
+	fiberApp.Use(requestLog(slog.Default()))
 	// Before authentication and every handler, so an oversized body is refused before anything
 	// reads it; registered after the request ID and the request log so the 413 carries an ID and
 	// is logged like any other response.

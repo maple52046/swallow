@@ -8,17 +8,27 @@ import (
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	"github.com/maple52046/swallow/internal/shared/redact"
 )
 
 // MembershipReport summarises one membership read.
 type MembershipReport struct {
-	PlatformID   string   `json:"platformId"`
-	PlatformName string   `json:"platformName"`
-	Members      int      `json:"members"`
-	Matched      int      `json:"matched"`
-	Cleared      int      `json:"cleared"`
-	Unmatched    []string `json:"unmatched"`
-	Error        *string  `json:"error"`
+	PlatformID   string `json:"platformId"`
+	PlatformName string `json:"platformName"`
+	// IntegrationID is the Integration the read went through, for logs; it is not on the wire,
+	// where the Platform resource already carries its integrationId.
+	IntegrationID string   `json:"-"`
+	Members       int      `json:"members"`
+	Matched       int      `json:"matched"`
+	Cleared       int      `json:"cleared"`
+	Unmatched     []string `json:"unmatched"`
+	// Error is the failure as a redacted sentence, the same text the Platform's sync.lastError
+	// records; for a platform API failure it is ReaderError.Error, which names the call, its
+	// endpoint, how it failed, and the cause.
+	Error *string `json:"error"`
+	// Err is the failure Error describes, kept so a caller can classify it (errors.As a
+	// *platformdomain.ReaderError); nil when the sync succeeded.
+	Err error `json:"-"`
 }
 
 // MembershipSyncUseCase reads a platform's membership and writes it onto the servers'
@@ -71,9 +81,10 @@ func (uc *MembershipSyncUseCase) Execute(ctx context.Context, platformID string)
 
 func (uc *MembershipSyncUseCase) sync(ctx context.Context, platform *platformdomain.Platform) MembershipReport {
 	report := MembershipReport{
-		PlatformID:   platform.ID,
-		PlatformName: platform.Name,
-		Unmatched:    []string{},
+		PlatformID:    platform.ID,
+		PlatformName:  platform.Name,
+		IntegrationID: platform.IntegrationID,
+		Unmatched:     []string{},
 	}
 
 	startedAt := time.Now().UTC()
@@ -169,7 +180,9 @@ func (uc *MembershipSyncUseCase) recordSyncState(ctx context.Context, platform *
 }
 
 // fail records the failure while keeping the previous success timestamp, so a reader can
-// see both that the last attempt failed and how old the membership view is.
+// see both that the last attempt failed and how old the membership view is. The recorded
+// message is redacted because it is stored and served (sync.lastError, the report's error),
+// whatever the cause: a store or reader-factory failure may carry text no adapter redacted.
 func (uc *MembershipSyncUseCase) fail(
 	ctx context.Context,
 	platform *platformdomain.Platform,
@@ -177,8 +190,9 @@ func (uc *MembershipSyncUseCase) fail(
 	startedAt time.Time,
 	cause error,
 ) MembershipReport {
-	message := cause.Error()
+	message := redact.Error(cause)
 	report.Error = &message
+	report.Err = cause
 
 	uc.recordSyncState(ctx, platform, platformdomain.SyncState{
 		LastStartedAt:   &startedAt,

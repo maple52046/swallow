@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"time"
 
@@ -13,7 +14,9 @@ import (
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
+	"github.com/maple52046/swallow/internal/shared/redact"
 )
 
 // deploymentSubmitter submits one frozen OS deployment intent after swallow's preflight. The
@@ -50,7 +53,10 @@ type providerStepExecutor struct {
 	stageStallWait time.Duration
 	// canceledDeploymentWait overrides defaultCanceledDeploymentAbortWait in tests.
 	canceledDeploymentWait time.Duration
-	sshProbe               func(context.Context, string, int) error
+	// providerReadErrorWait overrides defaultProviderReadErrorWait, and releaseCleanupWait
+	// defaultReleaseCleanupWait, in tests.
+	providerReadErrorWait, releaseCleanupWait time.Duration
+	sshProbe                                  func(context.Context, string, int) error
 	// bootMedia recovers the deployment boot of a Boot Media Server that did not boot the ISO
 	// after the provisioner's power-on (decision 047). Nil disables the watch.
 	bootMedia bootMediaBootRecoverer
@@ -80,9 +86,27 @@ const (
 	// provider to leave Deploying after the abort. MAAS applies an abort within seconds; the window
 	// covers a slow provider while staying well inside the Workflow's 30-minute compensation cap.
 	defaultCanceledDeploymentAbortWait = 10 * time.Minute
+	// providerObservationWait bounds the deploy, release, and recover observations of one attempt.
+	providerObservationWait = 2 * time.Hour
+	// defaultProviderReadErrorWait is how long an observation tolerates provisioner reads that keep
+	// failing — the provisioner unreachable, or an error swallow cannot classify — before it asks
+	// for attention. A failed read says nothing about the Server and a provisioner restart takes
+	// minutes, so the window is wide; it is still far shorter than the observations themselves, so
+	// a provisioner that stays down is reported instead of being waited out for two hours.
+	defaultProviderReadErrorWait = 10 * time.Minute
+	// defaultReleaseCleanupWait bounds the static IP cleanup a Release finishes once its Server is
+	// Ready. Each cleanup step is one provisioner call, so a cleanup unfinished after this long is
+	// stuck, not slow.
+	defaultReleaseCleanupWait = 30 * time.Minute
 )
 
+// Execute runs one provisioner Task attempt. A failure's diagnostic that names no target names the
+// Task's Server: every provisioner Task acts on one.
 func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
+	return withServerTarget(e.execute(ctx, input), input.Step)
+}
+
+func (e providerStepExecutor) execute(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
 	switch input.Step.Kind {
 	case "provision-os":
 		serverID := firstTargetServer(input.Step)
@@ -93,7 +117,7 @@ func (e providerStepExecutor) Execute(ctx context.Context, input temporalworkflo
 			return providerAttention("deployment_projection_unavailable", err.Error(), "deployment_projection")
 		}
 		result := e.deploy(ctx, input)
-		if temporalworkflow.IsActivityWorkerStopping(ctx) {
+		if temporalworkflow.LeavesExternalWorkRunning(ctx) || isSuperseded(result) {
 			return result
 		}
 		// A verification borrow must reach a terminal outcome so its Workflow returns the borrowed
@@ -242,8 +266,11 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 		return providerFailed("invalid_step", "The provisioning Step has no Server target.", false).StepExecutionResult
 	}
 	if resumedStep(step) {
-		state, err := e.refresh.Execute(ctx, serverID)
-		if err == nil && state.State == string(provisioningdomain.MachineStatusDeployed) && imageMatches(state, input) {
+		state, stop := e.resumedDeploymentState(ctx, step, serverID)
+		if stop != nil {
+			return *stop
+		}
+		if state.State == string(provisioningdomain.MachineStatusDeployed) && imageMatches(state, input) {
 			readiness, inspectErr := e.inspectDeploymentReadiness(ctx, serverID, step.SiteID)
 			if inspectErr != nil {
 				return providerAttention("deployment_readiness_unavailable", inspectErr.Error(), "ssh_readiness")
@@ -258,42 +285,40 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 			}
 			return e.observeDeploy(ctx, step, serverID, input, true)
 		}
-		if err == nil && state.State == string(provisioningdomain.MachineStatusDeploying) {
+		if state.State == string(provisioningdomain.MachineStatusDeploying) {
 			return e.observeDeploy(ctx, step, serverID, input, true)
 		}
-		if err == nil {
-			machineState := provisioningdomain.MachineStatus(state.State)
-			switch {
-			case step.Step.Attempt > 1 && recoverableBeforeRedeploy(machineState):
-				// A layout that needs a new inspection fails every disk deployment the same way;
-				// refuse before Recover wipes the Machine only for the redeploy preflight to
-				// refuse it, and end the Step so the Operation frees the Server for Inspect.
-				if state.InspectionRequired && !deploysFromMemory(input) {
-					return providerFailed("inspection_required",
-						provisioningapp.InspectionRequiredMessage(state.InspectionRequiredReason), false).
-						withStage("deployment_preflight")
-				}
-				// The user retried a deployment the provider left unusable. The deploy
-				// preflight accepts only ready, so without returning the Machine to ready first
-				// every retry was refused and parked again, forever.
-				return e.recoverAndRedeploy(ctx, step, serverID, machineState, input)
-			case step.Step.Attempt > 1 && machineState == provisioningdomain.MachineStatusDeployed:
-				// Deployed with a different image (a match returned above). Replacing a running
-				// OS is not something a retry may do on its own; end the Step so the Operation
-				// frees the Server for an explicit Release.
-				return providerFailed("deployment_image_mismatch",
-					"The Server is already deployed with a different image. Release it, then deploy again.", false).
+		machineState := provisioningdomain.MachineStatus(state.State)
+		switch {
+		case step.Step.Attempt > 1 && recoverableBeforeRedeploy(machineState):
+			// A layout that needs a new inspection fails every disk deployment the same way;
+			// refuse before Recover wipes the Machine only for the redeploy preflight to
+			// refuse it, and end the Step so the Operation frees the Server for Inspect.
+			if state.InspectionRequired && !deploysFromMemory(input) {
+				return providerFailed("inspection_required",
+					provisioningapp.InspectionRequiredMessage(state.InspectionRequiredReason), false).
 					withStage("deployment_preflight")
-			case machineState == provisioningdomain.MachineStatusFailed || machineState == provisioningdomain.MachineStatusBroken:
-				// An activity retry of the first attempt (worker turnover), not a user retry:
-				// the deployment this attempt submitted failed while the worker was away. Report
-				// it exactly as observation would, and leave recovery to an explicit retry.
-				return providerFailed("deployment_failed", e.deploymentFailureMessage(ctx, step, serverID), true).withStage("deployment")
-			case machineState == provisioningdomain.MachineStatusAllocated:
-				// Same activity retry, with the submitted deployment reserved but not yet
-				// installing: keep observing it rather than submitting a second deployment.
-				return e.observeDeploy(ctx, step, serverID, input, true)
 			}
+			// The user retried a deployment the provider left unusable. The deploy
+			// preflight accepts only ready, so without returning the Machine to ready first
+			// every retry was refused and parked again, forever.
+			return e.recoverAndRedeploy(ctx, step, serverID, machineState, input)
+		case step.Step.Attempt > 1 && machineState == provisioningdomain.MachineStatusDeployed:
+			// Deployed with a different image (a match returned above). Replacing a running
+			// OS is not something a retry may do on its own; end the Step so the Operation
+			// frees the Server for an explicit Release.
+			return providerFailed("deployment_image_mismatch",
+				"The Server is already deployed with a different image. Release it, then deploy again.", false).
+				withStage("deployment_preflight")
+		case machineState == provisioningdomain.MachineStatusFailed || machineState == provisioningdomain.MachineStatusBroken:
+			// An activity retry of the first attempt (worker turnover), not a user retry:
+			// the deployment this attempt submitted failed while the worker was away. Report
+			// it exactly as observation would, and leave recovery to an explicit retry.
+			return e.deploymentFailed(ctx, step, serverID)
+		case machineState == provisioningdomain.MachineStatusAllocated:
+			// Same activity retry, with the submitted deployment reserved but not yet
+			// installing: keep observing it rather than submitting a second deployment.
+			return e.observeDeploy(ctx, step, serverID, input, true)
 		}
 	}
 	if locked := e.requireUnlocked(ctx, serverID); locked != nil {
@@ -316,8 +341,12 @@ func (e providerStepExecutor) deploy(ctx context.Context, step temporalworkflow.
 	return e.observeDeploy(ctx, step, serverID, input, true)
 }
 
+// observeDeploy follows a submitted deployment until swallow proves it (the frozen image deployed
+// and SSH reachable), publishing each observation as the Task's wait observation. Failed
+// provisioner reads are tolerated for providerReadErrorTimeout (providerWait); a stage the
+// provisioner stops advancing asks for attention with the events it recorded about the machine.
 func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string, input provisioningapp.DeployServersInput, accepted bool) temporalworkflow.StepExecutionResult {
-	deadline := time.NewTimer(2 * time.Hour)
+	deadline := time.NewTimer(providerObservationWait)
 	defer deadline.Stop()
 	ticker := time.NewTicker(e.pollInterval())
 	defer ticker.Stop()
@@ -327,9 +356,15 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 	var lastReadiness deploymentReadiness
 	progress := e.newDeploymentProgress(ctx, step, serverID)
 	watch := e.newBootMediaWatch(step)
+	wait := e.newProviderWait(ctx, step, serverID, "deployment", providerObservationWait)
 	for {
 		state, err := e.refresh.Execute(ctx, serverID)
-		if err == nil {
+		if err != nil {
+			if stop := wait.readFailed(ctx, err, time.Now()); stop != nil {
+				return *stop
+			}
+		} else {
+			observation := ""
 			switch state.State {
 			case string(provisioningdomain.MachineStatusDeploying):
 				allocatedSince = time.Time{}
@@ -340,11 +375,13 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 				if !now.Before(deployingSince.Add(e.powerOnTimeout())) {
 					powerState, supported, powerErr := e.queryLivePower(ctx, serverID)
 					if powerErr == nil && supported && powerState == provisioningdomain.PowerStateOff {
-						return providerAttention(
+						return e.stalledDeployment(ctx, wait, providerAttention(
 							"deployment_power_on_timeout",
 							"The provisioner still reports Deploying, but the Server remained powered off for 10 minutes. Check the provider deployment and power workflow before retrying.",
 							"deployment_power_on",
-						)
+						), workflowdomain.FailurePermanent, e.powerOnTimeout(),
+							"the provisioner reported Deploying while the Server's live power state stayed off",
+							"Check why the provisioner did not power the Server on (its power configuration and the BMC), then retry this Task.")
 					}
 					// A live-on, unknown, or temporarily unavailable power reading is not
 					// proof of a provider stall. Delay the next diagnostic query while the
@@ -352,11 +389,20 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 					deployingSince = now
 				}
 				if stalled := e.observeInstallProgress(ctx, step, serverID, &progress, now); stalled != nil {
-					return *stalled
+					if stalled.Error == nil || stalled.Error.Code != "deployment_provider_stage_stall" {
+						return *stalled
+					}
+					return e.stalledDeployment(ctx, wait, *stalled, workflowdomain.FailureTransient, e.stageStallTimeout(),
+						"the provisioner recorded no new installation event within the stage-stall window",
+						"Inspect the provider deployment where its last stage stopped (an unreachable package mirror is a common cause), then retry this Task; a retry observes again and accepts a deployment that finished.")
 				}
 				if watch.observe(ctx, serverID, progress, now) {
 					// The host's boot started over; the stall window measures from the restart.
 					progress.since = time.Now()
+				}
+				observation = providerStateObservation(wait.name, state, "waiting for the OS installation to finish.")
+				if stage := progress.shown.eventType; stage != "" {
+					observation = fmt.Sprintf("The provisioner reports %s as Deploying, at stage %s; waiting for the OS installation to finish.", wait.name, stage)
 				}
 			case string(provisioningdomain.MachineStatusAllocated):
 				// ALLOCATED is the brief reserved state MAAS passes through on its way to
@@ -369,12 +415,15 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 				if allocatedSince.IsZero() {
 					allocatedSince = now
 				} else if !now.Before(allocatedSince.Add(e.powerOnTimeout())) {
-					return providerAttention(
+					return e.stalledDeployment(ctx, wait, providerAttention(
 						"deployment_reserved_not_started",
 						"The provisioner reserved the Server (allocated) but did not start the OS installation. Check the provider deployment before retrying.",
 						"deployment",
-					)
+					), workflowdomain.FailureTransient, e.powerOnTimeout(),
+						"the provisioner kept the Server reserved (allocated) without starting the installation",
+						"Check the provider deployment, then retry this Task, or Recover the Server to return it to Ready.")
 				}
+				observation = fmt.Sprintf("The provisioner reserved %s (allocated) and has not started the OS installation yet.", wait.name)
 			case string(provisioningdomain.MachineStatusDeployed):
 				deployingSince = time.Time{}
 				allocatedSince = time.Time{}
@@ -405,23 +454,33 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 					if !time.Now().Before(readinessDeadline) {
 						return deploymentReadinessFailed(lastReadiness)
 					}
+					observation = deploymentReadinessObservation(wait.name, readiness)
 				}
 				if !accepted {
 					return providerAttention("provider_outcome_unknown", "The provider response was lost and the Server is deployed with a different image. Verify MAAS before retrying.", "deployment")
 				}
+				if observation == "" {
+					observation = fmt.Sprintf("The provisioner still reports %s as deployed with another image; waiting for the new deployment to start.", wait.name)
+				}
 			case string(provisioningdomain.MachineStatusFailed), string(provisioningdomain.MachineStatusBroken):
-				return providerFailed("deployment_failed", e.deploymentFailureMessage(ctx, step, serverID), true).withStage("deployment")
+				return e.deploymentFailed(ctx, step, serverID)
 			case string(provisioningdomain.MachineStatusReady):
 				deployingSince = time.Time{}
 				allocatedSince = time.Time{}
 				if !accepted {
 					return providerAttention("provider_outcome_unknown", "The provider response was lost before Swallow could prove whether deployment started. Verify MAAS before retrying.", "deployment")
 				}
+				observation = providerStateObservation(wait.name, state, "waiting for the deployment to start.")
+			default:
+				observation = providerStateObservation(wait.name, state, "waiting for it to reach Deployed.")
+			}
+			if stop := wait.observed(ctx, observation); stop != nil {
+				return *stop
 			}
 		}
 		select {
 		case <-ctx.Done():
-			if !temporalworkflow.IsActivityWorkerStopping(ctx) {
+			if !temporalworkflow.LeavesExternalWorkRunning(ctx) {
 				e.abort(serverID)
 			}
 			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
@@ -429,10 +488,40 @@ func (e providerStepExecutor) observeDeploy(ctx context.Context, step temporalwo
 			if !readinessDeadline.IsZero() {
 				return deploymentReadinessFailed(lastReadiness)
 			}
-			return providerAttention("provider_observation_timeout", "Timed out waiting for the Server to reach Deployed.", "deployment")
+			return wait.timedOut(providerAttention("provider_observation_timeout", "Timed out waiting for the Server to reach Deployed.", "deployment"),
+				"Check the deployment in the provisioner, then retry this Task; a retry observes again before it acts.")
 		case <-ticker.C:
 		}
 	}
+}
+
+// deploymentReadinessObservation is the wait observation of a deployment the provisioner finished
+// while swallow waits for the host to answer on its SSH port.
+func deploymentReadinessObservation(name string, readiness deploymentReadiness) string {
+	if len(readiness.addresses) == 0 {
+		return fmt.Sprintf("The provisioner installed the OS on %s; waiting for it to report the Server's address.", name)
+	}
+	return fmt.Sprintf("The provisioner installed the OS on %s; waiting for SSH port %d at %s.",
+		name, readiness.port, strings.Join(readiness.addresses, ", "))
+}
+
+// stalledDeployment attaches to result, an attention for a deployment stage the provisioner stopped
+// advancing, a diagnostic of class: the deployment wait's attempts, elapsed time and last
+// observation, the stage's own window as the budget, what stalled as the cause, and the events the
+// provisioner recorded about the machine during the attempt (DF-82).
+func (e providerStepExecutor) stalledDeployment(
+	ctx context.Context,
+	wait *providerWait,
+	result temporalworkflow.StepExecutionResult,
+	class workflowdomain.FailureClass,
+	window time.Duration,
+	stalled, remediation string,
+) temporalworkflow.StepExecutionResult {
+	diagnostic := wait.progress.Diagnostic(class, fmt.Errorf("%w: %s for %s", workflowdomain.ErrWaitBudgetExhausted, stalled, window), time.Now())
+	diagnostic.BudgetSeconds = int64(window / time.Second)
+	diagnostic.Target, diagnostic.Remediation = serverTarget(wait.serverID), remediation
+	diagnostic.ProviderEvents = e.providerEventsSince(ctx, wait.step, wait.serverID)
+	return withDiagnostic(result, diagnostic)
 }
 
 type deploymentReadiness struct {
@@ -542,7 +631,7 @@ func (e providerStepExecutor) recoverDeploymentWithoutAddress(ctx context.Contex
 	if err != nil {
 		return normalizeProviderError(err, "deployment_recovery_release")
 	}
-	released := e.observeRelease(ctx, serverID, step.OperationID, false, true)
+	released := e.observeRelease(ctx, step, serverID, false, true)
 	if released.Status != workflowdomain.TaskSucceeded {
 		return released
 	}
@@ -702,9 +791,9 @@ func (e providerStepExecutor) releaseServer(ctx context.Context, step temporalwo
 			return releaseFoundReady(input)
 		case provisioningdomain.MachineStatusReleasing:
 			if resumed {
-				return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
+				return e.observeRelease(ctx, step, serverID, input.UnbindStaticIPs, true)
 			}
-			if released := e.observeRelease(ctx, serverID, step.OperationID, false, true); released.Status != workflowdomain.TaskSucceeded {
+			if released := e.observeRelease(ctx, step, serverID, false, true); released.Status != workflowdomain.TaskSucceeded {
 				return released
 			}
 			return releaseFoundReady(input)
@@ -717,11 +806,11 @@ func (e providerStepExecutor) releaseServer(ctx context.Context, step temporalwo
 	if err != nil {
 		var providerErr *provisioningdomain.ProviderError
 		if errors.As(err, &providerErr) && providerErr.Kind == provisioningdomain.ProviderErrorUnavailable {
-			return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, false)
+			return e.observeRelease(ctx, step, serverID, input.UnbindStaticIPs, false)
 		}
 		return normalizeProviderError(err, "release")
 	}
-	return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
+	return e.observeRelease(ctx, step, serverID, input.UnbindStaticIPs, true)
 }
 
 // releaseFoundReady settles a first Release attempt that found its Server already Ready without
@@ -836,9 +925,13 @@ func (e providerStepExecutor) canceledDeploymentAbortTimeout() time.Duration {
 // looping. It is shared by the Recover Operation and by an explicit retry of a failed
 // provision-os, which returns its Server to ready before redeploying; the caller owns the
 // Server's deployment projection.
+//
+// Each observation is published as the Task's wait observation, and failed provisioner reads are
+// tolerated for providerReadErrorTimeout (providerWait).
 func (e providerStepExecutor) recoverToReady(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string, input provisioningapp.RecoverServerInput) temporalworkflow.StepExecutionResult {
-	deadline := time.NewTimer(2 * time.Hour)
+	deadline := time.NewTimer(providerObservationWait)
 	defer deadline.Stop()
+	wait := e.newProviderWait(ctx, step, serverID, "recover", providerObservationWait)
 	ticker := time.NewTicker(e.pollInterval())
 	defer ticker.Stop()
 	// Operator-state primitives (Mark fixed, exit rescue) are not instantaneous, and a failed
@@ -874,7 +967,11 @@ func (e providerStepExecutor) recoverToReady(ctx context.Context, step temporalw
 	var failedEscalatedAt, nextFailedBrokenAt time.Time
 	for {
 		state, err := e.refresh.Execute(ctx, serverID)
-		if err == nil {
+		if err != nil {
+			if stop := wait.readFailed(ctx, err, time.Now()); stop != nil {
+				return *stop
+			}
+		} else {
 			now := time.Now()
 			switch provisioningdomain.MachineStatus(state.State) {
 			case provisioningdomain.MachineStatusReady:
@@ -882,7 +979,7 @@ func (e providerStepExecutor) recoverToReady(ctx context.Context, step temporalw
 			case provisioningdomain.MachineStatusReleasing:
 				// A Release is already converging this Server; follow it to Ready and reuse
 				// the same static-IP cleanup contract as a direct Release.
-				return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
+				return e.observeRelease(ctx, step, serverID, input.UnbindStaticIPs, true)
 			case provisioningdomain.MachineStatusFailed, provisioningdomain.MachineStatusDeployed,
 				provisioningdomain.MachineStatusAllocated:
 				// First, return to Ready with a plain Release (no erase). `allocated` (reserved but
@@ -985,12 +1082,16 @@ func (e providerStepExecutor) recoverToReady(ctx context.Context, step temporalw
 				exitAttempts++
 				nextExitAt = now.Add(recoverSettle)
 			}
+			if stop := wait.observed(ctx, providerStateObservation(wait.name, state, "returning it to Ready.")); stop != nil {
+				return *stop
+			}
 		}
 		select {
 		case <-ctx.Done():
 			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
 		case <-deadline.C:
-			return providerAttention("provider_observation_timeout", "Timed out waiting for the Server to return to Ready.", "recover")
+			return wait.timedOut(providerAttention("provider_observation_timeout", "Timed out waiting for the Server to return to Ready.", "recover"),
+				"Check the Server in the provisioner, then retry this Task; a retry observes again before it acts.")
 		case <-ticker.C:
 		}
 	}
@@ -1039,11 +1140,11 @@ func (e providerStepExecutor) recoverViaRelease(ctx context.Context, step tempor
 	if err != nil {
 		var providerErr *provisioningdomain.ProviderError
 		if errors.As(err, &providerErr) && providerErr.Kind == provisioningdomain.ProviderErrorUnavailable {
-			return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, false)
+			return e.observeRelease(ctx, step, serverID, input.UnbindStaticIPs, false)
 		}
 		return normalizeProviderError(err, "recover_release")
 	}
-	return e.observeRelease(ctx, serverID, step.OperationID, input.UnbindStaticIPs, true)
+	return e.observeRelease(ctx, step, serverID, input.UnbindStaticIPs, true)
 }
 
 // escalateMarkBroken issues Mark broken as a recovery escalation and reports whether it was
@@ -1123,44 +1224,63 @@ func (e providerStepExecutor) recoverOperatorPrimitive(ctx context.Context, serv
 	return nil
 }
 
-func (e providerStepExecutor) observeRelease(ctx context.Context, serverID, operationID string, cleanupRequested, accepted bool) temporalworkflow.StepExecutionResult {
-	deadline := time.NewTimer(2 * time.Hour)
+// observeRelease follows a Release of the step's Server until the provisioner reports it Ready and
+// its requested static IP cleanup finished, publishing each observation as the Task's wait
+// observation. Failed provisioner reads are tolerated for providerReadErrorTimeout (providerWait).
+func (e providerStepExecutor) observeRelease(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string, cleanupRequested, accepted bool) temporalworkflow.StepExecutionResult {
+	deadline := time.NewTimer(providerObservationWait)
 	defer deadline.Stop()
 	ticker := time.NewTicker(e.pollInterval())
 	defer ticker.Stop()
+	wait := e.newProviderWait(ctx, step, serverID, "release", providerObservationWait)
 	for {
 		state, err := e.refresh.Execute(ctx, serverID)
-		if err == nil {
+		if err != nil {
+			if stop := wait.readFailed(ctx, err, time.Now()); stop != nil {
+				return *stop
+			}
+		} else {
 			switch state.State {
 			case string(provisioningdomain.MachineStatusReady):
-				return e.observeReleaseCleanup(ctx, serverID, operationID, cleanupRequested, false)
+				return e.observeReleaseCleanup(ctx, serverID, step.OperationID, cleanupRequested, false)
 			case string(provisioningdomain.MachineStatusFailed), string(provisioningdomain.MachineStatusBroken):
-				return providerFailed("release_failed", "The provisioner reported that release failed.", true).withStage("release")
+				return e.releaseFailed(ctx, step, serverID)
 			case string(provisioningdomain.MachineStatusDeployed):
 				if !accepted {
 					return providerAttention("provider_outcome_unknown", "The provider response was lost before Swallow could prove whether release started. Verify MAAS before retrying.", "release")
 				}
 			}
+			if stop := wait.observed(ctx, providerStateObservation(wait.name, state, "waiting for it to return to Ready.")); stop != nil {
+				return *stop
+			}
 		}
 		select {
 		case <-ctx.Done():
-			if !temporalworkflow.IsActivityWorkerStopping(ctx) {
+			if !temporalworkflow.LeavesExternalWorkRunning(ctx) {
 				e.abort(serverID)
 			}
 			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
 		case <-deadline.C:
-			return providerAttention("provider_observation_timeout", "Timed out waiting for the Server to return to Ready.", "release")
+			return wait.timedOut(providerAttention("provider_observation_timeout", "Timed out waiting for the Server to return to Ready.", "release"),
+				"Check the Release in the provisioner, then retry this Task; a retry observes again before it acts.")
 		case <-ticker.C:
 		}
 	}
 }
 
+// observeReleaseCleanup finishes the static IP cleanup a Release recorded for operationID once the
+// Server is Ready, advancing it from inside the release Task. It is bounded by
+// releaseCleanupTimeout: each cleanup step is one provisioner call, so a cleanup that has not
+// finished by then asks for attention with the cleanup's last phase instead of holding the Task.
 func (e providerStepExecutor) observeReleaseCleanup(ctx context.Context, serverID, operationID string, cleanupRequested, retryFailed bool) temporalworkflow.StepExecutionResult {
 	if !cleanupRequested {
 		return providerSucceeded()
 	}
 	ticker := time.NewTicker(e.pollInterval())
 	defer ticker.Stop()
+	deadline := time.NewTimer(e.releaseCleanupTimeout())
+	defer deadline.Stop()
+	wait := workflowdomain.NewWaitProgress(time.Now(), e.releaseCleanupTimeout())
 	for {
 		tasks, err := e.tasks.ListByServer(ctx, serverID)
 		if err != nil {
@@ -1196,9 +1316,19 @@ func (e providerStepExecutor) observeReleaseCleanup(ctx context.Context, serverI
 				continue
 			}
 		}
+		wait.Observe(fmt.Sprintf("The static IP cleanup is %s in phase %s.", cleanup.Status, cleanup.Phase), time.Now())
 		select {
 		case <-ctx.Done():
 			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
+		case <-deadline.C:
+			now := time.Now()
+			diagnostic := wait.Diagnostic(workflowdomain.FailureTransient,
+				fmt.Errorf("%w; the cleanup was %s in phase %s", workflowdomain.ErrWaitBudgetExhausted, cleanup.Status, cleanup.Phase), now)
+			diagnostic.Target = serverTarget(serverID)
+			diagnostic.Remediation = "Check the Server's static IP bindings on its Networking tab and in the provisioner, then retry this Task to finish the cleanup."
+			return withDiagnostic(providerAttention("network_cleanup_timeout",
+				fmt.Sprintf("The Server is Ready, but its static IP cleanup did not finish within %s.", e.releaseCleanupTimeout()),
+				"network_cleanup"), diagnostic)
 		case <-ticker.C:
 		}
 	}
@@ -1268,26 +1398,120 @@ func imageMatches(state *provisioningapp.ProvisioningStateItem, input provisioni
 // deployment, so a slow provisioner cannot delay the Step outcome.
 const installationFailureReadWait = 30 * time.Second
 
+// deploymentFailed is the retryable deployment_failed outcome of a deployment the provisioner
+// failed (DF-82). Its message names the provisioner's error description and this attempt's
+// installation error line (deploymentFailureMessage); its diagnostic carries both as the cause, and
+// the events the provisioner recorded about the machine during the attempt, which is the evidence
+// a user reads before retrying. The failure is classified permanent: an installation fails the same
+// way until its cause (the image, the storage layout, a package mirror) is fixed.
+func (e providerStepExecutor) deploymentFailed(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string) temporalworkflow.StepExecutionResult {
+	message, cause := e.deploymentFailureMessage(ctx, step, serverID)
+	diagnostic := workflowdomain.NewTaskDiagnostic(workflowdomain.FailurePermanent, nil)
+	diagnostic.Cause = redact.Text(cause)
+	diagnostic.Target = serverTarget(serverID)
+	diagnostic.ProviderEvents = e.providerEventsSince(ctx, step, serverID)
+	diagnostic.Remediation = "Read the installation error and the provisioner's events, fix their cause (the image, the storage layout, the package mirror), then retry this Task: it returns the Server to Ready and deploys it again."
+	return withDiagnostic(providerFailed("deployment_failed", message, true).withStage("deployment"), diagnostic)
+}
+
 // deploymentFailureMessage names why the provisioner failed the OS deployment: its error
 // description, then the most specific line of this attempt's installation log, each when
-// available. Either read failing only shortens the message; the Step outcome never changes.
-func (e providerStepExecutor) deploymentFailureMessage(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string) string {
+// available. Either read failing only shortens the message; the Step outcome never changes. cause
+// is the same explanation for a diagnostic, empty when the provisioner explained nothing.
+func (e providerStepExecutor) deploymentFailureMessage(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string) (message, cause string) {
 	const generic = "The provisioner reported that OS deployment failed"
 	server, err := e.servers.FindByID(ctx, serverID)
 	if err != nil {
-		return generic + "."
+		return generic + ".", ""
 	}
-	message := generic
-	if server.Provisioning != nil {
-		if description := strings.TrimRight(strings.TrimSpace(server.Provisioning.ErrorDescription), "."); description != "" {
-			message += ": " + description
-		}
+	message = generic
+	var causes []string
+	if description := provisioningErrorDescription(server); description != "" {
+		message += ": " + description
+		causes = append(causes, "provisioner error description: "+description)
 	}
 	message += "."
 	if line := e.installationFailure(ctx, step, server); line != "" {
 		message += " Installation error: " + line
+		causes = append(causes, "installation error: "+line)
 	}
-	return message
+	return message, strings.Join(causes, "; ")
+}
+
+// releaseFailed is the retryable release_failed outcome of a Release the provisioner failed
+// (DF-82): its message names the provisioner's error description, and its diagnostic carries it
+// with the events the provisioner recorded about the machine during the attempt. It is classified
+// permanent: the usual cause, a disk erase that cannot complete, fails the same way again.
+func (e providerStepExecutor) releaseFailed(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string) temporalworkflow.StepExecutionResult {
+	message := "The provisioner reported that release failed."
+	diagnostic := workflowdomain.NewTaskDiagnostic(workflowdomain.FailurePermanent, nil)
+	if server, err := e.servers.FindByID(ctx, serverID); err == nil {
+		if description := provisioningErrorDescription(server); description != "" {
+			message = "The provisioner reported that release failed: " + description + "."
+			diagnostic.Cause = redact.Text("provisioner error description: " + description)
+		}
+	}
+	diagnostic.Target = serverTarget(serverID)
+	diagnostic.ProviderEvents = e.providerEventsSince(ctx, step, serverID)
+	diagnostic.Remediation = "Read the provisioner's error and events (a disk erase that cannot complete is the usual cause), then retry this Task, or Recover the Server, which returns it to Ready without erasing its disks."
+	return withDiagnostic(providerFailed("release_failed", message, true).withStage("release"), diagnostic)
+}
+
+// provisioningErrorDescription is the provisioner's error description the Server's last refresh
+// mirrored, without a trailing period, or "".
+func provisioningErrorDescription(server *serverdomain.Server) string {
+	if server.Provisioning == nil {
+		return ""
+	}
+	return strings.TrimRight(strings.TrimSpace(server.Provisioning.ErrorDescription), ".")
+}
+
+// providerEventsSince reads the events the provisioner recorded about the Server's machine since
+// the attempt started (every event it returns when the start is unknown), oldest first, for a
+// diagnostic's evidence. It is best-effort and bounded by installationFailureReadWait: a
+// provisioner without an event stream, or a read that fails, yields none. An event whose time
+// cannot be parsed is kept only when there is no start to compare it with.
+func (e providerStepExecutor) providerEventsSince(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string) []workflowdomain.ProviderEvent {
+	if e.servers == nil || e.providers == nil {
+		return nil
+	}
+	readCtx, cancel := context.WithTimeout(ctx, installationFailureReadWait)
+	defer cancel()
+	events, supported, err := e.readMachineEvents(readCtx, serverID)
+	if !supported || err != nil {
+		return nil
+	}
+	var since time.Time
+	if step.Step.StartedAt != nil {
+		since = *step.Step.StartedAt
+	}
+	evidence := make([]workflowdomain.ProviderEvent, 0, len(events))
+	for _, event := range events {
+		item := workflowdomain.ProviderEvent{Type: strings.TrimSpace(event.Type), Description: strings.TrimSpace(event.Description)}
+		at, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(event.OccurredAt))
+		switch {
+		case err == nil && at.Before(since):
+			continue
+		case err == nil:
+			item.At = &at
+		case !since.IsZero():
+			continue
+		}
+		evidence = append(evidence, item)
+	}
+	slices.SortStableFunc(evidence, func(a, b workflowdomain.ProviderEvent) int {
+		switch {
+		case a.At == nil && b.At == nil:
+			return 0
+		case a.At == nil:
+			return -1
+		case b.At == nil:
+			return 1
+		default:
+			return a.At.Compare(*b.At)
+		}
+	})
+	return evidence
 }
 
 // installationFailure reads the error line of this attempt's failed installation when the
@@ -1382,7 +1606,14 @@ func (e providerStepExecutor) requireUnlocked(ctx context.Context, serverID stri
 	return nil
 }
 
+// normalizeProviderError maps a failed provisioner call onto the Task's outcome, with the
+// diagnostic providerErrorDiagnostic builds from the error.
 func normalizeProviderError(err error, stage string) temporalworkflow.StepExecutionResult {
+	return withDiagnostic(providerErrorResult(err, stage), providerErrorDiagnostic(err))
+}
+
+// providerErrorResult is the code, message, status, and retryability of a failed provisioner call.
+func providerErrorResult(err error, stage string) temporalworkflow.StepExecutionResult {
 	// The Deployment Key could not be registered before any provider write, so the outcome is
 	// known (nothing was deployed) and retrying once the provisioner recovers is safe.
 	if errors.Is(err, provisioningdomain.ErrSSHKeyRegistration) {
@@ -1417,4 +1648,222 @@ func normalizeProviderError(err error, stage string) temporalworkflow.StepExecut
 	// transport failed. Reconcile under user attention instead of auto-retrying,
 	// which could duplicate a deploy or release side effect.
 	return providerAttention("provider_outcome_unknown", err.Error(), stage)
+}
+
+// providerErrorDiagnostic explains a failed provisioner call for a Task diagnostic: its Failure
+// Class, the redacted cause, and for a ProviderError the endpoint and operation the adapter
+// recorded. Rejected credentials, a refused request, a missing provisioner Integration or
+// credential, a machine the provisioner no longer has, and swallow's own refusals before any
+// provisioner write repeat until something changes (permanent); an unreachable provisioner is
+// expected to clear (transient); anything else is unknown. The caller adds the target.
+func providerErrorDiagnostic(err error) *workflowdomain.TaskDiagnostic {
+	class := workflowdomain.FailureUnknown
+	var providerErr *provisioningdomain.ProviderError
+	switch {
+	case errors.As(err, &providerErr) && providerErr.Kind == provisioningdomain.ProviderErrorUnavailable:
+		class = workflowdomain.FailureTransient
+	case errors.As(err, &providerErr),
+		errors.Is(err, sitedomain.ErrCredentialNotSet), errors.Is(err, sitedomain.ErrIntegrationNotFound),
+		errors.Is(err, provisioningdomain.ErrIntegrationNotProvisioner), errors.Is(err, provisioningdomain.ErrMachineNotFound),
+		errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing), errors.Is(err, provisioningdomain.ErrDeploymentBatchConflict):
+		class = workflowdomain.FailurePermanent
+	}
+	diagnostic := workflowdomain.NewTaskDiagnostic(class, nil)
+	diagnostic.Cause = causeChain(err)
+	if providerErr != nil {
+		diagnostic.Endpoint, diagnostic.Operation = providerErr.Endpoint, providerErr.Operation
+	}
+	switch {
+	case providerCredentialRejected(err):
+		diagnostic.Remediation = "Correct the credential of the Server's provisioner Integration, then retry this Task."
+	case class == workflowdomain.FailureTransient:
+		diagnostic.Remediation = "Check that the provisioner is running and reachable from swallow's worker, then retry this Task."
+	}
+	return diagnostic
+}
+
+// providerCredentialRejected reports a provisioner that rejected swallow's credential, or an
+// Integration that holds none.
+func providerCredentialRejected(err error) bool {
+	var providerErr *provisioningdomain.ProviderError
+	return errors.As(err, &providerErr) && providerErr.Kind == provisioningdomain.ProviderErrorAuth ||
+		errors.Is(err, sitedomain.ErrCredentialNotSet)
+}
+
+// providerWait is the bookkeeping of one loop that observes a Server's provisioner state (decision
+// 077). It publishes what the loop observes as the Task's wait observation and classifies the
+// loop's failed reads: a permanent one (providerErrorDiagnostic) ends the loop at once, and any
+// other is tolerated until reads have failed for providerReadErrorTimeout in a row, because a
+// failed read says nothing about the Server. The loop keeps its own state machine and deadline. A
+// providerWait belongs to one loop on one goroutine.
+type providerWait struct {
+	step     temporalworkflow.StepExecutionInput
+	serverID string
+	// name is the Server's display name in observations and messages.
+	name  string
+	stage string
+	// progress follows the whole loop within its budget; reads follows the current run of
+	// consecutive failed reads and is nil while reads succeed.
+	progress    *workflowdomain.WaitProgress
+	reads       *workflowdomain.WaitProgress
+	readTimeout time.Duration
+}
+
+// newProviderWait starts the bookkeeping of a loop over serverID's provisioner state that may run
+// for budget; stage is the stage of the attention results it builds.
+func (e providerStepExecutor) newProviderWait(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID, stage string, budget time.Duration) *providerWait {
+	name := serverID
+	if e.servers != nil {
+		if server, err := e.servers.FindByID(ctx, serverID); err == nil {
+			name = server.DisplayName()
+		}
+	}
+	return &providerWait{
+		step: step, serverID: serverID, name: name, stage: stage,
+		progress: workflowdomain.NewWaitProgress(time.Now(), budget), readTimeout: e.providerReadErrorTimeout(),
+	}
+}
+
+// resumedDeploymentState reads serverID's provisioner state for a resumed provision-os attempt,
+// which observes before it acts. A failed read is tolerated as an observation loop's is: the
+// earlier activity of this attempt may already have submitted the deployment, so acting without
+// a read would submit it twice. The result is set when the read could not be made (attention, a
+// superseded run, or cancellation).
+func (e providerStepExecutor) resumedDeploymentState(ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string) (*provisioningapp.ProvisioningStateItem, *temporalworkflow.StepExecutionResult) {
+	wait := e.newProviderWait(ctx, step, serverID, "deployment", 0)
+	ticker := time.NewTicker(e.pollInterval())
+	defer ticker.Stop()
+	for {
+		state, err := e.refresh.Execute(ctx, serverID)
+		if err == nil {
+			return state, nil
+		}
+		if stop := wait.readFailed(ctx, err, time.Now()); stop != nil {
+			return nil, stop
+		}
+		select {
+		case <-ctx.Done():
+			return nil, &temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
+		case <-ticker.C:
+		}
+	}
+}
+
+// observed records a successful read, which ends a run of failed reads, and publishes observation.
+// It returns the result that ends the loop when a later dispatch superseded the run, so the loop
+// stops before its next provisioner call; nil otherwise.
+func (w *providerWait) observed(ctx context.Context, observation string) *temporalworkflow.StepExecutionResult {
+	w.reads = nil
+	return w.publish(ctx, observation, time.Now())
+}
+
+// readFailed records the failed read err at now and returns the result that ends the loop, or nil
+// to keep observing. A permanent failure asks for attention at once: the deployment or release the
+// provisioner runs is not known to have failed, but swallow cannot observe it until a user fixes
+// the cause. A read that failed because ctx ended is not a provisioner failure; the loop's select
+// handles the cancel.
+func (w *providerWait) readFailed(ctx context.Context, err error, now time.Time) *temporalworkflow.StepExecutionResult {
+	if ctx.Err() != nil {
+		return nil
+	}
+	diagnostic := providerErrorDiagnostic(err)
+	diagnostic.Target = serverTarget(w.serverID)
+	detail := providerReadDetail(err)
+	if diagnostic.FailureClass == workflowdomain.FailurePermanent {
+		code := "provider_observation_failed"
+		diagnostic.Remediation = "Check the Server's provisioner Integration and its machine in the provisioner, then retry this Task; it observes the Server again before it acts."
+		if providerCredentialRejected(err) {
+			code = "provider_auth"
+			diagnostic.Remediation = "Correct the credential of the Server's provisioner Integration, then retry this Task; it observes the Server again before it acts."
+		}
+		result := withDiagnostic(providerAttention(code, fmt.Sprintf("Swallow cannot observe %s in the provisioner: %s", w.name, detail), w.stage), diagnostic)
+		return &result
+	}
+	if w.reads == nil {
+		w.reads = workflowdomain.NewWaitProgress(now, w.readTimeout)
+	}
+	observation := fmt.Sprintf("Swallow cannot read %s from the provisioner: %s", w.name, detail)
+	w.reads.Observe(observation, now)
+	if w.reads.Exhausted(now) {
+		exhausted := w.reads.Diagnostic(diagnostic.FailureClass, nil, now)
+		exhausted.Cause = workflowdomain.ErrWaitBudgetExhausted.Error() + "; last read error: " + diagnostic.Cause
+		exhausted.Endpoint, exhausted.Operation, exhausted.Target = diagnostic.Endpoint, diagnostic.Operation, diagnostic.Target
+		exhausted.Remediation = "Check that the provisioner is running and reachable from swallow's worker, then retry this Task; it observes the Server again before it acts."
+		result := withDiagnostic(providerAttention("provider_unavailable",
+			fmt.Sprintf("Swallow could not read %s from the provisioner for %s: %s", w.name, w.readTimeout, detail), w.stage), exhausted)
+		return &result
+	}
+	return w.publish(ctx, observation, now)
+}
+
+// timedOut attaches to result the diagnostic of the loop's own budget running out: the last
+// observation, the attempts, the elapsed time, and the budget. The provisioner was still working
+// when the budget ended, so the class is transient.
+func (w *providerWait) timedOut(result temporalworkflow.StepExecutionResult, remediation string) temporalworkflow.StepExecutionResult {
+	diagnostic := w.progress.Diagnostic(workflowdomain.FailureTransient, workflowdomain.ErrWaitBudgetExhausted, time.Now())
+	diagnostic.Target, diagnostic.Remediation = serverTarget(w.serverID), remediation
+	return withDiagnostic(result, diagnostic)
+}
+
+// publish counts observation in the loop's wait and publishes it; see observed for the result.
+func (w *providerWait) publish(ctx context.Context, observation string, now time.Time) *temporalworkflow.StepExecutionResult {
+	if publishWaiting(ctx, w.step, w.progress.Observe(observation, now)) {
+		result := supersededResult()
+		return &result
+	}
+	return nil
+}
+
+// providerStateObservation is the wait observation of one provisioner read: the provisioner's own
+// label of the state when it has one ("Failed disk erasing"), else swallow's normalized state, and
+// what the Task waits for.
+func providerStateObservation(name string, state *provisioningapp.ProvisioningStateItem, waitingFor string) string {
+	return fmt.Sprintf("The provisioner reports %s as %s; %s", name, providerStateDetail(state.ProviderState, state.State), waitingFor)
+}
+
+// providerReadDetail is what a user reads of a failed provisioner read: the adapter's Detail of a
+// ProviderError, which carries no credential or internal URL, else the redacted error.
+func providerReadDetail(err error) string {
+	var providerErr *provisioningdomain.ProviderError
+	if errors.As(err, &providerErr) && strings.TrimSpace(providerErr.Detail) != "" {
+		return strings.TrimSpace(providerErr.Detail)
+	}
+	return redact.Error(err)
+}
+
+// withDiagnostic attaches diagnostic to the error of a failed or attention result.
+func withDiagnostic(result temporalworkflow.StepExecutionResult, diagnostic *workflowdomain.TaskDiagnostic) temporalworkflow.StepExecutionResult {
+	if result.Error != nil {
+		result.Error.Diagnostic = diagnostic
+	}
+	return result
+}
+
+// withServerTarget names the step's Server as the target of a diagnostic that names none.
+func withServerTarget(result temporalworkflow.StepExecutionResult, step workflowdomain.Task) temporalworkflow.StepExecutionResult {
+	if result.Error == nil || result.Error.Diagnostic == nil || result.Error.Diagnostic.Target != nil {
+		return result
+	}
+	if serverID := firstTargetServer(step); serverID != "" {
+		result.Error.Diagnostic.Target = serverTarget(serverID)
+	}
+	return result
+}
+
+func serverTarget(serverID string) *workflowdomain.ResourceReference {
+	return &workflowdomain.ResourceReference{Kind: "server", ID: serverID}
+}
+
+func (e providerStepExecutor) providerReadErrorTimeout() time.Duration {
+	if e.providerReadErrorWait > 0 {
+		return e.providerReadErrorWait
+	}
+	return defaultProviderReadErrorWait
+}
+
+func (e providerStepExecutor) releaseCleanupTimeout() time.Duration {
+	if e.releaseCleanupWait > 0 {
+		return e.releaseCleanupWait
+	}
+	return defaultReleaseCleanupWait
 }

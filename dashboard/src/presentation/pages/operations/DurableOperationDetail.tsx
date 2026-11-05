@@ -9,6 +9,7 @@ import {
   type Operation,
   type OperationArtifact,
   type OperationEvents,
+  type OperationResourceReference,
   type OperationStatus,
   type OperationStep,
   type OperationStepStatus,
@@ -30,6 +31,9 @@ import { useTargetLockProtection } from '@/presentation/hooks/useTargetLockProte
 import { formatDateTime } from '@/shared/utils/time'
 import { OperationEventWorkspace } from './OperationEventWorkspace'
 import { OperationLogWorkspace } from './OperationLogWorkspace'
+import { TaskFailureSummary } from './TaskFailureSummary'
+import { TaskWaitingNotice } from './TaskWaitingNotice'
+import { failureClassText, firstLine, timelineAttemptFailure } from './taskDiagnosticPresentation'
 import { workflowDisplayIntent, workflowDisplayStatus, workflowDisplayTaskName } from './workflowListPresentation'
 
 interface DurableOperationDetailProps {
@@ -64,6 +68,15 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
       : targetProtection.lockedNames.length > 0
         ? `${targetProtection.lockedNames.join(', ')} ${targetProtection.lockedNames.length === 1 ? 'is' : 'are'} locked. Unlock ${targetProtection.lockedNames.length === 1 ? 'it' : 'them'} before retrying this Step.`
         : undefined
+  // A diagnostic's affected resource links to its console page; kinds without one stay plain text.
+  const diagnosticTargetHref = useCallback(
+    (target: OperationResourceReference) => {
+      if (target.kind === 'server') return scopedHref(`/servers/${encodeURIComponent(target.id)}`)
+      if (target.kind === 'platform') return scopedHref(`/platforms/${encodeURIComponent(target.id)}`)
+      return undefined
+    },
+    [scopedHref],
+  )
   const preferredStep =
     steps.find((step) => ['running', 'waiting_external', 'requires_attention', 'failed'].includes(step.status)) ?? steps[0]
   const [selectedStepId, setSelectedStepId] = useState(preferredStep?.id ?? '')
@@ -186,6 +199,10 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
           ) : step.live?.currentTask ? (
             <span className="sw-reason-cell" title={step.live.currentTask}>
               {step.live.currentTask}
+            </span>
+          ) : step.waiting?.observation ? (
+            <span className="sw-reason-cell" title={step.waiting.observation}>
+              {step.waiting.observation}
             </span>
           ) : (
             step.waitingReason ?? '-'
@@ -321,16 +338,17 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
       {selectedStep && (
         <section className="sw-section sw-operation-debugger">
           <SectionHeader title={workflowDisplayTaskName(operation, selectedStep)} description={`Attempt ${selectedStep.attempt} - ${selectedStep.executor}`} />
+          {/* The user layer stays a one-line headline with its next step; the full failure output
+              lives in the Stderr tab and the diagnostic's evidence behind its disclosure. */}
           {selectedStep.error && (
-            <Alert
-              status={selectedStep.status === 'requires_attention' ? 'warning' : 'error'}
-              title={selectedStep.error.code}
-            >
-              {/* Keep the alert a one-line headline; the full failure output lives in the Stderr tab. */}
-              {firstLine(selectedStep.error.message)}
-              {selectedStep.error.stage ? ` (stage: ${selectedStep.error.stage})` : ''}
-            </Alert>
+            <TaskFailureSummary
+              key={`${selectedStep.id}-${selectedStep.attempt}`}
+              error={selectedStep.error}
+              attention={selectedStep.status === 'requires_attention'}
+              targetHref={diagnosticTargetHref}
+            />
           )}
+          {selectedStep.waiting && !attemptEnded(selectedStep.status) && <TaskWaitingNotice waiting={selectedStep.waiting} />}
           {selectedStep.waitingReason && (
             <Alert status="info" title="Waiting">
               {selectedStep.waitingReason}
@@ -463,13 +481,12 @@ function ownedResourcesEmptyText(operation: Operation, status: OperationStatus):
 }
 
 /**
- * First line of a possibly multi-line message, for a compact single-line cell. The executor
- * emits one failure line per host separated by newlines; the table shows the first with the
- * full text on hover, while the Alert and Stdout tab carry the rest.
+ * Whether a Step's attempt has ended (or waits for the user), so whatever it last published while
+ * running — `waiting` — no longer describes it. The API clears `waiting` then too; this keeps a
+ * stale payload from showing a finished Step as still waiting.
  */
-function firstLine(message: string): string {
-  const line = message.split('\n', 1)[0]?.trim() ?? ''
-  return line || message.trim()
+function attemptEnded(status: OperationStepStatus): boolean {
+  return ['succeeded', 'failed', 'canceled', 'skipped', 'requires_attention'].includes(status)
 }
 
 function formatTargets(step: OperationStep): string {
@@ -906,10 +923,34 @@ function OperationTimeline({ operation }: { operation: Operation }) {
                 {formatDateTime(event.createdAt)}
               </time>
               {event.message && <span className="sw-timeline__message">{event.message}</span>}
+              <TimelineAttemptFailureLine event={event} />
             </div>
           </li>
         )
       })}
     </ol>
+  )
+}
+
+/**
+ * The failure a Task status event recorded for its attempt — attempt, code, failure class, endpoint,
+ * and message — under the event's own message. The Task keeps only its latest error, so this is how
+ * an earlier attempt's failure stays readable after a retry (workflows contract, Timeline). Events
+ * without a failure, and older events without a failure class, render only what they carry.
+ */
+function TimelineAttemptFailureLine({ event }: { event: OperationTimelineEvent }) {
+  const failure = timelineAttemptFailure(event)
+  if (!failure) return null
+  const facts = [
+    failure.attempt ? `Attempt ${failure.attempt}` : undefined,
+    failure.code,
+    failure.failureClass ? `${failureClassText(failure.failureClass).label} failure` : undefined,
+    failure.endpoint,
+  ].filter((fact): fact is string => Boolean(fact))
+  return (
+    <>
+      <span className="sw-timeline__message mono">{facts.join(' · ')}</span>
+      {failure.message && <span className="sw-timeline__message">{firstLine(failure.message)}</span>}
+    </>
   )
 }

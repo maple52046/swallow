@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/maple52046/swallow/internal/shared/redact"
 )
 
 // maxErrorBodyBytes caps how much of a MAAS error body is retained. MAAS
@@ -116,15 +118,15 @@ func (c *Client) getText(ctx context.Context, path string, query url.Values, lim
 	req.Header.Set("Accept", "text/plain, */*")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", &transportError{err: err}
+		return "", &transportError{err: err, call: c.describe(req)}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return "", &apiError{StatusCode: resp.StatusCode, Body: readErrorBody(resp.Body)}
+		return "", &apiError{StatusCode: resp.StatusCode, Body: readErrorBody(resp.Body), call: c.describe(req)}
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {
-		return "", &transportError{err: err}
+		return "", &transportError{err: err, call: c.describe(req)}
 	}
 	return string(raw), nil
 }
@@ -358,9 +360,10 @@ func (c *Client) newRequest(
 func (c *Client) do(req *http.Request, out any) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		// Wrapped without the URL: it carries no credentials, but the caller
-		// turns this into a client-visible message and the address is noise there.
-		return &transportError{err: err}
+		// The call goes beside the cause, not into the message: the caller turns the failure
+		// into a client-visible Detail, where the address is noise, and keeps the call only for
+		// the administrator's evidence.
+		return &transportError{err: err, call: c.describe(req)}
 	}
 	defer resp.Body.Close()
 
@@ -368,6 +371,7 @@ func (c *Client) do(req *http.Request, out any) error {
 		return &apiError{
 			StatusCode: resp.StatusCode,
 			Body:       readErrorBody(resp.Body),
+			call:       c.describe(req),
 		}
 	}
 
@@ -486,6 +490,7 @@ func readErrorBody(r io.Reader) string {
 type apiError struct {
 	StatusCode int
 	Body       string
+	call       requestCall
 }
 
 func (e *apiError) Error() string {
@@ -497,8 +502,36 @@ func (e *apiError) Error() string {
 
 // transportError is a failure to reach MAAS at all: DNS, TCP, TLS, or timeout.
 type transportError struct {
-	err error
+	err  error
+	call requestCall
 }
 
 func (e *transportError) Error() string { return e.err.Error() }
 func (e *transportError) Unwrap() error { return e.err }
+
+// requestCall is which MAAS call failed, for the administrator's layer of a provider error
+// (ProviderError.Endpoint and Operation); it is never part of an error's message.
+type requestCall struct {
+	// endpoint is the API root the call went to, without userinfo or query values.
+	endpoint string
+	// operation is the call's method and path under the API root, with its named operation when
+	// it has one, for example "POST /machines/abc123/?op=deploy". Other query values are left
+	// out: they are parameters, not the call's name.
+	operation string
+}
+
+// describe names the call req makes. A request outside the API root keeps its whole path.
+func (c *Client) describe(req *http.Request) requestCall {
+	call := requestCall{endpoint: redact.URL(c.apiRoot)}
+	path := req.URL.Path
+	if root, err := url.Parse(c.apiRoot); err == nil {
+		if under, ok := strings.CutPrefix(path, root.Path); ok && strings.HasPrefix(under, "/") {
+			path = under
+		}
+	}
+	call.operation = req.Method + " " + path
+	if op := req.URL.Query().Get("op"); op != "" {
+		call.operation += "?op=" + op
+	}
+	return call
+}

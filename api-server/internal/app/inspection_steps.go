@@ -209,7 +209,7 @@ func (e providerStepExecutor) inspectServer(ctx context.Context, step temporalwo
 				return normalizeProviderError(err, "inspection")
 			}
 		}
-		outcome := e.observeInspection(ctx, serverID, validator, machineID, started)
+		outcome := e.observeInspection(ctx, step, serverID, validator, machineID, started)
 		switch outcome.kind {
 		case inspectionReady:
 			return providerSucceeded()
@@ -246,19 +246,27 @@ func networkBootRemedy(ctx context.Context, server *serverdomain.Server, provide
 // inspectionPowerAdapters resolves a Server's power driver for networkBootRemedy.
 var inspectionPowerAdapters = provisioningdomain.DefaultPowerAdapters()
 
-// observeInspection follows one inspection attempt started at started.
+// observeInspection follows one inspection attempt started at started, publishing each observation
+// as the Task's wait observation. Failed provisioner reads are tolerated for
+// providerReadErrorTimeout (providerWait); one that ends the wait stops the Task.
 func (e providerStepExecutor) observeInspection(
-	ctx context.Context, serverID string, validator provisioningdomain.HardwareValidator, machineID string, started time.Time,
+	ctx context.Context, step temporalworkflow.StepExecutionInput, serverID string,
+	validator provisioningdomain.HardwareValidator, machineID string, started time.Time,
 ) inspectionOutcome {
 	deadline := time.NewTimer(e.inspectionAttemptTimeout())
 	defer deadline.Stop()
 	ticker := time.NewTicker(e.pollInterval())
 	defer ticker.Stop()
+	wait := e.newProviderWait(ctx, step, serverID, "inspection", e.inspectionAttemptTimeout())
 	progressSince := started
 	sawInspecting := false
 	for {
 		state, err := e.refresh.Execute(ctx, serverID)
-		if err == nil {
+		if err != nil {
+			if stop := wait.readFailed(ctx, err, time.Now()); stop != nil {
+				return inspectionOutcome{kind: inspectionStopped, result: *stop}
+			}
+		} else {
 			now := time.Now()
 			believed := sawInspecting || now.Sub(started) >= e.inspectionStartTimeout()
 			switch provisioningdomain.MachineStatus(state.State) {
@@ -294,10 +302,13 @@ func (e providerStepExecutor) observeInspection(
 					return inspectionInterrupted(state.State)
 				}
 			}
+			if stop := wait.observed(ctx, providerStateObservation(wait.name, state, "waiting for the hardware inspection to finish.")); stop != nil {
+				return inspectionOutcome{kind: inspectionStopped, result: *stop}
+			}
 		}
 		select {
 		case <-ctx.Done():
-			if !temporalworkflow.IsActivityWorkerStopping(ctx) {
+			if !temporalworkflow.LeavesExternalWorkRunning(ctx) {
 				e.abort(serverID)
 			}
 			return inspectionOutcome{kind: inspectionStopped, result: temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}}

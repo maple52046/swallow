@@ -135,7 +135,7 @@ deploy use case 由它推導 [Kubernetes Topology](glossaries/terms/kubernetes-t
 | `configure-node-exporter` | `install-node-exporter-<serverId>`（每台本次 provision 的 Server 一個） | `ansible-playbook` | `ansible` | 單一 Server | `configure-ntp-<serverId>` | `playbook`（`deploy-node-exporter`）、`extraVars` |
 | `configure-node-exporter` | `record-node-exporter-<serverId>` | `record-software-assignment` | `internal` | 單一 Server | `install-node-exporter-<serverId>` | `softwareKind`（`node-exporter`）、`serverIds` |
 | `configure-k0s` | `install-platform` | `ansible-playbook` | `ansible` | 全部 targets | 所有 `provision-*` + `wait-for-ssh` + `configure-ntp-*` | `playbook`、`extraVars`（含時鐘檢查的 `swallow_time_sync_check`） |
-| `configure-k0s` | `validate-platform` | `validate-platform-health` | `internal` | 全部 targets | `install-platform` | — |
+| `configure-k0s` | `validate-platform` | `validate-platform-health` | `internal` | 全部 targets | `install-platform` | `apiServerId`（非 HA：初始 controller 的 Server id；HA 沒有） |
 | `configure-platform-grafana`（`monitoringDashboards` 開啟時，§2.3.3） | `install-platform-grafana` | `ansible-playbook` | `ansible` | 全部 targets | `install-gpu-operator`，沒有 GPU Operator 時 `validate-platform` | `playbook`（`configure-kubernetes-grafana`）、`extraVars`（含 `swallow_k0s_grafana_*`）；token 是 sealed secret |
 
 ```mermaid
@@ -520,7 +520,7 @@ Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以�
 
 | Runner（glossary） | code 值 | 負責的 Task kind | 行為 |
 | --- | --- | --- | --- |
-| `internal` | `internal` | `wait-for-ssh`、`validate-platform-health`、`complete-uninstall`、`noop` | swallow 自身邏輯（`complete-uninstall` 見 §2.4）：**驗證式 SSH 就緒**（以 Deployment Key 對每台 target 實際完成 SSH 認證；登入帳號為 per-host 解析：image default user 優先，否則 candidate 探測；非只探 TCP；20 分鐘上限）、輪詢 membership 驗證 |
+| `internal` | `internal` | `wait-for-ssh`、`validate-platform-health`、`complete-uninstall`、`noop` | swallow 自身邏輯（`complete-uninstall` 見 §2.4）：**驗證式 SSH 就緒**（以 Deployment Key 對每台 target 實際完成 SSH 認證；登入帳號為 per-host 解析：image default user 優先，否則 candidate 探測；非只探 TCP；20 分鐘上限）、輪詢 membership 驗證（30 秒預算與失敗分類見 [workflow-execution.md](workflow-execution.md) §5.6） |
 | `ansible` | `ansible` | `ansible-playbook` | 在遠端主機跑一支 manifest 註冊的 idempotent playbook |
 | `provisioner` | `maas`（值待改名） | `provision-os`、`release-os` | 透過 provisioner adapter（目前是 MAAS）驅動 OS provisioning，含佈署後 SSH 就緒；佈署前先確保 provisioner 持有 swallow 的 SSH Keys（見 §4.6.1） |
 

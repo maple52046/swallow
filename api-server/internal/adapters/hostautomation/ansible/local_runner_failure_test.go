@@ -1,6 +1,7 @@
 package ansible
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -98,6 +99,41 @@ func TestSummarizeRunFailureNoEvents(t *testing.T) {
 	// must yield no summary so the caller keeps the raw exit error instead of an empty cause.
 	if got := runner.summarizeRunFailure("missing-run"); got != "" {
 		t.Errorf("summarizeRunFailure(missing) = %q, want empty", got)
+	}
+}
+
+// The summary (the Task's error message) and the Stderr report mask the secrets a failed task's
+// output carried and keep the rest of the cause.
+func TestFailureReportsRedactSecrets(t *testing.T) {
+	root := t.TempDir()
+	runID := "run-secret"
+	events := filepath.Join(root, runID, "job_events")
+	if err := os.MkdirAll(events, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeJobEvent(t, events, "7-a.json",
+		`{"event":"runner_on_failed","event_data":{"task":"Register the node","host":"srv-1","res":{`+
+			`"msg":"login failed with ansible_become_pass=b3come for https://admin:hunter2@registry.lab/v2?token=t0ken",`+
+			`"rc":1,"stderr":"password: s3cret\nfatal: authentication failed"}}}`)
+	runner := &LocalRunner{artifactRoot: root}
+
+	summary := runner.summarizeRunFailure(runID)
+	report, err := runner.Stderr(context.Background(), runID)
+	if err != nil {
+		t.Fatalf("Stderr: %v", err)
+	}
+	t.Logf("summary: %s\nstderr report:\n%s", summary, report)
+	for name, text := range map[string]string{"summary": summary, "stderr report": report} {
+		for _, secret := range []string{"b3come", "hunter2", "t0ken", "s3cret"} {
+			if strings.Contains(text, secret) {
+				t.Errorf("%s shows %q:\n%s", name, secret, text)
+			}
+		}
+		for _, kept := range []string{"Register the node", "srv-1", "login failed with", "registry.lab/v2", "authentication failed"} {
+			if !strings.Contains(text, kept) {
+				t.Errorf("%s lost %q with the secrets:\n%s", name, kept, text)
+			}
+		}
 	}
 }
 

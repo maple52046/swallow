@@ -245,8 +245,9 @@ func (r contractRunner) Events(context.Context, string) ([]workflowdomain.TaskEv
 }
 
 // newWorkflowContractHandler builds an ExecutionHandler over fresh fakes holding a running
-// schema-v3 Workflow (wf-running: an ansible Task mid-run with a retryable error, live progress,
-// and an artifact, plus Tasks of the other Runners) and a failed one (wf-failed). Nullable and
+// schema-v3 Workflow (wf-running: an ansible Task mid-run with a retryable error and a full
+// diagnostic, live progress, and an artifact, plus Tasks of the other Runners, two of them waiting
+// with and without a budget) and a failed one (wf-failed, whose error has no diagnostic). Nullable and
 // omitted-when-empty fields appear both set and unset across the fixtures, so the validator sees every shape a consumer can receive;
 // Task parameters, secret references, and an artifact's relative key are set too, and the closed
 // response schemas fail the test if any of them is ever emitted. Every call returns independent
@@ -287,6 +288,18 @@ func newWorkflowContractHandler() *ExecutionHandler {
 				Status:     workflowdomain.TaskFailed, Attempt: 2,
 				Error: &workflowdomain.NormalizedError{
 					Code: "ansible_failed", Message: "Download k0s failed.", Retryable: true, Stage: "run",
+					Diagnostic: &workflowdomain.TaskDiagnostic{
+						FailureClass: workflowdomain.FailureTransient,
+						Target:       &workflowdomain.ResourceReference{Kind: "server", ID: "server-1"},
+						Endpoint:     "https://mirror.lab/k0s", Operation: "download k0s",
+						Cause: "Get https://mirror.lab/k0s: dial tcp: i/o timeout", Remediation: "Check the mirror, then retry the Task.",
+						Observation: "mirror unreachable", ObservedAt: &started, Attempts: 3,
+						ElapsedSeconds: 90, BudgetSeconds: 600,
+						ProviderEvents: []workflowdomain.ProviderEvent{
+							{Type: "network", Description: "DHCP lease renewed", At: &started},
+							{Type: "note", Description: "no time recorded"},
+						},
+					},
 				},
 				ExternalExecution: &workflowdomain.ExternalExecutionReference{Provider: "ansible-runner", ID: "ansible-run", Generation: 2},
 				Live: &workflowdomain.TaskLive{
@@ -304,6 +317,20 @@ func newWorkflowContractHandler() *ExecutionHandler {
 				Executor: workflowdomain.RunnerKindProvisioner, DependsOn: []string{"install-platform"},
 				Targets: server("server-1"), Status: workflowdomain.TaskWaitingDependency,
 				WaitingReason: "waiting for install-platform",
+			},
+			{
+				ID: "wait-for-deployed", Kind: "wait-for-deployed", Name: "Wait for the deployment",
+				Executor: workflowdomain.RunnerKindProvisioner, Targets: server("server-1"),
+				Status: workflowdomain.TaskRunning, Attempt: 1, StartedAt: &started,
+				Waiting: &workflowdomain.TaskWaiting{
+					Observation: "server-1 is Deploying", ObservedAt: started, Attempts: 4, ElapsedSeconds: 40, BudgetSeconds: 1800,
+				},
+			},
+			{
+				ID: "wait-unbounded", Kind: "wait-unbounded", Name: "Wait without a budget",
+				Executor: workflowdomain.RunnerKindInternal, Targets: server("server-1"),
+				Status: workflowdomain.TaskRunning, Attempt: 1, StartedAt: &started,
+				Waiting: &workflowdomain.TaskWaiting{Observation: "still waiting", ObservedAt: started, Attempts: 1},
 			},
 		},
 		RequestedBy: "admin", RequestCorrelation: "request-1",
@@ -333,7 +360,10 @@ func newWorkflowContractHandler() *ExecutionHandler {
 			{
 				ID: "event-2", OperationID: running.ID, StepID: "install-platform", Type: "step_status",
 				Message: "Install k0s changed to failed.", CreatedAt: started,
-				Details: map[string]any{"status": "failed", "attempt": 2, "code": "ansible_failed", "retryable": true},
+				Details: map[string]any{
+					"status": "failed", "attempt": 2, "code": "ansible_failed", "retryable": true,
+					"failureClass": "transient", "endpoint": "https://mirror.lab/k0s",
+				},
 			},
 		},
 	}

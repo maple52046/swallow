@@ -160,6 +160,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Workflow](terms/workflow.md): A user intent as a desired end-state for a set of resources, executed durably and convergently as a composition of Jobs and Tasks (canonical; compatibility code and wire fields still contain "Operation").
 - [Job](terms/job.md): A reusable, convergent unit of Tasks that brings resources to a sub-goal (e.g. `ensure-os`), composable into Workflows and runnable on its own.
 - [Task](terms/task.md): The atomic, idempotent ("ensure") unit of work run by exactly one Runner (code/API still say "Step").
+- [Task Diagnostic](terms/task-diagnostic.md): The durable, redacted, two-layer explanation of a failed Task attempt — what happened, who is affected, what to do next, and the evidence.
+- [Failure Class](terms/failure-class.md): Whether doing the same thing again can succeed — `transient | permanent | unknown`.
 - [Runner](terms/runner.md): The mechanism that executes a Task — `provisioner` / `ansible` (host automation) / `internal` (named by the Provider Interface it drives; code still says "executor", and `maas` → `provisioner`).
 - [Automation Configuration](terms/automation-configuration.md): Site-scoped settings for swallow's Ansible execution.
 

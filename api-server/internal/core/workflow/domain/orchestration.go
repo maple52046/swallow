@@ -73,6 +73,11 @@ type NormalizedError struct {
 	Message   string `json:"message" bson:"message"`
 	Retryable bool   `json:"retryable" bson:"retryable"`
 	Stage     string `json:"stage,omitempty" bson:"stage,omitempty"`
+	// Diagnostic is the structured explanation of the failure (diagnostic.go), or nil when the
+	// Runner recorded none; it is always present on the wire, as null when nil. Consumers branch
+	// only on Code and Retryable, never on Diagnostic. It is stored under the store's default key,
+	// "diagnostic"; the core adds no store tags.
+	Diagnostic *TaskDiagnostic `json:"diagnostic"`
 }
 
 // ExternalExecutionReference correlates a Step to the provider or executor lifecycle.
@@ -140,7 +145,12 @@ type Task struct {
 	ExternalExecution *ExternalExecutionReference `json:"externalExecution" bson:"externalExecution,omitempty"`
 	// Live is the in-flight progress of the Task, set by its Runner while it runs and cleared by
 	// the final projection. Nil for a Task that has not started or has no live-progress Runner.
-	Live       *TaskLive          `json:"live,omitempty" bson:"live,omitempty"`
+	Live *TaskLive `json:"live,omitempty" bson:"live,omitempty"`
+	// Waiting is what the running attempt waits for, published by its Runner during a long wait
+	// (WorkflowRepository.UpdateTaskWaiting) and cleared by every transition that ends, retries,
+	// begins, or cancels the attempt. Nil otherwise; always present on the wire, as null when nil.
+	// It is stored under the store's default key, "waiting"; the core adds no store tags.
+	Waiting    *TaskWaiting       `json:"waiting"`
 	Artifacts  []ArtifactMetadata `json:"artifacts" bson:"artifacts"`
 	StartedAt  *time.Time         `json:"startedAt" bson:"startedAt,omitempty"`
 	FinishedAt *time.Time         `json:"finishedAt" bson:"finishedAt,omitempty"`
@@ -244,6 +254,12 @@ type WorkflowRepository interface {
 	// the Task is not running at attempt.
 	UpdateTaskLive(ctx context.Context, id string, generation int64, taskID string, attempt int,
 		ref *ExternalExecutionReference, startedAt *time.Time, live *TaskLive) error
+	// UpdateTaskWaiting sets the Waiting field of a running Task without touching the rest, with
+	// the same guard as UpdateTaskLive: ErrDispatchFenced when generation is no longer the
+	// Workflow's, ErrTaskNotRunning when the Task is not running at attempt. It is one targeted
+	// write outside any transaction; a transition that races with it in a transaction is retried
+	// by the store with fresh state, so a transition that clears Waiting always wins.
+	UpdateTaskWaiting(ctx context.Context, id string, generation int64, taskID string, attempt int, waiting *TaskWaiting) error
 	// RequestCancel stores a cancel command and advances the command sequence; a Workflow that
 	// already has one keeps the first. It returns ErrWorkflowControlConflict for a terminal
 	// Workflow.

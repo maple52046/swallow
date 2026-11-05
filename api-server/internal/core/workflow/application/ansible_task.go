@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -182,19 +183,21 @@ func (r *AnsibleTaskRunner) Run(ctx context.Context, input AnsibleTask) Outcome 
 
 	reader, canStream := r.runner.(workflowdomain.IncrementalEventReader)
 	progress := &runProgressState{}
+	failures := &failedHosts{}
 	ticker := time.NewTicker(r.streamInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case outcome := <-done:
 			if canStream {
-				r.stream(ctx, ref, runID, reader, progress)
+				r.stream(ctx, ref, runID, reader, progress, failures)
 			}
 			if ctx.Err() != nil {
 				return Outcome{Status: workflowdomain.TaskCanceled, ExternalExecution: reference}
 			}
 			if outcome.err != nil {
 				result := failedOutcome("ansible_failed", outcome.err.Error(), true)
+				result.Error.Diagnostic = runFailureDiagnostic(outcome.err, failures, targets)
 				result.ExternalExecution, result.Artifacts = reference, r.artifacts(runID)
 				return result
 			}
@@ -204,15 +207,68 @@ func (r *AnsibleTaskRunner) Run(ctx context.Context, input AnsibleTask) Outcome 
 			}
 		case <-ticker.C:
 			if canStream {
-				r.stream(ctx, ref, runID, reader, progress)
+				r.stream(ctx, ref, runID, reader, progress, failures)
 			}
 		}
 	}
 }
 
-// stream tails the run's new events into the event store and refreshes Task.Live. It is
-// best-effort: a failure is logged and the same window is read again on the next tick.
-func (r *AnsibleTaskRunner) stream(ctx context.Context, ref TaskRef, runID string, reader workflowdomain.IncrementalEventReader, state *runProgressState) {
+// failedHosts follows the failed and unreachable task results of a run as they stream in: each
+// host's latest failing task, hosts in the order they first failed. A failure the playbook
+// rescued or ignored is a failed result too, which is why runFailureDiagnostic names a target
+// only when one host failed. It belongs to one Run call and is not safe for concurrent use.
+type failedHosts struct {
+	order []string
+	tasks map[string]string
+}
+
+// record folds a window of streamed results into f. Reading the same window again changes
+// nothing, since a host keeps only its latest failing task.
+func (f *failedHosts) record(events []workflowdomain.StreamedTaskEvent) {
+	for _, event := range events {
+		if event.Host == "" || (event.Status != "failed" && event.Status != "unreachable") {
+			continue
+		}
+		if f.tasks == nil {
+			f.tasks = map[string]string{}
+		}
+		if _, seen := f.tasks[event.Host]; !seen {
+			f.order = append(f.order, event.Host)
+		}
+		f.tasks[event.Host] = event.Task
+	}
+}
+
+// runFailureDiagnostic explains a failed playbook run (glossary: Task Diagnostic). Its class is
+// unknown: a failed task does not tell whether running it again can succeed. Cause is the
+// runner's failure summary, redacted. Operation is the failing task when every failing host
+// failed in the same one, and Target the failing host when exactly one host failed and it is one
+// of the Task's Servers (targets); otherwise each is left out rather than guessed. Without
+// streamed results (a Runner that cannot stream, or a run that failed before its first task)
+// only the class and the cause are known.
+func runFailureDiagnostic(cause error, failures *failedHosts, targets []string) *workflowdomain.TaskDiagnostic {
+	diagnostic := workflowdomain.NewTaskDiagnostic(workflowdomain.FailureUnknown, cause)
+	if len(failures.order) == 0 {
+		return diagnostic
+	}
+	task := failures.tasks[failures.order[0]]
+	for _, host := range failures.order[1:] {
+		if failures.tasks[host] != task {
+			task = ""
+			break
+		}
+	}
+	diagnostic.Operation = task
+	if host := failures.order[0]; len(failures.order) == 1 && slices.Contains(targets, host) {
+		diagnostic.Target = &workflowdomain.ResourceReference{Kind: "server", ID: host}
+	}
+	return diagnostic
+}
+
+// stream tails the run's new events into the event store, refreshes Task.Live, and records the
+// window's failed results in failures. It is best-effort: a failure is logged and the same window
+// is read again on the next tick.
+func (r *AnsibleTaskRunner) stream(ctx context.Context, ref TaskRef, runID string, reader workflowdomain.IncrementalEventReader, state *runProgressState, failures *failedHosts) {
 	delta, err := reader.EventsSince(runID, state.lastSeq)
 	if err != nil {
 		slog.Warn("read Ansible run events", "runId", runID, "error", err)
@@ -225,6 +281,7 @@ func (r *AnsibleTaskRunner) stream(ctx context.Context, ref TaskRef, runID strin
 		}
 	}
 	state.apply(delta)
+	failures.record(delta.Events)
 	live := state.prog
 	live.UpdatedAt = time.Now().UTC()
 	if err := r.live.UpdateLive(ctx, ref, nil, nil, &live); err != nil && !errors.Is(err, workflowdomain.ErrTaskNotRunning) {

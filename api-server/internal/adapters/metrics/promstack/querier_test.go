@@ -100,6 +100,55 @@ func TestQueryRange_LogicalErrorIsRejected(t *testing.T) {
 	}
 }
 
+// A failed read keeps its classification and the user's Detail, and its cause names the call and
+// the backend address (without userinfo or the PromQL query) beside the original failure.
+func TestFailedReadNamesTheCallAndEndpoint(t *testing.T) {
+	closed := httptest.NewServer(http.NotFoundHandler())
+	refusedURL := closed.URL
+	closed.Close()
+	unauthorized := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "bad token", http.StatusUnauthorized)
+	}))
+	defer unauthorized.Close()
+
+	cases := []struct {
+		name   string
+		url    string
+		kind   monitoringdomain.QueryErrorKind
+		detail string
+		cause  string
+	}{
+		{"backend down", refusedURL, monitoringdomain.QueryErrorUnavailable, "Could not reach the monitoring backend.", "connection refused"},
+		{"token rejected", unauthorized.URL, monitoringdomain.QueryErrorAuth,
+			"The monitoring backend rejected the credential swallow is configured with.", "HTTP 401"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, err := NewClient(strings.Replace(tc.url, "http://", "http://metrics:hunter2@", 1), "store-token", time.Second, false)
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			_, err = NewQuerier(client).query(context.Background(), `up{server_id="srv-1"}`)
+			var queryErr *monitoringdomain.QueryError
+			if !errors.As(err, &queryErr) || queryErr.Kind != tc.kind || queryErr.Detail != tc.detail {
+				t.Fatalf("query error = %v, want a %s QueryError with Detail %q", err, tc.kind, tc.detail)
+			}
+			cause := queryErr.Err.Error()
+			if !strings.Contains(cause, "GET /api/v1/query at "+tc.url) || !strings.Contains(cause, tc.cause) {
+				t.Errorf("cause = %q, want the call, the endpoint, and %q", cause, tc.cause)
+			}
+			for _, hidden := range []string{"hunter2", "server_id"} {
+				if strings.Contains(cause, hidden) {
+					t.Errorf("cause = %q shows %q", cause, hidden)
+				}
+			}
+			if errors.Unwrap(queryErr.Err) == nil {
+				t.Error("the cause no longer unwraps to the original failure")
+			}
+		})
+	}
+}
+
 // The instant read drops non-finite samples too, so a zero-sized filesystem cannot break the
 // JSON response with a NaN.
 func TestQuery_DropsNonFiniteSamples(t *testing.T) {

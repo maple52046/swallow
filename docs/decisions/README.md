@@ -142,6 +142,8 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [074](074-retire-schema-v2-and-deprecated-aliases.md) | 退役 schema-v2 Operation 紀錄（schema v10 刪除）與「保留一個 release」的 alias：`/operations`、`/clusters`、`clusterId` 等欄位、request `ephemeral` 與同步的部署路由 | — |
 | [075](075-module-contract-v1.md) | 模組契約 v1：每個模組以 `module.json` 宣告自己並以一個 root Go package 提供 hook，composition root 為三個 process 組出同一個 registry，模組之間只經由 core 的 port 依賴 | — |
 | [076](076-change-plans.md) | Change Plan 是 convergence context 的獨立文件，每個資源最多一份未完成；破壞性的 spec 寫入與 plan 同一個 transaction，整份核准，由資源的 controller 重算後 apply 成 Workflow，24 小時到期 | — |
+| [077](077-task-diagnostics-and-wait-policy.md) | Task 失敗帶有兩層的 Task Diagnostic，存在 store、經 API 提供，遮蔽 secret 但保留原因，並以結構化 log 關聯；每個等待宣告觀察來源、Failure Class 分類與預算，等待中發佈觀察，permanent 立即失敗 | — |
+| [077](077-task-diagnostics-and-wait-policy.md) | Task 失敗帶有兩層的 Task Diagnostic，存在 store、經 API 提供，遮蔽 secret 但保留原因，並以結構化 log 關聯；每個等待宣告觀察來源、Failure Class 分類與預算，等待中發佈觀察，permanent 立即失敗 | — |
 
 ### 已併入的編號
 

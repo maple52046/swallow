@@ -30,11 +30,67 @@ export interface OperationResourceReference {
   id: string;
 }
 
+/**
+ * Whether doing the same thing again can succeed (glossary: Failure Class): `transient` clears by
+ * itself, `permanent` repeats until something changes, `unknown` was not classified (including an
+ * outcome that cannot be proven). It informs the user; whether a retry may be requested is still
+ * only `retryable`.
+ */
+export type OperationFailureClass = "transient" | "permanent" | "unknown";
+
+/** One event a provider recorded about a Task's target, copied into a diagnostic as evidence. */
+export interface OperationProviderEvent {
+  type: string;
+  description: string;
+  at?: string;
+}
+
+/**
+ * The structured, redacted explanation of a Task failure (glossary: Task Diagnostic; workflows
+ * contract, "Task errors and diagnostics"). The user layer — the error's `message`, `target`, and
+ * `remediation` — must be readable on its own; the rest is admin evidence. Every optional field is
+ * absent when the Runner did not record it, and every text was redacted by the API (secrets masked
+ * as `[REDACTED]`), so it may be shown as is but must never be parsed.
+ */
+export interface OperationTaskDiagnostic {
+  failureClass: OperationFailureClass;
+  target?: OperationResourceReference;
+  endpoint?: string;
+  operation?: string;
+  cause?: string;
+  remediation?: string;
+  observation?: string;
+  observedAt?: string;
+  attempts?: number;
+  elapsedSeconds?: number;
+  budgetSeconds?: number;
+  providerEvents?: OperationProviderEvent[];
+}
+
+/**
+ * A Task's latest normalized error. Only `code` and `retryable` may drive behavior. `diagnostic` is
+ * `null` on the wire when the Runner recorded none (every error stored before 2026-11-05); it is
+ * optional here as well so older payloads without the field read the same way.
+ */
 export interface OperationNormalizedError {
   code: string;
   message: string;
   retryable: boolean;
   stage?: string;
+  diagnostic?: OperationTaskDiagnostic | null;
+}
+
+/**
+ * What a running Step waits for, as its Runner last published it. Advisory like `live`: null or
+ * absent when the Step reports nothing, and cleared when the attempt ends. `budgetSeconds` is absent
+ * for a wait without a budget.
+ */
+export interface OperationStepWaiting {
+  observation: string;
+  observedAt: string;
+  attempts: number;
+  elapsedSeconds: number;
+  budgetSeconds?: number;
 }
 
 export interface OperationExternalExecution {
@@ -90,6 +146,8 @@ export interface OperationStep {
   externalExecution: OperationExternalExecution | null;
   /** Live progress while the Step runs; null/absent before it starts and after it finishes. */
   live?: OperationStepLive | null;
+  /** What the running Step waits for; null on the wire when it reports nothing, absent from older payloads. */
+  waiting?: OperationStepWaiting | null;
   artifacts: OperationArtifact[];
   startedAt: string | null;
   finishedAt: string | null;

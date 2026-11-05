@@ -1,19 +1,23 @@
 // Package httpjson is the small JSON-over-HTTP client the platform modules share instead of a
 // vendored client library: a per-client transport, base URL normalization, and request helpers whose
-// failures tell whether the server was reached and what it answered. Each caller maps those
-// failures to its own errors.
+// failures tell whether the server was reached, how a request without an answer failed, and what
+// the server answered. Each caller maps those failures to its own errors; the package holds no
+// rule of one platform's API and imports no core package.
 package httpjson
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 )
 
 // MaxErrorBodyBytes bounds how much of an error response is kept for the error message.
@@ -95,7 +99,7 @@ func send(client *http.Client, req *http.Request) (*http.Response, error) {
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		defer resp.Body.Close()
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, MaxErrorBodyBytes))
-		return nil, &StatusError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
+		return nil, &StatusError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(raw)), URL: address(req.URL)}
 	}
 	return resp, nil
 }
@@ -104,6 +108,10 @@ func send(client *http.Client, req *http.Request) (*http.Response, error) {
 type StatusError struct {
 	StatusCode int
 	Body       string
+	// URL is the address that answered, without userinfo, query, or fragment, so it can be shown
+	// without leaking a credential the request carried there; empty when the caller built the
+	// error without a request.
+	URL string
 }
 
 // Error names the status and, when there is one, the body.
@@ -115,7 +123,8 @@ func (e *StatusError) Error() string {
 }
 
 // TransportError is a request that got no answer: the server could not be reached, refused the
-// connection, failed TLS verification, or timed out.
+// connection, failed TLS verification, or timed out. Err is the HTTP client's error, normally a
+// *url.Error whose message names the request URL; callers that show the message redact it.
 type TransportError struct {
 	Err error
 }
@@ -125,3 +134,82 @@ func (e *TransportError) Error() string { return e.Err.Error() }
 
 // Unwrap returns the underlying error.
 func (e *TransportError) Unwrap() error { return e.Err }
+
+// URL returns the address the request went to, without userinfo, query, or fragment, or "" when
+// Err does not carry one (it is not a *url.Error).
+func (e *TransportError) URL() string {
+	var urlErr *url.Error
+	if !errors.As(e.Err, &urlErr) {
+		return ""
+	}
+	parsed, err := url.Parse(urlErr.URL)
+	if err != nil {
+		return ""
+	}
+	return address(parsed)
+}
+
+// Failure classifies how the request failed from Err's chain, so a caller can tell a condition
+// that may clear by itself (a refused connection, a timeout) from one that repeats until
+// something changes (a certificate the client does not trust).
+func (e *TransportError) Failure() TransportFailure {
+	var (
+		verifyErr    *tls.CertificateVerificationError
+		authorityErr x509.UnknownAuthorityError
+		invalidErr   x509.CertificateInvalidError
+		hostnameErr  x509.HostnameError
+		recordErr    tls.RecordHeaderError
+		alertErr     tls.AlertError
+		dnsErr       *net.DNSError
+		netErr       net.Error
+	)
+	switch {
+	case errors.As(e.Err, &verifyErr), errors.As(e.Err, &authorityErr), errors.As(e.Err, &invalidErr),
+		errors.As(e.Err, &hostnameErr), errors.As(e.Err, &recordErr), errors.As(e.Err, &alertErr),
+		errors.Is(e.Err, http.ErrSchemeMismatch):
+		return TransportTLS
+	// Checked before the timeout: a resolver that timed out is still a name that did not resolve.
+	case errors.As(e.Err, &dnsErr):
+		return TransportDNS
+	case errors.Is(e.Err, syscall.ECONNREFUSED):
+		return TransportRefused
+	case errors.Is(e.Err, context.DeadlineExceeded), errors.As(e.Err, &netErr) && netErr.Timeout():
+		return TransportTimeout
+	default:
+		return TransportOther
+	}
+}
+
+// TransportFailure says how a request without an answer failed. The values are this package's
+// own; a caller maps them to its error model rather than storing or serving them as they are.
+type TransportFailure string
+
+const (
+	// TransportTimeout is a request that ran out of time before an answer: the client's timeout,
+	// the context's deadline, or a dial or TLS handshake that took too long.
+	TransportTimeout TransportFailure = "timeout"
+	// TransportRefused is a connection the address refused: nothing listens there (yet).
+	TransportRefused TransportFailure = "refused"
+	// TransportDNS is a host name that could not be resolved.
+	TransportDNS TransportFailure = "dns"
+	// TransportTLS is a TLS handshake that failed: a certificate the client does not trust or that
+	// does not match the host, a peer that does not speak TLS (an https URL for a plain HTTP
+	// server), or a handshake the server refused.
+	TransportTLS TransportFailure = "tls"
+	// TransportOther is any other request without an answer: a reset connection, no route to the
+	// host, a canceled context.
+	TransportOther TransportFailure = "other"
+)
+
+// address returns u without userinfo, query, or fragment, the part of a request URL that is safe
+// to show.
+func address(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	shown := *u
+	shown.User = nil
+	shown.RawQuery, shown.ForceQuery = "", false
+	shown.Fragment, shown.RawFragment = "", ""
+	return shown.String()
+}

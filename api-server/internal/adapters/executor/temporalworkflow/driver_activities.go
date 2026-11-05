@@ -30,11 +30,18 @@ func (a *DriverActivities) Advance(ctx context.Context, request workflowapp.Adva
 }
 
 // RecordFailure implements ActivityRecordFailure: an execution that ended without recording an
-// outcome is recorded requires_attention (retryable) or failed (not retryable). A Task that is no
-// longer running at the attempt, or a superseded generation, is left as it is.
+// outcome is recorded requires_attention (retryable) or failed (not retryable), with a diagnostic
+// that says the outcome is unknown or the failure permanent and what the user can do. The activity
+// error's text never reaches the diagnostic (see normalizeActivityError). A Task that is no longer
+// running at the attempt, or a superseded generation, is left as it is.
 func (a *DriverActivities) RecordFailure(ctx context.Context, input FailureInput) error {
 	outcome := workflowapp.Outcome{Status: workflowdomain.TaskRequiresAttention, Error: &workflowdomain.NormalizedError{
 		Code: input.Code, Message: "The step activity failed before returning a normalized result.", Retryable: true,
+		Diagnostic: &workflowdomain.TaskDiagnostic{
+			FailureClass: workflowdomain.FailureUnknown,
+			Cause:        "The Task's activity ended with an error (" + input.Code + ") instead of an outcome; the worker log has its detail.",
+			Remediation:  "Check whether the Task's work happened on its targets, then retry the Task.",
+		},
 	}}
 	switch {
 	case input.OutcomeUnknown:
@@ -42,12 +49,21 @@ func (a *DriverActivities) RecordFailure(ctx context.Context, input FailureInput
 			Code:      "executor_outcome_unknown",
 			Message:   "The executor stopped before recording the Task's outcome; retry the Task to run it again.",
 			Retryable: true,
+			Diagnostic: &workflowdomain.TaskDiagnostic{
+				FailureClass: workflowdomain.FailureUnknown,
+				Cause:        "The executor that ran the attempt stopped or lost contact before it recorded an outcome, and the attempt cannot be run again without the user.",
+				Remediation:  "Check whether the Task's work happened on its targets, then retry the Task to run it again or cancel the Workflow.",
+			},
 		}
 	case input.NonRetryable:
 		outcome.Status = workflowdomain.TaskFailed
 		outcome.Error.Retryable = false
+		outcome.Error.Diagnostic.FailureClass = workflowdomain.FailurePermanent
+		outcome.Error.Diagnostic.Remediation = "This attempt cannot be retried; rerun the Workflow once the cause is fixed."
 		if input.Code == "executor_unavailable" {
 			outcome.Error.Message = "No executor is configured for this step."
+			outcome.Error.Diagnostic.Cause = "No process registers a Runner for this Task's kind."
+			outcome.Error.Diagnostic.Remediation = "Check that the worker and the Ansible executor of this installation are running the same release, then rerun the Workflow."
 		}
 	}
 	err := a.engine.Record(ctx, taskRef(input.Task), outcome)
@@ -82,6 +98,9 @@ type TaskActivities struct {
 	runners       map[workflowdomain.RunnerKind]StepLifecycleExecutor
 	compensations map[string]CompensationExecutor
 	fenceInterval time.Duration
+	// compensationHeartbeat is how often Compensate heartbeats while its compensation runs; it must
+	// stay well under compensationActivityOptions' heartbeat timeout. Tests shorten it.
+	compensationHeartbeat time.Duration
 }
 
 // heartbeatInterval is how often a running Task's activity heartbeats. A cancel reaches the
@@ -96,14 +115,17 @@ const runnerStopTimeout = 45 * time.Second
 // NewTaskActivities returns the Task activities for runners and compensations.
 func NewTaskActivities(engine *workflowapp.Engine, runners map[workflowdomain.RunnerKind]StepLifecycleExecutor,
 	compensations map[string]CompensationExecutor) *TaskActivities {
-	return &TaskActivities{engine: engine, runners: runners, compensations: compensations, fenceInterval: 15 * time.Second}
+	return &TaskActivities{engine: engine, runners: runners, compensations: compensations,
+		fenceInterval: 15 * time.Second, compensationHeartbeat: heartbeatInterval}
 }
 
-// ExecuteTask implements ActivityExecuteTask. It reads the attempt from the store, runs its Runner,
-// and records the outcome through the core. Every fence interval it heartbeats and confirms the
-// generation; a superseded run cancels the Runner and ends with a non-retryable dispatch_fenced. A
-// worker drain leaves the external work running for the next activity attempt; a cancel stops the
-// Runner and records nothing, because the run's cancel path records the Task.
+// ExecuteTask implements ActivityExecuteTask. It reads the attempt from the store, runs its Runner
+// with a WaitingPublisher bound to the attempt (so the Runner can publish Task.Waiting through the
+// core while it waits), and records the outcome through the core. Every fence interval it
+// heartbeats and confirms the generation; a superseded run cancels the Runner and ends with a
+// non-retryable dispatch_fenced. A worker drain leaves the external work running for the next
+// activity attempt; a cancel stops the Runner and records nothing, because the run's cancel path
+// records the Task.
 func (a *TaskActivities) ExecuteTask(ctx context.Context, input TaskInput) error {
 	ref := taskRef(input)
 	execution, err := a.engine.TaskForExecution(ctx, ref)
@@ -118,6 +140,7 @@ func (a *TaskActivities) ExecuteTask(ctx context.Context, input TaskInput) error
 		return temporal.NewNonRetryableApplicationError("no Runner is registered for the Task", "executor_unavailable", nil)
 	}
 	step := stepInput(execution, int(activity.GetInfo(ctx).Attempt), input.Resumed || execution.Task.Resumed)
+	step.Waiting = workflowapp.NewWaitingPublisher(a.engine, ref)
 	runCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	done := make(chan StepExecutionResult, 1)
@@ -175,7 +198,9 @@ func stopRunner(ctx context.Context, cancel context.CancelCauseFunc, cause error
 }
 
 // Compensate implements ActivityCompensate: a registered compensation for an interrupted Task, or
-// the Task itself for one that runs on cancel. It is best-effort and never fails the cancel.
+// the Task itself for one that runs on cancel. It is best-effort and never fails the cancel. It
+// heartbeats while the compensation runs (heartbeatWhile), so the run's cancel path waits for it
+// before it releases the Workflow's resources.
 func (a *TaskActivities) Compensate(ctx context.Context, input CompensationInput) error {
 	execution, err := a.engine.TaskForCompensation(ctx, input.WorkflowID, input.Generation, input.TaskID)
 	if err != nil {
@@ -185,7 +210,7 @@ func (a *TaskActivities) Compensate(ctx context.Context, input CompensationInput
 	step.Step.Status = workflowdomain.TaskRunning
 	if input.Run {
 		if runner := a.runners[execution.Task.Executor]; runner != nil {
-			_ = runner.Execute(ctx, step)
+			a.heartbeatWhile(ctx, func() { _ = runner.Execute(ctx, step) })
 		}
 		return nil
 	}
@@ -193,8 +218,34 @@ func (a *TaskActivities) Compensate(ctx context.Context, input CompensationInput
 	if compensation == nil {
 		return fmt.Errorf("no compensation %q is registered", input.Kind)
 	}
-	eventType, message := compensation.Compensate(ctx, step)
+	var eventType, message string
+	a.heartbeatWhile(ctx, func() { eventType, message = compensation.Compensate(ctx, step) })
 	return a.engine.RecordCompensation(ctx, input.WorkflowID, input.TaskID, input.Kind, input.Attempt, eventType, message)
+}
+
+// heartbeatWhile runs compensate on its own goroutine and heartbeats every compensationHeartbeat
+// until it returns. A compensation may wait on a provider for many minutes, far past the activity's
+// heartbeat timeout; without heartbeats Temporal would time the activity out, and the run's cancel
+// path would record the Workflow canceled and release its resources while the compensation still
+// acts on them. It always waits for compensate to return: ctx (the activity's StartToClose deadline)
+// is how compensate is stopped, so compensate must honor it.
+func (a *TaskActivities) heartbeatWhile(ctx context.Context, compensate func()) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		compensate()
+	}()
+	activity.RecordHeartbeat(ctx, "Compensating")
+	beat := time.NewTicker(a.compensationHeartbeat)
+	defer beat.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-beat.C:
+			activity.RecordHeartbeat(ctx, "Compensating")
+		}
+	}
 }
 
 func stepInput(execution *workflowapp.TaskExecution, activityAttempt int, resumed bool) StepExecutionInput {

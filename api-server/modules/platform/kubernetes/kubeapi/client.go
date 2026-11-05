@@ -80,7 +80,7 @@ func (c *Client) do(ctx context.Context, method, path, contentType string, body 
 	}
 	raw, err := httpjson.DoRaw(c.httpClient, req, maxLogBytes)
 	if err != nil {
-		return nil, translateError(err)
+		return nil, translateError(err, c.baseURL, requestOperation(method, path))
 	}
 	return raw, nil
 }
@@ -105,9 +105,10 @@ func (c *Client) exists(ctx context.Context, path string) (bool, error) {
 		return false, fmt.Errorf("build kubernetes request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	operation := requestOperation(http.MethodGet, path)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return false, translateError(&httpjson.TransportError{Err: err})
+		return false, translateError(&httpjson.TransportError{Err: err}, c.baseURL, operation)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, httpjson.MaxErrorBodyBytes))
@@ -115,7 +116,7 @@ func (c *Client) exists(ctx context.Context, path string) (bool, error) {
 		return false, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return false, translateError(&httpjson.StatusError{StatusCode: resp.StatusCode})
+		return false, translateError(&httpjson.StatusError{StatusCode: resp.StatusCode}, c.baseURL, operation)
 	}
 	return true, nil
 }

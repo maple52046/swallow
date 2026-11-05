@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
+	"github.com/maple52046/swallow/internal/shared/redact"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 )
 
@@ -404,7 +406,9 @@ func (r *LocalRunner) Stderr(_ context.Context, runID string) (string, error) {
 
 // writeFailureBlock appends one human-readable failure block for a failed/unreachable task.
 // Unlike the single-line summary folded into the run error, this preserves the task's full
-// stderr and stdout on their own lines so the Stderr tab reads like a focused error log.
+// stderr and stdout on their own lines so the Stderr tab reads like a focused error log. The
+// block is redacted as a whole (redactOutput) while its lines are still separate, so a
+// "password: value" line of the output is recognized as one.
 func writeFailureBlock(b *strings.Builder, doc runnerFailureEvent) {
 	label := "FAILED"
 	if doc.Event == "runner_on_unreachable" {
@@ -414,19 +418,21 @@ func writeFailureBlock(b *strings.Builder, doc runnerFailureEvent) {
 	if task == "" {
 		task = "(unnamed task)"
 	}
-	fmt.Fprintf(b, "==> %s  task: %s  host: %s\n", label, task, doc.EventData.Host)
+	var block strings.Builder
+	fmt.Fprintf(&block, "==> %s  task: %s  host: %s\n", label, task, doc.EventData.Host)
 	if msg := strings.TrimSpace(stringifyMsg(doc.EventData.Res.Msg)); msg != "" {
-		fmt.Fprintf(b, "msg: %s\n", msg)
+		fmt.Fprintf(&block, "msg: %s\n", msg)
 	}
 	if doc.EventData.Res.RC != nil {
-		fmt.Fprintf(b, "rc: %d\n", *doc.EventData.Res.RC)
+		fmt.Fprintf(&block, "rc: %d\n", *doc.EventData.Res.RC)
 	}
 	if stderr := strings.TrimRight(doc.EventData.Res.Stderr, "\n"); strings.TrimSpace(stderr) != "" {
-		fmt.Fprintf(b, "stderr:\n%s\n", stderr)
+		fmt.Fprintf(&block, "stderr:\n%s\n", stderr)
 	}
 	if stdout := strings.TrimRight(doc.EventData.Res.Stdout, "\n"); strings.TrimSpace(stdout) != "" {
-		fmt.Fprintf(b, "stdout:\n%s\n", stdout)
+		fmt.Fprintf(&block, "stdout:\n%s\n", stdout)
 	}
+	b.WriteString(redactOutput(block.String()))
 	b.WriteString("\n")
 }
 
@@ -506,6 +512,20 @@ const (
 	maxFailureTotalChars  = 2000
 )
 
+// ansiblePasswordVar matches an Ansible connection or privilege-escalation password variable
+// (ansible_ssh_pass, ansible_become_pass, ansible_sudo_pass) assigned a value. The shared
+// redaction knows "password" but not Ansible's "_pass" spelling, so this rule stays here.
+var ansiblePasswordVar = regexp.MustCompile(`(?i)\b([A-Za-z0-9_]*_pass["']?\s*[:=]\s*)(\[REDACTED\]|"[^"]*"|'[^']*'|[^\s,;"'}\]]+)`)
+
+// redactOutput masks the secrets in task output that a failure report shows: Ansible's own
+// password variables, then every generic shape (redact.Text: tokens, Authorization headers, URL
+// userinfo, credential key-value pairs, private keys). The rest of the text is kept, so the cause
+// stays readable. Callers redact before they bound or fold the text: a cut could otherwise leave a
+// secret without the key that marks it, and folding lines would hide a "key: value" line.
+func redactOutput(text string) string {
+	return redact.Text(ansiblePasswordVar.ReplaceAllString(text, "${1}"+redact.Mask))
+}
+
 // runnerFailureEvent is the subset of a failed or unreachable ansible job event used to
 // explain why a run failed. Unlike the public TaskEvent projection (which is deliberately
 // output-free because it is a public projection), this stays inside the runner and is folded
@@ -533,7 +553,9 @@ type runnerFailureEvent struct {
 //
 // It is deliberately a summary, not a transcript: each line is capped and at most
 // maxFailureHosts hosts are listed, so it reads cleanly as a Step reason. The full,
-// untruncated output remains in the retained stdout artifact (the Stdout tab).
+// untruncated output remains in the retained stdout artifact (the Stdout tab). Every line is
+// redacted (formatFailureLine), because the summary becomes the Task's stored error message and
+// the cause of its diagnostic.
 //
 // It returns an empty string when no failed or unreachable task event is present — for
 // example an ansible-runner error before any task ran, or events not yet flushed — so the
@@ -599,22 +621,24 @@ func (r *LocalRunner) summarizeRunFailure(runID string) string {
 // formatFailureLine renders one failed task event as a single bounded line: the host, the
 // task, and the most specific diagnostic available. stderr is preferred over stdout because
 // it is the conventional error channel; both are shown as a tail because a command's error
-// is usually at the end. Whitespace is collapsed so multi-line output stays on one line.
+// is usually at the end. Whitespace is collapsed so multi-line output stays on one line. Each
+// output is redacted (redactOutput) before it is folded and cut, and the line again as a whole
+// for a secret the task name carried.
 func formatFailureLine(doc runnerFailureEvent) string {
 	label := "failed"
 	if doc.Event == "runner_on_unreachable" {
 		label = "unreachable"
 	}
 	parts := make([]string, 0, 3)
-	if msg := collapseWhitespace(stringifyMsg(doc.EventData.Res.Msg)); msg != "" {
+	if msg := collapseWhitespace(redactOutput(stringifyMsg(doc.EventData.Res.Msg))); msg != "" {
 		parts = append(parts, msg)
 	}
 	if doc.EventData.Res.RC != nil {
 		parts = append(parts, fmt.Sprintf("rc=%d", *doc.EventData.Res.RC))
 	}
-	if stderr := collapseWhitespace(doc.EventData.Res.Stderr); stderr != "" {
+	if stderr := collapseWhitespace(redactOutput(doc.EventData.Res.Stderr)); stderr != "" {
 		parts = append(parts, "stderr: "+tail(stderr, maxFailureDetailChars))
-	} else if stdout := collapseWhitespace(doc.EventData.Res.Stdout); stdout != "" {
+	} else if stdout := collapseWhitespace(redactOutput(doc.EventData.Res.Stdout)); stdout != "" {
 		parts = append(parts, "stdout: "+tail(stdout, maxFailureDetailChars))
 	}
 	detail := strings.Join(parts, " | ")
@@ -628,7 +652,7 @@ func formatFailureLine(doc runnerFailureEvent) string {
 	if task == "" {
 		task = "(unnamed task)"
 	}
-	return fmt.Sprintf("- %s: task %q %s: %s", doc.EventData.Host, task, label, detail)
+	return redactOutput(fmt.Sprintf("- %s: task %q %s: %s", doc.EventData.Host, task, label, detail))
 }
 
 // stringifyMsg renders an ansible "msg" field, which is usually a string but can be a list

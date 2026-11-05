@@ -178,6 +178,27 @@ func (r *MongoWorkflowRepo) UpdateTaskLive(ctx context.Context, id string, gener
 	if live != nil {
 		set["tasks.$.live"] = live
 	}
+	return r.updateRunningTask(ctx, id, generation, taskID, attempt, set)
+}
+
+// UpdateTaskWaiting implements workflowdomain.WorkflowRepository with the same guarded, targeted
+// update as UpdateTaskLive. The value is written under "waiting", the key the store's default
+// struct codec gives Task.Waiting (and every field of TaskWaiting its lower-cased name), so a
+// Workflow read back through FindByID decodes it. A nil waiting clears the field.
+func (r *MongoWorkflowRepo) UpdateTaskWaiting(ctx context.Context, id string, generation int64, taskID string, attempt int,
+	waiting *workflowdomain.TaskWaiting) error {
+	return r.updateRunningTask(ctx, id, generation, taskID, attempt, bson.M{
+		"updatedAt": time.Now().UTC(), "tasks.$.waiting": waiting,
+	})
+}
+
+// updateRunningTask applies set to one Task with a single update whose filter requires the
+// Workflow's current dispatch generation and the Task running at attempt, so a superseded run or a
+// late write after the attempt ended changes nothing. It runs outside any transaction; a
+// transition that read the Workflow in a transaction and races with it hits a write conflict and is
+// retried with fresh state. A miss is told apart afterwards: ErrDispatchFenced when the
+// generation moved on, ErrTaskNotRunning otherwise.
+func (r *MongoWorkflowRepo) updateRunningTask(ctx context.Context, id string, generation int64, taskID string, attempt int, set bson.M) error {
 	result, err := r.operations.UpdateOne(ctx, bson.M{
 		"_id": id, "schemaVersion": 4, "dispatch.generation": generation,
 		"tasks": bson.M{"$elemMatch": bson.M{

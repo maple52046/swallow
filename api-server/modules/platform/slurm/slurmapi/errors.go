@@ -7,16 +7,22 @@ import (
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	"github.com/maple52046/swallow/internal/shared/httpjson"
+	"github.com/maple52046/swallow/internal/shared/redact"
 )
 
 // translateError maps a failed slurmrestd call to the *platformdomain.ReaderError the core and
-// delivery classify; other errors pass through.
-func translateError(err error) error {
+// delivery classify; other errors pass through. endpoint is the slurmrestd base URL the call went
+// to and operation the call's short name: they fill the error's Endpoint (redacted, so no
+// userinfo or query value survives) and Operation, and with Transport and the original err (kept
+// as Err) they are the evidence ReaderError.Error and Task diagnostics show. Detail stays the
+// user's sentence, which delivery returns verbatim, so it never names the endpoint.
+func translateError(err error, endpoint, operation string) error {
+	readerErr := &platformdomain.ReaderError{Endpoint: redact.URL(endpoint), Operation: operation, Err: err}
 	var transportErr *httpjson.TransportError
 	if errors.As(err, &transportErr) {
-		return &platformdomain.ReaderError{
-			Kind: platformdomain.ReaderErrorUnavailable, Detail: "Could not reach the Slurm API.", Err: err,
-		}
+		readerErr.Kind, readerErr.Detail = platformdomain.ReaderErrorUnavailable, "Could not reach the Slurm API."
+		readerErr.Transport = transportFailure(transportErr.Failure())
+		return readerErr
 	}
 	var statusErr *httpjson.StatusError
 	if !errors.As(err, &statusErr) {
@@ -24,20 +30,34 @@ func translateError(err error) error {
 	}
 	switch {
 	case statusErr.StatusCode == http.StatusUnauthorized, statusErr.StatusCode == http.StatusForbidden:
-		return &platformdomain.ReaderError{
-			Kind: platformdomain.ReaderErrorAuth, Detail: "The Slurm API rejected the credential swallow is configured with.", Err: err,
-		}
+		readerErr.Kind, readerErr.Detail = platformdomain.ReaderErrorAuth, "The Slurm API rejected the credential swallow is configured with."
 	case statusErr.StatusCode == http.StatusNotFound:
-		return &platformdomain.ReaderError{Kind: platformdomain.ReaderErrorNotFound, Detail: statusErr.Error(), Err: err}
+		readerErr.Kind, readerErr.Detail = platformdomain.ReaderErrorNotFound, statusErr.Error()
 	case statusErr.StatusCode == http.StatusConflict:
-		return &platformdomain.ReaderError{Kind: platformdomain.ReaderErrorConflict, Detail: statusErr.Error(), Err: err}
+		readerErr.Kind, readerErr.Detail = platformdomain.ReaderErrorConflict, statusErr.Error()
 	case statusErr.StatusCode >= http.StatusInternalServerError:
-		return &platformdomain.ReaderError{
-			Kind:   platformdomain.ReaderErrorUnavailable,
-			Detail: fmt.Sprintf("The Slurm API reported an internal error (HTTP %d).", statusErr.StatusCode),
-			Err:    err,
-		}
+		readerErr.Kind = platformdomain.ReaderErrorUnavailable
+		readerErr.Detail = fmt.Sprintf("The Slurm API reported an internal error (HTTP %d).", statusErr.StatusCode)
 	default:
-		return &platformdomain.ReaderError{Kind: platformdomain.ReaderErrorRejected, Detail: statusErr.Error(), Err: err}
+		readerErr.Kind, readerErr.Detail = platformdomain.ReaderErrorRejected, statusErr.Error()
+	}
+	return readerErr
+}
+
+// transportFailure maps the HTTP client's classification of an unanswered request to the
+// platform domain's, which a wait uses to tell a failure that clears by itself from one that
+// needs a change.
+func transportFailure(failure httpjson.TransportFailure) platformdomain.TransportFailure {
+	switch failure {
+	case httpjson.TransportTimeout:
+		return platformdomain.TransportTimeout
+	case httpjson.TransportRefused:
+		return platformdomain.TransportRefused
+	case httpjson.TransportDNS:
+		return platformdomain.TransportDNS
+	case httpjson.TransportTLS:
+		return platformdomain.TransportTLS
+	default:
+		return platformdomain.TransportOther
 	}
 }

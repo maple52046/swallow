@@ -11,6 +11,7 @@ import (
 	"time"
 
 	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
+	"github.com/maple52046/swallow/internal/shared/redact"
 )
 
 // Querier implements monitoringdomain.MetricsQuerier against a Prometheus-compatible
@@ -115,7 +116,7 @@ func (q *Querier) query(ctx context.Context, expr string) ([]monitoringdomain.Sa
 
 	var out queryResponse
 	if err := q.client.get(ctx, "/api/v1/query", query, &out); err != nil {
-		return nil, translateError(err)
+		return nil, translateCallError(err, q.client.baseURL, "GET /api/v1/query")
 	}
 
 	if err := checkEnvelope(out.Status, out.Error); err != nil {
@@ -166,7 +167,7 @@ func (q *Querier) queryRange(
 
 	var out rangeResponse
 	if err := q.client.postForm(ctx, "/api/v1/query_range", form, &out); err != nil {
-		return nil, translateError(err)
+		return nil, translateCallError(err, q.client.baseURL, "POST /api/v1/query_range")
 	}
 	if err := checkEnvelope(out.Status, out.Error); err != nil {
 		return nil, err
@@ -225,6 +226,42 @@ func parsePair(pair []any) (time.Time, float64, bool) {
 	return time.Unix(int64(seconds), 0).UTC(), value, true
 }
 
+// translateCallError is translateError for a read whose backend address and call are known: the
+// QueryError keeps its Kind and Detail, and its Err becomes a backendCallError naming the call and
+// the endpoint beside the original failure, so the log line the delivery layer writes from Err says
+// where and how the read failed. Detail, which the API returns verbatim, stays free of the address.
+func translateCallError(err error, endpoint, operation string) error {
+	translated := translateError(err)
+	var queryErr *monitoringdomain.QueryError
+	if !errors.As(translated, &queryErr) {
+		return translated
+	}
+	queryErr.Err = &backendCallError{operation: operation, endpoint: redact.URL(endpoint), err: queryErr.Err}
+	return queryErr
+}
+
+// backendCallError is the cause of a failed backend read: the original failure and the call and
+// endpoint (without userinfo or query values) it happened on. Its text is redacted and names the
+// failure under a *url.Error rather than that error's text, which repeats the request URL with
+// its whole query. It unwraps to the original failure.
+type backendCallError struct {
+	operation, endpoint string
+	err                 error
+}
+
+func (e *backendCallError) Error() string {
+	cause := e.err
+	var urlErr *url.Error
+	if errors.As(cause, &urlErr) && urlErr.Err != nil {
+		cause = urlErr.Err
+	}
+	return redact.Text(fmt.Sprintf("%s at %s: %v", e.operation, e.endpoint, cause))
+}
+
+func (e *backendCallError) Unwrap() error { return e.err }
+
+// translateError maps a transport failure or an HTTP error answer to the *QueryError the core
+// classifies; other errors (decoding) pass through.
 func translateError(err error) error {
 	var transportErr *transportError
 	if errors.As(err, &transportErr) {

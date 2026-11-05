@@ -12,6 +12,7 @@ import (
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/temporal"
 
+	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
@@ -38,9 +39,17 @@ type StepExecutionInput struct {
 	// ActivityAttempt counts infrastructure retries of the activity; above 1 the Runner observes
 	// before acting.
 	ActivityAttempt int
+	// Waiting publishes Task.Waiting for this attempt while the Runner waits on something slow
+	// (a provider state, a host coming up), bound by the activity to this attempt's Workflow,
+	// generation, Task, and attempt. It is the zero value — which discards — for a compensation,
+	// whose Task is no longer running. See workflowapp.WaitingPublisher for its error semantics.
+	Waiting workflowapp.WaitingPublisher
 }
 
-// StepExecutionResult is a Runner's normalized outcome for one attempt.
+// StepExecutionResult is a Runner's normalized outcome for one attempt. A failure's Error carries
+// its Task Diagnostic (Error.Diagnostic) when the Runner can explain it; the engine redacts and
+// bounds the error before storing it. The result stays in the activity's process: it is handed to
+// the core directly, never through workflow history.
 type StepExecutionResult struct {
 	Status            workflowdomain.TaskStatus
 	Progress          int

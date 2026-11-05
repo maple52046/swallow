@@ -8,7 +8,11 @@ package domain
 import (
 	"context"
 	"errors"
+	"net/url"
+	"strings"
 	"time"
+
+	"github.com/maple52046/swallow/internal/shared/redact"
 )
 
 // PlatformType is the kind of platform.
@@ -238,21 +242,97 @@ const (
 	ReaderErrorRejected ReaderErrorKind = "rejected"
 )
 
-// ReaderError is a failure reported by, or while reaching, a platform API.
+// TransportFailure says how a request that got no answer from a platform API failed, so a wait
+// can tell a condition that clears by itself (a refused connection while a host boots) from one
+// that repeats until something changes (a certificate the API does not match).
+type TransportFailure string
+
+const (
+	TransportTimeout TransportFailure = "timeout"
+	TransportRefused TransportFailure = "refused"
+	TransportDNS     TransportFailure = "dns"
+	TransportTLS     TransportFailure = "tls"
+	// TransportOther is any other request without an answer (a reset connection, no route).
+	TransportOther TransportFailure = "other"
+)
+
+// ReaderError is a failure reported by, or while reaching, a platform API. It has two audiences:
+// Detail is the adapter's sentence for the user, which delivery returns verbatim as the API error
+// message, so it names no internal address and no credential; Endpoint, Operation, Transport, and
+// Err are the evidence behind it, which Error composes for logs and membership sync's lastError
+// and from which a Runner builds its Task diagnostic.
 type ReaderError struct {
 	Kind   ReaderErrorKind
 	Detail string
-	Err    error
+	// Endpoint is the address the failing call went to, without userinfo or query values.
+	Endpoint string
+	// Operation is a short name of the call that failed, for example "list nodes".
+	Operation string
+	// Transport is how a request without an answer failed; empty when the API answered.
+	Transport TransportFailure
+	// Err is the original failure, kept unchanged so callers can errors.As its cause.
+	Err error
 }
 
+// Error is an actionable sentence for an administrator: Detail, how a request without an answer
+// failed, and in parentheses the call, its endpoint, and the cause, for example "Could not reach
+// the platform API: the connection was refused (list nodes at https://10.0.0.5:6443: dial tcp
+// 10.0.0.5:6443: connect: connection refused)." Each part is omitted when unknown, and a cause
+// Detail already states is not repeated. The cause is the failure under a *url.Error rather than
+// that error's own text, which repeats the request URL with its query. The sentence is redacted
+// (redact.Text, the endpoint through redact.URL), so it is safe to log and to store.
 func (e *ReaderError) Error() string {
-	if e.Detail != "" {
-		return string(e.Kind) + ": " + e.Detail
+	sentence := strings.TrimSuffix(strings.TrimSpace(e.Detail), ".")
+	if sentence == "" {
+		sentence = string(e.Kind)
 	}
-	return string(e.Kind)
+	if how := e.Transport.phrase(); how != "" {
+		sentence += ": " + how
+	}
+	call := e.Operation
+	if endpoint := redact.URL(e.Endpoint); endpoint != "" {
+		call = strings.TrimSpace(call + " at " + endpoint)
+	}
+	cause := ""
+	if e.Err != nil {
+		root := e.Err
+		var urlErr *url.Error
+		if errors.As(root, &urlErr) && urlErr.Err != nil {
+			root = urlErr.Err
+		}
+		if text := strings.TrimSpace(root.Error()); !strings.Contains(e.Detail, text) {
+			cause = text
+		}
+	}
+	switch {
+	case call != "" && cause != "":
+		sentence += " (" + call + ": " + cause + ")"
+	case call != "" || cause != "":
+		sentence += " (" + call + cause + ")"
+	}
+	return redact.Text(sentence + ".")
 }
 
 func (e *ReaderError) Unwrap() error { return e.Err }
+
+// phrase says in words how a request without an answer failed, for ReaderError.Error; it is empty
+// for an empty or unknown value.
+func (f TransportFailure) phrase() string {
+	switch f {
+	case TransportTimeout:
+		return "the request timed out"
+	case TransportRefused:
+		return "the connection was refused"
+	case TransportDNS:
+		return "the host name could not be resolved"
+	case TransportTLS:
+		return "the TLS handshake failed or the certificate is not trusted"
+	case TransportOther:
+		return "the request got no answer"
+	default:
+		return ""
+	}
+}
 
 // PlatformRepository persists platform registrations.
 type PlatformRepository interface {

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/maple52046/swallow/internal/shared/redact"
 )
 
 const (
@@ -35,12 +37,16 @@ type installationResultSetJSON struct {
 }
 
 var (
-	// urlUserinfo matches the credentials part of a URL such as a proxy or mirror address.
-	urlUserinfo = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]+@`)
 	// pythonExceptionLine matches the final line of a Python traceback, such as
 	// "RuntimeError: Cannot find previous partition on disk /dev/nvme0n1".
 	pythonExceptionLine = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*(Error|Exception): \S`)
-	credentialWords     = []string{"password", "passwd", "token", "secret"}
+	// maasAPIKey matches a MAAS API key, consumer key, token key, and token secret joined by
+	// colons, which has no key name the shared redaction could recognize it by.
+	maasAPIKey = regexp.MustCompile(`\b[A-Za-z0-9]{18,}:[A-Za-z0-9]{18,}:[A-Za-z0-9]{32,}\b`)
+	// maasOAuthValue matches the OAuth parameters of a MAAS request (as curtin's reporting
+	// configuration or a logged header carries them) whose names hold no credential word: the
+	// consumer key, and the PLAINTEXT signature, which is the token secret itself.
+	maasOAuthValue = regexp.MustCompile(`(?i)\b((?:oauth_)?(?:consumer_key|signature)["']?\s*[:=]\s*)(\[REDACTED\]|"[^"]*"|'[^']*'|[^\s,;"'}\]]+)`)
 )
 
 // LatestInstallationFailure reads the newest failed MAAS installation that started at or after
@@ -96,16 +102,15 @@ func (p *Provider) LatestInstallationFailure(ctx context.Context, machineID stri
 
 // installationErrorLine picks the most specific error line of a curtin installation log: the
 // storage or stage handler error curtin reports first, then the exception that ended its
-// traceback, then the first failed stage. A line that mentions a credential is never used, and
-// URL credentials are removed from the rest.
+// traceback, then the first failed stage. Every line is redacted before it is considered, so a
+// line that mentions a credential keeps its cause with the secret masked (decision 077).
 func installationErrorLine(log string) string {
 	exception, failure := "", ""
 	for _, raw := range strings.Split(log, "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" || mentionsCredential(line) {
+		line := redactInstallationLine(strings.TrimSpace(raw))
+		if line == "" {
 			continue
 		}
-		line = urlUserinfo.ReplaceAllString(line, "$1")
 		switch {
 		case strings.Contains(line, "An error occured handling"), strings.Contains(line, "An error occurred handling"):
 			return boundInstallationError(line)
@@ -121,14 +126,14 @@ func installationErrorLine(log string) string {
 	return boundInstallationError(failure)
 }
 
-func mentionsCredential(line string) bool {
-	lower := strings.ToLower(line)
-	for _, word := range credentialWords {
-		if strings.Contains(lower, word) {
-			return true
-		}
-	}
-	return false
+// redactInstallationLine masks the secrets of one installation log line: first the MAAS shapes
+// only this adapter knows (maasAPIKey, maasOAuthValue), then every generic shape (redact.Text:
+// URL userinfo, tokens, credential key-value pairs). The line is redacted before it is bounded,
+// so a cut never leaves a secret without the key that marked it.
+func redactInstallationLine(line string) string {
+	line = maasAPIKey.ReplaceAllString(line, redact.Mask)
+	line = maasOAuthValue.ReplaceAllString(line, "${1}"+redact.Mask)
+	return redact.Text(line)
 }
 
 func boundInstallationError(line string) string {

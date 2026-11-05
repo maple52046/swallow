@@ -542,13 +542,20 @@ func machinePath(machineID string) string {
 //
 // machineID is non-empty for machine-scoped calls, where a 404 means that machine
 // is gone rather than that the API endpoint is wrong.
+//
+// A ProviderError keeps err as its Err and names the failing call in Endpoint (the API root,
+// without userinfo) and Operation (method, path, and named operation), which the client recorded
+// beside the failure. They are the administrator's evidence; Detail, which the API returns
+// verbatim, stays free of addresses.
 func translateError(err error, machineID string) error {
 	var transportErr *transportError
 	if errors.As(err, &transportErr) {
 		return &provisioningdomain.ProviderError{
-			Kind:   provisioningdomain.ProviderErrorUnavailable,
-			Detail: "Could not reach MAAS.",
-			Err:    err,
+			Kind:      provisioningdomain.ProviderErrorUnavailable,
+			Detail:    "Could not reach MAAS.",
+			Endpoint:  transportErr.call.endpoint,
+			Operation: transportErr.call.operation,
+			Err:       err,
 		}
 	}
 
@@ -558,6 +565,9 @@ func translateError(err error, machineID string) error {
 		return err
 	}
 
+	providerErr := &provisioningdomain.ProviderError{
+		Endpoint: apiErr.call.endpoint, Operation: apiErr.call.operation, Err: err,
+	}
 	switch {
 	case apiErr.StatusCode == http.StatusNotFound && machineID != "":
 		return provisioningdomain.ErrMachineNotFound
@@ -565,26 +575,16 @@ func translateError(err error, machineID string) error {
 	case apiErr.StatusCode == http.StatusUnauthorized, apiErr.StatusCode == http.StatusForbidden:
 		// The caller's own credentials were already accepted by swallow, so this can
 		// only be the API key swallow is configured with.
-		return &provisioningdomain.ProviderError{
-			Kind:   provisioningdomain.ProviderErrorAuth,
-			Detail: "MAAS rejected the API key swallow is configured with.",
-			Err:    err,
-		}
+		providerErr.Kind, providerErr.Detail = provisioningdomain.ProviderErrorAuth, "MAAS rejected the API key swallow is configured with."
 
 	case apiErr.StatusCode >= http.StatusInternalServerError:
-		return &provisioningdomain.ProviderError{
-			Kind:   provisioningdomain.ProviderErrorUnavailable,
-			Detail: fmt.Sprintf("MAAS reported an internal error (HTTP %d).", apiErr.StatusCode),
-			Err:    err,
-		}
+		providerErr.Kind = provisioningdomain.ProviderErrorUnavailable
+		providerErr.Detail = fmt.Sprintf("MAAS reported an internal error (HTTP %d).", apiErr.StatusCode)
 
 	default:
-		return &provisioningdomain.ProviderError{
-			Kind:   provisioningdomain.ProviderErrorRejected,
-			Detail: rejectionDetail(apiErr),
-			Err:    err,
-		}
+		providerErr.Kind, providerErr.Detail = provisioningdomain.ProviderErrorRejected, rejectionDetail(apiErr)
 	}
+	return providerErr
 }
 
 // rejectionDetail renders MAAS's own explanation for a refused request.

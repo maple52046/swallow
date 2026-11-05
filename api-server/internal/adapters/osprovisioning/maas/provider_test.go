@@ -677,6 +677,49 @@ func TestUnreachableProviderIsClassifiedAsUnavailable(t *testing.T) {
 	if provErr.Err == nil {
 		t.Error("expected the underlying transport error to be retained for logs")
 	}
+	if provErr.Endpoint != fake.server.URL+apiPrefix || provErr.Operation != "GET /machines/" {
+		t.Errorf("endpoint, operation = %q, %q, want the API root and the failing call", provErr.Endpoint, provErr.Operation)
+	}
+	if strings.Contains(provErr.Detail, fake.server.URL) {
+		t.Errorf("Detail %q names the endpoint; the API returns it verbatim", provErr.Detail)
+	}
+}
+
+// Every classified failure names the call MAAS answered, with its named operation but no other
+// query value, and an API root configured with userinfo never shows it.
+func TestProviderErrorNamesTheFailingCall(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		kind   provisioningdomain.ProviderErrorKind
+	}{
+		{"rejected API key", http.StatusUnauthorized, provisioningdomain.ProviderErrorAuth},
+		{"internal error", http.StatusBadGateway, provisioningdomain.ProviderErrorUnavailable},
+		{"refused request", http.StatusConflict, provisioningdomain.ProviderErrorRejected},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeMAAS(t)
+			fake.respond("POST "+apiPrefix+"/machines/{id}/{$}", tc.status, "no")
+			configured := strings.Replace(fake.server.URL, "http://", "http://admin:hunter2@", 1)
+			client, err := NewClient(configured, "ck:tk:ts", 5*time.Second, false)
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			_, err = NewProvider(client).ReleaseWithOptions(context.Background(), provisioningdomain.ReleaseRequest{MachineID: "abc123", Erase: true})
+
+			var provErr *provisioningdomain.ProviderError
+			if !errors.As(err, &provErr) || provErr.Kind != tc.kind {
+				t.Fatalf("Release error = %v, want a %s ProviderError", err, tc.kind)
+			}
+			if provErr.Endpoint != fake.server.URL+apiPrefix || provErr.Operation != "POST /machines/abc123/?op=release" {
+				t.Errorf("endpoint, operation = %q, %q, want the API root without userinfo and the release call", provErr.Endpoint, provErr.Operation)
+			}
+			if provErr.Err == nil {
+				t.Error("the ProviderError dropped its cause")
+			}
+		})
+	}
 }
 
 func TestProbe_ReportsVersion(t *testing.T) {

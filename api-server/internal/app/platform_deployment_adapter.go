@@ -224,12 +224,21 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 		Completion: []workflowdomain.Completion{{Type: kubeapi.CredentialCompletion}},
 	})
-	steps = append(steps, workflowdomain.Task{
+	validate := workflowdomain.Task{
 		ID: "validate-platform", Kind: "validate-platform-health", Name: "Validate Platform health",
 		Job:      jobConfigureK0s,
 		Executor: workflowdomain.RunnerKindInternal, DependsOn: []string{installPlatformStepID},
 		Targets: prepared.Targets,
-	})
+	}
+	// Without high availability the cluster API's endpoint is the initial controller's address, so
+	// the health check can tell a recorded endpoint that address no longer matches; an HA endpoint
+	// is the VIP, which no Server's address is.
+	if ha, _ := launch.TrustedVars["swallow_k0s_high_availability"].(bool); !ha {
+		if controller, _ := launch.TrustedVars["swallow_k0s_initial_controller_id"].(string); controller != "" {
+			validate.Parameters = map[string]any{platformAPIServerParameter: controller}
+		}
+	}
+	steps = append(steps, validate)
 	last := []string{"validate-platform"}
 	if gpuPrepared != nil {
 		// The operator is installed only on a validated cluster, so its Job depends on the

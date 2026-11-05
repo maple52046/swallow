@@ -278,7 +278,12 @@ type ProviderError struct {
 	// Detail explains the failure and is surfaced to API clients verbatim.
 	// Adapters must keep credentials and internal URLs out of it.
 	Detail string
-	// Err is the underlying transport or decoding error. For logs only.
+	// Endpoint is the address the failing call went to, without userinfo or query values, and
+	// Operation a short name of the call ("read machine"). They are for the administrator's layer
+	// of a Task diagnostic, never for Detail.
+	Endpoint  string
+	Operation string
+	// Err is the underlying transport or decoding error. For logs and Task diagnostics only.
 	Err error
 }
 

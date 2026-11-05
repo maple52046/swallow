@@ -52,16 +52,25 @@ func TestInstallationErrorLine(t *testing.T) {
 			want: "finish: cmd-install/stage-extract/builtin/cmd-extract: FAIL: curtin command extract",
 		},
 		{
-			name: "lines mentioning credentials are dropped",
-			log: "An error occured handling 'proxy': RuntimeError - bad password for admin\n" +
-				"ValueError: token abc123 rejected\n" +
-				"finish: stage: FAIL: curtin command apt-config\n",
-			want: "finish: stage: FAIL: curtin command apt-config",
+			name: "a line about a credential keeps its cause",
+			log:  "ValueError: bad password for admin\nfinish: stage: FAIL: curtin command apt-config\n",
+			want: "ValueError: bad password for admin",
 		},
 		{
-			name: "URL credentials are removed",
+			name: "a credential value is masked, not the line dropped",
+			log:  "An error occured handling 'proxy': RuntimeError - proxy login failed: password=hunter2\n",
+			want: "An error occured handling 'proxy': RuntimeError - proxy login failed: password=[REDACTED]",
+		},
+		{
+			name: "MAAS API keys and OAuth signatures are masked",
+			log: "RuntimeError: reporting failed for AbCdEfGhIjKlMnOpQr:StUvWxYzAbCdEfGhIj:0123456789abcdef0123456789abcdef " +
+				"oauth_consumer_key=\"AbCdEfGhIjKlMnOpQr\" oauth_signature=\"&0123456789abcdef0123456789abcdef\"\n",
+			want: "RuntimeError: reporting failed for [REDACTED] oauth_consumer_key=[REDACTED] oauth_signature=[REDACTED]",
+		},
+		{
+			name: "URL credentials are masked",
 			log:  "An error occured handling 'mirror': RuntimeError - cannot reach http://mirror:hunter2@archive.example/ubuntu\n",
-			want: "An error occured handling 'mirror': RuntimeError - cannot reach http://archive.example/ubuntu",
+			want: "An error occured handling 'mirror': RuntimeError - cannot reach http://[REDACTED]@archive.example/ubuntu",
 		},
 		{
 			name: "no recognizable error",

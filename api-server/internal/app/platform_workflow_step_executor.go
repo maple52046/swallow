@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,10 +17,13 @@ import (
 
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
+	"github.com/maple52046/swallow/internal/shared/redact"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
 )
 
@@ -55,7 +60,9 @@ type platformWorkflowStepExecutor struct {
 	// sshAuthGrace overrides how long a reachable-but-rejecting host is tolerated before failing
 	// fast on authentication. Zero uses sshAuthGracePeriod; tests set it small.
 	sshAuthGrace time.Duration
-	poll         time.Duration
+	// platformHealthWait overrides platformHealthBudget. Zero uses it; tests set it small.
+	platformHealthWait time.Duration
+	poll               time.Duration
 }
 
 func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
@@ -65,7 +72,7 @@ func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input tempora
 	case "wait-for-ssh":
 		return e.waitForSSH(ctx, input)
 	case "validate-platform-health":
-		return e.validatePlatform(ctx, input.PlatformID, input.Step)
+		return e.validatePlatform(ctx, input)
 	case "complete-uninstall":
 		return e.completeUninstall(ctx, input.PlatformID, input.Step)
 	case "record-image-verification":
@@ -438,44 +445,288 @@ func sshReadinessTimeoutMessage(observation readinessObservation, port int) stri
 	return strings.Join(parts, " ")
 }
 
-func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, platformID string, step workflowdomain.Task) temporalworkflow.StepExecutionResult {
-	if strings.TrimSpace(platformID) == "" || e.membership == nil {
+// platformAPIServerParameter names, on a validate-platform-health Task, the Server whose address the
+// Platform API endpoint is (the initial controller of a cluster with one control plane). The
+// launcher sets it only when the endpoint is that Server's address, not a virtual address, and a
+// Task planned before the parameter existed has none; without it the check cannot tell a stale
+// endpoint from an API that is down.
+const platformAPIServerParameter = "apiServerId"
+
+// platformHealthBudget is how long validate-platform-health waits on a transient condition — the
+// Platform API not answering, or the Platform not yet listing every target Server. It is counted
+// from the Task's start and shared by both conditions, so alternating between them cannot extend
+// it. The Task checks a postcondition (decision 077): the install Task before it already waited
+// for the cluster API and for every node to become Ready, so a condition that does not clear
+// within the budget is a failure to explain, not progress to wait for.
+const platformHealthBudget = 30 * time.Second
+
+// platformHealthMinObservations keeps the budget from ending the wait on a single observation: one
+// Platform API call may itself last the Integration's request timeout (30 seconds by default), and
+// one call that timed out is no evidence that the API stays unreachable.
+const platformHealthMinObservations = 2
+
+// platformHealthCheck is one classified observation of validate-platform-health: what the user
+// reads while the Task waits, its Failure Class, and what the Task reports when the wait ends on
+// it.
+type platformHealthCheck struct {
+	healthy     bool
+	class       workflowdomain.FailureClass
+	code        string
+	retryable   bool
+	observation string
+	remediation string
+	cause       error
+	// endpoint and operation are the failed Platform API request's, when it recorded them.
+	endpoint  string
+	operation string
+}
+
+// validatePlatform runs validate-platform-health: it syncs the Platform's membership through the
+// Platform API until every target Server is a member, publishing each classified observation as
+// the Task's wait observation. A permanent condition (classifyPlatformRead) fails the Task at
+// once; a transient or unknown one is waited on within platformHealthBudget, after at least
+// platformHealthMinObservations observations. Failures stay retryable — what the user fixes (the
+// Platform's address, its credential, its nodes) is what a retry checks again — except for a
+// Platform that no longer exists or has no reader. A cancel ends the Task as canceled.
+func (e platformWorkflowStepExecutor) validatePlatform(ctx context.Context, input temporalworkflow.StepExecutionInput) temporalworkflow.StepExecutionResult {
+	if strings.TrimSpace(input.PlatformID) == "" || e.membership == nil {
 		return internalStepFailed("platform_validation_unavailable", "Platform health validation is unavailable.", false)
 	}
 	ticker := time.NewTicker(e.pollInterval())
 	defer ticker.Stop()
-	deadline := time.NewTimer(10 * time.Minute)
-	defer deadline.Stop()
-	lastReason := "The Platform API has not reported membership yet."
+	wait := workflowdomain.NewWaitProgress(time.Now(), e.platformHealthTimeout())
 	for {
-		report, err := e.membership.Execute(ctx, platformID)
-		if err != nil {
-			lastReason = err.Error()
-		} else if report.Error != nil {
-			lastReason = *report.Error
-		} else {
-			// Validate the Operation's own target Servers, not a global matched count.
-			// A platform can carry unrelated members, and a global count can reach the
-			// expected total while a specific target never joined; that would falsely
-			// report this deployment healthy.
-			joined, missing, checkErr := e.targetsJoined(ctx, platformID, step)
-			if checkErr != nil {
-				lastReason = checkErr.Error()
-			} else if len(missing) == 0 {
-				return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
-			} else {
-				lastReason = fmt.Sprintf("Platform membership is missing %d of %d target Servers: %s.",
-					len(missing), joined+len(missing), strings.Join(missing, ", "))
-			}
+		check := e.checkPlatformHealth(ctx, input.PlatformID, input.Step)
+		if check.healthy {
+			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
+		}
+		if ctx.Err() != nil {
+			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
+		}
+		now := time.Now()
+		waiting := wait.Observe(check.observation, now)
+		if check.class == workflowdomain.FailurePermanent ||
+			(wait.Exhausted(now) && waiting.Attempts >= platformHealthMinObservations) {
+			return e.platformHealthFailed(ctx, input, wait, check, now)
+		}
+		if publishWaiting(ctx, input, waiting) {
+			return supersededResult()
 		}
 		select {
 		case <-ctx.Done():
 			return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled}
-		case <-deadline.C:
-			return internalStepFailed("platform_health_timeout", lastReason, true)
 		case <-ticker.C:
 		}
 	}
+}
+
+// checkPlatformHealth makes one observation: it syncs the Platform's membership, which records on
+// each Server what the Platform API reports, and then reads whether every target Server joined. It
+// validates the Workflow's own targets rather than a matched count: a Platform can carry unrelated
+// members, and a count can reach the expected total while one target never joined.
+func (e platformWorkflowStepExecutor) checkPlatformHealth(ctx context.Context, platformID string, step workflowdomain.Task) platformHealthCheck {
+	report, err := e.membership.Execute(ctx, platformID)
+	switch {
+	case errors.Is(err, platformdomain.ErrPlatformNotFound):
+		return platformHealthCheck{
+			class: workflowdomain.FailurePermanent, code: "platform_not_found", cause: err,
+			observation: "The Platform no longer exists.",
+			remediation: "Nothing is left to validate; rerun the deployment to create the Platform again.",
+		}
+	case err != nil:
+		return unclassifiedPlatformRead(err)
+	case report.Err != nil:
+		return classifyPlatformRead(report.Err)
+	case report.Error != nil:
+		return classifyPlatformRead(errors.New(*report.Error))
+	}
+	joined, missing, err := e.targetsJoined(ctx, platformID, step)
+	if err != nil {
+		check := unclassifiedPlatformRead(err)
+		check.observation = "The target Servers' Platform membership could not be read."
+		return check
+	}
+	if len(missing) == 0 {
+		return platformHealthCheck{healthy: true}
+	}
+	return platformHealthCheck{
+		class: workflowdomain.FailureTransient, code: "platform_membership_incomplete", retryable: true,
+		observation: fmt.Sprintf("Platform membership is missing %d of %d target Servers: %s.",
+			len(missing), joined+len(missing), strings.Join(missing, ", ")),
+		remediation: "Check that the missing Servers joined the Platform and that the Platform names each node by its Server's hostname, then retry this Task.",
+		cause:       fmt.Errorf("the Platform API does not list target Servers %s", strings.Join(missing, ", ")),
+	}
+}
+
+// classifyPlatformRead classifies a failed membership read. A credential the API rejects, a TLS
+// failure, a request the API refuses, and a missing Integration or credential repeat until
+// something changes (permanent); a request without an answer, or an API that reports itself
+// unavailable, is expected to clear (transient); anything else is unknown and waited on like
+// transient.
+func classifyPlatformRead(cause error) platformHealthCheck {
+	check := platformHealthCheck{class: workflowdomain.FailurePermanent, retryable: true, cause: cause}
+	var readerErr *platformdomain.ReaderError
+	switch {
+	case errors.Is(cause, platformdomain.ErrNoPlatformIntegration), errors.Is(cause, sitedomain.ErrIntegrationNotFound):
+		check.code = "platform_integration_missing"
+		check.observation = "The Platform has no Integration to read its API through."
+		check.remediation = "Redeploy the Platform so it records its Integration."
+	case errors.Is(cause, sitedomain.ErrCredentialNotSet):
+		check.code = "platform_credential_missing"
+		check.observation = "The Platform's Integration holds no credential to read the Platform API with."
+		check.remediation = "Redeploy the Platform so it records a read credential."
+	case errors.Is(cause, platformdomain.ErrUnsupportedPlatformType):
+		check.code, check.retryable = "platform_validation_unavailable", false
+		check.observation = "This installation has no reader for the Platform's type."
+		check.remediation = "Check that the Platform's module is part of this installation's release."
+	case errors.As(cause, &readerErr):
+		return classifyReaderError(readerErr, check)
+	default:
+		return unclassifiedPlatformRead(cause)
+	}
+	return check
+}
+
+// classifyReaderError classifies a Platform API failure by what the API (or the network) answered.
+// check carries the cause and the defaults of a permanent failure.
+func classifyReaderError(readerErr *platformdomain.ReaderError, check platformHealthCheck) platformHealthCheck {
+	check.endpoint, check.operation = readerErr.Endpoint, readerErr.Operation
+	api := platformAPIName(readerErr.Endpoint)
+	switch {
+	case readerErr.Kind == platformdomain.ReaderErrorAuth:
+		check.code = "platform_api_auth"
+		check.observation = api + " rejected the credential swallow reads it with."
+		check.remediation = "Redeploy the Platform so it records a new read credential."
+	case readerErr.Transport == platformdomain.TransportTLS:
+		check.code = "platform_api_tls"
+		check.observation = api + " failed the TLS handshake: its certificate does not match the CA swallow trusts for it."
+		check.remediation = "Redeploy the Platform so it records the cluster's current CA, or correct the CA certificate of the Platform's Integration."
+	case readerErr.Transport != "" || readerErr.Kind == platformdomain.ReaderErrorUnavailable:
+		check.class, check.code = workflowdomain.FailureTransient, "platform_api_unreachable"
+		check.observation = unreachableObservation(api, readerErr)
+		check.remediation = "Check that the Platform API is running and reachable from swallow's worker, then retry this Task."
+	default:
+		check.code = "platform_api_rejected"
+		check.observation = fmt.Sprintf("%s refused the membership read (%s).", api, readerErr.Kind)
+		check.remediation = "Check the Platform API's answer in the cause, then redeploy the Platform."
+	}
+	return check
+}
+
+// unreachableObservation says how a Platform API request went unanswered, in the user's terms.
+func unreachableObservation(api string, readerErr *platformdomain.ReaderError) string {
+	switch readerErr.Transport {
+	case platformdomain.TransportRefused:
+		return api + " refused the connection."
+	case platformdomain.TransportTimeout:
+		return api + " did not answer in time."
+	case platformdomain.TransportDNS:
+		return api + " could not be reached: its host name did not resolve."
+	case "":
+		if detail := strings.TrimSpace(readerErr.Detail); detail != "" {
+			return api + " reported that it is unavailable: " + detail
+		}
+		return api + " reported that it is unavailable."
+	default:
+		return api + " could not be reached."
+	}
+}
+
+// unclassifiedPlatformRead is the unknown observation of a read that failed for a reason the check
+// cannot classify, such as a store error; the cause stays in the diagnostic.
+func unclassifiedPlatformRead(cause error) platformHealthCheck {
+	return platformHealthCheck{
+		class: workflowdomain.FailureUnknown, code: "platform_health_timeout", retryable: true, cause: cause,
+		observation: "The Platform's membership could not be read.",
+		remediation: "Check the cause, then retry this Task.",
+	}
+}
+
+// platformHealthFailed is the failed outcome of check at now: its code and observation, and a
+// diagnostic with the wait's numbers, the failed request's endpoint and operation, the Platform as
+// target, and the remediation. When the endpoint no longer names its API Server's current address
+// (staleAPIEndpoint), the message says so and the remediation is to redeploy the Platform.
+func (e platformWorkflowStepExecutor) platformHealthFailed(
+	ctx context.Context,
+	input temporalworkflow.StepExecutionInput,
+	wait *workflowdomain.WaitProgress,
+	check platformHealthCheck,
+	now time.Time,
+) temporalworkflow.StepExecutionResult {
+	message := check.observation
+	diagnostic := wait.Diagnostic(check.class, nil, now)
+	diagnostic.Cause = causeChain(check.cause)
+	if check.class != workflowdomain.FailurePermanent {
+		diagnostic.Cause = workflowdomain.ErrWaitBudgetExhausted.Error() + "; last observation: " + diagnostic.Cause
+		message += fmt.Sprintf(" It was still so after %d checks over %d seconds.", diagnostic.Attempts, diagnostic.ElapsedSeconds)
+	}
+	diagnostic.Target = &workflowdomain.ResourceReference{Kind: "platform", ID: input.PlatformID}
+	diagnostic.Endpoint, diagnostic.Operation = check.endpoint, check.operation
+	diagnostic.Remediation = check.remediation
+	if stale := e.staleAPIEndpoint(ctx, input.Step, check.endpoint); stale != "" {
+		message += " " + stale
+		diagnostic.Remediation = "Redeploy the Platform so its Integration records the Server's current address."
+	}
+	failure := internalStepFailed(check.code, message, check.retryable)
+	failure.Error.Diagnostic = diagnostic
+	return failure
+}
+
+// staleAPIEndpoint explains a Platform API endpoint that no longer names the Server it was recorded
+// for: the Task's platformAPIServerParameter names that Server, and the endpoint's host is an IP
+// address the Server no longer has. It returns "" when it cannot tell (no parameter or endpoint, a
+// host name rather than an address, a Server without an observed address) or when the endpoint
+// still names one of the Server's addresses.
+func (e platformWorkflowStepExecutor) staleAPIEndpoint(ctx context.Context, step workflowdomain.Task, endpoint string) string {
+	serverID, _ := step.Parameters[platformAPIServerParameter].(string)
+	recorded := net.ParseIP(endpointHost(endpoint))
+	if serverID == "" || recorded == nil || e.servers == nil {
+		return ""
+	}
+	server, err := e.servers.FindByID(ctx, serverID)
+	if err != nil || server.PrimaryAddress() == "" {
+		return ""
+	}
+	for _, address := range server.Observed.Addresses {
+		if current := net.ParseIP(strings.TrimSpace(address)); current != nil && current.Equal(recorded) {
+			return ""
+		}
+	}
+	return fmt.Sprintf("The Platform's Integration records its API at %s, but %s, the Server that API runs on, now has address %s: the recorded endpoint is stale.",
+		recorded, server.DisplayName(), server.PrimaryAddress())
+}
+
+// platformAPIName names the Platform API in an observation, with the scheme and host of the failed
+// request when it recorded its endpoint.
+func platformAPIName(endpoint string) string {
+	parsed, err := url.Parse(strings.TrimSpace(endpoint))
+	switch {
+	case strings.TrimSpace(endpoint) == "":
+		return "The Platform API"
+	case err != nil || parsed.Host == "":
+		return "The Platform API at " + redact.URL(endpoint)
+	default:
+		return "The Platform API at " + parsed.Scheme + "://" + parsed.Host
+	}
+}
+
+// endpointHost returns the host of an endpoint that is a URL or a host:port, without the port.
+func endpointHost(endpoint string) string {
+	trimmed := strings.TrimSpace(endpoint)
+	if parsed, err := url.Parse(trimmed); err == nil && parsed.Host != "" {
+		return parsed.Hostname()
+	}
+	if host, _, err := net.SplitHostPort(trimmed); err == nil {
+		return host
+	}
+	return trimmed
+}
+
+func (e platformWorkflowStepExecutor) platformHealthTimeout() time.Duration {
+	if e.platformHealthWait > 0 {
+		return e.platformHealthWait
+	}
+	return platformHealthBudget
 }
 
 // targetsJoined reports how many of the Operation's target Servers now carry a membership
@@ -513,4 +764,57 @@ func internalStepFailed(code, message string, retryable bool) temporalworkflow.S
 	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskFailed, Error: &workflowdomain.NormalizedError{
 		Code: code, Message: message, Retryable: retryable,
 	}}
+}
+
+// causeChain is the redacted text of err for a diagnostic's cause, followed by the innermost error
+// it wraps when its own text omits it: a ProviderError prints only its kind and detail, and the
+// transport failure under it is the evidence an administrator needs. Only the innermost error is
+// added, so a request URL that an intermediate error repeats (with its query) is not.
+func causeChain(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := err.Error()
+	var root error
+	for inner := errors.Unwrap(err); inner != nil; inner = errors.Unwrap(inner) {
+		root = inner
+	}
+	if root != nil && !strings.Contains(text, root.Error()) {
+		text = strings.TrimSuffix(text, ".") + ": " + root.Error()
+	}
+	return redact.Text(text)
+}
+
+// publishWaiting publishes waiting through the attempt's publisher and reports whether a later
+// dispatch superseded the run, in which case the Runner returns supersededResult before its next
+// side effect. Any other failure is logged and ignored: the wait observation is advisory and never
+// fails the Task (decision 077).
+func publishWaiting(ctx context.Context, input temporalworkflow.StepExecutionInput, waiting workflowdomain.TaskWaiting) bool {
+	err := input.Waiting.Publish(ctx, waiting)
+	if errors.Is(err, workflowdomain.ErrDispatchFenced) {
+		return true
+	}
+	if err != nil && ctx.Err() == nil {
+		slog.Warn("publish the Task's wait observation failed",
+			"workflowId", input.OperationID, "taskId", input.Step.ID, "error", err)
+	}
+	return false
+}
+
+// supersededCode marks the result of a Runner that stopped because a later dispatch superseded its
+// run; it is the code the activity reports for a superseded run.
+const supersededCode = "dispatch_fenced"
+
+// supersededResult is what a Runner returns once a later dispatch superseded its run. The core
+// refuses to record any outcome for the superseded generation and the superseding run continues the
+// Task, so the Runner must not write anything for it either (isSuperseded).
+func supersededResult() temporalworkflow.StepExecutionResult {
+	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskCanceled, Error: &workflowdomain.NormalizedError{
+		Code: supersededCode, Message: "A later dispatch superseded this run; it continues the Task.",
+	}}
+}
+
+// isSuperseded reports whether result is supersededResult's.
+func isSuperseded(result temporalworkflow.StepExecutionResult) bool {
+	return result.Error != nil && result.Error.Code == supersededCode
 }

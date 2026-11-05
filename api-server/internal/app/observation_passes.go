@@ -2,14 +2,18 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 
 	"github.com/maple52046/swallow/config"
 	"github.com/maple52046/swallow/internal/core/convergence"
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
 	serverapp "github.com/maple52046/swallow/internal/core/server/application"
+	"github.com/maple52046/swallow/internal/shared/redact"
 )
 
 // observationPasses are the worker's periodic passes that read external systems into swallow's
@@ -109,7 +113,10 @@ func sweepInventoryOnce(ctx context.Context, sweep *provisioningapp.InventorySwe
 }
 
 // syncMembershipOnce reads every registered Platform's membership. It returns an error only when
-// the Platforms cannot be listed.
+// the Platforms cannot be listed. Each report is one structured log line keyed by platformId and
+// integrationId; a failure's error is the redacted sentence membership sync recorded as the
+// Platform's sync.lastError, with the platform API failure's kind, transport failure, endpoint,
+// and operation as their own attributes when the cause is one.
 func syncMembershipOnce(ctx context.Context, membership *platformapp.MembershipSyncUseCase) error {
 	reports, err := membership.ExecuteAll(ctx)
 	if err != nil {
@@ -117,20 +124,29 @@ func syncMembershipOnce(ctx context.Context, membership *platformapp.MembershipS
 	}
 
 	for _, report := range reports {
+		attrs := []any{"platformId", report.PlatformID, "platformName", report.PlatformName, "integrationId", report.IntegrationID}
 		if report.Error != nil {
-			log.Printf("membership sync: %s failed: %s", report.PlatformName, *report.Error)
+			attrs = append(attrs, "error", *report.Error)
+			var readerErr *platformdomain.ReaderError
+			if errors.As(report.Err, &readerErr) {
+				attrs = append(attrs, "readerErrorKind", string(readerErr.Kind), "endpoint", redact.URL(readerErr.Endpoint),
+					"operation", readerErr.Operation)
+				if readerErr.Transport != "" {
+					attrs = append(attrs, "transport", string(readerErr.Transport))
+				}
+			}
+			slog.Warn("platform membership sync failed", attrs...)
 			continue
 		}
+		attrs = append(attrs, "members", report.Members, "matched", report.Matched, "cleared", report.Cleared)
 		// Unmatched members mean the platform contains machines swallow does not manage,
 		// which is worth surfacing rather than quietly ignoring.
 		if len(report.Unmatched) > 0 {
-			log.Printf("membership sync: %s: %d members, %d matched, %d cleared, unmatched: %v",
-				report.PlatformName, report.Members, report.Matched, report.Cleared, report.Unmatched)
+			slog.Info("platform membership synced with unmatched members", append(attrs, "unmatched", report.Unmatched)...)
 			continue
 		}
 		if report.Matched > 0 || report.Cleared > 0 {
-			log.Printf("membership sync: %s: %d members, %d matched, %d cleared",
-				report.PlatformName, report.Members, report.Matched, report.Cleared)
+			slog.Info("platform membership synced", attrs...)
 		}
 	}
 	return nil

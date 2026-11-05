@@ -1352,6 +1352,17 @@ A failure to read the Platform's API is
 reported in `error` with `200 OK`, not as an error status; only an unknown Platform is
 `404 not_found`.
 
+`error` and the Platform's `sync.lastError` hold the same text: one sentence an administrator can
+act on. It says what failed and, for a request that got no answer, how — it timed out, the
+connection was refused, the host name could not be resolved, or the TLS handshake failed or the
+certificate is not trusted — and then, in parentheses, the call (for example `list nodes`), the
+Platform API address it went to, and the underlying cause, for example `Could not reach the
+Kubernetes API: the connection was refused (list nodes at https://10.0.0.5:6443: dial tcp
+10.0.0.5:6443: connect: connection refused).` Secrets are masked as in Task errors
+([workflows.md](workflows.md#task-errors-and-diagnostics)): the address never carries userinfo,
+and its query values, tokens, and credential key-value pairs read `[REDACTED]`. The text is for
+people; a client must not parse it.
+
 `POST /api/v1/platforms/sync` syncs every Platform that has a recorded credential Integration
 (the others are skipped) and returns an array of these reports. One failing platform does
 not stop the rest. For Kubernetes, nodes are read from `/api/v1/nodes`; enabled k0s
@@ -1414,6 +1425,11 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-05 a failed membership read's `error` and `sync.lastError` name the call, the
+  Platform API address, how the request failed, and the cause, with secrets masked (see
+  [Sync Membership](#sync-membership)). They used to carry only a kind and a fixed sentence, such as
+  `unavailable: Could not reach the Kubernetes API.`; that prefix is gone. The field types are
+  unchanged, and the `error.message` of other platform routes is unchanged.
 - Since 2026-11-05 a `provision_os` deploy whose `machinePreparation.network` has no `mode` passes
   its `subnetId`, `defaultGateway`, and `assignments` to the OS deployment and keeps the Deployment
   Template's mode, or Automatic without a template (see [Create A Platform](#create-a-platform)).

@@ -89,6 +89,25 @@ func (s *driverStore) Release(_ context.Context, owner string) error {
 	return nil
 }
 
+// UpdateTaskWaiting applies the store's guard: the current generation and a Task running at the
+// attempt.
+func (s *driverStore) UpdateTaskWaiting(ctx context.Context, id string, generation int64, taskID string, attempt int, waiting *workflowdomain.TaskWaiting) error {
+	w, err := s.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if w.Dispatch.Generation != generation {
+		return workflowdomain.ErrDispatchFenced
+	}
+	for i := range w.Steps {
+		if task := &w.Steps[i]; task.ID == taskID && task.Attempt == attempt && task.Status == workflowdomain.TaskRunning {
+			task.Waiting = waiting
+			return s.Save(ctx, w)
+		}
+	}
+	return workflowdomain.ErrTaskNotRunning
+}
+
 func (s *driverStore) FindByOwner(context.Context, string) ([]workflowdomain.ResourceOwnership, error) {
 	return nil, nil
 }
@@ -317,6 +336,8 @@ func TestDriverRecordsAnUnknownOutcomeWhenASingleAttemptExecutorStops(t *testing
 		task := w.Steps[0]
 		if task.Status != workflowdomain.TaskRequiresAttention || task.Error == nil || task.Error.Code != "executor_outcome_unknown" {
 			t.Errorf("Task = %s %+v, want requires_attention with executor_outcome_unknown", task.Status, task.Error)
+		} else if d := task.Error.Diagnostic; d == nil || d.FailureClass != workflowdomain.FailureUnknown || d.Remediation == "" {
+			t.Errorf("Task diagnostic = %+v, want an unknown outcome with a next step", d)
 		}
 		if w.Status != workflowdomain.WorkflowRequiresAttention {
 			t.Errorf("Workflow = %s, want it parked", w.Status)
@@ -324,6 +345,108 @@ func TestDriverRecordsAnUnknownOutcomeWhenASingleAttemptExecutorStops(t *testing
 		f.env.CancelWorkflow()
 	}, time.Hour)
 	f.runWith(t, "w", RunnerRoute{TaskQueue: "default-test-taskqueue", SingleAttempt: true})
+}
+
+// waitingRunner publishes one observation through the attempt's WaitingPublisher, keeps what the
+// store showed meanwhile, and then fails with a diagnostic.
+type waitingRunner struct {
+	store   *driverStore
+	seen    *workflowdomain.TaskWaiting
+	publish error
+}
+
+func (r *waitingRunner) Execute(ctx context.Context, input StepExecutionInput) StepExecutionResult {
+	r.publish = input.Waiting.Publish(ctx, workflowdomain.TaskWaiting{
+		Observation: "s1 is still Deploying", ObservedAt: time.Now(), Attempts: 1, ElapsedSeconds: 5, BudgetSeconds: 60,
+	})
+	if w, err := r.store.FindByID(ctx, input.OperationID); err == nil {
+		r.seen = w.Steps[0].Waiting
+	}
+	return StepExecutionResult{Status: workflowdomain.TaskFailed, Error: &workflowdomain.NormalizedError{
+		Code: "deployment_stalled", Message: "The deployment did not finish.", Retryable: true,
+		Diagnostic: &workflowdomain.TaskDiagnostic{FailureClass: workflowdomain.FailureTransient, Endpoint: "https://u:p@provider.lab/api"},
+	}}
+}
+
+// The activity hands its Runner a publisher bound to the attempt, so the store shows what the
+// Task waits for while it runs; the recorded outcome keeps the Runner's diagnostic, redacted, and
+// no longer shows the wait.
+func TestExecuteTaskPublishesWaitingAndRecordsTheDiagnostic(t *testing.T) {
+	f := newDriverFixture(t, driverWorkflow("w", driverTask("a")))
+	runner := &waitingRunner{store: f.store}
+	tasks := NewTaskActivities(f.engine, map[workflowdomain.RunnerKind]StepLifecycleExecutor{workflowdomain.RunnerKindProvisioner: runner}, nil)
+	tasks.fenceInterval = time.Hour
+	f.env.RegisterActivityWithOptions(tasks.ExecuteTask, activity.RegisterOptions{Name: ActivityExecuteTask})
+	f.env.RegisterDelayedCallback(func() { f.env.CancelWorkflow() }, time.Hour)
+	f.run(t, "w")
+
+	if runner.publish != nil || runner.seen == nil || runner.seen.Observation != "s1 is still Deploying" || runner.seen.BudgetSeconds != 60 {
+		t.Fatalf("during the run Publish = %v and the store showed %+v, want the published observation", runner.publish, runner.seen)
+	}
+	task := f.store.workflow(t, "w").Steps[0]
+	if task.Waiting != nil {
+		t.Errorf("waiting after the outcome = %+v, want nil", task.Waiting)
+	}
+	if task.Error == nil || task.Error.Diagnostic == nil || task.Error.Diagnostic.FailureClass != workflowdomain.FailureTransient ||
+		task.Error.Diagnostic.Endpoint != "https://provider.lab/api" {
+		t.Errorf("recorded error = %+v, want the transient diagnostic with its endpoint redacted", task.Error)
+	}
+}
+
+// slowCompensation outlasts the heartbeat timeout of the activity that runs it, the way returning a
+// canceled deployment waits minutes for the provider to leave Deploying.
+type slowCompensation struct{ took time.Duration }
+
+func (c slowCompensation) Compensate(ctx context.Context, _ StepExecutionInput) (string, string) {
+	select {
+	case <-time.After(c.took):
+	case <-ctx.Done():
+	}
+	return "compensated", "Compensated."
+}
+
+// compensationProbeHeartbeatTimeout stands in for compensationActivityOptions' heartbeat timeout,
+// short enough for a test.
+const compensationProbeHeartbeatTimeout = 500 * time.Millisecond
+
+// compensationProbe runs one compensate activity the way the driver's cancel path does, with a
+// heartbeat timeout short enough for a test.
+func compensationProbe(ctx workflow.Context, input CompensationInput) error {
+	options := workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute, HeartbeatTimeout: compensationProbeHeartbeatTimeout,
+		RetryPolicy: &temporal.RetryPolicy{MaximumAttempts: 1},
+	}
+	return workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, options), ActivityCompensate, input).Get(ctx, nil)
+}
+
+// A compensation that runs longer than its activity's heartbeat timeout must keep heartbeating:
+// otherwise Temporal times the activity out, the cancel path stops waiting for it, and the
+// Workflow is recorded canceled and its resources released while the compensation still acts on
+// the Server.
+func TestCompensateHeartbeatsWhileTheCompensationRuns(t *testing.T) {
+	f := newDriverFixture(t, driverWorkflow("w", driverTask("deploy")))
+	generation, err := f.engine.Dispatch(context.Background(), "w")
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	tasks := NewTaskActivities(f.engine, nil,
+		map[string]CompensationExecutor{"return": slowCompensation{took: 3 * compensationProbeHeartbeatTimeout}})
+	tasks.compensationHeartbeat = compensationProbeHeartbeatTimeout / 10
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(compensationProbe)
+	env.RegisterActivityWithOptions(tasks.Compensate, activity.RegisterOptions{Name: ActivityCompensate})
+
+	env.ExecuteWorkflow(compensationProbe, CompensationInput{
+		WorkflowID: "w", Generation: generation, TaskID: "deploy", Attempt: 1, Kind: "return",
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("compensate activity = %v, want it to outlive its heartbeat timeout", err)
+	}
+	if events := f.store.events; len(events) == 0 || events[len(events)-1].Type != "compensated" {
+		t.Errorf("timeline = %+v, want the compensation's outcome recorded", events)
+	}
 }
 
 // A canceled activity waits for its Runner to stop before it ends, so the run's cancel path does

@@ -105,17 +105,18 @@ var _ platformdomain.SlurmClusterReader = (*Reader)(nil)
 // versioned base (for example "nodes", "partitions", "ping") and decodes the JSON body.
 // slurmrestd authenticates with its own X-SLURM-USER-TOKEN header rather than Authorization.
 // Transport and API failures are translated into a platformdomain.ReaderError so callers map
-// them to a stable status.
+// them to a stable status; its Operation is the request's method and versioned path, since a
+// slurmrestd that does not serve the pinned version answers 404 there.
 func (r *Reader) getJSON(ctx context.Context, subpath string, out any) error {
-	endpoint := fmt.Sprintf("%s/slurm/%s/%s", r.baseURL, r.apiVersion, subpath)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	path := fmt.Sprintf("/slurm/%s/%s", r.apiVersion, subpath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.baseURL+path, nil)
 	if err != nil {
 		return fmt.Errorf("build slurm request: %w", err)
 	}
 	req.Header.Set("X-SLURM-USER-TOKEN", r.token)
 	req.Header.Set("Accept", "application/json")
 	if err := httpjson.Do(r.httpClient, req, out); err != nil {
-		return translateError(err)
+		return translateError(err, r.baseURL, http.MethodGet+" "+path)
 	}
 	return nil
 }

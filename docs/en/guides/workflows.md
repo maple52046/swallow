@@ -36,19 +36,83 @@ The Workflow detail shows:
 
 - overall state, intent, target resources, requester, and timestamps;
 - Jobs and Tasks grouped by execution structure;
-- task events, stdout/stderr logs, and artifacts;
+- the selected Task's failure summary or waiting notice, then its task events,
+  stdout/stderr logs, and artifacts;
+- a timeline of Workflow and Task state changes;
 - cancellation, rerun, and task-retry controls when state permits.
 
-Live Ansible events may arrive before the final Task state. Treat the terminal
-Workflow result as authoritative.
+The page selects the first Task that is running, failed, or in
+`requires_attention`, and a Task with an error opens on its **Stderr** tab.
+While the Workflow is active, the page reads it again every few seconds.
+
+A running Task that waits for something outside swallow can report what it
+observes. The Task then shows a notice titled **Waiting:** followed by its
+latest observation, with how long it has waited against its budget, how much of
+the budget is left, how many observations it has made, and when it last
+observed; a wait without a budget shows only the time waited. The Task's
+**Reason** column in the Steps table shows the same observation. The numbers
+are those of the last observation, not a running clock. A Task whose Runner
+does not report its waits shows no notice, and the notice disappears when the
+attempt ends.
+
+Live Ansible events and the waiting notice may arrive before the final Task
+state; both are advisory. Treat the terminal Workflow result as authoritative.
 
 ## Failure handling
 
-1. Read the failed Task's status reason and events.
-2. Inspect logs and request IDs without exposing credentials.
-3. Correct the external cause: provider availability, SSH known host, package
+A Task that failed, or stopped in `requires_attention`, shows a failure summary
+above its tabs, in the order you need it:
+
+- what happened: the first line of the error message, as the summary's title
+  (the **Stderr** tab has the full failure output);
+- **Affected**: the Server or Platform the failure affects, linked to its page,
+  when the Runner knows which of the Task's targets it is;
+- **Next step**: what to do next, when the Runner recorded it;
+- the error code and, when there is one, the stage.
+
+**Show diagnostic details** opens the evidence behind the summary: the failure
+class and what it means, the operation and endpoint that failed, the attempts
+of the wait that gave up and the time it ran against its budget, its last
+observation, the cause with its line breaks kept, and the events the provider
+recorded about the target around the failure. Only what the Runner
+recorded is listed. When a wait gives up, its last observation and numbers move
+here from the waiting notice. Before swallow stores a failure, it masks secrets
+in these texts as `[REDACTED]` and keeps the rest of the cause; still treat the
+details as administrator information. An error recorded before swallow kept
+these details, or by a Runner that does not record them, shows only its message
+and code, without **Show diagnostic details**.
+
+The failure class tells you whether a retry is worth trying before you change
+anything:
+
+- **Transient**: the condition is expected to clear by itself, such as a host
+  still booting or an API that was briefly unreachable. Retrying the Task can
+  succeed without a change.
+- **Permanent**: the condition repeats until something changes, such as
+  rejected credentials, a missing image, or invalid input. Fix the cause first;
+  a retry without a change fails again.
+- **Unknown**: swallow could not classify the failure, including an attempt
+  whose outcome cannot be proven. Check the target before you retry.
+
+The class does not decide whether you can retry: the Task's retry button
+appears only when its error is retryable, whatever the class.
+
+The Task keeps only its latest error, so after a retry the timeline is where
+earlier attempts stay readable. Each event that records an attempt's failure
+shows the attempt number, the error code, the failure class, and the endpoint
+when there was one, followed by the first line of that attempt's message. Events recorded before
+swallow kept failure classes carry none.
+
+To handle a failure:
+
+1. Read the failed Task's failure summary; open its diagnostic details, its
+   **Stderr** tab, and its events when you need the evidence.
+2. Use the failure class to decide whether to retry first or to fix the cause
+   first.
+3. Inspect logs and request IDs without exposing credentials.
+4. Correct the external cause: provider availability, SSH known host, package
    source, runtime API, or resource eligibility.
-4. Retry only the Task when supported; rerun the Workflow when the whole intent
+5. Retry only the Task when supported; rerun the Workflow when the whole intent
    must be reevaluated.
 
 A rerun converges the intent to what it describes now. Every ensure Task runs
@@ -107,4 +171,5 @@ refreshes on its own until the plan is applied or superseded. See the
 
 See the active
 [Workflows contract](../../../api-server/docs/development/api-contracts/api-server/workflows.md)
-for state transitions and supported controls.
+for state transitions, supported controls, and every field of a Task's failure
+details and waiting notice.
