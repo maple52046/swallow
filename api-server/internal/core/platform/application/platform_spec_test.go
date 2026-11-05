@@ -922,6 +922,59 @@ func TestDeletingAnAbsentPlatformAgain(t *testing.T) {
 	})
 }
 
+// uninstallStartsDuringWrite reads the recorded lifecycle, except inside the spec write's transaction,
+// where the Platform's uninstall has started: the controller applied the waiting plan between the
+// request's first read and its write.
+type uninstallStartsDuringWrite struct {
+	recorded   platformdomain.LifecycleReader
+	platformID string
+}
+
+func (r uninstallStartsDuringWrite) Read(ctx context.Context, platformIDs []string) (map[string]platformdomain.LifecycleSnapshot, error) {
+	snapshots, err := r.recorded.Read(ctx, platformIDs)
+	if err != nil || !store.InTransaction(ctx) {
+		return snapshots, err
+	}
+	snapshot := snapshots[r.platformID]
+	snapshot.State = platformdomain.PlatformLifecycleUninstalling
+	snapshot.Uninstall = &platformdomain.LifecycleOperation{ID: "uninstall-started", Status: "running", RequestedAt: time.Now().UTC()}
+	snapshots[r.platformID] = snapshot
+	return snapshots, nil
+}
+
+// A delete or spec write that reaches the store after the controller started the uninstall from the
+// waiting plan changes nothing: the read inside its transaction sees the uninstall, so another
+// removal is not stored beside the running one and the spec is not written back to present.
+func TestASpecWriteThatArrivesAfterTheUninstallStartedChangesNothing(t *testing.T) {
+	ctx := context.Background()
+	h := newSpecHarness(nil)
+	platform := h.installed(t)
+	first, err := h.specs.Delete(ctx, platform.ID, nil, "")
+	if err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	generation := platform.Generation
+	h.specs.records.lifecycle = uninstallStartsDuringWrite{recorded: h.lifecycle, platformID: platform.ID}
+
+	result, err := h.specs.Delete(ctx, platform.ID, &platformdomain.PlatformRemoval{ReleaseServers: true}, "admin")
+	if err != nil {
+		t.Fatalf("Delete(other removal) error = %v", err)
+	}
+	if result.Platform == nil || result.Plan != nil {
+		t.Errorf("Delete(other removal) = %+v, want the Platform without a plan", result)
+	}
+	present := labSpec()
+	if _, err := h.specs.UpdateSpec(ctx, platform.ID, generation, present, "admin"); !errors.Is(err, ErrPlatformRemoving) {
+		t.Errorf("UpdateSpec(back to present) error = %v, want ErrPlatformRemoving", err)
+	}
+	if platform.Generation != generation || platform.Spec.Desired != platformdomain.PlatformAbsent || platform.Spec.Removal != nil {
+		t.Errorf("spec = generation %d %s removal %+v, want generation %d absent as first written", platform.Generation, platform.Spec.Desired, platform.Spec.Removal, generation)
+	}
+	if plan, _ := h.plans.Get(ctx, first.Plan.ID); plan.State != convergence.PlanPendingApproval {
+		t.Errorf("first plan state = %s, want it left to the controller", plan.State)
+	}
+}
+
 // A record deleted while the controller did not see it go (the worker was down, or its change stream
 // was reset) still has its waiting plan withdrawn at the next resync, since Keys names the Platform of
 // every unfinished plan.

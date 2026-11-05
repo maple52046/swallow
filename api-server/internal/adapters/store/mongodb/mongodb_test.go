@@ -126,6 +126,62 @@ func TestTransactorReturnsAServerRejectedWritePromptly(t *testing.T) {
 	}
 }
 
+// The spec writes that must not race an uninstall rely on this: a unit reads a snapshot, another
+// unit then writes a Workflow, moves a document the first one is about to write, and commits. The
+// first unit's write conflicts, the whole unit is retried, and its second attempt reads the
+// Workflow, so a check made at the top of the unit cannot be overtaken.
+func TestTransactorRetriesAUnitWhoseSnapshotWasOvertaken(t *testing.T) {
+	client, db := testDatabase(t)
+	for _, name := range []string{"workflows", "change_plans"} {
+		if err := db.CreateCollection(context.Background(), name); err != nil {
+			t.Fatalf("CreateCollection(%q) error = %v", name, err)
+		}
+	}
+	plans, workflows := db.Collection("change_plans"), db.Collection("workflows")
+	if _, err := plans.InsertOne(context.Background(), bson.D{{Key: "_id", Value: "plan-1"}, {Key: "state", Value: "approved"}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	tx := NewTransactor(client)
+	errUninstallStarted := errors.New("uninstall started")
+	attempts := 0
+
+	err := tx.InTransaction(context.Background(), func(ctx context.Context) error {
+		attempts++
+		running, err := workflows.CountDocuments(ctx, bson.D{})
+		if err != nil {
+			return err
+		}
+		if running > 0 {
+			return errUninstallStarted
+		}
+		if attempts == 1 {
+			// Another session applies the plan as a Workflow and commits after this unit's read.
+			if err := tx.InTransaction(context.Background(), func(other context.Context) error {
+				if _, err := workflows.InsertOne(other, bson.D{{Key: "_id", Value: "wf-1"}}); err != nil {
+					return err
+				}
+				_, err := plans.UpdateOne(other, bson.D{{Key: "_id", Value: "plan-1"}, {Key: "state", Value: "approved"}},
+					bson.D{{Key: "$set", Value: bson.D{{Key: "state", Value: "applied"}}}})
+				return err
+			}); err != nil {
+				return fmt.Errorf("the other unit: %w", err)
+			}
+		}
+		_, err = plans.UpdateOne(ctx, bson.D{{Key: "_id", Value: "plan-1"}, {Key: "state", Value: "approved"}},
+			bson.D{{Key: "$set", Value: bson.D{{Key: "state", Value: "superseded"}}}})
+		return err
+	})
+	if !errors.Is(err, errUninstallStarted) || attempts != 2 {
+		t.Fatalf("InTransaction() = %v after %d attempts, want the second attempt to see the Workflow", err, attempts)
+	}
+	var plan struct {
+		State string `bson:"state"`
+	}
+	if err := plans.FindOne(context.Background(), bson.D{{Key: "_id", Value: "plan-1"}}).Decode(&plan); err != nil || plan.State != "applied" {
+		t.Errorf("plan state = %q, %v; want the other unit's applied", plan.State, err)
+	}
+}
+
 func TestTransactorCommitsTogetherAndJoinsNestedCalls(t *testing.T) {
 	client, db := testDatabase(t)
 	tx := NewTransactor(client)

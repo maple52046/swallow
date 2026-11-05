@@ -1176,7 +1176,7 @@ Deleting a Platform already marked absent depends on its uninstall:
 | has a plan waiting, and the request sends the same removal choices | returns that plan (`202`); with `?approve=true` it approves the plan when it is `pending_approval`, has no blockers, and the policy allows approving on submit |
 | has a plan waiting, and the request sends different removal choices | proposes the uninstall again with the new choices (`202`); the waiting plan is superseded |
 | has no plan waiting: it was rejected or expired, or it was applied and the uninstall failed | proposes the uninstall again (`202`), approved with `?approve=true` as above |
-| is being uninstalled (lifecycle `uninstalling`) | changes nothing and answers `200 OK` with the Platform and `plan: null` |
+| is being uninstalled (lifecycle `uninstalling`), including when the uninstall starts from the waiting plan while the request is handled | changes nothing and answers `200 OK` with the Platform and `plan: null` |
 
 The removal choices compare as stored: an absent body is the same as one that keeps the servers,
 and `releaseOptions` count only when `releaseServers` is true. An uninstall proposed again after a

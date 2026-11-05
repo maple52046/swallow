@@ -453,7 +453,9 @@ platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-co
   一樣提出 uninstall（正在跑的要 `cancelActiveWorkflows`）。對已是 absent 的 Platform 再 Delete：有等待中的 plan 且
   移除選擇相同時回傳那份 plan（`approve=true` 時核准）；選擇不同、或沒有等待中的 plan（被拒絕、過期，或 uninstall
   失敗）時以這次的選擇重新提出，失敗的 uninstall 由新 generation 取代（controller 先取消仍持有 target 的舊 Workflow，
-  新的以 `retryOfOperationId` 指向它）；uninstall 執行中則什麼都不變（200、沒有 plan）。
+  新的以 `retryOfOperationId` 指向它）；uninstall 執行中則什麼都不變（200、沒有 plan）。寫 spec 的 transaction 一開始
+  重讀 lifecycle：controller 同時把等待中的 plan 變成 uninstall 時，兩個 transaction 都改那份 plan 而衝突，重試的一方看得到
+  uninstall，所以 Delete 不會在執行中的 uninstall 旁邊存下另一組選擇，`PUT /spec` 也回 409。
 - **只刪紀錄**（`DELETE /platforms/{id}?recordOnly=true`）只移除紀錄與 swallow 擁有的投影：先對該 Platform 未完成的 Workflow 寫入取消命令（它們在取消
   路徑結束時釋放所有權；寫不進去就拒絕 Delete、保留紀錄），再清 membership、Platform Claim 與 swallow 擁有的 credential Integration，最後刪紀錄。它永不執行
   automation、不改主機、不等 uninstall、不還原 exporter，target locked 時仍可執行。Platform 刪除後，已結束的

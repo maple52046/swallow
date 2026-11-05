@@ -156,7 +156,8 @@ func (s *PlatformSpecService) wake(ctx context.Context, platformID string) {
 // (platformdomain.ErrGenerationConflict otherwise). A change to an immutable field is refused, as
 // is a non-destructive change swallow cannot carry out yet; a destructive one is proposed as a
 // Change Plan, blocked when swallow cannot carry it out yet, and approved with the write when
-// approvedBy names the user who approved it and the Change Plan policy allows it.
+// approvedBy names the user who approved it and the Change Plan policy allows it. Once the
+// Platform's uninstall has started, even while this request runs, the write is ErrPlatformRemoving.
 func (s *PlatformSpecService) UpdateSpec(ctx context.Context, platformID string, expectedGeneration int64, desired platformdomain.PlatformSpec, approvedBy string) (*SpecWriteResult, error) {
 	platform, module, err := s.specified(ctx, platformID)
 	if err != nil {
@@ -207,7 +208,8 @@ func (s *PlatformSpecService) UpdateSpec(ctx context.Context, platformID string,
 //     plan, which a non-empty approvedBy approves when it could have been approved on submit; a
 //     different removal proposes the uninstall again, which supersedes the plan.
 //   - While its uninstall runs, nothing changes: the result is the Platform and its waiting plan, if
-//     any.
+//     any. That includes an uninstall the controller starts from the waiting plan while this
+//     request runs, so a removal that came too late is never stored beside it.
 //   - One marked absent with no plan waiting (rejected, expired, or applied as an uninstall that
 //     failed) has its uninstall proposed again at a new generation; the platform controller cancels
 //     a failed uninstall that still holds its targets before the new one starts.
@@ -250,13 +252,23 @@ func (s *PlatformSpecService) Delete(ctx context.Context, platformID string, rem
 	if err != nil {
 		return nil, err
 	}
-	return s.write(ctx, platform, platform.Generation, spec, changes, nil, approvedBy)
+	result, err := s.write(ctx, platform, platform.Generation, spec, changes, nil, approvedBy)
+	if errors.Is(err, ErrPlatformRemoving) {
+		// The waiting plan became the uninstall after the lifecycle was read above: like any delete
+		// while the uninstall runs, this one changes nothing.
+		return &SpecWriteResult{Platform: platform}, nil
+	}
+	return result, err
 }
 
 // write stores a validated spec change: the spec, claims for members it adds, and a Change Plan when
 // the change is destructive, approved with the write when approvedBy names its user and the Change
 // Plan policy allows it. A non-destructive change instead withdraws an earlier plan. Either way the
 // controller is woken once the write commits.
+//
+// A spec no longer changes once its uninstall has started, so the write is refused with
+// ErrPlatformRemoving, and nothing is written, when the transaction finds an uninstall Workflow
+// running (refuseWhileUninstalling).
 func (s *PlatformSpecService) write(
 	ctx context.Context,
 	platform *platformdomain.Platform,
@@ -270,6 +282,9 @@ func (s *PlatformSpecService) write(
 	var plan *convergence.ChangePlan
 	var generation int64
 	err := s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		if err := s.refuseWhileUninstalling(ctx, platform.ID); err != nil {
+			return err
+		}
 		var err error
 		if generation, err = s.specs.WriteSpec(ctx, platform.ID, expectedGeneration, spec); err != nil {
 			return err
@@ -340,6 +355,25 @@ func (s *PlatformSpecService) claim(ctx context.Context, platformID string, spec
 
 func (s *PlatformSpecService) withdraw(ctx context.Context, platformID, reason string) error {
 	return s.plans.Withdraw(ctx, platformRef(platformID), reason)
+}
+
+// refuseWhileUninstalling returns ErrPlatformRemoving when an uninstall Workflow of the Platform
+// has started and not ended. It must run first in the transaction that writes the spec, so the check
+// and the write read one snapshot. An uninstall the platform controller applies concurrently cannot
+// slip between them: either its transaction committed before that snapshot and is seen here, or it
+// moved the Change Plan this write supersedes or withdraws, so the two transactions conflict and the
+// store retries this one, which then sees the Workflow. A rerun of a failed uninstall moves no plan,
+// so one that commits during the write is not seen; the controller still holds the new plan until
+// that rerun ends, and it never runs beside it.
+func (s *PlatformSpecService) refuseWhileUninstalling(ctx context.Context, platformID string) error {
+	lifecycle, err := s.records.readLifecycle(ctx, platformID)
+	if err != nil {
+		return err
+	}
+	if lifecycle.State == platformdomain.PlatformLifecycleUninstalling {
+		return ErrPlatformRemoving
+	}
+	return nil
 }
 
 // waitingPlan is the Platform's unfinished Change Plan, or nil when it has none still within its
