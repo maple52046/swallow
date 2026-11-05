@@ -31,15 +31,19 @@ test('a deploying Platform shows the running cue wherever its lifecycle appears'
 
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/platforms/platform-a?site=site-a')
-  const header = page.locator('.sw-platform-lifecycle-badge')
+  const header = page.locator('.sw-platform-workspace__hero .sw-platform-lifecycle-badge')
   await expect(header.getByText('Deploying', { exact: true })).toBeVisible()
   await expect(header.locator('.sw-progress-spinner')).toBeVisible()
+  // The Overview's Runtime posture repeats the lifecycle with the same badge.
+  const posture = page.locator('.sw-platform-posture .sw-platform-lifecycle-badge')
+  await expect(posture.getByText('Deploying', { exact: true })).toBeVisible()
+  await expect(posture.locator('.sw-progress-spinner')).toBeVisible()
 })
 
 test('a settled Platform shows no running cue', async ({ page }) => {
   await installApiFixtures(page)
   await page.goto('/platforms/platform-a?site=site-a')
-  const header = page.locator('.sw-platform-lifecycle-badge')
+  const header = page.locator('.sw-platform-workspace__hero .sw-platform-lifecycle-badge')
   await expect(header.getByText('Active', { exact: true })).toBeVisible()
   await expect(header.locator('.sw-progress-spinner')).toHaveCount(0)
 })

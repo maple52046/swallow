@@ -1151,7 +1151,7 @@ test.describe('user interactions', () => {
 
   test('Overview presents standalone topology without repeating the complete configuration', async ({ page }) => {
     await page.goto('/platforms/platform-b/overview?site=site-a')
-    const posture = page.getByRole('heading', { name: 'Runtime posture' }).locator('..').locator('..')
+    const posture = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Runtime posture' }) })
     await expect(posture).toContainText('Standalone')
     await expect(page.getByRole('heading', { name: 'Platform details', exact: true })).toHaveCount(0)
     await expect(page.getByText('Pod CIDR', { exact: true })).toHaveCount(0)

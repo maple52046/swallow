@@ -87,6 +87,7 @@ test('the deploy wizard proposes the AMD GPU Operator with GPU monitoring for AM
     enabled: true, allocationMode: 'dra', resourceNaming: 'single',
     nodeLabeller: true, metricsExporter: true,
   })
+  await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Configuration' }).click()
   const section = page.getByRole('region', { name: 'AMD GPU Operator' })
   await expect(section.getByText('Installing', { exact: true })).toBeVisible()
 })
@@ -202,7 +203,7 @@ test('a touched GPU Operator stays on without AMD workers and blocks the Feature
 test('a Platform shows its GPU Operator and starts changing the allocation mode once confirmed', async ({ page }) => {
   const requests: Array<Record<string, unknown>> = []
   await installApiFixtures(page, { onGPUOperatorRequest: (_, body) => { requests.push(body) } })
-  await page.goto('/platforms/platform-a?site=site-a')
+  await page.goto('/platforms/platform-a/configuration?site=site-a')
 
   const section = page.getByRole('region', { name: 'AMD GPU Operator' })
   await expect(section.getByText('Ready', { exact: true })).toBeVisible()
@@ -224,14 +225,14 @@ test('a Platform shows its GPU Operator and starts changing the allocation mode 
   }])
   // Changing a running operator is a Change Plan, which the confirmed dialog approved, so the
   // change starts here without a stop in Change Plans.
-  await expect(page).toHaveURL('/platforms/platform-a?site=site-a')
+  await expect(page).toHaveURL('/platforms/platform-a/configuration?site=site-a')
   await expect(page.getByText('GPU Operator change started')).toBeVisible()
   await expect(section.getByText('Installing', { exact: true })).toBeVisible()
 })
 
 test('with the safety switch on, a confirmed GPU Operator change waits in Change Plans and says why', async ({ page }) => {
   await installApiFixtures(page, { requireSeparateApproval: true })
-  await page.goto('/platforms/platform-a?site=site-a')
+  await page.goto('/platforms/platform-a/configuration?site=site-a')
   const section = page.getByRole('region', { name: 'AMD GPU Operator' })
   await section.getByRole('button', { name: 'Configure' }).click()
   const dialog = page.getByRole('dialog', { name: 'Configure AMD GPU Operator' })
@@ -249,7 +250,7 @@ test('with the safety switch on, a confirmed GPU Operator change waits in Change
 
 test('a refused GPU Operator change stays in the dialog with the reason', async ({ page }) => {
   await installApiFixtures(page, { gpuOperatorBusy: true })
-  await page.goto('/platforms/platform-a?site=site-a')
+  await page.goto('/platforms/platform-a/configuration?site=site-a')
   const section = page.getByRole('region', { name: 'AMD GPU Operator' })
   await section.getByRole('button', { name: 'Configure' }).click()
   const dialog = page.getByRole('dialog', { name: 'Configure AMD GPU Operator' })
@@ -263,14 +264,14 @@ test('a refused GPU Operator change stays in the dialog with the reason', async 
 test('uninstalling the GPU Operator asks first, then sends enabled false and starts', async ({ page }) => {
   const requests: Array<Record<string, unknown>> = []
   await installApiFixtures(page, { onGPUOperatorRequest: (_, body) => { requests.push(body) } })
-  await page.goto('/platforms/platform-a?site=site-a')
+  await page.goto('/platforms/platform-a/configuration?site=site-a')
   const section = page.getByRole('region', { name: 'AMD GPU Operator' })
   await section.getByRole('button', { name: 'Uninstall' }).click()
   const confirm = page.getByRole('alertdialog', { name: 'Uninstall AMD GPU Operator' })
   await expect(confirm).toContainText('the Platform itself keeps running')
   await confirm.getByRole('button', { name: 'Uninstall GPU Operator' }).click()
   expect(requests).toEqual([{ enabled: false }])
-  await expect(page).toHaveURL('/platforms/platform-a?site=site-a')
+  await expect(page).toHaveURL('/platforms/platform-a/configuration?site=site-a')
   await expect(page.getByText('GPU Operator uninstall started')).toBeVisible()
   await expect(section.getByText('Uninstalling', { exact: true })).toBeVisible()
 })
@@ -278,7 +279,7 @@ test('uninstalling the GPU Operator asks first, then sends enabled false and sta
 test('a Platform without a GPU Operator offers to install it', async ({ page }) => {
   const requests: Array<Record<string, unknown>> = []
   await installApiFixtures(page, { withoutPlatformGPUOperator: true, onGPUOperatorRequest: (_, body) => { requests.push(body) } })
-  await page.goto('/platforms/platform-a?site=site-a')
+  await page.goto('/platforms/platform-a/configuration?site=site-a')
   const section = page.getByRole('region', { name: 'AMD GPU Operator' })
   await expect(section).toContainText('Not installed. Install it to schedule workloads on the AMD GPUs of this Platform.')
   await section.getByRole('button', { name: 'Install' }).click()
@@ -300,7 +301,8 @@ test('a Platform without a GPU Operator offers to install it', async ({ page }) 
 test('the Cluster tab shows the GPUs each node exposes', async ({ page }) => {
   await installApiFixtures(page)
   await page.goto('/platforms/platform-a?site=site-a')
-  await page.getByRole('tab', { name: 'Cluster' }).click()
+  await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Cluster' }).click()
+  await expect(page).toHaveURL('/platforms/platform-a/cluster?site=site-a')
   const table = page.getByRole('table', { name: 'Kubernetes nodes' })
   await expect(table.getByRole('row', { name: /gpu-node-01/ })).toContainText('8 × amd.com/gpu')
   await expect(table.getByRole('row', { name: /gpu-node-02/ }).getByRole('cell').nth(4)).toHaveText('-')

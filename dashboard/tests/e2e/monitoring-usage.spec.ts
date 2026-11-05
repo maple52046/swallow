@@ -159,16 +159,20 @@ test('Monitoring counts the fleet by health and labels each Server with the shar
   }
 })
 
+// A registered Platform is not active, so its workspace header offers no Grafana; its Monitoring
+// route still links the Platform Grafana and its usage charts.
 test('Platform detail links to its own monitoring UI and to its usage charts', async ({ page }) => {
   const requests: URLSearchParams[] = []
   await installApiFixtures(page, { onMetricRangeRequest: (params) => requests.push(params) })
   await page.goto('/platforms/platform-slurm?site=site-a')
+  await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Monitoring' }).click()
+  await expect(page).toHaveURL('/platforms/platform-slurm/monitoring?site=site-a')
 
-  const grafana = page.getByRole('link', { name: 'Platform Grafana' })
+  const grafana = page.getByRole('link', { name: 'Open Platform Grafana' })
   await expect(grafana).toHaveAttribute('href', 'http://10.0.0.11:3000/d/edqnz7pce7togc-rms/global-rms')
   await expect(grafana).toHaveAttribute('target', '_blank')
 
-  await page.getByRole('link', { name: 'View usage charts' }).click()
+  await page.getByRole('link', { name: 'Open monitoring' }).click()
   await expect(page).toHaveURL(/\/monitoring\?.*chartScope=platform/)
   await expect(page.getByRole('combobox', { name: 'Chart platform', exact: true })).toContainText('research-slurm')
   await expect.poll(() => requests.at(-1)?.get('platformId')).toBe('platform-slurm')
