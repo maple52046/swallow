@@ -2,7 +2,6 @@ package command
 
 import (
 	"net/url"
-	"path/filepath"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -111,9 +110,4 @@ func sendNoContent(cmd *cobra.Command, method, path string, q url.Values, body a
 // per-request deadline.
 func newUploadClient() (*client.Client, error) {
 	return client.New(clientOptions(0))
-}
-
-// nameFromPath returns the base filename for a multipart upload part.
-func nameFromPath(path string) string {
-	return filepath.Base(path)
 }

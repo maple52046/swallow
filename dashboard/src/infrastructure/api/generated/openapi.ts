@@ -1587,6 +1587,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/provisioning/image-uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record the intent to upload a new provider-owned OS Image to one provisioner.
+         * @description Requires role `admin`. Validates the intent, including the content's size and sha256, and records a single-use upload that expires one hour later if no content is sent. Has no effect on the provider.
+         */
+        post: operations["createOsImageUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/provisioning/image-uploads/{id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The OS Image upload's swallow-issued id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Stream the content of one OS Image upload to its provisioner.
+         * @description Requires role `admin`. The body is the raw content; `Content-Length` must equal the upload's `sizeBytes`. swallow forwards the content to the provider as it arrives, keeps no copy, and answers once the provider reports the image fully staged (waiting up to five minutes after the last byte). The upload is removed when the request finishes, whether it succeeded or failed. Whether the image is a custom image is decided by the provisioner. Not bounded by the short provider read timeout of catalog reads.
+         */
+        put: operations["sendOsImageUploadContent"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/provisioning/image-verifications": {
         parameters: {
             query?: never;
@@ -1620,11 +1663,7 @@ export interface paths {
          */
         get: operations["listOsImages"];
         put?: never;
-        /**
-         * Upload a new provider-owned OS Image to one provisioner.
-         * @description Requires role `admin`. The only multipart endpoint of this surface: the `content` part is streamed to the provider, and swallow keeps no copy. Whether the image is a custom image is decided by the provisioner, not by the caller. Not bounded by the short provider read timeout of catalog reads.
-         */
-        post: operations["uploadOsImage"];
+        post?: never;
         /**
          * Delete one user-uploaded custom OS Image from its provisioner.
          * @description Requires role `admin`. The image is addressed by the identity the catalog returns, as query parameters, because an image id can contain a slash. Also removes swallow's metadata of the image.
@@ -5166,23 +5205,35 @@ export interface components {
             /** @description Trimmed, blanks dropped, duplicates removed in order. */
             tags?: string[];
         };
-        /** @description The multipart parts of an OS Image upload; text parts are trimmed. */
-        OsImageUploadForm: {
+        /** @description A recorded OS Image upload whose content has not been sent yet. */
+        OsImageUpload: {
+            /**
+             * Format: date-time
+             * @description When the upload expires if its content is not sent.
+             */
+            expiresAt: string;
+            /** @description The upload's swallow-issued id. */
+            id: string;
+        };
+        /** @description The intent of one OS Image upload; text fields are trimmed. */
+        OsImageUploadRequest: {
             /** @description The CPU architecture, for example `amd64`. */
             architecture: string;
-            /**
-             * Format: binary
-             * @description The non-empty image file, streamed to the provider.
-             */
-            content: string;
-            /** @description Stored as the image's metadata default user once the provider accepts the upload. */
+            /** @description Stored as the image's metadata default user once the upload succeeds. */
             defaultUser?: string;
-            /** @description The artifact format, validated by the provider; the provider's default when omitted. */
+            /** @description The artifact format, validated by the provider adapter; the provider's default when omitted. */
             filetype?: string;
             /** @description The target provisioner Integration. */
             integrationId: string;
             /** @description The user-chosen image name, mapped into the provider's namespace. */
             name: string;
+            /** @description The lowercase hex SHA-256 of the content; the provider verifies the content against it. */
+            sha256: string;
+            /**
+             * Format: int64
+             * @description The exact length of the content in bytes.
+             */
+            sizeBytes: number;
             /** @description A human-readable label. */
             title?: string;
         };
@@ -10878,6 +10929,153 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    createOsImageUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OsImageUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded upload; send its content with `PUT /image-uploads/{id}/content`. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OsImageUpload"];
+                };
+            };
+            /** @description `validation_error`: a required field is missing, a text field is longer than 200 characters, `sizeBytes` is not a positive integer, `sha256` is not 64 lowercase hex characters, `defaultUser` is not a POSIX login name, the Integration is not a provisioner or its adapter does not implement upload, or the adapter refused the intent (for example an unsupported `filetype`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: the Integration does not exist. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `payload_too_large`: `sizeBytes` is larger than the installation's upload limit. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `provider_unavailable`: the Integration has no credential. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    sendOsImageUploadContent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The OS Image upload's swallow-issued id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description The created image, in the shape of one catalog row. A freshly uploaded image has no metadata, so its spec is empty except `spec.defaultUser` when the upload carried `defaultUser`. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OsImage"];
+                };
+            };
+            /** @description `validation_error`: the `Content-Type` is not `application/octet-stream`, the `Content-Length` is missing or differs from `sizeBytes`, the body ended early, or the provisioner refused the upload (duplicate name, unsupported `filetype`, content that does not match `sha256`) — the provider's own wording is kept. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: the upload does not exist or has expired. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `conflict`: the upload's content is already being sent. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `payload_too_large`: the body is larger than the installation's upload limit. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `internal_error`: the provider accepted the artifact but storing its default user failed; the image exists and the default user can be set with its metadata. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `provider_unavailable`: a provider transport failure or 5xx during the upload, the Integration has no credential, or the provider has not fully staged the image within the wait (the image exists; deployments of it are refused until it is staged). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
     createOsImageVerification: {
         parameters: {
             query?: never;
@@ -10983,78 +11181,6 @@ export interface operations {
                 };
             };
             /** @description `provider_unavailable`: the provisioner cannot be reached or refused swallow's credential, or the Integration has no credential. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    uploadOsImage: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["OsImageUploadForm"];
-            };
-        };
-        responses: {
-            /** @description The created image, in the shape of one catalog row. A freshly uploaded image has no metadata, so its spec is empty except `spec.defaultUser` when `defaultUser` was sent. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OsImage"];
-                };
-            };
-            /** @description `validation_error`: `integrationId`, `name`, `architecture`, or `content` is missing, `content` is empty or unreadable, a text part is longer than 200 characters, `defaultUser` is not a POSIX login name, or the Integration is not a provisioner; or the provisioner refused the upload (unsupported `filetype`, duplicate name, no upload capability) — the provider's own wording is kept. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            /** @description `not_found`: the Integration does not exist. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `payload_too_large`: the body is larger than the installation's upload limit. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `internal_error`: the provider accepted the artifact but storing its default user failed; the image exists and the default user can be set with its metadata. */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `provider_unavailable`: a provider transport failure or 5xx during the upload, or the Integration has no credential. */
             503: {
                 headers: {
                     [name: string]: unknown;

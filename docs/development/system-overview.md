@@ -175,6 +175,7 @@ collection 可能由多個 process 寫入，但每個欄位只有一個寫入者
 | server | `servers` | Server 的投影、spec 與 conditions、Platform Claim、deployment 結果、membership | api（spec 寫入、按需 refresh）；worker（reconcile、inventory、membership 的 pass，Server controller、deployment 投影）；ansible-executor（membership） |
 | provisioning | `deployment_templates`、`os_image_metadata`、`boot_isos` | Deployment Template、OS Image metadata、Boot ISO | api |
 | provisioning | `os_image_verifications`、`provisioning_tasks` | OS Image 的驗證證據、release 後的網路清理 | worker；api（刪除、重試） |
+| provisioning | `os_image_uploads` | OS Image 上傳的意圖：只用一次、未使用時以 TTL 過期，不含 artifact | api |
 | provisioning | `provisioner_http_proxies`、`provisioner_subnet_dns` | HTTP Proxy 與 Subnet DNS 的 spec 與 status | api（spec）；worker（controller） |
 | infrastructure | `zones`、`pools` | Zone、Pool 的 spec 與 status | api（spec）；worker（catalog controller） |
 | platform | `platforms`、`platform_deployment_requirements` | Platform 的 spec、status 與功能狀態；Slurm 部署需求 | api（spec、按需同步）；worker（membership 的同步狀態、controller、投影）；ansible-executor（credential 與功能結果） |

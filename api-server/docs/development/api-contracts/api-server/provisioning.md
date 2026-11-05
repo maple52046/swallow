@@ -41,8 +41,9 @@ timestamps, and authentication behavior follow [conventions.md](conventions.md).
 
 ```text
 GET    /api/v1/provisioning/images?integrationId={integrationId}
-POST   /api/v1/provisioning/images                                              (multipart/form-data)
 DELETE /api/v1/provisioning/images?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
+POST   /api/v1/provisioning/image-uploads
+PUT    /api/v1/provisioning/image-uploads/{id}/content                          (application/octet-stream)
 PUT    /api/v1/provisioning/images/metadata?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
 DELETE /api/v1/provisioning/images/metadata?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
 GET    /api/v1/provisioning/templates?siteId={optional}&integrationId={optional}
@@ -177,15 +178,19 @@ metadata for it, so a deleted image leaves no orphan metadata behind.
 
 ## OS Image Upload
 
-`POST /images` uploads a new provider-owned OS Image to one provisioner. It is the only
-endpoint on this surface that uses `multipart/form-data` rather than JSON, because it carries
-a potentially multi-gigabyte image artifact. swallow drives the provider upload but does not
-own, mirror, or keep a durable copy of the artifact: the uploaded image is provider-owned
-exactly like a synced one, and **whether it is classified as a custom image is determined by the
-provisioner, not by the caller** (see [decision 027](../../../../../docs/decisions/027-os-image-upload.md) (os image upload)). Upload is an optional provider capability, so a
+Uploading a new provider-owned OS Image to one provisioner takes two requests: the caller
+first creates an **OS Image upload** that states the intent and the content's size and sha256,
+then streams the content to it. swallow drives the provider upload but does not own, mirror, or
+keep a copy of the artifact: the content is forwarded to the provider as it arrives, never staged
+on swallow's disk or held whole in memory, and the uploaded image is provider-owned exactly like
+a synced one. **Whether it is classified as a custom image is determined by the provisioner, not
+by the caller** (see [decision 027](../../../../../docs/decisions/027-os-image-upload.md) (os image upload)). Upload is an optional provider capability, so a
 provisioner whose adapter does not implement it is refused.
 
-The request is `multipart/form-data` with these parts:
+### Create an upload
+
+`POST /image-uploads` validates the intent and records it; it has no effect on the provider. The
+JSON body has these fields:
 
 - `integrationId` (required): the target provisioner Integration.
 - `name` (required): the user-chosen image name. The adapter maps it into the provider's
@@ -193,13 +198,43 @@ The request is `multipart/form-data` with these parts:
 - `architecture` (required): the CPU architecture, e.g. `amd64`. The adapter expands it to the
   provider's form (for MAAS, `amd64/generic`).
 - `title` (optional): a human-readable label.
-- `filetype` (optional): the artifact format, validated by the provider. When omitted the
+- `filetype` (optional): the artifact format, validated by the provider adapter. When omitted the
   provider's default is used (for MAAS, `tgz`).
 - `defaultUser` (optional): the image's default login user, stored as the image's metadata
-  `defaultUser` once the provider accepts the upload. It must be a POSIX login name
-  (`^[a-z_][a-z0-9_-]{0,31}$`); an invalid value is rejected before anything is uploaded.
-- `content` (required): the image file. It is streamed; swallow never buffers the whole artifact
-  in memory and keeps no copy after the provider accepts it.
+  `defaultUser` once the upload succeeds. It must be a POSIX login name
+  (`^[a-z_][a-z0-9_-]{0,31}$`).
+- `sizeBytes` (required): the exact length of the content, a positive integer.
+- `sha256` (required): the lowercase hex SHA-256 of the content. The provider verifies the
+  content against it, so a wrong value fails the upload when the content is complete.
+
+It returns `201` with the upload's swallow-issued `id` and the time it expires if no content is
+sent:
+
+```json
+{ "id": "8b1f3c2e-4d5a-4b6c-9e7f-0a1b2c3d4e5f", "expiresAt": "2026-11-05T08:00:00Z" }
+```
+
+An upload expires one hour after it is created. A missing `integrationId`, `name`,
+`architecture`, `sizeBytes`, or `sha256`, a `name`, `architecture`, `title`, or `filetype` longer
+than 200 characters, a `sizeBytes` that is not a positive integer, a `sha256` that is not 64
+lowercase hex characters, an invalid `defaultUser`, an Integration that is not a provisioner, a
+provisioner whose adapter does not implement upload, or an intent the adapter refuses (for
+example an unsupported `filetype`) is `400 validation_error`. An unknown integration is
+`404 not_found`. A `sizeBytes` larger than the installation's upload limit
+(`api.imageUploadMaxBytes`) is `413 payload_too_large`. An Integration with no credential is
+`503 provider_unavailable`.
+
+### Send the content
+
+`PUT /image-uploads/{id}/content` streams the content of one upload. The body is the raw content
+with `Content-Type: application/octet-stream` and a `Content-Length` equal to the upload's
+`sizeBytes`; chunked transfer encoding is refused. swallow creates the image at the provider,
+forwards the content to it as it arrives, and waits — for up to five minutes after the last byte
+— until the provider reports the image fully staged, so a `201` means the image can be deployed
+(subject to the custom image verification gate). An upload is single-use: it is removed when this
+request finishes, whether it succeeded or failed, and a failed upload is retried by creating a
+new one. When the request fails after the provider created the image, swallow removes the
+incomplete image from the provider on a best-effort basis.
 
 On success it returns `201` with the created image in the same shape as one `GET /images` row:
 
@@ -230,15 +265,17 @@ reports the completed artifact size. When `defaultUser` was sent, the response c
 default user failed, the endpoint returns `500 internal_error`; the image exists and the default
 user can be set afterwards with `PUT /images/metadata`.
 
-A missing `integrationId`, `name`, `architecture`, or `content`, an empty or unreadable
-`content` file, a `name`, `architecture`, `title`, or `filetype` longer than 200 characters, an
-unsupported `filetype`, a name that duplicates an existing provider image, an Integration that is
-not a provisioner, or a provisioner whose adapter does not implement upload is
-`400 validation_error` — the provider's own wording is preserved for a provider-side refusal. An
-unknown integration is `404 not_found`. A provider transport failure or 5xx during upload, or an
-Integration with no credential, is `503 provider_unavailable`. A body larger than the installation's
-upload limit (`api.imageUploadMaxBytes`) is `413 payload_too_large`. Because the artifact can be large,
-this endpoint is not bounded by the short provider read timeout used for catalog reads.
+A `Content-Type` other than `application/octet-stream`, a missing `Content-Length` or one that
+differs from `sizeBytes`, a body that ends before `sizeBytes` bytes, or a provider refusal (for
+example a name that duplicates an existing provider image, an unsupported `filetype`, or content
+that does not match `sha256`) is `400 validation_error` — the provider's own wording is preserved
+for a provider-side refusal. An unknown or expired upload is `404 not_found`; an upload whose
+content is already being sent is `409 conflict`. A body larger than the installation's upload
+limit is `413 payload_too_large`. A provider transport failure or 5xx during the upload, an
+Integration with no credential, or an image the provider has not fully staged within the wait is
+`503 provider_unavailable`; in the last case the image exists at the provider and deployments of it
+are refused until it is staged. Because the artifact can be large, this request is not bounded by
+the short provider read timeout used for catalog reads.
 
 ## OS Image Metadata
 
@@ -953,6 +990,11 @@ answers `200`, and the same message is recorded as the Integration's last sync e
 unknown Integration is `404 not_found` and a non-provisioner Integration `400 validation_error`.
 
 ## Compatibility Notes
+
+On 2026-11-05 (breaking, with no alias) the single multipart `POST /images` upload was replaced
+by `POST /image-uploads`, which takes the same fields as JSON plus the content's `sizeBytes` and
+`sha256`, followed by `PUT /image-uploads/{id}/content` with the raw content. The created image is
+returned in the same shape, and only once the provider reports it fully staged.
 
 On 2026-11-03 a `deploy-os` Workflow gained the `install-node-exporter-<serverId>` and
 `record-node-exporter-<serverId>` Tasks after each Server's `configure-ntp-<serverId>`, replacing

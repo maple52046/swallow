@@ -2,7 +2,8 @@ package tests
 
 import (
 	"bytes"
-	"mime/multipart"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -272,32 +273,53 @@ func TestListImages_UnknownIntegration(t *testing.T) {
 	}
 }
 
-// uploadImageRequest builds a multipart/form-data POST for the image upload endpoint. doRequest
-// forces application/json, so the upload path is exercised with its own request builder.
-func uploadImageRequest(t *testing.T, f *platformFixture, fields map[string]string, fileField, filename string, content []byte) *http.Response {
-	t.Helper()
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-	for name, value := range fields {
-		if err := writer.WriteField(name, value); err != nil {
-			t.Fatalf("write field %q: %v", name, err)
-		}
-	}
-	if fileField != "" {
-		part, err := writer.CreateFormFile(fileField, filename)
-		if err != nil {
-			t.Fatalf("create file part: %v", err)
-		}
-		if _, err := part.Write(content); err != nil {
-			t.Fatalf("write file part: %v", err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close multipart writer: %v", err)
-	}
+// imageUploadContent is the content the upload tests send; testImageUploadSHA256 is its digest
+// in the lowercase hex form the contract requires.
+var (
+	imageUploadContent    = []byte("fake-image-bytes")
+	testImageUploadSHA256 = func() string {
+		sum := sha256.Sum256(imageUploadContent)
+		return hex.EncodeToString(sum[:])
+	}()
+)
 
-	req := httptest.NewRequest("POST", "/api/v1/provisioning/images", &buf)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+// createImageUpload records an upload intent through POST /image-uploads and returns the
+// response; fields override the defaults of a valid intent for the test content.
+func createImageUpload(t *testing.T, f *platformFixture, fields map[string]any) *http.Response {
+	t.Helper()
+	body := map[string]any{
+		"integrationId": testIntegrationID,
+		"name":          "ubuntu-24.04-rocm",
+		"architecture":  "amd64",
+		"sizeBytes":     len(imageUploadContent),
+		"sha256":        testImageUploadSHA256,
+	}
+	for name, value := range fields {
+		body[name] = value
+	}
+	return doRequest(t, f.app, "POST", "/api/v1/provisioning/image-uploads", body, f.adminAuth(t))
+}
+
+// createdImageUploadID records a valid intent and returns the upload's id.
+func createdImageUploadID(t *testing.T, f *platformFixture, fields map[string]any) string {
+	t.Helper()
+	resp := createImageUpload(t, f, fields)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /image-uploads status = %d, want 201", resp.StatusCode)
+	}
+	id, _ := parseBody(t, resp)["id"].(string)
+	if id == "" {
+		t.Fatal("POST /image-uploads returned no id")
+	}
+	return id
+}
+
+// sendImageUploadContent PUTs raw content to an upload. doRequest forces JSON, so the content
+// request is built here with the media type and length the contract requires.
+func sendImageUploadContent(t *testing.T, f *platformFixture, id, contentType string, content []byte) *http.Response {
+	t.Helper()
+	req := httptest.NewRequest("PUT", "/api/v1/provisioning/image-uploads/"+id+"/content", bytes.NewReader(content))
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Authorization", "Bearer "+adminToken(t, f.jwtSvc))
 	resp, err := f.app.Test(req, -1)
 	if err != nil {
@@ -306,62 +328,140 @@ func uploadImageRequest(t *testing.T, f *platformFixture, fields map[string]stri
 	return resp
 }
 
-// A successful upload streams the file to the provider and returns the created catalog row. The
-// caller never sends a "custom" flag: the provider classifies the uploaded image (here as the
-// custom osystem), which is what the response reflects.
-func TestUploadImage_Success(t *testing.T) {
+// A successful upload records the intent, then streams the content to the provider and returns
+// the created catalog row. The caller never sends a "custom" flag: the provider classifies the
+// uploaded image (here as the custom osystem), which is what the response reflects. The provider
+// receives the size and digest the caller declared, and the upload is gone afterwards.
+func TestImageUpload_Success(t *testing.T) {
 	f := setupPlatform(t)
 
-	resp := uploadImageRequest(t, f,
-		map[string]string{
-			"integrationId": testIntegrationID,
-			"name":          "ubuntu-24.04-rocm",
-			"architecture":  "amd64",
-			"filetype":      "tgz",
-			"title":         "Ubuntu 24.04 ROCm",
-		},
-		"content", "image.tar.gz", []byte("fake-image-bytes"),
-	)
+	resp := createImageUpload(t, f, map[string]any{"filetype": "tgz", "title": "Ubuntu 24.04 ROCm", "defaultUser": "cloud-user"})
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", resp.StatusCode)
+		t.Fatalf("POST /image-uploads status = %d, want 201", resp.StatusCode)
+	}
+	created := parseBody(t, resp)
+	id, _ := created["id"].(string)
+	if id == "" || created["expiresAt"] == "" {
+		t.Fatalf("POST /image-uploads body = %v, want an id and expiresAt", created)
+	}
+	if len(f.provider.uploadedImages) != 0 {
+		t.Fatal("creating an upload must not reach the provider")
+	}
+
+	resp = sendImageUploadContent(t, f, id, "application/octet-stream", imageUploadContent)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("PUT content status = %d, want 201", resp.StatusCode)
 	}
 	body := parseBody(t, resp)
-	if body["id"] != "ubuntu-24.04-rocm" {
-		t.Errorf("id: got %v", body["id"])
+	if body["id"] != "ubuntu-24.04-rocm" || body["architecture"] != "amd64" {
+		t.Errorf("image identity = %v/%v, want ubuntu-24.04-rocm/amd64", body["id"], body["architecture"])
 	}
-	if status := serverStatusOf(body); status["providerOsSystem"] != "custom" {
-		t.Errorf("providerOsSystem: got %v, want custom (provider-classified)", status["providerOsSystem"])
-	}
-	if body["architecture"] != "amd64" {
-		t.Errorf("architecture: got %v", body["architecture"])
+	if status := serverStatusOf(body); status["providerOsSystem"] != "custom" || status["defaultUser"] != "cloud-user" {
+		t.Errorf("status = %v, want providerOsSystem custom (provider-classified) and defaultUser cloud-user", status)
 	}
 
 	if len(f.provider.uploadedImages) != 1 {
-		t.Fatalf("expected 1 recorded upload, got %d", len(f.provider.uploadedImages))
+		t.Fatalf("recorded uploads = %d, want 1", len(f.provider.uploadedImages))
 	}
 	uploaded := f.provider.uploadedImages[0]
-	if uploaded.Name != "ubuntu-24.04-rocm" || uploaded.Size != int64(len("fake-image-bytes")) {
-		t.Errorf("recorded upload: %+v", uploaded)
+	if uploaded.Name != "ubuntu-24.04-rocm" || uploaded.FileType != "tgz" ||
+		uploaded.Size != int64(len(imageUploadContent)) || uploaded.SHA256 != testImageUploadSHA256 {
+		t.Errorf("provider request = %+v, want the declared name, filetype, size, and sha256", uploaded)
 	}
-	if uploaded.SHA256 == "" {
-		t.Error("the handler must compute and forward a sha256 for the spooled content")
+	if n := f.imageUploads.count(); n != 0 {
+		t.Errorf("remaining uploads = %d, want 0 after the content request", n)
+	}
+	if resp := sendImageUploadContent(t, f, id, "application/octet-stream", imageUploadContent); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("second PUT content status = %d, want 404 (an upload is single-use)", resp.StatusCode)
 	}
 }
 
-// The file part is required: without it the request cannot carry an image, so it is refused
-// before reaching the provider.
-func TestUploadImage_RequiresContent(t *testing.T) {
+// An intent that breaks a swallow rule, or that the adapter refuses, is refused before anything
+// is recorded; a declared size over the installation's limit is 413.
+func TestImageUpload_CreateRefusesBadIntent(t *testing.T) {
+	tests := []struct {
+		name       string
+		fields     map[string]any
+		adapterErr error
+		wantStatus int
+	}{
+		{name: "missing sha256", fields: map[string]any{"sha256": ""}, wantStatus: http.StatusBadRequest},
+		{name: "uppercase sha256", fields: map[string]any{"sha256": strings.ToUpper(testImageUploadSHA256)}, wantStatus: http.StatusBadRequest},
+		{name: "zero size", fields: map[string]any{"sizeBytes": 0}, wantStatus: http.StatusBadRequest},
+		{name: "invalid default user", fields: map[string]any{"defaultUser": "Cloud User"}, wantStatus: http.StatusBadRequest},
+		{
+			name:       "adapter refuses the file type",
+			fields:     map[string]any{"filetype": "iso"},
+			adapterErr: &provisioningdomain.ProviderError{Kind: provisioningdomain.ProviderErrorRejected, Detail: "unsupported file type"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{name: "over the upload limit", fields: map[string]any{"sizeBytes": testImageUploadMaxBytes + 1}, wantStatus: http.StatusRequestEntityTooLarge},
+		{name: "unknown integration", fields: map[string]any{"integrationId": "no-such-integration"}, wantStatus: http.StatusNotFound},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := setupPlatform(t)
+			f.provider.validateUploadErr = tc.adapterErr
+
+			resp := createImageUpload(t, f, tc.fields)
+			if resp.StatusCode != tc.wantStatus {
+				t.Fatalf("POST /image-uploads status = %d, want %d", resp.StatusCode, tc.wantStatus)
+			}
+			if n := f.imageUploads.count(); n != 0 {
+				t.Errorf("recorded uploads = %d, want 0 for a refused intent", n)
+			}
+		})
+	}
+}
+
+// The content request is checked against its upload. A wrong media type is refused before the
+// upload is claimed, so the upload stays usable; a length other than the declared size claims and
+// removes it; an unknown upload is 404.
+func TestImageUpload_ContentChecks(t *testing.T) {
 	f := setupPlatform(t)
 
-	resp := uploadImageRequest(t, f,
-		map[string]string{"integrationId": testIntegrationID, "name": "img", "architecture": "amd64"},
-		"", "", nil,
-	)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	id := createdImageUploadID(t, f, nil)
+	if resp := sendImageUploadContent(t, f, id, "text/plain", imageUploadContent); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("wrong Content-Type status = %d, want 400", resp.StatusCode)
+	}
+	if n := f.imageUploads.count(); n != 1 {
+		t.Fatalf("remaining uploads = %d, want 1: a wrong media type must leave the upload usable", n)
+	}
+
+	if resp := sendImageUploadContent(t, f, id, "application/octet-stream", []byte("short")); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("wrong length status = %d, want 400", resp.StatusCode)
 	}
 	if len(f.provider.uploadedImages) != 0 {
-		t.Error("a request missing the file must not reach the provider")
+		t.Error("content of the wrong length must not reach the provider")
+	}
+	if resp := sendImageUploadContent(t, f, id, "application/octet-stream", imageUploadContent); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("PUT after a failed content request status = %d, want 404 (the failure removed the upload)", resp.StatusCode)
+	}
+
+	if resp := sendImageUploadContent(t, f, "no-such-upload", "application/octet-stream", imageUploadContent); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("unknown upload status = %d, want 404", resp.StatusCode)
+	}
+}
+
+// A provider refusal while the content streams (for example content that does not match the
+// declared sha256) is a 400 with the provider's wording, and the upload is removed.
+func TestImageUpload_ProviderRefusalRemovesUpload(t *testing.T) {
+	f := setupPlatform(t)
+	f.provider.uploadImageErr = &provisioningdomain.ProviderError{
+		Kind:   provisioningdomain.ProviderErrorRejected,
+		Detail: "Saved content does not match given SHA256 value.",
+	}
+
+	id := createdImageUploadID(t, f, nil)
+	resp := sendImageUploadContent(t, f, id, "application/octet-stream", imageUploadContent)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("PUT content status = %d, want 400", resp.StatusCode)
+	}
+	if msg, _ := parseBody(t, resp)["error"].(map[string]any)["message"].(string); !strings.Contains(msg, "SHA256") {
+		t.Errorf("error message = %q, want the provider's wording", msg)
+	}
+	if n := f.imageUploads.count(); n != 0 {
+		t.Errorf("remaining uploads = %d, want 0 after a failed content request", n)
 	}
 }
 

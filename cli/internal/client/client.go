@@ -1,7 +1,7 @@
 // Package client is the swallow CLI's HTTP adapter for the api-server
 // contract. It is the single place that knows how to reach the api-server: base
-// path, bearer authentication, the shared JSON error envelope, and the
-// Server-Sent Events framing. Command code depends on this package and never
+// path, bearer authentication, the shared JSON error envelope, the Server-Sent
+// Events framing, and streamed raw-body uploads. Command code depends on this package and never
 // builds requests or parses the error envelope itself.
 //
 // Component boundary: the CLI is a conformist HTTP consumer of the api-server
@@ -127,18 +127,21 @@ func New(opts Options) (*Client, error) {
 // Request describes one call. Path is relative to the contract base path. Query
 // is optional. Body, when non-nil, is JSON-encoded and sent with a JSON
 // Content-Type unless RawBody is set. RawBody and ContentType let a caller send
-// a non-JSON payload (for example a multipart upload assembled by the caller).
-// Accept overrides the default JSON Accept header for text endpoints such as
-// Task logs.
+// a non-JSON payload (for example the raw content of an OS image upload);
+// ContentLength, when positive, is RawBody's exact length and is sent as the
+// Content-Length header, because net/http cannot infer it from an arbitrary
+// reader such as a file and would otherwise send the body chunked. Accept
+// overrides the default JSON Accept header for text endpoints such as Task logs.
 type Request struct {
-	Method      string
-	Path        string
-	Query       url.Values
-	Body        any
-	RawBody     io.Reader
-	ContentType string
-	Accept      string
-	Auth        AuthMode
+	Method        string
+	Path          string
+	Query         url.Values
+	Body          any
+	RawBody       io.Reader
+	ContentType   string
+	ContentLength int64
+	Accept        string
+	Auth          AuthMode
 }
 
 // resolve builds the absolute URL for a request path plus query, joining the
@@ -175,6 +178,9 @@ func (c *Client) newHTTPRequest(ctx context.Context, r Request) (*http.Request, 
 	req, err := http.NewRequestWithContext(ctx, r.Method, c.resolve(r.Path, r.Query), bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
+	}
+	if r.RawBody != nil && r.ContentLength > 0 {
+		req.ContentLength = r.ContentLength
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)

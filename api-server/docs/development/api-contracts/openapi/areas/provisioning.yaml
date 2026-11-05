@@ -58,76 +58,6 @@ paths:
                 $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
-    post:
-      tags: [provisioning]
-      operationId: uploadOsImage
-      summary: Upload a new provider-owned OS Image to one provisioner.
-      description: >-
-        Requires role `admin`. The only multipart endpoint of this surface: the `content` part is
-        streamed to the provider, and swallow keeps no copy. Whether the image is a custom image
-        is decided by the provisioner, not by the caller. Not bounded by the short provider read
-        timeout of catalog reads.
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/OsImageUploadForm'
-      responses:
-        '201':
-          description: >-
-            The created image, in the shape of one catalog row. A freshly uploaded image has no
-            metadata, so its spec is empty except `spec.defaultUser` when `defaultUser` was sent.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OsImage'
-        '400':
-          description: >-
-            `validation_error`: `integrationId`, `name`, `architecture`, or `content` is missing,
-            `content` is empty or unreadable, a text part is longer than 200 characters,
-            `defaultUser` is not a POSIX login name, or the Integration is not a provisioner; or
-            the provisioner refused the upload (unsupported `filetype`, duplicate name, no upload
-            capability) — the provider's own wording is kept.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          description: '`not_found`: the Integration does not exist.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '413':
-          description: >-
-            `payload_too_large`: the body is larger than the installation's upload limit.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '500':
-          description: >-
-            `internal_error`: the provider accepted the artifact but storing its default user
-            failed; the image exists and the default user can be set with its metadata.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          description: >-
-            `provider_unavailable`: a provider transport failure or 5xx during the upload, or the
-            Integration has no credential.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        default:
-          $ref: '#/components/responses/Error'
     delete:
       tags: [provisioning]
       operationId: deleteOsImage
@@ -164,6 +94,152 @@ paths:
                 $ref: '#/components/schemas/Error'
         '503':
           description: '`provider_unavailable`: a provider transport failure, or the Integration has no credential.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/image-uploads:
+    post:
+      tags: [provisioning]
+      operationId: createOsImageUpload
+      summary: Record the intent to upload a new provider-owned OS Image to one provisioner.
+      description: >-
+        Requires role `admin`. Validates the intent, including the content's size and sha256, and
+        records a single-use upload that expires one hour later if no content is sent. Has no
+        effect on the provider.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OsImageUploadRequest'
+      responses:
+        '201':
+          description: The recorded upload; send its content with `PUT /image-uploads/{id}/content`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OsImageUpload'
+        '400':
+          description: >-
+            `validation_error`: a required field is missing, a text field is longer than 200
+            characters, `sizeBytes` is not a positive integer, `sha256` is not 64 lowercase hex
+            characters, `defaultUser` is not a POSIX login name, the Integration is not a
+            provisioner or its adapter does not implement upload, or the adapter refused the
+            intent (for example an unsupported `filetype`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Integration does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: >-
+            `payload_too_large`: `sizeBytes` is larger than the installation's upload limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: '`provider_unavailable`: the Integration has no credential.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/provisioning/image-uploads/{id}/content:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The OS Image upload's swallow-issued id.
+        schema:
+          type: string
+    put:
+      tags: [provisioning]
+      operationId: sendOsImageUploadContent
+      summary: Stream the content of one OS Image upload to its provisioner.
+      description: >-
+        Requires role `admin`. The body is the raw content; `Content-Length` must equal the
+        upload's `sizeBytes`. swallow forwards the content to the provider as it arrives, keeps no
+        copy, and answers once the provider reports the image fully staged (waiting up to five
+        minutes after the last byte). The upload is removed when the request finishes, whether it
+        succeeded or failed. Whether the image is a custom image is decided by the provisioner.
+        Not bounded by the short provider read timeout of catalog reads.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: >-
+            The created image, in the shape of one catalog row. A freshly uploaded image has no
+            metadata, so its spec is empty except `spec.defaultUser` when the upload carried
+            `defaultUser`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OsImage'
+        '400':
+          description: >-
+            `validation_error`: the `Content-Type` is not `application/octet-stream`, the
+            `Content-Length` is missing or differs from `sizeBytes`, the body ended early, or the
+            provisioner refused the upload (duplicate name, unsupported `filetype`, content that
+            does not match `sha256`) — the provider's own wording is kept.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the upload does not exist or has expired.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: the upload''s content is already being sent.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: >-
+            `payload_too_large`: the body is larger than the installation's upload limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: >-
+            `internal_error`: the provider accepted the artifact but storing its default user
+            failed; the image exists and the default user can be set with its metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: a provider transport failure or 5xx during the upload, the
+            Integration has no credential, or the provider has not fully staged the image within
+            the wait (the image exists; deployments of it are refused until it is staged).
           content:
             application/json:
               schema:
@@ -1548,14 +1624,15 @@ components:
               items:
                 type: string
                 enum: [disk, ram]
-    OsImageUploadForm:
+    OsImageUploadRequest:
       type: object
-      description: The multipart parts of an OS Image upload; text parts are trimmed.
+      description: The intent of one OS Image upload; text fields are trimmed.
       required:
         - integrationId
         - name
         - architecture
-        - content
+        - sizeBytes
+        - sha256
       properties:
         integrationId:
           type: string
@@ -1575,15 +1652,34 @@ components:
         filetype:
           type: string
           maxLength: 200
-          description: The artifact format, validated by the provider; the provider's default when omitted.
+          description: The artifact format, validated by the provider adapter; the provider's default when omitted.
         defaultUser:
           type: string
           pattern: '^[a-z_][a-z0-9_-]{0,31}$'
-          description: Stored as the image's metadata default user once the provider accepts the upload.
-        content:
+          description: Stored as the image's metadata default user once the upload succeeds.
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The exact length of the content in bytes.
+        sha256:
           type: string
-          format: binary
-          description: The non-empty image file, streamed to the provider.
+          pattern: '^[0-9a-f]{64}$'
+          description: The lowercase hex SHA-256 of the content; the provider verifies the content against it.
+    OsImageUpload:
+      type: object
+      description: A recorded OS Image upload whose content has not been sent yet.
+      required:
+        - id
+        - expiresAt
+      properties:
+        id:
+          type: string
+          description: The upload's swallow-issued id.
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the upload expires if its content is not sent.
     OsImageMetadataRequest:
       type: object
       description: >-

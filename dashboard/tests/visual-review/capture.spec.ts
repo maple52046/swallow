@@ -1376,6 +1376,29 @@ test.describe('OS deployment flow visual review', () => {
     await capture(page, testInfo, 'os-deploy-fixed-image-installation', false)
   })
 
+  test('OS image upload dialog', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page)
+    // Hold the content request so the dialog stays in its submitting state with the progress bar.
+    await page.route('**/api/v1/provisioning/image-uploads/*/content', () => {})
+    await setAppearance(page, appearance)
+    await page.goto('/provisioning/images?site=site-a')
+    await page.getByRole('button', { name: 'Upload image' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Upload OS image' })
+    await chooseOption(page, 'Provisioner integration', 'MAAS Taipei')
+    await dialog.locator('#upload-image-name').fill('ubuntu-24.04-rocm')
+    await dialog.locator('#upload-image-file').setInputFiles({
+      name: 'ubuntu-24.04-rocm.tar.gz',
+      mimeType: 'application/gzip',
+      buffer: Buffer.from('fake-image-bytes'),
+    })
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'os-image-upload-dialog', false)
+    await dialog.getByRole('button', { name: 'Upload', exact: true }).click()
+    await expect(dialog.getByRole('status')).toContainText('Uploading…')
+    await capture(page, testInfo, 'os-image-upload-dialog-uploading', false)
+  })
+
   test('Platform operating system step', async ({ page }, testInfo) => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
     await installApiFixtures(page, { freePlatformCandidates: true, readyServerCount: 1 })

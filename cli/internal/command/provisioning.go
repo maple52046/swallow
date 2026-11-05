@@ -1,7 +1,10 @@
 package command
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 
@@ -76,13 +79,18 @@ func provisioningImagesCmd() *cobra.Command {
 	return cmd
 }
 
-// provisioningImageUploadCmd streams a multipart image upload. It uses a client
-// with the request timeout disabled because the artifact can be multi-gigabyte
-// and the contract exempts upload from the short catalog read timeout.
+// provisioningImageUploadCmd uploads an OS image in the contract's two steps
+// (provisioning.md, OS Image Upload): it reads the file once to compute its size
+// and SHA-256, records the upload intent with POST /image-uploads, and then
+// streams the file to PUT /image-uploads/{id}/content. The api-server forwards
+// the content to the provisioner as it arrives and answers once the provisioner
+// reports the image fully staged, so the printed image can be deployed. The
+// client's request timeout is disabled because the artifact can be multi-gigabyte
+// and the contract exempts the upload from the short catalog read timeout.
 func provisioningImageUploadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "upload",
-		Short: "Upload a custom OS image (multipart)",
+		Short: "Upload a custom OS image to a provisioner",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			integration, _ := cmd.Flags().GetString("integration")
 			name, _ := cmd.Flags().GetString("name")
@@ -97,31 +105,44 @@ func provisioningImageUploadCmd() *cobra.Command {
 				return fmt.Errorf("open image file: %w", err)
 			}
 			defer f.Close()
+			size, digest, err := fileSizeAndSHA256(f)
+			if err != nil {
+				return err
+			}
 
 			c, err := newUploadClient()
 			if err != nil {
 				return err
 			}
-			fields := map[string]string{
+			intent := map[string]any{
 				"integrationId": integration,
 				"name":          name,
 				"architecture":  architecture,
+				"sizeBytes":     size,
+				"sha256":        digest,
 			}
 			if title != "" {
-				fields["title"] = title
+				intent["title"] = title
 			}
 			if filetype != "" {
-				fields["filetype"] = filetype
+				intent["filetype"] = filetype
 			}
 			if defaultUser != "" {
-				fields["defaultUser"] = defaultUser
+				intent["defaultUser"] = defaultUser
 			}
+			var created map[string]any
+			if err := c.JSON(ctx(cmd), client.Request{
+				Method: "POST", Path: "provisioning/image-uploads", Body: intent, Auth: client.AuthBearer,
+			}, &created); err != nil {
+				return err
+			}
+			id, _ := created["id"].(string)
+			if id == "" {
+				return fmt.Errorf("the api-server returned no upload id")
+			}
+
 			var out any
-			if err := c.Upload(ctx(cmd), "provisioning/images", fields, client.UploadFile{
-				Field:  "content",
-				Name:   nameFromPath(path),
-				Reader: f,
-			}, &out); err != nil {
+			if err := c.PutStream(ctx(cmd), "provisioning/image-uploads/"+url.PathEscape(id)+"/content", f, size, &out); err != nil {
 				return err
 			}
 			return printResult(out)
@@ -603,4 +624,23 @@ func collectEraseFlags(cmd *cobra.Command, extra map[string]any) {
 		v, _ := cmd.Flags().GetString("comment")
 		extra["comment"] = v
 	}
+}
+
+// fileSizeAndSHA256 reads f once to compute the size and lowercase hex SHA-256
+// the upload intent declares, then rewinds it so the same bytes stream as the
+// content. An empty file is refused here, since the contract requires a positive
+// size and an empty image can never be deployed.
+func fileSizeAndSHA256(f *os.File) (int64, string, error) {
+	sum := sha256.New()
+	size, err := io.Copy(sum, f)
+	if err != nil {
+		return 0, "", fmt.Errorf("read image file: %w", err)
+	}
+	if size == 0 {
+		return 0, "", fmt.Errorf("image file %s is empty", f.Name())
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return 0, "", fmt.Errorf("rewind image file: %w", err)
+	}
+	return size, hex.EncodeToString(sum.Sum(nil)), nil
 }

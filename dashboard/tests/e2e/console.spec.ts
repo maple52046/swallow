@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { expect, test } from 'playwright/test'
 import { CONTROLLER_WORKFLOW_ID, installApiFixtures, approvePlatformInstall, expectPlatformInstallStarted } from './fixtures'
 
@@ -2423,8 +2424,14 @@ test.describe('user interactions', () => {
 
   test('OS Images uploads a new image to the selected provisioner', async ({ page }) => {
     const uploads: string[] = []
+    const intents: Record<string, unknown>[] = []
+    const contents: Array<{ receivedBytes: number; contentType: string }> = []
     await page.unroute('**/api/v1/**')
-    await installApiFixtures(page, { onOSImageUploadRequest: (integrationId) => uploads.push(integrationId) })
+    await installApiFixtures(page, {
+      onOSImageUploadRequest: (integrationId) => uploads.push(integrationId),
+      onOSImageUploadIntent: (intent) => intents.push(intent),
+      onOSImageUploadContent: (receivedBytes, contentType) => contents.push({ receivedBytes, contentType }),
+    })
 
     await page.goto('/provisioning/images?site=site-a')
     await page.getByRole('button', { name: 'Upload image' }).click()
@@ -2442,6 +2449,17 @@ test.describe('user interactions', () => {
 
     await expect(page.getByText('OS image uploaded')).toBeVisible()
     await expect.poll(() => uploads).toEqual(['maas-a'])
+    // The intent declares the file's size and SHA-256, computed in the browser, and the content
+    // request then carries exactly that file as raw octets.
+    const content = Buffer.from('fake-image-bytes')
+    expect(intents).toEqual([{
+      integrationId: 'maas-a',
+      name: 'ubuntu-24.04-rocm',
+      architecture: 'amd64',
+      sizeBytes: content.length,
+      sha256: createHash('sha256').update(content).digest('hex'),
+    }])
+    expect(contents).toEqual([{ receivedBytes: content.length, contentType: 'application/octet-stream' }])
   })
 
   test('template CRUD remains write-only and OS Images preserves partial provider results', async ({ page }) => {

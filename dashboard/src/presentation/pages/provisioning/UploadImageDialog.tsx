@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button, Field, Input, Progress, Stack, Text } from '@chakra-ui/react'
-import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
+import type { OSImageUploadProgress, ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
 import { isValidDefaultUser, type Integration } from '@/domain/site/types'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
@@ -31,11 +31,38 @@ const FILETYPE_OPTIONS = [
 ]
 
 /**
+ * What the upload status line says while a submission runs; the percentage is `null` when it
+ * is unknown or no longer meaningful.
+ */
+interface UploadStatus {
+  label: string
+  percent: number | null
+}
+
+/**
+ * Turns the repository's upload progress into the status line. `null` progress is the moment
+ * between pressing Upload and the first progress event. Once every byte has left the browser the
+ * request is still open while the provisioner stages the image, so that wait is named instead
+ * of showing a stuck 100%.
+ */
+function uploadStatus(progress: OSImageUploadProgress | null): UploadStatus {
+  if (progress === null) return { label: 'Preparing…', percent: null }
+  const percent = progress.total > 0 ? Math.round((progress.loaded / progress.total) * 100) : null
+  if (progress.phase === 'hashing') {
+    return { label: percent === null ? 'Checking file…' : `Checking file… ${percent}%`, percent }
+  }
+  if (percent === 100) return { label: 'Waiting for the provisioner to finish staging the image…', percent: null }
+  return { label: percent === null ? 'Uploading…' : `Uploading… ${percent}%`, percent }
+}
+
+/**
  * Uploads a new provider-owned OS image to one scoped provisioner.
  *
  * The dialog collects the swallow-neutral intent (target provisioner, name, architecture,
- * optional title, file type, and default login user) plus the file, and streams it through the provisioning
- * repository, showing upload progress for a potentially multi-gigabyte artifact. It never
+ * optional title, file type, and default login user) plus the file, and hands it to the
+ * provisioning repository, which checks the file (computes its SHA-256 locally), records the
+ * upload, and streams the file. The status line follows those phases for a potentially
+ * multi-gigabyte artifact, including the wait while the provisioner stages the image. It never
  * decides whether the result is a custom image: that is the provisioner's classification,
  * surfaced afterwards in the catalog. A failure keeps the dialog open with the provider's own
  * message so the user can correct and retry; only a success unmounts it.
@@ -64,9 +91,9 @@ export function UploadImageDialog({
   const defaultUserInvalid = defaultUser.trim() !== '' && !isValidDefaultUser(defaultUser.trim())
   const [file, setFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  // null while the total is unknown (before the first progress event or when the browser cannot
-  // report length), otherwise the whole-number percentage shown to the user.
-  const [percent, setPercent] = useState<number | null>(null)
+  // The latest progress event of the running submission; null before the first one.
+  const [progress, setProgress] = useState<OSImageUploadProgress | null>(null)
+  const status = uploadStatus(progress)
   const [error, setError] = useState<DisplayedFailure | null>(null)
 
   const close = () => {
@@ -79,7 +106,7 @@ export function UploadImageDialog({
     if (!canSubmit || !file) return
     setSubmitting(true)
     setError(null)
-    setPercent(null)
+    setProgress(null)
     try {
       await repository.uploadOSImage(
         integrationId,
@@ -91,7 +118,7 @@ export function UploadImageDialog({
           defaultUser: defaultUser.trim() || undefined,
           file,
         },
-        ({ loaded, total }) => setPercent(total > 0 ? Math.round((loaded / total) * 100) : null),
+        setProgress,
       )
       onUploaded('OS image uploaded')
     } catch (caught) {
@@ -99,7 +126,7 @@ export function UploadImageDialog({
       // unmounts it, so submitting is reset here.
       setError(failureOf(caught, 'The image could not be uploaded.'))
       setSubmitting(false)
-      setPercent(null)
+      setProgress(null)
     }
   }
 
@@ -109,7 +136,7 @@ export function UploadImageDialog({
       onClose={close}
       closeOnInteractOutside={!submitting}
       title="Upload OS image"
-      description="Stream a new image to the selected provisioner. Swallow keeps no copy, and the provisioner decides whether it becomes a custom image."
+      description="Stream a new image to the selected provisioner. Swallow checks the file in your browser first, keeps no copy, and the provisioner decides whether it becomes a custom image."
       footer={
         <>
           <Button variant="ghost" onClick={close} disabled={submitting}>
@@ -227,8 +254,8 @@ export function UploadImageDialog({
         </Field.Root>
         {submitting && (
           <Stack gap="1" role="status" aria-live="polite">
-            <Text fontSize="sm">{percent === null ? 'Uploading…' : `Uploading… ${percent}%`}</Text>
-            <Progress.Root value={percent} size="sm" aria-label="Upload progress">
+            <Text fontSize="sm">{status.label}</Text>
+            <Progress.Root value={status.percent} size="sm" aria-label="Upload progress">
               <Progress.Track>
                 <Progress.Range />
               </Progress.Track>

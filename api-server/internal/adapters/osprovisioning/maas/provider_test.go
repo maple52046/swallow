@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -906,6 +908,126 @@ func TestUploadOSImage_RejectedCreateStreamsNothing(t *testing.T) {
 	}
 	if fake.uploadChunks != 0 {
 		t.Errorf("a rejected create must not stream any chunk, got %d", fake.uploadChunks)
+	}
+}
+
+// uploadCreatedResourceJSON is the create response for an uploaded resource whose single file
+// still needs its bytes.
+const uploadCreatedResourceJSON = `{
+  "id": 9, "type": "Uploaded", "name": "rocky-10", "architecture": "amd64/generic",
+  "sets": {"20261105": {"version": "20261105", "complete": false,
+    "files": {"root-tgz": {"filename": "root-tgz", "complete": false, "upload_uri": "` + apiPrefix + `/boot-resources/9/upload/3/"}}}}
+}`
+
+// uploadResourceDetailJSON is the detail read of the uploaded resource, complete or not.
+func uploadResourceDetailJSON(complete bool) string {
+	return fmt.Sprintf(`{"id": 9, "type": "Uploaded", "name": "rocky-10", "architecture": "amd64/generic",
+	  "sets": {"20261105": {"version": "20261105", "size": 4, "complete": %t}}}`, complete)
+}
+
+// newFastStagingProvider shortens the staging wait so tests do not sleep for real intervals.
+func newFastStagingProvider(t *testing.T, f *fakeMAAS, wait time.Duration) *Provider {
+	t.Helper()
+	provider := newTestProvider(t, f)
+	provider.uploadStageWait = wait
+	provider.uploadStagePoll = time.Millisecond
+	return provider
+}
+
+func rockyUploadRequest() provisioningdomain.UploadOSImageRequest {
+	return provisioningdomain.UploadOSImageRequest{
+		Name: "rocky-10", Architecture: "amd64", Size: 4, SHA256: "deadbeef", Content: bytes.NewReader([]byte("data")),
+	}
+}
+
+// The preflight refuses a file type or architecture MAAS cannot take, before any content is sent,
+// and accepts MAAS's own forms.
+func TestValidateOSImageUpload(t *testing.T) {
+	provider := NewProvider(nil)
+	tests := []struct {
+		name         string
+		fileType     string
+		architecture string
+		wantRejected bool
+	}{
+		{name: "default file type", architecture: "amd64"},
+		{name: "raw disk image", fileType: "ddraw", architecture: "arm64"},
+		{name: "explicit subarchitecture", fileType: "tgz", architecture: "amd64/hwe-24.04"},
+		{name: "unknown file type", fileType: "iso", architecture: "amd64", wantRejected: true},
+		{name: "malformed architecture", architecture: "AMD 64", wantRejected: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := provider.ValidateOSImageUpload(provisioningdomain.UploadOSImageRequest{
+				Name: "rocky-10", Architecture: tc.architecture, FileType: tc.fileType,
+			})
+			var providerErr *provisioningdomain.ProviderError
+			rejected := errors.As(err, &providerErr) && providerErr.Kind == provisioningdomain.ProviderErrorRejected
+			if rejected != tc.wantRejected || (!tc.wantRejected && err != nil) {
+				t.Errorf("ValidateOSImageUpload(%q, %q) error = %v, want rejected = %t", tc.fileType, tc.architecture, err, tc.wantRejected)
+			}
+		})
+	}
+}
+
+// After the last chunk the upload waits until MAAS reports the resource set complete, so the
+// returned image is deployable.
+func TestUploadOSImage_WaitsUntilStaged(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onCreateBootResource(http.StatusOK, uploadCreatedResourceJSON)
+	fake.onUploadBootResourceChunk(http.StatusOK)
+	var reads atomic.Int32
+	fake.mux.HandleFunc("GET "+apiPrefix+"/boot-resources/{id}/{$}", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(uploadResourceDetailJSON(reads.Add(1) >= 3)))
+	})
+	provider := newFastStagingProvider(t, fake, time.Minute)
+
+	image, err := provider.UploadOSImage(context.Background(), rockyUploadRequest())
+	if err != nil {
+		t.Fatalf("UploadOSImage: %v", err)
+	}
+	if n := reads.Load(); !image.Complete || n != 3 {
+		t.Errorf("image complete = %t after %d reads, want complete after 3", image.Complete, n)
+	}
+}
+
+// A resource MAAS never marks complete within the wait is reported as unavailable, and it is left
+// in MAAS: the bytes arrived, and the deploy gate refuses the image until MAAS finishes.
+func TestUploadOSImage_NotStagedInTime(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onCreateBootResource(http.StatusOK, uploadCreatedResourceJSON)
+	fake.onUploadBootResourceChunk(http.StatusOK)
+	fake.onBootResourceDetails(map[string]string{"9": uploadResourceDetailJSON(false)})
+	fake.onDeleteBootResource(http.StatusNoContent)
+	provider := newFastStagingProvider(t, fake, 20*time.Millisecond)
+
+	_, err := provider.UploadOSImage(context.Background(), rockyUploadRequest())
+	var providerErr *provisioningdomain.ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Kind != provisioningdomain.ProviderErrorUnavailable {
+		t.Fatalf("UploadOSImage error = %v, want a ProviderErrorUnavailable", err)
+	}
+	if fake.lastDeletedBootResource != "" {
+		t.Errorf("deleted boot resource %q, want none: a received image is not removed", fake.lastDeletedBootResource)
+	}
+}
+
+// A transfer that fails after MAAS created the resource deletes the incomplete resource, so a
+// broken upload does not linger.
+func TestUploadOSImage_FailedTransferRemovesResource(t *testing.T) {
+	fake := newFakeMAAS(t)
+	fake.onCreateBootResource(http.StatusOK, uploadCreatedResourceJSON)
+	fake.onUploadBootResourceChunk(http.StatusBadRequest)
+	fake.onDeleteBootResource(http.StatusNoContent)
+	provider := newFastStagingProvider(t, fake, time.Minute)
+
+	_, err := provider.UploadOSImage(context.Background(), rockyUploadRequest())
+	var providerErr *provisioningdomain.ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Kind != provisioningdomain.ProviderErrorRejected {
+		t.Fatalf("UploadOSImage error = %v, want a ProviderErrorRejected", err)
+	}
+	if fake.lastDeletedBootResource != "9" {
+		t.Errorf("deleted boot resource = %q, want 9", fake.lastDeletedBootResource)
 	}
 }
 

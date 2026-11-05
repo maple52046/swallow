@@ -87,7 +87,12 @@ type platformFixture struct {
 	requirementRepo   *fakeDeploymentRequirementRepo
 	integrationDeps   *fakeIntegrationDependents
 	exporters         *fakeExporterInventory
+	imageUploads      *fakeOSImageUploadRepo
 }
+
+// testImageUploadMaxBytes is the installation upload limit the HTTP tests run with; small, so a
+// test can declare an image over it without sending one.
+const testImageUploadMaxBytes = 1 << 20
 
 // fakeExporterInventory reports the exporters a test says are installed, narrowed to the filter as
 // the real inventory is. err, when set, fails every listing.
@@ -128,6 +133,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	templates := newFakeDeploymentTemplateRepo()
 	osImageMetadata := newFakeOSImageMetadataRepo()
 	osImageVerifications := newFakeOSImageVerificationRepo()
+	osImageUploads := newFakeOSImageUploadRepo()
 	provider := newFakeProvider()
 	factory := newFakeProviderFactory()
 	factory.providers[testIntegrationID] = provider
@@ -174,7 +180,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewMachineActionsUseCase(servers, factory, activeWork),
 		provisioningapp.NewDeleteServerUseCase(servers, factory),
 		provisioningapp.NewDeleteOSImageUseCase(factory, osImageMetadata, osImageVerifications),
-		provisioningapp.NewUploadOSImageUseCase(factory, osImageMetadata),
+		provisioningapp.NewOSImageUploadService(factory, osImageUploads, osImageMetadata, testImageUploadMaxBytes),
 		provisioningapp.NewSetOSImageMetadataUseCase(osImageMetadata, reconcileUC),
 		provisioningapp.NewListServerTagsUseCase(integrations, factory, servers),
 		provisioningapp.NewEditServerTagsUseCase(&storetest.Transactor{}, servers, servers, factory),
@@ -296,8 +302,9 @@ func setupPlatform(t *testing.T) *platformFixture {
 
 	provisioningGroup := v1.Group("/provisioning", admin...)
 	provisioningGroup.Get("/images", provisioningHandler.ListImages)
-	provisioningGroup.Post("/images", provisioningHandler.UploadImage)
 	provisioningGroup.Delete("/images", provisioningHandler.DeleteImage)
+	provisioningGroup.Post("/image-uploads", provisioningHandler.CreateImageUpload)
+	provisioningGroup.Put("/image-uploads/:id/content", provisioningHandler.SendImageUploadContent)
 	provisioningGroup.Put("/images/metadata", provisioningHandler.SetImageMetadata)
 	provisioningGroup.Delete("/images/metadata", provisioningHandler.ClearImageMetadata)
 	provisioningGroup.Get("/tags", provisioningHandler.ListServerTags)
@@ -365,6 +372,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 
 	return &platformFixture{
 		exporters:         exporters,
+		imageUploads:      osImageUploads,
 		app:               app,
 		jwtSvc:            jwtSvc,
 		servers:           servers,

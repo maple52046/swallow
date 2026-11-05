@@ -530,10 +530,17 @@ export interface FixtureOptions {
   onOSImageCatalogRequest?: (integrationId: string) => void
   /** Adds one large synthetic OS family so grouping, page-level scrolling, and search can be exercised. */
   extraOSImageCount?: number
-  /** Called with the target integration when the OS image upload endpoint receives a POST. */
+  /** Called with the target integration when an OS image upload is created (`POST /image-uploads`). */
   onOSImageUploadRequest?: (integrationId: string) => void
-  /** Called with the multipart `defaultUser` field (or '') of an OS image upload. */
+  /** Called with the `defaultUser` (or '') of a created OS image upload. */
   onOSImageUploadDefaultUser?: (defaultUser: string) => void
+  /** Called with the whole JSON intent of a created OS image upload (size and SHA-256 included). */
+  onOSImageUploadIntent?: (intent: Record<string, unknown>) => void
+  /**
+   * Called when an OS image upload's content arrives (`PUT /image-uploads/{id}/content`) with the
+   * number of bytes received and the request's `Content-Type`.
+   */
+  onOSImageUploadContent?: (receivedBytes: number, contentType: string) => void
   /** Called with the body of an OS image metadata PUT. */
   onOSImageMetadataRequest?: (body: Record<string, unknown>) => void
   /** Called for every SSH Keys request with its method, path, and JSON body (if any). */
@@ -1469,6 +1476,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     fleet[1].status.provisioning.integrationId = options.secondReadyServerIntegrationId
   }
   let deploymentTemplates = baseDeploymentTemplates.map((template) => ({ ...template }))
+  // Recorded OS image upload intents by upload id; a content request consumes its upload, as the
+  // contract's single-use uploads do.
+  const imageUploads = new Map<string, Record<string, unknown>>()
   let siteItems = sites
     .filter((site) => !options.singleSite || site.id === 'site-a')
     .map((site) => ({ ...site }))
@@ -2573,26 +2583,37 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
     }
 
-    if (path === '/api/v1/provisioning/images') {
-      if (request.method() === 'POST') {
-        // Upload is multipart, so the integration id is a form field rather than a query param.
-        // The provider classifies an uploaded artifact (here as the custom osystem), which is what
-        // the created row reflects.
-        const uploadedIntegrationId = request.postData()?.match(/name="integrationId"\r?\n\r?\n([^\r\n]+)/)?.[1] ?? ''
-        options.onOSImageUploadRequest?.(uploadedIntegrationId)
-        options.onOSImageUploadDefaultUser?.(request.postData()?.match(/name="defaultUser"\r?\n\r?\n([^\r\n]+)/)?.[1] ?? '')
-        return json(
-          route,
-          catalogImage({
-            id: 'ubuntu-24.04-rocm',
-            name: 'Ubuntu 24.04 ROCm',
-            osSystem: 'custom',
-            release: 'ubuntu-24.04-rocm',
-            sizeBytes: 16,
-          }),
-          201,
-        )
+    if (path === '/api/v1/provisioning/image-uploads' && request.method() === 'POST') {
+      const intent = request.postDataJSON() as Record<string, unknown>
+      options.onOSImageUploadRequest?.(String(intent.integrationId ?? ''))
+      options.onOSImageUploadDefaultUser?.(String(intent.defaultUser ?? ''))
+      options.onOSImageUploadIntent?.(intent)
+      const id = `upload-${imageUploads.size + 1}`
+      imageUploads.set(id, intent)
+      return json(route, { id, expiresAt: '2026-05-02T16:00:00Z' }, 201)
+    }
+    const uploadContent = path.match(/^\/api\/v1\/provisioning\/image-uploads\/([^/]+)\/content$/)
+    if (uploadContent && request.method() === 'PUT') {
+      const id = decodeURIComponent(uploadContent[1])
+      if (!imageUploads.delete(id)) {
+        return json(route, { error: { code: 'not_found', message: 'OS image upload not found or expired.' } }, 404)
       }
+      options.onOSImageUploadContent?.(request.postDataBuffer()?.length ?? 0, request.headers()['content-type'] ?? '')
+      // The provider classifies an uploaded artifact (here as the custom osystem), which is what
+      // the created row reflects.
+      return json(
+        route,
+        catalogImage({
+          id: 'ubuntu-24.04-rocm',
+          name: 'Ubuntu 24.04 ROCm',
+          osSystem: 'custom',
+          release: 'ubuntu-24.04-rocm',
+          sizeBytes: 16,
+        }),
+        201,
+      )
+    }
+    if (path === '/api/v1/provisioning/images') {
       const integrationId = url.searchParams.get('integrationId') ?? ''
       options.onOSImageCatalogRequest?.(integrationId)
       if (options.failImageIntegrationIds?.includes(integrationId)) {

@@ -268,8 +268,8 @@ export type ContractCompatibility = [
   Assert<Readable<JsonResponse<operations['createOsImageVerification'], 202>, ProvisioningOperationReference>>,
   // listOSImages: GET /api/v1/provisioning/images
   Assert<Readable<JsonResponse<operations['listOsImages'], 200>, OSImage[]>>,
-  // uploadOSImage (apiUpload): POST /api/v1/provisioning/images
-  Assert<Readable<JsonResponse<operations['uploadOsImage'], 201>, OSImage>>,
+  // uploadOSImage (apiUpload): PUT /api/v1/provisioning/image-uploads/{id}/content
+  Assert<Readable<JsonResponse<operations['sendOsImageUploadContent'], 201>, OSImage>>,
   // listServerTags: GET /api/v1/provisioning/tags
   Assert<Readable<JsonResponse<operations['listServerTags'], 200>, { tags: ServerTagOption[] }>>,
   // editServerTags: POST /api/v1/provisioning/tags

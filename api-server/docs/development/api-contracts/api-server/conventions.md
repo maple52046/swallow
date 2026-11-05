@@ -103,6 +103,16 @@ endpoint contract that returns it.
 A path that no route matches is `404 not_found`, and a matched path requested with a method its
 route does not accept is `405 method_not_allowed`; both use this envelope like every other error.
 
+## Request Bodies
+
+Every request body is limited to 4 MiB, except the OS Image upload content
+(`PUT /provisioning/image-uploads/{id}/content`), whose size the upload declares
+([provisioning.md](provisioning.md), OS Image Upload). A larger body is `413 payload_too_large`,
+whether its `Content-Length` declares it or a chunked body exceeds the limit while it is read; the
+request is refused before authentication or any handler reads it, and the connection is closed
+after the response. The limit applies on every route, those that take no body included, and is
+not listed per endpoint.
+
 ## Timestamps
 
 All timestamp fields use ISO 8601 in UTC, for example `"2026-05-02T15:00:00Z"`.
@@ -167,3 +177,6 @@ scraping rather than for consumers (OpenAPI area `system`):
 - Since 2026-11-03 a path no route matches is `404 not_found` and a wrong method is
   `405 method_not_allowed`, and an upload over the size limit is `413 payload_too_large`; before,
   all three were `500 internal_error`.
+- Since 2026-11-05 every request body except the OS Image upload content is limited to 4 MiB
+  (Request Bodies); before, the limit was the installation's image upload limit (64 GiB by
+  default) on every route.

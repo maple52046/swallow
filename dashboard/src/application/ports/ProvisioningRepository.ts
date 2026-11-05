@@ -78,15 +78,17 @@ export interface ProvisioningRepository {
   listOSImages(integrationId: string): Promise<OSImage[]>;
   /**
    * Uploads a new provider-owned OS image to one provisioner and returns the created catalog
-   * row. swallow streams the file to the provider and keeps no copy; whether the result is a
-   * custom image is decided by the provisioner, not by this call. `onProgress` reports upload
-   * bytes for the (potentially multi-gigabyte) artifact. Rejects with the shared error envelope
-   * when the provisioner does not support upload or the provider refuses the artifact.
+   * row once the provisioner reports it fully staged. The implementation first hashes the file
+   * in the browser, then records the upload intent, then streams the file; swallow forwards it
+   * to the provider and keeps no copy, and whether the result is a custom image is decided by
+   * the provisioner, not by this call. `onProgress` reports each phase for the (potentially
+   * multi-gigabyte) artifact. Rejects with the shared error envelope when the provisioner does not
+   * support upload, refuses the intent or the artifact, or has not staged the image in time.
    */
   uploadOSImage(
     integrationId: string,
     input: UploadOSImageInput,
-    onProgress?: (progress: { loaded: number; total: number }) => void,
+    onProgress?: (progress: OSImageUploadProgress) => void,
   ): Promise<OSImage>;
   deleteOSImage(
     integrationId: string,
@@ -211,6 +213,22 @@ export interface ProvisioningRepository {
 }
 
 /**
+ * Progress of {@link ProvisioningRepository.uploadOSImage}, in bytes of the selected file.
+ *
+ * - `hashing`: the file is being read in the browser to compute the SHA-256 the upload declares;
+ *   nothing has been sent yet.
+ * - `uploading`: the file is being sent. `loaded` reaching `total` means every byte left the
+ *   browser; the call still waits until the provisioner reports the image staged.
+ *
+ * `total` is 0 when the browser cannot report the upload length.
+ */
+export interface OSImageUploadProgress {
+  phase: "hashing" | "uploading";
+  loaded: number;
+  total: number;
+}
+
+/**
  * User intent for uploading a new OS image to a provisioner. `name` and `architecture` are
  * swallow-neutral; the backend maps them into the provider's own vocabulary. `filetype` is
  * provider-validated and, when omitted, uses the provider default. `file` is the artifact to
@@ -223,7 +241,7 @@ export interface UploadOSImageInput {
   filetype?: string;
   /**
    * Optional default login user stored in the new image's metadata (decision 039). The
-   * backend rejects a non-POSIX value before any bytes are uploaded.
+   * backend rejects a non-POSIX value when the upload is created, before any bytes are sent.
    */
   defaultUser?: string;
   file: File;

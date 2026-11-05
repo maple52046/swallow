@@ -78,6 +78,12 @@ RETIRED_TERMS = {
         " context (monitoring.md §4)"
     ),
     "exporterOwner": "Platforms have no exporter owner policy (monitoring.md §4.3)",
+    "OsImageUploadForm": (
+        "an OS Image upload is a JSON intent followed by a raw content request (os-provisioning.md §4.2)"
+    ),
+    "multipart/form-data": (
+        "no route accepts multipart; OS Image upload content is a raw application/octet-stream body"
+    ),
 }
 # Documents whose purpose is to record the retirement itself: a contract change note, the public
 # compatibility page, or the decision and spec section that state a mechanism is retired.

@@ -8,12 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
@@ -31,10 +35,23 @@ const (
 // Provider implements provisioningdomain.OSProvisioningProvider against MAAS.
 type Provider struct {
 	client *Client
+	// uploadStageWait bounds how long UploadOSImage waits, after the last byte, for MAAS to report
+	// the uploaded image complete; uploadStagePoll is the first interval between those reads.
+	// Fields rather than constants only so adapter tests can shorten them.
+	uploadStageWait time.Duration
+	uploadStagePoll time.Duration
 }
 
+// The adapter is an OSImageUploader; the use case discovers the capability by type assertion, so
+// a missing method would otherwise surface only as "unsupported" at run time.
+var _ provisioningdomain.OSImageUploader = (*Provider)(nil)
+
 func NewProvider(client *Client) *Provider {
-	return &Provider{client: client}
+	return &Provider{
+		client:          client,
+		uploadStageWait: uploadStageWaitDefault,
+		uploadStagePoll: uploadStagePollInitial,
+	}
 }
 
 func (p *Provider) Name() string { return providerName }
@@ -179,16 +196,67 @@ func bootResourcePath(id int) string {
 // the per-request client timeout while a multi-gigabyte artifact is streamed sequentially.
 const uploadChunkSize = 1 << 22 // 4 MiB
 
+// uploadStageWaitDefault bounds the wait for MAAS to mark an uploaded resource set complete after
+// the last chunk. MAAS verifies the sha256 and finalizes the file when the declared size has
+// arrived, which normally takes seconds; the bound keeps a provider that never finishes from
+// holding the content request open indefinitely.
+const uploadStageWaitDefault = 5 * time.Minute
+
+// uploadStagePollInitial and uploadStagePollMax are the first and the largest interval between
+// reads of an uploaded resource while waiting for it to be staged; the interval doubles.
+const (
+	uploadStagePollInitial = 2 * time.Second
+	uploadStagePollMax     = 15 * time.Second
+)
+
+// uploadCleanupTimeout bounds the best-effort delete of an incomplete uploaded resource. It runs
+// detached from the request's cancellation, so it needs a bound of its own.
+const uploadCleanupTimeout = 30 * time.Second
+
+// maasUploadFileTypes are the file types MAAS accepts for an uploaded boot resource (the choices
+// of its boot-resource upload form): root tarballs and the dd disk-image formats. Empty means
+// MAAS's default, a root tarball.
+var maasUploadFileTypes = []string{
+	"tgz", "tbz", "txz", "ddtgz", "ddtbz", "ddtxz", "ddtar", "ddbz2", "ddgz", "ddxz", "ddraw",
+}
+
+// maasUploadArchitecturePattern is the "<arch>/<subarch>" form MAAS stores boot resources under,
+// for example "amd64/generic" or "arm64/hwe-24.04".
+var maasUploadArchitecturePattern = regexp.MustCompile(`^[a-z0-9]+/[a-z0-9._-]+$`)
+
+// ValidateOSImageUpload refuses, before any content is sent, an upload MAAS would refuse for its
+// file type or architecture. It contacts nothing; the name and everything else are still MAAS's
+// to accept when the resource is created.
+func (p *Provider) ValidateOSImageUpload(req provisioningdomain.UploadOSImageRequest) error {
+	if req.FileType != "" && !slices.Contains(maasUploadFileTypes, req.FileType) {
+		return &provisioningdomain.ProviderError{
+			Kind: provisioningdomain.ProviderErrorRejected,
+			Detail: fmt.Sprintf("MAAS does not accept the file type %q; use one of %s.",
+				req.FileType, strings.Join(maasUploadFileTypes, ", ")),
+		}
+	}
+	if !maasUploadArchitecturePattern.MatchString(maasUploadArchitecture(req.Architecture)) {
+		return &provisioningdomain.ProviderError{
+			Kind:   provisioningdomain.ProviderErrorRejected,
+			Detail: fmt.Sprintf("MAAS does not accept the architecture %q; use a form such as amd64 or amd64/generic.", req.Architecture),
+		}
+	}
+	return nil
+}
+
 // UploadOSImage creates a new MAAS custom (Uploaded) boot resource from user-supplied
-// content and streams the artifact to it.
+// content, streams the artifact to it, and returns once MAAS reports it complete.
 //
 // MAAS reserves the resource from metadata first — it needs the exact size and sha256 up front —
 // and then accepts the bytes in chunks against the upload URI it returns for the incomplete file.
-// The artifact is therefore streamed sequentially and never held whole in memory. The CPU
-// architecture is expanded to MAAS's "<arch>/generic" form and MAAS classifies the result as an
-// Uploaded/custom resource on its own; swallow does not label it. The completed resource is read
-// back so the returned image carries the final size and classification rather than the pre-upload
-// placeholder.
+// The artifact is therefore streamed sequentially as it arrives and never held whole in memory.
+// The CPU architecture is expanded to MAAS's "<arch>/generic" form and MAAS classifies the result
+// as an Uploaded/custom resource on its own; swallow does not label it. When the transfer fails
+// after the resource was created, the incomplete resource is deleted so it does not linger as a
+// half-uploaded image. After the last chunk the resource is read back until a set is complete
+// (bounded by uploadStageWait), so the returned image carries the final size and classification
+// and can be deployed; a resource still incomplete then stays in MAAS and is reported as
+// unavailable.
 func (p *Provider) UploadOSImage(
 	ctx context.Context,
 	req provisioningdomain.UploadOSImageRequest,
@@ -217,23 +285,73 @@ func (p *Provider) UploadOSImage(
 	}
 
 	if err := p.streamUpload(ctx, uploadURI, req.Content); err != nil {
+		p.removeIncompleteUpload(ctx, created.ID)
 		return nil, err
 	}
+	return p.awaitStagedUpload(ctx, created.ID)
+}
 
-	// Re-read the resource so the returned image reflects the completed set size and the
-	// provider's final classification instead of the pre-upload placeholder.
-	var detail bootResourceJSON
-	if err := p.client.get(ctx, bootResourcePath(created.ID), nil, &detail); err != nil {
-		return nil, translateError(err, "")
-	}
-	images := toDomainOSImages([]bootResourceJSON{detail})
-	if len(images) == 0 {
-		return nil, &provisioningdomain.ProviderError{
-			Kind:   provisioningdomain.ProviderErrorRejected,
-			Detail: "MAAS stored the image but does not report it as deployable.",
+// awaitStagedUpload reads an uploaded resource back until MAAS reports a complete set, so the
+// returned image reflects the final size and classification instead of the pre-upload
+// placeholder, and is deployable. Reads back off from uploadStagePoll to uploadStagePollMax and
+// stop at uploadStageWait or when ctx ends; either way the resource stays in MAAS, so the error
+// says it exists but is not ready. A read failure is translated as usual.
+func (p *Provider) awaitStagedUpload(ctx context.Context, resourceID int) (*provisioningdomain.OSImage, error) {
+	deadline := time.Now().Add(p.uploadStageWait)
+	delay := p.uploadStagePoll
+	for {
+		var detail bootResourceJSON
+		if err := p.client.get(ctx, bootResourcePath(resourceID), nil, &detail); err != nil {
+			return nil, translateError(err, "")
 		}
+		images := toDomainOSImages([]bootResourceJSON{detail})
+		if len(images) == 0 {
+			return nil, &provisioningdomain.ProviderError{
+				Kind:   provisioningdomain.ProviderErrorRejected,
+				Detail: "MAAS stored the image but does not report it as deployable.",
+			}
+		}
+		if images[0].Complete {
+			return images[0], nil
+		}
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, notStagedError(nil)
+		}
+		timer := time.NewTimer(min(delay, remaining))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, notStagedError(ctx.Err())
+		case <-timer.C:
+		}
+		delay = min(delay*2, uploadStagePollMax)
 	}
-	return images[0], nil
+}
+
+// notStagedError reports an uploaded image MAAS received but has not marked complete. The image
+// exists in MAAS; swallow's deploy gate refuses it until MAAS finishes staging it.
+func notStagedError(cause error) error {
+	return &provisioningdomain.ProviderError{
+		Kind: provisioningdomain.ProviderErrorUnavailable,
+		Detail: "MAAS received the image but has not finished staging it. The image exists in MAAS; " +
+			"deployments of it are refused until MAAS reports it complete.",
+		Err: cause,
+	}
+}
+
+// removeIncompleteUpload deletes the uploaded resource a failed transfer left behind, so a broken
+// upload does not linger in MAAS as an incomplete image. It is best effort: the transfer's own
+// error is what the caller reports, and a resource that cannot be deleted now is an incomplete
+// custom image the user can still delete. It runs detached from ctx's cancellation, because the
+// transfer may have failed precisely because the request went away.
+func (p *Provider) removeIncompleteUpload(ctx context.Context, resourceID int) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), uploadCleanupTimeout)
+	defer cancel()
+	if err := p.client.delete(cleanupCtx, bootResourcePath(resourceID)); err != nil {
+		slog.Warn("incomplete uploaded boot resource was not deleted", "bootResourceId", resourceID, "error", err)
+	}
 }
 
 // streamUpload reads content in fixed-size chunks and PUTs each to the MAAS upload URI until the

@@ -43,12 +43,18 @@ artifact. The uploaded image is provider-owned exactly like a synced one, and it
    [ADR 071](071-provisioner-realized-desired-state.md) capability model.
 2. **The classification is provider-determined.** The API and the dashboard never send or infer a
    "custom" flag; the provider adapter reports it.
-3. **The bytes stream browser → api-server → provider; swallow keeps no copy.** api-server spools
-   the file only long enough to compute the `size` and `sha256` the provider requires up front,
-   then streams it to the provider in chunks and deletes the spool. swallow never holds the whole
-   artifact in memory and never persists it.
-4. **One synchronous provider-backed request, not a durable Operation.** Its result is the created
-   image. It must not be capped by the short provider read timeout used for catalog reads.
+3. **The caller declares the content, then streams it through api-server to the provider; swallow
+   keeps no copy.** The client (CLI or browser) computes the `size` and `sha256` the provider
+   requires up front and records them, with the rest of the intent, as a short-lived, single-use
+   OS Image upload; nothing reaches the provider yet. It then sends the raw content to that upload,
+   and api-server forwards it to the provider as it arrives — no spool, no second read, never the
+   whole artifact in memory, nothing persisted. The provider verifies the content against the
+   declared digest.
+4. **The content request is synchronous and succeeds only when the provider has staged the
+   image; it is not a durable Operation.** Its result is the created image, returned once the
+   provider reports it complete (bounded wait), so a success can be deployed. It must not be capped
+   by the short provider read timeout used for catalog reads. A request that fails after the
+   provider created the image removes the incomplete image on a best-effort basis.
 
 ## Alternatives considered
 
@@ -64,15 +70,28 @@ artifact. The uploaded image is provider-owned exactly like a synced one, and it
 - **Import from a user-supplied URL instead of streaming a file.** Rejected for the first
   version: it moves fetch responsibility and network trust into api-server for no provider that
   needs it today; MAAS custom-image upload is a content upload, not a source import.
-- **Trust a browser-computed sha256 and stream straight through without spooling.** Rejected as
-  the default: hashing a multi-GB file in the browser is heavy and unverifiable; spooling to a
-  temp file lets api-server compute the hash it sends and stream chunks deterministically. (The
-  provider still verifies the hash on completion.)
+- **Spool the upload in api-server and compute the hash there.** The first version did this:
+  the file was written to api-server's temp directory, hashed, and only then forwarded. Replaced:
+  the three steps ran one after another, the client waited without a response while the image was
+  forwarded, and the temp directory had to hold the whole image — in the production installation it
+  is a tmpfs, so the image occupied host memory and an image larger than half of it failed. A hash
+  the caller declares is verifiable, because the provider compares it with what it received;
+  hashing in the browser is affordable with an incremental hasher.
+- **Hand the client the provider's address and credential so it uploads directly (a redirect).**
+  Rejected: MAAS authenticates with OAuth PLAINTEXT and has no upload-scoped or pre-signed
+  credential, so the client would hold the Integration's administrator key (even a per-upload token
+  has the account's full rights until revoked), bypassing swallow's policy and Server Lock; the CLI
+  would have to speak the provider's upload protocol; the provider is often reachable only from
+  swallow's network; and browsers cannot upload to MAAS, which sends no CORS headers. The upload
+  record keeps the door open: a future provider with scoped upload targets could receive the
+  content directly without changing the intent step.
 
 ## Consequences
 
-- The provisioning API gains its first `multipart/form-data` endpoint, and api-server must accept
-  multi-GB request bodies as a stream.
+- The provisioning API carries a multi-gigabyte raw request body, so api-server reads request
+  bodies as a stream; it accepts no multipart body at all, so the framework's pre-handler multipart
+  parsing (which would spool to disk before authentication) is off. Uploads are stored briefly
+  between their two requests, so any API process can serve the content request.
 - The OS Image glossary term changes: swallow may drive a provider-owned upload; the artifact
   stays provider-owned and its custom classification is provider-determined.
 - Provider refusals (unsupported provisioner, duplicate name, unsupported file type) reach the
@@ -81,3 +100,4 @@ artifact. The uploaded image is provider-owned exactly like a synced one, and it
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-05: replaced the single multipart request, spooled and hashed in api-server, with a declared, single-use upload whose content api-server forwards as it arrives, succeeding only once the provider has staged the image; recorded why the client does not upload to the provider directly.

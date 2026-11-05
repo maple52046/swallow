@@ -1,4 +1,5 @@
 import type {
+  OSImageUploadProgress,
   ProvisioningRepository,
   UploadOSImageInput,
 } from "@/application/ports/ProvisioningRepository";
@@ -27,7 +28,10 @@ import type {
   VirtualMachineEnrollmentInput,
 } from "@/domain/provisioning/types";
 import type { OSImage, OSImageMetadata } from "@/domain/site/types";
-import { ApiRequestError, apiRequest, apiUpload, type UploadProgress } from "./client";
+import { ApiRequestError, apiRequest, apiUpload } from "./client";
+import type { JsonRequestBody, JsonResponse } from "./contractTypes";
+import { sha256OfFile } from "./fileDigest";
+import type { operations } from "./generated/openapi";
 
 /**
  * HTTP adapter for the active provider-owned provisioning contract.
@@ -168,25 +172,51 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
     return apiRequest<OSImage[]>(`/api/v1/provisioning/images?${query}`);
   }
 
+  /**
+   * Runs the contract's two-step OS image upload (provisioning.md, OS Image Upload): hashes the
+   * file in the browser, records the intent with its size and SHA-256 at
+   * `POST /image-uploads`, then streams the raw file to `PUT /image-uploads/{id}/content`, whose
+   * 201 body is the created catalog row. An upload is single-use, so a failed content request is
+   * not retried here; the user starts over and a new upload is recorded. Optional fields are
+   * omitted rather than sent blank so the backend applies provider defaults.
+   */
   async uploadOSImage(
     integrationId: string,
     input: UploadOSImageInput,
-    onProgress?: (progress: UploadProgress) => void,
+    onProgress?: (progress: OSImageUploadProgress) => void,
   ): Promise<OSImage> {
-    // multipart/form-data: the browser sets the Content-Type boundary, and the file streams as
-    // the `content` part. Optional fields are omitted rather than sent blank so the backend
-    // applies provider defaults.
-    const form = new FormData();
-    form.set("integrationId", integrationId);
-    form.set("name", input.name);
-    form.set("architecture", input.architecture);
-    if (input.title) form.set("title", input.title);
-    if (input.filetype) form.set("filetype", input.filetype);
-    if (input.defaultUser) form.set("defaultUser", input.defaultUser);
-    form.set("content", input.file);
-    return apiUpload<OSImage>("/api/v1/provisioning/images", form, {
-      onProgress,
+    const total = input.file.size;
+    const sha256 = await sha256OfFile(input.file, (loaded) =>
+      onProgress?.({ phase: "hashing", loaded, total }),
+    );
+    const intent: JsonRequestBody<operations["createOsImageUpload"]> = {
+      integrationId,
+      name: input.name,
+      architecture: input.architecture,
+      sizeBytes: total,
+      sha256,
+      ...(input.title ? { title: input.title } : {}),
+      ...(input.filetype ? { filetype: input.filetype } : {}),
+      ...(input.defaultUser ? { defaultUser: input.defaultUser } : {}),
+    };
+    const upload = await apiRequest<
+      JsonResponse<operations["createOsImageUpload"], 201>
+    >("/api/v1/provisioning/image-uploads", {
+      method: "POST",
+      body: JSON.stringify(intent),
     });
+    // The browser's first upload progress event can come late (or, for a small file, only at
+    // the end), so the phase change is reported as soon as the content request starts.
+    onProgress?.({ phase: "uploading", loaded: 0, total });
+    return apiUpload<OSImage>(
+      `/api/v1/provisioning/image-uploads/${encodeURIComponent(upload.id)}/content`,
+      input.file,
+      {
+        method: "PUT",
+        contentType: "application/octet-stream",
+        onProgress: (progress) => onProgress?.({ phase: "uploading", ...progress }),
+      },
+    );
   }
 
   async deleteOSImage(

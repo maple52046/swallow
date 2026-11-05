@@ -1,6 +1,6 @@
 // Package provisioning is the MongoDB store of the OS provisioning context: Boot ISOs, Deployment
-// Templates, OS Image metadata and verifications, provisioning tasks, and the provisioner settings
-// swallow owns as desired state (`provisioner_http_proxies`, `provisioner_subnet_dns`).
+// Templates, OS Image metadata, verifications, and uploads, provisioning tasks, and the provisioner
+// settings swallow owns as desired state (`provisioner_http_proxies`, `provisioner_subnet_dns`).
 //
 // OS Image metadata (`os_image_metadata`) holds swallow-owned facts merged over what the
 // provisioner reports (decision 071), so reading it back is authoritative for what it holds.

@@ -39,7 +39,7 @@ async function ensureFreshToken(path: string): Promise<void> {
 /**
  * Sends one authenticated request and, when the server answers 401 to a request that carried an
  * access token, refreshes the Session once and sends it again. `send` must be safe to call twice
- * (JSON and text bodies are strings; uploads resend their FormData). A refresh that ends the
+ * (JSON and text bodies are strings; uploads resend their Blob or FormData). A refresh that ends the
  * Session notifies the presentation and returns the original 401 response.
  */
 async function withSession<R extends { status: number }>(path: string, send: (token: string | null) => Promise<R>): Promise<R> {
@@ -93,24 +93,32 @@ export interface UploadProgress {
   total: number
 }
 
+/** How {@link apiUpload} sends its body: the method, the body's media type, and a progress callback. */
+interface UploadOptions {
+  method?: string
+  /**
+   * The `Content-Type` of a raw `Blob` body, for example `application/octet-stream` for the OS
+   * image upload content. Leave it unset for `FormData`: the browser then sets the multipart
+   * type with its boundary itself.
+   */
+  contentType?: string
+  onProgress?: (progress: UploadProgress) => void
+}
+
 /**
- * Uploads a `multipart/form-data` body and reports progress.
+ * Uploads a large body — a raw `Blob` (a selected `File`) or `FormData` — and reports progress.
  *
  * It uses `XMLHttpRequest` rather than `fetch` because only XHR exposes upload progress events,
- * which the OS image upload dialog needs for a multi-gigabyte artifact. The browser sets the
- * multipart `Content-Type` (with boundary) itself, so this deliberately does not set it. The
- * access token is renewed before the upload starts when it is about to expire, so a long upload
- * rarely meets a 401; if it does, the upload restarts once with the renewed token (progress
- * starts over). On failure it parses the same JSON error
- * envelope into an {@link ApiRequestError}; on success it returns the parsed JSON body, or
- * `undefined` for an empty (e.g. 204) response.
+ * which the OS image upload dialog needs for a multi-gigabyte artifact. The browser reads a
+ * `Blob` body from disk as it sends it and sets its `Content-Length`, so the artifact is never
+ * held in memory. The access token is renewed before the upload starts when it is about to
+ * expire, so a long upload rarely meets a 401; if it does, the upload restarts once with the
+ * renewed token (progress starts over) — safe, because a 401 is answered before the server reads
+ * the body. On failure it parses the same JSON error envelope into an {@link ApiRequestError}; on
+ * success it returns the parsed JSON body, or `undefined` for an empty (e.g. 204) response.
  */
-export function apiUpload<T>(
-  path: string,
-  form: FormData,
-  options: { method?: string; onProgress?: (progress: UploadProgress) => void } = {},
-): Promise<T> {
-  return withSession(path, (token) => sendUpload(path, form, token, options)).then((outcome) => {
+export function apiUpload<T>(path: string, body: Blob | FormData, options: UploadOptions = {}): Promise<T> {
+  return withSession(path, (token) => sendUpload(path, body, token, options)).then((outcome) => {
     if (outcome.error) throw outcome.error
     return outcome.value as T
   })
@@ -123,17 +131,15 @@ interface UploadOutcome {
 }
 
 /** One XHR upload attempt; it resolves (never rejects) so {@link withSession} can see the status. */
-function sendUpload(
-  path: string,
-  form: FormData,
-  token: string | null,
-  options: { method?: string; onProgress?: (progress: UploadProgress) => void },
-): Promise<UploadOutcome> {
+function sendUpload(path: string, body: Blob | FormData, token: string | null, options: UploadOptions): Promise<UploadOutcome> {
   return new Promise<UploadOutcome>((resolve) => {
     const xhr = new XMLHttpRequest()
     xhr.open(options.method ?? 'POST', `${API_BASE_URL}${path}`)
     if (token) {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    }
+    if (options.contentType) {
+      xhr.setRequestHeader('Content-Type', options.contentType)
     }
     // Report upload progress; total is 0 until the browser knows the full length.
     if (options.onProgress) {
@@ -172,7 +178,7 @@ function sendUpload(
     }
     xhr.onerror = () => resolve({ status: 0, error: new ApiRequestError('network_error', 'The upload could not reach the server.', 0) })
     xhr.onabort = () => resolve({ status: 0, error: new ApiRequestError('aborted', 'The upload was cancelled.', 0) })
-    xhr.send(form)
+    xhr.send(body)
   })
 }
 

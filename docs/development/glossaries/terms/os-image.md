@@ -13,6 +13,12 @@
   not chosen by swallow or the caller (for MAAS an uploaded boot resource surfaces
   as `osSystem: custom`). Upload and delete are optional provider capabilities,
   refused through `ProviderCapabilities` when the provisioner does not offer them.
+  An **OS Image upload** is the short-lived, single-use swallow record of one upload
+  intent (target provisioner, name, architecture, the content's size and sha256, and
+  the optional default user), accepted before any content is sent; it holds no
+  artifact bytes and expires unused. The content is then streamed through swallow to
+  the provider once, and the upload succeeds only when the provider reports the image
+  fully staged.
   swallow owns the image's **metadata** as desired state ([decision 071](../../../decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state)) —
   swallow-chosen labels (name, OS family, release) plus a swallow-owned list of
   tags, keyed by `integrationId` + `imageId` + `architecture` — because the
@@ -76,3 +82,6 @@
   Updated 2026-10-01 for the swallow-owned default user used as the automation
   login user, per
   [decision 039](../../../decisions/039-ssh-key-management-and-default-user.md) (ssh key management and default user). On 2026-10-31 (decision 071) the Provider Data Overlay of an image became its metadata, desired state stored in `os_image_metadata`.
+  Updated 2026-11-05 for the OS Image upload record: the caller states the content's size and
+  sha256 first and then streams the content through swallow, which forwards it without staging
+  a copy, per [decision 027](../../../decisions/027-os-image-upload.md) (os image upload).

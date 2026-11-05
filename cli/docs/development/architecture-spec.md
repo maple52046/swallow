@@ -57,7 +57,7 @@ Dependency direction:
   `401`, handing renewed tokens to a caller-supplied persistence hook so the
   package stays independent of `config`), the shared JSON error
   envelope decoded into a typed `APIError`, Server-Sent Events framing, and
-  multipart upload. Payloads pass through as opaque values.
+  streamed raw-body upload. Payloads pass through as opaque values.
 - **output** — renders decoded JSON values (maps, slices, scalars) as a table,
   JSON, or YAML. It knows nothing about specific resources, so it works for every
   endpoint; table rendering is a best-effort convenience and JSON/YAML are the

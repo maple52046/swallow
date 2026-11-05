@@ -1,14 +1,14 @@
 package delivery
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"io"
 	"log/slog"
+	"mime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -36,7 +36,7 @@ type ProvisioningHandler struct {
 	actions         *application.MachineActionsUseCase
 	deleteServer    *application.DeleteServerUseCase
 	deleteImage     *application.DeleteOSImageUseCase
-	uploadImage     *application.UploadOSImageUseCase
+	imageUploads    *application.OSImageUploadService
 	imageMetadata   *application.SetOSImageMetadataUseCase
 	serverTagsList  *application.ListServerTagsUseCase
 	serverTagsEdit  *application.EditServerTagsUseCase
@@ -63,7 +63,7 @@ func NewProvisioningHandler(
 	actions *application.MachineActionsUseCase,
 	deleteServer *application.DeleteServerUseCase,
 	deleteImage *application.DeleteOSImageUseCase,
-	uploadImage *application.UploadOSImageUseCase,
+	imageUploads *application.OSImageUploadService,
 	imageMetadata *application.SetOSImageMetadataUseCase,
 	serverTagsList *application.ListServerTagsUseCase,
 	serverTagsEdit *application.EditServerTagsUseCase,
@@ -83,7 +83,7 @@ func NewProvisioningHandler(
 		actions:         actions,
 		deleteServer:    deleteServer,
 		deleteImage:     deleteImage,
-		uploadImage:     uploadImage,
+		imageUploads:    imageUploads,
 		imageMetadata:   imageMetadata,
 		serverTagsList:  serverTagsList,
 		serverTagsEdit:  serverTagsEdit,
@@ -464,85 +464,90 @@ func (h *ProvisioningHandler) DeleteImage(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
-// uploadFieldMaxLen bounds each small text field on an image upload so a malformed multipart
-// part cannot carry an unbounded string. The file content is bounded by the server body limit,
-// not by this.
-const uploadFieldMaxLen = 200
+// imageUploadRequest is the JSON body of POST /image-uploads: the upload intent and the size and
+// sha256 of the content the caller will stream. The text fields are trimmed and validated by the
+// application service, so this type only decodes the wire shape.
+type imageUploadRequest struct {
+	IntegrationID string `json:"integrationId"`
+	Name          string `json:"name"`
+	Architecture  string `json:"architecture"`
+	Title         string `json:"title"`
+	FileType      string `json:"filetype"`
+	DefaultUser   string `json:"defaultUser"`
+	SizeBytes     int64  `json:"sizeBytes"`
+	SHA256        string `json:"sha256"`
+}
 
-// UploadImage creates a new provider-owned OS image on one provisioner from an uploaded file.
-//
-// This is the only multipart/form-data endpoint on this surface because it carries a potentially
-// multi-gigabyte artifact. fasthttp spools the file part to a temporary file, so the file handle
-// is seekable and the handler streams from disk rather than holding the artifact in memory: the
-// size comes from the multipart header and the sha256 is computed once over the spooled file,
-// both of which the provider (MAAS) requires before it will accept the bytes. swallow keeps no
-// copy once the provider accepts it. Whether the uploaded image is a custom image is decided by
-// the provider, not by this request. Errors follow the shared provisioning mapper: an unsupported
-// provisioner or a provider refusal is a 400, an unknown integration is a 404, and a provider
-// transport failure during upload is a 503.
-func (h *ProvisioningHandler) UploadImage(c *fiber.Ctx) error {
-	integrationID := strings.TrimSpace(c.FormValue("integrationId"))
-	if integrationID == "" {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "integrationId is required."))
-	}
-	name := strings.TrimSpace(c.FormValue("name"))
-	if name == "" {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "name is required."))
-	}
-	architecture := strings.TrimSpace(c.FormValue("architecture"))
-	if architecture == "" {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "architecture is required."))
-	}
-	title := strings.TrimSpace(c.FormValue("title"))
-	fileType := strings.TrimSpace(c.FormValue("filetype"))
-	defaultUser := strings.TrimSpace(c.FormValue("defaultUser"))
-	if len(name) > uploadFieldMaxLen || len(architecture) > uploadFieldMaxLen ||
-		len(title) > uploadFieldMaxLen || len(fileType) > uploadFieldMaxLen {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "An upload field exceeds the maximum length."))
-	}
-	// Checked before the artifact is hashed and streamed, so a typo never costs a multi-gigabyte
-	// upload that then fails.
-	if defaultUser != "" && !provisioningdomain.ValidDefaultUser(defaultUser) {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation,
-			"defaultUser must be a POSIX login name (lowercase letters, digits, '_' or '-', up to 32 characters)."))
-	}
+// imageUploadResponse is the 201 body of POST /image-uploads: the upload's id and the time it
+// stops accepting content.
+type imageUploadResponse struct {
+	ID        string    `json:"id"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
 
-	fileHeader, err := c.FormFile("content")
-	if err != nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "content file is required."))
+// CreateImageUpload records the intent to upload a new provider-owned OS image (decision 027). It
+// touches no provider: the intent is validated, including the provisioner's upload capability and
+// the adapter's preflight, and stored so the content request needs only the upload's id. Errors
+// follow the shared provisioning mapper (a broken rule or a refused intent is a 400, an unknown
+// Integration a 404, a size over the installation's limit a 413).
+func (h *ProvisioningHandler) CreateImageUpload(c *fiber.Ctx) error {
+	var req imageUploadRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
-	if fileHeader.Size <= 0 {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "content file is empty."))
-	}
-
-	file, err := fileHeader.Open()
-	if err != nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "The uploaded file could not be read."))
-	}
-	defer file.Close()
-
-	// The sha256 is hashed over the spooled file first, then the handle is rewound so the same
-	// bytes stream to the provider. MAAS needs the digest and size up front, and verifies the
-	// digest on completion, so hashing here turns a corrupt transfer into an early, clear error.
-	sum := sha256.New()
-	if _, err := io.Copy(sum, file); err != nil {
-		return RespondError(c, err)
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return RespondError(c, err)
-	}
-
-	item, err := h.uploadImage.Execute(c.Context(), application.UploadOSImageInput{
-		IntegrationID: integrationID,
-		Name:          name,
-		Architecture:  architecture,
-		Title:         title,
-		FileType:      fileType,
-		Size:          fileHeader.Size,
-		SHA256:        hex.EncodeToString(sum.Sum(nil)),
-		Content:       file,
-		DefaultUser:   defaultUser,
+	upload, err := h.imageUploads.Create(c.Context(), application.CreateOSImageUploadInput{
+		IntegrationID: req.IntegrationID,
+		Name:          req.Name,
+		Architecture:  req.Architecture,
+		Title:         req.Title,
+		FileType:      req.FileType,
+		DefaultUser:   req.DefaultUser,
+		SizeBytes:     req.SizeBytes,
+		SHA256:        req.SHA256,
 	})
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.Status(fiber.StatusCreated).JSON(imageUploadResponse{ID: upload.ID, ExpiresAt: upload.ExpiresAt})
+}
+
+// SendImageUploadContent streams the raw content of one OS image upload to its provisioner and
+// returns the created image once the provider reports it fully staged.
+//
+// The app runs fasthttp with StreamRequestBody, so the body is read from the request stream as
+// the provider adapter forwards it: it is never spooled to disk, never held whole in memory, and
+// never read through c.Body(), which would buffer it. Only a server built without
+// StreamRequestBody (a test app) has no body stream; its already-buffered body is read instead.
+// fasthttp's request context is not cancelled when the client goes away;
+// the application's exact-length read turns a body that ends early into a 400 instead of a
+// complete upload. The media type and the presence of Content-Length are checked before the
+// upload is claimed, so such a refusal leaves the upload usable; every later failure removes it.
+//
+// Several refusals answer before the body is read. The connection is therefore always closed
+// after the response: otherwise fasthttp would parse the unread body bytes as the next request
+// on the keep-alive connection. One connection per upload costs nothing next to its content.
+func (h *ProvisioningHandler) SendImageUploadContent(c *fiber.Ctx) error {
+	c.Context().SetConnectionClose()
+	id := c.Params("id")
+	if id == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "id is required."))
+	}
+	if mediaType, _, err := mime.ParseMediaType(c.Get(fiber.HeaderContentType)); err != nil || mediaType != fiber.MIMEOctetStream {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Content-Type must be application/octet-stream."))
+	}
+	// fasthttp reports -1 for a chunked body and 0 when no Content-Length was sent; neither can
+	// equal an upload's positive sizeBytes.
+	contentLength := c.Request().Header.ContentLength()
+	if contentLength <= 0 {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation,
+			"Content-Length is required and must equal the upload's sizeBytes; chunked transfer is not accepted."))
+	}
+
+	body := c.Context().RequestBodyStream()
+	if body == nil {
+		body = bytes.NewReader(c.Request().Body())
+	}
+	item, err := h.imageUploads.SendContent(c.Context(), id, int64(contentLength), body)
 	if err != nil {
 		return RespondError(c, err)
 	}
@@ -741,6 +746,17 @@ func RespondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, provisioningdomain.ErrProvisioningTaskNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Provisioning task not found."))
 
+	// OS Image uploads (provisioning.md, OS Image Upload). A content error that surfaced through
+	// the provider adapter's read still wraps ErrInvalidOSImageUpload, so it is matched (as a
+	// 400, below) before the generic *ProviderError branch.
+	case errors.Is(err, provisioningdomain.ErrOSImageUploadNotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "OS image upload not found or expired."))
+	case errors.Is(err, provisioningdomain.ErrOSImageUploadInProgress):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, "This upload's content is already being sent."))
+	case errors.Is(err, provisioningdomain.ErrOSImageUploadTooLarge):
+		return apierror.Respond(c, apierror.New(apierror.CodePayloadTooLarge,
+			"The image is larger than this installation's upload limit."))
+
 	// Virtual-machine enrollment (server-enrollment.md, decision 055) checks the Hypervisor and the
 	// Boot ISO through the server context.
 	case errors.Is(err, serverdomain.ErrBootISOUnknown):
@@ -770,6 +786,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, provisioningdomain.ErrInvalidNetworkConfiguration),
 		errors.Is(err, provisioningdomain.ErrInvalidEnrollmentRequest),
 		errors.Is(err, provisioningdomain.ErrOSImageMetadataInvalid),
+		errors.Is(err, provisioningdomain.ErrInvalidOSImageUpload),
 		errors.Is(err, provisioningdomain.ErrInvalidPowerConfiguration),
 		errors.Is(err, provisioningdomain.ErrInvalidHTTPProxy),
 		errors.Is(err, provisioningdomain.ErrInvalidSubnetDNS),

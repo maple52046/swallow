@@ -76,6 +76,7 @@ OS Provisioning bounded context 的參與者、上下游關係與翻譯方式見
 | OS Image artifact 與 catalog | provisioner | 每次 live read；上傳／刪除由 swallow 驅動（§4） | 不存 |
 | OS Image 的顯示名稱、OS、release、tags、default user | swallow | OS Image metadata：desired state，不需要 provider 實現，讀時合併（§4.1） | `os_image_metadata` |
 | OS Image 驗證 | swallow | 每個 Deploy Target 的證據（§5） | `os_image_verifications` |
+| OS Image 上傳的意圖 | swallow | 只用一次的短期紀錄，連接建立與送出內容兩個 request（§4.2） | `os_image_uploads`（TTL 過期） |
 | Deployment Template | swallow | 完整 CRUD（§3） | owned collection |
 | 部署網路意圖 | swallow | 部署時、或修改 Ready Server 的網路時套用（§6） | Template 與 Workflow 的 intent snapshot |
 | NIC、subnet、link、IP 分配 | provisioner | live read，每次 mutation 前重新驗證 | 不存；provider id 只當 live reference |
@@ -153,14 +154,25 @@ OS Image Catalog、OS Image Upload、OS Image Metadata。
   `ImageRemoval`／`OSImageRemover`）。provisioner 沒有能力時以 `400 validation_error` 拒絕。
 - 上傳的 image 與 synced image 一樣由 provider 擁有。它是否算 *custom* image 由 provider adapter 決定（MAAS 回報
   `osSystem: custom`），呼叫端不送、也不推斷 custom 旗標。
-- bytes 的路徑是 browser → api-server → provider：`multipart/form-data` 的檔案部分先 spool 到暫存檔，只為算出
-  provider 事先要求的 `size` 與 `sha256`，再分段串流給 provider，完成後刪除暫存檔。swallow 不把整個 artifact
-  放進記憶體，也不保留副本。
-- 一次上傳是單一同步的 provider 呼叫，不是 Workflow；不受 catalog read 的短 timeout 限制。api-server 的
-  request body 上限由 `SWALLOW_API_IMAGE_UPLOAD_MAX_BYTES` 設定（預設 64 GiB）。
-- 選用的 `defaultUser` 在 provider 接受上傳後寫入 metadata；寫入失敗時 image 已存在，可之後再以 metadata 設定。
+- 上傳分兩個 request。client 先在本機算出內容的 `size` 與 `sha256`，以 `POST /image-uploads` 建立 **OS Image
+  upload**：swallow 驗證欄位、provisioner 的上傳能力與 adapter 的 preflight（例如 filetype），記下這份意圖，不碰
+  provider。接著 client 以 `PUT /image-uploads/{id}/content` 送出 raw 內容（`application/octet-stream`，
+  `Content-Length` 必須等於宣告的 size）；api-server 在 provider 建立 image，收到一段就轉一段給 provider。
+- bytes 的路徑是 client → api-server → provider，但 api-server 不 spool、不在本機重算 hash，也不把整個 artifact
+  放進記憶體或保留副本；fasthttp 以 stream 讀 body，multipart 的預先解析關閉（沒有 route 接受 multipart）。
+  上傳內容是唯一不受一般 request body 上限（4 MiB，見 conventions 契約的 Request Bodies）限制的 route，nginx 也只為它
+  另開不限大小、不緩衝的 location。
+  `sha256` 由 client 宣告、provider 在收完後比對，不符時上傳失敗。
+- 只有 provider 回報 image 已完全就緒（MAAS 的 resource set complete）才算成功：adapter 在最後一段之後重讀，
+  有上限地等待（5 分鐘）；逾時回 `503`，image 留在 provider，就緒之前部署會被受理閘門擋下。
+- upload 只能用一次：送出內容的 request 一 claim 它，結束時不論成功或失敗都刪除；失敗的上傳以新的 upload 重來。
+  沒有被使用的 upload 一小時後過期，由 store 的 TTL 清除。內容在途中失敗時，adapter 盡量刪掉 provider 上沒傳完的
+  image。
+- 一次上傳不是 Workflow；不受 catalog read 的短 timeout 限制。宣告的 size 上限是 `SWALLOW_API_IMAGE_UPLOAD_MAX_BYTES`
+  （預設 64 GiB）。
+- 選用的 `defaultUser` 在上傳成功後寫入 metadata；寫入失敗時 image 已存在，可之後再以 metadata 設定。
 - MAAS adapter：先建立 boot resource，再分段上傳內容；架構展開成 `<arch>/generic`，放進 custom namespace；
-  未指定 `filetype` 時用 MAAS 預設（`tgz`）。
+  未指定 `filetype` 時用 MAAS 預設（`tgz`）。preflight 只接受 MAAS 上傳表單的 filetype（root tarball 與 dd 系列）。
 
 ### 4.3 刪除
 
@@ -170,8 +182,11 @@ OS Image Catalog、OS Image Upload、OS Image Metadata。
   在同一個 transaction 內一起刪除。
 
 **設計理由**：swallow 可以**驅動** provider 擁有的動作，但不因此擁有 artifact（decision 069）；custom 與否是
-provisioner 的性質，所以由後端決定；在 api-server spool 讓 hash 由 swallow 自己計算並可決定性地分段送出，
-不依賴瀏覽器計算多 GB 的 hash。見 [decision 027](../decisions/027-os-image-upload.md)。
+provisioner 的性質，所以由後端決定。由 client 先算 hash、api-server 逐段轉送，讓上傳與轉送同時進行，api-server
+不需要和 image 一樣大的暫存空間（production 的 `/tmp` 是 tmpfs，也就是主機記憶體）；hash 由 provider 驗證，所以
+不必由 swallow 重算。不讓 client 直接傳給 provisioner，因為 MAAS 沒有限定權限的上傳憑證，交出的就是 Integration
+的管理員憑證，CLI 也得懂 provider 的協定。等 provider 回報就緒才回成功，避免「看似上傳成功、部署卻被擋」。見
+[decision 027](../decisions/027-os-image-upload.md)。
 
 ---
 
@@ -608,7 +623,7 @@ decision 033。
 | 部署網路模式 | `internal/core/provisioning/domain/network.go` |
 | Network inspection 與建議 | `internal/core/provisioning/application/network_configuration.go` |
 | Deploy resolve、受理閘門、批次送出 | `internal/core/provisioning/application/deploy_servers.go`、`internal/core/provisioning/application/deployment_targets.go` |
-| OS Image 目錄、metadata、上傳、刪除 | `internal/core/provisioning/application/list_os_images.go`、`internal/core/provisioning/application/set_os_image_metadata.go`、`internal/core/provisioning/application/upload_os_image.go`、`internal/core/provisioning/application/delete_os_image.go`；HTTP 在 `internal/core/provisioning/delivery/handler.go`（`UploadImage` 等） |
+| OS Image 目錄、metadata、上傳、刪除 | `internal/core/provisioning/application/list_os_images.go`、`internal/core/provisioning/application/set_os_image_metadata.go`、`internal/core/provisioning/application/os_image_upload.go`、`internal/core/provisioning/application/delete_os_image.go`；upload 紀錄在 `internal/core/provisioning/domain/os_image_upload.go`、`internal/adapters/store/mongodb/provisioning/mongo_os_image_upload_repo.go`；HTTP 在 `internal/core/provisioning/delivery/handler.go`（`CreateImageUpload`、`SendImageUploadContent` 等） |
 | Subnet DNS | `internal/core/provisioning/domain/subnet_dns.go`、`internal/core/provisioning/application/subnet_dns.go`、`internal/core/provisioning/delivery/subnet_dns_handler.go` |
 | Provisioner HTTP Proxy | `internal/core/provisioning/domain/http_proxy.go`、`internal/core/provisioning/application/http_proxy.go` |
 | Operator-state 動作（mark-*、rescue） | `internal/core/provisioning/application/machine_actions.go` |
@@ -621,7 +636,7 @@ decision 033。
 | 取消驗證時的歸還 | `internal/app/provisioning_operation_adapter.go`（`recover-server` 宣告 `OnCancel: {Run: true}`）、`internal/adapters/executor/temporalworkflow/driver.go`（`cancelWorkflow`） |
 | MAAS adapter（狀態對應、網路、上傳、event、grouping、proxy、subnet DNS） | `internal/adapters/osprovisioning/maas/`（`mapping.go`、`network.go`、`provider.go`、`events.go`、`grouping.go`、`http_proxy.go`、`subnet_dns.go`） |
 | Zone／Pool 與 placement | `internal/core/infrastructure/application/service.go`、`internal/core/infrastructure/application/catalog_controller.go`、`internal/core/provisioning/application/server_controller.go`（`serverPlacement`）、`internal/app/grouping_adapters.go` |
-| 上傳的 request body 上限 | `config/defaults.go`、`config/env.go`（`SWALLOW_API_IMAGE_UPLOAD_MAX_BYTES`） |
+| 上傳的 size 上限、request body 的 stream 設定與其他 route 的 body 上限 | `config/defaults.go`、`config/env.go`（`SWALLOW_API_IMAGE_UPLOAD_MAX_BYTES`）；`internal/app/api.go`（Fiber 的 `StreamRequestBody`、`DisablePreParseMultipartForm`）、`internal/app/request_body.go`、`internal/shared/middleware/body_limit.go`；nginx 的上傳內容 location 在 `deploy/production/nginx.conf` |
 
 ### `dashboard`
 

@@ -551,6 +551,7 @@ type fakeProvider struct {
 	deleteImageErr        error
 	deletedImages         [][2]string
 	uploadImageErr        error
+	validateUploadErr     error
 	uploadedImages        []provisioningdomain.UploadOSImageRequest
 	// autoTags marks tag names reported by ListTags as non-editable (a MAAS automatic tag) and
 	// refused by AddTag, so the auto-tag path can be exercised. ensuredTags records EnsureTag calls
@@ -847,13 +848,24 @@ func (p *fakeProvider) DeleteOSImage(_ context.Context, imageID, architecture st
 	return nil
 }
 
+// ValidateOSImageUpload accepts every intent unless a test set validateUploadErr, standing in for
+// an adapter that refuses a file type before any content is sent.
+func (p *fakeProvider) ValidateOSImageUpload(provisioningdomain.UploadOSImageRequest) error {
+	return p.validateUploadErr
+}
+
 // UploadOSImage records the upload and returns the created image as MAAS would classify it: an
 // uploaded resource surfaces with osystem "custom", so the delivery test can assert the provider
 // — not the caller — decides the classification. The content is drained like a real adapter
 // streams it once.
 func (p *fakeProvider) UploadOSImage(_ context.Context, req provisioningdomain.UploadOSImageRequest) (*provisioningdomain.OSImage, error) {
 	if req.Content != nil {
-		_, _ = io.Copy(io.Discard, req.Content)
+		// A real adapter wraps a broken read of the content in its own error; the service
+		// reports the content error in its place.
+		if _, err := io.Copy(io.Discard, req.Content); err != nil {
+			return nil, &provisioningdomain.ProviderError{Kind: provisioningdomain.ProviderErrorUnavailable,
+				Detail: "Reading the upload stream failed before the image was fully sent.", Err: err}
+		}
 	}
 	if p.uploadImageErr != nil {
 		return nil, p.uploadImageErr

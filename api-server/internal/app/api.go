@@ -162,6 +162,13 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("os image metadata repo init: %w", err)
 	}
+	// OS Image uploads (decision 027): the single-use intent recorded between the create request
+	// and the content request, which may reach different API processes. Expired records are
+	// discarded by the store.
+	osImageUploadRepo, err := provisioningstore.NewMongoOSImageUploadRepo(db)
+	if err != nil {
+		return fmt.Errorf("os image upload repo init: %w", err)
+	}
 	// swallow-owned OS Image verification attestations: which deploy targets (disk/ram) a real
 	// verification deploy has proven for an image. Owned data keyed by the provider image identity,
 	// kept separate from the display metadata so pruning one never erases the other.
@@ -279,7 +286,7 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewMachineActionsUseCase(serverRepo, providerFactory, activeWork),
 		deleteServerUC,
 		provisioningapp.NewDeleteOSImageUseCase(providerFactory, osImageMetadataRepo, osImageVerificationRepo),
-		provisioningapp.NewUploadOSImageUseCase(providerFactory, osImageMetadataRepo),
+		provisioningapp.NewOSImageUploadService(providerFactory, osImageUploadRepo, osImageMetadataRepo, cfg.ImageUploadMaxBytes),
 		provisioningapp.NewSetOSImageMetadataUseCase(osImageMetadataRepo, reconcileUC),
 		provisioningapp.NewListServerTagsUseCase(integrationRepo, providerFactory, serverRepo),
 		provisioningapp.NewEditServerTagsUseCase(transactor, serverRepo, serverRepo, providerFactory),
@@ -540,13 +547,22 @@ func RunAPI(cfg config.APIConfig) error {
 		overviewapp.NewService(overviewReader, overviewapp.SystemClock{}))
 
 	fiberApp := fiber.New(fiber.Config{
-		// OS image upload (POST /provisioning/images) streams a potentially multi-gigabyte
-		// artifact, so the body is read as a stream and the limit is raised well past the 4 MiB
-		// default. StreamRequestBody keeps the large body off the heap; fasthttp spools the
-		// multipart file part to a temp file the handler then streams to the provider.
+		// The OS image upload content (PUT /provisioning/image-uploads/{id}/content) is a
+		// potentially multi-gigabyte raw body, so request bodies are streamed: the handler reads
+		// the stream as the provider adapter forwards it, and nothing is spooled to disk or held
+		// whole in memory. In stream mode fasthttp does not refuse a body over BodyLimit, so the
+		// limits are enforced by the app: middleware.BodyLimit below bounds every other route, and
+		// the upload's own check (Content-Length must equal its declared size, at most
+		// api.imageUploadMaxBytes) bounds the content.
 		StreamRequestBody: true,
-		BodyLimit:         int(cfg.ImageUploadMaxBytes),
-		ErrorHandler:      httpErrorHandler,
+		// fasthttp otherwise parses a multipart/form-data body before any handler or middleware
+		// runs — authentication included — spooling its file parts to the temp directory, and in
+		// stream mode without checking BodyLimit. No route accepts multipart, so the pre-parse is
+		// off: an unauthenticated request must not be able to fill the API's /tmp (a tmpfs, so
+		// host memory, in the production installation).
+		DisablePreParseMultipartForm: true,
+		BodyLimit:                    requestBodyLimit,
+		ErrorHandler:                 httpErrorHandler,
 	})
 	fiberApp.Use(requestid.New())
 	fiberApp.Use(func(c *fiber.Ctx) error {
@@ -559,6 +575,10 @@ func RunAPI(cfg config.APIConfig) error {
 			"durationMs", time.Since(started).Milliseconds())
 		return err
 	})
+	// Before authentication and every handler, so an oversized body is refused before anything
+	// reads it; registered after the request ID and the request log so the 413 carries an ID and
+	// is logged like any other response.
+	fiberApp.Use(middleware.BodyLimit(requestBodyLimit, isImageUploadContent))
 	if cfg.AllowedOrigins != "" {
 		// Credentials are allowed so a dashboard served from a listed development origin can
 		// send the refresh cookie to /api/v1/auth. That is only safe with explicit origins,
@@ -849,10 +869,12 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 
 	provisioning := v1.Group("/provisioning", admin...)
 	provisioning.Get("/images", deps.provisioning.ListImages)
-	// Multipart upload of a provider-owned OS image. Streamed and spooled by the handler; the
-	// provider decides whether it becomes a custom image (docs/decisions/027).
-	provisioning.Post("/images", deps.provisioning.UploadImage)
 	provisioning.Delete("/images", deps.provisioning.DeleteImage)
+	// OS image upload (decision 027): record the intent, then stream the raw content, which the
+	// handler forwards to the provider as it arrives; the provider decides whether the result is a
+	// custom image.
+	provisioning.Post("/image-uploads", deps.provisioning.CreateImageUpload)
+	provisioning.Put("/image-uploads/:id/content", deps.provisioning.SendImageUploadContent)
 	// OS Image metadata: replace or clear the swallow-owned name, OS, release, tags, and default
 	// user of one image. Same query-parameter identity as DELETE /images (decision 071).
 	provisioning.Put("/images/metadata", deps.provisioning.SetImageMetadata)

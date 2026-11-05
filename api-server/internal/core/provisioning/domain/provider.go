@@ -317,11 +317,13 @@ type UploadOSImageRequest struct {
 	// Size is the exact byte length of Content. Providers that reserve a resource before the
 	// bytes arrive (MAAS) require it up front, so callers must supply the real size.
 	Size int64
-	// SHA256 is the lowercase hex digest of Content, computed by the caller. Providers verify
+	// SHA256 is the lowercase hex digest of Content, declared by the caller. Providers verify
 	// it on completion, so a mismatch is the provider's rejection, not swallow's.
 	SHA256 string
-	// Content streams the artifact bytes. The adapter reads it once, sequentially, and must
-	// not assume it is seekable; swallow keeps no copy after the provider accepts it.
+	// Content streams the artifact bytes as the caller sends them. The adapter reads it once,
+	// sequentially, and must not assume it is seekable; swallow keeps no copy. A read error
+	// that wraps ErrInvalidOSImageUpload means the caller's content broke its upload (for
+	// example it ended early), and the adapter must keep that error reachable with errors.Is.
 	Content io.Reader
 }
 
@@ -330,11 +332,22 @@ type UploadOSImageRequest struct {
 //
 // It is the creation counterpart to OSImageRemover: swallow drives the provider to store the
 // artifact but does not own, mirror, or keep a copy of it (see decision 027). An adapter that sets
-// ProviderCapabilities.ImageUpload must implement this. Implementations map a provider refusal
-// (a duplicate name, an unsupported file type) onto *ProviderError{Kind: ProviderErrorRejected}
-// and transport or 5xx failures onto ProviderErrorUnavailable, and return the created image as
-// the provider reports it so the caller can show the new catalog row without a second read.
+// ProviderCapabilities.ImageUpload must implement this.
 type OSImageUploader interface {
+	// ValidateOSImageUpload checks, without contacting the provider, that it would accept an
+	// upload with these fields (Content, Size, and SHA256 are ignored), so an unsupported file
+	// type or architecture is refused before the caller sends any content. A refusal is
+	// *ProviderError{Kind: ProviderErrorRejected} in the provider's terms.
+	ValidateOSImageUpload(req UploadOSImageRequest) error
+	// UploadOSImage creates the image and streams Content to it, and returns only once the
+	// provider reports the image fully staged (OSImage.Complete), so a returned image can be
+	// deployed. Implementations bound how long they wait for staging; an image still not staged
+	// then is *ProviderError{Kind: ProviderErrorUnavailable} saying the image exists but is not
+	// ready. A provider refusal (a duplicate name, an unsupported file type, content that does not
+	// match SHA256) is ProviderErrorRejected and transport or 5xx failures are
+	// ProviderErrorUnavailable. When the transfer fails after the provider created the image,
+	// implementations remove that incomplete image on a best-effort basis. The returned image is
+	// as the provider reports it, so the caller can show the new catalog row without a second read.
 	UploadOSImage(ctx context.Context, req UploadOSImageRequest) (*OSImage, error)
 }
 

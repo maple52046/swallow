@@ -111,10 +111,10 @@ type APIConfig struct {
 	// another origin. Listed origins may send credentials (the refresh cookie), so each must be
 	// explicit; "*" is rejected by validation.
 	AllowedOrigins string `yaml:"allowedOrigins"`
-	// ImageUploadMaxBytes caps the request body the server accepts, sized for OS image
-	// uploads (POST /provisioning/images streams a potentially multi-gigabyte artifact).
-	// It becomes the Fiber body limit; because the body is streamed, this bounds a single
-	// upload rather than being buffered. Must be positive.
+	// ImageUploadMaxBytes caps the size of one OS image upload: an upload declaring more is
+	// refused, and its content request must carry exactly the declared size. The content is
+	// streamed, so this bounds a single upload rather than being buffered; every other request
+	// body has a fixed, much smaller limit. Must be positive.
 	ImageUploadMaxBytes int64 `yaml:"imageUploadMaxBytes"`
 	// MachineToken is a static bearer token accepted by the endpoints whose callers
 	// are other systems, such as Prometheus scraping discovery. Those hold one
