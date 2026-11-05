@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useApp } from "@/di/AppProvider";
+import { useSlurmPlatform } from './SlurmModuleProvider';
 import type { SlurmDeploymentRequirement } from "@/domain/platform/types";
 import { failureOf, type DisplayedFailure } from "@/presentation/components/failure";
 
@@ -20,7 +20,7 @@ export function useSlurmDeploymentRequirement(): {
   state: SlurmRequirementState;
   reload: () => void;
 } {
-  const { platforms } = useApp();
+  const slurm = useSlurmPlatform();
   const [state, setState] = useState<SlurmRequirementState>({
     status: "loading",
   });
@@ -32,8 +32,7 @@ export function useSlurmDeploymentRequirement(): {
 
   useEffect(() => {
     let cancelled = false;
-    platforms
-      .getSlurmDeploymentRequirement()
+    slurm.getDeploymentRequirement()
       .then((requirement) => {
         if (!cancelled) setState({ status: "ready", requirement });
       })
@@ -43,7 +42,7 @@ export function useSlurmDeploymentRequirement(): {
     return () => {
       cancelled = true;
     };
-  }, [platforms, revision]);
+  }, [slurm, revision]);
 
   return { state, reload };
 }

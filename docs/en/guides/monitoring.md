@@ -152,6 +152,11 @@ opens its main dashboard directly: the Device Metrics Exporter's **Overview** or
 management network can view it without a login. Each deploy or redeploy gives it a new access
 credential, so a credential copied from an older deployment stops working.
 
+The Platform workspace's **Monitoring** route collects these destinations without embedding
+their dashboards. It links to Swallow usage charts, the Platform Grafana, other Monitoring
+Links, and the recorded installation state and Workflow for Omnistat or GPU monitoring.
+On an active Platform, **Open Platform Grafana** is also available from the workspace hero.
+
 - **Slurm**: Grafana runs on the primary controller, at port 3000. It runs as a container by
   default, so the deploy installs a container engine on the primary controller first: the one
   the deploy requests under **Container runtime**, otherwise Docker CE, unless that Server

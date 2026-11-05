@@ -15,6 +15,9 @@ import { ApiRegistryCredentialRepository } from '@/infrastructure/api/ApiRegistr
 import { ApiSSHKeyRepository } from '@/infrastructure/api/ApiSSHKeyRepository'
 import { ApiApiKeyRepository } from '@/infrastructure/api/ApiApiKeyRepository'
 import { ApiChangePlanRepository } from '@/infrastructure/api/ApiChangePlanRepository'
+import { ApiKubernetesExplorer } from '@/modules/platform/kubernetes/infrastructure/ApiKubernetesExplorer'
+import { ApiSlurmPlatform } from '@/modules/platform/slurm/infrastructure/ApiSlurmPlatform'
+import { ApiAMDPlatform } from '@/modules/accelerator/amd/infrastructure/ApiAMDPlatform'
 import {
   DisabledExperimentalFeatureSettings,
   LocalExperimentalFeatureSettings,
@@ -37,6 +40,9 @@ import type { SSHKeyRepository } from '@/application/ports/SSHKeyRepository'
 import type { ApiKeyRepository } from '@/application/ports/ApiKeyRepository'
 import type { ChangePlanRepository } from '@/application/ports/ChangePlanRepository'
 import type { ExperimentalFeatureSettings } from '@/application/ports/ExperimentalFeatureSettings'
+import type { KubernetesExplorerPort } from '@/modules/platform/kubernetes/KubernetesExplorerPort'
+import type { SlurmPlatformPort } from '@/modules/platform/slurm/SlurmPlatformPort'
+import type { AMDPlatformPort } from '@/modules/accelerator/amd/AMDPlatformPort'
 
 /** Browser composition contract exposing provider ports to presentation workflows. */
 export interface AppContainer {
@@ -71,6 +77,18 @@ export interface AppContainer {
   monitoring: MonitoringRepository
   /** Which in-development dashboard features are shown; adjustable only in development builds. */
   experimentalFeatures: ExperimentalFeatureSettings
+}
+
+/** Type-specific dependencies bound only to the module providers that consume them. */
+export interface PlatformModuleContainer {
+  kubernetes: KubernetesExplorerPort
+  slurm: SlurmPlatformPort
+  amd: AMDPlatformPort
+}
+
+/** Builds module-owned API adapters without widening the generic application container. */
+export function createPlatformModuleContainer(): PlatformModuleContainer {
+  return { kubernetes: new ApiKubernetesExplorer(), slurm: new ApiSlurmPlatform(), amd: new ApiAMDPlatform() }
 }
 
 /**

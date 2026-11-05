@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Button, HStack, Stack, Text } from '@chakra-ui/react'
 import { useNavigate } from 'react-router-dom'
-import { useApp } from '@/di/AppProvider'
+import { useAMDPlatform } from './AMDModuleProvider'
 import {
   GPU_ALLOCATION_MODE_LABELS,
   GPU_RESOURCE_NAMING_LABELS,
@@ -44,7 +44,7 @@ interface PlatformGPUOperatorSectionProps {
 
 /**
  * The swallow-managed AMD GPU Operator of a Kubernetes Platform (decision 062), on the Platform
- * Overview: its GPU Operator State, recorded settings, and the Install, Configure, and Uninstall
+ * Configuration route: its GPU Operator State, recorded settings, and the Install, Configure, and Uninstall
  * actions.
  *
  * Changes are allowed only on an active swallow-deployed Platform with no change running, which
@@ -52,10 +52,10 @@ interface PlatformGPUOperatorSectionProps {
  * the shared GPUOperatorOptionsFields in a dialog, and the request's API error (for example a busy
  * target) stays in the dialog. Uninstall asks for confirmation and names the consequence. A failed
  * state warns that the cluster may still run the previous settings. The page polls while a change
- * is in progress (usePlatformDetail).
+ * is in progress through the workspace shell's lifecycle polling.
  */
 export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpenWorkflow }: PlatformGPUOperatorSectionProps) {
-  const { platforms } = useApp()
+  const amd = useAMDPlatform()
   const { showToast } = useToast()
   const navigate = useNavigate()
   const { scopedHref } = useSiteScope()
@@ -98,11 +98,11 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
     setDialog(null)
     setError(null)
   }
-  const submit = async (settings: Parameters<typeof platforms.configureGPUOperator>[1], title: string) => {
+  const submit = async (settings: Parameters<typeof amd.configureGPUOperator>[1], title: string) => {
     setSubmitting(true)
     setError(null)
     try {
-      const written = await platforms.configureGPUOperator(platform.id, settings)
+      const written = await amd.configureGPUOperator(platform.id, settings)
       setDialog(null)
       if (written.awaitingApproval) {
         // Changing or removing the operator restarts GPU workloads, so it is a Change Plan; the

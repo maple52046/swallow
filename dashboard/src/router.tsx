@@ -15,7 +15,15 @@ import { ServerActivityTab } from './presentation/pages/servers/ServerActivityTa
 import { ServerContainersTab } from './presentation/pages/servers/ServerContainersTab'
 import { ServerNetworkTab, ServerStorageTab, ServerPciTab } from './presentation/pages/servers/ServerDetailTableTab'
 import { PlatformsPage } from './presentation/pages/platforms/PlatformsPage'
-import { PlatformDetailPage } from './presentation/pages/platforms/PlatformDetailPage'
+import { PlatformWorkspaceIndexRedirect, PlatformWorkspacePage } from './presentation/pages/platforms/PlatformWorkspacePage'
+import {
+  PlatformActivityRoute,
+  PlatformConfigurationRoute,
+  PlatformModuleRoute,
+  PlatformMonitoringRoute,
+  PlatformOverviewRoute,
+  PlatformWorkspaceNotFound,
+} from './presentation/pages/platforms/PlatformWorkspaceRoutes'
 import {
   DeployKubernetesPlatformPage,
   DeploySlurmPlatformPage,
@@ -90,7 +98,23 @@ export const router = createBrowserRouter([
       { path: 'platforms/deploy', element: <DeployPlatformCatalogPage /> },
       { path: 'platforms/deploy/kubernetes', element: <DeployKubernetesPlatformPage /> },
       { path: 'platforms/deploy/slurm', element: <DeploySlurmPlatformPage /> },
-      { path: 'platforms/:id', element: <PlatformDetailPage /> },
+      {
+        path: 'platforms/:id',
+        element: <PlatformWorkspacePage />,
+        children: [
+          { index: true, element: <PlatformWorkspaceIndexRedirect /> },
+          { path: 'overview', element: <PlatformOverviewRoute /> },
+          { path: 'monitoring', element: <PlatformMonitoringRoute /> },
+          { path: 'configuration', element: <PlatformConfigurationRoute /> },
+          { path: 'activity', element: <PlatformActivityRoute /> },
+          { path: 'applications', element: <PlatformModuleRoute route="applications" /> },
+          { path: 'namespaces', element: <PlatformModuleRoute route="namespaces" /> },
+          { path: 'cluster', element: <PlatformModuleRoute route="cluster" /> },
+          { path: 'nodes', element: <PlatformModuleRoute route="nodes" /> },
+          { path: 'partitions', element: <PlatformModuleRoute route="partitions" /> },
+          { path: '*', element: <PlatformWorkspaceNotFound /> },
+        ],
+      },
       { path: 'software', element: <SoftwarePage /> },
       { path: 'software/settings', element: <SoftwareSettingsPage /> },
       { path: 'software/:kind/settings', element: <SoftwareSettingsPage /> },

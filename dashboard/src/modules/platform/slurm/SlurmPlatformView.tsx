@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { Table } from '@chakra-ui/react'
+import { Button, Table } from '@chakra-ui/react'
+import { RefreshCw } from 'lucide-react'
 import type { Platform, SlurmClusterNode, SlurmController, SlurmPartition } from '@/domain/platform/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import { CopyButton } from '@/presentation/components/CopyButton'
@@ -30,14 +31,17 @@ export function SlurmPlatformView({
   members,
   loginNodes,
   onSelect,
+  showPartitions = true,
 }: {
   platform: Platform
   members: Server[]
   loginNodes: Server[]
   onSelect: (server: Server) => void
+  /** Legacy combined view can omit partitions when rendered by the Nodes workspace route. */
+  showPartitions?: boolean
 }) {
   const clusterState = useSlurmCluster(platform.id, platform.integrationId)
-  const live = clusterState.status === 'ready' ? clusterState.cluster : null
+  const live = clusterState.status === 'ready' || clusterState.status === 'warning' ? clusterState.cluster : null
   const serverIndex = useMemo(() => buildServerIndex(members), [members])
 
   const intendedControllers = platform.deployment?.roleAssignments.filter((assignment) => assignment.role === 'control-plane') ?? []
@@ -64,8 +68,15 @@ export function SlurmPlatformView({
 
       {clusterState.status === 'unavailable' && (
         <Alert status="info" title="Live Slurm state is unavailable">
-          Showing the recorded deployment topology and last-synced membership. Live controllers, partitions, and node states appear once slurmrestd is
-          reachable (the image must include slurm-smd-slurmrestd and the platform must have its Slurm integration recorded).
+          Showing recorded deployment topology and membership. Live scheduler state appears after a slurmrestd Integration is recorded.
+        </Alert>
+      )}
+
+      {(clusterState.status === 'error' || clusterState.status === 'warning') && (
+        <Alert status="warning" title="Live Slurm state could not be refreshed">
+          {clusterState.message}{clusterState.requestId ? ' Request ID: ' + clusterState.requestId + '.' : ''}
+          {clusterState.status === 'warning' ? ' Showing the last successful result.' : ' Recorded deployment intent remains available below.'}
+          <Button variant="plain" size="sm" onClick={clusterState.reload}><RefreshCw size={14} />Retry</Button>
         </Alert>
       )}
 
@@ -77,7 +88,7 @@ export function SlurmPlatformView({
         onSelect={onSelect}
       />
 
-      {live && live.partitions.length > 0 && <PartitionsSection partitions={live.partitions} />}
+      {showPartitions && live && live.partitions.length > 0 && <PartitionsSection partitions={live.partitions} />}
 
       <ComputeNodesSection live={live?.nodes ?? null} members={members} serverIndex={serverIndex} onSelect={onSelect} />
     </>

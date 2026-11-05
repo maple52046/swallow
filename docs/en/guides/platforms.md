@@ -177,27 +177,31 @@ root filesystem.
 Platform detail reads live Slurm state through the Platform API and correlates
 nodes back to Server IDs.
 
-## Platform details
+## Platform runtime workspace
 
-A Platform's **Overview** opens, below any lifecycle notice, with **Platform details**:
+Opening `/platforms/<id>` redirects to the Platform's **Overview** while preserving the
+selected Site. The horizontal workspace navigation uses real links, so refresh, browser
+history, keyboard navigation, and shared URLs keep the current page.
 
-- **General**: type, lifecycle, Site, when the Platform was created, and when its last
-  successful deployment finished, with **View deployment workflow** to open that Workflow
-  (**Not deployed yet** before the first one). **Spec state** says whether the current spec
-  generation is applied, converging, waiting for its Change Plan's approval, or failed, and
-  names any drift.
-- **Deployment**: topology, the number of member Servers, and how their OS was prepared:
-  **Provision OS** with its image and deploy mode, or **Existing OS**.
-- **Kubernetes**: the k0s version, the Pod and Service CIDRs, and the API endpoint (the
-  virtual IP of a high-availability Platform, otherwise the direct control-plane endpoint).
-- **Slurm**: the cluster name, the slurmrestd API version, the container runtime, and MPI. The
-  container runtime includes the engine a containerized Platform Grafana put on the primary
-  controller (Docker CE when no engine was chosen for the compute nodes).
-- **Integration and GPU**: the Platform's Integration, the GPU stack owner, and the GRES type
-  and GPU driver options when you set them.
+- **Overview** is summary-first: lifecycle, topology, member matching, applied generation,
+  sync freshness, runtime access, and the capabilities supplied by the Platform module.
+  It does not repeat the complete OS, network, driver, or node configuration.
+- **Configuration** shows the applied specification, desired generation and drift, Conditions,
+  member roles, OS preparation, Integration, module settings, and accelerator contributions.
+  It is read-only except for module actions that already have a supported Workflow, such as
+  AMD GPU Operator management.
+- **Monitoring** links to Swallow usage charts, the Platform Grafana, other Monitoring Links,
+  and the recorded state and Workflow of Omnistat or GPU monitoring components. It does not
+  embed those dashboards.
+- **Activity** lists this Platform's Workflows newest first. Page number is part of the URL;
+  the rows selector offers 5, 10, 15, or 20 Workflows.
+- Kubernetes adds **Applications**, **Namespaces**, and **Cluster**. Slurm adds **Nodes**
+  (login access, controllers, and compute nodes) and **Partitions**.
 
-The facts describe the applied spec; a newer spec that is not applied yet shows in
-**Spec state**.
+Changing or failed lifecycle states lead with **View workflow** or **Review workflow**.
+A Change Plan waiting for approval links to **Change Plans**. An active Platform with its
+own Grafana offers **Open Platform Grafana**; **Sync**, uninstall, and record deletion remain
+available without turning the Overview into an action wall.
 
 ## Lifecycle
 

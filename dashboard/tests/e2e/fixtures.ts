@@ -1020,7 +1020,7 @@ const nfsSpecSchema = {
  * Platform, whose deploy the mock has started.
  */
 export async function expectPlatformInstallStarted(page: Page, platformId = 'platform-new') {
-  await expect(page).toHaveURL(`/platforms/${platformId}?site=site-a`)
+  await expect(page).toHaveURL(`/platforms/${platformId}/overview?site=site-a`)
   await expect(page.getByText('Platform install started')).toBeVisible()
 }
 

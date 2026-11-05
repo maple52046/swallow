@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useApp } from '@/di/AppProvider'
+import { useAMDPlatform } from './AMDModuleProvider'
 import type { GPUOperatorRelease } from '@/domain/platform/types'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 
@@ -21,7 +21,7 @@ export type GPUOperatorReleasesState =
  * earlier mount is ignored on cleanup.
  */
 export function useGPUOperatorReleases(enabled = true): { state: GPUOperatorReleasesState; reload: () => void } {
-  const { platforms } = useApp()
+  const amd = useAMDPlatform()
   const [state, setState] = useState<GPUOperatorReleasesState>({ status: 'loading' })
   const [revision, setRevision] = useState(0)
   const reload = useCallback(() => {
@@ -32,8 +32,7 @@ export function useGPUOperatorReleases(enabled = true): { state: GPUOperatorRele
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
-    platforms
-      .listGPUOperatorReleases()
+    amd.listGPUOperatorReleases()
       .then((releases) => {
         if (!cancelled) setState({ status: 'ready', releases })
       })
@@ -43,7 +42,7 @@ export function useGPUOperatorReleases(enabled = true): { state: GPUOperatorRele
     return () => {
       cancelled = true
     }
-  }, [enabled, platforms, revision])
+  }, [amd, enabled, revision])
 
   return { state, reload }
 }

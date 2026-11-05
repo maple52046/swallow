@@ -1,8 +1,7 @@
 import { useId, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
-import type { Operation } from '@/domain/operation/types'
+import type { Condition } from '@/domain/convergence/types'
 import { formatGPUDriverModuleOptions } from '@/domain/platform/gpuDriver'
-import { latestSucceededDeployment, platformLifecycleLabel, workflowFinishedAt } from '@/domain/platform/lifecycle'
+import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
 import { platformMemberCounts } from '@/domain/platform/membership'
 import { platformCurrentSpec } from '@/domain/platform/spec'
 import type { Platform } from '@/domain/platform/types'
@@ -17,11 +16,6 @@ import { describePlatformSpecState } from './platformSpecState'
 
 interface PlatformDetailsCardProps {
   platform: Platform
-  /**
-   * The Platform's related Workflows as the page loaded them (one page, newest requested first);
-   * the last deployment is looked up among them, never fetched separately.
-   */
-  operations: readonly Operation[]
   /** The module that owns the Platform's type, from the registry; undefined when none ships a UI. */
   module: PlatformModuleUI | undefined
 }
@@ -50,33 +44,29 @@ function Timestamp({ value }: { value: string }) {
   return <time dateTime={value}>{formatDateTime(value)}</time>
 }
 
-/**
- * The Platform's last deployment: when the newest succeeded deployment Workflow finished, with a
- * link to that Workflow. Without one among the loaded Workflows the words follow the lifecycle: a
- * Platform that swallow has not finished deploying is "Not deployed yet", a registered one was
- * never deployed by swallow, and one whose lifecycle proves a past deployment (active or being
- * uninstalled) deployed before the loaded history, which must not read as never deployed.
- */
-function lastDeployedValue(platform: Platform, operations: readonly Operation[], workflowHref: (id: string) => string): ReactNode {
-  const deployment = latestSucceededDeployment(operations)
-  if (deployment) {
-    const finishedAt = workflowFinishedAt(deployment)
-    return (
-      <FactValue details={[<Link to={workflowHref(deployment.id)}>View deployment workflow</Link>]}>
-        {finishedAt ? <Timestamp value={finishedAt} /> : 'Finished'}
-      </FactValue>
-    )
+/** Human-readable Condition name without assuming the backend's open type vocabulary. */
+function conditionLabel(value: string): string {
+  const words = value.replaceAll('_', ' ').replaceAll('-', ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** One controller judgement with its generation, message, and transition time kept together. */
+function conditionValue(condition: Condition): ReactNode {
+  const reason = conditionLabel(condition.reason)
+  let summary = reason
+  if (condition.type === 'drifted') {
+    if (condition.status === 'true') summary = reason === 'Drifted' ? 'Drift detected' : `Drift detected · ${reason}`
+    else if (condition.status === 'false') summary = 'In sync'
+    else summary = `Drift unknown · ${reason}`
+  } else if (condition.status === 'unknown') {
+    summary = `Unknown · ${reason}`
+  } else if (condition.type !== 'realized') {
+    summary = `${condition.status === 'true' ? 'True' : 'False'} · ${reason}`
   }
-  if (platform.origin === 'registered') return 'Not deployed by Swallow'
-  switch (platform.lifecycleState) {
-    case 'active':
-    case 'uninstalling':
-    case 'uninstall_failed':
-    case 'uninstalled':
-      return 'Not in the recent Workflow history'
-    default:
-      return 'Not deployed yet'
-  }
+  const details: ReactNode[] = []
+  if (condition.message) details.push(condition.message)
+  details.push(<>Generation {condition.observedGeneration} · Updated <Timestamp value={condition.lastTransitionTime} /></>)
+  return <FactValue details={details}>{summary}</FactValue>
 }
 
 /**
@@ -115,8 +105,9 @@ function machinePreparationFacts(platform: Platform): PlatformFact[] {
  * Platform details: the facts a user looks for first on a Platform, at the top of the Overview tab
  * below its lifecycle notices, in titled `<dl>` groups.
  *
- * - General: type, lifecycle, Site, when it was created and last deployed (linked to that
- *   Workflow), and where its spec stands (`describePlatformSpecState`).
+ * - General: type, lifecycle, Site, creation time, and where its spec stands
+ *   (`describePlatformSpecState`). Workflow history belongs to the route-owned Activity page.
+ * - Conditions: the controller's current generation-aware judgements, including drift.
  * - Deployment: topology, members, and OS preparation, from the applied spec before the desired one.
  * - The type's own facts, from the owning module's `facts` and titled with its label, so this shell
  *   never branches on a type name (architecture spec "Module UI"); a module without facts adds no group.
@@ -124,13 +115,13 @@ function machinePreparationFacts(platform: Platform): PlatformFact[] {
  *   none), and the GPU stack, plus the GRES type and driver options only when the user set them.
  *
  * The page renders it once the Platform loaded, so it has no loading or error state of its own.
- * Everything comes from the Platform record and the page's Workflows, except the Site name (the Site
- * scope's registry) and the Integration name, read once per Integration id. Both fall back to the id
+ * Everything comes from the Platform record, except the Site name (the Site scope's registry) and
+ * the Integration name, read once per Integration id. Both fall back to the id
  * while loading or when unreadable, so a failed lookup never blanks a fact. Each group is a named
  * `group` labelled by its heading, and the card is the "Platform details" region.
  */
-export function PlatformDetailsCard({ platform, operations, module }: PlatformDetailsCardProps) {
-  const { sites, scopedHref } = useSiteScope()
+export function PlatformDetailsCard({ platform, module }: PlatformDetailsCardProps) {
+  const { sites } = useSiteScope()
   const { state: integrationState } = useIntegration(platform.integrationId ?? undefined)
   const headingPrefix = useId()
   const specState = describePlatformSpecState(platform)
@@ -150,10 +141,16 @@ export function PlatformDetailsCard({ platform, operations, module }: PlatformDe
         { label: 'Lifecycle', value: platformLifecycleLabel(platform.lifecycleState) },
         { label: 'Site', value: siteName },
         { label: 'Created', value: <Timestamp value={platform.createdAt} /> },
-        { label: 'Last deployed', value: lastDeployedValue(platform, operations, (id) => scopedHref(`/workflows/${id}`)) },
         { label: 'Spec state', value: <FactValue details={specState.details}>{specState.summary}</FactValue> },
       ],
     },
+    ...(platform.status.conditions.length > 0 ? [{
+      title: 'Conditions',
+      facts: platform.status.conditions.map((condition) => ({
+        label: conditionLabel(condition.type),
+        value: conditionValue(condition),
+      })),
+    }] : []),
     {
       title: 'Deployment',
       facts: [

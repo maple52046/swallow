@@ -126,6 +126,10 @@ CPU、memory、root filesystem、network 與 load），再加上 Platform 的 GP
 Device Metrics Exporter 的 **Overview** 或 Omnistat 的 **Global - RMS**，否則是 **Servers**。管理網路上的人不必登入
 就能檢視。每次部署或重新部署都會給它新的存取憑證，從舊部署複製出來的憑證會失效。
 
+Platform workspace 的 **Monitoring** route 集中這些入口，但不內嵌 dashboard。它連到 Swallow
+usage charts、Platform Grafana、其他 Monitoring Links，以及 Omnistat 或 GPU 監控元件記錄的
+安裝狀態與 Workflow。Active Platform 的 workspace hero 也提供 **Open Platform Grafana**。
+
 - **Slurm**：Grafana 在 primary controller 上，port 3000。預設以 container 執行，因此部署會先在 primary controller
   安裝 container engine：部署在 **Container runtime** 要求的那一個，否則是 Docker CE；該 Server 已有 container engine
   時沿用它。也可選擇 native 安裝方法，改由 Grafana 的 apt／yum repository 安裝。

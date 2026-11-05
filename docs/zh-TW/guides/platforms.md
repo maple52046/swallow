@@ -135,29 +135,31 @@ scheduler capacity，也不保證 OS image 能放進 ephemeral root filesystem�
 
 Platform detail 透過 Platform API 讀取 live Slurm state，並把 node 關聯回 Server ID。
 
-## Platform details
+## Platform runtime workspace
 
-Platform 的 **Overview** 在 lifecycle 提示之下，先顯示 **Platform details**：
+開啟 `/platforms/<id>` 會保留目前 Site，並重新導向 Platform 的 **Overview**。水平 workspace
+navigation 使用真正的連結，因此 refresh、瀏覽器歷史、鍵盤操作與分享 URL 都會保留目前頁面。
 
-- **General**：類型、lifecycle、Site、Platform 建立的時間，以及最近一次成功佈署完成的時間，
-  並以 **View deployment workflow** 開啟那個 Workflow（第一次佈署前顯示 **Not deployed yet**）。
-  **Spec state** 說明目前的 spec generation 已套用、正在收斂、等待 Change Plan 核准或失敗，
-  並列出 drift。
-- **Deployment**：topology、成員 Server 的數量，以及它們的 OS 如何準備：**Provision OS** 與其
-  image、deploy mode，或 **Existing OS**。
-- **Kubernetes**：k0s version、Pod 與 Service CIDR，以及 API endpoint（high availability
-  Platform 的 virtual IP，其他則是直連 control plane 的 endpoint）。
-- **Slurm**：cluster name、slurmrestd API version、container runtime 與 MPI。Container runtime
-  也包含以 container 執行的 Platform Grafana 在 primary controller 安裝的 engine（沒有為 compute
-  node 選擇 engine 時是 Docker CE）。
-- **Integration and GPU**：Platform 的 Integration、GPU stack owner，以及你設定的 GRES type
-  與 GPU driver options。
+- **Overview** 採 summary-first：顯示 lifecycle、topology、member matching、已套用 generation、
+  sync freshness、runtime access，以及 Platform module 提供的 capabilities；不再重複完整的 OS、
+  network、driver 或 node 設定。
+- **Configuration** 顯示已套用的 specification、desired generation 與 drift、Conditions、member
+  roles、OS preparation、Integration、module settings 與 accelerator contributions。除了已有支援
+  Workflow 的 module action（例如 AMD GPU Operator 管理）之外，這一頁是唯讀的。
+- **Monitoring** 連到 Swallow usage charts、Platform Grafana、其他 Monitoring Links，以及 Omnistat
+  或 GPU 監控元件記錄的狀態與 Workflow；不在頁面內嵌 dashboard。
+- **Activity** 依新到舊列出此 Platform 的 Workflows。頁碼屬於 URL；每頁可選 5、10、15 或 20 筆。
+- Kubernetes 增加 **Applications**、**Namespaces** 與 **Cluster**；Slurm 增加 **Nodes**
+  （login access、controllers 與 compute nodes）及 **Partitions**。
 
-這些資訊描述已套用的 spec；尚未套用的較新 spec 會顯示在 **Spec state**。
-
+lifecycle 正在變更或失敗時，主要入口是 **View workflow** 或 **Review workflow**；等待核准的
+Change Plan 連到 **Change Plans**。Active 且有自己 Grafana 的 Platform 提供
+**Open Platform Grafana**；**Sync**、uninstall 與 record deletion 仍保留，但不把 Overview
+做成 action wall。
 ## Lifecycle
 
 - **Sync** refresh observed Platform membership／state。
+
 - **Uninstall** 透過 Change Plan 從原始 target 移除 swallow-deployed runtime，確認對話框就核准它：
   uninstall 立即開始，Platform 頁面顯示它正在執行（安全開關打開時改在 **Change Plans** 等待，Platform
   頁面也會說明並附上連結）。uninstall 成功後 swallow 刪除 Platform record；uninstall 失敗時保留 record

@@ -4,6 +4,7 @@ import { Redo } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Operation } from '@/domain/operation/types'
+import type { PlatformTransition } from './PlatformWorkspaceContext'
 import { platformPrimaryRemovalAction, platformUninstallAvailability } from '@/domain/platform/lifecycle'
 import type { Platform } from '@/domain/platform/types'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
@@ -47,7 +48,7 @@ interface PlatformLifecycleActionsProps {
   operation?: Operation
   targetServerIds?: readonly string[]
   /** Reloads the Platform page after an action changed the Platform here: a repair, or an uninstall that started. */
-  onChanged: () => void
+  onChanged: (transition?: PlatformTransition) => void
 }
 
 /**
@@ -183,7 +184,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
           return
         }
         setDialog(null)
-        onChanged()
+        onChanged('uninstall')
         return
       }
 

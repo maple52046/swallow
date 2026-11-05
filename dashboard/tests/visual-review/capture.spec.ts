@@ -22,8 +22,12 @@ const visualCases = [
   { name: 'monitoring-without-alerts', path: '/monitoring?site=site-a', heading: 'Monitoring', authenticated: true, representative: false },
   { name: 'monitoring-pool-charts', path: '/monitoring?site=site-a&chartScope=pool&chartScopeId=pool-research', heading: 'Monitoring', authenticated: true, representative: false },
   { name: 'server-monitoring', path: '/servers/srv-1/monitoring?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
-  { name: 'platform-detail-slurm', path: '/platforms/platform-slurm?site=site-a', heading: 'research-slurm', authenticated: true, representative: false },
-  { name: 'platform-detail-slurm-deployed', path: '/platforms/platform-slurm-ha?site=site-a', heading: 'lab-slurm-ha', authenticated: true, representative: false },
+  { name: 'platform-detail-slurm', path: '/platforms/platform-slurm/overview?site=site-a', heading: 'research-slurm', authenticated: true, representative: false },
+  { name: 'platform-detail-slurm-deployed', path: '/platforms/platform-slurm-ha/nodes?site=site-a', heading: 'lab-slurm-ha', authenticated: true, representative: false },
+  { name: 'platform-detail-slurm-overview', path: '/platforms/platform-slurm-ha/overview?site=site-a', heading: 'lab-slurm-ha', authenticated: true, representative: false },
+  { name: 'platform-detail-slurm-configuration', path: '/platforms/platform-slurm-ha/configuration?site=site-a', heading: 'lab-slurm-ha', authenticated: true, representative: false },
+  { name: 'platform-detail-slurm-monitoring', path: '/platforms/platform-slurm-ha/monitoring?site=site-a', heading: 'lab-slurm-ha', authenticated: true, representative: false },
+  { name: 'platform-detail-slurm-partitions', path: '/platforms/platform-slurm-ha/partitions?site=site-a', heading: 'lab-slurm-ha', authenticated: true, representative: false },
   { name: 'server-detail', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: true },
   { name: 'server-detail-vm-power', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
   { name: 'server-detail-vm-boot-media', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
@@ -32,7 +36,10 @@ const visualCases = [
   { name: 'server-detail-failed', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-detail-inspection-required', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-activity-releasing', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
-  { name: 'platform-detail', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
+  { name: 'platform-detail', path: '/platforms/platform-a/overview?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
+  { name: 'platform-detail-kubernetes-configuration', path: '/platforms/platform-a/configuration?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
+  { name: 'platform-detail-kubernetes-monitoring', path: '/platforms/platform-a/monitoring?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
+  { name: 'platform-detail-kubernetes-cluster', path: '/platforms/platform-a/cluster?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-detail-uninstall-waiting', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-detail-uninstall-plan-required', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-detail-uninstall-starting', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
@@ -187,12 +194,12 @@ test.describe('dashboard visual review', () => {
         ...(visualCase.name === 'platform-list' ? { slurmDeployed: true } : {}),
         // Platform details name the last deployment, so the deployed Platforms get their succeeded
         // deployment Workflows; the HA Slurm Platform's container Grafana brought Docker CE.
-        ...(visualCase.name === 'platform-detail' ? { platformDeploymentWorkflows: true } : {}),
+        ...(visualCase.name === 'platform-detail' || visualCase.name.startsWith('platform-detail-kubernetes-') ? { platformDeploymentWorkflows: true } : {}),
         // An uninstall that has not started: waiting under the safety switch, rejected, or approved.
         ...(visualCase.name === 'platform-detail-uninstall-waiting' ? { platformRemovals: { 'platform-a': 'awaiting_approval' as const } } : {}),
         ...(visualCase.name === 'platform-detail-uninstall-plan-required' ? { platformRemovals: { 'platform-a': 'plan_required' as const } } : {}),
         ...(visualCase.name === 'platform-detail-uninstall-starting' ? { platformRemovals: { 'platform-a': 'converging' as const } } : {}),
-        ...(visualCase.name === 'platform-detail-slurm-deployed' ? { slurmDeployed: true, platformDeploymentWorkflows: true } : {}),
+        ...(visualCase.name.startsWith('platform-detail-slurm-') && visualCase.name !== 'platform-detail-slurm' ? { slurmDeployed: true, platformDeploymentWorkflows: true } : {}),
       })
       await setAppearance(page, appearance)
       // The release view of basic monitoring: alerts are the one monitoring surface still in
@@ -231,6 +238,12 @@ test.describe('dashboard visual review', () => {
       }
       if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
       await capture(page, testInfo, visualCase.name)
+      if (visualCase.name.startsWith('platform-detail') && testInfo.project.name.startsWith('desktop-')) {
+        await page.setViewportSize({ width: 1280, height: 800 })
+        await expectNoHorizontalOverflow(page)
+        await capture(page, testInfo, `${visualCase.name}-1280`)
+        await page.setViewportSize({ width: 1440, height: 900 })
+      }
       // The first plan card at its real scale (names, ids, copy buttons), then the approval
       // confirmation, opened on Cancel, with its singular-or-plural destructive count.
       if (visualCase.name === 'change-plans') {
@@ -265,7 +278,7 @@ test.describe('dashboard visual review', () => {
       }
       // The uninstall notice is the first thing in the Overview; it is read at its real scale.
       if (visualCase.name.startsWith('platform-detail-uninstall-')) {
-        await page.locator('.sw-platform-overview > :first-child').first().screenshot({
+        await page.locator('.sw-platform-lifecycle-notice').first().screenshot({
           path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
         })
       }
@@ -287,24 +300,17 @@ test.describe('dashboard visual review', () => {
           path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
         })
       }
-      // Usage charts are long on a phone; one viewport from the section's top shows the header,
-      // window picker, scope pickers, and the first charts at their real scale. The Platform details
-      // card is clipped whole instead, so every group can be read at its real scale.
-      const detailsCard = visualCase.name === 'platform-detail' || visualCase.name === 'platform-detail-slurm-deployed'
+      // Usage charts are long on a phone; capture one viewport from the section's top at real scale.
       const crop = visualCase.name === 'server-monitoring' || visualCase.name === 'monitoring-pool-charts'
         ? page.locator('.sw-usage-charts')
-        : visualCase.name === 'platform-detail-slurm'
-          ? page.locator('section.sw-section').filter({ has: page.getByRole('heading', { name: 'Monitoring', exact: true }) })
-          : detailsCard
-            ? page.getByRole('region', { name: 'Platform details' })
-            : null
+        : null
       if (crop) {
         const box = await crop.boundingBox()
         const viewport = page.viewportSize()
         if (box && viewport) {
           await page.screenshot({
             path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
-            fullPage: true, clip: { x: 0, y: box.y, width: viewport.width, height: detailsCard ? box.height : Math.min(box.height, viewport.height) },
+            fullPage: true, clip: { x: 0, y: box.y, width: viewport.width, height: Math.min(box.height, viewport.height) },
           })
         }
       }
@@ -516,7 +522,7 @@ test.describe('AMD GPU Operator visual review', () => {
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'gpu-operator-wizard-review')
 
-    await page.goto('/platforms/platform-a?site=site-a')
+    await page.goto('/platforms/platform-a/configuration?site=site-a')
     const section = page.getByRole('region', { name: 'AMD GPU Operator' })
     await expect(section.getByText('Ready', { exact: true })).toBeVisible()
     await prepareCapture(page, appearance)
@@ -530,7 +536,7 @@ test.describe('AMD GPU Operator visual review', () => {
     await capture(page, testInfo, 'gpu-operator-configure-dialog', false)
     await dialog.getByRole('button', { name: 'Cancel' }).click()
 
-    await page.getByRole('tab', { name: 'Cluster' }).click()
+    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Cluster' }).click()
     await expect(page.getByText('8 × amd.com/gpu')).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
@@ -542,7 +548,7 @@ test.describe('AMD GPU Operator visual review', () => {
     await installApiFixtures(page, { withoutPlatformGPUOperator: true })
     await setAppearance(page, appearance)
 
-    await page.goto('/platforms/platform-a?site=site-a')
+    await page.goto('/platforms/platform-a/configuration?site=site-a')
     const section = page.getByRole('region', { name: 'AMD GPU Operator' })
     await section.getByRole('button', { name: 'Install' }).click()
     const dialog = page.getByRole('dialog', { name: 'Install AMD GPU Operator' })
@@ -585,9 +591,9 @@ test.describe('Kubernetes Platform Grafana visual review', () => {
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'kubernetes-grafana-review')
 
-    await page.goto('/platforms/platform-a?site=site-a')
-    const monitoring = page.getByRole('heading', { name: 'Monitoring', exact: true }).locator('xpath=ancestor::section[1]')
-    await expect(monitoring.getByRole('link', { name: 'Platform Grafana' })).toBeVisible()
+    await page.goto('/platforms/platform-a/monitoring?site=site-a')
+    const monitoring = page.getByRole('heading', { name: 'Monitoring entries', exact: true }).locator('xpath=ancestor::section[1]')
+    await expect(monitoring.getByRole('link', { name: 'Open Platform Grafana' })).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await monitoring.screenshot({ path: testInfo.outputPath(`kubernetes-grafana-monitoring-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
@@ -681,7 +687,7 @@ test.describe('Slurm Device Metrics Exporter visual review', () => {
     const mobile = testInfo.project.name.startsWith('mobile-')
     await installApiFixtures(page, { slurmDeviceMetricsExporter: true })
     await setAppearance(page, appearance)
-    await page.goto('/platforms/platform-slurm?site=site-a')
+    await page.goto('/platforms/platform-slurm/monitoring?site=site-a')
     await expect(page.getByText('GPU identity collapsed')).toBeVisible()
     await page.getByText('GPU identity collapsed').scrollIntoViewIfNeeded()
     await prepareCapture(page, appearance)
@@ -745,6 +751,7 @@ test.describe('Slurm Omnistat visual review', () => {
     await capture(page, testInfo, 'slurm-omnistat-wizard-review')
     await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
     await expectPlatformInstallStarted(page)
+    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Configuration' }).click()
     await expect(page.getByText('GPU GRES type', { exact: true })).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)

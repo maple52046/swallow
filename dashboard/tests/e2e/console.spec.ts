@@ -581,7 +581,7 @@ test.describe('user interactions', () => {
     await page.getByRole('button', { name: 'Deploy Kubernetes Platform' }).click()
     await expectPlatformInstallStarted(page)
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'View automation details' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'View workflow' })).toBeVisible()
   })
 
   test('Platform wizard deploys a Slurm platform with per-daemon node roles', async ({ page }) => {
@@ -664,8 +664,10 @@ test.describe('user interactions', () => {
     expect(deployBody?.monitoringDashboards).toBe(true)
     expect(deployBody?.gpuDriver).toEqual({ moduleOptions: { pcie_p2p: '0' } })
     expect((deployBody?.slurm as { gpuGresType?: string } | undefined)?.gpuGresType).toBe('mi308x_vf')
+    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Monitoring' }).click()
     await expect(page.getByLabel('Omnistat')).toContainText('Installing')
     await expect(page.getByLabel('Omnistat')).toContainText('installed natively')
+    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Configuration' }).click()
     await expect(page.getByText('GPU GRES type', { exact: true })).toBeVisible()
     await expect(page.getByText('mi308x_vf', { exact: true })).toBeVisible()
     await expect(page.getByText('GPU driver options', { exact: true })).toBeVisible()
@@ -724,20 +726,35 @@ test.describe('user interactions', () => {
     const slurm = deployBody?.slurm as { ociContainers?: boolean; pmix?: boolean } | undefined
     expect(slurm?.ociContainers).toBe(true)
     expect(slurm?.pmix).toBe(true)
+    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Monitoring' }).click()
     await expect(page.getByLabel('Device Metrics Exporter')).toContainText('Installing')
     await expect(page.getByLabel('Device Metrics Exporter')).not.toContainText('Platform Grafana')
+    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Configuration' }).click()
     await expect(page.getByText('Native OCI (srun --container); Docker CE on compute and login nodes', { exact: true })).toBeVisible()
   })
 
-  test('A Slurm Platform states a collapsed Device Metrics Exporter GPU identity', async ({ page }) => {
+  test('Kubernetes Monitoring includes the AMD module GPU exporter state and Workflow', async ({ page }) => {
+    await installApiFixtures(page)
+    await page.goto('/platforms/platform-a/monitoring?site=site-a')
+    const exporter = page.getByLabel('AMD Device Metrics Exporter')
+    await expect(exporter).toContainText('Not included')
+    await expect(exporter).toContainText('Not enabled in the AMD GPU Operator configuration.')
+    await expect(exporter.getByRole('link', { name: 'View workflow' }))
+      .toHaveAttribute('href', '/workflows/op-gpu-operator?site=site-a')
+  })
+
+  test('A Slurm Platform routes monitoring state and module configuration separately', async ({ page }) => {
     await installApiFixtures(page, { slurmDeviceMetricsExporter: true })
-    await page.goto('/platforms/platform-slurm?site=site-a')
+    await page.goto('/platforms/platform-slurm/monitoring?site=site-a')
     const exporter = page.getByLabel('Device Metrics Exporter')
-    await expect(exporter).toContainText('Device Metrics Exporter 1.5.3')
+    await expect(exporter).toContainText('1.5.3')
+    await expect(exporter).toContainText('Platform Grafana installed natively')
     await expect(exporter).toContainText('Ready')
-    await expect(exporter).toContainText('installed natively')
+    await expect(page.getByRole('link', { name: 'Open Platform Grafana' }))
+      .toHaveAttribute('href', 'http://10.0.0.21:3000/d/fe0ayyeeoxvy8f/overview')
+
     await expect(exporter.getByText('GPU identity collapsed')).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Platform Grafana' })).toHaveAttribute('href', 'http://10.0.0.21:3000/d/fe0ayyeeoxvy8f/overview')
+    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Configuration' }).click()
     await expect(page.getByText('OpenMPI with srun --mpi=pmix_v5', { exact: true })).toBeVisible()
   })
 
@@ -933,7 +950,7 @@ test.describe('user interactions', () => {
     await expect(deploy).toBeDisabled()
     await expect(page.getByText('Return to the incomplete deployment step before submitting.')).toHaveCount(0)
     releaseSubmit()
-    await expect(page).toHaveURL('/platforms/platform-new?site=site-a')
+    await expect(page).toHaveURL('/platforms/platform-new/overview?site=site-a')
   })
 
   test('Slurm wizard names the container engine the Platform Grafana container installs', async ({ page }) => {
@@ -1032,150 +1049,220 @@ test.describe('user interactions', () => {
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
   })
 
-  test('Headlamp language is type-aware and Slurm stays neutral', async ({ page }) => {
+  test('Platform workspace redirects the legacy URL and separates Overview, Configuration, and Activity', async ({ page }) => {
     await page.goto('/platforms/platform-a?site=site-a')
-    const kubernetesStats = page.locator('.sw-metric-grid')
-    await expect(kubernetesStats.getByText('Topology', { exact: true })).toBeVisible()
-    await expect(kubernetesStats.getByText('High availability', { exact: true })).toBeVisible()
-    await expect(kubernetesStats.getByText('Control-plane', { exact: true })).toBeVisible()
-    await expect(kubernetesStats.getByText('Workload-capable', { exact: true })).toBeVisible()
-    await expect(kubernetesStats.getByText('1 also runs workloads', { exact: true })).toBeVisible()
-    await expect(
-      page.getByRole('table', { name: 'Platform members' }).getByRole('row', { name: /gpu-node-01/ }),
-    ).toContainText('Runs workloads')
-    await expect(page.getByText(/Kubernetes membership/)).toBeVisible()
-    await page.goto('/platforms/platform-slurm?site=site-a')
-    const slurmStats = page.locator('.sw-metric-grid')
-    await expect(slurmStats.getByText('Managers')).toBeVisible()
-    await expect(slurmStats.getByText('Compute nodes')).toBeVisible()
-    // A registered Slurm platform has no live slurmrestd read, so the Slurm view degrades and
-    // never borrows Kubernetes vocabulary.
-    await expect(page.getByText('Live Slurm state is unavailable')).toBeVisible()
+    await expect(page).toHaveURL('/platforms/platform-a/overview?site=site-a')
+
+    const workspace = page.getByRole('navigation', { name: 'Platform workspace' })
+    await expect(workspace.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
+    await expect(page.getByRole('heading', { name: 'Runtime posture' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Platform details', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('table', { name: 'Platform members' })).toHaveCount(0)
+
+    await workspace.getByRole('link', { name: 'Configuration' }).click()
+    await expect(page).toHaveURL('/platforms/platform-a/configuration?site=site-a')
+    await expect(page.getByRole('heading', { name: 'Platform details', exact: true })).toBeVisible()
+
+    await workspace.getByRole('link', { name: 'Activity' }).click()
+    await expect(page).toHaveURL('/platforms/platform-a/activity?site=site-a')
+    await expect(page.getByRole('heading', { name: 'Workflow activity', exact: true })).toBeVisible()
+    await expect(page.getByRole('table', { name: 'Platform workflows' }).getByRole('link').first()).toBeVisible()
+    await page.goBack()
+    await expect(page).toHaveURL('/platforms/platform-a/configuration?site=site-a')
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(workspace).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+
+  test('Platform workspace keeps Kubernetes and Slurm language and routes type-specific', async ({ page }) => {
+    await page.goto('/platforms/platform-a/overview?site=site-a')
+    const kubernetesWorkspace = page.getByRole('navigation', { name: 'Platform workspace' })
+    await expect(page.getByRole('heading', { name: 'Cluster access' })).toBeVisible()
+    await expect(kubernetesWorkspace.getByRole('link', { name: 'Applications' })).toBeVisible()
+    await expect(kubernetesWorkspace.getByRole('link', { name: 'Nodes' })).toHaveCount(0)
+
+    await page.goto('/platforms/platform-slurm/overview?site=site-a')
+    const slurmWorkspace = page.getByRole('navigation', { name: 'Platform workspace' })
+    await expect(page.getByRole('heading', { name: 'Submission access' })).toBeVisible()
+    await expect(slurmWorkspace.getByRole('link', { name: 'Nodes' })).toBeVisible()
+    await expect(slurmWorkspace.getByRole('link', { name: 'Partitions' })).toBeVisible()
+    await expect(slurmWorkspace.getByRole('link', { name: 'Applications' })).toHaveCount(0)
     await expect(page.getByText(/Kubernetes/)).toHaveCount(0)
   })
 
-  test('Platform detail keeps its details inside Overview and Activity separate', async ({ page }) => {
-    await page.goto('/platforms/platform-a?site=site-a')
-
-    const tabList = page.getByRole('tablist')
-    const details = page.getByRole('heading', { name: 'Platform details', exact: true })
-    await expect(tabList).toBeVisible()
-    await expect(details).toBeVisible()
-    // The details card leads the Overview content, before the module's summary and members.
-    await expect(page.getByRole('heading', { name: 'Members', exact: true })).toBeVisible()
-
-    const tabBounds = await tabList.boundingBox()
-    const detailsBounds = await details.boundingBox()
-    const membersBounds = await page.getByRole('heading', { name: 'Members', exact: true }).boundingBox()
-    expect(tabBounds).not.toBeNull()
-    expect(detailsBounds).not.toBeNull()
-    expect(membersBounds).not.toBeNull()
-    expect(tabBounds!.y).toBeLessThan(detailsBounds!.y)
-    expect(detailsBounds!.y).toBeLessThan(membersBounds!.y)
-
-    await page.getByRole('tab', { name: 'Activity' }).click()
-    await expect(details).toBeHidden()
-    await expect(page.getByRole('heading', { name: 'Related workflows', exact: true })).toBeVisible()
-
-    await page.getByRole('tab', { name: 'Overview' }).click()
-    await expect(details).toBeVisible()
-
-    await page.setViewportSize({ width: 390, height: 844 })
-    const memberCard = page.locator('.sw-resource-card').filter({ hasText: 'gpu-node-01' })
-    await expect(memberCard).toBeVisible()
-    await expect(memberCard.getByRole('button', { name: 'Open server' })).toBeVisible()
-    await expect(page.getByRole('table', { name: 'Platform members' })).toBeHidden()
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-
-    await page.getByRole('tab', { name: 'Activity' }).click()
-    await expect(page.getByRole('button', { name: 'Open workflow' }).first()).toBeVisible()
-  })
-
-  test('deployed Slurm platform shows the Slurm-native cluster view (controllers, partitions, node states)', async ({ page }) => {
-    // The Slurm view reads live cluster state from slurmrestd: controllers via ping, partitions,
-    // and compute node scheduler state - each in its own section, not the k0s member table.
+  test('deployed Slurm platform separates nodes and partitions into native routes', async ({ page }) => {
     await installApiFixtures(page, { slurmDeployed: true })
-    await page.goto('/platforms/platform-slurm-ha?site=site-a')
+    await page.goto('/platforms/platform-slurm-ha/nodes?site=site-a')
 
     const stats = page.locator('.sw-metric-grid')
     await expect(stats.locator('.sw-metric-card').filter({ hasText: 'Managers' })).toContainText('2')
     await expect(stats.locator('.sw-metric-card').filter({ hasText: 'Compute nodes' })).toContainText('2')
-
-    // Controllers come from slurmrestd ping with a real up/down status, in failover order.
     const controllers = page.getByRole('table', { name: 'Slurm controllers' })
-    const primaryRow = controllers.getByRole('row', { name: /slurm-ctl-01/ })
-    await expect(primaryRow).toContainText('primary')
-    await expect(primaryRow).toContainText('up')
+    await expect(controllers.getByRole('row', { name: /slurm-ctl-01/ })).toContainText('primary')
     await expect(controllers.getByRole('row', { name: /slurm-ctl-02/ })).toContainText('backup')
-
-    // Partitions are a first-class Slurm concept, shown in their own section.
-    await expect(page.getByRole('table', { name: 'Slurm partitions' }).getByRole('row', { name: /main/ })).toBeVisible()
-
-    // Compute nodes show the real Slurm scheduler state; health/power is never conflated in.
     const nodes = page.getByRole('table', { name: 'Slurm compute nodes' })
     await expect(nodes.getByRole('row', { name: /slurm-cpt-01/ })).toContainText('idle')
     await expect(nodes.getByRole('row', { name: /slurm-cpt-02/ })).toContainText('allocated')
-    await expect(nodes.getByRole('row', { name: /slurm-cpt-01/ })).not.toContainText('host on')
+    await expect(page.getByRole('table', { name: 'Slurm partitions' })).toHaveCount(0)
+
+    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Partitions' }).click()
+    await expect(page).toHaveURL('/platforms/platform-slurm-ha/partitions?site=site-a')
+    await expect(page.getByRole('table', { name: 'Slurm partitions' }).getByRole('row', { name: /main/ })).toBeVisible()
   })
 
-  test('deployed Kubernetes platform exposes the live cluster explorer (applications, namespaces, cluster)', async ({ page }) => {
-    await page.goto('/platforms/platform-a?site=site-a')
-
-    // The explorer tabs appear only for a swallow-deployed Kubernetes platform with a credential.
-    await expect(page.getByRole('tab', { name: 'Applications' })).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Namespaces' })).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Cluster' })).toBeVisible()
-
-    // Applications aggregate workloads and bare pods from the live cluster.
-    await page.getByRole('tab', { name: 'Applications' }).click()
+  test('deployed Kubernetes platform exposes route-based applications, namespaces, and cluster management', async ({ page }) => {
+    await page.goto('/platforms/platform-a/applications?site=site-a')
     const applications = page.getByRole('table', { name: 'Kubernetes applications' })
     await expect(applications.getByRole('row', { name: /nginx/ })).toContainText('Deployment')
     await expect(applications.getByRole('row', { name: /debug/ })).toContainText('Pod')
 
-    // Cluster tab shows the live summary and node table with cordon controls.
-    await page.getByRole('tab', { name: 'Cluster' }).click()
-    await expect(page.locator('.sw-metric-grid').getByText('Version', { exact: true })).toBeVisible()
+    const workspace = page.getByRole('navigation', { name: 'Platform workspace' })
+    await workspace.getByRole('link', { name: 'Cluster' }).click()
+    await expect(page).toHaveURL('/platforms/platform-a/cluster?site=site-a')
     const nodes = page.getByRole('table', { name: 'Kubernetes nodes' })
     await expect(nodes.getByRole('row', { name: /gpu-node-01/ })).toContainText('control-plane')
     await expect(nodes.getByRole('row', { name: /gpu-node-02/ }).getByRole('button', { name: 'Cordon' })).toBeVisible()
 
-    // Namespaces flag system namespaces and block their deletion.
-    await page.getByRole('tab', { name: 'Namespaces' }).click()
-    const namespaces = page.getByRole('table', { name: 'Kubernetes namespaces' })
-    const systemRow = namespaces.getByRole('row', { name: /kube-system/ })
+    await workspace.getByRole('link', { name: 'Namespaces' }).click()
+    const systemRow = page.getByRole('table', { name: 'Kubernetes namespaces' }).getByRole('row', { name: /kube-system/ })
     await expect(systemRow.getByRole('button', { name: 'Delete' })).toBeDisabled()
   })
 
-  test('a workload the cluster reports missing is an error in the logs dialog, not an unavailable explorer', async ({ page }) => {
+  test('a missing Kubernetes workload remains a route-local diagnostic error', async ({ page }) => {
     await page.route('**/api/v1/platforms/platform-a/kubernetes/applications/web/Deployment/nginx', (route) =>
       route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'not_found', message: 'deployments.apps "nginx" not found' } }) }),
     )
-    await page.goto('/platforms/platform-a?site=site-a')
-    await page.getByRole('tab', { name: 'Applications' }).click()
+    await page.goto('/platforms/platform-a/applications?site=site-a')
     await page.getByRole('table', { name: 'Kubernetes applications' }).getByRole('row', { name: /nginx/ }).getByRole('button', { name: 'Logs' }).click()
-
     const dialog = page.getByRole('dialog', { name: 'Logs — nginx' })
     await expect(dialog).toContainText('deployments.apps "nginx" not found')
     await expect(dialog).not.toContainText('Cluster explorer is unavailable')
   })
 
-  test('registered platform hides the Kubernetes cluster explorer', async ({ page }) => {
-    // research-slurm is a Slurm platform, and platform-b is a deploy-failed Kubernetes platform
-    // with no credential; neither is an eligible deployed Kubernetes cluster, so the explorer
-    // tabs must not appear.
-    await page.goto('/platforms/platform-b?site=site-a')
-    await expect(page.getByRole('tab', { name: 'Applications' })).toHaveCount(0)
-    await expect(page.getByRole('tab', { name: 'Cluster' })).toHaveCount(0)
+  test('registered or unreachable Kubernetes records do not expose live explorer routes', async ({ page }) => {
+    await page.goto('/platforms/platform-b/overview?site=site-a')
+    const workspace = page.getByRole('navigation', { name: 'Platform workspace' })
+    await expect(workspace.getByRole('link', { name: 'Applications' })).toHaveCount(0)
+    await expect(workspace.getByRole('link', { name: 'Cluster' })).toHaveCount(0)
+    await page.goto('/platforms/platform-b/applications?site=site-a')
+    await expect(page.getByRole('heading', { name: 'Workspace page not found' })).toBeVisible()
   })
 
-  test('standalone Platform summary shows one control-plane is workload-capable', async ({ page }) => {
-    await page.goto('/platforms/platform-b?site=site-a')
-    const stats = page.locator('.sw-metric-grid')
-    await expect(stats.locator('.sw-metric-card').filter({ hasText: 'Topology' })).toContainText('Standalone')
-    await expect(stats.locator('.sw-metric-card').filter({ hasText: 'Control-plane' }))
-      .toContainText('1 also runs workloads')
-    await expect(stats.locator('.sw-metric-card').filter({ hasText: 'Workload-capable' }))
-      .toContainText('1')
+  test('Overview presents standalone topology without repeating the complete configuration', async ({ page }) => {
+    await page.goto('/platforms/platform-b/overview?site=site-a')
+    const posture = page.getByRole('heading', { name: 'Runtime posture' }).locator('..').locator('..')
+    await expect(posture).toContainText('Standalone')
+    await expect(page.getByRole('heading', { name: 'Platform details', exact: true })).toHaveCount(0)
+    await expect(page.getByText('Pod CIDR', { exact: true })).toHaveCount(0)
+  })
+
+  test('Activity corrects an out-of-range page and keeps the shared rows selector', async ({ page }) => {
+    await page.goto('/platforms/platform-a/activity?page=99&site=site-a')
+    await expect(page).toHaveURL('/platforms/platform-a/activity?site=site-a')
+    await expect(page.getByLabel('Workflow rows per page')).toContainText('10 rows')
+    await expect(page.getByRole('table', { name: 'Platform workflows' }).getByRole('link').first()).toBeVisible()
+  })
+
+  test('Overview keeps durable posture visible when the member projection fails', async ({ page }) => {
+    await page.route('**/api/v1/servers*', async (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname !== '/api/v1/servers' || url.searchParams.get('platformId') !== 'platform-a') {
+        await route.fallback()
+        return
+      }
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: {
+          code: 'provider_unavailable',
+          message: 'Member projection unavailable.',
+          requestId: 'req-platform-members',
+        } }),
+      })
+    })
+
+    await page.goto('/platforms/platform-a/overview?site=site-a')
+    await expect(page.getByRole('heading', { name: 'Runtime posture' })).toBeVisible()
+    await expect(page.getByText('Platform members could not be loaded')).toBeVisible()
+    await expect(page.getByText(/req-platform-members/)).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+  })
+
+  test('Activity reports its own failure without replacing the Platform workspace', async ({ page }) => {
+    await page.route('**/api/v1/workflows*', async (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname !== '/api/v1/workflows' || url.searchParams.get('platformId') !== 'platform-a') {
+        await route.fallback()
+        return
+      }
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: {
+          code: 'provider_unavailable',
+          message: 'Workflow history unavailable.',
+          requestId: 'req-platform-activity',
+        } }),
+      })
+    })
+
+    await page.goto('/platforms/platform-a/activity?site=site-a')
+    await expect(page.getByRole('heading', { name: 'production-k0s' })).toBeVisible()
+    await expect(page.getByText('Workflow history unavailable.')).toBeVisible()
+    await expect(page.getByText('Request ID: req-platform-activity')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+  })
+
+  test('Slurm nodes preserve resolved Servers and expose a partial lookup failure', async ({ page }) => {
+    await installApiFixtures(page, { slurmDeployed: true })
+    await page.route('**/api/v1/servers/slurm-ctl-2', (route) => route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: {
+        code: 'provider_unavailable',
+        message: 'Controller inventory unavailable.',
+        requestId: 'req-platform-controller',
+      } }),
+    }))
+
+    await page.goto('/platforms/platform-slurm-ha/nodes?site=site-a')
+    await expect(page.getByText('Some Platform Servers could not be resolved')).toBeVisible()
+    await expect(page.getByText(/req-platform-controller/)).toBeVisible()
+    await expect(page.getByRole('table', { name: 'Slurm controllers' }).getByRole('row', { name: /slurm-ctl-01/ })).toBeVisible()
+    await expect(page.getByRole('table', { name: 'Slurm compute nodes' }).getByRole('row', { name: /slurm-cpt-01/ })).toBeVisible()
+  })
+
+  test('Slurm live refresh preserves last-good cluster state and keeps retrying', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-08-27T03:05:00Z') })
+    await installApiFixtures(page, { slurmDeployed: true })
+    let requests = 0
+    await page.route('**/api/v1/platforms/platform-slurm-ha/slurm', async (route) => {
+      requests += 1
+      if (requests === 1) {
+        await route.fallback()
+        return
+      }
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: {
+          code: 'provider_unavailable',
+          message: 'slurmrestd is temporarily unavailable.',
+          requestId: 'req-slurm-refresh',
+        } }),
+      })
+    })
+
+    await page.goto('/platforms/platform-slurm-ha/nodes?site=site-a')
+    const nodes = page.getByRole('table', { name: 'Slurm compute nodes' })
+    await expect(nodes.getByRole('row', { name: /slurm-cpt-01/ })).toContainText('idle')
+    await page.clock.fastForward(15000)
+    await expect.poll(() => requests).toBe(2)
+    await expect(page.getByText('Live Slurm state could not be refreshed')).toBeVisible()
+    await expect(page.getByText(/req-slurm-refresh/)).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+    await expect(nodes.getByRole('row', { name: /slurm-cpt-01/ })).toContainText('idle')
   })
 
   test('Platform list behaves as a PaaS runtime control plane', async ({ page }) => {
@@ -1255,15 +1342,17 @@ test.describe('user interactions', () => {
     await expect(table.getByRole('row', { name: /lab-slurm-ha/ })).toContainText('4 / 4')
     // k0s reports its controllers itself, so nothing is added to its counts.
     await expect(table.getByRole('row', { name: /production-k0s/ })).toContainText('4 / 5')
+    await page.goto('/platforms/platform-slurm-ha/overview?site=site-a')
+    await expect(page.getByText('Slurm runtime · 4 of 4 members matched')).toBeVisible()
+    await expect(page.getByText('4 matched · 4 total')).toBeVisible()
   })
 
   test('failed Platform repairs from its detail workflow and remains in lifecycle progress', async ({ page }) => {
     await page.goto('/platforms/platform-b?site=site-a')
-    await expect(page.getByText('Platform deployment failed')).toBeVisible()
-    await expect(page.getByText(/no provider address was observed/)).toBeVisible()
-    await expect(page.getByText(/Platform installation did not start/)).toBeVisible()
+    await expect(page.getByText('Platform lifecycle needs review')).toBeVisible()
+    await expect(page.getByText('Deployment failed', { exact: true })).toBeVisible()
 
-    await page.getByRole('button', { name: 'View automation details' }).click()
+    await page.getByRole('link', { name: 'Review workflow' }).click()
     await expect(page).toHaveURL('/workflows/op-deploy-failed?site=site-a')
     await expect(page.getByText('Dashboard could not render this page')).toHaveCount(0)
     await page.getByRole('tab', { name: 'Artifacts' }).click()
@@ -1279,14 +1368,14 @@ test.describe('user interactions', () => {
 
     await dialog.getByRole('button', { name: 'Repair deployment' }).click()
 
-    await expect(page).toHaveURL('/platforms/platform-b?site=site-a')
+    await expect(page).toHaveURL('/platforms/platform-b/overview?site=site-a')
     await expect(page.getByText('Platform repair started')).toBeVisible()
     await expect(page.getByText(/Provision and verify operating system on srv-4 will retry in Operation op-deploy-failed/)).toBeVisible()
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
     await expect(page.getByText('Deployment failed')).toHaveCount(0)
-    await page.getByRole('tab', { name: 'Activity' }).click()
+    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Activity' }).click()
     await expect(
-      page.getByRole('table', { name: 'Related workflows' })
+      page.getByRole('table', { name: 'Platform workflows' })
         .getByRole('row', { name: /Deploy edge-staging k0s platform/ })
         .first(),
     ).toContainText('running')
@@ -1309,7 +1398,7 @@ test.describe('user interactions', () => {
     // it must not require deleting the Platform.
     await installApiFixtures(page, { deployExecutionLost: true })
     await page.goto('/platforms/platform-b?site=site-a')
-    await expect(page.getByText('Platform deployment failed')).toBeVisible()
+    await expect(page.getByText('Platform lifecycle needs review')).toBeVisible()
 
     await page.getByRole('button', { name: 'Repair deployment' }).click()
     const dialog = page.getByRole('dialog', { name: 'Repair platform deployment' })
@@ -1411,7 +1500,7 @@ test.describe('user interactions', () => {
 
     // The confirmed dialog approved the plan with the request, so nothing waits in Change Plans.
     await expect(dialog).toBeHidden()
-    await expect(page).toHaveURL('/platforms/platform-a?site=site-a')
+    await expect(page).toHaveURL('/platforms/platform-a/overview?site=site-a')
     await expect(page.getByText('Uninstall started')).toBeVisible()
     await expect(page.getByText('Swallow is removing platform software from 3 original deployment targets. The Swallow record is deleted after the uninstall succeeds.')).toBeVisible()
     await expect(page.getByText('Platform uninstall is running')).toBeVisible()
@@ -1441,6 +1530,7 @@ test.describe('user interactions', () => {
     await dialog.getByRole('button', { name: 'Uninstall', exact: true }).click()
 
     await expect(page.getByText('Uninstall started')).toBeVisible()
+    await expect(page.getByText('Uninstall is starting', { exact: true })).toBeVisible()
     await expect(page.getByText('Platform uninstall is running')).toBeVisible({ timeout: 12_000 })
   })
 
@@ -1462,7 +1552,7 @@ test.describe('user interactions', () => {
   test('An uninstalled Platform offers only the record-only Delete', async ({ page }) => {
     await installApiFixtures(page, { platformLifecycleStates: { 'platform-a': 'uninstalled' } })
     await page.goto('/platforms/platform-a?site=site-a')
-    await expect(page.getByText(/Use Delete platform above to permanently delete the record/)).toBeVisible()
+    await expect(page.getByText('Platform is uninstalled', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'More removal options' })).toHaveCount(0)
     await page.getByRole('button', { name: 'Delete platform', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Delete platform record' })
@@ -1514,7 +1604,7 @@ test.describe('user interactions', () => {
     }
     releaseProposal()
 
-    await expect(page).toHaveURL('/platforms/platform-a?site=site-a')
+    await expect(page).toHaveURL('/platforms/platform-a/overview?site=site-a')
     await expect(page.getByText('Server release started')).toBeVisible()
     // The plan's effect records what the release does.
     await page.goto('/change-plans?site=site-a')
@@ -1561,7 +1651,7 @@ test.describe('user interactions', () => {
     await release.click()
 
     await expect(releaseDialog).toBeHidden({ timeout: 2_000 })
-    await expect(page).toHaveURL('/platforms/platform-b?site=site-a')
+    await expect(page).toHaveURL('/platforms/platform-b/overview?site=site-a')
     expect(uninstalls).toEqual([{ platformId: 'platform-b', body: expect.objectContaining({ releaseServers: true, cancelActiveWorkflows: true }) }])
     expect(superseded).toEqual(['op-deploy-failed'])
     expect(browserCancels).toEqual([])
@@ -1581,7 +1671,7 @@ test.describe('user interactions', () => {
     await dialog.getByLabel('Cancel these workflows, then uninstall').locator('..').click()
     await uninstall.click()
 
-    await expect(page).toHaveURL('/platforms/platform-a?site=site-a')
+    await expect(page).toHaveURL('/platforms/platform-a/overview?site=site-a')
     await expect(page.getByText('Uninstall started')).toBeVisible()
     await expect(page.getByText('Platform deleted')).toHaveCount(0)
     await expect(page.getByText('Platform uninstall is running')).toBeVisible()
@@ -1622,7 +1712,7 @@ test.describe('user interactions', () => {
     await expect(plans.filter({ hasText: 'Superseded' }).filter({ hasText: 'the spec changed to generation 3' })).toHaveCount(1)
 
     await page.goto('/platforms/platform-a?site=site-a')
-    await page.getByRole('button', { name: 'Open Change Plans' }).click()
+    await page.getByRole('link', { name: 'Open Change Plans' }).click()
     await expect(page).toHaveURL('/change-plans?site=site-a')
   })
 
@@ -1653,7 +1743,7 @@ test.describe('user interactions', () => {
 
     await page.goto('/platforms/platform-a?site=site-a')
     await uninstallOnce()
-    await expect(page).toHaveURL('/platforms/platform-a?site=site-a')
+    await expect(page).toHaveURL('/platforms/platform-a/overview?site=site-a')
     await expect(page.getByText('Uninstall started')).toBeVisible()
     await expect(page.getByText('Platform uninstall is running')).toBeVisible()
   })
@@ -1674,7 +1764,7 @@ test.describe('user interactions', () => {
 
     await expect(dialog).toBeHidden()
     await expect(page.getByText('Uninstall is already running')).toBeVisible()
-    await expect(page).toHaveURL('/platforms/platform-a?site=site-a')
+    await expect(page).toHaveURL('/platforms/platform-a/overview?site=site-a')
     await expect(page.getByText('Platform deleted')).toHaveCount(0)
   })
 

@@ -65,7 +65,7 @@ import type {
 import type { SoftwareOperationReference } from '@/domain/software/types'
 import type { ItemsEnvelope as DockerItemsEnvelope } from './ApiDockerHostRepository'
 import type { MetricRangeDto } from './ApiMonitoringRepository'
-import type { PlatformSpecWrite } from './ApiPlatformRepository'
+import type { PlatformSpecWrite } from '@/application/platform/platformChangeResult'
 import type { PowerConfigurationDTO } from './ApiServerRepository'
 import type {
   ItemsEnvelope as SoftwareItemsEnvelope,

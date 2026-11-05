@@ -523,7 +523,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
         description: `Swallow is building ${name.trim()}. Its page shows the deployment as it runs.`,
         tone: 'success',
       })
-      navigate(scopedHref(`/platforms/${encodeURIComponent(created.platformId)}`))
+      navigate(scopedHref(`/platforms/${encodeURIComponent(created.platformId)}/overview`), { state: { platformTransition: 'install' } })
     } catch (error) {
       form.refresh?.()
       setCandidateRevision((current) => current + 1)

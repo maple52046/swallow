@@ -10,7 +10,7 @@ import type { Server } from '@/domain/server/types'
  */
 
 /** What the Platform detail shell hands the module that owns a Platform's type. */
-export interface PlatformOverviewProps {
+export interface PlatformAccessProps {
   platform: Platform
   /** Servers that report membership in the Platform. */
   members: Server[]
@@ -23,17 +23,23 @@ export interface PlatformOverviewProps {
 /** What a module tab receives from the Platform detail shell. */
 export interface PlatformTabProps {
   platform: Platform
+  /** Members loaded only while a native route is active; Kubernetes explorer routes ignore them. */
+  members: Server[]
+  /** Slurm submission hosts, which are not membership rows. */
+  loginNodes: Server[]
   /** Opens a Server's detail page by id. */
   onOpenServer: (serverId: string) => void
 }
 
-/** A tab a Platform module adds next to the shell's Overview and Activity tabs. */
+/** A native workspace route a Platform module adds to the shared routes. */
 export interface PlatformModuleTab {
   /** Stable tab value; also the tab's accessible identity within the tab list. */
   value: string
   label: string
   /** Whether the tab applies to this Platform, so a tab never makes a call that can only fail. */
   available: (platform: Platform) => boolean
+  /** Loads Platform member and login-node projections only while this route is active. */
+  requiresMembers?: boolean
   Content: ComponentType<PlatformTabProps>
 }
 
@@ -47,7 +53,7 @@ export interface PlatformFact {
   value: ReactNode
 }
 
-/** What a section another module contributes to a Platform's Overview receives. */
+/** What a module-owned Configuration section receives from the shared workspace. */
 export interface PlatformSectionProps {
   platform: Platform
   members: Server[]
@@ -57,7 +63,7 @@ export interface PlatformSectionProps {
   onOpenWorkflow: (workflowId: string) => void
 }
 
-/** A section a module adds to the Overview of Platforms of one type, for example a GPU feature. */
+/** A section another module adds to Configuration for one Platform type. */
 export interface PlatformSectionContribution {
   platformType: PlatformType
   Section: ComponentType<PlatformSectionProps>
@@ -177,18 +183,49 @@ export interface PlatformDeployUI {
   useForm: (context: PlatformDeployContext) => PlatformDeployForm
 }
 
+/** One monitoring component rendered by the module-neutral Monitoring route. */
+export interface PlatformMonitoringEntry {
+  name: string
+  state: string
+  /** Human-readable state; the raw state remains available for colour semantics. */
+  statusLabel?: string
+  detail: string
+  workflowId: string | null
+  /** A Server that hosts this component, when the module records one. */
+  serverId?: string
+  /** Diagnostic warning that remains attached to this component, not the whole Platform. */
+  warning?: { title: string; message: string }
+}
+
+/** Monitoring entries another module contributes to one Platform type. */
+export interface PlatformMonitoringContribution {
+  platformType: PlatformType
+  /** Pure presentation projection from the canonical Platform record. */
+  entries: (platform: Platform) => PlatformMonitoringEntry[]
+}
+
 /** The manifest of a Platform module (Kubernetes, Slurm). */
 export interface PlatformModuleUI {
   kind: 'platform'
   /** The Platform type the module owns; equal to the api-server module id. */
   id: PlatformType
   label: string
+  /** Monoline identity used by the shared workspace hero and deployment catalog. */
+  icon: ComponentType<{ size?: number }>
+  capabilities: readonly string[]
   /** Chakra colour palette of the type badge; the badge text carries the type itself. */
   badgePalette: string
-  /** The type's Overview body: its summary, members, and live reads. */
-  Overview: ComponentType<PlatformOverviewProps>
+  /** Compact type-specific access contribution used by the shared summary-first Overview. */
+  Access: ComponentType<PlatformAccessProps>
+  /** Native routes owned by this Platform module. */
   tabs: PlatformModuleTab[]
+  /** Type-specific sections appended to the shared Configuration route. */
+  configurationSections?: ComponentType<PlatformSectionProps>[]
+  /** Type-specific component state exposed by the shared Monitoring route. */
+  monitoringEntries?: (platform: Platform) => PlatformMonitoringEntry[]
   deploy: PlatformDeployUI
+  /** Optional global settings surface owned by this Platform module. */
+  Settings?: ComponentType
   /**
    * The type's own facts for the Platform details card, which the shell shows in a group titled
    * with `label`, after its type-neutral General and Deployment facts (for example the k0s version
@@ -205,6 +242,7 @@ export interface AcceleratorModuleUI {
   kind: 'accelerator'
   id: string
   label: string
-  platformSections: PlatformSectionContribution[]
+  configurationSections: PlatformSectionContribution[]
+  monitoringEntries: PlatformMonitoringContribution[]
   deployFeatures: PlatformDeployFeatureContribution[]
 }

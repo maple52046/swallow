@@ -7,7 +7,7 @@ import type {
   KubernetesNamespace,
   KubernetesNode,
 } from '@/domain/platform/kubernetes'
-import { useApp } from '@/di/AppProvider'
+import { useKubernetesExplorer } from './KubernetesModuleProvider'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
@@ -23,10 +23,10 @@ import { AsyncSection as SharedAsyncSection } from '@/presentation/components/As
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 
 /**
- * The live Kubernetes cluster explorer, rendered as Platform-detail tabs for a swallow-deployed
+ * The live Kubernetes cluster explorer, rendered as module-owned workspace routes for a deployed
  * Kubernetes Platform. Every read and write goes to the deployed cluster's own API on demand
- * and persists nothing (decision 032). The tabs are shown only when the Platform is eligible
- * (see `explorerEnabled` in PlatformDetailPage), so these components assume eligibility and
+ * and persists nothing (decision 032). The routes are shown only when the Platform is eligible
+ * (see the module manifest's `available` predicate), so these components assume eligibility and
  * treat any eligibility API error as an unavailable-degrade rather than a routine state.
  */
 
@@ -61,22 +61,22 @@ function nodeGPUSummary(node: KubernetesNode): string {
 
 /** Summary metrics and the node table with cordon/uncordon actions. */
 export function KubernetesClusterTab({ platform, onOpenServer }: { platform: Platform; onOpenServer: (serverId: string) => void }) {
-  const { platforms } = useApp()
-  const summary = useAsyncData(() => platforms.kubernetes.summary(platform.id), [platform.id])
-  const nodes = useAsyncData(() => platforms.kubernetes.listNodes(platform.id), [platform.id])
+  const kubernetes = useKubernetesExplorer()
+  const summary = useAsyncData(() => kubernetes.summary(platform.id), [platform.id])
+  const nodes = useAsyncData(() => kubernetes.listNodes(platform.id), [platform.id])
   const { showToast } = useToast()
 
   const toggleCordon = useCallback(
     async (node: KubernetesNode) => {
       try {
-        await platforms.kubernetes.setNodeSchedulable(platform.id, node.name, node.unschedulable)
+        await kubernetes.setNodeSchedulable(platform.id, node.name, node.unschedulable)
         showToast({ tone: 'success', title: node.unschedulable ? 'Node uncordoned' : 'Node cordoned', description: node.name })
         nodes.reload()
       } catch (error) {
         showToast({ tone: 'error', title: 'Action failed', description: failureText(failureOf(error, 'Could not update the node.')) })
       }
     },
-    [platforms, platform.id, showToast, nodes],
+    [kubernetes, platform.id, showToast, nodes],
   )
 
   return (
@@ -174,8 +174,8 @@ export function KubernetesClusterTab({ platform, onOpenServer }: { platform: Pla
 
 /** Namespace list with create and delete; system namespaces are visually flagged. */
 export function KubernetesNamespacesTab({ platform }: { platform: Platform }) {
-  const { platforms } = useApp()
-  const namespaces = useAsyncData(() => platforms.kubernetes.listNamespaces(platform.id), [platform.id])
+  const kubernetes = useKubernetesExplorer()
+  const namespaces = useAsyncData(() => kubernetes.listNamespaces(platform.id), [platform.id])
   const { showToast } = useToast()
   const [creating, setCreating] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<KubernetesNamespace | null>(null)
@@ -183,7 +183,7 @@ export function KubernetesNamespacesTab({ platform }: { platform: Platform }) {
   const remove = useCallback(async () => {
     if (!pendingDelete) return
     try {
-      await platforms.kubernetes.deleteNamespace(platform.id, pendingDelete.name)
+      await kubernetes.deleteNamespace(platform.id, pendingDelete.name)
       showToast({ tone: 'success', title: 'Namespace deleted', description: pendingDelete.name })
       namespaces.reload()
     } catch (error) {
@@ -191,7 +191,7 @@ export function KubernetesNamespacesTab({ platform }: { platform: Platform }) {
     } finally {
       setPendingDelete(null)
     }
-  }, [platforms, platform.id, pendingDelete, showToast, namespaces])
+  }, [kubernetes, platform.id, pendingDelete, showToast, namespaces])
 
   return (
     <section className="sw-section">
@@ -275,7 +275,7 @@ export function KubernetesNamespacesTab({ platform }: { platform: Platform }) {
 
 /** Create-namespace form dialog. */
 function CreateNamespaceDialog({ platformId, onClose, onCreated }: { platformId: string; onClose: () => void; onCreated: () => void }) {
-  const { platforms } = useApp()
+  const kubernetes = useKubernetesExplorer()
   const { showToast } = useToast()
   const [name, setName] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -286,7 +286,7 @@ function CreateNamespaceDialog({ platformId, onClose, onCreated }: { platformId:
     setSubmitting(true)
     setError(null)
     try {
-      await platforms.kubernetes.createNamespace(platformId, name.trim())
+      await kubernetes.createNamespace(platformId, name.trim())
       showToast({ tone: 'success', title: 'Namespace created', description: name.trim() })
       onCreated()
     } catch (caught) {
@@ -337,10 +337,10 @@ function CreateNamespaceDialog({ platformId, onClose, onCreated }: { platformId:
 
 /** Application list with namespace filter and per-row scale/restart/delete/logs actions. */
 export function KubernetesApplicationsTab({ platform }: { platform: Platform }) {
-  const { platforms } = useApp()
+  const kubernetes = useKubernetesExplorer()
   const [namespace, setNamespace] = useState('')
   const applications = useAsyncData(
-    () => platforms.kubernetes.listApplications(platform.id, namespace || undefined),
+    () => kubernetes.listApplications(platform.id, namespace || undefined),
     [platform.id, namespace],
   )
   const { showToast } = useToast()
@@ -351,10 +351,10 @@ export function KubernetesApplicationsTab({ platform }: { platform: Platform }) 
     async (verb: 'restart' | 'delete', app: KubernetesApplication) => {
       try {
         if (verb === 'restart') {
-          await platforms.kubernetes.restartApplication(platform.id, app.namespace, app.kind, app.name)
+          await kubernetes.restartApplication(platform.id, app.namespace, app.kind, app.name)
           showToast({ tone: 'success', title: 'Restart triggered', description: `${app.kind}/${app.name}` })
         } else {
-          await platforms.kubernetes.deleteApplication(platform.id, app.namespace, app.kind, app.name)
+          await kubernetes.deleteApplication(platform.id, app.namespace, app.kind, app.name)
           showToast({ tone: 'success', title: 'Application deleted', description: `${app.kind}/${app.name}` })
         }
         applications.reload()
@@ -362,20 +362,20 @@ export function KubernetesApplicationsTab({ platform }: { platform: Platform }) 
         showToast({ tone: 'error', title: 'Action failed', description: failureText(failureOf(error, 'The action failed.')) })
       }
     },
-    [platforms, platform.id, showToast, applications],
+    [kubernetes, platform.id, showToast, applications],
   )
 
   const scale = useCallback(
     async (app: KubernetesApplication, replicas: number) => {
       try {
-        await platforms.kubernetes.scaleApplication(platform.id, app.namespace, app.kind, app.name, replicas)
+        await kubernetes.scaleApplication(platform.id, app.namespace, app.kind, app.name, replicas)
         showToast({ tone: 'success', title: 'Scaled', description: `${app.kind}/${app.name} to ${replicas}` })
         applications.reload()
       } catch (error) {
         showToast({ tone: 'error', title: 'Scale failed', description: failureText(failureOf(error, 'Could not scale.')) })
       }
     },
-    [platforms, platform.id, showToast, applications],
+    [kubernetes, platform.id, showToast, applications],
   )
 
   return (
@@ -523,13 +523,13 @@ function ApplicationRow({
 
 /** Shows a pod's log snapshot; picks the application's first pod. */
 function PodLogsDialog({ platform, app, onClose }: { platform: Platform; app: KubernetesApplication; onClose: () => void }) {
-  const { platforms } = useApp()
+  const kubernetes = useKubernetesExplorer()
   const logs = useAsyncData(async () => {
     // The application list carries no pods; fetch the detail to find a pod to read logs from.
-    const detail = app.kind === 'Pod' ? app : await platforms.kubernetes.getApplication(platform.id, app.namespace, app.kind, app.name)
+    const detail = app.kind === 'Pod' ? app : await kubernetes.getApplication(platform.id, app.namespace, app.kind, app.name)
     const pod = app.kind === 'Pod' ? { name: app.name, containers: [] as string[] } : detail.pods?.[0]
     if (!pod) return { container: '', logs: 'This application has no pods to read logs from.' }
-    return platforms.kubernetes.podLogs(platform.id, app.namespace, pod.name, undefined, 500)
+    return kubernetes.podLogs(platform.id, app.namespace, pod.name, undefined, 500)
     // The explorer is known to be available here; a 404 or 409 is the cluster reporting this
     // workload or pod, shown as an error.
   }, [platform.id, app.namespace, app.kind, app.name], { unavailableStatuses: [] })
@@ -563,7 +563,7 @@ function PodLogsDialog({ platform, app, onClose }: { platform: Platform; app: Ku
 
 /** Applies a YAML manifest to the cluster, with an optional dry run. */
 function ApplyManifestDialog({ platformId, onClose, onApplied }: { platformId: string; onClose: () => void; onApplied: () => void }) {
-  const { platforms } = useApp()
+  const kubernetes = useKubernetesExplorer()
   const { showToast } = useToast()
   const [manifest, setManifest] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -574,7 +574,7 @@ function ApplyManifestDialog({ platformId, onClose, onApplied }: { platformId: s
     setSubmitting(true)
     setError(null)
     try {
-      const results = await platforms.kubernetes.apply(platformId, manifest, dryRun)
+      const results = await kubernetes.apply(platformId, manifest, dryRun)
       const summary = results.map((result) => `${result.kind}/${result.name} ${result.action}`).join(', ')
       showToast({ tone: 'success', title: dryRun ? 'Manifest validated' : 'Manifest applied', description: summary || 'No changes.' })
       if (!dryRun) onApplied()

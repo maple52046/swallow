@@ -1,9 +1,8 @@
 import { expect, test, type Locator, type Page } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// The Platform details card at the top of a Platform's Overview: when it was created and last
-// deployed (linked to that Workflow), where its spec stands, how it was deployed, the facts its
-// module owns, and its Integration. Users could not find when a cluster was deployed before it.
+// Platform Configuration shows durable intent and controller Conditions. Workflow history belongs
+// to Activity and is never inferred from the shell's current lifecycle Workflow.
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -32,7 +31,7 @@ function localTime(page: Page, iso: string): Promise<string> {
 
 test('a Kubernetes Platform states its deployment, spec, k0s network, and Integration', async ({ page }) => {
   await installApiFixtures(page, { platformDeploymentWorkflows: true })
-  await page.goto('/platforms/platform-a?site=site-a')
+  await page.goto('/platforms/platform-a/configuration?site=site-a')
   await expect(page.getByRole('heading', { name: 'Platform details', exact: true })).toBeVisible()
 
   const general = detailsGroup(page, 'General')
@@ -41,11 +40,12 @@ test('a Kubernetes Platform states its deployment, spec, k0s network, and Integr
     Lifecycle: 'Active',
     Site: 'Taipei Lab',
     Created: await localTime(page, '2026-08-10T00:00:00Z'),
-    'Last deployed': `${await localTime(page, '2026-08-10T00:41:00Z')}\nView deployment workflow`,
     'Spec state': 'Applied (generation 1)',
   })
-  // The newest succeeded deploy-kubernetes Workflow, not the running one the lifecycle points at.
-  await expect(general.getByRole('link', { name: 'View deployment workflow' })).toHaveAttribute('href', '/workflows/op-k0s-deploy?site=site-a')
+  expect(await readFacts(detailsGroup(page, 'Conditions'))).toEqual({
+    Realized: `Converged\nGeneration 1 · Updated ${await localTime(page, '2026-08-27T03:00:00Z')}`,
+    Drifted: `In sync\nGeneration 1 · Updated ${await localTime(page, '2026-08-27T03:00:00Z')}`,
+  })
 
   expect(await readFacts(detailsGroup(page, 'Deployment'))).toEqual({
     Topology: 'High availability',
@@ -70,14 +70,13 @@ test('a Kubernetes Platform states its deployment, spec, k0s network, and Integr
 
 test('a Platform awaiting its install approval is not deployed yet and has a direct API endpoint', async ({ page }) => {
   await installApiFixtures(page, { platformLifecycleStates: { 'platform-b': 'planned' } })
-  await page.goto('/platforms/platform-b?site=site-a')
+  await page.goto('/platforms/platform-b/configuration?site=site-a')
 
   await expect.poll(() => readFacts(detailsGroup(page, 'General'))).toEqual({
     Type: 'Kubernetes',
     Lifecycle: 'Planned',
     Site: 'Taipei Lab',
     Created: await localTime(page, '2026-08-20T00:00:00Z'),
-    'Last deployed': 'Not deployed yet',
     'Spec state': 'Awaiting approval (generation 1)\nThe install waits for its Change Plan to be approved.',
   })
   await expect(detailsGroup(page, 'General').getByRole('link')).toHaveCount(0)
@@ -101,7 +100,7 @@ test('a Platform awaiting its install approval is not deployed yet and has a dir
 
 test('a Slurm Platform states its cluster, the Docker CE its container Grafana brought, and MPI', async ({ page }) => {
   await installApiFixtures(page, { slurmDeployed: true, platformDeploymentWorkflows: true })
-  await page.goto('/platforms/platform-slurm-ha?site=site-a')
+  await page.goto('/platforms/platform-slurm-ha/configuration?site=site-a')
 
   const general = detailsGroup(page, 'General')
   await expect.poll(() => readFacts(general)).toEqual({
@@ -109,10 +108,8 @@ test('a Slurm Platform states its cluster, the Docker CE its container Grafana b
     Lifecycle: 'Active',
     Site: 'Taipei Lab',
     Created: await localTime(page, '2026-08-18T00:00:00Z'),
-    'Last deployed': `${await localTime(page, '2026-08-18T01:08:00Z')}\nView deployment workflow`,
     'Spec state': 'Applied (generation 1)',
   })
-  await expect(general.getByRole('link', { name: 'View deployment workflow' })).toHaveAttribute('href', '/workflows/op-slurm-ha-deploy?site=site-a')
   expect(await readFacts(detailsGroup(page, 'Deployment'))).toEqual({
     Topology: 'High availability',
     Members: '4 Servers',
@@ -137,11 +134,10 @@ test('a Slurm Platform states its cluster, the Docker CE its container Grafana b
 
 test('a registered Slurm Platform states its defaults, its engine on the controller, and an unresolved Integration', async ({ page }) => {
   await installApiFixtures(page)
-  await page.goto('/platforms/platform-slurm?site=site-a')
+  await page.goto('/platforms/platform-slurm/configuration?site=site-a')
 
   await expect.poll(() => readFacts(detailsGroup(page, 'General'))).toMatchObject({
     Lifecycle: 'Registered',
-    'Last deployed': 'Not deployed by Swallow',
   })
   // The Podman chosen for the compute and login nodes is also the Grafana container's engine.
   expect(await readFacts(detailsGroup(page, 'Slurm'))).toEqual({
@@ -160,7 +156,7 @@ test('a registered Slurm Platform states its defaults, its engine on the control
 test('the Platform details facts stack into one column on a phone without overflowing', async ({ page }) => {
   await installApiFixtures(page, { platformDeploymentWorkflows: true })
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/platforms/platform-a?site=site-a')
+  await page.goto('/platforms/platform-a/configuration?site=site-a')
   const deployment = detailsGroup(page, 'Deployment')
   await expect(deployment).toBeVisible()
   const columns = await deployment.locator('dl').evaluate((list) => getComputedStyle(list).gridTemplateColumns.split(' ').length)

@@ -51,6 +51,17 @@ export default defineConfig([
     },
   },
   {
+    // A module-local infrastructure adapter is bound only by src/di. Unlike that module's UI, it
+    // may consume the shared authenticated HTTP client and generated OpenAPI contract.
+    files: ['src/modules/**/infrastructure/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [
+        { group: ['@patternfly/*'], message: 'Production UI uses Chakra UI v3; do not reintroduce PatternFly.' },
+        { group: ['@/modules/*/*/**'], message: 'A module adapter never imports another module.' },
+      ] }],
+    },
+  },
+  {
     // The `components/ui/*` files are Chakra composition snippets: they deliberately export a
     // component plus its companion hooks/store (e.g. color mode, the toaster instance), which
     // is not a Fast Refresh boundary concern for these library-like modules.
