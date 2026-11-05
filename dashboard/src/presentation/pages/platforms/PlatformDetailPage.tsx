@@ -23,6 +23,7 @@ import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { PlatformDetailsCard } from './PlatformDetailsCard'
 import { PlatformLifecycleActions } from './PlatformLifecycleActions'
 import { PlatformLifecycleBadge } from './PlatformLifecycleBadge'
+import { plannedInstallNotice } from './platformSpecState'
 import { usePlatformDetail } from './usePlatformDetail'
 
 /**
@@ -120,7 +121,7 @@ export function PlatformDetailPage() {
               <RefreshCw size={16} />
               Sync now
             </Button>
-            <PlatformLifecycleActions platform={platform} operation={lifecycleOperation} targetServerIds={targetServerIds} onRepairStarted={reload} />
+            <PlatformLifecycleActions platform={platform} operation={lifecycleOperation} targetServerIds={targetServerIds} onChanged={reload} />
           </>
         }
       />
@@ -136,6 +137,7 @@ export function PlatformDetailPage() {
               platform={platform}
               operation={lifecycleOperation}
               onOpenOperation={(operationId) => navigate(scopedHref('/workflows/' + operationId))}
+              onOpenChangePlans={() => navigate(scopedHref('/change-plans'))}
             />
             {platform.sync.lastError && platform.lifecycleState !== 'uninstalled' && (
               <Alert status="error" title="Membership sync is failing">
@@ -390,10 +392,13 @@ function LifecycleNotice({
   platform,
   operation,
   onOpenOperation,
+  onOpenChangePlans,
 }: {
   platform: Platform
   operation?: Operation
   onOpenOperation: (operationId: string) => void
+  /** Opens Change Plans, for a `planned` Platform whose install waits for a user there. */
+  onOpenChangePlans: () => void
 }) {
   const operationId = platform.lifecycleOperationId
   const failureMessage = deploymentFailureMessage(operation)
@@ -404,12 +409,19 @@ function LifecycleNotice({
   ) : null
 
   switch (platform.lifecycleState) {
-    case 'planned':
+    case 'planned': {
+      const notice = plannedInstallNotice(platform)
       return (
-        <Alert status="info" title="Install awaits approval">
-          Nothing is installed yet. Swallow builds {platform.name} once its Change Plan is approved in Change Plans.
+        <Alert status={notice.status} title={notice.title}>
+          {notice.body}{' '}
+          {notice.linksChangePlans && (
+            <Button variant="plain" size="sm" px="0" h="auto" colorPalette="brand" onClick={onOpenChangePlans}>
+              Open Change Plans
+            </Button>
+          )}
         </Alert>
       )
+    }
     case 'deploying':
       return (
         <Alert status="info" title="Platform deployment is running">

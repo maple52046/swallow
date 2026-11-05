@@ -12,6 +12,7 @@ import {
 } from '@/domain/platform/gpuOperator'
 import type { Platform } from '@/domain/platform/types'
 import type { Server } from '@/domain/server/types'
+import { changePlanWaitDescription } from '@/presentation/components/changePlanWait'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
@@ -103,9 +104,10 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
     try {
       const written = await platforms.configureGPUOperator(platform.id, settings)
       setDialog(null)
-      if (written.planId) {
-        // Changing or removing the operator restarts GPU workloads, so it waits on approval.
-        showToast({ tone: 'success', title: 'GPU Operator change proposed', description: 'Approve its Change Plan in Change Plans to apply it.' })
+      if (written.awaitingApproval) {
+        // Changing or removing the operator restarts GPU workloads, so it is a Change Plan; the
+        // confirmed dialog approves it unless the Change Plan policy or a blocker keeps it waiting.
+        showToast({ tone: 'warning', title: 'GPU Operator change waits for approval', description: changePlanWaitDescription(written, 'apply it') })
         navigate(scopedHref('/change-plans'))
         return
       }

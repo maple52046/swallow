@@ -12,7 +12,7 @@ security:
 tags:
   - description: Sessions and the caller's identity, the caller's API Keys for non-interactive clients, and swallow-owned SSH Keys (the Deployment Key and the caller's Access Keys).
     name: auth
-  - description: Preview, approve, or reject what realizing a destructive spec change will do.
+  - description: Preview, approve, or reject what realizing a destructive spec change will do, and read or replace the policy that decides whether a change approved with its submission is approved at once.
     name: change-plans
   - description: Read the Extension Modules compiled into the running build, with the spec schema a module declares, so a client can render a generic settings form and details for a module it has no dedicated screens for.
     name: modules
@@ -277,6 +277,53 @@ paths:
       summary: Exchange a refresh token for a new access token, rotating the refresh token.
       tags:
         - auth
+  /api/v1/change-plan-policy:
+    get:
+      description: 'Requires role `admin`. A policy that was never stored reads `approveOnSubmit: true` with a null `updatedAt`, not 404.'
+      operationId: getChangePlanPolicy
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlanPolicy'
+          description: The current policy.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Read the installation's Change Plan policy.
+      tags:
+        - change-plans
+    put:
+      description: Requires role `admin`. The policy applies to the spec writes that follow; plans proposed before keep their state. A body without a boolean `approveOnSubmit` is 400.
+      operationId: replaceChangePlanPolicy
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePlanPolicyChange'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlanPolicy'
+          description: The stored policy.
+        "400":
+          $ref: '#/components/responses/Error'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Replace the installation's Change Plan policy.
+      tags:
+        - change-plans
   /api/v1/change-plans:
     get:
       description: Requires role `admin`. `resourceKind` and `resourceId` narrow the list to one resource; `state` may repeat. The list is small (plans of the resources a user changed), so it is not paginated.
@@ -2056,8 +2103,10 @@ paths:
       tags:
         - platforms
     post:
-      description: Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install waits on the returned Change Plan (platforms.md, Create A Platform). Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.
+      description: 'Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install is the returned Change Plan (platforms.md, Create A Platform): approved with the request when it sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.'
       operationId: createPlatform
+      parameters:
+        - $ref: '#/components/parameters/ApproveChange'
       requestBody:
         content:
           application/json:
@@ -2090,9 +2139,10 @@ paths:
         - platforms
   /api/v1/platforms/{id}:
     delete:
-      description: 'Requires the `admin` role. Marks the spec absent with the optional removal choices and proposes the uninstall as a Change Plan; the record is deleted once the uninstall succeeds (platforms.md, Delete A Platform). A Platform whose install was never approved is deleted at once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled, then membership, Platform Claims, and a swallow-owned credential Integration are cleared, and hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no spec yet.'
+      description: 'Requires the `admin` role. Marks the spec absent with the optional removal choices and proposes the uninstall as a Change Plan, approved with the request when it sends `approve=true` and the policy allows it; the record is deleted once the uninstall succeeds (platforms.md, Delete A Platform). Deleting a Platform already marked absent returns the plan it waits on, approving it when the request sends `approve=true`. A Platform whose install was never approved is deleted at once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled, then membership, Platform Claims, and a swallow-owned credential Integration are cleared, and hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no spec yet.'
       operationId: deletePlatform
       parameters:
+        - $ref: '#/components/parameters/ApproveChange'
         - description: Remove only the record, leaving the hosts as they are.
           in: query
           name: recordOnly
@@ -2909,7 +2959,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
     put:
-      description: Requires the `admin` role. A non-destructive change (for example a new member) is written and converged by the platform controller (200); a destructive one is written with a Change Plan (202), which carries a blocker when swallow cannot carry the change out yet (platforms.md, Change A Platform). An omitted user data value keeps the stored one. 400 for an invalid body or spec; 404 for an unknown Platform; 409 when `generation` is no longer current, an immutable field changes, a non-destructive change cannot be carried out yet, the uninstall has started, the Platform has no spec yet, or a new member is claimed, locked, or busy.
+      description: Requires the `admin` role. A non-destructive change (for example a new member) is written and converged by the platform controller (200); a destructive one is written with a Change Plan (202), approved with the request when it sends `approve=true` and the policy allows it, and carrying a blocker when swallow cannot carry the change out yet (platforms.md, Change A Platform). An omitted user data value keeps the stored one. 400 for an invalid body or spec; 404 for an unknown Platform; 409 when `generation` is no longer current, an immutable field changes, a non-destructive change cannot be carried out yet, the uninstall has started, the Platform has no spec yet, or a new member is claimed, locked, or busy.
       operationId: replacePlatformSpec
       requestBody:
         content:
@@ -7778,6 +7828,13 @@ components:
           - no-store
         type: string
   parameters:
+    ApproveChange:
+      description: '`true` approves the Change Plan the write proposes with the write itself, unless the Change Plan policy requires a separate approval or the plan has blockers (change-plans.md, Approval On Submit). Ignored when the write proposes no plan.'
+      in: query
+      name: approve
+      required: false
+      schema:
+        type: boolean
     ChangePlanId:
       in: path
       name: planId
@@ -8693,7 +8750,7 @@ components:
           nullable: true
           type: string
         decidedBy:
-          description: The user who approved or rejected it; empty before a decision.
+          description: The user who approved or rejected it, including one who approved it with the spec write that proposed it; empty before a decision.
           type: string
         effects:
           description: The expected consequences, for people.
@@ -8718,7 +8775,7 @@ components:
         state:
           $ref: '#/components/schemas/ChangePlanState'
         stateReason:
-          description: Why the plan reached its state, for people; empty while pending.
+          description: Why the plan reached its state, for people; for a `pending_approval` plan, why it waits.
           type: string
         updatedAt:
           format: date-time
@@ -8752,6 +8809,33 @@ components:
           type: array
       required:
         - items
+      type: object
+    ChangePlanPolicy:
+      additionalProperties: false
+      properties:
+        approveOnSubmit:
+          description: Whether a spec write sent with `approve=true` approves its plan at once; `false` makes every plan wait for a separate approval.
+          type: boolean
+        updatedAt:
+          description: When the policy was last replaced; null when it never was.
+          format: date-time
+          nullable: true
+          type: string
+        updatedBy:
+          description: The user who last replaced it; empty when it never was.
+          type: string
+      required:
+        - approveOnSubmit
+        - updatedAt
+        - updatedBy
+      type: object
+    ChangePlanPolicyChange:
+      additionalProperties: false
+      properties:
+        approveOnSubmit:
+          type: boolean
+      required:
+        - approveOnSubmit
       type: object
     ChangePlanState:
       description: Where a plan is in its life (glossary Change Plan).

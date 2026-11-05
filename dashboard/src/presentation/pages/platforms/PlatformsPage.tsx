@@ -403,11 +403,12 @@ export function PlatformsPage() {
     updateSelection((current) => new Set([...current].filter((id) => !acceptedIds.includes(id))))
     reload()
   }
-  // An uninstall that proposed a Change Plan goes on to Change Plans, as the Platform page's
-  // Uninstall does, because nothing changes until the plan is approved. One that only deleted
-  // never-approved Platforms has nothing to approve, so the list stays.
+  // A bulk uninstall whose Change Plans the confirmed dialog approved has started, so the list stays
+  // and reloads to show it. When any plan still waits for a separate approval (the Change Plan
+  // policy or a blocker) the user goes on to Change Plans, as the Platform page's Uninstall does,
+  // because those uninstalls do nothing until approved there.
   const onBulkUninstallDone = (accepted: readonly PlatformBulkOutcome[]) => {
-    if (accepted.some((outcome) => outcome.planId)) {
+    if (accepted.some((outcome) => outcome.awaitingApproval)) {
       navigate(scopedHref('/change-plans'))
       return
     }

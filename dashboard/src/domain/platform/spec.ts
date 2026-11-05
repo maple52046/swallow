@@ -1,4 +1,21 @@
+import { ConditionTypes, findCondition } from '@/domain/convergence/types'
 import type { Platform, PlatformSpec } from './types'
+
+/**
+ * Whether the platform controller is about to carry out a newer spec on its own (platforms.md
+ * "Spec And Status"): the spec's generation is newer than the one last applied, and the `realized`
+ * Condition for it is `converging` — an approved Change Plan about to start its Workflow, or a
+ * Workflow running — or has not been judged for that generation yet. A Condition that waits for a
+ * user (`awaiting_approval`, `plan_required`) or a failure is not, so a screen that polls while
+ * this holds stops there instead of polling for a decision nobody is making.
+ */
+export function platformConvergesWithoutInput(platform: Platform): boolean {
+  if (!platform.spec || platform.generation === 0) return false
+  if (platform.status.observedGeneration >= platform.generation) return false
+  const realized = findCondition(platform.status.conditions, ConditionTypes.realized)
+  if (!realized || realized.observedGeneration < platform.generation) return true
+  return realized.status === 'false' && realized.reason === 'converging'
+}
 
 /**
  * The spec a Platform's facts are read from (platforms.md "Spec And Status"): the applied spec,

@@ -30,6 +30,11 @@ import type {
  * membership axis, read through the ServerRepository, so there is no member call here.
  * Registration of an existing platform involves a credential and is done through the API by
  * a user, so it is not exposed to the dashboard.
+ *
+ * Callers invoke the spec writes (create, delete, the GPU Operator) only after the user confirmed
+ * them, so each write approves the Change Plan it proposes with the request (change-plans.md,
+ * "Approval On Submit"). The result says whether the plan still waits for a separate approval —
+ * because of the Change Plan policy or its blockers — so the caller can send the user there.
  */
 export interface PlatformRepository {
   /** All platforms, optionally scoped to one site. Small and bounded, so not paginated. */
@@ -37,14 +42,15 @@ export interface PlatformRepository {
   getPlatform(id: string): Promise<Platform | null>
   /**
    * Create a platform (Kubernetes/k0s or Slurm, per `input.type`) from the deployment it should
-   * be; resolves with the Change Plan that installs it once approved.
+   * be; resolves with the Change Plan that installs it, approved with the request unless it waits.
    */
   createPlatform(input: DeployPlatformInput): Promise<PlatformChangeResult>
   /**
-   * Delete a platform: its spec is marked absent and the uninstall waits on the returned Change
-   * Plan; the record is deleted once the uninstall succeeds. A platform whose install was never
-   * approved is deleted at once (`planId` null). `options` chooses whether the uninstall releases
-   * the members.
+   * Delete a platform: its spec is marked absent and its uninstall is the returned Change Plan,
+   * approved with the request unless it waits; the record is deleted once the uninstall succeeds.
+   * A platform whose install was never approved is deleted at once (`planId` null). Deleting a
+   * platform already marked absent approves the plan it waits on when the policy allows. `options`
+   * chooses whether the uninstall releases the members.
    */
   deletePlatform(id: string, options?: UninstallPlatformOptions): Promise<PlatformChangeResult>
   /** Delete only the swallow record and owned projections; hosts are untouched. */
@@ -67,9 +73,9 @@ export interface PlatformRepository {
   listGPUOperatorReleases(): Promise<GPUOperatorRelease[]>
   /**
    * Installs, changes, or (with `{ enabled: false }`) uninstalls a Kubernetes Platform's GPU
-   * Operator by writing the spec's `gpuOperator` setting. Turning it on converges without approval
-   * (`planId` null); changing or turning it off resolves with a Change Plan. The outcome is the
-   * Platform's `gpuOperator.state`.
+   * Operator by writing the spec's `gpuOperator` setting. Turning it on converges without a plan
+   * (`planId` null); changing or turning it off resolves with a Change Plan, approved with the
+   * request unless it waits. The outcome is the Platform's `gpuOperator.state`.
    */
   configureGPUOperator(id: string, settings: GPUOperatorSettings): Promise<PlatformChangeResult>
 

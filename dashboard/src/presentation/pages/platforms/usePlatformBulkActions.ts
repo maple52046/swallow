@@ -16,6 +16,11 @@ export interface PlatformBulkOutcome {
    * record-only Delete, which proposes nothing.
    */
   planId?: string
+  /**
+   * The proposed plan waits for a separate approval in Change Plans (the Change Plan policy or a
+   * blocker); false when the confirmed dialog approved it and the uninstall started.
+   */
+  awaitingApproval?: boolean
   /** Why a rejected request failed, as one line that includes the request ID when there is one. */
   message?: string
 }
@@ -28,9 +33,11 @@ type BulkToastCopy = (accepted: readonly PlatformBulkOutcome[]) => { title: stri
  *
  * swallow exposes no bulk platform endpoint, so each call is independent: failures are collected
  * per target instead of aborting the remaining platforms. `runUninstall` sends the same Delete body
- * to every target, which proposes one Change Plan per platform (each record is deleted only after
- * its own uninstall succeeds) or deletes at once a Platform whose install was never approved; each
- * outcome keeps the plan it proposed, so the caller can follow the plans to Change Plans.
+ * to every target, which proposes one Change Plan per platform, approved by the confirmed dialog
+ * unless the Change Plan policy keeps it waiting (each record is deleted only after its own
+ * uninstall succeeds), or deletes at once a Platform whose install was never approved; each outcome
+ * keeps the plan it proposed and whether it waits, so the caller can send the user to Change Plans
+ * only for plans that wait.
  * `runDelete` deletes only the records and takes no uninstall options, so a record-only Delete can
  * never carry them. When at least one request was accepted a single toast summarises the result;
  * when every request failed no toast is shown, because the dialog stays open and lists each
@@ -55,7 +62,12 @@ export function usePlatformBulkActions() {
           const target = targets[index]
           if (result.status === 'fulfilled') {
             const planId = result.value?.planId
-            return { platformId: target.id, platformName: target.name, accepted: true, ...(planId ? { planId } : {}) }
+            return {
+              platformId: target.id,
+              platformName: target.name,
+              accepted: true,
+              ...(planId ? { planId, awaitingApproval: result.value?.awaitingApproval ?? false } : {}),
+            }
           }
           return {
             platformId: target.id,
@@ -90,8 +102,11 @@ export function usePlatformBulkActions() {
       targets,
       (platform) => platforms.deletePlatform(platform.id, options),
       (accepted) => {
-        const proposed = accepted.filter((outcome) => outcome.planId).length
-        return platformBulkUninstallToast({ releaseServers: options.releaseServers }, proposed, accepted.length - proposed)
+        const proposed = accepted.filter((outcome) => outcome.planId)
+        const waiting = proposed.filter((outcome) => outcome.awaitingApproval).length
+        return platformBulkUninstallToast({ releaseServers: options.releaseServers }, {
+          started: proposed.length - waiting, waiting, deletedAtOnce: accepted.length - proposed.length,
+        })
       },
     ),
     [fanOut, platforms],

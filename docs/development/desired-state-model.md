@@ -247,9 +247,13 @@ Managed Software 的版本升級仍待該功能遷移時定案。
   spec `generation` 與 observed 的觀察時間；預期影響（例如哪些 Server 會離開服務）；阻擋事項（preflight 失敗）。
 - **狀態**：`pending_approval → approved → applied`，或結束於 `rejected`、`superseded`、`expired`。值集以 glossary
   的 [Change Plan](glossaries/terms/change-plan.md) 為準。
-- **核准**：由有權限的 user 核准整份 plan；第一版不支援部分核准。核准後 plan 內容不可變。
+- **核准**：由有權限的 user 核准整份 plan；第一版不支援部分核准。核准後 plan 內容不可變。user 在送出變更的請求中
+  明確確認（dashboard 的確認對話框、CLI 的確認參數）就是核准：plan 在同一個 transaction 內以 `approved` 存入。
+  以下情況 plan 停在 `pending_approval`，等另外的核准：送出時沒有確認、有阻擋事項、由 swallow 自己提出（例如重算後
+  動作不同），或 installation 的 Change Plan 政策（執行期的安全開關，預設送出即核准）要求另外核准。
 - **過時偵測**：apply 前重新計算。spec 的 generation 已改變，或 observed 的變化讓動作清單不同時，plan 轉為
-  `superseded`，要重新核准；不影響動作清單的觀察變化不會讓 plan 失效。
+  `superseded`；動作清單不同且仍是破壞性時，同時提出一份新的 plan 等核准，因為沒有人核准過它現在要做的事。
+  不影響動作清單的觀察變化不會讓 plan 失效。
 - **到期**：plan 有有限的有效期間，因為它依據的 observed 會變舊。
 - **一個資源同時只有一份未完成的 plan**：新的 spec 變更會讓尚未 apply 的 plan 轉為 `superseded`。
 - **apply**：產生一個 Workflow，Workflow 記錄 plan id；plan 記錄 Workflow id。
@@ -423,8 +427,9 @@ store 規則與資料庫引擎無關：
   `status`（`observedGeneration`、`conditions[]`，以及所有 observed 與 derived 的事實）。非破壞性的 spec 寫入在
   寫入 store 後回應，收斂是非同步的：client 以 conditions 與 `observedGeneration` 判斷是否已實現。
 - 寫入 spec 可以帶預期的 `generation`；不符時回 `409 conflict`，避免覆蓋別人的變更。
-- 會造成破壞性變更的 spec 寫入，回應 `202 Accepted` 與產生的 Change Plan，而不是直接執行。
-- Change Plan 有自己的讀取、核准與拒絕 API。
+- 會造成破壞性變更的 spec 寫入，回應 `202 Accepted` 與產生的 Change Plan，而不是直接執行；請求帶 `approve=true`
+  時 plan 隨請求核准（§5.4）。
+- Change Plan 有自己的讀取、核准與拒絕 API，以及 Change Plan 政策的讀寫 API。
 - action endpoint 只保留給沒有自然 desired state 的動作，例如測試連線、取消或重試 Workflow、要求立即觀察。
   為了方便，API 可以提供「寫入 spec 並產生 plan」的單一呼叫，但它的效果必須等同於寫入 spec。
 - 既有資源遷移時，遷移前的欄位在同一個變更中移除（§4.4），不保留相容期間；這是破壞性的契約變更，依
@@ -434,7 +439,8 @@ store 規則與資料庫引擎無關：
 ### 11.2 dashboard 與 CLI
 
 - 呈現 desired 與 observed 的差異、conditions，以及 drift 和 adopt／reapply 的選項。
-- 待核准的 Change Plan 有核准畫面，破壞性動作與預期影響必須清楚標示。
+- 待核准的 Change Plan 有核准畫面，破壞性動作與預期影響必須清楚標示。發起破壞性變更的確認對話框同樣標示破壞性動作與
+  預期影響，確認後以 `approve=true` 送出；plan 仍在等待時，畫面說明原因並帶 user 到核准畫面。
 - CLI 提供相同的能力，一律經由 API。
 
 ## 12. 新增一種 resource 的檢查清單

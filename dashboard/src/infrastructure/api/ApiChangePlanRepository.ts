@@ -1,14 +1,14 @@
 import type { ChangePlanFilter, ChangePlanRepository } from '@/application/ports/ChangePlanRepository'
-import type { ChangePlan } from '@/domain/convergence/changePlan'
+import type { ChangePlan, ChangePlanPolicy } from '@/domain/convergence/changePlan'
 import { apiRequest } from './client'
-import type { JsonResponse } from './contractTypes'
+import type { JsonRequestBody, JsonResponse } from './contractTypes'
 import type { operations } from './generated/openapi'
 
 /**
- * Maps the Active Change Plans contract (`/api/v1/change-plans`, `change-plans.md`) onto the
- * ChangePlanRepository port. The contract's JSON already matches the domain shape, which the
- * generated response types prove where each is returned; `state` filters repeat as query
- * parameters. No secret crosses this boundary.
+ * Maps the Active Change Plans contract (`/api/v1/change-plans` and `/api/v1/change-plan-policy`,
+ * `change-plans.md`) onto the ChangePlanRepository port. The contract's JSON already matches the
+ * domain shape, which the generated response types prove where each is returned; `state` filters
+ * repeat as query parameters. No secret crosses this boundary.
  */
 export class ApiChangePlanRepository implements ChangePlanRepository {
   async listChangePlans(filter?: ChangePlanFilter): Promise<ChangePlan[]> {
@@ -37,5 +37,16 @@ export class ApiChangePlanRepository implements ChangePlanRepository {
     return apiRequest<JsonResponse<operations['rejectChangePlan'], 200>>(
       `/api/v1/change-plans/${encodeURIComponent(id)}/reject`, { method: 'POST' },
     )
+  }
+
+  getChangePlanPolicy(): Promise<ChangePlanPolicy> {
+    return apiRequest<JsonResponse<operations['getChangePlanPolicy'], 200>>('/api/v1/change-plan-policy')
+  }
+
+  setChangePlanPolicy(approveOnSubmit: boolean): Promise<ChangePlanPolicy> {
+    const body: JsonRequestBody<operations['replaceChangePlanPolicy']> = { approveOnSubmit }
+    return apiRequest<JsonResponse<operations['replaceChangePlanPolicy'], 200>>('/api/v1/change-plan-policy', {
+      method: 'PUT', body: JSON.stringify(body),
+    })
   }
 }

@@ -222,19 +222,26 @@ swallow api-keys delete <keyId>                         # alias：revoke
 
 ### plans
 
-破壞性變更的 Change Plan。破壞性變更以 plan 的形式等待 admin 整份核准；核准後由該資源的 controller
-重新計算並以 Workflow 執行。見
+破壞性變更的 Change Plan。破壞性變更是一份 plan，核准後由該資源的 controller 重新計算並以 Workflow 執行。
+寫入變更的指令加上 `--approve` 時，plan 隨寫入一併核准，就像在 dashboard 確認對話框一樣；沒有加時，plan 會在這裡
+等 admin 整份核准。見
 [change-plans.md](../../api-server/docs/development/api-contracts/api-server/change-plans.md)。
 
 ```bash
 swallow plans list [--resource-kind platform] [--resource-id <id>] [--state pending_approval,approved]
-swallow plans get <planId>        # 動作、預期影響、阻擋事項、狀態
+swallow plans get <planId>        # 動作、預期影響、阻擋事項、狀態，以及為什麼在等
 swallow plans approve <planId>
 swallow plans reject <planId>
+swallow plans policy                               # 加 --approve 送出的變更是否立即開始
+swallow plans policy set --approve-on-submit=false # 安全開關：所有 plan 都等人核准
+swallow plans policy set --approve-on-submit=true  # 回到預設
 ```
 
-有阻擋事項的 plan 無法核准；plan 預設在計算後 24 小時到期。plan 在執行前 spec 又改變時，會變成
-`superseded`，需要新的 plan。
+寫入之後，指令會在 stderr 說明 plan 接下來怎麼走：已核准並執行，或在等待，附上原因（`submitted without
+approval`、`the Change Plan policy requires a separate approval`，或阻擋事項）與 `plans approve` 指令。有阻擋事項的
+plan 無法核准；plan 預設在計算後 24 小時到期。plan 在執行前 spec 又改變時，會變成 `superseded`，需要新的 plan；
+觀察到的狀態改變了已核准 plan 要做的事時，會有一份新的 plan 等人核准。政策只影響設定之後送出的變更，已經提出的 plan
+維持原本的狀態。
 
 ### overview
 
@@ -541,12 +548,12 @@ swallow infrastructure pools create -f pool.yaml
 ```bash
 swallow platforms list --site-id site1
 swallow platforms get plat1
-swallow platforms create -f platform-k8s.yaml        # 輸出平台與安裝它的 Change Plan
-swallow plans approve <planId>                        # 核准後 platform controller 開始建置
+swallow platforms create -f platform-k8s.yaml --approve   # 立即開始安裝
+swallow platforms create -f platform-k8s.yaml        # 安裝會等待：swallow plans approve <planId>
 swallow platforms set-spec plat1 -f spec-change.yaml  # { generation, spec }；加入成員會直接收斂
 swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, monitoringLinks
-swallow platforms delete plat1                        # 提出 uninstall（只移除 software）
-swallow platforms delete plat1 --release-servers --erase   # uninstall 時一併 release 成員
+swallow platforms delete plat1 --approve              # 立即 uninstall（只移除 software）
+swallow platforms delete plat1 --approve --release-servers --erase   # uninstall 時一併 release 成員
 swallow platforms delete plat1 --cancel-active-workflows   # 一併取消佔著 Server 的失敗或進行中部署
 swallow platforms delete plat1 --record-only          # 只刪紀錄，主機保持原樣
 swallow platforms sync plat1
@@ -555,12 +562,13 @@ swallow platforms slurm plat1                         # live Slurm cluster state
 swallow platforms slurm-requirements get
 swallow platforms slurm-requirements set -f slurm-req.yaml
 swallow platforms gpu-operator releases                       # Swallow 提供的 AMD GPU Operator 版本
-swallow platforms gpu-operator set plat1 -f gpu-operator.yaml  # 安裝或調整 operator
-swallow platforms gpu-operator uninstall plat1                 # 移除 operator，平台照常運作
+swallow platforms gpu-operator set plat1 -f gpu-operator.yaml --approve  # 安裝或調整 operator
+swallow platforms gpu-operator uninstall plat1 --approve                 # 移除 operator，平台照常運作
 ```
 
 平台以 spec 描述：成員與它們的角色、該類型的設定，以及成員如何取得作業系統。建立平台與破壞性變更（調整或移除
-GPU Operator、刪除平台）會回傳 Change Plan，要等 `swallow plans approve` 核准才會動手；加入成員則直接收斂。
+GPU Operator、刪除平台）會回傳 Change Plan。加上 `--approve` 時 plan 隨寫入核准、變更立即開始，除非 Change Plan
+政策要求另外核准（`swallow plans policy`）；沒有加時，要等 `swallow plans approve` 核准才會動手。加入成員則直接收斂。
 `platform-k8s.yaml`（見 [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md)）：
 
 ```yaml
@@ -633,17 +641,16 @@ network 上以 port `5001` 執行，由 Site 的 Prometheus 收集，Grafana 也
 
 ```bash
 swallow platforms gpu-operator releases
-swallow platforms create -f platform-k8s-gpu.yaml             # 輸出平台與它的 plan
-swallow plans approve <planId>
+swallow platforms create -f platform-k8s-gpu.yaml --approve   # 輸出平台與已核准的 plan
 swallow platforms get <platformId>                            # status.realizingWorkflowId 是建置的 Workflow
 swallow workflows get <workflowId>
-swallow platforms gpu-operator set <platformId> -f gpu-operator.yaml   # 調整會回傳 plan
-swallow plans approve <planId>
-swallow platforms gpu-operator uninstall <platformId>         # 平台仍繼續運作
-swallow plans approve <planId>
-swallow platforms delete <platformId> --release-servers       # 直接 release Server，不先移除平台軟體
-swallow plans approve <planId>                                # uninstall 成功後刪除紀錄
+swallow platforms gpu-operator set <platformId> -f gpu-operator.yaml --approve   # 調整立即開始
+swallow platforms gpu-operator uninstall <platformId> --approve   # 平台仍繼續運作
+swallow platforms delete <platformId> --release-servers --approve # 直接 release Server，不先移除平台軟體
 ```
+
+每個加 `--approve` 的寫入都立即執行變更；uninstall 成功後刪除紀錄。安全開關打開時（`swallow plans policy set
+--approve-on-submit=false`），它們都會改為等待，由 `swallow plans approve <planId>` 開始。
 
 `gpu-operator.yaml` 用來調整已部署平台的 operator；沒寫的欄位採用契約的預設值（預設版本、`single` 資源命名、
 Node Labeller 開啟、Device Metrics Exporter 關閉）。檔案裡不列節點：operator 會納管 Node Feature Discovery
@@ -703,8 +710,7 @@ spec:
 ```
 
 ```bash
-swallow platforms create -f platform-slurm-omnistat.yaml
-swallow plans approve <planId>
+swallow platforms create -f platform-slurm-omnistat.yaml --approve
 swallow workflows get <workflowId>    # ensure-os、configure-slurm、configure-podman、configure-grafana、configure-omnistat
 swallow platforms get <platformId>    # containerRuntime、omnistat.state，以及 monitoringLinks 中的 Platform Grafana
 ```

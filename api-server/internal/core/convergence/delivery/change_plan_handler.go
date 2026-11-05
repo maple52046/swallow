@@ -1,10 +1,11 @@
 // Package delivery exposes Change Plans over HTTP (Fiber), implementing the change-plans.md
-// contract: list, read, approve, and reject (decision 076). The routes run behind authentication
-// and AdminOnly; this package parses requests, names the deciding user from the Principal, and
-// maps the convergence errors onto the shared envelope.
+// contract: list, read, approve, and reject, and the installation's Change Plan policy (decision
+// 076). The routes run behind authentication and AdminOnly; this package parses requests, names the
+// deciding user from the Principal, and maps the convergence errors onto the shared envelope.
 package delivery
 
 import (
+	"encoding/json"
 	"errors"
 
 	"github.com/gofiber/fiber/v2"
@@ -31,6 +32,54 @@ func (h *ChangePlanHandler) RegisterRoutes(router fiber.Router) {
 	router.Get("/:id", h.Get)
 	router.Post("/:id/approve", h.Approve)
 	router.Post("/:id/reject", h.Reject)
+}
+
+// RegisterPolicyRoutes mounts the Change Plan policy routes under router (the /change-plan-policy
+// group). The policy has its own path so it never collides with a plan id under /change-plans.
+func (h *ChangePlanHandler) RegisterPolicyRoutes(router fiber.Router) {
+	router.Get("/", h.GetPolicy)
+	router.Put("/", h.PutPolicy)
+}
+
+// ChangePlanPolicyResponse is the contract's Change Plan policy. A policy never stored has a null
+// updatedAt and an empty updatedBy.
+type ChangePlanPolicyResponse struct {
+	ApproveOnSubmit bool    `json:"approveOnSubmit"`
+	UpdatedAt       *string `json:"updatedAt"`
+	UpdatedBy       string  `json:"updatedBy"`
+}
+
+func toPolicyResponse(policy convergence.ChangePlanPolicy) ChangePlanPolicyResponse {
+	return ChangePlanPolicyResponse{ApproveOnSubmit: policy.ApproveOnSubmit, UpdatedAt: wire.TimePtr(policy.UpdatedAt), UpdatedBy: policy.UpdatedBy}
+}
+
+// putPolicyRequest is the PUT body; approveOnSubmit is a pointer so a missing value is told apart
+// from false.
+type putPolicyRequest struct {
+	ApproveOnSubmit *bool `json:"approveOnSubmit"`
+}
+
+// GetPolicy handles GET /change-plan-policy.
+func (h *ChangePlanHandler) GetPolicy(c *fiber.Ctx) error {
+	policy, err := h.plans.Policy(c.UserContext())
+	if err != nil {
+		return err
+	}
+	return c.JSON(toPolicyResponse(policy))
+}
+
+// PutPolicy handles PUT /change-plan-policy: a body without a boolean approveOnSubmit is 400, and
+// the deciding admin is recorded as updatedBy.
+func (h *ChangePlanHandler) PutPolicy(c *fiber.Ctx) error {
+	var request putPolicyRequest
+	if err := json.Unmarshal(c.Body(), &request); err != nil || request.ApproveOnSubmit == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "approveOnSubmit must be true or false."))
+	}
+	policy, err := h.plans.SetPolicy(c.UserContext(), *request.ApproveOnSubmit, actor(c))
+	if err != nil {
+		return err
+	}
+	return c.JSON(toPolicyResponse(policy))
 }
 
 // ResourceRefResponse names a resource in the contract.

@@ -1,6 +1,6 @@
 import { expect, test, type Page, type TestInfo } from 'playwright/test'
 import type { SoftwareAssignment } from '@/domain/software/types'
-import { approvePlatformInstall, CONTROLLER_WORKFLOW_ID, installApiFixtures } from '../e2e/fixtures'
+import { CONTROLLER_WORKFLOW_ID, expectPlatformInstallStarted, installApiFixtures } from '../e2e/fixtures'
 
 const visualCases = [
   { name: 'login', path: '/login', heading: 'Sign in', authenticated: false, representative: true },
@@ -361,9 +361,10 @@ test.describe('Server and Platform operations visual review', () => {
 })
 
 /**
- * Captures Platform removal through a Change Plan (decision 076): the Uninstall dialog proposing a
- * server release with the cancel consent, the Change Plans page it opens with the proposal toast,
- * and a Platform whose install still awaits approval, with the Delete dialog that withdraws it.
+ * Captures Platform removal through a Change Plan (decision 076): the Uninstall dialog for a server
+ * release with the cancel consent, the Platform page after the confirmed release started, the same
+ * release waiting in Change Plans while the safety switch is on (the toast and the policy card),
+ * and a Platform whose install has not started, with the Delete dialog that withdraws it.
  */
 test.describe('Platform removal plan visual review', () => {
   test('platform-removal-plan', async ({ page }, testInfo) => {
@@ -380,18 +381,19 @@ test.describe('Platform removal plan visual review', () => {
     const dialog = page.getByRole('dialog', { name: 'Release platform servers' })
     await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
     await dialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
-    await expect(dialog.getByRole('button', { name: 'Propose server release' })).toBeEnabled()
+    await expect(dialog.getByRole('button', { name: 'Release servers' })).toBeEnabled()
     await prepareCapture(page, appearance)
     await capture(page, testInfo, 'platform-uninstall-proposal-dialog', false)
 
-    await dialog.getByRole('button', { name: 'Propose server release' }).click()
-    await expect(page.getByText('Server release proposed')).toBeVisible()
+    await dialog.getByRole('button', { name: 'Release servers' }).click()
+    await expect(page.getByText('Server release started')).toBeVisible()
+    await expect(page.getByText('Platform uninstall is running')).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
-    await capture(page, testInfo, 'platform-uninstall-plan-proposed', false)
+    await capture(page, testInfo, 'platform-uninstall-started', false)
 
     await page.goto('/platforms/platform-b?site=site-a')
-    await expect(page.getByText('Awaiting approval').first()).toBeVisible()
+    await expect(page.getByText('Planned').first()).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'platform-detail-planned', false)
@@ -400,6 +402,25 @@ test.describe('Platform removal plan visual review', () => {
     await expect(deleteDialog.getByText('Nothing was installed')).toBeVisible()
     await prepareCapture(page, appearance)
     await capture(page, testInfo, 'platform-planned-delete-dialog', false)
+  })
+
+  test('platform-removal-waiting', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { requireSeparateApproval: true })
+    await setAppearance(page, appearance)
+
+    await page.goto('/platforms/platform-a?site=site-a')
+    await page.getByRole('button', { name: 'Uninstall platform', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
+    await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
+    await dialog.getByLabel('Cancel these workflows, then uninstall').locator('..').click()
+    await dialog.getByRole('button', { name: 'Uninstall', exact: true }).click()
+    await expect(page.getByText('Uninstall waits for approval')).toBeVisible()
+    await expect(page.getByText('Why it waits: the Change Plan policy requires a separate approval.').first()).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'platform-uninstall-waiting', false)
   })
 })
 
@@ -710,7 +731,7 @@ test.describe('Slurm Omnistat visual review', () => {
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'slurm-omnistat-wizard-review')
     await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
-    await approvePlatformInstall(page)
+    await expectPlatformInstallStarted(page)
     await expect(page.getByText('GPU GRES type', { exact: true })).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
@@ -848,17 +869,17 @@ test.describe('Platform removal visual review', () => {
     await capture(page, testInfo, 'platform-uninstall-release-title', false)
     await releaseDialog.getByLabel('Cancel these workflows, then release the servers').locator('..').click()
     await releaseDialog.getByLabel('Platform name confirmation').fill('edge-staging')
-    await expect(releaseDialog.getByRole('button', { name: 'Propose server release' })).toBeEnabled()
+    await expect(releaseDialog.getByRole('button', { name: 'Release servers' })).toBeEnabled()
     await prepareCapture(page, appearance)
     if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'platform-uninstall-release-servers', false)
     // The proposal in flight: every choice, the release options included, is locked.
-    await page.route('**/api/v1/platforms/platform-b', async (route) => {
+    await page.route(/\/api\/v1\/platforms\/platform-b(\?.*)?$/, async (route) => {
       if (route.request().method() === 'DELETE') await new Promise<void>(() => {})
       await route.fallback()
     })
     await releaseDialog.getByLabel('Erase disks before release').locator('..').click()
-    await releaseDialog.getByRole('button', { name: 'Propose server release' }).click()
+    await releaseDialog.getByRole('button', { name: 'Release servers' }).click()
     await expect(releaseDialog.getByLabel('Erase disks before release')).toBeDisabled()
     await capture(page, testInfo, 'platform-uninstall-release-submitting', false)
   })

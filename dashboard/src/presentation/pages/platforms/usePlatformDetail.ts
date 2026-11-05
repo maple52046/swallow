@@ -4,12 +4,18 @@ import type { ServerRepository } from '@/application/ports/ServerRepository'
 import { isGPUOperatorInProgress } from '@/domain/platform/gpuOperator'
 import { isPlatformLifecycleInProgress } from '@/domain/platform/lifecycle'
 import { platformDeploymentControllerIds } from '@/domain/platform/membership'
+import { platformConvergesWithoutInput } from '@/domain/platform/spec'
 import type { Platform } from '@/domain/platform/types'
 import type { Operation } from '@/domain/operation/types'
 import type { Server } from '@/domain/server/types'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 
 const LIFECYCLE_POLL_INTERVAL_MS = 5000
+// How long the page keeps re-reading after a reload that follows a change on it (an uninstall or a
+// GPU Operator change that started). The controller acts within seconds of the write, but the
+// first re-read can come before it, when the Platform still reads as it did; this window covers
+// that gap without polling a settled Platform for long.
+const FOLLOW_CHANGE_MS = 30_000
 
 /**
  * Merges a Slurm deployment's controller (manager) nodes into the membership-scoped member
@@ -72,11 +78,13 @@ export type PlatformDetailState =
 
 /**
  * Only accepted automation states continue polling without a user action: a running
- * deployment or uninstall, or a running GPU Operator change.
+ * deployment or uninstall, a running GPU Operator change, or a newer spec the controller is about
+ * to carry out (an approved Change Plan whose Workflow is not written yet).
  */
 function lifecycleCanChangeWithoutInput(platform: Platform): boolean {
   return isPlatformLifecycleInProgress(platform.lifecycleState) ||
-    (platform.gpuOperator !== null && isGPUOperatorInProgress(platform.gpuOperator.state))
+    (platform.gpuOperator !== null && isGPUOperatorInProgress(platform.gpuOperator.state)) ||
+    platformConvergesWithoutInput(platform)
 }
 
 /**
@@ -84,8 +92,11 @@ function lifecycleCanChangeWithoutInput(platform: Platform): boolean {
  *
  * Membership and Operation reads degrade independently to empty collections so a provider
  * outage cannot hide the durable Platform record. While deploy, uninstall, or a GPU Operator
- * change is active, the full projection is refreshed every five seconds and the timer is always
- * cleared when the route unmounts or that work reaches a terminal state.
+ * change is active, or an approved change is about to start, the full projection is refreshed every
+ * five seconds and the timer is always cleared when the route unmounts or that work reaches a
+ * terminal state. `reload` also keeps the page re-reading for a short window, because it follows a
+ * change made on the page whose Workflow the controller may not have written yet; a Platform that
+ * is gone by then (an uninstall that already deleted the record) reads as not found.
  */
 export function usePlatformDetail(id: string | undefined): PlatformDetailState {
   const { platforms, servers, operations } = useApp()
@@ -93,7 +104,12 @@ export function usePlatformDetail(id: string | undefined): PlatformDetailState {
     id ? { status: 'loading' } : { status: 'not-found' },
   )
   const [nonce, setNonce] = useState(0)
-  const reload = useCallback(() => setNonce((value) => value + 1), [])
+  // Until when a reload keeps polling a Platform that does not read as changing (epoch ms).
+  const [followUntil, setFollowUntil] = useState(0)
+  const reload = useCallback(() => {
+    setFollowUntil(Date.now() + FOLLOW_CHANGE_MS)
+    setNonce((value) => value + 1)
+  }, [])
 
   useEffect(() => {
     if (!id) return
@@ -130,7 +146,7 @@ export function usePlatformDetail(id: string | undefined): PlatformDetailState {
             status: 'ready',
             data: { platform, members: mergedMembers, loginNodes, operations: relatedOperations, reload },
           })
-          if (lifecycleCanChangeWithoutInput(platform)) {
+          if (lifecycleCanChangeWithoutInput(platform) || Date.now() < followUntil) {
             timer = setTimeout(load, LIFECYCLE_POLL_INTERVAL_MS)
           }
         })
@@ -145,7 +161,7 @@ export function usePlatformDetail(id: string | undefined): PlatformDetailState {
       cancelled = true
       if (timer) clearTimeout(timer)
     }
-  }, [platforms, servers, operations, id, nonce, reload])
+  }, [platforms, servers, operations, id, nonce, followUntil, reload])
 
   return state
 }

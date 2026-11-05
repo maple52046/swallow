@@ -22,6 +22,7 @@ import {
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
+import { changePlanWaitDescription } from '@/presentation/components/changePlanWait'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { PageHeader } from '@/presentation/components/PageHeader'
@@ -177,8 +178,9 @@ interface DeployPlatformWizardPageProps {
  *
  * The shell owns the Site, the name, the candidate Servers, OS preparation for the Servers that
  * still need an operating system, the clock check, and submission; the module owns its settings,
- * roles, features, and any steps only it has. Submitting proposes the Platform's install as a
- * Change Plan, which the user approves on the Change Plans page. While Deployment Templates are
+ * roles, features, and any steps only it has. Submitting is the user's confirmation: the install's
+ * Change Plan is approved with the request and the page opens the new Platform, or, when the
+ * Change Plan policy or a blocker keeps the plan waiting, opens Change Plans and says why. While Deployment Templates are
  * in development (always, in release builds) the OS step offers only a custom configuration and
  * never lists templates.
  */
@@ -495,7 +497,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
       ? { mode: 'existing_os' }
       : toPlatformMachinePreparation(osConfiguration)
     try {
-      await platforms.createPlatform({
+      const created = await platforms.createPlatform({
         siteId: effectiveSiteId,
         name: name.trim(),
         type: platformType,
@@ -504,12 +506,24 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
         machinePreparation,
         timeSyncCheck: timeSyncEnforced ? 'enforce' : 'warn',
       })
+      // Submitting the wizard is the user's confirmation, so the install is approved with the
+      // request and starts at once; it waits in Change Plans only when the Change Plan policy or a
+      // blocker says so, and then the toast says why.
+      if (created.awaitingApproval) {
+        showToast({
+          title: 'Platform install waits for approval',
+          description: changePlanWaitDescription(created, 'build the platform'),
+          tone: 'warning',
+        })
+        navigate(scopedHref('/change-plans'))
+        return
+      }
       showToast({
-        title: 'Platform install proposed',
-        description: 'Approve its Change Plan to build the platform. Nothing is installed until you do.',
+        title: 'Platform install started',
+        description: `Swallow is building ${name.trim()}. Its page shows the deployment as it runs.`,
         tone: 'success',
       })
-      navigate(scopedHref('/change-plans'))
+      navigate(scopedHref(`/platforms/${encodeURIComponent(created.platformId)}`))
     } catch (error) {
       form.refresh?.()
       setCandidateRevision((current) => current + 1)
@@ -1005,8 +1019,8 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
               />
             ))}
           </div>
-          <Alert status="info" title="Submitting proposes the Platform's install">
-            Swallow records the Platform and opens a Change Plan for its install. Nothing is installed until you approve the plan on the Change Plans page.
+          <Alert status="info" title="Submitting starts the Platform's install">
+            Swallow records the Platform and its install as a Change Plan approved by you, then starts building it on the Servers above. When the Change Plan policy requires a separate approval, the install waits on the Change Plans page instead.
           </Alert>
           {needsProvisioning && form.deployModeNotice(effectiveEphemeral)}
         </WizardSection>

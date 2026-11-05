@@ -46,7 +46,8 @@ interface PlatformLifecycleActionsProps {
   platform: Platform
   operation?: Operation
   targetServerIds?: readonly string[]
-  onRepairStarted: () => void
+  /** Reloads the Platform page after an action changed the Platform here: a repair, or an uninstall that started. */
+  onChanged: () => void
 }
 
 /**
@@ -60,9 +61,11 @@ interface PlatformLifecycleActionsProps {
  * Removal (decision 010, 2026-10-29 amendment): while the Platform can still be uninstalled the
  * control is a split button whose primary part opens the Uninstall dialog and whose chevron menu
  * offers "Delete only…" (record-only Delete), so host cleanup and record removal are never
- * presented as peers. Submitting the Uninstall dialog marks the Platform absent and proposes its
- * uninstall as a Change Plan (decision 076); the record is deleted once the approved uninstall
- * succeeds. A running uninstall or a locked target disables only the header's Uninstall part, with
+ * presented as peers. Confirming the Uninstall dialog marks the Platform absent with its uninstall
+ * as a Change Plan approved by that confirmation (decision 076): the page stays and reloads to show
+ * the uninstall starting, and the record is deleted once the uninstall succeeds. When the Change
+ * Plan policy or a blocker keeps the plan waiting, the toast says why and the page opens Change
+ * Plans instead. A running uninstall or a locked target disables only the header's Uninstall part, with
  * its reason; record-only Delete never mutates hosts, so it stays available. Once the Platform is
  * `uninstalled`, or was never deployed by swallow, the control is a single "Delete platform" button.
  *
@@ -71,7 +74,7 @@ interface PlatformLifecycleActionsProps {
  * confirm that the backend cancels them (`cancelActiveWorkflows`, decision 061) before the
  * uninstall starts. Choosing to release the servers instead retitles the dialog as a release.
  */
-export function PlatformLifecycleActions({ platform, operation, targetServerIds, onRepairStarted }: PlatformLifecycleActionsProps) {
+export function PlatformLifecycleActions({ platform, operation, targetServerIds, onChanged }: PlatformLifecycleActionsProps) {
   const { platforms, operations } = useApp()
   const { showToast } = useToast()
   const { scopedHref } = useSiteScope()
@@ -163,9 +166,14 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
           navigate(scopedHref('/platforms'), { replace: true })
           return
         }
-        const toast = platformUninstallAcceptedToast({ releaseServers }, targetLabel)
-        showToast({ tone: 'success', title: toast.title, description: toast.description })
-        navigate(scopedHref('/change-plans'))
+        const toast = platformUninstallAcceptedToast({ releaseServers }, targetLabel, proposed)
+        showToast({ tone: toast.tone, title: toast.title, description: toast.description })
+        if (proposed.awaitingApproval) {
+          navigate(scopedHref('/change-plans'))
+          return
+        }
+        setDialog(null)
+        onChanged()
         return
       }
 
@@ -221,7 +229,7 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
       }
       setRepairOpen(false)
       showToast({ tone: 'success', title: 'Platform repair started', description })
-      onRepairStarted()
+      onChanged()
     } catch (caught) {
       setRepairError(failureOf(caught, 'Could not start platform repair.'))
     } finally {

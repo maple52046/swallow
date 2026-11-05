@@ -1,5 +1,5 @@
 import { expect, test } from 'playwright/test'
-import { installApiFixtures, approvePlatformInstall } from './fixtures'
+import { installApiFixtures, expectPlatformInstallStarted } from './fixtures'
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -135,7 +135,8 @@ test('changing Site confirms before clearing Site-bound choices and restarts the
 
 test('Slurm with shared storage switched off omits the workload-storage intent', async ({ page }) => {
   let submitted: { spec: { settings: Record<string, unknown> } } | undefined
-  await page.route('**/api/v1/platforms', async (route) => {
+  // The create carries ?approve=true (the wizard's confirmation), so the route matches any query.
+  await page.route(/\/api\/v1\/platforms(\?.*)?$/, async (route) => {
     if (route.request().method() === 'POST') submitted = route.request().postDataJSON() as typeof submitted
     await route.fallback()
   })
@@ -150,7 +151,8 @@ test('Slurm with shared storage switched off omits the workload-storage intent',
   await next.click()
   await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
 
-  await approvePlatformInstall(page)
+  await expectPlatformInstallStarted(page)
+  expect(submitted).toBeDefined()
   const slurm = submitted?.spec.settings.slurm as Record<string, unknown> | undefined
   expect(slurm?.workloadStorage).toBeUndefined()
 })
@@ -159,7 +161,8 @@ test('Slurm with shared storage switched off omits the workload-storage intent',
 // chooses whether an unsynchronized node fails it (enforce, the default) or is reported (warn).
 test('the clock check is required by default and can be relaxed to a warning', async ({ page }) => {
   const submitted: Array<{ spec: { settings: Record<string, unknown> } }> = []
-  await page.route('**/api/v1/platforms', async (route) => {
+  // The create carries ?approve=true (the wizard's confirmation), so the route matches any query.
+  await page.route(/\/api\/v1\/platforms(\?.*)?$/, async (route) => {
     if (route.request().method() === 'POST') submitted.push(route.request().postDataJSON() as (typeof submitted)[number])
     await route.fallback()
   })
@@ -182,7 +185,7 @@ test('the clock check is required by default and can be relaxed to a warning', a
     await next.click()
     await expect(page.getByText(relax ? /^Warning only/ : /^Required: an unsynchronized node/)).toBeVisible()
     await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
-    await approvePlatformInstall(page)
+    await expectPlatformInstallStarted(page)
   }
   await deploySlurm(false, 'gpu-node-01', 'gpu-node-02')
   await deploySlurm(true, 'gpu-node-03', 'gpu-node-04')

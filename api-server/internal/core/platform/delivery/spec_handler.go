@@ -86,7 +86,8 @@ func (r platformSpecRequest) toDomain() (platformdomain.PlatformSpec, *apierror.
 }
 
 // Create handles POST /platforms: it validates the Platform as a deployment would and answers 202
-// with the Platform and the Change Plan that installs it once approved.
+// with the Platform and the Change Plan that installs it, approved with the request when it sends
+// approve=true and the policy allows it.
 func (h *PlatformHandler) Create(c *fiber.Ctx) error {
 	var req createPlatformRequest
 	if err := json.Unmarshal(c.Body(), &req); err != nil {
@@ -101,6 +102,7 @@ func (h *PlatformHandler) Create(c *fiber.Ctx) error {
 	}
 	result, err := h.specs.Create(c.Context(), application.CreatePlatformSpecInput{
 		SiteID: req.SiteID, Name: req.Name, Type: platformdomain.PlatformType(req.Type), Spec: spec, RequestedBy: requester(c),
+		ApprovedBy: approver(c),
 	})
 	if err != nil {
 		return respondError(c, err)
@@ -109,7 +111,7 @@ func (h *PlatformHandler) Create(c *fiber.Ctx) error {
 }
 
 // PutSpec handles PUT /platforms/{id}/spec: 200 when the change converges without approval, 202
-// with the Change Plan when it is destructive.
+// with the Change Plan when it is destructive (approved with the write under approve=true).
 func (h *PlatformHandler) PutSpec(c *fiber.Ctx) error {
 	var req putPlatformSpecRequest
 	if err := json.Unmarshal(c.Body(), &req); err != nil {
@@ -122,7 +124,7 @@ func (h *PlatformHandler) PutSpec(c *fiber.Ctx) error {
 	if invalid != nil {
 		return apierror.Respond(c, invalid)
 	}
-	result, err := h.specs.UpdateSpec(c.Context(), c.Params("id"), *req.Generation, spec)
+	result, err := h.specs.UpdateSpec(c.Context(), c.Params("id"), *req.Generation, spec, approver(c))
 	if err != nil {
 		return respondError(c, err)
 	}
@@ -130,8 +132,9 @@ func (h *PlatformHandler) PutSpec(c *fiber.Ctx) error {
 }
 
 // Delete handles DELETE /platforms/{id}. By default it declares the Platform absent: 202 with the
-// Change Plan that uninstalls it, or 204 when it was never installed and is gone already. With
-// recordOnly=true it removes only the record and its claims and leaves the hosts as they are.
+// Change Plan that uninstalls it (approved with the request under approve=true), or 204 when it was
+// never installed and is gone already. With recordOnly=true it removes only the record and its
+// claims and leaves the hosts as they are.
 func (h *PlatformHandler) Delete(c *fiber.Ctx) error {
 	if c.Query("recordOnly") == "true" {
 		if err := h.platforms.Delete(c.Context(), c.Params("id")); err != nil {
@@ -155,7 +158,7 @@ func (h *PlatformHandler) Delete(c *fiber.Ctx) error {
 			},
 		}
 	}
-	result, err := h.specs.Delete(c.Context(), c.Params("id"), removal)
+	result, err := h.specs.Delete(c.Context(), c.Params("id"), removal, approver(c))
 	if err != nil {
 		return respondError(c, err)
 	}
@@ -166,7 +169,8 @@ func (h *PlatformHandler) Delete(c *fiber.Ctx) error {
 }
 
 // respondSpecWrite answers a spec write with the Platform as it now reads: 202 with the plan when
-// one waits for approval, 200 otherwise.
+// the write proposed one, whether it waits for approval or was approved with the write, 200
+// otherwise.
 func (h *PlatformHandler) respondSpecWrite(c *fiber.Ctx, result *application.SpecWriteResult) error {
 	item, err := h.platforms.Get(c.Context(), result.Platform.ID)
 	if err != nil {
@@ -186,6 +190,16 @@ func requester(c *fiber.Ctx) string {
 		return principal.Username
 	}
 	return ""
+}
+
+// approver is the user who approves a spec write's Change Plan with the write: the requester when
+// the request sends approve=true (change-plans.md, Approval On Submit), "" otherwise. Any other
+// value of the parameter approves nothing, so a typo leaves the plan waiting rather than running.
+func approver(c *fiber.Ctx) string {
+	if c.Query("approve") != "true" {
+		return ""
+	}
+	return requester(c)
 }
 
 // respondSpecError maps the spec write refusals; ok is false for an error that is not one.

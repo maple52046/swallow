@@ -394,6 +394,20 @@ export interface FixtureOptions {
    */
   applyApprovedChangePlans?: boolean
   /**
+   * Starts the installation's Change Plan policy with the safety switch on (`approveOnSubmit:
+   * false`), so a confirmed spec write's plan waits in Change Plans the way change-plans.md
+   * ("Approval On Submit") says. By default the policy was never stored, and a write sent with
+   * `approve=true` is approved at once and carried out as its controller would.
+   */
+  requireSeparateApproval?: boolean
+  /**
+   * How many reads of a Platform still answer it as it was before an uninstall its user approved,
+   * as a controller that has not acted yet by the time the page re-reads: the Platform stays active
+   * with a `realized` Condition still awaiting approval, and the uninstall starts on the read after.
+   * Unset, the mock starts an approved uninstall at once.
+   */
+  controllerLagReads?: number
+  /**
    * Whether the browser starts with a Session (as if the HttpOnly refresh cookie were present), so
    * the app's startup refresh succeeds. Defaults to true; sign-in specs pass false. Login and logout
    * fixtures then flip it for the rest of the page, like the real cookie.
@@ -934,11 +948,6 @@ function sshKey(id: string, name: string, purpose: 'deployment' | 'access', publ
   }
 }
 
-/** Installs deterministic network fixtures; no backend or provider is contacted. */
-/**
- * Approves the install plan a Platform created on this page waits on (platforms.md "Create A
- * Platform"), which starts its deploy in the mock, and opens the Platform.
- */
 /** The NFS module's spec schema, as api-server/modules/software/nfs/module.json declares it. */
 const nfsSpecSchema = {
   type: 'object',
@@ -952,6 +961,20 @@ const nfsSpecSchema = {
   },
 }
 
+/**
+ * After the deploy wizard submitted a Platform, checks that its install was approved with the
+ * request and started (change-plans.md "Approval On Submit"): the wizard says so and opens the new
+ * Platform, whose deploy the mock has started.
+ */
+export async function expectPlatformInstallStarted(page: Page, platformId = 'platform-new') {
+  await expect(page).toHaveURL(`/platforms/${platformId}?site=site-a`)
+  await expect(page.getByText('Platform install started')).toBeVisible()
+}
+
+/**
+ * With the safety switch on (`requireSeparateApproval`), approves the install plan a Platform
+ * created on this page waits on, which starts its deploy in the mock, and opens the Platform.
+ */
 export async function approvePlatformInstall(page: Page, platformId = 'platform-new') {
   await expect(page).toHaveURL('/change-plans?site=site-a')
   // The newest plan is listed first; a page that created the Platform twice approves the latest.
@@ -964,6 +987,7 @@ export async function approvePlatformInstall(page: Page, platformId = 'platform-
   await page.goto(`/platforms/${platformId}?site=site-a`)
 }
 
+/** Installs deterministic network fixtures; no backend or provider is contacted. */
 export async function installApiFixtures(page: Page, options: FixtureOptions = {}) {
   const imageCatalog = [
     ...osImages,
@@ -1017,6 +1041,25 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   ]
   // List reads each approved plan has seen since its approval, for `applyApprovedChangePlans`.
   const approvedPlanReads = new Map<string, number>()
+  // Per-page Change Plan policy (change-plans.md "Change Plan Policy"); never stored by default.
+  let changePlanPolicy = options.requireSeparateApproval
+    ? { approveOnSubmit: false, updatedAt: '2026-08-27T01:00:00Z' as string | null, updatedBy: 'admin' }
+    : { approveOnSubmit: true, updatedAt: null as string | null, updatedBy: '' }
+  /**
+   * How a spec write's new plan is stored (change-plans.md "Approval On Submit"): approved by the
+   * requesting admin when the request sent `approve=true`, the policy allows it, and the plan has no
+   * blockers; otherwise waiting, with the reason the API gives.
+   */
+  const submittedPlan = (requestUrl: URL, blockers: readonly string[] = []) => {
+    if (blockers.length > 0) return { state: 'pending_approval', stateReason: 'it has blockers and cannot be approved' }
+    if (requestUrl.searchParams.get('approve') !== 'true') return { state: 'pending_approval', stateReason: 'submitted without approval' }
+    if (!changePlanPolicy.approveOnSubmit) return { state: 'pending_approval', stateReason: 'the Change Plan policy requires a separate approval' }
+    return { state: 'approved', stateReason: 'approved by admin with the change', decidedBy: 'admin', decidedAt: now }
+  }
+  // Approved uninstalls the mock controller has not carried out yet, by Platform (`controllerLagReads`).
+  const laggingUninstalls = new Map<string, { reads: number; planId: string }>()
+  /** The `realized` Condition message of a Platform whose plan waits, as the controller words it. */
+  const waitingMessage = (plan: { id: string; stateReason: string }) => `Change Plan ${plan.id} waits for approval: ${plan.stateReason}`
   let sshKeyItems = [
     sshKey('deploy-1', 'swallow-deployment', 'deployment', 'ssh-ed25519 AAAADEPLOY swallow-deployment'),
     sshKey('key-laptop', 'work-laptop', 'access', 'ssh-ed25519 AAAALAPTOP alice@laptop'),
@@ -1684,6 +1727,38 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     return null
   }
   const operationItems = structuredClone(operations)
+  /**
+   * Starts the deploy of a Platform created on this page, as its controller does once the install
+   * plan is approved: the deploy Workflow appears, and the Platform is `deploying` and converging.
+   */
+  const startPlatformInstall = (platformId: string) => {
+    const deploy = pendingPlatformDeploys.get(platformId)
+    const installing = platformItems.find((item) => item.id === platformId)
+    if (!deploy || !installing) return null
+    pendingPlatformDeploys.delete(platformId)
+    operationItems.unshift(deploy)
+    installing.lifecycleState = 'deploying'
+    installing.lifecycleOperationId = deploy.id
+    installing.status = {
+      ...installing.status, realizingWorkflowId: deploy.id,
+      conditions: platformConditions('converging', 1, `Workflow ${deploy.id} carries out generation 1`),
+    }
+    return deploy.id
+  }
+  /**
+   * Starts a Platform's uninstall, as its controller does once the uninstall plan is approved: the
+   * Platform is `uninstalling` and converging to the absent generation.
+   */
+  const startPlatformUninstall = (platform: (typeof platformItems)[number]) => {
+    const workflowId = `op-uninstall-${platform.id}`
+    platform.lifecycleState = 'uninstalling'
+    platform.lifecycleOperationId = workflowId
+    platform.status = {
+      ...platform.status, realizingWorkflowId: workflowId,
+      conditions: platformConditions('converging', platform.generation, `Workflow ${workflowId} carries out generation ${platform.generation}`),
+    }
+    return workflowId
+  }
   if (options.serverActivityItemCount) {
     for (const operation of operationItems) {
       operation.targetServerIds = operation.targetServerIds.filter((serverId) => serverId !== 'srv-1')
@@ -2051,23 +2126,26 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (decision === 'approve' && (plan.state !== 'pending_approval' || plan.blockers.length > 0)) {
         return json(route, { error: { code: 'conflict', message: 'change plan has blockers.', requestId: 'req-plan-blocked' } }, 409)
       }
-      const decided = { ...plan, state: decision === 'approve' ? 'approved' : 'rejected', decidedBy: 'admin', decidedAt: now }
+      const decided = decision === 'approve'
+        ? { ...plan, state: 'approved', stateReason: 'approved by admin', decidedBy: 'admin', decidedAt: now }
+        : { ...plan, state: 'rejected', stateReason: 'rejected by admin', decidedBy: 'admin', decidedAt: now }
       changePlanItems = changePlanItems.map((item) => (item.id === plan.id ? decided : item))
-      if (decision === 'approve') approvedPlanReads.set(plan.id, 0)
-      // Approving a created Platform's install starts its deploy Workflow, as the controller does.
-      const deploy = decision === 'approve' ? pendingPlatformDeploys.get(plan.resource.id) : undefined
-      const installing = platformItems.find((item) => item.id === plan.resource.id)
-      if (deploy && installing) {
-        pendingPlatformDeploys.delete(plan.resource.id)
-        operationItems.unshift(deploy)
-        installing.lifecycleState = 'deploying'
-        installing.lifecycleOperationId = deploy.id
-        installing.status = {
-          ...installing.status, realizingWorkflowId: deploy.id,
-          conditions: platformConditions('converging', 1, `Workflow ${deploy.id} carries out generation 1`),
-        }
+      if (decision === 'approve') {
+        approvedPlanReads.set(plan.id, 0)
+        // Approving a created Platform's install starts its deploy Workflow, as the controller does.
+        startPlatformInstall(plan.resource.id)
       }
       return json(route, decided)
+    }
+    if (path === '/api/v1/change-plan-policy') {
+      if (request.method() === 'PUT') {
+        const written = request.postDataJSON() as { approveOnSubmit?: unknown }
+        if (typeof written.approveOnSubmit !== 'boolean') {
+          return json(route, { error: { code: 'validation_error', message: 'approveOnSubmit must be true or false.', requestId: 'req-policy-invalid' } }, 400)
+        }
+        changePlanPolicy = { approveOnSubmit: written.approveOnSubmit, updatedAt: now, updatedBy: 'admin' }
+      }
+      return json(route, changePlanPolicy)
     }
     if (path === '/api/v1/software/catalog') {
       return json(route, { items: [
@@ -3189,7 +3267,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
 
     // Spec write (platforms.md "Change A Platform"). The dashboard writes only the GPU Operator
     // setting: turning it on converges at once and records it as installing, the way the controller
-    // does; changing or turning off a managed operator answers 202 with a Change Plan.
+    // does; changing or turning off a managed operator answers 202 with a Change Plan, which is
+    // carried out at once when the write approved it (change-plans.md "Approval On Submit").
     const specMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/spec$/)
     if (specMatch && request.method() === 'PUT') {
       const platformId = specMatch[1]
@@ -3213,8 +3292,19 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         const plan = changePlan(`plan-gpu-operator-${platform.generation}`, platformId, 'pending_approval', {
           expiresAt: '2099-01-01T00:00:00Z', generation: platform.generation,
           actions: [{ target: { kind: 'platform', id: '' }, action: enabled ? 'change-gpu-operator' : 'disable-gpu-operator', from: 'enabled', to: enabled ? '' : 'disabled', destructive: true, reason: enabled ? 'pods that use GPUs may restart' : 'GPU workloads lose the device plugin' }],
+          ...submittedPlan(url),
         })
-        changePlanItems = [plan, ...changePlanItems.filter((item) => !(item.resource.id === platformId && item.state === 'pending_approval'))]
+        const earlier = (item: (typeof changePlanItems)[number]) => item.resource.id === platformId && (item.state === 'pending_approval' || item.state === 'approved')
+        if (plan.state === 'pending_approval') {
+          changePlanItems = [plan, ...changePlanItems.filter((item) => !earlier(item))]
+          return json(route, { platform, plan }, 202)
+        }
+        // Approved with the write: the controller applies it, so the Workflow starts right away.
+        const workflowId = `op-gpu-operator-${platform.generation}`
+        changePlanItems = [{ ...plan, state: 'applied', workflowId }, ...changePlanItems.filter((item) => !earlier(item))]
+        platform.gpuOperator = enabled
+          ? { ...previous, ...body, state: 'installing', lastWorkflowId: workflowId, updatedAt: now } as typeof platform.gpuOperator
+          : { ...previous, state: 'uninstalling', lastWorkflowId: workflowId, updatedAt: now } as typeof platform.gpuOperator
         return json(route, { platform, plan }, 202)
       }
       platform.gpuOperator = {
@@ -3230,8 +3320,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
 
     // Create (platforms.md "Create A Platform"): the Platform is stored `planned` with its members
-    // claimed, and its install waits on a pending Change Plan. The mock reads the body in its
-    // deploy shape, which is also what onPlatformDeploymentRequest receives.
+    // claimed, and its install is a Change Plan. A create sent with approve=true is approved and
+    // carried out at once, as the controller does (`submitted`); otherwise its install waits. The
+    // mock reads the body in its deploy shape, which is also what onPlatformDeploymentRequest
+    // receives.
     if (path === '/api/v1/platforms' && request.method() === 'POST') {
       const created = request.postDataJSON() as Parameters<typeof legacyPlatformBody>[0]
       const rawBody = legacyPlatformBody(created) as Record<string, unknown>
@@ -3242,12 +3334,22 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           { target: { kind: 'platform', id: '' }, action: 'install', from: '', to: 'installed', destructive: true, reason: 'the Platform is created on its members' },
           ...created.spec.members.map((member) => ({ target: { kind: 'server', id: member.serverId }, action: 'join', from: '', to: member.roles.join(', '), destructive: true, reason: 'the Server becomes a member of the new Platform' })),
         ],
+        ...submittedPlan(url),
       })
       const planned = (platform: Record<string, unknown>) => {
         const spec = { desired: 'present', members: created.spec.members, settings: created.spec.settings, machinePreparation: null, removal: null }
         return {
           ...platform, lifecycleState: 'planned', lifecycleOperationId: null, generation: 1, spec,
-          status: { observedGeneration: 0, conditions: platformConditions('awaiting_approval', 1, 'The install waits for its Change Plan to be approved.'), applied: null, realizingWorkflowId: null },
+          status: { observedGeneration: 0, conditions: platformConditions('awaiting_approval', 1, waitingMessage(installPlan)), applied: null, realizingWorkflowId: null },
+        }
+      }
+      /** Stores the install plan; one approved with the create is applied, starting the deploy. */
+      const submitted = () => {
+        if (installPlan.state === 'approved') {
+          const workflowId = startPlatformInstall('platform-new')
+          changePlanItems = [{ ...installPlan, state: 'applied', workflowId: workflowId ?? '' }, ...changePlanItems]
+        } else {
+          changePlanItems = [installPlan, ...changePlanItems]
         }
       }
       const body = rawBody as {
@@ -3329,7 +3431,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         pendingPlatformDeploys.set('platform-new', operationItems.shift() as (typeof operationItems)[number])
         const platform = planned(platformItems.pop() as Record<string, unknown>)
         platformItems.push(platform as (typeof platformItems)[number])
-        changePlanItems = [installPlan, ...changePlanItems]
+        submitted()
         return json(route, { platform, plan: installPlan }, 202)
       }
       const roleAssignments = body.roleAssignments ?? []
@@ -3378,7 +3480,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       pendingPlatformDeploys.set('platform-new', operationItems.shift() as (typeof operationItems)[number])
       const platform = planned(platformItems.pop() as Record<string, unknown>)
       platformItems.push(platform as (typeof platformItems)[number])
-      changePlanItems = [installPlan, ...changePlanItems]
+      submitted()
       return json(route, { platform, plan: installPlan }, 202)
     }
     if (path === '/api/v1/platforms') {
@@ -3497,8 +3599,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         changePlanItems = changePlanItems.filter((item) => !(item.resource.id === platformMatch[1] && item.state === 'pending_approval'))
         return route.fulfill({ status: 204 })
       }
-      // Delete (platforms.md "Delete A Platform"): the spec is marked absent and the uninstall waits
-      // on a Change Plan; cancelActiveWorkflows supersedes the Workflows holding the targets (061).
+      // Delete (platforms.md "Delete A Platform"): the spec is marked absent and the uninstall is a
+      // Change Plan, carried out at once when the delete approved it and waiting otherwise;
+      // cancelActiveWorkflows supersedes the Workflows holding the targets (061).
       const body = (request.postDataJSON() as Record<string, unknown> | null) ?? null
       options.onPlatformUninstallRequest?.(platformMatch[1], body)
       const targets = operationItems.find((item) => item.id === removed.lifecycleOperationId)?.targetServerIds ?? []
@@ -3512,12 +3615,36 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         expiresAt: '2099-01-01T00:00:00Z', generation: removed.generation,
         actions: [{ target: { kind: 'platform', id: removed.id }, action: 'uninstall', from: 'installed', to: 'uninstalled', destructive: true, reason: 'the Platform is marked absent' }],
         effects: body?.releaseServers ? [releaseEffect(targets.length, (body.releaseOptions ?? {}) as Record<string, unknown>)] : [],
+        ...submittedPlan(url),
       })
-      changePlanItems = [plan, ...changePlanItems.filter((item) => !(item.resource.id === removed.id && item.state === 'pending_approval'))]
+      const earlier = (item: (typeof changePlanItems)[number]) => item.resource.id === removed.id && (item.state === 'pending_approval' || item.state === 'approved')
+      if (plan.state === 'approved' && options.controllerLagReads) {
+        // The controller has not acted yet: the Platform reads as it did while its plan waited.
+        removed.status = { ...removed.status, conditions: platformConditions('awaiting_approval', removed.generation, waitingMessage(plan)) }
+        changePlanItems = [plan, ...changePlanItems.filter((item) => !earlier(item))]
+        laggingUninstalls.set(removed.id, { reads: options.controllerLagReads, planId: plan.id })
+      } else if (plan.state === 'approved') {
+        const workflowId = startPlatformUninstall(removed)
+        changePlanItems = [{ ...plan, state: 'applied', workflowId }, ...changePlanItems.filter((item) => !earlier(item))]
+      } else {
+        removed.status = { ...removed.status, conditions: platformConditions('awaiting_approval', removed.generation, waitingMessage(plan)) }
+        changePlanItems = [plan, ...changePlanItems.filter((item) => !earlier(item))]
+      }
       return json(route, { platform: removed, plan }, 202)
     }
     if (platformMatch) {
       const platform = platformItems.find((item) => item.id === platformMatch[1])
+      const lagging = laggingUninstalls.get(platformMatch[1])
+      if (platform && lagging) {
+        // Each read before the controller acts answers the Platform unchanged (`controllerLagReads`).
+        if (lagging.reads > 0) {
+          lagging.reads -= 1
+        } else {
+          laggingUninstalls.delete(platformMatch[1])
+          const workflowId = startPlatformUninstall(platform)
+          changePlanItems = changePlanItems.map((item) => (item.id === lagging.planId ? { ...item, state: 'applied', workflowId } : item))
+        }
+      }
       return platform
         ? json(route, platform)
         : json(route, { error: { code: 'not_found', message: 'Platform not found' } }, 404)

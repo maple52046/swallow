@@ -8,10 +8,12 @@ import (
 	"maps"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/maple52046/swallow/internal/core/convergence"
+	"github.com/maple52046/swallow/internal/core/convergence/convergencetest"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	"github.com/maple52046/swallow/internal/core/store"
@@ -250,10 +252,20 @@ func (c *recordingCanceler) CancelUnfinished(_ context.Context, _, workflowID st
 	return true, nil
 }
 
+// recordingRequester counts the convergence requests a spec write makes for each controller.
+type recordingRequester struct{ requests map[string]int }
+
+func (r *recordingRequester) Request(_ context.Context, controller string) error {
+	r.requests[controller]++
+	return nil
+}
+
 type specHarness struct {
 	specs      *PlatformSpecService
 	controller *PlatformController
 	plans      *convergence.ChangePlanService
+	policies   *convergencetest.Policies
+	requester  *recordingRequester
 	launcher   *recordingLauncher
 	uninstalls *recordingUninstallLauncher
 	platforms  *deployFakePlatformRepo
@@ -273,15 +285,22 @@ func newSpecHarness(record *platformdomain.DeploymentRecord) specHarness {
 	uninstalls := &recordingUninstallLauncher{}
 	uninstall := NewUninstallService(platforms, serverRepo, lifecycle, uninstalls, storedLockGuard{servers: serverRepo})
 	planner := NewPlatformPlanner(platforms, lifecycle, deploy, uninstall, nil, modules)
-	plans := convergence.NewChangePlanService(&storetest.Transactor{}, &memoryPlans{}, nil, nil, 0, planner)
+	policies := &convergencetest.Policies{}
+	plans, err := convergence.NewChangePlanService(convergence.ChangePlanServiceDeps{
+		Transactor: &storetest.Transactor{}, Plans: &memoryPlans{}, Policies: policies, Planners: []convergence.Planner{planner},
+	})
+	if err != nil {
+		panic(err)
+	}
 	specs := &memorySpecs{repo: platforms}
 	workflows := recordedWorkflows{outcomes: map[string]string{}}
 	canceler := &recordingCanceler{unfinished: map[string]bool{}}
+	requester := &recordingRequester{requests: map[string]int{}}
 	return specHarness{
-		specs:      NewPlatformSpecService(&storetest.Transactor{}, platforms, specs, serverRepo, deploy, deploy.platformService, plans, nil, modules),
+		specs:      NewPlatformSpecService(&storetest.Transactor{}, platforms, specs, serverRepo, deploy, deploy.platformService, plans, requester, modules),
 		controller: NewPlatformController(platforms, specs, serverRepo, serverRepo, lifecycle, fixedRecords{record: record}, workflows, canceler, plans, planner, modules),
-		plans:      plans, launcher: launcher, uninstalls: uninstalls, platforms: platforms, servers: serverRepo, lifecycle: lifecycle,
-		workflows: workflows, canceler: canceler,
+		plans:      plans, policies: policies, requester: requester, launcher: launcher, uninstalls: uninstalls, platforms: platforms,
+		servers: serverRepo, lifecycle: lifecycle, workflows: workflows, canceler: canceler,
 	}
 }
 
@@ -401,6 +420,105 @@ func TestCreateProposesTheInstallAndClaimsTheMembers(t *testing.T) {
 	}
 }
 
+// A create its user approved stores its install approved, wakes the controller once committed, and
+// the next reconcile starts the deploy without a separate approval. While a hold keeps it from
+// starting, the Platform reports converging, not awaiting approval.
+func TestCreateApprovedWithTheRequestStartsTheInstall(t *testing.T) {
+	h := newSpecHarness(nil)
+	result, err := h.specs.Create(context.Background(), CreatePlatformSpecInput{
+		SiteID: "site-1", Name: "lab-k0s", Type: platformdomain.PlatformTypeKubernetes, Spec: labSpec(), RequestedBy: "admin", ApprovedBy: "admin",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if result.Plan.State != convergence.PlanApproved || result.Plan.DecidedBy != "admin" {
+		t.Fatalf("plan = %s decided by %q, want approved by admin", result.Plan.State, result.Plan.DecidedBy)
+	}
+	if got := h.requester.requests[PlatformControllerName]; got != 1 {
+		t.Errorf("platform convergence requests = %d, want 1 after the approved create", got)
+	}
+	h.lifecycle.snapshots[result.Platform.ID] = platformdomain.LifecycleSnapshot{State: platformdomain.PlatformLifecycleDeploying}
+	h.reconcile(t, result.Platform.ID)
+	if realized, _ := convergence.FindCondition(h.platforms.platforms[result.Platform.ID].Status.Conditions, convergence.ConditionRealized); realized.Reason != convergence.ReasonConverging {
+		t.Errorf("held approved plan: realized reason = %q, want %q", realized.Reason, convergence.ReasonConverging)
+	}
+	delete(h.lifecycle.snapshots, result.Platform.ID)
+	h.reconcile(t, result.Platform.ID)
+	if h.launcher.launches != 1 || h.launcher.launched.Platform.ID != result.Platform.ID {
+		t.Fatalf("launches = %d, want the install deployed without a separate approval", h.launcher.launches)
+	}
+}
+
+// With the safety switch on, a create its user approved still waits for approval and says why;
+// the controller is woken only to report it, and nothing is launched.
+func TestTheSafetySwitchKeepsAnApprovedCreateWaiting(t *testing.T) {
+	h := newSpecHarness(nil)
+	h.policies.RequireSeparateApproval()
+	result, err := h.specs.Create(context.Background(), CreatePlatformSpecInput{
+		SiteID: "site-1", Name: "lab-k0s", Type: platformdomain.PlatformTypeKubernetes, Spec: labSpec(), RequestedBy: "admin", ApprovedBy: "admin",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if result.Plan.State != convergence.PlanPendingApproval || !strings.Contains(result.Plan.StateReason, "policy") {
+		t.Fatalf("plan = %s %q, want pending because of the policy", result.Plan.State, result.Plan.StateReason)
+	}
+	if got := h.requester.requests[PlatformControllerName]; got != 1 {
+		t.Errorf("platform convergence requests = %d, want 1 so the waiting plan is reported at once", got)
+	}
+	h.reconcile(t, result.Platform.ID)
+	if h.launcher.launches != 0 {
+		t.Errorf("launches = %d, want none before approval", h.launcher.launches)
+	}
+	realized, _ := convergence.FindCondition(h.platforms.platforms[result.Platform.ID].Status.Conditions, convergence.ConditionRealized)
+	if realized.Reason != convergence.ReasonAwaitingApproval || !strings.Contains(realized.Message, result.Plan.StateReason) {
+		t.Errorf("realized = %q %q, want awaiting approval naming why", realized.Reason, realized.Message)
+	}
+}
+
+// An uninstall its user approved starts at the next reconcile. An uninstall left waiting is approved
+// by repeating the delete with approval, which leaves the stored removal as it was.
+func TestDeleteApprovedWithTheRequestStartsTheUninstall(t *testing.T) {
+	t.Run("approved with the delete", func(t *testing.T) {
+		h := newSpecHarness(nil)
+		platform := h.installed(t)
+		result, err := h.specs.Delete(context.Background(), platform.ID, &platformdomain.PlatformRemoval{ReleaseServers: true}, "admin")
+		if err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+		if result.Plan.State != convergence.PlanApproved {
+			t.Fatalf("plan = %s, want approved with the delete", result.Plan.State)
+		}
+		h.reconcile(t, platform.ID)
+		if h.uninstalls.launch == nil || !h.uninstalls.launch.ReleaseServers {
+			t.Errorf("uninstall launch = %+v, want one that releases the members", h.uninstalls.launch)
+		}
+	})
+	t.Run("approved by repeating the delete", func(t *testing.T) {
+		h := newSpecHarness(nil)
+		platform := h.installed(t)
+		first, err := h.specs.Delete(context.Background(), platform.ID, &platformdomain.PlatformRemoval{ReleaseServers: true}, "")
+		if err != nil || first.Plan.State != convergence.PlanPendingApproval {
+			t.Fatalf("Delete() = %+v, %v; want a waiting uninstall", first, err)
+		}
+		h.reconcile(t, platform.ID)
+		if h.uninstalls.launch != nil {
+			t.Fatalf("an uninstall nobody approved was launched")
+		}
+		again, err := h.specs.Delete(context.Background(), platform.ID, nil, "admin")
+		if err != nil {
+			t.Fatalf("Delete(again) error = %v", err)
+		}
+		if again.Plan.ID != first.Plan.ID || again.Plan.State != convergence.PlanApproved {
+			t.Fatalf("Delete(again) plan = %s %s, want %s approved", again.Plan.ID, again.Plan.State, first.Plan.ID)
+		}
+		h.reconcile(t, platform.ID)
+		if h.uninstalls.launch == nil || !h.uninstalls.launch.ReleaseServers {
+			t.Errorf("uninstall launch = %+v, want the stored removal that releases the members", h.uninstalls.launch)
+		}
+	})
+}
+
 // An approved install deploys onto the stored Platform, and its success records the spec as applied.
 func TestApprovedInstallDeploysOntoTheStoredPlatform(t *testing.T) {
 	h := newSpecHarness(nil)
@@ -426,7 +544,7 @@ func TestAddingAMemberConvergesWithoutAPlan(t *testing.T) {
 	platform := h.installed(t)
 	spec := platform.Spec.Clone()
 	spec.Members = append(spec.Members, platformdomain.PlatformMember{ServerID: "w2", Roles: []string{"worker"}})
-	result, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, spec)
+	result, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, spec, "")
 	if err != nil {
 		t.Fatalf("UpdateSpec() error = %v", err)
 	}
@@ -463,7 +581,7 @@ func TestAddingARAMDeployedMemberToADiskPlatformIsRefused(t *testing.T) {
 	spec := platform.Spec.Clone()
 	spec.Members = append(spec.Members, platformdomain.PlatformMember{ServerID: "w2", Roles: []string{"worker"}})
 
-	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, spec); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, spec, ""); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
 		t.Fatalf("UpdateSpec() error = %v, want ErrInvalidDeployment", err)
 	}
 	if got := h.platforms.platforms[platform.ID].Generation; got != 1 {
@@ -487,7 +605,7 @@ func TestSpecWriteKeepsStoredUserData(t *testing.T) {
 	spec := platform.Spec.Clone()
 	spec.MachinePreparation.UserData = ""
 	spec.Members = append(spec.Members, platformdomain.PlatformMember{ServerID: "w2", Roles: []string{"worker"}})
-	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, spec); err != nil {
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, spec, ""); err != nil {
 		t.Fatalf("UpdateSpec() error = %v", err)
 	}
 	if got := h.platforms.platforms[platform.ID].Spec.MachinePreparation.UserData; got != "#cloud-config\n" {
@@ -504,12 +622,15 @@ func TestSpecWritesSwallowCannotCarryOut(t *testing.T) {
 
 	removed := platform.Spec.Clone()
 	removed.Members = append(removed.Members[:3], platformdomain.PlatformMember{ServerID: "w2", Roles: []string{"worker"}})
-	result, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, removed)
+	result, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, removed, "admin")
 	if err != nil {
 		t.Fatalf("UpdateSpec(remove member) error = %v", err)
 	}
 	if result.Plan == nil || len(result.Plan.Blockers) != 1 || result.Plan.Blockers[0] != unsupportedBlocker("remove-member") {
 		t.Fatalf("plan = %+v, want one remove-member blocker", result.Plan)
+	}
+	if result.Plan.State != convergence.PlanPendingApproval {
+		t.Errorf("blocked plan approved with the write = %s, want it left waiting", result.Plan.State)
 	}
 	if _, err := h.plans.Approve(context.Background(), result.Plan.ID, "admin"); !errors.Is(err, convergence.ErrChangePlanBlocked) {
 		t.Errorf("Approve(blocked) error = %v, want ErrChangePlanBlocked", err)
@@ -518,16 +639,16 @@ func TestSpecWritesSwallowCannotCarryOut(t *testing.T) {
 	refused := platform.Spec.Clone()
 	refused.Settings = maps.Clone(refused.Settings)
 	refused.Settings["timeSyncCheck"] = "skip"
-	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 2, refused); !errors.Is(err, ErrUnsupportedChange) {
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 2, refused, ""); !errors.Is(err, ErrUnsupportedChange) {
 		t.Errorf("UpdateSpec(unsupported non-destructive) error = %v, want ErrUnsupportedChange", err)
 	}
 	immutable := platform.Spec.Clone()
 	immutable.Settings = maps.Clone(immutable.Settings)
 	immutable.Settings["apiVip"] = "192.168.100.201"
-	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 2, immutable); !errors.Is(err, platformdomain.ErrImmutableSpecField) {
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 2, immutable, ""); !errors.Is(err, platformdomain.ErrImmutableSpecField) {
 		t.Errorf("UpdateSpec(immutable) error = %v, want ErrImmutableSpecField", err)
 	}
-	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, platform.Spec.Clone()); !errors.Is(err, platformdomain.ErrGenerationConflict) {
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, platform.Spec.Clone(), ""); !errors.Is(err, platformdomain.ErrGenerationConflict) {
 		t.Errorf("UpdateSpec(stale generation) error = %v, want ErrGenerationConflict", err)
 	}
 	if got := h.platforms.platforms[platform.ID].Generation; got != 2 {
@@ -545,7 +666,7 @@ func TestDeleteDeclaresThePlatformAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if _, err := h.specs.Delete(context.Background(), created.Platform.ID, nil); err != nil {
+	if _, err := h.specs.Delete(context.Background(), created.Platform.ID, nil, ""); err != nil {
 		t.Fatalf("Delete(never installed) error = %v", err)
 	}
 	if _, ok := h.platforms.platforms[created.Platform.ID]; ok || heldBy(h.servers, "c1") != "" {
@@ -556,7 +677,7 @@ func TestDeleteDeclaresThePlatformAbsent(t *testing.T) {
 	}
 
 	platform := h.installed(t)
-	result, err := h.specs.Delete(context.Background(), platform.ID, &platformdomain.PlatformRemoval{ReleaseServers: true})
+	result, err := h.specs.Delete(context.Background(), platform.ID, &platformdomain.PlatformRemoval{ReleaseServers: true}, "")
 	if err != nil {
 		t.Fatalf("Delete(installed) error = %v", err)
 	}
@@ -686,7 +807,7 @@ func TestControllerDoesNotRestartAFailedWorkflowAndReportsDrift(t *testing.T) {
 	}
 	spec := platform.Spec.Clone()
 	spec.Members = append(spec.Members, platformdomain.PlatformMember{ServerID: "w2", Roles: []string{"worker"}})
-	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, spec); err != nil {
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, spec, ""); err != nil {
 		t.Fatalf("UpdateSpec() error = %v", err)
 	}
 	h.reconcile(t, platform.ID)
@@ -712,7 +833,7 @@ func TestControllerCancelsASupersededRealizationThatStillWaits(t *testing.T) {
 	platform := h.installed(t)
 	grown := platform.Spec.Clone()
 	grown.Members = append(grown.Members, platformdomain.PlatformMember{ServerID: "w2", Roles: []string{"worker"}})
-	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, grown); err != nil {
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, grown, ""); err != nil {
 		t.Fatalf("UpdateSpec(add w2) error = %v", err)
 	}
 	h.reconcile(t, platform.ID)
@@ -726,7 +847,7 @@ func TestControllerCancelsASupersededRealizationThatStillWaits(t *testing.T) {
 
 	newer := grown.Clone()
 	newer.Members = append(newer.Members, platformdomain.PlatformMember{ServerID: "w3", Roles: []string{"worker"}})
-	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 2, newer); err != nil {
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 2, newer, ""); err != nil {
 		t.Fatalf("UpdateSpec(add w3) error = %v", err)
 	}
 	h.reconcile(t, platform.ID)
@@ -756,7 +877,7 @@ func TestRevertingAFailedMemberConvergesAndReleasesIt(t *testing.T) {
 	original := platform.Spec.Clone()
 	grown := original.Clone()
 	grown.Members = append(grown.Members, platformdomain.PlatformMember{ServerID: "w2", Roles: []string{"worker"}})
-	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, grown); err != nil {
+	if _, err := h.specs.UpdateSpec(context.Background(), platform.ID, 1, grown, ""); err != nil {
 		t.Fatalf("UpdateSpec(add) error = %v", err)
 	}
 	h.reconcile(t, platform.ID)
@@ -770,7 +891,7 @@ func TestRevertingAFailedMemberConvergesAndReleasesIt(t *testing.T) {
 		t.Fatalf("w2 lost its claim while the failed Workflow still names it")
 	}
 
-	result, err := h.specs.UpdateSpec(context.Background(), platform.ID, 2, original)
+	result, err := h.specs.UpdateSpec(context.Background(), platform.ID, 2, original, "")
 	if err != nil || result.Plan != nil {
 		t.Fatalf("UpdateSpec(revert) = %+v, %v; want a write without a plan", result, err)
 	}

@@ -3,7 +3,9 @@ import type { Platform, PlatformLifecycleState } from './types'
 
 const LABELS: Record<PlatformLifecycleState, string> = {
   registered: 'Registered',
-  planned: 'Awaiting approval',
+  // Not "Awaiting approval": a confirmed install is approved with its request and only briefly
+  // planned; whether a plan waits is the Platform's `realized` Condition, shown on its page.
+  planned: 'Planned',
   deploying: 'Deploying',
   deploy_failed: 'Deployment failed',
   active: 'Active',

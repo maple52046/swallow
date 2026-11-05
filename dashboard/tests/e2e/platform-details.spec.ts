@@ -74,7 +74,7 @@ test('a Platform awaiting its install approval is not deployed yet and has a dir
 
   await expect.poll(() => readFacts(detailsGroup(page, 'General'))).toEqual({
     Type: 'Kubernetes',
-    Lifecycle: 'Awaiting approval',
+    Lifecycle: 'Planned',
     Site: 'Taipei Lab',
     Created: await localTime(page, '2026-08-20T00:00:00Z'),
     'Last deployed': 'Not deployed yet',

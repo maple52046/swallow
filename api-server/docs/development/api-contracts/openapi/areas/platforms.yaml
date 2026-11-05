@@ -45,12 +45,15 @@ paths:
       description: >-
         Requires the `admin` role. The spec is validated as a deployment would be (the Deployment
         Key, topology, targets, network, and features) before anything is written; then the
-        Platform is stored at generation 1 with its members claimed, and its install waits on the
-        returned Change Plan (platforms.md, Create A Platform). Nothing touches a machine until the
-        plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404
-        for an unknown Site; 409 when the installation has no Deployment Key, the name is taken, or
-        a target is claimed, locked, or held by another Workflow; 503 when Site automation is not
-        configured.
+        Platform is stored at generation 1 with its members claimed, and its install is the
+        returned Change Plan (platforms.md, Create A Platform): approved with the request when it
+        sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing
+        touches a machine until the plan is approved. 400 for an invalid body, spec, topology,
+        target, network, or feature; 404 for an unknown Site; 409 when the installation has no
+        Deployment Key, the name is taken, or a target is claimed, locked, or held by another
+        Workflow; 503 when Site automation is not configured.
+      parameters:
+        - $ref: '#/components/parameters/ApproveChange'
       requestBody:
         required: true
         content:
@@ -235,13 +238,16 @@ paths:
       summary: Declare a Platform absent, proposing its uninstall as a Change Plan.
       description: >-
         Requires the `admin` role. Marks the spec absent with the optional removal choices and
-        proposes the uninstall as a Change Plan; the record is deleted once the uninstall succeeds
-        (platforms.md, Delete A Platform). A Platform whose install was never approved is deleted at
-        once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled,
-        then membership, Platform Claims, and a swallow-owned credential Integration are cleared, and
-        hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no
-        spec yet.
+        proposes the uninstall as a Change Plan, approved with the request when it sends
+        `approve=true` and the policy allows it; the record is deleted once the uninstall succeeds
+        (platforms.md, Delete A Platform). Deleting a Platform already marked absent returns the plan
+        it waits on, approving it when the request sends `approve=true`. A Platform whose install was
+        never approved is deleted at once (204). With `recordOnly=true` only the record is removed:
+        in-flight Workflows are canceled, then membership, Platform Claims, and a swallow-owned
+        credential Integration are cleared, and hosts are never touched (204). 404 for an unknown
+        Platform; 409 when the Platform has no spec yet.
       parameters:
+        - $ref: '#/components/parameters/ApproveChange'
         - name: recordOnly
           in: query
           required: false
@@ -285,8 +291,9 @@ paths:
       description: >-
         Requires the `admin` role. A non-destructive change (for example a new member) is written
         and converged by the platform controller (200); a destructive one is written with a Change
-        Plan (202), which carries a blocker when swallow cannot carry the change out yet
-        (platforms.md, Change A Platform). An omitted user data value keeps the stored one. 400 for
+        Plan (202), approved with the request when it sends `approve=true` and the policy allows it,
+        and carrying a blocker when swallow cannot carry the change out yet (platforms.md, Change A
+        Platform). An omitted user data value keeps the stored one. 400 for
         an invalid body or spec; 404 for an unknown Platform; 409 when `generation` is no longer
         current, an immutable field changes, a non-destructive change cannot be carried out yet,
         the uninstall has started, the Platform has no spec yet, or a new member is claimed,
@@ -1071,6 +1078,16 @@ components:
       description: The Platform's opaque id.
       schema:
         type: string
+    ApproveChange:
+      name: approve
+      in: query
+      required: false
+      description: >-
+        `true` approves the Change Plan the write proposes with the write itself, unless the Change
+        Plan policy requires a separate approval or the plan has blockers (change-plans.md,
+        Approval On Submit). Ignored when the write proposes no plan.
+      schema:
+        type: boolean
     KubernetesNodeName:
       name: node
       in: path

@@ -939,12 +939,14 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	infrastructure.Patch("/pools/:id", deps.infrastructure.UpdatePool)
 	infrastructure.Delete("/pools/:id", deps.infrastructure.DeletePool)
 
+	// Change Plans (contract change-plans.md, decision 076): the approval step of a destructive
+	// change, and the policy that decides whether a change approved with its write is approved at
+	// once; the resource's controller applies an approved plan.
+	deps.changePlans.RegisterRoutes(v1.Group("/change-plans", admin...))
+	deps.changePlans.RegisterPolicyRoutes(v1.Group("/change-plan-policy", admin...))
+
 	// API Keys (contract api-keys.md, decision 042): the caller's keys for non-interactive
 	// clients. Creating one needs a password Session, so a leaked key cannot mint replacements.
-	// Change Plans (contract change-plans.md, decision 076): the approval step of a destructive
-	// change; the resource's controller applies an approved plan.
-	deps.changePlans.RegisterRoutes(v1.Group("/change-plans", admin...))
-
 	apiKeys := v1.Group("/api-keys", admin...)
 	apiKeys.Get("/", deps.apiKeys.List)
 	apiKeys.Post("/", middleware.SessionOnly(), deps.apiKeys.Create)

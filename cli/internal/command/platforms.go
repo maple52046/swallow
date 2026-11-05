@@ -11,7 +11,8 @@ import (
 // newPlatformsCommand groups the Platforms surface plus the live Kubernetes cluster explorer and
 // the Slurm views (platforms.md, platforms-kubernetes.md). A Platform is written as a spec:
 // `create` declares one, `set-spec` changes it, and `delete` declares it absent. Creating it and
-// destructive changes answer with a Change Plan that `plans approve` carries out.
+// destructive changes answer with a Change Plan: --approve approves it with the write, and
+// otherwise `plans approve` does.
 func newPlatformsCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "platforms",
@@ -38,7 +39,7 @@ func newPlatformsCommand() *cobra.Command {
 // (platforms.md, "Manage The GPU Operator"; decision 062). The operator is the spec's
 // settings.gpuOperator: `set` and `uninstall` read the Platform and write its spec back with the
 // setting changed, at the generation they read. Turning the operator on converges at once;
-// changing or turning it off answers with a Change Plan to approve.
+// changing or turning it off answers with a Change Plan, which --approve approves with the write.
 func platformsGPUOperatorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gpu-operator",
@@ -71,6 +72,7 @@ func platformsGPUOperatorCmd() *cobra.Command {
 		},
 	}
 	addFileFlag(set, "GPU Operator settings (enabled, version, allocationMode, draDriverVersion, resourceNaming, nodeLabeller, metricsExporter)")
+	addApproveFlag(set)
 	uninstall := &cobra.Command{
 		Use:   "uninstall <platformId>",
 		Short: "Uninstall the GPU Operator; the platform keeps running (answers with a Change Plan)",
@@ -79,12 +81,14 @@ func platformsGPUOperatorCmd() *cobra.Command {
 			return changePlatformSetting(cmd, args[0], "gpuOperator", map[string]any{"enabled": false})
 		},
 	}
+	addApproveFlag(uninstall)
 	cmd.AddCommand(set, uninstall)
 	return cmd
 }
 
 // changePlatformSetting reads a Platform and writes its spec back with one setting replaced, at the
-// generation it read, and prints the result (the Platform and the Change Plan, if any).
+// generation it read, and prints the result (the Platform and the Change Plan, if any) and what
+// happens to the plan. The calling command registers --approve.
 func changePlatformSetting(cmd *cobra.Command, platformID, key string, value any) error {
 	c, err := newClient()
 	if err != nil {
@@ -109,7 +113,7 @@ func changePlatformSetting(cmd *cobra.Command, platformID, key string, value any
 	if preparation := platform.Spec["machinePreparation"]; preparation != nil {
 		spec["machinePreparation"] = preparation
 	}
-	return sendJSON(cmd, "PUT", fmt.Sprintf("platforms/%s/spec", platformID), nil,
+	return sendSpecWrite(cmd, "PUT", fmt.Sprintf("platforms/%s/spec", platformID), nil,
 		map[string]any{"generation": platform.Generation, "spec": spec})
 }
 
@@ -144,17 +148,20 @@ func platformsCreateCmd() *cobra.Command {
 		Short: "Create a Kubernetes or Slurm platform from a JSON/YAML body (answers with its install plan)",
 		Long: "Create a Kubernetes or Slurm platform from a JSON/YAML body: siteId, name, type, and spec\n" +
 			"(members with their roles, the type's settings, and an optional machinePreparation). The\n" +
-			"platform is validated and stored, and its install waits on the returned Change Plan:\n" +
-			"approve it with `swallow plans approve <planId>`.",
+			"platform is validated and stored, and its install is the returned Change Plan. With\n" +
+			"--approve the plan is approved with the request and the install starts at once, unless\n" +
+			"the Change Plan policy requires a separate approval; otherwise approve it with\n" +
+			"`swallow plans approve <planId>`.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			body, err := requireBodyFile(cmd)
 			if err != nil {
 				return err
 			}
-			return sendJSON(cmd, "POST", "platforms/", nil, body)
+			return sendSpecWrite(cmd, "POST", "platforms/", nil, body)
 		},
 	}
 	addFileFlag(cmd, "create body (siteId, name, type, spec: {members, settings, machinePreparation})")
+	addApproveFlag(cmd)
 	return cmd
 }
 
@@ -164,17 +171,19 @@ func platformsSetSpecCmd() *cobra.Command {
 		Short: "Replace a platform's spec from a JSON/YAML body ({generation, spec})",
 		Long: "Replace a platform's spec. The body names the generation the spec was read at (from\n" +
 			"`platforms get`) and the new spec. A non-destructive change, such as a new member, is\n" +
-			"converged at once; a destructive one answers with a Change Plan to approve.",
+			"converged at once; a destructive one answers with a Change Plan, which --approve approves\n" +
+			"with the write unless the Change Plan policy requires a separate approval.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body, err := requireBodyFile(cmd)
 			if err != nil {
 				return err
 			}
-			return sendJSON(cmd, "PUT", fmt.Sprintf("platforms/%s/spec", args[0]), nil, body)
+			return sendSpecWrite(cmd, "PUT", fmt.Sprintf("platforms/%s/spec", args[0]), nil, body)
 		},
 	}
 	addFileFlag(cmd, "spec change body (generation, spec: {members, settings, machinePreparation})")
+	addApproveFlag(cmd)
 	return cmd
 }
 
@@ -200,12 +209,15 @@ func platformsUpdateCmd() *cobra.Command {
 func platformsDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete <platformId>",
-		Short: "Delete a platform: propose its uninstall as a Change Plan",
-		Long: "Delete a platform. Its spec is marked absent and the uninstall waits on the returned Change\n" +
-			"Plan; the record is deleted once the uninstall succeeds. A platform whose install was never\n" +
-			"approved is deleted at once. --release-servers also releases the members (with the erase\n" +
-			"flags), and --cancel-active-workflows cancels the Workflows holding them first.\n" +
-			"--record-only deletes only the record and leaves the hosts as they are.",
+		Short: "Delete a platform: its uninstall is a Change Plan (--approve starts it at once)",
+		Long: "Delete a platform. Its spec is marked absent and its uninstall is the returned Change Plan;\n" +
+			"the record is deleted once the uninstall succeeds. With --approve the plan is approved with\n" +
+			"the request and the uninstall starts at once, unless the Change Plan policy requires a\n" +
+			"separate approval; deleting a platform already marked absent with --approve approves the\n" +
+			"plan it waits on. A platform whose install was never approved is deleted at once.\n" +
+			"--release-servers also releases the members (with the erase flags), and\n" +
+			"--cancel-active-workflows cancels the Workflows holding them first. --record-only deletes\n" +
+			"only the record and leaves the hosts as they are.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if recordOnly, _ := cmd.Flags().GetBool("record-only"); recordOnly {
@@ -228,9 +240,10 @@ func platformsDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return sendJSON(cmd, "DELETE", "platforms/"+args[0], nil, withCancel)
+			return sendSpecWrite(cmd, "DELETE", "platforms/"+args[0], nil, withCancel)
 		},
 	}
+	addApproveFlag(cmd)
 	cmd.Flags().Bool("record-only", false, "delete only the record; the hosts are left as they are")
 	cmd.Flags().Bool("release-servers", false, "release every member to the provider in the uninstall")
 	cmd.Flags().Bool("unbind-static-ips", false, "unbind static IPs on release (requires --release-servers)")

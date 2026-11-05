@@ -138,6 +138,48 @@ test('The approval statement counts destructive actions in words and omits a zer
   await expect(dialog).not.toContainText('including')
 })
 
+test('A waiting plan says why it waits', async ({ page }) => {
+  await installApiFixtures(page, { requireSeparateApproval: true })
+  await page.goto('/platforms/platform-a?site=site-a')
+  await page.getByRole('button', { name: 'Uninstall platform', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
+  await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
+  await dialog.getByLabel('Cancel these workflows, then uninstall').locator('..').click()
+  await dialog.getByRole('button', { name: 'Uninstall', exact: true }).click()
+
+  await expect(page).toHaveURL('/change-plans?site=site-a')
+  const plan = page.getByRole('article', { name: 'Change Plan for Platform production-k0s' }).first()
+  await expect(plan).toContainText('Waiting for approval')
+  await expect(plan).toContainText('Why it waits: the Change Plan policy requires a separate approval.')
+  await expect(plan.getByRole('button', { name: 'Approve plan' })).toBeEnabled()
+})
+
+test('The safety switch reads the policy, turns on and off, and names who changed it', async ({ page }) => {
+  const writes: unknown[] = []
+  page.on('request', (request) => {
+    if (request.method() === 'PUT' && new URL(request.url()).pathname === '/api/v1/change-plan-policy') writes.push(request.postDataJSON())
+  })
+  await installApiFixtures(page)
+  await page.goto('/change-plans?site=site-a')
+
+  const card = page.locator('section', { has: page.getByRole('heading', { name: 'Approval of confirmed changes' }) })
+  const toggle = card.getByRole('switch', { name: 'Require a separate approval for every Change Plan' })
+  await expect(toggle).not.toBeChecked()
+  await expect(card).toContainText('Off: a change confirmed in the dashboard')
+  await expect(card).toContainText('Never changed; the default lets confirmed changes start at once.')
+
+  await toggle.locator('..').click()
+  await expect(toggle).toBeChecked()
+  await expect(page.getByText('Separate approval required')).toBeVisible()
+  await expect(card).toContainText('On: every destructive change waits here until an admin approves it')
+  await expect(card).toContainText('Last changed by admin at')
+
+  await toggle.locator('..').click()
+  await expect(toggle).not.toBeChecked()
+  await expect(page.getByText('Confirmed changes start at once')).toBeVisible()
+  expect(writes).toEqual([{ approveOnSubmit: false }, { approveOnSubmit: true }])
+})
+
 test('Rejecting a plan moves it to the recent plans', async ({ page }) => {
   await installApiFixtures(page)
   await page.goto('/change-plans')

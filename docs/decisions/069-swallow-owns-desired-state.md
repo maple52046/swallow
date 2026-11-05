@@ -72,7 +72,8 @@ builds no replacement, and reports no drift on them:
 7. **Convergence is hybrid.** Controllers converge non-destructive differences continuously. A
    destructive change (reinstalling an OS, releasing a Server, uninstalling a Platform, changing a Node
    Role) first produces a Change Plan that a user approves, is recomputed against current state, and
-   runs as a Workflow ([decision 076](076-change-plans.md) (Change Plans)). Drift is reported, not
+   runs as a Workflow ([decision 076](076-change-plans.md) (Change Plans)); a request the user
+   confirmed is that approval. Drift is reported, not
    corrected, unless the field's feature specification declares it auto-corrected (decision 071 does
    so for non-destructive provisioner-realized fields); a user adopts the observed value or reapplies
    the spec. Desired state is written only through the API; GitOps may later be an import and export
@@ -130,3 +131,4 @@ builds no replacement, and reports no drift on them:
 - 2026-09-15: decision 069 made a fact a provisioner may own capability-first: owned by a capable provisioner, and by a same-shaped swallow-owned fallback otherwise.
 - 2026-10-30: decision 069 made swallow's store the single source of truth for desired and execution state, with providers converging to it, hybrid convergence, Temporal only executing, and a transactional store, and retired the capability-first fallback.
 - 2026-11-02: merged decision 069 into this ADR; the body states the current decision.
+- 2026-11-05: a destructive change the user confirmed in the request that submits it counts as that user's approval (decision 076).

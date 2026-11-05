@@ -18,8 +18,9 @@ Active
 Create Kubernetes (k0s) and Slurm Platforms from a spec, change and delete them through that spec,
 read their status and observed membership, and remove swallow records. A Platform is a
 desired-state resource ([desired-state-model §5.2](../../../../../docs/development/desired-state-model.md)):
-creating it and every destructive change wait on a [Change Plan](change-plans.md), and the
-worker's platform controller converges the rest. swallow owns policy and durable lifecycle intent
+creating it and every destructive change go through a [Change Plan](change-plans.md), which the
+user approves with the write (`approve=true`) or afterwards, and the worker's platform controller
+converges the rest. swallow owns policy and durable lifecycle intent
 for the platforms it deploys. It does not own platform membership, and — per
 [decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md) (self deployed platform management) — it
 manages only self-deployed platforms: the public API no longer registers an existing platform.
@@ -177,7 +178,8 @@ is a one-release compatibility value for records created before the register-exi
 removed ([decision 032](../../../../../docs/decisions/032-self-deployed-platform-management.md)).
 `lifecycleState` is exactly `registered | planned | deploying | deploy_failed | active |
 uninstalling | uninstall_failed | uninstalled`; `planned` is a Platform created from its spec whose
-install waits on its Change Plan. `lifecycleOperationId` is the newest deployment or uninstall
+install has not started: its Change Plan waits for approval, or was approved and its Workflow is not
+written yet. `lifecycleOperationId` is the newest deployment or uninstall
 Workflow ID, or `null`. These fields are derived by the API in a batch from durable Workflow
 history; clients must not infer them from `integrationId`, membership, or sync freshness.
 
@@ -244,7 +246,8 @@ Every Platform response also carries `generation`, `spec`, and `status`:
   planned against; `status.observedGeneration` is its generation. `status.realizingWorkflowId`
   names the Workflow carrying out a newer generation.
 - `status.conditions` are the shared `realized` and `drifted` Conditions. `realized` is
-  `converging` while a Workflow runs, `awaiting_approval` while a Change Plan waits, `plan_required`
+  `converging` while a Workflow runs or an approved Change Plan is about to start one,
+  `awaiting_approval` while a Change Plan waits for approval (its message names the plan), `plan_required`
   when a destructive change has no plan waiting (it was rejected or expired; write the spec again),
   and `failed` when the Workflow failed (it is not started again for the same generation: rerun it
   or write a new spec). `drifted` lists members the Platform does not report and Servers that
@@ -299,8 +302,10 @@ size calculation.
 `POST /api/v1/platforms/` creates a Platform from its spec. swallow validates it exactly as a
 deployment (every rule below), stores the Platform at generation 1 with its members claimed, and
 answers `202 Accepted` with the Platform and the [Change Plan](change-plans.md) that installs it.
-Nothing touches a machine until the plan is approved; the platform controller then starts the
-build: `type: "kubernetes"` runs a `deploy-kubernetes` Workflow that builds k0s, `type: "slurm"` a
+With `?approve=true` the plan is approved with the request, unless the Change Plan policy requires a
+separate approval ([Approval On Submit](change-plans.md#approval-on-submit)); otherwise it waits for
+approval. Nothing touches a machine until the plan is approved; the platform controller then starts
+the build: `type: "kubernetes"` runs a `deploy-kubernetes` Workflow that builds k0s, `type: "slurm"` a
 `configure-slurm` Workflow (see [Slurm](#slurm) below).
 
 ```json
@@ -328,8 +333,11 @@ build: `type: "kubernetes"` runs a `deploy-kubernetes` Workflow that builds k0s,
 ```
 
 ```json
-{ "platform": { "id": "platform-id", "generation": 1, "...": "..." }, "plan": { "id": "plan-id", "state": "pending_approval", "...": "..." } }
+{ "platform": { "id": "platform-id", "generation": 1, "...": "..." }, "plan": { "id": "plan-id", "state": "approved", "decidedBy": "admin", "...": "..." } }
 ```
+
+The plan's `state` is `approved` when the request approved it and `pending_approval` when it waits;
+its `stateReason` then says why.
 
 The rules below name the settings and the members. A request without a spec, or whose members or
 settings do not make a valid deployment, is `400 validation_error`.
@@ -1044,8 +1052,8 @@ verified, newest first:
 The GPU Operator is the Platform's `settings.gpuOperator`, changed with
 [Change A Platform](#change-a-platform). Turning it on is not destructive: the platform controller
 starts a `configure-gpu-operator` Workflow that applies the settings. Changing its settings or
-turning it off (`enabled: false`, or omitting it, uninstalls the operator) is destructive and waits
-on a Change Plan, whose approval starts the same Workflow.
+turning it off (`enabled: false`, or omitting it, uninstalls the operator) is destructive and goes
+through a Change Plan, whose approval (with the write, or afterwards) starts the same Workflow.
 
 Once the Workflow is persisted `gpuOperator.state` becomes `installing` (or `uninstalling`) and
 `gpuOperator.lastWorkflowId` names it. The Workflow targets the Platform's deployment targets: it
@@ -1127,7 +1135,8 @@ validates the new spec as a deployment:
   it. Adding a member runs the type's deploy
   Workflow over every member; members already in the Platform are left as they are.
 - A destructive change (changing or turning off the GPU Operator, and the changes below) is written
-  together with a Change Plan and answered `202 Accepted`. When swallow cannot carry the change out
+  together with a Change Plan and answered `202 Accepted`; with `?approve=true` the plan is approved
+  with the write as in [Create A Platform](#create-a-platform). When swallow cannot carry the change out
   yet — removing a member, changing a member's roles, changing `k0sVersion`, `gpuStackOwner`, or
   `gpuDriver`, and changing or turning off Slurm workload storage, the container runtime, OCI
   containers, PMIx, `stateSaveLocation`, or `gpuGresType` — the plan carries the blocker
@@ -1147,11 +1156,13 @@ until the change removing it is carried out.
 ## Delete A Platform
 
 `DELETE /api/v1/platforms/{platformId}` marks the spec `absent` and proposes the uninstall as a
-Change Plan (`202 Accepted`, with the Platform and the plan). Once the plan is approved the platform
-controller starts an `uninstall-kubernetes` or `uninstall-slurm` Workflow, and the record is deleted
-when the uninstall succeeds. A Platform whose install was never approved touched no machine, so it
-is deleted at once (`204 No Content`). Deleting a Platform already marked absent returns the plan it
-waits on.
+Change Plan (`202 Accepted`, with the Platform and the plan); with `?approve=true` the plan is
+approved with the request as in [Create A Platform](#create-a-platform). Once the plan is approved
+the platform controller starts an `uninstall-kubernetes` or `uninstall-slurm` Workflow, and the
+record is deleted when the uninstall succeeds. A Platform whose install was never approved touched
+no machine, so it is deleted at once (`204 No Content`). Deleting a Platform already marked absent
+returns the plan it waits on, and ignores the body; with `?approve=true` it approves that plan when
+the plan is `pending_approval`, has no blockers, and the policy allows approving on submit.
 
 The request body is optional. An absent or empty body removes the platform software only. To also
 return the member servers to the provider in the same Workflow, send:
@@ -1359,6 +1370,11 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-05 `POST /platforms`, `PUT /platforms/{id}/spec`, and `DELETE /platforms/{id}` take
+  `?approve=true`, which approves the proposed Change Plan with the write
+  ([Approval On Submit](change-plans.md#approval-on-submit)). This is additive: without it a
+  destructive write waits for approval as before. A Platform whose plan is approved but not applied
+  yet reports `realized` reason `converging` instead of `awaiting_approval`.
 - Since 2026-11-04 a Kubernetes deployment whose members would not all run from RAM or all from
   disk (see [Create A Platform](#create-a-platform)) is a `400 validation_error` when it is
   accepted: creating the Platform, writing a spec that adds such a member, or the controller's

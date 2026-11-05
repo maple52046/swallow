@@ -228,21 +228,30 @@ that never expires. Creating a key requires a password session.
 
 ### plans
 
-Change Plans of destructive changes. A destructive change waits as a plan until an admin
-approves it as a whole; the resource's controller then recomputes and applies it as a
-Workflow. See
+Change Plans of destructive changes. A destructive change is a plan, which the resource's
+controller recomputes and applies as a Workflow once it is approved. A command that writes the
+change approves its plan with the write when you pass `--approve`, as confirming a dashboard
+dialog does; without it the plan waits here until an admin approves it as a whole. See
 [change-plans.md](../../api-server/docs/development/api-contracts/api-server/change-plans.md).
 
 ```bash
 swallow plans list [--resource-kind platform] [--resource-id <id>] [--state pending_approval,approved]
-swallow plans get <planId>        # actions, expected effects, blockers, state
+swallow plans get <planId>        # actions, expected effects, blockers, state, and why it waits
 swallow plans approve <planId>
 swallow plans reject <planId>
+swallow plans policy                               # whether a change sent with --approve starts at once
+swallow plans policy set --approve-on-submit=false # the safety switch: every plan waits for approval
+swallow plans policy set --approve-on-submit=true  # the default again
 ```
 
-A plan with blockers cannot be approved, and a plan expires 24 hours after it was computed
-by default. If the spec changes again before the plan is applied, the plan becomes
-`superseded` and the change needs a new one.
+After a write, the command says on stderr what happens to its plan: approved and carried out,
+or waiting, with the reason (`submitted without approval`, `the Change Plan policy requires a
+separate approval`, or blockers) and the `plans approve` command. A plan with blockers cannot be
+approved, and a plan expires 24 hours after it was computed by default. If the spec changes
+again before the plan is applied, the plan becomes `superseded` and the change needs a new one;
+if the observed state changes what an approved plan would do, a new plan waits for approval.
+The policy applies to the changes sent after it is set; plans already proposed keep their
+state.
 
 ### overview
 
@@ -557,12 +566,12 @@ swallow infrastructure pools create -f pool.yaml
 ```bash
 swallow platforms list --site-id site1
 swallow platforms get plat1
-swallow platforms create -f platform-k8s.yaml        # prints the platform and its install Change Plan
-swallow plans approve <planId>                        # the platform controller then builds it
+swallow platforms create -f platform-k8s.yaml --approve   # the install starts at once
+swallow platforms create -f platform-k8s.yaml        # the install waits: swallow plans approve <planId>
 swallow platforms set-spec plat1 -f spec-change.yaml  # { generation, spec }; a new member converges at once
 swallow platforms update plat1 -f patch.yaml          # name, gpuStackOwner, monitoringLinks
-swallow platforms delete plat1                        # proposes the uninstall (software only)
-swallow platforms delete plat1 --release-servers --erase   # the uninstall also releases the members
+swallow platforms delete plat1 --approve              # uninstalls the platform software now
+swallow platforms delete plat1 --approve --release-servers --erase   # the uninstall also releases the members
 swallow platforms delete plat1 --cancel-active-workflows   # also cancel a failed or running deployment holding the servers
 swallow platforms delete plat1 --record-only          # delete only the record; the hosts are left as they are
 swallow platforms sync plat1
@@ -571,14 +580,16 @@ swallow platforms slurm plat1                         # live Slurm cluster state
 swallow platforms slurm-requirements get
 swallow platforms slurm-requirements set -f slurm-req.yaml
 swallow platforms gpu-operator releases                       # AMD GPU Operator versions Swallow ships
-swallow platforms gpu-operator set plat1 -f gpu-operator.yaml  # install or change the operator
-swallow platforms gpu-operator uninstall plat1                 # remove it; the platform keeps running
+swallow platforms gpu-operator set plat1 -f gpu-operator.yaml --approve  # install or change the operator
+swallow platforms gpu-operator uninstall plat1 --approve                 # remove it; the platform keeps running
 ```
 
 A platform is written as a spec: its members with their roles, the type's settings, and how members
 get an operating system. Creating a platform and destructive changes (changing or removing the GPU
-Operator, deleting the platform) answer with a Change Plan; nothing changes until
-`swallow plans approve` approves it. Adding a member converges at once. `platform-k8s.yaml` (see
+Operator, deleting the platform) answer with a Change Plan. With `--approve` the plan is approved
+with the write and the change starts at once, unless the Change Plan policy requires a separate
+approval (`swallow plans policy`); without it nothing changes until `swallow plans approve`
+approves it. Adding a member converges at once. `platform-k8s.yaml` (see
 [platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md)):
 
 ```yaml
@@ -656,17 +667,17 @@ Servers:
 
 ```bash
 swallow platforms gpu-operator releases
-swallow platforms create -f platform-k8s-gpu.yaml             # prints the platform and its plan
-swallow plans approve <planId>
+swallow platforms create -f platform-k8s-gpu.yaml --approve   # prints the platform and its approved plan
 swallow platforms get <platformId>                            # status.realizingWorkflowId names the build
 swallow workflows get <workflowId>
-swallow platforms gpu-operator set <platformId> -f gpu-operator.yaml   # a change answers with a plan
-swallow plans approve <planId>
-swallow platforms gpu-operator uninstall <platformId>         # the platform stays active
-swallow plans approve <planId>
-swallow platforms delete <platformId> --release-servers       # releases the Servers instead of uninstalling the software
-swallow plans approve <planId>                                # the record is deleted once the uninstall succeeds
+swallow platforms gpu-operator set <platformId> -f gpu-operator.yaml --approve   # the change starts at once
+swallow platforms gpu-operator uninstall <platformId> --approve   # the platform stays active
+swallow platforms delete <platformId> --release-servers --approve # releases the Servers instead of uninstalling the software
 ```
+
+Each `--approve` write carries its change out at once; the record is deleted once the uninstall
+succeeds. With the safety switch on (`swallow plans policy set --approve-on-submit=false`) every
+one of them waits instead, and `swallow plans approve <planId>` starts it.
 
 `gpu-operator.yaml` changes the operator of a deployed platform; omitted fields take the
 contract defaults (the default release, `single` resource naming, the node labeller on, the
@@ -732,8 +743,7 @@ spec:
 ```
 
 ```bash
-swallow platforms create -f platform-slurm-omnistat.yaml
-swallow plans approve <planId>
+swallow platforms create -f platform-slurm-omnistat.yaml --approve
 swallow workflows get <workflowId>    # ensure-os, configure-slurm, configure-podman, configure-grafana, configure-omnistat
 swallow platforms get <platformId>    # containerRuntime, omnistat.state, then the Platform Grafana link in monitoringLinks
 ```

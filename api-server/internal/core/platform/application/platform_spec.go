@@ -84,6 +84,9 @@ type CreatePlatformSpecInput struct {
 	Type        platformdomain.PlatformType
 	Spec        platformdomain.PlatformSpec
 	RequestedBy string
+	// ApprovedBy is the user who approved the install with the request (the dashboard's confirmed
+	// dialog, the CLI's flag); empty leaves its Change Plan waiting for approval.
+	ApprovedBy string
 }
 
 // SpecWriteResult is a written spec: the Platform as stored, and the Change Plan it waits on when
@@ -94,8 +97,9 @@ type SpecWriteResult struct {
 }
 
 // Create validates a new Platform as a deployment would, then stores it at generation 1 with its
-// members claimed and its install proposed as a Change Plan. Nothing touches a machine until the
-// plan is approved.
+// members claimed and its install proposed as a Change Plan, approved with the request when
+// input.ApprovedBy names its user and the Change Plan policy allows it. Nothing touches a machine
+// until the plan is approved; the platform controller is woken once the write is committed.
 func (s *PlatformSpecService) Create(ctx context.Context, input CreatePlatformSpecInput) (*SpecWriteResult, error) {
 	module, err := s.module(input.Type)
 	if err != nil {
@@ -125,20 +129,35 @@ func (s *PlatformSpecService) Create(ctx context.Context, input CreatePlatformSp
 		if err := s.platforms.Create(ctx, platform); err != nil {
 			return err
 		}
-		plan, err = s.plans.Propose(ctx, platformRef(platform.ID), s.draft(platform.ID, platform.Generation, spec, changes, nil))
+		plan, err = s.plans.Propose(ctx, platformRef(platform.ID), s.draft(platform.ID, platform.Generation, spec, changes, nil), input.ApprovedBy)
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
+	s.wake(ctx, platform.ID)
 	return &SpecWriteResult{Platform: platform, Plan: plan}, nil
+}
+
+// wake asks the platform controller, which runs in the worker, to converge now, after a spec write
+// committed: it carries out a non-destructive change or an approved plan, and for a plan that waits
+// it reports why in the realized Condition at once instead of at its next resync. A failed request
+// is only logged: the controller still converges the Platform at its next resync.
+func (s *PlatformSpecService) wake(ctx context.Context, platformID string) {
+	if s.requester == nil {
+		return
+	}
+	if err := s.requester.Request(ctx, PlatformControllerName); err != nil {
+		slog.Warn("request platform convergence after a spec write", "platformId", platformID, "error", err)
+	}
 }
 
 // UpdateSpec replaces a Platform's spec when expectedGeneration is still current
 // (platformdomain.ErrGenerationConflict otherwise). A change to an immutable field is refused, as
 // is a non-destructive change swallow cannot carry out yet; a destructive one is proposed as a
-// Change Plan, blocked when swallow cannot carry it out yet.
-func (s *PlatformSpecService) UpdateSpec(ctx context.Context, platformID string, expectedGeneration int64, desired platformdomain.PlatformSpec) (*SpecWriteResult, error) {
+// Change Plan, blocked when swallow cannot carry it out yet, and approved with the write when
+// approvedBy names the user who approved it and the Change Plan policy allows it.
+func (s *PlatformSpecService) UpdateSpec(ctx context.Context, platformID string, expectedGeneration int64, desired platformdomain.PlatformSpec, approvedBy string) (*SpecWriteResult, error) {
 	platform, module, err := s.specified(ctx, platformID)
 	if err != nil {
 		return nil, err
@@ -172,14 +191,16 @@ func (s *PlatformSpecService) UpdateSpec(ctx context.Context, platformID string,
 	if _, err := s.deploy.Preflight(ctx, deploy); err != nil {
 		return nil, err
 	}
-	return s.write(ctx, platform, expectedGeneration, spec, changes, blocking)
+	return s.write(ctx, platform, expectedGeneration, spec, changes, blocking, approvedBy)
 }
 
 // Delete declares a Platform absent, removed as removal says. A Platform never deployed (its install
 // still waits for approval) is deleted at once, since no machine was touched; otherwise its
-// uninstall is proposed as a Change Plan, and the record is deleted once the uninstall succeeds.
-// Deleting a Platform already marked absent returns its waiting plan.
-func (s *PlatformSpecService) Delete(ctx context.Context, platformID string, removal *platformdomain.PlatformRemoval) (*SpecWriteResult, error) {
+// uninstall is proposed as a Change Plan, approved with the request when approvedBy names its user
+// and the Change Plan policy allows it, and the record is deleted once the uninstall succeeds.
+// Deleting a Platform already marked absent returns its unfinished plan, ignoring removal; a
+// non-empty approvedBy approves that plan when it waits and could have been approved on submit.
+func (s *PlatformSpecService) Delete(ctx context.Context, platformID string, removal *platformdomain.PlatformRemoval, approvedBy string) (*SpecWriteResult, error) {
 	platform, module, err := s.specified(ctx, platformID)
 	if err != nil {
 		return nil, err
@@ -199,7 +220,9 @@ func (s *PlatformSpecService) Delete(ctx context.Context, platformID string, rem
 		}
 		result := &SpecWriteResult{Platform: platform}
 		if len(plan) > 0 {
-			result.Plan = plan[0]
+			if result.Plan, err = s.plans.ApproveResubmitted(ctx, plan[0], approvedBy); err != nil {
+				return nil, err
+			}
 		}
 		return result, nil
 	}
@@ -209,12 +232,13 @@ func (s *PlatformSpecService) Delete(ctx context.Context, platformID string, rem
 	if err != nil {
 		return nil, err
 	}
-	return s.write(ctx, platform, platform.Generation, spec, changes, nil)
+	return s.write(ctx, platform, platform.Generation, spec, changes, nil, approvedBy)
 }
 
 // write stores a validated spec change: the spec, claims for members it adds, and a Change Plan when
-// the change is destructive; a non-destructive change instead withdraws an earlier plan and wakes
-// the controller.
+// the change is destructive, approved with the write when approvedBy names its user and the Change
+// Plan policy allows it. A non-destructive change instead withdraws an earlier plan. Either way the
+// controller is woken once the write commits.
 func (s *PlatformSpecService) write(
 	ctx context.Context,
 	platform *platformdomain.Platform,
@@ -222,6 +246,7 @@ func (s *PlatformSpecService) write(
 	spec platformdomain.PlatformSpec,
 	changes platformdomain.PlatformChanges,
 	blocking []string,
+	approvedBy string,
 ) (*SpecWriteResult, error) {
 	destructive := changes.Destructive()
 	var plan *convergence.ChangePlan
@@ -242,19 +267,14 @@ func (s *PlatformSpecService) write(
 		if !destructive {
 			return s.withdraw(ctx, platform.ID, fmt.Sprintf("generation %d needs no approval", generation))
 		}
-		plan, err = s.plans.Propose(ctx, platformRef(platform.ID), s.draft(platform.ID, generation, spec, changes, blocking))
+		plan, err = s.plans.Propose(ctx, platformRef(platform.ID), s.draft(platform.ID, generation, spec, changes, blocking), approvedBy)
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	platform.Spec, platform.Generation = &spec, generation
-	if !destructive && s.requester != nil {
-		if err := s.requester.Request(ctx, PlatformControllerName); err != nil {
-			// The controller still converges it at its next resync.
-			slog.Warn("request platform convergence after a spec write", "platformId", platform.ID, "error", err)
-		}
-	}
+	s.wake(ctx, platform.ID)
 	return &SpecWriteResult{Platform: platform, Plan: plan}, nil
 }
 

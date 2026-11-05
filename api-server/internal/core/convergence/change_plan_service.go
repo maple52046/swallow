@@ -12,13 +12,23 @@ import (
 	"github.com/maple52046/swallow/internal/core/store"
 )
 
+// The reasons a pending plan waits, as change-plans.md names them (Approval On Submit).
+const (
+	reasonSubmittedWithoutApproval = "submitted without approval"
+	reasonPolicyRequiresApproval   = "the Change Plan policy requires a separate approval"
+	reasonBlocked                  = "it has blockers and cannot be approved"
+	reasonActionsChanged           = "the approved plan no longer matched what the change would do"
+)
+
 // ChangePlanService proposes, decides, applies, and expires Change Plans (decision 076). A
-// resource's spec write proposes a plan inside its own transaction; a user approves or
-// rejects it; the resource's controller applies an approved plan; the expiry controller ends a plan
+// resource's spec write proposes a plan inside its own transaction, approved with the write when its
+// user approved it and the Change Plan policy allows that; a user approves or rejects a plan that
+// waits; the resource's controller applies an approved plan; the expiry controller ends a plan
 // nobody decided in time.
 type ChangePlanService struct {
 	transactor store.Transactor
 	plans      ChangePlanRepository
+	policies   ChangePlanPolicyStore
 	events     EventRecorder
 	requester  Requester
 	planners   map[string]Planner
@@ -26,34 +36,55 @@ type ChangePlanService struct {
 	now        func() time.Time
 }
 
-// NewChangePlanService wires the service over the resource kinds' planners. A non-positive ttl is
-// DefaultChangePlanTTL. events and requester may be nil (tests): no events are recorded and an
-// approval does not wake the controller, which then applies at its next resync.
-func NewChangePlanService(
-	transactor store.Transactor,
-	plans ChangePlanRepository,
-	events EventRecorder,
-	requester Requester,
-	ttl time.Duration,
-	planners ...Planner,
-) *ChangePlanService {
+// ChangePlanServiceDeps are the ports of a ChangePlanService. Transactor, Plans, and Policies are
+// required: Policies decides whether a write may approve its own plan, so no process runs without
+// it. Events and Requester may be nil (tests): no events are recorded and an approval does not wake
+// the controller, which then applies at its next resync. A non-positive TTL is DefaultChangePlanTTL.
+type ChangePlanServiceDeps struct {
+	Transactor store.Transactor
+	Plans      ChangePlanRepository
+	Policies   ChangePlanPolicyStore
+	Events     EventRecorder
+	Requester  Requester
+	TTL        time.Duration
+	Planners   []Planner
+}
+
+// NewChangePlanService wires the service over the resource kinds' planners; a missing required port
+// is an error.
+func NewChangePlanService(deps ChangePlanServiceDeps) (*ChangePlanService, error) {
+	switch {
+	case deps.Transactor == nil:
+		return nil, errors.New("change plan service: a transactor is required")
+	case deps.Plans == nil:
+		return nil, errors.New("change plan service: a plan repository is required")
+	case deps.Policies == nil:
+		return nil, errors.New("change plan service: a policy store is required")
+	}
+	ttl := deps.TTL
 	if ttl <= 0 {
 		ttl = DefaultChangePlanTTL
 	}
-	byKind := make(map[string]Planner, len(planners))
-	for _, planner := range planners {
+	byKind := make(map[string]Planner, len(deps.Planners))
+	for _, planner := range deps.Planners {
 		byKind[planner.ResourceKind()] = planner
 	}
 	return &ChangePlanService{
-		transactor: transactor, plans: plans, events: events, requester: requester,
-		planners: byKind, ttl: ttl, now: func() time.Time { return time.Now().UTC() },
-	}
+		transactor: deps.Transactor, plans: deps.Plans, policies: deps.Policies, events: deps.Events,
+		requester: deps.Requester, planners: byKind, ttl: ttl, now: func() time.Time { return time.Now().UTC() },
+	}, nil
 }
 
-// Propose stores a pending_approval plan for a destructive spec change of resource and supersedes
-// the resource's earlier unfinished plan. It must run inside the transaction that writes the spec,
-// so the spec and its plan commit together.
-func (s *ChangePlanService) Propose(ctx context.Context, resource ResourceRef, draft PlanDraft) (*ChangePlan, error) {
+// Propose stores the plan of a destructive spec change of resource and supersedes the resource's
+// earlier unfinished plan. approvedBy is the user who approved the change with the write that
+// submits it; the plan is then stored approved, decided by that user, unless it has blockers or the
+// Change Plan policy requires a separate approval. An empty approvedBy leaves the plan waiting. The
+// stored plan's StateReason says why a waiting plan waits.
+//
+// Propose must run inside the transaction that writes the spec, so the spec and its plan commit
+// together. It does not wake the resource's controller: the caller asks for convergence after the
+// commit, so the controller never reads an uncommitted plan.
+func (s *ChangePlanService) Propose(ctx context.Context, resource ResourceRef, draft PlanDraft, approvedBy string) (*ChangePlan, error) {
 	now := s.now()
 	if earlier, err := s.plans.FindUnfinished(ctx, resource); err == nil {
 		if err := s.plans.Transition(ctx, earlier.ID, []ChangePlanState{PlanPendingApproval, PlanApproved}, PlanSuperseded,
@@ -64,16 +95,77 @@ func (s *ChangePlanService) Propose(ctx context.Context, resource ResourceRef, d
 	} else if !errors.Is(err, ErrChangePlanNotFound) {
 		return nil, err
 	}
-	plan := &ChangePlan{
-		ID: uuid.NewString(), Resource: resource, Generation: draft.Generation, ObservedAt: draft.ObservedAt,
-		Actions: draft.Actions, Effects: draft.Effects, Blockers: draft.Blockers,
-		State: PlanPendingApproval, ExpiresAt: now.Add(s.ttl), CreatedAt: now, UpdatedAt: now,
+	waits := reasonSubmittedWithoutApproval
+	switch {
+	case len(draft.Blockers) > 0:
+		waits = reasonBlocked
+	case approvedBy != "":
+		policy, err := s.Policy(ctx)
+		if err != nil {
+			return nil, err
+		}
+		waits = ""
+		if !policy.ApproveOnSubmit {
+			waits = reasonPolicyRequiresApproval
+		}
 	}
+	if waits != "" {
+		plan, err := s.storeWaiting(ctx, resource, draft, waits)
+		if err != nil {
+			return nil, err
+		}
+		s.record(ctx, plan, EventPlanProposed, "a destructive change waits for approval: "+waits)
+		return plan, nil
+	}
+	plan := newPlan(resource, draft, now, s.ttl)
+	plan.State, plan.DecidedBy, plan.DecidedAt = PlanApproved, approvedBy, &now
+	plan.StateReason = "approved by " + approvedBy + " with the change"
 	if err := s.plans.Create(ctx, plan); err != nil {
 		return nil, err
 	}
-	s.record(ctx, plan, EventPlanProposed, "a destructive change waits for approval")
+	s.record(ctx, plan, EventPlanProposed, "a destructive change was proposed")
+	s.record(ctx, plan, EventPlanApproved, plan.StateReason)
 	return plan, nil
+}
+
+// storeWaiting stores a pending_approval plan of draft that waits for the given reason, recording no
+// event; the caller has already ended the resource's earlier unfinished plan.
+func (s *ChangePlanService) storeWaiting(ctx context.Context, resource ResourceRef, draft PlanDraft, waits string) (*ChangePlan, error) {
+	plan := newPlan(resource, draft, s.now(), s.ttl)
+	plan.StateReason = waits
+	if err := s.plans.Create(ctx, plan); err != nil {
+		return nil, err
+	}
+	return plan, nil
+}
+
+// newPlan is a pending_approval plan of draft computed at now, valid for ttl.
+func newPlan(resource ResourceRef, draft PlanDraft, now time.Time, ttl time.Duration) *ChangePlan {
+	return &ChangePlan{
+		ID: uuid.NewString(), Resource: resource, Generation: draft.Generation, ObservedAt: draft.ObservedAt,
+		Actions: draft.Actions, Effects: draft.Effects, Blockers: draft.Blockers,
+		State: PlanPendingApproval, ExpiresAt: now.Add(ttl), CreatedAt: now, UpdatedAt: now,
+	}
+}
+
+// Policy returns the installation's Change Plan policy; one never stored is
+// DefaultChangePlanPolicy. It may run inside a spec write's transaction.
+func (s *ChangePlanService) Policy(ctx context.Context) (ChangePlanPolicy, error) {
+	policy, err := s.policies.Find(ctx)
+	if errors.Is(err, ErrChangePlanPolicyNotFound) {
+		return DefaultChangePlanPolicy(), nil
+	}
+	return policy, err
+}
+
+// SetPolicy replaces the installation's Change Plan policy on behalf of actor, an admin. It applies
+// to the writes that follow; plans already proposed keep their state.
+func (s *ChangePlanService) SetPolicy(ctx context.Context, approveOnSubmit bool, actor string) (ChangePlanPolicy, error) {
+	policy := ChangePlanPolicy{ApproveOnSubmit: approveOnSubmit, UpdatedAt: s.now(), UpdatedBy: actor}
+	if err := s.policies.Save(ctx, policy); err != nil {
+		return ChangePlanPolicy{}, err
+	}
+	return policy, nil
 }
 
 // Withdraw supersedes the resource's unfinished plan, if any, because a newer spec needs no
@@ -119,7 +211,7 @@ func (s *ChangePlanService) Approve(ctx context.Context, id, actor string) (*Cha
 	}
 	now := s.now()
 	if err := s.plans.Transition(ctx, id, []ChangePlanState{PlanPendingApproval}, PlanApproved,
-		PlanTransition{DecidedBy: actor, DecidedAt: &now, At: now}); err != nil {
+		PlanTransition{Reason: "approved by " + actor, DecidedBy: actor, DecidedAt: &now, At: now}); err != nil {
 		return nil, err
 	}
 	s.record(ctx, plan, EventPlanApproved, "approved by "+actor)
@@ -130,6 +222,22 @@ func (s *ChangePlanService) Approve(ctx context.Context, id, actor string) (*Cha
 		}
 	}
 	return s.plans.FindByID(ctx, id)
+}
+
+// ApproveResubmitted approves plan, the waiting plan of a resource whose user sent the write that
+// proposed it again and approved it this time, as Propose would have approved it the first time. It
+// returns the plan as it now is: approved, or unchanged when approvedBy is empty, the plan is not
+// pending_approval, has blockers, is past its time (the expiry controller ends it), or the Change Plan
+// policy requires a separate approval.
+func (s *ChangePlanService) ApproveResubmitted(ctx context.Context, plan *ChangePlan, approvedBy string) (*ChangePlan, error) {
+	if approvedBy == "" || plan.State != PlanPendingApproval || len(plan.Blockers) > 0 || !s.now().Before(plan.ExpiresAt) {
+		return plan, nil
+	}
+	policy, err := s.Policy(ctx)
+	if err != nil || !policy.ApproveOnSubmit {
+		return plan, err
+	}
+	return s.Approve(ctx, plan.ID, approvedBy)
 }
 
 // Reject declines a plan that has not been applied.
@@ -166,8 +274,10 @@ func (s *ChangePlanService) decidable(ctx context.Context, id string) (*ChangePl
 }
 
 // ApplyApproved is how a resource's controller carries out the resource's approved plan. It
-// recomputes the plan: a changed generation or different actions supersede it; a held resource
-// leaves it waiting. Otherwise the Workflow is written and the plan marked applied in one
+// recomputes the plan: a changed generation or different actions supersede it, and when only the
+// actions moved and the recomputed change is still destructive, a new plan waiting for approval is
+// proposed in the same transaction, since nobody approved what the change now does. A held resource
+// leaves the plan waiting. Otherwise the Workflow is written and the plan marked applied in one
 // transaction. It reports the Workflow id, or "" when nothing was applied.
 func (s *ChangePlanService) ApplyApproved(ctx context.Context, resource ResourceRef) (string, error) {
 	planner, ok := s.planners[resource.Kind]
@@ -192,13 +302,7 @@ func (s *ChangePlanService) ApplyApproved(ctx context.Context, resource Resource
 		return "", err
 	}
 	if !plan.SameActions(draft) {
-		reason := "the resource's spec or observed state changed what it would do"
-		if err := s.plans.Transition(ctx, plan.ID, []ChangePlanState{PlanApproved}, PlanSuperseded,
-			PlanTransition{Reason: reason, At: s.now()}); err != nil {
-			return "", err
-		}
-		s.record(ctx, plan, EventPlanSuperseded, reason)
-		return "", nil
+		return "", s.supersedeChanged(ctx, plan, draft)
 	}
 	held, err := planner.Held(ctx, resource.ID)
 	if err != nil || held {
@@ -216,13 +320,44 @@ func (s *ChangePlanService) ApplyApproved(ctx context.Context, resource Resource
 		}
 		workflowID = id
 		return s.plans.Transition(ctx, plan.ID, []ChangePlanState{PlanApproved}, PlanApplied,
-			PlanTransition{WorkflowID: id, At: s.now()})
+			PlanTransition{Reason: "applied as Workflow " + id, WorkflowID: id, At: s.now()})
 	})
 	if err != nil {
 		return "", err
 	}
 	s.record(ctx, plan, EventPlanApplied, "applied as Workflow "+workflowID)
 	return workflowID, nil
+}
+
+// supersedeChanged ends an approved plan whose recomputation draft no longer matches it. When the
+// draft is of the same generation and still destructive, the plan it should now be is proposed,
+// waiting for approval, in the same transaction; a newer generation's write already proposed its
+// own plan, and a draft that is no longer destructive converges without one.
+func (s *ChangePlanService) supersedeChanged(ctx context.Context, plan *ChangePlan, draft PlanDraft) error {
+	reason := "the resource's spec or observed state changed what it would do"
+	repropose := plan.Generation == draft.Generation && draft.Destructive()
+	var proposed *ChangePlan
+	err := s.transactor.InTransaction(ctx, func(ctx context.Context) error {
+		proposed = nil
+		if err := s.plans.Transition(ctx, plan.ID, []ChangePlanState{PlanApproved}, PlanSuperseded,
+			PlanTransition{Reason: reason, At: s.now()}); err != nil {
+			return err
+		}
+		if !repropose {
+			return nil
+		}
+		var err error
+		proposed, err = s.storeWaiting(ctx, plan.Resource, draft, reasonActionsChanged)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	s.record(ctx, plan, EventPlanSuperseded, reason)
+	if proposed != nil {
+		s.record(ctx, proposed, EventPlanProposed, "a destructive change waits for approval: "+reasonActionsChanged)
+	}
+	return nil
 }
 
 // ExpireDue ends every unfinished plan past its time.

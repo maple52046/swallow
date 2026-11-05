@@ -49,7 +49,7 @@ Go、Node、MongoDB、Temporal 與 Ansible 都在容器內。
 
 | 要測的東西 | 位置與做法 |
 | --- | --- |
-| domain 規則、use case | 與程式同 package 的 `_test.go`，fake 定義在該 package。transaction 用 `internal/core/store/storetest` 的 `Transactor`（它不能 rollback，「失敗時沒有寫入」由下面的 Mongo 整合測試驗證）；provisioner 設定的 in-memory store 在 `internal/core/provisioning/domain/settingstest` |
+| domain 規則、use case | 與程式同 package 的 `_test.go`，fake 定義在該 package。transaction 用 `internal/core/store/storetest` 的 `Transactor`（它不能 rollback，「失敗時沒有寫入」由下面的 Mongo 整合測試驗證）；provisioner 設定的 in-memory store 在 `internal/core/provisioning/domain/settingstest`；建 `ChangePlanService` 需要的 Change Plan 政策 store 在 `internal/core/convergence/convergencetest`（`Policies`，零值是送出即核准） |
 | 跨 context 的 HTTP 行為 | `api-server/tests/`：`setup_test.go` 的 `setupPlatform` 以 in-memory fake 接上真的 use case 與 handler（沒有 Mongo、Temporal、MAAS），`auth_test.go` 的 `doRequest` 送出 request。路由在 `setupPlatform` 內**手動**註冊，新路由要加在那裡，否則測試得到 404。可照著寫的範例：`tests/server_deletion_test.go` |
 | 單一 handler | 同 package 的 delivery 測試：自己建 Fiber app，第一個 middleware 掛 `apicontract.ResponseValidator(t)`，例如 `internal/core/provisioning/delivery/http_proxy_handler_test.go` |
 | 回應符合契約 | `apicontract.ResponseValidator(t)` 依 OpenAPI 檢查每個回應的 status、Content-Type 與 body（不允許多出的欄位）；`setupPlatform` 已掛上 |

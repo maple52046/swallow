@@ -1,4 +1,4 @@
-import type { ChangePlan, ChangePlanState } from '@/domain/convergence/changePlan'
+import type { ChangePlan, ChangePlanPolicy, ChangePlanState } from '@/domain/convergence/changePlan'
 
 /** Narrows a Change Plan listing; omitted fields match every plan. */
 export interface ChangePlanFilter {
@@ -8,7 +8,8 @@ export interface ChangePlanFilter {
 }
 
 /**
- * Application port for Change Plans (decision 076, contract `change-plans.md`).
+ * Application port for Change Plans and the installation's Change Plan policy (decision 076,
+ * contract `change-plans.md`).
  *
  * Every call needs the `admin` role. Implementations map the provider contract only and reject
  * with the shared error envelope: `not_found` for an unknown plan, and `conflict` for approving a
@@ -25,4 +26,11 @@ export interface ChangePlanRepository {
   approveChangePlan(id: string): Promise<ChangePlan>
   /** Rejects an unfinished plan and returns it as `rejected`. */
   rejectChangePlan(id: string): Promise<ChangePlan>
+  /** The current policy; one never stored reads as approve on submit, not as a miss. */
+  getChangePlanPolicy(): Promise<ChangePlanPolicy>
+  /**
+   * Replaces the policy and returns it as stored, recording the current admin. It applies to the
+   * writes that follow; plans already proposed keep their state.
+   */
+  setChangePlanPolicy(approveOnSubmit: boolean): Promise<ChangePlanPolicy>
 }

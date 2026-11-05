@@ -522,12 +522,27 @@ export interface SlurmCluster {
 }
 
 /**
- * A written Platform spec: the Platform and the Change Plan the change waits on, null when the
- * platform controller converges it without approval.
+ * A written Platform spec, as the screen that sent it needs it to decide what comes next
+ * (contract `change-plans.md`, "Approval On Submit"). Every dashboard write is confirmed by the
+ * user, so it approves its Change Plan with the request; the plan still waits when the Change Plan
+ * policy requires a separate approval or the plan has blockers.
  */
 export interface PlatformChangeResult {
   platformId: string;
+  /**
+   * The Change Plan the write proposed; null when the platform controller converges the change
+   * without one, or when a Platform whose install never started was deleted at once.
+   */
   planId: string | null;
+  /**
+   * Whether that plan waits for a separate approval in Change Plans; false when it was approved
+   * with the write (the change starts on its own) or there is no plan.
+   */
+  awaitingApproval: boolean;
+  /** Why it waits, in the API's words (the plan's `stateReason`); empty when it does not wait. */
+  waitReason: string;
+  /** The waiting plan has blockers, so it cannot be approved until they are resolved. */
+  blocked: boolean;
 }
 
 /** The report a membership sync returns; `unmatched` names members with no server. */

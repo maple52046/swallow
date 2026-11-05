@@ -131,6 +131,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/change-plan-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the installation's Change Plan policy.
+         * @description Requires role `admin`. A policy that was never stored reads `approveOnSubmit: true` with a null `updatedAt`, not 404.
+         */
+        get: operations["getChangePlanPolicy"];
+        /**
+         * Replace the installation's Change Plan policy.
+         * @description Requires role `admin`. The policy applies to the spec writes that follow; plans proposed before keep their state. A body without a boolean `approveOnSubmit` is 400.
+         */
+        put: operations["replaceChangePlanPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/change-plans": {
         parameters: {
             query?: never;
@@ -799,7 +823,7 @@ export interface paths {
         put?: never;
         /**
          * Create a Platform from its spec and propose its install as a Change Plan.
-         * @description Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install waits on the returned Change Plan (platforms.md, Create A Platform). Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.
+         * @description Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install is the returned Change Plan (platforms.md, Create A Platform): approved with the request when it sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.
          */
         post: operations["createPlatform"];
         delete?: never;
@@ -827,7 +851,7 @@ export interface paths {
         post?: never;
         /**
          * Declare a Platform absent, proposing its uninstall as a Change Plan.
-         * @description Requires the `admin` role. Marks the spec absent with the optional removal choices and proposes the uninstall as a Change Plan; the record is deleted once the uninstall succeeds (platforms.md, Delete A Platform). A Platform whose install was never approved is deleted at once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled, then membership, Platform Claims, and a swallow-owned credential Integration are cleared, and hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no spec yet.
+         * @description Requires the `admin` role. Marks the spec absent with the optional removal choices and proposes the uninstall as a Change Plan, approved with the request when it sends `approve=true` and the policy allows it; the record is deleted once the uninstall succeeds (platforms.md, Delete A Platform). Deleting a Platform already marked absent returns the plan it waits on, approving it when the request sends `approve=true`. A Platform whose install was never approved is deleted at once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled, then membership, Platform Claims, and a swallow-owned credential Integration are cleared, and hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no spec yet.
          */
         delete: operations["deletePlatform"];
         options?: never;
@@ -1352,7 +1376,7 @@ export interface paths {
         get?: never;
         /**
          * Replace a Platform's spec at the generation it was read.
-         * @description Requires the `admin` role. A non-destructive change (for example a new member) is written and converged by the platform controller (200); a destructive one is written with a Change Plan (202), which carries a blocker when swallow cannot carry the change out yet (platforms.md, Change A Platform). An omitted user data value keeps the stored one. 400 for an invalid body or spec; 404 for an unknown Platform; 409 when `generation` is no longer current, an immutable field changes, a non-destructive change cannot be carried out yet, the uninstall has started, the Platform has no spec yet, or a new member is claimed, locked, or busy.
+         * @description Requires the `admin` role. A non-destructive change (for example a new member) is written and converged by the platform controller (200); a destructive one is written with a Change Plan (202), approved with the request when it sends `approve=true` and the policy allows it, and carrying a blocker when swallow cannot carry the change out yet (platforms.md, Change A Platform). An omitted user data value keeps the stored one. 400 for an invalid body or spec; 404 for an unknown Platform; 409 when `generation` is no longer current, an immutable field changes, a non-destructive change cannot be carried out yet, the uninstall has started, the Platform has no spec yet, or a new member is claimed, locked, or busy.
          */
         put: operations["replacePlatformSpec"];
         post?: never;
@@ -4035,7 +4059,7 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             decidedAt: string | null;
-            /** @description The user who approved or rejected it; empty before a decision. */
+            /** @description The user who approved or rejected it, including one who approved it with the spec write that proposed it; empty before a decision. */
             decidedBy: string;
             /** @description The expected consequences, for people. */
             effects: string[];
@@ -4054,7 +4078,7 @@ export interface components {
             observedAt: string;
             resource: components["schemas"]["ResourceRef"];
             state: components["schemas"]["ChangePlanState"];
-            /** @description Why the plan reached its state, for people; empty while pending. */
+            /** @description Why the plan reached its state, for people; for a `pending_approval` plan, why it waits. */
             stateReason: string;
             /** Format: date-time */
             updatedAt: string;
@@ -4063,6 +4087,20 @@ export interface components {
         };
         ChangePlanList: {
             items: components["schemas"]["ChangePlan"][];
+        };
+        ChangePlanPolicy: {
+            /** @description Whether a spec write sent with `approve=true` approves its plan at once; `false` makes every plan wait for a separate approval. */
+            approveOnSubmit: boolean;
+            /**
+             * Format: date-time
+             * @description When the policy was last replaced; null when it never was.
+             */
+            updatedAt: string | null;
+            /** @description The user who last replaced it; empty when it never was. */
+            updatedBy: string;
+        };
+        ChangePlanPolicyChange: {
+            approveOnSubmit: boolean;
         };
         /**
          * @description Where a plan is in its life (glossary Change Plan).
@@ -6948,6 +6986,8 @@ export interface components {
         };
     };
     parameters: {
+        /** @description `true` approves the Change Plan the write proposes with the write itself, unless the Change Plan policy requires a separate approval or the plan has blockers (change-plans.md, Approval On Submit). Ignored when the write proposes no plan. */
+        ApproveChange: boolean;
         ChangePlanId: string;
         /** @description Keep only Servers in this provisioning state. Defaults to `deployed`; the literal `all` removes the filter. */
         DiscoveryProvisioningState: string;
@@ -7283,6 +7323,57 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            default: components["responses"]["Error"];
+        };
+    };
+    getChangePlanPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current policy. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangePlanPolicy"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    replaceChangePlanPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePlanPolicyChange"];
+            };
+        };
+        responses: {
+            /** @description The stored policy. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangePlanPolicy"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -9361,7 +9452,10 @@ export interface operations {
     };
     createPlatform: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `true` approves the Change Plan the write proposes with the write itself, unless the Change Plan policy requires a separate approval or the plan has blockers (change-plans.md, Approval On Submit). Ignored when the write proposes no plan. */
+                approve?: components["parameters"]["ApproveChange"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9420,6 +9514,8 @@ export interface operations {
     deletePlatform: {
         parameters: {
             query?: {
+                /** @description `true` approves the Change Plan the write proposes with the write itself, unless the Change Plan policy requires a separate approval or the plan has blockers (change-plans.md, Approval On Submit). Ignored when the write proposes no plan. */
+                approve?: components["parameters"]["ApproveChange"];
                 /** @description Remove only the record, leaving the hosts as they are. */
                 recordOnly?: boolean;
             };

@@ -343,10 +343,22 @@ func (c *PlatformController) judge(
 				Resource: platformRef(platform.ID), States: []convergence.ChangePlanState{convergence.PlanPendingApproval, convergence.PlanApproved},
 			})
 			if listErr == nil && len(plans) > 0 {
-				realized.Reason = convergence.ReasonAwaitingApproval
-				realized.Message = fmt.Sprintf("Change Plan %s waits for approval", plans[0].ID)
-				if blockers := plans[0].Blockers; len(blockers) > 0 {
-					realized.Message = fmt.Sprintf("Change Plan %s is blocked: %s", plans[0].ID, strings.Join(blockers, "; "))
+				plan := plans[0]
+				switch {
+				case plan.State == convergence.PlanApproved:
+					// Approved, with its write or afterwards: nothing waits for a user, and the next
+					// pass (or the end of a hold) starts its Workflow.
+					realized.Reason = convergence.ReasonConverging
+					realized.Message = fmt.Sprintf("Change Plan %s is approved and is carried out next", plan.ID)
+				case len(plan.Blockers) > 0:
+					realized.Reason = convergence.ReasonAwaitingApproval
+					realized.Message = fmt.Sprintf("Change Plan %s is blocked: %s", plan.ID, strings.Join(plan.Blockers, "; "))
+				default:
+					realized.Reason = convergence.ReasonAwaitingApproval
+					realized.Message = fmt.Sprintf("Change Plan %s waits for approval", plan.ID)
+					if plan.StateReason != "" {
+						realized.Message += ": " + plan.StateReason
+					}
 				}
 			}
 		}

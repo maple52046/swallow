@@ -14,6 +14,7 @@ import (
 	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	"github.com/maple52046/swallow/internal/core/convergence"
+	"github.com/maple52046/swallow/internal/core/convergence/convergencetest"
 	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
 	discoverydelivery "github.com/maple52046/swallow/internal/core/discovery/delivery"
 	monitoringapp "github.com/maple52046/swallow/internal/core/monitoring/application"
@@ -242,8 +243,13 @@ func setupPlatform(t *testing.T) *platformFixture {
 	platformModules := map[platformdomain.PlatformType]platformdomain.PlatformModule{
 		platformdomain.PlatformTypeKubernetes: kubernetesmodule.Platform{}, platformdomain.PlatformTypeSlurm: slurmmodule.Platform{},
 	}
-	changePlans := convergence.NewChangePlanService(&storetest.Transactor{}, &fakeChangePlanRepo{}, nil, nil, 0,
-		platformapp.NewPlatformPlanner(platformRepo, lifecycle, deployService, uninstallService, nil, platformModules))
+	changePlans, err := convergence.NewChangePlanService(convergence.ChangePlanServiceDeps{
+		Transactor: &storetest.Transactor{}, Plans: &fakeChangePlanRepo{}, Policies: &convergencetest.Policies{},
+		Planners: []convergence.Planner{platformapp.NewPlatformPlanner(platformRepo, lifecycle, deployService, uninstallService, nil, platformModules)},
+	})
+	if err != nil {
+		t.Fatalf("NewChangePlanService() error = %v", err)
+	}
 	platformHandler.AttachSpecService(platformapp.NewPlatformSpecService(&storetest.Transactor{}, platformRepo, platformRepo, claims,
 		deployService, platformService, changePlans, nil, platformModules))
 

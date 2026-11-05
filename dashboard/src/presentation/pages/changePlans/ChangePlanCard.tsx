@@ -11,6 +11,7 @@ import {
   changePlanResourceKind,
   changePlanResourceLabel,
   changePlanResourceName,
+  changePlanStateReasonText,
   plannedActionChange,
   type ChangePlanNames,
 } from './changePlanPresentation'
@@ -34,14 +35,16 @@ interface ChangePlanCardProps {
  * and the plan id is shown with a copy button so a plan can be found again in the CLI
  * (`swallow plans`) or the API. Approve is disabled with its reason spelled out when the plan has
  * blockers, is past `expiresAt`, or is not waiting for approval; the buttons only open a
- * confirmation, never decide directly. A decided or applied plan shows who decided it and links
- * its Workflow.
+ * confirmation, never decide directly. A waiting plan says why it waits (`changePlanStateReasonText`).
+ * A decided or applied plan shows who decided it — the user who confirmed the change, for one
+ * approved with its request — and links its Workflow.
  */
 export function ChangePlanCard({ plan, names, now, onApprove, onReject }: ChangePlanCardProps) {
   const resource = changePlanResourceLabel(plan.resource, names)
   const resourceNamed = changePlanResourceName(plan.resource, names) !== null
   const approvalBlocker = changePlanApprovalBlocker(plan, now)
   const unfinished = isChangePlanUnfinished(plan)
+  const stateReason = changePlanStateReasonText(plan)
   return (
     <Box as="article" className="sw-change-plan" aria-label={`Change Plan for ${resource}`} borderWidth="1px" borderRadius="md" p="4">
       <Stack gap="4">
@@ -85,7 +88,7 @@ export function ChangePlanCard({ plan, names, now, onApprove, onReject }: Change
           </Box>
         )}
 
-        {plan.stateReason && <Text fontSize="sm">{plan.stateReason}</Text>}
+        {stateReason && <Text fontSize="sm">{stateReason}</Text>}
         {plan.decidedBy && (
           <Text fontSize="sm" color="fg.muted">
             {plan.state === 'rejected' ? 'Rejected' : 'Approved'} by {plan.decidedBy}

@@ -1,7 +1,11 @@
-# Change Plans: the approval step of a destructive change (change-plans.md, decision 076).
+# Change Plans: the approval step of a destructive change and the installation's Change Plan
+# policy (change-plans.md, decision 076).
 tags:
   - name: change-plans
-    description: Preview, approve, or reject what realizing a destructive spec change will do.
+    description: >-
+      Preview, approve, or reject what realizing a destructive spec change will do, and read or
+      replace the policy that decides whether a change approved with its submission is approved at
+      once.
 paths:
   /api/v1/change-plans:
     get:
@@ -121,6 +125,55 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /api/v1/change-plan-policy:
+    get:
+      tags: [change-plans]
+      operationId: getChangePlanPolicy
+      summary: Read the installation's Change Plan policy.
+      description: >-
+        Requires role `admin`. A policy that was never stored reads `approveOnSubmit: true` with a
+        null `updatedAt`, not 404.
+      responses:
+        '200':
+          description: The current policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlanPolicy'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      tags: [change-plans]
+      operationId: replaceChangePlanPolicy
+      summary: Replace the installation's Change Plan policy.
+      description: >-
+        Requires role `admin`. The policy applies to the spec writes that follow; plans proposed
+        before keep their state. A body without a boolean `approveOnSubmit` is 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePlanPolicyChange'
+      responses:
+        '200':
+          description: The stored policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlanPolicy'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
 components:
   parameters:
     ChangePlanId:
@@ -206,10 +259,13 @@ components:
           $ref: '#/components/schemas/ChangePlanState'
         stateReason:
           type: string
-          description: Why the plan reached its state, for people; empty while pending.
+          description: >-
+            Why the plan reached its state, for people; for a `pending_approval` plan, why it waits.
         decidedBy:
           type: string
-          description: The user who approved or rejected it; empty before a decision.
+          description: >-
+            The user who approved or rejected it, including one who approved it with the spec write
+            that proposed it; empty before a decision.
         decidedAt:
           type: string
           format: date-time
@@ -235,3 +291,28 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ChangePlan'
+    ChangePlanPolicy:
+      type: object
+      additionalProperties: false
+      required: [approveOnSubmit, updatedAt, updatedBy]
+      properties:
+        approveOnSubmit:
+          type: boolean
+          description: >-
+            Whether a spec write sent with `approve=true` approves its plan at once; `false` makes
+            every plan wait for a separate approval.
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the policy was last replaced; null when it never was.
+        updatedBy:
+          type: string
+          description: The user who last replaced it; empty when it never was.
+    ChangePlanPolicyChange:
+      type: object
+      additionalProperties: false
+      required: [approveOnSubmit]
+      properties:
+        approveOnSubmit:
+          type: boolean

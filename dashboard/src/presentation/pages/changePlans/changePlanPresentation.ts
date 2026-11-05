@@ -67,6 +67,21 @@ export function changePlanResourceIds(plans: readonly ChangePlan[], kind: NamedR
   return [...ids].sort()
 }
 
+/**
+ * The plan's `stateReason` as a line for its card, or '' when it adds nothing. A waiting plan says
+ * why it waits ("Why it waits: the Change Plan policy requires a separate approval."), and a
+ * rejected, superseded, or expired plan why it ended. An approved or applied plan's reason only
+ * repeats the card's "Approved by" and "Applied as Workflow" lines, so it is left out.
+ */
+export function changePlanStateReasonText(plan: ChangePlan): string {
+  const reason = plan.stateReason.trim()
+  if (!reason || plan.state === 'approved' || plan.state === 'applied') return ''
+  // API reasons have no final period; one written as a sentence keeps its own.
+  const ended = /[.!?]$/.test(reason) ? reason : `${reason}.`
+  if (plan.state === 'pending_approval') return `Why it waits: ${ended}`
+  return `${ended.charAt(0).toUpperCase()}${ended.slice(1)}`
+}
+
 /** The change an action makes, from the current to the desired value when the API gave them. */
 export function plannedActionChange(action: PlannedAction): string {
   if (action.from && action.to) return `${action.from} → ${action.to}`

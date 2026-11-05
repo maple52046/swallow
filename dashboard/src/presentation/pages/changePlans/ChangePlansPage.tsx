@@ -12,6 +12,7 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSettlingRefresh } from '@/presentation/hooks/useSettlingRefresh'
 import { ChangePlanCard } from './ChangePlanCard'
+import { ChangePlanPolicyCard } from './ChangePlanPolicyCard'
 import { changePlanApprovalScope, changePlanResourceLabel, groupChangePlans, type ChangePlanNames } from './changePlanPresentation'
 import { useChangePlanNames } from './useChangePlanNames'
 
@@ -26,8 +27,11 @@ type Decision = { kind: 'approve' | 'reject'; plan: ChangePlan } | null
 const NO_PLANS: ChangePlan[] = []
 
 /**
- * The Change Plans workspace (route `/change-plans`, decision 076): destructive changes wait here
- * until an admin approves or rejects them as a whole.
+ * The Change Plans workspace (route `/change-plans`, decision 076): every destructive change's plan
+ * is listed here. A change the user confirmed when submitting it arrives approved and is applied by
+ * its controller; a plan that waits — submitted without approval, blocked, proposed by Swallow, or
+ * held by the Change Plan policy — is approved or rejected here as a whole. The policy's switch
+ * (`ChangePlanPolicyCard`) sits above the plans.
  *
  * Data comes from the `change-plans.md` contract through the ChangePlanRepository port, read on
  * each visit and after each decision; the page shows what the API computed and derives nothing.
@@ -112,9 +116,10 @@ export function ChangePlansPage() {
     <div className="console-page">
       <PageHeader
         title="Change Plans"
-        subtitle="Destructive changes wait here until an admin approves them as a whole."
+        subtitle="What each destructive change does, who approved it, and the plans that still wait for approval."
       />
 
+      <ChangePlanPolicyCard />
       {state.status === 'loading' && <LoadingState rows={4} />}
       {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} onRetry={reload} />}
       {state.status === 'ready' && (
@@ -177,7 +182,7 @@ function ChangePlanSections({ plans, names, now, onApprove, onReject }: {
       <SectionSurface title="Change Plans">
         <EmptyState
           title="No Change Plans"
-          message="A destructive change, such as uninstalling a Platform, creates a plan here for approval."
+          message="A destructive change, such as uninstalling a Platform, records its plan here; a plan that waits for approval is decided here."
         />
       </SectionSurface>
     )
@@ -194,10 +199,10 @@ function ChangePlanSections({ plans, names, now, onApprove, onReject }: {
   )
   return (
     <Stack gap="6">
-      {section('Waiting for approval', 'Review each action and its effect before approving the plan as a whole.', groups.pending)}
+      {section('Waiting for approval', 'Each plan says why it waits. Review each action and its effect before approving the plan as a whole.', groups.pending)}
       {section(
         'Approved',
-        'Each resource’s controller recomputes the plan and applies it, or supersedes it if the spec or observed state changed. This list refreshes on its own until then.',
+        'Each resource’s controller recomputes the plan and applies it, or supersedes it if the spec or observed state changed; a superseded plan that still changes something comes back here for approval. This list refreshes on its own until then.',
         groups.approved,
       )}
       {section('Recent plans', 'Applied, rejected, superseded, and expired plans.', groups.finished)}

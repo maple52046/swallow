@@ -67,6 +67,12 @@ type PlanDraft struct {
 	Blockers []string
 }
 
+// Destructive reports whether realizing the draft needs a Change Plan: any of its actions is
+// destructive.
+func (d PlanDraft) Destructive() bool {
+	return slices.ContainsFunc(d.Actions, func(action PlannedAction) bool { return action.Destructive })
+}
+
 // ChangePlan is a preview of what realizing a destructive spec change will do, which a user
 // approves as a whole before the resource's controller carries it out as a Workflow (decision 076).
 // Once approved its content is immutable.

@@ -208,14 +208,14 @@ export class ApiPlatformRepository implements PlatformRepository {
       settings: { ...current, gpuOperator: settings },
       ...(machinePreparation ? { machinePreparation } : {}),
     }
-    return toChangeResult(await apiRequest<PlatformSpecWrite>(`/api/v1/platforms/${encodeURIComponent(id)}/spec`, {
+    return toChangeResult(await apiRequest<PlatformSpecWrite>(`/api/v1/platforms/${encodeURIComponent(id)}/spec?${APPROVE_WITH_WRITE}`, {
       method: 'PUT',
       body: JSON.stringify({ generation: platform.generation, spec }),
     }))
   }
 
   async createPlatform(input: DeployPlatformInput): Promise<PlatformChangeResult> {
-    return toChangeResult(await apiRequest<PlatformSpecWrite>('/api/v1/platforms', {
+    return toChangeResult(await apiRequest<PlatformSpecWrite>(`/api/v1/platforms?${APPROVE_WITH_WRITE}`, {
       method: 'POST',
       body: JSON.stringify(toPlatformCreate(input)),
     }))
@@ -223,11 +223,11 @@ export class ApiPlatformRepository implements PlatformRepository {
 
   async deletePlatform(id: string, options?: UninstallPlatformOptions): Promise<PlatformChangeResult> {
     const written = await apiRequest<PlatformSpecWrite | undefined>(
-      `/api/v1/platforms/${encodeURIComponent(id)}`,
+      `/api/v1/platforms/${encodeURIComponent(id)}?${APPROVE_WITH_WRITE}`,
       options ? { method: 'DELETE', body: JSON.stringify(options) } : { method: 'DELETE' },
     )
     // 204: a platform whose install was never approved is gone at once.
-    return written ? toChangeResult(written) : { platformId: id, planId: null }
+    return written ? toChangeResult(written) : { platformId: id, planId: null, awaitingApproval: false, waitReason: '', blocked: false }
   }
 
   async deletePlatformRecord(id: string): Promise<void> {
@@ -273,8 +273,24 @@ export interface PlatformSpecWrite {
   plan: ChangePlan | null
 }
 
+/**
+ * The query parameter every spec write sends (change-plans.md, "Approval On Submit"): the dashboard
+ * writes a spec only from a dialog the user confirmed, so the write approves its own Change Plan.
+ * The API still leaves the plan waiting when the Change Plan policy or the plan's blockers say so.
+ */
+const APPROVE_WITH_WRITE = 'approve=true'
+
+/** Keeps what the screen needs of a spec write: the plan, and whether and why it still waits. */
 function toChangeResult(written: PlatformSpecWrite): PlatformChangeResult {
-  return { platformId: written.platform.id, planId: written.plan?.id ?? null }
+  const plan = written.plan
+  const awaitingApproval = plan?.state === 'pending_approval'
+  return {
+    platformId: written.platform.id,
+    planId: plan?.id ?? null,
+    awaitingApproval,
+    waitReason: awaitingApproval ? plan.stateReason : '',
+    blocked: awaitingApproval && plan.blockers.length > 0,
+  }
 }
 
 /**

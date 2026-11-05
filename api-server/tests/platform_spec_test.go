@@ -84,6 +84,51 @@ func TestCreatePlatformProposesItsInstall(t *testing.T) {
 	}
 }
 
+// approve=true approves the proposed plan with the write, decided by the requesting admin, on a
+// create and on a delete; any other value of the parameter approves nothing.
+func TestSpecWritesApprovedWithTheRequest(t *testing.T) {
+	f := setupPlatform(t)
+	seedSpecSite(f)
+	f.seedServer("srv-1", "node-1", "10.0.1.10", nil)
+	f.seedServer("srv-2", "node-2", "10.0.1.11", nil)
+
+	for _, tc := range []struct {
+		query, name, serverID, wantState string
+	}{
+		{query: "?approve=true", name: "approved", serverID: "srv-1", wantState: "approved"},
+		{query: "?approve=yes", name: "not-approved", serverID: "srv-2", wantState: "pending_approval"},
+	} {
+		resp := doRequest(t, f.app, "POST", "/api/v1/platforms"+tc.query, map[string]any{
+			"siteId": testSiteID, "name": tc.name, "type": "kubernetes",
+			"spec": kubernetesSpecBody(member(tc.serverID, "control-plane", "workloads")),
+		}, f.adminAuth(t))
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("POST /platforms%s status = %d, want 202: %s", tc.query, resp.StatusCode, rawBody(t, resp))
+		}
+		plan := parseBody(t, resp)["plan"].(map[string]any)
+		if plan["state"] != tc.wantState {
+			t.Errorf("POST /platforms%s plan state = %v, want %s", tc.query, plan["state"], tc.wantState)
+		}
+		if tc.wantState == "approved" && (plan["decidedBy"] != "admin" || plan["decidedAt"] == nil) {
+			t.Errorf("POST /platforms%s plan decided by %v at %v, want the requesting admin", tc.query, plan["decidedBy"], plan["decidedAt"])
+		}
+		if tc.wantState == "pending_approval" && plan["stateReason"] != "submitted without approval" {
+			t.Errorf("POST /platforms%s plan reason = %v, want why it waits", tc.query, plan["stateReason"])
+		}
+	}
+
+	f2 := setupPlatform(t)
+	f2.seedServer("srv-1", "node-1", "10.0.1.10", nil)
+	seedInstalledPlatform(t, f2)
+	resp := doRequest(t, f2.app, "DELETE", "/api/v1/platforms/platform-1?approve=true", map[string]any{"releaseServers": true}, f2.adminAuth(t))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("DELETE ?approve=true status = %d, want 202: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	if plan := parseBody(t, resp)["plan"].(map[string]any); plan["state"] != "approved" || plan["decidedBy"] != "admin" {
+		t.Errorf("DELETE ?approve=true plan = %v, want the uninstall approved by admin", plan)
+	}
+}
+
 // PUT /platforms/{id}/spec writes a non-destructive change at the expected generation (200, no
 // plan) and refuses a stale generation and an immutable field with 409.
 func TestReplacePlatformSpec(t *testing.T) {

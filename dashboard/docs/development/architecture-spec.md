@@ -132,7 +132,10 @@ desired-state 模型後：
 - Drift 顯示偏離的欄位，並提供 adopt（把 spec 改成目前的 observed 值）與 reapply（重新實現 desired）兩個動作；
   reapply 屬於破壞性時，走 Change Plan 而不是直接執行。
 - 待核准的 Change Plan 有核准畫面：列出每個 target 的動作、標示破壞性動作與預期影響（例如哪些 Server
-  會離開服務），並清楚說明核准後不可撤回；`superseded` 或 `expired` 的 plan 不可核准。
+  會離開服務）、說明它為什麼在等，並清楚說明核准後不可撤回；`superseded` 或 `expired` 的 plan 不可核准。
+- 發起破壞性變更的確認對話框就是核准：對話框標示 target、破壞性的影響與不可逆，確認後的 spec 寫入一律帶
+  `approve=true`。回應的 plan 已核准時留在原畫面（或到新的資源）顯示變更開始；plan 仍在等待（Change Plan 政策
+  或阻擋事項）時，以 toast 說明原因並帶 user 到 Change Plans。是否等待一律以回應的 plan 狀態為準，不自行推導。
 - 寫入 spec 時帶 API 契約定義的預期 `generation`；收到 conflict 時重新讀取並告知 user，不默默覆蓋。
 
 這些規則是 presentation 與 application 的規則；判斷是否破壞性、是否 drift 一律以 API 的回應為準，
